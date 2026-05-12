@@ -37,16 +37,11 @@ defineProps<{
               </h1>
 
               <p class="mt-2 max-w-2xl text-sm opacity-70">
-                A compact encrypted chat workspace. Rooms, participants, messages,
-                and agents will live here.
+                A compact encrypted chat workspace. Rooms, participants, and
+                messages will live here.
               </p>
             </div>
           </div>
-
-          <p class="mt-2 max-w-2xl text-sm opacity-70">
-            A compact encrypted chat workspace. Rooms, participants, messages,
-            and agents will live here.
-          </p>
         </div>
       </div>
 
@@ -74,23 +69,11 @@ defineProps<{
         >
           New room
         </button>
-
-        <button
-          type="button"
-          :class="
-            darkMode
-              ? 'border-accent-1 bg-bubble-bg-dark'
-              : 'border-accent-2 bg-bubble-bg-light'
-          "
-          class="inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-85"
-        >
-          Agents
-        </button>
       </nav>
     </header>
 
     <!-- STATS -->
-    <div class="grid gap-3 sm:grid-cols-3">
+    <div class="grid gap-3 sm:grid-cols-2">
       <div
         :class="
           darkMode
@@ -114,24 +97,10 @@ defineProps<{
         <div class="text-2xl font-bold">1</div>
         <div class="text-xs opacity-65">Participant</div>
       </div>
-
-      <div
-        :class="
-          darkMode
-            ? 'border-accent-1 bg-bubble-bg-dark'
-            : 'border-accent-2 bg-bubble-bg-light'
-        "
-        class="rounded-lg border p-4 shadow-sm"
-      >
-        <div class="text-2xl font-bold">0</div>
-        <div class="text-xs opacity-65">Agents</div>
-      </div>
     </div>
 
     <!-- CHAT WORKSPACE -->
-    <section
-      class="grid min-h-[70vh] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)_18rem]"
-    >
+    <section class="grid min-h-[70vh] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)_18rem]">
       <!-- ROOMS -->
       <aside
         :class="
@@ -174,7 +143,7 @@ defineProps<{
             class="block rounded-lg border px-3 py-3 transition"
           >
             <span class="block truncate text-sm font-semibold">
-              Agent Lab
+              Test Room
             </span>
             <span class="mt-1 block text-xs opacity-60">
               Work in progress
@@ -392,30 +361,7 @@ defineProps<{
               On
             </span>
           </div>
-
-          <div
-            :class="
-              darkMode
-                ? 'border-accent-1 bg-primary-bg-dark'
-                : 'border-accent-2 bg-primary-bg-light'
-            "
-            class="rounded-lg border p-3 text-xs opacity-70"
-          >
-            Invite agent panel coming later.
-          </div>
         </div>
-
-        <button
-          type="button"
-          :class="
-            darkMode
-              ? 'border-accent-1 bg-bubble-bg-dark'
-              : 'border-accent-2 bg-bubble-bg-light'
-          "
-          class="mt-4 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-85"
-        >
-          Invite agent
-        </button>
       </aside>
     </section>
   </section>
