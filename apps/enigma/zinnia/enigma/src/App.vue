@@ -1,12 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref } from "vue";
 import OyaHelloWorld from "./components/OyaHelloWorld.vue";
 
-const darkMode = ref(localStorage.getItem("darkMode") === "true");
-
-watch(darkMode, (value) => {
-  localStorage.setItem("darkMode", String(value));
-});
+const darkMode = ref(true);
 
 function toggleDarkMode() {
   darkMode.value = !darkMode.value;
@@ -15,61 +11,65 @@ function toggleDarkMode() {
 
 <template>
   <div
-    :class="
-      darkMode
-        ? 'bg-primary-bg-dark text-text-main-dark'
-        : 'bg-primary-bg-light text-text-main-light'
-    "
+    :class="darkMode ? 'bg-[#05080d] text-white' : 'bg-[#f4f5f7] text-[#25345c]'"
     class="min-h-screen flex flex-col font-sans transition-colors duration-300"
   >
+    <!-- APP BAR -->
     <header
-      :class="
-        darkMode
-          ? 'bg-header-bg-dark text-appbar-text-dark shadow-md'
-          : 'bg-header-bg-light text-appbar-text-light shadow-md'
-      "
-      class="border-b border-current/10 px-6 py-4"
+      :class="darkMode ? 'bg-[#121827] text-white' : 'bg-[#25345c] text-white'"
+      class="sticky top-0 z-50 border-b border-white/10 shadow-md"
     >
-      <div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
-        <div>
-          <h1 class="text-xl font-bold tracking-wide">
-            Enigma
-          </h1>
+      <div
+        class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+      >
+        <div class="flex items-center gap-3">
+          <div class="text-3xl leading-none">
+            🐙
+          </div>
 
-          <p class="text-xs opacity-70">
-            Amazing Moon interface
-          </p>
+          <div>
+            <h1 class="text-xl font-bold tracking-wide sm:text-2xl">
+              Spectrum Platform
+            </h1>
+          </div>
         </div>
 
-        <button
-          type="button"
-          @click="toggleDarkMode"
-          :class="
-            darkMode
-              ? 'bg-appbar-bg-dark border-accent-1 text-appbar-text-dark'
-              : 'bg-appbar-bg-light border-accent-2 text-appbar-text-light'
-          "
-          class="rounded border px-3 py-2 text-xs font-semibold shadow-sm transition hover:opacity-80"
-        >
-          {{ darkMode ? "Light mode" : "Dark mode" }}
-        </button>
+        <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <a href="#" class="transition hover:opacity-70">
+            ↪ Logout
+          </a>
+
+          <a href="#" class="transition hover:opacity-70">
+            ◉ Dashboard
+          </a>
+
+          <a href="#" class="transition hover:opacity-70">
+            ♟ My Profile
+          </a>
+
+          <button
+            type="button"
+            @click="toggleDarkMode"
+            class="transition hover:opacity-70"
+          >
+            {{ darkMode ? "☾ Dark Mode" : "⚙ Light Mode" }}
+          </button>
+        </nav>
       </div>
     </header>
 
-    <main class="flex-grow px-4 py-6 sm:px-6 lg:px-8">
+    <!-- PAGE CONTENT -->
+    <main class="flex flex-1 px-4 py-8 sm:px-6 lg:px-8">
       <OyaHelloWorld :dark-mode="darkMode" />
     </main>
 
+    <!-- FOOTER -->
     <footer
-      :class="
-        darkMode
-          ? 'bg-footer-bg-dark text-footer-text-dark'
-          : 'bg-footer-bg-light text-footer-text-light'
-      "
-      class="mt-8 px-6 py-4 text-center text-sm shadow-lg"
+      :class="darkMode ? 'bg-[#121827] text-white' : 'bg-[#1d263a] text-white'"
+      class="border-t border-white/10 px-4 py-4 text-center text-sm shadow-lg"
     >
-      <p class="opacity-80">
-        &copy; Amazing Moon. All rights reserved.
+      <p class="opacity-90">
+        © www.spectrumai.pl. All rights reserved.
       </p>
     </footer>
   </div>
