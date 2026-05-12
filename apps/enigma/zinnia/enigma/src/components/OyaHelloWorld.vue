@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import logo2Dark from "../assets/logo2_dark.png";
+import logo2Light from "../assets/logo2_light.png";
+
 defineProps<{
   darkMode: boolean;
 }>();
@@ -21,9 +24,24 @@ defineProps<{
             Oya Studio
           </p>
 
-          <h1 class="mt-1 flex items-center gap-3 text-3xl font-bold">
-            Enigma
-          </h1>
+          <div class="mt-2 flex flex-col gap-4 sm:flex-row sm:items-center">
+            <img
+              :src="darkMode ? logo2Dark : logo2Light"
+              alt="Enigma logo"
+              class="h-24 w-24 rounded-2xl object-contain sm:h-28 sm:w-28 lg:h-32 lg:w-32"
+            />
+
+            <div>
+              <h1 class="flex items-center gap-3 text-3xl font-bold sm:text-4xl">
+                Enigma
+              </h1>
+
+              <p class="mt-2 max-w-2xl text-sm opacity-70">
+                A compact encrypted chat workspace. Rooms, participants, messages,
+                and agents will live here.
+              </p>
+            </div>
+          </div>
 
           <p class="mt-2 max-w-2xl text-sm opacity-70">
             A compact encrypted chat workspace. Rooms, participants, messages,
