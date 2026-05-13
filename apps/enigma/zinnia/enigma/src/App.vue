@@ -12,12 +12,20 @@ function toggleDarkMode() {
 
 <template>
   <div
-    :class="darkMode ? 'bg-[#05080d] text-white' : 'bg-[#f4f5f7] text-[#25345c]'"
+    :class="
+      darkMode
+        ? 'bg-primary-bg-dark text-text-main-dark'
+        : 'bg-primary-bg-light text-text-main-light'
+    "
     class="min-h-screen flex flex-col font-sans transition-colors duration-300"
   >
     <header
-      :class="darkMode ? 'bg-[#121827] text-white' : 'bg-[#25345c] text-white'"
-      class="sticky top-0 z-50 border-b border-white/10 shadow-md"
+      :class="
+        darkMode
+          ? 'bg-header-bg-dark text-appbar-text-dark'
+          : 'bg-header-bg-light text-appbar-text-light'
+      "
+      class="sticky top-0 z-50 border-b border-current/10 shadow-md"
     >
       <div
         class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
@@ -35,24 +43,28 @@ function toggleDarkMode() {
         </div>
 
         <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <a href="#" class="transition hover:opacity-70">
-            ↪ Logout
+          <a href="#" class="inline-flex items-center gap-2 transition hover:opacity-70">
+            <font-awesome-icon icon="right-from-bracket" />
+            Logout
           </a>
 
-          <a href="#" class="transition hover:opacity-70">
-            ◉ Dashboard
+          <a href="#" class="inline-flex items-center gap-2 transition hover:opacity-70">
+            <font-awesome-icon icon="gauge" />
+            Dashboard
           </a>
 
-          <a href="#" class="transition hover:opacity-70">
-            ♟ My Profile
+          <a href="#" class="inline-flex items-center gap-2 transition hover:opacity-70">
+            <font-awesome-icon icon="user" />
+            My Profile
           </a>
 
           <button
             type="button"
             @click="toggleDarkMode"
-            class="transition hover:opacity-70"
+            class="inline-flex items-center gap-2 transition hover:opacity-70"
           >
-            {{ darkMode ? "☾ Dark Mode" : "⚙ Light Mode" }}
+            <font-awesome-icon :icon="darkMode ? 'moon' : 'sun'" />
+            {{ darkMode ? "Dark Mode" : "Light Mode" }}
           </button>
         </nav>
       </div>
@@ -63,8 +75,12 @@ function toggleDarkMode() {
     </main>
 
     <footer
-      :class="darkMode ? 'bg-[#121827] text-white' : 'bg-[#1d263a] text-white'"
-      class="border-t border-white/10 px-4 py-4 text-center text-sm shadow-lg"
+      :class="
+        darkMode
+          ? 'bg-footer-bg-dark text-footer-text-dark'
+          : 'bg-footer-bg-light text-footer-text-light'
+      "
+      class="border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg"
     >
       <p class="opacity-90">
         © www.spectrumai.pl. All rights reserved.
