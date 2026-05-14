@@ -21,13 +21,15 @@
     "pinia": "^3.0.4",
     "tailwindcss": "^4.3.0",
     "vue": "^3.5.13",
-    "vue-router": "^5.0.7"
+    "vue-router": "^5.0.7",
+    "enigma_wasm": "file:../../cargo/enigma_wasm/build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
+    "vite-plugin-wasm": "^3.6.0",
     "vue-tsc": "^2.1.10"
   }
 }
