@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "../stores/chat";
 import OyaButton from "../components/OyaButton.vue";
+import ChatBubble from "../components/ChatBubble.vue";
 
 defineProps<{ darkMode: boolean }>();
 
@@ -299,72 +300,12 @@ const mlsChipClass = computed(() => {
           <p class="text-sm">Pick a room from the sidebar to start chatting.</p>
         </div>
 
-        <article
+        <ChatBubble
           v-for="msg in messages"
           :key="msg.id"
-          class="flex min-w-0 gap-3"
-          :class="msg.self ? 'justify-end' : 'justify-start'"
-        >
-          <!-- Avatar (others) -->
-          <div
-            v-if="!msg.self"
-            :class="
-              msg.type === 'system_error' || msg.type === 'system_info'
-                ? 'border-current/20 opacity-50'
-                : darkMode ? 'border-accent-1' : 'border-accent-2'
-            "
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-xs font-bold"
-          >
-            <img
-              v-if="msg.avatar_url"
-              :src="msg.avatar_url"
-              :alt="msg.initials"
-              class="h-full w-full rounded-lg object-cover"
-            />
-            <span v-else>{{ msg.initials }}</span>
-          </div>
-
-          <!-- Bubble -->
-          <div
-            :class="[
-              msg.type === 'system_error'
-                ? 'border-warn-dark bg-warn-dark/10 text-warn-dark'
-                : msg.type === 'system_info'
-                  ? 'border-current/10 opacity-60 italic'
-                  : darkMode
-                    ? 'bg-bubble-bg-dark border-accent-1'
-                    : 'bg-bubble-bg-light border-accent-2',
-              msg.self ? 'text-right' : '',
-            ]"
-            class="min-w-0 max-w-[calc(100%-3.25rem)] overflow-hidden rounded-lg border p-3 shadow-sm sm:max-w-[78%] xl:max-w-[42rem]"
-          >
-            <p class="text-xs font-semibold opacity-60">{{ msg.user }}</p>
-            <p class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
-              {{ msg.content }}
-            </p>
-            <p
-              class="mt-1 flex items-center gap-1 text-[10px] opacity-40"
-              :class="msg.self ? 'justify-end' : ''"
-            >
-              <font-awesome-icon
-                v-if="msg.encrypted"
-                icon="lock"
-                class="text-success-dark opacity-80"
-                title="End-to-end encrypted"
-              />
-              {{ msg.timestamp.toLocaleTimeString() }}
-            </p>
-          </div>
-
-          <!-- Avatar (self) -->
-          <div
-            v-if="msg.self"
-            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-xs font-bold"
-          >
-            {{ msg.initials }}
-          </div>
-        </article>
+          :dark-mode="darkMode"
+          :message="msg"
+        />
       </div>
 
       <!-- Composer -->

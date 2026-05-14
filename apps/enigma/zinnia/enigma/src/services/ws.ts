@@ -8,6 +8,13 @@ export interface WsMessage {
   user?: string;
   avatar_url?: string;
   participant_type?: "human" | "ai_agent";
+  participants?: Array<{
+    name: string;
+    avatar_url: string;
+    type: "human" | "ai_agent";
+  }>;
+  participant_count?: number;
+  room_slug?: string;
   sender_channel?: string;
   [key: string]: unknown;
 }
@@ -29,7 +36,16 @@ export class WsService {
 
   private async wsBaseUrl(): Promise<string> {
     const http = (await getServerUrl()).replace(/\/$/, "");
-    return http.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws"));
+    if (!http) {
+      throw new Error("No server URL configured.");
+    }
+
+    const ws = http.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws"));
+    if (!/^wss?:\/\//.test(ws)) {
+      throw new Error(`Invalid server URL: ${http}`);
+    }
+
+    return ws;
   }
 
   onMessage(handler: MessageHandler): () => void {
@@ -60,13 +76,21 @@ export class WsService {
 
   private async _open() {
     if (!this.roomSlug) return;
-    const token = await getAuthToken();
-    const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    const url = `${await this.wsBaseUrl()}/ws/chat/${this.roomSlug}/${query}`;
     this.setStatus("connecting");
 
-    const socket = new WebSocket(url);
-    this.socket = socket;
+    let socket: WebSocket;
+    try {
+      const token = await getAuthToken();
+      const query = token ? `?token=${encodeURIComponent(token)}` : "";
+      const url = `${await this.wsBaseUrl()}/ws/chat/${this.roomSlug}/${query}`;
+      socket = new WebSocket(url);
+      this.socket = socket;
+    } catch (e) {
+      console.error("[enigma-ws] open failed:", e);
+      this.socket = null;
+      this.setStatus("error");
+      return;
+    }
 
     socket.onopen = () => {
       this.retryCount = 0;

@@ -190,9 +190,9 @@ async function loadDataProfile() {
   offlineMessage.value = "";
   try {
     runtimeConfig.value = await setActiveProfile(label, label);
-    chatStore.applyRuntimeProfile(runtimeConfig.value);
     serverUrl.value = await getServerUrl();
     offlineState.value = await getProfileState();
+    await chatStore.applyRuntimeProfile(runtimeConfig.value);
     dataProfileName.value = runtimeConfig.value.profile;
     testStatus.value = "idle";
     testMessage.value = "";

@@ -3,7 +3,7 @@ import { defineStore } from "pinia";
 import { api, type Room, type Participant } from "../services/api";
 import { wsService, type WsStatus } from "../services/ws";
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
-import { getRuntimeConfig, type AppRuntimeConfig } from "../services/appStorage";
+import { getRuntimeConfig, getServerUrl, type AppRuntimeConfig } from "../services/appStorage";
 import { nanoid } from "nanoid";
 
 export type MlsStatus =
@@ -46,6 +46,7 @@ export const useChatStore = defineStore("chat", () => {
 
   // track which device IDs we've already invited so we don't double-add
   const pendingInvites = new Set<string>();
+  const pendingRecoveryRooms = new Set<string>();
 
   const isParticipant = ref(false);
 
@@ -68,6 +69,54 @@ export const useChatStore = defineStore("chat", () => {
     return participants.value.find((participant) => participant.name === name);
   }
 
+  function avatarForName(name: string): string | null {
+    return participantForName(name)?.avatar_url ?? null;
+  }
+
+  function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function isGroupMismatch(error: unknown): boolean {
+    return errorMessage(error).toLowerCase().includes("group id differs");
+  }
+
+  async function requestFreshMlsInvite(reason: string) {
+    if (!currentRoom.value || !mlsIdentity.value) return;
+
+    const room = currentRoom.value.slug;
+    const identity = mlsIdentity.value;
+    const recoveryKey = `${room}:${identity}`;
+
+    if (pendingRecoveryRooms.has(recoveryKey)) {
+      return;
+    }
+
+    pendingRecoveryRooms.add(recoveryKey);
+    mlsStatus.value = "key_exchange";
+    mlsError.value = reason;
+    pendingInvites.clear();
+
+    try {
+      await cryptoService.clearState(room, identity);
+      await cryptoService.initSession(room, identity);
+      const kp = await cryptoService.keyPackage(room, identity);
+      if (kp) {
+        wsService.send({ type: "mls_key_package", key_package: bytesToBase64(kp), device_id: identity });
+        messages.value.push(systemMsg("🔑 MLS group changed — sent a fresh key package."));
+      } else {
+        mlsStatus.value = "error";
+        messages.value.push(systemMsg("Could not recover MLS session.", "system_error"));
+      }
+    } catch (e) {
+      mlsStatus.value = "error";
+      mlsError.value = errorMessage(e);
+      messages.value.push(systemMsg(`Could not recover MLS session: ${errorMessage(e)}`, "system_error"));
+    } finally {
+      pendingRecoveryRooms.delete(recoveryKey);
+    }
+  }
+
   // ── WS status ────────────────────────────────────────────────────────────────
   wsService.onStatus((status) => {
     log("ws status →", status);
@@ -80,7 +129,7 @@ export const useChatStore = defineStore("chat", () => {
       messages.value.push(systemMsg("Disconnected."));
       mlsStatus.value = "idle";
     } else if (status === "error") {
-      messages.value.push(systemMsg("Connection error — retrying…", "system_error"));
+      messages.value.push(systemMsg("Connection error.", "system_error"));
     }
   });
 
@@ -92,6 +141,32 @@ export const useChatStore = defineStore("chat", () => {
   async function handleMessage(data: Record<string, unknown>) {
     const type = data.type as string;
     log("ws →", type, data);
+
+    if (type === "room_participants") {
+      const roomSlug = data.room_slug as string;
+      const room = currentRoom.value;
+      if (!room || roomSlug !== room.slug) return;
+
+      const nextParticipants = Array.isArray(data.participants)
+        ? data.participants as Participant[]
+        : [];
+      const participantCount = typeof data.participant_count === "number"
+        ? data.participant_count
+        : nextParticipants.length;
+
+      participants.value = nextParticipants;
+      currentRoom.value = {
+        ...room,
+        participant_count: participantCount,
+        participants: nextParticipants,
+      };
+      rooms.value = rooms.value.map((room) =>
+        room.slug === roomSlug
+          ? { ...room, participant_count: participantCount }
+          : room,
+      );
+      return;
+    }
 
     if (type === "chat_message" && data.message) {
       messages.value.push({
@@ -164,10 +239,21 @@ export const useChatStore = defineStore("chat", () => {
     if (type === "mls_commit" && data.commit) {
       if ((mlsStatus.value === "ready" || mlsStatus.value === "key_exchange") && currentRoom.value) {
         log("Processing MLS commit");
-        await cryptoService.processMessage(
-          currentRoom.value.slug, mlsIdentity.value,
-          base64ToBytes(data.commit as string),
-        );
+        try {
+          await cryptoService.processMessage(
+            currentRoom.value.slug, mlsIdentity.value,
+            base64ToBytes(data.commit as string),
+          );
+        } catch (e) {
+          console.error("[crypto] process commit failed:", e);
+          if (isGroupMismatch(e)) {
+            await requestFreshMlsInvite(errorMessage(e));
+          } else {
+            mlsStatus.value = "error";
+            mlsError.value = errorMessage(e);
+            messages.value.push(systemMsg(`Could not process MLS commit: ${errorMessage(e)}`, "system_error"));
+          }
+        }
       }
       return;
     }
@@ -179,10 +265,24 @@ export const useChatStore = defineStore("chat", () => {
       }
       if (mlsStatus.value === "ready" && currentRoom.value) {
         log("Decrypting mls_app");
-        const plaintext = await cryptoService.processMessage(
-          currentRoom.value.slug, mlsIdentity.value,
-          base64ToBytes(data.ciphertext as string),
-        );
+        let plaintext: Uint8Array | null = null;
+        try {
+          plaintext = await cryptoService.processMessage(
+            currentRoom.value.slug, mlsIdentity.value,
+            base64ToBytes(data.ciphertext as string),
+          );
+        } catch (e) {
+          console.error("[crypto] process app message failed:", e);
+          if (isGroupMismatch(e)) {
+            await requestFreshMlsInvite(errorMessage(e));
+          } else {
+            mlsStatus.value = "error";
+            mlsError.value = errorMessage(e);
+            messages.value.push(systemMsg(`Could not decrypt incoming message: ${errorMessage(e)}`, "system_error"));
+          }
+          return;
+        }
+
         if (plaintext) {
           const senderName = (data.sender_name as string) || (data.device_id as string) || "Unknown";
           const sender = participantForName(senderName);
@@ -257,18 +357,33 @@ export const useChatStore = defineStore("chat", () => {
     mlsIdentity.value = runtime.identity;
   }
 
-  function applyRuntimeProfile(runtime: AppRuntimeConfig) {
+  async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     mlsIdentity.value = runtime.identity;
     messages.value.push(systemMsg(`Runtime profile switched to ${runtime.profile}. Restarting MLS session.`));
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
 
-    if (currentRoom.value && isParticipant.value) {
-      const slug = currentRoom.value.slug;
-      wsService.disconnect();
-      wsService.connect(slug);
+    const room = currentRoom.value;
+    const shouldReconnect = Boolean(room && isParticipant.value);
+    wsService.disconnect();
+
+    if (!shouldReconnect || !room) {
+      return;
     }
+
+    const serverUrl = (await getServerUrl()).trim();
+    if (!serverUrl) {
+      messages.value.push(
+        systemMsg(
+          "This data profile has no server URL configured. MLS is reset; save a server URL before reconnecting.",
+          "system_error",
+        ),
+      );
+      return;
+    }
+
+    wsService.connect(room.slug);
   }
 
   async function fetchRooms() {
@@ -335,12 +450,12 @@ export const useChatStore = defineStore("chat", () => {
   async function leaveParticipant() {
     if (!currentRoom.value) return;
     const slug = currentRoom.value.slug;
-    wsService.disconnect();
     mlsStatus.value = "idle";
-    messages.value = [];
     error.value = null;
     try {
       await api.leaveRoom(slug);
+      wsService.disconnect();
+      messages.value = [];
       isParticipant.value = false;
       const room = await api.getRoom(slug);
       currentRoom.value = room;
@@ -364,12 +479,13 @@ export const useChatStore = defineStore("chat", () => {
           ciphertext: bytesToBase64(ct),
           device_id: mlsIdentity.value,
           sender_name: currentUserName.value,
+          sender_avatar_url: avatarForName(currentUserName.value),
         });
         messages.value.push({
           id: nanoid(), type: "mls_app",
           user: currentUserName.value,
           initials: initials(currentUserName.value),
-          avatar_url: null, content: content.trim(),
+          avatar_url: avatarForName(currentUserName.value), content: content.trim(),
           participant_type: "human", self: true,
           encrypted: true, timestamp: new Date(),
         });
