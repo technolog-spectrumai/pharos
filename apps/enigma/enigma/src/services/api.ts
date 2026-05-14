@@ -104,6 +104,10 @@ class ApiService {
   leaveRoom(slug: string): Promise<{ ok: boolean }> {
     return this.request(`/enigma/api/rooms/${slug}/leave/`, { method: "POST" });
   }
+
+  leaveAllRooms(): Promise<{ ok: boolean; left: number }> {
+    return this.request("/enigma/api/rooms/leave-all/", { method: "POST" });
+  }
 }
 
 export const api = new ApiService();

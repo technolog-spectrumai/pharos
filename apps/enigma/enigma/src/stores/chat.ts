@@ -3,7 +3,7 @@ import { defineStore } from "pinia";
 import { api, type Room, type Participant } from "../services/api";
 import { wsService, type WsStatus } from "../services/ws";
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
-import { getRuntimeConfig, getServerUrl, type AppRuntimeConfig } from "../services/appStorage";
+import { getRuntimeConfig, type AppRuntimeConfig } from "../services/appStorage";
 import { nanoid } from "nanoid";
 
 export type MlsStatus =
@@ -359,31 +359,22 @@ export const useChatStore = defineStore("chat", () => {
 
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     mlsIdentity.value = runtime.identity;
-    messages.value.push(systemMsg(`Runtime profile switched to ${runtime.profile}. Restarting MLS session.`));
+    wsService.disconnect();
+    rooms.value = [];
+    currentRoom.value = null;
+    messages.value = [
+      systemMsg(`Runtime profile switched to ${runtime.profile}. Left all chats and reset MLS.`),
+    ];
+    participants.value = [];
+    isParticipant.value = false;
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
+    pendingRecoveryRooms.clear();
+  }
 
-    const room = currentRoom.value;
-    const shouldReconnect = Boolean(room && isParticipant.value);
-    wsService.disconnect();
-
-    if (!shouldReconnect || !room) {
-      return;
-    }
-
-    const serverUrl = (await getServerUrl()).trim();
-    if (!serverUrl) {
-      messages.value.push(
-        systemMsg(
-          "This data profile has no server URL configured. MLS is reset; save a server URL before reconnecting.",
-          "system_error",
-        ),
-      );
-      return;
-    }
-
-    wsService.connect(room.slug);
+  async function leaveAllChatsOnServer() {
+    await api.leaveAllRooms();
   }
 
   async function fetchRooms() {
@@ -504,7 +495,7 @@ export const useChatStore = defineStore("chat", () => {
     wsStatus, loadingRooms, error, isConnected,
     mlsStatus, mlsError, isEncrypted,
     isParticipant, currentUserName, mlsIdentity,
-    syncRuntimeIdentity, applyRuntimeProfile,
+    syncRuntimeIdentity, applyRuntimeProfile, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage,
   };
 });
