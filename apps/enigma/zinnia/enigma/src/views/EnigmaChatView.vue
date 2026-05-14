@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "../stores/chat";
@@ -10,8 +10,11 @@ defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
 const chat = useChatStore();
-const { rooms, currentRoom, messages, participants, wsStatus, loadingRooms, isConnected } =
-  storeToRefs(chat);
+const {
+  rooms, currentRoom, messages, participants,
+  wsStatus, loadingRooms, isConnected,
+  mlsStatus, mlsError, isEncrypted,
+} = storeToRefs(chat);
 
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
@@ -20,15 +23,9 @@ onMounted(() => {
   if (!rooms.value.length) chat.fetchRooms();
 });
 
-onUnmounted(() => {
-  // Keep WS alive across navigation — only clear on explicit leave
-});
-
 function scrollToBottom() {
   nextTick(() => {
-    if (messagesEl.value) {
-      messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
-    }
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
   });
 }
 
@@ -47,29 +44,49 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-const statusLabel = computed(() => {
-  const map: Record<string, string> = {
-    connected: "Live",
-    connecting: "Connecting…",
-    disconnected: "Offline",
-    error: "Error",
-  };
-  return map[wsStatus.value] ?? wsStatus.value;
+// ── Connection chip ───────────────────────────────────────────────────────────
+const wsLabel = computed(() => ({
+  connected: "Connected",
+  connecting: "Connecting…",
+  disconnected: "Offline",
+  error: "Error",
+}[wsStatus.value] ?? wsStatus.value));
+
+const wsChipClass = computed(() => {
+  if (wsStatus.value === "connected")
+    return "bg-success-dark text-primary-bg-dark border-success-dark";
+  if (wsStatus.value === "connecting")
+    return "border-current/20 animate-pulse";
+  if (wsStatus.value === "error")
+    return "bg-warn-dark text-primary-bg-dark border-warn-dark";
+  return "border-current/20 opacity-60";
 });
 
-const statusClass = computed(() => ({
-  connected: "bg-success-dark text-primary-bg-dark",
-  connecting: "bg-warn-dark text-primary-bg-dark",
-  disconnected: "opacity-50 border-current/20",
-  error: "bg-warn-dark text-primary-bg-dark",
-}[wsStatus.value] ?? ""));
+// ── MLS encryption chip ───────────────────────────────────────────────────────
+const mlsLabel = computed(() => ({
+  idle: "Idle",
+  initializing: "Initializing…",
+  key_exchange: "Key exchange…",
+  ready: "Encrypted",
+  error: "Enc. error",
+}[mlsStatus.value] ?? mlsStatus.value));
+
+const mlsChipClass = computed(() => {
+  if (mlsStatus.value === "ready")
+    return "bg-success-dark text-primary-bg-dark border-success-dark";
+  if (mlsStatus.value === "initializing" || mlsStatus.value === "key_exchange")
+    return "border-current/20 animate-pulse";
+  if (mlsStatus.value === "error")
+    return "bg-warn-dark text-primary-bg-dark border-warn-dark";
+  return "border-current/20 opacity-50";
+});
 </script>
 
 <template>
   <section
     class="mx-auto grid w-full max-w-7xl flex-1 gap-4 lg:grid-cols-[16rem_minmax(0,1fr)_16rem]"
   >
-    <!-- ROOMS -->
+    <!-- ── ROOMS ──────────────────────────────────────────────────────────── -->
     <OyaCard :dark-mode="darkMode" class="hidden min-h-[70vh] flex-col lg:flex">
       <div class="flex items-center justify-between border-b border-current/10 pb-3">
         <h2 class="text-sm font-bold">
@@ -103,7 +120,9 @@ const statusClass = computed(() => ({
           @click="chat.joinRoom(room.slug)"
         >
           <span class="block truncate text-sm font-semibold">{{ room.name }}</span>
-          <span class="mt-1 block text-xs opacity-60">{{ room.participant_count }} participant{{ room.participant_count === 1 ? "" : "s" }}</span>
+          <span class="mt-1 block text-xs opacity-60">
+            {{ room.participant_count }} participant{{ room.participant_count === 1 ? "" : "s" }}
+          </span>
         </button>
 
         <p v-if="!rooms.length" class="text-xs opacity-50">No rooms found.</p>
@@ -115,13 +134,13 @@ const statusClass = computed(() => ({
       </OyaButton>
     </OyaCard>
 
-    <!-- CHATBOX -->
+    <!-- ── CHATBOX ─────────────────────────────────────────────────────────── -->
     <OyaCard
       :dark-mode="darkMode"
       :padded="false"
-      class="grid min-h-[70vh] overflow-hidden grid-rows-[auto_minmax(0,1fr)_auto]"
+      class="grid min-h-[70vh] overflow-hidden grid-rows-[auto_auto_minmax(0,1fr)_auto]"
     >
-      <!-- Chat header -->
+      <!-- Header -->
       <header class="flex flex-wrap items-center gap-3 border-b border-current/10 p-4">
         <div class="min-w-0 flex-1">
           <p
@@ -138,16 +157,68 @@ const statusClass = computed(() => ({
           </div>
         </div>
 
+        <!-- Encryption chip -->
         <span
-          :class="statusClass"
-          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          v-if="currentRoom"
+          :class="mlsChipClass"
+          :title="mlsError ?? undefined"
+          class="hidden sm:inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
         >
-          <font-awesome-icon
-            :icon="isConnected ? 'check' : wsStatus === 'connecting' ? 'lock' : 'xmark'"
-          />
-          {{ statusLabel }}
+          <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />
+          {{ mlsLabel }}
         </span>
+
+        <!-- Connection chip -->
+        <span
+          v-if="currentRoom"
+          :class="wsChipClass"
+          class="hidden sm:inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+        >
+          <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />
+          {{ wsLabel }}
+        </span>
+
+        <!-- Leave button -->
+        <OyaButton
+          v-if="currentRoom"
+          :dark-mode="darkMode"
+          variant="secondary"
+          class="hidden shrink-0 sm:inline-flex"
+          @click="chat.leaveRoom()"
+        >
+          <font-awesome-icon icon="right-from-bracket" />
+          Leave
+        </OyaButton>
       </header>
+
+      <!-- Mobile status strip -->
+      <div
+        v-if="currentRoom"
+        :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+        class="flex flex-wrap items-center gap-2 border-b px-4 py-2 sm:hidden"
+      >
+        <span
+          :class="mlsChipClass"
+          :title="mlsError ?? undefined"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition"
+        >
+          <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />
+          {{ mlsLabel }}
+        </span>
+        <span
+          :class="wsChipClass"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition"
+        >
+          <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />
+          {{ wsLabel }}
+        </span>
+        <button
+          class="ml-auto text-xs underline opacity-70 hover:opacity-100"
+          @click="chat.leaveRoom()"
+        >
+          Leave
+        </button>
+      </div>
 
       <!-- Messages -->
       <div
@@ -155,7 +226,6 @@ const statusClass = computed(() => ({
         :class="darkMode ? 'bg-primary-bg-dark' : 'bg-primary-bg-light'"
         class="min-h-0 space-y-4 overflow-y-auto p-4"
       >
-        <!-- Empty state -->
         <div
           v-if="!currentRoom"
           class="flex h-full flex-col items-center justify-center gap-3 opacity-40"
@@ -174,15 +244,11 @@ const statusClass = computed(() => ({
           <div
             v-if="!msg.self"
             :class="
-              msg.participant_type === 'ai_agent'
-                ? darkMode
-                  ? 'bg-accent-dark text-primary-bg-dark'
-                  : 'bg-accent-light text-primary-bg-light'
-                : msg.type === 'system_error' || msg.type === 'system_info'
-                  ? 'border-current/20 opacity-50'
-                  : darkMode
-                    ? 'border-accent-1'
-                    : 'border-accent-2'
+              msg.type === 'system_error' || msg.type === 'system_info'
+                ? 'border-current/20 opacity-50'
+                : darkMode
+                  ? 'border-accent-1'
+                  : 'border-accent-2'
             "
             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-xs font-bold"
           >
@@ -210,12 +276,16 @@ const statusClass = computed(() => ({
             class="min-w-0 max-w-[calc(100%-3.25rem)] overflow-hidden rounded-lg border p-3 shadow-sm sm:max-w-[78%]"
           >
             <p class="text-xs font-semibold opacity-60">{{ msg.user }}</p>
-            <p
-              class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]"
-            >
+            <p class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
               {{ msg.content }}
             </p>
-            <p class="mt-1 text-[10px] opacity-40">
+            <p class="mt-1 flex items-center gap-1 text-[10px] opacity-40" :class="msg.self ? 'justify-end' : ''">
+              <font-awesome-icon
+                v-if="msg.encrypted"
+                icon="lock"
+                class="text-success-dark opacity-80"
+                title="End-to-end encrypted"
+              />
               {{ msg.timestamp.toLocaleTimeString() }}
             </p>
           </div>
@@ -240,7 +310,7 @@ const statusClass = computed(() => ({
           <textarea
             v-model="draft"
             rows="1"
-            placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+            :placeholder="isConnected ? (isEncrypted ? 'Message (encrypted)…' : 'Message (unencrypted)…') : 'Select a room to chat'"
             :disabled="!isConnected"
             :class="
               darkMode
@@ -263,7 +333,7 @@ const statusClass = computed(() => ({
       </div>
     </OyaCard>
 
-    <!-- PARTICIPANTS -->
+    <!-- ── PARTICIPANTS ────────────────────────────────────────────────────── -->
     <OyaCard :dark-mode="darkMode" class="hidden min-h-[70vh] lg:block">
       <div class="border-b border-current/10 pb-3">
         <h2
@@ -282,15 +352,7 @@ const statusClass = computed(() => ({
           class="flex items-center gap-3"
         >
           <div
-            :class="
-              p.type === 'ai_agent'
-                ? darkMode
-                  ? 'bg-accent-dark text-primary-bg-dark border-accent-dark'
-                  : 'bg-accent-light text-primary-bg-light border-accent-light'
-                : darkMode
-                  ? 'border-accent-1'
-                  : 'border-accent-2'
-            "
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
             class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border text-xs font-bold"
           >
             <img
@@ -304,7 +366,7 @@ const statusClass = computed(() => ({
 
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold">{{ p.name }}</p>
-            <p class="text-xs opacity-60">{{ p.type === "ai_agent" ? "AI Agent" : "Human" }}</p>
+            <p class="text-xs opacity-60">Human</p>
           </div>
 
           <span
@@ -319,9 +381,7 @@ const statusClass = computed(() => ({
           </span>
         </div>
 
-        <p v-if="!participants.length" class="text-xs opacity-40">
-          No participants yet.
-        </p>
+        <p v-if="!participants.length" class="text-xs opacity-40">No participants yet.</p>
       </div>
     </OyaCard>
   </section>
