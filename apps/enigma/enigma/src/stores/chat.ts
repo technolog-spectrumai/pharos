@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { api, type Room, type Participant } from "../services/api";
 import { wsService, type WsStatus } from "../services/ws";
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
+import { getRuntimeConfig, type AppRuntimeConfig } from "../services/appStorage";
 import { nanoid } from "nanoid";
 
 export type MlsStatus =
@@ -37,6 +38,7 @@ export const useChatStore = defineStore("chat", () => {
   const error = ref<string | null>(null);
 
   const currentUserName = ref<string>("You");
+  const mlsIdentity = ref<string>("You");
 
   // MLS state
   const mlsStatus = ref<MlsStatus>("idle");
@@ -115,7 +117,7 @@ export const useChatStore = defineStore("chat", () => {
         messages.value.push(systemMsg("🔑 Adding peer to encrypted group…"));
         const kp = base64ToBytes(data.key_package as string);
         const result = await cryptoService.addMember(
-          currentRoom.value.slug, currentUserName.value, kp
+          currentRoom.value.slug, mlsIdentity.value, kp
         );
         if (result) {
           wsService.send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
@@ -139,7 +141,7 @@ export const useChatStore = defineStore("chat", () => {
         log("Joining MLS group from welcome");
         messages.value.push(systemMsg("🔑 Received group invitation — joining encrypted group…"));
         const ok = await cryptoService.joinFromWelcome(
-          currentRoom.value.slug, currentUserName.value,
+          currentRoom.value.slug, mlsIdentity.value,
           base64ToBytes(data.welcome as string),
         );
         if (ok) {
@@ -159,7 +161,7 @@ export const useChatStore = defineStore("chat", () => {
       if ((mlsStatus.value === "ready" || mlsStatus.value === "key_exchange") && currentRoom.value) {
         log("Processing MLS commit");
         await cryptoService.processMessage(
-          currentRoom.value.slug, currentUserName.value,
+          currentRoom.value.slug, mlsIdentity.value,
           base64ToBytes(data.commit as string),
         );
       }
@@ -167,14 +169,14 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     if (type === "mls_app" && data.ciphertext) {
-      if (data.device_id === currentUserName.value) {
+      if (data.device_id === mlsIdentity.value) {
         log("Ignoring own mls_app echo");
         return;
       }
       if (mlsStatus.value === "ready" && currentRoom.value) {
         log("Decrypting mls_app");
         const plaintext = await cryptoService.processMessage(
-          currentRoom.value.slug, currentUserName.value,
+          currentRoom.value.slug, mlsIdentity.value,
           base64ToBytes(data.ciphertext as string),
         );
         if (plaintext) {
@@ -200,9 +202,9 @@ export const useChatStore = defineStore("chat", () => {
 
   // ── MLS init ─────────────────────────────────────────────────────────────────
   async function startMls() {
-    if (!currentRoom.value || !currentUserName.value) return;
+    if (!currentRoom.value || !mlsIdentity.value) return;
     const room = currentRoom.value.slug;
-    const identity = currentUserName.value;
+    const identity = mlsIdentity.value;
 
     log("startMls", room, identity);
     mlsStatus.value = "initializing";
@@ -244,6 +246,25 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   // ── Public actions ────────────────────────────────────────────────────────────
+  async function syncRuntimeIdentity() {
+    const runtime = await getRuntimeConfig();
+    mlsIdentity.value = runtime.identity;
+  }
+
+  function applyRuntimeProfile(runtime: AppRuntimeConfig) {
+    mlsIdentity.value = runtime.identity;
+    messages.value.push(systemMsg(`Runtime profile switched to ${runtime.profile}. Restarting MLS session.`));
+    mlsStatus.value = "idle";
+    mlsError.value = null;
+    pendingInvites.clear();
+
+    if (currentRoom.value && isParticipant.value) {
+      const slug = currentRoom.value.slug;
+      wsService.disconnect();
+      wsService.connect(slug);
+    }
+  }
+
   async function fetchRooms() {
     loadingRooms.value = true;
     error.value = null;
@@ -329,13 +350,13 @@ export const useChatStore = defineStore("chat", () => {
     if (mlsStatus.value === "ready") {
       log("Sending encrypted message");
       const ct = await cryptoService.encrypt(
-        currentRoom.value.slug, currentUserName.value, content.trim()
+        currentRoom.value.slug, mlsIdentity.value, content.trim()
       );
       if (ct) {
         wsService.send({
           type: "mls_app",
           ciphertext: bytesToBase64(ct),
-          device_id: currentUserName.value,
+          device_id: mlsIdentity.value,
         });
         messages.value.push({
           id: nanoid(), type: "mls_app",
@@ -359,7 +380,8 @@ export const useChatStore = defineStore("chat", () => {
     rooms, currentRoom, messages, participants,
     wsStatus, loadingRooms, error, isConnected,
     mlsStatus, mlsError, isEncrypted,
-    isParticipant, currentUserName,
+    isParticipant, currentUserName, mlsIdentity,
+    syncRuntimeIdentity, applyRuntimeProfile,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage,
   };
 });

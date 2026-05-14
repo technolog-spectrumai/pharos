@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { Html5Qrcode } from "html5-qrcode";
 import { api } from "../services/api";
+import { useChatStore } from "../stores/chat";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -19,6 +20,7 @@ import OyaButton from "../components/OyaButton.vue";
 defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
+const chatStore = useChatStore();
 
 // ── Server URL ────────────────────────────────────────────────────────────────
 const serverUrl = ref("");
@@ -153,6 +155,18 @@ const selectedOfflineProfileHasData = computed(() => {
   return Object.values(profile).some((value) => value.trim().length > 0);
 });
 
+const loadedProfileChips = computed(() => {
+  if (!runtimeConfig.value || !offlineState.value) return [];
+  return [
+    `APP_PROFILE: ${runtimeConfig.value.profile}`,
+    `CHAT_USER: ${runtimeConfig.value.identity}`,
+    `State: ${runtimeConfig.value.profile_state_path}`,
+    `Server: ${offlineState.value.server_url || "not set"}`,
+    `Token: ${offlineState.value.auth_token ? "saved" : "empty"}`,
+    `Offline data: ${selectedOfflineProfileHasData.value ? "saved" : "empty"}`,
+  ];
+});
+
 async function loadOfflineData() {
   offlineState.value = await getProfileState();
   dataProfileName.value = runtimeConfig.value?.profile ?? selectedOfflineProfile.value?.label ?? "";
@@ -176,6 +190,7 @@ async function loadDataProfile() {
   offlineMessage.value = "";
   try {
     runtimeConfig.value = await setActiveProfile(label, label);
+    chatStore.applyRuntimeProfile(runtimeConfig.value);
     serverUrl.value = await getServerUrl();
     offlineState.value = await getProfileState();
     dataProfileName.value = runtimeConfig.value.profile;
@@ -443,7 +458,31 @@ async function clearSelectedOfflineData() {
         </div>
       </div>
 
-      <p v-if="offlineMessage" class="text-sm text-success-dark">{{ offlineMessage }}</p>
+      <p
+        v-if="offlineMessage"
+        :class="loadProfileStatus === 'error' ? 'text-warn-dark' : 'text-success-dark'"
+        class="text-sm"
+      >
+        {{ offlineMessage }}
+      </p>
+
+      <div
+        v-if="loadProfileStatus === 'success' && loadedProfileChips.length"
+        class="flex flex-wrap gap-2"
+      >
+        <span
+          v-for="chip in loadedProfileChips"
+          :key="chip"
+          :class="
+            darkMode
+              ? 'border-success-dark/40 bg-success-dark/10 text-text-main-dark'
+              : 'border-success-light/40 bg-success-light/10 text-text-main-light'
+          "
+          class="max-w-full rounded-lg border px-3 py-1.5 text-xs font-semibold"
+        >
+          <span class="block truncate">{{ chip }}</span>
+        </span>
+      </div>
 
       <div class="flex flex-col gap-2 sm:flex-row">
         <OyaButton

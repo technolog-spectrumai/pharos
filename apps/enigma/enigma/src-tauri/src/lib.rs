@@ -20,6 +20,7 @@ type AppConfigState = Mutex<AppConfig>;
 pub struct AppRuntimeConfig {
     pub profile: String,
     pub identity: String,
+    pub profile_state_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,13 +88,17 @@ fn safe_filename_component(s: &str) -> String {
 }
 
 fn active_config(config: &State<AppConfigState>) -> Result<AppConfig, String> {
-    config.lock().map(|config| config.clone()).map_err(|e| e.to_string())
+    config
+        .lock()
+        .map(|config| config.clone())
+        .map_err(|e| e.to_string())
 }
 
-fn runtime_config(config: &AppConfig) -> AppRuntimeConfig {
+fn runtime_config(app: &AppHandle, config: &AppConfig) -> AppRuntimeConfig {
     AppRuntimeConfig {
         profile: config.profile.clone(),
         identity: config.identity.clone(),
+        profile_state_path: profile_state_path(app, config).display().to_string(),
     }
 }
 
@@ -277,8 +282,11 @@ fn current_identity(config: State<AppConfigState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn app_get_runtime_config(config: State<AppConfigState>) -> Result<AppRuntimeConfig, String> {
-    Ok(runtime_config(&active_config(&config)?))
+fn app_get_runtime_config(
+    app: AppHandle,
+    config: State<AppConfigState>,
+) -> Result<AppRuntimeConfig, String> {
+    Ok(runtime_config(&app, &active_config(&config)?))
 }
 
 #[tauri::command]
@@ -316,7 +324,7 @@ fn app_set_active_profile(
     let state = load_profile_state(&app, &next_config);
     save_profile_state(&app, &next_config, &state)?;
 
-    Ok(runtime_config(&next_config))
+    Ok(runtime_config(&app, &next_config))
 }
 
 #[tauri::command]
