@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
@@ -13,14 +13,29 @@ defineProps<{ darkMode: boolean }>();
 const router = useRouter();
 const userStore = useUserStore();
 const chatStore = useChatStore();
-const { me, loading, error, fetchLog, offlineProfile } = storeToRefs(userStore);
+const {
+  me,
+  loading,
+  error,
+  fetchLog,
+  offlineProfile,
+  offlineProfiles,
+  selectedOfflineProfileId,
+} = storeToRefs(userStore);
 const { rooms, loadingRooms } = storeToRefs(chatStore);
 
 const showFetchLog = ref(false);
 const showDetail = ref<string | null>(null);
 const savedOffline = ref(false);
+const clearedOffline = ref(false);
 const downloadingAvatar = ref(false);
 const profileUrlBase = ref("");
+const newOfflineProfileLabel = ref("");
+
+const selectedOfflineProfileLabel = computed(() =>
+  offlineProfiles.value.find((profile) => profile.id === selectedOfflineProfileId.value)?.label
+  ?? "Selected profile"
+);
 
 async function downloadAvatar() {
   if (!me.value?.avatar_url || downloadingAvatar.value) return;
@@ -60,6 +75,29 @@ async function saveOffline() {
   await userStore.saveOfflineProfile();
   savedOffline.value = true;
   setTimeout(() => (savedOffline.value = false), 2000);
+}
+
+async function chooseOfflineProfile(event: Event) {
+  const id = (event.target as HTMLSelectElement).value;
+  if (!id || id === selectedOfflineProfileId.value) return;
+  await userStore.selectOfflineProfile(id);
+}
+
+async function saveAsNewOfflineProfile() {
+  const label = newOfflineProfileLabel.value.trim();
+  if (!label) return;
+  const id = crypto.randomUUID?.() ?? `${Date.now()}`;
+  await userStore.saveOfflineProfileAs(id, label);
+  newOfflineProfileLabel.value = "";
+  savedOffline.value = true;
+  setTimeout(() => (savedOffline.value = false), 2000);
+}
+
+async function clearOfflineData() {
+  await userStore.clearSelectedOfflineProfile();
+  clearedOffline.value = true;
+  savedOffline.value = false;
+  setTimeout(() => (clearedOffline.value = false), 2000);
 }
 </script>
 
@@ -165,11 +203,11 @@ async function saveOffline() {
     </OyaCard>
 
     <!-- ── Offline profile form ── -->
-    <template v-else>
+    <template>
 
       <!-- Auth error notice -->
       <div
-        v-if="error"
+        v-if="!me && error"
         :class="darkMode ? 'border-warn-dark/30 bg-warn-dark/5' : 'border-warn-light/30 bg-warn-light/5'"
         class="flex items-start gap-3 rounded-xl border px-4 py-3 text-sm"
       >
@@ -191,15 +229,43 @@ async function saveOffline() {
       <!-- Offline profile form card -->
       <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-5">
         <div>
-          <p
-            :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-            class="text-xs font-semibold uppercase tracking-wide"
-          >
-            Offline Profile
-          </p>
-          <p class="mt-1 text-sm opacity-60">
-            Stored locally on this device. Used while disconnected from the server.
-          </p>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p
+                :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                class="text-xs font-semibold uppercase tracking-wide"
+              >
+                Offline Profile
+              </p>
+              <p class="mt-1 text-sm opacity-60">
+                Stored locally on this device. Used while disconnected from the server.
+              </p>
+            </div>
+
+            <label class="w-full space-y-1 sm:w-64">
+              <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                Use data from
+              </span>
+              <select
+                :value="selectedOfflineProfileId"
+                :class="
+                  darkMode
+                    ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark'
+                    : 'bg-primary-bg-light border-accent-2 text-text-main-light'
+                "
+                class="w-full rounded-lg border px-3 py-2 text-sm font-semibold outline-none transition"
+                @change="chooseOfflineProfile"
+              >
+                <option
+                  v-for="profile in offlineProfiles"
+                  :key="profile.id"
+                  :value="profile.id"
+                >
+                  {{ profile.label }}
+                </option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <div class="space-y-4">
@@ -289,15 +355,52 @@ async function saveOffline() {
 
         </div>
 
-        <OyaButton
-          :dark-mode="darkMode"
-          :class="{ 'pointer-events-none opacity-50': !offlineProfile.display_name.trim() }"
-          class="w-full justify-center"
-          @click="saveOffline"
-        >
-          <font-awesome-icon :icon="savedOffline ? 'check' : 'floppy-disk'" />
-          {{ savedOffline ? "Saved locally" : "Save profile" }}
-        </OyaButton>
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <OyaButton
+            :dark-mode="darkMode"
+            :class="{ 'pointer-events-none opacity-50': !offlineProfile.display_name.trim() }"
+            class="flex-1 justify-center"
+            @click="saveOffline"
+          >
+            <font-awesome-icon :icon="savedOffline ? 'check' : 'floppy-disk'" />
+            {{ savedOffline ? "Saved locally" : `Save ${selectedOfflineProfileLabel}` }}
+          </OyaButton>
+
+          <OyaButton
+            :dark-mode="darkMode"
+            variant="secondary"
+            class="justify-center"
+            @click="clearOfflineData"
+          >
+            <font-awesome-icon :icon="clearedOffline ? 'check' : 'trash'" />
+            {{ clearedOffline ? "Cleared" : "Clear data" }}
+          </OyaButton>
+        </div>
+
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <input
+            v-model="newOfflineProfileLabel"
+            type="text"
+            placeholder="New offline profile name"
+            maxlength="80"
+            :class="
+              darkMode
+                ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30'
+                : 'bg-primary-bg-light border-accent-2 text-text-main-light placeholder:text-text-main-light/30'
+            "
+            class="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none transition"
+          />
+          <OyaButton
+            :dark-mode="darkMode"
+            variant="secondary"
+            :class="{ 'pointer-events-none opacity-50': !newOfflineProfileLabel.trim() }"
+            class="justify-center"
+            @click="saveAsNewOfflineProfile"
+          >
+            <font-awesome-icon icon="plus" />
+            Add profile
+          </OyaButton>
+        </div>
       </OyaCard>
 
       <!-- Fetch log (collapsible) -->

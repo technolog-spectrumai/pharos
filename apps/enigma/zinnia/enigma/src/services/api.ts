@@ -29,6 +29,11 @@ export interface Me {
   profile_url: string | null;
 }
 
+export interface Health {
+  ok: boolean;
+  service: string;
+}
+
 async function serverBase(): Promise<string> {
   return (await getServerUrl()).replace(/\/$/, "");
 }
@@ -39,12 +44,16 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 class ApiService {
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    includeAuth = true,
+  ): Promise<T> {
     const url = `${await serverBase()}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Requested-With": "XMLHttpRequest",
-      ...(await authHeaders()),
+      ...(includeAuth ? await authHeaders() : {}),
     };
 
     const res = await fetch(url, {
@@ -74,6 +83,10 @@ class ApiService {
 
   getMe(): Promise<Me> {
     return this.request<Me>("/enigma/api/me/");
+  }
+
+  health(): Promise<Health> {
+    return this.request<Health>("/enigma/api/health/", {}, false);
   }
 
   getRooms(): Promise<{ rooms: Room[] }> {
