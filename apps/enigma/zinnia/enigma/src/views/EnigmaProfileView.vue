@@ -18,6 +18,33 @@ const { rooms, loadingRooms } = storeToRefs(chatStore);
 const showFetchLog = ref(false);
 const showDetail = ref<string | null>(null);
 const savedOffline = ref(false);
+const downloadingAvatar = ref(false);
+
+async function downloadAvatar() {
+  if (!me.value?.avatar_url || downloadingAvatar.value) return;
+  downloadingAvatar.value = true;
+  try {
+    const token = localStorage.getItem("enigma_auth_token");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(me.value.avatar_url, { credentials: "include", headers });
+    if (!res.ok) throw new Error(`${res.status}`);
+
+    const blob = await res.blob();
+    const ext = blob.type.split("/")[1] ?? "jpg";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${me.value.username}-avatar.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error("Avatar download failed:", e);
+  } finally {
+    downloadingAvatar.value = false;
+  }
+}
 
 onMounted(() => {
   userStore.fetchMe();
@@ -73,17 +100,28 @@ function saveOffline() {
       <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
 
         <!-- Avatar -->
-        <div
-          :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
-          class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border shadow-md"
-        >
-          <img
+        <div class="flex shrink-0 flex-col items-center gap-2">
+          <div
+            :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+            class="flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl border shadow-md"
+          >
+            <img
+              v-if="me.avatar_url"
+              :src="me.avatar_url"
+              :alt="me.full_name"
+              class="h-full w-full object-cover"
+            />
+            <font-awesome-icon v-else icon="user" class="text-4xl opacity-30" />
+          </div>
+          <button
             v-if="me.avatar_url"
-            :src="me.avatar_url"
-            :alt="me.full_name"
-            class="h-full w-full object-cover"
-          />
-          <font-awesome-icon v-else icon="user" class="text-4xl opacity-30" />
+            :class="{ 'opacity-40 pointer-events-none': downloadingAvatar }"
+            class="inline-flex items-center gap-1.5 text-xs opacity-50 hover:opacity-90 transition"
+            @click="downloadAvatar"
+          >
+            <font-awesome-icon :icon="downloadingAvatar ? 'lock' : 'arrow-down'" />
+            {{ downloadingAvatar ? "Saving…" : "Download" }}
+          </button>
         </div>
 
         <!-- Info -->

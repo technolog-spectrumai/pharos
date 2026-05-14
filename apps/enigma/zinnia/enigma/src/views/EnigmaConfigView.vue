@@ -31,6 +31,7 @@ function clearConnection() {
 type TestStatus = "idle" | "testing" | "ok" | "error";
 const testStatus = ref<TestStatus>("idle");
 const testMessage = ref("");
+const timeoutMs = ref(5000); // user-configurable timeout in ms
 
 async function testConnection() {
   if (!serverUrl.value) {
@@ -41,14 +42,28 @@ async function testConnection() {
   testStatus.value = "testing";
   testMessage.value = "";
   const t0 = Date.now();
+
   try {
-    const me = await api.getMe();
+    const me = await Promise.race([
+      api.getMe(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Timed out after ${timeoutMs.value / 1000} s`)),
+          timeoutMs.value
+        )
+      ),
+    ]);
     const ms = Date.now() - t0;
     testStatus.value = "ok";
     testMessage.value = `Connected as ${me.full_name} (${ms} ms)`;
   } catch (e) {
     testStatus.value = "error";
-    testMessage.value = (e as Error).message;
+    const raw = (e as Error).message;
+    const elapsed = Date.now() - t0;
+    const timedOut = elapsed >= timeoutMs.value - 50;
+    testMessage.value = timedOut
+      ? `No response after ${timeoutMs.value / 1000} s — server may be unreachable. (${raw})`
+      : raw;
   }
 }
 
@@ -186,33 +201,42 @@ onUnmounted(stopScan);
       </div>
 
       <!-- Test connection row -->
-      <div class="flex flex-wrap items-center gap-3">
-        <OyaButton
-          :dark-mode="darkMode"
-          variant="secondary"
-          :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' }"
-          @click="testConnection"
-        >
-          <font-awesome-icon
-            v-if="testStatus === 'idle'"
-            icon="gauge"
-          />
-          <font-awesome-icon
-            v-else-if="testStatus === 'testing'"
-            icon="lock"
-          />
-          <font-awesome-icon
-            v-else-if="testStatus === 'ok'"
-            icon="check"
-            class="text-success-dark"
-          />
-          <font-awesome-icon
-            v-else
-            icon="triangle-exclamation"
-            class="text-warn-dark"
-          />
-          {{ testStatus === "testing" ? "Testing…" : "Test connection" }}
-        </OyaButton>
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Timeout selector -->
+          <div class="flex items-center gap-2 text-sm opacity-70">
+            <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
+              Timeout
+            </label>
+            <select
+              v-model.number="timeoutMs"
+              :class="
+                darkMode
+                  ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark'
+                  : 'bg-primary-bg-light border-accent-2 text-text-main-light'
+              "
+              class="rounded-lg border px-2 py-1 text-sm outline-none transition"
+            >
+              <option :value="2000">2 s</option>
+              <option :value="5000">5 s</option>
+              <option :value="10000">10 s</option>
+              <option :value="30000">30 s</option>
+            </select>
+          </div>
+
+          <OyaButton
+            :dark-mode="darkMode"
+            variant="secondary"
+            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' }"
+            @click="testConnection"
+          >
+            <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />
+            <font-awesome-icon v-else-if="testStatus === 'testing'" icon="lock" />
+            <font-awesome-icon v-else-if="testStatus === 'ok'" icon="check" class="text-success-dark" />
+            <font-awesome-icon v-else icon="triangle-exclamation" class="text-warn-dark" />
+            {{ testStatus === "testing" ? `Testing… (${timeoutMs / 1000} s max)` : "Test connection" }}
+          </OyaButton>
+        </div>
 
         <p
           v-if="testMessage"

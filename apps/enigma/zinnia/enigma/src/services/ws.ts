@@ -58,7 +58,9 @@ export class WsService {
 
   private _open() {
     if (!this.roomSlug) return;
-    const url = `${this.wsBaseUrl}/ws/chat/${this.roomSlug}/`;
+    const token = localStorage.getItem("enigma_auth_token");
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    const url = `${this.wsBaseUrl}/ws/chat/${this.roomSlug}/${query}`;
     this.setStatus("connecting");
 
     const socket = new WebSocket(url);
