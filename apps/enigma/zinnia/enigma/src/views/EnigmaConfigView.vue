@@ -6,10 +6,11 @@ import { api } from "../services/api";
 import {
   clearOfflineProfile,
   getProfileState,
+  getRuntimeConfig,
   getServerUrl,
-  setSelectedOfflineProfile,
+  setActiveProfile,
   setServerUrl,
-  upsertOfflineProfile,
+  type AppRuntimeConfig,
   type AppProfileState,
 } from "../services/appStorage";
 import OyaCard from "../components/OyaCard.vue";
@@ -24,6 +25,7 @@ const serverUrl = ref("");
 const saved = ref(false);
 
 onMounted(async () => {
+  await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
   await loadOfflineData();
 });
@@ -133,10 +135,11 @@ onUnmounted(stopScan);
 
 // ── Offline data ─────────────────────────────────────────────────────────────
 const offlineState = ref<AppProfileState | null>(null);
+const runtimeConfig = ref<AppRuntimeConfig | null>(null);
 const offlineMessage = ref("");
 const clearingOffline = ref(false);
 const dataProfileName = ref("");
-const savingDataProfileName = ref(false);
+const loadProfileStatus = ref<"idle" | "loading" | "success" | "error">("idle");
 
 const selectedOfflineProfile = computed(() =>
   offlineState.value?.offline_profiles.find(
@@ -152,30 +155,37 @@ const selectedOfflineProfileHasData = computed(() => {
 
 async function loadOfflineData() {
   offlineState.value = await getProfileState();
-  dataProfileName.value = selectedOfflineProfile.value?.label ?? "";
+  dataProfileName.value = runtimeConfig.value?.profile ?? selectedOfflineProfile.value?.label ?? "";
 }
 
-async function chooseOfflineData(event: Event) {
-  const id = (event.target as HTMLSelectElement).value;
-  if (!id) return;
-  offlineState.value = await setSelectedOfflineProfile(id);
-  dataProfileName.value = selectedOfflineProfile.value?.label ?? "";
+async function loadRuntimeConfig() {
+  runtimeConfig.value = await getRuntimeConfig();
+}
+
+function clearDataProfileName() {
+  dataProfileName.value = "";
+  loadProfileStatus.value = "idle";
   offlineMessage.value = "";
 }
 
-async function saveDataProfileName() {
-  const selected = selectedOfflineProfile.value;
+async function loadDataProfile() {
   const label = dataProfileName.value.trim();
-  if (!selected || !label) return;
+  if (!label || loadProfileStatus.value === "loading") return;
 
-  savingDataProfileName.value = true;
+  loadProfileStatus.value = "loading";
+  offlineMessage.value = "";
   try {
-    offlineState.value = await upsertOfflineProfile(selected.id, label, selected.profile);
-    dataProfileName.value = selectedOfflineProfile.value?.label ?? "";
-    offlineMessage.value = "Data profile name saved.";
-    setTimeout(() => (offlineMessage.value = ""), 2000);
-  } finally {
-    savingDataProfileName.value = false;
+    runtimeConfig.value = await setActiveProfile(label, label);
+    serverUrl.value = await getServerUrl();
+    offlineState.value = await getProfileState();
+    dataProfileName.value = runtimeConfig.value.profile;
+    testStatus.value = "idle";
+    testMessage.value = "";
+    offlineMessage.value = "Profile loaded.";
+    loadProfileStatus.value = "success";
+  } catch (e) {
+    offlineMessage.value = (e as Error).message;
+    loadProfileStatus.value = "error";
   }
 }
 
@@ -338,62 +348,85 @@ async function clearSelectedOfflineData() {
       <div class="space-y-3">
         <label class="block space-y-1">
           <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
-            Selected data
-          </span>
-          <select
-            :value="offlineState?.selected_offline_profile_id ?? ''"
-            :class="
-              darkMode
-                ? 'config-control-dark'
-                : 'config-control-light'
-            "
-            class="config-control w-full rounded-lg border px-3 py-2 text-sm font-semibold outline-none transition"
-            @change="chooseOfflineData"
-          >
-            <option
-              v-for="profile in offlineState?.offline_profiles ?? []"
-              :key="profile.id"
-              :value="profile.id"
-            >
-              {{ profile.label }}
-            </option>
-          </select>
-        </label>
-
-        <label class="block space-y-1">
-          <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
-            Data profile name
+            Local data profile
           </span>
           <div class="flex gap-2">
             <input
               v-model="dataProfileName"
               type="text"
               maxlength="80"
-              placeholder="Alice local data"
+              placeholder="alice"
               :class="
                 darkMode
                   ? 'config-control-dark placeholder:text-text-main-dark/30'
                   : 'config-control-light placeholder:text-text-main-light/30'
               "
               class="config-control min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none transition"
-              @keyup.enter="saveDataProfileName"
+              @input="loadProfileStatus = 'idle'"
+              @keyup.enter="loadDataProfile"
             />
-            <OyaButton
-              :dark-mode="darkMode"
-              variant="secondary"
-              :class="{ 'pointer-events-none opacity-50': savingDataProfileName || !dataProfileName.trim() }"
-              @click="saveDataProfileName"
+            <button
+              type="button"
+              :class="[
+                loadProfileStatus === 'success'
+                  ? 'border-success-dark bg-success-dark text-primary-bg-dark'
+                  : loadProfileStatus === 'error'
+                    ? 'border-warn-dark bg-warn-dark text-primary-bg-dark'
+                    : darkMode
+                      ? 'border-accent-1 bg-bubble-bg-dark text-text-main-dark hover:border-accent-dark'
+                      : 'border-accent-2 bg-bubble-bg-light text-text-main-light hover:border-accent-light',
+                loadProfileStatus === 'loading' || !dataProfileName.trim()
+                  ? 'pointer-events-none opacity-60'
+                  : '',
+              ]"
+              class="inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition"
+              @click="loadDataProfile"
             >
-              <font-awesome-icon :icon="savingDataProfileName ? 'lock' : 'floppy-disk'" />
-              Save name
-            </OyaButton>
+              <font-awesome-icon
+                :icon="
+                  loadProfileStatus === 'loading'
+                    ? 'lock'
+                    : loadProfileStatus === 'success'
+                      ? 'check'
+                      : loadProfileStatus === 'error'
+                        ? 'triangle-exclamation'
+                        : 'folder-open'
+                "
+              />
+              {{ loadProfileStatus === "loading" ? "Loading..." : "Load profile" }}
+            </button>
           </div>
         </label>
+
+        <div v-if="dataProfileName" class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            :class="
+              darkMode
+                ? 'border-accent-1 bg-primary-bg-dark text-text-main-dark hover:border-warn-dark'
+                : 'border-accent-2 bg-primary-bg-light text-text-main-light hover:border-warn-light'
+            "
+            class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+            title="Clear profile name"
+            @click="clearDataProfileName"
+          >
+            <span>{{ dataProfileName }}</span>
+            <font-awesome-icon icon="xmark" />
+          </button>
+        </div>
 
         <div
           :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
           class="rounded-lg border px-3 py-2 text-sm"
         >
+          <div class="flex items-center justify-between gap-3">
+            <span class="opacity-60">Active APP_PROFILE</span>
+            <span class="font-mono font-semibold">{{ runtimeConfig?.profile ?? "—" }}</span>
+          </div>
+          <div class="mt-2 flex items-center justify-between gap-3">
+            <span class="opacity-60">Active CHAT_USER</span>
+            <span class="font-mono font-semibold">{{ runtimeConfig?.identity ?? "—" }}</span>
+          </div>
           <div class="flex items-center justify-between gap-3">
             <span class="opacity-60">Stored fields</span>
             <span

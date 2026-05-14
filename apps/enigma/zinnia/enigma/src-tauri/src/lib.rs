@@ -14,6 +14,14 @@ pub struct AppConfig {
     pub identity: String,
 }
 
+type AppConfigState = Mutex<AppConfig>;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppRuntimeConfig {
+    pub profile: String,
+    pub identity: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfflineProfile {
     pub display_name: String,
@@ -60,8 +68,8 @@ pub struct AppProfileState {
 
 type Sessions = Mutex<HashMap<String, EnigmaSession>>;
 
-fn session_key(room: &str, identity: &str) -> String {
-    format!("{}:{}", room, identity)
+fn session_key(profile: &str, room: &str, identity: &str) -> String {
+    format!("{}:{}:{}", profile, room, identity)
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -76,6 +84,17 @@ fn safe_filename_component(s: &str) -> String {
             }
         })
         .collect::<String>()
+}
+
+fn active_config(config: &State<AppConfigState>) -> Result<AppConfig, String> {
+    config.lock().map(|config| config.clone()).map_err(|e| e.to_string())
+}
+
+fn runtime_config(config: &AppConfig) -> AppRuntimeConfig {
+    AppRuntimeConfig {
+        profile: config.profile.clone(),
+        identity: config.identity.clone(),
+    }
 }
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
@@ -102,10 +121,13 @@ fn load_profile_state(app: &AppHandle, config: &AppConfig) -> AppProfileState {
     let path = profile_state_path(app, config);
 
     let Ok(bytes) = std::fs::read(path) else {
-        return normalize_profile_state(AppProfileState::default());
+        return normalize_profile_state(AppProfileState::default(), config);
     };
 
-    normalize_profile_state(serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default())
+    normalize_profile_state(
+        serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default(),
+        config,
+    )
 }
 
 fn save_profile_state(
@@ -114,20 +136,51 @@ fn save_profile_state(
     state: &AppProfileState,
 ) -> Result<(), String> {
     let path = profile_state_path(app, config);
-    let state = normalize_profile_state(state.clone());
+    let state = normalize_profile_state(state.clone(), config);
 
     let bytes = serde_json::to_vec_pretty(&state).map_err(|e| e.to_string())?;
 
     std::fs::write(path, bytes).map_err(|e| e.to_string())
 }
 
-fn normalize_profile_state(mut state: AppProfileState) -> AppProfileState {
+fn default_offline_profile_option(
+    config: &AppConfig,
+    profile: OfflineProfile,
+) -> OfflineProfileOption {
+    let label = if config.identity.trim().is_empty() {
+        config.profile.trim()
+    } else {
+        config.identity.trim()
+    };
+    let label = if label.is_empty() { "Default" } else { label };
+
+    let id = safe_filename_component(label);
+    let id = if id.is_empty() {
+        "default".to_string()
+    } else {
+        id
+    };
+
+    OfflineProfileOption {
+        id,
+        label: label.to_string(),
+        profile,
+    }
+}
+
+fn normalize_profile_state(mut state: AppProfileState, config: &AppConfig) -> AppProfileState {
     if state.offline_profiles.is_empty() {
-        state.offline_profiles.push(OfflineProfileOption {
-            id: "default".to_string(),
-            label: "Default".to_string(),
-            profile: state.offline_profile.clone(),
-        });
+        let default_profile = default_offline_profile_option(config, state.offline_profile.clone());
+        state.selected_offline_profile_id = default_profile.id.clone();
+        state.offline_profiles.push(default_profile);
+    } else if state.offline_profiles.len() == 1
+        && state.offline_profiles[0].id == "default"
+        && state.offline_profiles[0].label == "Default"
+    {
+        let default_profile =
+            default_offline_profile_option(config, state.offline_profiles[0].profile.clone());
+        state.selected_offline_profile_id = default_profile.id.clone();
+        state.offline_profiles[0] = default_profile;
     }
 
     if state.selected_offline_profile_id.is_empty() {
@@ -214,70 +267,130 @@ fn wipe_file(app: &AppHandle, config: &AppConfig, room: &str, identity: &str) {
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 #[tauri::command]
-fn current_profile(config: State<AppConfig>) -> String {
-    config.profile.clone()
+fn current_profile(config: State<AppConfigState>) -> Result<String, String> {
+    Ok(active_config(&config)?.profile)
 }
 
 #[tauri::command]
-fn current_identity(config: State<AppConfig>) -> String {
-    config.identity.clone()
+fn current_identity(config: State<AppConfigState>) -> Result<String, String> {
+    Ok(active_config(&config)?.identity)
 }
 
 #[tauri::command]
-fn app_get_profile_state(app: AppHandle, config: State<AppConfig>) -> AppProfileState {
-    load_profile_state(&app, &config)
+fn app_get_runtime_config(config: State<AppConfigState>) -> Result<AppRuntimeConfig, String> {
+    Ok(runtime_config(&active_config(&config)?))
+}
+
+#[tauri::command]
+fn app_set_active_profile(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    sessions: State<Sessions>,
+    profile: String,
+    identity: Option<String>,
+) -> Result<AppRuntimeConfig, String> {
+    let profile = profile.trim();
+    if profile.is_empty() {
+        return Err("profile is required".to_string());
+    }
+
+    let identity = identity
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| profile.to_string());
+
+    let next_config = AppConfig {
+        profile: profile.to_string(),
+        identity,
+    };
+
+    {
+        let mut guard = config.lock().map_err(|e| e.to_string())?;
+        *guard = next_config.clone();
+    }
+
+    if let Ok(mut sessions) = sessions.lock() {
+        sessions.clear();
+    }
+
+    let state = load_profile_state(&app, &next_config);
+    save_profile_state(&app, &next_config, &state)?;
+
+    Ok(runtime_config(&next_config))
+}
+
+#[tauri::command]
+fn app_get_profile_state(
+    app: AppHandle,
+    config: State<AppConfigState>,
+) -> Result<AppProfileState, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config))
 }
 
 #[tauri::command]
 fn app_set_server_url(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     server_url: String,
 ) -> Result<(), String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.server_url = server_url.trim_end_matches('/').to_string();
     save_profile_state(&app, &config, &state)
 }
 
 #[tauri::command]
-fn app_get_server_url(app: AppHandle, config: State<AppConfig>) -> String {
-    load_profile_state(&app, &config).server_url
+fn app_get_server_url(app: AppHandle, config: State<AppConfigState>) -> Result<String, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).server_url)
 }
 
 #[tauri::command]
 fn app_set_auth_token(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     auth_token: String,
 ) -> Result<(), String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.auth_token = Some(auth_token);
     save_profile_state(&app, &config, &state)
 }
 
 #[tauri::command]
-fn app_get_auth_token(app: AppHandle, config: State<AppConfig>) -> Option<String> {
-    load_profile_state(&app, &config).auth_token
+fn app_get_auth_token(
+    app: AppHandle,
+    config: State<AppConfigState>,
+) -> Result<Option<String>, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).auth_token)
 }
 
 #[tauri::command]
-fn app_clear_auth_token(app: AppHandle, config: State<AppConfig>) -> Result<(), String> {
+fn app_clear_auth_token(app: AppHandle, config: State<AppConfigState>) -> Result<(), String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.auth_token = None;
     save_profile_state(&app, &config, &state)
 }
 
 #[tauri::command]
-fn app_get_offline_profile(app: AppHandle, config: State<AppConfig>) -> OfflineProfile {
-    load_profile_state(&app, &config).offline_profile
+fn app_get_offline_profile(
+    app: AppHandle,
+    config: State<AppConfigState>,
+) -> Result<OfflineProfile, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).offline_profile)
 }
 
 #[tauri::command]
 fn app_set_offline_profile(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     offline_profile: OfflineProfile,
 ) -> Result<(), String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     if let Some(selected) = state
         .offline_profiles
@@ -293,8 +406,9 @@ fn app_set_offline_profile(
 #[tauri::command]
 fn app_clear_offline_profile(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
 ) -> Result<AppProfileState, String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     let empty_profile = OfflineProfile::default();
 
@@ -307,7 +421,7 @@ fn app_clear_offline_profile(
     }
 
     state.offline_profile = empty_profile;
-    state = normalize_profile_state(state);
+    state = normalize_profile_state(state, &config);
     save_profile_state(&app, &config, &state)?;
 
     Ok(state)
@@ -316,9 +430,10 @@ fn app_clear_offline_profile(
 #[tauri::command]
 fn app_set_selected_offline_profile(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     selected_offline_profile_id: String,
 ) -> Result<AppProfileState, String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
 
     if !state
@@ -330,7 +445,47 @@ fn app_set_selected_offline_profile(
     }
 
     state.selected_offline_profile_id = selected_offline_profile_id;
-    state = normalize_profile_state(state);
+    state = normalize_profile_state(state, &config);
+    save_profile_state(&app, &config, &state)?;
+
+    Ok(state)
+}
+
+#[tauri::command]
+fn app_load_offline_profile(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    label: String,
+) -> Result<AppProfileState, String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    let label = label.trim().to_string();
+
+    if label.is_empty() {
+        return Err("offline profile name is required".to_string());
+    }
+
+    let offline_profile_id = safe_filename_component(&label);
+    if offline_profile_id.is_empty() {
+        return Err("offline profile name must contain at least one safe character".to_string());
+    }
+
+    if let Some(existing) = state
+        .offline_profiles
+        .iter()
+        .find(|profile| profile.id == offline_profile_id || profile.label == label)
+    {
+        state.selected_offline_profile_id = existing.id.clone();
+    } else {
+        state.offline_profiles.push(OfflineProfileOption {
+            id: offline_profile_id.clone(),
+            label,
+            profile: OfflineProfile::default(),
+        });
+        state.selected_offline_profile_id = offline_profile_id;
+    }
+
+    state = normalize_profile_state(state, &config);
     save_profile_state(&app, &config, &state)?;
 
     Ok(state)
@@ -339,11 +494,12 @@ fn app_set_selected_offline_profile(
 #[tauri::command]
 fn app_upsert_offline_profile(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     offline_profile_id: String,
     label: String,
     offline_profile: OfflineProfile,
 ) -> Result<AppProfileState, String> {
+    let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     let offline_profile_id = safe_filename_component(&offline_profile_id);
     let label = label.trim().to_string();
@@ -373,7 +529,7 @@ fn app_upsert_offline_profile(
 
     state.selected_offline_profile_id = offline_profile_id;
     state.offline_profile = offline_profile;
-    state = normalize_profile_state(state);
+    state = normalize_profile_state(state, &config);
     save_profile_state(&app, &config, &state)?;
 
     Ok(state)
@@ -387,12 +543,13 @@ fn app_upsert_offline_profile(
 #[tauri::command]
 fn mls_init_session(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
 ) -> Result<bool, String> {
-    let key = session_key(&room, &identity);
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
 
     if map.contains_key(&key) {
@@ -417,12 +574,13 @@ fn mls_init_session(
 #[tauri::command]
 fn mls_key_package(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
 ) -> Result<Vec<u8>, String> {
-    let key = session_key(&room, &identity);
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
 
     let session = map
@@ -444,13 +602,14 @@ fn mls_key_package(
 #[tauri::command]
 fn mls_add_member(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
     key_package: Vec<u8>,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let key = session_key(&room, &identity);
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
 
     let session = map
@@ -468,13 +627,14 @@ fn mls_add_member(
 #[tauri::command]
 fn mls_join_from_welcome(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
     welcome: Vec<u8>,
 ) -> Result<(), String> {
-    let key = session_key(&room, &identity);
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
 
     let session = map
@@ -496,13 +656,14 @@ fn mls_join_from_welcome(
 #[tauri::command]
 fn mls_process_message(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
     bytes: Vec<u8>,
 ) -> Result<Option<Vec<u8>>, String> {
-    let key = session_key(&room, &identity);
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
 
     let session = map
@@ -522,13 +683,14 @@ fn mls_process_message(
 #[tauri::command]
 fn mls_encrypt(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
     mut plaintext: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
-    let key = session_key(&room, &identity);
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
 
     let session = map
@@ -548,18 +710,20 @@ fn mls_encrypt(
 #[tauri::command]
 fn mls_clear_state(
     app: AppHandle,
-    config: State<AppConfig>,
+    config: State<AppConfigState>,
     sessions: State<Sessions>,
     room: String,
     identity: String,
-) {
-    let key = session_key(&room, &identity);
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
 
     if let Ok(mut map) = sessions.lock() {
         map.remove(&key);
     }
 
     wipe_file(&app, &config, &room, &identity);
+    Ok(())
 }
 
 // ── App entry point ───────────────────────────────────────────────────────────
@@ -568,11 +732,13 @@ fn mls_clear_state(
 pub fn run(config: AppConfig) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(config)
+        .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .invoke_handler(tauri::generate_handler![
             current_profile,
             current_identity,
+            app_get_runtime_config,
+            app_set_active_profile,
             app_get_profile_state,
             app_set_server_url,
             app_get_server_url,
@@ -583,6 +749,7 @@ pub fn run(config: AppConfig) {
             app_set_offline_profile,
             app_clear_offline_profile,
             app_set_selected_offline_profile,
+            app_load_offline_profile,
             app_upsert_offline_profile,
             mls_init_session,
             mls_key_package,
