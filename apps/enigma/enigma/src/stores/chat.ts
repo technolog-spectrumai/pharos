@@ -45,6 +45,8 @@ export const useChatStore = defineStore("chat", () => {
   // track which device IDs we've already invited so we don't double-add
   const pendingInvites = new Set<string>();
 
+  const isParticipant = ref(false);
+
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
 
@@ -260,12 +262,14 @@ export const useChatStore = defineStore("chat", () => {
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
+    isParticipant.value = false;
 
     try {
       const room = await api.getRoom(slug);
       currentRoom.value = room;
       participants.value = room.participants ?? [];
-      wsService.connect(slug);
+      isParticipant.value = room.is_participant ?? false;
+      if (isParticipant.value) wsService.connect(slug);
     } catch (e) {
       error.value = (e as Error).message;
     }
@@ -277,6 +281,42 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     participants.value = [];
     mlsStatus.value = "idle";
+    isParticipant.value = false;
+  }
+
+  async function joinParticipant() {
+    if (!currentRoom.value) return;
+    const slug = currentRoom.value.slug;
+    error.value = null;
+    try {
+      await api.joinRoom(slug);
+      isParticipant.value = true;
+      const room = await api.getRoom(slug);
+      currentRoom.value = room;
+      participants.value = room.participants ?? [];
+      messages.value = [];
+      wsService.connect(slug);
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  }
+
+  async function leaveParticipant() {
+    if (!currentRoom.value) return;
+    const slug = currentRoom.value.slug;
+    wsService.disconnect();
+    mlsStatus.value = "idle";
+    messages.value = [];
+    error.value = null;
+    try {
+      await api.leaveRoom(slug);
+      isParticipant.value = false;
+      const room = await api.getRoom(slug);
+      currentRoom.value = room;
+      participants.value = room.participants ?? [];
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
   }
 
   async function sendMessage(content: string) {
@@ -311,7 +351,7 @@ export const useChatStore = defineStore("chat", () => {
     rooms, currentRoom, messages, participants,
     wsStatus, loadingRooms, error, isConnected,
     mlsStatus, mlsError, isEncrypted,
-    currentUserName,
-    fetchRooms, joinRoom, leaveRoom, sendMessage,
+    isParticipant, currentUserName,
+    fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage,
   };
 });
