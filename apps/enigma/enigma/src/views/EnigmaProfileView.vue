@@ -4,6 +4,7 @@ import { storeToRefs } from "pinia";
 import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
 import { getAuthToken, getServerUrl } from "../services/appStorage";
+import { api } from "../services/api";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 import { useRouter } from "vue-router";
@@ -29,6 +30,8 @@ const showDetail = ref<string | null>(null);
 const savedOffline = ref(false);
 const clearedOffline = ref(false);
 const downloadingAvatar = ref(false);
+const clearingAllData = ref(false);
+const clearAllError = ref("");
 const profileUrlBase = ref("");
 const newOfflineProfileLabel = ref("");
 
@@ -98,6 +101,24 @@ async function clearOfflineData() {
   clearedOffline.value = true;
   savedOffline.value = false;
   setTimeout(() => (clearedOffline.value = false), 2000);
+}
+
+async function clearAllDataAndLogout() {
+  if (clearingAllData.value) return;
+
+  clearingAllData.value = true;
+  clearAllError.value = "";
+  try {
+    await chatStore.leaveAllChatsOnServer().catch(() => {});
+    await api.logout().catch(() => {});
+    await userStore.clearAllProfileData();
+    chatStore.clearLocalChatState("Cleared profile data, left all chats, and logged out.");
+    router.push("/login");
+  } catch (e) {
+    clearAllError.value = (e as Error).message;
+  } finally {
+    clearingAllData.value = false;
+  }
 }
 </script>
 
@@ -493,6 +514,36 @@ async function clearOfflineData() {
       </div>
 
       <p v-else class="mt-3 text-sm opacity-50">No rooms available.</p>
+    </OyaCard>
+
+    <!-- Danger zone -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-warn-dark">
+          Danger zone
+        </p>
+        <p class="mt-1 text-sm opacity-60">
+          Clear local profile data, leave chats on the server, log out, and return to login.
+        </p>
+      </div>
+
+      <div
+        v-if="clearAllError"
+        class="rounded-lg border border-warn-dark/30 bg-warn-dark/10 px-3 py-2 text-xs text-warn-dark"
+      >
+        {{ clearAllError }}
+      </div>
+
+      <OyaButton
+        :dark-mode="darkMode"
+        variant="secondary"
+        :class="{ 'pointer-events-none opacity-50': clearingAllData }"
+        class="justify-center border-warn-dark/50 text-warn-dark"
+        @click="clearAllDataAndLogout"
+      >
+        <font-awesome-icon :icon="clearingAllData ? 'lock' : 'trash'" />
+        {{ clearingAllData ? "Clearing…" : "Clear all data and logout" }}
+      </OyaButton>
     </OyaCard>
 
   </section>

@@ -359,11 +359,15 @@ export const useChatStore = defineStore("chat", () => {
 
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     mlsIdentity.value = runtime.identity;
+    clearLocalChatState(`Runtime profile switched to ${runtime.profile}. Left all chats and reset MLS.`);
+  }
+
+  function clearLocalChatState(message = "Left all chats and reset MLS.") {
     wsService.disconnect();
     rooms.value = [];
     currentRoom.value = null;
     messages.value = [
-      systemMsg(`Runtime profile switched to ${runtime.profile}. Left all chats and reset MLS.`),
+      systemMsg(message),
     ];
     participants.value = [];
     isParticipant.value = false;
@@ -495,7 +499,7 @@ export const useChatStore = defineStore("chat", () => {
     wsStatus, loadingRooms, error, isConnected,
     mlsStatus, mlsError, isEncrypted,
     isParticipant, currentUserName, mlsIdentity,
-    syncRuntimeIdentity, applyRuntimeProfile, leaveAllChatsOnServer,
+    syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage,
   };
 });

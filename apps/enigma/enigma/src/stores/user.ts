@@ -6,6 +6,7 @@ import {
   getProfileState,
   setOfflineProfile,
   clearOfflineProfile,
+  clearProfileState,
   setSelectedOfflineProfile,
   upsertOfflineProfile,
   type OfflineProfile,
@@ -103,6 +104,14 @@ export const useUserStore = defineStore("user", () => {
     offlineProfileLoaded.value = true;
   }
 
+  async function clearAllProfileData() {
+    applyProfileState(await clearProfileState());
+    me.value = null;
+    error.value = null;
+    fetchLog.value = [];
+    offlineProfileLoaded.value = true;
+  }
+
   return {
     me,
     loading,
@@ -118,5 +127,6 @@ export const useUserStore = defineStore("user", () => {
     saveOfflineProfile,
     saveOfflineProfileAs,
     clearSelectedOfflineProfile,
+    clearAllProfileData,
   };
 });
