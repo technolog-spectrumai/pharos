@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { Html5Qrcode } from "html5-qrcode";
 import { api } from "../services/api";
-import { getServerUrl, setServerUrl } from "../services/appStorage";
+import {
+  clearOfflineProfile,
+  getProfileState,
+  getServerUrl,
+  setSelectedOfflineProfile,
+  setServerUrl,
+  upsertOfflineProfile,
+  type AppProfileState,
+} from "../services/appStorage";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 
@@ -17,6 +25,7 @@ const saved = ref(false);
 
 onMounted(async () => {
   serverUrl.value = await getServerUrl();
+  await loadOfflineData();
 });
 
 async function save() {
@@ -49,8 +58,8 @@ async function testConnection() {
   const t0 = Date.now();
 
   try {
-    const me = await Promise.race([
-      api.getMe(),
+    await Promise.race([
+      api.health(),
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error(`Timed out after ${timeoutMs.value / 1000} s`)),
@@ -60,7 +69,7 @@ async function testConnection() {
     ]);
     const ms = Date.now() - t0;
     testStatus.value = "ok";
-    testMessage.value = `Connected as ${me.full_name} (${ms} ms)`;
+    testMessage.value = `Server reachable (${ms} ms)`;
   } catch (e) {
     testStatus.value = "error";
     const raw = (e as Error).message;
@@ -121,6 +130,65 @@ async function stopScan() {
 }
 
 onUnmounted(stopScan);
+
+// ── Offline data ─────────────────────────────────────────────────────────────
+const offlineState = ref<AppProfileState | null>(null);
+const offlineMessage = ref("");
+const clearingOffline = ref(false);
+const dataProfileName = ref("");
+const savingDataProfileName = ref(false);
+
+const selectedOfflineProfile = computed(() =>
+  offlineState.value?.offline_profiles.find(
+    (profile) => profile.id === offlineState.value?.selected_offline_profile_id,
+  ) ?? null
+);
+
+const selectedOfflineProfileHasData = computed(() => {
+  const profile = selectedOfflineProfile.value?.profile;
+  if (!profile) return false;
+  return Object.values(profile).some((value) => value.trim().length > 0);
+});
+
+async function loadOfflineData() {
+  offlineState.value = await getProfileState();
+  dataProfileName.value = selectedOfflineProfile.value?.label ?? "";
+}
+
+async function chooseOfflineData(event: Event) {
+  const id = (event.target as HTMLSelectElement).value;
+  if (!id) return;
+  offlineState.value = await setSelectedOfflineProfile(id);
+  dataProfileName.value = selectedOfflineProfile.value?.label ?? "";
+  offlineMessage.value = "";
+}
+
+async function saveDataProfileName() {
+  const selected = selectedOfflineProfile.value;
+  const label = dataProfileName.value.trim();
+  if (!selected || !label) return;
+
+  savingDataProfileName.value = true;
+  try {
+    offlineState.value = await upsertOfflineProfile(selected.id, label, selected.profile);
+    dataProfileName.value = selectedOfflineProfile.value?.label ?? "";
+    offlineMessage.value = "Data profile name saved.";
+    setTimeout(() => (offlineMessage.value = ""), 2000);
+  } finally {
+    savingDataProfileName.value = false;
+  }
+}
+
+async function clearSelectedOfflineData() {
+  clearingOffline.value = true;
+  try {
+    offlineState.value = await clearOfflineProfile();
+    offlineMessage.value = "Offline data cleared.";
+    setTimeout(() => (offlineMessage.value = ""), 2000);
+  } finally {
+    clearingOffline.value = false;
+  }
+}
 </script>
 
 <template>
@@ -173,10 +241,10 @@ onUnmounted(stopScan);
           placeholder="http://192.168.x.x:8000"
           :class="
             darkMode
-              ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30'
-              : 'bg-primary-bg-light border-accent-2 text-text-main-light placeholder:text-text-main-light/30'
+              ? 'config-control-dark placeholder:text-text-main-dark/30'
+              : 'config-control-light placeholder:text-text-main-light/30'
           "
-          class="flex-1 rounded-lg border px-3 py-2 text-sm font-mono outline-none transition"
+          class="config-control flex-1 rounded-lg border px-3 py-2 text-sm font-mono outline-none transition"
           @keyup.enter="save"
         />
         <OyaButton :dark-mode="darkMode" @click="save">
@@ -217,10 +285,10 @@ onUnmounted(stopScan);
               v-model.number="timeoutMs"
               :class="
                 darkMode
-                  ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark'
-                  : 'bg-primary-bg-light border-accent-2 text-text-main-light'
+                  ? 'config-control-dark'
+                  : 'config-control-light'
               "
-              class="rounded-lg border px-2 py-1 text-sm outline-none transition"
+              class="config-control rounded-lg border px-2 py-1 text-sm outline-none transition"
             >
               <option :value="2000">2 s</option>
               <option :value="5000">5 s</option>
@@ -250,6 +318,120 @@ onUnmounted(stopScan);
         >
           {{ testMessage }}
         </p>
+      </div>
+    </OyaCard>
+
+    <!-- Offline data card -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
+        >
+          Offline Data
+        </p>
+        <p class="mt-1 text-sm opacity-65">
+          Manage the local profile data used when Enigma is disconnected.
+        </p>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block space-y-1">
+          <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
+            Selected data
+          </span>
+          <select
+            :value="offlineState?.selected_offline_profile_id ?? ''"
+            :class="
+              darkMode
+                ? 'config-control-dark'
+                : 'config-control-light'
+            "
+            class="config-control w-full rounded-lg border px-3 py-2 text-sm font-semibold outline-none transition"
+            @change="chooseOfflineData"
+          >
+            <option
+              v-for="profile in offlineState?.offline_profiles ?? []"
+              :key="profile.id"
+              :value="profile.id"
+            >
+              {{ profile.label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="block space-y-1">
+          <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
+            Data profile name
+          </span>
+          <div class="flex gap-2">
+            <input
+              v-model="dataProfileName"
+              type="text"
+              maxlength="80"
+              placeholder="Alice local data"
+              :class="
+                darkMode
+                  ? 'config-control-dark placeholder:text-text-main-dark/30'
+                  : 'config-control-light placeholder:text-text-main-light/30'
+              "
+              class="config-control min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none transition"
+              @keyup.enter="saveDataProfileName"
+            />
+            <OyaButton
+              :dark-mode="darkMode"
+              variant="secondary"
+              :class="{ 'pointer-events-none opacity-50': savingDataProfileName || !dataProfileName.trim() }"
+              @click="saveDataProfileName"
+            >
+              <font-awesome-icon :icon="savingDataProfileName ? 'lock' : 'floppy-disk'" />
+              Save name
+            </OyaButton>
+          </div>
+        </label>
+
+        <div
+          :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+          class="rounded-lg border px-3 py-2 text-sm"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <span class="opacity-60">Stored fields</span>
+            <span
+              :class="selectedOfflineProfileHasData ? 'text-success-dark' : 'opacity-50'"
+              class="font-semibold"
+            >
+              {{ selectedOfflineProfileHasData ? "Data saved" : "Empty" }}
+            </span>
+          </div>
+          <div class="mt-2 flex items-center justify-between gap-3">
+            <span class="opacity-60">Profiles</span>
+            <span class="font-mono font-semibold">{{ offlineState?.offline_profiles.length ?? 0 }}</span>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="offlineMessage" class="text-sm text-success-dark">{{ offlineMessage }}</p>
+
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <OyaButton
+          :dark-mode="darkMode"
+          variant="secondary"
+          class="flex-1 justify-center"
+          @click="router.push('/profile')"
+        >
+          <font-awesome-icon icon="user" />
+          Edit profiles
+        </OyaButton>
+        <OyaButton
+          :dark-mode="darkMode"
+          variant="secondary"
+          :class="{ 'pointer-events-none opacity-50': clearingOffline || !selectedOfflineProfileHasData }"
+          class="flex-1 justify-center"
+          @click="clearSelectedOfflineData"
+        >
+          <font-awesome-icon :icon="clearingOffline ? 'lock' : 'trash'" />
+          {{ clearingOffline ? "Clearing…" : "Clear selected data" }}
+        </OyaButton>
       </div>
     </OyaCard>
 
@@ -314,3 +496,41 @@ onUnmounted(stopScan);
 
   </section>
 </template>
+
+<style scoped>
+.config-control {
+  color-scheme: light;
+}
+
+.config-control-light {
+  background-color: #f2f3f5;
+  border-color: #2f3d63;
+  color: #0f1114;
+}
+
+.config-control-light option {
+  background-color: #f2f3f5;
+  color: #0f1114;
+}
+
+.config-control-dark {
+  color-scheme: dark;
+  background-color: #0a0c11;
+  border-color: #4f5fa1;
+  color: #d3d7e0;
+}
+
+.config-control-dark option {
+  background-color: #0a0c11;
+  color: #d3d7e0;
+}
+
+.config-control:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.config-control:disabled {
+  opacity: 0.75;
+  -webkit-text-fill-color: currentColor;
+}
+</style>

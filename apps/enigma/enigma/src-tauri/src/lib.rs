@@ -36,10 +36,24 @@ impl Default for OfflineProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OfflineProfileOption {
+    pub id: String,
+    pub label: String,
+    pub profile: OfflineProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppProfileState {
+    #[serde(default)]
     pub server_url: String,
+    #[serde(default)]
     pub auth_token: Option<String>,
+    #[serde(default)]
     pub offline_profile: OfflineProfile,
+    #[serde(default)]
+    pub offline_profiles: Vec<OfflineProfileOption>,
+    #[serde(default)]
+    pub selected_offline_profile_id: String,
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -88,10 +102,10 @@ fn load_profile_state(app: &AppHandle, config: &AppConfig) -> AppProfileState {
     let path = profile_state_path(app, config);
 
     let Ok(bytes) = std::fs::read(path) else {
-        return AppProfileState::default();
+        return normalize_profile_state(AppProfileState::default());
     };
 
-    serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default()
+    normalize_profile_state(serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default())
 }
 
 fn save_profile_state(
@@ -100,10 +114,51 @@ fn save_profile_state(
     state: &AppProfileState,
 ) -> Result<(), String> {
     let path = profile_state_path(app, config);
+    let state = normalize_profile_state(state.clone());
 
-    let bytes = serde_json::to_vec_pretty(state).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(&state).map_err(|e| e.to_string())?;
 
     std::fs::write(path, bytes).map_err(|e| e.to_string())
+}
+
+fn normalize_profile_state(mut state: AppProfileState) -> AppProfileState {
+    if state.offline_profiles.is_empty() {
+        state.offline_profiles.push(OfflineProfileOption {
+            id: "default".to_string(),
+            label: "Default".to_string(),
+            profile: state.offline_profile.clone(),
+        });
+    }
+
+    if state.selected_offline_profile_id.is_empty() {
+        state.selected_offline_profile_id = state
+            .offline_profiles
+            .first()
+            .map(|profile| profile.id.clone())
+            .unwrap_or_else(|| "default".to_string());
+    }
+
+    if !state
+        .offline_profiles
+        .iter()
+        .any(|profile| profile.id == state.selected_offline_profile_id)
+    {
+        state.selected_offline_profile_id = state
+            .offline_profiles
+            .first()
+            .map(|profile| profile.id.clone())
+            .unwrap_or_else(|| "default".to_string());
+    }
+
+    if let Some(selected) = state
+        .offline_profiles
+        .iter()
+        .find(|profile| profile.id == state.selected_offline_profile_id)
+    {
+        state.offline_profile = selected.profile.clone();
+    }
+
+    state
 }
 
 fn state_path(
@@ -224,8 +279,104 @@ fn app_set_offline_profile(
     offline_profile: OfflineProfile,
 ) -> Result<(), String> {
     let mut state = load_profile_state(&app, &config);
+    if let Some(selected) = state
+        .offline_profiles
+        .iter_mut()
+        .find(|profile| profile.id == state.selected_offline_profile_id)
+    {
+        selected.profile = offline_profile.clone();
+    }
     state.offline_profile = offline_profile;
     save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_clear_offline_profile(
+    app: AppHandle,
+    config: State<AppConfig>,
+) -> Result<AppProfileState, String> {
+    let mut state = load_profile_state(&app, &config);
+    let empty_profile = OfflineProfile::default();
+
+    if let Some(selected) = state
+        .offline_profiles
+        .iter_mut()
+        .find(|profile| profile.id == state.selected_offline_profile_id)
+    {
+        selected.profile = empty_profile.clone();
+    }
+
+    state.offline_profile = empty_profile;
+    state = normalize_profile_state(state);
+    save_profile_state(&app, &config, &state)?;
+
+    Ok(state)
+}
+
+#[tauri::command]
+fn app_set_selected_offline_profile(
+    app: AppHandle,
+    config: State<AppConfig>,
+    selected_offline_profile_id: String,
+) -> Result<AppProfileState, String> {
+    let mut state = load_profile_state(&app, &config);
+
+    if !state
+        .offline_profiles
+        .iter()
+        .any(|profile| profile.id == selected_offline_profile_id)
+    {
+        return Err("offline profile not found".to_string());
+    }
+
+    state.selected_offline_profile_id = selected_offline_profile_id;
+    state = normalize_profile_state(state);
+    save_profile_state(&app, &config, &state)?;
+
+    Ok(state)
+}
+
+#[tauri::command]
+fn app_upsert_offline_profile(
+    app: AppHandle,
+    config: State<AppConfig>,
+    offline_profile_id: String,
+    label: String,
+    offline_profile: OfflineProfile,
+) -> Result<AppProfileState, String> {
+    let mut state = load_profile_state(&app, &config);
+    let offline_profile_id = safe_filename_component(&offline_profile_id);
+    let label = label.trim().to_string();
+
+    if offline_profile_id.is_empty() {
+        return Err("offline profile id is required".to_string());
+    }
+
+    if label.is_empty() {
+        return Err("offline profile label is required".to_string());
+    }
+
+    if let Some(existing) = state
+        .offline_profiles
+        .iter_mut()
+        .find(|profile| profile.id == offline_profile_id)
+    {
+        existing.label = label;
+        existing.profile = offline_profile.clone();
+    } else {
+        state.offline_profiles.push(OfflineProfileOption {
+            id: offline_profile_id.clone(),
+            label,
+            profile: offline_profile.clone(),
+        });
+    }
+
+    state.selected_offline_profile_id = offline_profile_id;
+    state.offline_profile = offline_profile;
+    state = normalize_profile_state(state);
+    save_profile_state(&app, &config, &state)?;
+
+    Ok(state)
 }
 
 /// Initialise or restore an MLS session.
@@ -430,6 +581,9 @@ pub fn run(config: AppConfig) {
             app_clear_auth_token,
             app_get_offline_profile,
             app_set_offline_profile,
+            app_clear_offline_profile,
+            app_set_selected_offline_profile,
+            app_upsert_offline_profile,
             mls_init_session,
             mls_key_package,
             mls_add_member,

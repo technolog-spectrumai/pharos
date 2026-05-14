@@ -81,8 +81,8 @@ async function handleLogout() {
             class="inline-flex items-center gap-2 transition hover:opacity-70"
             @click="darkMode = !darkMode"
           >
-            <font-awesome-icon :icon="darkMode ? 'moon' : 'sun'" />
-            {{ darkMode ? "Dark" : "Light" }}
+            <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" />
+            {{ darkMode ? "Light" : "Dark" }}
           </button>
 
           <RouterLink
@@ -170,8 +170,8 @@ async function handleLogout() {
             class="flex w-full items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
             @click="darkMode = !darkMode"
           >
-            <font-awesome-icon :icon="darkMode ? 'moon' : 'sun'" class="w-4 text-center" />
-            {{ darkMode ? "Dark Mode" : "Light Mode" }}
+            <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" class="w-4 text-center" />
+            {{ darkMode ? "Light Mode" : "Dark Mode" }}
           </button>
 
           <RouterLink
