@@ -78,52 +78,31 @@ const router = useRouter();
     </div>
 
     <OyaCard :dark-mode="darkMode" class="overflow-hidden">
-      <div class="grid gap-6 p-5 lg:grid-cols-[1fr_18rem] lg:p-6">
-        <div>
-          <p
-            :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-            class="text-xs font-semibold uppercase tracking-wide"
-          >
-            Present more
-          </p>
-
-          <h2 class="mt-2 text-2xl font-bold">Start with the chat core</h2>
-
-          <p class="mt-3 max-w-2xl text-sm leading-relaxed opacity-75">
-            Enigma should begin as a clean communication workspace. Add rooms,
-            participants, messages, and presence first. Then connect Vault,
-            Tasks, Calendar, and Locations as modules.
-          </p>
-
-          <div class="mt-5 flex flex-wrap gap-2">
-            <OyaButton :dark-mode="darkMode" @click="router.push('/chat')">
-              <font-awesome-icon icon="comments" />
-              Open chat view
-            </OyaButton>
-
-            <OyaButton :dark-mode="darkMode" variant="secondary">
-              <font-awesome-icon icon="plus" />
-              Create room
-            </OyaButton>
-          </div>
-        </div>
-
-        <div
-          :class="
-            darkMode
-              ? 'border-accent-1 bg-primary-bg-dark'
-              : 'border-accent-2 bg-primary-bg-light'
-          "
-          class="rounded-lg border p-4"
+      <div class="p-5 lg:p-6">
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
         >
-          <h3 class="text-sm font-bold">Next modules</h3>
+          Get started
+        </p>
 
-          <ul class="mt-3 space-y-2 text-sm opacity-75">
-            <li>Vault integration</li>
-            <li>Room tasks</li>
-            <li>Calendar events</li>
-            <li>Map/location cards</li>
-          </ul>
+        <h2 class="mt-2 text-2xl font-bold">Start with the chat core</h2>
+
+        <p class="mt-3 max-w-2xl text-sm leading-relaxed opacity-75">
+          Enigma is a clean encrypted communication workspace. Select a room,
+          join as a participant, and start messaging.
+        </p>
+
+        <div class="mt-5 flex flex-wrap gap-2">
+          <OyaButton :dark-mode="darkMode" @click="router.push('/chat')">
+            <font-awesome-icon icon="comments" />
+            Open chat
+          </OyaButton>
+
+          <OyaButton :dark-mode="darkMode" variant="secondary">
+            <font-awesome-icon icon="plus" />
+            Create room
+          </OyaButton>
         </div>
       </div>
     </OyaCard>
