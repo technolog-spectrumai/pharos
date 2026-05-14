@@ -167,6 +167,10 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     if (type === "mls_app" && data.ciphertext) {
+      if (data.device_id === currentUserName.value) {
+        log("Ignoring own mls_app echo");
+        return;
+      }
       if (mlsStatus.value === "ready" && currentRoom.value) {
         log("Decrypting mls_app");
         const plaintext = await cryptoService.processMessage(
@@ -328,7 +332,11 @@ export const useChatStore = defineStore("chat", () => {
         currentRoom.value.slug, currentUserName.value, content.trim()
       );
       if (ct) {
-        wsService.send({ type: "mls_app", ciphertext: bytesToBase64(ct) });
+        wsService.send({
+          type: "mls_app",
+          ciphertext: bytesToBase64(ct),
+          device_id: currentUserName.value,
+        });
         messages.value.push({
           id: nanoid(), type: "mls_app",
           user: currentUserName.value,
