@@ -66,6 +66,10 @@ export async function clearAuthToken(): Promise<void> {
   await invoke("app_clear_auth_token");
 }
 
+export async function clearProfileState(): Promise<AppProfileState> {
+  return await invoke<AppProfileState>("app_clear_profile_state");
+}
+
 export async function getOfflineProfile(): Promise<OfflineProfile> {
   return await invoke<OfflineProfile>("app_get_offline_profile");
 }

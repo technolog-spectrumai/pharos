@@ -384,6 +384,17 @@ fn app_clear_auth_token(app: AppHandle, config: State<AppConfigState>) -> Result
 }
 
 #[tauri::command]
+fn app_clear_profile_state(
+    app: AppHandle,
+    config: State<AppConfigState>,
+) -> Result<AppProfileState, String> {
+    let config = active_config(&config)?;
+    let state = normalize_profile_state(AppProfileState::default(), &config);
+    save_profile_state(&app, &config, &state)?;
+    Ok(state)
+}
+
+#[tauri::command]
 fn app_get_offline_profile(
     app: AppHandle,
     config: State<AppConfigState>,
@@ -753,6 +764,7 @@ pub fn run(config: AppConfig) {
             app_set_auth_token,
             app_get_auth_token,
             app_clear_auth_token,
+            app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
             app_clear_offline_profile,
