@@ -1,23 +1,18 @@
 <script setup lang="ts">
-import OyaCard from "./OyaCard.vue";
-import OyaButton from "./OyaButton.vue";
+import { useRouter } from "vue-router";
+import OyaCard from "../components/OyaCard.vue";
+import OyaButton from "../components/OyaButton.vue";
 
-defineProps<{
-  darkMode: boolean;
-}>();
+defineProps<{ darkMode: boolean }>();
 
-const emit = defineEmits<{
-  back: [];
-}>();
+const router = useRouter();
 
 const rooms = [
   { name: "Hello Room", detail: "1 participant" },
   { name: "Test Room", detail: "Work in progress" },
 ];
 
-const users = [
-  { name: "Jan", role: "Human", initials: "J" },
-];
+const users = [{ name: "Jan", role: "Human", initials: "J" }];
 
 const messages = [
   {
@@ -45,7 +40,10 @@ const messages = [
           Rooms
         </h2>
 
-        <button class="text-xs underline opacity-70 hover:opacity-100" @click="emit('back')">
+        <button
+          class="text-xs underline opacity-70 hover:opacity-100"
+          @click="router.push('/')"
+        >
           Welcome
         </button>
       </div>
@@ -66,13 +64,8 @@ const messages = [
           "
           class="block rounded-lg border px-3 py-3 transition"
         >
-          <span class="block truncate text-sm font-semibold">
-            {{ room.name }}
-          </span>
-
-          <span class="mt-1 block text-xs opacity-60">
-            {{ room.detail }}
-          </span>
+          <span class="block truncate text-sm font-semibold">{{ room.name }}</span>
+          <span class="mt-1 block text-xs opacity-60">{{ room.detail }}</span>
         </a>
       </nav>
 
@@ -97,9 +90,7 @@ const messages = [
             Active room
           </p>
 
-          <h2 class="mt-1 truncate text-2xl font-bold">
-            Hello Room
-          </h2>
+          <h2 class="mt-1 truncate text-2xl font-bold">Hello Room</h2>
 
           <div class="mt-1 flex flex-wrap gap-3 text-xs opacity-70">
             <span>1 participant</span>
@@ -137,19 +128,16 @@ const messages = [
             {{ message.initials }}
           </div>
 
-            <div
+          <div
             :class="[
-                darkMode
+              darkMode
                 ? 'bg-bubble-bg-dark border-accent-1'
                 : 'bg-bubble-bg-light border-accent-2',
-                message.self ? 'text-right' : ''
+              message.self ? 'text-right' : '',
             ]"
             class="min-w-0 max-w-[calc(100%-3.25rem)] overflow-hidden rounded-lg border p-3 shadow-sm sm:max-w-[78%]"
-            >
-            <p class="text-sm font-semibold">
-              {{ message.user }}
-            </p>
-
+          >
+            <p class="text-sm font-semibold">{{ message.user }}</p>
             <p class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
               {{ message.body }}
             </p>
@@ -201,11 +189,7 @@ const messages = [
       </div>
 
       <div class="mt-4 space-y-3">
-        <div
-          v-for="user in users"
-          :key="user.name"
-          class="flex items-center gap-3"
-        >
+        <div v-for="user in users" :key="user.name" class="flex items-center gap-3">
           <div
             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-current/15 text-sm font-bold"
           >
@@ -213,13 +197,8 @@ const messages = [
           </div>
 
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold">
-              {{ user.name }}
-            </p>
-
-            <p class="text-xs opacity-60">
-              {{ user.role }}
-            </p>
+            <p class="truncate text-sm font-semibold">{{ user.name }}</p>
+            <p class="text-xs opacity-60">{{ user.role }}</p>
           </div>
 
           <span

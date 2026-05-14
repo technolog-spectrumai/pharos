@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import OyaHelloWorld from "./components/OyaHelloWorld.vue";
+import { RouterView, RouterLink } from "vue-router";
 import appIcon from "./assets/icon.png";
 
 const darkMode = ref(true);
-
-function toggleDarkMode() {
-  darkMode.value = !darkMode.value;
-}
 </script>
 
 <template>
@@ -19,6 +15,7 @@ function toggleDarkMode() {
     "
     class="min-h-screen flex flex-col font-sans transition-colors duration-300"
   >
+    <!-- Header -->
     <header
       :class="
         darkMode
@@ -30,17 +27,14 @@ function toggleDarkMode() {
       <div
         class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
       >
-        <div class="flex items-center gap-3">
+        <RouterLink to="/" class="flex items-center gap-3 hover:opacity-80 transition">
           <img
             :src="appIcon"
             alt="Enigma icon"
             class="h-9 w-9 rounded-lg object-contain"
           />
-
-          <h1 class="text-xl font-bold tracking-wide sm:text-2xl">
-            Enigma
-          </h1>
-        </div>
+          <h1 class="text-xl font-bold tracking-wide sm:text-2xl">Enigma</h1>
+        </RouterLink>
 
         <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <a href="#" class="inline-flex items-center gap-2 transition hover:opacity-70">
@@ -53,14 +47,17 @@ function toggleDarkMode() {
             Dashboard
           </a>
 
-          <a href="#" class="inline-flex items-center gap-2 transition hover:opacity-70">
-            <font-awesome-icon icon="user" />
-            My Profile
-          </a>
+          <RouterLink
+            to="/config"
+            class="inline-flex items-center gap-2 transition hover:opacity-70"
+          >
+            <font-awesome-icon icon="gear" />
+            Settings
+          </RouterLink>
 
           <button
             type="button"
-            @click="toggleDarkMode"
+            @click="darkMode = !darkMode"
             class="inline-flex items-center gap-2 transition hover:opacity-70"
           >
             <font-awesome-icon :icon="darkMode ? 'moon' : 'sun'" />
@@ -70,10 +67,14 @@ function toggleDarkMode() {
       </div>
     </header>
 
+    <!-- Main -->
     <main class="flex flex-1 px-4 py-6 sm:px-6 lg:px-8">
-      <OyaHelloWorld :dark-mode="darkMode" />
+      <RouterView v-slot="{ Component }">
+        <component :is="Component" :dark-mode="darkMode" />
+      </RouterView>
     </main>
 
+    <!-- Footer -->
     <footer
       :class="
         darkMode
@@ -82,9 +83,7 @@ function toggleDarkMode() {
       "
       class="border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg"
     >
-      <p class="opacity-90">
-        © www.spectrumai.pl. All rights reserved.
-      </p>
+      <p class="opacity-90">© www.spectrumai.pl. All rights reserved.</p>
     </footer>
   </div>
 </template>
