@@ -8,11 +8,15 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 
 import {
+  faArrowDown,
   faArrowLeft,
+  faBars,
   faCamera,
   faCheck,
   faComments,
   faDoorOpen,
+  faEye,
+  faEyeSlash,
   faFloppyDisk,
   faGauge,
   faGear,
@@ -29,11 +33,15 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
+  faArrowDown,
   faArrowLeft,
+  faBars,
   faCamera,
   faCheck,
   faComments,
   faDoorOpen,
+  faEye,
+  faEyeSlash,
   faFloppyDisk,
   faGauge,
   faGear,
