@@ -64,6 +64,10 @@ export const useChatStore = defineStore("chat", () => {
     };
   }
 
+  function participantForName(name: string): Participant | undefined {
+    return participants.value.find((participant) => participant.name === name);
+  }
+
   // ── WS status ────────────────────────────────────────────────────────────────
   wsService.onStatus((status) => {
     log("ws status →", status);
@@ -180,14 +184,16 @@ export const useChatStore = defineStore("chat", () => {
           base64ToBytes(data.ciphertext as string),
         );
         if (plaintext) {
+          const senderName = (data.sender_name as string) || (data.device_id as string) || "Unknown";
+          const sender = participantForName(senderName);
           messages.value.push({
             id: nanoid(), type: "mls_app",
-            user: "Peer",
-            initials: "P",
-            avatar_url: null,
+            user: senderName,
+            initials: initials(senderName),
+            avatar_url: (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null,
             content: new TextDecoder().decode(plaintext),
             participant_type: "human",
-            self: false,
+            self: senderName === currentUserName.value || data.device_id === mlsIdentity.value,
             encrypted: true,
             timestamp: new Date(),
           });
@@ -357,6 +363,7 @@ export const useChatStore = defineStore("chat", () => {
           type: "mls_app",
           ciphertext: bytesToBase64(ct),
           device_id: mlsIdentity.value,
+          sender_name: currentUserName.value,
         });
         messages.value.push({
           id: nanoid(), type: "mls_app",
