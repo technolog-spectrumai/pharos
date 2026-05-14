@@ -1,3 +1,10 @@
+import {
+  getAuthToken,
+  getServerUrl,
+  setAuthToken,
+  clearAuthToken,
+} from "./appStorage";
+
 export interface Room {
   id: number;
   name: string;
@@ -22,33 +29,23 @@ export interface Me {
   profile_url: string | null;
 }
 
-const TOKEN_KEY = "enigma_auth_token";
+async function serverBase(): Promise<string> {
+  return (await getServerUrl()).replace(/\/$/, "");
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 class ApiService {
-  private get baseUrl(): string {
-    return (localStorage.getItem("enigma_server_url") ?? "").replace(/\/$/, "");
-  }
-
-  get token(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
-  }
-
-  private setToken(token: string) {
-    localStorage.setItem(TOKEN_KEY, token);
-  }
-
-  clearToken() {
-    localStorage.removeItem(TOKEN_KEY);
-  }
-
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
+    const url = `${await serverBase()}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Requested-With": "XMLHttpRequest",
+      ...(await authHeaders()),
     };
-    const token = this.token;
-    if (token) headers["Authorization"] = `Bearer ${token}`;
 
     const res = await fetch(url, {
       credentials: "include",
@@ -67,12 +64,12 @@ class ApiService {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    this.setToken(result.token);
+    await setAuthToken(result.token);
   }
 
   async logout(): Promise<void> {
     await this.request<{ ok: boolean }>("/enigma/api/logout/", { method: "POST" }).catch(() => {});
-    this.clearToken();
+    await clearAuthToken();
   }
 
   getMe(): Promise<Me> {

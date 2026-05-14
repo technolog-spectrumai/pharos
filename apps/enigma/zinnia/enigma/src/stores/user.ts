@@ -1,6 +1,12 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 import { api, type Me } from "../services/api";
+import {
+  getOfflineProfile,
+  setOfflineProfile,
+  getServerUrl,
+  type OfflineProfile,
+} from "../services/appStorage";
 
 export interface FetchLogEntry {
   timestamp: Date;
@@ -10,16 +16,6 @@ export interface FetchLogEntry {
   detail?: string;
 }
 
-export interface OfflineProfile {
-  display_name: string;
-  email: string;
-  phone: string;
-  bio: string;
-  date_of_birth: string; // ISO date "YYYY-MM-DD" or ""
-}
-
-const OFFLINE_PROFILE_KEY = "enigma_offline_profile";
-
 const EMPTY_PROFILE: OfflineProfile = {
   display_name: "",
   email: "",
@@ -28,30 +24,32 @@ const EMPTY_PROFILE: OfflineProfile = {
   date_of_birth: "",
 };
 
-function loadStoredProfile(): OfflineProfile {
-  try {
-    const raw = localStorage.getItem(OFFLINE_PROFILE_KEY);
-    if (raw) return { ...EMPTY_PROFILE, ...JSON.parse(raw) };
-  } catch {}
-  return { ...EMPTY_PROFILE };
-}
-
 export const useUserStore = defineStore("user", () => {
   const me = ref<Me | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const fetchLog = ref<FetchLogEntry[]>([]);
 
-  const offlineProfile = ref<OfflineProfile>(loadStoredProfile());
+  const offlineProfile = ref<OfflineProfile>({ ...EMPTY_PROFILE });
+  const offlineProfileLoaded = ref(false);
 
-  function serverBase(): string {
-    return (localStorage.getItem("enigma_server_url") ?? "").replace(/\/$/, "");
+  async function loadOfflineProfile() {
+    offlineProfile.value = {
+      ...EMPTY_PROFILE,
+      ...(await getOfflineProfile()),
+    };
+    offlineProfileLoaded.value = true;
+  }
+
+  async function serverBase(): Promise<string> {
+    return (await getServerUrl()).replace(/\/$/, "");
   }
 
   async function fetchMe() {
     loading.value = true;
     error.value = null;
-    const url = `${serverBase()}/enigma/api/me/`;
+    const base = await serverBase();
+    const url = `${base}/enigma/api/me/`;
     const ts = new Date();
 
     try {
@@ -72,9 +70,19 @@ export const useUserStore = defineStore("user", () => {
     }
   }
 
-  function saveOfflineProfile() {
-    localStorage.setItem(OFFLINE_PROFILE_KEY, JSON.stringify(offlineProfile.value));
+  async function saveOfflineProfile() {
+    await setOfflineProfile(offlineProfile.value);
   }
 
-  return { me, loading, error, fetchLog, offlineProfile, fetchMe, saveOfflineProfile };
+  return {
+    me,
+    loading,
+    error,
+    fetchLog,
+    offlineProfile,
+    offlineProfileLoaded,
+    loadOfflineProfile,
+    fetchMe,
+    saveOfflineProfile,
+  };
 });

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../services/api";
+import { getServerUrl } from "../services/appStorage";
 import { useUserStore } from "../stores/user";
 import OyaButton from "../components/OyaButton.vue";
 import logo2Dark from "../assets/logo2_dark.png";
@@ -18,9 +19,11 @@ const loading = ref(false);
 const error = ref("");
 const showPassword = ref(false);
 
-const serverUrl = computed(() =>
-  localStorage.getItem("enigma_server_url") ?? ""
-);
+const serverUrl = ref("");
+
+onMounted(async () => {
+  serverUrl.value = await getServerUrl();
+});
 
 const canSubmit = computed(
   () => username.value.trim().length > 0 && password.value.length > 0

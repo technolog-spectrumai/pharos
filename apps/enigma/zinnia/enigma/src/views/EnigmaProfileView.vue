@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
+import { getAuthToken, getServerUrl } from "../services/appStorage";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 import { useRouter } from "vue-router";
@@ -19,12 +20,13 @@ const showFetchLog = ref(false);
 const showDetail = ref<string | null>(null);
 const savedOffline = ref(false);
 const downloadingAvatar = ref(false);
+const profileUrlBase = ref("");
 
 async function downloadAvatar() {
   if (!me.value?.avatar_url || downloadingAvatar.value) return;
   downloadingAvatar.value = true;
   try {
-    const token = localStorage.getItem("enigma_auth_token");
+    const token = await getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
@@ -46,18 +48,16 @@ async function downloadAvatar() {
   }
 }
 
-onMounted(() => {
-  userStore.fetchMe();
+onMounted(async () => {
+  profileUrlBase.value = (await getServerUrl()).replace(/\/$/, "");
+  await userStore.loadOfflineProfile();
+  void userStore.fetchMe();
   if (!rooms.value.length) chatStore.fetchRooms();
 });
 
-function serverBase(): string {
-  return (localStorage.getItem("enigma_server_url") ?? "").replace(/\/$/, "");
-}
-
-function saveOffline() {
+async function saveOffline() {
   if (!offlineProfile.value.display_name.trim()) return;
-  userStore.saveOfflineProfile();
+  await userStore.saveOfflineProfile();
   savedOffline.value = true;
   setTimeout(() => (savedOffline.value = false), 2000);
 }
@@ -151,7 +151,7 @@ function saveOffline() {
 
           <a
             v-if="me.profile_url"
-            :href="`${serverBase()}${me.profile_url}`"
+            :href="`${profileUrlBase}${me.profile_url}`"
             target="_blank"
             rel="noopener noreferrer"
             :class="darkMode ? 'border-accent-1 hover:bg-primary-bg-dark' : 'border-accent-2 hover:bg-primary-bg-light'"
