@@ -1,4 +1,5 @@
 import { createApp } from "vue";
+import { createPinia } from "pinia";
 import "./style.css";
 import App from "./App.vue";
 import router from "./router";
@@ -20,6 +21,7 @@ import {
   faPaperPlane,
   faPlus,
   faRightFromBracket,
+  faRightToBracket,
   faSun,
   faTriangleExclamation,
   faUser,
@@ -40,6 +42,7 @@ library.add(
   faPaperPlane,
   faPlus,
   faRightFromBracket,
+  faRightToBracket,
   faSun,
   faTriangleExclamation,
   faUser,
@@ -47,6 +50,7 @@ library.add(
 );
 
 createApp(App)
+  .use(createPinia())
   .use(router)
   .component("font-awesome-icon", FontAwesomeIcon)
   .mount("#app");
