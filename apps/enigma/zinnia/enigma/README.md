@@ -40,6 +40,18 @@ profiles/bob/profile_state.json
 
 This means Alice and Bob can have different server URLs, auth tokens, offline data profiles, and MLS state.
 
+## Switch Local Profile At Runtime
+
+Settings has an Offline Data card with a Local data profile field. Enter a profile name such as `alice` or `bob` and click Load profile.
+
+Loading a profile updates the active Rust profile for this running app. Subsequent reads and writes use:
+
+```text
+app_data_dir/profiles/{profile_name}/profile_state.json
+```
+
+This gives the same storage separation as restarting with a different `APP_PROFILE`, without restarting the Tauri window. The active `CHAT_USER` value is set to the same name when switching this way.
+
 ## Test Offline Data Separation
 
 1. Run Alice with `APP_PROFILE=alice CHAT_USER=alice`.

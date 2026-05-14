@@ -25,6 +25,7 @@ export interface OfflineProfileOption {
 export interface AppRuntimeConfig {
   profile: string;
   identity: string;
+  profile_state_path: string;
 }
 
 export async function getRuntimeConfig(): Promise<AppRuntimeConfig> {

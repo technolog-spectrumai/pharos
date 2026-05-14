@@ -17,6 +17,7 @@ const chatStore = useChatStore();
 const { me } = storeToRefs(userStore);
 
 onMounted(() => {
+  void chatStore.syncRuntimeIdentity();
   userStore.fetchMe();
 });
 
