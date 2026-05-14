@@ -20,7 +20,7 @@ class CryptoService {
   private _ready: Promise<void> | null = null;
 
   private get ready(): Promise<void> {
-    if (!this._ready) this._ready = (init as () => Promise<void>)();
+    if (!this._ready) this._ready = (init as unknown as () => Promise<void>)();
     return this._ready;
   }
 

@@ -82,7 +82,8 @@ export class WsService {
 
     socket.onclose = (event) => {
       this.socket = null;
-      if (this.intentionalClose) {
+      // 4403 = not a participant — don't retry
+      if (this.intentionalClose || event.code === 4403) {
         this.setStatus("disconnected");
         return;
       }

@@ -4,6 +4,7 @@ export interface Room {
   slug: string;
   participant_count: number;
   created_at: string;
+  is_participant?: boolean;
   participants?: Participant[];
 }
 
@@ -84,6 +85,14 @@ class ApiService {
 
   getRoom(slug: string): Promise<Room> {
     return this.request<Room>(`/enigma/api/rooms/${slug}/`);
+  }
+
+  joinRoom(slug: string): Promise<{ ok: boolean; joined: boolean }> {
+    return this.request(`/enigma/api/rooms/${slug}/join/`, { method: "POST" });
+  }
+
+  leaveRoom(slug: string): Promise<{ ok: boolean }> {
+    return this.request(`/enigma/api/rooms/${slug}/leave/`, { method: "POST" });
   }
 }
 
