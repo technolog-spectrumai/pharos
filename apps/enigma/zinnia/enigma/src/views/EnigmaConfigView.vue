@@ -189,6 +189,7 @@ async function loadDataProfile() {
   loadProfileStatus.value = "loading";
   offlineMessage.value = "";
   try {
+    await chatStore.leaveAllChatsOnServer().catch(() => {});
     runtimeConfig.value = await setActiveProfile(label, label);
     serverUrl.value = await getServerUrl();
     offlineState.value = await getProfileState();
