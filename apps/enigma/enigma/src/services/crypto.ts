@@ -76,17 +76,12 @@ class CryptoService {
     identity: string,
     bytes: Uint8Array,
   ): Promise<Uint8Array | null> {
-    try {
-      const result = await invoke<number[] | null>("mls_process_message", {
-        room,
-        identity,
-        bytes: Array.from(bytes),
-      });
-      return result ? new Uint8Array(result) : null;
-    } catch (e) {
-      console.error("[crypto] processMessage failed:", e);
-      return null;
-    }
+    const result = await invoke<number[] | null>("mls_process_message", {
+      room,
+      identity,
+      bytes: Array.from(bytes),
+    });
+    return result ? new Uint8Array(result) : null;
   }
 
   async encrypt(
@@ -107,8 +102,8 @@ class CryptoService {
     }
   }
 
-  clearState(room: string, identity: string): void {
-    invoke("mls_clear_state", { room, identity }).catch(() => {});
+  async clearState(room: string, identity: string): Promise<void> {
+    await invoke("mls_clear_state", { room, identity });
   }
 }
 
