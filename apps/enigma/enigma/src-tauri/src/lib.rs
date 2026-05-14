@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use enigma_core::EnigmaSession;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
@@ -11,6 +12,34 @@ use zeroize::Zeroize;
 pub struct AppConfig {
     pub profile: String,
     pub identity: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfflineProfile {
+    pub display_name: String,
+    pub email: String,
+    pub phone: String,
+    pub bio: String,
+    pub date_of_birth: String,
+}
+
+impl Default for OfflineProfile {
+    fn default() -> Self {
+        Self {
+            display_name: String::new(),
+            email: String::new(),
+            phone: String::new(),
+            bio: String::new(),
+            date_of_birth: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppProfileState {
+    pub server_url: String,
+    pub auth_token: Option<String>,
+    pub offline_profile: OfflineProfile,
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -37,25 +66,56 @@ fn safe_filename_component(s: &str) -> String {
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
 
-fn state_path(
-    app: &AppHandle,
-    config: &AppConfig,
-    room: &str,
-    identity: &str,
-) -> std::path::PathBuf {
+fn profile_dir(app: &AppHandle, config: &AppConfig) -> std::path::PathBuf {
     let base_dir = app
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     let profile = safe_filename_component(&config.profile);
+    let dir = base_dir.join("profiles").join(profile);
+
+    let _ = std::fs::create_dir_all(&dir);
+
+    dir
+}
+
+fn profile_state_path(app: &AppHandle, config: &AppConfig) -> std::path::PathBuf {
+    profile_dir(app, config).join("profile_state.json")
+}
+
+fn load_profile_state(app: &AppHandle, config: &AppConfig) -> AppProfileState {
+    let path = profile_state_path(app, config);
+
+    let Ok(bytes) = std::fs::read(path) else {
+        return AppProfileState::default();
+    };
+
+    serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default()
+}
+
+fn save_profile_state(
+    app: &AppHandle,
+    config: &AppConfig,
+    state: &AppProfileState,
+) -> Result<(), String> {
+    let path = profile_state_path(app, config);
+
+    let bytes = serde_json::to_vec_pretty(state).map_err(|e| e.to_string())?;
+
+    std::fs::write(path, bytes).map_err(|e| e.to_string())
+}
+
+fn state_path(
+    app: &AppHandle,
+    config: &AppConfig,
+    room: &str,
+    identity: &str,
+) -> std::path::PathBuf {
     let room = safe_filename_component(room);
     let identity = safe_filename_component(identity);
 
-    let dir = base_dir.join("profiles").join(profile);
-    let _ = std::fs::create_dir_all(&dir);
-
-    dir.join(format!("mls_{}_{}.bin", room, identity))
+    profile_dir(app, config).join(format!("mls_{}_{}.bin", room, identity))
 }
 
 fn persist(
@@ -106,6 +166,66 @@ fn current_profile(config: State<AppConfig>) -> String {
 #[tauri::command]
 fn current_identity(config: State<AppConfig>) -> String {
     config.identity.clone()
+}
+
+#[tauri::command]
+fn app_get_profile_state(app: AppHandle, config: State<AppConfig>) -> AppProfileState {
+    load_profile_state(&app, &config)
+}
+
+#[tauri::command]
+fn app_set_server_url(
+    app: AppHandle,
+    config: State<AppConfig>,
+    server_url: String,
+) -> Result<(), String> {
+    let mut state = load_profile_state(&app, &config);
+    state.server_url = server_url.trim_end_matches('/').to_string();
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_server_url(app: AppHandle, config: State<AppConfig>) -> String {
+    load_profile_state(&app, &config).server_url
+}
+
+#[tauri::command]
+fn app_set_auth_token(
+    app: AppHandle,
+    config: State<AppConfig>,
+    auth_token: String,
+) -> Result<(), String> {
+    let mut state = load_profile_state(&app, &config);
+    state.auth_token = Some(auth_token);
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_auth_token(app: AppHandle, config: State<AppConfig>) -> Option<String> {
+    load_profile_state(&app, &config).auth_token
+}
+
+#[tauri::command]
+fn app_clear_auth_token(app: AppHandle, config: State<AppConfig>) -> Result<(), String> {
+    let mut state = load_profile_state(&app, &config);
+    state.auth_token = None;
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_offline_profile(app: AppHandle, config: State<AppConfig>) -> OfflineProfile {
+    load_profile_state(&app, &config).offline_profile
+}
+
+#[tauri::command]
+fn app_set_offline_profile(
+    app: AppHandle,
+    config: State<AppConfig>,
+    offline_profile: OfflineProfile,
+) -> Result<(), String> {
+    let mut state = load_profile_state(&app, &config);
+    state.offline_profile = offline_profile;
+    save_profile_state(&app, &config, &state)
 }
 
 /// Initialise or restore an MLS session.
@@ -302,6 +422,14 @@ pub fn run(config: AppConfig) {
         .invoke_handler(tauri::generate_handler![
             current_profile,
             current_identity,
+            app_get_profile_state,
+            app_set_server_url,
+            app_get_server_url,
+            app_set_auth_token,
+            app_get_auth_token,
+            app_clear_auth_token,
+            app_get_offline_profile,
+            app_set_offline_profile,
             mls_init_session,
             mls_key_package,
             mls_add_member,

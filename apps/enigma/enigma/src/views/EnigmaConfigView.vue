@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { Html5Qrcode } from "html5-qrcode";
 import { api } from "../services/api";
+import { getServerUrl, setServerUrl } from "../services/appStorage";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 
@@ -11,17 +12,21 @@ defineProps<{ darkMode: boolean }>();
 const router = useRouter();
 
 // ── Server URL ────────────────────────────────────────────────────────────────
-const serverUrl = ref(localStorage.getItem("enigma_server_url") ?? "");
+const serverUrl = ref("");
 const saved = ref(false);
 
-function save() {
-  localStorage.setItem("enigma_server_url", serverUrl.value.trim());
+onMounted(async () => {
+  serverUrl.value = await getServerUrl();
+});
+
+async function save() {
+  await setServerUrl(serverUrl.value.trim());
   saved.value = true;
   setTimeout(() => (saved.value = false), 2000);
 }
 
-function clearConnection() {
-  localStorage.removeItem("enigma_server_url");
+async function clearConnection() {
+  await setServerUrl("");
   serverUrl.value = "";
   testStatus.value = "idle";
   testMessage.value = "";
@@ -91,7 +96,7 @@ async function startScan() {
       (decoded) => {
         scanLog.value.unshift({ ts: new Date(), ok: true, text: decoded });
         serverUrl.value = decoded;
-        save();           // auto-save scanned URL
+        void save();      // auto-save scanned URL
         stopScan();
       },
       () => {

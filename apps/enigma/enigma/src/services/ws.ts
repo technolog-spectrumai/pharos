@@ -1,3 +1,5 @@
+import { getAuthToken, getServerUrl } from "./appStorage";
+
 export type WsStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export interface WsMessage {
@@ -25,8 +27,8 @@ export class WsService {
   private messageHandlers: Set<MessageHandler> = new Set();
   private statusHandlers: Set<StatusHandler> = new Set();
 
-  private get wsBaseUrl(): string {
-    const http = (localStorage.getItem("enigma_server_url") ?? "").replace(/\/$/, "");
+  private async wsBaseUrl(): Promise<string> {
+    const http = (await getServerUrl()).replace(/\/$/, "");
     return http.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws"));
   }
 
@@ -53,14 +55,14 @@ export class WsService {
     this.intentionalClose = false;
     this.retryCount = 0;
     this.roomSlug = roomSlug;
-    this._open();
+    void this._open();
   }
 
-  private _open() {
+  private async _open() {
     if (!this.roomSlug) return;
-    const token = localStorage.getItem("enigma_auth_token");
+    const token = await getAuthToken();
     const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    const url = `${this.wsBaseUrl}/ws/chat/${this.roomSlug}/${query}`;
+    const url = `${await this.wsBaseUrl()}/ws/chat/${this.roomSlug}/${query}`;
     this.setStatus("connecting");
 
     const socket = new WebSocket(url);
@@ -91,7 +93,7 @@ export class WsService {
       this.setStatus(event.wasClean ? "disconnected" : "error");
       const delay = BACKOFF_DELAYS[Math.min(this.retryCount, BACKOFF_DELAYS.length - 1)];
       this.retryCount++;
-      this.retryTimer = setTimeout(() => this._open(), delay);
+      this.retryTimer = setTimeout(() => void this._open(), delay);
     };
 
     socket.onerror = () => {
