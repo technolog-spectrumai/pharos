@@ -1,40 +1,52 @@
 import { createApp } from "vue";
 import "./style.css";
 import App from "./App.vue";
+import router from "./router";
 
 import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 
 import {
   faArrowLeft,
+  faCamera,
+  faCheck,
   faComments,
   faDoorOpen,
-  faPlus,
-  faUser,
-  faCheck,
-  faLock,
-  faPaperPlane,
-  faMoon,
-  faSun,
-  faRightFromBracket,
+  faFloppyDisk,
   faGauge,
+  faGear,
+  faLock,
+  faMoon,
+  faPaperPlane,
+  faPlus,
+  faRightFromBracket,
+  faSun,
+  faTriangleExclamation,
+  faUser,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
   faArrowLeft,
+  faCamera,
+  faCheck,
   faComments,
   faDoorOpen,
-  faPlus,
-  faUser,
-  faCheck,
+  faFloppyDisk,
+  faGauge,
+  faGear,
   faLock,
-  faPaperPlane,
   faMoon,
-  faSun,
+  faPaperPlane,
+  faPlus,
   faRightFromBracket,
-  faGauge
+  faSun,
+  faTriangleExclamation,
+  faUser,
+  faXmark,
 );
 
 createApp(App)
+  .use(router)
   .component("font-awesome-icon", FontAwesomeIcon)
   .mount("#app");

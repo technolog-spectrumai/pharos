@@ -1,16 +1,13 @@
 <script setup lang="ts">
+import { useRouter } from "vue-router";
 import logo2Dark from "../assets/logo2_dark.png";
 import logo2Light from "../assets/logo2_light.png";
-import OyaCard from "./OyaCard.vue";
-import OyaButton from "./OyaButton.vue";
+import OyaCard from "../components/OyaCard.vue";
+import OyaButton from "../components/OyaButton.vue";
 
-defineProps<{
-  darkMode: boolean;
-}>();
+defineProps<{ darkMode: boolean }>();
 
-const emit = defineEmits<{
-  openChat: [];
-}>();
+const router = useRouter();
 </script>
 
 <template>
@@ -56,7 +53,7 @@ const emit = defineEmits<{
           Rooms
         </OyaButton>
 
-        <OyaButton :dark-mode="darkMode" @click="emit('openChat')">
+        <OyaButton :dark-mode="darkMode" @click="router.push('/chat')">
           <font-awesome-icon icon="door-open" />
           Enter chat
         </OyaButton>
@@ -90,9 +87,7 @@ const emit = defineEmits<{
             Present more
           </p>
 
-          <h2 class="mt-2 text-2xl font-bold">
-            Start with the chat core
-          </h2>
+          <h2 class="mt-2 text-2xl font-bold">Start with the chat core</h2>
 
           <p class="mt-3 max-w-2xl text-sm leading-relaxed opacity-75">
             Enigma should begin as a clean communication workspace. Add rooms,
@@ -101,7 +96,7 @@ const emit = defineEmits<{
           </p>
 
           <div class="mt-5 flex flex-wrap gap-2">
-            <OyaButton :dark-mode="darkMode" @click="emit('openChat')">
+            <OyaButton :dark-mode="darkMode" @click="router.push('/chat')">
               <font-awesome-icon icon="comments" />
               Open chat view
             </OyaButton>
