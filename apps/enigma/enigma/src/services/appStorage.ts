@@ -22,6 +22,25 @@ export interface OfflineProfileOption {
   profile: OfflineProfile;
 }
 
+export interface AppRuntimeConfig {
+  profile: string;
+  identity: string;
+}
+
+export async function getRuntimeConfig(): Promise<AppRuntimeConfig> {
+  return await invoke<AppRuntimeConfig>("app_get_runtime_config");
+}
+
+export async function setActiveProfile(
+  profile: string,
+  identity?: string,
+): Promise<AppRuntimeConfig> {
+  return await invoke<AppRuntimeConfig>("app_set_active_profile", {
+    profile,
+    identity,
+  });
+}
+
 export async function getProfileState(): Promise<AppProfileState> {
   return await invoke<AppProfileState>("app_get_profile_state");
 }
@@ -66,6 +85,10 @@ export async function setSelectedOfflineProfile(
   return await invoke<AppProfileState>("app_set_selected_offline_profile", {
     selectedOfflineProfileId,
   });
+}
+
+export async function loadOfflineProfile(label: string): Promise<AppProfileState> {
+  return await invoke<AppProfileState>("app_load_offline_profile", { label });
 }
 
 export async function upsertOfflineProfile(

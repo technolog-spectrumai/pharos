@@ -15,7 +15,7 @@ Persistent app state is stored by Rust/Tauri under the current profile:
 app_data_dir/profiles/{APP_PROFILE}/profile_state.json
 ```
 
-That file contains the configured server URL, auth token, selected offline data profile, and offline profile data entries. MLS state is stored in the same profile directory with `mls_*.bin` files.
+That file contains the configured server URL, auth token, selected offline data profile, and offline profile data entries. New profiles use `CHAT_USER` as the default offline data profile name. MLS state is stored in the same profile directory with `mls_*.bin` files.
 
 ## Run Multiple Local Instances
 
@@ -44,13 +44,16 @@ This means Alice and Bob can have different server URLs, auth tokens, offline da
 
 1. Run Alice with `APP_PROFILE=alice CHAT_USER=alice`.
 2. Open Settings.
-3. In Offline Data, set Data profile name to `Alice local data` and save it.
-4. Open Profile, fill the offline profile form, and save it.
-5. Run Bob with `APP_PROFILE=bob CHAT_USER=bob`.
-6. Open Settings.
-7. Set Data profile name to `Bob local data` and save it.
-8. Open Profile, fill different offline data, and save it.
-9. Switch between the two running app instances.
+3. Open Settings. Offline Data should default to an `alice` data profile.
+4. Optionally set Data profile name to `Alice local data` and save it.
+5. Open Profile, fill the offline profile form, and save it.
+6. Run Bob with `APP_PROFILE=bob CHAT_USER=bob`.
+7. Open Settings. Offline Data should default to a `bob` data profile.
+8. Optionally set Data profile name to `Bob local data` and save it.
+9. Open Profile, fill different offline data, and save it.
+10. Switch between the two running app instances.
+
+The Offline Data card also shows previous profile names as selectable chips, so you can quickly switch between saved local data profiles.
 
 Expected result: Alice's offline data and Bob's offline data stay separate because each instance writes to its own `APP_PROFILE` directory.
 
