@@ -15,11 +15,12 @@ export type MlsStatus =
 
 export interface Message {
   id: string;
-  type: "chat_message" | "mls_app" | "system_error" | "system_info";
+  type: "chat_message" | "mls_app" | "image_message" | "system_error" | "system_info";
   user: string;
   initials: string;
   avatar_url: string | null;
   content: string;
+  image_data?: string;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -185,6 +186,23 @@ export const useChatStore = defineStore("chat", () => {
 
     if (type === "system_error" && data.message) {
       messages.value.push(systemMsg(data.message as string, "system_error"));
+      return;
+    }
+
+    if (type === "image_message" && (data.image_data || data.image_url)) {
+      const senderName = (data.user as string) ?? "Unknown";
+      messages.value.push({
+        id: nanoid(), type: "image_message",
+        user: senderName,
+        initials: initials(senderName),
+        avatar_url: (data.avatar_url as string) ?? null,
+        content: "",
+        image_data: (data.image_data ?? data.image_url) as string,
+        participant_type: "human",
+        self: senderName === currentUserName.value,
+        encrypted: false,
+        timestamp: new Date(),
+      });
       return;
     }
 
@@ -460,6 +478,17 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  async function sendImage(file: File, onProgress?: (pct: number) => void) {
+    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
+    error.value = null;
+    try {
+      await api.uploadImage(currentRoom.value.slug, file, onProgress);
+      // Server relays the image via WebSocket to all channel members
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  }
+
   async function sendMessage(content: string) {
     if (!content.trim() || !isConnected.value || !currentRoom.value) return;
 
@@ -500,6 +529,6 @@ export const useChatStore = defineStore("chat", () => {
     mlsStatus, mlsError, isEncrypted,
     isParticipant, currentUserName, mlsIdentity,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
-    fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage,
+    fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage, sendImage,
   };
 });

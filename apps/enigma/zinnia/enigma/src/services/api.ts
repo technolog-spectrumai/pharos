@@ -108,6 +108,42 @@ class ApiService {
   leaveAllRooms(): Promise<{ ok: boolean; left: number }> {
     return this.request("/telegraph/api/channels/leave-all/", { method: "POST" });
   }
+
+  uploadImage(
+    slug: string,
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ ok: boolean }> {
+    return new Promise(async (resolve, reject) => {
+      const base = await serverBase();
+      const token = await getAuthToken();
+      const form = new FormData();
+      form.append("image", file);
+
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+        }
+      });
+
+      xhr.addEventListener("error", () => reject(new Error("Network error")));
+
+      xhr.open("POST", `${base}/telegraph/api/channels/${slug}/upload/`);
+      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.send(form);
+    });
+  }
 }
 
 export const api = new ApiService();
