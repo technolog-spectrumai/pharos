@@ -69,7 +69,7 @@ class ApiService {
   }
 
   async login(username: string, password: string): Promise<void> {
-    const result = await this.request<{ ok: boolean; token: string }>("/enigma/api/login/", {
+    const result = await this.request<{ ok: boolean; token: string }>("/telegraph/api/login/", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
@@ -77,36 +77,36 @@ class ApiService {
   }
 
   async logout(): Promise<void> {
-    await this.request<{ ok: boolean }>("/enigma/api/logout/", { method: "POST" }).catch(() => {});
+    await this.request<{ ok: boolean }>("/telegraph/api/logout/", { method: "POST" }).catch(() => {});
     await clearAuthToken();
   }
 
   getMe(): Promise<Me> {
-    return this.request<Me>("/enigma/api/me/");
+    return this.request<Me>("/telegraph/api/me/");
   }
 
   health(): Promise<Health> {
-    return this.request<Health>("/enigma/api/health/", {}, false);
+    return this.request<Health>("/telegraph/api/health/", {}, false);
   }
 
-  getRooms(): Promise<{ rooms: Room[] }> {
-    return this.request<{ rooms: Room[] }>("/enigma/api/rooms/");
+  getRooms(): Promise<{ channels: Room[] }> {
+    return this.request<{ channels: Room[] }>("/telegraph/api/channels/");
   }
 
   getRoom(slug: string): Promise<Room> {
-    return this.request<Room>(`/enigma/api/rooms/${slug}/`);
+    return this.request<Room>(`/telegraph/api/channels/${slug}/`);
   }
 
   joinRoom(slug: string): Promise<{ ok: boolean; joined: boolean }> {
-    return this.request(`/enigma/api/rooms/${slug}/join/`, { method: "POST" });
+    return this.request(`/telegraph/api/channels/${slug}/join/`, { method: "POST" });
   }
 
   leaveRoom(slug: string): Promise<{ ok: boolean }> {
-    return this.request(`/enigma/api/rooms/${slug}/leave/`, { method: "POST" });
+    return this.request(`/telegraph/api/channels/${slug}/leave/`, { method: "POST" });
   }
 
   leaveAllRooms(): Promise<{ ok: boolean; left: number }> {
-    return this.request("/enigma/api/rooms/leave-all/", { method: "POST" });
+    return this.request("/telegraph/api/channels/leave-all/", { method: "POST" });
   }
 }
 

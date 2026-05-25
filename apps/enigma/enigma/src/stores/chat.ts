@@ -386,7 +386,7 @@ export const useChatStore = defineStore("chat", () => {
     error.value = null;
     try {
       const data = await api.getRooms();
-      rooms.value = data.rooms;
+      rooms.value = data.channels;
     } catch (e) {
       error.value = (e as Error).message;
     } finally {

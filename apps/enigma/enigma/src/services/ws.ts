@@ -82,7 +82,7 @@ export class WsService {
     try {
       const token = await getAuthToken();
       const query = token ? `?token=${encodeURIComponent(token)}` : "";
-      const url = `${await this.wsBaseUrl()}/ws/chat/${this.roomSlug}/${query}`;
+      const url = `${await this.wsBaseUrl()}/ws/telegraph/${this.roomSlug}/${query}`;
       socket = new WebSocket(url);
       this.socket = socket;
     } catch (e) {
