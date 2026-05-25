@@ -30,6 +30,9 @@ const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
 const joiningOrLeaving = ref(false);
+const imageFileInput = ref<HTMLInputElement | null>(null);
+const uploadingImage = ref(false);
+const uploadProgress = ref(0);
 
 onMounted(() => {
   if (!rooms.value.length) chat.fetchRooms();
@@ -63,6 +66,20 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     send();
+  }
+}
+
+async function handleImageFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  uploadingImage.value = true;
+  uploadProgress.value = 0;
+  try {
+    await chat.sendImage(file, (pct) => { uploadProgress.value = pct; });
+  } finally {
+    uploadingImage.value = false;
+    uploadProgress.value = 0;
+    if (imageFileInput.value) imageFileInput.value.value = "";
   }
 }
 
@@ -394,7 +411,40 @@ const mlsChipClass = computed(() => {
         :class="darkMode ? 'bg-bubble-bg-dark' : 'bg-bubble-bg-light'"
         class="border-t border-current/10 p-4"
       >
+        <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">
+          <span>Uploading…</span>
+          <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-current/20">
+            <div
+              class="absolute left-0 top-0 h-full rounded-full bg-current transition-all duration-100"
+              :style="{ width: uploadProgress + '%' }"
+            ></div>
+          </div>
+          <span>{{ uploadProgress }}%</span>
+        </div>
+
         <div class="flex gap-3">
+          <input
+            ref="imageFileInput"
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            class="hidden"
+            @change="handleImageFile"
+          />
+
+          <button
+            type="button"
+            :disabled="!currentRoom || !isConnected || !isParticipant || uploadingImage"
+            :class="[
+              darkMode ? 'border-accent-1 text-text-main-dark' : 'border-accent-2 text-text-main-light',
+              (!currentRoom || !isConnected || !isParticipant) ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
+            ]"
+            class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition"
+            title="Send image"
+            @click="imageFileInput?.click()"
+          >
+            <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'image'" :spin="uploadingImage" />
+          </button>
+
           <textarea
             v-model="draft"
             rows="1"
