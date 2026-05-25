@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use enigma_core::EnigmaSession;
+use rotor_core::RotorSession;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
@@ -67,7 +67,7 @@ pub struct AppProfileState {
 
 // ── In-process session registry ───────────────────────────────────────────────
 
-type Sessions = Mutex<HashMap<String, EnigmaSession>>;
+type Sessions = Mutex<HashMap<String, RotorSession>>;
 
 fn session_key(profile: &str, room: &str, identity: &str) -> String {
     format!("{}:{}:{}", profile, room, identity)
@@ -234,7 +234,7 @@ fn state_path(
 fn persist(
     app: &AppHandle,
     config: &AppConfig,
-    session: &EnigmaSession,
+    session: &RotorSession,
     room: &str,
     identity: &str,
 ) {
@@ -249,9 +249,9 @@ fn restore(
     config: &AppConfig,
     room: &str,
     identity: &str,
-) -> Option<EnigmaSession> {
+) -> Option<RotorSession> {
     let mut bytes = std::fs::read(state_path(app, config, room, identity)).ok()?;
-    let result = EnigmaSession::import_state(&bytes).ok();
+    let result = RotorSession::import_state(&bytes).ok();
     bytes.zeroize();
     result
 }
@@ -580,7 +580,7 @@ fn mls_init_session(
         return Ok(true);
     }
 
-    let mut session = EnigmaSession::new(room.clone(), identity.clone())?;
+    let mut session = RotorSession::new(room.clone(), identity.clone())?;
     session.create_group()?;
 
     persist(&app, &config, &session, &room, &identity);

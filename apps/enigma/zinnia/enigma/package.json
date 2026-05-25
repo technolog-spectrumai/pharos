@@ -23,7 +23,7 @@
     "tailwindcss": "^4.3.0",
     "vue": "^3.5.13",
     "vue-router": "^5.0.7",
-    "enigma_wasm": "file:../../cargo/enigma_wasm/build"
+    "rotor_wasm": "file:../../toto/rotors/rotor_wasm/build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
