@@ -6,11 +6,12 @@ A cross-platform productivity + chat suite with end-to-end encryption. Built wit
 
 | Screen | Route | Backed by |
 |--------|-------|-----------|
+| Dashboard | `/` | Aggregated counts from all modules |
 | Chat | `/chat` | `toto.telegraph` WebSocket + MLS encryption |
 | Notes | `/notes` | `toto.bento` JSON API |
 | Storage | `/vault` | `toto.vault` JSON API |
 | Tasks | `/tasks` | `toto.kanban` JSON API |
-| Locations | `/locations` | `toto.locations` JSON API |
+| Locations | `/locations` | `toto.locations` JSON API + OpenStreetMap |
 | People | `/people` | `toto.socialhub` JSON API |
 | Wallet | `/wallet` | `toto.assets` + `toto.tariffs` + `toto.invoice` JSON API |
 
@@ -28,7 +29,7 @@ npm run dev        # starts Vite dev server
 
 Then open **http://localhost:1420** in your browser.
 
-All 7 screens (Notes, Storage, Tasks, Locations, People, Wallet, Chat) are fully functional in browser mode. The only missing feature is MLS end-to-end encryption, which requires the Tauri desktop runtime.
+All screens are fully functional in browser mode. The only missing feature is MLS end-to-end encryption, which requires the Tauri desktop runtime.
 
 ---
 
@@ -67,11 +68,7 @@ cd enigma/enigma
 APP_PROFILE=alice CHAT_USER=alice npm run tauri dev
 ```
 
-A native desktop window opens. The Vite dev server also starts at `localhost:1420` but the window uses Tauri's webview — `window.__TAURI_INTERNALS__` is available, so MLS and secure storage are active.
-
 ### Run two instances side-by-side (local multi-user testing)
-
-Each instance gets an isolated profile, MLS identity, and auth token.
 
 ```bash
 # Terminal 1 — starts Vite + opens first window
@@ -114,18 +111,72 @@ npm run tauri build
 | Chat (text) | ✅ plaintext | ✅ MLS encrypted |
 | Images in chat | ✅ | ✅ |
 | Voice messages | ✅ | ✅ |
-| Notes / Storage / Tasks / Locations / People / Wallet | ✅ | ✅ |
+| All other modules | ✅ | ✅ |
 | MLS end-to-end encryption | ❌ disabled | ✅ |
 | Auth token storage | `localStorage` | Rust secure store |
-| Server URL setting | `localStorage` | Rust secure store |
-| Native file picker (Storage upload) | HTML `<input>` | HTML `<input>` |
 | Multiple isolated profiles | ❌ | ✅ via `APP_PROFILE` |
+
+---
+
+## Features by Module
+
+### Dashboard (`/`)
+
+The welcome screen fetches live counts from all modules in parallel and displays a module grid — rooms, notes, files, projects, addresses, zones, profiles, communities. Each card links directly to its section.
+
+### Chat (`/chat`)
+
+- MLS-encrypted group messaging (Messaging Layer Security protocol)
+- WebSocket with exponential-backoff reconnect
+- Supports text, image upload, and voice messages (MediaRecorder API)
+- Participant list syncing and MLS group key exchange handshake
+
+### Locations (`/locations`)
+
+Four tabs:
+
+| Tab | Description |
+|-----|-------------|
+| **Map** | Interactive Leaflet map (OpenStreetMap tiles in light mode, CARTO dark in dark mode). Shows territories, zones, route chains, routes, and addresses as GeoJSON features. Left side panel (collapsible on mobile) contains: search, type filters, visibility toggles, and a data-layer overlay with heatmap colouring and value labels. |
+| **Zones** | Card grid of all zones with territory membership. |
+| **Addresses** | Card grid of saved addresses with coordinates. Form to add new addresses. |
+| **Route Search** | Pick two saved addresses (or enter WGS84 coordinates manually), choose a transport mode (Car / Bicycle / Foot), and search a real OSRM route. The route geometry is drawn on a Leaflet map with distance and duration shown. |
+
+**Backend API endpoints added for Enigma:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /locations/api/map/` | All locations with full GeoJSON geometry |
+| `GET /locations/api/layers/` | Active map data layers with heatmap polygons |
+| `POST /locations/api/route-search/` | OSRM route proxy (car / bicycle / foot) |
+
+### Notes (`/notes`)
+
+Linked notes (Bento app) with graph visualization. Concept tagging, source links, and a full graph view using Cytoscape.
+
+### Storage (`/vault`)
+
+Encrypted file storage. Upload, rename, encrypt/decrypt with password, and download. Files are organized by bucket.
+
+### Tasks (`/tasks`)
+
+Kanban boards backed by `toto.kanban`. View projects, sprints, backlogs, missions, and the Eisenhower priority matrix.
+
+### People (`/people`)
+
+Profiles and communities from `toto.socialhub`. Org chart visualization using Cytoscape for community hierarchies.
+
+### Wallet (`/wallet`)
+
+Account holdings and balances from `toto.assets`.
 
 ---
 
 ## Tech Stack
 
 - **Frontend:** Vue 3, TypeScript, Pinia, Vue Router, TailwindCSS v4, FontAwesome
+- **Map:** Leaflet 1.9, OpenStreetMap tiles, CARTO dark tiles
+- **Charts:** Cytoscape (org charts, note graphs)
 - **Desktop runtime:** Tauri v2, Rust
 - **Encryption:** `rotor-core` (Rust crate), MLS (Messaging Layer Security) protocol
 - **Build:** Vite 6, Cargo
@@ -138,30 +189,33 @@ npm run tauri build
 enigma/
 ├── enigma/                   # Vite + Vue 3 frontend
 │   ├── src/
-│   │   ├── views/            # Page-level components
-│   │   │   ├── EnigmaChatView.vue
-│   │   │   ├── NotesView.vue
-│   │   │   ├── VaultView.vue
-│   │   │   ├── TasksView.vue
-│   │   │   ├── LocationsView.vue
-│   │   │   ├── SocialhubView.vue
-│   │   │   ├── WalletView.vue
+│   │   ├── views/
+│   │   │   ├── EnigmaWelcomeView.vue   # Dashboard (live module counts)
+│   │   │   ├── EnigmaChatView.vue      # MLS chat + media
+│   │   │   ├── NotesView.vue           # Bento notes + graph
+│   │   │   ├── VaultView.vue           # Encrypted storage
+│   │   │   ├── TasksView.vue           # Kanban + missions
+│   │   │   ├── LocationsView.vue       # Map (Leaflet/OSM) + route search
+│   │   │   ├── SocialhubView.vue       # People + org charts
+│   │   │   ├── WalletView.vue          # Holdings
 │   │   │   ├── EnigmaLoginView.vue
 │   │   │   ├── EnigmaProfileView.vue
 │   │   │   └── EnigmaConfigView.vue
-│   │   ├── stores/           # Pinia stores (chat, user, notes, vault, tasks, locations, socialhub, wallet)
+│   │   ├── stores/           # Pinia stores per module
 │   │   ├── services/
-│   │   │   ├── api.ts        # HTTP API client — all typed interfaces + Bearer auth
-│   │   │   ├── ws.ts         # WebSocket client with exponential-backoff reconnect
-│   │   │   ├── crypto.ts     # MLS bridge to Rust (no-ops gracefully in browser)
-│   │   │   └── appStorage.ts # Token + URL storage (Tauri → Rust; browser → localStorage)
+│   │   │   ├── api.ts        # HTTP client — all typed interfaces + Bearer auth
+│   │   │   ├── ws.ts         # WebSocket with exponential-backoff reconnect
+│   │   │   ├── crypto.ts     # MLS bridge to Rust (no-ops in browser)
+│   │   │   └── appStorage.ts # Token + URL storage (Tauri: Rust; browser: localStorage)
 │   │   ├── components/
-│   │   │   └── ChatBubble.vue  # Renders text / image / audio messages
+│   │   │   ├── OyaCard.vue
+│   │   │   ├── OyaButton.vue
+│   │   │   └── ChatBubble.vue
 │   │   ├── router/index.ts
-│   │   └── App.vue           # Header nav + RouterView
+│   │   └── App.vue
 │   └── src-tauri/            # Rust / Tauri backend
 │       └── src/
-│           ├── main.rs       # Entry point — reads APP_PROFILE / CHAT_USER env vars
+│           ├── main.rs       # Entry — reads APP_PROFILE / CHAT_USER env vars
 │           └── lib.rs        # AppConfig, profile state, MLS session registry
 └── README.md
 ```
@@ -171,29 +225,38 @@ enigma/
 ## Authentication
 
 1. Go to `/login`, enter your toto credentials.
-2. A Django session key is returned and stored as a Bearer token.
+2. A Django session token is returned and stored as a Bearer token.
 3. Every API request includes `Authorization: Bearer <token>`.
-4. In browser mode the token is stored in `localStorage`; in desktop mode it is stored in the Rust secure store.
+4. In browser mode the token is in `localStorage`; in desktop mode it is in the Rust secure store.
 
 ---
 
 ## Chat Media
 
-| Media type | How to send | How it arrives |
-|------------|-------------|----------------|
-| **Image** | Click the image icon → pick a file | `POST /telegraph/api/channels/{slug}/upload/` → WebSocket relay → `<img>` |
-| **Voice** | Click the mic icon → speak → click stop | `POST /telegraph/api/channels/{slug}/upload-audio/` → WebSocket relay → `<audio controls>` |
+| Type | Send | Receive |
+|------|------|---------|
+| **Image** | Image icon → pick file | WebSocket relay → `<img>` |
+| **Voice** | Mic icon → record → stop | WebSocket relay → `<audio>` |
 
----
-
-## Message Types (WebSocket)
+## WebSocket Message Types
 
 | Type | Description |
 |------|-------------|
 | `chat_message` | Plaintext message |
-| `mls_app` | MLS-encrypted application message (opaque relay) |
-| `image_message` | Base64 image data |
-| `voice_message` | Base64 audio/webm data |
+| `mls_app` | MLS-encrypted application message |
+| `image_message` | Base64 image |
+| `voice_message` | Base64 audio/webm |
 | `mls_welcome` / `mls_commit` / `mls_key_package` | MLS group handshake |
-| `room_participants` | Active participant list update (server → client) |
+| `room_participants` | Active participant list update |
 | `system_info` / `system_error` | Server notifications |
+
+---
+
+## Responsive Layout
+
+All screens work at any window width. The Locations map view adapts:
+
+- **Desktop:** Static location index sidebar on the left, map fills remaining space.
+- **Mobile / narrow window:** Map fills the full view. A floating **Locations** button (bottom-left) slides in the location index as a side panel. The panel has a close button and a semi-transparent backdrop.
+
+The Route Search tab stacks the form above the map on narrow windows, with the form header tappable to collapse/expand it.
