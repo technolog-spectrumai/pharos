@@ -1,52 +1,90 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore } from "../stores/notes";
+import type { NoteBox } from "../services/api";
 
-defineProps<{ darkMode: boolean }>();
+const props = defineProps<{ darkMode: boolean }>();
 
 const store = useNotesStore();
-const { boxes, categories, selectedBox, loading, error } = storeToRefs(store);
+const { boxes, categories, selectedBox, links, graphNodes, graphEdges, loading, linksLoading, graphLoading, error } = storeToRefs(store);
 
+// ── UI state ──────────────────────────────────────────────────────────────────
 const search = ref("");
+const searchTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+const activePanel = ref<"detail" | "graph">("detail");
+const isReadOnly = ref(false);
 const editTitle = ref("");
 const editBody = ref("");
 const editConcept = ref(false);
 const saving = ref(false);
 const confirmDelete = ref(false);
+const showAddLink = ref(false);
+const linkSearch = ref("");
+const linkLabel = ref("");
+const linkTarget = ref<NoteBox | null>(null);
+const linkSearchResults = computed(() =>
+  linkSearch.value.trim().length < 2
+    ? []
+    : boxes.value
+        .filter(b => b.id !== selectedBox.value?.id &&
+          (b.title.toLowerCase().includes(linkSearch.value.toLowerCase()) ||
+           b.body?.toLowerCase().includes(linkSearch.value.toLowerCase())))
+        .slice(0, 8)
+);
 
+// ── Cytoscape ─────────────────────────────────────────────────────────────────
+const graphContainer = ref<HTMLElement | null>(null);
+let cy: any = null;
+
+// ── Watch box selection ───────────────────────────────────────────────────────
+watch(selectedBox, (box) => {
+  if (box) {
+    editTitle.value = box.title;
+    editBody.value = box.body ?? "";
+    editConcept.value = box.is_concept;
+    isReadOnly.value = false;
+    confirmDelete.value = false;
+    showAddLink.value = false;
+  }
+});
+
+// ── Watch graph panel ─────────────────────────────────────────────────────────
+watch(activePanel, async (panel) => {
+  if (panel === "graph") {
+    await store.fetchGraph();
+    await nextTick();
+    renderGraph();
+  }
+});
+
+watch([graphNodes, graphEdges], () => {
+  if (activePanel.value === "graph") nextTick(renderGraph);
+});
+
+watch(() => props.darkMode, () => {
+  if (activePanel.value === "graph") nextTick(renderGraph);
+});
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(() => {
   store.fetchBoxes();
   store.fetchCategories();
 });
 
-watch(selectedBox, (box) => {
-  if (box) {
-    editTitle.value = box.title;
-    editBody.value = box.body;
-    editConcept.value = box.is_concept;
-    confirmDelete.value = false;
-  }
-});
-
-const filteredBoxes = computed(() =>
-  boxes.value.filter(
-    (b) =>
-      b.title.toLowerCase().includes(search.value.toLowerCase()) ||
-      b.body.toLowerCase().includes(search.value.toLowerCase())
-  )
-);
-
-async function doSearch() {
-  await store.fetchBoxes(search.value || undefined);
+// ── Search (debounced) ────────────────────────────────────────────────────────
+function onSearchInput() {
+  if (searchTimer.value) clearTimeout(searchTimer.value);
+  searchTimer.value = setTimeout(() => store.fetchBoxes(search.value || undefined), 300);
 }
 
+// ── Actions ───────────────────────────────────────────────────────────────────
 async function newNote() {
   await store.createBox("New Note", "", false);
 }
 
 async function save() {
-  if (!selectedBox.value) return;
+  if (!selectedBox.value || isReadOnly.value) return;
   saving.value = true;
   try {
     await store.saveBox(selectedBox.value.id, {
@@ -65,47 +103,249 @@ async function del() {
   confirmDelete.value = false;
 }
 
+async function addLink() {
+  if (!selectedBox.value || !linkTarget.value) return;
+  await store.addLink(selectedBox.value.id, linkTarget.value.id, linkLabel.value.trim());
+  linkTarget.value = null;
+  linkSearch.value = "";
+  linkLabel.value = "";
+  showAddLink.value = false;
+}
+
+async function removeLink(id: number) {
+  await store.removeLink(id);
+}
+
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// ── Cytoscape graph ───────────────────────────────────────────────────────────
+function renderGraph() {
+  const container = graphContainer.value;
+  if (!container) return;
+  if (typeof (window as any).cytoscape === "undefined") {
+    loadCytoscape().then(renderGraph);
+    return;
+  }
+  if (cy) { cy.destroy(); cy = null; }
+
+  const dark = props.darkMode;
+  const bg     = dark ? "#0a0c11" : "#f2f3f5";
+  const node   = dark ? "#131929" : "#ffffff";
+  const border = dark ? "#4f5fa1" : "#2f3d63";
+  const text   = dark ? "#d3d7e0" : "#0f1114";
+  const accent = dark ? "#7b9cff" : "#2f5bf7";
+
+  container.style.backgroundColor = bg;
+
+  const elements = [
+    ...graphNodes.value.map((n: any) => ({
+      data: {
+        id: n.id,
+        label: ((n.label || n.title) ?? "Untitled").slice(0, 28),
+        real_id: n.real_id ?? null,
+        node_type: n.node_type ?? "box",
+        is_concept: !!n.is_concept,
+        selected_box: n.real_id != null && selectedBox.value?.id === n.real_id,
+      }
+    })),
+    ...graphEdges.value.map((e: any) => ({
+      data: {
+        id: e.id,
+        source: e.source ?? String(e.from_box),
+        target: e.target ?? String(e.to_box),
+        label: e.label ?? "",
+        edge_type: e.edge_type ?? "link",
+      }
+    })),
+  ];
+
+  cy = (window as any).cytoscape({
+    container,
+    elements,
+    wheelSensitivity: 0.2,
+    style: [
+      {
+        // Default: note box — rounded rectangle
+        selector: "node",
+        style: {
+          "shape": "round-rectangle",
+          "background-color": node,
+          "border-color": border,
+          "border-width": 1.5,
+          "label": "data(label)",
+          "color": text,
+          "font-size": 10,
+          "text-wrap": "ellipsis",
+          "text-max-width": 130,
+          "text-valign": "center",
+          "text-halign": "center",
+          "width": 150,
+          "height": 44,
+          "cursor": "pointer",
+        }
+      },
+      {
+        // Category node — plain ellipse
+        selector: "node[node_type = 'category']",
+        style: {
+          "shape": "ellipse",
+          "width": 120,
+          "height": 40,
+          "font-size": 9,
+          "font-style": "italic",
+          "cursor": "default",
+        }
+      },
+      {
+        // Concept box — ellipse with thick dashed accent border
+        selector: "node[node_type = 'concept']",
+        style: {
+          "shape": "ellipse",
+          "border-color": accent,
+          "border-width": 3,
+          "border-style": "dashed",
+          "font-style": "italic",
+          "width": 160,
+          "height": 50,
+        }
+      },
+      {
+        selector: "node[?selected_box]",
+        style: { "background-color": accent, "color": dark ? "#0a0c11" : "#fff", "border-width": 0 }
+      },
+      {
+        selector: "node:selected",
+        style: { "background-color": accent, "color": dark ? "#0a0c11" : "#fff", "border-width": 0 }
+      },
+      {
+        // IdeaLink edge — solid with arrow
+        selector: "edge[edge_type = 'link']",
+        style: {
+          "width": 1.5,
+          "line-color": border,
+          "curve-style": "bezier",
+          "target-arrow-shape": "triangle",
+          "target-arrow-color": border,
+          "label": "data(label)",
+          "font-size": 8,
+          "color": text,
+          "text-opacity": 0.6,
+          "text-background-color": bg,
+          "text-background-opacity": 0.85,
+          "text-background-padding": "2px",
+        }
+      },
+      {
+        // Category membership edge — subtle dashed, no arrow
+        selector: "edge[edge_type = 'category']",
+        style: {
+          "width": 1,
+          "line-color": border,
+          "line-style": "dashed",
+          "curve-style": "bezier",
+          "target-arrow-shape": "none",
+          "opacity": 0.4,
+        }
+      },
+    ],
+    layout: {
+      name: "cose",
+      animate: false,
+      randomize: true,
+      nodeRepulsion: 6000,
+      idealEdgeLength: 120,
+      padding: 20,
+      fit: true,
+    },
+  });
+
+  cy.on("tap", "node", (evt: any) => {
+    const d = evt.target.data();
+    if (d.node_type === "category") return;
+    const realId = d.real_id;
+    const box = (graphNodes.value as any[]).find((n: any) => n.real_id === realId);
+    if (box) {
+      const fullBox = store.boxes.find(b => b.id === realId);
+      if (fullBox) store.selectBox(fullBox);
+    }
+  });
+}
+
+async function loadCytoscape() {
+  if ((window as any).cytoscape) return;
+  return new Promise<void>((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js";
+    script.onload = () => resolve();
+    document.head.appendChild(script);
+  });
 }
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-9rem)] w-full gap-4 overflow-hidden">
+  <div class="flex h-[calc(100vh-9rem)] w-full gap-3 overflow-hidden">
 
-    <!-- Sidebar -->
+    <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
     <aside
       :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
-      class="flex w-72 shrink-0 flex-col rounded-xl border shadow-md overflow-hidden"
+      class="flex w-64 shrink-0 flex-col rounded-xl border shadow-md overflow-hidden"
     >
       <!-- Search + New -->
-      <div class="flex gap-2 border-b border-current/10 p-3">
-        <input
-          v-model="search"
-          @keydown.enter="doSearch"
-          type="text"
-          placeholder="Search notes…"
-          :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark' : 'bg-primary-bg-light border-accent-2 text-text-main-light'"
-          class="flex-1 rounded-lg border px-2 py-1.5 text-sm outline-none"
-        />
-        <button
-          @click="newNote"
-          :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
-          class="rounded-lg px-3 py-1.5 text-sm font-bold transition hover:opacity-90"
-          title="New note"
-        >
-          <font-awesome-icon icon="plus" />
-        </button>
+      <div class="shrink-0 border-b border-current/10 p-3 space-y-2">
+        <div class="flex gap-1.5">
+          <div class="relative flex-1">
+            <font-awesome-icon icon="magnifying-glass" class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs opacity-50" />
+            <input
+              v-model="search"
+              @input="onSearchInput"
+              type="text"
+              placeholder="Search…"
+              :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark' : 'bg-primary-bg-light border-accent-2 text-text-main-light'"
+              class="w-full rounded-lg border py-1.5 pl-7 pr-2 text-xs outline-none"
+            />
+          </div>
+          <button
+            @click="newNote"
+            :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+            class="rounded-lg px-2.5 text-xs font-bold transition hover:opacity-90"
+            title="New note"
+          >
+            <font-awesome-icon icon="plus" />
+          </button>
+        </div>
+        <!-- Panel toggle -->
+        <div class="flex gap-1">
+          <button
+            @click="activePanel = 'detail'"
+            :class="activePanel === 'detail'
+              ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+              : 'border border-current/20 opacity-60 hover:opacity-100'"
+            class="flex-1 rounded-lg py-1 text-xs font-semibold transition"
+          >
+            <font-awesome-icon icon="sticky-note" class="mr-1" />Note
+          </button>
+          <button
+            @click="activePanel = 'graph'"
+            :class="activePanel === 'graph'
+              ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+              : 'border border-current/20 opacity-60 hover:opacity-100'"
+            class="flex-1 rounded-lg py-1 text-xs font-semibold transition"
+          >
+            <font-awesome-icon icon="diagram-project" class="mr-1" />Graph
+          </button>
+        </div>
       </div>
 
-      <!-- Box list -->
-      <div v-if="loading" class="flex flex-1 items-center justify-center opacity-50 text-sm">Loading…</div>
-      <div v-else-if="filteredBoxes.length === 0" class="flex flex-1 items-center justify-center opacity-40 text-sm">No notes</div>
+      <!-- Note list -->
+      <div v-if="loading" class="flex flex-1 items-center justify-center opacity-40 text-xs">Loading…</div>
+      <div v-else-if="boxes.length === 0" class="flex flex-1 items-center justify-center opacity-40 text-xs">No notes</div>
       <ul v-else class="flex-1 overflow-y-auto divide-y divide-current/5">
         <li
-          v-for="box in filteredBoxes"
+          v-for="box in boxes"
           :key="box.id"
-          @click="store.selectBox(box)"
+          @click="store.selectBox(box); activePanel = 'detail'"
           :class="[
             'cursor-pointer px-3 py-2.5 transition hover:opacity-80',
             selectedBox?.id === box.id
@@ -113,72 +353,175 @@ function formatDate(iso: string) {
               : ''
           ]"
         >
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1.5 min-w-0">
             <font-awesome-icon
-              :icon="box.is_concept ? 'tag' : 'sticky-note'"
-              class="text-xs opacity-50 shrink-0"
+              :icon="box.is_concept ? 'lightbulb' : 'sticky-note'"
+              class="text-xs opacity-40 shrink-0"
             />
-            <span class="truncate text-sm font-medium">{{ box.title || "Untitled" }}</span>
+            <span class="truncate text-xs font-semibold">{{ box.title || "Untitled" }}</span>
+            <font-awesome-icon v-if="box.is_locked" icon="lock" class="text-xs opacity-40 ml-auto shrink-0" />
           </div>
-          <p class="mt-0.5 truncate text-xs opacity-40">{{ box.body.slice(0, 60) || "—" }}</p>
-          <p class="mt-0.5 text-xs opacity-30">{{ formatDate(box.updated_at) }}</p>
+          <p class="mt-0.5 truncate text-xs opacity-35">{{ box.body?.slice(0, 48) || "—" }}</p>
         </li>
       </ul>
+
+      <!-- Stats footer -->
+      <div class="shrink-0 border-t border-current/10 px-3 py-2 text-xs opacity-50 grid grid-cols-2 gap-1">
+        <span>{{ boxes.length }} notes</span>
+        <span>{{ links.length }} links</span>
+      </div>
     </aside>
 
-    <!-- Main panel -->
-    <main
-      :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
-      class="flex flex-1 flex-col rounded-xl border shadow-md overflow-hidden"
-    >
-      <div v-if="!selectedBox" class="flex flex-1 flex-col items-center justify-center opacity-40 gap-3">
-        <font-awesome-icon icon="sticky-note" class="text-4xl" />
-        <p class="text-sm">Select or create a note</p>
-      </div>
+    <!-- ── Main content (detail or graph) ───────────────────────────────────── -->
+    <div class="flex flex-1 gap-3 min-w-0 overflow-hidden">
 
+      <!-- GRAPH PANEL -->
+      <template v-if="activePanel === 'graph'">
+        <div
+          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+          class="flex-1 rounded-xl border shadow-md overflow-hidden relative"
+        >
+          <div v-if="graphLoading" class="absolute inset-0 flex items-center justify-center opacity-40">
+            <font-awesome-icon icon="spinner" spin class="text-2xl" />
+          </div>
+          <div ref="graphContainer" class="w-full h-full" />
+          <div class="absolute bottom-3 right-3 text-xs opacity-40 pointer-events-none">
+            {{ graphNodes.length }} nodes · {{ graphEdges.length }} edges · click node to open
+          </div>
+        </div>
+      </template>
+
+      <!-- DETAIL PANEL -->
       <template v-else>
-        <!-- Title bar -->
-        <div class="flex items-center gap-3 border-b border-current/10 px-4 py-3">
-          <input
-            v-model="editTitle"
-            type="text"
-            placeholder="Title…"
-            :class="darkMode ? 'bg-transparent text-text-main-dark' : 'bg-transparent text-text-main-light'"
-            class="flex-1 text-lg font-bold outline-none"
-          />
-          <label class="flex items-center gap-1.5 text-xs opacity-60 cursor-pointer">
-            <input v-model="editConcept" type="checkbox" class="rounded" />
-            Concept
-          </label>
-          <span v-if="selectedBox.category_name"
-            :class="darkMode ? 'bg-accent-dark/20 text-text-main-dark' : 'bg-accent-light/20 text-text-main-light'"
-            class="rounded-full px-2 py-0.5 text-xs">
-            {{ selectedBox.category_name }}
-          </span>
+        <!-- No selection -->
+        <div
+          v-if="!selectedBox"
+          :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+          class="flex flex-1 flex-col items-center justify-center rounded-xl border shadow-md opacity-40 gap-3"
+        >
+          <font-awesome-icon icon="sticky-note" class="text-4xl" />
+          <p class="text-sm">Select or create a note</p>
         </div>
 
-        <!-- Body -->
-        <textarea
-          v-model="editBody"
-          :class="darkMode ? 'bg-transparent text-text-main-dark placeholder-white/30' : 'bg-transparent text-text-main-light placeholder-black/30'"
-          class="flex-1 resize-none p-4 text-sm leading-relaxed outline-none"
-          placeholder="Write your note here…"
-        />
+        <!-- Note editor -->
+        <template v-else>
+          <div
+            :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+            class="flex flex-1 flex-col rounded-xl border shadow-md overflow-hidden min-w-0"
+          >
+            <!-- Title bar -->
+            <div class="shrink-0 border-b border-current/10 px-4 py-3 space-y-2">
+              <!-- Breadcrumb -->
+              <div class="flex items-center gap-2 text-xs opacity-50">
+                <font-awesome-icon :icon="selectedBox.is_concept ? 'lightbulb' : 'sticky-note'" />
+                <span>{{ selectedBox.is_concept ? "Concept" : "Note" }}</span>
+                <span v-if="selectedBox.category_name" class="ml-1 rounded border border-current/20 px-1.5 py-0.5">{{ selectedBox.category_name }}</span>
+              </div>
 
-        <!-- Actions -->
-        <div class="flex items-center justify-between border-t border-current/10 px-4 py-2.5">
-          <div class="text-xs opacity-40">
-            Updated {{ formatDate(selectedBox.updated_at) }}
-          </div>
-          <div class="flex gap-2">
-            <template v-if="!confirmDelete">
-              <button
-                @click="confirmDelete = true"
-                class="rounded-lg border border-current/20 px-3 py-1.5 text-xs opacity-60 transition hover:opacity-100"
+              <!-- Title input -->
+              <input
+                v-model="editTitle"
+                :disabled="isReadOnly"
+                type="text"
+                placeholder="Title…"
+                :class="darkMode ? 'bg-transparent text-text-main-dark' : 'bg-transparent text-text-main-light'"
+                class="w-full text-xl font-bold outline-none disabled:opacity-60"
+              />
+
+              <!-- Meta row -->
+              <div class="flex flex-wrap items-center gap-3 text-xs opacity-50">
+                <span>Created {{ formatDate(selectedBox.created_at) }}</span>
+                <span>Updated {{ formatDate(selectedBox.updated_at) }}</span>
+                <label class="flex items-center gap-1 cursor-pointer ml-auto">
+                  <input v-model="editConcept" type="checkbox" :disabled="isReadOnly" class="rounded" />
+                  <span>Concept</span>
+                </label>
+                <!-- Read-only toggle -->
+                <button
+                  @click="isReadOnly = !isReadOnly"
+                  :class="isReadOnly
+                    ? (darkMode ? 'bg-accent-dark/20 text-accent-dark' : 'bg-accent-light/20 text-accent-light')
+                    : 'opacity-50 hover:opacity-80'"
+                  class="flex items-center gap-1 rounded px-2 py-0.5 transition"
+                  :title="isReadOnly ? 'Click to enable editing' : 'Click to lock (read-only)'"
+                >
+                  <font-awesome-icon :icon="isReadOnly ? 'lock' : 'lock-open'" />
+                  {{ isReadOnly ? "Read-only" : "Editable" }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Body -->
+            <textarea
+              v-model="editBody"
+              :disabled="isReadOnly"
+              :class="darkMode ? 'bg-transparent text-text-main-dark placeholder-white/30' : 'bg-transparent text-text-main-light placeholder-black/30'"
+              class="flex-1 resize-none p-4 text-sm leading-relaxed outline-none disabled:opacity-60 min-h-0"
+              placeholder="Write your note…"
+            />
+
+            <!-- Source + Quote row -->
+            <div class="shrink-0 grid grid-cols-2 gap-3 border-t border-current/10 px-4 py-3">
+              <div
+                :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+                class="rounded-lg border p-3"
               >
-                <font-awesome-icon icon="trash" /> Delete
-              </button>
+                <p class="text-xs font-bold opacity-60 mb-1.5 flex items-center gap-1">
+                  <font-awesome-icon icon="book-open" />
+                  Source
+                </p>
+                <p v-if="selectedBox.source_title" class="text-xs font-semibold">{{ selectedBox.source_title }}</p>
+                <p v-else class="text-xs opacity-40">No source.</p>
+                <p v-if="selectedBox.source_type" class="text-xs opacity-50 mt-0.5">{{ selectedBox.source_type }}</p>
+              </div>
+              <div
+                :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+                class="rounded-lg border p-3"
+              >
+                <p class="text-xs font-bold opacity-60 mb-1.5 flex items-center gap-1">
+                  <font-awesome-icon icon="quote-left" />
+                  Quote
+                </p>
+                <p v-if="selectedBox.quote" class="text-xs italic">{{ selectedBox.quote }}</p>
+                <p v-else class="text-xs opacity-40">No quote.</p>
+              </div>
+            </div>
+
+            <!-- Properties -->
+            <div
+              v-if="selectedBox.properties && Object.keys(selectedBox.properties).length"
+              :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+              class="shrink-0 border-t px-4 py-3"
+            >
+              <p class="text-xs font-bold opacity-60 mb-2 flex items-center gap-1">
+                <font-awesome-icon icon="code" />
+                Properties
+              </p>
+              <pre
+                :class="darkMode ? 'bg-primary-bg-dark text-text-main-dark' : 'bg-primary-bg-light text-text-main-light'"
+                class="rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap"
+              >{{ JSON.stringify(selectedBox.properties, null, 2) }}</pre>
+            </div>
+
+            <!-- Action bar -->
+            <div class="shrink-0 flex items-center justify-between border-t border-current/10 px-4 py-2.5">
+              <template v-if="!confirmDelete">
+                <button
+                  @click="confirmDelete = true"
+                  class="rounded-lg border border-current/20 px-3 py-1.5 text-xs opacity-60 transition hover:opacity-100"
+                >
+                  <font-awesome-icon icon="trash" /> Delete
+                </button>
+              </template>
+              <template v-else>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs opacity-60">Delete this note?</span>
+                  <button @click="confirmDelete = false" class="rounded-lg border border-current/20 px-2 py-1 text-xs transition">Cancel</button>
+                  <button @click="del" class="rounded-lg bg-red-500 px-2 py-1 text-xs text-white font-bold">Yes</button>
+                </div>
+              </template>
               <button
+                v-if="!isReadOnly"
                 @click="save"
                 :disabled="saving"
                 :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
@@ -186,17 +529,166 @@ function formatDate(iso: string) {
               >
                 {{ saving ? "Saving…" : "Save" }}
               </button>
-            </template>
-            <template v-else>
-              <span class="text-xs opacity-60 self-center">Delete this note?</span>
-              <button @click="confirmDelete = false" class="rounded-lg border border-current/20 px-3 py-1.5 text-xs transition hover:opacity-80">Cancel</button>
-              <button @click="del" class="rounded-lg bg-red-500 px-3 py-1.5 text-xs text-white font-bold transition hover:opacity-90">Yes, delete</button>
-            </template>
+              <span v-else class="text-xs opacity-40 flex items-center gap-1">
+                <font-awesome-icon icon="lock" /> Read-only
+              </span>
+            </div>
           </div>
-        </div>
-      </template>
 
-      <div v-if="error" class="px-4 py-2 text-xs text-red-400">{{ error }}</div>
-    </main>
+          <!-- ── Links panel ───────────────────────────────────────────────── -->
+          <div
+            :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+            class="flex w-64 shrink-0 flex-col rounded-xl border shadow-md overflow-hidden"
+          >
+            <!-- Links header -->
+            <div class="shrink-0 border-b border-current/10 px-4 py-3">
+              <h3 class="flex items-center gap-2 text-sm font-bold">
+                <font-awesome-icon icon="link" class="opacity-60" />
+                Links
+              </h3>
+              <div class="mt-2 flex gap-1.5">
+                <button
+                  @click="showAddLink = !showAddLink; linkSearch = ''; linkTarget = null; linkLabel = ''"
+                  :class="darkMode ? 'border-accent-1 hover:bg-primary-bg-dark' : 'border-accent-2 hover:bg-primary-bg-light'"
+                  class="flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition text-center"
+                >
+                  <font-awesome-icon icon="arrow-up-right-from-square" class="mr-1" />Link from this
+                </button>
+              </div>
+            </div>
+
+            <!-- Add link form -->
+            <div v-if="showAddLink" class="shrink-0 border-b border-current/10 p-3 space-y-2">
+              <input
+                v-model="linkSearch"
+                type="text"
+                placeholder="Search target note…"
+                :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark' : 'bg-primary-bg-light border-accent-2 text-text-main-light'"
+                class="w-full rounded-lg border px-2 py-1.5 text-xs outline-none"
+                autofocus
+              />
+              <!-- Search results -->
+              <ul v-if="linkSearchResults.length" class="rounded-lg border border-current/10 divide-y divide-current/5 max-h-32 overflow-y-auto text-xs">
+                <li
+                  v-for="b in linkSearchResults"
+                  :key="b.id"
+                  @click="linkTarget = b; linkSearch = b.title"
+                  :class="[
+                    'cursor-pointer px-2 py-1.5 transition',
+                    linkTarget?.id === b.id
+                      ? (darkMode ? 'bg-accent-dark/20' : 'bg-accent-light/20')
+                      : 'hover:opacity-80'
+                  ]"
+                >
+                  <font-awesome-icon :icon="b.is_concept ? 'lightbulb' : 'sticky-note'" class="opacity-40 mr-1" />
+                  {{ b.title || "Untitled" }}
+                </li>
+              </ul>
+              <input
+                v-model="linkLabel"
+                type="text"
+                placeholder="Relation label (e.g. answered by)"
+                :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark' : 'bg-primary-bg-light border-accent-2 text-text-main-light'"
+                class="w-full rounded-lg border px-2 py-1.5 text-xs outline-none"
+              />
+              <div class="flex gap-1.5">
+                <button
+                  @click="addLink"
+                  :disabled="!linkTarget"
+                  :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+                  class="flex-1 rounded-lg py-1.5 text-xs font-bold transition disabled:opacity-40"
+                >
+                  Create link
+                </button>
+                <button @click="showAddLink = false" class="rounded-lg border border-current/20 px-2 py-1.5 text-xs transition hover:opacity-80">✕</button>
+              </div>
+            </div>
+
+            <!-- Links list -->
+            <div v-if="linksLoading" class="flex flex-1 items-center justify-center opacity-40 text-xs">Loading…</div>
+            <div v-else class="flex-1 overflow-y-auto">
+              <!-- Outgoing -->
+              <div class="px-3 pt-3 pb-1">
+                <p class="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Outgoing</p>
+                <div v-if="store.outgoingLinks(selectedBox.id).length === 0" class="text-xs opacity-35">No outgoing links.</div>
+                <div
+                  v-for="link in store.outgoingLinks(selectedBox.id)"
+                  :key="link.id"
+                  :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+                  class="rounded-lg border p-2.5 mb-2 space-y-1"
+                >
+                  <p class="text-xs opacity-50 italic">{{ link.label }}</p>
+                  <button
+                    @click="store.selectBox({ id: link.to_box, title: link.to_box_title } as any)"
+                    :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                    class="text-xs font-semibold text-left underline-offset-2 hover:underline"
+                  >
+                    {{ link.to_box_title }}
+                  </button>
+                  <button
+                    @click="removeLink(link.id)"
+                    class="flex items-center gap-1 text-xs opacity-40 transition hover:opacity-80 hover:text-red-400"
+                  >
+                    <font-awesome-icon icon="trash" class="text-xs" />
+                    Delete link
+                  </button>
+                </div>
+              </div>
+
+              <!-- Incoming -->
+              <div class="px-3 pt-1 pb-3">
+                <p class="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Incoming</p>
+                <div v-if="store.incomingLinks(selectedBox.id).length === 0" class="text-xs opacity-35">No incoming links.</div>
+                <div
+                  v-for="link in store.incomingLinks(selectedBox.id)"
+                  :key="link.id"
+                  :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+                  class="rounded-lg border p-2.5 mb-2 space-y-1"
+                >
+                  <p class="text-xs opacity-50 italic">{{ link.label }}</p>
+                  <button
+                    @click="store.selectBox({ id: link.from_box, title: link.from_box_title } as any)"
+                    :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                    class="text-xs font-semibold text-left underline-offset-2 hover:underline"
+                  >
+                    {{ link.from_box_title }}
+                  </button>
+                  <button
+                    @click="removeLink(link.id)"
+                    class="flex items-center gap-1 text-xs opacity-40 transition hover:opacity-80 hover:text-red-400"
+                  >
+                    <font-awesome-icon icon="trash" class="text-xs" />
+                    Delete link
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Graph mini-stats footer -->
+            <div
+              :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+              class="shrink-0 border-t p-3"
+            >
+              <p class="text-xs font-bold opacity-60 mb-1 flex items-center gap-1">
+                <font-awesome-icon icon="circle-nodes" />
+                Graph
+              </p>
+              <p class="text-xs opacity-50">{{ store.outgoingLinks(selectedBox.id).length + store.incomingLinks(selectedBox.id).length }} links total</p>
+              <button
+                @click="activePanel = 'graph'; store.fetchGraph()"
+                :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                class="mt-1 text-xs underline-offset-2 hover:underline"
+              >
+                Open graph view →
+              </button>
+            </div>
+          </div>
+        </template>
+      </template>
+    </div>
+
+    <div v-if="error" class="fixed bottom-4 right-4 rounded-lg bg-red-500/90 px-4 py-2 text-xs text-white shadow-lg">
+      {{ error }}
+    </div>
   </div>
 </template>

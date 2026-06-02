@@ -14,6 +14,22 @@ export interface NoteCategory {
   description: string;
 }
 
+export interface NoteLink {
+  id: number;
+  from_box: number;
+  to_box: number;
+  label: string;
+  from_box_title: string;
+  to_box_title: string;
+}
+
+export interface NoteEdge {
+  id: number;
+  from_box: number;
+  to_box: number;
+  label: string;
+}
+
 export interface NoteBox {
   id: number;
   title: string;
@@ -273,6 +289,27 @@ class ApiService {
   }
 
   // ── Notes (Bento) ─────────────────────────────────────────────────────────
+
+  // ── Notes links + graph ───────────────────────────────────────────────────
+
+  getBoxLinks(boxId: number): Promise<{ links: NoteLink[] }> {
+    return this.request(`/bento/api/boxes/${boxId}/links/`);
+  }
+
+  createLink(fromBox: number, toBox: number, label: string): Promise<NoteLink> {
+    return this.request("/bento/api/links/", {
+      method: "POST",
+      body: JSON.stringify({ from_box: fromBox, to_box: toBox, label }),
+    });
+  }
+
+  deleteLink(id: number): Promise<void> {
+    return this.request(`/bento/api/links/${id}/`, { method: "DELETE" });
+  }
+
+  getFullGraph(): Promise<{ nodes: NoteBox[]; edges: NoteEdge[] }> {
+    return this.request("/bento/api/graph/");
+  }
 
   getBoxes(query?: string): Promise<{ boxes: NoteBox[] }> {
     const qs = query ? `?q=${encodeURIComponent(query)}` : "";
