@@ -1,17 +1,62 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { storeToRefs } from "pinia";
 import { useSocialhubStore } from "../stores/socialhub";
+import { api } from "../services/api";
+import type { Profile, Community, OrgNode } from "../services/api";
 import cytoscape from "cytoscape";
 
 const props = defineProps<{ darkMode: boolean }>();
 
+// ── Local list state (bypasses store to avoid HMR reactivity issues) ─────────
+const profiles = ref<Profile[]>([]);
+const communities = ref<Community[]>([]);
+const profilesLoading = ref(false);
+const communitiesLoading = ref(false);
+const profilesError = ref<string | null>(null);
+const communitiesError = ref<string | null>(null);
+
+async function fetchProfiles() {
+  profilesLoading.value = true;
+  profilesError.value = null;
+  try {
+    const res = await api.getProfiles();
+    profiles.value = res.profiles ?? [];
+  } catch (e: any) {
+    profilesError.value = e.message ?? "Failed to load profiles";
+  } finally {
+    profilesLoading.value = false;
+  }
+}
+
+async function fetchCommunities() {
+  communitiesLoading.value = true;
+  communitiesError.value = null;
+  try {
+    const res = await api.getCommunities();
+    communities.value = res.communities ?? [];
+  } catch (e: any) {
+    communitiesError.value = e.message ?? "Failed to load communities";
+  } finally {
+    communitiesLoading.value = false;
+  }
+}
+
+onMounted(() => { fetchProfiles(); fetchCommunities(); });
+
+// ── Detail panel (still uses store for selected state + org chart) ────────────
 const store = useSocialhubStore();
-const {
-  profiles, communities, selectedProfile, selectedCommunity, orgChart,
-  profilesLoading, communitiesLoading, orgChartLoading,
-  profilesError, communitiesError,
-} = storeToRefs(store);
+const selectedProfile = ref<Profile | null>(null);
+const selectedCommunity = ref<Community | null>(null);
+const orgChart = ref<OrgNode[] | null>(null);
+const orgChartLoading = ref(false);
+
+async function openProfile(slug: string) {
+  try { selectedProfile.value = await api.getProfile(slug); selectedCommunity.value = null; } catch {}
+}
+async function openCommunity(slug: string) {
+  try { selectedCommunity.value = await api.getCommunity(slug); selectedProfile.value = null; orgChart.value = null; } catch {}
+}
+function clearSelection() { selectedProfile.value = null; selectedCommunity.value = null; orgChart.value = null; }
 
 const tab = ref<"people" | "communities">("people");
 
@@ -22,7 +67,15 @@ let cy: cytoscape.Core | null = null;
 
 async function openChart(slug: string) {
   chartOpen.value = true;
-  if (!orgChart.value) await store.fetchOrgChart(slug);
+  if (!orgChart.value) {
+    orgChartLoading.value = true;
+    try {
+      const res = await api.getOrgChart(slug);
+      orgChart.value = res.nodes;
+    } finally {
+      orgChartLoading.value = false;
+    }
+  }
   await nextTick();
   renderChart();
 }
@@ -104,14 +157,13 @@ function renderChart() {
       padding: 40,
       fit: true,
     } as any,
-    wheelSensitivity: 0.2,
   });
 
   chartContainer.value.style.backgroundColor = bgColor;
 
   cy.on("tap", "node", (evt) => {
     const slug = orgChart.value?.find(n => n.id === evt.target.id())?.slug;
-    if (slug) store.openProfile(slug);
+    if (slug) openProfile(slug);
   });
 }
 
@@ -149,7 +201,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
 
       <!-- Tabs + refresh -->
       <div class="flex items-center gap-1 shrink-0">
-        <button @click="tab = 'people'; store.clearSelection()"
+        <button @click="tab = 'people'; clearSelection()"
           :class="[
             'rounded-lg px-4 py-2 text-sm font-semibold border transition',
             tab === 'people'
@@ -158,7 +210,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
           ]">
           <font-awesome-icon icon="users" class="mr-1.5" />People
         </button>
-        <button @click="tab = 'communities'; store.clearSelection()"
+        <button @click="tab = 'communities'; clearSelection()"
           :class="[
             'rounded-lg px-4 py-2 text-sm font-semibold border transition',
             tab === 'communities'
@@ -168,7 +220,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
           <font-awesome-icon icon="building" class="mr-1.5" />Communities
         </button>
         <button
-          @click="tab === 'people' ? store.fetchProfiles() : store.fetchCommunities()"
+          @click="tab === 'people' ? fetchProfiles() : fetchCommunities()"
           :disabled="profilesLoading || communitiesLoading"
           class="ml-auto rounded-lg border border-current/20 px-3 py-2 text-xs opacity-60 hover:opacity-100 transition disabled:opacity-30"
           title="Refresh">
@@ -185,7 +237,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
         </div>
         <div v-else-if="profilesError" class="flex flex-col items-center justify-center py-16 gap-3">
           <p class="text-sm text-red-400">{{ profilesError }}</p>
-          <button @click="store.fetchProfiles()"
+          <button @click="fetchProfiles()"
             :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
             class="rounded-lg px-4 py-2 text-xs font-bold transition hover:opacity-90">
             <font-awesome-icon icon="rotate-right" class="mr-1" />Retry
@@ -197,7 +249,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
         </div>
         <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <button v-for="p in profiles" :key="p.id"
-            @click="store.openProfile(p.slug)"
+            @click="openProfile(p.slug)"
             :class="[
               'flex flex-col items-center gap-2 rounded-xl border p-3 text-left transition hover:opacity-80',
               selectedProfile?.id === p.id
@@ -221,7 +273,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
         </div>
         <div v-else-if="communitiesError" class="flex flex-col items-center justify-center py-16 gap-3">
           <p class="text-sm text-red-400">{{ communitiesError }}</p>
-          <button @click="store.fetchCommunities()"
+          <button @click="fetchCommunities()"
             :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
             class="rounded-lg px-4 py-2 text-xs font-bold transition hover:opacity-90">
             <font-awesome-icon icon="rotate-right" class="mr-1" />Retry
@@ -233,7 +285,7 @@ const ORG_TYPE_COLORS: Record<string, string> = {
         </div>
         <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div v-for="c in communities" :key="c.id"
-            @click="store.openCommunity(c.slug)"
+            @click="openCommunity(c.slug)"
             :class="[
               'flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition hover:opacity-80',
               selectedCommunity?.id === c.id
@@ -259,6 +311,14 @@ const ORG_TYPE_COLORS: Record<string, string> = {
       </div>
     </div>
 
+    <!-- Mobile backdrop -->
+    <Transition enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0" enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-150" leave-from-class="opacity-100" leave-to-class="opacity-0">
+      <div v-if="selectedProfile || selectedCommunity"
+        class="fixed inset-0 z-30 bg-black/50 sm:hidden"
+        @click="clearSelection()" />
+    </Transition>
+
     <!-- Detail slide-in -->
     <Transition
       enter-active-class="transition-all duration-200 ease-out"
@@ -270,11 +330,23 @@ const ORG_TYPE_COLORS: Record<string, string> = {
     >
       <aside v-if="selectedProfile || selectedCommunity"
         :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
-        class="w-72 shrink-0 rounded-xl border p-4 shadow-md overflow-y-auto">
+        class="sm:w-72 sm:shrink-0 sm:rounded-xl sm:relative sm:inset-auto sm:z-auto
+               fixed inset-x-0 bottom-0 z-40 max-h-[85vh] rounded-t-2xl
+               border p-4 shadow-xl overflow-y-auto">
 
-        <button @click="store.clearSelection()" class="mb-3 text-xs opacity-50 transition hover:opacity-100">
-          <font-awesome-icon icon="xmark" /> Close
-        </button>
+        <!-- Close button — prominent on mobile, subtle on desktop -->
+        <div class="flex items-center justify-between mb-3">
+          <button @click="clearSelection()"
+            :class="darkMode ? 'border-accent-1 hover:bg-bubble-bg-dark' : 'border-accent-2 hover:bg-bubble-bg-light'"
+            class="sm:hidden flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition">
+            <font-awesome-icon icon="xmark" /> Close
+          </button>
+          <button @click="clearSelection()" class="hidden sm:block text-xs opacity-50 transition hover:opacity-100">
+            <font-awesome-icon icon="xmark" /> Close
+          </button>
+          <!-- Drag handle hint on mobile -->
+          <div class="sm:hidden w-10 h-1 rounded-full bg-current opacity-20 mx-auto absolute top-2 left-1/2 -translate-x-1/2" />
+        </div>
 
         <!-- Profile detail -->
         <template v-if="selectedProfile">
