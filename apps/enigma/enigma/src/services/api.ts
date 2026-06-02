@@ -185,6 +185,46 @@ export interface Address {
   display: string;
 }
 
+export interface MapLocation {
+  type: string;
+  name: string;
+  detail: string | null;
+  geometry: Record<string, any> | null;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+export interface MapLayerPolygon {
+  id: number;
+  name: string;
+  value: number;
+  center: Record<string, any> | null;
+  geometry: Record<string, any>;
+}
+
+export interface MapLayer {
+  id: number;
+  name: string;
+  slug: string;
+  unit: string;
+  min_value: number | null;
+  max_value: number | null;
+  style: Record<string, any>;
+  inverted_importance: boolean;
+  half_range: boolean;
+  polygons: MapLayerPolygon[];
+}
+
+export interface RouteResult {
+  type: string;
+  properties: {
+    mode: string;
+    distance_km: number;
+    duration_min: number;
+  };
+  geometry: Record<string, any>;
+}
+
 // ── Socialhub ─────────────────────────────────────────────────────────────────
 
 export interface Profile {
@@ -533,6 +573,18 @@ class ApiService {
 
   createAddress(data: { street: string; building: string; locality_name: string; country_name: string; state_or_province_name?: string }): Promise<Address> {
     return this.request("/locations/api/addresses/", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  getMapData(): Promise<{ locations: MapLocation[] }> {
+    return this.request("/locations/api/map/");
+  }
+
+  getMapLayers(): Promise<{ layers: MapLayer[] }> {
+    return this.request("/locations/api/layers/");
+  }
+
+  searchRoute(data: { mode: string; start_lat: number; start_lng: number; end_lat: number; end_lng: number }): Promise<RouteResult> {
+    return this.request("/locations/api/route-search/", { method: "POST", body: JSON.stringify(data) });
   }
 
   // ── Socialhub ──────────────────────────────────────────────────────────────
