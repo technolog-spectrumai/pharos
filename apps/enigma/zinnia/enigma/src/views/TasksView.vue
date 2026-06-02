@@ -78,7 +78,7 @@ const WEIGHT_COLORS: Record<number, string> = {
     </div>
 
     <div v-else-if="!selectedProject" class="flex flex-col items-center justify-center py-16 opacity-40 gap-3">
-      <font-awesome-icon icon="columns" class="text-4xl" />
+      <font-awesome-icon icon="table-columns" class="text-4xl" />
       <p class="text-sm">Select a project to view the board</p>
     </div>
 

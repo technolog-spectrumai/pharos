@@ -24,7 +24,7 @@ const FILE_ICONS: Record<string, string> = {
   csv: "table",
   html: "file-code",
   xml: "file-code",
-  svg: "vector-square",
+  svg: "object-group",
   latex: "file-lines",
   bib: "book",
   default: "file",

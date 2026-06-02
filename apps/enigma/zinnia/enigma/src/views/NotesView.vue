@@ -670,7 +670,7 @@ async function loadCytoscape() {
               class="shrink-0 border-t p-3"
             >
               <p class="text-xs font-bold opacity-60 mb-1 flex items-center gap-1">
-                <font-awesome-icon icon="circle-nodes" />
+                <font-awesome-icon icon="share-nodes" />
                 Graph
               </p>
               <p class="text-xs opacity-50">{{ store.outgoingLinks(selectedBox.id).length + store.incomingLinks(selectedBox.id).length }} links total</p>
