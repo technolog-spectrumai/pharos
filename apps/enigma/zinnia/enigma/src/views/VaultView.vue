@@ -15,11 +15,22 @@ type ViewMode = "grid" | "tree";
 const viewMode = ref<ViewMode>("tree");
 
 const search = ref("");
+const selectedBucket = ref<string | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 onMounted(() => store.fetchFiles());
 
 watch(tab, (t) => { if (t === "metrics" && !metrics.value) store.fetchMetrics(); });
+
+// ── Buckets ───────────────────────────────────────────────────────────────────
+const allBuckets = computed(() => {
+  const seen = new Map<string, number>();
+  for (const f of files.value) {
+    const slug = f.bucket_slug ?? "personal";
+    seen.set(slug, (seen.get(slug) ?? 0) + 1);
+  }
+  return [...seen.entries()].map(([slug, count]) => ({ slug, count }));
+});
 
 // ── File icons ────────────────────────────────────────────────────────────────
 const FILE_ICONS: Record<string, string> = {
@@ -58,8 +69,11 @@ async function onFileSelected(e: Event) {
 // ── Filtered files ────────────────────────────────────────────────────────────
 const filteredFiles = computed(() => {
   const q = search.value.trim().toLowerCase();
-  if (!q) return files.value;
-  return files.value.filter((f) => f.title.toLowerCase().includes(q));
+  return files.value.filter((f) => {
+    if (selectedBucket.value && (f.bucket_slug ?? "personal") !== selectedBucket.value) return false;
+    if (q && !f.title.toLowerCase().includes(q)) return false;
+    return true;
+  });
 });
 
 // ── Tree view: group by bucket ────────────────────────────────────────────────
@@ -205,6 +219,29 @@ function sparkPoints(data: number[]) {
 
     <!-- ══════════════════════════ FILES TAB ══════════════════════════════════ -->
     <template v-if="tab === 'files'">
+      <!-- Bucket filter chips -->
+      <div v-if="allBuckets.length > 1" class="flex flex-wrap items-center gap-2 shrink-0">
+        <button @click="selectedBucket = null"
+          :class="selectedBucket === null
+            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent')
+            : 'border-current/20 opacity-60 hover:opacity-100'"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition">
+          <font-awesome-icon icon="folder-open" class="text-[10px]" />
+          All buckets
+          <span class="opacity-60">({{ files.length }})</span>
+        </button>
+        <button v-for="b in allBuckets" :key="b.slug"
+          @click="selectedBucket = b.slug"
+          :class="selectedBucket === b.slug
+            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent')
+            : 'border-current/20 opacity-60 hover:opacity-100'"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition">
+          <font-awesome-icon icon="folder" class="text-[10px]" />
+          {{ b.slug }}
+          <span class="opacity-60">({{ b.count }})</span>
+        </button>
+      </div>
+
       <!-- Search -->
       <div :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
         class="flex items-center gap-2 rounded-xl border px-3 py-2 shrink-0">
