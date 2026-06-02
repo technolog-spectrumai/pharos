@@ -23,7 +23,8 @@
     "tailwindcss": "^4.3.0",
     "vue": "^3.5.13",
     "vue-router": "^5.0.7",
-    "rotor_wasm": "file:../../toto/rotors/rotor_wasm/build"
+    "rotor_wasm": "file:../../toto/rotors/rotor_wasm/build",
+    "cytoscape": "^3.30.2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
@@ -31,6 +32,7 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vite-plugin-wasm": "^3.6.0",
-    "vue-tsc": "^2.1.10"
+    "vue-tsc": "^2.1.10",
+    "@types/cytoscape": "^3.21.9"
   }
 }
