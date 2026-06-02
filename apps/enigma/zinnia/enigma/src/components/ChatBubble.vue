@@ -57,6 +57,12 @@ defineProps<{
           class="max-h-64 max-w-full rounded object-contain"
         />
       </a>
+      <audio
+        v-else-if="message.type === 'voice_message' && message.audio_data"
+        :src="message.audio_data"
+        controls
+        class="mt-2 w-full max-w-xs rounded"
+      />
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}
       </p>
