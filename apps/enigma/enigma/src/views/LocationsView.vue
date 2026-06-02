@@ -117,12 +117,23 @@ function locStyle(type: string): L.CircleMarkerOptions & L.PathOptions {
   };
 }
 
-// ── Map tile layer ────────────────────────────────────────────────────────────
-function makeOsmTiles() {
+// ── Map tile layers ───────────────────────────────────────────────────────────
+function makeTiles(dark: boolean): L.TileLayer {
+  if (dark) {
+    return L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      maxZoom: 19,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> © CARTO',
+    });
+  }
   return L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
   });
+}
+
+function switchTiles(leafletMap: L.Map, activeRef: { current: L.TileLayer | null }, dark: boolean) {
+  if (activeRef.current) { leafletMap.removeLayer(activeRef.current); activeRef.current = null; }
+  activeRef.current = makeTiles(dark).addTo(leafletMap);
 }
 
 // ── Main map init ─────────────────────────────────────────────────────────────
@@ -130,7 +141,7 @@ function initMainMap() {
   if (!mapEl.value || map) return;
 
   map = L.map(mapEl.value, { zoomControl: false, scrollWheelZoom: true }).setView([52.0, 19.0], 5);
-  makeOsmTiles().addTo(map);
+  activeTileMain = makeTiles(props.darkMode).addTo(map);
   L.control.zoom({ position: "bottomright" }).addTo(map);
 
   renderLocations();
@@ -140,7 +151,7 @@ function initRouteMap() {
   if (!routeMapEl.value || routeMap) return;
 
   routeMap = L.map(routeMapEl.value, { zoomControl: false, scrollWheelZoom: true }).setView([52.0, 19.0], 5);
-  makeOsmTiles().addTo(routeMap);
+  activeTileRoute = makeTiles(props.darkMode).addTo(routeMap);
   L.control.zoom({ position: "bottomright" }).addTo(routeMap);
 }
 
