@@ -78,6 +78,10 @@ import {
   faWallet,
   faXmark,
   faPencil,
+  faFolder,
+  faChevronRight,
+  faChevronDown,
+  faKey,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -151,6 +155,10 @@ library.add(
   faWallet,
   faXmark,
   faPencil,
+  faFolder,
+  faChevronRight,
+  faChevronDown,
+  faKey,
 );
 
 createApp(App)

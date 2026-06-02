@@ -7,6 +7,8 @@ export const useVaultStore = defineStore("vault", () => {
   const loading = ref(false);
   const uploading = ref(false);
   const error = ref<string | null>(null);
+  const metrics = ref<any | null>(null);
+  const metricsLoading = ref(false);
 
   async function fetchFiles() {
     loading.value = true;
@@ -36,10 +38,37 @@ export const useVaultStore = defineStore("vault", () => {
     }
   }
 
+  async function rename(key: string, title: string) {
+    const vf = await api.renameFile(key, title);
+    const idx = files.value.findIndex((f) => f.key === key);
+    if (idx !== -1) files.value[idx] = vf;
+  }
+
+  async function encrypt(key: string, password: string) {
+    const vf = await api.encryptFile(key, password);
+    const idx = files.value.findIndex((f) => f.key === key);
+    if (idx !== -1) files.value[idx] = vf;
+  }
+
+  async function decrypt(key: string, password: string) {
+    const vf = await api.decryptFile(key, password);
+    const idx = files.value.findIndex((f) => f.key === key);
+    if (idx !== -1) files.value[idx] = vf;
+  }
+
   async function remove(key: string) {
     await api.deleteFile(key);
     files.value = files.value.filter((f) => f.key !== key);
   }
 
-  return { files, loading, uploading, error, fetchFiles, upload, remove };
+  async function fetchMetrics() {
+    metricsLoading.value = true;
+    try {
+      metrics.value = await api.getVaultMetrics();
+    } finally {
+      metricsLoading.value = false;
+    }
+  }
+
+  return { files, loading, uploading, error, metrics, metricsLoading, fetchFiles, upload, rename, encrypt, decrypt, remove, fetchMetrics };
 });
