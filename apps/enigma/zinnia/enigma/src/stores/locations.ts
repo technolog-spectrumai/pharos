@@ -1,12 +1,19 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { api, type Zone, type Address } from "../services/api";
+import { api, type Zone, type Address, type MapLocation, type MapLayer, type RouteResult } from "../services/api";
+
+export type { MapLocation, MapLayer, RouteResult };
 
 export const useLocationsStore = defineStore("locations", () => {
   const zones = ref<Zone[]>([]);
   const addresses = ref<Address[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
+
+  const mapLocations = ref<MapLocation[]>([]);
+  const mapLayers = ref<MapLayer[]>([]);
+  const mapLoading = ref(false);
+  const mapError = ref<string | null>(null);
 
   async function fetchZones() {
     loading.value = true;
@@ -40,5 +47,30 @@ export const useLocationsStore = defineStore("locations", () => {
     return addr;
   }
 
-  return { zones, addresses, loading, error, fetchZones, fetchAddresses, addAddress };
+  async function fetchMapData() {
+    mapLoading.value = true;
+    mapError.value = null;
+    try {
+      const [locRes, layerRes] = await Promise.all([
+        api.getMapData(),
+        api.getMapLayers(),
+      ]);
+      mapLocations.value = locRes.locations;
+      mapLayers.value = layerRes.layers;
+    } catch (e: any) {
+      mapError.value = e.message ?? "Failed to load map data";
+    } finally {
+      mapLoading.value = false;
+    }
+  }
+
+  async function searchRoute(data: { mode: string; start_lat: number; start_lng: number; end_lat: number; end_lng: number }): Promise<RouteResult> {
+    return api.searchRoute(data);
+  }
+
+  return {
+    zones, addresses, loading, error,
+    mapLocations, mapLayers, mapLoading, mapError,
+    fetchZones, fetchAddresses, addAddress, fetchMapData, searchRoute,
+  };
 });
