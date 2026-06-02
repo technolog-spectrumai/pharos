@@ -55,10 +55,34 @@ async function handleLogout() {
         </RouterLink>
 
         <!-- Desktop nav -->
-        <nav class="hidden sm:flex items-center gap-x-5 text-sm">
-          <RouterLink to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70">
+        <nav class="hidden sm:flex items-center gap-x-4 text-sm flex-wrap">
+          <RouterLink to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Chat">
             <font-awesome-icon icon="comments" />
             Chat
+          </RouterLink>
+          <RouterLink to="/notes" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Notes">
+            <font-awesome-icon icon="sticky-note" />
+            Notes
+          </RouterLink>
+          <RouterLink to="/vault" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Storage">
+            <font-awesome-icon icon="hard-drive" />
+            Storage
+          </RouterLink>
+          <RouterLink to="/tasks" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Tasks">
+            <font-awesome-icon icon="list-check" />
+            Tasks
+          </RouterLink>
+          <RouterLink to="/locations" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Locations">
+            <font-awesome-icon icon="location-dot" />
+            Locations
+          </RouterLink>
+          <RouterLink to="/people" class="inline-flex items-center gap-2 transition hover:opacity-70" title="People">
+            <font-awesome-icon icon="users" />
+            People
+          </RouterLink>
+          <RouterLink to="/wallet" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Wallet">
+            <font-awesome-icon icon="wallet" />
+            Wallet
           </RouterLink>
 
           <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
@@ -142,12 +166,33 @@ async function handleLogout() {
           :class="darkMode ? 'bg-header-bg-dark border-accent-1' : 'bg-header-bg-light border-accent-2'"
           class="sm:hidden border-t divide-y divide-current/10"
         >
-          <RouterLink
-            to="/chat"
-            class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
-          >
+          <RouterLink to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             Chat
+          </RouterLink>
+          <RouterLink to="/notes" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="sticky-note" class="w-4 text-center" />
+            Notes
+          </RouterLink>
+          <RouterLink to="/vault" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="hard-drive" class="w-4 text-center" />
+            Storage
+          </RouterLink>
+          <RouterLink to="/tasks" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="list-check" class="w-4 text-center" />
+            Tasks
+          </RouterLink>
+          <RouterLink to="/locations" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="location-dot" class="w-4 text-center" />
+            Locations
+          </RouterLink>
+          <RouterLink to="/people" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="users" class="w-4 text-center" />
+            People
+          </RouterLink>
+          <RouterLink to="/wallet" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="wallet" class="w-4 text-center" />
+            Wallet
           </RouterLink>
 
           <RouterLink

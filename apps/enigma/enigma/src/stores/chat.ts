@@ -15,12 +15,13 @@ export type MlsStatus =
 
 export interface Message {
   id: string;
-  type: "chat_message" | "mls_app" | "image_message" | "system_error" | "system_info";
+  type: "chat_message" | "mls_app" | "image_message" | "voice_message" | "system_error" | "system_info";
   user: string;
   initials: string;
   avatar_url: string | null;
   content: string;
   image_data?: string;
+  audio_data?: string;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -198,6 +199,23 @@ export const useChatStore = defineStore("chat", () => {
         avatar_url: (data.avatar_url as string) ?? null,
         content: "",
         image_data: (data.image_data ?? data.image_url) as string,
+        participant_type: "human",
+        self: senderName === currentUserName.value,
+        encrypted: false,
+        timestamp: new Date(),
+      });
+      return;
+    }
+
+    if (type === "voice_message" && data.audio_data) {
+      const senderName = (data.user as string) ?? "Unknown";
+      messages.value.push({
+        id: nanoid(), type: "voice_message",
+        user: senderName,
+        initials: initials(senderName),
+        avatar_url: (data.avatar_url as string) ?? null,
+        content: "",
+        audio_data: data.audio_data as string,
         participant_type: "human",
         self: senderName === currentUserName.value,
         encrypted: false,
@@ -489,6 +507,17 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  async function sendAudio(audioBlob: Blob) {
+    if (!currentRoom.value || !isParticipant.value) return;
+    error.value = null;
+    try {
+      await api.uploadAudio(currentRoom.value.slug, audioBlob);
+      // Server relays the audio via WebSocket to all channel members
+    } catch (e) {
+      error.value = (e as Error).message;
+    }
+  }
+
   async function sendMessage(content: string) {
     if (!content.trim() || !isConnected.value || !currentRoom.value) return;
 
@@ -529,6 +558,6 @@ export const useChatStore = defineStore("chat", () => {
     mlsStatus, mlsError, isEncrypted,
     isParticipant, currentUserName, mlsIdentity,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
-    fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage, sendImage,
+    fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage, sendImage, sendAudio,
   };
 });

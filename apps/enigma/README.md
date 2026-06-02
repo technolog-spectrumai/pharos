@@ -91,5 +91,23 @@ enigma/
 |---|---|
 | `chat_message` | Plaintext message |
 | `mls_app` | MLS-encrypted message |
+| `image_message` | Base64 image (relayed via HTTP upload API) |
+| `voice_message` | Base64 audio/webm (relayed via HTTP upload API) |
 | `mls_welcome` / `mls_commit` | MLS group management |
 | `system_info` / `system_error` | Server notifications |
+
+## Screens
+
+| Screen | Route | Backed by |
+|--------|-------|-----------|
+| Chat | `/chat` | `toto.telegraph` WebSocket + MLS |
+| Notes | `/notes` | `toto.bento` JSON API |
+| Storage | `/vault` | `toto.vault` JSON API |
+| Tasks | `/tasks` | `toto.kanban` JSON API |
+| Locations | `/locations` | `toto.locations` JSON API |
+| People | `/people` | `toto.socialhub` JSON API |
+| Wallet | `/wallet` | `toto.assets` + `toto.tariffs` + `toto.invoice` JSON API |
+
+## Voice Recording
+
+Click the microphone button in the chat composer to start recording. A pulsing timer shows elapsed time. Click again (stop button) to send the recording as an audio message. Rendered as `<audio controls>` in the message list for all participants.

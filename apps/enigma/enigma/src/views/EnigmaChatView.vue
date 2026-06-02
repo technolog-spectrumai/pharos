@@ -34,6 +34,56 @@ const imageFileInput = ref<HTMLInputElement | null>(null);
 const uploadingImage = ref(false);
 const uploadProgress = ref(0);
 
+// ── Voice recording ───────────────────────────────────────────────────────────
+const isRecording = ref(false);
+const recordingSeconds = ref(0);
+let mediaRecorder: MediaRecorder | null = null;
+let recordingChunks: Blob[] = [];
+let recordingInterval: ReturnType<typeof setInterval> | null = null;
+
+async function toggleVoiceRecording() {
+  if (isRecording.value) {
+    mediaRecorder?.stop();
+    return;
+  }
+  if (!currentRoom.value) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordingChunks = [];
+    recordingSeconds.value = 0;
+    mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordingChunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null; }
+      isRecording.value = false;
+      if (recordingChunks.length === 0 || !currentRoom.value) return;
+      const blob = new Blob(recordingChunks, { type: "audio/webm" });
+      try {
+        await chat.sendAudio(blob);
+      } catch {
+        // error handled by store
+      }
+    };
+
+    mediaRecorder.start();
+    isRecording.value = true;
+    recordingInterval = setInterval(() => { recordingSeconds.value++; }, 1000);
+  } catch {
+    // permission denied or unavailable
+  }
+}
+
+function recordingLabel() {
+  const m = Math.floor(recordingSeconds.value / 60);
+  const s = recordingSeconds.value % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 onMounted(() => {
   if (!rooms.value.length) chat.fetchRooms();
 });
@@ -443,6 +493,23 @@ const mlsChipClass = computed(() => {
             @click="imageFileInput?.click()"
           >
             <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'image'" :spin="uploadingImage" />
+          </button>
+
+          <!-- Voice record button -->
+          <button
+            :disabled="!currentRoom || !isParticipant"
+            :class="[
+              isRecording
+                ? 'border-red-500 text-red-500 animate-pulse'
+                : (darkMode ? 'border-accent-1 text-text-main-dark' : 'border-accent-2 text-text-main-light'),
+              (!currentRoom || !isParticipant) ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
+            ]"
+            class="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 transition"
+            :title="isRecording ? 'Stop recording' : 'Record voice message'"
+            @click="toggleVoiceRecording"
+          >
+            <font-awesome-icon :icon="isRecording ? 'stop' : 'microphone'" class="text-sm" />
+            <span v-if="isRecording" class="text-xs font-mono">{{ recordingLabel() }}</span>
           </button>
 
           <textarea
