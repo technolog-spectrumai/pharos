@@ -131,10 +131,6 @@ function makeTiles(dark: boolean): L.TileLayer {
   });
 }
 
-function switchTiles(leafletMap: L.Map, activeRef: { current: L.TileLayer | null }, dark: boolean) {
-  if (activeRef.current) { leafletMap.removeLayer(activeRef.current); activeRef.current = null; }
-  activeRef.current = makeTiles(dark).addTo(leafletMap);
-}
 
 // ── Main map init ─────────────────────────────────────────────────────────────
 function initMainMap() {
@@ -523,6 +519,17 @@ watch(tab, async (newTab) => {
   }
 });
 
+watch(() => props.darkMode, (dark) => {
+  if (map) {
+    if (activeTileMain) { map.removeLayer(activeTileMain); }
+    activeTileMain = makeTiles(dark).addTo(map);
+  }
+  if (routeMap) {
+    if (activeTileRoute) { routeMap.removeLayer(activeTileRoute); }
+    activeTileRoute = makeTiles(dark).addTo(routeMap);
+  }
+});
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function tabCls(t: Tab) {
   const active = tab.value === t;
@@ -533,8 +540,19 @@ function tabCls(t: Tab) {
   return `${base} border-current/20 opacity-60 hover:opacity-100`;
 }
 
+// Structural-only class (no color) — colors come from inputStyle()
 function inputCls() {
-  return `rounded-lg border px-3 py-2 text-sm outline-none ${props.darkMode ? "bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:opacity-40" : "bg-primary-bg-light border-accent-2 text-text-main-light placeholder:opacity-40"}`;
+  return "rounded-lg border px-3 py-2 text-sm outline-none w-full";
+}
+
+// Inline style for inputs/selects — always applied, never purged by Tailwind
+const DM = { background: "#1a1f2e", color: "#fff", borderColor: "#2a3050" };
+const LM = { background: "#fff", color: "#111827", borderColor: "#d1d5db" };
+function inputStyle() { return props.darkMode ? DM : LM; }
+function innerPanelStyle() {
+  return props.darkMode
+    ? { background: "#1a1f2e", color: "#fff", borderColor: "#2a3050" }
+    : { background: "#f9fafb", color: "#111827", borderColor: "#e5e7eb" };
 }
 
 function cardCls() {
@@ -544,10 +562,22 @@ function cardCls() {
 function panelCls() {
   return `rounded-xl border shadow-sm ${props.darkMode ? "bg-bubble-bg-dark border-accent-1" : "bg-bubble-bg-light border-accent-2"}`;
 }
+
+function panelInnerCls() {
+  return props.darkMode ? "border-[#2a3050]" : "border-gray-200";
+}
 </script>
 
 <template>
-  <div class="flex w-full flex-col gap-4">
+  <div
+    class="flex w-full flex-col gap-4"
+    :style="{
+      '--fm-bg':     darkMode ? '#1a1f2e' : '#ffffff',
+      '--fm-color':  darkMode ? '#ffffff' : '#111827',
+      '--fm-border': darkMode ? '#2a3050' : '#d1d5db',
+      '--fm-ph':     darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
+    }"
+  >
 
     <!-- Tab bar -->
     <div class="flex flex-wrap gap-1">
@@ -583,8 +613,8 @@ function panelCls() {
               v-model="sidebarSearch"
               type="text"
               placeholder="Search by name or type"
-              :class="inputCls()"
-              class="w-full pl-8"
+              class="rounded-lg border px-3 py-2 text-sm outline-none w-full pl-8"
+             
             />
           </div>
         </div>
@@ -660,8 +690,8 @@ function panelCls() {
           </p>
           <select
             v-model="selectedLayerSlug"
-            :class="inputCls()"
-            class="w-full py-1.5 text-xs"
+            class="rounded-lg border px-3 py-1.5 text-xs outline-none w-full"
+           
           >
             <option value="">— None —</option>
             <option v-for="layer in mapLayers" :key="layer.slug" :value="layer.slug">{{ layer.name }}</option>
@@ -710,8 +740,8 @@ function panelCls() {
         <!-- Status badge (top-left) -->
         <div class="pointer-events-none absolute left-3 top-3 z-[500]">
           <div
-            :class="darkMode ? 'bg-bubble-bg-dark/95 text-text-main-dark' : 'bg-bubble-bg-light/95 text-text-main-light'"
-            class="rounded-lg border border-current/10 px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur"
+            :class="darkMode ? 'bg-[#1a1f2e]/95 text-white border-white/10' : 'bg-white/95 text-gray-900 border-gray-200'"
+            class="rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur"
           >
             <span class="opacity-50">{{ selectedName ? (featuresDict[selectedName]?.type ?? "Place") : "Overview" }}</span>
             <span class="opacity-30 mx-1">/</span>
@@ -722,7 +752,7 @@ function panelCls() {
         <!-- Map search bar (top-right) -->
         <div class="pointer-events-auto absolute right-3 top-3 z-[500] w-[280px]">
           <div
-            :class="darkMode ? 'border-accent-1 bg-bubble-bg-dark/95 text-text-main-dark' : 'border-accent-2 bg-bubble-bg-light/95 text-text-main-light'"
+            :class="darkMode ? 'border-[#2a3050] bg-[#1a1f2e]/95 text-white' : 'border-gray-200 bg-white/95 text-gray-900'"
             class="rounded-lg border p-2 shadow-sm backdrop-blur"
           >
             <label class="relative block">
@@ -733,8 +763,8 @@ function panelCls() {
                 placeholder="Move map to …"
                 autocomplete="off"
                 @keydown.enter.prevent="mapSearchResults.length && goToResult(mapSearchResults[0])"
-                :class="darkMode ? 'border-accent-1 bg-primary-bg-dark text-text-main-dark' : 'border-accent-2 bg-primary-bg-light text-text-main-light'"
                 class="w-full rounded-lg border py-1.5 pl-8 pr-3 text-xs font-semibold outline-none"
+               
               />
             </label>
 
@@ -746,7 +776,8 @@ function panelCls() {
                   v-for="r in mapSearchResults"
                   :key="`${r.source}-${r.label}-${r.lat}`"
                   @click="goToResult(r)"
-                  class="w-full rounded-lg px-3 py-1.5 text-left text-xs hover:bg-current/10 transition"
+                  :class="darkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'"
+                  class="w-full rounded-lg px-3 py-1.5 text-left text-xs transition"
                 >
                   <span class="flex items-start justify-between gap-2">
                     <span class="font-bold">{{ r.label }}</span>
@@ -761,8 +792,8 @@ function panelCls() {
 
         <!-- Legend (bottom-right) -->
         <div
-          :class="darkMode ? 'bg-bubble-bg-dark/90 text-text-main-dark' : 'bg-bubble-bg-light/90 text-text-main-light'"
-          class="pointer-events-none absolute bottom-10 right-3 z-[500] hidden sm:block rounded-lg border border-current/10 px-3 py-2.5 text-[11px] shadow-sm backdrop-blur"
+          :class="darkMode ? 'bg-[#1a1f2e]/90 text-white border-white/10' : 'bg-white/90 text-gray-900 border-gray-200'"
+          class="pointer-events-none absolute bottom-10 right-3 z-[500] hidden sm:block rounded-lg border px-3 py-2.5 text-[11px] shadow-sm backdrop-blur"
         >
           <p class="font-bold mb-1.5 opacity-70">Legend</p>
           <div class="space-y-1">
@@ -805,10 +836,10 @@ function panelCls() {
       <div :class="cardCls()">
         <h3 class="mb-3 text-sm font-bold opacity-70">Add Address</h3>
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <input v-model="newStreet" type="text" placeholder="Street" :class="inputCls()" class="col-span-2" />
-          <input v-model="newBuilding" type="text" placeholder="Building #" :class="inputCls()" />
-          <input v-model="newLocality" type="text" placeholder="City" :class="inputCls()" />
-          <input v-model="newCountry" type="text" placeholder="CC (e.g. PL)" maxlength="2" :class="inputCls()" class="uppercase" />
+          <input v-model="newStreet" type="text" placeholder="Street" class="rounded-lg border px-3 py-2 text-sm outline-none col-span-2" />
+          <input v-model="newBuilding" type="text" placeholder="Building #" class="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input v-model="newLocality" type="text" placeholder="City" class="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input v-model="newCountry" type="text" placeholder="CC (e.g. PL)" maxlength="2" class="rounded-lg border px-3 py-2 text-sm outline-none uppercase" />
           <button
             @click="createAddress"
             :disabled="creating"
@@ -857,12 +888,12 @@ function panelCls() {
           <!-- Mode selector -->
           <div>
             <label class="block text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Mode</label>
-            <select v-model="routeMode" :class="inputCls()" class="w-full">
+            <select v-model="routeMode" class="rounded-lg border px-3 py-2 text-sm outline-none w-full">
               <option v-for="m in routeModeOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
             </select>
             <div
-              :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
               class="mt-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              :style="innerPanelStyle()"
             >
               <font-awesome-icon :icon="routeModeOptions.find(m => m.value === routeMode)?.icon ?? 'route'" class="opacity-60" />
               <span class="opacity-60 text-xs">Selected mode</span>
@@ -874,18 +905,18 @@ function panelCls() {
           <div>
             <p class="text-xs font-bold mb-2">Start point</p>
             <label class="block text-xs opacity-60 mb-1">Saved address</label>
-            <select v-model="startAddressId" :class="inputCls()" class="w-full mb-2">
+            <select v-model="startAddressId" class="rounded-lg border px-3 py-2 text-sm outline-none w-full mb-2">
               <option value="">— Manual coordinates —</option>
               <option v-for="a in geoAddresses" :key="a.id" :value="String(a.id)">{{ a.display }}</option>
             </select>
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-xs opacity-60 mb-1">Latitude</label>
-                <input v-model="startLat" type="text" :class="inputCls()" class="w-full font-mono" />
+                <input v-model="startLat" type="text" class="rounded-lg border px-3 py-2 text-sm outline-none w-full font-mono" />
               </div>
               <div>
                 <label class="block text-xs opacity-60 mb-1">Longitude</label>
-                <input v-model="startLng" type="text" :class="inputCls()" class="w-full font-mono" />
+                <input v-model="startLng" type="text" class="rounded-lg border px-3 py-2 text-sm outline-none w-full font-mono" />
               </div>
             </div>
           </div>
@@ -894,18 +925,18 @@ function panelCls() {
           <div>
             <p class="text-xs font-bold mb-2">End point</p>
             <label class="block text-xs opacity-60 mb-1">Saved address</label>
-            <select v-model="endAddressId" :class="inputCls()" class="w-full mb-2">
+            <select v-model="endAddressId" class="rounded-lg border px-3 py-2 text-sm outline-none w-full mb-2">
               <option value="">— Manual coordinates —</option>
               <option v-for="a in geoAddresses" :key="a.id" :value="String(a.id)">{{ a.display }}</option>
             </select>
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-xs opacity-60 mb-1">Latitude</label>
-                <input v-model="endLat" type="text" :class="inputCls()" class="w-full font-mono" />
+                <input v-model="endLat" type="text" class="rounded-lg border px-3 py-2 text-sm outline-none w-full font-mono" />
               </div>
               <div>
                 <label class="block text-xs opacity-60 mb-1">Longitude</label>
-                <input v-model="endLng" type="text" :class="inputCls()" class="w-full font-mono" />
+                <input v-model="endLng" type="text" class="rounded-lg border px-3 py-2 text-sm outline-none w-full font-mono" />
               </div>
             </div>
           </div>
@@ -927,7 +958,7 @@ function panelCls() {
           </div>
 
           <!-- Result -->
-          <div v-if="routeResult" :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'" class="rounded-xl border p-4 space-y-3">
+          <div v-if="routeResult" class="rounded-xl border p-4 space-y-3" :style="innerPanelStyle()">
             <p class="text-xs font-bold uppercase tracking-wide opacity-60">Route result</p>
             <div class="grid grid-cols-2 gap-3">
               <div>
@@ -960,3 +991,36 @@ function panelCls() {
 
   </div>
 </template>
+
+<style scoped>
+/* Force form element colours via CSS variables — overrides GTK/OS native theming */
+select,
+input[type="text"],
+input[type="search"],
+input[type="number"] {
+  background-color: var(--fm-bg) !important;
+  color: var(--fm-color) !important;
+  border-color: var(--fm-border) !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+select::placeholder,
+input::placeholder {
+  color: var(--fm-ph) !important;
+}
+
+/* Re-add a minimal dropdown arrow for selects */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px !important;
+}
+
+/* Option elements inside select */
+select option {
+  background-color: var(--fm-bg);
+  color: var(--fm-color);
+}
+</style>
