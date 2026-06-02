@@ -308,6 +308,31 @@ export interface WalletSummary {
   };
 }
 
+export interface Obligation {
+  id: number;
+  reference: string;
+  order_reference: string;
+  amount_display: string;
+  asset_unit: string;
+  asset_name: string;
+  creditor_code: string;
+  creditor_name: string;
+  debtor_code: string;
+  due_at: string;
+  is_overdue: boolean;
+  status: string;
+}
+
+export interface Movement {
+  transaction_reference: string;
+  amount_base_units: number;
+  amount_display: string;
+  asset_unit: string;
+  account_code: string;
+  created_at: string;
+  is_credit: boolean;
+}
+
 export interface Room {
   id: number;
   name: string;
@@ -613,6 +638,22 @@ class ApiService {
 
   getWalletSummary(): Promise<WalletSummary> {
     return this.request("/assets/api/wallet/summary/");
+  }
+
+  getObligations(): Promise<{ obligations: Obligation[] }> {
+    return this.request("/assets/api/wallet/obligations/");
+  }
+
+  getMovements(): Promise<{ movements: Movement[] }> {
+    return this.request("/assets/api/wallet/movements/");
+  }
+
+  verifyPin(pin: string): Promise<{ ok: boolean; error?: string; no_pin?: boolean }> {
+    return this.request("/assets/api/wallet/pin/verify/", { method: "POST", body: JSON.stringify({ pin }) });
+  }
+
+  fulfillObligation(id: number): Promise<{ ok: boolean; transaction_reference?: string; error?: string; pin_required?: boolean }> {
+    return this.request(`/assets/api/obligations/${id}/fulfill/`, { method: "POST", body: JSON.stringify({}) });
   }
 
   // ── Audio upload ───────────────────────────────────────────────────────────

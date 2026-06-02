@@ -91,6 +91,9 @@ import {
   faBicycle,
   faPersonWalking,
   faNoteSticky,
+  faFileContract,
+  faArrowRightArrowLeft,
+  faCircleExclamation,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -177,6 +180,9 @@ library.add(
   faBicycle,
   faPersonWalking,
   faNoteSticky,
+  faFileContract,
+  faArrowRightArrowLeft,
+  faCircleExclamation,
 );
 
 createApp(App)
