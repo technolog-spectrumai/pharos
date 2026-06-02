@@ -412,6 +412,22 @@ class ApiService {
     return this.request("/vault/api/files/");
   }
 
+  renameFile(key: string, title: string): Promise<VaultFile> {
+    return this.request(`/vault/api/files/${key}/`, { method: "PATCH", body: JSON.stringify({ title }) });
+  }
+
+  encryptFile(key: string, password: string): Promise<VaultFile> {
+    return this.request(`/vault/api/files/${key}/encrypt/`, { method: "POST", body: JSON.stringify({ password }) });
+  }
+
+  decryptFile(key: string, password: string): Promise<VaultFile> {
+    return this.request(`/vault/api/files/${key}/decrypt/`, { method: "POST", body: JSON.stringify({ password }) });
+  }
+
+  getVaultMetrics(): Promise<any> {
+    return this.request("/vault/api/metrics/");
+  }
+
   deleteFile(key: string): Promise<void> {
     return this.request(`/vault/api/files/${key}/`, { method: "DELETE" });
   }
