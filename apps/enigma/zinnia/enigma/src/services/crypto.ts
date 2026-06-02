@@ -1,4 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
+// ── Tauri availability guard ───────────────────────────────────────────────────
+const _isTauri = (): boolean =>
+  typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+
+async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
 
 // ── Encoding helpers (still needed to base64-encode WS payloads) ──────────────
 
@@ -22,12 +29,14 @@ export function base64ToBytes(b64: string): Uint8Array {
 class CryptoService {
   /** Init or restore session. Returns true if restored from a previous run. */
   async initSession(room: string, identity: string): Promise<boolean> {
-    return invoke<boolean>("mls_init_session", { room, identity });
+    if (!_isTauri()) return false;
+    return _invoke<boolean>("mls_init_session", { room, identity });
   }
 
   async keyPackage(room: string, identity: string): Promise<Uint8Array | null> {
+    if (!_isTauri()) return null;
     try {
-      const bytes = await invoke<number[]>("mls_key_package", { room, identity });
+      const bytes = await _invoke<number[]>("mls_key_package", { room, identity });
       return new Uint8Array(bytes);
     } catch (e) {
       console.error("[crypto] keyPackage failed:", e);
@@ -40,8 +49,9 @@ class CryptoService {
     identity: string,
     keyPackage: Uint8Array,
   ): Promise<{ welcome: Uint8Array; commit: Uint8Array } | null> {
+    if (!_isTauri()) return null;
     try {
-      const [welcome, commit] = await invoke<[number[], number[]]>("mls_add_member", {
+      const [welcome, commit] = await _invoke<[number[], number[]]>("mls_add_member", {
         room,
         identity,
         keyPackage: Array.from(keyPackage),
@@ -58,8 +68,9 @@ class CryptoService {
     identity: string,
     welcome: Uint8Array,
   ): Promise<boolean> {
+    if (!_isTauri()) return false;
     try {
-      await invoke("mls_join_from_welcome", {
+      await _invoke("mls_join_from_welcome", {
         room,
         identity,
         welcome: Array.from(welcome),
@@ -76,7 +87,8 @@ class CryptoService {
     identity: string,
     bytes: Uint8Array,
   ): Promise<Uint8Array | null> {
-    const result = await invoke<number[] | null>("mls_process_message", {
+    if (!_isTauri()) return null;
+    const result = await _invoke<number[] | null>("mls_process_message", {
       room,
       identity,
       bytes: Array.from(bytes),
@@ -89,8 +101,9 @@ class CryptoService {
     identity: string,
     plaintext: string,
   ): Promise<Uint8Array | null> {
+    if (!_isTauri()) return null;
     try {
-      const ct = await invoke<number[]>("mls_encrypt", {
+      const ct = await _invoke<number[]>("mls_encrypt", {
         room,
         identity,
         plaintext: Array.from(new TextEncoder().encode(plaintext)),
@@ -103,7 +116,8 @@ class CryptoService {
   }
 
   async clearState(room: string, identity: string): Promise<void> {
-    await invoke("mls_clear_state", { room, identity });
+    if (!_isTauri()) return;
+    await _invoke("mls_clear_state", { room, identity });
   }
 }
 

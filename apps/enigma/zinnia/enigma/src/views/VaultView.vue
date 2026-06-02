@@ -2,8 +2,6 @@
 import { ref, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useVaultStore } from "../stores/vault";
-import { open } from "@tauri-apps/plugin-dialog";
-import { readFile } from "@tauri-apps/plugin-fs";
 
 defineProps<{ darkMode: boolean }>();
 
@@ -11,6 +9,7 @@ const store = useVaultStore();
 const { files, loading, uploading, error } = storeToRefs(store);
 
 const confirmDeleteKey = ref<string | null>(null);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
 onMounted(() => store.fetchFiles());
 
@@ -45,20 +44,15 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-async function pickAndUpload() {
-  try {
-    const selected = await open({ multiple: false, directory: false });
-    if (!selected || typeof selected !== "string") return;
+function triggerPick() {
+  fileInputRef.value?.click();
+}
 
-    const parts = selected.split(/[\\/]/);
-    const fileName = parts[parts.length - 1];
-    const fileBytes = await readFile(selected);
-    const blob = new Blob([fileBytes]);
-    const file = new File([blob], fileName);
-    await store.upload(file, fileName);
-  } catch (e: any) {
-    // User cancelled or error — store already sets error
-  }
+async function onFileSelected(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  await store.upload(file, file.name);
+  if (fileInputRef.value) fileInputRef.value.value = "";
 }
 
 async function del(key: string) {
@@ -70,11 +64,19 @@ async function del(key: string) {
 <template>
   <div class="flex w-full flex-col gap-4">
 
+    <!-- Hidden file input -->
+    <input
+      ref="fileInputRef"
+      type="file"
+      class="hidden"
+      @change="onFileSelected"
+    />
+
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h2 class="text-xl font-bold">Storage</h2>
       <button
-        @click="pickAndUpload"
+        @click="triggerPick"
         :disabled="uploading"
         :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
         class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold shadow transition hover:opacity-90 disabled:opacity-50"
