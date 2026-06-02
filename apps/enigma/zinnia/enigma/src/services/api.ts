@@ -84,11 +84,85 @@ export interface KanbanTask {
   column_id: number;
   column_name: string | null;
   mission_id: number;
+  mission_title: string | null;
   assignee: string | null;
   due_date: string | null;
   completed_at: string | null;
   position: number;
 }
+
+export interface KanbanMission {
+  id: number;
+  title: string;
+  campaign: string;
+  urgency: number;
+  urgency_label: string;
+  impact: number;
+  impact_label: string;
+  total_tasks?: number;
+  completed_tasks?: number;
+  open_tasks?: number;
+  total_weight?: number;
+  completed_weight?: number;
+  completion_rate?: number;
+  weight_completion_rate?: number;
+  tasks?: KanbanTask[];
+}
+
+export interface MissionDetail {
+  id: number;
+  title: string;
+  description: string;
+  urgency: number;
+  urgency_label: string;
+  impact: number;
+  impact_label: string;
+  campaign: { id: number; name: string; description: string; start_date: string | null; end_date: string | null; owner: string | null };
+  project: { id: number; name: string; lead: string | null };
+  owner: string | null;
+  location: string | null;
+  route: string | null;
+  zone: string | null;
+  metadata: Record<string, unknown>;
+  stats: {
+    total: number; completed: number; open: number;
+    progress_pct: number; total_weight: number;
+    completed_weight: number; weighted_pct: number;
+  };
+  tasks: KanbanTask[];
+}
+
+export interface SprintItem {
+  id: number; name: string;
+  start: string | null; end: string | null;
+  total_tasks: number; completed_tasks: number; open_tasks: number;
+  total_weight: number; completed_weight: number; open_weight: number;
+  completion_rate: number; weight_completion_rate: number;
+}
+
+export interface SprintMetrics {
+  total_sprints: number; total_tasks: number;
+  completed_tasks: number; open_tasks: number;
+  total_weight: number; completed_weight: number; open_weight: number;
+  overall_completion_rate: number; overall_weight_completion_rate: number;
+  sprint_items: SprintItem[];
+  selected_sprint_id: number | null;
+  burndown: { labels: string[]; data: number[] };
+  velocity: { labels: string[]; data: number[] };
+  lead_time: { labels: string[]; data: number[] };
+  assignees: { label: string; total_tasks: number; completed_tasks: number; total_weight: number; completed_weight: number }[];
+  campaign_progress: { label: string; total: number; done: number; pct: number }[];
+  sprints: { id: number; name: string }[];
+}
+
+export interface BacklogData {
+  total_missions: number; total_tasks: number;
+  completed_tasks: number; open_tasks: number;
+  overall_completion_rate: number;
+  missions: KanbanMission[];
+}
+
+export type EisenhowerMatrix = Record<string, { id: number; title: string; campaign: string }[]>;
 
 // ── Locations ─────────────────────────────────────────────────────────────────
 
@@ -384,8 +458,12 @@ class ApiService {
     return this.request(`/kanban/api/projects/${projectId}/tasks/`, { method: "POST", body: JSON.stringify(data) });
   }
 
-  updateTask(id: number, data: Partial<{ title: string; description: string; column_id: number }>): Promise<KanbanTask> {
+  updateTask(id: number, data: Partial<{ title: string; description: string; column_id: number; weight: number; due_date: string | null }>): Promise<KanbanTask> {
     return this.request(`/kanban/api/tasks/${id}/`, { method: "PATCH", body: JSON.stringify(data) });
+  }
+
+  deleteTask(id: number): Promise<void> {
+    return this.request(`/kanban/api/tasks/${id}/`, { method: "DELETE" });
   }
 
   promoteTask(id: number): Promise<KanbanTask> {
@@ -394,6 +472,27 @@ class ApiService {
 
   demoteTask(id: number): Promise<KanbanTask> {
     return this.request(`/kanban/api/tasks/${id}/demote/`, { method: "POST" });
+  }
+
+  getProjectMissions(projectId: number): Promise<{ missions: KanbanMission[] }> {
+    return this.request(`/kanban/api/projects/${projectId}/missions/`);
+  }
+
+  getMission(missionId: number): Promise<MissionDetail> {
+    return this.request(`/kanban/api/missions/${missionId}/`);
+  }
+
+  getSprintMetrics(projectId: number, sprintId?: number): Promise<SprintMetrics> {
+    const qs = sprintId ? `?sprint=${sprintId}` : "";
+    return this.request(`/kanban/api/projects/${projectId}/sprint-metrics/${qs}`);
+  }
+
+  getBacklog(projectId: number): Promise<BacklogData> {
+    return this.request(`/kanban/api/projects/${projectId}/backlog/`);
+  }
+
+  getEisenhowerMatrix(projectId: number): Promise<{ matrix: EisenhowerMatrix }> {
+    return this.request(`/kanban/api/projects/${projectId}/matrix/`);
   }
 
   // ── Locations ──────────────────────────────────────────────────────────────
