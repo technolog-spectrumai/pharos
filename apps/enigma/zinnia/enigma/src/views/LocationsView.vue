@@ -519,6 +519,11 @@ watch(tab, async (newTab) => {
   }
 });
 
+watch(sidebarOpen, async () => {
+  await nextTick();
+  if (map) map.invalidateSize();
+});
+
 watch(() => props.darkMode, (dark) => {
   if (map) {
     if (activeTileMain) { map.removeLayer(activeTileMain); }
@@ -529,6 +534,10 @@ watch(() => props.darkMode, (dark) => {
     activeTileRoute = makeTiles(dark).addTo(routeMap);
   }
 });
+
+// ── Mobile panel state ────────────────────────────────────────────────────────
+const sidebarOpen = ref(false);      // map sidebar (mobile only)
+const routeFormOpen = ref(true);     // route form panel (mobile: collapsible)
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function tabCls(t: Tab) {
@@ -595,190 +604,137 @@ function panelInnerCls() {
       </button>
     </div>
 
-    <!-- ── MAP TAB ────────────────────────────────────────────────────────── -->
-    <div v-show="tab === 'map'" class="flex gap-3 h-[76vh]">
+    <!-- ── MAP TAB ── mobile: flex-col (sidebar above map), desktop: flex-row -->
+    <div v-show="tab === 'map'" class="flex flex-col lg:flex-row lg:h-[76vh] gap-3">
 
       <!-- Sidebar -->
-      <div :class="panelCls()" class="w-72 shrink-0 flex flex-col overflow-hidden">
+      <div :class="panelCls()" class="flex flex-col overflow-hidden lg:w-72 lg:shrink-0">
 
-        <!-- Header stats -->
-        <div class="px-4 pt-4 pb-3 border-b border-current/10">
-          <p class="text-xs font-bold uppercase tracking-wide opacity-50">Location index</p>
-          <p class="text-xs opacity-50 mt-0.5">{{ mapLocations.length }} total · {{ mappedCount }} mapped</p>
-
-          <!-- Search -->
-          <div class="relative mt-3">
-            <font-awesome-icon icon="magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 text-xs opacity-40 pointer-events-none" />
-            <input
-              v-model="sidebarSearch"
-              type="text"
-              placeholder="Search by name or type"
-              class="rounded-lg border px-3 py-2 text-sm outline-none w-full pl-8"
-             
-            />
+        <!-- Mobile: tap header to collapse/expand sidebar body -->
+        <button
+          @click="sidebarOpen = !sidebarOpen"
+          class="lg:hidden flex items-center justify-between w-full px-4 py-3 text-left border-b border-current/10"
+        >
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wide opacity-50">Location index</p>
+            <p class="text-xs opacity-40 mt-0.5">{{ mapLocations.length }} total · {{ mappedCount }} mapped</p>
           </div>
-        </div>
+          <font-awesome-icon :icon="sidebarOpen ? 'chevron-up' : 'chevron-down'" class="opacity-50 text-sm ml-2 shrink-0" />
+        </button>
 
-        <!-- Type filter chips -->
-        <div class="px-3 pt-3 pb-2 border-b border-current/10">
-          <div class="flex flex-wrap gap-1">
-            <button
-              v-for="type in availableTypes"
-              :key="type"
-              @click="activeType = type"
-              :class="[
-                'rounded-full px-2.5 py-0.5 text-xs font-semibold border transition',
-                activeType === type
-                  ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent')
-                  : 'border-current/20 opacity-60 hover:opacity-100'
-              ]"
-            >{{ type }}</button>
+        <!-- Sidebar body: always visible on desktop; toggle on mobile -->
+        <div :class="sidebarOpen ? 'flex flex-col flex-1 overflow-hidden min-h-0' : 'hidden lg:flex lg:flex-col lg:flex-1 lg:overflow-hidden lg:min-h-0'">
+
+          <!-- Header stats (desktop label only) -->
+          <div class="px-4 pt-4 pb-3 border-b border-current/10">
+            <p class="hidden lg:block text-xs font-bold uppercase tracking-wide opacity-50 mb-0.5">Location index</p>
+            <p class="hidden lg:block text-xs opacity-50 mt-0.5">{{ mapLocations.length }} total · {{ mappedCount }} mapped</p>
+            <div class="relative mt-0 lg:mt-3">
+              <font-awesome-icon icon="magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 text-xs opacity-40 pointer-events-none" />
+              <input v-model="sidebarSearch" type="text" placeholder="Search by name or type" class="rounded-lg border px-3 py-2 text-sm outline-none w-full pl-8" />
+            </div>
           </div>
 
-          <!-- Fit all / Reset -->
-          <div class="flex gap-2 mt-2">
-            <button
-              @click="fitAll"
-              :class="panelCls()"
-              class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold border rounded-lg hover:opacity-80 transition"
-            >
-              <font-awesome-icon icon="arrows-to-circle" />Fit all
-            </button>
-            <button
-              @click="resetView"
-              :class="panelCls()"
-              class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold border rounded-lg hover:opacity-80 transition"
-            >
-              <font-awesome-icon icon="rotate-left" />Reset
-            </button>
-          </div>
-        </div>
-
-        <!-- Visibility section -->
-        <div class="px-3 py-2 border-b border-current/10">
-          <div class="flex items-center justify-between mb-1.5">
-            <p class="text-xs font-semibold opacity-60">Visible on map</p>
-            <div class="flex gap-1">
-              <button @click="showAllTypes" class="text-[10px] opacity-50 hover:opacity-100 transition px-1">
-                <font-awesome-icon icon="eye" />
+          <!-- Type filter chips -->
+          <div class="px-3 pt-3 pb-2 border-b border-current/10">
+            <div class="flex flex-wrap gap-1">
+              <button
+                v-for="type in availableTypes" :key="type" @click="activeType = type"
+                :class="['rounded-full px-2.5 py-0.5 text-xs font-semibold border transition', activeType === type ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent') : 'border-current/20 opacity-60 hover:opacity-100']"
+              >{{ type }}</button>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button @click="fitAll" :class="panelCls()" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold border rounded-lg hover:opacity-80 transition">
+                <font-awesome-icon icon="compress" />Fit all
               </button>
-              <button @click="hideAllTypes" class="text-[10px] opacity-50 hover:opacity-100 transition px-1">
-                <font-awesome-icon icon="eye-slash" />
+              <button @click="resetView" :class="panelCls()" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold border rounded-lg hover:opacity-80 transition">
+                <font-awesome-icon icon="rotate-left" />Reset
               </button>
             </div>
           </div>
-          <div class="flex flex-wrap gap-x-3 gap-y-1">
-            <button
-              v-for="(visible, type) in visibleTypes"
-              :key="type"
-              @click="toggleType(type)"
-              class="flex items-center gap-1 text-xs opacity-70 hover:opacity-100 transition"
-            >
-              <span
-                class="h-2 w-2 rounded-full shrink-0"
-                :style="{ background: locColor(type), opacity: visible ? 1 : 0.25 }"
-              ></span>
-              <span :style="{ opacity: visible ? 1 : 0.4 }">{{ type }}</span>
-            </button>
-          </div>
-        </div>
 
-        <!-- Layers section -->
-        <div v-if="mapLayers.length" class="px-3 py-2 border-b border-current/10">
-          <p class="text-xs font-semibold opacity-60 mb-1.5">
-            <font-awesome-icon icon="layer-group" class="mr-1" />Layers
-          </p>
-          <select
-            v-model="selectedLayerSlug"
-            class="rounded-lg border px-3 py-1.5 text-xs outline-none w-full"
-           
-          >
-            <option value="">— None —</option>
-            <option v-for="layer in mapLayers" :key="layer.slug" :value="layer.slug">{{ layer.name }}</option>
-          </select>
-          <div v-if="selectedLayer" class="mt-2">
-            <label class="flex items-center justify-between text-xs opacity-60 mb-1">
-              <span>Opacity</span><span>{{ Math.round(overlayOpacity * 100) }}%</span>
-            </label>
-            <input type="range" min="0.05" max="0.85" step="0.05" v-model.number="overlayOpacity" class="w-full accent-current" />
+          <!-- Visibility -->
+          <div class="px-3 py-2 border-b border-current/10">
+            <div class="flex items-center justify-between mb-1.5">
+              <p class="text-xs font-semibold opacity-60">Visible on map</p>
+              <div class="flex gap-1">
+                <button @click="showAllTypes" class="text-[10px] opacity-50 hover:opacity-100 transition px-1"><font-awesome-icon icon="eye" /></button>
+                <button @click="hideAllTypes" class="text-[10px] opacity-50 hover:opacity-100 transition px-1"><font-awesome-icon icon="eye-slash" /></button>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-x-3 gap-y-1">
+              <button v-for="(visible, type) in visibleTypes" :key="type" @click="toggleType(type)" class="flex items-center gap-1 text-xs opacity-70 hover:opacity-100 transition">
+                <span class="h-2 w-2 rounded-full shrink-0" :style="{ background: locColor(type), opacity: visible ? 1 : 0.25 }"></span>
+                <span :style="{ opacity: visible ? 1 : 0.4 }">{{ type }}</span>
+              </button>
+            </div>
           </div>
-        </div>
 
-        <!-- Location list -->
-        <div class="flex-1 overflow-y-auto min-h-0">
-          <div v-if="mapLoading" class="flex items-center justify-center py-8 opacity-40">
-            <font-awesome-icon icon="spinner" spin class="text-xl" />
+          <!-- Layers -->
+          <div v-if="mapLayers.length" class="px-3 py-2 border-b border-current/10">
+            <p class="text-xs font-semibold opacity-60 mb-1.5"><font-awesome-icon icon="layer-group" class="mr-1" />Layers</p>
+            <select v-model="selectedLayerSlug" class="rounded-lg border px-3 py-1.5 text-xs outline-none w-full">
+              <option value="">— None —</option>
+              <option v-for="layer in mapLayers" :key="layer.slug" :value="layer.slug">{{ layer.name }}</option>
+            </select>
+            <div v-if="selectedLayer" class="mt-2">
+              <label class="flex items-center justify-between text-xs opacity-60 mb-1"><span>Opacity</span><span>{{ Math.round(overlayOpacity * 100) }}%</span></label>
+              <input type="range" min="0.05" max="0.85" step="0.05" v-model.number="overlayOpacity" class="w-full accent-current" />
+            </div>
           </div>
-          <div v-else-if="mapError" class="p-3 text-xs text-red-400">{{ mapError }}</div>
-          <div v-else-if="visibleLocations.length === 0" class="flex flex-col items-center justify-center py-8 opacity-40 gap-2">
-            <font-awesome-icon icon="map" class="text-2xl" />
-            <p class="text-xs">No locations found</p>
+
+          <!-- Location list — capped height on mobile so map still shows -->
+          <div class="overflow-y-auto min-h-0 max-h-48 lg:max-h-none lg:flex-1">
+            <div v-if="mapLoading" class="flex items-center justify-center py-8 opacity-40"><font-awesome-icon icon="spinner" spin class="text-xl" /></div>
+            <div v-else-if="mapError" class="p-3 text-xs text-red-400">{{ mapError }}</div>
+            <div v-else-if="visibleLocations.length === 0" class="flex flex-col items-center justify-center py-8 opacity-40 gap-2">
+              <font-awesome-icon icon="map" class="text-2xl" /><p class="text-xs">No locations found</p>
+            </div>
+            <div v-else>
+              <button
+                v-for="loc in visibleLocations" :key="`${loc.type}-${loc.name}`"
+                @click="selectLocation(loc)"
+                class="w-full flex items-start gap-3 px-4 py-2.5 text-left text-xs hover:bg-current/5 transition border-b border-current/5"
+                :class="{ 'bg-current/10': selectedName === loc.name }"
+              >
+                <span class="h-2 w-2 rounded-full shrink-0 mt-1" :style="{ background: locColor(loc.type) }"></span>
+                <span class="min-w-0 flex-1">
+                  <span class="block font-semibold truncate leading-tight">{{ loc.name }}</span>
+                  <span class="block opacity-50 truncate">{{ loc.type }}</span>
+                </span>
+                <span v-if="!loc.geometry" class="shrink-0 opacity-30 text-[9px] mt-0.5">no geom</span>
+              </button>
+            </div>
           </div>
-          <div v-else>
-            <button
-              v-for="loc in visibleLocations"
-              :key="`${loc.type}-${loc.name}`"
-              @click="selectLocation(loc)"
-              class="w-full flex items-start gap-3 px-4 py-2.5 text-left text-xs hover:bg-current/5 transition border-b border-current/5"
-              :class="{ 'bg-current/10': selectedName === loc.name }"
-            >
-              <span class="h-2 w-2 rounded-full shrink-0 mt-1" :style="{ background: locColor(loc.type) }"></span>
-              <span class="min-w-0 flex-1">
-                <span class="block font-semibold truncate leading-tight">{{ loc.name }}</span>
-                <span class="block opacity-50 truncate">{{ loc.type }}</span>
-              </span>
-              <span v-if="!loc.geometry" class="shrink-0 opacity-30 text-[9px] mt-0.5">no geom</span>
-            </button>
-          </div>
-        </div>
-      </div>
+
+        </div><!-- /sidebar body -->
+      </div><!-- /sidebar -->
 
       <!-- Map container -->
-      <div :class="panelCls()" class="flex-1 relative overflow-hidden">
-        <div ref="mapEl" class="w-full h-full"></div>
+      <div :class="panelCls()" class="relative overflow-hidden h-[50vh] lg:h-auto lg:flex-1">
+        <div ref="mapEl" class="absolute inset-0"></div>
 
-        <!-- Status badge (top-left) -->
-        <div class="pointer-events-none absolute left-3 top-3 z-[500]">
-          <div
-            :class="darkMode ? 'bg-[#1a1f2e]/95 text-white border-white/10' : 'bg-white/95 text-gray-900 border-gray-200'"
-            class="rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur"
-          >
+        <!-- Status badge (desktop) -->
+        <div class="pointer-events-none absolute left-3 top-3 z-[500] hidden lg:block">
+          <div :class="darkMode ? 'bg-[#1a1f2e]/95 text-white border-white/10' : 'bg-white/95 text-gray-900 border-gray-200'" class="rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur">
             <span class="opacity-50">{{ selectedName ? (featuresDict[selectedName]?.type ?? "Place") : "Overview" }}</span>
             <span class="opacity-30 mx-1">/</span>
             <span>{{ selectedName || "All mapped locations" }}</span>
           </div>
         </div>
 
-        <!-- Map search bar (top-right) -->
-        <div class="pointer-events-auto absolute right-3 top-3 z-[500] w-[280px]">
-          <div
-            :class="darkMode ? 'border-[#2a3050] bg-[#1a1f2e]/95 text-white' : 'border-gray-200 bg-white/95 text-gray-900'"
-            class="rounded-lg border p-2 shadow-sm backdrop-blur"
-          >
+        <!-- Map search -->
+        <div class="pointer-events-auto absolute right-3 top-3 z-[500]" style="width: min(280px, calc(100% - 1.5rem))">
+          <div :class="darkMode ? 'border-[#2a3050] bg-[#1a1f2e]/95 text-white' : 'border-gray-200 bg-white/95 text-gray-900'" class="rounded-lg border p-2 shadow-sm backdrop-blur">
             <label class="relative block">
               <font-awesome-icon icon="magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 text-xs opacity-40 pointer-events-none" />
-              <input
-                v-model="mapSearch"
-                type="search"
-                placeholder="Move map to …"
-                autocomplete="off"
-                @keydown.enter.prevent="mapSearchResults.length && goToResult(mapSearchResults[0])"
-                class="w-full rounded-lg border py-1.5 pl-8 pr-3 text-xs font-semibold outline-none"
-               
-              />
+              <input v-model="mapSearch" type="search" placeholder="Move map to …" autocomplete="off" @keydown.enter.prevent="mapSearchResults.length && goToResult(mapSearchResults[0])" class="w-full rounded-lg border py-1.5 pl-8 pr-3 text-xs font-semibold outline-none" />
             </label>
-
-            <div v-show="mapSearch.trim().length > 0" class="mt-2 max-h-52 overflow-y-auto space-y-1">
+            <div v-show="mapSearch.trim().length > 0" class="mt-2 max-h-48 overflow-y-auto space-y-1">
               <div v-if="mapSearchLoading" class="px-3 py-1.5 text-xs opacity-60">Searching…</div>
               <template v-else>
                 <div v-if="mapSearchResults.length === 0" class="px-3 py-1.5 text-xs opacity-60">No results found.</div>
-                <button
-                  v-for="r in mapSearchResults"
-                  :key="`${r.source}-${r.label}-${r.lat}`"
-                  @click="goToResult(r)"
-                  :class="darkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'"
-                  class="w-full rounded-lg px-3 py-1.5 text-left text-xs transition"
-                >
+                <button v-for="r in mapSearchResults" :key="`${r.source}-${r.label}-${r.lat}`" @click="goToResult(r)" :class="darkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'" class="w-full rounded-lg px-3 py-1.5 text-left text-xs transition">
                   <span class="flex items-start justify-between gap-2">
                     <span class="font-bold">{{ r.label }}</span>
                     <span class="shrink-0 rounded-full border border-current/15 px-1.5 py-0.5 text-[10px] opacity-60">{{ r.source }}</span>
@@ -790,11 +746,8 @@ function panelInnerCls() {
           </div>
         </div>
 
-        <!-- Legend (bottom-right) -->
-        <div
-          :class="darkMode ? 'bg-[#1a1f2e]/90 text-white border-white/10' : 'bg-white/90 text-gray-900 border-gray-200'"
-          class="pointer-events-none absolute bottom-10 right-3 z-[500] hidden sm:block rounded-lg border px-3 py-2.5 text-[11px] shadow-sm backdrop-blur"
-        >
+        <!-- Legend (desktop only) -->
+        <div :class="darkMode ? 'bg-[#1a1f2e]/90 text-white border-white/10' : 'bg-white/90 text-gray-900 border-gray-200'" class="pointer-events-none absolute bottom-10 right-3 z-[500] hidden lg:block rounded-lg border px-3 py-2.5 text-[11px] shadow-sm backdrop-blur">
           <p class="font-bold mb-1.5 opacity-70">Legend</p>
           <div class="space-y-1">
             <div v-for="(color, type) in TYPE_COLORS" :key="type" class="flex items-center gap-2">
@@ -871,30 +824,41 @@ function panelInnerCls() {
     </template>
 
     <!-- ── ROUTE SEARCH TAB ───────────────────────────────────────────────── -->
-    <div v-show="tab === 'route'" class="flex gap-3 h-[76vh]">
+    <!-- Mobile: flex-col (form on top, map below). Desktop: flex-row side-by-side -->
+    <div v-show="tab === 'route'" class="flex flex-col lg:flex-row gap-3">
 
       <!-- Form panel -->
-      <div :class="panelCls()" class="w-72 shrink-0 flex flex-col overflow-y-auto">
-        <div class="p-4 border-b border-current/10">
-          <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-bold uppercase tracking-wide">Traversable path</p>
-          <h2 class="mt-1 text-lg font-bold flex items-center gap-2">
-            <font-awesome-icon icon="route" />Route Search
-          </h2>
-          <p class="mt-1 text-xs opacity-60">Search a real route between two saved addresses or manual WGS84 points.</p>
-        </div>
+      <div :class="panelCls()" class="lg:w-72 lg:shrink-0 flex flex-col lg:h-[76vh]">
 
-        <div class="flex-1 p-4 space-y-5">
+        <!-- Collapsible header (mobile tap-to-toggle) -->
+        <button
+          @click="routeFormOpen = !routeFormOpen"
+          class="flex items-center justify-between w-full p-4 border-b border-current/10 lg:cursor-default"
+        >
+          <div class="text-left">
+            <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-bold uppercase tracking-wide">Traversable path</p>
+            <h2 class="mt-0.5 text-lg font-bold flex items-center gap-2">
+              <font-awesome-icon icon="route" />Route Search
+            </h2>
+          </div>
+          <!-- Chevron — only visible on mobile -->
+          <font-awesome-icon
+            :icon="routeFormOpen ? 'chevron-up' : 'chevron-down'"
+            class="lg:hidden opacity-50 text-sm"
+          />
+        </button>
 
-          <!-- Mode selector -->
+        <!-- Collapsible body -->
+        <div v-show="routeFormOpen" class="flex-1 overflow-y-auto p-4 space-y-5">
+          <p class="text-xs opacity-60">Search a real route between two saved addresses or manual WGS84 points.</p>
+
+          <!-- Mode -->
           <div>
             <label class="block text-xs font-semibold uppercase tracking-wide opacity-60 mb-2">Mode</label>
             <select v-model="routeMode" class="rounded-lg border px-3 py-2 text-sm outline-none w-full">
               <option v-for="m in routeModeOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
             </select>
-            <div
-              class="mt-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-              :style="innerPanelStyle()"
-            >
+            <div class="mt-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm" :style="innerPanelStyle()">
               <font-awesome-icon :icon="routeModeOptions.find(m => m.value === routeMode)?.icon ?? 'route'" class="opacity-60" />
               <span class="opacity-60 text-xs">Selected mode</span>
               <span class="font-semibold ml-auto text-xs capitalize">{{ routeMode }}</span>
@@ -952,12 +916,8 @@ function panelInnerCls() {
             {{ routeSearching ? "Searching…" : "Search route" }}
           </button>
 
-          <!-- Error -->
-          <div v-if="routeError" class="rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-400">
-            {{ routeError }}
-          </div>
+          <div v-if="routeError" class="rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-400">{{ routeError }}</div>
 
-          <!-- Result -->
           <div v-if="routeResult" class="rounded-xl border p-4 space-y-3" :style="innerPanelStyle()">
             <p class="text-xs font-bold uppercase tracking-wide opacity-60">Route result</p>
             <div class="grid grid-cols-2 gap-3">
@@ -974,13 +934,10 @@ function panelInnerCls() {
         </div>
       </div>
 
-      <!-- Route map -->
-      <div :class="panelCls()" class="flex-1 relative overflow-hidden">
-        <div ref="routeMapEl" class="w-full h-full"></div>
-        <div
-          v-if="!routeResult && !routeSearching"
-          class="pointer-events-none absolute inset-0 flex items-center justify-center"
-        >
+      <!-- Route map — full height desktop, fixed height mobile -->
+      <div :class="panelCls()" class="relative overflow-hidden flex-1 h-[50vh] lg:h-[76vh]">
+        <div ref="routeMapEl" class="absolute inset-0"></div>
+        <div v-if="!routeResult && !routeSearching" class="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div class="text-center opacity-30">
             <font-awesome-icon icon="route" class="text-4xl mb-3" />
             <p class="text-sm">Set start and end points, then search</p>

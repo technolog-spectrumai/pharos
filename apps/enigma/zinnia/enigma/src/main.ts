@@ -81,7 +81,16 @@ import {
   faFolder,
   faChevronRight,
   faChevronDown,
+  faChevronUp,
   faKey,
+  faArrowRight,
+  faRotateLeft,
+  faCompress,
+  faCar,
+  faCarSide,
+  faBicycle,
+  faPersonWalking,
+  faNoteSticky,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -158,7 +167,16 @@ library.add(
   faFolder,
   faChevronRight,
   faChevronDown,
+  faChevronUp,
   faKey,
+  faArrowRight,
+  faRotateLeft,
+  faCompress,
+  faCar,
+  faCarSide,
+  faBicycle,
+  faPersonWalking,
+  faNoteSticky,
 );
 
 createApp(App)
