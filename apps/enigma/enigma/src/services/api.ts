@@ -210,6 +210,16 @@ export interface Community {
   latest_news_title?: string | null;
 }
 
+export interface OrgNode {
+  id: string;
+  name: string;
+  slug: string;
+  pid: string | null;
+  avatar_url: string | null;
+  email: string;
+  phone: string;
+}
+
 // ── Wallet ────────────────────────────────────────────────────────────────────
 
 export interface WalletHolding {
@@ -526,6 +536,10 @@ class ApiService {
   }
 
   // ── Socialhub ──────────────────────────────────────────────────────────────
+
+  getOrgChart(slug: string): Promise<{ nodes: OrgNode[] }> {
+    return this.request(`/socialhub/api/communities/${slug}/org-chart/`);
+  }
 
   getProfiles(): Promise<{ profiles: Profile[] }> {
     return this.request("/socialhub/api/profiles/");
