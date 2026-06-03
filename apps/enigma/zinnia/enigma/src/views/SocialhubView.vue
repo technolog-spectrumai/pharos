@@ -44,7 +44,7 @@ async function fetchCommunities() {
 onMounted(() => { fetchProfiles(); fetchCommunities(); });
 
 // ── Detail panel (still uses store for selected state + org chart) ────────────
-const store = useSocialhubStore();
+useSocialhubStore();
 const selectedProfile = ref<Profile | null>(null);
 const selectedCommunity = ref<Community | null>(null);
 const orgChart = ref<OrgNode[] | null>(null);

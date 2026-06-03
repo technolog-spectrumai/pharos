@@ -7,7 +7,7 @@ import type { NoteBox } from "../services/api";
 const props = defineProps<{ darkMode: boolean }>();
 
 const store = useNotesStore();
-const { boxes, categories, selectedBox, links, graphNodes, graphEdges, loading, linksLoading, graphLoading, error } = storeToRefs(store);
+const { boxes, selectedBox, links, graphNodes, graphEdges, loading, linksLoading, graphLoading, error } = storeToRefs(store);
 
 // ── UI state ──────────────────────────────────────────────────────────────────
 const search = ref("");

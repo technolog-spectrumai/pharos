@@ -4,7 +4,7 @@ import { storeToRefs } from "pinia";
 import { useVaultStore } from "../stores/vault";
 import type { VaultFile } from "../services/api";
 
-const props = defineProps<{ darkMode: boolean }>();
+defineProps<{ darkMode: boolean }>();
 
 const store = useVaultStore();
 const { files, loading, uploading, error, metrics, metricsLoading } = storeToRefs(store);

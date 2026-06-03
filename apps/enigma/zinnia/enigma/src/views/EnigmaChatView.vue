@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "../stores/chat";
-import { getRuntimeConfig } from "../services/appStorage";
+
 import OyaButton from "../components/OyaButton.vue";
 import ChatBubble from "../components/ChatBubble.vue";
 

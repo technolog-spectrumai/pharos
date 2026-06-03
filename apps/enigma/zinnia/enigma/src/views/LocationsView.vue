@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue"
 import { storeToRefs } from "pinia";
 import { useLocationsStore } from "../stores/locations";
 import { api } from "../services/api";
-import type { FleetItem, LogisticsPackage, IncidentItem, IncidentDetail, MobilizationEventItem, MobilizationDeployment, DetectionItem, MissionOption } from "../services/api";
+import type { FleetItem, LogisticsPackage, IncidentItem, IncidentDetail, MobilizationEventItem, DetectionItem, MissionOption } from "../services/api";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -741,7 +741,6 @@ function renderFleetMap(geojson: any) {
 
 // ── Incidents data fetch + map ────────────────────────────────────────────────
 let incidentsGeoLayer: L.GeoJSON | null = null;
-let incidentLayerGroups: Record<string, L.Layer[]> = {};
 const incidentsCombinedGeojson = ref<any>(null);
 
 async function fetchIncidents() {
@@ -958,15 +957,6 @@ function tabCls(t: Tab) {
   return `${base} border-current/20 opacity-60 hover:opacity-100`;
 }
 
-// Structural-only class (no color) — colors come from inputStyle()
-function inputCls() {
-  return "rounded-lg border px-3 py-2 text-sm outline-none w-full";
-}
-
-// Inline style for inputs/selects — always applied, never purged by Tailwind
-const DM = { background: "#1a1f2e", color: "#fff", borderColor: "#2a3050" };
-const LM = { background: "#fff", color: "#111827", borderColor: "#d1d5db" };
-function inputStyle() { return props.darkMode ? DM : LM; }
 function innerPanelStyle() {
   return props.darkMode
     ? { background: "#1a1f2e", color: "#fff", borderColor: "#2a3050" }
@@ -981,9 +971,6 @@ function panelCls() {
   return `rounded-xl border shadow-sm ${props.darkMode ? "bg-bubble-bg-dark border-accent-1" : "bg-bubble-bg-light border-accent-2"}`;
 }
 
-function panelInnerCls() {
-  return props.darkMode ? "border-[#2a3050]" : "border-gray-200";
-}
 </script>
 
 <template>
