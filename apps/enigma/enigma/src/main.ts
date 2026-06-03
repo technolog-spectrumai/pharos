@@ -94,6 +94,11 @@ import {
   faFileContract,
   faArrowRightArrowLeft,
   faCircleExclamation,
+  faTruck,
+  faSatelliteDish,
+  faArrowUp,
+  faShieldHalved,
+  faLifeRing,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -183,6 +188,11 @@ library.add(
   faFileContract,
   faArrowRightArrowLeft,
   faCircleExclamation,
+  faTruck,
+  faSatelliteDish,
+  faArrowUp,
+  faShieldHalved,
+  faLifeRing,
 );
 
 createApp(App)

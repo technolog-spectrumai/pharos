@@ -333,6 +333,110 @@ export interface Movement {
   is_credit: boolean;
 }
 
+// ── Logistics ─────────────────────────────────────────────────────────────────
+
+export interface FleetItem {
+  id: number;
+  name: string;
+  object_type: string;
+  category: string;
+  category_display: string;
+  owner: string | null;
+  custodian: string | null;
+  location_label: string | null;
+  has_location: boolean;
+  lease_status: string | null;
+}
+
+export interface LogisticsPackage {
+  id: number;
+  tracking_number: string;
+  status: string;
+  status_display: string;
+  description: string;
+  origin: string | null;
+  destination: string | null;
+  transport: string | null;
+  estimated_delivery: string | null;
+}
+
+// ── Incidents & Mobilization ──────────────────────────────────────────────────
+
+export interface IncidentItem {
+  id: number | string;
+  title: string;
+  severity: string;
+  status: string;
+  incident_type: string;
+  location: string;
+  has_geometry: boolean;
+  created_at: string;
+}
+
+export interface IncidentDetail {
+  id: string;
+  title: string;
+  description: string;
+  severity: string;
+  status: string;
+  incident_type: string;
+  location: string;
+  created_at: string;
+  updated_at: string;
+  start_time: string | null;
+  end_time: string | null;
+  source_detection_id: string | null;
+  reported_by: string | null;
+}
+
+export interface DetectionItem {
+  id: string;
+  title: string;
+  description: string;
+  severity: string;
+  detection_type: string;
+  detection_type_display: string;
+  status: string;
+  status_display: string;
+  location: string;
+  has_geometry: boolean;
+  reported_by: string | null;
+  already_promoted: boolean;
+  promoted_incident_id: string | null;
+  start_time: string | null;
+  created_at: string;
+}
+
+export interface MissionOption {
+  id: number;
+  title: string;
+  campaign: string;
+  project: string;
+}
+
+export interface MobilizationDeployment {
+  id: number;
+  title: string;
+  status: string;
+  deployment_type: string;
+  priority: string;
+  objective: string;
+}
+
+export interface MobilizationEventItem {
+  id: number;
+  title: string;
+  status: string;
+  community: string;
+  incident_type: string;
+  coordinator: string;
+  deployment_count: number;
+  active_deployment_count: number;
+  started_at: string | null;
+  created_at: string;
+  deployments: MobilizationDeployment[];
+}
+
 export interface Room {
   id: number;
   name: string;
@@ -654,6 +758,50 @@ class ApiService {
 
   fulfillObligation(id: number): Promise<{ ok: boolean; transaction_reference?: string; error?: string; pin_required?: boolean }> {
     return this.request(`/assets/api/obligations/${id}/fulfill/`, { method: "POST", body: JSON.stringify({}) });
+  }
+
+  // ── Logistics ──────────────────────────────────────────────────────────────
+
+  getFleet(): Promise<{ items: FleetItem[]; geojson: Record<string, any>; error?: string }> {
+    return this.request("/api/enigma/fleet/");
+  }
+
+  getPackages(): Promise<{ packages: LogisticsPackage[]; error?: string }> {
+    return this.request("/api/enigma/packages/");
+  }
+
+  // ── Incidents & Mobilization ───────────────────────────────────────────────
+
+  getIncidents(): Promise<{ incidents: IncidentItem[]; geojson: Record<string, any> }> {
+    return this.request("/incidents/api/enigma/list/");
+  }
+
+  getMobilizationMap(): Promise<{ events: MobilizationEventItem[]; geojson: Record<string, any> }> {
+    return this.request("/mobilization/api/enigma/map/");
+  }
+
+  getDetections(): Promise<{ detections: DetectionItem[]; geojson: Record<string, any> }> {
+    return this.request("/detections/api/enigma/list/");
+  }
+
+  promoteDetection(detectionId: string): Promise<{ incident_pk: string; already_existed: boolean }> {
+    return this.request(`/incidents/api/enigma/promote/${detectionId}/`, { method: "POST", body: JSON.stringify({}) });
+  }
+
+  getIncident(id: string): Promise<IncidentDetail> {
+    return this.request(`/incidents/api/enigma/${id}/`);
+  }
+
+  updateIncident(id: string, data: { title?: string; description?: string; severity?: string; status?: string; incident_type?: string }): Promise<IncidentDetail> {
+    return this.request(`/incidents/api/enigma/${id}/`, { method: "PATCH", body: JSON.stringify(data) });
+  }
+
+  getMissions(): Promise<{ missions: MissionOption[] }> {
+    return this.request("/detections/api/enigma/missions/");
+  }
+
+  requestDetectionHelp(detectionId: string, data: { mission_id: number; title: string; description: string }): Promise<{ ok: boolean; task_id: number; task_title: string }> {
+    return this.request(`/detections/api/enigma/${detectionId}/help/`, { method: "POST", body: JSON.stringify(data) });
   }
 
   // ── Audio upload ───────────────────────────────────────────────────────────
