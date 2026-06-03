@@ -1,6 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rotor_core::RotorSession;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -745,6 +747,133 @@ fn mls_clear_state(
     Ok(())
 }
 
+// ── Native audio recording ────────────────────────────────────────────────────
+//
+// cpal::Stream is !Send on Linux (ALSA), so it cannot live in Tauri managed state.
+// Instead we keep the stream on a dedicated recording thread and communicate via
+// an AtomicBool stop-flag. The state struct only holds Send+Sync Arc<…> fields.
+
+struct AudioRecorder {
+    stop_flag: Arc<AtomicBool>,
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: Arc<Mutex<u32>>,
+}
+
+impl Default for AudioRecorder {
+    fn default() -> Self {
+        Self {
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            samples: Arc::new(Mutex::new(Vec::new())),
+            sample_rate: Arc::new(Mutex::new(44100)),
+        }
+    }
+}
+
+fn encode_wav(samples: &[f32], sample_rate: u32) -> Result<Vec<u8>, String> {
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::new(&mut cursor, spec).map_err(|e| e.to_string())?;
+    for &s in samples {
+        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        writer.write_sample(v).map_err(|e| e.to_string())?;
+    }
+    writer.finalize().map_err(|e| e.to_string())?;
+    Ok(cursor.into_inner())
+}
+
+#[tauri::command]
+fn audio_start_recording(recorder: State<AudioRecorder>) -> Result<(), String> {
+    recorder.stop_flag.store(false, Ordering::SeqCst);
+    recorder.samples.lock().unwrap().clear();
+
+    let stop_flag = recorder.stop_flag.clone();
+    let samples = recorder.samples.clone();
+    let sample_rate_out = recorder.sample_rate.clone();
+
+    // Probe config on the calling thread (no Send needed here).
+    let host = cpal::default_host();
+    let device = host.default_input_device().ok_or("No input device available")?;
+    let config = device.default_input_config().map_err(|e| e.to_string())?;
+    let sr = config.sample_rate().0;
+    let ch = config.channels() as usize;
+    *sample_rate_out.lock().unwrap() = sr;
+
+    // The stream is !Send, so it must be built AND lived on the same thread.
+    std::thread::spawn(move || {
+        let host = cpal::default_host();
+        let device = match host.default_input_device() {
+            Some(d) => d,
+            None => { eprintln!("[audio] no input device"); return; }
+        };
+        let config = match device.default_input_config() {
+            Ok(c) => c,
+            Err(e) => { eprintln!("[audio] config error: {e}"); return; }
+        };
+
+        macro_rules! build_stream {
+            ($T:ty, $convert:expr) => {
+                device.build_input_stream(
+                    &config.clone().into(),
+                    {
+                        let samples = samples.clone();
+                        move |data: &[$T], _: &_| {
+                            let mut buf = samples.lock().unwrap();
+                            let floats: Vec<f32> = data.iter().map($convert).collect();
+                            if ch == 1 {
+                                buf.extend_from_slice(&floats);
+                            } else {
+                                buf.extend(floats.chunks(ch).map(|f| f.iter().sum::<f32>() / ch as f32));
+                            }
+                        }
+                    },
+                    |e| eprintln!("[audio] stream error: {e}"),
+                    None,
+                )
+            };
+        }
+
+        let stream = match config.sample_format() {
+            cpal::SampleFormat::F32 => build_stream!(f32, |&s: &f32| s),
+            cpal::SampleFormat::I16 => build_stream!(i16, |&s: &i16| s as f32 / i16::MAX as f32),
+            cpal::SampleFormat::U16 => build_stream!(u16, |&s: &u16| (s as f32 / u16::MAX as f32) * 2.0 - 1.0),
+            fmt => { eprintln!("[audio] unsupported format: {fmt:?}"); return; }
+        };
+
+        let stream = match stream {
+            Ok(s) => s,
+            Err(e) => { eprintln!("[audio] build_input_stream error: {e}"); return; }
+        };
+
+        if let Err(e) = stream.play() {
+            eprintln!("[audio] play error: {e}");
+            return;
+        }
+
+        // Keep the stream alive until stop is requested.
+        while !stop_flag.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // stream dropped here → recording stops
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn audio_stop_recording(recorder: State<AudioRecorder>) -> Result<Vec<u8>, String> {
+    recorder.stop_flag.store(true, Ordering::SeqCst);
+    // Give the recording thread ~40 ms to notice the flag and flush its last buffer.
+    std::thread::sleep(std::time::Duration::from_millis(40));
+    let samples = recorder.samples.lock().unwrap().clone();
+    let sr = *recorder.sample_rate.lock().unwrap();
+    encode_wav(&samples, sr)
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -753,6 +882,7 @@ pub fn run(config: AppConfig) {
         .plugin(tauri_plugin_opener::init())
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
+        .manage(AudioRecorder::default())
         .setup(|app| {
             #[cfg(target_os = "linux")]
             {
@@ -794,6 +924,8 @@ pub fn run(config: AppConfig) {
             mls_process_message,
             mls_encrypt,
             mls_clear_state,
+            audio_start_recording,
+            audio_stop_recording,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
