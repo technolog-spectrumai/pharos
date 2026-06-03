@@ -224,17 +224,51 @@ export const useChatStore = defineStore("chat", () => {
       return;
     }
 
-    if (type === "mls_key_package" && data.key_package) {
+    if (type === "mls_reset_request") {
+      // A peer is requesting everyone to reset their MLS session
+      log("Received mls_reset_request — resetting session");
+      await forceResetMls();
+      return;
+    }
+
+    // Accept both "key_package" (Enigma) and "package" (browser) field names
+    const rawKp = (data.key_package ?? data.package) as string | undefined;
+    if (type === "mls_key_package" && rawKp) {
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
-      if (mlsStatus.value === "ready" && currentRoom.value && !pendingInvites.has(deviceId)) {
+      const canAdd = (mlsStatus.value === "ready" || mlsStatus.value === "key_exchange")
+                     && currentRoom.value
+                     && !pendingInvites.has(deviceId);
+
+      if (canAdd) {
+        // Tiebreaker: lower string is the group admin. Compare display names (fall back to device IDs).
+        const ourId = currentUserName.value !== "You" ? currentUserName.value : mlsIdentity.value;
+        const theirId = (data.user as string) || deviceId;
+        const weAreAdmin = ourId < theirId;
+
+        if (!weAreAdmin) {
+          // Defer — re-send our key package so they can add us to their group
+          log("Deferring to peer (they are admin):", theirId);
+          const kpDefer = await cryptoService.keyPackage(currentRoom.value!.slug, mlsIdentity.value);
+          if (kpDefer) {
+            const b64 = bytesToBase64(kpDefer);
+            wsService.send({
+              type: "mls_key_package",
+              key_package: b64, package: b64,
+              device_id: mlsIdentity.value,
+              user: currentUserName.value,
+              target_channel: data.sender_channel,
+            });
+          }
+          return;
+        }
+
         pendingInvites.add(deviceId);
-        log("Adding MLS member", deviceId);
-        messages.value.push(systemMsg("🔑 Adding peer to encrypted group…"));
-        const kp = base64ToBytes(data.key_package as string);
+        log("Adding MLS member (admin):", theirId);
         const result = await cryptoService.addMember(
-          currentRoom.value.slug, mlsIdentity.value, kp
+          currentRoom.value!.slug, mlsIdentity.value, base64ToBytes(rawKp)
         );
         if (result) {
+          mlsStatus.value = "ready";
           wsService.send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
           wsService.send({
             type: "mls_welcome",
@@ -242,7 +276,7 @@ export const useChatStore = defineStore("chat", () => {
             target_channel: data.sender_channel,
           });
           log("Sent welcome + commit to", deviceId);
-          messages.value.push(systemMsg("🔒 Peer added to encrypted group."));
+          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
         } else {
           log("addMember failed for", deviceId);
           pendingInvites.delete(deviceId);
@@ -299,6 +333,9 @@ export const useChatStore = defineStore("chat", () => {
         log("Ignoring own mls_app echo");
         return;
       }
+      const senderName = (data.sender_name as string) || (data.user as string) || (data.device_id as string) || "Unknown";
+      const sender = participantForName(senderName);
+
       if (mlsStatus.value === "ready" && currentRoom.value) {
         log("Decrypting mls_app");
         let plaintext: Uint8Array | null = null;
@@ -320,23 +357,51 @@ export const useChatStore = defineStore("chat", () => {
         }
 
         if (plaintext) {
-          const senderName = (data.sender_name as string) || (data.device_id as string) || "Unknown";
-          const sender = participantForName(senderName);
-          messages.value.push({
-            id: nanoid(), type: "mls_app",
-            user: senderName,
-            initials: initials(senderName),
-            avatar_url: (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null,
-            content: new TextDecoder().decode(plaintext),
-            participant_type: "human",
-            self: senderName === currentUserName.value || data.device_id === mlsIdentity.value,
-            encrypted: true,
-            timestamp: new Date(),
-          });
+          const text = new TextDecoder().decode(plaintext);
+          const avatarUrl = (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null;
+          const isSelf = senderName === currentUserName.value || data.device_id === mlsIdentity.value;
+          let inner: Record<string, unknown> | null = null;
+          try { inner = JSON.parse(text); } catch (_) {}
+
+          if (inner?.type === "image_message" && inner.image_data) {
+            messages.value.push({
+              id: nanoid(), type: "image_message",
+              user: senderName, initials: initials(senderName), avatar_url: avatarUrl,
+              content: "", image_data: inner.image_data as string,
+              participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date(),
+            });
+          } else if (inner?.type === "voice_message" && inner.audio_data) {
+            messages.value.push({
+              id: nanoid(), type: "voice_message",
+              user: senderName, initials: initials(senderName), avatar_url: avatarUrl,
+              content: "", audio_data: inner.audio_data as string,
+              participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date(),
+            });
+          } else {
+            messages.value.push({
+              id: nanoid(), type: "mls_app",
+              user: senderName, initials: initials(senderName), avatar_url: avatarUrl,
+              content: text,
+              participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date(),
+            });
+          }
         } else {
           log("Decryption returned null for mls_app");
           messages.value.push(systemMsg("⚠ Could not decrypt an incoming message.", "system_error"));
         }
+      } else {
+        // MLS session not ready — show the message as a locked placeholder so it isn't silently lost
+        messages.value.push({
+          id: nanoid(), type: "mls_app",
+          user: senderName,
+          initials: initials(senderName),
+          avatar_url: (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null,
+          content: "🔒 [encrypted — session not ready]",
+          participant_type: "human",
+          self: false,
+          encrypted: true,
+          timestamp: new Date(),
+        });
       }
       return;
     }
@@ -354,30 +419,29 @@ export const useChatStore = defineStore("chat", () => {
     pendingInvites.clear();
 
     try {
-      const restored = await cryptoService.initSession(room, identity);
-      log("MLS session", restored ? "restored" : "created");
+      // Always start fresh — restoring stale group state causes group-ID mismatches
+      // when any peer reconnects with a different session. Both sides must negotiate
+      // a new group on every connection.
+      await cryptoService.clearState(room, identity);
+      await cryptoService.initSession(room, identity);
+      log("MLS session started fresh");
 
-      if (restored) {
-        mlsStatus.value = "ready";
-        messages.value.push(systemMsg("🔒 Encryption session restored."));
-      } else {
-        // Broadcast key package so anyone already in a group can invite us
-        const kp = await cryptoService.keyPackage(room, identity);
-        if (kp) {
-          wsService.send({ type: "mls_key_package", key_package: bytesToBase64(kp), device_id: identity });
-          log("Key package sent");
-          messages.value.push(systemMsg("🔑 Key package sent — waiting for group invitation…"));
-          mlsStatus.value = "key_exchange";
+      const kp = await cryptoService.keyPackage(room, identity);
+      if (kp) {
+        const b64 = bytesToBase64(kp);
+        wsService.send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value });
+        log("Key package sent");
+        messages.value.push(systemMsg("🔑 Setting up encryption…"));
+        mlsStatus.value = "key_exchange";
 
-          // Become the group creator after a short grace period if no welcome arrives
-          setTimeout(() => {
-            if (mlsStatus.value === "key_exchange") {
-              log("No welcome received — declaring self as group creator");
-              mlsStatus.value = "ready";
-              messages.value.push(systemMsg("🔒 End-to-end encryption active (group creator)."));
-            }
-          }, 4000);
-        }
+        // Become the group creator after a grace period if no welcome arrives
+        setTimeout(() => {
+          if (mlsStatus.value === "key_exchange") {
+            log("No welcome received — declaring self as group creator");
+            mlsStatus.value = "ready";
+            messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          }
+        }, 5000);
       }
     } catch (e) {
       mlsStatus.value = "error";
@@ -391,6 +455,14 @@ export const useChatStore = defineStore("chat", () => {
   async function syncRuntimeIdentity() {
     const runtime = await getRuntimeConfig();
     mlsIdentity.value = runtime.identity;
+    // Also resolve the display name so self-detection works for plaintext messages
+    try {
+      const me = await api.getMe();
+      if (me?.full_name) currentUserName.value = me.full_name;
+      else if (me?.username) currentUserName.value = me.username;
+    } catch {
+      // non-fatal — self-highlighting just won't work
+    }
   }
 
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
@@ -531,6 +603,7 @@ export const useChatStore = defineStore("chat", () => {
           type: "mls_app",
           ciphertext: bytesToBase64(ct),
           device_id: mlsIdentity.value,
+          user: currentUserName.value,
           sender_name: currentUserName.value,
           sender_avatar_url: avatarForName(currentUserName.value),
         });
@@ -552,6 +625,43 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  async function forceResetMls() {
+    if (!currentRoom.value || !mlsIdentity.value) return;
+    const room = currentRoom.value.slug;
+    const identity = mlsIdentity.value;
+    // Tell all peers to reset too before we wipe our own state
+    wsService.send({ type: "mls_reset_request" });
+    mlsStatus.value = "initializing";
+    mlsError.value = null;
+    pendingInvites.clear();
+    pendingRecoveryRooms.clear();
+    messages.value = [systemMsg("🔄 Session reset — history cleared.")];
+    try {
+      await cryptoService.clearState(room, identity);
+      await cryptoService.initSession(room, identity);
+      const kp = await cryptoService.keyPackage(room, identity);
+      if (kp) {
+        const b64 = bytesToBase64(kp);
+        wsService.send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value });
+        mlsStatus.value = "key_exchange";
+        messages.value.push(systemMsg("🔑 Fresh key package sent."));
+        setTimeout(() => {
+          if (mlsStatus.value === "key_exchange") {
+            mlsStatus.value = "ready";
+            messages.value.push(systemMsg("🔒 New encryption group created."));
+          }
+        }, 5000);
+      } else {
+        mlsStatus.value = "error";
+        messages.value.push(systemMsg("Failed to generate key package.", "system_error"));
+      }
+    } catch (e) {
+      mlsStatus.value = "error";
+      mlsError.value = (e as Error).message;
+      messages.value.push(systemMsg(`Reset failed: ${(e as Error).message}`, "system_error"));
+    }
+  }
+
   return {
     rooms, currentRoom, messages, participants,
     wsStatus, loadingRooms, error, isConnected,
@@ -559,5 +669,6 @@ export const useChatStore = defineStore("chat", () => {
     isParticipant, currentUserName, mlsIdentity,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage, sendImage, sendAudio,
+    forceResetMls,
   };
 });

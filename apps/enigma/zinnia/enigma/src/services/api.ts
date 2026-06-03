@@ -414,6 +414,63 @@ export interface MissionOption {
   project: string;
 }
 
+// ── Bourse ────────────────────────────────────────────────────────────────────
+
+export interface BourseProposal {
+  id: number;
+  direction: "incoming" | "outgoing";
+  status: string;
+  requester: string;
+  counterparty: string | null;
+  requester_account: string;
+  offer_asset: string;
+  offer_amount: string;
+  request_asset: string;
+  request_amount: string;
+  exchange_rate: string;
+  commission_amount: string;
+  commission_percent: string;
+  pair: string;
+  note: string;
+  response_note: string;
+  created_at: string;
+  responded_at: string | null;
+}
+
+export interface BoursePairStat {
+  pair: string;
+  ask_count: number;
+  last_rate: string;
+  offer_unit: string;
+  request_unit: string;
+  offer_depth: string;
+}
+
+export interface BourseAccount {
+  id: number;
+  code: string;
+  name: string;
+  holdings: { asset: string; asset_name: string; balance: string }[];
+}
+
+export interface BourseAsset {
+  id: number;
+  unit_name: string;
+  name: string;
+  decimals: number;
+}
+
+export interface BourseCenter {
+  public_asks: BourseProposal[];
+  proposals: BourseProposal[];
+  recent_trades: BourseProposal[];
+  pair_stats: BoursePairStat[];
+  accounts: BourseAccount[];
+  assets: BourseAsset[];
+  pending_incoming: number;
+  pending_outgoing: number;
+}
+
 export interface MobilizationDeployment {
   id: number;
   title: string;
@@ -802,6 +859,39 @@ class ApiService {
 
   requestDetectionHelp(detectionId: string, data: { mission_id: number; title: string; description: string }): Promise<{ ok: boolean; task_id: number; task_title: string }> {
     return this.request(`/detections/api/enigma/${detectionId}/help/`, { method: "POST", body: JSON.stringify(data) });
+  }
+
+  // ── Bourse ─────────────────────────────────────────────────────────────────
+
+  getBourseCenter(): Promise<BourseCenter> {
+    return this.request("/bourse/api/enigma/center/");
+  }
+
+  createExchangeRequest(data: {
+    requester_account_id: number;
+    offer_asset_id: number;
+    offer_amount: string;
+    request_asset_id: number;
+    expected_amount: string;
+    note?: string;
+    counterparty_id?: number | null;
+  }): Promise<{ ok: boolean; id: number }> {
+    return this.request("/bourse/api/enigma/proposals/create/", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  acceptExchangeRequest(id: number, counterparty_account_id: number, pin_token?: string): Promise<{ ok: boolean; error?: string }> {
+    return this.request(`/bourse/api/enigma/proposals/${id}/accept/`, {
+      method: "POST",
+      body: JSON.stringify({ counterparty_account_id, ...(pin_token ? { pin_token } : {}) }),
+    });
+  }
+
+  rejectExchangeRequest(id: number): Promise<{ ok: boolean }> {
+    return this.request(`/bourse/api/enigma/proposals/${id}/reject/`, { method: "POST", body: JSON.stringify({}) });
+  }
+
+  cancelExchangeRequest(id: number): Promise<{ ok: boolean }> {
+    return this.request(`/bourse/api/enigma/proposals/${id}/cancel/`, { method: "POST", body: JSON.stringify({}) });
   }
 
   // ── Audio upload ───────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useWalletStore } from "../stores/wallet";
 import { api } from "../services/api";
-import type { Obligation, Movement } from "../services/api";
+import type { Obligation, Movement, BourseCenter, BourseProposal, BourseAsset, BourseAccount } from "../services/api";
 
 const props = defineProps<{ darkMode: boolean }>();
 
@@ -144,6 +144,157 @@ async function settlePending() {
   }
 }
 
+// ── Bourse state ──────────────────────────────────────────────────────────────
+type WalletTab = "wallet" | "exchange";
+const walletTab = ref<WalletTab>("wallet");
+type ExchangeTab = "market" | "proposals" | "tape";
+const exchangeTab = ref<ExchangeTab>("market");
+
+const bourse = ref<BourseCenter | null>(null);
+const bourseLoading = ref(false);
+const bourseError = ref<string | null>(null);
+
+// Create form
+const createOpen = ref(false);
+const createAccountId = ref<number | null>(null);
+const createOfferAssetId = ref<number | null>(null);
+const createOfferAmount = ref("");
+const createRequestAssetId = ref<number | null>(null);
+const createExpectedAmount = ref("");
+const createNote = ref("");
+const createSaving = ref(false);
+const createError = ref<string | null>(null);
+
+// Accept flow (needs PIN)
+const acceptingId = ref<number | null>(null);
+const acceptAccountId = ref<number | null>(null);
+const acceptPinOpen = ref(false);
+const acceptPinValue = ref("");
+const acceptPinError = ref("");
+const acceptPinLoading = ref(false);
+const acceptPinToken = ref<string | null>(null);
+
+// Action feedback
+const actionLoading = ref<number | null>(null);
+const actionError = ref<string | null>(null);
+
+async function fetchBourse() {
+  bourseLoading.value = true;
+  bourseError.value = null;
+  try {
+    bourse.value = await api.getBourseCenter();
+  } catch (e: any) {
+    bourseError.value = e.message ?? "Failed to load exchange";
+  } finally {
+    bourseLoading.value = false;
+  }
+}
+
+function openExchangeTab() {
+  walletTab.value = "exchange";
+  if (!bourse.value) fetchBourse();
+}
+
+function openAcceptFlow(proposal: BourseProposal) {
+  acceptingId.value = proposal.id;
+  acceptAccountId.value = bourse.value?.accounts[0]?.id ?? null;
+  acceptPinValue.value = "";
+  acceptPinError.value = "";
+  acceptPinToken.value = null;
+  acceptPinOpen.value = true;
+}
+
+async function submitAcceptPin() {
+  if (!acceptPinValue.value) { acceptPinError.value = "Enter your PIN."; return; }
+  acceptPinLoading.value = true;
+  acceptPinError.value = "";
+  try {
+    const res = await api.verifyPin(acceptPinValue.value);
+    if (!res.ok) { acceptPinError.value = res.error ?? "Incorrect PIN."; acceptPinValue.value = ""; return; }
+    acceptPinToken.value = res.pin_token ?? null;
+    await doAccept();
+  } catch (e: any) {
+    acceptPinError.value = e.message ?? "Network error.";
+  } finally {
+    acceptPinLoading.value = false;
+  }
+}
+
+async function doAccept() {
+  if (!acceptingId.value || !acceptAccountId.value) return;
+  try {
+    const res = await api.acceptExchangeRequest(acceptingId.value, acceptAccountId.value, acceptPinToken.value ?? undefined);
+    if (res.ok) {
+      acceptPinOpen.value = false;
+      await fetchBourse();
+    } else {
+      acceptPinError.value = res.error ?? "Accept failed.";
+    }
+  } catch (e: any) {
+    acceptPinError.value = e.message ?? "Accept failed.";
+  }
+}
+
+async function rejectProposal(id: number) {
+  actionLoading.value = id;
+  actionError.value = null;
+  try {
+    await api.rejectExchangeRequest(id);
+    await fetchBourse();
+  } catch (e: any) {
+    actionError.value = e.message ?? "Failed.";
+  } finally {
+    actionLoading.value = null;
+  }
+}
+
+async function cancelProposal(id: number) {
+  actionLoading.value = id;
+  actionError.value = null;
+  try {
+    await api.cancelExchangeRequest(id);
+    await fetchBourse();
+  } catch (e: any) {
+    actionError.value = e.message ?? "Failed.";
+  } finally {
+    actionLoading.value = null;
+  }
+}
+
+async function submitCreate() {
+  if (!createAccountId.value || !createOfferAssetId.value || !createRequestAssetId.value || !createOfferAmount.value || !createExpectedAmount.value) {
+    createError.value = "Fill in all required fields."; return;
+  }
+  createSaving.value = true;
+  createError.value = null;
+  try {
+    await api.createExchangeRequest({
+      requester_account_id: createAccountId.value,
+      offer_asset_id: createOfferAssetId.value,
+      offer_amount: createOfferAmount.value,
+      request_asset_id: createRequestAssetId.value,
+      expected_amount: createExpectedAmount.value,
+      note: createNote.value,
+    });
+    createOpen.value = false;
+    createOfferAmount.value = "";
+    createExpectedAmount.value = "";
+    createNote.value = "";
+    await fetchBourse();
+  } catch (e: any) {
+    createError.value = e.message ?? "Failed to create proposal.";
+  } finally {
+    createSaving.value = false;
+  }
+}
+
+const impliedRate = computed(() => {
+  const o = parseFloat(createOfferAmount.value);
+  const r = parseFloat(createExpectedAmount.value);
+  if (!o || !r || o === 0) return null;
+  return (r / o).toFixed(6);
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(iso: string | null) {
   if (!iso) return "—";
@@ -197,6 +348,31 @@ function inner() {
         </button>
       </div>
     </div>
+
+    <!-- Top tab bar -->
+    <div class="flex gap-1">
+      <button
+        @click="walletTab = 'wallet'"
+        :class="[
+          'rounded-lg px-4 py-2 text-sm font-semibold border transition',
+          walletTab === 'wallet'
+            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent')
+            : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-80' : 'border-accent-2 opacity-60 hover:opacity-80')
+        ]"
+      ><font-awesome-icon icon="wallet" class="mr-1.5" />Wallet</button>
+      <button
+        @click="openExchangeTab()"
+        :class="[
+          'rounded-lg px-4 py-2 text-sm font-semibold border transition',
+          walletTab === 'exchange'
+            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent')
+            : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-80' : 'border-accent-2 opacity-60 hover:opacity-80')
+        ]"
+      ><font-awesome-icon icon="arrow-right-arrow-left" class="mr-1.5" />Exchange</button>
+    </div>
+
+    <!-- ── WALLET TAB ── -->
+    <template v-if="walletTab === 'wallet'">
 
     <!-- Settle success banner -->
     <div v-if="settleSuccess" class="rounded-lg border border-green-400/40 bg-green-400/10 px-4 py-2 text-sm text-green-400 flex items-center gap-2">
@@ -391,7 +567,268 @@ function inner() {
       </div>
     </section>
 
+    </template><!-- end wallet tab -->
+
+    <!-- ── EXCHANGE TAB ── -->
+    <template v-if="walletTab === 'exchange'">
+
+      <!-- Loading / error -->
+      <div v-if="bourseLoading" class="flex items-center justify-center py-16 opacity-50">
+        <font-awesome-icon icon="spinner" spin class="text-2xl" />
+      </div>
+      <div v-else-if="bourseError" class="rounded-lg border border-red-400/40 bg-red-400/10 px-4 py-2 text-sm text-red-400">{{ bourseError }}</div>
+
+      <template v-else-if="bourse">
+
+        <!-- Sub-tab bar + actions -->
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div class="flex gap-1">
+            <button v-for="t in (['market','proposals','tape'] as ExchangeTab[])" :key="t"
+              @click="exchangeTab = t"
+              class="rounded-lg px-3 py-1.5 text-xs font-semibold border transition capitalize"
+              :class="exchangeTab === t
+                ? (darkMode ? 'bg-accent-dark text-primary-bg-dark border-transparent' : 'bg-accent-light text-primary-bg-light border-transparent')
+                : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-80' : 'border-accent-2 opacity-60 hover:opacity-80')"
+            >
+              {{ t === 'market' ? `Market (${bourse.public_asks.length})` : t === 'proposals' ? `Proposals (${bourse.pending_incoming + bourse.pending_outgoing})` : `Tape (${bourse.recent_trades.length})` }}
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="fetchBourse()" :class="darkMode ? 'border-accent-1' : 'border-accent-2'" class="rounded-lg border px-2.5 py-1.5 text-xs transition hover:opacity-80">
+              <font-awesome-icon icon="rotate-right" />
+            </button>
+            <button @click="createOpen = !createOpen"
+              :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+              class="rounded-lg px-3 py-1.5 text-xs font-bold transition hover:opacity-90 flex items-center gap-1.5"
+            >
+              <font-awesome-icon icon="plus" />New ask
+            </button>
+          </div>
+        </div>
+
+        <!-- Pair stats bar -->
+        <div v-if="bourse.pair_stats.length" class="flex flex-wrap gap-2">
+          <div v-for="ps in bourse.pair_stats" :key="ps.pair"
+            :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+            class="rounded-lg border px-3 py-1.5 text-xs"
+          >
+            <span class="font-semibold font-mono">{{ ps.pair }}</span>
+            <span class="opacity-50 ml-2">{{ ps.ask_count }} ask{{ ps.ask_count !== 1 ? 's' : '' }}</span>
+            <span class="opacity-40 ml-1">@ {{ parseFloat(ps.last_rate).toFixed(4) }}</span>
+          </div>
+        </div>
+
+        <!-- Create form -->
+        <div v-if="createOpen" :class="card()" class="rounded-2xl border p-5 shadow-sm space-y-4">
+          <p class="font-semibold text-sm flex items-center gap-2"><font-awesome-icon icon="plus" />New exchange proposal</p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="block text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">Pay from account</label>
+              <select v-model="createAccountId" class="rounded-lg border px-3 py-2 text-xs outline-none w-full">
+                <option :value="null">— choose —</option>
+                <option v-for="acc in bourse.accounts" :key="acc.id" :value="acc.id">{{ acc.code }} ({{ acc.name }})</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">You offer</label>
+              <div class="flex gap-2">
+                <select v-model="createOfferAssetId" class="rounded-lg border px-3 py-2 text-xs outline-none flex-1">
+                  <option :value="null">Asset</option>
+                  <option v-for="a in bourse.assets" :key="a.id" :value="a.id">{{ a.unit_name }}</option>
+                </select>
+                <input v-model="createOfferAmount" type="text" inputmode="decimal" placeholder="Amount" class="rounded-lg border px-3 py-2 text-xs outline-none w-28" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">You request</label>
+              <div class="flex gap-2">
+                <select v-model="createRequestAssetId" class="rounded-lg border px-3 py-2 text-xs outline-none flex-1">
+                  <option :value="null">Asset</option>
+                  <option v-for="a in bourse.assets" :key="a.id" :value="a.id">{{ a.unit_name }}</option>
+                </select>
+                <input v-model="createExpectedAmount" type="text" inputmode="decimal" placeholder="Amount" class="rounded-lg border px-3 py-2 text-xs outline-none w-28" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">Note (optional)</label>
+              <input v-model="createNote" type="text" placeholder="e.g. price negotiable" class="rounded-lg border px-3 py-2 text-xs outline-none w-full" />
+            </div>
+          </div>
+          <p v-if="impliedRate" class="text-xs opacity-50">Implied rate: <span class="font-semibold font-mono">{{ impliedRate }}</span></p>
+          <p v-if="createError" class="text-xs text-red-400">{{ createError }}</p>
+          <div class="flex gap-2">
+            <button @click="submitCreate()" :disabled="createSaving"
+              :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+              class="rounded-lg px-4 py-2 text-xs font-bold transition hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <font-awesome-icon :icon="createSaving ? 'spinner' : 'bolt'" :spin="createSaving" />
+              {{ createSaving ? 'Posting…' : 'Post ask' }}
+            </button>
+            <button @click="createOpen = false" class="rounded-lg border border-current/20 px-3 py-2 text-xs opacity-60 hover:opacity-80">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Market tab -->
+        <div v-if="exchangeTab === 'market'">
+          <div v-if="bourse.public_asks.length === 0" class="flex flex-col items-center justify-center py-12 opacity-40 gap-3">
+            <font-awesome-icon icon="arrow-right-arrow-left" class="text-4xl" />
+            <p class="text-sm">No public asks right now</p>
+          </div>
+          <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div v-for="ask in bourse.public_asks" :key="ask.id" :class="card()" class="rounded-xl border p-4 shadow-sm space-y-2">
+              <div class="flex items-start justify-between gap-2">
+                <span class="font-semibold text-sm font-mono">{{ ask.pair }}</span>
+                <span class="text-[10px] rounded-full px-2 py-0.5 font-semibold bg-blue-500/20 text-blue-400">public ask</span>
+              </div>
+              <div class="text-xs space-y-0.5">
+                <p><span class="opacity-50">Offers:</span> <span class="font-semibold">{{ ask.offer_amount }} {{ ask.offer_asset }}</span></p>
+                <p><span class="opacity-50">Wants:</span> <span class="font-semibold">{{ ask.request_amount }} {{ ask.request_asset }}</span></p>
+                <p><span class="opacity-50">Rate:</span> <span class="font-mono">{{ parseFloat(ask.exchange_rate).toFixed(6) }}</span></p>
+                <p><span class="opacity-50">From:</span> {{ ask.requester }}</p>
+                <p v-if="ask.note" class="opacity-50 italic">{{ ask.note }}</p>
+              </div>
+              <button @click="openAcceptFlow(ask)"
+                :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+                class="w-full rounded-lg py-1.5 text-xs font-bold transition hover:opacity-90 flex items-center justify-center gap-1.5"
+              >
+                <font-awesome-icon icon="bolt" />Accept trade
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Proposals tab -->
+        <div v-if="exchangeTab === 'proposals'">
+          <p v-if="actionError" class="text-xs text-red-400 mb-2">{{ actionError }}</p>
+          <div v-if="bourse.proposals.length === 0" class="flex flex-col items-center justify-center py-12 opacity-40 gap-3">
+            <font-awesome-icon icon="file-contract" class="text-4xl" />
+            <p class="text-sm">No proposals yet</p>
+          </div>
+          <div v-else class="space-y-3">
+            <div v-for="prop in bourse.proposals" :key="prop.id" :class="card()" class="rounded-xl border p-4 shadow-sm">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="space-y-0.5 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] rounded-full px-2 py-0.5 font-semibold"
+                      :class="{
+                        'bg-yellow-500/20 text-yellow-400': prop.status === 'pending',
+                        'bg-green-500/20 text-green-400': prop.status === 'accepted',
+                        'bg-red-500/20 text-red-400': prop.status === 'rejected' || prop.status === 'cancelled',
+                      }">{{ prop.status }}</span>
+                    <span class="text-[10px] rounded-full px-2 py-0.5 font-semibold opacity-60 border border-current/20">
+                      {{ prop.direction }}
+                    </span>
+                    <span class="font-semibold font-mono">{{ prop.pair }}</span>
+                  </div>
+                  <p><span class="opacity-50">Offer:</span> {{ prop.offer_amount }} {{ prop.offer_asset }} → <span class="font-semibold">{{ prop.request_amount }} {{ prop.request_asset }}</span></p>
+                  <p><span class="opacity-50">Rate:</span> <span class="font-mono">{{ parseFloat(prop.exchange_rate).toFixed(6) }}</span></p>
+                  <p><span class="opacity-50">{{ prop.direction === 'outgoing' ? 'To' : 'From' }}:</span> {{ prop.direction === 'outgoing' ? (prop.counterparty ?? 'public') : prop.requester }}</p>
+                  <p v-if="prop.note" class="opacity-40 italic">{{ prop.note }}</p>
+                  <p class="opacity-30">{{ fmtDateTime(prop.created_at) }}</p>
+                </div>
+                <div v-if="prop.status === 'pending'" class="flex flex-col gap-1.5 shrink-0">
+                  <button v-if="prop.direction === 'incoming'"
+                    @click="openAcceptFlow(prop)"
+                    :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+                    class="rounded-lg px-3 py-1.5 text-xs font-bold transition hover:opacity-90 flex items-center gap-1"
+                  ><font-awesome-icon icon="check" />Accept</button>
+                  <button v-if="prop.direction === 'incoming'"
+                    @click="rejectProposal(prop.id)"
+                    :disabled="actionLoading === prop.id"
+                    class="rounded-lg border border-red-400/40 text-red-400 px-3 py-1.5 text-xs font-semibold transition hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
+                  ><font-awesome-icon :icon="actionLoading === prop.id ? 'spinner' : 'xmark'" :spin="actionLoading === prop.id" />Reject</button>
+                  <button v-if="prop.direction === 'outgoing'"
+                    @click="cancelProposal(prop.id)"
+                    :disabled="actionLoading === prop.id"
+                    class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold opacity-60 transition hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
+                  ><font-awesome-icon :icon="actionLoading === prop.id ? 'spinner' : 'xmark'" :spin="actionLoading === prop.id" />Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trade tape tab -->
+        <div v-if="exchangeTab === 'tape'">
+          <div v-if="bourse.recent_trades.length === 0" class="flex flex-col items-center justify-center py-12 opacity-40 gap-3">
+            <font-awesome-icon icon="list" class="text-4xl" />
+            <p class="text-sm">No settled trades yet</p>
+          </div>
+          <div v-else class="space-y-2">
+            <div v-for="trade in bourse.recent_trades" :key="trade.id" :class="card()" class="rounded-xl border px-4 py-3 shadow-sm">
+              <div class="flex items-start justify-between gap-3 flex-wrap text-xs">
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold font-mono">{{ trade.pair }}</span>
+                    <span class="text-[10px] rounded-full px-2 py-0.5 bg-green-500/20 text-green-400 font-semibold">settled</span>
+                    <span class="text-[10px] opacity-50 rounded-full px-2 py-0.5 border border-current/20">{{ trade.direction }}</span>
+                  </div>
+                  <p>{{ trade.offer_amount }} {{ trade.offer_asset }} ⇄ {{ trade.request_amount }} {{ trade.request_asset }}</p>
+                  <p class="opacity-50">{{ trade.requester }} ↔ {{ trade.counterparty ?? '—' }}</p>
+                  <p class="opacity-30">{{ trade.responded_at ? fmtDateTime(trade.responded_at) : fmtDateTime(trade.created_at) }}</p>
+                </div>
+                <div class="text-[10px] opacity-40 font-mono space-y-0.5 text-right">
+                  <p v-if="trade.response_note" class="opacity-60 not-italic text-left">{{ trade.response_note }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </template>
+    </template><!-- end exchange tab -->
+
   </div>
+
+  <!-- ── Accept PIN Modal ── -->
+  <Teleport to="body">
+    <Transition name="pin-fade">
+      <div v-if="acceptPinOpen" class="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4" style="background:rgba(0,0,0,0.6)" @click.self="acceptPinOpen = false">
+        <div :class="darkMode ? 'bg-bubble-bg-dark text-white border-accent-1' : 'bg-bubble-bg-light text-gray-900 border-gray-200'" class="w-full max-w-xs rounded-2xl border shadow-2xl overflow-hidden">
+          <div class="px-5 pt-5 pb-4 border-b border-current/10 flex items-start justify-between gap-3">
+            <div>
+              <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-bold uppercase tracking-wide">PIN required</p>
+              <h2 class="mt-1 text-lg font-bold flex items-center gap-2"><font-awesome-icon icon="bolt" />Accept trade</h2>
+              <div v-if="acceptAccountId && bourse" class="mt-2 text-xs space-y-1">
+                <div>
+                  <label class="opacity-50">Receive into account</label>
+                  <select v-model="acceptAccountId" class="rounded-lg border px-3 py-1.5 text-xs outline-none w-full mt-0.5">
+                    <option v-for="acc in bourse.accounts" :key="acc.id" :value="acc.id">{{ acc.code }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <button @click="acceptPinOpen = false" class="opacity-40 hover:opacity-80 p-1 shrink-0"><font-awesome-icon icon="xmark" /></button>
+          </div>
+          <div class="px-5 pt-4 pb-2">
+            <div class="flex justify-center gap-3 mb-1">
+              <span v-for="i in 6" :key="i" class="h-3 w-3 rounded-full border-2 transition-colors"
+                :class="acceptPinValue.length >= i ? (darkMode ? 'bg-accent-dark border-accent-dark' : 'bg-accent-light border-accent-light') : 'border-current/30 bg-transparent'"
+              ></span>
+            </div>
+            <p v-if="acceptPinError" class="text-center text-xs text-red-400 mt-2">{{ acceptPinError }}</p>
+          </div>
+          <div class="grid grid-cols-3 gap-px p-3">
+            <button v-for="d in ['1','2','3','4','5','6','7','8','9','','0','⌫']" :key="d"
+              @click="d === '⌫' ? (acceptPinValue = acceptPinValue.slice(0,-1)) : (d && acceptPinValue.length < 12 && (acceptPinValue += d))"
+              :disabled="!d || acceptPinLoading"
+              :class="darkMode ? 'bg-primary-bg-dark hover:bg-white/5' : 'bg-primary-bg-light hover:bg-black/5'"
+              class="rounded-xl py-3 text-lg font-semibold transition disabled:opacity-0"
+            >{{ d }}</button>
+          </div>
+          <div class="px-3 pb-3">
+            <button @click="submitAcceptPin()" :disabled="acceptPinLoading || !acceptPinValue"
+              :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+              class="w-full rounded-xl py-3 font-bold text-sm transition hover:opacity-85 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <font-awesome-icon :icon="acceptPinLoading ? 'spinner' : 'bolt'" :spin="acceptPinLoading" />
+              {{ acceptPinLoading ? 'Verifying…' : 'Confirm trade' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 
   <!-- ── PIN Modal ── -->
   <Teleport to="body">

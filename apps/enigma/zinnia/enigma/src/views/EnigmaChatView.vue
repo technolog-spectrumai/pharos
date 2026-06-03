@@ -26,6 +26,8 @@ const {
   isParticipant,
 } = storeToRefs(chat);
 
+function forceResetMls() { return chat.forceResetMls(); }
+
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
@@ -322,6 +324,17 @@ const mlsChipClass = computed(() => {
           {{ mlsLabel }}
         </span>
 
+        <!-- Reset encryption button — shown when stuck in key_exchange or error -->
+        <button
+          v-if="currentRoom && isParticipant && (mlsStatus === 'key_exchange' || mlsStatus === 'error')"
+          @click="forceResetMls()"
+          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs font-bold text-yellow-400 shadow-sm transition hover:bg-yellow-500/20"
+          title="Force a fresh MLS key exchange"
+        >
+          <font-awesome-icon icon="rotate-right" />
+          Reset session
+        </button>
+
         <!-- Connection chip desktop -->
         <span
           v-if="currentRoom && isParticipant"
@@ -404,6 +417,15 @@ const mlsChipClass = computed(() => {
           <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />
           {{ wsLabel }}
         </span>
+
+        <button
+          v-if="mlsStatus === 'key_exchange' || mlsStatus === 'error'"
+          @click="forceResetMls()"
+          class="inline-flex items-center gap-1 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-2.5 py-1.5 text-xs font-bold text-yellow-400 transition hover:bg-yellow-500/20"
+        >
+          <font-awesome-icon icon="rotate-right" />
+          Reset
+        </button>
 
         <button
           :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }"
