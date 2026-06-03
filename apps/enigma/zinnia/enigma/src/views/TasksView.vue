@@ -240,7 +240,7 @@ function fmt(iso: string | null) { return iso ? new Date(iso).toLocaleDateString
           </template>
           <button v-else @click="addingToCol = col.id"
             class="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-xs opacity-50 hover:opacity-100 transition">
-            <font-awesome-icon icon="plus" />+ Add task
+            <font-awesome-icon icon="plus" />Add task
           </button>
         </div>
       </div>
