@@ -17,6 +17,7 @@ const viewMode = ref<ViewMode>("tree");
 const search = ref("");
 const selectedBucket = ref<string | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const uploadTargetBucket = ref<string | null>(null);
 
 onMounted(() => store.fetchFiles());
 
@@ -45,8 +46,14 @@ const FILE_TYPE_COLORS: Record<string, string> = {
   yaml: "text-green-400", csv: "text-teal-400", html: "text-amber-400",
   default: "text-gray-400",
 };
+const FILE_TYPE_LABELS: Record<string, string> = {
+  pdf: "PDF", image: "Image", html: "HTML", text: "Text", json: "JSON",
+  yaml: "YAML", xml: "XML", latex: "LaTeX", bib: "BibTeX", csv: "CSV",
+  svg: "SVG", audio: "Audio", video: "Video", default: "File",
+};
 function fileIcon(type: string) { return FILE_ICONS[type] ?? FILE_ICONS.default; }
 function fileColor(type: string) { return FILE_TYPE_COLORS[type] ?? FILE_TYPE_COLORS.default; }
+function fileLabel(type: string) { return FILE_TYPE_LABELS[type] ?? type.toUpperCase(); }
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -58,11 +65,15 @@ function formatDate(iso: string) {
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
-function triggerPick() { fileInputRef.value?.click(); }
+function triggerPick(bucketSlug?: string) {
+  uploadTargetBucket.value = bucketSlug ?? null;
+  fileInputRef.value?.click();
+}
 async function onFileSelected(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
-  await store.upload(file, file.name);
+  await store.upload(file, file.name, uploadTargetBucket.value ?? undefined);
+  uploadTargetBucket.value = null;
   if (fileInputRef.value) fileInputRef.value.value = "";
 }
 
@@ -192,12 +203,6 @@ function sparkPoints(data: number[]) {
             </button>
           </div>
         </template>
-        <button @click="triggerPick" :disabled="uploading"
-          :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
-          class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold shadow transition hover:opacity-90 disabled:opacity-50">
-          <font-awesome-icon :icon="uploading ? 'spinner' : 'upload'" :spin="uploading" />
-          {{ uploading ? "Uploading…" : "Upload" }}
-        </button>
       </div>
     </div>
 
@@ -270,18 +275,26 @@ function sparkPoints(data: number[]) {
             :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
             class="rounded-xl border shadow-sm overflow-hidden">
             <!-- Bucket header row -->
-            <button @click="toggleBucket(group.slug)"
-              class="flex w-full items-center gap-2.5 px-4 py-3 text-left transition hover:opacity-80">
-              <font-awesome-icon
-                :icon="expandedBuckets.has(group.slug) ? 'chevron-down' : 'chevron-right'"
-                class="text-xs opacity-50 w-3 shrink-0" />
-              <font-awesome-icon
-                :icon="expandedBuckets.has(group.slug) ? 'folder-open' : 'folder'"
-                :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-                class="text-sm shrink-0" />
-              <span class="text-sm font-bold flex-1">{{ group.label }}</span>
-              <span class="text-xs opacity-40 shrink-0">{{ group.files.length }} file{{ group.files.length !== 1 ? 's' : '' }}</span>
-            </button>
+            <div class="flex w-full items-center gap-2.5 px-4 py-3">
+              <button @click="toggleBucket(group.slug)"
+                class="flex flex-1 items-center gap-2.5 text-left transition hover:opacity-80 min-w-0">
+                <font-awesome-icon
+                  :icon="expandedBuckets.has(group.slug) ? 'chevron-down' : 'chevron-right'"
+                  class="text-xs opacity-50 w-3 shrink-0" />
+                <font-awesome-icon
+                  :icon="expandedBuckets.has(group.slug) ? 'folder-open' : 'folder'"
+                  :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                  class="text-sm shrink-0" />
+                <span class="text-sm font-bold truncate">{{ group.label }}</span>
+                <span class="text-xs opacity-40 shrink-0">{{ group.files.length }} file{{ group.files.length !== 1 ? 's' : '' }}</span>
+              </button>
+              <button @click.stop="triggerPick(group.slug)" :disabled="uploading"
+                class="shrink-0 rounded border border-current/20 px-2 py-0.5 text-xs opacity-50 hover:opacity-100 transition disabled:opacity-30"
+                title="Upload to this folder">
+                <font-awesome-icon :icon="uploading && uploadTargetBucket === group.slug ? 'spinner' : 'upload'"
+                  :spin="uploading && uploadTargetBucket === group.slug" />
+              </button>
+            </div>
 
             <!-- File rows -->
             <div v-if="expandedBuckets.has(group.slug)" class="border-t border-current/10">
@@ -309,7 +322,7 @@ function sparkPoints(data: number[]) {
                 <!-- Type badge -->
                 <span :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
                   class="shrink-0 rounded border px-1.5 py-0.5 uppercase tracking-wide text-[10px] opacity-60">
-                  {{ f.file_type }}
+                  {{ fileLabel(f.file_type) }}
                 </span>
 
                 <!-- Encrypt badge -->

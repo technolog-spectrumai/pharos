@@ -23,11 +23,11 @@ export const useVaultStore = defineStore("vault", () => {
     }
   }
 
-  async function upload(file: File, title?: string) {
+  async function upload(file: File, title?: string, bucketSlug?: string) {
     uploading.value = true;
     error.value = null;
     try {
-      const vf = await api.uploadFile(file, title || file.name);
+      const vf = await api.uploadFile(file, title || file.name, bucketSlug);
       files.value.unshift(vf);
       return vf;
     } catch (e: any) {

@@ -724,13 +724,14 @@ class ApiService {
     return this.request(`/vault/api/files/${key}/`, { method: "DELETE" });
   }
 
-  uploadFile(file: File, title: string): Promise<VaultFile> {
+  uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
     return new Promise(async (resolve, reject) => {
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
       form.append("file", file);
       form.append("title", title || file.name);
+      if (bucketSlug) form.append("bucket_slug", bucketSlug);
 
       const xhr = new XMLHttpRequest();
       xhr.addEventListener("load", () => {
