@@ -2,13 +2,13 @@
 import { ref, computed, watch, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useTasksStore } from "../stores/tasks";
-import type { KanbanTask, KanbanColumn, MissionDetail } from "../services/api";
+import type { KanbanTask, KanbanColumn } from "../services/api";
 
-const props = defineProps<{ darkMode: boolean }>();
+defineProps<{ darkMode: boolean }>();
 
 const store = useTasksStore();
 const {
-  projects, selectedProject, tasks, missions, selectedMission,
+  projects, selectedProject, missions, selectedMission,
   backlog, matrix,
   loading, missionsLoading, backlogLoading, matrixLoading, error,
 } = storeToRefs(store);

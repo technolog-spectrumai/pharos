@@ -40,6 +40,9 @@ export interface NoteBox {
   category_name: string | null;
   source_title: string;
   source_url: string;
+  source_type?: string;
+  quote?: string;
+  properties?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

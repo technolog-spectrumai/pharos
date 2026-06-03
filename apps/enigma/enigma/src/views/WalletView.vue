@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useWalletStore } from "../stores/wallet";
 import { api } from "../services/api";
-import type { Obligation, Movement, BourseCenter, BourseProposal, BourseAsset, BourseAccount } from "../services/api";
+import type { Obligation, Movement, BourseCenter, BourseProposal } from "../services/api";
 
 const props = defineProps<{ darkMode: boolean }>();
 
