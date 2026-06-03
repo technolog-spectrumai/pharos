@@ -7,7 +7,41 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENIGMA_DIR="$(realpath "${SCRIPT_DIR}/../enigma")"
 REPO_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
 
-# ── Env checks ────────────────────────────────────────────────────────────────
+# ── Env auto-detection ────────────────────────────────────────────────────────
+
+# Source ~/.bashrc so env vars set by install_android_studio.sh are available
+# when the script is invoked directly (not from an interactive shell).
+# shellcheck disable=SC1090
+[[ -f "${HOME}/.bashrc" ]] && source "${HOME}/.bashrc" || true
+
+# JAVA_HOME: fall back to the openjdk-17 path if not set
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  for candidate in \
+    /usr/lib/jvm/java-17-openjdk-amd64 \
+    /usr/lib/jvm/java-17-openjdk \
+    /usr/lib/jvm/temurin-17-amd64; do
+    if [[ -d "${candidate}" ]]; then
+      export JAVA_HOME="${candidate}"
+      break
+    fi
+  done
+fi
+
+# ANDROID_HOME: default install location used by install_android_studio.sh
+if [[ -z "${ANDROID_HOME:-}" ]]; then
+  export ANDROID_HOME="${HOME}/Android/Sdk"
+fi
+
+# NDK_HOME: pick the first installed NDK if not set
+if [[ -z "${NDK_HOME:-}" ]]; then
+  NDK_DIR="${ANDROID_HOME}/ndk"
+  if [[ -d "${NDK_DIR}" ]]; then
+    NDK_VER=$(ls "${NDK_DIR}" | sort -V | tail -1)
+    [[ -n "${NDK_VER}" ]] && export NDK_HOME="${NDK_DIR}/${NDK_VER}"
+  fi
+fi
+
+export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
 
 require_env() {
   if [[ -z "${!1:-}" ]]; then
