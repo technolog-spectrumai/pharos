@@ -84,6 +84,10 @@ async function handleLogout() {
             <font-awesome-icon icon="wallet" />
             Wallet
           </RouterLink>
+          <RouterLink to="/events" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Events">
+            <font-awesome-icon icon="calendar" />
+            Events
+          </RouterLink>
 
           <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <img
@@ -193,6 +197,10 @@ async function handleLogout() {
           <RouterLink to="/wallet" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="wallet" class="w-4 text-center" />
             Wallet
+          </RouterLink>
+          <RouterLink to="/events" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="calendar" class="w-4 text-center" />
+            Events
           </RouterLink>
 
           <RouterLink
