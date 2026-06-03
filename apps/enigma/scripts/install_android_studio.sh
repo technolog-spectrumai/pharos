@@ -13,12 +13,13 @@ PLATFORM_VERSION="35"
 CMDLINE_TOOLS_VERSION="latest"
 
 echo "==> Installing system dependencies"
+sudo dpkg --add-architecture i386
 sudo apt-get update -q
 sudo apt-get install -y \
   curl wget unzip git openjdk-17-jdk \
-  libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386 \
-  libglib2.0-0 libxext6 libxrender1 libxtst6 libxi6 \
-  libgtk-3-0 libdbus-glib-1-2 libxss1 libxxf86vm1 \
+  libc6:i386 libncurses6:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386 \
+  libglib2.0-0t64 libxext6 libxrender1 libxtst6 libxi6 \
+  libgtk-3-0t64 libdbus-glib-1-2 libxss1 libxxf86vm1 \
   gcc g++ make cmake pkg-config
 
 echo "==> Downloading Android Studio ${ANDROID_STUDIO_VERSION}"
