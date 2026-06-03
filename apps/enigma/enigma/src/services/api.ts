@@ -752,12 +752,12 @@ class ApiService {
     return this.request("/assets/api/wallet/movements/");
   }
 
-  verifyPin(pin: string): Promise<{ ok: boolean; error?: string; no_pin?: boolean }> {
+  verifyPin(pin: string): Promise<{ ok: boolean; pin_token?: string; error?: string; no_pin?: boolean }> {
     return this.request("/assets/api/wallet/pin/verify/", { method: "POST", body: JSON.stringify({ pin }) });
   }
 
-  fulfillObligation(id: number): Promise<{ ok: boolean; transaction_reference?: string; error?: string; pin_required?: boolean }> {
-    return this.request(`/assets/api/obligations/${id}/fulfill/`, { method: "POST", body: JSON.stringify({}) });
+  fulfillObligation(id: number, pinToken?: string): Promise<{ ok: boolean; transaction_reference?: string; error?: string; pin_required?: boolean }> {
+    return this.request(`/assets/api/obligations/${id}/fulfill/`, { method: "POST", body: JSON.stringify(pinToken ? { pin_token: pinToken } : {}) });
   }
 
   // ── Logistics ──────────────────────────────────────────────────────────────

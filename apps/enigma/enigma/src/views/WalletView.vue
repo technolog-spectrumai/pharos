@@ -26,8 +26,10 @@ const pinValue = ref("");
 const pinError = ref("");
 const pinLoading = ref(false);
 const pendingObligationId = ref<number | null>(null);
+const pendingObligation = ref<Obligation | null>(null);
 const pendingObligationLabel = ref("");
 const settleSuccess = ref<string | null>(null);
+const currentPinToken = ref<string | null>(null);
 
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 async function fetchObligations() {
@@ -71,16 +73,20 @@ onMounted(() => {
 // ── PIN flow ──────────────────────────────────────────────────────────────────
 function openPinModal(ob: Obligation) {
   pendingObligationId.value = ob.id;
+  pendingObligation.value = ob;
   pendingObligationLabel.value = `${ob.amount_display} ${ob.asset_unit} → ${ob.creditor_name}`;
   pinValue.value = "";
   pinError.value = "";
   settleSuccess.value = null;
+  currentPinToken.value = null;
   pinOpen.value = true;
 }
 
 function closePinModal() {
   pinOpen.value = false;
   pendingObligationId.value = null;
+  pendingObligation.value = null;
+  currentPinToken.value = null;
   pinValue.value = "";
   pinError.value = "";
 }
@@ -108,6 +114,7 @@ async function submitPin() {
       pinValue.value = "";
       return;
     }
+    currentPinToken.value = res.pin_token ?? null;
     // PIN verified — now fulfill
     await settlePending();
   } catch (e: any) {
@@ -120,7 +127,7 @@ async function submitPin() {
 async function settlePending() {
   if (pendingObligationId.value === null) return;
   try {
-    const res = await api.fulfillObligation(pendingObligationId.value);
+    const res = await api.fulfillObligation(pendingObligationId.value, currentPinToken.value ?? undefined);
     if (res.ok) {
       settleSuccess.value = `Transfer ${res.transaction_reference} posted.`;
       pinOpen.value = false;
@@ -408,7 +415,12 @@ function inner() {
                 <h2 class="mt-1 text-lg font-bold flex items-center gap-2">
                   <font-awesome-icon icon="lock" />Settle obligation
                 </h2>
-                <p class="mt-1 text-xs opacity-60 leading-relaxed">{{ pendingObligationLabel }}</p>
+                <p class="mt-1 text-sm font-semibold">{{ pendingObligation?.amount_display }} {{ pendingObligation?.asset_unit }}</p>
+                <div class="mt-1 text-xs opacity-60 space-y-0.5">
+                  <p>To: <span class="font-semibold">{{ pendingObligation?.creditor_name }}</span></p>
+                  <p>From wallet: <span class="font-semibold">{{ pendingObligation?.debtor_code }}</span></p>
+                  <p v-if="pendingObligation?.order_reference" class="opacity-70">Ref: {{ pendingObligation.order_reference }}</p>
+                </div>
               </div>
               <button @click="closePinModal" class="opacity-40 hover:opacity-80 transition p-1 shrink-0">
                 <font-awesome-icon icon="xmark" />
