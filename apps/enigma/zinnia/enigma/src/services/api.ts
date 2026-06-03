@@ -202,6 +202,24 @@ export interface EventListResponse {
   upcoming: EnigmaEvent[];
 }
 
+export interface EventFormData {
+  categories: { id: number; name: string }[];
+  addresses: { id: number; display: string }[];
+  people: { id: number; name: string }[];
+}
+
+export interface CreateEventPayload {
+  title: string;
+  description?: string;
+  start_time: string;
+  end_time: string;
+  category_id?: number | null;
+  address_id?: number | null;
+  capacity?: number | null;
+  requires_registration?: boolean;
+  public?: boolean;
+}
+
 // ── Locations ─────────────────────────────────────────────────────────────────
 
 export interface Zone {
@@ -791,8 +809,23 @@ class ApiService {
     return this.request("/events/api/enigma/list/");
   }
 
+  createEvent(data: CreateEventPayload): Promise<EnigmaEvent> {
+    return this.request("/events/api/enigma/list/", { method: "POST", body: JSON.stringify(data) });
+  }
+
   getEvent(id: string): Promise<EnigmaEvent> {
     return this.request(`/events/api/enigma/${id}/`);
+  }
+
+  getEventFormData(): Promise<EventFormData> {
+    return this.request("/events/api/enigma/form-data/");
+  }
+
+  sendInvite(eventId: string, personId: number): Promise<{ ok: boolean; created: boolean; invite_id: string; person: string; status: string }> {
+    return this.request(`/events/api/enigma/${eventId}/invite/`, {
+      method: "POST",
+      body: JSON.stringify({ person_id: personId }),
+    });
   }
 
   getMyInvites(): Promise<{ invites: EventInvite[]; pending_count: number }> {

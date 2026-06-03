@@ -99,6 +99,10 @@ import {
   faArrowUp,
   faShieldHalved,
   faLifeRing,
+  faCalendar,
+  faCalendarPlus,
+  faEnvelope,
+  faTag,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -193,6 +197,10 @@ library.add(
   faArrowUp,
   faShieldHalved,
   faLifeRing,
+  faCalendar,
+  faCalendarPlus,
+  faEnvelope,
+  faTag,
 );
 
 createApp(App)
