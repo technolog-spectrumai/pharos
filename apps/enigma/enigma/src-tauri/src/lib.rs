@@ -877,18 +877,22 @@ fn audio_stop_recording(recorder: State<AudioRecorder>) -> Result<Vec<u8>, Strin
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(config: AppConfig) {
+pub fn run() {
+    let profile = std::env::var("APP_PROFILE").unwrap_or_else(|_| "default".to_string());
+    let identity = std::env::var("CHAT_USER").unwrap_or_else(|_| profile.clone());
+    let config = AppConfig { profile, identity };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "linux")]
             {
                 use tauri::Manager;
                 use webkit2gtk::{PermissionRequestExt, WebViewExt};
-                if let Some(webview) = app.get_webview_window("main") {
+                if let Some(webview) = _app.get_webview_window("main") {
                     let _ = webview.with_webview(|wv| {
                         wv.inner().connect_permission_request(|_, request| {
                             request.allow();
