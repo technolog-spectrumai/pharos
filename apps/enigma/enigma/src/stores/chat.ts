@@ -589,11 +589,19 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   async function sendAudio(audioBlob: Blob) {
-    if (!currentRoom.value || !isParticipant.value) return;
+    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
     try {
-      await api.uploadAudio(currentRoom.value.slug, audioBlob);
-      // Server relays the audio via WebSocket to all channel members
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+      const mimeType = audioBlob.type || "audio/webm";
+      wsService.send({
+        type: "voice_message",
+        audio_data: `data:${mimeType};base64,${base64}`,
+      });
     } catch (e) {
       error.value = (e as Error).message;
     }

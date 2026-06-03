@@ -59,40 +59,118 @@ let mediaRecorder: MediaRecorder | null = null;
 let recordingChunks: Blob[] = [];
 let recordingInterval: ReturnType<typeof setInterval> | null = null;
 
+// Web Audio API fallback state (used when MediaRecorder is unavailable, e.g. WebKitGTK)
+let audioCtx: AudioContext | null = null;
+let audioProcessor: ScriptProcessorNode | null = null;
+let audioSource: MediaStreamAudioSourceNode | null = null;
+let pcmChunks: Float32Array[] = [];
+let activeStream: MediaStream | null = null;
+
+function pickAudioMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
+function encodeWAV(samples: Float32Array, sampleRate: number): Blob {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  const write = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  write(0, "RIFF"); view.setUint32(4, 36 + samples.length * 2, true);
+  write(8, "WAVE"); write(12, "fmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  write(36, "data"); view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+function stopWebAudioRecording() {
+  audioProcessor?.disconnect();
+  audioSource?.disconnect();
+  audioProcessor = null;
+  audioSource = null;
+  activeStream?.getTracks().forEach((t) => t.stop());
+  activeStream = null;
+  if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null; }
+  isRecording.value = false;
+
+  const allSamples = pcmChunks.reduce((acc, c) => {
+    const merged = new Float32Array(acc.length + c.length);
+    merged.set(acc); merged.set(c, acc.length);
+    return merged;
+  }, new Float32Array(0));
+  pcmChunks = [];
+
+  const sampleRate = audioCtx?.sampleRate ?? 44100;
+  audioCtx?.close();
+  audioCtx = null;
+
+  if (allSamples.length === 0 || !currentRoom.value) return;
+  chat.sendAudio(encodeWAV(allSamples, sampleRate)).catch(() => {});
+}
+
 async function toggleVoiceRecording() {
   if (isRecording.value) {
-    mediaRecorder?.stop();
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+    } else {
+      stopWebAudioRecording();
+    }
     return;
   }
   if (!currentRoom.value) return;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    recordingChunks = [];
     recordingSeconds.value = 0;
-    mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
 
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) recordingChunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null; }
-      isRecording.value = false;
-      if (recordingChunks.length === 0 || !currentRoom.value) return;
-      const blob = new Blob(recordingChunks, { type: "audio/webm" });
+    let startedMediaRecorder = false;
+    if (typeof MediaRecorder !== "undefined") {
       try {
-        await chat.sendAudio(blob);
+        const mimeType = pickAudioMimeType();
+        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        recordingChunks = [];
+        mr.ondataavailable = (e) => { if (e.data.size > 0) recordingChunks.push(e.data); };
+        mr.onstop = async () => {
+          stream.getTracks().forEach((t) => t.stop());
+          if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null; }
+          isRecording.value = false;
+          if (recordingChunks.length === 0 || !currentRoom.value) return;
+          const blob = new Blob(recordingChunks, { type: mr.mimeType || mimeType || "audio/webm" });
+          chat.sendAudio(blob).catch(() => {});
+        };
+        mr.start();
+        mediaRecorder = mr;
+        startedMediaRecorder = true;
       } catch {
-        // error handled by store
+        mediaRecorder = null;
       }
-    };
+    }
 
-    mediaRecorder.start();
+    if (!startedMediaRecorder) {
+      // ── Web Audio API path (WebKitGTK / Linux where MediaRecorder is absent or broken) ─
+      pcmChunks = [];
+      activeStream = stream;
+      audioCtx = new AudioContext();
+      audioSource = audioCtx.createMediaStreamSource(stream);
+      audioProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+      audioProcessor.onaudioprocess = (e) => {
+        pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      audioSource.connect(audioProcessor);
+      audioProcessor.connect(audioCtx.destination);
+    }
+
     isRecording.value = true;
     recordingInterval = setInterval(() => { recordingSeconds.value++; }, 1000);
-  } catch {
-    // permission denied or unavailable
+  } catch (e) {
+    console.error("[voice] recording failed:", e);
   }
 }
 
