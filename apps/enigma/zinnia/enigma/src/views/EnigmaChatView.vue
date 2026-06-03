@@ -31,6 +31,22 @@ function forceResetMls() { return chat.forceResetMls(); }
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
+const emojiPickerOpen = ref(false);
+const emojiTab = ref(0);
+
+const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
+  { label: "😊", emojis: ["😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😗","😙","😚","😋","😛","😝","😜","🤪","🤨","🧐","🤓","😎","🥸","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤬","🤯","😳","🥵","🥶","😱","😨","😰","😥","😓","🤗","🤔","🫣","🤭","🫡","🤫","🤥","😶","😐","😑","😬","🫠","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕"] },
+  { label: "👍", emojis: ["👋","🤚","🖐️","✋","🖖","👌","🤌","🤏","✌️","🤞","🫰","🤟","🤘","🤙","👈","👉","👆","🖕","👇","☝️","🫵","👍","👎","✊","👊","🤛","🤜","👏","🙌","🫶","👐","🤲","🤝","🙏","✍️","💅","🤳","💪","🦾","🦿","🦵","🦶","👂","🦻","👃","🫀","🫁","🧠","🦷","🦴","👀","👁️","👅","👄","🫦"] },
+  { label: "❤️", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❤️‍🔥","❤️‍🩹","💕","💞","💓","💗","💖","💘","💝","💟","☮️","✝️","☯️","🕊️","🌈","⭐","🌟","💫","✨","🔥","🎉","🎊","🎈","🎁","🏆","🥇","🎯","💯","✅","❌","⚠️","💬","💭","🗯️"] },
+  { label: "🐶", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🪱","🐛","🦋","🐌","🐞","🐜","🪲","🦟","🦗","🪳","🕷️","🦂","🐢","🐍","🦎","🦖","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🦭","🐅","🐆","🦓","🦍","🦧","🐘","🦛","🦏","🐪","🐫","🦒","🦘","🦬","🐃","🐂","🐄","🐎","🐖","🐏","🐑","🦙","🐐","🦌","🐕","🐩","🦮","🐈","🐓","🦃","🦤","🦚","🦜","🦢","🕊️","🐇","🦝","🦨","🦡","🦦","🦥","🐁","🐀","🐿️","🦔"] },
+  { label: "🍎", emojis: ["🍎","🍊","🍋","🍇","🍓","🍒","🍑","🥭","🍍","🥥","🥝","🍅","🥑","🫐","🫒","🌽","🥕","🧄","🧅","🥦","🥬","🫑","🌶️","🥒","🥗","🥘","🫕","🍲","🍜","🍝","🍛","🍣","🍱","🍤","🍙","🍚","🍘","🧆","🍢","🍡","🍧","🍦","🍰","🎂","🧁","🍮","🍭","🍬","🍫","🍿","🍩","🍪","☕","🫖","🧋","🥤","🧃","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🍾"] },
+  { label: "🚀", emojis: ["🚀","✈️","🚁","🚂","🚃","🚄","🚅","🚆","🚇","🚈","🚉","🚊","🚝","🚞","🚋","🚌","🚍","🚎","🏎️","🚐","🚑","🚒","🚓","🚔","🚕","🚖","🚗","🚘","🚙","🛻","🚚","🚛","🚜","🏍️","🛵","🚲","🛴","🛹","🛼","🚏","🛣️","🏖️","🏝️","🏔️","🗻","🏕️","🏜️","🏟️","🏛️","🏗️","🏘️","🏙️","🏚️","🏠","🏡","🏢","🏣","🏤","🏥","🏦","🏨","🏩","🏪","🏫","🏬","🏭","🏯","🏰","💒","🗼","🗽","⛪","🕌","🛕","🕍","⛩️","🌍","🌎","🌏","🌐","🗺️"] },
+];
+
+function insertEmoji(emoji: string) {
+  draft.value += emoji;
+  emojiPickerOpen.value = false;
+}
 const joiningOrLeaving = ref(false);
 const imageFileInput = ref<HTMLInputElement | null>(null);
 const uploadingImage = ref(false);
@@ -538,6 +554,54 @@ const mlsChipClass = computed(() => {
             <font-awesome-icon :icon="isRecording ? 'stop' : 'microphone'" class="text-sm" />
             <span v-if="isRecording" class="text-xs font-mono">{{ recordingLabel() }}</span>
           </button>
+
+          <!-- Emoji picker -->
+          <div class="relative shrink-0">
+            <button
+              type="button"
+              :disabled="!currentRoom || !isParticipant"
+              :class="[
+                darkMode ? 'border-accent-1 text-text-main-dark' : 'border-accent-2 text-text-main-light',
+                (!currentRoom || !isParticipant) ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
+                emojiPickerOpen ? (darkMode ? 'bg-primary-bg-dark' : 'bg-primary-bg-light') : '',
+              ]"
+              class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition text-lg"
+              title="Emoji"
+              @click="emojiPickerOpen = !emojiPickerOpen"
+            >😊</button>
+
+            <!-- Picker popover -->
+            <!-- Backdrop to close picker -->
+            <div v-if="emojiPickerOpen" class="fixed inset-0 z-40" @click="emojiPickerOpen = false" />
+
+            <div
+              v-if="emojiPickerOpen"
+              :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+              class="absolute bottom-full mb-2 left-0 z-50 w-72 rounded-xl border shadow-xl overflow-hidden"
+            >
+              <!-- Category tabs -->
+              <div
+                :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+                class="flex border-b overflow-x-auto"
+              >
+                <button
+                  v-for="(cat, i) in EMOJI_CATEGORIES" :key="i"
+                  @click="emojiTab = i"
+                  class="flex-shrink-0 px-3 py-2 text-base transition hover:opacity-80 border-b-2"
+                  :class="emojiTab === i ? (darkMode ? 'border-accent-dark' : 'border-accent-light') : 'border-transparent opacity-50'"
+                >{{ cat.label }}</button>
+              </div>
+              <!-- Emoji grid -->
+              <div class="grid grid-cols-8 gap-0.5 p-2 h-44 overflow-y-auto">
+                <button
+                  v-for="e in EMOJI_CATEGORIES[emojiTab].emojis" :key="e"
+                  @click="insertEmoji(e)"
+                  class="flex items-center justify-center rounded p-1 text-lg hover:opacity-80 transition leading-none"
+                  :class="darkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'"
+                >{{ e }}</button>
+              </div>
+            </div>
+          </div>
 
           <textarea
             v-model="draft"
