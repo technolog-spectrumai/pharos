@@ -2,8 +2,7 @@
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../services/api";
-import logo2Dark from "../assets/logo2_dark.png";
-import logo2Light from "../assets/logo2_light.png";
+import { logo2Dark, logo2Light } from "../assets/logos";
 import OyaButton from "../components/OyaButton.vue";
 
 const props = defineProps<{ darkMode: boolean }>();

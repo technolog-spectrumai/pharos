@@ -157,6 +157,7 @@ function send() {
   if (!currentRoom.value) return;
   if (!isConnected.value) return;
   if (!isParticipant.value) return;
+  if (mlsStatus.value !== "ready") return;
   if (!draft.value.trim()) return;
 
   chat.sendMessage(draft.value);
@@ -644,11 +645,13 @@ const mlsChipClass = computed(() => {
                 ? 'Select a room to start chatting'
                 : !isParticipant
                   ? 'Join this room to send messages'
-                  : isEncrypted
-                    ? 'Message (encrypted)…'
-                    : 'Message…'
+                  : mlsStatus !== 'ready'
+                    ? 'Establishing secure session…'
+                    : isEncrypted
+                      ? 'Message (encrypted)…'
+                      : 'Message…'
             "
-            :disabled="!currentRoom || !isConnected || !isParticipant"
+            :disabled="!currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready'"
             :class="
               darkMode
                 ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30 disabled:opacity-30'
@@ -661,10 +664,10 @@ const mlsChipClass = computed(() => {
           <OyaButton
             :dark-mode="darkMode"
             :type="'button'"
-            :disabled="!currentRoom || !isConnected || !isParticipant || !draft.trim()"
+            :disabled="!currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready' || !draft.trim()"
             :class="{
               'opacity-40 cursor-not-allowed':
-                !currentRoom || !isConnected || !isParticipant || !draft.trim(),
+                !currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready' || !draft.trim(),
             }"
             @click="send"
           >
