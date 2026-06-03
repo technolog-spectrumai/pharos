@@ -49,6 +49,7 @@ export const useChatStore = defineStore("chat", () => {
   // track which device IDs we've already invited so we don't double-add
   const pendingInvites = new Set<string>();
   const pendingRecoveryRooms = new Set<string>();
+  const processedResetIds = new Set<string>();
 
   const isParticipant = ref(false);
 
@@ -225,8 +226,16 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     if (type === "mls_reset_request") {
-      // A peer is requesting everyone to reset their MLS session
-      log("Received mls_reset_request — resetting session");
+      // Ignore our own broadcast echoed back, or duplicate IDs
+      if ((data.device_id as string) === mlsIdentity.value) return;
+      const resetId = data.reset_id as string | undefined;
+      if (resetId) {
+        if (processedResetIds.has(resetId)) return;
+        processedResetIds.add(resetId);
+        // Expire after 30 s to avoid unbounded growth
+        setTimeout(() => processedResetIds.delete(resetId), 30000);
+      }
+      log("Received mls_reset_request from peer — resetting session");
       await forceResetMls();
       return;
     }
@@ -629,8 +638,11 @@ export const useChatStore = defineStore("chat", () => {
     if (!currentRoom.value || !mlsIdentity.value) return;
     const room = currentRoom.value.slug;
     const identity = mlsIdentity.value;
-    // Tell all peers to reset too before we wipe our own state
-    wsService.send({ type: "mls_reset_request" });
+    // Broadcast reset to peers with a unique ID to prevent cycles
+    const resetId = nanoid();
+    wsService.send({ type: "mls_reset_request", device_id: mlsIdentity.value, reset_id: resetId });
+    processedResetIds.add(resetId);
+    setTimeout(() => processedResetIds.delete(resetId), 30000);
     mlsStatus.value = "initializing";
     mlsError.value = null;
     pendingInvites.clear();

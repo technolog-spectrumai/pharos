@@ -324,12 +324,15 @@ const mlsChipClass = computed(() => {
           {{ mlsLabel }}
         </span>
 
-        <!-- Reset encryption button — shown when stuck in key_exchange or error -->
+        <!-- Reset session button — always visible for participants -->
         <button
-          v-if="currentRoom && isParticipant && (mlsStatus === 'key_exchange' || mlsStatus === 'error')"
+          v-if="currentRoom && isParticipant"
           @click="forceResetMls()"
-          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs font-bold text-yellow-400 shadow-sm transition hover:bg-yellow-500/20"
-          title="Force a fresh MLS key exchange"
+          :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error')
+            ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+            : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-100' : 'border-accent-2 opacity-60 hover:opacity-100')"
+          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          title="Reset encryption session — clears history and renegotiates keys for all participants"
         >
           <font-awesome-icon icon="rotate-right" />
           Reset session
@@ -419,9 +422,11 @@ const mlsChipClass = computed(() => {
         </span>
 
         <button
-          v-if="mlsStatus === 'key_exchange' || mlsStatus === 'error'"
           @click="forceResetMls()"
-          class="inline-flex items-center gap-1 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-2.5 py-1.5 text-xs font-bold text-yellow-400 transition hover:bg-yellow-500/20"
+          :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error')
+            ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400'
+            : 'border-current/20 opacity-60'"
+          class="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100"
         >
           <font-awesome-icon icon="rotate-right" />
           Reset
