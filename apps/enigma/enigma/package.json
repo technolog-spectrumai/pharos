@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "logoDir": "skull",
+  "logoDir": "okti",
   "scripts": {
     "dev": "vite",
     "dev:tauri": "node scripts/tauri-dev-server.mjs",
