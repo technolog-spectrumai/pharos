@@ -1391,17 +1391,6 @@ function panelInnerCls() {
         <div v-if="logisticsSidebarOpen" class="lg:hidden absolute inset-0 z-[40] bg-black/50 rounded-xl" @click="logisticsSidebarOpen = false"></div>
       </Transition>
 
-      <!-- Mobile toggle button -->
-      <button
-        @click="logisticsSidebarOpen = !logisticsSidebarOpen"
-        :class="darkMode ? 'bg-bubble-bg-dark border-accent-1 text-white' : 'bg-bubble-bg-light border-accent-2 text-gray-900'"
-        class="lg:hidden absolute top-3 left-3 z-[60] flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow"
-      >
-        <font-awesome-icon icon="truck" class="text-[11px]" />
-        Logistics
-        <font-awesome-icon :icon="logisticsSidebarOpen ? 'chevron-left' : 'chevron-right'" class="text-[10px] opacity-60" />
-      </button>
-
       <!-- Side panel -->
       <div
         :class="[panelCls(), 'flex flex-col overflow-hidden w-72 flex-shrink-0',
@@ -1505,17 +1494,6 @@ function panelInnerCls() {
       <Transition name="loc-fade">
         <div v-if="incidentsSidebarOpen" class="lg:hidden absolute inset-0 z-[40] bg-black/50 rounded-xl" @click="incidentsSidebarOpen = false"></div>
       </Transition>
-
-      <!-- Mobile toggle button -->
-      <button
-        @click="incidentsSidebarOpen = !incidentsSidebarOpen"
-        :class="darkMode ? 'bg-bubble-bg-dark border-accent-1 text-white' : 'bg-bubble-bg-light border-accent-2 text-gray-900'"
-        class="lg:hidden absolute top-3 left-3 z-[60] flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow"
-      >
-        <font-awesome-icon icon="triangle-exclamation" class="text-[11px]" />
-        Incidents
-        <font-awesome-icon :icon="incidentsSidebarOpen ? 'chevron-left' : 'chevron-right'" class="text-[10px] opacity-60" />
-      </button>
 
       <!-- Side panel -->
       <div
