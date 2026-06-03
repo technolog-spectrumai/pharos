@@ -3,8 +3,17 @@ import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "../stores/chat";
+import { getRuntimeConfig } from "../services/appStorage";
 import OyaButton from "../components/OyaButton.vue";
 import ChatBubble from "../components/ChatBubble.vue";
+
+const _isTauri = (): boolean =>
+  typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+
+async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
 
 defineProps<{ darkMode: boolean }>();
 
@@ -59,112 +68,58 @@ let mediaRecorder: MediaRecorder | null = null;
 let recordingChunks: Blob[] = [];
 let recordingInterval: ReturnType<typeof setInterval> | null = null;
 
-// Web Audio API fallback state (used when MediaRecorder is unavailable, e.g. WebKitGTK)
-let audioCtx: AudioContext | null = null;
-let audioProcessor: ScriptProcessorNode | null = null;
-let audioSource: MediaStreamAudioSourceNode | null = null;
-let pcmChunks: Float32Array[] = [];
-let activeStream: MediaStream | null = null;
-
 function pickAudioMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "";
   const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
   return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
 }
 
-function encodeWAV(samples: Float32Array, sampleRate: number): Blob {
-  const buf = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buf);
-  const write = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-  write(0, "RIFF"); view.setUint32(4, 36 + samples.length * 2, true);
-  write(8, "WAVE"); write(12, "fmt ");
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-  write(36, "data"); view.setUint32(40, samples.length * 2, true);
-  let off = 44;
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    off += 2;
-  }
-  return new Blob([buf], { type: "audio/wav" });
-}
-
-function stopWebAudioRecording() {
-  audioProcessor?.disconnect();
-  audioSource?.disconnect();
-  audioProcessor = null;
-  audioSource = null;
-  activeStream?.getTracks().forEach((t) => t.stop());
-  activeStream = null;
+function stopTimer() {
   if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null; }
-  isRecording.value = false;
-
-  const allSamples = pcmChunks.reduce((acc, c) => {
-    const merged = new Float32Array(acc.length + c.length);
-    merged.set(acc); merged.set(c, acc.length);
-    return merged;
-  }, new Float32Array(0));
-  pcmChunks = [];
-
-  const sampleRate = audioCtx?.sampleRate ?? 44100;
-  audioCtx?.close();
-  audioCtx = null;
-
-  if (allSamples.length === 0 || !currentRoom.value) return;
-  chat.sendAudio(encodeWAV(allSamples, sampleRate)).catch(() => {});
 }
 
 async function toggleVoiceRecording() {
   if (isRecording.value) {
-    if (mediaRecorder) {
-      mediaRecorder.stop();
+    if (_isTauri()) {
+      // ── Tauri native stop ────────────────────────────────────────────────────
+      stopTimer();
+      isRecording.value = false;
+      try {
+        const bytes: number[] = await _invoke("audio_stop_recording");
+        if (bytes.length > 0 && currentRoom.value) {
+          const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
+          chat.sendAudio(blob).catch(() => {});
+        }
+      } catch (e) { console.error("[voice] stop failed:", e); }
     } else {
-      stopWebAudioRecording();
+      mediaRecorder?.stop();
     }
     return;
   }
   if (!currentRoom.value) return;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     recordingSeconds.value = 0;
 
-    let startedMediaRecorder = false;
-    if (typeof MediaRecorder !== "undefined") {
-      try {
-        const mimeType = pickAudioMimeType();
-        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-        recordingChunks = [];
-        mr.ondataavailable = (e) => { if (e.data.size > 0) recordingChunks.push(e.data); };
-        mr.onstop = async () => {
-          stream.getTracks().forEach((t) => t.stop());
-          if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null; }
-          isRecording.value = false;
-          if (recordingChunks.length === 0 || !currentRoom.value) return;
-          const blob = new Blob(recordingChunks, { type: mr.mimeType || mimeType || "audio/webm" });
-          chat.sendAudio(blob).catch(() => {});
-        };
-        mr.start();
-        mediaRecorder = mr;
-        startedMediaRecorder = true;
-      } catch {
-        mediaRecorder = null;
-      }
-    }
-
-    if (!startedMediaRecorder) {
-      // ── Web Audio API path (WebKitGTK / Linux where MediaRecorder is absent or broken) ─
-      pcmChunks = [];
-      activeStream = stream;
-      audioCtx = new AudioContext();
-      audioSource = audioCtx.createMediaStreamSource(stream);
-      audioProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-      audioProcessor.onaudioprocess = (e) => {
-        pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    if (_isTauri()) {
+      // ── Tauri native recording via cpal (bypasses WebKit entirely) ───────────
+      await _invoke("audio_start_recording");
+    } else {
+      // ── Browser MediaRecorder path ───────────────────────────────────────────
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickAudioMimeType();
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recordingChunks = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) recordingChunks.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        stopTimer();
+        isRecording.value = false;
+        if (recordingChunks.length === 0 || !currentRoom.value) return;
+        const blob = new Blob(recordingChunks, { type: mr.mimeType || mimeType || "audio/webm" });
+        chat.sendAudio(blob).catch(() => {});
       };
-      audioSource.connect(audioProcessor);
-      audioProcessor.connect(audioCtx.destination);
+      mr.start();
+      mediaRecorder = mr;
     }
 
     isRecording.value = true;
