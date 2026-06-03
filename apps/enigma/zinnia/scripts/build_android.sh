@@ -64,10 +64,28 @@ echo "  Rust         : $(rustc --version)"
 # ── Parse args ────────────────────────────────────────────────────────────────
 
 BUILD_TYPE="${1:-debug}"   # debug | release
+TARGET="${2:-aarch64}"    # aarch64 (physical ARM64 device) | x86_64 (emulator)
+
 if [[ "${BUILD_TYPE}" != "debug" && "${BUILD_TYPE}" != "release" ]]; then
-  echo "Usage: $0 [debug|release]"
+  echo "Usage: $0 [debug|release] [aarch64|x86_64|armv7|all]"
+  echo "  aarch64  — modern physical Android device (default)"
+  echo "  x86_64   — Android emulator"
+  echo "  armv7    — older 32-bit physical device"
+  echo "  all      — all four ABIs (slow, ~4× disk space)"
   exit 1
 fi
+
+# Map friendly name to Tauri's --target flag value
+case "${TARGET}" in
+  aarch64) TAURI_TARGET="--target aarch64" ;;
+  x86_64)  TAURI_TARGET="--target x86_64" ;;
+  armv7)   TAURI_TARGET="--target armv7" ;;
+  all)     TAURI_TARGET="" ;;
+  *)
+    echo "Unknown target '${TARGET}'. Use: aarch64 | x86_64 | armv7 | all"
+    exit 1
+  ;;
+esac
 
 echo ""
 echo "==> Building Enigma for Android (${BUILD_TYPE})"
@@ -103,12 +121,16 @@ fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
+echo "  Target ABI   : ${TARGET}"
+
 if [[ "${BUILD_TYPE}" == "release" ]]; then
   echo "==> Building release APK + AAB"
-  npx tauri android build --apk --aab
+  # shellcheck disable=SC2086
+  npx tauri android build --apk --aab ${TAURI_TARGET}
 else
   echo "==> Building debug APK"
-  npx tauri android build --debug --apk
+  # shellcheck disable=SC2086
+  npx tauri android build --debug --apk ${TAURI_TARGET}
 fi
 
 # ── Output ────────────────────────────────────────────────────────────────────
