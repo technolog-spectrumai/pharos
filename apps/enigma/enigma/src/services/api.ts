@@ -164,6 +164,44 @@ export interface BacklogData {
 
 export type EisenhowerMatrix = Record<string, { id: number; title: string; campaign: string }[]>;
 
+// ── Events ────────────────────────────────────────────────────────────────────
+
+export interface EnigmaEvent {
+  id: string;
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  category: string | null;
+  public: boolean;
+  owner: string | null;
+  address: string | null;
+  capacity: number | null;
+  requires_registration: boolean;
+  organizers?: string[];
+  accepted_count?: number;
+  invite_count?: number;
+}
+
+export interface EventInvite {
+  id: string;
+  event_id: string;
+  event_title: string;
+  event_start: string;
+  event_end: string;
+  event_category: string | null;
+  status: "pending" | "accepted" | "declined";
+  sent_at: string;
+}
+
+export interface EventListResponse {
+  events: EnigmaEvent[];
+  total: number;
+  upcoming_count: number;
+  past_count: number;
+  upcoming: EnigmaEvent[];
+}
+
 // ── Locations ─────────────────────────────────────────────────────────────────
 
 export interface Zone {
@@ -745,6 +783,27 @@ class ApiService {
 
   getEisenhowerMatrix(projectId: number): Promise<{ matrix: EisenhowerMatrix }> {
     return this.request(`/kanban/api/projects/${projectId}/matrix/`);
+  }
+
+  // ── Events ─────────────────────────────────────────────────────────────────
+
+  getEvents(): Promise<EventListResponse> {
+    return this.request("/events/api/enigma/list/");
+  }
+
+  getEvent(id: string): Promise<EnigmaEvent> {
+    return this.request(`/events/api/enigma/${id}/`);
+  }
+
+  getMyInvites(): Promise<{ invites: EventInvite[]; pending_count: number }> {
+    return this.request("/events/api/enigma/my-invites/");
+  }
+
+  respondInvite(id: string, action: "accept" | "decline"): Promise<{ ok: boolean; status: string }> {
+    return this.request(`/events/api/enigma/invites/${id}/respond/`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
   }
 
   // ── Locations ──────────────────────────────────────────────────────────────
