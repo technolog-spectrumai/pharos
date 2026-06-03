@@ -5,7 +5,7 @@ import { storeToRefs } from "pinia";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { api } from "./services/api";
-import appIcon from "./assets/icon.png";
+import { appIcon } from "./assets/logos";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);

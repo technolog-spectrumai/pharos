@@ -5,8 +5,7 @@ import { api } from "../services/api";
 import { getServerUrl } from "../services/appStorage";
 import { useUserStore } from "../stores/user";
 import OyaButton from "../components/OyaButton.vue";
-import logo2Dark from "../assets/logo2_dark.png";
-import logo2Light from "../assets/logo2_light.png";
+import { logo2Dark, logo2Light } from "../assets/logos";
 
 defineProps<{ darkMode: boolean }>();
 
