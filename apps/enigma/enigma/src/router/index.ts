@@ -9,7 +9,6 @@ import VaultView from "../views/VaultView.vue";
 import TasksView from "../views/TasksView.vue";
 import LocationsView from "../views/LocationsView.vue";
 import SocialhubView from "../views/SocialhubView.vue";
-import WalletView from "../views/WalletView.vue";
 import EventsView from "../views/EventsView.vue";
 
 const router = createRouter({
@@ -23,7 +22,6 @@ const router = createRouter({
     { path: "/tasks", component: TasksView, name: "tasks" },
     { path: "/locations", component: LocationsView, name: "locations" },
     { path: "/people", component: SocialhubView, name: "people" },
-    { path: "/wallet", component: WalletView, name: "wallet" },
     { path: "/events", component: EventsView, name: "events" },
     { path: "/config", component: EnigmaConfigView, name: "config" },
     { path: "/profile", component: EnigmaProfileView, name: "profile" },
