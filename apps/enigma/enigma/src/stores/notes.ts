@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { api, type NoteBox, type NoteCategory, type NoteLink, type NoteEdge } from "../services/api";
+import { api, type NoteBox, type NoteCategory, type NoteLink, type NoteEdge, type NoteProperties } from "../services/api";
 
 export const useNotesStore = defineStore("notes", () => {
   const boxes = ref<NoteBox[]>([]);
@@ -60,14 +60,14 @@ export const useNotesStore = defineStore("notes", () => {
     }
   }
 
-  async function createBox(title: string, body: string, is_concept = false, category_id?: number | null) {
-    const box = await api.createBox({ title, body, is_concept, category_id });
+  async function createBox(label: string, body: string, category_id?: number | null) {
+    const box = await api.createBox({ label, properties: body ? { body } : {}, category_id });
     boxes.value.unshift(box);
     await selectBox(box);
     return box;
   }
 
-  async function saveBox(id: number, changes: Partial<{ title: string; body: string; is_concept: boolean; category_id: number | null }>) {
+  async function saveBox(id: number, changes: Partial<{ label: string; properties: NoteProperties; category_id: number | null }>) {
     const updated = await api.updateBox(id, changes);
     const idx = boxes.value.findIndex((b) => b.id === id);
     if (idx !== -1) boxes.value[idx] = updated;

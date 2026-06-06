@@ -1,9 +1,10 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { api, type VaultFile } from "../services/api";
+import { api, type VaultFile, type VaultBucket } from "../services/api";
 
 export const useVaultStore = defineStore("vault", () => {
   const files = ref<VaultFile[]>([]);
+  const buckets = ref<VaultBucket[]>([]);
   const loading = ref(false);
   const uploading = ref(false);
   const error = ref<string | null>(null);
@@ -14,13 +15,30 @@ export const useVaultStore = defineStore("vault", () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await api.getFiles();
-      files.value = res.files;
+      // Load the folder skeleton and the files in parallel; the tree overlays
+      // files onto buckets/directories by bucket_slug + directory_id.
+      const [filesRes, bucketsRes] = await Promise.all([
+        api.getFiles(),
+        api.getBuckets().catch(() => ({ buckets: [] as VaultBucket[] })),
+      ]);
+      files.value = filesRes.files;
+      buckets.value = bucketsRes.buckets;
     } catch (e: any) {
       error.value = e.message ?? "Failed to load files";
     } finally {
       loading.value = false;
     }
+  }
+
+  async function loadContent(key: string) {
+    return api.getFileContent(key);
+  }
+
+  async function saveContent(key: string, content: string) {
+    const vf = await api.saveFileContent(key, content);
+    const idx = files.value.findIndex((f) => f.key === key);
+    if (idx !== -1) files.value[idx] = vf;
+    return vf;
   }
 
   async function upload(file: File, title?: string, bucketSlug?: string) {
@@ -70,5 +88,5 @@ export const useVaultStore = defineStore("vault", () => {
     }
   }
 
-  return { files, loading, uploading, error, metrics, metricsLoading, fetchFiles, upload, rename, encrypt, decrypt, remove, fetchMetrics };
+  return { files, buckets, loading, uploading, error, metrics, metricsLoading, fetchFiles, loadContent, saveContent, upload, rename, encrypt, decrypt, remove, fetchMetrics };
 });

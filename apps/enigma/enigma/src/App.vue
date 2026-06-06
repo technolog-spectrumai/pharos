@@ -6,6 +6,7 @@ import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { api } from "./services/api";
 import { appIcon } from "./assets/logos";
+import { applyProfileLocaleGuess } from "./i18n";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
@@ -22,7 +23,12 @@ onMounted(() => {
 });
 
 watch(me, (val) => {
-  if (val) chatStore.currentUserName = val.full_name;
+  if (val) {
+    chatStore.currentUserName = val.full_name;
+    // First guess for the UI language is the user's toto profile language,
+    // unless they've already picked one explicitly in Enigma.
+    applyProfileLocaleGuess(val.language);
+  }
 });
 
 // Close menu on navigation
@@ -56,33 +62,33 @@ async function handleLogout() {
 
         <!-- Desktop nav -->
         <nav class="hidden sm:flex items-center gap-x-4 text-sm flex-wrap">
-          <RouterLink to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Chat">
+          <RouterLink to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.chat')">
             <font-awesome-icon icon="comments" />
-            Chat
+            {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink to="/notes" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Notes">
+          <RouterLink to="/notes" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.notes')">
             <font-awesome-icon icon="sticky-note" />
-            Notes
+            {{ $t('nav.notes') }}
           </RouterLink>
-          <RouterLink to="/vault" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Storage">
+          <RouterLink to="/vault" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.storage')">
             <font-awesome-icon icon="hard-drive" />
-            Storage
+            {{ $t('nav.storage') }}
           </RouterLink>
-          <RouterLink to="/tasks" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Tasks">
+          <RouterLink to="/tasks" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.tasks')">
             <font-awesome-icon icon="list-check" />
-            Tasks
+            {{ $t('nav.tasks') }}
           </RouterLink>
-          <RouterLink to="/locations" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Locations">
+          <RouterLink to="/locations" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.locations')">
             <font-awesome-icon icon="location-dot" />
-            Locations
+            {{ $t('nav.locations') }}
           </RouterLink>
-          <RouterLink to="/people" class="inline-flex items-center gap-2 transition hover:opacity-70" title="People">
+          <RouterLink to="/people" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.people')">
             <font-awesome-icon icon="users" />
-            People
+            {{ $t('nav.people') }}
           </RouterLink>
-          <RouterLink to="/events" class="inline-flex items-center gap-2 transition hover:opacity-70" title="Events">
+          <RouterLink to="/events" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.events')">
             <font-awesome-icon icon="calendar" />
-            Events
+            {{ $t('nav.events') }}
           </RouterLink>
 
           <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
@@ -93,12 +99,12 @@ async function handleLogout() {
               class="h-5 w-5 rounded-full object-cover"
             />
             <font-awesome-icon v-else icon="user" />
-            <span>{{ me?.full_name ?? "My Profile" }}</span>
+            <span>{{ me?.full_name ?? $t('nav.myProfile') }}</span>
           </RouterLink>
 
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
-            Settings
+            {{ $t('nav.settings') }}
           </RouterLink>
 
           <button
@@ -107,7 +113,7 @@ async function handleLogout() {
             @click="darkMode = !darkMode"
           >
             <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" />
-            {{ darkMode ? "Light" : "Dark" }}
+            {{ darkMode ? $t('nav.light') : $t('nav.dark') }}
           </button>
 
           <RouterLink
@@ -116,7 +122,7 @@ async function handleLogout() {
             class="inline-flex items-center gap-2 transition hover:opacity-70"
           >
             <font-awesome-icon icon="right-to-bracket" />
-            Login
+            {{ $t('nav.login') }}
           </RouterLink>
           <button
             v-else
@@ -124,7 +130,7 @@ async function handleLogout() {
             @click="handleLogout"
           >
             <font-awesome-icon icon="right-from-bracket" />
-            Logout
+            {{ $t('nav.logout') }}
           </button>
         </nav>
 
@@ -143,7 +149,7 @@ async function handleLogout() {
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"
-            :aria-label="menuOpen ? 'Close menu' : 'Open menu'"
+            :aria-label="menuOpen ? $t('nav.closeMenu') : $t('nav.openMenu')"
             @click="menuOpen = !menuOpen"
           >
             <font-awesome-icon :icon="menuOpen ? 'xmark' : 'bars'" />
@@ -168,31 +174,31 @@ async function handleLogout() {
         >
           <RouterLink to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
-            Chat
+            {{ $t('nav.chat') }}
           </RouterLink>
           <RouterLink to="/notes" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="sticky-note" class="w-4 text-center" />
-            Notes
+            {{ $t('nav.notes') }}
           </RouterLink>
           <RouterLink to="/vault" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="hard-drive" class="w-4 text-center" />
-            Storage
+            {{ $t('nav.storage') }}
           </RouterLink>
           <RouterLink to="/tasks" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="list-check" class="w-4 text-center" />
-            Tasks
+            {{ $t('nav.tasks') }}
           </RouterLink>
           <RouterLink to="/locations" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="location-dot" class="w-4 text-center" />
-            Locations
+            {{ $t('nav.locations') }}
           </RouterLink>
           <RouterLink to="/people" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="users" class="w-4 text-center" />
-            People
+            {{ $t('nav.people') }}
           </RouterLink>
           <RouterLink to="/events" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="calendar" class="w-4 text-center" />
-            Events
+            {{ $t('nav.events') }}
           </RouterLink>
 
           <RouterLink
@@ -200,7 +206,7 @@ async function handleLogout() {
             class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
           >
             <font-awesome-icon icon="user" class="w-4 text-center" />
-            {{ me?.full_name ?? "My Profile" }}
+            {{ me?.full_name ?? $t('nav.myProfile') }}
           </RouterLink>
 
           <RouterLink
@@ -208,7 +214,7 @@ async function handleLogout() {
             class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
           >
             <font-awesome-icon icon="gear" class="w-4 text-center" />
-            Settings
+            {{ $t('nav.settings') }}
           </RouterLink>
 
           <button
@@ -217,7 +223,7 @@ async function handleLogout() {
             @click="darkMode = !darkMode"
           >
             <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" class="w-4 text-center" />
-            {{ darkMode ? "Light Mode" : "Dark Mode" }}
+            {{ darkMode ? $t('nav.lightMode') : $t('nav.darkMode') }}
           </button>
 
           <RouterLink
@@ -226,7 +232,7 @@ async function handleLogout() {
             class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
           >
             <font-awesome-icon icon="right-to-bracket" class="w-4 text-center" />
-            Login
+            {{ $t('nav.login') }}
           </RouterLink>
           <button
             v-else
@@ -234,7 +240,7 @@ async function handleLogout() {
             @click="handleLogout"
           >
             <font-awesome-icon icon="right-from-bracket" class="w-4 text-center" />
-            Logout
+            {{ $t('nav.logout') }}
           </button>
         </div>
       </Transition>

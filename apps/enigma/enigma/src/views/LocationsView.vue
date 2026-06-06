@@ -2,7 +2,6 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { useLocationsStore } from "../stores/locations";
-import { api } from "../services/api";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
