@@ -24,6 +24,9 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 type MessageHandler = (data: WsMessage) => void;
 type StatusHandler = (status: WsStatus) => void;
 
+export interface CreatedRoom { room: string; name: string; ticket: string }
+export interface JoinedRoom { room: string; name: string }
+
 export interface ChatTransport {
   connect(room: string): void;
   disconnect(): void;
@@ -31,6 +34,10 @@ export interface ChatTransport {
   onMessage(handler: MessageHandler): () => void;
   onStatus(handler: StatusHandler): () => void;
   readonly isConnected: boolean;
+  // P2P room provisioning (desktop only; the WS/browser backend rejects these).
+  createRoom(name: string): Promise<CreatedRoom>;
+  joinRoom(ticket: string): Promise<JoinedRoom>;
+  nodeInfo(): Promise<{ node_id: string } | null>;
 }
 
 // ── Tauri backend: the Rust realtime gateway ──────────────────────────────────
@@ -79,13 +86,36 @@ class GatewayChatTransport implements ChatTransport {
   }
 
   disconnect(): void {
+    const room = this.currentRoom;
     this.currentRoom = null;
+    if (room) void _invoke("realtime_leave_room", { room }).catch(() => {}); // no-op for WS rooms
     void _invoke("realtime_disconnect").catch(() => {});
     this.setStatus("disconnected");
   }
 
   send(payload: Record<string, unknown>): void {
-    void _invoke("realtime_send", { payload: JSON.stringify(payload) }).catch(() => {});
+    void _invoke("realtime_send", {
+      room: this.currentRoom,
+      payload: JSON.stringify(payload),
+    }).catch(() => {});
+  }
+
+  async createRoom(name: string): Promise<CreatedRoom> {
+    await this.ensureListeners();
+    const res = await _invoke<CreatedRoom>("realtime_create_room", { name });
+    this.currentRoom = res.room;
+    return res;
+  }
+
+  async joinRoom(ticket: string): Promise<JoinedRoom> {
+    await this.ensureListeners();
+    const res = await _invoke<JoinedRoom>("realtime_join_room", { ticket });
+    this.currentRoom = res.room;
+    return res;
+  }
+
+  nodeInfo(): Promise<{ node_id: string } | null> {
+    return _invoke<{ node_id: string }>("realtime_node_info");
   }
 
   onMessage(handler: MessageHandler): () => void {
@@ -105,8 +135,22 @@ class GatewayChatTransport implements ChatTransport {
   }
 }
 
-// `wsService` already satisfies ChatTransport — use it directly as the browser
-// fallback; use the Rust gateway inside the Tauri app.
+// Browser fallback: delegate realtime to the JS WebSocket client; P2P rooms are
+// desktop-only, so room provisioning rejects.
+const browserBackend: ChatTransport = {
+  connect: (room) => wsService.connect(room),
+  disconnect: () => wsService.disconnect(),
+  send: (payload) => wsService.send(payload),
+  onMessage: (handler) => wsService.onMessage(handler),
+  onStatus: (handler) => wsService.onStatus(handler),
+  get isConnected() {
+    return wsService.isConnected;
+  },
+  createRoom: () => Promise.reject(new Error("P2P rooms require the desktop app.")),
+  joinRoom: () => Promise.reject(new Error("P2P rooms require the desktop app.")),
+  nodeInfo: () => Promise.resolve(null),
+};
+
 export const chatTransport: ChatTransport = _isTauri()
   ? new GatewayChatTransport()
-  : wsService;
+  : browserBackend;

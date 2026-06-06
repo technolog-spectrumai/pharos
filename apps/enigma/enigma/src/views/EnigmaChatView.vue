@@ -33,6 +33,7 @@ const {
   mlsError,
   isEncrypted,
   isParticipant,
+  p2pRooms,
 } = storeToRefs(chat);
 
 function forceResetMls() { return chat.forceResetMls(); }
@@ -137,7 +138,41 @@ function recordingLabel() {
 
 onMounted(() => {
   if (!rooms.value.length) chat.fetchRooms();
+  chat.loadP2pRooms();
 });
+
+// ── P2P rooms (iroh) ────────────────────────────────────────────────────────
+const p2pName = ref("");
+const p2pTicket = ref("");
+const createdTicket = ref("");
+const ticketCopied = ref(false);
+
+async function createP2pRoom() {
+  const name = p2pName.value.trim();
+  if (!name) return;
+  const ticket = await chat.createRoom(name);
+  if (ticket) {
+    createdTicket.value = ticket;
+    p2pName.value = "";
+  }
+}
+
+async function joinP2pRoom() {
+  const ticket = p2pTicket.value.trim();
+  if (!ticket) return;
+  await chat.joinByTicket(ticket);
+  p2pTicket.value = "";
+}
+
+async function copyTicket(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    ticketCopied.value = true;
+    setTimeout(() => (ticketCopied.value = false), 1500);
+  } catch {
+    /* clipboard unavailable */
+  }
+}
 
 watch(currentRoom, () => {
   sidebarOpen.value = false;
@@ -281,6 +316,81 @@ const mlsChipClass = computed(() => {
         >
           ← Back
         </button>
+      </div>
+
+      <!-- Peer-to-peer rooms (iroh) -->
+      <div class="space-y-2.5 border-b border-current/10 p-4">
+        <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+          <font-awesome-icon icon="circle-nodes" class="mr-1" />{{ $t('chat.p2p') }}
+        </p>
+
+        <div class="flex gap-2">
+          <input
+            v-model="p2pName"
+            type="text"
+            :placeholder="$t('chat.newRoomName')"
+            :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+            class="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm outline-none"
+            @keyup.enter="createP2pRoom"
+          />
+          <button
+            class="shrink-0 rounded-lg border border-current/20 px-2 py-1.5 text-xs font-semibold transition hover:opacity-80"
+            @click="createP2pRoom"
+          >
+            {{ $t('chat.create') }}
+          </button>
+        </div>
+
+        <div v-if="createdTicket" class="space-y-1">
+          <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t('chat.shareTicket') }}</p>
+          <div class="flex gap-2">
+            <input
+              :value="createdTicket"
+              readonly
+              class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-2 py-1 font-mono text-[10px]"
+            />
+            <button
+              class="shrink-0 rounded-lg border border-current/20 px-2 py-1 text-xs transition hover:opacity-80"
+              @click="copyTicket(createdTicket)"
+            >
+              {{ ticketCopied ? "✓" : $t('chat.copy') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <input
+            v-model="p2pTicket"
+            type="text"
+            :placeholder="$t('chat.pasteTicket')"
+            :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+            class="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm outline-none"
+            @keyup.enter="joinP2pRoom"
+          />
+          <button
+            class="shrink-0 rounded-lg border border-current/20 px-2 py-1.5 text-xs font-semibold transition hover:opacity-80"
+            @click="joinP2pRoom"
+          >
+            {{ $t('chat.join') }}
+          </button>
+        </div>
+
+        <div v-if="p2pRooms.length" class="space-y-1 pt-1">
+          <button
+            v-for="r in p2pRooms"
+            :key="r.room"
+            :class="
+              currentRoom?.slug === r.room
+                ? darkMode ? 'bg-primary-bg-dark border-accent-dark' : 'bg-primary-bg-light border-accent-light'
+                : 'border-current/15 hover:opacity-80'
+            "
+            class="flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-sm transition"
+            @click="chat.openP2pRoom(r)"
+          >
+            <font-awesome-icon icon="circle-nodes" class="shrink-0 opacity-60" />
+            <span class="min-w-0 flex-1 truncate">{{ r.name }}</span>
+          </button>
+        </div>
       </div>
 
       <div v-if="loadingRooms" class="p-4 text-xs opacity-50">

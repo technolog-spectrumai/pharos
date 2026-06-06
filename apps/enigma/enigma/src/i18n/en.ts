@@ -92,4 +92,13 @@ export default {
     cameraDenied: "Camera access denied or unavailable.",
     scanLog: "Scan log",
   },
+  chat: {
+    p2p: "Peer-to-peer",
+    newRoomName: "New room name",
+    create: "Create",
+    shareTicket: "Share this ticket to invite peers",
+    copy: "Copy",
+    pasteTicket: "Paste ticket to join",
+    join: "Join",
+  },
 };

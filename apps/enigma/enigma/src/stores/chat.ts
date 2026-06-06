@@ -4,7 +4,15 @@ import { api, type Room, type Participant } from "../services/api";
 import { chatTransport as wsService, type WsStatus } from "../services/chatTransport";
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
 import { getRuntimeConfig, type AppRuntimeConfig } from "../services/appStorage";
+import { kvGet, kvPut } from "../services/localDb";
 import { nanoid } from "nanoid";
+
+/** A locally-known P2P (iroh) room: its topic id, display name and join ticket. */
+export interface P2pRoomEntry {
+  room: string;
+  name: string;
+  ticket: string;
+}
 
 export type MlsStatus =
   | "idle"
@@ -53,6 +61,10 @@ export const useChatStore = defineStore("chat", () => {
 
   const isParticipant = ref(false);
 
+  // P2P rooms (iroh) — created/joined locally, persisted in SQLite, browsable
+  // with no server. A parallel room kind to the server (WS) rooms.
+  const p2pRooms = ref<P2pRoomEntry[]>([]);
+
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
 
@@ -74,6 +86,14 @@ export const useChatStore = defineStore("chat", () => {
 
   function avatarForName(name: string): string | null {
     return participantForName(name)?.avatar_url ?? null;
+  }
+
+  // P2P rooms have no server-provided roster — learn peers from their messages.
+  function notePeer(name?: string | null, avatar?: string | null): void {
+    if (!name || name === currentUserName.value) return;
+    if (!participants.value.some((p) => p.name === name)) {
+      participants.value.push({ name, avatar_url: avatar ?? "", type: "human" });
+    }
   }
 
   function errorMessage(error: unknown): string {
@@ -243,6 +263,7 @@ export const useChatStore = defineStore("chat", () => {
     // Accept both "key_package" (Enigma) and "package" (browser) field names
     const rawKp = (data.key_package ?? data.package) as string | undefined;
     if (type === "mls_key_package" && rawKp) {
+      notePeer(data.user as string);
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
       const canAdd = (mlsStatus.value === "ready" || mlsStatus.value === "key_exchange")
                      && currentRoom.value
@@ -343,6 +364,7 @@ export const useChatStore = defineStore("chat", () => {
         return;
       }
       const senderName = (data.sender_name as string) || (data.user as string) || (data.device_id as string) || "Unknown";
+      notePeer(senderName, data.sender_avatar_url as string);
       const sender = participantForName(senderName);
 
       if (mlsStatus.value === "ready" && currentRoom.value) {
@@ -508,6 +530,85 @@ export const useChatStore = defineStore("chat", () => {
       error.value = (e as Error).message;
     } finally {
       loadingRooms.value = false;
+    }
+  }
+
+  // ── P2P (iroh) rooms ───────────────────────────────────────────────────────
+  async function loadP2pRooms() {
+    try {
+      const raw = await kvGet("p2p:rooms", "default", "");
+      p2pRooms.value = raw ? (JSON.parse(raw) as P2pRoomEntry[]) : [];
+    } catch {
+      p2pRooms.value = [];
+    }
+  }
+
+  function rememberP2pRoom(entry: P2pRoomEntry) {
+    const i = p2pRooms.value.findIndex((r) => r.room === entry.room);
+    if (i === -1) p2pRooms.value.unshift(entry);
+    else p2pRooms.value[i] = entry;
+    void kvPut("p2p:rooms", "default", "", JSON.stringify(p2pRooms.value)).catch(() => {});
+  }
+
+  function makeP2pRoom(room: string, name: string): Room {
+    return {
+      id: 0, slug: room, name, participant_count: 1,
+      created_at: new Date().toISOString(), is_participant: true, participants: [],
+    } as Room;
+  }
+
+  function enterP2pRoom(room: string, name: string) {
+    currentRoom.value = makeP2pRoom(room, name);
+    participants.value = [];
+    isParticipant.value = true;
+    mlsStatus.value = "idle";
+    mlsError.value = null;
+    pendingInvites.clear();
+  }
+
+  /** Create a new P2P room; returns the shareable ticket. */
+  async function createRoom(name: string): Promise<string | null> {
+    error.value = null;
+    wsService.disconnect();
+    messages.value = [];
+    try {
+      const res = await wsService.createRoom(name.trim());
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket });
+      enterP2pRoom(res.room, res.name);
+      messages.value.push(systemMsg(`Created “${res.name}”. Share the ticket to invite peers.`));
+      return res.ticket;
+    } catch (e) {
+      error.value = errorMessage(e);
+      return null;
+    }
+  }
+
+  /** Join a P2P room from a ticket. */
+  async function joinByTicket(ticket: string) {
+    error.value = null;
+    wsService.disconnect();
+    messages.value = [];
+    try {
+      const res = await wsService.joinRoom(ticket.trim());
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim() });
+      enterP2pRoom(res.room, res.name);
+      messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
+    } catch (e) {
+      error.value = errorMessage(e);
+    }
+  }
+
+  /** Re-open a previously-joined P2P room (re-subscribes via its ticket). */
+  async function openP2pRoom(entry: P2pRoomEntry) {
+    if (currentRoom.value?.slug === entry.room) return;
+    error.value = null;
+    wsService.disconnect();
+    messages.value = [];
+    try {
+      await wsService.joinRoom(entry.ticket);
+      enterP2pRoom(entry.room, entry.name);
+    } catch (e) {
+      error.value = errorMessage(e);
     }
   }
 
@@ -690,5 +791,7 @@ export const useChatStore = defineStore("chat", () => {
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant, sendMessage, sendImage, sendAudio,
     forceResetMls,
+    // P2P (iroh) rooms
+    p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
   };
 });

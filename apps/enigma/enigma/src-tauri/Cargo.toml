@@ -34,6 +34,14 @@ tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 data-encoding = "2"
+# Direct P2P chat backend (iroh-gossip over QUIC).
+iroh = "0.98"
+iroh-gossip = "0.98"
+postcard = { version = "1", features = ["use-std"] }
+blake3 = "1"
+bytes = "1"
+futures-lite = "2"
+anyhow = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_22"] }
