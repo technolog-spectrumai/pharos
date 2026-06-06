@@ -11,11 +11,14 @@ import {
   getProfileState,
   getRuntimeConfig,
   getServerUrl,
+  getSilentMode,
   setActiveProfile,
   setServerUrl,
+  setSilentMode,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "../services/appStorage";
+import { wsService } from "../services/ws";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 
@@ -46,9 +49,25 @@ async function changeLanguage(value: string) {
 const serverUrl = ref("");
 const saved = ref(false);
 
+// ── Silent mode ───────────────────────────────────────────────────────────────
+// When on, Enigma blocks every connection to the server (REST, uploads, chat).
+const silentMode = ref(false);
+
+async function toggleSilentMode() {
+  silentMode.value = !silentMode.value;
+  await setSilentMode(silentMode.value);
+  if (silentMode.value) {
+    // Drop any live chat socket immediately and clear stale test results.
+    wsService.disconnect();
+    testStatus.value = "idle";
+    testMessage.value = "";
+  }
+}
+
 onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
+  silentMode.value = await getSilentMode();
   await loadOfflineData();
 });
 
@@ -72,6 +91,11 @@ const testMessage = ref("");
 const timeoutMs = ref(5000); // user-configurable timeout in ms
 
 async function testConnection() {
+  if (silentMode.value) {
+    testStatus.value = "error";
+    testMessage.value = t("config.silentBlocked");
+    return;
+  }
   if (!serverUrl.value) {
     testStatus.value = "error";
     testMessage.value = t("config.noServer");
@@ -328,6 +352,43 @@ async function clearSelectedOfflineData() {
         </OyaButton>
       </div>
 
+      <!-- Silent mode toggle -->
+      <div
+        :class="
+          silentMode
+            ? darkMode ? 'border-warn-dark/50 bg-warn-dark/10' : 'border-warn-light/50 bg-warn-light/10'
+            : darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'
+        "
+        class="flex items-center gap-3 rounded-lg border px-3 py-2 transition"
+      >
+        <font-awesome-icon
+          :icon="silentMode ? 'shield-halved' : 'satellite-dish'"
+          :class="silentMode ? 'text-warn-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.silentMode') }}</p>
+          <p class="mt-0.5 text-xs opacity-65">{{ $t('config.silentModeHint') }}</p>
+        </div>
+        <span class="shrink-0 text-xs font-semibold uppercase tracking-wide" :class="silentMode ? 'text-warn-dark' : 'opacity-40'">
+          {{ silentMode ? $t('config.silentOn') : $t('config.silentOff') }}
+        </span>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="silentMode"
+          :title="silentMode ? $t('config.silentOn') : $t('config.silentOff')"
+          :class="silentMode ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleSilentMode"
+        >
+          <span
+            :class="silentMode ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+
       <!-- Stored URL row -->
       <div
         v-if="serverUrl"
@@ -375,7 +436,7 @@ async function clearSelectedOfflineData() {
           <OyaButton
             :dark-mode="darkMode"
             variant="secondary"
-            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' }"
+            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || silentMode }"
             @click="testConnection"
           >
             <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />

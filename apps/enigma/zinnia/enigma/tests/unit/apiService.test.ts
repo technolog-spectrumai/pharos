@@ -3,9 +3,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Mock the storage layer so the API client has a deterministic base URL + token.
 const setAuthToken = vi.fn(async () => {});
 const clearAuthToken = vi.fn(async () => {});
+const getSilentMode = vi.fn(async () => false);
 vi.mock("../../src/services/appStorage", () => ({
   getServerUrl: vi.fn(async () => "http://test.local/"),
   getAuthToken: vi.fn(async () => "tok123"),
+  getSilentMode: (...a: any[]) => getSilentMode(...a),
   setAuthToken: (...a: any[]) => setAuthToken(...a),
   clearAuthToken: (...a: any[]) => clearAuthToken(...a),
 }));
@@ -33,6 +35,8 @@ function lastCall(fetchMock: ReturnType<typeof vi.fn>) {
 beforeEach(() => {
   setAuthToken.mockClear();
   clearAuthToken.mockClear();
+  getSilentMode.mockClear();
+  getSilentMode.mockResolvedValue(false);
 });
 
 describe("ApiService request building", () => {
@@ -95,5 +99,18 @@ describe("ApiService request building", () => {
   it("throws with status + body text on a non-OK response", async () => {
     mockFetchOnce({ error: "nope" }, false, 404);
     await expect(api.getFiles()).rejects.toThrow(/404/);
+  });
+
+  it("blocks REST requests and never calls fetch when silent mode is on", async () => {
+    getSilentMode.mockResolvedValue(true);
+    const f = mockFetchOnce({ files: [] });
+    await expect(api.getFiles()).rejects.toThrow(/silent mode/i);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("blocks uploads when silent mode is on", async () => {
+    getSilentMode.mockResolvedValue(true);
+    const file = new File(["data"], "note.txt", { type: "text/plain" });
+    await expect(api.uploadFile(file, "note")).rejects.toThrow(/silent mode/i);
   });
 });

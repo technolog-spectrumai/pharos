@@ -15,6 +15,7 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_SERVER_URL  = "enigma:server_url";
 const LS_AUTH_TOKEN  = "enigma:auth_token";
+const LS_SILENT_MODE = "enigma:silent_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -72,6 +73,21 @@ export async function setAuthToken(authToken: string): Promise<void> {
 export async function clearAuthToken(): Promise<void> {
   if (_isTauri()) { await _invoke("app_clear_auth_token"); return; }
   localStorage.removeItem(LS_AUTH_TOKEN);
+}
+
+// ── Silent mode ───────────────────────────────────────────────────────────────
+// A purely client-side network gate: when on, Enigma refuses to open any
+// connection to the server (REST, uploads, WebSocket). It is stored in
+// localStorage in both runtimes — the Rust side never needs this value, so no
+// dedicated Tauri command is required (the desktop webview has localStorage).
+
+export async function getSilentMode(): Promise<boolean> {
+  return localStorage.getItem(LS_SILENT_MODE) === "1";
+}
+
+export async function setSilentMode(silent: boolean): Promise<void> {
+  if (silent) localStorage.setItem(LS_SILENT_MODE, "1");
+  else localStorage.removeItem(LS_SILENT_MODE);
 }
 
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────
