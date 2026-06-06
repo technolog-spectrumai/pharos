@@ -18,12 +18,15 @@ vi.mock("../../src/services/api", () => ({
     getBoxes: vi.fn(),
     getCategories: vi.fn(),
     getBoxLinks: vi.fn(),
+    getAllLinks: vi.fn(),
+    getReferences: vi.fn(),
     getFullGraph: vi.fn(),
     createBox: vi.fn(),
     updateBox: vi.fn(),
     deleteBox: vi.fn(),
     createLink: vi.fn(),
     deleteLink: vi.fn(),
+    deleteReference: vi.fn(),
   },
 }));
 
@@ -159,5 +162,83 @@ describe("notes store", () => {
     await store.fetchGraph();
     expect(store.graphNodes).toHaveLength(1);
     expect(store.graphEdges).toHaveLength(1);
+  });
+});
+
+describe("notes store — offline + sync", () => {
+  function stubPull(boxes: any[] = []) {
+    mockApi.getBoxes.mockResolvedValue({ boxes });
+    mockApi.getCategories.mockResolvedValue({ categories: [] });
+    mockApi.getAllLinks.mockResolvedValue({ links: [] });
+    mockApi.getReferences.mockResolvedValue({ references: [] });
+  }
+
+  it("queues an offline create (temp id) and replays it on sync", async () => {
+    const store = useNotesStore();
+    store.online = false;
+    const box = await store.createBox("Offline note", "body");
+    expect(box!.id).toBeLessThan(0); // optimistic temp id
+    expect(store.boxes[0].label).toBe("Offline note");
+    expect(store.pendingCount).toBe(1);
+    expect(mockApi.createBox).not.toHaveBeenCalled();
+
+    store.online = true;
+    mockApi.createBox.mockResolvedValue({ id: 50, label: "Offline note", properties: { body: "body" } });
+    stubPull([{ id: 50, label: "Offline note", properties: { body: "body" } }]);
+    await store.sync();
+
+    expect(mockApi.createBox).toHaveBeenCalledWith({ label: "Offline note", properties: { body: "body" }, category_id: undefined });
+    expect(store.pendingCount).toBe(0);
+    expect(store.boxes[0].id).toBe(50);
+    expect(store.lastSyncedAt).not.toBeNull();
+  });
+
+  it("resolves a temp box id for a queued update during sync", async () => {
+    const store = useNotesStore();
+    store.online = false;
+    const box = await store.createBox("X", "");
+    await store.saveBox(box!.id, { label: "X2" });
+    expect(store.pendingCount).toBe(2);
+
+    store.online = true;
+    mockApi.createBox.mockResolvedValue({ id: 70, label: "X", properties: {} });
+    mockApi.updateBox.mockResolvedValue({ id: 70, label: "X2", properties: {} });
+    stubPull([]);
+    await store.sync();
+    expect(mockApi.updateBox).toHaveBeenCalledWith(70, { label: "X2" });
+  });
+
+  it("replays a queued link with resolved box ids", async () => {
+    const store = useNotesStore();
+    store.online = false;
+    const a = await store.createBox("A", "");
+    const b = await store.createBox("B", "");
+    await store.addLink(a!.id, b!.id, "rel");
+    expect(store.pendingCount).toBe(3);
+
+    store.online = true;
+    mockApi.createBox
+      .mockResolvedValueOnce({ id: 10, label: "A", properties: {} })
+      .mockResolvedValueOnce({ id: 11, label: "B", properties: {} });
+    mockApi.createLink.mockResolvedValue({ id: 99, from_box: 10, to_box: 11, label: "rel", from_box_label: "A", to_box_label: "B" });
+    stubPull([]);
+    await store.sync();
+    expect(mockApi.createLink).toHaveBeenCalledWith(10, 11, "rel");
+  });
+
+  it("falls back to the offline queue on a network error", async () => {
+    const store = useNotesStore();
+    mockApi.createBox.mockRejectedValue(new TypeError("Failed to fetch"));
+    const box = await store.createBox("Net", "");
+    expect(box!.id).toBeLessThan(0);
+    expect(store.online).toBe(false);
+    expect(store.pendingCount).toBe(1);
+  });
+
+  it("does NOT queue on a real HTTP error (rethrows)", async () => {
+    const store = useNotesStore();
+    mockApi.createBox.mockRejectedValue(new Error("400: bad request"));
+    await expect(store.createBox("X", "")).rejects.toThrow("400");
+    expect(store.pendingCount).toBe(0);
   });
 });

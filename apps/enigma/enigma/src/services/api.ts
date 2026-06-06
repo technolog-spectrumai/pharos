@@ -30,6 +30,20 @@ export interface NoteEdge {
   label: string;
 }
 
+// An edge from a bento note out to an external toto object (kanban mission,
+// event, address, person, …). Created in toto; browsable/deletable here.
+export interface NoteReference {
+  id: number;
+  box: number;
+  box_label: string;
+  label: string;
+  subject_label: string;
+  model: string;
+  content_type: number;
+  object_id: string;
+  created_at: string;
+}
+
 // Well-known keys inside an IdeaBox's `properties` bag. The backend stores
 // everything except the label/category/lock state in `properties`, so body,
 // source and quote all live here now. Custom keys are allowed via the index.
@@ -468,6 +482,22 @@ class ApiService {
 
   getBoxLinks(boxId: number): Promise<{ links: NoteLink[] }> {
     return this.request(`/bento/api/boxes/${boxId}/links/`);
+  }
+
+  getAllLinks(): Promise<{ links: NoteLink[] }> {
+    return this.request("/bento/api/links/");
+  }
+
+  getReferences(): Promise<{ references: NoteReference[] }> {
+    return this.request("/bento/api/references/");
+  }
+
+  getBoxReferences(boxId: number): Promise<{ references: NoteReference[] }> {
+    return this.request(`/bento/api/boxes/${boxId}/references/`);
+  }
+
+  deleteReference(id: number): Promise<void> {
+    return this.request(`/bento/api/references/${id}/`, { method: "DELETE" });
   }
 
   createLink(fromBox: number, toBox: number, label: string): Promise<NoteLink> {
