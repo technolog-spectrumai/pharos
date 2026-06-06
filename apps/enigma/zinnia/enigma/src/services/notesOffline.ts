@@ -1,9 +1,10 @@
 // Offline storage for the Notes (bento) module: a cached snapshot of the data
 // (so notes are viewable/editable with no server) plus a queue of mutations
-// made while offline, replayed by the store's sync(). Persistence is plain
-// localStorage (works in both the browser and the Tauri webview), namespaced by
-// server URL so different backends never share a cache.
+// made while offline, replayed by the store's sync(). Persistence goes through
+// `localDb` (SQLite in the Tauri app, localStorage in the browser), namespaced
+// by server URL so different backends never share a cache.
 import type { NoteBox, NoteCategory, NoteLink, NoteReference, NoteProperties } from "./api";
+import { kvGet, kvPut, kvDelete } from "./localDb";
 
 export interface NotesSnapshot {
   boxes: NoteBox[];
@@ -21,52 +22,41 @@ export type QueueOp =
   | { id: string; kind: "deleteLink"; linkId: number }
   | { id: string; kind: "deleteReference"; refId: number };
 
-const PREFIX = "enigma:notes:";
+const NS_SNAPSHOT = "notes:snapshot";
+const NS_QUEUE = "notes:queue";
 
-function scopeKey(scope: string, suffix: string): string {
-  return `${PREFIX}${suffix}:${scope || "default"}`;
+function scope_(scope: string): string {
+  return scope || "default";
 }
 
-function readJson<T>(key: string, fallback: T): T {
+function parse<T>(raw: string | null, fallback: T): T {
+  if (raw === null) return fallback;
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    return JSON.parse(raw) as T;
   } catch {
     return fallback;
   }
 }
 
-function writeJson(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* storage full / unavailable — stay in-memory */
-  }
+export async function loadSnapshot(scope: string): Promise<NotesSnapshot | null> {
+  return parse<NotesSnapshot | null>(await kvGet(NS_SNAPSHOT, scope_(scope), ""), null);
 }
 
-export function loadSnapshot(scope: string): NotesSnapshot | null {
-  return readJson<NotesSnapshot | null>(scopeKey(scope, "snapshot"), null);
+export async function saveSnapshot(scope: string, snapshot: NotesSnapshot): Promise<void> {
+  await kvPut(NS_SNAPSHOT, scope_(scope), "", JSON.stringify(snapshot));
 }
 
-export function saveSnapshot(scope: string, snapshot: NotesSnapshot): void {
-  writeJson(scopeKey(scope, "snapshot"), snapshot);
+export async function loadQueue(scope: string): Promise<QueueOp[]> {
+  return parse<QueueOp[]>(await kvGet(NS_QUEUE, scope_(scope), ""), []);
 }
 
-export function loadQueue(scope: string): QueueOp[] {
-  return readJson<QueueOp[]>(scopeKey(scope, "queue"), []);
+export async function saveQueue(scope: string, queue: QueueOp[]): Promise<void> {
+  await kvPut(NS_QUEUE, scope_(scope), "", JSON.stringify(queue));
 }
 
-export function saveQueue(scope: string, queue: QueueOp[]): void {
-  writeJson(scopeKey(scope, "queue"), queue);
-}
-
-export function clearOffline(scope: string): void {
-  try {
-    localStorage.removeItem(scopeKey(scope, "snapshot"));
-    localStorage.removeItem(scopeKey(scope, "queue"));
-  } catch {
-    /* ignore */
-  }
+export async function clearOffline(scope: string): Promise<void> {
+  await kvDelete(NS_SNAPSHOT, scope_(scope), "");
+  await kvDelete(NS_QUEUE, scope_(scope), "");
 }
 
 // ── Pure helpers (unit-tested) ──────────────────────────────────────────────

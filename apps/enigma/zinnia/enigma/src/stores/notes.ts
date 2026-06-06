@@ -54,8 +54,10 @@ export const useNotesStore = defineStore("notes", () => {
   const hasPending = computed(() => queue.value.length > 0);
 
   // ── persistence ────────────────────────────────────────────────────────────
+  // Writes are fire-and-forget: the in-memory refs are the source of truth and
+  // the SQLite write just mirrors them for the next launch / offline browse.
   function persist() {
-    saveSnapshot(scope, {
+    void saveSnapshot(scope, {
       boxes: boxes.value,
       categories: categories.value,
       links: links.value,
@@ -65,7 +67,7 @@ export const useNotesStore = defineStore("notes", () => {
   }
   function enqueue(op: QueueOp) {
     queue.value.push(op);
-    saveQueue(scope, queue.value);
+    void saveQueue(scope, queue.value);
     persist();
   }
 
@@ -97,7 +99,7 @@ export const useNotesStore = defineStore("notes", () => {
   // ── lifecycle ────────────────────────────────────────────────────────────────
   async function init() {
     scope = (await getServerUrl()).replace(/\/$/, "");
-    const snap = loadSnapshot(scope);
+    const snap = await loadSnapshot(scope);
     if (snap) {
       boxes.value = snap.boxes;
       categories.value = snap.categories;
@@ -105,7 +107,7 @@ export const useNotesStore = defineStore("notes", () => {
       references.value = snap.references;
       lastSyncedAt.value = snap.lastSyncedAt;
     }
-    queue.value = loadQueue(scope);
+    queue.value = await loadQueue(scope);
     initialized.value = true;
     if (typeof navigator === "undefined" || navigator.onLine) {
       await sync().catch(() => {});
@@ -329,7 +331,7 @@ export const useNotesStore = defineStore("notes", () => {
         }
         q = q.slice(1);
         queue.value = q;
-        saveQueue(scope, q);
+        void saveQueue(scope, q);
       }
 
       // Pull a fresh, authoritative snapshot.

@@ -33,6 +33,7 @@ function lastCall(fetchMock: ReturnType<typeof vi.fn>) {
 }
 
 beforeEach(() => {
+  localStorage.clear(); // wipe the offline response cache between tests
   setAuthToken.mockClear();
   clearAuthToken.mockClear();
   getSilentMode.mockClear();
@@ -101,11 +102,30 @@ describe("ApiService request building", () => {
     await expect(api.getFiles()).rejects.toThrow(/404/);
   });
 
-  it("blocks REST requests and never calls fetch when silent mode is on", async () => {
+  it("in silent mode an uncached GET rejects and never calls fetch", async () => {
     getSilentMode.mockResolvedValue(true);
     const f = mockFetchOnce({ files: [] });
-    await expect(api.getFiles()).rejects.toThrow(/silent mode/i);
+    await expect(api.getFiles()).rejects.toThrow(/offline/i);
     expect(f).not.toHaveBeenCalled();
+  });
+
+  it("caches successful GETs and serves them from local storage in silent mode", async () => {
+    // Online request populates the cache…
+    const f1 = mockFetchOnce({ files: [{ id: 1 }] });
+    await api.getFiles();
+    expect(f1).toHaveBeenCalledTimes(1);
+
+    // …then silent mode serves the cached body without touching the network.
+    getSilentMode.mockResolvedValue(true);
+    const f2 = mockFetchOnce({ files: [{ id: 999 }] });
+    const res = await api.getFiles();
+    expect(res).toEqual({ files: [{ id: 1 }] });
+    expect(f2).not.toHaveBeenCalled();
+  });
+
+  it("blocks writes (non-GET) when silent mode is on", async () => {
+    getSilentMode.mockResolvedValue(true);
+    await expect(api.deleteFile("k")).rejects.toThrow(/silent mode/i);
   });
 
   it("blocks uploads when silent mode is on", async () => {

@@ -92,29 +92,29 @@ describe("snapshot + queue persistence", () => {
     lastSyncedAt: "2026-06-06T00:00:00Z",
   };
 
-  it("round-trips a snapshot, namespaced by scope", () => {
-    saveSnapshot("http://a", snap as any);
-    expect(loadSnapshot("http://a")?.boxes[0].label).toBe("A");
-    expect(loadSnapshot("http://b")).toBeNull(); // different scope, isolated
+  it("round-trips a snapshot, namespaced by scope", async () => {
+    await saveSnapshot("http://a", snap as any);
+    expect((await loadSnapshot("http://a"))?.boxes[0].label).toBe("A");
+    expect(await loadSnapshot("http://b")).toBeNull(); // different scope, isolated
   });
 
-  it("round-trips a queue", () => {
+  it("round-trips a queue", async () => {
     const queue: QueueOp[] = [{ id: "1", kind: "deleteBox", boxId: 3 }];
-    saveQueue("s", queue);
-    expect(loadQueue("s")).toEqual(queue);
-    expect(loadQueue("other")).toEqual([]);
+    await saveQueue("s", queue);
+    expect(await loadQueue("s")).toEqual(queue);
+    expect(await loadQueue("other")).toEqual([]);
   });
 
-  it("clearOffline removes both snapshot and queue for a scope", () => {
-    saveSnapshot("s", snap as any);
-    saveQueue("s", [{ id: "1", kind: "deleteBox", boxId: 3 }]);
-    clearOffline("s");
-    expect(loadSnapshot("s")).toBeNull();
-    expect(loadQueue("s")).toEqual([]);
+  it("clearOffline removes both snapshot and queue for a scope", async () => {
+    await saveSnapshot("s", snap as any);
+    await saveQueue("s", [{ id: "1", kind: "deleteBox", boxId: 3 }]);
+    await clearOffline("s");
+    expect(await loadSnapshot("s")).toBeNull();
+    expect(await loadQueue("s")).toEqual([]);
   });
 
-  it("tolerates corrupt JSON in storage", () => {
-    localStorage.setItem("enigma:notes:snapshot:s", "{not json");
-    expect(loadSnapshot("s")).toBeNull();
+  it("tolerates corrupt JSON in storage", async () => {
+    localStorage.setItem("enigma:db:notes:snapshot:s:", "{not json");
+    expect(await loadSnapshot("s")).toBeNull();
   });
 });

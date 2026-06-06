@@ -3,7 +3,7 @@ import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Html5Qrcode } from "html5-qrcode";
-import { api } from "../services/api";
+import { api, clearResponseCache, countResponseCache } from "../services/api";
 import { useChatStore } from "../stores/chat";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import {
@@ -64,10 +64,29 @@ async function toggleSilentMode() {
   }
 }
 
+// ── Local browsing cache (SQLite) ──────────────────────────────────────────────
+const cacheCount = ref(0);
+const clearingCache = ref(false);
+
+async function refreshCacheCount() {
+  cacheCount.value = await countResponseCache(serverUrl.value).catch(() => 0);
+}
+
+async function clearLocalCache() {
+  clearingCache.value = true;
+  try {
+    await clearResponseCache(serverUrl.value);
+    cacheCount.value = 0;
+  } finally {
+    clearingCache.value = false;
+  }
+}
+
 onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
   silentMode.value = await getSilentMode();
+  await refreshCacheCount();
   await loadOfflineData();
 });
 
@@ -386,6 +405,34 @@ async function clearSelectedOfflineData() {
             :class="silentMode ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
+        </button>
+      </div>
+
+      <!-- Local browsing cache -->
+      <div
+        :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+        class="flex items-center gap-3 rounded-lg border px-3 py-2"
+      >
+        <font-awesome-icon icon="hard-drive" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.localCache') }}</p>
+          <p class="mt-0.5 text-xs opacity-65">
+            {{ $t('config.cachedEntries', { n: cacheCount }) }}
+          </p>
+        </div>
+        <button
+          type="button"
+          :class="[
+            darkMode
+              ? 'border-accent-1 bg-bubble-bg-dark text-text-main-dark hover:border-warn-dark'
+              : 'border-accent-2 bg-bubble-bg-light text-text-main-light hover:border-warn-light',
+            clearingCache || cacheCount === 0 ? 'pointer-events-none opacity-50' : '',
+          ]"
+          class="inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+          @click="clearLocalCache"
+        >
+          <font-awesome-icon :icon="clearingCache ? 'lock' : 'trash'" />
+          {{ $t('config.clearCache') }}
         </button>
       </div>
 
