@@ -156,7 +156,18 @@ Linked notes (Bento app) with graph visualization. Each note is a free-text `lab
 
 ### Storage (`/vault`)
 
-Encrypted file storage. Upload, rename, encrypt/decrypt with password, and download. Files are organized by bucket.
+Encrypted file storage backed by `toto.vault`. Two views mirror the toto storage app (minus its editors/executors):
+
+- **Tree** — the full bucket → nested folder → file hierarchy, expandable.
+- **Grid** — folder-navigable cards with a breadcrumb (click a folder to descend).
+
+Upload, rename, encrypt/decrypt with password, download, and delete. Text-ish files (`text/json/yaml/xml/csv/latex/bib/python/svg/html`) open in a built-in **Ace editor** for in-place editing and saving — the editor is bundled (not loaded from a CDN), so it works offline in the desktop build.
+
+Backend API added for Enigma: `GET /vault/api/buckets/` (folder tree), `GET|PUT /vault/api/files/<key>/content/` (editor read/write); each file in `GET /vault/api/files/` now carries `directory_id` + `is_editable`.
+
+### Language
+
+Enigma is localized (English + Polish). The interface language is chosen, in order: an explicit choice made in **Settings**, otherwise the user's **toto profile language** (`Person.preferred_language`, surfaced on `/telegraph/api/me/`), otherwise the browser language. Changing the language in Settings also writes it back to the toto profile.
 
 ### Tasks (`/tasks`)
 
@@ -175,11 +186,25 @@ Scheduled events from `toto.events`: browse upcoming/past events, create events,
 ## Tech Stack
 
 - **Frontend:** Vue 3, TypeScript, Pinia, Vue Router, TailwindCSS v4, FontAwesome
+- **i18n:** vue-i18n (English + Polish)
+- **Editor:** ace-builds (bundled, offline)
 - **Map:** Leaflet 1.9, OpenStreetMap tiles, CARTO dark tiles
 - **Charts:** Cytoscape (org charts, note graphs)
 - **Desktop runtime:** Tauri v2, Rust
 - **Encryption:** `rotor-core` (Rust crate), MLS (Messaging Layer Security) protocol
 - **Build:** Vite 6, Cargo
+- **Tests:** Vitest + Vue Test Utils (unit/component/integration), Playwright (e2e)
+
+## Testing
+
+```bash
+cd enigma/enigma
+npm test            # vitest: unit + component + integration (jsdom)
+npm run test:coverage
+npm run test:e2e    # playwright: builds, serves, runs browser smoke tests
+```
+
+`tests/unit` covers pure logic (vault folder-tree builder, i18n resolution, API client), `tests/component` mounts components/views (FontAwesome stubbed, Ace aliased to a stub), `tests/integration` exercises the Pinia stores against a mocked API, and `tests/e2e` drives the built bundle in Chromium with the backend stubbed via route fulfilment. Backend endpoints are covered in `toto/toto/vault/tests_api.py` and `toto/toto/telegraph/tests/test_api_views.py`.
 
 ---
 
