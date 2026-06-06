@@ -46,6 +46,7 @@ describe("chatTransport — Rust gateway backend", () => {
     transport.send({ type: "chat_message", message: "hi" });
     await tick();
     expect(invoke).toHaveBeenCalledWith("realtime_send", {
+      room: "room-1",
       payload: JSON.stringify({ type: "chat_message", message: "hi" }),
     });
   });
@@ -69,5 +70,27 @@ describe("chatTransport — Rust gateway backend", () => {
     listeners["realtime://status"]({ payload: { room: "room-1", state: "connected" } });
     expect(states).toContain("connected");
     expect(transport.isConnected).toBe(true);
+  });
+
+  it("createRoom calls realtime_create_room and routes later sends to that room", async () => {
+    invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", ticket: "tkt" });
+    const res = await transport.createRoom("general");
+    expect(invoke).toHaveBeenCalledWith("realtime_create_room", { name: "general" });
+    expect(res).toEqual({ room: "topic-abc", name: "general", ticket: "tkt" });
+
+    invoke.mockClear();
+    transport.send({ type: "x" });
+    await tick();
+    expect(invoke).toHaveBeenCalledWith("realtime_send", {
+      room: "topic-abc",
+      payload: JSON.stringify({ type: "x" }),
+    });
+  });
+
+  it("joinRoom calls realtime_join_room", async () => {
+    invoke.mockResolvedValueOnce({ room: "topic-xyz", name: "secret" });
+    const res = await transport.joinRoom("ticket-string");
+    expect(invoke).toHaveBeenCalledWith("realtime_join_room", { ticket: "ticket-string" });
+    expect(res).toEqual({ room: "topic-xyz", name: "secret" });
   });
 });

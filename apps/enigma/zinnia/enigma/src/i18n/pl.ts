@@ -92,4 +92,13 @@ export default {
     cameraDenied: "Brak dostępu do aparatu lub aparat niedostępny.",
     scanLog: "Dziennik skanowania",
   },
+  chat: {
+    p2p: "Peer-to-peer",
+    newRoomName: "Nazwa nowego pokoju",
+    create: "Utwórz",
+    shareTicket: "Udostępnij ten bilet, aby zaprosić uczestników",
+    copy: "Kopiuj",
+    pasteTicket: "Wklej bilet, aby dołączyć",
+    join: "Dołącz",
+  },
 };

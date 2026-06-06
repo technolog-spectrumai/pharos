@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
 mod data;
+mod p2p_iroh;
 mod realtime;
 
 // ── App config ────────────────────────────────────────────────────────────────
@@ -912,6 +913,7 @@ pub fn run() {
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(realtime::RealtimeState::default())
+        .manage(p2p_iroh::P2pState::default())
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
             app.manage(data::init(app.handle()));
@@ -967,6 +969,10 @@ pub fn run() {
             realtime::realtime_connect,
             realtime::realtime_disconnect,
             realtime::realtime_send,
+            realtime::realtime_create_room,
+            realtime::realtime_join_room,
+            realtime::realtime_leave_room,
+            realtime::realtime_node_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
