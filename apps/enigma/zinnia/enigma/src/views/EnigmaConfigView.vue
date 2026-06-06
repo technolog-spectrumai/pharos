@@ -18,7 +18,7 @@ import {
   type AppRuntimeConfig,
   type AppProfileState,
 } from "../services/appStorage";
-import { wsService } from "../services/ws";
+import { chatTransport as wsService } from "../services/chatTransport";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 
