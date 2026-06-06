@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { Html5Qrcode } from "html5-qrcode";
 import { api } from "../services/api";
 import { useChatStore } from "../stores/chat";
+import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -21,6 +23,24 @@ defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
 const chatStore = useChatStore();
+const { t, locale } = useI18n({ useScope: "global" });
+
+// ── Language ──────────────────────────────────────────────────────────────────
+const langSavedToProfile = ref(false);
+async function changeLanguage(value: string) {
+  const loc = value as Locale;
+  setLocale(loc, true); // explicit local choice — overrides the profile guess
+  langSavedToProfile.value = false;
+  try {
+    const res = await api.setLanguage(loc); // also persist to the toto profile
+    if (res.stored) {
+      langSavedToProfile.value = true;
+      setTimeout(() => (langSavedToProfile.value = false), 2500);
+    }
+  } catch {
+    /* offline — the local choice still applies */
+  }
+}
 
 // ── Server URL ────────────────────────────────────────────────────────────────
 const serverUrl = ref("");
@@ -54,7 +74,7 @@ const timeoutMs = ref(5000); // user-configurable timeout in ms
 async function testConnection() {
   if (!serverUrl.value) {
     testStatus.value = "error";
-    testMessage.value = "No server URL configured.";
+    testMessage.value = t("config.noServer");
     return;
   }
   testStatus.value = "testing";
@@ -73,7 +93,7 @@ async function testConnection() {
     ]);
     const ms = Date.now() - t0;
     testStatus.value = "ok";
-    testMessage.value = `Server reachable (${ms} ms)`;
+    testMessage.value = t("config.serverReachable", { ms });
   } catch (e) {
     testStatus.value = "error";
     const raw = (e as Error).message;
@@ -117,7 +137,7 @@ async function startScan() {
       }
     );
   } catch {
-    const msg = "Camera access denied or unavailable.";
+    const msg = t("config.cameraDenied");
     scanError.value = msg;
     scanLog.value.unshift({ ts: new Date(), ok: false, text: msg });
     scanning.value = false;
@@ -197,7 +217,7 @@ async function loadDataProfile() {
     dataProfileName.value = runtimeConfig.value.profile;
     testStatus.value = "idle";
     testMessage.value = "";
-    offlineMessage.value = "Profile loaded.";
+    offlineMessage.value = t("config.profileLoaded");
     loadProfileStatus.value = "success";
   } catch (e) {
     offlineMessage.value = (e as Error).message;
@@ -209,7 +229,7 @@ async function clearSelectedOfflineData() {
   clearingOffline.value = true;
   try {
     offlineState.value = await clearOfflineProfile();
-    offlineMessage.value = "Offline data cleared.";
+    offlineMessage.value = t("config.offlineCleared");
     setTimeout(() => (offlineMessage.value = ""), 2000);
   } finally {
     clearingOffline.value = false;
@@ -227,7 +247,7 @@ async function clearSelectedOfflineData() {
         @click="router.push('/')"
       >
         <font-awesome-icon icon="arrow-left" />
-        Back
+        {{ $t('common.back') }}
       </button>
 
       <div>
@@ -235,15 +255,44 @@ async function clearSelectedOfflineData() {
           :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
           class="text-xs font-semibold uppercase tracking-wide"
         >
-          Oya Studio
+          {{ $t('config.studio') }}
         </p>
         <h1 class="mt-1 flex items-center gap-3 text-3xl font-bold">
           <font-awesome-icon icon="gear" />
-          Configuration
+          {{ $t('config.title') }}
         </h1>
-        <p class="mt-2 text-sm opacity-70">Set the server address Enigma connects to.</p>
+        <p class="mt-2 text-sm opacity-70">{{ $t('config.subtitle') }}</p>
       </div>
     </header>
+
+    <!-- Language card -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
+      <div>
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
+        >
+          {{ $t('lang.language') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('lang.hint') }}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
+          {{ $t('lang.chooseLanguage') }}
+        </label>
+        <select
+          :value="locale"
+          :class="darkMode ? 'config-control-dark' : 'config-control-light'"
+          class="config-control rounded-lg border px-2 py-1 text-sm outline-none transition"
+          @change="changeLanguage(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="l in SUPPORTED_LOCALES" :key="l" :value="l">{{ LOCALE_NAMES[l] }}</option>
+        </select>
+        <span v-if="langSavedToProfile" class="text-xs text-success-dark">
+          <font-awesome-icon icon="check" class="mr-1" />{{ $t('lang.savedToProfile') }}
+        </span>
+      </div>
+    </OyaCard>
 
     <!-- Server URL card -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
@@ -252,10 +301,10 @@ async function clearSelectedOfflineData() {
           :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
           class="text-xs font-semibold uppercase tracking-wide"
         >
-          Server Address
+          {{ $t('config.serverAddress') }}
         </p>
         <p class="mt-1 text-sm opacity-65">
-          Enter the URL manually or scan the QR code from the welcome page.
+          {{ $t('config.serverHint') }}
         </p>
       </div>
 
@@ -275,7 +324,7 @@ async function clearSelectedOfflineData() {
         />
         <OyaButton :dark-mode="darkMode" @click="save">
           <font-awesome-icon :icon="saved ? 'check' : 'floppy-disk'" />
-          {{ saved ? "Saved" : "Save" }}
+          {{ saved ? $t('common.saved') : $t('common.save') }}
         </OyaButton>
       </div>
 
@@ -286,13 +335,13 @@ async function clearSelectedOfflineData() {
         class="flex items-center gap-3 rounded-lg border px-3 py-2"
       >
         <div class="min-w-0 flex-1">
-          <p class="text-xs opacity-50">Configured server</p>
+          <p class="text-xs opacity-50">{{ $t('config.configuredServer') }}</p>
           <p class="mt-0.5 break-all font-mono text-sm">{{ serverUrl }}</p>
         </div>
         <button
           :class="darkMode ? 'hover:text-warn-dark' : 'hover:text-warn-light'"
           class="shrink-0 text-sm opacity-40 transition hover:opacity-100"
-          title="Clear saved URL"
+          :title="$t('config.clearSavedUrl')"
           @click="clearConnection"
         >
           <font-awesome-icon icon="xmark" />
@@ -305,7 +354,7 @@ async function clearSelectedOfflineData() {
           <!-- Timeout selector -->
           <div class="flex items-center gap-2 text-sm opacity-70">
             <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
-              Timeout
+              {{ $t('config.timeout') }}
             </label>
             <select
               v-model.number="timeoutMs"
@@ -333,7 +382,7 @@ async function clearSelectedOfflineData() {
             <font-awesome-icon v-else-if="testStatus === 'testing'" icon="lock" />
             <font-awesome-icon v-else-if="testStatus === 'ok'" icon="check" class="text-success-dark" />
             <font-awesome-icon v-else icon="triangle-exclamation" class="text-warn-dark" />
-            {{ testStatus === "testing" ? `Testing… (${timeoutMs / 1000} s max)` : "Test connection" }}
+            {{ testStatus === "testing" ? $t('config.testing', { sec: timeoutMs / 1000 }) : $t('config.testConnection') }}
           </OyaButton>
         </div>
 
@@ -354,17 +403,17 @@ async function clearSelectedOfflineData() {
           :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
           class="text-xs font-semibold uppercase tracking-wide"
         >
-          Offline Data
+          {{ $t('config.offlineData') }}
         </p>
         <p class="mt-1 text-sm opacity-65">
-          Manage the local profile data used when Enigma is disconnected.
+          {{ $t('config.offlineHint') }}
         </p>
       </div>
 
       <div class="space-y-3">
         <label class="block space-y-1">
           <span class="text-xs font-semibold uppercase tracking-wide opacity-60">
-            Local data profile
+            {{ $t('config.localDataProfile') }}
           </span>
           <div class="flex gap-2">
             <input
@@ -409,7 +458,7 @@ async function clearSelectedOfflineData() {
                         : 'folder-open'
                 "
               />
-              {{ loadProfileStatus === "loading" ? "Loading..." : "Load profile" }}
+              {{ loadProfileStatus === "loading" ? $t('config.loadingProfile') : $t('config.loadProfile') }}
             </button>
           </div>
         </label>
@@ -423,7 +472,7 @@ async function clearSelectedOfflineData() {
                 : 'border-accent-2 bg-primary-bg-light text-text-main-light hover:border-warn-light'
             "
             class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-            title="Clear profile name"
+            :title="$t('config.clearSavedUrl')"
             @click="clearDataProfileName"
           >
             <span>{{ dataProfileName }}</span>
@@ -436,24 +485,24 @@ async function clearSelectedOfflineData() {
           class="rounded-lg border px-3 py-2 text-sm"
         >
           <div class="flex items-center justify-between gap-3">
-            <span class="opacity-60">Active APP_PROFILE</span>
+            <span class="opacity-60">{{ $t('config.activeAppProfile') }}</span>
             <span class="font-mono font-semibold">{{ runtimeConfig?.profile ?? "—" }}</span>
           </div>
           <div class="mt-2 flex items-center justify-between gap-3">
-            <span class="opacity-60">Active CHAT_USER</span>
+            <span class="opacity-60">{{ $t('config.activeChatUser') }}</span>
             <span class="font-mono font-semibold">{{ runtimeConfig?.identity ?? "—" }}</span>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="opacity-60">Stored fields</span>
+            <span class="opacity-60">{{ $t('config.storedFields') }}</span>
             <span
               :class="selectedOfflineProfileHasData ? 'text-success-dark' : 'opacity-50'"
               class="font-semibold"
             >
-              {{ selectedOfflineProfileHasData ? "Data saved" : "Empty" }}
+              {{ selectedOfflineProfileHasData ? $t('config.dataSaved') : $t('config.empty') }}
             </span>
           </div>
           <div class="mt-2 flex items-center justify-between gap-3">
-            <span class="opacity-60">Profiles</span>
+            <span class="opacity-60">{{ $t('config.profiles') }}</span>
             <span class="font-mono font-semibold">{{ offlineState?.offline_profiles.length ?? 0 }}</span>
           </div>
         </div>
@@ -493,7 +542,7 @@ async function clearSelectedOfflineData() {
           @click="router.push('/profile')"
         >
           <font-awesome-icon icon="user" />
-          Edit profiles
+          {{ $t('config.editProfiles') }}
         </OyaButton>
         <OyaButton
           :dark-mode="darkMode"
@@ -503,7 +552,7 @@ async function clearSelectedOfflineData() {
           @click="clearSelectedOfflineData"
         >
           <font-awesome-icon :icon="clearingOffline ? 'lock' : 'trash'" />
-          {{ clearingOffline ? "Clearing…" : "Clear selected data" }}
+          {{ clearingOffline ? $t('config.clearing') : $t('config.clearSelectedData') }}
         </OyaButton>
       </div>
     </OyaCard>
@@ -515,10 +564,10 @@ async function clearSelectedOfflineData() {
           :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
           class="text-xs font-semibold uppercase tracking-wide"
         >
-          Scan QR Code
+          {{ $t('config.scanQr') }}
         </p>
         <p class="mt-1 text-sm opacity-65">
-          Point the camera at the QR code on the server's welcome page. The URL is saved automatically on successful scan.
+          {{ $t('config.scanHint') }}
         </p>
       </div>
 
@@ -531,7 +580,7 @@ async function clearSelectedOfflineData() {
         />
         <OyaButton :dark-mode="darkMode" variant="secondary" class="w-full" @click="stopScan">
           <font-awesome-icon icon="xmark" />
-          Cancel scan
+          {{ $t('config.cancelScan') }}
         </OyaButton>
       </div>
 
@@ -542,12 +591,12 @@ async function clearSelectedOfflineData() {
 
       <OyaButton v-if="!scanning" :dark-mode="darkMode" class="w-full" @click="startScan">
         <font-awesome-icon icon="camera" />
-        Start camera scan
+        {{ $t('config.startScan') }}
       </OyaButton>
 
       <!-- Scan log -->
       <div v-if="scanLog.length" class="space-y-1">
-        <p class="text-xs font-semibold uppercase tracking-wide opacity-50">Scan log</p>
+        <p class="text-xs font-semibold uppercase tracking-wide opacity-50">{{ $t('config.scanLog') }}</p>
         <div
           v-for="(entry, i) in scanLog"
           :key="i"

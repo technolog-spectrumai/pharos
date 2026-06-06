@@ -19,8 +19,8 @@ export interface NoteLink {
   from_box: number;
   to_box: number;
   label: string;
-  from_box_title: string;
-  to_box_title: string;
+  from_box_label: string;
+  to_box_label: string;
 }
 
 export interface NoteEdge {
@@ -30,19 +30,25 @@ export interface NoteEdge {
   label: string;
 }
 
+// Well-known keys inside an IdeaBox's `properties` bag. The backend stores
+// everything except the label/category/lock state in `properties`, so body,
+// source and quote all live here now. Custom keys are allowed via the index.
+export interface NoteProperties {
+  body?: string;
+  source_title?: string;
+  source_url?: string;
+  source_type?: string;
+  quote?: string;
+  [key: string]: unknown;
+}
+
 export interface NoteBox {
   id: number;
-  title: string;
-  body: string;
-  is_concept: boolean;
+  label: string;
   is_locked: boolean;
   category_id: number | null;
   category_name: string | null;
-  source_title: string;
-  source_url: string;
-  source_type?: string;
-  quote?: string;
-  properties?: Record<string, unknown>;
+  properties: NoteProperties;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +66,31 @@ export interface VaultFile {
   uploaded_at: string;
   download_url: string | null;
   bucket_slug: string | null;
+  directory_id: number | null;
+  is_editable: boolean;
+}
+
+export interface VaultDirectory {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  path: string;
+}
+
+export interface VaultBucket {
+  id: number;
+  slug: string;
+  name: string;
+  directories: VaultDirectory[];
+}
+
+export interface FileContent {
+  key: string;
+  title: string;
+  file_type: string;
+  is_editable: boolean;
+  size: number;
+  content: string;
 }
 
 // ── Kanban (Tasks) ────────────────────────────────────────────────────────────
@@ -341,6 +372,7 @@ export interface Me {
   full_name: string;
   avatar_url: string | null;
   profile_url: string | null;
+  language: string;
 }
 
 export interface Health {
@@ -399,6 +431,13 @@ class ApiService {
     return this.request<Me>("/telegraph/api/me/");
   }
 
+  setLanguage(language: string): Promise<{ ok: boolean; language: string; stored: boolean }> {
+    return this.request("/telegraph/api/me/", {
+      method: "PATCH",
+      body: JSON.stringify({ language }),
+    });
+  }
+
   health(): Promise<Health> {
     return this.request<Health>("/telegraph/api/health/", {}, false);
   }
@@ -451,11 +490,11 @@ class ApiService {
     return this.request(`/bento/api/boxes/${qs}`);
   }
 
-  createBox(data: { title: string; body: string; is_concept?: boolean; category_id?: number | null }): Promise<NoteBox> {
+  createBox(data: { label: string; properties?: NoteProperties; category_id?: number | null }): Promise<NoteBox> {
     return this.request("/bento/api/boxes/", { method: "POST", body: JSON.stringify(data) });
   }
 
-  updateBox(id: number, data: Partial<{ title: string; body: string; is_concept: boolean; category_id: number | null }>): Promise<NoteBox> {
+  updateBox(id: number, data: Partial<{ label: string; properties: NoteProperties; category_id: number | null }>): Promise<NoteBox> {
     return this.request(`/bento/api/boxes/${id}/`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
@@ -471,6 +510,21 @@ class ApiService {
 
   getFiles(): Promise<{ files: VaultFile[] }> {
     return this.request("/vault/api/files/");
+  }
+
+  getBuckets(): Promise<{ buckets: VaultBucket[] }> {
+    return this.request("/vault/api/buckets/");
+  }
+
+  getFileContent(key: string): Promise<FileContent> {
+    return this.request(`/vault/api/files/${key}/content/`);
+  }
+
+  saveFileContent(key: string, content: string): Promise<VaultFile> {
+    return this.request(`/vault/api/files/${key}/content/`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    });
   }
 
   renameFile(key: string, title: string): Promise<VaultFile> {

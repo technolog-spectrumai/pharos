@@ -57,9 +57,9 @@ async function submit() {
           class="h-36 w-36 object-contain"
         />
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">Sign in to Enigma</h1>
+          <h1 class="text-2xl font-bold tracking-tight">{{ $t('login.title') }}</h1>
           <p class="mt-1 text-sm opacity-50">
-            Connected to
+            {{ $t('login.connectedTo') }}
             <span
               v-if="serverUrl"
               class="font-mono"
@@ -68,7 +68,7 @@ async function submit() {
               v-else
               class="underline hover:opacity-80"
               @click="router.push('/config')"
-            >configure server</button>
+            >{{ $t('login.configureServer') }}</button>
           </p>
         </div>
       </div>
@@ -101,14 +101,14 @@ async function submit() {
               for="username"
               class="block text-xs font-semibold uppercase tracking-widest opacity-50"
             >
-              Username
+              {{ $t('login.username') }}
             </label>
             <input
               id="username"
               v-model="username"
               type="text"
               autocomplete="username"
-              placeholder="your-username"
+              :placeholder="$t('login.usernamePlaceholder')"
               :disabled="loading"
               :class="[
                 darkMode
@@ -127,7 +127,7 @@ async function submit() {
               for="password"
               class="block text-xs font-semibold uppercase tracking-widest opacity-50"
             >
-              Password
+              {{ $t('login.password') }}
             </label>
             <div class="relative">
               <input
@@ -172,7 +172,7 @@ async function submit() {
             :icon="loading ? 'lock' : 'right-to-bracket'"
             :class="loading ? 'animate-pulse' : ''"
           />
-          {{ loading ? "Signing in…" : "Sign in" }}
+          {{ loading ? $t('login.signingIn') : $t('login.signIn') }}
         </OyaButton>
 
       </div>
@@ -181,11 +181,11 @@ async function submit() {
       <div class="flex justify-center gap-6 text-xs opacity-40">
         <button class="hover:opacity-80 transition" @click="router.push('/config')">
           <font-awesome-icon icon="gear" class="mr-1" />
-          Settings
+          {{ $t('login.settings') }}
         </button>
         <button class="hover:opacity-80 transition" @click="router.push('/')">
           <font-awesome-icon icon="arrow-left" class="mr-1" />
-          Continue offline
+          {{ $t('login.continueOffline') }}
         </button>
       </div>
 

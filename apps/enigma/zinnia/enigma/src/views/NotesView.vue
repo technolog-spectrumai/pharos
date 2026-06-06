@@ -14,9 +14,8 @@ const search = ref("");
 const searchTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 const activePanel = ref<"detail" | "graph">("detail");
 const isReadOnly = ref(false);
-const editTitle = ref("");
+const editLabel = ref("");
 const editBody = ref("");
-const editConcept = ref(false);
 const saving = ref(false);
 const confirmDelete = ref(false);
 const showAddLink = ref(false);
@@ -28,10 +27,20 @@ const linkSearchResults = computed(() =>
     ? []
     : boxes.value
         .filter(b => b.id !== selectedBox.value?.id &&
-          (b.title.toLowerCase().includes(linkSearch.value.toLowerCase()) ||
-           b.body?.toLowerCase().includes(linkSearch.value.toLowerCase())))
+          (b.label.toLowerCase().includes(linkSearch.value.toLowerCase()) ||
+           (b.properties?.body ?? "").toLowerCase().includes(linkSearch.value.toLowerCase())))
         .slice(0, 8)
 );
+
+// Properties shown verbatim in the editor (body/source/quote) — everything else
+// in the bag is surfaced as raw custom properties.
+const WELL_KNOWN_PROPS = ["body", "source_title", "source_url", "source_type", "quote"];
+const extraProperties = computed<Record<string, unknown>>(() => {
+  const props = selectedBox.value?.properties ?? {};
+  return Object.fromEntries(
+    Object.entries(props).filter(([k]) => !WELL_KNOWN_PROPS.includes(k)),
+  );
+});
 
 // ── Cytoscape ─────────────────────────────────────────────────────────────────
 const graphContainer = ref<HTMLElement | null>(null);
@@ -40,9 +49,8 @@ let cy: any = null;
 // ── Watch box selection ───────────────────────────────────────────────────────
 watch(selectedBox, (box) => {
   if (box) {
-    editTitle.value = box.title;
-    editBody.value = box.body ?? "";
-    editConcept.value = box.is_concept;
+    editLabel.value = box.label;
+    editBody.value = box.properties?.body ?? "";
     isReadOnly.value = false;
     confirmDelete.value = false;
     showAddLink.value = false;
@@ -80,17 +88,17 @@ function onSearchInput() {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 async function newNote() {
-  await store.createBox("New Note", "", false);
+  await store.createBox("New Note", "");
 }
 
 async function save() {
   if (!selectedBox.value || isReadOnly.value) return;
   saving.value = true;
   try {
+    // Merge into the existing properties bag so source/quote/custom keys survive.
     await store.saveBox(selectedBox.value.id, {
-      title: editTitle.value,
-      body: editBody.value,
-      is_concept: editConcept.value,
+      label: editLabel.value,
+      properties: { ...(selectedBox.value.properties ?? {}), body: editBody.value },
     });
   } finally {
     saving.value = false;
@@ -143,10 +151,9 @@ function renderGraph() {
     ...graphNodes.value.map((n: any) => ({
       data: {
         id: n.id,
-        label: ((n.label || n.title) ?? "Untitled").slice(0, 28),
+        label: (n.label ?? "Untitled").slice(0, 28),
         real_id: n.real_id ?? null,
         node_type: n.node_type ?? "box",
-        is_concept: !!n.is_concept,
         selected_box: n.real_id != null && selectedBox.value?.id === n.real_id,
       }
     })),
@@ -199,16 +206,16 @@ function renderGraph() {
         }
       },
       {
-        // Concept box — ellipse with thick dashed accent border
-        selector: "node[node_type = 'concept']",
+        // Reference node — external object (hexagon)
+        selector: "node[node_type = 'reference']",
         style: {
-          "shape": "ellipse",
+          "shape": "hexagon",
           "border-color": accent,
-          "border-width": 3,
+          "border-width": 2,
           "border-style": "dashed",
           "font-style": "italic",
-          "width": 160,
-          "height": 50,
+          "width": 150,
+          "height": 48,
         }
       },
       {
@@ -247,6 +254,25 @@ function renderGraph() {
           "curve-style": "bezier",
           "target-arrow-shape": "none",
           "opacity": 0.4,
+        }
+      },
+      {
+        // Reference edge — box → external object, dashed accent with arrow
+        selector: "edge[edge_type = 'reference']",
+        style: {
+          "width": 1.5,
+          "line-color": accent,
+          "line-style": "dashed",
+          "curve-style": "bezier",
+          "target-arrow-shape": "triangle",
+          "target-arrow-color": accent,
+          "label": "data(label)",
+          "font-size": 8,
+          "color": text,
+          "text-opacity": 0.6,
+          "text-background-color": bg,
+          "text-background-opacity": 0.85,
+          "text-background-padding": "2px",
         }
       },
     ],
@@ -354,14 +380,11 @@ async function loadCytoscape() {
           ]"
         >
           <div class="flex items-center gap-1.5 min-w-0">
-            <font-awesome-icon
-              :icon="box.is_concept ? 'lightbulb' : 'sticky-note'"
-              class="text-xs opacity-40 shrink-0"
-            />
-            <span class="truncate text-xs font-semibold">{{ box.title || "Untitled" }}</span>
+            <font-awesome-icon icon="sticky-note" class="text-xs opacity-40 shrink-0" />
+            <span class="truncate text-xs font-semibold">{{ box.label || "Untitled" }}</span>
             <font-awesome-icon v-if="box.is_locked" icon="lock" class="text-xs opacity-40 ml-auto shrink-0" />
           </div>
-          <p class="mt-0.5 truncate text-xs opacity-35">{{ box.body?.slice(0, 48) || "—" }}</p>
+          <p class="mt-0.5 truncate text-xs opacity-35">{{ box.properties?.body?.slice(0, 48) || "—" }}</p>
         </li>
       </ul>
 
@@ -413,14 +436,14 @@ async function loadCytoscape() {
             <div class="shrink-0 border-b border-current/10 px-4 py-3 space-y-2">
               <!-- Breadcrumb -->
               <div class="flex items-center gap-2 text-xs opacity-50">
-                <font-awesome-icon :icon="selectedBox.is_concept ? 'lightbulb' : 'sticky-note'" />
-                <span>{{ selectedBox.is_concept ? "Concept" : "Note" }}</span>
+                <font-awesome-icon icon="sticky-note" />
+                <span>Note</span>
                 <span v-if="selectedBox.category_name" class="ml-1 rounded border border-current/20 px-1.5 py-0.5">{{ selectedBox.category_name }}</span>
               </div>
 
-              <!-- Title input -->
+              <!-- Label input -->
               <input
-                v-model="editTitle"
+                v-model="editLabel"
                 :disabled="isReadOnly"
                 type="text"
                 placeholder="Title…"
@@ -432,17 +455,13 @@ async function loadCytoscape() {
               <div class="flex flex-wrap items-center gap-3 text-xs opacity-50">
                 <span>Created {{ formatDate(selectedBox.created_at) }}</span>
                 <span>Updated {{ formatDate(selectedBox.updated_at) }}</span>
-                <label class="flex items-center gap-1 cursor-pointer ml-auto">
-                  <input v-model="editConcept" type="checkbox" :disabled="isReadOnly" class="rounded" />
-                  <span>Concept</span>
-                </label>
                 <!-- Read-only toggle -->
                 <button
                   @click="isReadOnly = !isReadOnly"
                   :class="isReadOnly
                     ? (darkMode ? 'bg-accent-dark/20 text-accent-dark' : 'bg-accent-light/20 text-accent-light')
                     : 'opacity-50 hover:opacity-80'"
-                  class="flex items-center gap-1 rounded px-2 py-0.5 transition"
+                  class="ml-auto flex items-center gap-1 rounded px-2 py-0.5 transition"
                   :title="isReadOnly ? 'Click to enable editing' : 'Click to lock (read-only)'"
                 >
                   <font-awesome-icon :icon="isReadOnly ? 'lock' : 'lock-open'" />
@@ -470,9 +489,9 @@ async function loadCytoscape() {
                   <font-awesome-icon icon="book-open" />
                   Source
                 </p>
-                <p v-if="selectedBox.source_title" class="text-xs font-semibold">{{ selectedBox.source_title }}</p>
+                <p v-if="selectedBox.properties?.source_title" class="text-xs font-semibold">{{ selectedBox.properties.source_title }}</p>
                 <p v-else class="text-xs opacity-40">No source.</p>
-                <p v-if="selectedBox.source_type" class="text-xs opacity-50 mt-0.5">{{ selectedBox.source_type }}</p>
+                <p v-if="selectedBox.properties?.source_type" class="text-xs opacity-50 mt-0.5">{{ selectedBox.properties.source_type }}</p>
               </div>
               <div
                 :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
@@ -482,14 +501,14 @@ async function loadCytoscape() {
                   <font-awesome-icon icon="quote-left" />
                   Quote
                 </p>
-                <p v-if="selectedBox.quote" class="text-xs italic">{{ selectedBox.quote }}</p>
+                <p v-if="selectedBox.properties?.quote" class="text-xs italic">{{ selectedBox.properties.quote }}</p>
                 <p v-else class="text-xs opacity-40">No quote.</p>
               </div>
             </div>
 
-            <!-- Properties -->
+            <!-- Custom properties (everything beyond the well-known keys) -->
             <div
-              v-if="selectedBox.properties && Object.keys(selectedBox.properties).length"
+              v-if="Object.keys(extraProperties).length"
               :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
               class="shrink-0 border-t px-4 py-3"
             >
@@ -500,7 +519,7 @@ async function loadCytoscape() {
               <pre
                 :class="darkMode ? 'bg-primary-bg-dark text-text-main-dark' : 'bg-primary-bg-light text-text-main-light'"
                 class="rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap"
-              >{{ JSON.stringify(selectedBox.properties, null, 2) }}</pre>
+              >{{ JSON.stringify(extraProperties, null, 2) }}</pre>
             </div>
 
             <!-- Action bar -->
@@ -572,7 +591,7 @@ async function loadCytoscape() {
                 <li
                   v-for="b in linkSearchResults"
                   :key="b.id"
-                  @click="linkTarget = b; linkSearch = b.title"
+                  @click="linkTarget = b; linkSearch = b.label"
                   :class="[
                     'cursor-pointer px-2 py-1.5 transition',
                     linkTarget?.id === b.id
@@ -580,8 +599,8 @@ async function loadCytoscape() {
                       : 'hover:opacity-80'
                   ]"
                 >
-                  <font-awesome-icon :icon="b.is_concept ? 'lightbulb' : 'sticky-note'" class="opacity-40 mr-1" />
-                  {{ b.title || "Untitled" }}
+                  <font-awesome-icon icon="sticky-note" class="opacity-40 mr-1" />
+                  {{ b.label || "Untitled" }}
                 </li>
               </ul>
               <input
@@ -619,11 +638,11 @@ async function loadCytoscape() {
                 >
                   <p class="text-xs opacity-50 italic">{{ link.label }}</p>
                   <button
-                    @click="store.selectBox({ id: link.to_box, title: link.to_box_title } as any)"
+                    @click="store.selectBox(store.boxes.find(b => b.id === link.to_box) ?? ({ id: link.to_box, label: link.to_box_label } as any))"
                     :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
                     class="text-xs font-semibold text-left underline-offset-2 hover:underline"
                   >
-                    {{ link.to_box_title }}
+                    {{ link.to_box_label }}
                   </button>
                   <button
                     @click="removeLink(link.id)"
@@ -647,11 +666,11 @@ async function loadCytoscape() {
                 >
                   <p class="text-xs opacity-50 italic">{{ link.label }}</p>
                   <button
-                    @click="store.selectBox({ id: link.from_box, title: link.from_box_title } as any)"
+                    @click="store.selectBox(store.boxes.find(b => b.id === link.from_box) ?? ({ id: link.from_box, label: link.from_box_label } as any))"
                     :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
                     class="text-xs font-semibold text-left underline-offset-2 hover:underline"
                   >
-                    {{ link.from_box_title }}
+                    {{ link.from_box_label }}
                   </button>
                   <button
                     @click="removeLink(link.id)"

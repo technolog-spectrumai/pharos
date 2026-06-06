@@ -13,7 +13,7 @@ A cross-platform productivity + chat suite with end-to-end encryption. Built wit
 | Tasks | `/tasks` | `toto.kanban` JSON API |
 | Locations | `/locations` | `toto.locations` JSON API + OpenStreetMap |
 | People | `/people` | `toto.socialhub` JSON API |
-| Wallet | `/wallet` | `toto.assets` + `toto.tariffs` + `toto.invoice` JSON API |
+| Events | `/events` | `toto.events` JSON API |
 
 ---
 
@@ -152,7 +152,7 @@ Four tabs:
 
 ### Notes (`/notes`)
 
-Linked notes (Bento app) with graph visualization. Concept tagging, source links, and a full graph view using Cytoscape.
+Linked notes (Bento app) with graph visualization. Each note is a free-text `label` plus a flexible `properties` bag (body, source, quote, and any custom keys); notes are connected with labelled links and can reference external toto objects. Full graph view using Cytoscape (note, category, and reference nodes).
 
 ### Storage (`/vault`)
 
@@ -166,9 +166,9 @@ Kanban boards backed by `toto.kanban`. View projects, sprints, backlogs, mission
 
 Profiles and communities from `toto.socialhub`. Org chart visualization using Cytoscape for community hierarchies.
 
-### Wallet (`/wallet`)
+### Events (`/events`)
 
-Account holdings and balances from `toto.assets`.
+Scheduled events from `toto.events`: browse upcoming/past events, create events, send invitations to people, and respond to invites you've received.
 
 ---
 
@@ -197,7 +197,7 @@ enigma/
 │   │   │   ├── TasksView.vue           # Kanban + missions
 │   │   │   ├── LocationsView.vue       # Map (Leaflet/OSM) + route search
 │   │   │   ├── SocialhubView.vue       # People + org charts
-│   │   │   ├── WalletView.vue          # Holdings
+│   │   │   ├── EventsView.vue          # Scheduled events + invites
 │   │   │   ├── EnigmaLoginView.vue
 │   │   │   ├── EnigmaProfileView.vue
 │   │   │   └── EnigmaConfigView.vue
