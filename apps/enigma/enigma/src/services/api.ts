@@ -14,6 +14,10 @@ export const SILENT_MODE_ERROR = "Silent mode is on — connections are blocked.
 // Thrown when a read is requested in silent mode but no local copy exists yet.
 export const SILENT_NO_CACHE = "No offline copy of this data — connect once to download it.";
 
+// Thrown when no server address is set, so requests would otherwise hit the
+// local app origin and get HTML back ("Unexpected token '<'" JSON errors).
+export const NO_SERVER_ERROR = "No server configured — set a server address in Settings.";
+
 async function assertNotSilent(): Promise<void> {
   if (await getSilentMode()) throw new Error(SILENT_MODE_ERROR);
 }
@@ -471,6 +475,10 @@ class ApiService {
       throw new Error(SILENT_NO_CACHE);
     }
 
+    // No server set → don't fall back to a relative URL (which returns the app's
+    // own HTML and yields a cryptic "Unexpected token '<'" JSON error).
+    if (!base) throw new Error(NO_SERVER_ERROR);
+
     const url = `${base}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -487,9 +495,20 @@ class ApiService {
       const text = await res.text().catch(() => res.statusText);
       throw new Error(`${res.status}: ${text}`);
     }
-    const body = (await res.json()) as T;
+
+    const text = await res.text();
+    if (!text) return undefined as T; // e.g. 204 No Content on a delete
+    let body: T;
+    try {
+      body = JSON.parse(text) as T;
+    } catch {
+      // HTML/login page instead of JSON — usually a wrong server address.
+      throw new Error(
+        `Server returned a non-JSON response (HTTP ${res.status}). Check the server address in Settings.`,
+      );
+    }
     // Write successful reads through to the local store for offline browsing.
-    if (isGet) await cachePut(scope, path, JSON.stringify(body));
+    if (isGet) await cachePut(scope, path, text);
     return body;
   }
 
