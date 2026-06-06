@@ -1,0 +1,178 @@
+// Rust-owned realtime gateway.
+//
+// The frontend calls `realtime_connect/disconnect/send` and listens to the
+// `realtime://message` / `realtime://status` events — it never learns which
+// transport is used. This phase ships a single backend: a WebSocket client to
+// the toto `telegraph` server (mirroring the old JS ws.ts, incl. backoff
+// reconnect). A P2P backend can later be added behind the same commands without
+// any frontend change.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use futures_util::{SinkExt, StreamExt};
+use serde_json::json;
+use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::sync::{mpsc, Mutex};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+use crate::{active_config, load_profile_state, AppConfigState};
+
+const BACKOFF_MS: [u64; 6] = [1000, 2000, 4000, 8000, 16000, 30000];
+
+#[derive(Default)]
+pub struct RealtimeState {
+    inner: Mutex<Inner>,
+    generation: AtomicU64,
+}
+
+#[derive(Default)]
+struct Inner {
+    room: Option<String>,
+    out_tx: Option<mpsc::UnboundedSender<String>>,
+}
+
+fn ws_base(server_url: &str) -> Option<String> {
+    let http = server_url.trim_end_matches('/');
+    if http.is_empty() {
+        return None;
+    }
+    if let Some(rest) = http.strip_prefix("https") {
+        Some(format!("wss{rest}"))
+    } else if let Some(rest) = http.strip_prefix("http") {
+        Some(format!("ws{rest}"))
+    } else {
+        None
+    }
+}
+
+/// Minimal percent-encoding for the token query parameter.
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn emit_status(app: &AppHandle, room: &str, state: &str) {
+    let _ = app.emit("realtime://status", json!({ "room": room, "state": state }));
+}
+
+fn emit_message(app: &AppHandle, room: &str, payload: &str) {
+    let _ = app.emit("realtime://message", json!({ "room": room, "payload": payload }));
+}
+
+#[tauri::command]
+pub async fn realtime_connect(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    realtime: State<'_, RealtimeState>,
+    room: String,
+) -> Result<(), String> {
+    // Cancel any previous connection task by bumping the generation.
+    let my_gen = realtime.generation.fetch_add(1, Ordering::SeqCst) + 1;
+
+    let cfg = active_config(&config)?;
+    let state = load_profile_state(&app, &cfg);
+    let Some(ws_base) = ws_base(&state.server_url) else {
+        return Err("No server configured.".to_string());
+    };
+    let token = state.auth_token.clone().unwrap_or_default();
+    let query = if token.is_empty() {
+        String::new()
+    } else {
+        format!("?token={}", url_encode(&token))
+    };
+    let url = format!("{ws_base}/ws/telegraph/{room}/{query}");
+
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
+    {
+        let mut inner = realtime.inner.lock().await;
+        inner.room = Some(room.clone());
+        inner.out_tx = Some(out_tx);
+    }
+
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let realtime = app2.state::<RealtimeState>();
+        let mut attempt = 0usize;
+
+        loop {
+            if realtime.generation.load(Ordering::SeqCst) != my_gen {
+                return;
+            }
+            emit_status(&app2, &room, "connecting");
+
+            match tokio_tungstenite::connect_async(url.as_str()).await {
+                Ok((ws_stream, _)) => {
+                    attempt = 0;
+                    emit_status(&app2, &room, "connected");
+                    let (mut write, mut read) = ws_stream.split();
+
+                    loop {
+                        tokio::select! {
+                            out = out_rx.recv() => match out {
+                                Some(text) => {
+                                    if write.send(WsMessage::Text(text.into())).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                // Sender dropped → intentional disconnect.
+                                None => {
+                                    let _ = write.close().await;
+                                    emit_status(&app2, &room, "disconnected");
+                                    return;
+                                }
+                            },
+                            msg = read.next() => match msg {
+                                Some(Ok(WsMessage::Text(t))) => emit_message(&app2, &room, t.as_str()),
+                                Some(Ok(_)) => {}
+                                Some(Err(_)) | None => break,
+                            },
+                        }
+
+                        if realtime.generation.load(Ordering::SeqCst) != my_gen {
+                            return;
+                        }
+                    }
+                }
+                Err(_) => emit_status(&app2, &room, "error"),
+            }
+
+            if realtime.generation.load(Ordering::SeqCst) != my_gen {
+                return;
+            }
+            let delay = BACKOFF_MS[attempt.min(BACKOFF_MS.len() - 1)];
+            attempt += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn realtime_disconnect(realtime: State<'_, RealtimeState>) -> Result<(), String> {
+    realtime.generation.fetch_add(1, Ordering::SeqCst);
+    let mut inner = realtime.inner.lock().await;
+    inner.room = None;
+    inner.out_tx = None; // drop the sender → the task's out_rx yields None and it exits
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn realtime_send(
+    realtime: State<'_, RealtimeState>,
+    payload: String,
+) -> Result<(), String> {
+    let inner = realtime.inner.lock().await;
+    match &inner.out_tx {
+        Some(tx) => tx.send(payload).map_err(|e| e.to_string()),
+        None => Err("realtime: not connected".to_string()),
+    }
+}

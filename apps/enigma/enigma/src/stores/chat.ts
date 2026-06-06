@@ -1,7 +1,7 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import { api, type Room, type Participant } from "../services/api";
-import { wsService, type WsStatus } from "../services/ws";
+import { chatTransport as wsService, type WsStatus } from "../services/chatTransport";
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
 import { getRuntimeConfig, type AppRuntimeConfig } from "../services/appStorage";
 import { nanoid } from "nanoid";

@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
+mod data;
+mod realtime;
+
 // ── App config ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -16,7 +19,7 @@ pub struct AppConfig {
     pub identity: String,
 }
 
-type AppConfigState = Mutex<AppConfig>;
+pub(crate) type AppConfigState = Mutex<AppConfig>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppRuntimeConfig {
@@ -65,6 +68,8 @@ pub struct AppProfileState {
     pub offline_profiles: Vec<OfflineProfileOption>,
     #[serde(default)]
     pub selected_offline_profile_id: String,
+    #[serde(default)]
+    pub silent_mode: bool,
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -89,7 +94,7 @@ fn safe_filename_component(s: &str) -> String {
         .collect::<String>()
 }
 
-fn active_config(config: &State<AppConfigState>) -> Result<AppConfig, String> {
+pub(crate) fn active_config(config: &State<AppConfigState>) -> Result<AppConfig, String> {
     config
         .lock()
         .map(|config| config.clone())
@@ -124,7 +129,7 @@ fn profile_state_path(app: &AppHandle, config: &AppConfig) -> std::path::PathBuf
     profile_dir(app, config).join("profile_state.json")
 }
 
-fn load_profile_state(app: &AppHandle, config: &AppConfig) -> AppProfileState {
+pub(crate) fn load_profile_state(app: &AppHandle, config: &AppConfig) -> AppProfileState {
     let path = profile_state_path(app, config);
 
     let Ok(bytes) = std::fs::read(path) else {
@@ -382,6 +387,24 @@ fn app_clear_auth_token(app: AppHandle, config: State<AppConfigState>) -> Result
     let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.auth_token = None;
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_silent_mode(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).silent_mode)
+}
+
+#[tauri::command]
+fn app_set_silent_mode(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    silent: bool,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    state.silent_mode = silent;
     save_profile_state(&app, &config, &state)
 }
 
@@ -888,12 +911,16 @@ pub fn run() {
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
-        .setup(|_app| {
+        .manage(realtime::RealtimeState::default())
+        .setup(|app| {
+            // Rust-owned HTTP gateway state (needs the app data dir for its cache).
+            app.manage(data::init(app.handle()));
+
             #[cfg(target_os = "linux")]
             {
                 use tauri::Manager;
                 use webkit2gtk::{PermissionRequestExt, WebViewExt};
-                if let Some(webview) = _app.get_webview_window("main") {
+                if let Some(webview) = app.get_webview_window("main") {
                     let _ = webview.with_webview(|wv| {
                         wv.inner().connect_permission_request(|_, request| {
                             request.allow();
@@ -915,6 +942,8 @@ pub fn run() {
             app_set_auth_token,
             app_get_auth_token,
             app_clear_auth_token,
+            app_get_silent_mode,
+            app_set_silent_mode,
             app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
@@ -931,6 +960,13 @@ pub fn run() {
             mls_clear_state,
             audio_start_recording,
             audio_stop_recording,
+            data::data_http,
+            data::data_upload,
+            data::data_cache_count,
+            data::data_cache_clear,
+            realtime::realtime_connect,
+            realtime::realtime_disconnect,
+            realtime::realtime_send,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,6 +7,18 @@ import {
 } from "./appStorage";
 import { kvGet, kvPut, kvCount, kvClearNamespace } from "./localDb";
 
+// In the Tauri app, all I/O is owned by the Rust data gateway — the frontend just
+// calls commands and never touches the network/cache directly. In a plain browser
+// (Vite dev / web build) there is no Rust, so we fall back to fetch + the JS
+// silent-mode/cache logic below.
+const _isTauri = (): boolean =>
+  typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+
+async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
+
 // Thrown by the upload egress points when silent mode is on. Kept as a named
 // export so callers (e.g. the config view) can recognise the blocked state.
 export const SILENT_MODE_ERROR = "Silent mode is on — connections are blocked.";
@@ -50,13 +62,18 @@ async function cachePut(scope: string, path: string, body: string): Promise<void
 }
 
 /** Number of cached responses for a server (shown in Settings). */
-export function countResponseCache(serverUrl: string): Promise<number> {
+export async function countResponseCache(serverUrl: string): Promise<number> {
+  if (_isTauri()) return _invoke<number>("data_cache_count", { serverUrl });
   return kvCount(CACHE_NS, cacheScope(serverUrl));
 }
 
 /** Drop all cached responses for a server (Settings → clear local cache). */
-export function clearResponseCache(serverUrl: string): Promise<void> {
-  return kvClearNamespace(CACHE_NS, cacheScope(serverUrl));
+export async function clearResponseCache(serverUrl: string): Promise<void> {
+  if (_isTauri()) {
+    await _invoke("data_cache_clear", { serverUrl });
+    return;
+  }
+  await kvClearNamespace(CACHE_NS, cacheScope(serverUrl));
 }
 
 // ── Notes (Bento) ────────────────────────────────────────────────────────────
@@ -463,9 +480,20 @@ class ApiService {
     init?: RequestInit,
     includeAuth = true,
   ): Promise<T> {
+    const method = (init?.method ?? "GET").toUpperCase();
+
+    // Tauri: hand the whole request to the Rust gateway (it owns server URL,
+    // auth, silent mode, the cache, and the actual transport).
+    if (_isTauri()) {
+      const body = typeof init?.body === "string" ? init.body : undefined;
+      const text = await _invoke<string>("data_http", { method, path, body, includeAuth });
+      return (text ? JSON.parse(text) : undefined) as T;
+    }
+
+    // ── Browser fallback (fetch + JS silent-mode/cache) ──────────────────────
     const base = await serverBase();
     const scope = cacheScope(base);
-    const isGet = (init?.method ?? "GET").toUpperCase() === "GET";
+    const isGet = method === "GET";
 
     // Silent mode: serve reads from the local copy, block writes.
     if (await getSilentMode()) {
@@ -510,6 +538,20 @@ class ApiService {
     // Write successful reads through to the local store for offline browsing.
     if (isGet) await cachePut(scope, path, text);
     return body;
+  }
+
+  // Multipart upload through the Rust gateway (Tauri). File bytes are passed as a
+  // byte array; Rust applies auth + the silent-mode gate and POSTs the multipart.
+  private async uploadViaTauri<T>(
+    path: string,
+    field: string,
+    filename: string,
+    data: ArrayBuffer,
+    extra?: Record<string, string>,
+  ): Promise<T> {
+    const bytes = Array.from(new Uint8Array(data));
+    const text = await _invoke<string>("data_upload", { path, field, filename, bytes, extra });
+    return JSON.parse(text) as T;
   }
 
   async login(username: string, password: string): Promise<void> {
@@ -661,7 +703,14 @@ class ApiService {
     return this.request(`/vault/api/files/${key}/`, { method: "DELETE" });
   }
 
-  uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
+  async uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
+    if (_isTauri()) {
+      const extra: Record<string, string> = { title: title || file.name };
+      if (bucketSlug) extra.bucket_slug = bucketSlug;
+      return this.uploadViaTauri<VaultFile>(
+        "/vault/api/files/upload/", "file", file.name, await file.arrayBuffer(), extra,
+      );
+    }
     return new Promise(async (resolve, reject) => {
       try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
@@ -828,7 +877,13 @@ class ApiService {
 
   // ── Audio upload ───────────────────────────────────────────────────────────
 
-  uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
+  async uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
+    if (_isTauri()) {
+      return this.uploadViaTauri<{ ok: boolean }>(
+        `/telegraph/api/channels/${slug}/upload-audio/`, "audio", "recording.webm",
+        await audioBlob.arrayBuffer(),
+      );
+    }
     return new Promise(async (resolve, reject) => {
       try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
@@ -852,11 +907,18 @@ class ApiService {
     });
   }
 
-  uploadImage(
+  async uploadImage(
     slug: string,
     file: File,
     onProgress?: (pct: number) => void,
   ): Promise<{ ok: boolean }> {
+    if (_isTauri()) {
+      const res = await this.uploadViaTauri<{ ok: boolean }>(
+        `/telegraph/api/channels/${slug}/upload/`, "image", file.name, await file.arrayBuffer(),
+      );
+      onProgress?.(100); // gateway upload has no progress stream
+      return res;
+    }
     return new Promise(async (resolve, reject) => {
       try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();

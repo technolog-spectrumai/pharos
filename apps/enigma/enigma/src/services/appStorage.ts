@@ -82,10 +82,12 @@ export async function clearAuthToken(): Promise<void> {
 // dedicated Tauri command is required (the desktop webview has localStorage).
 
 export async function getSilentMode(): Promise<boolean> {
+  if (_isTauri()) return _invoke<boolean>("app_get_silent_mode");
   return localStorage.getItem(LS_SILENT_MODE) === "1";
 }
 
 export async function setSilentMode(silent: boolean): Promise<void> {
+  if (_isTauri()) { await _invoke("app_set_silent_mode", { silent }); return; }
   if (silent) localStorage.setItem(LS_SILENT_MODE, "1");
   else localStorage.removeItem(LS_SILENT_MODE);
 }
