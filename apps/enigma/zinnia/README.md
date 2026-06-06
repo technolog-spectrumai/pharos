@@ -152,7 +152,14 @@ Four tabs:
 
 ### Notes (`/notes`)
 
-Linked notes (Bento app) with graph visualization. Each note is a free-text `label` plus a flexible `properties` bag (body, source, quote, and any custom keys); notes are connected with labelled links and can reference external toto objects. Full graph view using Cytoscape (note, category, and reference nodes).
+Linked notes (Bento app), each a free-text `label` plus a flexible `properties` bag (body, source, quote, custom keys). Four panels:
+
+- **Note** — editor with per-note links and references.
+- **Graph** — Cytoscape view (note, category, reference nodes).
+- **Links** — every idea-link (`from → label → to`), deletable.
+- **References** — every reference out to an external toto object (mission, event, person, place…), with its model badge; deletable. References are *created* in toto (they need a subject picker).
+
+**Offline-first + Sync.** Notes are cached locally so they're viewable/editable with no server. Edits made offline apply optimistically and are queued; the **Sync** button (sidebar, with online/offline indicator + pending count) replays the queue and pulls fresh data, reconciling offline-created ids. Backend API added: `GET /bento/api/links/` (all links), `GET /bento/api/references/` + `GET /bento/api/boxes/<id>/references/` + `DELETE /bento/api/references/<id>/`.
 
 ### Storage (`/vault`)
 

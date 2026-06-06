@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { useNotesStore } from "../stores/notes";
 import type { NoteBox } from "../services/api";
@@ -7,12 +7,16 @@ import type { NoteBox } from "../services/api";
 const props = defineProps<{ darkMode: boolean }>();
 
 const store = useNotesStore();
-const { boxes, selectedBox, links, graphNodes, graphEdges, loading, linksLoading, graphLoading, error } = storeToRefs(store);
+const {
+  boxes, selectedBox, links, references, graphNodes, graphEdges,
+  loading, graphLoading, error,
+  online, syncing, pendingCount, lastSyncedAt,
+} = storeToRefs(store);
 
 // ── UI state ──────────────────────────────────────────────────────────────────
 const search = ref("");
-const searchTimer = ref<ReturnType<typeof setTimeout> | null>(null);
-const activePanel = ref<"detail" | "graph">("detail");
+type Panel = "detail" | "graph" | "links" | "references";
+const activePanel = ref<Panel>("detail");
 const isReadOnly = ref(false);
 const editLabel = ref("");
 const editBody = ref("");
@@ -31,6 +35,17 @@ const linkSearchResults = computed(() =>
            (b.properties?.body ?? "").toLowerCase().includes(linkSearch.value.toLowerCase())))
         .slice(0, 8)
 );
+
+// Client-side search — works offline over the cached set.
+const filteredBoxes = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  if (!q) return boxes.value;
+  return boxes.value.filter(
+    (b) =>
+      b.label.toLowerCase().includes(q) ||
+      (b.properties?.body ?? "").toString().toLowerCase().includes(q),
+  );
+});
 
 // Properties shown verbatim in the editor (body/source/quote) — everything else
 // in the bag is surfaced as raw custom properties.
@@ -76,14 +91,34 @@ watch(() => props.darkMode, () => {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(() => {
-  store.fetchBoxes();
-  store.fetchCategories();
+  store.init();
+  // Reflect browser connectivity changes in the sync indicator.
+  window.addEventListener("online", onBrowserOnline);
+  window.addEventListener("offline", onBrowserOffline);
 });
+onUnmounted(() => {
+  window.removeEventListener("online", onBrowserOnline);
+  window.removeEventListener("offline", onBrowserOffline);
+});
+function onBrowserOnline() { online.value = true; }
+function onBrowserOffline() { online.value = false; }
 
-// ── Search (debounced) ────────────────────────────────────────────────────────
-function onSearchInput() {
-  if (searchTimer.value) clearTimeout(searchTimer.value);
-  searchTimer.value = setTimeout(() => store.fetchBoxes(search.value || undefined), 300);
+// ── Sync ──────────────────────────────────────────────────────────────────────
+async function doSync() {
+  await store.sync().catch(() => {});
+}
+function syncLabel(): string {
+  if (syncing.value) return "Syncing…";
+  if (pendingCount.value > 0) return `Sync (${pendingCount.value})`;
+  return "Sync";
+}
+function lastSyncedText(): string {
+  if (!lastSyncedAt.value) return "never synced";
+  const d = new Date(lastSyncedAt.value);
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "synced just now";
+  if (mins < 60) return `synced ${mins}m ago`;
+  return `synced ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
@@ -122,6 +157,10 @@ async function addLink() {
 
 async function removeLink(id: number) {
   await store.removeLink(id);
+}
+
+async function removeReference(id: number) {
+  await store.removeReference(id);
 }
 
 function formatDate(iso: string) {
@@ -325,7 +364,6 @@ async function loadCytoscape() {
             <font-awesome-icon icon="magnifying-glass" class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs opacity-50" />
             <input
               v-model="search"
-              @input="onSearchInput"
               type="text"
               placeholder="Search…"
               :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark' : 'bg-primary-bg-light border-accent-2 text-text-main-light'"
@@ -342,34 +380,32 @@ async function loadCytoscape() {
           </button>
         </div>
         <!-- Panel toggle -->
-        <div class="flex gap-1">
+        <div class="grid grid-cols-2 gap-1">
           <button
-            @click="activePanel = 'detail'"
-            :class="activePanel === 'detail'
+            v-for="p in ([
+              ['detail', 'sticky-note', 'Note'],
+              ['graph', 'diagram-project', 'Graph'],
+              ['links', 'link', 'Links'],
+              ['references', 'arrow-up-right-from-square', 'Refs'],
+            ] as [Panel, string, string][])"
+            :key="p[0]"
+            @click="activePanel = p[0]"
+            :class="activePanel === p[0]
               ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
               : 'border border-current/20 opacity-60 hover:opacity-100'"
-            class="flex-1 rounded-lg py-1 text-xs font-semibold transition"
+            class="rounded-lg py-1 text-xs font-semibold transition"
           >
-            <font-awesome-icon icon="sticky-note" class="mr-1" />Note
-          </button>
-          <button
-            @click="activePanel = 'graph'"
-            :class="activePanel === 'graph'
-              ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-              : 'border border-current/20 opacity-60 hover:opacity-100'"
-            class="flex-1 rounded-lg py-1 text-xs font-semibold transition"
-          >
-            <font-awesome-icon icon="diagram-project" class="mr-1" />Graph
+            <font-awesome-icon :icon="p[1]" class="mr-1" />{{ p[2] }}
           </button>
         </div>
       </div>
 
       <!-- Note list -->
-      <div v-if="loading" class="flex flex-1 items-center justify-center opacity-40 text-xs">Loading…</div>
-      <div v-else-if="boxes.length === 0" class="flex flex-1 items-center justify-center opacity-40 text-xs">No notes</div>
+      <div v-if="loading && boxes.length === 0" class="flex flex-1 items-center justify-center opacity-40 text-xs">Loading…</div>
+      <div v-else-if="filteredBoxes.length === 0" class="flex flex-1 items-center justify-center opacity-40 text-xs">{{ search ? 'No matches' : 'No notes' }}</div>
       <ul v-else class="flex-1 overflow-y-auto divide-y divide-current/5">
         <li
-          v-for="box in boxes"
+          v-for="box in filteredBoxes"
           :key="box.id"
           @click="store.selectBox(box); activePanel = 'detail'"
           :class="[
@@ -388,10 +424,36 @@ async function loadCytoscape() {
         </li>
       </ul>
 
+      <!-- Sync status + button -->
+      <div class="shrink-0 border-t border-current/10 p-2 space-y-1.5">
+        <div class="flex items-center gap-2 px-1">
+          <span
+            :class="online ? 'bg-green-400' : 'bg-amber-400'"
+            class="h-2 w-2 rounded-full shrink-0"
+            :title="online ? 'Online' : 'Offline'"
+          />
+          <span class="text-[10px] opacity-50 truncate flex-1">
+            {{ online ? 'Online' : 'Offline' }} · {{ lastSyncedText() }}
+          </span>
+        </div>
+        <button
+          @click="doSync"
+          :disabled="syncing"
+          :class="pendingCount > 0
+            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+            : 'border border-current/20 opacity-70 hover:opacity-100'"
+          class="w-full rounded-lg py-1.5 text-xs font-semibold transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+        >
+          <font-awesome-icon :icon="syncing ? 'spinner' : 'rotate-right'" :spin="syncing" />
+          {{ syncLabel() }}
+        </button>
+      </div>
+
       <!-- Stats footer -->
-      <div class="shrink-0 border-t border-current/10 px-3 py-2 text-xs opacity-50 grid grid-cols-2 gap-1">
+      <div class="shrink-0 border-t border-current/10 px-3 py-2 text-xs opacity-50 grid grid-cols-3 gap-1">
         <span>{{ boxes.length }} notes</span>
         <span>{{ links.length }} links</span>
+        <span>{{ references.length }} refs</span>
       </div>
     </aside>
 
@@ -411,6 +473,97 @@ async function loadCytoscape() {
           <div class="absolute bottom-3 right-3 text-xs opacity-40 pointer-events-none">
             {{ graphNodes.length }} nodes · {{ graphEdges.length }} edges · click node to open
           </div>
+        </div>
+      </template>
+
+      <!-- LINKS PANEL (all idea-links) -->
+      <template v-else-if="activePanel === 'links'">
+        <div
+          :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+          class="flex flex-1 flex-col rounded-xl border shadow-md overflow-hidden"
+        >
+          <div class="shrink-0 border-b border-current/10 px-4 py-3 flex items-center gap-2">
+            <font-awesome-icon icon="link" class="opacity-60" />
+            <h3 class="text-sm font-bold">All links</h3>
+            <span class="text-xs opacity-40">{{ links.length }}</span>
+          </div>
+          <div v-if="links.length === 0" class="flex flex-1 items-center justify-center opacity-40 text-sm">No links yet.</div>
+          <ul v-else class="flex-1 overflow-y-auto divide-y divide-current/5">
+            <li
+              v-for="link in links"
+              :key="link.id"
+              class="flex items-center gap-2 px-4 py-2.5 text-xs hover:bg-current/3 transition"
+            >
+              <button
+                @click="store.selectBox(store.boxes.find(b => b.id === link.from_box) ?? ({ id: link.from_box, label: link.from_box_label } as any)); activePanel = 'detail'"
+                :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                class="font-semibold truncate max-w-[32%] text-left hover:underline"
+              >{{ link.from_box_label }}</button>
+              <span class="opacity-40 shrink-0">
+                <font-awesome-icon icon="arrow-right" class="text-[9px]" />
+                <span class="italic mx-1">{{ link.label }}</span>
+                <font-awesome-icon icon="arrow-right" class="text-[9px]" />
+              </span>
+              <button
+                @click="store.selectBox(store.boxes.find(b => b.id === link.to_box) ?? ({ id: link.to_box, label: link.to_box_label } as any)); activePanel = 'detail'"
+                :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                class="font-semibold truncate max-w-[32%] text-left hover:underline"
+              >{{ link.to_box_label }}</button>
+              <button
+                @click="removeLink(link.id)"
+                class="ml-auto shrink-0 opacity-40 hover:opacity-100 hover:text-red-400 transition"
+                title="Delete link"
+              >
+                <font-awesome-icon icon="trash" />
+              </button>
+            </li>
+          </ul>
+        </div>
+      </template>
+
+      <!-- REFERENCES PANEL (bento node → external toto object) -->
+      <template v-else-if="activePanel === 'references'">
+        <div
+          :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+          class="flex flex-1 flex-col rounded-xl border shadow-md overflow-hidden"
+        >
+          <div class="shrink-0 border-b border-current/10 px-4 py-3 flex items-center gap-2">
+            <font-awesome-icon icon="arrow-up-right-from-square" class="opacity-60" />
+            <h3 class="text-sm font-bold">References</h3>
+            <span class="text-xs opacity-40">{{ references.length }}</span>
+          </div>
+          <div v-if="references.length === 0" class="flex flex-1 flex-col items-center justify-center opacity-40 text-sm gap-1 px-6 text-center">
+            <font-awesome-icon icon="arrow-up-right-from-square" class="text-2xl" />
+            <p>No references.</p>
+            <p class="text-xs">Notes can reference toto objects (missions, events, people, places). Create them in toto.</p>
+          </div>
+          <ul v-else class="flex-1 overflow-y-auto divide-y divide-current/5">
+            <li
+              v-for="ref in references"
+              :key="ref.id"
+              class="flex items-center gap-2 px-4 py-2.5 text-xs hover:bg-current/3 transition"
+            >
+              <button
+                @click="store.selectBox(store.boxes.find(b => b.id === ref.box) ?? ({ id: ref.box, label: ref.box_label } as any)); activePanel = 'detail'"
+                :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+                class="font-semibold truncate max-w-[28%] text-left hover:underline"
+              >{{ ref.box_label }}</button>
+              <span class="opacity-40 shrink-0 italic">{{ ref.label }}</span>
+              <font-awesome-icon icon="arrow-right" class="text-[9px] opacity-40 shrink-0" />
+              <span class="font-semibold truncate flex-1 min-w-0">{{ ref.subject_label }}</span>
+              <span :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+                class="shrink-0 rounded border px-1.5 py-0.5 uppercase tracking-wide text-[10px] opacity-60">
+                {{ ref.model }}
+              </span>
+              <button
+                @click="removeReference(ref.id)"
+                class="shrink-0 opacity-40 hover:opacity-100 hover:text-red-400 transition"
+                title="Delete reference"
+              >
+                <font-awesome-icon icon="trash" />
+              </button>
+            </li>
+          </ul>
         </div>
       </template>
 
@@ -624,8 +777,7 @@ async function loadCytoscape() {
             </div>
 
             <!-- Links list -->
-            <div v-if="linksLoading" class="flex flex-1 items-center justify-center opacity-40 text-xs">Loading…</div>
-            <div v-else class="flex-1 overflow-y-auto">
+            <div class="flex-1 overflow-y-auto">
               <!-- Outgoing -->
               <div class="px-3 pt-3 pb-1">
                 <p class="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Outgoing</p>
@@ -678,6 +830,27 @@ async function loadCytoscape() {
                   >
                     <font-awesome-icon icon="trash" class="text-xs" />
                     Delete link
+                  </button>
+                </div>
+              </div>
+
+              <!-- References (this box → external toto objects) -->
+              <div v-if="store.boxReferences(selectedBox.id).length" class="px-3 pt-1 pb-3 border-t border-current/10">
+                <p class="text-xs font-bold uppercase tracking-wide opacity-50 mb-2 mt-2">References</p>
+                <div
+                  v-for="ref in store.boxReferences(selectedBox.id)"
+                  :key="ref.id"
+                  :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'"
+                  class="rounded-lg border p-2.5 mb-2 space-y-1"
+                >
+                  <p class="text-xs opacity-50 italic">{{ ref.label }} · {{ ref.model }}</p>
+                  <p class="text-xs font-semibold break-words">{{ ref.subject_label }}</p>
+                  <button
+                    @click="removeReference(ref.id)"
+                    class="flex items-center gap-1 text-xs opacity-40 transition hover:opacity-80 hover:text-red-400"
+                  >
+                    <font-awesome-icon icon="trash" class="text-xs" />
+                    Delete reference
                   </button>
                 </div>
               </div>
