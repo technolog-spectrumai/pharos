@@ -1,4 +1,4 @@
-import { getAuthToken, getServerUrl } from "./appStorage";
+import { getAuthToken, getServerUrl, getSilentMode } from "./appStorage";
 
 export type WsStatus = "connecting" | "connected" | "disconnected" | "error";
 
@@ -76,6 +76,11 @@ export class WsService {
 
   private async _open() {
     if (!this.roomSlug) return;
+    // Silent mode blocks all server egress — never open the socket.
+    if (await getSilentMode()) {
+      this.setStatus("disconnected");
+      return;
+    }
     this.setStatus("connecting");
 
     let socket: WebSocket;

@@ -1,9 +1,18 @@
 import {
   getAuthToken,
   getServerUrl,
+  getSilentMode,
   setAuthToken,
   clearAuthToken,
 } from "./appStorage";
+
+// Thrown by every egress point when silent mode is on. Kept as a named export
+// so callers (e.g. the config view) can recognise the blocked state.
+export const SILENT_MODE_ERROR = "Silent mode is on — connections are blocked.";
+
+async function assertNotSilent(): Promise<void> {
+  if (await getSilentMode()) throw new Error(SILENT_MODE_ERROR);
+}
 
 // ── Notes (Bento) ────────────────────────────────────────────────────────────
 
@@ -409,6 +418,7 @@ class ApiService {
     init?: RequestInit,
     includeAuth = true,
   ): Promise<T> {
+    await assertNotSilent();
     const url = `${await serverBase()}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -579,6 +589,7 @@ class ApiService {
 
   uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
     return new Promise(async (resolve, reject) => {
+      try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
@@ -745,6 +756,7 @@ class ApiService {
 
   uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
     return new Promise(async (resolve, reject) => {
+      try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
@@ -772,6 +784,7 @@ class ApiService {
     onProgress?: (pct: number) => void,
   ): Promise<{ ok: boolean }> {
     return new Promise(async (resolve, reject) => {
+      try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
