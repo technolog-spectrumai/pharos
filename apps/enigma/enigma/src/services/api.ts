@@ -5,13 +5,54 @@ import {
   setAuthToken,
   clearAuthToken,
 } from "./appStorage";
+import { kvGet, kvPut, kvCount, kvClearNamespace } from "./localDb";
 
-// Thrown by every egress point when silent mode is on. Kept as a named export
-// so callers (e.g. the config view) can recognise the blocked state.
+// Thrown by the upload egress points when silent mode is on. Kept as a named
+// export so callers (e.g. the config view) can recognise the blocked state.
 export const SILENT_MODE_ERROR = "Silent mode is on — connections are blocked.";
+
+// Thrown when a read is requested in silent mode but no local copy exists yet.
+export const SILENT_NO_CACHE = "No offline copy of this data — connect once to download it.";
 
 async function assertNotSilent(): Promise<void> {
   if (await getSilentMode()) throw new Error(SILENT_MODE_ERROR);
+}
+
+// ── Offline response cache (SQLite via localDb) ───────────────────────────────
+// Every successful GET is written through to local storage keyed by
+// (server URL, request path); in silent mode reads are served from it so the
+// previously-loaded data stays browsable with no network.
+
+const CACHE_NS = "cache";
+
+function cacheScope(serverUrl: string): string {
+  return serverUrl.replace(/\/$/, "") || "default";
+}
+
+async function cacheGet(scope: string, path: string): Promise<string | null> {
+  try {
+    return await kvGet(CACHE_NS, scope, path);
+  } catch {
+    return null;
+  }
+}
+
+async function cachePut(scope: string, path: string, body: string): Promise<void> {
+  try {
+    await kvPut(CACHE_NS, scope, path, body);
+  } catch {
+    /* cache write is best-effort */
+  }
+}
+
+/** Number of cached responses for a server (shown in Settings). */
+export function countResponseCache(serverUrl: string): Promise<number> {
+  return kvCount(CACHE_NS, cacheScope(serverUrl));
+}
+
+/** Drop all cached responses for a server (Settings → clear local cache). */
+export function clearResponseCache(serverUrl: string): Promise<void> {
+  return kvClearNamespace(CACHE_NS, cacheScope(serverUrl));
 }
 
 // ── Notes (Bento) ────────────────────────────────────────────────────────────
@@ -418,8 +459,19 @@ class ApiService {
     init?: RequestInit,
     includeAuth = true,
   ): Promise<T> {
-    await assertNotSilent();
-    const url = `${await serverBase()}${path}`;
+    const base = await serverBase();
+    const scope = cacheScope(base);
+    const isGet = (init?.method ?? "GET").toUpperCase() === "GET";
+
+    // Silent mode: serve reads from the local copy, block writes.
+    if (await getSilentMode()) {
+      if (!isGet) throw new Error(SILENT_MODE_ERROR);
+      const cached = await cacheGet(scope, path);
+      if (cached !== null) return JSON.parse(cached) as T;
+      throw new Error(SILENT_NO_CACHE);
+    }
+
+    const url = `${base}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Requested-With": "XMLHttpRequest",
@@ -435,7 +487,10 @@ class ApiService {
       const text = await res.text().catch(() => res.statusText);
       throw new Error(`${res.status}: ${text}`);
     }
-    return res.json() as Promise<T>;
+    const body = (await res.json()) as T;
+    // Write successful reads through to the local store for offline browsing.
+    if (isGet) await cachePut(scope, path, JSON.stringify(body));
+    return body;
   }
 
   async login(username: string, password: string): Promise<void> {
