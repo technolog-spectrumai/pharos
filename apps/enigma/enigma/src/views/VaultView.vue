@@ -2,7 +2,8 @@
 import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from "vue";
 import { storeToRefs } from "pinia";
 import { useVaultStore } from "../stores/vault";
-import type { VaultFile, VaultDirectory } from "../services/api";
+import type { VaultFile } from "../services/api";
+import { buildForest, findDir, dirChain, type DirNode } from "../lib/vaultTree";
 
 // Ace editor — bundled (not loaded from a CDN) so it works offline in the
 // Tauri desktop build. Mode/theme imports register themselves on the core.
@@ -92,51 +93,7 @@ const searchResults = computed(() => {
 });
 
 // ── Folder forest: bucket → nested directories → files ─────────────────────────
-interface DirNode { id: number; name: string; path: string; bucketSlug: string; dirs: DirNode[]; files: VaultFile[]; }
-interface BucketNode { slug: string; name: string; dirs: DirNode[]; files: VaultFile[]; fileCount: number; }
-
-const forest = computed<BucketNode[]>(() => {
-  const filesByBucket = new Map<string, VaultFile[]>();
-  for (const f of files.value) {
-    const slug = f.bucket_slug ?? "personal";
-    (filesByBucket.get(slug) ?? filesByBucket.set(slug, []).get(slug)!).push(f);
-  }
-
-  const bucketMeta = new Map<string, { name: string; dirs: VaultDirectory[] }>();
-  for (const b of buckets.value) bucketMeta.set(b.slug, { name: b.name, dirs: b.directories });
-  for (const slug of filesByBucket.keys()) if (!bucketMeta.has(slug)) bucketMeta.set(slug, { name: slug, dirs: [] });
-
-  const sortDirs = (arr: DirNode[]) => {
-    arr.sort((a, b) => a.name.localeCompare(b.name));
-    for (const n of arr) { sortDirs(n.dirs); n.files.sort((a, b) => a.title.localeCompare(b.title)); }
-  };
-
-  const out: BucketNode[] = [];
-  for (const [slug, meta] of bucketMeta) {
-    const bucketFiles = filesByBucket.get(slug) ?? [];
-    const nodeById = new Map<number, DirNode>();
-    for (const d of meta.dirs) nodeById.set(d.id, { id: d.id, name: d.name, path: d.path, bucketSlug: slug, dirs: [], files: [] });
-
-    const rootDirs: DirNode[] = [];
-    for (const d of meta.dirs) {
-      const node = nodeById.get(d.id)!;
-      if (d.parent_id != null && nodeById.has(d.parent_id)) nodeById.get(d.parent_id)!.dirs.push(node);
-      else rootDirs.push(node);
-    }
-
-    const rootFiles: VaultFile[] = [];
-    for (const f of bucketFiles) {
-      if (f.directory_id != null && nodeById.has(f.directory_id)) nodeById.get(f.directory_id)!.files.push(f);
-      else rootFiles.push(f);
-    }
-
-    sortDirs(rootDirs);
-    rootFiles.sort((a, b) => a.title.localeCompare(b.title));
-    out.push({ slug, name: meta.name, dirs: rootDirs, files: rootFiles, fileCount: bucketFiles.length });
-  }
-  out.sort((a, b) => a.name.localeCompare(b.name));
-  return out;
-});
+const forest = computed(() => buildForest(files.value, buckets.value));
 
 // ── Tree view: flatten the forest using the expansion set ──────────────────────
 const expanded = ref<Set<string>>(new Set());
@@ -187,10 +144,6 @@ const gridBucket = ref<string | null>(null);
 const gridDirId = ref<number | null>(null);
 
 const currentBucketNode = computed(() => forest.value.find((b) => b.slug === gridBucket.value) ?? null);
-function findDir(nodes: DirNode[], id: number): DirNode | null {
-  for (const n of nodes) { if (n.id === id) return n; const r = findDir(n.dirs, id); if (r) return r; }
-  return null;
-}
 const currentDirNode = computed(() =>
   currentBucketNode.value && gridDirId.value != null ? findDir(currentBucketNode.value.dirs, gridDirId.value) : null);
 const gridDirs = computed<DirNode[]>(() =>
@@ -198,14 +151,6 @@ const gridDirs = computed<DirNode[]>(() =>
 const gridFiles = computed<VaultFile[]>(() =>
   !currentBucketNode.value ? [] : (currentDirNode.value ? currentDirNode.value.files : currentBucketNode.value.files));
 
-function dirChain(nodes: DirNode[], id: number): DirNode[] {
-  for (const n of nodes) {
-    if (n.id === id) return [n];
-    const sub = dirChain(n.dirs, id);
-    if (sub.length) return [n, ...sub];
-  }
-  return [];
-}
 interface Crumb { label: string; bucket: string | null; dir: number | null; }
 const breadcrumb = computed<Crumb[]>(() => {
   const crumbs: Crumb[] = [{ label: "Storage", bucket: null, dir: null }];
