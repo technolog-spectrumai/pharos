@@ -34,9 +34,10 @@ const {
   isEncrypted,
   isParticipant,
   p2pRooms,
-  transportMode,
+  serverMode,
   roomTransport,
   upgrading,
+  canFallbackToRelay,
 } = storeToRefs(chat);
 
 function forceResetMls() { return chat.forceResetMls(); }
@@ -140,8 +141,8 @@ function recordingLabel() {
 }
 
 onMounted(async () => {
-  await chat.loadTransportMode();
-  if (transportMode.value === "relay") {
+  await chat.loadConnectivity();
+  if (serverMode.value) {
     if (!rooms.value.length) chat.fetchRooms();
   } else {
     chat.loadP2pRooms();
@@ -326,7 +327,7 @@ const mlsChipClass = computed(() => {
       </div>
 
       <!-- Peer-to-peer rooms (iroh) — direct mode only -->
-      <div v-if="transportMode === 'direct'" class="space-y-2.5 border-b border-current/10 p-4">
+      <div v-if="!serverMode" class="space-y-2.5 border-b border-current/10 p-4">
         <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
           <font-awesome-icon icon="circle-nodes" class="mr-1" />{{ $t('chat.p2p') }}
         </p>
@@ -400,11 +401,11 @@ const mlsChipClass = computed(() => {
         </div>
       </div>
 
-      <div v-if="transportMode === 'relay' && loadingRooms" class="p-4 text-xs opacity-50">
+      <div v-if="serverMode && loadingRooms" class="p-4 text-xs opacity-50">
         Loading…
       </div>
 
-      <nav v-else-if="transportMode === 'relay'" class="flex-1 space-y-2 overflow-y-auto p-4 pr-3">
+      <nav v-else-if="serverMode" class="flex-1 space-y-2 overflow-y-auto p-4 pr-3">
         <button
           v-for="room in rooms"
           :key="room.slug"
@@ -513,6 +514,20 @@ const mlsChipClass = computed(() => {
         >
           <font-awesome-icon icon="circle-nodes" />
           {{ upgrading ? $t('chat.upgrading') : $t('chat.switchToP2p') }}
+        </button>
+
+        <button
+          v-if="currentRoom && isParticipant && canFallbackToRelay"
+          :disabled="!isEncrypted || !!upgrading"
+          :class="(!isEncrypted || upgrading)
+            ? 'opacity-50 cursor-not-allowed border-accent-1'
+            : (darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100')"
+          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          :title="$t('chat.switchToRelayHint')"
+          @click="chat.downgradeRoomToRelay()"
+        >
+          <font-awesome-icon icon="satellite-dish" />
+          {{ upgrading ? $t('chat.upgrading') : $t('chat.switchToRelay') }}
         </button>
 
         <!-- Reset session button — always visible for participants -->
