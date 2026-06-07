@@ -312,9 +312,12 @@ export const useChatStore = defineStore("chat", () => {
         // in our own separate group.
         clearCreatorTimer();
 
-        // Tiebreaker: lower string is the group admin. Compare display names (fall back to device IDs).
-        const ourId = currentUserName.value !== "You" ? currentUserName.value : mlsIdentity.value;
-        const theirId = (data.user as string) || deviceId;
+        // Tiebreaker: the lower DEVICE id is the group admin. Must use the stable
+        // device id (which both sides send) — NOT the display name, which is "You"
+        // on both sides when there's no server, making the comparison non-symmetric
+        // so both peers defer and key packages bounce forever.
+        const ourId = mlsIdentity.value;
+        const theirId = deviceId || (data.user as string) || "";
         const weAreAdmin = ourId < theirId;
 
         if (!weAreAdmin) {

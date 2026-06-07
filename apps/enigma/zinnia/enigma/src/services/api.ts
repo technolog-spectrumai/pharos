@@ -540,20 +540,6 @@ class ApiService {
     return body;
   }
 
-  // Multipart upload through the Rust gateway (Tauri). File bytes are passed as a
-  // byte array; Rust applies auth + the silent-mode gate and POSTs the multipart.
-  private async uploadViaTauri<T>(
-    path: string,
-    field: string,
-    filename: string,
-    data: ArrayBuffer,
-    extra?: Record<string, string>,
-  ): Promise<T> {
-    const bytes = Array.from(new Uint8Array(data));
-    const text = await _invoke<string>("data_upload", { path, field, filename, bytes, extra });
-    return JSON.parse(text) as T;
-  }
-
   async login(username: string, password: string): Promise<void> {
     const result = await this.request<{ ok: boolean; token: string }>("/telegraph/api/login/", {
       method: "POST",
@@ -703,14 +689,7 @@ class ApiService {
     return this.request(`/vault/api/files/${key}/`, { method: "DELETE" });
   }
 
-  async uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
-    if (_isTauri()) {
-      const extra: Record<string, string> = { title: title || file.name };
-      if (bucketSlug) extra.bucket_slug = bucketSlug;
-      return this.uploadViaTauri<VaultFile>(
-        "/vault/api/files/upload/", "file", file.name, await file.arrayBuffer(), extra,
-      );
-    }
+  uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
     return new Promise(async (resolve, reject) => {
       try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
@@ -877,13 +856,7 @@ class ApiService {
 
   // ── Audio upload ───────────────────────────────────────────────────────────
 
-  async uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
-    if (_isTauri()) {
-      return this.uploadViaTauri<{ ok: boolean }>(
-        `/telegraph/api/channels/${slug}/upload-audio/`, "audio", "recording.webm",
-        await audioBlob.arrayBuffer(),
-      );
-    }
+  uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
     return new Promise(async (resolve, reject) => {
       try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
@@ -907,18 +880,11 @@ class ApiService {
     });
   }
 
-  async uploadImage(
+  uploadImage(
     slug: string,
     file: File,
     onProgress?: (pct: number) => void,
   ): Promise<{ ok: boolean }> {
-    if (_isTauri()) {
-      const res = await this.uploadViaTauri<{ ok: boolean }>(
-        `/telegraph/api/channels/${slug}/upload/`, "image", file.name, await file.arrayBuffer(),
-      );
-      onProgress?.(100); // gateway upload has no progress stream
-      return res;
-    }
     return new Promise(async (resolve, reject) => {
       try { await assertNotSilent(); } catch (e) { reject(e); return; }
       const base = await serverBase();
