@@ -660,6 +660,23 @@ class ApiService {
     return this.request(`/vault/api/files/${key}/content/`);
   }
 
+  /** Fetch a vault image as a `data:` URL. In Tauri this goes through Rust (no CORS);
+   *  in the browser it fetches the file's download URL directly. */
+  async downloadVaultImageDataUrl(file: VaultFile): Promise<string> {
+    if (_isTauri()) return _invoke<string>("vault_image_data_url", { key: file.key });
+    const url = file.download_url;
+    if (!url) throw new Error("No download URL for this file.");
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   saveFileContent(key: string, content: string): Promise<VaultFile> {
     return this.request(`/vault/api/files/${key}/content/`, {
       method: "PUT",

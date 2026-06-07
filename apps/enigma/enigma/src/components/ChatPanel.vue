@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
-import type { ChatChannel } from "../composables/useChatChannel";
+import { useVaultStore } from "../stores/vault";
+import { api, type VaultFile } from "../services/api";
+import type { ChatChannel, Message } from "../composables/useChatChannel";
 
 import OyaButton from "./OyaButton.vue";
 import ChatBubble from "./ChatBubble.vue";
+import VaultPickerModal from "./VaultPickerModal.vue";
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -18,6 +22,7 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 const props = defineProps<{ darkMode: boolean; channel: ChatChannel }>();
 
 const router = useRouter();
+const { t } = useI18n();
 const store = useChatStore();
 
 // The channel's refs are stable for this panel's lifetime — destructure for the
@@ -34,6 +39,41 @@ const isRelay = kind === "relay";
 
 function forceResetMls() { return channel.forceResetMls(); }
 function onJoinP2p(ticket: string) { void store.acceptP2pInvite(ticket); }
+
+// ── Vault (Forum-only) ────────────────────────────────────────────────────────
+const vault = useVaultStore();
+const vaultOpen = ref(false);
+const vaultNotice = ref("");
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+function flashNotice(msg: string) {
+  vaultNotice.value = msg;
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => (vaultNotice.value = ""), 2500);
+}
+
+// Insert a vault image → send it into the room.
+async function onVaultInsert(file: VaultFile) {
+  vaultOpen.value = false;
+  try {
+    const dataUrl = await api.downloadVaultImageDataUrl(file);
+    await channel.sendImageDataUrl(dataUrl);
+  } catch (e) {
+    flashNotice((e as Error).message || "Could not insert image.");
+  }
+}
+
+// Save a chat image → vault (no encryption here; user manages it in the Vault tab).
+async function onSaveToVault(message: Message) {
+  if (!message.image_data) return;
+  try {
+    const blob = await (await fetch(message.image_data)).blob();
+    const name = `forum-image-${Date.now()}.${(blob.type.split("/")[1] || "png").split("+")[0]}`;
+    await vault.upload(new File([blob], name, { type: blob.type || "image/png" }), name);
+    flashNotice(vault.error ? vault.error : t("chat.savedToVault"));
+  } catch (e) {
+    flashNotice((e as Error).message || "Could not save to vault.");
+  }
+}
 
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
@@ -519,7 +559,15 @@ const mlsChipClass = computed(() => {
           <p class="text-sm">Pick a room from the sidebar to start chatting.</p>
           <OyaButton :dark-mode="darkMode" class="mt-2 lg:hidden" @click="sidebarOpen = true">Select a room</OyaButton>
         </div>
-        <ChatBubble v-for="msg in messages" :key="msg.id" :dark-mode="darkMode" :message="msg" @join-p2p="onJoinP2p" />
+        <ChatBubble
+          v-for="msg in messages"
+          :key="msg.id"
+          :dark-mode="darkMode"
+          :message="msg"
+          :can-save-to-vault="isRelay"
+          @join-p2p="onJoinP2p"
+          @save-to-vault="onSaveToVault"
+        />
       </div>
 
       <!-- Composer -->
@@ -561,6 +609,19 @@ const mlsChipClass = computed(() => {
           >
             <font-awesome-icon :icon="isRecording ? 'stop' : 'microphone'" class="text-sm" />
             <span v-if="isRecording" class="text-xs font-mono">{{ recordingLabel() }}</span>
+          </button>
+
+          <!-- Vault: insert an image from the vault into the room (Forum only) -->
+          <button
+            v-if="isRelay"
+            type="button"
+            :disabled="!currentRoom || !isConnected || !isParticipant"
+            :class="[darkMode ? 'border-accent-1 text-text-main-dark' : 'border-accent-2 text-text-main-light', (!currentRoom || !isConnected || !isParticipant) ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80']"
+            class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition"
+            :title="$t('chat.vaultInsert')"
+            @click="vaultOpen = true"
+          >
+            <font-awesome-icon icon="hard-drive" />
           </button>
 
           <div class="relative shrink-0">
@@ -691,6 +752,16 @@ const mlsChipClass = computed(() => {
           </OyaButton>
         </div>
       </aside>
+    </Transition>
+
+    <!-- Vault image picker (Forum only) -->
+    <VaultPickerModal v-if="isRelay" :dark-mode="darkMode" :open="vaultOpen" @close="vaultOpen = false" @insert="onVaultInsert" />
+
+    <!-- Transient vault notice -->
+    <Transition enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0" leave-active-class="transition-opacity duration-200" leave-to-class="opacity-0">
+      <div v-if="vaultNotice" class="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-lg bg-black/80 px-4 py-2 text-xs font-semibold text-white shadow-lg">
+        {{ vaultNotice }}
+      </div>
     </Transition>
   </div>
 </template>

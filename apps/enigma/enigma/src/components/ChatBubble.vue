@@ -5,9 +5,13 @@ import type { Message } from "../stores/chat";
 const props = defineProps<{
   darkMode: boolean;
   message: Message;
+  canSaveToVault?: boolean;
 }>();
 
-const emit = defineEmits<{ (e: "joinP2p", ticket: string): void }>();
+const emit = defineEmits<{
+  (e: "joinP2p", ticket: string): void;
+  (e: "saveToVault", message: Message): void;
+}>();
 
 // "Join private room" invite cards carry a P2P ticket → render it as a QR code.
 const qr = ref("");
@@ -99,6 +103,16 @@ onMounted(async () => {
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}
       </p>
+      <button
+        v-if="canSaveToVault && message.type === 'image_message' && message.image_data"
+        type="button"
+        class="mt-1 text-[10px] underline opacity-60 transition hover:opacity-100"
+        :class="message.self ? 'ml-auto block' : ''"
+        @click="emit('saveToVault', message)"
+      >
+        <font-awesome-icon icon="hard-drive" class="mr-1" />{{ $t('chat.saveToVault') }}
+      </button>
+
       <p
         class="mt-1 flex items-center gap-1 text-[10px] opacity-40"
         :class="message.self ? 'justify-end' : ''"

@@ -760,6 +760,25 @@ export function useChatChannel(kind: ChannelKind) {
     } catch (e) { error.value = errorMessage(e); }
   }
 
+  /** Send an already-encoded image (data URL) — used to insert a vault image. */
+  async function sendImageDataUrl(dataUrl: string) {
+    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
+    error.value = null;
+    if (isP2p) {
+      if (mlsStatus.value !== "ready") {
+        messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+        return;
+      }
+      try {
+        await sendEncryptedMedia("image_message", { image_data: dataUrl });
+        pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      } catch (e) { error.value = errorMessage(e); }
+      return;
+    }
+    // Forum/relay: inline image_message over the WS — the server relays + echoes it.
+    send({ type: "image_message", image_data: dataUrl });
+  }
+
   async function sendAudio(audioBlob: Blob) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
@@ -857,7 +876,7 @@ export function useChatChannel(kind: ChannelKind) {
     isParticipant, currentUserName, mlsIdentity,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendAudio, sendInvite, forceResetMls,
+    sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
   };
 }
