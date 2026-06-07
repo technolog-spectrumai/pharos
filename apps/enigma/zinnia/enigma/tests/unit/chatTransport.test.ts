@@ -93,4 +93,31 @@ describe("chatTransport — Rust gateway backend", () => {
     expect(invoke).toHaveBeenCalledWith("realtime_join_room", { ticket: "ticket-string" });
     expect(res).toEqual({ room: "topic-xyz", name: "secret" });
   });
+
+  it("surfaces only the primary room; switchPrimary re-routes and re-emits status", async () => {
+    transport.connect("relay-1");
+    await tick();
+
+    const got: any[] = [];
+    transport.onMessage((m: any) => got.push(m));
+
+    // A message for a non-primary room is ignored…
+    listeners["realtime://message"]({
+      payload: { room: "p2p-1", payload: JSON.stringify({ type: "x" }) },
+    });
+    expect(got).toEqual([]);
+
+    // …its status is cached, and switchPrimary re-emits it.
+    listeners["realtime://status"]({ payload: { room: "p2p-1", state: "connected" } });
+    const states: string[] = [];
+    transport.onStatus((s: string) => states.push(s));
+    transport.switchPrimary("p2p-1");
+    expect(states).toContain("connected");
+
+    // Now p2p-1's messages flow through.
+    listeners["realtime://message"]({
+      payload: { room: "p2p-1", payload: JSON.stringify({ type: "y" }) },
+    });
+    expect(got).toEqual([{ type: "y" }]);
+  });
 });
