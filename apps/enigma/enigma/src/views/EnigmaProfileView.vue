@@ -23,7 +23,8 @@ const {
   offlineProfiles,
   selectedOfflineProfileId,
 } = storeToRefs(userStore);
-const { rooms, loadingRooms } = storeToRefs(chatStore);
+// Profile shows the Forum (relay/server) room list.
+const { rooms, loadingRooms } = chatStore.relay;
 
 const showFetchLog = ref(false);
 const showDetail = ref<string | null>(null);
@@ -70,7 +71,7 @@ onMounted(async () => {
   profileUrlBase.value = (await getServerUrl()).replace(/\/$/, "");
   await userStore.loadOfflineProfile();
   void userStore.fetchMe();
-  if (!rooms.value.length) chatStore.fetchRooms();
+  if (!rooms.value.length) chatStore.relay.fetchRooms();
 });
 
 async function saveOffline() {

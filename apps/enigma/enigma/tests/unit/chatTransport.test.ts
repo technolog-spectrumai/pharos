@@ -15,35 +15,33 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-describe("chatTransport — Rust gateway backend", () => {
+describe("chatTransport — room-multiplexing Rust gateway backend", () => {
   let transport: any;
 
   beforeEach(async () => {
     invoke.mockClear();
     for (const k of Object.keys(listeners)) delete listeners[k];
-    // Force the Tauri branch, then import a fresh module instance.
     (window as any).__TAURI_INTERNALS__ = {};
     vi.resetModules();
     transport = (await import("../../src/services/chatTransport")).chatTransport;
   });
 
   afterEach(() => {
-    delete (window as any).__TAURI_INTERNALS__; // don't leak the Tauri branch to other files
+    delete (window as any).__TAURI_INTERNALS__;
   });
 
-  it("connect invokes realtime_connect and wires the gateway events", async () => {
-    transport.connect("room-1");
+  it("connectWs invokes realtime_connect and wires the gateway events", async () => {
+    transport.onStatus(() => {}); // registering a handler wires the listeners
+    await tick();
+    transport.connectWs("room-1");
     await tick();
     expect(invoke).toHaveBeenCalledWith("realtime_connect", { room: "room-1" });
     expect(typeof listeners["realtime://message"]).toBe("function");
     expect(typeof listeners["realtime://status"]).toBe("function");
   });
 
-  it("send serializes the payload through realtime_send", async () => {
-    transport.connect("room-1");
-    await tick();
-    invoke.mockClear();
-    transport.send({ type: "chat_message", message: "hi" });
+  it("send routes the payload to a specific room via realtime_send", async () => {
+    transport.send("room-1", { type: "chat_message", message: "hi" });
     await tick();
     expect(invoke).toHaveBeenCalledWith("realtime_send", {
       room: "room-1",
@@ -51,73 +49,47 @@ describe("chatTransport — Rust gateway backend", () => {
     });
   });
 
-  it("incoming realtime://message surfaces parsed objects via onMessage", async () => {
-    const got: any[] = [];
-    transport.onMessage((m: any) => got.push(m));
-    transport.connect("room-1");
+  it("incoming messages are dispatched room-tagged to onMessage", async () => {
+    const got: Array<[string, any]> = [];
+    transport.onMessage((room: string, data: any) => got.push([room, data]));
     await tick();
     listeners["realtime://message"]({
-      payload: { room: "room-1", payload: JSON.stringify({ type: "chat_message", message: "yo" }) },
+      payload: { room: "room-7", payload: JSON.stringify({ type: "chat_message", message: "yo" }) },
     });
-    expect(got).toEqual([{ type: "chat_message", message: "yo" }]);
+    expect(got).toEqual([["room-7", { type: "chat_message", message: "yo" }]]);
   });
 
-  it("status events drive onStatus and isConnected", async () => {
-    const states: string[] = [];
-    transport.onStatus((s: string) => states.push(s));
-    transport.connect("room-1");
+  it("status events are dispatched room-tagged to onStatus", async () => {
+    const got: Array<[string, string]> = [];
+    transport.onStatus((room: string, state: string) => got.push([room, state]));
     await tick();
-    listeners["realtime://status"]({ payload: { room: "room-1", state: "connected" } });
-    expect(states).toContain("connected");
-    expect(transport.isConnected).toBe(true);
+    listeners["realtime://status"]({ payload: { room: "room-9", state: "connected" } });
+    expect(got).toContainEqual(["room-9", "connected"]);
+    expect(transport.lastStatus("room-9")).toBe("connected");
   });
 
-  it("createRoom calls realtime_create_room and routes later sends to that room", async () => {
+  it("createRoom and joinRoom call the right gateway commands", async () => {
     invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", ticket: "tkt" });
-    const res = await transport.createRoom("general");
+    const created = await transport.createRoom("general");
     expect(invoke).toHaveBeenCalledWith("realtime_create_room", { name: "general" });
-    expect(res).toEqual({ room: "topic-abc", name: "general", ticket: "tkt" });
+    expect(created).toEqual({ room: "topic-abc", name: "general", ticket: "tkt" });
 
-    invoke.mockClear();
-    transport.send({ type: "x" });
-    await tick();
-    expect(invoke).toHaveBeenCalledWith("realtime_send", {
-      room: "topic-abc",
-      payload: JSON.stringify({ type: "x" }),
-    });
-  });
-
-  it("joinRoom calls realtime_join_room", async () => {
     invoke.mockResolvedValueOnce({ room: "topic-xyz", name: "secret" });
-    const res = await transport.joinRoom("ticket-string");
+    const joined = await transport.joinRoom("ticket-string");
     expect(invoke).toHaveBeenCalledWith("realtime_join_room", { ticket: "ticket-string" });
-    expect(res).toEqual({ room: "topic-xyz", name: "secret" });
+    expect(joined).toEqual({ room: "topic-xyz", name: "secret" });
   });
 
-  it("surfaces only the primary room; switchPrimary re-routes and re-emits status", async () => {
-    transport.connect("relay-1");
+  it("two channels filtering by room don't see each other's messages", async () => {
+    const relay: any[] = [];
+    const p2p: any[] = [];
+    // Simulate two channels: each only keeps messages for the room it owns.
+    transport.onMessage((room: string, data: any) => { if (room === "relay-1") relay.push(data); });
+    transport.onMessage((room: string, data: any) => { if (room === "p2p-1") p2p.push(data); });
     await tick();
-
-    const got: any[] = [];
-    transport.onMessage((m: any) => got.push(m));
-
-    // A message for a non-primary room is ignored…
-    listeners["realtime://message"]({
-      payload: { room: "p2p-1", payload: JSON.stringify({ type: "x" }) },
-    });
-    expect(got).toEqual([]);
-
-    // …its status is cached, and switchPrimary re-emits it.
-    listeners["realtime://status"]({ payload: { room: "p2p-1", state: "connected" } });
-    const states: string[] = [];
-    transport.onStatus((s: string) => states.push(s));
-    transport.switchPrimary("p2p-1");
-    expect(states).toContain("connected");
-
-    // Now p2p-1's messages flow through.
-    listeners["realtime://message"]({
-      payload: { room: "p2p-1", payload: JSON.stringify({ type: "y" }) },
-    });
-    expect(got).toEqual([{ type: "y" }]);
+    listeners["realtime://message"]({ payload: { room: "relay-1", payload: JSON.stringify({ m: "a" }) } });
+    listeners["realtime://message"]({ payload: { room: "p2p-1", payload: JSON.stringify({ m: "b" }) } });
+    expect(relay).toEqual([{ m: "a" }]);
+    expect(p2p).toEqual([{ m: "b" }]);
   });
 });
