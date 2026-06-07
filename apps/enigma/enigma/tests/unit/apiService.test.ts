@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Mock the storage layer so the API client has a deterministic base URL + token.
 const setAuthToken = vi.fn(async () => {});
 const clearAuthToken = vi.fn(async () => {});
-const getSilentMode = vi.fn(async () => false);
+const isServerDataBlocked = vi.fn(async () => false);
 vi.mock("../../src/services/appStorage", () => ({
   getServerUrl: vi.fn(async () => "http://test.local/"),
   getAuthToken: vi.fn(async () => "tok123"),
-  getSilentMode: (...a: any[]) => getSilentMode(...a),
+  isServerDataBlocked: (...a: any[]) => isServerDataBlocked(...a),
   setAuthToken: (...a: any[]) => setAuthToken(...a),
   clearAuthToken: (...a: any[]) => clearAuthToken(...a),
 }));
@@ -36,8 +36,8 @@ beforeEach(() => {
   localStorage.clear(); // wipe the offline response cache between tests
   setAuthToken.mockClear();
   clearAuthToken.mockClear();
-  getSilentMode.mockClear();
-  getSilentMode.mockResolvedValue(false);
+  isServerDataBlocked.mockClear();
+  isServerDataBlocked.mockResolvedValue(false);
 });
 
 describe("ApiService request building", () => {
@@ -102,35 +102,35 @@ describe("ApiService request building", () => {
     await expect(api.getFiles()).rejects.toThrow(/404/);
   });
 
-  it("in silent mode, an uncached GET rejects and never calls fetch", async () => {
-    getSilentMode.mockResolvedValue(true);
+  it("with server data off, an uncached GET rejects and never calls fetch", async () => {
+    isServerDataBlocked.mockResolvedValue(true);
     const f = mockFetchOnce({ files: [] });
     await expect(api.getFiles()).rejects.toThrow(/offline copy/i);
     expect(f).not.toHaveBeenCalled();
   });
 
-  it("caches successful GETs and serves them from cache in silent mode", async () => {
+  it("caches successful GETs and serves them from cache when server data is off", async () => {
     // Online request populates the cache…
     const f1 = mockFetchOnce({ files: [{ id: 1 }] });
     await api.getFiles();
     expect(f1).toHaveBeenCalledTimes(1);
 
-    // …then silent mode serves the cached body without touching the network.
-    getSilentMode.mockResolvedValue(true);
+    // …then server-data-off serves the cached body without touching the network.
+    isServerDataBlocked.mockResolvedValue(true);
     const f2 = mockFetchOnce({ files: [{ id: 999 }] });
     const res = await api.getFiles();
     expect(res).toEqual({ files: [{ id: 1 }] });
     expect(f2).not.toHaveBeenCalled();
   });
 
-  it("blocks writes (non-GET) in silent mode", async () => {
-    getSilentMode.mockResolvedValue(true);
-    await expect(api.deleteFile("k")).rejects.toThrow(/silent mode/i);
+  it("blocks writes (non-GET) when server data is off", async () => {
+    isServerDataBlocked.mockResolvedValue(true);
+    await expect(api.deleteFile("k")).rejects.toThrow(/server data is off/i);
   });
 
-  it("blocks uploads in silent mode", async () => {
-    getSilentMode.mockResolvedValue(true);
+  it("blocks uploads when server data is off", async () => {
+    isServerDataBlocked.mockResolvedValue(true);
     const file = new File(["data"], "note.txt", { type: "text/plain" });
-    await expect(api.uploadFile(file, "note")).rejects.toThrow(/silent mode/i);
+    await expect(api.uploadFile(file, "note")).rejects.toThrow(/server data is off/i);
   });
 });

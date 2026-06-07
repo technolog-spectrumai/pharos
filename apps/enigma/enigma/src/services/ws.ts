@@ -1,4 +1,4 @@
-import { getAuthToken, getServerUrl, getSilentMode } from "./appStorage";
+import { getAuthToken, getServerUrl, getOffline } from "./appStorage";
 
 export type WsStatus = "connecting" | "connected" | "disconnected" | "error";
 
@@ -76,8 +76,8 @@ export class WsService {
 
   private async _open() {
     if (!this.roomSlug) return;
-    // Silent mode blocks the relay socket — never open it.
-    if (await getSilentMode()) {
+    // Offline (airplane) mode blocks the relay socket — never open it.
+    if (await getOffline()) {
       this.setStatus("disconnected");
       return;
     }

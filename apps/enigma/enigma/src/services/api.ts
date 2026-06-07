@@ -1,7 +1,7 @@
 import {
   getAuthToken,
   getServerUrl,
-  getSilentMode,
+  isServerDataBlocked,
   setAuthToken,
   clearAuthToken,
 } from "./appStorage";
@@ -19,8 +19,8 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   return invoke<T>(cmd, args);
 }
 
-// Thrown by egress points when silent mode is on (server connections blocked).
-export const SERVER_OFF_ERROR = "Silent mode is on — server connections are blocked.";
+// Thrown by egress points when the data layer is off (offline or server-data off).
+export const SERVER_OFF_ERROR = "Server data is off — enable it (or go online) in Settings.";
 
 // Thrown when a read is requested with the server off but no local copy exists.
 export const SILENT_NO_CACHE = "No offline copy of this data — connect once to download it.";
@@ -30,7 +30,7 @@ export const SILENT_NO_CACHE = "No offline copy of this data — connect once to
 export const NO_SERVER_ERROR = "No server configured — set a server address in Settings.";
 
 async function assertServerReachable(): Promise<void> {
-  if (await getSilentMode()) throw new Error(SERVER_OFF_ERROR);
+  if (await isServerDataBlocked()) throw new Error(SERVER_OFF_ERROR);
 }
 
 // ── Offline response cache (SQLite via localDb) ───────────────────────────────
@@ -493,8 +493,8 @@ class ApiService {
     const scope = cacheScope(base);
     const isGet = method === "GET";
 
-    // Silent mode: serve reads from cache, block writes.
-    if (await getSilentMode()) {
+    // Server data off (or offline): serve reads from cache, block writes.
+    if (await isServerDataBlocked()) {
       if (!isGet) throw new Error(SERVER_OFF_ERROR);
       const cached = await cacheGet(scope, path);
       if (cached !== null) return JSON.parse(cached) as T;
