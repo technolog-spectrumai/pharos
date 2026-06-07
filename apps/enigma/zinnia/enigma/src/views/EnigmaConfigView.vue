@@ -60,20 +60,14 @@ async function toggleServerData() {
   testMessage.value = "";
 }
 
-// ── Chat mode (relay / p2p) ──────────────────────────────────────────────────
-const chatModeP2p = computed(() => chatStore.chatMode === "p2p");
-function toggleChatMode() {
-  chatStore.setChatMode(chatStore.chatMode === "p2p" ? "relay" : "p2p");
-}
-
 // ── Offline / airplane mode (online / offline) ───────────────────────────────
 const offline = ref(false);
 async function toggleOffline() {
   offline.value = !offline.value;
   await setOffline(offline.value);
   if (offline.value) {
-    // Airplane mode — drop every connection (server relay AND P2P).
-    wsService.disconnect();
+    // Airplane mode — drop the relay leg; the Rust gate blocks P2P sends/joins too.
+    wsService.disconnectWs();
     testStatus.value = "idle";
     testMessage.value = "";
   }
@@ -105,7 +99,6 @@ onMounted(async () => {
   serverUrl.value = await getServerUrl();
   serverData.value = await getServerData();
   offline.value = await getOffline();
-  await chatStore.loadChatMode();
   await refreshCacheCount();
   await loadOfflineData();
 });
@@ -415,36 +408,6 @@ async function clearSelectedOfflineData() {
         >
           <span
             :class="serverData ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
-      </div>
-
-      <!-- Chat mode switch (relay / p2p) -->
-      <div class="flex items-center gap-3">
-        <font-awesome-icon
-          :icon="chatModeP2p ? 'circle-nodes' : 'satellite-dish'"
-          class="shrink-0 opacity-60"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.chatMode') }}</p>
-          <p class="text-xs opacity-60">
-            {{ chatModeP2p ? $t('config.chatModeP2pHint') : $t('config.chatModeRelayHint') }}
-          </p>
-        </div>
-        <span class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
-          {{ chatModeP2p ? $t('chat.p2pBadge') : $t('chat.relayBadge') }}
-        </span>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="chatModeP2p"
-          :class="chatModeP2p ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleChatMode"
-        >
-          <span
-            :class="chatModeP2p ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
         </button>

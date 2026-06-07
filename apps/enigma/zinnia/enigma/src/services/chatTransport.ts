@@ -1,14 +1,12 @@
-// Agnostic chat transport.
+// Agnostic, room-multiplexing chat transport.
 //
-// The chat store talks to this and never learns how messages travel. In the
-// Tauri app, Rust owns the transport via the realtime gateway (`realtime_*`
-// commands + `realtime://*` events): a WebSocket backend to the toto server and
-// a P2P (iroh) backend, side by side. In a plain browser there is no Rust, so we
-// fall back to the JS WebSocket client.
-//
-// Multiple rooms can be subscribed at once (needed when upgrading a relay room to
-// P2P in place): only the *primary* room's messages/status are surfaced to the
-// store, and `switchPrimary()` flips which one is active.
+// Two chat channels (Forum/relay over WebSocket, and P2P over iroh) run at the same
+// time, so the transport is addressed by ROOM rather than a single "primary" room.
+// In the Tauri app, Rust owns both backends via the realtime gateway (`realtime_*`
+// commands + `realtime://*` events, each tagged with a `room`); a single set of
+// listeners dispatches every event to handlers by its room, and each channel filters
+// to the room(s) it owns. In a plain browser there is no Rust, so we fall back to the
+// JS WebSocket client (relay only; P2P is desktop-only).
 
 import { wsService, type WsStatus, type WsMessage } from "./ws";
 
@@ -22,41 +20,34 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   return invoke<T>(cmd, args);
 }
 
-type MessageHandler = (data: WsMessage) => void;
-type StatusHandler = (status: WsStatus) => void;
+type MessageHandler = (room: string, data: WsMessage) => void;
+type StatusHandler = (room: string, state: WsStatus) => void;
 
 export interface CreatedRoom { room: string; name: string; ticket: string }
 export interface JoinedRoom { room: string; name: string }
 
 export interface ChatTransport {
-  connect(room: string): void;
-  disconnect(): void;
-  send(payload: Record<string, unknown>): void;
+  // Relay (WebSocket) — a single server connection, owned by the Forum channel.
+  connectWs(room: string): void;
+  disconnectWs(): void;
+  // P2P (iroh) rooms — desktop only.
+  createRoom(name: string): Promise<CreatedRoom>;
+  joinRoom(ticket: string): Promise<JoinedRoom>;
+  leaveRoom(room: string): void;
+  nodeInfo(): Promise<{ node_id: string } | null>;
+  // Send a payload to a specific room (Rust routes p2p-vs-WS by the room id).
+  send(room: string, payload: Record<string, unknown>): void;
+  // Room-tagged streams; channels filter to the rooms they own.
   onMessage(handler: MessageHandler): () => void;
   onStatus(handler: StatusHandler): () => void;
-  readonly isConnected: boolean;
-  // P2P room provisioning (desktop only; the WS/browser backend rejects these).
-  // `makePrimary=false` subscribes without surfacing the room yet (used during a
-  // relay→P2P upgrade, where the relay room stays primary until the switch).
-  createRoom(name: string, makePrimary?: boolean): Promise<CreatedRoom>;
-  joinRoom(ticket: string, makePrimary?: boolean): Promise<JoinedRoom>;
-  nodeInfo(): Promise<{ node_id: string } | null>;
-  // Make a subscribed room the active one (re-emits its last known status so the
-  // store can (re)start its MLS handshake even if NeighborUp already fired).
-  switchPrimary(room: string): void;
-  // Drop only the relay (WebSocket) leg, keeping any P2P subscriptions.
-  disconnectRelay(): void;
-  // Leave a single (P2P) room subscription without touching the others.
-  leaveRoom(room: string): void;
+  // Last known status for a room (so a channel can initialise when it sets a room).
+  lastStatus(room: string): WsStatus | undefined;
 }
 
 // ── Tauri backend: the Rust realtime gateway ──────────────────────────────────
 class GatewayChatTransport implements ChatTransport {
   private messageHandlers = new Set<MessageHandler>();
   private statusHandlers = new Set<StatusHandler>();
-  private status: WsStatus = "disconnected";
-  private primaryRoom: string | null = null;
-  private activeRooms = new Set<string>();
   private roomStatus = new Map<string, WsStatus>();
   private listening = false;
 
@@ -65,89 +56,53 @@ class GatewayChatTransport implements ChatTransport {
     this.listening = true;
     const { listen } = await import("@tauri-apps/api/event");
     await listen<{ room: string; payload: string }>("realtime://message", (e) => {
-      if (e.payload.room !== this.primaryRoom) return;
       let data: WsMessage;
       try {
         data = JSON.parse(e.payload.payload) as WsMessage;
       } catch {
         return; // ignore malformed frames
       }
-      this.messageHandlers.forEach((h) => h(data));
+      this.messageHandlers.forEach((h) => h(e.payload.room, data));
     });
     await listen<{ room: string; state: WsStatus }>("realtime://status", (e) => {
       this.roomStatus.set(e.payload.room, e.payload.state);
-      if (e.payload.room === this.primaryRoom) this.setStatus(e.payload.state);
+      this.statusHandlers.forEach((h) => h(e.payload.room, e.payload.state));
     });
   }
 
-  private setStatus(status: WsStatus): void {
-    this.status = status;
-    this.statusHandlers.forEach((h) => h(status));
-  }
-
-  connect(room: string): void {
-    this.primaryRoom = room;
-    this.activeRooms.add(room);
+  connectWs(room: string): void {
     void (async () => {
       await this.ensureListeners();
       try {
         await _invoke("realtime_connect", { room });
       } catch {
-        this.setStatus("error");
+        this.roomStatus.set(room, "error");
+        this.statusHandlers.forEach((h) => h(room, "error"));
       }
     })();
   }
 
-  disconnect(): void {
-    const room = this.primaryRoom;
-    this.primaryRoom = null;
-    this.activeRooms.clear();
-    this.roomStatus.clear();
-    if (room) void _invoke("realtime_leave_room", { room }).catch(() => {}); // no-op for WS rooms
+  disconnectWs(): void {
     void _invoke("realtime_disconnect").catch(() => {});
-    this.setStatus("disconnected");
   }
 
-  disconnectRelay(): void {
-    void _invoke("realtime_disconnect").catch(() => {}); // drops the WS leg only
-  }
-
-  send(payload: Record<string, unknown>): void {
-    void _invoke("realtime_send", {
-      room: this.primaryRoom,
-      payload: JSON.stringify(payload),
-    }).catch(() => {});
-  }
-
-  async createRoom(name: string, makePrimary = true): Promise<CreatedRoom> {
+  async createRoom(name: string): Promise<CreatedRoom> {
     await this.ensureListeners();
-    const res = await _invoke<CreatedRoom>("realtime_create_room", { name });
-    this.activeRooms.add(res.room);
-    if (makePrimary) this.primaryRoom = res.room;
-    return res;
+    return _invoke<CreatedRoom>("realtime_create_room", { name });
   }
 
-  async joinRoom(ticket: string, makePrimary = true): Promise<JoinedRoom> {
+  async joinRoom(ticket: string): Promise<JoinedRoom> {
     await this.ensureListeners();
-    const res = await _invoke<JoinedRoom>("realtime_join_room", { ticket });
-    this.activeRooms.add(res.room);
-    if (makePrimary) this.primaryRoom = res.room;
-    return res;
-  }
-
-  switchPrimary(room: string): void {
-    this.primaryRoom = room;
-    this.activeRooms.add(room);
-    // Re-emit the room's last known status so the store reacts even if its
-    // NeighborUp/connected event arrived while it wasn't primary.
-    this.setStatus(this.roomStatus.get(room) ?? "connecting");
+    return _invoke<JoinedRoom>("realtime_join_room", { ticket });
   }
 
   leaveRoom(room: string): void {
-    this.activeRooms.delete(room);
     this.roomStatus.delete(room);
-    if (this.primaryRoom === room) this.primaryRoom = null;
     void _invoke("realtime_leave_room", { room }).catch(() => {});
+  }
+
+  send(room: string, payload: Record<string, unknown>): void {
+    void _invoke("realtime_send", { room, payload: JSON.stringify(payload) }).catch(() => {});
   }
 
   nodeInfo(): Promise<{ node_id: string } | null> {
@@ -166,30 +121,77 @@ class GatewayChatTransport implements ChatTransport {
     return () => this.statusHandlers.delete(handler);
   }
 
-  get isConnected(): boolean {
-    return this.status === "connected";
+  lastStatus(room: string): WsStatus | undefined {
+    return this.roomStatus.get(room);
   }
 }
 
-// Browser fallback: delegate realtime to the JS WebSocket client; P2P rooms and
-// the relay→P2P upgrade are desktop-only.
-const browserBackend: ChatTransport = {
-  connect: (room) => wsService.connect(room),
-  disconnect: () => wsService.disconnect(),
-  disconnectRelay: () => wsService.disconnect(),
-  send: (payload) => wsService.send(payload),
-  onMessage: (handler) => wsService.onMessage(handler),
-  onStatus: (handler) => wsService.onStatus(handler),
-  get isConnected() {
-    return wsService.isConnected;
-  },
-  createRoom: () => Promise.reject(new Error("P2P rooms require the desktop app.")),
-  joinRoom: () => Promise.reject(new Error("P2P rooms require the desktop app.")),
-  nodeInfo: () => Promise.resolve(null),
-  switchPrimary: () => {},
-  leaveRoom: () => {},
-};
+// ── Browser fallback: JS WebSocket client (relay only) ────────────────────────
+// The single socket is the Forum/relay room; P2P is desktop-only.
+class BrowserChatTransport implements ChatTransport {
+  private relayRoom: string | null = null;
+  private messageHandlers = new Set<MessageHandler>();
+  private statusHandlers = new Set<StatusHandler>();
+  private relayStatus: WsStatus = "disconnected";
+  private wired = false;
+
+  private wire(): void {
+    if (this.wired) return;
+    this.wired = true;
+    wsService.onMessage((data) => {
+      if (this.relayRoom) this.messageHandlers.forEach((h) => h(this.relayRoom!, data));
+    });
+    wsService.onStatus((state) => {
+      this.relayStatus = state;
+      if (this.relayRoom) this.statusHandlers.forEach((h) => h(this.relayRoom!, state));
+    });
+  }
+
+  connectWs(room: string): void {
+    this.wire();
+    this.relayRoom = room;
+    wsService.connect(room);
+  }
+
+  disconnectWs(): void {
+    wsService.disconnect();
+  }
+
+  createRoom(): Promise<CreatedRoom> {
+    return Promise.reject(new Error("P2P rooms require the desktop app."));
+  }
+
+  joinRoom(): Promise<JoinedRoom> {
+    return Promise.reject(new Error("P2P rooms require the desktop app."));
+  }
+
+  leaveRoom(): void {}
+
+  nodeInfo(): Promise<{ node_id: string } | null> {
+    return Promise.resolve(null);
+  }
+
+  send(_room: string, payload: Record<string, unknown>): void {
+    wsService.send(payload);
+  }
+
+  onMessage(handler: MessageHandler): () => void {
+    this.wire();
+    this.messageHandlers.add(handler);
+    return () => this.messageHandlers.delete(handler);
+  }
+
+  onStatus(handler: StatusHandler): () => void {
+    this.wire();
+    this.statusHandlers.add(handler);
+    return () => this.statusHandlers.delete(handler);
+  }
+
+  lastStatus(room: string): WsStatus | undefined {
+    return room === this.relayRoom ? this.relayStatus : undefined;
+  }
+}
 
 export const chatTransport: ChatTransport = _isTauri()
   ? new GatewayChatTransport()
-  : browserBackend;
+  : new BrowserChatTransport();

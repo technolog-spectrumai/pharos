@@ -24,7 +24,8 @@ onMounted(() => {
 
 watch(me, (val) => {
   if (val) {
-    chatStore.currentUserName = val.full_name;
+    chatStore.relay.currentUserName.value = val.full_name;
+    chatStore.p2p.currentUserName.value = val.full_name;
     // First guess for the UI language is the user's toto profile language,
     // unless they've already picked one explicitly in Enigma.
     applyProfileLocaleGuess(val.language);
