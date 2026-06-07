@@ -13,18 +13,21 @@ import type { AppRuntimeConfig } from "../services/appStorage";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "../composables/useChatChannel";
 
-export type ChatTab = "relay" | "p2p";
+// "vox" is the real-time voice-call tab — it has no ChatChannel (no message
+// history); it drives the iroh voice backend directly via useVoxCall.
+export type ChatTab = "relay" | "p2p" | "vox";
 
 function createChatStore() {
   const relay: ChatChannel = useChatChannel("relay");
   const p2p: ChatChannel = useChatChannel("p2p");
 
   const activeTab = ref<ChatTab>("relay");
-  const activeChannel = computed<ChatChannel>(() => (activeTab.value === "relay" ? relay : p2p));
+  const activeChannel = computed<ChatChannel>(() => (activeTab.value === "p2p" ? p2p : relay));
 
   function setTab(tab: ChatTab) {
     activeTab.value = tab;
-    (tab === "relay" ? relay : p2p).clearUnread();
+    if (tab === "relay") relay.clearUnread();
+    else if (tab === "p2p") p2p.clearUnread();
   }
 
   // ── cross-tab switch automation ───────────────────────────────────────────────
