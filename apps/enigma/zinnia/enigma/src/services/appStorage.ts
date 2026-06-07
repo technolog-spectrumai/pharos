@@ -15,7 +15,8 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_SERVER_URL     = "enigma:server_url";
 const LS_AUTH_TOKEN     = "enigma:auth_token";
-const LS_CONNECTIVITY   = "enigma:connectivity";
+const LS_SERVER_DATA    = "enigma:server_data";
+const LS_OFFLINE        = "enigma:offline";
 const LS_CHAT_MODE      = "enigma:chat_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
 
@@ -76,20 +77,36 @@ export async function clearAuthToken(): Promise<void> {
   localStorage.removeItem(LS_AUTH_TOKEN);
 }
 
-// ── Silent mode (online / offline) ────────────────────────────────────────────
-// Off → online (server + P2P). On → offline: the server (REST/uploads/relay WS)
-// is blocked and reads come from cache; peer-to-peer chat still works. Backed by
-// the Rust profile-state "connectivity" field ("online" | "offline").
+// ── Server data (on / off) ────────────────────────────────────────────────────
+// On (default) → use the server for the data layer (REST/uploads). Off → don't
+// touch the server for data; reads come from the local cache. Does not affect chat.
 
-export async function getSilentMode(): Promise<boolean> {
-  if (_isTauri()) return (await _invoke<string>("app_get_connectivity")) === "offline";
-  return localStorage.getItem(LS_CONNECTIVITY) === "offline";
+export async function getServerData(): Promise<boolean> {
+  if (_isTauri()) return _invoke<boolean>("app_get_server_data");
+  return localStorage.getItem(LS_SERVER_DATA) !== "off";
 }
 
-export async function setSilentMode(silent: boolean): Promise<void> {
-  const mode = silent ? "offline" : "online";
-  if (_isTauri()) { await _invoke("app_set_connectivity", { mode }); return; }
-  localStorage.setItem(LS_CONNECTIVITY, mode);
+export async function setServerData(on: boolean): Promise<void> {
+  if (_isTauri()) { await _invoke("app_set_server_data", { on }); return; }
+  localStorage.setItem(LS_SERVER_DATA, on ? "on" : "off");
+}
+
+// ── Offline / airplane mode (online / offline) ─────────────────────────────────
+// On → block EVERY network connection: server HTTP, relay WS, and P2P (iroh).
+
+export async function getOffline(): Promise<boolean> {
+  if (_isTauri()) return _invoke<boolean>("app_get_offline");
+  return localStorage.getItem(LS_OFFLINE) === "on";
+}
+
+export async function setOffline(offline: boolean): Promise<void> {
+  if (_isTauri()) { await _invoke("app_set_offline", { offline }); return; }
+  localStorage.setItem(LS_OFFLINE, offline ? "on" : "off");
+}
+
+// The data layer is blocked when offline, or when server data is switched off.
+export async function isServerDataBlocked(): Promise<boolean> {
+  return (await getOffline()) || !(await getServerData());
 }
 
 // ── Chat mode (relay / p2p) ───────────────────────────────────────────────────

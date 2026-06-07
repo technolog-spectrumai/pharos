@@ -11,10 +11,12 @@ import {
   getProfileState,
   getRuntimeConfig,
   getServerUrl,
-  getSilentMode,
+  getServerData,
+  getOffline,
   setActiveProfile,
   setServerUrl,
-  setSilentMode,
+  setServerData,
+  setOffline,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "../services/appStorage";
@@ -49,17 +51,13 @@ async function changeLanguage(value: string) {
 const serverUrl = ref("");
 const saved = ref(false);
 
-// ── Silent mode (online / offline) ──────────────────────────────────────────
-const silentMode = ref(false);
-async function toggleSilentMode() {
-  silentMode.value = !silentMode.value;
-  await setSilentMode(silentMode.value);
-  if (silentMode.value) {
-    // Drop the server relay; P2P chats stay alive.
-    wsService.disconnectRelay();
-    testStatus.value = "idle";
-    testMessage.value = "";
-  }
+// ── Server data (on / off) ───────────────────────────────────────────────────
+const serverData = ref(true);
+async function toggleServerData() {
+  serverData.value = !serverData.value;
+  await setServerData(serverData.value);
+  testStatus.value = "idle";
+  testMessage.value = "";
 }
 
 // ── Chat mode (relay / p2p) ──────────────────────────────────────────────────
@@ -67,6 +65,22 @@ const chatModeP2p = computed(() => chatStore.chatMode === "p2p");
 function toggleChatMode() {
   chatStore.setChatMode(chatStore.chatMode === "p2p" ? "relay" : "p2p");
 }
+
+// ── Offline / airplane mode (online / offline) ───────────────────────────────
+const offline = ref(false);
+async function toggleOffline() {
+  offline.value = !offline.value;
+  await setOffline(offline.value);
+  if (offline.value) {
+    // Airplane mode — drop every connection (server relay AND P2P).
+    wsService.disconnect();
+    testStatus.value = "idle";
+    testMessage.value = "";
+  }
+}
+
+// The data layer is blocked when offline, or when server data is switched off.
+const serverDataBlocked = computed(() => offline.value || !serverData.value);
 
 // ── Local browsing cache (SQLite) ──────────────────────────────────────────────
 const cacheCount = ref(0);
@@ -89,7 +103,8 @@ async function clearLocalCache() {
 onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
-  silentMode.value = await getSilentMode();
+  serverData.value = await getServerData();
+  offline.value = await getOffline();
   await chatStore.loadChatMode();
   await refreshCacheCount();
   await loadOfflineData();
@@ -115,7 +130,7 @@ const testMessage = ref("");
 const timeoutMs = ref(5000); // user-configurable timeout in ms
 
 async function testConnection() {
-  if (silentMode.value) {
+  if (serverDataBlocked.value) {
     testStatus.value = "error";
     testMessage.value = t("config.serverOffBlocked");
     return;
@@ -376,29 +391,30 @@ async function clearSelectedOfflineData() {
         </OyaButton>
       </div>
 
-      <!-- Silent mode switch (online / offline) -->
-      <div class="flex items-center gap-3">
+      <!-- Server data switch (on / off) -->
+      <div class="flex items-center gap-3" :class="{ 'pointer-events-none opacity-50': offline }">
         <font-awesome-icon
-          :icon="silentMode ? 'shield-halved' : 'satellite-dish'"
-          :class="silentMode ? 'text-warn-dark' : 'opacity-60'"
+          icon="server"
+          :class="serverData && !offline ? 'opacity-60' : 'text-warn-dark'"
           class="shrink-0"
         />
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.silentMode') }}</p>
+          <p class="text-sm font-semibold">{{ $t('config.serverData') }}</p>
           <p class="text-xs opacity-60">
-            {{ silentMode ? $t('config.silentOnHint') : $t('config.silentOffHint') }}
+            {{ serverData ? $t('config.serverDataOnHint') : $t('config.serverDataOffHint') }}
           </p>
         </div>
         <button
           type="button"
           role="switch"
-          :aria-checked="silentMode"
-          :class="silentMode ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          :aria-checked="serverData"
+          :disabled="offline"
+          :class="serverData ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
           class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleSilentMode"
+          @click="toggleServerData"
         >
           <span
-            :class="silentMode ? 'translate-x-6' : 'translate-x-1'"
+            :class="serverData ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
         </button>
@@ -429,6 +445,34 @@ async function clearSelectedOfflineData() {
         >
           <span
             :class="chatModeP2p ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+
+      <!-- Offline / airplane mode switch (online / offline) -->
+      <div class="flex items-center gap-3">
+        <font-awesome-icon
+          icon="power-off"
+          :class="offline ? 'text-warn-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.offlineMode') }}</p>
+          <p class="text-xs opacity-60">
+            {{ offline ? $t('config.offlineOnHint') : $t('config.offlineOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="offline"
+          :class="offline ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleOffline"
+        >
+          <span
+            :class="offline ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
         </button>
@@ -509,7 +553,7 @@ async function clearSelectedOfflineData() {
           <OyaButton
             :dark-mode="darkMode"
             variant="secondary"
-            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || silentMode }"
+            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || serverDataBlocked }"
             @click="testConnection"
           >
             <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />

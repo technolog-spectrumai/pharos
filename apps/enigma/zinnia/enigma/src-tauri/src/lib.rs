@@ -69,16 +69,27 @@ pub struct AppProfileState {
     pub offline_profiles: Vec<OfflineProfileOption>,
     #[serde(default)]
     pub selected_offline_profile_id: String,
-    // Connectivity mode: "online" (default), "no_server" (server off, P2P ok),
-    // or "offline" (server and P2P off). Empty is treated as "online".
+    // Three independent switches:
+    //   server_data — use the server for the data layer (REST/uploads). Default on.
+    //   offline     — airplane mode: block ALL network (server HTTP, relay WS, P2P).
+    #[serde(default = "default_true")]
+    pub server_data: bool,
     #[serde(default)]
-    pub connectivity: String,
+    pub offline: bool,
 }
 
-/// Server (HTTP + relay WS) is off when silent mode is on ("offline").
-/// P2P is never gated by this — only the server is.
-pub(crate) fn server_blocked(state: &AppProfileState) -> bool {
-    matches!(state.connectivity.as_str(), "no_server" | "offline")
+fn default_true() -> bool {
+    true
+}
+
+/// The data layer (REST/uploads) is blocked when offline, or when server data is off.
+pub(crate) fn data_blocked(state: &AppProfileState) -> bool {
+    state.offline || !state.server_data
+}
+
+/// Airplane mode — blocks every network connection (server HTTP, relay WS, P2P).
+pub(crate) fn is_offline(state: &AppProfileState) -> bool {
+    state.offline
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -400,21 +411,38 @@ fn app_clear_auth_token(app: AppHandle, config: State<AppConfigState>) -> Result
 }
 
 #[tauri::command]
-fn app_get_connectivity(app: AppHandle, config: State<AppConfigState>) -> Result<String, String> {
+fn app_get_server_data(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
     let config = active_config(&config)?;
-    let mode = load_profile_state(&app, &config).connectivity;
-    Ok(if mode.is_empty() { "online".to_string() } else { mode })
+    Ok(load_profile_state(&app, &config).server_data)
 }
 
 #[tauri::command]
-fn app_set_connectivity(
+fn app_set_server_data(
     app: AppHandle,
     config: State<AppConfigState>,
-    mode: String,
+    on: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
-    state.connectivity = mode;
+    state.server_data = on;
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_offline(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).offline)
+}
+
+#[tauri::command]
+fn app_set_offline(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    offline: bool,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    state.offline = offline;
     save_profile_state(&app, &config, &state)
 }
 
@@ -991,8 +1019,10 @@ pub fn run() {
             app_set_auth_token,
             app_get_auth_token,
             app_clear_auth_token,
-            app_get_connectivity,
-            app_set_connectivity,
+            app_get_server_data,
+            app_set_server_data,
+            app_get_offline,
+            app_set_offline,
             app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
