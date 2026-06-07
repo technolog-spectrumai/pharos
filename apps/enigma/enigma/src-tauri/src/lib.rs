@@ -784,6 +784,44 @@ fn mls_clear_state(
     Ok(())
 }
 
+/// Authenticated roster: the device identities of all current MLS group members.
+#[tauri::command]
+fn mls_members(
+    config: State<AppConfigState>,
+    sessions: State<Sessions>,
+    room: String,
+    identity: String,
+) -> Result<Vec<String>, String> {
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
+    let map = sessions.lock().map_err(|e| e.to_string())?;
+    let session = map
+        .get(&key)
+        .ok_or_else(|| "session not initialised".to_string())?;
+    session.members()
+}
+
+/// Remove a member (admin). Returns the remove-commit bytes to broadcast.
+#[tauri::command]
+fn mls_remove_member(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    sessions: State<Sessions>,
+    room: String,
+    identity: String,
+    target: String,
+) -> Result<Vec<u8>, String> {
+    let config = active_config(&config)?;
+    let key = session_key(&config.profile, &room, &identity);
+    let mut map = sessions.lock().map_err(|e| e.to_string())?;
+    let session = map
+        .get_mut(&key)
+        .ok_or_else(|| "session not initialised".to_string())?;
+    let commit = session.remove_member(&target)?;
+    persist(&app, &config, session, &room, &identity);
+    Ok(commit)
+}
+
 // ── Native audio recording ────────────────────────────────────────────────────
 //
 // cpal::Stream is !Send on Linux (ALSA), so it cannot live in Tauri managed state.
@@ -973,6 +1011,8 @@ pub fn run() {
             mls_process_message,
             mls_encrypt,
             mls_clear_state,
+            mls_members,
+            mls_remove_member,
             audio_start_recording,
             audio_stop_recording,
             data::data_http,

@@ -119,6 +119,29 @@ class CryptoService {
     if (!_isTauri()) return;
     await _invoke("mls_clear_state", { room, identity });
   }
+
+  /** Authenticated roster: device identities of all current MLS group members. */
+  async members(room: string, identity: string): Promise<string[]> {
+    if (!_isTauri()) return [];
+    try {
+      return await _invoke<string[]>("mls_members", { room, identity });
+    } catch (e) {
+      console.error("[crypto] members failed:", e);
+      return [];
+    }
+  }
+
+  /** Remove a member (admin); returns the remove-commit bytes to broadcast. */
+  async removeMember(room: string, identity: string, target: string): Promise<Uint8Array | null> {
+    if (!_isTauri()) return null;
+    try {
+      const bytes = await _invoke<number[]>("mls_remove_member", { room, identity, target });
+      return new Uint8Array(bytes);
+    } catch (e) {
+      console.error("[crypto] removeMember failed:", e);
+      return null;
+    }
+  }
 }
 
 export const cryptoService = new CryptoService();

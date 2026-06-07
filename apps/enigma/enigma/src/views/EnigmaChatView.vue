@@ -486,51 +486,52 @@ const mlsChipClass = computed(() => {
       class="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border shadow-md"
     >
       <!-- Header row -->
-      <header class="flex min-w-0 flex-wrap items-center gap-3 border-b border-current/10 p-4">
-        <!-- Mobile rooms button.
-             IMPORTANT: this must show even when no room is selected. -->
-        <button
-          type="button"
-          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border lg:hidden"
-          aria-label="Open rooms"
-          @click="sidebarOpen = true"
-        >
-          <font-awesome-icon icon="bars" />
-        </button>
-
-        <div class="min-w-0 flex-1">
-          <p
-            :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-            class="text-xs font-semibold uppercase tracking-wide"
+      <header class="flex flex-col gap-3 border-b border-current/10 p-4">
+        <!-- Title row -->
+        <div class="flex items-start gap-3">
+          <!-- Mobile rooms button (must show even when no room is selected). -->
+          <button
+            type="button"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border lg:hidden"
+            aria-label="Open rooms"
+            @click="sidebarOpen = true"
           >
-            {{ currentRoom ? "Active room" : "No room selected" }}
-          </p>
+            <font-awesome-icon icon="bars" />
+          </button>
 
-          <h2 class="mt-1 truncate text-2xl font-bold">
-            {{ currentRoom?.name ?? "Select a room" }}
-          </h2>
+          <div class="min-w-0 flex-1">
+            <p
+              :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+              class="text-xs font-semibold uppercase tracking-wide"
+            >
+              {{ currentRoom ? "Active room" : "No room selected" }}
+            </p>
 
-          <div
-            v-if="currentRoom"
-            class="mt-1 flex flex-wrap gap-3 text-xs opacity-70"
-          >
-            <span>
-              {{ currentRoom.participant_count }} participant{{ currentRoom.participant_count === 1 ? "" : "s" }}
-            </span>
+            <h2 class="mt-1 break-words text-xl font-bold leading-tight sm:text-2xl">
+              {{ currentRoom?.name ?? "Select a room" }}
+            </h2>
 
-            <span>
-              {{ isParticipant ? "Joined" : "Observer" }}
-            </span>
+            <div
+              v-if="currentRoom"
+              class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs opacity-70"
+            >
+              <span>
+                {{ currentRoom.participant_count }} participant{{ currentRoom.participant_count === 1 ? "" : "s" }}
+              </span>
+              <span>{{ isParticipant ? "Joined" : "Observer" }}</span>
+            </div>
           </div>
         </div>
 
+        <!-- Actions row (desktop): chips + buttons wrap responsively -->
+        <div v-if="currentRoom" class="hidden flex-wrap items-center gap-2 sm:flex">
         <!-- Encryption chip desktop -->
         <span
           v-if="currentRoom && isParticipant"
           :class="mlsChipClass"
           :title="mlsError ?? undefined"
-          class="hidden items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition sm:inline-flex"
+          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
         >
           <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />
           {{ mlsLabel }}
@@ -540,7 +541,7 @@ const mlsChipClass = computed(() => {
         <span
           v-if="currentRoom && isParticipant"
           :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          class="hidden items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm sm:inline-flex"
+          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm"
         >
           <font-awesome-icon :icon="roomTransport === 'p2p' ? 'circle-nodes' : 'satellite-dish'" />
           {{ roomTransport === 'p2p' ? $t('chat.p2pBadge') : $t('chat.relayBadge') }}
@@ -552,7 +553,7 @@ const mlsChipClass = computed(() => {
           :class="(!isEncrypted || upgrading)
             ? 'opacity-50 cursor-not-allowed border-accent-1'
             : (darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100')"
-          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
           :title="$t('chat.switchToP2pHint')"
           @click="chat.upgradeRoomToP2p()"
         >
@@ -566,7 +567,7 @@ const mlsChipClass = computed(() => {
           :class="(!isEncrypted || upgrading)
             ? 'opacity-50 cursor-not-allowed border-accent-1'
             : (darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100')"
-          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
           :title="$t('chat.switchToRelayHint')"
           @click="chat.downgradeRoomToRelay()"
         >
@@ -581,7 +582,7 @@ const mlsChipClass = computed(() => {
           :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error')
             ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
             : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-100' : 'border-accent-2 opacity-60 hover:opacity-100')"
-          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
           title="Reset encryption session — clears history and renegotiates keys for all participants"
         >
           <font-awesome-icon icon="rotate-right" />
@@ -592,7 +593,7 @@ const mlsChipClass = computed(() => {
         <span
           v-if="currentRoom && isParticipant"
           :class="wsChipClass"
-          class="hidden items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition sm:inline-flex"
+          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
         >
           <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />
           {{ wsLabel }}
@@ -604,7 +605,7 @@ const mlsChipClass = computed(() => {
             v-if="!isParticipant"
             :dark-mode="darkMode"
             :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }"
-            class="hidden sm:inline-flex"
+            class="inline-flex"
             @click="handleJoin"
           >
             <font-awesome-icon icon="right-to-bracket" />
@@ -616,13 +617,14 @@ const mlsChipClass = computed(() => {
             :dark-mode="darkMode"
             variant="secondary"
             :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }"
-            class="hidden sm:inline-flex"
+            class="inline-flex"
             @click="handleLeave"
           >
             <font-awesome-icon icon="right-from-bracket" />
             Leave
           </OyaButton>
         </template>
+        </div>
       </header>
 
       <!-- Observer banner -->
@@ -921,7 +923,7 @@ const mlsChipClass = computed(() => {
       <div class="flex-1 space-y-3 overflow-y-auto p-4 pr-3">
         <div
           v-for="p in participants"
-          :key="p.name"
+          :key="p.id ?? p.name"
           class="flex items-center gap-3"
         >
           <div
@@ -1059,7 +1061,7 @@ const mlsChipClass = computed(() => {
         <div class="mt-3 space-y-3">
           <div
             v-for="p in participants"
-            :key="p.name"
+            :key="p.id ?? p.name"
             class="flex items-center gap-3"
           >
             <div

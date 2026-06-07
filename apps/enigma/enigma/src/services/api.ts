@@ -444,11 +444,10 @@ export interface Room {
   participants?: Participant[];
 }
 
-export interface Participant {
-  name: string;
-  avatar_url: string;
-  type: "human" | "ai_agent";
-}
+// Participant is transport-agnostic — defined in types/chat, re-exported here for
+// the telegraph (server) response types below.
+export type { Participant } from "../types/chat";
+import type { Participant } from "../types/chat";
 
 export interface Me {
   id: number;
