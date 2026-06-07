@@ -111,6 +111,10 @@ export const useChatStore = defineStore("chat", () => {
   // with no server. A parallel room kind to the server (WS) rooms.
   const p2pRooms = ref<P2pRoomEntry[]>([]);
 
+  // The active room's transport, and relay→P2P upgrade progress (for the UI).
+  const roomTransport = ref<"relay" | "p2p">("relay");
+  const upgrading = ref<null | "sharing" | "connecting">(null);
+
   // Chat transport mode: "relay" = server WebSocket, "direct" = P2P (iroh).
   const transportMode = ref<TransportMode>("relay");
   async function loadTransportMode() {
@@ -476,6 +480,13 @@ export const useChatStore = defineStore("chat", () => {
           let inner: Record<string, unknown> | null = null;
           try { inner = JSON.parse(text); } catch (_) {}
 
+          if (inner?.type === "p2p_upgrade" && inner.ticket) {
+            // Group member shared the P2P room address over the encrypted relay
+            // channel — join it and switch this room to P2P.
+            void receiveP2pUpgrade(inner.ticket as string, inner.name as string | undefined);
+            return;
+          }
+
           if (inner?.type === "image_message" && inner.image_data) {
             messages.value.push({
               id: nanoid(), type: "image_message",
@@ -647,6 +658,7 @@ export const useChatStore = defineStore("chat", () => {
 
   function enterP2pRoom(room: string, name: string) {
     currentRoom.value = makeP2pRoom(room, name);
+    roomTransport.value = "p2p";
     participants.value = [];
     isParticipant.value = true;
     mlsStatus.value = "idle";
@@ -706,6 +718,8 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     participants.value = [];
     currentRoom.value = null;
+    roomTransport.value = "relay";
+    upgrading.value = null;
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
@@ -734,7 +748,7 @@ export const useChatStore = defineStore("chat", () => {
   async function joinParticipant() {
     if (!currentRoom.value) return;
     // P2P rooms have no server-side participant list — you're already in.
-    if (transportMode.value === "direct") {
+    if (roomTransport.value === "p2p") {
       isParticipant.value = true;
       return;
     }
@@ -756,7 +770,7 @@ export const useChatStore = defineStore("chat", () => {
   async function leaveParticipant() {
     if (!currentRoom.value) return;
     // P2P room: leave locally (drop the gossip subscription) — no server channel.
-    if (transportMode.value === "direct") {
+    if (roomTransport.value === "p2p") {
       wsService.disconnect();
       currentRoom.value = null;
       messages.value = [];
@@ -805,7 +819,7 @@ export const useChatStore = defineStore("chat", () => {
     error.value = null;
 
     // Direct (P2P) mode: no server — send the image E2E-encrypted over gossip.
-    if (transportMode.value === "direct") {
+    if (roomTransport.value === "p2p") {
       if (mlsStatus.value !== "ready") {
         messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
         return;
@@ -839,7 +853,7 @@ export const useChatStore = defineStore("chat", () => {
     error.value = null;
 
     // Direct (P2P) mode: send the voice note E2E-encrypted over gossip.
-    if (transportMode.value === "direct") {
+    if (roomTransport.value === "p2p") {
       if (mlsStatus.value !== "ready") {
         messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
         return;
@@ -902,6 +916,63 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  // ── Relay → P2P upgrade ──────────────────────────────────────────────────────
+  /** Initiator: create a P2P room, share its ticket over the encrypted relay
+   *  channel, then switch this room to P2P. */
+  async function upgradeRoomToP2p() {
+    if (!currentRoom.value || roomTransport.value !== "relay" || mlsStatus.value !== "ready") return;
+    error.value = null;
+    upgrading.value = "sharing";
+    try {
+      const name = currentRoom.value.name;
+      const res = await wsService.createRoom(name, false); // subscribe; keep relay primary
+      await sendEncryptedMedia("p2p_upgrade", { ticket: res.ticket, name: res.name });
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket });
+      messages.value.push(systemMsg("📡 Shared the P2P address with the group — switching…"));
+      upgrading.value = "connecting";
+      // Give the relay a moment to deliver the offer, then switch ourselves.
+      setTimeout(() => { void finishSwitch(res.room, res.name); }, 2000);
+    } catch (e) {
+      error.value = errorMessage(e);
+      upgrading.value = null;
+    }
+  }
+
+  /** Receiver: join the P2P room from the shared ticket and switch over. */
+  async function receiveP2pUpgrade(ticket: string, name?: string) {
+    if (roomTransport.value !== "relay" || !currentRoom.value) return;
+    upgrading.value = "connecting";
+    messages.value.push(systemMsg("📡 Upgrading to peer-to-peer…"));
+    try {
+      const res = await wsService.joinRoom(ticket, false); // subscribe; keep relay primary
+      rememberP2pRoom({ room: res.room, name: res.name || name || "", ticket });
+      await finishSwitch(res.room, res.name || name || "");
+    } catch (e) {
+      error.value = errorMessage(e);
+      upgrading.value = null;
+    }
+  }
+
+  /** Make P2P the active transport for this room and drop the relay leg. */
+  async function finishSwitch(room: string, name: string) {
+    const label = name || currentRoom.value?.name || "Room";
+    // Reset MLS so the P2P leg negotiates a fresh group.
+    mlsStatus.value = "idle";
+    mlsError.value = null;
+    pendingInvites.clear();
+    clearCreatorTimer();
+    participants.value = [];
+    currentRoom.value = makeP2pRoom(room, label);
+    roomTransport.value = "p2p";
+    isParticipant.value = true;
+    upgrading.value = null;
+    messages.value.push(systemMsg("🔗 This room is now peer-to-peer."));
+    // Make the P2P room primary (re-emits its status → starts the P2P handshake),
+    // then drop the relay WebSocket.
+    wsService.switchPrimary(room);
+    wsService.disconnectRelay();
+  }
+
   async function forceResetMls(broadcast = true) {
     if (!currentRoom.value || !mlsIdentity.value) return;
     const room = currentRoom.value.slug;
@@ -958,5 +1029,7 @@ export const useChatStore = defineStore("chat", () => {
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
     // transport mode (relay = WS server, direct = P2P)
     transportMode, loadTransportMode, setTransportMode,
+    // per-room transport + relay→P2P upgrade
+    roomTransport, upgrading, upgradeRoomToP2p,
   };
 });

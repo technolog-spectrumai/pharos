@@ -35,6 +35,8 @@ const {
   isParticipant,
   p2pRooms,
   transportMode,
+  roomTransport,
+  upgrading,
 } = storeToRefs(chat);
 
 function forceResetMls() { return chat.forceResetMls(); }
@@ -488,6 +490,30 @@ const mlsChipClass = computed(() => {
           <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />
           {{ mlsLabel }}
         </span>
+
+        <!-- Transport badge + Switch to P2P (desktop) -->
+        <span
+          v-if="currentRoom && isParticipant"
+          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+          class="hidden items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm sm:inline-flex"
+        >
+          <font-awesome-icon :icon="roomTransport === 'p2p' ? 'circle-nodes' : 'satellite-dish'" />
+          {{ roomTransport === 'p2p' ? $t('chat.p2pBadge') : $t('chat.relayBadge') }}
+        </span>
+
+        <button
+          v-if="currentRoom && isParticipant && roomTransport === 'relay'"
+          :disabled="!isEncrypted || !!upgrading"
+          :class="(!isEncrypted || upgrading)
+            ? 'opacity-50 cursor-not-allowed border-accent-1'
+            : (darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100')"
+          class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          :title="$t('chat.switchToP2pHint')"
+          @click="chat.upgradeRoomToP2p()"
+        >
+          <font-awesome-icon icon="circle-nodes" />
+          {{ upgrading ? $t('chat.upgrading') : $t('chat.switchToP2p') }}
+        </button>
 
         <!-- Reset session button — always visible for participants -->
         <button

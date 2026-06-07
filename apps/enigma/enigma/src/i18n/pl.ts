@@ -109,5 +109,10 @@ export default {
     copy: "Kopiuj",
     pasteTicket: "Wklej bilet, aby dołączyć",
     join: "Dołącz",
+    relayBadge: "Przekaźnik",
+    p2pBadge: "P2P",
+    switchToP2p: "Przełącz na P2P",
+    switchToP2pHint: "Udostępnij grupie adres P2P szyfrowanym kanałem, a potem przenieś ten pokój poza serwer.",
+    upgrading: "Przełączanie…",
   },
 };

@@ -109,5 +109,10 @@ export default {
     copy: "Copy",
     pasteTicket: "Paste ticket to join",
     join: "Join",
+    relayBadge: "Relay",
+    p2pBadge: "P2P",
+    switchToP2p: "Switch to P2P",
+    switchToP2pHint: "Share a P2P address with the group over the encrypted channel, then move this room off the server.",
+    upgrading: "Switching…",
   },
 };
