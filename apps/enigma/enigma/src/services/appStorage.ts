@@ -16,7 +16,6 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 const LS_SERVER_URL     = "enigma:server_url";
 const LS_AUTH_TOKEN     = "enigma:auth_token";
 const LS_CONNECTIVITY   = "enigma:connectivity";
-const LS_TRANSPORT_MODE = "enigma:transport_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -94,22 +93,6 @@ export async function getConnectivityMode(): Promise<ConnectivityMode> {
 export async function setConnectivityMode(mode: ConnectivityMode): Promise<void> {
   if (_isTauri()) { await _invoke("app_set_connectivity", { mode }); return; }
   localStorage.setItem(LS_CONNECTIVITY, mode);
-}
-
-// ── Chat transport mode ───────────────────────────────────────────────────────
-// "relay"  → realtime chat goes through the server (WebSocket).
-// "direct" → realtime chat is peer-to-peer (iroh). This is a frontend routing
-// choice (the Rust gateway already routes per command), so it's a plain
-// localStorage preference and works the same in the browser and the Tauri app.
-
-export type TransportMode = "relay" | "direct";
-
-export async function getTransportMode(): Promise<TransportMode> {
-  return localStorage.getItem(LS_TRANSPORT_MODE) === "direct" ? "direct" : "relay";
-}
-
-export async function setTransportMode(mode: TransportMode): Promise<void> {
-  localStorage.setItem(LS_TRANSPORT_MODE, mode);
 }
 
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────

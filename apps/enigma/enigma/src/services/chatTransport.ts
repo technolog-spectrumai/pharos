@@ -46,6 +46,8 @@ export interface ChatTransport {
   switchPrimary(room: string): void;
   // Drop only the relay (WebSocket) leg, keeping any P2P subscriptions.
   disconnectRelay(): void;
+  // Leave a single (P2P) room subscription without touching the others.
+  leaveRoom(room: string): void;
 }
 
 // ── Tauri backend: the Rust realtime gateway ──────────────────────────────────
@@ -141,6 +143,13 @@ class GatewayChatTransport implements ChatTransport {
     this.setStatus(this.roomStatus.get(room) ?? "connecting");
   }
 
+  leaveRoom(room: string): void {
+    this.activeRooms.delete(room);
+    this.roomStatus.delete(room);
+    if (this.primaryRoom === room) this.primaryRoom = null;
+    void _invoke("realtime_leave_room", { room }).catch(() => {});
+  }
+
   nodeInfo(): Promise<{ node_id: string } | null> {
     return _invoke<{ node_id: string }>("realtime_node_info");
   }
@@ -178,6 +187,7 @@ const browserBackend: ChatTransport = {
   joinRoom: () => Promise.reject(new Error("P2P rooms require the desktop app.")),
   nodeInfo: () => Promise.resolve(null),
   switchPrimary: () => {},
+  leaveRoom: () => {},
 };
 
 export const chatTransport: ChatTransport = _isTauri()
