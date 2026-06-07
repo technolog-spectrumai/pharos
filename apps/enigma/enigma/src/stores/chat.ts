@@ -3,7 +3,13 @@ import { defineStore } from "pinia";
 import { api, type Room, type Participant } from "../services/api";
 import { chatTransport as wsService, type WsStatus } from "../services/chatTransport";
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
-import { getRuntimeConfig, type AppRuntimeConfig } from "../services/appStorage";
+import {
+  getRuntimeConfig,
+  getTransportMode,
+  setTransportMode as persistTransportMode,
+  type AppRuntimeConfig,
+  type TransportMode,
+} from "../services/appStorage";
 import { kvGet, kvPut } from "../services/localDb";
 import { nanoid } from "nanoid";
 
@@ -59,11 +65,40 @@ export const useChatStore = defineStore("chat", () => {
   const pendingRecoveryRooms = new Set<string>();
   const processedResetIds = new Set<string>();
 
+  // Fallback "I'm alone, declare myself the group creator" timer. Cancelled as
+  // soon as a peer's key package arrives, so two present peers never both create
+  // their own group (which would cause group-ID mismatches).
+  let creatorTimer: ReturnType<typeof setTimeout> | null = null;
+  function clearCreatorTimer() {
+    if (creatorTimer) {
+      clearTimeout(creatorTimer);
+      creatorTimer = null;
+    }
+  }
+
   const isParticipant = ref(false);
 
   // P2P rooms (iroh) — created/joined locally, persisted in SQLite, browsable
   // with no server. A parallel room kind to the server (WS) rooms.
   const p2pRooms = ref<P2pRoomEntry[]>([]);
+
+  // Chat transport mode: "relay" = server WebSocket, "direct" = P2P (iroh).
+  const transportMode = ref<TransportMode>("relay");
+  async function loadTransportMode() {
+    transportMode.value = await getTransportMode();
+  }
+  async function setTransportMode(mode: TransportMode) {
+    if (mode === transportMode.value) return;
+    transportMode.value = mode;
+    await persistTransportMode(mode);
+    // Drop any active connection so the next room uses the chosen transport.
+    wsService.disconnect();
+    currentRoom.value = null;
+    messages.value = [];
+    participants.value = [];
+    isParticipant.value = false;
+    mlsStatus.value = "idle";
+  }
 
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
@@ -146,11 +181,14 @@ export const useChatStore = defineStore("chat", () => {
     wsStatus.value = status;
     if (status === "connected") {
       messages.value.push(systemMsg(`Connected to ${currentRoom.value?.name ?? "room"}.`));
-      // Start MLS when WS is ready
+      // Start MLS when the transport is ready. startMls() no-ops if a handshake
+      // is already in progress, so a transient reconnect won't wipe it.
       void startMls();
     } else if (status === "disconnected") {
       messages.value.push(systemMsg("Disconnected."));
-      mlsStatus.value = "idle";
+      // Keep the MLS session across transient drops — re-handshaking on every
+      // reconnect clears key material mid-flight. It's reset on an explicit
+      // room change / leave instead.
     } else if (status === "error") {
       messages.value.push(systemMsg("Connection error.", "system_error"));
     }
@@ -255,8 +293,8 @@ export const useChatStore = defineStore("chat", () => {
         // Expire after 30 s to avoid unbounded growth
         setTimeout(() => processedResetIds.delete(resetId), 30000);
       }
-      log("Received mls_reset_request from peer — resetting session");
-      await forceResetMls();
+      log("Received mls_reset_request from peer — resetting session locally");
+      await forceResetMls(false); // reset locally; do NOT echo another reset
       return;
     }
 
@@ -270,13 +308,20 @@ export const useChatStore = defineStore("chat", () => {
                      && !pendingInvites.has(deviceId);
 
       if (canAdd) {
+        // A peer is present — cancel the lone-creator fallback so we don't end up
+        // in our own separate group.
+        clearCreatorTimer();
+
         // Tiebreaker: lower string is the group admin. Compare display names (fall back to device IDs).
         const ourId = currentUserName.value !== "You" ? currentUserName.value : mlsIdentity.value;
         const theirId = (data.user as string) || deviceId;
         const weAreAdmin = ourId < theirId;
 
         if (!weAreAdmin) {
-          // Defer — re-send our key package so they can add us to their group
+          // Defer — wait to be added to the peer's group via their welcome. Drop
+          // back to key_exchange so the welcome is accepted even if our fallback
+          // timer had already flipped us to "ready".
+          mlsStatus.value = "key_exchange";
           log("Deferring to peer (they are admin):", theirId);
           const kpDefer = await cryptoService.keyPackage(currentRoom.value!.slug, mlsIdentity.value);
           if (kpDefer) {
@@ -317,6 +362,7 @@ export const useChatStore = defineStore("chat", () => {
 
     if (type === "mls_welcome" && data.welcome) {
       if (mlsStatus.value === "key_exchange" && currentRoom.value) {
+        clearCreatorTimer();
         log("Joining MLS group from welcome");
         messages.value.push(systemMsg("🔑 Received group invitation — joining encrypted group…"));
         const ok = await cryptoService.joinFromWelcome(
@@ -337,7 +383,11 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     if (type === "mls_commit" && data.commit) {
-      if ((mlsStatus.value === "ready" || mlsStatus.value === "key_exchange") && currentRoom.value) {
+      // Only an established member applies commits. While still joining
+      // (key_exchange) we must ignore the admin's add-commit — we get added via
+      // the welcome instead; applying it here causes a group-ID mismatch that
+      // would wipe our pending key package.
+      if (mlsStatus.value === "ready" && currentRoom.value) {
         log("Processing MLS commit");
         try {
           await cryptoService.processMessage(
@@ -441,6 +491,10 @@ export const useChatStore = defineStore("chat", () => {
   // ── MLS init ─────────────────────────────────────────────────────────────────
   async function startMls() {
     if (!currentRoom.value || !mlsIdentity.value) return;
+    // Only (re)handshake when idle/errored. A room entry resets status to "idle";
+    // a transient reconnect leaves it at initializing/key_exchange/ready, so this
+    // guard prevents clobbering an in-flight or established session.
+    if (mlsStatus.value !== "idle" && mlsStatus.value !== "error") return;
     const room = currentRoom.value.slug;
     const identity = mlsIdentity.value;
 
@@ -465,8 +519,10 @@ export const useChatStore = defineStore("chat", () => {
         messages.value.push(systemMsg("🔑 Setting up encryption…"));
         mlsStatus.value = "key_exchange";
 
-        // Become the group creator after a grace period if no welcome arrives
-        setTimeout(() => {
+        // Become the group creator after a grace period only if no peer shows up.
+        clearCreatorTimer();
+        creatorTimer = setTimeout(() => {
+          creatorTimer = null;
           if (mlsStatus.value === "key_exchange") {
             log("No welcome received — declaring self as group creator");
             mlsStatus.value = "ready";
@@ -743,15 +799,19 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  async function forceResetMls() {
+  async function forceResetMls(broadcast = true) {
     if (!currentRoom.value || !mlsIdentity.value) return;
     const room = currentRoom.value.slug;
     const identity = mlsIdentity.value;
-    // Broadcast reset to peers with a unique ID to prevent cycles
-    const resetId = nanoid();
-    wsService.send({ type: "mls_reset_request", device_id: mlsIdentity.value, reset_id: resetId });
-    processedResetIds.add(resetId);
-    setTimeout(() => processedResetIds.delete(resetId), 30000);
+    // Only the initiator announces the reset. Peers reset locally WITHOUT
+    // re-broadcasting — otherwise each side keeps answering a reset with a fresh
+    // reset_id (which dedup never catches), and the session bounces forever.
+    if (broadcast) {
+      const resetId = nanoid();
+      wsService.send({ type: "mls_reset_request", device_id: mlsIdentity.value, reset_id: resetId });
+      processedResetIds.add(resetId);
+      setTimeout(() => processedResetIds.delete(resetId), 30000);
+    }
     mlsStatus.value = "initializing";
     mlsError.value = null;
     pendingInvites.clear();
@@ -793,5 +853,7 @@ export const useChatStore = defineStore("chat", () => {
     forceResetMls,
     // P2P (iroh) rooms
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
+    // transport mode (relay = WS server, direct = P2P)
+    transportMode, loadTransportMode, setTransportMode,
   };
 });

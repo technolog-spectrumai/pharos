@@ -86,6 +86,7 @@ onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
   silentMode.value = await getSilentMode();
+  await chatStore.loadTransportMode();
   await refreshCacheCount();
   await loadOfflineData();
 });
@@ -334,6 +335,65 @@ async function clearSelectedOfflineData() {
         <span v-if="langSavedToProfile" class="text-xs text-success-dark">
           <font-awesome-icon icon="check" class="mr-1" />{{ $t('lang.savedToProfile') }}
         </span>
+      </div>
+    </OyaCard>
+
+    <!-- Chat transport card -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
+      <div>
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
+        >
+          {{ $t('config.transport') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.transportHint') }}</p>
+      </div>
+
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          :class="
+            chatStore.transportMode === 'relay'
+              ? darkMode ? 'border-accent-dark bg-primary-bg-dark' : 'border-accent-light bg-primary-bg-light'
+              : darkMode ? 'border-accent-1 hover:border-accent-dark' : 'border-accent-2 hover:border-accent-light'
+          "
+          class="flex flex-col items-start gap-1 rounded-lg border px-3 py-2.5 text-left transition"
+          @click="chatStore.setTransportMode('relay')"
+        >
+          <span class="flex items-center gap-2 text-sm font-semibold">
+            <font-awesome-icon icon="satellite-dish" />
+            {{ $t('config.relayMode') }}
+            <font-awesome-icon
+              v-if="chatStore.transportMode === 'relay'"
+              icon="check"
+              class="text-success-dark"
+            />
+          </span>
+          <span class="text-xs opacity-60">{{ $t('config.relayModeHint') }}</span>
+        </button>
+
+        <button
+          type="button"
+          :class="
+            chatStore.transportMode === 'direct'
+              ? darkMode ? 'border-accent-dark bg-primary-bg-dark' : 'border-accent-light bg-primary-bg-light'
+              : darkMode ? 'border-accent-1 hover:border-accent-dark' : 'border-accent-2 hover:border-accent-light'
+          "
+          class="flex flex-col items-start gap-1 rounded-lg border px-3 py-2.5 text-left transition"
+          @click="chatStore.setTransportMode('direct')"
+        >
+          <span class="flex items-center gap-2 text-sm font-semibold">
+            <font-awesome-icon icon="circle-nodes" />
+            {{ $t('config.directMode') }}
+            <font-awesome-icon
+              v-if="chatStore.transportMode === 'direct'"
+              icon="check"
+              class="text-success-dark"
+            />
+          </span>
+          <span class="text-xs opacity-60">{{ $t('config.directModeHint') }}</span>
+        </button>
       </div>
     </OyaCard>
 

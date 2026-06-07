@@ -13,9 +13,10 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 }
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
-const LS_SERVER_URL  = "enigma:server_url";
-const LS_AUTH_TOKEN  = "enigma:auth_token";
-const LS_SILENT_MODE = "enigma:silent_mode";
+const LS_SERVER_URL     = "enigma:server_url";
+const LS_AUTH_TOKEN     = "enigma:auth_token";
+const LS_SILENT_MODE    = "enigma:silent_mode";
+const LS_TRANSPORT_MODE = "enigma:transport_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -90,6 +91,22 @@ export async function setSilentMode(silent: boolean): Promise<void> {
   if (_isTauri()) { await _invoke("app_set_silent_mode", { silent }); return; }
   if (silent) localStorage.setItem(LS_SILENT_MODE, "1");
   else localStorage.removeItem(LS_SILENT_MODE);
+}
+
+// ── Chat transport mode ───────────────────────────────────────────────────────
+// "relay"  → realtime chat goes through the server (WebSocket).
+// "direct" → realtime chat is peer-to-peer (iroh). This is a frontend routing
+// choice (the Rust gateway already routes per command), so it's a plain
+// localStorage preference and works the same in the browser and the Tauri app.
+
+export type TransportMode = "relay" | "direct";
+
+export async function getTransportMode(): Promise<TransportMode> {
+  return localStorage.getItem(LS_TRANSPORT_MODE) === "direct" ? "direct" : "relay";
+}
+
+export async function setTransportMode(mode: TransportMode): Promise<void> {
+  localStorage.setItem(LS_TRANSPORT_MODE, mode);
 }
 
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────
