@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useChatStore } from "../stores/chat";
 import ChatPanel from "../components/ChatPanel.vue";
+import VoxPanel from "../components/VoxPanel.vue";
 
 defineProps<{ darkMode: boolean }>();
 
@@ -47,12 +48,26 @@ const p2pUnread = chat.p2p.unread;
           class="rounded-full bg-warn-dark px-1.5 py-0.5 text-[10px] font-bold text-primary-bg-dark"
         >{{ p2pUnread > 99 ? '99+' : p2pUnread }}</span>
       </button>
+
+      <button
+        type="button"
+        :class="activeTab === 'vox'
+          ? (darkMode ? 'border-accent-dark bg-bubble-bg-dark' : 'border-accent-light bg-bubble-bg-light')
+          : 'border-current/15 opacity-60 hover:opacity-100'"
+        class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition"
+        @click="chat.setTab('vox')"
+      >
+        <font-awesome-icon icon="phone" />
+        {{ $t('chat.tabVox') }}
+      </button>
     </div>
 
-    <!-- Both panels stay mounted (v-show) so both chats remain live in the background -->
+    <!-- Chat panels stay mounted (v-show) so both chats remain live in the background.
+         Vox (voice) is its own panel — a live 1:1 call, no message history. -->
     <div class="min-h-0 flex-1">
       <ChatPanel v-show="activeTab === 'relay'" :dark-mode="darkMode" :channel="chat.relay" />
       <ChatPanel v-show="activeTab === 'p2p'" :dark-mode="darkMode" :channel="chat.p2p" />
+      <VoxPanel v-show="activeTab === 'vox'" :dark-mode="darkMode" />
     </div>
   </div>
 </template>

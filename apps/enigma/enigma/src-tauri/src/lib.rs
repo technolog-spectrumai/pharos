@@ -11,6 +11,7 @@ use zeroize::Zeroize;
 mod data;
 mod p2p_iroh;
 mod realtime;
+mod vox;
 
 // ── App config ────────────────────────────────────────────────────────────────
 
@@ -989,6 +990,7 @@ pub fn run() {
         .manage(AudioRecorder::default())
         .manage(realtime::RealtimeState::default())
         .manage(p2p_iroh::P2pState::default())
+        .manage(vox::VoxState::default())
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
             app.manage(data::init(app.handle()));
@@ -1052,6 +1054,12 @@ pub fn run() {
             realtime::realtime_join_room,
             realtime::realtime_leave_room,
             realtime::realtime_node_info,
+            vox::vox_create,
+            vox::vox_join,
+            vox::vox_accept,
+            vox::vox_decline,
+            vox::vox_hangup,
+            vox::vox_set_mute,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

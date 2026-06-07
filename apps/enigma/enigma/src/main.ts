@@ -106,6 +106,10 @@ import {
   faCalendarPlus,
   faEnvelope,
   faTag,
+  faPhone,
+  faPhoneSlash,
+  faMicrophoneSlash,
+  faCopy,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -206,6 +210,10 @@ library.add(
   faCalendarPlus,
   faEnvelope,
   faTag,
+  faPhone,
+  faPhoneSlash,
+  faMicrophoneSlash,
+  faCopy,
 );
 
 createApp(App)
