@@ -110,5 +110,7 @@ export default {
     switchToRelay: "Switch to relay",
     switchToRelayHint: "Move the group back to the server relay room.",
     upgrading: "Switching…",
+    imageReady: "Image ready to send",
+    voiceReady: "Voice message ready to send",
   },
 };

@@ -110,5 +110,7 @@ export default {
     switchToRelay: "Przełącz na przekaźnik",
     switchToRelayHint: "Przenieś grupę z powrotem do pokoju na serwerze.",
     upgrading: "Przełączanie…",
+    imageReady: "Obraz gotowy do wysłania",
+    voiceReady: "Wiadomość głosowa gotowa do wysłania",
   },
 };
