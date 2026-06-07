@@ -1,7 +1,7 @@
 import {
   getAuthToken,
   getServerUrl,
-  getSilentMode,
+  getConnectivityMode,
   setAuthToken,
   clearAuthToken,
 } from "./appStorage";
@@ -19,19 +19,18 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   return invoke<T>(cmd, args);
 }
 
-// Thrown by the upload egress points when silent mode is on. Kept as a named
-// export so callers (e.g. the config view) can recognise the blocked state.
-export const SILENT_MODE_ERROR = "Silent mode is on — connections are blocked.";
+// Thrown by egress points when the server is off (no-server / offline mode).
+export const SERVER_OFF_ERROR = "Server is off (no-server / offline mode).";
 
-// Thrown when a read is requested in silent mode but no local copy exists yet.
+// Thrown when a read is requested with the server off but no local copy exists.
 export const SILENT_NO_CACHE = "No offline copy of this data — connect once to download it.";
 
 // Thrown when no server address is set, so requests would otherwise hit the
 // local app origin and get HTML back ("Unexpected token '<'" JSON errors).
 export const NO_SERVER_ERROR = "No server configured — set a server address in Settings.";
 
-async function assertNotSilent(): Promise<void> {
-  if (await getSilentMode()) throw new Error(SILENT_MODE_ERROR);
+async function assertServerReachable(): Promise<void> {
+  if ((await getConnectivityMode()) !== "online") throw new Error(SERVER_OFF_ERROR);
 }
 
 // ── Offline response cache (SQLite via localDb) ───────────────────────────────
@@ -495,9 +494,9 @@ class ApiService {
     const scope = cacheScope(base);
     const isGet = method === "GET";
 
-    // Silent mode: serve reads from the local copy, block writes.
-    if (await getSilentMode()) {
-      if (!isGet) throw new Error(SILENT_MODE_ERROR);
+    // Server off (no-server / offline): serve reads from cache, block writes.
+    if ((await getConnectivityMode()) !== "online") {
+      if (!isGet) throw new Error(SERVER_OFF_ERROR);
       const cached = await cacheGet(scope, path);
       if (cached !== null) return JSON.parse(cached) as T;
       throw new Error(SILENT_NO_CACHE);
@@ -691,7 +690,7 @@ class ApiService {
 
   uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
     return new Promise(async (resolve, reject) => {
-      try { await assertNotSilent(); } catch (e) { reject(e); return; }
+      try { await assertServerReachable(); } catch (e) { reject(e); return; }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
@@ -858,7 +857,7 @@ class ApiService {
 
   uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
     return new Promise(async (resolve, reject) => {
-      try { await assertNotSilent(); } catch (e) { reject(e); return; }
+      try { await assertServerReachable(); } catch (e) { reject(e); return; }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
@@ -886,7 +885,7 @@ class ApiService {
     onProgress?: (pct: number) => void,
   ): Promise<{ ok: boolean }> {
     return new Promise(async (resolve, reject) => {
-      try { await assertNotSilent(); } catch (e) { reject(e); return; }
+      try { await assertServerReachable(); } catch (e) { reject(e); return; }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();

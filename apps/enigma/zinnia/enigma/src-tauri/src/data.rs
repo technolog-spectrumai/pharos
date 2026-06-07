@@ -18,7 +18,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::{active_config, load_profile_state, AppConfigState};
 
-pub const SILENT_WRITE_BLOCKED: &str = "Silent mode is on — connections are blocked.";
+pub const SERVER_OFF: &str = "Server is off (no-server / offline mode).";
 pub const SILENT_NO_CACHE: &str =
     "No offline copy of this data — connect once to download it.";
 pub const NO_SERVER: &str = "No server configured — set a server address in Settings.";
@@ -91,10 +91,10 @@ pub async fn data_http(
     let base = state.server_url.trim_end_matches('/').to_string();
     let is_get = method.eq_ignore_ascii_case("GET");
 
-    // Silent mode: serve reads from the local copy, block writes.
-    if state.silent_mode {
+    // Server off (no-server / offline): serve reads from the local copy, block writes.
+    if crate::server_blocked(&state) {
         if !is_get {
-            return Err(SILENT_WRITE_BLOCKED.to_string());
+            return Err(SERVER_OFF.to_string());
         }
         return cache_get(&data, &scope, &path).ok_or_else(|| SILENT_NO_CACHE.to_string());
     }
@@ -152,8 +152,8 @@ pub async fn data_upload(
 ) -> Result<String, String> {
     let cfg = active_config(&config)?;
     let state = load_profile_state(&app, &cfg);
-    if state.silent_mode {
-        return Err(SILENT_WRITE_BLOCKED.to_string());
+    if crate::server_blocked(&state) {
+        return Err(SERVER_OFF.to_string());
     }
     let base = state.server_url.trim_end_matches('/').to_string();
     if base.is_empty() {

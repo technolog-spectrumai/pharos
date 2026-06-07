@@ -11,12 +11,13 @@ import {
   getProfileState,
   getRuntimeConfig,
   getServerUrl,
-  getSilentMode,
+  getConnectivityMode,
   setActiveProfile,
   setServerUrl,
-  setSilentMode,
+  setConnectivityMode,
   type AppRuntimeConfig,
   type AppProfileState,
+  type ConnectivityMode,
 } from "../services/appStorage";
 import { chatTransport as wsService } from "../services/chatTransport";
 import OyaCard from "../components/OyaCard.vue";
@@ -49,20 +50,33 @@ async function changeLanguage(value: string) {
 const serverUrl = ref("");
 const saved = ref(false);
 
-// ── Silent mode ───────────────────────────────────────────────────────────────
-// When on, Enigma blocks every connection to the server (REST, uploads, chat).
-const silentMode = ref(false);
+// ── Connectivity mode ───────────────────────────────────────────────────────
+// online → normal; no_server → server off, P2P works; offline → everything off.
+const connectivity = ref<ConnectivityMode>("online");
 
-async function toggleSilentMode() {
-  silentMode.value = !silentMode.value;
-  await setSilentMode(silentMode.value);
-  if (silentMode.value) {
-    // Drop any live chat socket immediately and clear stale test results.
+async function setConnectivity(mode: ConnectivityMode) {
+  connectivity.value = mode;
+  await setConnectivityMode(mode);
+  if (mode !== "online") {
+    // Drop any live relay socket immediately and clear stale test results.
     wsService.disconnect();
     testStatus.value = "idle";
     testMessage.value = "";
   }
 }
+
+const connectivityOptions: { mode: ConnectivityMode; icon: string; label: string }[] = [
+  { mode: "online", icon: "satellite-dish", label: "config.online" },
+  { mode: "no_server", icon: "shield-halved", label: "config.noServerMode" },
+  { mode: "offline", icon: "lock", label: "config.offline" },
+];
+const connectivityHintKey = computed(() =>
+  connectivity.value === "offline"
+    ? "config.offlineModeHint"
+    : connectivity.value === "no_server"
+      ? "config.noServerHint"
+      : "config.onlineHint",
+);
 
 // ── Local browsing cache (SQLite) ──────────────────────────────────────────────
 const cacheCount = ref(0);
@@ -85,7 +99,7 @@ async function clearLocalCache() {
 onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
-  silentMode.value = await getSilentMode();
+  connectivity.value = await getConnectivityMode();
   await chatStore.loadTransportMode();
   await refreshCacheCount();
   await loadOfflineData();
@@ -111,9 +125,9 @@ const testMessage = ref("");
 const timeoutMs = ref(5000); // user-configurable timeout in ms
 
 async function testConnection() {
-  if (silentMode.value) {
+  if (connectivity.value !== "online") {
     testStatus.value = "error";
-    testMessage.value = t("config.silentBlocked");
+    testMessage.value = t("config.serverOffBlocked");
     return;
   }
   if (!serverUrl.value) {
@@ -431,41 +445,29 @@ async function clearSelectedOfflineData() {
         </OyaButton>
       </div>
 
-      <!-- Silent mode toggle -->
-      <div
-        :class="
-          silentMode
-            ? darkMode ? 'border-warn-dark/50 bg-warn-dark/10' : 'border-warn-light/50 bg-warn-light/10'
-            : darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'
-        "
-        class="flex items-center gap-3 rounded-lg border px-3 py-2 transition"
-      >
-        <font-awesome-icon
-          :icon="silentMode ? 'shield-halved' : 'satellite-dish'"
-          :class="silentMode ? 'text-warn-dark' : 'opacity-60'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.silentMode') }}</p>
-          <p class="mt-0.5 text-xs opacity-65">{{ $t('config.silentModeHint') }}</p>
+      <!-- Connectivity mode -->
+      <div class="space-y-2">
+        <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+          {{ $t('config.connectivity') }}
+        </p>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            v-for="opt in connectivityOptions"
+            :key="opt.mode"
+            type="button"
+            :class="
+              connectivity === opt.mode
+                ? darkMode ? 'border-accent-dark bg-primary-bg-dark' : 'border-accent-light bg-primary-bg-light'
+                : darkMode ? 'border-accent-1 hover:border-accent-dark' : 'border-accent-2 hover:border-accent-light'
+            "
+            class="flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-center transition"
+            @click="setConnectivity(opt.mode)"
+          >
+            <font-awesome-icon :icon="opt.icon" :class="connectivity === opt.mode ? '' : 'opacity-60'" />
+            <span class="text-xs font-semibold">{{ $t(opt.label) }}</span>
+          </button>
         </div>
-        <span class="shrink-0 text-xs font-semibold uppercase tracking-wide" :class="silentMode ? 'text-warn-dark' : 'opacity-40'">
-          {{ silentMode ? $t('config.silentOn') : $t('config.silentOff') }}
-        </span>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="silentMode"
-          :title="silentMode ? $t('config.silentOn') : $t('config.silentOff')"
-          :class="silentMode ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleSilentMode"
-        >
-          <span
-            :class="silentMode ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
+        <p class="text-xs opacity-65">{{ $t(connectivityHintKey) }}</p>
       </div>
 
       <!-- Local browsing cache -->
@@ -543,7 +545,7 @@ async function clearSelectedOfflineData() {
           <OyaButton
             :dark-mode="darkMode"
             variant="secondary"
-            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || silentMode }"
+            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || connectivity !== 'online' }"
             @click="testConnection"
           >
             <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />

@@ -69,8 +69,20 @@ pub struct AppProfileState {
     pub offline_profiles: Vec<OfflineProfileOption>,
     #[serde(default)]
     pub selected_offline_profile_id: String,
+    // Connectivity mode: "online" (default), "no_server" (server off, P2P ok),
+    // or "offline" (server and P2P off). Empty is treated as "online".
     #[serde(default)]
-    pub silent_mode: bool,
+    pub connectivity: String,
+}
+
+/// Server (HTTP + relay WS) is off in "no_server" and "offline" modes.
+pub(crate) fn server_blocked(state: &AppProfileState) -> bool {
+    matches!(state.connectivity.as_str(), "no_server" | "offline")
+}
+
+/// Peer-to-peer (iroh) is off only in "offline" mode.
+pub(crate) fn p2p_blocked(state: &AppProfileState) -> bool {
+    state.connectivity == "offline"
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -392,20 +404,21 @@ fn app_clear_auth_token(app: AppHandle, config: State<AppConfigState>) -> Result
 }
 
 #[tauri::command]
-fn app_get_silent_mode(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+fn app_get_connectivity(app: AppHandle, config: State<AppConfigState>) -> Result<String, String> {
     let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).silent_mode)
+    let mode = load_profile_state(&app, &config).connectivity;
+    Ok(if mode.is_empty() { "online".to_string() } else { mode })
 }
 
 #[tauri::command]
-fn app_set_silent_mode(
+fn app_set_connectivity(
     app: AppHandle,
     config: State<AppConfigState>,
-    silent: bool,
+    mode: String,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
-    state.silent_mode = silent;
+    state.connectivity = mode;
     save_profile_state(&app, &config, &state)
 }
 
@@ -944,8 +957,8 @@ pub fn run() {
             app_set_auth_token,
             app_get_auth_token,
             app_clear_auth_token,
-            app_get_silent_mode,
-            app_set_silent_mode,
+            app_get_connectivity,
+            app_set_connectivity,
             app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
