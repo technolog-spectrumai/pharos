@@ -20,6 +20,35 @@ export interface P2pRoomEntry {
   ticket: string;
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Downscale an image to keep P2P (gossip) messages reasonably small.
+ *  Falls back to the raw file on any error. */
+async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return blobToDataUrl(file);
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return blobToDataUrl(file);
+  }
+}
+
 export type MlsStatus =
   | "idle"
   | "initializing"
@@ -704,6 +733,11 @@ export const useChatStore = defineStore("chat", () => {
 
   async function joinParticipant() {
     if (!currentRoom.value) return;
+    // P2P rooms have no server-side participant list — you're already in.
+    if (transportMode.value === "direct") {
+      isParticipant.value = true;
+      return;
+    }
     const slug = currentRoom.value.slug;
     error.value = null;
     try {
@@ -721,6 +755,16 @@ export const useChatStore = defineStore("chat", () => {
 
   async function leaveParticipant() {
     if (!currentRoom.value) return;
+    // P2P room: leave locally (drop the gossip subscription) — no server channel.
+    if (transportMode.value === "direct") {
+      wsService.disconnect();
+      currentRoom.value = null;
+      messages.value = [];
+      participants.value = [];
+      isParticipant.value = false;
+      mlsStatus.value = "idle";
+      return;
+    }
     const slug = currentRoom.value.slug;
     mlsStatus.value = "idle";
     error.value = null;
@@ -737,31 +781,87 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  // Encrypt + broadcast a media payload as an MLS app message (used in P2P/direct
+  // mode, where there is no server to relay through). Mirrors sendMessage().
+  async function sendEncryptedMedia(innerType: string, payload: Record<string, unknown>) {
+    const ct = await cryptoService.encrypt(
+      currentRoom.value!.slug,
+      mlsIdentity.value,
+      JSON.stringify({ type: innerType, ...payload }),
+    );
+    if (!ct) throw new Error("Encryption failed");
+    wsService.send({
+      type: "mls_app",
+      ciphertext: bytesToBase64(ct),
+      device_id: mlsIdentity.value,
+      user: currentUserName.value,
+      sender_name: currentUserName.value,
+      sender_avatar_url: avatarForName(currentUserName.value),
+    });
+  }
+
   async function sendImage(file: File, onProgress?: (pct: number) => void) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
+
+    // Direct (P2P) mode: no server — send the image E2E-encrypted over gossip.
+    if (transportMode.value === "direct") {
+      if (mlsStatus.value !== "ready") {
+        messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+        return;
+      }
+      try {
+        const dataUrl = await downscaleImageToDataUrl(file);
+        await sendEncryptedMedia("image_message", { image_data: dataUrl });
+        messages.value.push({
+          id: nanoid(), type: "image_message", user: currentUserName.value,
+          initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value),
+          content: "", image_data: dataUrl, participant_type: "human", self: true,
+          encrypted: true, timestamp: new Date(),
+        });
+        onProgress?.(100);
+      } catch (e) {
+        error.value = errorMessage(e);
+      }
+      return;
+    }
+
+    // Relay mode: upload to the server, which relays it over the WebSocket.
     try {
       await api.uploadImage(currentRoom.value.slug, file, onProgress);
-      // Server relays the image via WebSocket to all channel members
     } catch (e) {
-      error.value = (e as Error).message;
+      error.value = errorMessage(e);
     }
   }
 
   async function sendAudio(audioBlob: Blob) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
+
+    // Direct (P2P) mode: send the voice note E2E-encrypted over gossip.
+    if (transportMode.value === "direct") {
+      if (mlsStatus.value !== "ready") {
+        messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+        return;
+      }
+      try {
+        const dataUrl = await blobToDataUrl(audioBlob);
+        await sendEncryptedMedia("voice_message", { audio_data: dataUrl });
+        messages.value.push({
+          id: nanoid(), type: "voice_message", user: currentUserName.value,
+          initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value),
+          content: "", audio_data: dataUrl, participant_type: "human", self: true,
+          encrypted: true, timestamp: new Date(),
+        });
+      } catch (e) {
+        error.value = errorMessage(e);
+      }
+      return;
+    }
+
+    // Relay mode: send a plaintext voice_message via the server WebSocket.
     try {
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const base64 = btoa(binary);
-      const mimeType = audioBlob.type || "audio/webm";
-      wsService.send({
-        type: "voice_message",
-        audio_data: `data:${mimeType};base64,${base64}`,
-      });
+      wsService.send({ type: "voice_message", audio_data: await blobToDataUrl(audioBlob) });
     } catch (e) {
       error.value = (e as Error).message;
     }
