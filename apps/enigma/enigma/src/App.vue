@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { RouterView, RouterLink, useRouter, useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "./stores/user";
@@ -10,8 +10,20 @@ import { applyProfileLocaleGuess } from "./i18n";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
+const missionMenuOpen = ref(false);   // desktop "Mission" dropdown
+const missionMobileOpen = ref(false); // mobile "Mission" collapsible
 const router = useRouter();
 const route = useRoute();
+
+// The "Mission" apps grouped under one app-bar entry. The dropdown label/icon
+// reflects whichever of these is currently open.
+const missionApps = [
+  { to: "/notes", icon: "sticky-note", label: "nav.notes" },
+  { to: "/tasks", icon: "list-check", label: "nav.tasks" },
+  { to: "/locations", icon: "location-dot", label: "nav.locations" },
+  { to: "/people", icon: "users", label: "nav.people" },
+] as const;
+const activeMission = computed(() => missionApps.find((m) => m.to === route.path) ?? null);
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
@@ -32,8 +44,12 @@ watch(me, (val) => {
   }
 });
 
-// Close menu on navigation
-watch(() => route.path, () => { menuOpen.value = false; });
+// Close menus on navigation
+watch(() => route.path, () => {
+  menuOpen.value = false;
+  missionMenuOpen.value = false;
+  missionMobileOpen.value = false;
+});
 
 async function handleLogout() {
   await api.logout();
@@ -67,25 +83,41 @@ async function handleLogout() {
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink to="/notes" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.notes')">
-            <font-awesome-icon icon="sticky-note" />
-            {{ $t('nav.notes') }}
-          </RouterLink>
+          <!-- Mission apps dropdown (notes / tasks / locations / people) -->
+          <div class="relative">
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 transition hover:opacity-70"
+              :class="activeMission ? 'font-semibold' : ''"
+              :title="$t('nav.mission')"
+              @click="missionMenuOpen = !missionMenuOpen"
+            >
+              <font-awesome-icon :icon="activeMission ? activeMission.icon : 'bullseye'" />
+              {{ activeMission ? $t(activeMission.label) : $t('nav.mission') }}
+              <font-awesome-icon icon="chevron-down" class="text-[10px] opacity-60" />
+            </button>
+            <div v-if="missionMenuOpen" class="fixed inset-0 z-40" @click="missionMenuOpen = false" />
+            <div
+              v-if="missionMenuOpen"
+              :class="darkMode ? 'bg-header-bg-dark border-accent-1' : 'bg-header-bg-light border-accent-2'"
+              class="absolute left-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-lg border shadow-xl"
+            >
+              <RouterLink
+                v-for="m in missionApps"
+                :key="m.to"
+                :to="m.to"
+                class="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:opacity-70"
+                @click="missionMenuOpen = false"
+              >
+                <font-awesome-icon :icon="m.icon" class="w-4 text-center" />
+                {{ $t(m.label) }}
+              </RouterLink>
+            </div>
+          </div>
+
           <RouterLink to="/vault" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.storage')">
             <font-awesome-icon icon="hard-drive" />
             {{ $t('nav.storage') }}
-          </RouterLink>
-          <RouterLink to="/tasks" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.tasks')">
-            <font-awesome-icon icon="list-check" />
-            {{ $t('nav.tasks') }}
-          </RouterLink>
-          <RouterLink to="/locations" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.locations')">
-            <font-awesome-icon icon="location-dot" />
-            {{ $t('nav.locations') }}
-          </RouterLink>
-          <RouterLink to="/people" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.people')">
-            <font-awesome-icon icon="users" />
-            {{ $t('nav.people') }}
           </RouterLink>
           <RouterLink to="/events" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.events')">
             <font-awesome-icon icon="calendar" />
@@ -177,25 +209,31 @@ async function handleLogout() {
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink to="/notes" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="sticky-note" class="w-4 text-center" />
-            {{ $t('nav.notes') }}
-          </RouterLink>
+          <!-- Mission apps (collapsible) -->
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-5 py-3.5 text-sm transition hover:opacity-70"
+            @click="missionMobileOpen = !missionMobileOpen"
+          >
+            <font-awesome-icon :icon="activeMission ? activeMission.icon : 'bullseye'" class="w-4 text-center" />
+            {{ activeMission ? $t(activeMission.label) : $t('nav.mission') }}
+            <font-awesome-icon :icon="missionMobileOpen ? 'chevron-up' : 'chevron-down'" class="ml-auto text-xs opacity-60" />
+          </button>
+          <template v-if="missionMobileOpen">
+            <RouterLink
+              v-for="m in missionApps"
+              :key="m.to"
+              :to="m.to"
+              class="flex items-center gap-3 py-3 pl-12 pr-5 text-sm transition hover:opacity-70"
+            >
+              <font-awesome-icon :icon="m.icon" class="w-4 text-center" />
+              {{ $t(m.label) }}
+            </RouterLink>
+          </template>
+
           <RouterLink to="/vault" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="hard-drive" class="w-4 text-center" />
             {{ $t('nav.storage') }}
-          </RouterLink>
-          <RouterLink to="/tasks" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="list-check" class="w-4 text-center" />
-            {{ $t('nav.tasks') }}
-          </RouterLink>
-          <RouterLink to="/locations" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="location-dot" class="w-4 text-center" />
-            {{ $t('nav.locations') }}
-          </RouterLink>
-          <RouterLink to="/people" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="users" class="w-4 text-center" />
-            {{ $t('nav.people') }}
           </RouterLink>
           <RouterLink to="/events" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="calendar" class="w-4 text-center" />
