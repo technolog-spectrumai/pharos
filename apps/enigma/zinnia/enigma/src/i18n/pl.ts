@@ -1,6 +1,7 @@
 export default {
   nav: {
     chat: "Czat",
+    mission: "Misja",
     notes: "Notatki",
     storage: "Pliki",
     tasks: "Zadania",
