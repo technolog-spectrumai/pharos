@@ -90,7 +90,7 @@ function clearPending() {
   }
 }
 
-onUnmounted(clearPending);
+onUnmounted(() => { clearPending(); void stopP2pScan(); });
 
 function stagePending(kind: "image" | "voice", data: File | Blob, label: string) {
   clearPending();
@@ -211,6 +211,56 @@ async function copyTicket(value: string) {
   } catch {
     /* clipboard unavailable */
   }
+}
+
+// ── Ticket QR: show the created ticket as a scannable QR code ──────────────────
+const qrDataUrl = ref("");
+watch(createdTicket, async (ticket) => {
+  if (!ticket) { qrDataUrl.value = ""; return; }
+  try {
+    const { toDataURL } = await import("qrcode");
+    qrDataUrl.value = await toDataURL(ticket, { errorCorrectionLevel: "L", margin: 1, width: 240 });
+  } catch (e) {
+    console.error("[p2p] QR generation failed:", e);
+    qrDataUrl.value = "";
+  }
+});
+
+// ── Join by scanning a QR code (camera) ───────────────────────────────────────
+const scanningP2p = ref(false);
+const scanP2pError = ref(""); // holds an i18n key
+let p2pScanner: any = null;
+
+async function startP2pScan() {
+  scanP2pError.value = "";
+  scanningP2p.value = true;
+  await nextTick();
+  try {
+    const { Html5Qrcode } = await import("html5-qrcode");
+    p2pScanner = new Html5Qrcode("p2p-qr-region");
+    await p2pScanner.start(
+      { facingMode: "environment" },
+      { fps: 12, qrbox: { width: 220, height: 220 } },
+      (decoded: string) => {
+        p2pTicket.value = decoded.trim();
+        void stopP2pScan();
+        void joinP2pRoom();
+      },
+      () => { /* per-frame decode noise — ignore */ },
+    );
+  } catch {
+    scanP2pError.value = "chat.cameraDenied";
+    scanningP2p.value = false;
+    p2pScanner = null;
+  }
+}
+
+async function stopP2pScan() {
+  if (p2pScanner) {
+    try { await p2pScanner.stop(); } catch { /* ignore */ }
+    p2pScanner = null;
+  }
+  scanningP2p.value = false;
 }
 
 watch(currentRoom, () => {
@@ -400,8 +450,15 @@ const mlsChipClass = computed(() => {
           </button>
         </div>
 
-        <div v-if="createdTicket" class="space-y-1">
+        <div v-if="createdTicket" class="space-y-1.5">
           <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t('chat.shareTicket') }}</p>
+          <img
+            v-if="qrDataUrl"
+            :src="qrDataUrl"
+            alt="Room QR code"
+            class="mx-auto h-44 w-44 rounded-lg bg-white p-2"
+          />
+          <p class="text-center text-[10px] opacity-50">{{ $t('chat.scanToJoin') }}</p>
           <div class="flex gap-2">
             <input
               :value="createdTicket"
@@ -432,6 +489,27 @@ const mlsChipClass = computed(() => {
           >
             {{ $t('chat.join') }}
           </button>
+          <button
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
+            :title="$t('chat.scanQr')"
+            @click="scanningP2p ? stopP2pScan() : startP2pScan()"
+          >
+            <font-awesome-icon :icon="scanningP2p ? 'xmark' : 'camera'" />
+          </button>
+        </div>
+
+        <!-- QR scanner (camera) for joining -->
+        <div v-if="scanningP2p" class="space-y-1">
+          <div id="p2p-qr-region" class="overflow-hidden rounded-lg border border-current/15"></div>
+          <div class="flex items-center gap-2">
+            <p v-if="scanP2pError" class="text-[10px] text-red-400">{{ $t(scanP2pError) }}</p>
+            <button
+              class="ml-auto text-xs underline opacity-70 hover:opacity-100"
+              @click="stopP2pScan"
+            >
+              {{ $t('common.cancel') }}
+            </button>
+          </div>
         </div>
 
         <div v-if="p2pRooms.length" class="space-y-1 pt-1">
