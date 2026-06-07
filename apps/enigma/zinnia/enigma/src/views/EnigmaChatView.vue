@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "../stores/chat";
@@ -66,6 +66,30 @@ const imageFileInput = ref<HTMLInputElement | null>(null);
 const uploadingImage = ref(false);
 const uploadProgress = ref(0);
 
+// ── Staged attachment (image/voice) — previewed above the composer, sent only
+// when the user presses Send, alongside any typed caption. ──────────────────────
+interface PendingAttachment {
+  kind: "image" | "voice";
+  data: File | Blob;
+  url: string; // object URL for the preview
+  label: string;
+}
+const pending = ref<PendingAttachment | null>(null);
+
+function clearPending() {
+  if (pending.value) {
+    URL.revokeObjectURL(pending.value.url); // wipe the preview from memory
+    pending.value = null;
+  }
+}
+
+onUnmounted(clearPending);
+
+function stagePending(kind: "image" | "voice", data: File | Blob, label: string) {
+  clearPending();
+  pending.value = { kind, data, url: URL.createObjectURL(data), label };
+}
+
 // ── Voice recording ───────────────────────────────────────────────────────────
 const isRecording = ref(false);
 const recordingSeconds = ref(0);
@@ -93,7 +117,7 @@ async function toggleVoiceRecording() {
         const bytes: number[] = await _invoke("audio_stop_recording");
         if (bytes.length > 0 && currentRoom.value) {
           const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
-          chat.sendAudio(blob).catch(() => {});
+          stagePending("voice", blob, `Voice message · ${recordingLabel()}`);
         }
       } catch (e) { console.error("[voice] stop failed:", e); }
     } else {
@@ -121,7 +145,7 @@ async function toggleVoiceRecording() {
         isRecording.value = false;
         if (recordingChunks.length === 0 || !currentRoom.value) return;
         const blob = new Blob(recordingChunks, { type: mr.mimeType || mimeType || "audio/webm" });
-        chat.sendAudio(blob).catch(() => {});
+        stagePending("voice", blob, `Voice message · ${recordingLabel()}`);
       };
       mr.start();
       mediaRecorder = mr;
@@ -196,15 +220,42 @@ function scrollToBottom() {
 
 watch(messages, scrollToBottom, { deep: true });
 
-function send() {
-  if (!currentRoom.value) return;
-  if (!isConnected.value) return;
-  if (!isParticipant.value) return;
-  if (mlsStatus.value !== "ready") return;
-  if (!draft.value.trim()) return;
+const canSend = computed(
+  () =>
+    !!currentRoom.value &&
+    isConnected.value &&
+    isParticipant.value &&
+    mlsStatus.value === "ready" &&
+    (!!draft.value.trim() || !!pending.value),
+);
 
-  chat.sendMessage(draft.value);
-  draft.value = "";
+async function send() {
+  if (!canSend.value) return;
+  const text = draft.value.trim();
+  const att = pending.value;
+
+  // Send the staged attachment first (if any), then the typed caption.
+  if (att) {
+    pending.value = null; // hide the preview box immediately
+    try {
+      if (att.kind === "image") {
+        uploadingImage.value = true;
+        uploadProgress.value = 0;
+        await chat.sendImage(att.data as File, (pct) => { uploadProgress.value = pct; });
+      } else {
+        await chat.sendAudio(att.data as Blob);
+      }
+    } finally {
+      uploadingImage.value = false;
+      uploadProgress.value = 0;
+      URL.revokeObjectURL(att.url); // wipe from memory once sent
+    }
+  }
+
+  if (text) {
+    chat.sendMessage(text);
+    draft.value = "";
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -214,18 +265,11 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-async function handleImageFile(e: Event) {
+function handleImageFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
+  if (imageFileInput.value) imageFileInput.value.value = ""; // allow re-picking the same file
   if (!file) return;
-  uploadingImage.value = true;
-  uploadProgress.value = 0;
-  try {
-    await chat.sendImage(file, (pct) => { uploadProgress.value = pct; });
-  } finally {
-    uploadingImage.value = false;
-    uploadProgress.value = 0;
-    if (imageFileInput.value) imageFileInput.value.value = "";
-  }
+  stagePending("image", file, file.name); // stage for preview; sent on Send
 }
 
 async function handleJoin() {
@@ -694,6 +738,34 @@ const mlsChipClass = computed(() => {
         :class="darkMode ? 'bg-bubble-bg-dark' : 'bg-bubble-bg-light'"
         class="border-t border-current/10 p-4"
       >
+        <!-- Staged attachment preview (sent only on Send) -->
+        <div
+          v-if="pending"
+          :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+          class="mb-2 flex items-center gap-3 rounded-lg border px-3 py-2"
+        >
+          <img
+            v-if="pending.kind === 'image'"
+            :src="pending.url"
+            alt=""
+            class="h-12 w-12 shrink-0 rounded object-cover"
+          />
+          <audio v-else :src="pending.url" controls class="h-9 min-w-0 max-w-[220px]" />
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-xs font-semibold">
+              {{ pending.kind === 'image' ? $t('chat.imageReady') : $t('chat.voiceReady') }}
+            </p>
+            <p class="truncate text-[11px] opacity-60">{{ pending.label }}</p>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-semibold transition hover:opacity-80"
+            @click="clearPending"
+          >
+            <font-awesome-icon icon="xmark" class="mr-1" />{{ $t('common.cancel') }}
+          </button>
+        </div>
+
         <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">
           <span>Uploading…</span>
           <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-current/20">
@@ -820,11 +892,8 @@ const mlsChipClass = computed(() => {
           <OyaButton
             :dark-mode="darkMode"
             :type="'button'"
-            :disabled="!currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready' || !draft.trim()"
-            :class="{
-              'opacity-40 cursor-not-allowed':
-                !currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready' || !draft.trim(),
-            }"
+            :disabled="!canSend"
+            :class="{ 'opacity-40 cursor-not-allowed': !canSend }"
             @click="send"
           >
             <font-awesome-icon icon="paper-plane" />
