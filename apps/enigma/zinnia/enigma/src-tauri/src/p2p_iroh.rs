@@ -85,7 +85,11 @@ async fn ensure_started(state: &P2pState) -> Result<()> {
         .bind()
         .await
         .map_err(|e| anyhow!("iroh bind failed: {e}"))?;
-    let gossip = Gossip::builder().spawn(endpoint.clone());
+    // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
+    // and voice notes fit in a single broadcast.
+    let gossip = Gossip::builder()
+        .max_message_size(16 * 1024 * 1024)
+        .spawn(endpoint.clone());
     let router = Router::builder(endpoint.clone())
         .accept(GOSSIP_ALPN, gossip.clone())
         .spawn();
