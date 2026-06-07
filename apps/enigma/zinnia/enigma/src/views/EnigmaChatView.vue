@@ -42,6 +42,13 @@ const {
 
 function forceResetMls() { return chat.forceResetMls(); }
 
+// Per-room transport mode switch in the header: relay ⇄ p2p (in-place upgrade/downgrade).
+function setRoomTransport(target: "relay" | "p2p") {
+  if (upgrading.value || target === roomTransport.value) return;
+  if (target === "p2p") chat.upgradeRoomToP2p();
+  else chat.downgradeRoomToRelay();
+}
+
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
@@ -165,7 +172,7 @@ function recordingLabel() {
 }
 
 onMounted(async () => {
-  await chat.loadConnectivity();
+  await chat.loadChatMode();
   if (serverMode.value) {
     if (!rooms.value.length) chat.fetchRooms();
   } else {
@@ -526,94 +533,79 @@ const mlsChipClass = computed(() => {
 
         <!-- Actions row (desktop): chips + buttons wrap responsively -->
         <div v-if="currentRoom" class="hidden flex-wrap items-center gap-2 sm:flex">
-        <!-- Encryption chip desktop -->
-        <span
-          v-if="currentRoom && isParticipant"
-          :class="mlsChipClass"
-          :title="mlsError ?? undefined"
-          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-        >
-          <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />
-          {{ mlsLabel }}
-        </span>
-
-        <!-- Transport badge + Switch to P2P (desktop) -->
-        <span
-          v-if="currentRoom && isParticipant"
-          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm"
-        >
-          <font-awesome-icon :icon="roomTransport === 'p2p' ? 'circle-nodes' : 'satellite-dish'" />
-          {{ roomTransport === 'p2p' ? $t('chat.p2pBadge') : $t('chat.relayBadge') }}
-        </span>
-
-        <button
-          v-if="currentRoom && isParticipant && roomTransport === 'relay'"
-          :disabled="!isEncrypted || !!upgrading"
-          :class="(!isEncrypted || upgrading)
-            ? 'opacity-50 cursor-not-allowed border-accent-1'
-            : (darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100')"
-          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-          :title="$t('chat.switchToP2pHint')"
-          @click="chat.upgradeRoomToP2p()"
-        >
-          <font-awesome-icon icon="circle-nodes" />
-          {{ upgrading ? $t('chat.upgrading') : $t('chat.switchToP2p') }}
-        </button>
-
-        <button
-          v-if="currentRoom && isParticipant && canFallbackToRelay"
-          :disabled="!isEncrypted || !!upgrading"
-          :class="(!isEncrypted || upgrading)
-            ? 'opacity-50 cursor-not-allowed border-accent-1'
-            : (darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100')"
-          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-          :title="$t('chat.switchToRelayHint')"
-          @click="chat.downgradeRoomToRelay()"
-        >
-          <font-awesome-icon icon="satellite-dish" />
-          {{ upgrading ? $t('chat.upgrading') : $t('chat.switchToRelay') }}
-        </button>
-
-        <!-- Reset session button — always visible for participants -->
-        <button
-          v-if="currentRoom && isParticipant"
-          @click="forceResetMls()"
-          :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error')
-            ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
-            : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-100' : 'border-accent-2 opacity-60 hover:opacity-100')"
-          class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-          title="Reset encryption session — clears history and renegotiates keys for all participants"
-        >
-          <font-awesome-icon icon="rotate-right" />
-          Reset session
-        </button>
-
-        <!-- Connection chip desktop -->
-        <span
-          v-if="currentRoom && isParticipant"
-          :class="wsChipClass"
-          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-        >
-          <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />
-          {{ wsLabel }}
-        </span>
-
-        <!-- Join / Leave button desktop -->
-        <template v-if="currentRoom">
-          <OyaButton
-            v-if="!isParticipant"
-            :dark-mode="darkMode"
-            :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }"
-            class="inline-flex"
-            @click="handleJoin"
+        <template v-if="isParticipant">
+          <!-- Transport mode switch (relay ⇄ p2p, this room) -->
+          <div
+            v-if="upgrading"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-current/15 px-3 py-2 text-xs font-bold opacity-70"
           >
-            <font-awesome-icon icon="right-to-bracket" />
-            Join
-          </OyaButton>
-
-          <OyaButton
+            <font-awesome-icon icon="spinner" spin />
+            {{ $t('chat.upgrading') }}
+          </div>
+          <div
             v-else
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            class="inline-flex items-center rounded-lg border p-0.5 text-xs font-bold"
+            :title="$t('chat.modeSwitchHint')"
+          >
+            <button
+              type="button"
+              :disabled="roomTransport === 'p2p' && !canFallbackToRelay"
+              :class="roomTransport === 'relay'
+                ? (darkMode ? 'bg-primary-bg-dark' : 'bg-primary-bg-light')
+                : 'opacity-50'"
+              class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition enabled:hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+              @click="setRoomTransport('relay')"
+            >
+              <font-awesome-icon icon="satellite-dish" />{{ $t('chat.relayBadge') }}
+            </button>
+            <button
+              type="button"
+              :disabled="roomTransport === 'relay' && !isEncrypted"
+              :class="roomTransport === 'p2p'
+                ? (darkMode ? 'bg-primary-bg-dark' : 'bg-primary-bg-light')
+                : 'opacity-50'"
+              class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition enabled:hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+              @click="setRoomTransport('p2p')"
+            >
+              <font-awesome-icon icon="circle-nodes" />{{ $t('chat.p2pBadge') }}
+            </button>
+          </div>
+
+          <!-- Encryption chip -->
+          <span
+            :class="mlsChipClass"
+            :title="mlsError ?? undefined"
+            class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          >
+            <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />
+            {{ mlsLabel }}
+          </span>
+
+          <!-- Connection chip -->
+          <span
+            :class="wsChipClass"
+            class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+          >
+            <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />
+            {{ wsLabel }}
+          </span>
+
+          <!-- Reset session (icon only) -->
+          <button
+            type="button"
+            :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error')
+              ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+              : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-100' : 'border-accent-2 opacity-60 hover:opacity-100')"
+            class="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-xs shadow-sm transition"
+            title="Reset encryption session — clears history and renegotiates keys"
+            @click="forceResetMls()"
+          >
+            <font-awesome-icon icon="rotate-right" />
+          </button>
+
+          <!-- Leave -->
+          <OyaButton
             :dark-mode="darkMode"
             variant="secondary"
             :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }"
@@ -624,6 +616,18 @@ const mlsChipClass = computed(() => {
             Leave
           </OyaButton>
         </template>
+
+        <!-- Join (observer) -->
+        <OyaButton
+          v-else
+          :dark-mode="darkMode"
+          :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }"
+          class="inline-flex"
+          @click="handleJoin"
+        >
+          <font-awesome-icon icon="right-to-bracket" />
+          Join
+        </OyaButton>
         </div>
       </header>
 

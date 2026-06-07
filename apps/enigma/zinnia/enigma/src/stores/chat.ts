@@ -5,9 +5,10 @@ import { chatTransport as wsService, type WsStatus } from "../services/chatTrans
 import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
 import {
   getRuntimeConfig,
-  getConnectivityMode,
+  getChatMode,
+  setChatMode as persistChatMode,
   type AppRuntimeConfig,
-  type ConnectivityMode,
+  type ChatMode,
 } from "../services/appStorage";
 import { kvGet, kvPut } from "../services/localDb";
 import { nanoid } from "nanoid";
@@ -117,13 +118,23 @@ export const useChatStore = defineStore("chat", () => {
   const relayOrigin = ref<{ slug: string; name: string } | null>(null);
   const canFallbackToRelay = computed(() => roomTransport.value === "p2p" && !!relayOrigin.value);
 
-  // Chat mode is inferred from connectivity (no separate setting):
-  //   online              → server (relay) rooms, with per-room P2P upgrade
-  //   no_server / offline → P2P rooms (there is no server to reach)
-  const connectivity = ref<ConnectivityMode>("online");
-  const serverMode = computed(() => connectivity.value === "online");
-  async function loadConnectivity() {
-    connectivity.value = await getConnectivityMode();
+  // Explicit chat mode: "relay" = server rooms, "p2p" = peer-to-peer rooms.
+  const chatMode = ref<ChatMode>("relay");
+  const serverMode = computed(() => chatMode.value === "relay");
+  async function loadChatMode() {
+    chatMode.value = await getChatMode();
+  }
+  async function setChatMode(mode: ChatMode) {
+    if (mode === chatMode.value) return;
+    chatMode.value = mode;
+    await persistChatMode(mode);
+    // Drop the current room so the next one uses the chosen mode.
+    wsService.disconnect();
+    currentRoom.value = null;
+    messages.value = [];
+    participants.value = [];
+    isParticipant.value = false;
+    mlsStatus.value = "idle";
   }
 
   const isConnected = computed(() => wsStatus.value === "connected");
@@ -1171,8 +1182,8 @@ export const useChatStore = defineStore("chat", () => {
     forceResetMls,
     // P2P (iroh) rooms
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
-    // chat mode inferred from connectivity (online = server, else = P2P)
-    connectivity, serverMode, loadConnectivity,
+    // chat mode (relay = server, p2p = peer-to-peer)
+    chatMode, serverMode, loadChatMode, setChatMode,
     // per-room transport + relay↔P2P switch
     roomTransport, upgrading, upgradeRoomToP2p,
     canFallbackToRelay, downgradeRoomToRelay,

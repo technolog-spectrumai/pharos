@@ -75,14 +75,10 @@ pub struct AppProfileState {
     pub connectivity: String,
 }
 
-/// Server (HTTP + relay WS) is off in "no_server" and "offline" modes.
+/// Server (HTTP + relay WS) is off when silent mode is on ("offline").
+/// P2P is never gated by this — only the server is.
 pub(crate) fn server_blocked(state: &AppProfileState) -> bool {
     matches!(state.connectivity.as_str(), "no_server" | "offline")
-}
-
-/// Peer-to-peer (iroh) is off only in "offline" mode.
-pub(crate) fn p2p_blocked(state: &AppProfileState) -> bool {
-    state.connectivity == "offline"
 }
 
 // ── In-process session registry ───────────────────────────────────────────────

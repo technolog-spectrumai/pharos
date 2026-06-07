@@ -11,13 +11,12 @@ import {
   getProfileState,
   getRuntimeConfig,
   getServerUrl,
-  getConnectivityMode,
+  getSilentMode,
   setActiveProfile,
   setServerUrl,
-  setConnectivityMode,
+  setSilentMode,
   type AppRuntimeConfig,
   type AppProfileState,
-  type ConnectivityMode,
 } from "../services/appStorage";
 import { chatTransport as wsService } from "../services/chatTransport";
 import OyaCard from "../components/OyaCard.vue";
@@ -50,38 +49,24 @@ async function changeLanguage(value: string) {
 const serverUrl = ref("");
 const saved = ref(false);
 
-// ── Connectivity mode ───────────────────────────────────────────────────────
-// online → normal; no_server → server off, P2P works; offline → everything off.
-const connectivity = ref<ConnectivityMode>("online");
-
-async function setConnectivity(mode: ConnectivityMode) {
-  connectivity.value = mode;
-  await setConnectivityMode(mode);
-  if (mode === "offline") {
-    // Drop everything — server AND any P2P room.
-    wsService.disconnect();
-  } else if (mode === "no_server") {
-    // Drop only the server relay; keep P2P chats alive so you can still type.
+// ── Silent mode (online / offline) ──────────────────────────────────────────
+const silentMode = ref(false);
+async function toggleSilentMode() {
+  silentMode.value = !silentMode.value;
+  await setSilentMode(silentMode.value);
+  if (silentMode.value) {
+    // Drop the server relay; P2P chats stay alive.
     wsService.disconnectRelay();
-  }
-  if (mode !== "online") {
     testStatus.value = "idle";
     testMessage.value = "";
   }
 }
 
-const connectivityOptions: { mode: ConnectivityMode; icon: string; label: string }[] = [
-  { mode: "online", icon: "satellite-dish", label: "config.online" },
-  { mode: "no_server", icon: "shield-halved", label: "config.noServerMode" },
-  { mode: "offline", icon: "lock", label: "config.offline" },
-];
-const connectivityHintKey = computed(() =>
-  connectivity.value === "offline"
-    ? "config.offlineModeHint"
-    : connectivity.value === "no_server"
-      ? "config.noServerHint"
-      : "config.onlineHint",
-);
+// ── Chat mode (relay / p2p) ──────────────────────────────────────────────────
+const chatModeP2p = computed(() => chatStore.chatMode === "p2p");
+function toggleChatMode() {
+  chatStore.setChatMode(chatStore.chatMode === "p2p" ? "relay" : "p2p");
+}
 
 // ── Local browsing cache (SQLite) ──────────────────────────────────────────────
 const cacheCount = ref(0);
@@ -104,7 +89,8 @@ async function clearLocalCache() {
 onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
-  connectivity.value = await getConnectivityMode();
+  silentMode.value = await getSilentMode();
+  await chatStore.loadChatMode();
   await refreshCacheCount();
   await loadOfflineData();
 });
@@ -129,7 +115,7 @@ const testMessage = ref("");
 const timeoutMs = ref(5000); // user-configurable timeout in ms
 
 async function testConnection() {
-  if (connectivity.value !== "online") {
+  if (silentMode.value) {
     testStatus.value = "error";
     testMessage.value = t("config.serverOffBlocked");
     return;
@@ -390,29 +376,62 @@ async function clearSelectedOfflineData() {
         </OyaButton>
       </div>
 
-      <!-- Connectivity mode -->
-      <div class="space-y-2">
-        <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
-          {{ $t('config.connectivity') }}
-        </p>
-        <div class="grid grid-cols-3 gap-2">
-          <button
-            v-for="opt in connectivityOptions"
-            :key="opt.mode"
-            type="button"
-            :class="
-              connectivity === opt.mode
-                ? darkMode ? 'border-accent-dark bg-primary-bg-dark' : 'border-accent-light bg-primary-bg-light'
-                : darkMode ? 'border-accent-1 hover:border-accent-dark' : 'border-accent-2 hover:border-accent-light'
-            "
-            class="flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-center transition"
-            @click="setConnectivity(opt.mode)"
-          >
-            <font-awesome-icon :icon="opt.icon" :class="connectivity === opt.mode ? '' : 'opacity-60'" />
-            <span class="text-xs font-semibold">{{ $t(opt.label) }}</span>
-          </button>
+      <!-- Silent mode switch (online / offline) -->
+      <div class="flex items-center gap-3">
+        <font-awesome-icon
+          :icon="silentMode ? 'shield-halved' : 'satellite-dish'"
+          :class="silentMode ? 'text-warn-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.silentMode') }}</p>
+          <p class="text-xs opacity-60">
+            {{ silentMode ? $t('config.silentOnHint') : $t('config.silentOffHint') }}
+          </p>
         </div>
-        <p class="text-xs opacity-65">{{ $t(connectivityHintKey) }}</p>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="silentMode"
+          :class="silentMode ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleSilentMode"
+        >
+          <span
+            :class="silentMode ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+
+      <!-- Chat mode switch (relay / p2p) -->
+      <div class="flex items-center gap-3">
+        <font-awesome-icon
+          :icon="chatModeP2p ? 'circle-nodes' : 'satellite-dish'"
+          class="shrink-0 opacity-60"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.chatMode') }}</p>
+          <p class="text-xs opacity-60">
+            {{ chatModeP2p ? $t('config.chatModeP2pHint') : $t('config.chatModeRelayHint') }}
+          </p>
+        </div>
+        <span class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
+          {{ chatModeP2p ? $t('chat.p2pBadge') : $t('chat.relayBadge') }}
+        </span>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="chatModeP2p"
+          :class="chatModeP2p ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleChatMode"
+        >
+          <span
+            :class="chatModeP2p ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
       </div>
 
       <!-- Local browsing cache -->
@@ -490,7 +509,7 @@ async function clearSelectedOfflineData() {
           <OyaButton
             :dark-mode="darkMode"
             variant="secondary"
-            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || connectivity !== 'online' }"
+            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || silentMode }"
             @click="testConnection"
           >
             <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />
