@@ -263,6 +263,26 @@ async function stopP2pScan() {
   scanningP2p.value = false;
 }
 
+// ── Join by uploading a QR code image ─────────────────────────────────────────
+const p2pFileInput = ref<HTMLInputElement | null>(null);
+
+async function scanP2pFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (p2pFileInput.value) p2pFileInput.value.value = ""; // allow re-picking same file
+  if (!file) return;
+  scanP2pError.value = "";
+  try {
+    const { Html5Qrcode } = await import("html5-qrcode");
+    const reader = new Html5Qrcode("p2p-qr-file-region");
+    const decoded: string = await reader.scanFile(file, false);
+    try { await reader.clear(); } catch { /* ignore */ }
+    p2pTicket.value = decoded.trim();
+    await joinP2pRoom();
+  } catch {
+    scanP2pError.value = "chat.qrNotFound";
+  }
+}
+
 watch(currentRoom, () => {
   sidebarOpen.value = false;
 });
@@ -496,21 +516,38 @@ const mlsChipClass = computed(() => {
           >
             <font-awesome-icon :icon="scanningP2p ? 'xmark' : 'camera'" />
           </button>
+          <button
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
+            :title="$t('chat.uploadQr')"
+            @click="p2pFileInput?.click()"
+          >
+            <font-awesome-icon icon="image" />
+          </button>
+          <input
+            ref="p2pFileInput"
+            type="file"
+            accept="image/*"
+            class="hidden"
+            @change="scanP2pFile"
+          />
         </div>
 
         <!-- QR scanner (camera) for joining -->
         <div v-if="scanningP2p" class="space-y-1">
           <div id="p2p-qr-region" class="overflow-hidden rounded-lg border border-current/15"></div>
-          <div class="flex items-center gap-2">
-            <p v-if="scanP2pError" class="text-[10px] text-red-400">{{ $t(scanP2pError) }}</p>
-            <button
-              class="ml-auto text-xs underline opacity-70 hover:opacity-100"
-              @click="stopP2pScan"
-            >
-              {{ $t('common.cancel') }}
-            </button>
-          </div>
+          <button
+            class="text-xs underline opacity-70 hover:opacity-100"
+            @click="stopP2pScan"
+          >
+            {{ $t('common.cancel') }}
+          </button>
         </div>
+
+        <!-- Decode error (camera denied / no QR in image) -->
+        <p v-if="scanP2pError" class="text-[10px] text-red-400">{{ $t(scanP2pError) }}</p>
+
+        <!-- Hidden region used by html5-qrcode to decode uploaded images -->
+        <div id="p2p-qr-file-region" class="hidden"></div>
 
         <div v-if="p2pRooms.length" class="space-y-1 pt-1">
           <button
