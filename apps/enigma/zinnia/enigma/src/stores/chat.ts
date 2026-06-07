@@ -1,4 +1,4 @@
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { defineStore } from "pinia";
 import { api, type Room, type Participant } from "../services/api";
 import { chatTransport as wsService, type WsStatus } from "../services/chatTransport";
@@ -149,22 +149,80 @@ export const useChatStore = defineStore("chat", () => {
     return participantForName(name)?.avatar_url ?? null;
   }
 
-  // The current user, for P2P rosters (server rooms get this from the server).
+  // In P2P there's no server name — fall back to the device id (e.g. alice/bob).
+  function displayName(): string {
+    return currentUserName.value !== "You" ? currentUserName.value : mlsIdentity.value;
+  }
+
+  // The current user, for the roster.
   function selfParticipant(): Participant {
     return {
-      name: currentUserName.value,
+      id: mlsIdentity.value,
+      name: displayName(),
       avatar_url: avatarForName(currentUserName.value) ?? "",
       type: "human",
     };
   }
 
-  // P2P rooms have no server-provided roster — learn peers from their messages.
-  function notePeer(name?: string | null, avatar?: string | null): void {
-    if (!name || name === currentUserName.value) return;
-    if (!participants.value.some((p) => p.name === name)) {
-      participants.value.push({ name, avatar_url: avatar ?? "", type: "human" });
-    }
+  // Display names/avatars for P2P peers, learned from presence (device_id → info).
+  const presenceById = new Map<string, { name: string; avatar: string }>();
+
+  /** Rebuild the P2P roster from the authenticated MLS membership, with display
+   *  names/avatars from presence. The MLS group is the source of truth for *who*
+   *  is in the room — no server involved. */
+  async function refreshP2pRoster() {
+    if (roomTransport.value !== "p2p" || !currentRoom.value) return;
+    const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
+    const source = ids.length ? ids : [mlsIdentity.value];
+    const list: Participant[] = source.map((id) => {
+      if (id === mlsIdentity.value) return selfParticipant();
+      const info = presenceById.get(id);
+      return { id, name: info?.name || id, avatar_url: info?.avatar || "", type: "human" as const };
+    });
+    participants.value = list;
+    currentRoom.value = { ...currentRoom.value, participant_count: list.length };
   }
+
+  /** Announce ourselves (and optionally reply to a newcomer) over the encrypted
+   *  channel so peers can show a friendly name instead of the raw device id. */
+  async function announcePresence(reply = false) {
+    if (roomTransport.value !== "p2p" || mlsStatus.value !== "ready") return;
+    await sendEncryptedMedia("presence", {
+      device_id: mlsIdentity.value,
+      name: displayName(),
+      avatar: avatarForName(currentUserName.value) ?? "",
+      reply,
+    }).catch(() => {});
+  }
+
+  /** A peer announced they're leaving: drop their name and, if we're the admin,
+   *  remove them from the MLS group so the authenticated roster shrinks. */
+  async function handlePeerLeave(deviceId: string) {
+    presenceById.delete(deviceId);
+    if (roomTransport.value !== "p2p" || !currentRoom.value) {
+      return;
+    }
+    const room = currentRoom.value.slug;
+    const ids = await cryptoService.members(room, mlsIdentity.value);
+    if (ids.includes(deviceId)) {
+      // Lowest remaining device id is the admin and issues the remove commit.
+      const admin = ids.filter((id) => id !== deviceId).slice().sort()[0];
+      if (admin === mlsIdentity.value) {
+        const commit = await cryptoService.removeMember(room, mlsIdentity.value, deviceId);
+        if (commit) wsService.send({ type: "mls_commit", commit: bytesToBase64(commit) });
+      }
+    }
+    await refreshP2pRoster();
+  }
+
+  // When the P2P group becomes ready (or re-keys), announce ourselves and rebuild
+  // the roster from the authenticated MLS membership.
+  watch(mlsStatus, (status) => {
+    if (status === "ready" && roomTransport.value === "p2p") {
+      void announcePresence(false);
+      void refreshP2pRoster();
+    }
+  });
 
   function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -336,7 +394,6 @@ export const useChatStore = defineStore("chat", () => {
     // Accept both "key_package" (Enigma) and "package" (browser) field names
     const rawKp = (data.key_package ?? data.package) as string | undefined;
     if (type === "mls_key_package" && rawKp) {
-      notePeer(data.user as string);
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
       const canAdd = (mlsStatus.value === "ready" || mlsStatus.value === "key_exchange")
                      && currentRoom.value
@@ -390,6 +447,7 @@ export const useChatStore = defineStore("chat", () => {
           });
           log("Sent welcome + commit to", deviceId);
           messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          void refreshP2pRoster(); // a member was added
         } else {
           log("addMember failed for", deviceId);
           pendingInvites.delete(deviceId);
@@ -432,6 +490,7 @@ export const useChatStore = defineStore("chat", () => {
             currentRoom.value.slug, mlsIdentity.value,
             base64ToBytes(data.commit as string),
           );
+          void refreshP2pRoster(); // membership may have changed (add/remove)
         } catch (e) {
           console.error("[crypto] process commit failed:", e);
           if (isGroupMismatch(e)) {
@@ -452,7 +511,6 @@ export const useChatStore = defineStore("chat", () => {
         return;
       }
       const senderName = (data.sender_name as string) || (data.user as string) || (data.device_id as string) || "Unknown";
-      notePeer(senderName, data.sender_avatar_url as string);
       const sender = participantForName(senderName);
 
       if (mlsStatus.value === "ready" && currentRoom.value) {
@@ -481,6 +539,25 @@ export const useChatStore = defineStore("chat", () => {
           const isSelf = senderName === currentUserName.value || data.device_id === mlsIdentity.value;
           let inner: Record<string, unknown> | null = null;
           try { inner = JSON.parse(text); } catch (_) {}
+
+          if (inner?.type === "presence" && inner.device_id) {
+            const id = inner.device_id as string;
+            if (id !== mlsIdentity.value) {
+              presenceById.set(id, {
+                name: (inner.name as string) || id,
+                avatar: (inner.avatar as string) || "",
+              });
+              void refreshP2pRoster();
+              // Reply once so the newcomer learns our name (avoid reply storms).
+              if (!inner.reply) void announcePresence(true);
+            }
+            return;
+          }
+
+          if (inner?.type === "leave" && inner.device_id) {
+            void handlePeerLeave(inner.device_id as string);
+            return;
+          }
 
           if (inner?.type === "p2p_upgrade" && inner.ticket) {
             // Group member shared the P2P room address over the encrypted relay
@@ -665,10 +742,11 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function enterP2pRoom(room: string, name: string) {
+    presenceById.clear();
     currentRoom.value = makeP2pRoom(room, name);
     roomTransport.value = "p2p";
     relayOrigin.value = null; // native P2P room — no relay to fall back to
-    participants.value = [selfParticipant()]; // P2P roster starts with yourself
+    participants.value = [selfParticipant()]; // roster fills from MLS once 🔒
     isParticipant.value = true;
     mlsStatus.value = "idle";
     mlsError.value = null;
@@ -730,6 +808,7 @@ export const useChatStore = defineStore("chat", () => {
     roomTransport.value = "relay";
     upgrading.value = null;
     relayOrigin.value = null;
+    presenceById.clear();
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
@@ -781,6 +860,11 @@ export const useChatStore = defineStore("chat", () => {
     if (!currentRoom.value) return;
     // P2P room: leave locally (drop the gossip subscription) — no server channel.
     if (roomTransport.value === "p2p") {
+      // Tell the group we're leaving so the admin removes us from the MLS roster.
+      if (mlsStatus.value === "ready") {
+        await sendEncryptedMedia("leave", { device_id: mlsIdentity.value }).catch(() => {});
+      }
+      presenceById.clear();
       wsService.disconnect();
       currentRoom.value = null;
       messages.value = [];
@@ -973,6 +1057,7 @@ export const useChatStore = defineStore("chat", () => {
     mlsError.value = null;
     pendingInvites.clear();
     clearCreatorTimer();
+    presenceById.clear();
     participants.value = [selfParticipant()];
     currentRoom.value = makeP2pRoom(room, label);
     roomTransport.value = "p2p";
@@ -1014,6 +1099,7 @@ export const useChatStore = defineStore("chat", () => {
   async function finishDowngrade(slug: string, name: string) {
     const p2pRoom = currentRoom.value?.slug;
     if (p2pRoom) wsService.leaveRoom(p2pRoom); // drop the gossip subscription
+    presenceById.clear();
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
