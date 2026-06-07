@@ -34,6 +34,7 @@ const {
   isEncrypted,
   isParticipant,
   p2pRooms,
+  transportMode,
 } = storeToRefs(chat);
 
 function forceResetMls() { return chat.forceResetMls(); }
@@ -136,9 +137,13 @@ function recordingLabel() {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-onMounted(() => {
-  if (!rooms.value.length) chat.fetchRooms();
-  chat.loadP2pRooms();
+onMounted(async () => {
+  await chat.loadTransportMode();
+  if (transportMode.value === "relay") {
+    if (!rooms.value.length) chat.fetchRooms();
+  } else {
+    chat.loadP2pRooms();
+  }
 });
 
 // ── P2P rooms (iroh) ────────────────────────────────────────────────────────
@@ -318,8 +323,8 @@ const mlsChipClass = computed(() => {
         </button>
       </div>
 
-      <!-- Peer-to-peer rooms (iroh) -->
-      <div class="space-y-2.5 border-b border-current/10 p-4">
+      <!-- Peer-to-peer rooms (iroh) — direct mode only -->
+      <div v-if="transportMode === 'direct'" class="space-y-2.5 border-b border-current/10 p-4">
         <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
           <font-awesome-icon icon="circle-nodes" class="mr-1" />{{ $t('chat.p2p') }}
         </p>
@@ -393,11 +398,11 @@ const mlsChipClass = computed(() => {
         </div>
       </div>
 
-      <div v-if="loadingRooms" class="p-4 text-xs opacity-50">
+      <div v-if="transportMode === 'relay' && loadingRooms" class="p-4 text-xs opacity-50">
         Loading…
       </div>
 
-      <nav v-else class="flex-1 space-y-2 overflow-y-auto p-4 pr-3">
+      <nav v-else-if="transportMode === 'relay'" class="flex-1 space-y-2 overflow-y-auto p-4 pr-3">
         <button
           v-for="room in rooms"
           :key="room.slug"
