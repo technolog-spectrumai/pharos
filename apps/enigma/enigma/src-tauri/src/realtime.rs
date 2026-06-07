@@ -81,6 +81,9 @@ pub async fn realtime_connect(
 
     let cfg = active_config(&config)?;
     let state = load_profile_state(&app, &cfg);
+    if crate::server_blocked(&state) {
+        return Err("Server is off (no-server / offline mode).".to_string());
+    }
     let Some(ws_base) = ws_base(&state.server_url) else {
         return Err("No server configured.".to_string());
     };
@@ -167,13 +170,25 @@ pub async fn realtime_disconnect(realtime: State<'_, RealtimeState>) -> Result<(
     Ok(())
 }
 
+/// True in "offline" mode, where peer-to-peer is also disabled.
+fn is_offline(app: &AppHandle, config: &State<'_, AppConfigState>) -> bool {
+    matches!(active_config(config), Ok(cfg) if crate::p2p_blocked(&load_profile_state(app, &cfg)))
+}
+
+const OFFLINE_BLOCKED: &str = "Offline mode — peer-to-peer is disabled.";
+
 #[tauri::command]
 pub async fn realtime_send(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
     realtime: State<'_, RealtimeState>,
     p2p: State<'_, P2pState>,
     room: Option<String>,
     payload: String,
 ) -> Result<(), String> {
+    if is_offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
     // Route to the P2P backend if this room is a P2P (iroh) room…
     if let Some(room) = &room {
         if p2p_iroh::has_room(&p2p, room).await {
@@ -208,9 +223,13 @@ pub struct JoinedRoom {
 #[tauri::command]
 pub async fn realtime_create_room(
     app: AppHandle,
+    config: State<'_, AppConfigState>,
     p2p: State<'_, P2pState>,
     name: String,
 ) -> Result<CreatedRoom, String> {
+    if is_offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
     let (room, ticket) = p2p_iroh::create_room(&app, &p2p, name.clone())
         .await
         .map_err(|e| e.to_string())?;
@@ -220,9 +239,13 @@ pub async fn realtime_create_room(
 #[tauri::command]
 pub async fn realtime_join_room(
     app: AppHandle,
+    config: State<'_, AppConfigState>,
     p2p: State<'_, P2pState>,
     ticket: String,
 ) -> Result<JoinedRoom, String> {
+    if is_offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
     let (room, name) = p2p_iroh::join_room(&app, &p2p, ticket)
         .await
         .map_err(|e| e.to_string())?;

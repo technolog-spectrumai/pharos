@@ -15,7 +15,7 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_SERVER_URL     = "enigma:server_url";
 const LS_AUTH_TOKEN     = "enigma:auth_token";
-const LS_SILENT_MODE    = "enigma:silent_mode";
+const LS_CONNECTIVITY   = "enigma:connectivity";
 const LS_TRANSPORT_MODE = "enigma:transport_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
 
@@ -76,21 +76,24 @@ export async function clearAuthToken(): Promise<void> {
   localStorage.removeItem(LS_AUTH_TOKEN);
 }
 
-// ── Silent mode ───────────────────────────────────────────────────────────────
-// A purely client-side network gate: when on, Enigma refuses to open any
-// connection to the server (REST, uploads, WebSocket). It is stored in
-// localStorage in both runtimes — the Rust side never needs this value, so no
-// dedicated Tauri command is required (the desktop webview has localStorage).
+// ── Connectivity mode ─────────────────────────────────────────────────────────
+// "online"    → normal (server + P2P).
+// "no_server" → don't touch the server (REST/uploads/relay WS blocked, reads
+//               served from cache); peer-to-peer chat still works.
+// "offline"   → no connections at all (server AND peer-to-peer disabled).
+// The Rust data/realtime gateways read this from the profile state and enforce it.
 
-export async function getSilentMode(): Promise<boolean> {
-  if (_isTauri()) return _invoke<boolean>("app_get_silent_mode");
-  return localStorage.getItem(LS_SILENT_MODE) === "1";
+export type ConnectivityMode = "online" | "no_server" | "offline";
+
+export async function getConnectivityMode(): Promise<ConnectivityMode> {
+  if (_isTauri()) return _invoke<ConnectivityMode>("app_get_connectivity");
+  const v = localStorage.getItem(LS_CONNECTIVITY);
+  return v === "no_server" || v === "offline" ? v : "online";
 }
 
-export async function setSilentMode(silent: boolean): Promise<void> {
-  if (_isTauri()) { await _invoke("app_set_silent_mode", { silent }); return; }
-  if (silent) localStorage.setItem(LS_SILENT_MODE, "1");
-  else localStorage.removeItem(LS_SILENT_MODE);
+export async function setConnectivityMode(mode: ConnectivityMode): Promise<void> {
+  if (_isTauri()) { await _invoke("app_set_connectivity", { mode }); return; }
+  localStorage.setItem(LS_CONNECTIVITY, mode);
 }
 
 // ── Chat transport mode ───────────────────────────────────────────────────────
