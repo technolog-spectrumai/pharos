@@ -16,6 +16,7 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 const LS_SERVER_URL     = "enigma:server_url";
 const LS_AUTH_TOKEN     = "enigma:auth_token";
 const LS_CONNECTIVITY   = "enigma:connectivity";
+const LS_CHAT_MODE      = "enigma:chat_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -75,24 +76,34 @@ export async function clearAuthToken(): Promise<void> {
   localStorage.removeItem(LS_AUTH_TOKEN);
 }
 
-// ── Connectivity mode ─────────────────────────────────────────────────────────
-// "online"    → normal (server + P2P).
-// "no_server" → don't touch the server (REST/uploads/relay WS blocked, reads
-//               served from cache); peer-to-peer chat still works.
-// "offline"   → no connections at all (server AND peer-to-peer disabled).
-// The Rust data/realtime gateways read this from the profile state and enforce it.
+// ── Silent mode (online / offline) ────────────────────────────────────────────
+// Off → online (server + P2P). On → offline: the server (REST/uploads/relay WS)
+// is blocked and reads come from cache; peer-to-peer chat still works. Backed by
+// the Rust profile-state "connectivity" field ("online" | "offline").
 
-export type ConnectivityMode = "online" | "no_server" | "offline";
-
-export async function getConnectivityMode(): Promise<ConnectivityMode> {
-  if (_isTauri()) return _invoke<ConnectivityMode>("app_get_connectivity");
-  const v = localStorage.getItem(LS_CONNECTIVITY);
-  return v === "no_server" || v === "offline" ? v : "online";
+export async function getSilentMode(): Promise<boolean> {
+  if (_isTauri()) return (await _invoke<string>("app_get_connectivity")) === "offline";
+  return localStorage.getItem(LS_CONNECTIVITY) === "offline";
 }
 
-export async function setConnectivityMode(mode: ConnectivityMode): Promise<void> {
+export async function setSilentMode(silent: boolean): Promise<void> {
+  const mode = silent ? "offline" : "online";
   if (_isTauri()) { await _invoke("app_set_connectivity", { mode }); return; }
   localStorage.setItem(LS_CONNECTIVITY, mode);
+}
+
+// ── Chat mode (relay / p2p) ───────────────────────────────────────────────────
+// "relay" → server WebSocket rooms. "p2p" → peer-to-peer (iroh) rooms. A frontend
+// preference (the Rust gateway routes per command), stored in localStorage.
+
+export type ChatMode = "relay" | "p2p";
+
+export async function getChatMode(): Promise<ChatMode> {
+  return localStorage.getItem(LS_CHAT_MODE) === "p2p" ? "p2p" : "relay";
+}
+
+export async function setChatMode(mode: ChatMode): Promise<void> {
+  localStorage.setItem(LS_CHAT_MODE, mode);
 }
 
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────
