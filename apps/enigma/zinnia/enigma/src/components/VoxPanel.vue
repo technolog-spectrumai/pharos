@@ -18,6 +18,7 @@ const {
   error,
   callSeconds,
   spectrum,
+  encryption,
 } = vox;
 
 // Equalizer bars — fall back to a flat row before the first spectrum frame.
@@ -173,6 +174,25 @@ const cardClass = computed(() =>
       </div>
       <p class="text-lg font-bold">{{ peerName }}</p>
       <p class="font-mono text-sm opacity-70">{{ elapsed }}</p>
+
+      <!-- Encryption status -->
+      <p
+        v-if="encryption === 'mls'"
+        class="flex items-center gap-1.5 text-xs font-semibold text-emerald-500"
+      >
+        <font-awesome-icon icon="lock" /> {{ t("vox.encMls") }}
+      </p>
+      <div
+        v-else-if="encryption === 'transport'"
+        class="flex flex-col items-center gap-1.5 rounded-lg border border-warn-dark/40 bg-warn-dark/10 px-3 py-2 text-xs text-warn-dark"
+      >
+        <span class="flex items-center gap-1.5">
+          <font-awesome-icon icon="triangle-exclamation" /> {{ t("vox.encTransport") }}
+        </span>
+        <button type="button" class="font-bold underline" @click="vox.restart()">
+          {{ t("vox.restart") }}
+        </button>
+      </div>
 
       <!-- Live equalizer of the incoming voice -->
       <div class="flex h-20 w-full max-w-xs items-center justify-center gap-[3px]">

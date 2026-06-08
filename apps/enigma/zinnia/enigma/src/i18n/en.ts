@@ -147,5 +147,8 @@ export default {
     unmute: "Unmute",
     hangUp: "Hang up",
     errorGeneric: "Call failed. Please try again.",
+    encMls: "End-to-end encrypted (MLS)",
+    encTransport: "MLS encryption unavailable — this call is protected only by the transport.",
+    restart: "Restart call",
   },
 };
