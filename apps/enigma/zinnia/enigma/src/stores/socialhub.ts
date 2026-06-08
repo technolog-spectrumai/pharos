@@ -1,6 +1,10 @@
 import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref } from "vue";
 import { api, type Profile, type Community, type OrgNode } from "../services/api";
+import * as yStore from "../services/yStore";
+
+// People is a synced domain: profiles/communities live in the y_store "people" doc.
+const DOC = "people";
 
 export const useSocialhubStore = defineStore("socialhub", () => {
   const profiles = ref<Profile[]>([]);
@@ -26,11 +30,15 @@ export const useSocialhubStore = defineStore("socialhub", () => {
     error.value = null;
     try {
       const res = await api.getProfiles();
-      profiles.value = res.profiles ?? [];
+      profiles.value = await yStore.persist<Profile>(DOC, "profiles", res.profiles ?? []);
     } catch (e: any) {
-      const msg = e.message ?? "Failed to load profiles";
-      profilesError.value = msg;
-      error.value = msg;
+      const cached = await yStore.cached<Profile>(DOC, "profiles");
+      if (cached) { profiles.value = cached; }
+      else {
+        const msg = e.message ?? "Failed to load profiles";
+        profilesError.value = msg;
+        error.value = msg;
+      }
     } finally {
       profilesLoading.value = false;
       loading.value = communitiesLoading.value; // stay true if communities still loading
@@ -42,10 +50,14 @@ export const useSocialhubStore = defineStore("socialhub", () => {
     communitiesError.value = null;
     try {
       const res = await api.getCommunities();
-      communities.value = res.communities ?? [];
+      communities.value = await yStore.persist<Community>(DOC, "communities", res.communities ?? []);
     } catch (e: any) {
-      communitiesError.value = e.message ?? "Failed to load communities";
-      if (!error.value) error.value = communitiesError.value;
+      const cached = await yStore.cached<Community>(DOC, "communities");
+      if (cached) { communities.value = cached; }
+      else {
+        communitiesError.value = e.message ?? "Failed to load communities";
+        if (!error.value) error.value = communitiesError.value;
+      }
     } finally {
       communitiesLoading.value = false;
     }

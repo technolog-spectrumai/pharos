@@ -110,6 +110,11 @@ import {
   faPhoneSlash,
   faMicrophoneSlash,
   faCopy,
+  faRightLeft,
+  faCloudArrowDown,
+  faInbox,
+  faCircleCheck,
+  faDesktop,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -214,6 +219,11 @@ library.add(
   faPhoneSlash,
   faMicrophoneSlash,
   faCopy,
+  faRightLeft,
+  faCloudArrowDown,
+  faInbox,
+  faCircleCheck,
+  faDesktop,
 );
 
 createApp(App)

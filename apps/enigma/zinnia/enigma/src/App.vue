@@ -19,7 +19,6 @@ const route = useRoute();
 // "Mission" label/icon even when a sub-app is open; `activeMission` is used only to
 // highlight the entry (bold) while you're inside one of these apps.
 const missionApps = [
-  { to: "/notes", icon: "sticky-note", label: "nav.notes" },
   { to: "/tasks", icon: "list-check", label: "nav.tasks" },
   { to: "/locations", icon: "location-dot", label: "nav.locations" },
   { to: "/people", icon: "users", label: "nav.people" },
