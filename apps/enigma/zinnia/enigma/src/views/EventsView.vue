@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { api, type EnigmaEvent, type EventInvite, type EventFormData } from "../services/api";
+import * as yStore from "../services/yStore";
+
+// Events are a P2P-synced domain: persisted in the y_store "events" doc.
+const EVENTS_DOC = "events";
 
 const props = defineProps<{ darkMode: boolean }>();
 
@@ -179,10 +183,19 @@ async function loadEvents() {
   loading.value = true; error.value = null;
   try {
     const res = await api.getEvents();
-    events.value = res.events; upcoming.value = res.upcoming;
+    events.value = await yStore.persist<EnigmaEvent>(EVENTS_DOC, "events", res.events);
+    upcoming.value = res.upcoming;
     total.value = res.total; upcomingCount.value = res.upcoming_count; pastCount.value = res.past_count;
-  } catch (e: any) { error.value = e.message; }
-  finally { loading.value = false; }
+  } catch (e: any) {
+    // Offline: serve the cached events and derive upcoming/counts client-side.
+    const cached = await yStore.cached<EnigmaEvent>(EVENTS_DOC, "events");
+    if (cached) {
+      const now = Date.now();
+      const up = cached.filter((e) => new Date(e.start_time).getTime() >= now);
+      events.value = cached; upcoming.value = up;
+      total.value = cached.length; upcomingCount.value = up.length; pastCount.value = cached.length - up.length;
+    } else { error.value = e.message; }
+  } finally { loading.value = false; }
 }
 async function loadInvites() {
   invitesLoading.value = true;

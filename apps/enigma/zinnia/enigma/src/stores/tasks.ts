@@ -5,7 +5,7 @@ import {
   type KanbanProject, type KanbanTask, type KanbanMission,
   type MissionDetail, type SprintMetrics, type BacklogData, type EisenhowerMatrix,
 } from "../services/api";
-import * as missionStore from "../services/missionStore";
+import * as yStore from "../services/yStore";
 
 export const useTasksStore = defineStore("tasks", () => {
   const projects = ref<KanbanProject[]>([]);
@@ -77,17 +77,20 @@ export const useTasksStore = defineStore("tasks", () => {
   }
 
   // ── Missions ─────────────────────────────────────────────────────────────────
-  // Missions flow through the Rust CRDT data layer (fjall-persisted): on a successful
-  // fetch we ingest + read back the canonical projection; offline we serve the cache.
+  // Missions flow through the Rust CRDT data layer (y_store, fjall-persisted): on a
+  // successful fetch we ingest + read back the canonical projection; offline we serve
+  // the cache. Missions are server-only (not p2p-synced) — the doc is scoped per project.
+  const missionsDoc = (projectId: number) => `missions:${projectId}`;
+
   async function fetchMissions() {
     if (!selectedProject.value) return;
     const projectId = selectedProject.value.id;
     missionsLoading.value = true;
     try {
       const res = await api.getProjectMissions(projectId);
-      missions.value = await missionStore.persist<KanbanMission>(projectId, "missions", res.missions);
+      missions.value = await yStore.persist<KanbanMission>(missionsDoc(projectId), "missions", res.missions);
     } catch {
-      missions.value = (await missionStore.cached<KanbanMission>(projectId, "missions")) ?? [];
+      missions.value = (await yStore.cached<KanbanMission>(missionsDoc(projectId), "missions")) ?? [];
     } finally { missionsLoading.value = false; }
   }
 
@@ -96,10 +99,10 @@ export const useTasksStore = defineStore("tasks", () => {
     missionsLoading.value = true;
     try {
       const detail = await api.getMission(id);
-      const [stored] = await missionStore.persist<MissionDetail>(projectId, "details", [detail]);
+      const [stored] = await yStore.persist<MissionDetail>(missionsDoc(projectId), "details", [detail]);
       selectedMission.value = stored ?? detail;
     } catch {
-      const all = await missionStore.cached<MissionDetail>(projectId, "details");
+      const all = await yStore.cached<MissionDetail>(missionsDoc(projectId), "details");
       selectedMission.value = all?.find((m) => m.id === id) ?? null;
     } finally { missionsLoading.value = false; }
   }

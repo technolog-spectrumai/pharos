@@ -9,10 +9,10 @@ use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
 mod data;
-mod mission_store;
 mod p2p_iroh;
 mod realtime;
 mod vox;
+mod y_store;
 
 // ── App config ────────────────────────────────────────────────────────────────
 
@@ -995,8 +995,8 @@ pub fn run() {
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
             app.manage(data::init(app.handle()));
-            // CRDT-backed mission data layer (fjall keyspace under the app data dir).
-            app.manage(mission_store::init(app.handle()));
+            // CRDT-backed local data store (fjall keyspace under the app data dir).
+            app.manage(y_store::init(app.handle()));
 
             #[cfg(target_os = "linux")]
             {
@@ -1050,8 +1050,12 @@ pub fn run() {
             data::data_upload,
             data::data_cache_count,
             data::data_cache_clear,
-            mission_store::mission_store_ingest,
-            mission_store::mission_store_snapshot,
+            y_store::y_store_ingest,
+            y_store::y_store_replace,
+            y_store::y_store_snapshot,
+            y_store::y_store_state_vectors,
+            y_store::y_store_diff,
+            y_store::y_store_apply,
             realtime::realtime_connect,
             realtime::realtime_disconnect,
             realtime::realtime_send,

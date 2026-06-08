@@ -10,9 +10,9 @@ import {
   type NoteProperties,
 } from "../services/api";
 import { getServerUrl } from "../services/appStorage";
+import { kvGet, kvPut } from "../services/localDb";
+import * as yStore from "../services/yStore";
 import {
-  loadSnapshot,
-  saveSnapshot,
   loadQueue,
   saveQueue,
   makeTempId,
@@ -20,6 +20,10 @@ import {
   isNetworkError,
   type QueueOp,
 } from "../services/notesOffline";
+
+// Notes data is persisted in the y_store (CRDT, fjall) so it is P2P-syncable; each
+// collection is a map under a per-server "notes:{scope}" doc. The server-write queue
+// (offline mutations replayed to the server) still lives in notesOffline/localDb.
 
 /**
  * Offline-first Notes store.
@@ -53,17 +57,18 @@ export const useNotesStore = defineStore("notes", () => {
   const pendingCount = computed(() => queue.value.length);
   const hasPending = computed(() => queue.value.length > 0);
 
+  const notesDoc = () => `notes:${scope}`;
+
   // ── persistence ────────────────────────────────────────────────────────────
-  // Writes are fire-and-forget: the in-memory refs are the source of truth and
-  // the SQLite write just mirrors them for the next launch / offline browse.
+  // Writes are fire-and-forget: the in-memory refs are the source of truth and the
+  // y_store mirror makes the data offline-browsable AND P2P-syncable. `replace` is the
+  // authoritative mirror (upsert changed, drop removed). lastSyncedAt is plain meta.
   function persist() {
-    void saveSnapshot(scope, {
-      boxes: boxes.value,
-      categories: categories.value,
-      links: links.value,
-      references: references.value,
-      lastSyncedAt: lastSyncedAt.value,
-    });
+    void yStore.replace(notesDoc(), "boxes", boxes.value);
+    void yStore.replace(notesDoc(), "categories", categories.value);
+    void yStore.replace(notesDoc(), "links", links.value);
+    void yStore.replace(notesDoc(), "references", references.value);
+    void kvPut("notes:meta", scope, "lastSyncedAt", lastSyncedAt.value ?? "");
   }
   function enqueue(op: QueueOp) {
     queue.value.push(op);
@@ -99,14 +104,17 @@ export const useNotesStore = defineStore("notes", () => {
   // ── lifecycle ────────────────────────────────────────────────────────────────
   async function init() {
     scope = (await getServerUrl()).replace(/\/$/, "");
-    const snap = await loadSnapshot(scope);
-    if (snap) {
-      boxes.value = snap.boxes;
-      categories.value = snap.categories;
-      links.value = snap.links;
-      references.value = snap.references;
-      lastSyncedAt.value = snap.lastSyncedAt;
-    }
+    const [b, c, l, r] = await Promise.all([
+      yStore.cached<NoteBox>(notesDoc(), "boxes"),
+      yStore.cached<NoteCategory>(notesDoc(), "categories"),
+      yStore.cached<NoteLink>(notesDoc(), "links"),
+      yStore.cached<NoteReference>(notesDoc(), "references"),
+    ]);
+    if (b) boxes.value = b;
+    if (c) categories.value = c;
+    if (l) links.value = l;
+    if (r) references.value = r;
+    lastSyncedAt.value = (await kvGet("notes:meta", scope, "lastSyncedAt")) || null;
     queue.value = await loadQueue(scope);
     initialized.value = true;
     if (typeof navigator === "undefined" || navigator.onLine) {
