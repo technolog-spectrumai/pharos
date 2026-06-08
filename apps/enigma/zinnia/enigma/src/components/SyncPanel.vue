@@ -103,17 +103,32 @@ const pct = computed(() => (sync.total.value ? Math.round((sync.received.value /
         >{{ $t('sync.again') }}</button>
       </template>
 
-      <!-- Idle: offer to pull -->
+      <!-- Idle: pick who to pull from -->
       <template v-else>
         <font-awesome-icon icon="cloud-arrow-down" class="text-3xl" :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" />
-        <p class="max-w-xs text-sm opacity-70">{{ $t('sync.pullHint', { name: peers[0]?.name || $t('sync.thePeer') }) }}</p>
+        <p class="max-w-xs text-sm opacity-70">{{ $t('sync.choosePeer') }}</p>
         <p class="max-w-xs text-xs text-yellow-500/90">⚠ {{ $t('sync.overwriteWarning') }}</p>
-        <button
-          :disabled="!peers.length"
-          :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
-          class="rounded-lg px-4 py-2 text-sm font-bold transition hover:opacity-90 disabled:opacity-40"
-          @click="sync.requestPull()"
-        ><font-awesome-icon icon="cloud-arrow-down" /> {{ $t('sync.pullData') }}</button>
+
+        <div class="w-full max-w-xs space-y-2">
+          <div
+            v-for="p in peers" :key="p.id ?? p.name"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            class="flex items-center gap-3 rounded-lg border px-3 py-2 text-left"
+          >
+            <div :class="darkMode ? 'border-accent-1' : 'border-accent-2'" class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border text-xs font-bold">
+              <img v-if="p.avatar_url" :src="p.avatar_url" :alt="p.name" class="h-full w-full object-cover" />
+              <span v-else>{{ p.name.slice(0, 2).toUpperCase() }}</span>
+            </div>
+            <span class="min-w-0 flex-1 truncate text-sm font-semibold">{{ p.name }}</span>
+            <button
+              :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+              class="shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition hover:opacity-90"
+              @click="sync.requestPull({ id: String(p.id ?? p.name), name: p.name })"
+            ><font-awesome-icon icon="cloud-arrow-down" /> {{ $t('sync.pull') }}</button>
+          </div>
+          <p v-if="!peers.length" class="text-xs opacity-40">{{ $t('sync.noPeers') }}</p>
+        </div>
+
         <p class="text-xs opacity-40">🔒 {{ $t('sync.encrypted') }}</p>
       </template>
     </div>

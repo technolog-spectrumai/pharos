@@ -58,16 +58,21 @@ export function useDataSync(channel: ChatChannel) {
     peerName.value = "";
   }
 
-  /** Downloader: ask the peer to let us pull their full dataset. */
-  async function requestPull() {
+  /** Downloader: ask a *specific* peer to let us pull their full dataset. The request is
+   *  addressed to `target.id` so only that person (of a multi-party room) sees the invite. */
+  async function requestPull(target: { id: string; name: string }) {
     if (!_isTauri()) { error.value = "Sync is desktop-only."; state.value = "error"; return; }
+    if (!target?.id) { error.value = "Pick someone to sync with."; state.value = "error"; return; }
     reset();
     mySyncId = nanoid();
     state.value = "requesting";
-    // In a 1:1 p2p room the only other participant is the provider.
-    peerName.value = channel.participants.value.find((p) => p.name !== channel.currentUserName.value)?.name ?? "";
+    peerName.value = target.name;
     try {
-      await channel.sendSync("sync_request", { syncId: mySyncId, name: channel.currentUserName.value });
+      await channel.sendSync("sync_request", {
+        syncId: mySyncId,
+        name: channel.currentUserName.value,
+        target: target.id,
+      });
     } catch (e: any) {
       error.value = e?.message ?? String(e);
       state.value = "error";
@@ -115,7 +120,9 @@ export function useDataSync(channel: ChatChannel) {
     const sid = payload.syncId as string;
     switch (type) {
       case "sync_request":
-        // Provider side: surface the invite (ignore if mid-transfer).
+        // Provider side: only act if the invite is addressed to us (multi-party rooms
+        // broadcast, so everyone receives it — only the chosen target responds).
+        if (payload.target && payload.target !== channel.mlsIdentity.value) return;
         if (state.value === "transferring") return;
         incomingSyncId = sid;
         peerName.value = sender;
