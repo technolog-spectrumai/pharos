@@ -46,6 +46,13 @@ blake3 = "1"
 bytes = "1"
 futures-lite = "2"
 anyhow = "1"
+# Mission data layer: a yrs CRDT document persisted with fjall (pure-Rust LSM, no C
+# deps — same rationale as μ-law/rustls/flat-file cache). yrs is pinned to 0.19 to match
+# yrs-kvstore 0.3 (its KVStore→DocOps trait is implemented over a fjall partition).
+yrs = "0.19"
+yrs-kvstore = "0.3"
+fjall = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_22"] }

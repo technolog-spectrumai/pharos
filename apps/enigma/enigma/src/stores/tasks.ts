@@ -5,6 +5,7 @@ import {
   type KanbanProject, type KanbanTask, type KanbanMission,
   type MissionDetail, type SprintMetrics, type BacklogData, type EisenhowerMatrix,
 } from "../services/api";
+import * as missionStore from "../services/missionStore";
 
 export const useTasksStore = defineStore("tasks", () => {
   const projects = ref<KanbanProject[]>([]);
@@ -76,22 +77,31 @@ export const useTasksStore = defineStore("tasks", () => {
   }
 
   // ── Missions ─────────────────────────────────────────────────────────────────
+  // Missions flow through the Rust CRDT data layer (fjall-persisted): on a successful
+  // fetch we ingest + read back the canonical projection; offline we serve the cache.
   async function fetchMissions() {
     if (!selectedProject.value) return;
+    const projectId = selectedProject.value.id;
     missionsLoading.value = true;
     try {
-      const res = await api.getProjectMissions(selectedProject.value.id);
-      missions.value = res.missions;
-    } catch { missions.value = []; }
-    finally { missionsLoading.value = false; }
+      const res = await api.getProjectMissions(projectId);
+      missions.value = await missionStore.persist<KanbanMission>(projectId, "missions", res.missions);
+    } catch {
+      missions.value = (await missionStore.cached<KanbanMission>(projectId, "missions")) ?? [];
+    } finally { missionsLoading.value = false; }
   }
 
   async function fetchMissionDetail(id: number) {
+    const projectId = selectedProject.value?.id ?? 0;
     missionsLoading.value = true;
     try {
-      selectedMission.value = await api.getMission(id);
-    } catch { selectedMission.value = null; }
-    finally { missionsLoading.value = false; }
+      const detail = await api.getMission(id);
+      const [stored] = await missionStore.persist<MissionDetail>(projectId, "details", [detail]);
+      selectedMission.value = stored ?? detail;
+    } catch {
+      const all = await missionStore.cached<MissionDetail>(projectId, "details");
+      selectedMission.value = all?.find((m) => m.id === id) ?? null;
+    } finally { missionsLoading.value = false; }
   }
 
   // ── Sprint Metrics ────────────────────────────────────────────────────────────
