@@ -1053,6 +1053,8 @@ pub fn run() {
             y_store::y_store_ingest,
             y_store::y_store_replace,
             y_store::y_store_snapshot,
+            y_store::y_store_export_all,
+            y_store::y_store_import,
             y_store::y_store_state_vectors,
             y_store::y_store_diff,
             y_store::y_store_apply,

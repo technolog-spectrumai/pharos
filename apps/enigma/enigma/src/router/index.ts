@@ -4,7 +4,6 @@ import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 import EnigmaProfileView from "../views/EnigmaProfileView.vue";
 import EnigmaLoginView from "../views/EnigmaLoginView.vue";
-import NotesView from "../views/NotesView.vue";
 import VaultView from "../views/VaultView.vue";
 import TasksView from "../views/TasksView.vue";
 import LocationsView from "../views/LocationsView.vue";
@@ -17,7 +16,6 @@ const router = createRouter({
     { path: "/", component: EnigmaWelcomeView, name: "welcome" },
     { path: "/login", component: EnigmaLoginView, name: "login" },
     { path: "/chat", component: EnigmaChatView, name: "chat" },
-    { path: "/notes", component: NotesView, name: "notes" },
     { path: "/vault", component: VaultView, name: "vault" },
     { path: "/tasks", component: TasksView, name: "tasks" },
     { path: "/locations", component: LocationsView, name: "locations" },

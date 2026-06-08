@@ -9,17 +9,20 @@
 
 import { ref, computed } from "vue";
 import { useChatChannel, type ChatChannel } from "../composables/useChatChannel";
+import { useDataSync, type DataSync } from "../composables/useDataSync";
 import type { AppRuntimeConfig } from "../services/appStorage";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "../composables/useChatChannel";
 
-// "vox" is the real-time voice-call tab — it has no ChatChannel (no message
-// history); it drives the iroh voice backend directly via useVoxCall.
-export type ChatTab = "relay" | "p2p" | "vox";
+// "vox" is the real-time voice-call tab and "sync" is the full-data pull tab — neither
+// has a ChatChannel (no message history); they drive iroh/CRDT backends directly.
+export type ChatTab = "relay" | "p2p" | "vox" | "sync";
 
 function createChatStore() {
   const relay: ChatChannel = useChatChannel("relay");
   const p2p: ChatChannel = useChatChannel("p2p");
+  // Full-data "Sync" rides the p2p channel's MLS group.
+  const dataSync: DataSync = useDataSync(p2p);
 
   const activeTab = ref<ChatTab>("relay");
   const activeChannel = computed<ChatChannel>(() => (activeTab.value === "p2p" ? p2p : relay));
@@ -70,7 +73,7 @@ function createChatStore() {
   }
 
   return {
-    relay, p2p, activeTab, activeChannel, setTab,
+    relay, p2p, dataSync, activeTab, activeChannel, setTab,
     switchToP2p, switchToRelay, acceptP2pInvite,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
   };

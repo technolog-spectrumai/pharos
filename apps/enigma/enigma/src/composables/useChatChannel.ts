@@ -165,6 +165,16 @@ export function useChatChannel(kind: ChannelKind) {
   // ── P2P roster (authenticated from MLS membership) ───────────────────────────
   const presenceById = new Map<string, { name: string; avatar: string }>();
 
+  // ── Data-sync seam ───────────────────────────────────────────────────────────
+  // Full-data "Sync" rides this channel: an external orchestrator (useDataSync)
+  // registers a handler for `sync_*` inner messages and sends them via `sendSync`.
+  type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
+  const syncHandlers = new Set<SyncHandler>();
+  function onSync(fn: SyncHandler): () => void {
+    syncHandlers.add(fn);
+    return () => { syncHandlers.delete(fn); };
+  }
+
   async function refreshP2pRoster() {
     if (!isP2p || !currentRoom.value) return;
     const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
@@ -440,6 +450,10 @@ export function useChatChannel(kind: ChannelKind) {
           }
           if (inner?.type === "leave" && inner.device_id) {
             void handlePeerLeave(inner.device_id as string);
+            return;
+          }
+          if (typeof inner?.type === "string" && inner.type.startsWith("sync_")) {
+            syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
           if (inner?.type === "p2p_invite" && inner.ticket) {
@@ -728,6 +742,11 @@ export function useChatChannel(kind: ChannelKind) {
     });
   }
 
+  /** Send a data-sync control/data message over this channel's MLS group. */
+  async function sendSync(type: string, payload: Record<string, unknown>) {
+    await sendEncryptedMedia(type, payload);
+  }
+
   /** Forum-only: post a "join private room" card (ticket) into the relay chat. */
   async function sendInvite(ticket: string, name: string) {
     if (kind !== "relay" || !currentRoom.value) return;
@@ -878,6 +897,7 @@ export function useChatChannel(kind: ChannelKind) {
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
+    onSync, sendSync,
   };
 }
 

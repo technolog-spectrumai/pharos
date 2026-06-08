@@ -191,6 +191,15 @@ impl YStore {
         Ok(())
     }
 
+    /// Record a `(doc, map)` pair so `export_all` can enumerate every collection. The
+    /// 0x1f unit separator can't appear in doc/map names (which contain `:` at most).
+    fn register_map(&self, doc: &str, map: &str) -> Result<()> {
+        self.index
+            .insert(format!("regmap:{doc}\u{1f}{map}").as_bytes(), b"1")
+            .map_err(|e| anyhow!("regmap put: {e}"))?;
+        Ok(())
+    }
+
     /// Deterministic record key so re-ingest is idempotent and two peers' copies of the
     /// same row converge to one entry on sync. Server rows key on their `id` (`s{id}`);
     /// id-less rows key on a content hash (`h{blake3}`) so identical re-fetches dedup.
@@ -221,6 +230,7 @@ impl YStore {
             }
         }
         self.store_doc(doc, &ydoc)?;
+        self.register_map(doc, map)?;
         Ok(records.len())
     }
 
@@ -254,6 +264,7 @@ impl YStore {
             }
         }
         self.store_doc(doc, &ydoc)?;
+        self.register_map(doc, map)?;
         Ok(records.len())
     }
 
@@ -340,6 +351,39 @@ impl YStore {
         }
         Ok(changed)
     }
+
+    // ── full export / import (peer-as-server full pull, provider-wins) ───────────
+
+    /// Every `(doc, map, records)` blob in the store — the full dataset a provider hands
+    /// a downloader during a full pull.
+    pub fn export_all(&self) -> Result<Vec<(String, String, Vec<Value>)>> {
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for kv in self.index.prefix(b"regmap:".to_vec()) {
+            let (k, _) = kv.map_err(|e| anyhow!("regmap scan: {e}"))?;
+            let rest = &k.as_ref()[7..]; // strip "regmap:"
+            if let Some(pos) = rest.iter().position(|&b| b == 0x1f) {
+                let doc = String::from_utf8_lossy(&rest[..pos]).into_owned();
+                let map = String::from_utf8_lossy(&rest[pos + 1..]).into_owned();
+                pairs.push((doc, map));
+            }
+        }
+        let mut out = Vec::with_capacity(pairs.len());
+        for (doc, map) in pairs {
+            let records = self.snapshot(&doc, &map)?;
+            out.push((doc, map, records));
+        }
+        Ok(out)
+    }
+
+    /// Apply a provider's full export with provider-wins semantics (upsert by
+    /// deterministic key; the downloader's non-overlapping rows are kept).
+    pub fn import_blobs(&self, blobs: &[(String, String, Vec<Value>)]) -> Result<usize> {
+        let mut n = 0;
+        for (doc, map, records) in blobs {
+            n += self.ingest(doc, map, records)?;
+        }
+        Ok(n)
+    }
 }
 
 // ── commands ──────────────────────────────────────────────────────────────────
@@ -374,6 +418,23 @@ pub fn y_store_snapshot(
 ) -> Result<Vec<Value>, String> {
     let s = store.0.as_ref().ok_or("y_store unavailable")?;
     s.snapshot(&doc, &map).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn y_store_export_all(
+    store: State<'_, YStoreState>,
+) -> Result<Vec<(String, String, Vec<Value>)>, String> {
+    let s = store.0.as_ref().ok_or("y_store unavailable")?;
+    s.export_all().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn y_store_import(
+    store: State<'_, YStoreState>,
+    blobs: Vec<(String, String, Vec<Value>)>,
+) -> Result<usize, String> {
+    let s = store.0.as_ref().ok_or("y_store unavailable")?;
+    s.import_blobs(&blobs).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -504,6 +565,31 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(da);
         let _ = std::fs::remove_dir_all(db);
+    }
+
+    #[test]
+    fn export_all_then_import_is_provider_wins_full_pull() {
+        let (provider, dp) = temp_store();
+        let (downloader, dd) = temp_store();
+        // Provider has the authoritative copy + an extra row across two domains.
+        provider.ingest("missions:7", "missions", &[json!({ "id": 1, "title": "B1" })]).unwrap();
+        provider.ingest("people", "profiles", &[json!({ "id": 9, "name": "Bob" })]).unwrap();
+        // Downloader has a stale shared row + a row the provider lacks.
+        downloader.ingest("missions:7", "missions", &[json!({ "id": 1, "title": "A-stale" }), json!({ "id": 2, "title": "A-only" })]).unwrap();
+
+        let blobs = provider.export_all().unwrap();
+        downloader.import_blobs(&blobs).unwrap();
+
+        let mut missions = downloader.snapshot("missions:7", "missions").unwrap();
+        missions.sort_by_key(|v| v["id"].as_i64().unwrap());
+        assert_eq!(missions.len(), 2, "downloader keeps its extra row");
+        assert_eq!(missions[0]["title"], "B1", "provider wins on the shared id");
+        assert_eq!(missions[1]["title"], "A-only");
+        // Provider-only domain was transferred too.
+        assert_eq!(downloader.snapshot("people", "profiles").unwrap()[0]["name"], "Bob");
+
+        let _ = std::fs::remove_dir_all(dp);
+        let _ = std::fs::remove_dir_all(dd);
     }
 
     #[test]

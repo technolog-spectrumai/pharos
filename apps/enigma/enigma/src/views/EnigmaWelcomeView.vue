@@ -10,7 +10,6 @@ const router = useRouter();
 
 const stats = ref({
   rooms: null as number | null,
-  notes: null as number | null,
   files: null as number | null,
   projects: null as number | null,
   addresses: null as number | null,
@@ -24,7 +23,6 @@ const dashLoading = ref(true);
 onMounted(async () => {
   await Promise.allSettled([
     api.getRooms().then((r) => { stats.value.rooms = r.channels.length; }),
-    api.getBoxes().then((r) => { stats.value.notes = r.boxes.length; }),
     api.getFiles().then((r) => { stats.value.files = r.files.length; }),
     api.getProjects().then((r) => { stats.value.projects = r.projects.length; }),
     api.getAddresses().then((r) => { stats.value.addresses = r.addresses.length; }),
@@ -66,7 +64,7 @@ function cardCls() {
           <div>
             <h1 class="text-3xl font-bold sm:text-4xl">Enigma</h1>
             <p class="mt-1.5 max-w-xl text-sm opacity-65">
-              Encrypted workspace — chat, notes, vault, tasks, maps, and more.
+              Encrypted workspace — chat, vault, tasks, maps, and more.
             </p>
           </div>
         </div>
@@ -89,7 +87,6 @@ function cardCls() {
       <div
         v-for="stat in [
           { label: 'Rooms', value: stats.rooms, icon: 'comments' },
-          { label: 'Notes', value: stats.notes, icon: 'note-sticky' },
           { label: 'Files', value: stats.files, icon: 'hard-drive' },
           { label: 'Projects', value: stats.projects, icon: 'list-check' },
         ]"
@@ -130,28 +127,6 @@ function cardCls() {
         <p class="text-xs opacity-60 leading-relaxed">MLS-encrypted chat rooms with voice message support and participant management.</p>
         <OyaButton :dark-mode="darkMode" class="mt-auto" @click="router.push('/chat')">
           <font-awesome-icon icon="arrow-right" />Open chat
-        </OyaButton>
-      </div>
-
-      <!-- Notes -->
-      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
-        <div class="flex items-start justify-between">
-          <div class="flex items-center gap-3">
-            <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
-              <font-awesome-icon icon="note-sticky" :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" />
-            </div>
-            <div>
-              <p class="font-bold text-sm">Notes</p>
-              <p class="text-xs opacity-50">Knowledge graph</p>
-            </div>
-          </div>
-          <span :class="darkMode ? 'bg-accent-dark/20 text-accent-dark' : 'bg-accent-light/10 text-accent-light'" class="rounded-full px-2 py-0.5 text-xs font-bold">
-            {{ statLabel(stats.notes) }} notes
-          </span>
-        </div>
-        <p class="text-xs opacity-60 leading-relaxed">Linked notes, concepts, and a graph view connecting your ideas.</p>
-        <OyaButton :dark-mode="darkMode" class="mt-auto" @click="router.push('/notes')">
-          <font-awesome-icon icon="arrow-right" />Open notes
         </OyaButton>
       </div>
 

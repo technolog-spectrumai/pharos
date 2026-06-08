@@ -25,13 +25,18 @@ export const useTasksStore = defineStore("tasks", () => {
   const error = ref<string | null>(null);
 
   // ── Projects ────────────────────────────────────────────────────────────────
+  // Tasks are a synced domain (y_store): projects in the "tasks" doc, board tasks per
+  // project in "tasks:{projectId}". Persist on fetch (non-destructive upsert); serve the
+  // cache offline.
   async function fetchProjects() {
     loading.value = true; error.value = null;
     try {
       const res = await api.getProjects();
-      projects.value = res.projects;
-    } catch (e: any) { error.value = e.message; }
-    finally { loading.value = false; }
+      projects.value = await yStore.persist<KanbanProject>("tasks", "projects", res.projects);
+    } catch (e: any) {
+      const cached = await yStore.cached<KanbanProject>("tasks", "projects");
+      if (cached) projects.value = cached; else error.value = e.message;
+    } finally { loading.value = false; }
   }
 
   async function selectProject(project: KanbanProject) {
@@ -40,9 +45,11 @@ export const useTasksStore = defineStore("tasks", () => {
       const full = await api.getProject(project.id);
       selectedProject.value = full;
       const res = await api.getProjectTasks(project.id);
-      tasks.value = res.tasks;
-    } catch (e: any) { error.value = e.message; }
-    finally { loading.value = false; }
+      tasks.value = await yStore.persist<KanbanTask>(`tasks:${project.id}`, "tasks", res.tasks);
+    } catch (e: any) {
+      const cached = await yStore.cached<KanbanTask>(`tasks:${project.id}`, "tasks");
+      if (cached) tasks.value = cached; else error.value = e.message;
+    } finally { loading.value = false; }
   }
 
   // ── Tasks ────────────────────────────────────────────────────────────────────
