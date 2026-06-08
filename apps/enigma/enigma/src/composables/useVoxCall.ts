@@ -38,6 +38,7 @@ function createVox() {
   const error = ref(""); // i18n key or raw message
   const callSeconds = ref(0);
   const spectrum = ref<number[]>([]); // live equalizer bands (0..1) of the incoming voice
+  const encryption = ref<"mls" | "transport" | "">(""); // active media encryption of the call
 
   let timer: ReturnType<typeof setInterval> | null = null;
   function stopTimer() {
@@ -60,6 +61,7 @@ function createVox() {
     peerName.value = "";
     muted.value = false;
     spectrum.value = [];
+    encryption.value = "";
     stopTimer();
   }
 
@@ -76,7 +78,7 @@ function createVox() {
     await listen<{ bands: number[] }>("vox://spectrum", (e) => {
       spectrum.value = e.payload.bands ?? [];
     });
-    await listen<{ state: string; peer: string | null }>("vox://state", (e) => {
+    await listen<{ state: string; peer: string | null; encryption?: string }>("vox://state", (e) => {
       const { state, peer } = e.payload;
       switch (state) {
         case "calling":
@@ -88,6 +90,7 @@ function createVox() {
         case "connected":
           peerName.value = peer || incomingName.value || "Peer";
           incomingName.value = "";
+          encryption.value = e.payload.encryption === "mls" ? "mls" : "transport";
           phase.value = "connected";
           startTimer();
           break;
@@ -111,6 +114,12 @@ function createVox() {
     return u && u !== "You" ? u : chat.relay.mlsIdentity.value || "Caller";
   }
 
+  // The stable device identity the chat MLS uses — also the call's MLS credential.
+  function myIdentity(): string {
+    const chat = useChatStore();
+    return chat.relay.mlsIdentity.value || chat.relay.currentUserName.value || "anon";
+  }
+
   // ── actions ────────────────────────────────────────────────────────────────
   async function createCall(): Promise<void> {
     if (!available) {
@@ -120,7 +129,10 @@ function createVox() {
     error.value = "";
     try {
       await ensureListeners();
-      const res = await _invoke<{ ticket: string; node_id: string }>("vox_create", { name: myName() });
+      const res = await _invoke<{ ticket: string; node_id: string }>("vox_create", {
+        name: myName(),
+        identity: myIdentity(),
+      });
       ticket.value = res.ticket;
       nodeId.value = res.node_id;
       phase.value = "waiting";
@@ -141,7 +153,7 @@ function createVox() {
     try {
       await ensureListeners();
       phase.value = "calling";
-      await _invoke("vox_join", { ticket: tk, name: myName() });
+      await _invoke("vox_join", { ticket: tk, name: myName(), identity: myIdentity() });
     } catch (e) {
       error.value = (e as Error).message || "vox.errorGeneric";
       phase.value = "error";
@@ -174,6 +186,12 @@ function createVox() {
     reset();
   }
 
+  // End the current (e.g. transport-only) call so the user can start a fresh one
+  // and re-attempt the MLS handshake.
+  async function restart(): Promise<void> {
+    await hangup();
+  }
+
   async function toggleMute(): Promise<void> {
     const next = !muted.value;
     try {
@@ -195,11 +213,13 @@ function createVox() {
     error,
     callSeconds,
     spectrum,
+    encryption,
     createCall,
     joinByTicket,
     accept,
     decline,
     hangup,
+    restart,
     toggleMute,
   };
 }

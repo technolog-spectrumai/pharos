@@ -147,5 +147,8 @@ export default {
     unmute: "Wyłącz wyciszenie",
     hangUp: "Rozłącz",
     errorGeneric: "Połączenie nie powiodło się. Spróbuj ponownie.",
+    encMls: "Szyfrowane end-to-end (MLS)",
+    encTransport: "Szyfrowanie MLS niedostępne — to połączenie chroni tylko warstwa transportowa.",
+    restart: "Uruchom połączenie ponownie",
   },
 };

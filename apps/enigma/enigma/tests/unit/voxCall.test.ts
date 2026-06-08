@@ -44,7 +44,7 @@ describe("useVoxCall — iroh voice controller", () => {
     const vox = await freshVox(true);
     await vox.createCall();
     await tick();
-    expect(invoke).toHaveBeenCalledWith("vox_create", { name: "alice" });
+    expect(invoke).toHaveBeenCalledWith("vox_create", { name: "alice", identity: "alice-id" });
     expect(vox.phase.value).toBe("waiting");
     expect(vox.ticket.value).toBe("tkt-abc");
     expect(typeof listeners["vox://incoming"]).toBe("function");
@@ -64,9 +64,18 @@ describe("useVoxCall — iroh voice controller", () => {
     const vox = await freshVox(true);
     await vox.createCall();
     await tick();
-    listeners["vox://state"]({ payload: { state: "connected", peer: "bob" } });
+    listeners["vox://state"]({ payload: { state: "connected", peer: "bob", encryption: "mls" } });
     expect(vox.phase.value).toBe("connected");
     expect(vox.peerName.value).toBe("bob");
+    expect(vox.encryption.value).toBe("mls");
+  });
+
+  it("marks a call transport-only when MLS is unavailable", async () => {
+    const vox = await freshVox(true);
+    await vox.createCall();
+    await tick();
+    listeners["vox://state"]({ payload: { state: "connected", peer: "bob", encryption: "transport" } });
+    expect(vox.encryption.value).toBe("transport");
   });
 
   it("vox://spectrum updates the live equalizer bands", async () => {
@@ -82,7 +91,7 @@ describe("useVoxCall — iroh voice controller", () => {
     await vox.joinByTicket("  tkt-xyz  ");
     await tick();
     expect(vox.phase.value).toBe("calling");
-    expect(invoke).toHaveBeenCalledWith("vox_join", { ticket: "tkt-xyz", name: "alice" });
+    expect(invoke).toHaveBeenCalledWith("vox_join", { ticket: "tkt-xyz", name: "alice", identity: "alice-id" });
   });
 
   it("toggleMute flips the mute flag through the backend", async () => {

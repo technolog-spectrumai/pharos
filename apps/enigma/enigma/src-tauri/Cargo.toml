@@ -25,6 +25,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rotor-core = { path = "../../../toto/rotors/rotor_core" }
 zeroize = "1"
+# AEAD for Vox call audio, keyed by an MLS-exported secret (pure Rust, Android-safe).
+chacha20poly1305 = "0.10"
 cpal = "0.15"
 hound = "3"
 # Pure-Rust FFT for the real-time Vox call equalizer (incoming-audio spectrum).

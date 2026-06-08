@@ -28,7 +28,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use chacha20poly1305::aead::Aead;
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rotor_core::RotorSession;
 use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
@@ -136,6 +139,8 @@ struct VoxShared {
     conn: Arc<StdMutex<Option<Connection>>>,
     /// Our display name, sent in the hello / accept control frames.
     my_name: Arc<StdMutex<String>>,
+    /// Our MLS device identity (same one the chat uses) for the call's MLS group.
+    my_identity: Arc<StdMutex<String>>,
 }
 
 // ── ticket ───────────────────────────────────────────────────────────────────
@@ -164,13 +169,31 @@ impl VoxTicket {
 #[derive(Serialize, Deserialize)]
 struct Hello {
     name: String,
+    /// Shared call id (from the ticket) — also the MLS group/export context.
+    #[serde(default)]
+    call_id: String,
+    /// base64 MLS KeyPackage; empty ⇒ caller isn't offering MLS.
+    #[serde(default)]
+    key_package: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 struct Control {
     kind: String, // "accept" | "decline"
     #[serde(default)]
     name: String,
+    /// base64 MLS Welcome; empty ⇒ callee couldn't establish the group.
+    #[serde(default)]
+    welcome: String,
+    #[serde(default)]
+    can_mls: bool,
+}
+
+/// Caller's authoritative decision on whether the call is MLS-encrypted, sent
+/// after it has (or hasn't) joined the group — so both sides agree on the mode.
+#[derive(Serialize, Deserialize)]
+struct Ready {
+    enc: String, // "mls" | "transport"
 }
 
 fn frame_bytes<T: Serialize>(val: &T) -> Vec<u8> {
@@ -211,6 +234,83 @@ fn emit_incoming(app: &AppHandle, from_name: &str, node_id: &str) {
     );
 }
 
+fn emit_connected(app: &AppHandle, peer: &str, encrypted: bool) {
+    let _ = app.emit(
+        "vox://state",
+        serde_json::json!({
+            "state": "connected",
+            "peer": peer,
+            "encryption": if encrypted { "mls" } else { "transport" },
+        }),
+    );
+}
+
+// ── MLS-keyed media crypto ────────────────────────────────────────────────────
+
+fn b64(bytes: &[u8]) -> String {
+    data_encoding::BASE64.encode(bytes)
+}
+fn unb64(s: &str) -> Result<Vec<u8>> {
+    data_encoding::BASE64.decode(s.as_bytes()).map_err(|e| anyhow!("base64: {e}"))
+}
+
+/// Per-direction AEAD ciphers derived from the call's MLS exporter secret.
+struct VoxKeys {
+    send: ChaCha20Poly1305,
+    recv: ChaCha20Poly1305,
+}
+
+/// 96-bit nonce from a per-direction monotonic counter. The two directions use
+/// independent keys, so a counter is sufficient to keep every (key, nonce) unique.
+fn nonce_from_counter(counter: u64) -> [u8; 12] {
+    let mut n = [0u8; 12];
+    n[4..].copy_from_slice(&counter.to_be_bytes());
+    n
+}
+
+/// Export two directional 256-bit keys from a freshly-joined MLS group and wrap
+/// them as ChaCha20-Poly1305 ciphers, assigned by role.
+fn derive_vox_keys(session: &RotorSession, call_id: &str, caller: bool) -> Result<VoxKeys> {
+    let ctx = call_id.as_bytes();
+    let c2s = session.export_secret("enigma/vox/c2s", ctx, 32).map_err(|e| anyhow!("export c2s: {e}"))?;
+    let s2c = session.export_secret("enigma/vox/s2c", ctx, 32).map_err(|e| anyhow!("export s2c: {e}"))?;
+    let mk = |k: &[u8]| ChaCha20Poly1305::new_from_slice(k).map_err(|e| anyhow!("cipher init: {e}"));
+    let (c2s, s2c) = (mk(&c2s)?, mk(&s2c)?);
+    Ok(if caller {
+        VoxKeys { send: c2s, recv: s2c }
+    } else {
+        VoxKeys { send: s2c, recv: c2s }
+    })
+}
+
+/// Callee side: form a 2-member MLS group from the caller's KeyPackage and return
+/// the base64 Welcome to send back plus our directional keys.
+fn mls_callee(call_id: &str, identity: &str, caller_kp_b64: &str) -> Result<(String, VoxKeys)> {
+    let kp = unb64(caller_kp_b64)?;
+    let mut session = RotorSession::new(call_id.to_string(), identity.to_string())
+        .map_err(|e| anyhow!("mls new: {e}"))?;
+    session.create_group().map_err(|e| anyhow!("mls create_group: {e}"))?;
+    let (welcome, _commit) = session.add_member(&kp).map_err(|e| anyhow!("mls add_member: {e}"))?;
+    let keys = derive_vox_keys(&session, call_id, false)?;
+    Ok((b64(&welcome), keys))
+}
+
+/// Caller side: fresh session + our KeyPackage (base64). The session is kept so we
+/// can join from the Welcome the callee returns.
+fn mls_caller_start(call_id: &str, identity: &str) -> Result<(RotorSession, String)> {
+    let mut session = RotorSession::new(call_id.to_string(), identity.to_string())
+        .map_err(|e| anyhow!("mls new: {e}"))?;
+    let kp = session.key_package().map_err(|e| anyhow!("mls key_package: {e}"))?;
+    Ok((session, b64(&kp)))
+}
+
+/// Caller side: finish the handshake by joining from the Welcome and deriving keys.
+fn mls_caller_join(session: &mut RotorSession, welcome_b64: &str, call_id: &str) -> Result<VoxKeys> {
+    let welcome = unb64(welcome_b64)?;
+    session.join_from_welcome(&welcome).map_err(|e| anyhow!("mls join: {e}"))?;
+    derive_vox_keys(session, call_id, true)
+}
+
 // ── lifecycle ────────────────────────────────────────────────────────────────
 
 async fn ensure_started(app: &AppHandle, state: &VoxState) -> Result<()> {
@@ -230,6 +330,7 @@ async fn ensure_started(app: &AppHandle, state: &VoxState) -> Result<()> {
         pending: Arc::new(StdMutex::new(None)),
         conn: Arc::new(StdMutex::new(None)),
         my_name: Arc::new(StdMutex::new(String::new())),
+        my_identity: Arc::new(StdMutex::new(String::new())),
     };
     let router = Router::builder(endpoint.clone())
         .accept(VOX_ALPN, VoxProtocol { shared: shared.clone() })
@@ -270,7 +371,7 @@ impl VoxShared {
         // One call at a time.
         let busy = self.conn.lock().unwrap().is_some() || self.pending.lock().unwrap().is_some();
         if busy {
-            let _ = write_frame(&mut send, &Control { kind: "decline".into(), name: String::new() }).await;
+            let _ = write_frame(&mut send, &Control { kind: "decline".into(), ..Default::default() }).await;
             conn.close(0u32.into(), b"busy");
             return Ok(());
         }
@@ -288,24 +389,51 @@ impl VoxShared {
         *self.pending.lock().unwrap() = None;
 
         if !accepted {
-            let _ = write_frame(&mut send, &Control { kind: "decline".into(), name: String::new() }).await;
+            let _ = write_frame(&mut send, &Control { kind: "decline".into(), ..Default::default() }).await;
             emit_state(&self.app, "ended", None);
             conn.close(0u32.into(), b"declined");
             return Ok(());
         }
 
         let my_name = self.my_name.lock().unwrap().clone();
-        write_frame(&mut send, &Control { kind: "accept".into(), name: my_name }).await?;
-        self.run_call(conn, hello.name).await
+        let my_identity = self.my_identity.lock().unwrap().clone();
+
+        // Try to establish the call's MLS group from the caller's KeyPackage.
+        // Fail-soft: if anything goes wrong we still connect, transport-only.
+        let mut keys: Option<VoxKeys> = None;
+        let mut welcome = String::new();
+        let mut can_mls = false;
+        if !hello.key_package.is_empty() {
+            match mls_callee(&hello.call_id, &my_identity, &hello.key_package) {
+                Ok((w, k)) => {
+                    welcome = w;
+                    keys = Some(k);
+                    can_mls = true;
+                }
+                Err(e) => eprintln!("[vox] callee MLS failed — falling back to transport: {e}"),
+            }
+        }
+
+        write_frame(&mut send, &Control { kind: "accept".into(), name: my_name, welcome, can_mls }).await?;
+
+        // The caller's Ready frame is authoritative for the final mode.
+        let ready: Ready = read_frame(&mut recv).await?;
+        let keys = if ready.enc == "mls" { keys } else { None };
+        self.run_call(conn, hello.name, keys).await
     }
 
     // ── outbound (caller) ─────────────────────────────────────────────────────
-    async fn dial(self, endpoint: Endpoint, addr: EndpointAddr) -> Result<()> {
+    async fn dial(self, endpoint: Endpoint, addr: EndpointAddr, call_id: String) -> Result<()> {
         emit_state(&self.app, "calling", None);
         let conn = endpoint.connect(addr, VOX_ALPN).await?;
         let (mut send, mut recv) = conn.open_bi().await?;
         let my_name = self.my_name.lock().unwrap().clone();
-        write_frame(&mut send, &Hello { name: my_name }).await?;
+        let my_identity = self.my_identity.lock().unwrap().clone();
+
+        // Prepare our MLS KeyPackage (fail-soft: empty ⇒ transport-only).
+        let mut mls = mls_caller_start(&call_id, &my_identity).ok();
+        let key_package = mls.as_ref().map(|(_, kp)| kp.clone()).unwrap_or_default();
+        write_frame(&mut send, &Hello { name: my_name, call_id: call_id.clone(), key_package }).await?;
 
         let ctrl: Control = read_frame(&mut recv).await?;
         if ctrl.kind != "accept" {
@@ -314,15 +442,29 @@ impl VoxShared {
             return Ok(());
         }
         let peer = if ctrl.name.is_empty() { "Peer".to_string() } else { ctrl.name };
-        self.run_call(conn, peer).await
+
+        // Complete MLS if the callee could, otherwise fall back to transport.
+        let mut keys: Option<VoxKeys> = None;
+        if ctrl.can_mls && !ctrl.welcome.is_empty() {
+            if let Some((mut session, _)) = mls.take() {
+                match mls_caller_join(&mut session, &ctrl.welcome, &call_id) {
+                    Ok(k) => keys = Some(k),
+                    Err(e) => eprintln!("[vox] caller MLS join failed — falling back to transport: {e}"),
+                }
+            }
+        }
+        let enc = if keys.is_some() { "mls" } else { "transport" };
+        write_frame(&mut send, &Ready { enc: enc.into() }).await?;
+        self.run_call(conn, peer, keys).await
     }
 
     // ── shared call loop ──────────────────────────────────────────────────────
-    async fn run_call(self, conn: Connection, peer_name: String) -> Result<()> {
+    async fn run_call(self, conn: Connection, peer_name: String, keys: Option<VoxKeys>) -> Result<()> {
         let my_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         *self.conn.lock().unwrap() = Some(conn.clone());
         self.mute.store(false, Ordering::SeqCst);
-        emit_state(&self.app, "connected", Some(&peer_name));
+        let encrypted = keys.is_some();
+        emit_connected(&self.app, &peer_name, encrypted);
 
         // capture (mic → Opus) on its own thread → frame_rx → datagrams
         let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<Bytes>();
@@ -334,23 +476,54 @@ impl VoxShared {
         let out_stop = Arc::new(AtomicBool::new(false));
         spawn_playback_thread(self.app.clone(), pkt_rx, out_stop.clone());
 
-        eprintln!("[vox] call connected (max_datagram_size={:?})", conn.max_datagram_size());
+        eprintln!(
+            "[vox] call connected (encryption={}, max_datagram_size={:?})",
+            if encrypted { "mls" } else { "transport" },
+            conn.max_datagram_size()
+        );
+
+        // Split the keys per task (each cipher owned by exactly one direction).
+        let (send_cipher, recv_cipher) = match keys {
+            Some(k) => (Some(k.send), Some(k.recv)),
+            None => (None, None),
+        };
 
         let send_conn = conn.clone();
         let send_task = tauri::async_runtime::spawn(async move {
-            let mut seq: u16 = 0;
+            let mut counter: u64 = 0;
             let mut logged_err = false;
             while let Some(frame) = frame_rx.recv().await {
-                let mut buf = Vec::with_capacity(frame.len() + 2);
-                buf.extend_from_slice(&seq.to_le_bytes());
-                buf.extend_from_slice(&frame);
-                if let Err(e) = send_conn.send_datagram(Bytes::from(buf)) {
+                // mls: [counter u64][ChaCha20-Poly1305(μ-law)];  transport: [seq u16][μ-law]
+                let dg = match &send_cipher {
+                    Some(cipher) => {
+                        let nonce = nonce_from_counter(counter);
+                        match cipher.encrypt(Nonce::from_slice(&nonce), frame.as_ref()) {
+                            Ok(ct) => {
+                                let mut d = Vec::with_capacity(8 + ct.len());
+                                d.extend_from_slice(&counter.to_be_bytes());
+                                d.extend_from_slice(&ct);
+                                d
+                            }
+                            Err(_) => {
+                                counter = counter.wrapping_add(1);
+                                continue;
+                            }
+                        }
+                    }
+                    None => {
+                        let mut d = Vec::with_capacity(frame.len() + 2);
+                        d.extend_from_slice(&(counter as u16).to_le_bytes());
+                        d.extend_from_slice(&frame);
+                        d
+                    }
+                };
+                if let Err(e) = send_conn.send_datagram(Bytes::from(dg)) {
                     if !logged_err {
                         eprintln!("[vox] send_datagram failed (audio won't flow): {e}");
                         logged_err = true;
                     }
                 }
-                seq = seq.wrapping_add(1);
+                counter = counter.wrapping_add(1);
             }
         });
 
@@ -358,15 +531,34 @@ impl VoxShared {
         let recv_task = tauri::async_runtime::spawn(async move {
             let mut first = true;
             while let Ok(data) = recv_conn.read_datagram().await {
-                if data.len() <= 2 {
-                    continue;
-                }
+                let payload: Option<Bytes> = match &recv_cipher {
+                    Some(cipher) => {
+                        if data.len() < 8 + 16 {
+                            None // too short to hold counter + AEAD tag
+                        } else {
+                            let mut c = [0u8; 8];
+                            c.copy_from_slice(&data[..8]);
+                            let nonce = nonce_from_counter(u64::from_be_bytes(c));
+                            cipher
+                                .decrypt(Nonce::from_slice(&nonce), &data[8..])
+                                .ok()
+                                .map(Bytes::from)
+                        }
+                    }
+                    None => {
+                        if data.len() <= 2 {
+                            None
+                        } else {
+                            Some(Bytes::copy_from_slice(&data[2..]))
+                        }
+                    }
+                };
+                let Some(pt) = payload else { continue };
                 if first {
-                    eprintln!("[vox] first audio datagram received ({} bytes)", data.len());
+                    eprintln!("[vox] first audio datagram decoded ({} bytes)", pt.len());
                     first = false;
                 }
-                // Strip the 2-byte sequence prefix; forward the audio packet.
-                if pkt_tx.send(Bytes::copy_from_slice(&data[2..])).is_err() {
+                if pkt_tx.send(pt).is_err() {
                     break;
                 }
             }
@@ -710,11 +902,17 @@ pub struct VoxCreated {
 
 /// Open a call slot (we are the callee) and return a shareable ticket + QR source.
 #[tauri::command]
-pub async fn vox_create(app: AppHandle, vox: State<'_, VoxState>, name: String) -> Result<VoxCreated, String> {
+pub async fn vox_create(
+    app: AppHandle,
+    vox: State<'_, VoxState>,
+    name: String,
+    identity: String,
+) -> Result<VoxCreated, String> {
     ensure_started(&app, &vox).await.map_err(|e| e.to_string())?;
     let guard = vox.0.lock().await;
     let node = guard.as_ref().ok_or("vox not started")?;
     *node.shared.my_name.lock().unwrap() = name;
+    *node.shared.my_identity.lock().unwrap() = identity;
     let node_id = node.endpoint.id().to_string();
     let ticket = VoxTicket {
         call_id: format!("{}-{}", node_id, now_millis()),
@@ -727,17 +925,25 @@ pub async fn vox_create(app: AppHandle, vox: State<'_, VoxState>, name: String) 
 /// Dial a callee from their ticket (we are the caller). Returns once dialing has
 /// started; progress arrives via `vox://state`.
 #[tauri::command]
-pub async fn vox_join(app: AppHandle, vox: State<'_, VoxState>, ticket: String, name: String) -> Result<(), String> {
+pub async fn vox_join(
+    app: AppHandle,
+    vox: State<'_, VoxState>,
+    ticket: String,
+    name: String,
+    identity: String,
+) -> Result<(), String> {
     ensure_started(&app, &vox).await.map_err(|e| e.to_string())?;
     let ticket = VoxTicket::decode(&ticket).map_err(|e| format!("invalid ticket: {e}"))?;
     let (endpoint, shared) = {
         let guard = vox.0.lock().await;
         let node = guard.as_ref().ok_or("vox not started")?;
         *node.shared.my_name.lock().unwrap() = name;
+        *node.shared.my_identity.lock().unwrap() = identity;
         (node.endpoint.clone(), node.shared.clone())
     };
+    let call_id = ticket.call_id.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = shared.clone().dial(endpoint, ticket.peer).await {
+        if let Err(e) = shared.clone().dial(endpoint, ticket.peer, call_id).await {
             eprintln!("[vox] dial failed: {e}");
             emit_state(&shared.app, "error", None);
         }
@@ -818,18 +1024,50 @@ mod tests {
 
     #[test]
     fn frame_round_trips() {
-        let bytes = frame_bytes(&Hello { name: "alice".into() });
+        let bytes = frame_bytes(&Hello { name: "alice".into(), call_id: "c1".into(), key_package: String::new() });
         // 4-byte LE length prefix + JSON body.
         let len = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
         assert_eq!(len, bytes.len() - 4);
         let parsed: Hello = serde_json::from_slice(&bytes[4..]).expect("decode body");
         assert_eq!(parsed.name, "alice");
+        assert_eq!(parsed.call_id, "c1");
     }
 
     #[test]
     fn control_decline_is_not_accept() {
-        let c = Control { kind: "decline".into(), name: String::new() };
+        let c = Control { kind: "decline".into(), ..Default::default() };
         assert_ne!(c.kind, "accept");
+        assert!(!c.can_mls);
+    }
+
+    // Full MLS → exporter → ChaCha20-Poly1305 pipeline, in-process (no audio/network):
+    // both peers derive matching directional keys, frames round-trip each way, and
+    // tampering is rejected.
+    #[test]
+    fn mls_keyed_audio_round_trips_both_directions_and_rejects_tampering() {
+        let (mut caller_session, kp) = mls_caller_start("call-xyz", "alice").unwrap();
+        let (welcome, callee_keys) = mls_callee("call-xyz", "bob", &kp).unwrap();
+        let caller_keys = mls_caller_join(&mut caller_session, &welcome, "call-xyz").unwrap();
+
+        let frame = [0xABu8; FRAME_SAMPLES];
+        let nonce = nonce_from_counter(7);
+        let n = Nonce::from_slice(&nonce);
+
+        // caller → callee (c2s)
+        let ct = caller_keys.send.encrypt(n, frame.as_ref()).unwrap();
+        assert_eq!(callee_keys.recv.decrypt(n, ct.as_ref()).unwrap(), frame);
+
+        // callee → caller (s2c)
+        let ct2 = callee_keys.send.encrypt(n, frame.as_ref()).unwrap();
+        assert_eq!(caller_keys.recv.decrypt(n, ct2.as_ref()).unwrap(), frame);
+
+        // tamper → authentication fails
+        let mut bad = ct.clone();
+        bad[0] ^= 0x01;
+        assert!(callee_keys.recv.decrypt(n, bad.as_ref()).is_err());
+
+        // wrong direction key can't decrypt (c2s ciphertext with the s2c recv key)
+        assert!(caller_keys.recv.decrypt(n, ct.as_ref()).is_err());
     }
 
     #[test]
@@ -887,7 +1125,7 @@ mod tests {
             let (mut send, mut recv) = conn.accept_bi().await.expect("accept_bi");
             let hello: Hello = read_frame(&mut recv).await.expect("read hello");
             assert_eq!(hello.name, "caller");
-            write_frame(&mut send, &Control { kind: "accept".into(), name: "callee".into() })
+            write_frame(&mut send, &Control { kind: "accept".into(), name: "callee".into(), ..Default::default() })
                 .await
                 .expect("write accept");
             // Echo datagrams until the caller hangs up.
@@ -906,7 +1144,7 @@ mod tests {
             .map_err(|_| anyhow!("connect timed out"))??;
 
         let (mut send, mut recv) = conn.open_bi().await?;
-        write_frame(&mut send, &Hello { name: "caller".into() }).await?;
+        write_frame(&mut send, &Hello { name: "caller".into(), call_id: "c".into(), key_package: String::new() }).await?;
         let ctrl: Control = read_frame(&mut recv).await?;
         assert_eq!(ctrl.kind, "accept");
         assert_eq!(ctrl.name, "callee");
