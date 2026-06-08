@@ -69,6 +69,14 @@ describe("useVoxCall — iroh voice controller", () => {
     expect(vox.peerName.value).toBe("bob");
   });
 
+  it("vox://spectrum updates the live equalizer bands", async () => {
+    const vox = await freshVox(true);
+    await vox.createCall();
+    await tick();
+    listeners["vox://spectrum"]({ payload: { bands: [0.1, 0.5, 1] } });
+    expect(vox.spectrum.value).toEqual([0.1, 0.5, 1]);
+  });
+
   it("joinByTicket dials the trimmed ticket as the caller", async () => {
     const vox = await freshVox(true);
     await vox.joinByTicket("  tkt-xyz  ");

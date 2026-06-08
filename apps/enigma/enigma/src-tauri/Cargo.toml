@@ -27,6 +27,8 @@ rotor-core = { path = "../../../toto/rotors/rotor_core" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"
+# Pure-Rust FFT for the real-time Vox call equalizer (incoming-audio spectrum).
+rustfft = "6"
 # Rust-owned data layer: HTTP gateway (reqwest), realtime WS backend
 # (tokio-tungstenite), async runtime + helpers.
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }

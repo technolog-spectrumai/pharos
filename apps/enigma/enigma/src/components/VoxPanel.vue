@@ -17,7 +17,14 @@ const {
   muted,
   error,
   callSeconds,
+  spectrum,
 } = vox;
+
+// Equalizer bars — fall back to a flat row before the first spectrum frame.
+const BAR_COUNT = 24;
+const bars = computed(() =>
+  spectrum.value.length ? spectrum.value : new Array(BAR_COUNT).fill(0),
+);
 
 // ── join inputs ────────────────────────────────────────────────────────────────
 const joinTicket = ref("");
@@ -166,6 +173,18 @@ const cardClass = computed(() =>
       </div>
       <p class="text-lg font-bold">{{ peerName }}</p>
       <p class="font-mono text-sm opacity-70">{{ elapsed }}</p>
+
+      <!-- Live equalizer of the incoming voice -->
+      <div class="flex h-20 w-full max-w-xs items-center justify-center gap-[3px]">
+        <div
+          v-for="(b, i) in bars"
+          :key="i"
+          class="w-1.5 rounded-full transition-[height] duration-75 ease-out"
+          :class="darkMode ? 'bg-accent-dark' : 'bg-accent-light'"
+          :style="{ height: `${Math.max(6, b * 100)}%`, opacity: muted ? 0.3 : 0.55 + b * 0.45 }"
+        />
+      </div>
+
       <div class="flex gap-3">
         <OyaButton :dark-mode="darkMode" variant="secondary" @click="vox.toggleMute()">
           <font-awesome-icon :icon="muted ? 'microphone-slash' : 'microphone'" />

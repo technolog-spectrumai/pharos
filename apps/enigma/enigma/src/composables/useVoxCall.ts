@@ -37,6 +37,7 @@ function createVox() {
   const muted = ref(false);
   const error = ref(""); // i18n key or raw message
   const callSeconds = ref(0);
+  const spectrum = ref<number[]>([]); // live equalizer bands (0..1) of the incoming voice
 
   let timer: ReturnType<typeof setInterval> | null = null;
   function stopTimer() {
@@ -58,6 +59,7 @@ function createVox() {
     incomingName.value = "";
     peerName.value = "";
     muted.value = false;
+    spectrum.value = [];
     stopTimer();
   }
 
@@ -70,6 +72,9 @@ function createVox() {
     await listen<{ from_name: string; node_id: string }>("vox://incoming", (e) => {
       incomingName.value = e.payload.from_name || "Unknown";
       phase.value = "incoming";
+    });
+    await listen<{ bands: number[] }>("vox://spectrum", (e) => {
+      spectrum.value = e.payload.bands ?? [];
     });
     await listen<{ state: string; peer: string | null }>("vox://state", (e) => {
       const { state, peer } = e.payload;
@@ -189,6 +194,7 @@ function createVox() {
     muted,
     error,
     callSeconds,
+    spectrum,
     createCall,
     joinByTicket,
     accept,
