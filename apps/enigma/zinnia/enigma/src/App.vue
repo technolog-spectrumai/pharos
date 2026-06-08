@@ -233,10 +233,6 @@ async function handleLogout() {
             <font-awesome-icon icon="hard-drive" class="w-4 text-center" />
             {{ $t('nav.storage') }}
           </RouterLink>
-          <RouterLink to="/events" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="calendar" class="w-4 text-center" />
-            {{ $t('nav.events') }}
-          </RouterLink>
 
           <RouterLink
             to="/profile"
