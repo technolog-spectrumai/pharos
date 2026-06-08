@@ -20,14 +20,17 @@
 // Emits `vox://state` (call progress) and `vox://incoming` (ring) events.
 
 use std::collections::VecDeque;
+use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc as stdmpsc;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rustfft::num_complex::Complex;
+use rustfft::{Fft, FftPlanner};
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointAddr, RelayMode};
@@ -43,6 +46,9 @@ const SAMPLE_RATE: u32 = 48_000;
 const FRAME_SAMPLES: usize = 480;
 /// Hard cap on the playback jitter buffer (~0.5 s) so we never drift unbounded.
 const MAX_BUFFERED_SAMPLES: usize = (SAMPLE_RATE as usize) / 2;
+/// Real-time equalizer of the *incoming* voice, emitted as `vox://spectrum`.
+const SPECTRUM_BARS: usize = 24;
+const FFT_SIZE: usize = 1024;
 
 // ── G.711 μ-law companding (pure Rust) ───────────────────────────────────────
 
@@ -76,6 +82,32 @@ fn ulaw_to_linear(ulaw: u8) -> i16 {
     } else {
         sample as i16
     }
+}
+
+/// Linear-interpolating resampler — maps `input` to exactly `out_len` samples.
+/// Good enough for voice; lets each device run at its own native rate while the
+/// wire format stays a fixed 48 kHz μ-law stream so any two peers interoperate.
+fn resample_linear(input: &[f32], out_len: usize) -> Vec<f32> {
+    if out_len == 0 {
+        return Vec::new();
+    }
+    if input.len() == out_len {
+        return input.to_vec();
+    }
+    if input.len() < 2 {
+        return vec![input.first().copied().unwrap_or(0.0); out_len];
+    }
+    let ratio = (input.len() - 1) as f32 / (out_len.max(2) - 1) as f32;
+    (0..out_len)
+        .map(|i| {
+            let pos = i as f32 * ratio;
+            let idx = pos.floor() as usize;
+            let frac = pos - idx as f32;
+            let a = input[idx.min(input.len() - 1)];
+            let b = input[(idx + 1).min(input.len() - 1)];
+            a + (b - a) * frac
+        })
+        .collect()
 }
 
 // ── state ────────────────────────────────────────────────────────────────────
@@ -300,27 +332,40 @@ impl VoxShared {
         // playback (Opus → speaker) on its own thread, fed raw packets
         let (pkt_tx, pkt_rx) = stdmpsc::channel::<Bytes>();
         let out_stop = Arc::new(AtomicBool::new(false));
-        spawn_playback_thread(pkt_rx, out_stop.clone());
+        spawn_playback_thread(self.app.clone(), pkt_rx, out_stop.clone());
+
+        eprintln!("[vox] call connected (max_datagram_size={:?})", conn.max_datagram_size());
 
         let send_conn = conn.clone();
         let send_task = tauri::async_runtime::spawn(async move {
             let mut seq: u16 = 0;
+            let mut logged_err = false;
             while let Some(frame) = frame_rx.recv().await {
                 let mut buf = Vec::with_capacity(frame.len() + 2);
                 buf.extend_from_slice(&seq.to_le_bytes());
                 buf.extend_from_slice(&frame);
-                let _ = send_conn.send_datagram(Bytes::from(buf));
+                if let Err(e) = send_conn.send_datagram(Bytes::from(buf)) {
+                    if !logged_err {
+                        eprintln!("[vox] send_datagram failed (audio won't flow): {e}");
+                        logged_err = true;
+                    }
+                }
                 seq = seq.wrapping_add(1);
             }
         });
 
         let recv_conn = conn.clone();
         let recv_task = tauri::async_runtime::spawn(async move {
+            let mut first = true;
             while let Ok(data) = recv_conn.read_datagram().await {
                 if data.len() <= 2 {
                     continue;
                 }
-                // Strip the 2-byte sequence prefix; forward the Opus packet.
+                if first {
+                    eprintln!("[vox] first audio datagram received ({} bytes)", data.len());
+                    first = false;
+                }
+                // Strip the 2-byte sequence prefix; forward the audio packet.
                 if pkt_tx.send(Bytes::copy_from_slice(&data[2..])).is_err() {
                     break;
                 }
@@ -354,27 +399,7 @@ impl VoxShared {
     }
 }
 
-// ── cpal: capture (mic → Opus frames) ────────────────────────────────────────
-
-fn pick_48k(device: &cpal::Device, input: bool) -> Option<cpal::SupportedStreamConfig> {
-    let target = cpal::SampleRate(SAMPLE_RATE);
-    let ranges: Vec<cpal::SupportedStreamConfigRange> = if input {
-        device.supported_input_configs().ok()?.collect()
-    } else {
-        device.supported_output_configs().ok()?.collect()
-    };
-    // Prefer the fewest channels that can run at 48 kHz.
-    let mut best: Option<cpal::SupportedStreamConfigRange> = None;
-    for r in ranges {
-        if r.min_sample_rate() <= target && target <= r.max_sample_rate() {
-            match &best {
-                Some(b) if b.channels() <= r.channels() => {}
-                _ => best = Some(r),
-            }
-        }
-    }
-    Some(best?.with_sample_rate(target))
-}
+// ── cpal: capture (mic → μ-law frames) ───────────────────────────────────────
 
 fn spawn_capture_thread(frame_tx: mpsc::UnboundedSender<Bytes>, mute: Arc<AtomicBool>, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
@@ -383,11 +408,18 @@ fn spawn_capture_thread(frame_tx: mpsc::UnboundedSender<Bytes>, mute: Arc<Atomic
             eprintln!("[vox] no input device");
             return;
         };
-        let Some(config) = pick_48k(&device, true) else {
-            eprintln!("[vox] input device has no 48 kHz config");
-            return;
+        // Use the device's native config (exactly like the WAV recorder) and
+        // resample to 48 kHz for the wire — never require a specific rate.
+        let config = match device.default_input_config() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[vox] no input config: {e}");
+                return;
+            }
         };
         let ch = config.channels() as usize;
+        let in_rate = config.sample_rate().0 as usize;
+        let cap_chunk = (in_rate / 100).max(1); // 10 ms at the device's native rate
         let ring: Arc<StdMutex<VecDeque<f32>>> = Arc::new(StdMutex::new(VecDeque::new()));
 
         macro_rules! build {
@@ -434,8 +466,17 @@ fn spawn_capture_thread(frame_tx: mpsc::UnboundedSender<Bytes>, mute: Arc<Atomic
             eprintln!("[vox] input play: {e}");
             return;
         }
+        eprintln!(
+            "[vox] capture started: dev={} {}Hz {}ch {:?}",
+            device.name().unwrap_or_else(|_| "?".into()),
+            config.sample_rate().0,
+            ch,
+            config.sample_format()
+        );
 
         let mut payload = [0u8; FRAME_SAMPLES];
+        let mut sent = 0u64;
+        let mut last_log = Instant::now();
 
         while !stop.load(Ordering::SeqCst) {
             // Drain every complete 10 ms frame currently buffered.
@@ -443,11 +484,11 @@ fn spawn_capture_thread(frame_tx: mpsc::UnboundedSender<Bytes>, mute: Arc<Atomic
                 let chunk: Option<Vec<f32>> = {
                     let mut buf = ring.lock().unwrap();
                     // Guard against runaway backlog (e.g. if the loop stalls).
-                    if buf.len() > SAMPLE_RATE as usize {
+                    if buf.len() > in_rate {
                         buf.clear();
                     }
-                    if buf.len() >= FRAME_SAMPLES {
-                        Some(buf.drain(..FRAME_SAMPLES).collect())
+                    if buf.len() >= cap_chunk {
+                        Some(buf.drain(..cap_chunk).collect())
                     } else {
                         None
                     }
@@ -456,11 +497,27 @@ fn spawn_capture_thread(frame_tx: mpsc::UnboundedSender<Bytes>, mute: Arc<Atomic
                 if mute.load(Ordering::SeqCst) {
                     continue; // drained but not transmitted → peer hears silence
                 }
-                for (i, &s) in chunk.iter().enumerate() {
-                    let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                    payload[i] = linear_to_ulaw(v);
+                // Native-rate 10 ms chunk → 48 kHz 480-sample frame → μ-law.
+                let frame48 = if in_rate == SAMPLE_RATE as usize {
+                    chunk
+                } else {
+                    resample_linear(&chunk, FRAME_SAMPLES)
+                };
+                for (i, slot) in payload.iter_mut().enumerate() {
+                    let s = frame48.get(i).copied().unwrap_or(0.0);
+                    *slot = linear_to_ulaw((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
                 }
                 let _ = frame_tx.send(Bytes::copy_from_slice(&payload));
+                sent += 1;
+            }
+            if last_log.elapsed() >= Duration::from_secs(2) {
+                if sent == 0 {
+                    eprintln!("[vox] capture: NO mic frames in 2s — mic silent/busy/denied?");
+                } else {
+                    eprintln!("[vox] capture: {sent} frames sent in 2s");
+                }
+                sent = 0;
+                last_log = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -468,20 +525,68 @@ fn spawn_capture_thread(frame_tx: mpsc::UnboundedSender<Bytes>, mute: Arc<Atomic
     });
 }
 
+// ── equalizer: incoming-audio spectrum ───────────────────────────────────────
+
+/// Hann-windowed FFT of `window` reduced to `SPECTRUM_BARS` log-spaced bands,
+/// auto-gained against a decaying running peak so the bars stay lively at any
+/// volume. Each band is normalised to 0.0..=1.0.
+fn compute_spectrum(window: &[f32], fft: &Arc<dyn Fft<f32>>, running_peak: &mut f32) -> Vec<f32> {
+    let n = window.len();
+    let mut buf: Vec<Complex<f32>> = window
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| {
+            let hann = 0.5 - 0.5 * (2.0 * PI * i as f32 / (n as f32 - 1.0)).cos();
+            Complex { re: s * hann, im: 0.0 }
+        })
+        .collect();
+    fft.process(&mut buf);
+
+    let half = n / 2;
+    let min_bin = 1.0f32;
+    let max_bin = half as f32;
+    let mut bands = vec![0f32; SPECTRUM_BARS];
+    let mut frame_peak = 1e-6f32;
+    for (b, slot) in bands.iter_mut().enumerate() {
+        let lo = (min_bin * (max_bin / min_bin).powf(b as f32 / SPECTRUM_BARS as f32)).floor() as usize;
+        let hi = (min_bin * (max_bin / min_bin).powf((b as f32 + 1.0) / SPECTRUM_BARS as f32)).ceil() as usize;
+        let hi = hi.max(lo + 1).min(half);
+        let mut sum = 0f32;
+        for k in lo..hi {
+            sum += buf[k].norm();
+        }
+        let mag = (sum / (hi - lo) as f32).sqrt(); // perceptual-ish
+        *slot = mag;
+        frame_peak = frame_peak.max(mag);
+    }
+    *running_peak = (*running_peak * 0.92).max(frame_peak);
+    let denom = running_peak.max(1e-4);
+    for v in bands.iter_mut() {
+        *v = (*v / denom).clamp(0.0, 1.0);
+    }
+    bands
+}
+
 // ── cpal: playback (Opus packets → speaker) ──────────────────────────────────
 
-fn spawn_playback_thread(pkt_rx: stdmpsc::Receiver<Bytes>, stop: Arc<AtomicBool>) {
+fn spawn_playback_thread(app: AppHandle, pkt_rx: stdmpsc::Receiver<Bytes>, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let host = cpal::default_host();
         let Some(device) = host.default_output_device() else {
             eprintln!("[vox] no output device");
             return;
         };
-        let Some(config) = pick_48k(&device, false) else {
-            eprintln!("[vox] output device has no 48 kHz config");
-            return;
+        // Native output config (never require 48 kHz); we resample the 48 kHz
+        // wire stream down/up to whatever the speaker wants.
+        let config = match device.default_output_config() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[vox] no output config: {e}");
+                return;
+            }
         };
         let ch = config.channels() as usize;
+        let out_rate = config.sample_rate().0 as usize;
         let pcm: Arc<StdMutex<VecDeque<f32>>> = Arc::new(StdMutex::new(VecDeque::new()));
 
         macro_rules! build {
@@ -527,16 +632,64 @@ fn spawn_playback_thread(pkt_rx: stdmpsc::Receiver<Bytes>, stop: Arc<AtomicBool>
             eprintln!("[vox] output play: {e}");
             return;
         }
+        eprintln!(
+            "[vox] playback started: dev={} {}Hz {}ch {:?}",
+            device.name().unwrap_or_else(|_| "?".into()),
+            config.sample_rate().0,
+            ch,
+            config.sample_format()
+        );
+
+        // Equalizer analysis: accumulate decoded samples and emit a spectrum
+        // ~30×/s while a call is live.
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(FFT_SIZE);
+        let mut analysis: Vec<f32> = Vec::with_capacity(FFT_SIZE * 2);
+        let mut running_peak = 1e-4f32;
+        let mut last_emit = Instant::now();
+        let mut got = 0u64;
+        let mut last_log = Instant::now();
 
         while !stop.load(Ordering::SeqCst) {
+            if last_log.elapsed() >= Duration::from_secs(2) {
+                if got == 0 {
+                    eprintln!("[vox] playback: NO audio packets in 2s — datagrams not arriving");
+                } else {
+                    eprintln!("[vox] playback: {got} packets played in 2s");
+                }
+                got = 0;
+                last_log = Instant::now();
+            }
             match pkt_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(packet) => {
-                    let mut buf = pcm.lock().unwrap();
-                    if buf.len() > MAX_BUFFERED_SAMPLES {
-                        buf.clear(); // we've drifted too far behind — resync
+                    got += 1;
+                    // μ-law → f32 @ 48 kHz; the equalizer analyses this 48 kHz domain.
+                    let frame48: Vec<f32> =
+                        packet.iter().map(|&b| ulaw_to_linear(b) as f32 / i16::MAX as f32).collect();
+                    analysis.extend_from_slice(&frame48);
+                    // Resample to the speaker's native rate before enqueueing.
+                    let out_samples = if out_rate == SAMPLE_RATE as usize {
+                        frame48.clone()
+                    } else {
+                        let n = (frame48.len() * out_rate / SAMPLE_RATE as usize).max(1);
+                        resample_linear(&frame48, n)
+                    };
+                    {
+                        let mut buf = pcm.lock().unwrap();
+                        if buf.len() > MAX_BUFFERED_SAMPLES {
+                            buf.clear(); // we've drifted too far behind — resync
+                        }
+                        buf.extend(out_samples);
                     }
-                    for &b in packet.iter() {
-                        buf.push_back(ulaw_to_linear(b) as f32 / i16::MAX as f32);
+                    if analysis.len() >= FFT_SIZE && last_emit.elapsed() >= Duration::from_millis(33) {
+                        let start = analysis.len() - FFT_SIZE;
+                        let bands = compute_spectrum(&analysis[start..], &fft, &mut running_peak);
+                        let _ = app.emit("vox://spectrum", serde_json::json!({ "bands": bands }));
+                        analysis.clear();
+                        last_emit = Instant::now();
+                    } else if analysis.len() > FFT_SIZE * 4 {
+                        let drop_to = analysis.len() - FFT_SIZE;
+                        analysis.drain(..drop_to); // bound memory if we're not emitting
                     }
                 }
                 Err(stdmpsc::RecvTimeoutError::Timeout) => {}
@@ -677,6 +830,39 @@ mod tests {
     fn control_decline_is_not_accept() {
         let c = Control { kind: "decline".into(), name: String::new() };
         assert_ne!(c.kind, "accept");
+    }
+
+    #[test]
+    fn resample_changes_length_and_preserves_endpoints() {
+        let src: Vec<f32> = (0..441).map(|i| i as f32 / 440.0).collect(); // 10 ms @ 44.1 kHz
+        let dst = resample_linear(&src, FRAME_SAMPLES); // → 10 ms @ 48 kHz
+        assert_eq!(dst.len(), FRAME_SAMPLES);
+        assert!((dst[0] - 0.0).abs() < 1e-6, "first sample preserved");
+        assert!((dst[FRAME_SAMPLES - 1] - 1.0).abs() < 1e-6, "last sample preserved");
+        // identity when lengths match
+        assert_eq!(resample_linear(&src, src.len()), src);
+    }
+
+    #[test]
+    fn spectrum_is_flat_for_silence_and_peaks_for_a_tone() {
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(FFT_SIZE);
+
+        let mut peak = 1e-4f32;
+        let silent = vec![0f32; FFT_SIZE];
+        let s = compute_spectrum(&silent, &fft, &mut peak);
+        assert_eq!(s.len(), SPECTRUM_BARS);
+        assert!(s.iter().cloned().fold(0.0, f32::max) < 0.05, "silence is flat");
+
+        let mut peak2 = 1e-4f32;
+        let tone: Vec<f32> = (0..FFT_SIZE)
+            .map(|i| (2.0 * PI * 1000.0 * i as f32 / SAMPLE_RATE as f32).sin())
+            .collect();
+        let t = compute_spectrum(&tone, &fft, &mut peak2);
+        let max = t.iter().cloned().fold(0.0, f32::max);
+        assert!(max > 0.8, "tone produces a dominant band (max={max})");
+        let loud = t.iter().filter(|&&v| v > 0.5).count();
+        assert!(loud <= 6, "energy is concentrated in a few bands (loud={loud})");
     }
 
     // Drives the real iroh network path Vox depends on — two endpoints connect
