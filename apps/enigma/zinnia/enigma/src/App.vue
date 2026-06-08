@@ -15,13 +15,15 @@ const missionMobileOpen = ref(false); // mobile "Mission" collapsible
 const router = useRouter();
 const route = useRoute();
 
-// The "Mission" apps grouped under one app-bar entry. The dropdown label/icon
-// reflects whichever of these is currently open.
+// The "Mission" apps grouped under one app-bar entry. The dropdown keeps its
+// "Mission" label/icon even when a sub-app is open; `activeMission` is used only to
+// highlight the entry (bold) while you're inside one of these apps.
 const missionApps = [
   { to: "/notes", icon: "sticky-note", label: "nav.notes" },
   { to: "/tasks", icon: "list-check", label: "nav.tasks" },
   { to: "/locations", icon: "location-dot", label: "nav.locations" },
   { to: "/people", icon: "users", label: "nav.people" },
+  { to: "/events", icon: "calendar", label: "nav.events" },
 ] as const;
 const activeMission = computed(() => missionApps.find((m) => m.to === route.path) ?? null);
 
@@ -92,8 +94,8 @@ async function handleLogout() {
               :title="$t('nav.mission')"
               @click="missionMenuOpen = !missionMenuOpen"
             >
-              <font-awesome-icon :icon="activeMission ? activeMission.icon : 'bullseye'" />
-              {{ activeMission ? $t(activeMission.label) : $t('nav.mission') }}
+              <font-awesome-icon icon="bullseye" />
+              {{ $t('nav.mission') }}
               <font-awesome-icon icon="chevron-down" class="text-[10px] opacity-60" />
             </button>
             <div v-if="missionMenuOpen" class="fixed inset-0 z-40" @click="missionMenuOpen = false" />
@@ -118,10 +120,6 @@ async function handleLogout() {
           <RouterLink to="/vault" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.storage')">
             <font-awesome-icon icon="hard-drive" />
             {{ $t('nav.storage') }}
-          </RouterLink>
-          <RouterLink to="/events" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.events')">
-            <font-awesome-icon icon="calendar" />
-            {{ $t('nav.events') }}
           </RouterLink>
 
           <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
@@ -215,8 +213,8 @@ async function handleLogout() {
             class="flex w-full items-center gap-3 px-5 py-3.5 text-sm transition hover:opacity-70"
             @click="missionMobileOpen = !missionMobileOpen"
           >
-            <font-awesome-icon :icon="activeMission ? activeMission.icon : 'bullseye'" class="w-4 text-center" />
-            {{ activeMission ? $t(activeMission.label) : $t('nav.mission') }}
+            <font-awesome-icon icon="bullseye" class="w-4 text-center" />
+            {{ $t('nav.mission') }}
             <font-awesome-icon :icon="missionMobileOpen ? 'chevron-up' : 'chevron-down'" class="ml-auto text-xs opacity-60" />
           </button>
           <template v-if="missionMobileOpen">
