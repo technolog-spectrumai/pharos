@@ -6,9 +6,10 @@
 // maintains a read-through response cache so previously-loaded data stays
 // browsable offline / in silent mode.
 //
-// The cache is a simple on-disk store (one file per (server, path)) — deliberately
-// not SQLite, to avoid linking a second `libsqlite3-sys` alongside the
-// `tauri-plugin-sql` one used by the JS Notes cache.
+// The cache is a simple on-disk store (one file per (server, path)) — pure files,
+// no SQLite. The app avoids libsqlite3-sys everywhere except the one arti pulls in
+// (tor-dirmgr/rusqlite) for the embedded Tor client; the local KV cache is fjall
+// (see kv.rs), so there is no `libsqlite3-sys` `links = "sqlite3"` collision.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -80,6 +81,7 @@ pub async fn data_http(
     app: AppHandle,
     config: State<'_, AppConfigState>,
     data: State<'_, DataState>,
+    tor: State<'_, crate::tor::TorState>,
     method: String,
     path: String,
     body: Option<String>,
@@ -103,33 +105,53 @@ pub async fn data_http(
         return Err(NO_SERVER.to_string());
     }
 
-    let url = format!("{base}{path}");
-    let verb = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-    let mut req = data
-        .client
-        .request(verb, &url)
-        .header("Content-Type", "application/json")
-        .header("X-Requested-With", "XMLHttpRequest");
-    if include_auth {
-        if let Some(token) = &state.auth_token {
-            req = req.bearer_auth(token);
+    // Onion servers go through the embedded Tor client (hyper over a Tor stream);
+    // everything else uses the pooled reqwest client directly.
+    let (status_code, text) = if state.server_is_onion {
+        let (host, port) = crate::tor::host_port(&base)?;
+        let mut headers = vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("X-Requested-With".to_string(), "XMLHttpRequest".to_string()),
+        ];
+        if include_auth {
+            if let Some(token) = &state.auth_token {
+                headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+            }
         }
-    }
-    if let Some(b) = body {
-        req = req.body(b);
-    }
+        let body_bytes = body.unwrap_or_default().into_bytes();
+        let (code, bytes) = tor
+            .http_request(&host, port, &method, &path, &headers, body_bytes)
+            .await?;
+        (code, String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        let url = format!("{base}{path}");
+        let verb = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+        let mut req = data
+            .client
+            .request(verb, &url)
+            .header("Content-Type", "application/json")
+            .header("X-Requested-With", "XMLHttpRequest");
+        if include_auth {
+            if let Some(token) = &state.auth_token {
+                req = req.bearer_auth(token);
+            }
+        }
+        if let Some(b) = body {
+            req = req.body(b);
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        let status = resp.status();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        (status.as_u16(), text)
+    };
 
-    let resp = req.send().await.map_err(|e| e.to_string())?;
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-
-    if !status.is_success() {
-        return Err(format!("{}: {}", status.as_u16(), text));
+    if !(200..300).contains(&status_code) {
+        return Err(format!("{}: {}", status_code, text));
     }
     if !text.is_empty() && serde_json::from_str::<serde_json::Value>(&text).is_err() {
         return Err(format!(
             "Server returned a non-JSON response (HTTP {}). Check the server address in Settings.",
-            status.as_u16()
+            status_code
         ));
     }
 
@@ -139,11 +161,44 @@ pub async fn data_http(
     Ok(text)
 }
 
+/// Build a `multipart/form-data` body by hand (the onion HTTP path uses hyper,
+/// which has no multipart helper). Returns (content-type header, body bytes).
+fn build_multipart(
+    field: &str,
+    filename: &str,
+    bytes: &[u8],
+    extra: Option<&HashMap<String, String>>,
+) -> (String, Vec<u8>) {
+    let boundary = format!("----enigma{}", uuid::Uuid::new_v4().simple());
+    let mut body: Vec<u8> = Vec::new();
+    if let Some(fields) = extra {
+        for (k, v) in fields {
+            body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+            body.extend_from_slice(
+                format!("Content-Disposition: form-data; name=\"{k}\"\r\n\r\n").as_bytes(),
+            );
+            body.extend_from_slice(v.as_bytes());
+            body.extend_from_slice(b"\r\n");
+        }
+    }
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        format!("Content-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\n")
+            .as_bytes(),
+    );
+    body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
 #[tauri::command]
 pub async fn data_upload(
     app: AppHandle,
     config: State<'_, AppConfigState>,
     data: State<'_, DataState>,
+    tor: State<'_, crate::tor::TorState>,
     path: String,
     field: String,
     filename: String,
@@ -158,6 +213,27 @@ pub async fn data_upload(
     let base = state.server_url.trim_end_matches('/').to_string();
     if base.is_empty() {
         return Err(NO_SERVER.to_string());
+    }
+
+    // Onion uploads: build the multipart body by hand and send it over Tor.
+    if state.server_is_onion {
+        let (host, port) = crate::tor::host_port(&base)?;
+        let (content_type, body_bytes) = build_multipart(&field, &filename, &bytes, extra.as_ref());
+        let mut headers = vec![
+            ("Content-Type".to_string(), content_type),
+            ("X-Requested-With".to_string(), "XMLHttpRequest".to_string()),
+        ];
+        if let Some(token) = &state.auth_token {
+            headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+        }
+        let (status, resp_bytes) = tor
+            .http_request(&host, port, "POST", &path, &headers, body_bytes)
+            .await?;
+        let text = String::from_utf8_lossy(&resp_bytes).into_owned();
+        if !(200..300).contains(&status) {
+            return Err(format!("{}: {}", status, text));
+        }
+        return Ok(text);
     }
 
     let part = reqwest::multipart::Part::bytes(bytes).file_name(filename);

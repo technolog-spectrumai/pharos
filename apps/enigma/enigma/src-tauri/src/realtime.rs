@@ -13,8 +13,10 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::WebSocketStream;
 
 use crate::p2p_iroh::{self, P2pState};
 use crate::{active_config, load_profile_state, AppConfigState};
@@ -69,6 +71,51 @@ fn emit_message(app: &AppHandle, room: &str, payload: &str) {
     let _ = app.emit("realtime://message", json!({ "room": room, "payload": payload }));
 }
 
+/// Pump an established WebSocket connection until it ends. Generic over the
+/// transport so it serves both a direct (`connect_async`) stream and a Tor
+/// (`client_async` over an arti `DataStream`) stream. Returns `true` when the
+/// caller should stop the task (intentional disconnect or a newer connection
+/// superseded this one), `false` when it should reconnect with backoff.
+async fn pump_ws<S>(
+    app: &AppHandle,
+    room: &str,
+    realtime: &RealtimeState,
+    my_gen: u64,
+    ws_stream: WebSocketStream<S>,
+    out_rx: &mut mpsc::UnboundedReceiver<String>,
+) -> bool
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    let (mut write, mut read) = ws_stream.split();
+    loop {
+        tokio::select! {
+            out = out_rx.recv() => match out {
+                Some(text) => {
+                    if write.send(WsMessage::Text(text.into())).await.is_err() {
+                        return false;
+                    }
+                }
+                // Sender dropped → intentional disconnect.
+                None => {
+                    let _ = write.close().await;
+                    emit_status(app, room, "disconnected");
+                    return true;
+                }
+            },
+            msg = read.next() => match msg {
+                Some(Ok(WsMessage::Text(t))) => emit_message(app, room, t.as_str()),
+                Some(Ok(_)) => {}
+                Some(Err(_)) | None => return false,
+            },
+        }
+
+        if realtime.generation.load(Ordering::SeqCst) != my_gen {
+            return true;
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn realtime_connect(
     app: AppHandle,
@@ -95,6 +142,15 @@ pub async fn realtime_connect(
     };
     let url = format!("{ws_base}/ws/telegraph/{room}/{query}");
 
+    // When the server is a .onion, dial through the embedded Tor client instead
+    // of connecting directly (nothing resolves .onion without Tor).
+    let is_onion = state.server_is_onion;
+    let onion_host_port = if is_onion {
+        Some(crate::tor::host_port(&state.server_url)?)
+    } else {
+        None
+    };
+
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
     {
         let mut inner = realtime.inner.lock().await;
@@ -113,43 +169,43 @@ pub async fn realtime_connect(
             }
             emit_status(&app2, &room, "connecting");
 
-            match tokio_tungstenite::connect_async(url.as_str()).await {
-                Ok((ws_stream, _)) => {
-                    attempt = 0;
-                    emit_status(&app2, &room, "connected");
-                    let (mut write, mut read) = ws_stream.split();
-
-                    loop {
-                        tokio::select! {
-                            out = out_rx.recv() => match out {
-                                Some(text) => {
-                                    if write.send(WsMessage::Text(text.into())).await.is_err() {
-                                        break;
-                                    }
-                                }
-                                // Sender dropped → intentional disconnect.
-                                None => {
-                                    let _ = write.close().await;
-                                    emit_status(&app2, &room, "disconnected");
-                                    return;
-                                }
-                            },
-                            msg = read.next() => match msg {
-                                Some(Ok(WsMessage::Text(t))) => emit_message(&app2, &room, t.as_str()),
-                                Some(Ok(_)) => {}
-                                Some(Err(_)) | None => break,
-                            },
-                        }
-
-                        if realtime.generation.load(Ordering::SeqCst) != my_gen {
-                            return;
+            let stop = if is_onion {
+                let (host, port) = onion_host_port.clone().expect("onion host:port");
+                let tor = app2.state::<crate::tor::TorState>();
+                match tor.connect(&host, port).await {
+                    Ok(stream) => {
+                        match tokio_tungstenite::client_async(url.as_str(), stream).await {
+                            Ok((ws_stream, _)) => {
+                                attempt = 0;
+                                emit_status(&app2, &room, "connected");
+                                pump_ws(&app2, &room, &realtime, my_gen, ws_stream, &mut out_rx).await
+                            }
+                            Err(_) => {
+                                emit_status(&app2, &room, "error");
+                                false
+                            }
                         }
                     }
+                    Err(_) => {
+                        emit_status(&app2, &room, "error");
+                        false
+                    }
                 }
-                Err(_) => emit_status(&app2, &room, "error"),
-            }
+            } else {
+                match tokio_tungstenite::connect_async(url.as_str()).await {
+                    Ok((ws_stream, _)) => {
+                        attempt = 0;
+                        emit_status(&app2, &room, "connected");
+                        pump_ws(&app2, &room, &realtime, my_gen, ws_stream, &mut out_rx).await
+                    }
+                    Err(_) => {
+                        emit_status(&app2, &room, "error");
+                        false
+                    }
+                }
+            };
 
-            if realtime.generation.load(Ordering::SeqCst) != my_gen {
+            if stop || realtime.generation.load(Ordering::SeqCst) != my_gen {
                 return;
             }
             let delay = BACKOFF_MS[attempt.min(BACKOFF_MS.len() - 1)];

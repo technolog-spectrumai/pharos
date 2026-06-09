@@ -11,6 +11,8 @@ use zeroize::Zeroize;
 mod data;
 mod p2p_iroh;
 mod realtime;
+mod kv;
+mod tor;
 mod vox;
 mod y_store;
 
@@ -78,6 +80,10 @@ pub struct AppProfileState {
     pub server_data: bool,
     #[serde(default)]
     pub offline: bool,
+    //   server_is_onion — the server_url is a Tor .onion; route HTTP + WS through
+    //   the embedded Tor client instead of connecting directly. Default off.
+    #[serde(default)]
+    pub server_is_onion: bool,
 }
 
 fn default_true() -> bool {
@@ -427,6 +433,24 @@ fn app_set_server_data(
     let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.server_data = on;
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_server_is_onion(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).server_is_onion)
+}
+
+#[tauri::command]
+fn app_set_server_is_onion(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    on: bool,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    state.server_is_onion = on;
     save_profile_state(&app, &config, &state)
 }
 
@@ -985,18 +1009,20 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(realtime::RealtimeState::default())
         .manage(p2p_iroh::P2pState::default())
         .manage(vox::VoxState::default())
+        .manage(tor::TorState::default())
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
             app.manage(data::init(app.handle()));
             // CRDT-backed local data store (fjall keyspace under the app data dir).
             app.manage(y_store::init(app.handle()));
+            // Local key/value cache (fjall) — replaces the old tauri-plugin-sql store.
+            app.manage(kv::init(app.handle()));
 
             #[cfg(target_os = "linux")]
             {
@@ -1026,6 +1052,8 @@ pub fn run() {
             app_clear_auth_token,
             app_get_server_data,
             app_set_server_data,
+            app_get_server_is_onion,
+            app_set_server_is_onion,
             app_get_offline,
             app_set_offline,
             app_clear_profile_state,
@@ -1050,6 +1078,11 @@ pub fn run() {
             data::data_upload,
             data::data_cache_count,
             data::data_cache_clear,
+            kv::kv_get,
+            kv::kv_put,
+            kv::kv_delete,
+            kv::kv_clear_namespace,
+            kv::kv_count,
             y_store::y_store_ingest,
             y_store::y_store_replace,
             y_store::y_store_snapshot,

@@ -20,7 +20,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rotor-core = { path = "../../../toto/rotors/rotor_core" }
@@ -37,6 +36,18 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "mul
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
+# Embedded pure-Rust Tor (arti) so the client can reach a .onion server without an
+# external tor daemon. Plain HTTP over the onion stream uses hyper directly (reqwest
+# can't take a custom transport); WS reuses tokio-tungstenite's client_async.
+arti-client = { version = "0.43", default-features = false, features = ["tokio", "rustls", "onion-service-client", "compression"] }
+tor-rtcompat = { version = "0.43", features = ["tokio", "rustls"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+# MSRV pin (Cargo.lock is gitignored, so this must live here): typed-index-collections
+# 3.4+ requires rustc 1.90, but arti pulls it in transitively. Hold it at 3.3.0
+# (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
+typed-index-collections = "=3.3.0"
 data-encoding = "2"
 # Direct P2P chat backend (iroh-gossip over QUIC).
 iroh = "0.98"

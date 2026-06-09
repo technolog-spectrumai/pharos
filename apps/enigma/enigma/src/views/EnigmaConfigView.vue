@@ -12,10 +12,12 @@ import {
   getRuntimeConfig,
   getServerUrl,
   getServerData,
+  getServerIsOnion,
   getOffline,
   setActiveProfile,
   setServerUrl,
   setServerData,
+  setServerIsOnion,
   setOffline,
   type AppRuntimeConfig,
   type AppProfileState,
@@ -60,6 +62,16 @@ async function toggleServerData() {
   testMessage.value = "";
 }
 
+// ── Server is onion (Tor) ─────────────────────────────────────────────────────
+// On → reach the server (a .onion) through the embedded Tor client.
+const serverIsOnion = ref(false);
+async function toggleServerIsOnion() {
+  serverIsOnion.value = !serverIsOnion.value;
+  await setServerIsOnion(serverIsOnion.value);
+  testStatus.value = "idle";
+  testMessage.value = "";
+}
+
 // ── Offline / airplane mode (online / offline) ───────────────────────────────
 const offline = ref(false);
 async function toggleOffline() {
@@ -98,6 +110,7 @@ onMounted(async () => {
   await loadRuntimeConfig();
   serverUrl.value = await getServerUrl();
   serverData.value = await getServerData();
+  serverIsOnion.value = await getServerIsOnion();
   offline.value = await getOffline();
   await refreshCacheCount();
   await loadOfflineData();
@@ -382,6 +395,35 @@ async function clearSelectedOfflineData() {
           <font-awesome-icon :icon="saved ? 'check' : 'floppy-disk'" />
           {{ saved ? $t('common.saved') : $t('common.save') }}
         </OyaButton>
+      </div>
+
+      <!-- Onion (Tor) switch — reach a .onion server through the embedded Tor client -->
+      <div class="flex items-center gap-3" :class="{ 'pointer-events-none opacity-50': offline }">
+        <font-awesome-icon
+          icon="lock"
+          :class="serverIsOnion ? (darkMode ? 'text-accent-dark' : 'text-accent-light') : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.serverOnion') }}</p>
+          <p class="text-xs opacity-60">
+            {{ serverIsOnion ? $t('config.serverOnionOnHint') : $t('config.serverOnionOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="serverIsOnion"
+          :disabled="offline"
+          :class="serverIsOnion ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleServerIsOnion"
+        >
+          <span
+            :class="serverIsOnion ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
       </div>
 
       <!-- Server data switch (on / off) -->
