@@ -119,8 +119,9 @@ pub async fn data_http(
             }
         }
         let body_bytes = body.unwrap_or_default().into_bytes();
+        let tls = base.starts_with("https");
         let (code, bytes) = tor
-            .http_request(&host, port, &method, &path, &headers, body_bytes)
+            .http_request(&host, port, tls, &method, &path, &headers, body_bytes)
             .await?;
         (code, String::from_utf8_lossy(&bytes).into_owned())
     } else {
@@ -226,8 +227,9 @@ pub async fn data_upload(
         if let Some(token) = &state.auth_token {
             headers.push(("Authorization".to_string(), format!("Bearer {token}")));
         }
+        let tls = base.starts_with("https");
         let (status, resp_bytes) = tor
-            .http_request(&host, port, "POST", &path, &headers, body_bytes)
+            .http_request(&host, port, tls, "POST", &path, &headers, body_bytes)
             .await?;
         let text = String::from_utf8_lossy(&resp_bytes).into_owned();
         if !(200..300).contains(&status) {
@@ -261,6 +263,85 @@ pub async fn data_upload(
         return Err(format!("{}: {}", status.as_u16(), text));
     }
     Ok(text)
+}
+
+/// Fetch a vault image over the active transport (Tor-aware) and return it as a
+/// `data:` URL. The webview can't load a `.onion` (or cross-origin) image directly,
+/// so image display goes through Rust — same reason as the data gateway.
+#[tauri::command]
+pub async fn vault_image_data_url(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    data: State<'_, DataState>,
+    tor: State<'_, crate::tor::TorState>,
+    path: String,
+) -> Result<String, String> {
+    let cfg = active_config(&config)?;
+    let state = load_profile_state(&app, &cfg);
+    if crate::data_blocked(&state) {
+        return Err(SERVER_OFF.to_string());
+    }
+    let base = state.server_url.trim_end_matches('/').to_string();
+    if base.is_empty() {
+        return Err(NO_SERVER.to_string());
+    }
+
+    // download_url may be absolute (http://host/..) or server-relative (/vault/..).
+    // Reduce to a server-relative path so it rides the active transport (incl. onion).
+    let rel = match path.find("://") {
+        Some(i) => match path[i + 3..].find('/') {
+            Some(slash) => path[i + 3 + slash..].to_string(),
+            None => "/".to_string(),
+        },
+        None => path.clone(),
+    };
+
+    let (status, bytes) = if state.server_is_onion {
+        let (host, port) = crate::tor::host_port(&base)?;
+        let tls = base.starts_with("https");
+        let mut headers = vec![("X-Requested-With".to_string(), "XMLHttpRequest".to_string())];
+        if let Some(token) = &state.auth_token {
+            headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+        }
+        tor.http_request(&host, port, tls, "GET", &rel, &headers, Vec::new())
+            .await?
+    } else {
+        let url = format!("{base}{rel}");
+        let mut req = data
+            .client
+            .get(&url)
+            .header("X-Requested-With", "XMLHttpRequest");
+        if let Some(token) = &state.auth_token {
+            req = req.bearer_auth(token);
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        let b = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+        (status, b)
+    };
+
+    if !(200..300).contains(&status) {
+        return Err(format!("{}: image fetch failed", status));
+    }
+    let mime = sniff_image_mime(&bytes);
+    let b64 = data_encoding::BASE64.encode(&bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
+fn sniff_image_mime(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF8") {
+        "image/gif"
+    } else if bytes.len() > 11 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else if bytes.windows(4).take(64).any(|w| w == b"<svg") {
+        "image/svg+xml"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 #[tauri::command]

@@ -12,6 +12,8 @@ mod data;
 mod p2p_iroh;
 mod realtime;
 mod kv;
+#[cfg(test)]
+mod onion_e2e;
 mod tor;
 mod vox;
 mod y_store;
@@ -1076,6 +1078,7 @@ pub fn run() {
             audio_stop_recording,
             data::data_http,
             data::data_upload,
+            data::vault_image_data_url,
             data::data_cache_count,
             data::data_cache_clear,
             kv::kv_get,
