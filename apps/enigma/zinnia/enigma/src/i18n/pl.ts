@@ -182,4 +182,10 @@ export default {
     encTransport: "Szyfrowanie MLS niedostępne — to połączenie chroni tylko warstwa transportowa.",
     restart: "Uruchom połączenie ponownie",
   },
+  profile: {
+    dangerZone: "Strefa zagrożenia",
+    dangerZoneHint: "Wyczyść lokalne dane profilu, opuść czaty na serwerze, wyloguj się i wróć do ekranu logowania.",
+    clearAllData: "Wyczyść wszystkie dane i wyloguj",
+    clearingAllData: "Czyszczenie…",
+  },
 };

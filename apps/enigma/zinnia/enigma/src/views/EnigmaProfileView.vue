@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
@@ -11,6 +12,7 @@ import { useRouter } from "vue-router";
 
 defineProps<{ darkMode: boolean }>();
 
+const { t } = useI18n();
 const router = useRouter();
 const userStore = useUserStore();
 const chatStore = useChatStore();
@@ -521,10 +523,10 @@ async function clearAllDataAndLogout() {
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p class="text-xs font-semibold uppercase tracking-wide text-warn-dark">
-          Danger zone
+          {{ t("profile.dangerZone") }}
         </p>
         <p class="mt-1 text-sm opacity-60">
-          Clear local profile data, leave chats on the server, log out, and return to login.
+          {{ t("profile.dangerZoneHint") }}
         </p>
       </div>
 
@@ -543,7 +545,7 @@ async function clearAllDataAndLogout() {
         @click="clearAllDataAndLogout"
       >
         <font-awesome-icon :icon="clearingAllData ? 'lock' : 'trash'" />
-        {{ clearingAllData ? "Clearing…" : "Clear all data and logout" }}
+        {{ clearingAllData ? t("profile.clearingAllData") : t("profile.clearAllData") }}
       </OyaButton>
     </OyaCard>
 
