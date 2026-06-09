@@ -23,6 +23,12 @@ import {
   type AppProfileState,
 } from "../services/appStorage";
 import { chatTransport as wsService } from "../services/chatTransport";
+import {
+  getReminderHorizonMin,
+  setReminderHorizonMin,
+  MIN_HORIZON_MIN,
+  MAX_HORIZON_MIN,
+} from "../services/reminderSettings";
 import OyaCard from "../components/OyaCard.vue";
 import OyaButton from "../components/OyaButton.vue";
 
@@ -47,6 +53,16 @@ async function changeLanguage(value: string) {
   } catch {
     /* offline — the local choice still applies */
   }
+}
+
+// ── Notifications ───────────────────────────────────────────────────────────
+// How many minutes before a meeting starts the reminder notification fires.
+const reminderHorizon = ref(getReminderHorizonMin());
+const reminderHorizonSaved = ref(false);
+function saveReminderHorizon() {
+  reminderHorizon.value = setReminderHorizonMin(reminderHorizon.value);
+  reminderHorizonSaved.value = true;
+  setTimeout(() => (reminderHorizonSaved.value = false), 2000);
 }
 
 // ── Server URL ────────────────────────────────────────────────────────────────
@@ -359,6 +375,39 @@ async function clearSelectedOfflineData() {
         </select>
         <span v-if="langSavedToProfile" class="text-xs text-success-dark">
           <font-awesome-icon icon="check" class="mr-1" />{{ $t('lang.savedToProfile') }}
+        </span>
+      </div>
+    </OyaCard>
+
+    <!-- Notifications card -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
+      <div>
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
+        >
+          {{ $t('config.notifications') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.notifHorizonHint') }}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
+          <font-awesome-icon icon="calendar" class="mr-1 opacity-60" />{{ $t('config.notifHorizon') }}
+        </label>
+        <input
+          v-model.number="reminderHorizon"
+          type="number"
+          :min="MIN_HORIZON_MIN"
+          :max="MAX_HORIZON_MIN"
+          step="1"
+          :class="darkMode ? 'config-control-dark' : 'config-control-light'"
+          class="config-control w-24 rounded-lg border px-2 py-1 text-sm outline-none transition"
+          @change="saveReminderHorizon"
+          @keyup.enter="saveReminderHorizon"
+        />
+        <span class="text-sm opacity-60">{{ $t('config.minutesUnit') }}</span>
+        <span v-if="reminderHorizonSaved" class="text-xs text-success-dark">
+          <font-awesome-icon icon="check" class="mr-1" />{{ $t('common.saved') }}
         </span>
       </div>
     </OyaCard>
