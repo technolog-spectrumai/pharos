@@ -112,3 +112,44 @@ pub fn host_port(url: &str) -> Result<(String, u16), String> {
     }
     Ok((authority.to_string(), default_port))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::host_port;
+
+    fn hp(url: &str) -> (String, u16) {
+        host_port(url).expect("parse")
+    }
+
+    #[test]
+    fn defaults_http_ws_to_80() {
+        assert_eq!(hp("http://abc.onion"), ("abc.onion".into(), 80));
+        assert_eq!(hp("ws://abc.onion"), ("abc.onion".into(), 80));
+        // No scheme → treated as http (port 80).
+        assert_eq!(hp("abc.onion"), ("abc.onion".into(), 80));
+    }
+
+    #[test]
+    fn defaults_https_wss_to_443() {
+        assert_eq!(hp("https://x.onion"), ("x.onion".into(), 443));
+        assert_eq!(hp("wss://x.onion"), ("x.onion".into(), 443));
+    }
+
+    #[test]
+    fn explicit_port_wins() {
+        assert_eq!(hp("http://abc.onion:8080"), ("abc.onion".into(), 8080));
+        assert_eq!(hp("https://abc.onion:8443"), ("abc.onion".into(), 8443));
+    }
+
+    #[test]
+    fn strips_path_and_trailing_slash() {
+        assert_eq!(hp("http://abc.onion/admin/login/"), ("abc.onion".into(), 80));
+        assert_eq!(hp("http://abc.onion:9000/x?y=1"), ("abc.onion".into(), 9000));
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(host_port("").is_err());
+        assert!(host_port("http://").is_err());
+    }
+}
