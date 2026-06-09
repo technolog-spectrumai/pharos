@@ -16,6 +16,7 @@ mod kv;
 mod onion_e2e;
 mod tor;
 mod vox;
+mod file_xfer;
 mod y_store;
 
 // ── App config ────────────────────────────────────────────────────────────────
@@ -1011,12 +1012,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(realtime::RealtimeState::default())
         .manage(p2p_iroh::P2pState::default())
         .manage(vox::VoxState::default())
+        .manage(file_xfer::FileXferState::default())
         .manage(tor::TorState::default())
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
@@ -1107,6 +1111,9 @@ pub fn run() {
             vox::vox_decline,
             vox::vox_hangup,
             vox::vox_set_mute,
+            file_xfer::file_offer_create,
+            file_xfer::file_offer_cancel,
+            file_xfer::file_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

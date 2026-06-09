@@ -166,8 +166,10 @@ export function useChatChannel(kind: ChannelKind) {
   const presenceById = new Map<string, { name: string; avatar: string }>();
 
   // ── Data-sync seam ───────────────────────────────────────────────────────────
-  // Full-data "Sync" rides this channel: an external orchestrator (useDataSync)
-  // registers a handler for `sync_*` inner messages and sends them via `sendSync`.
+  // External orchestrators ride this channel's MLS group by registering an `onSync`
+  // handler and sending via `sendSync`. Routed inner-message families: `sync_*`
+  // (useDataSync, full-data pull) and `file_*` (useFileShare, P2P file transfer
+  // offer/accept signaling). Each handler ignores the prefixes it does not own.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
@@ -452,7 +454,7 @@ export function useChatChannel(kind: ChannelKind) {
             void handlePeerLeave(inner.device_id as string);
             return;
           }
-          if (typeof inner?.type === "string" && inner.type.startsWith("sync_")) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_"))) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }

@@ -7,6 +7,7 @@ import { useChatStore } from "./stores/chat";
 import { api } from "./services/api";
 import { appIcon } from "./assets/logos";
 import { applyProfileLocaleGuess } from "./i18n";
+import { useMeetingReminders } from "./composables/useMeetingReminders";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
@@ -29,6 +30,9 @@ const activeMission = computed(() => missionApps.find((m) => m.to === route.path
 const userStore = useUserStore();
 const chatStore = useChatStore();
 const { me } = storeToRefs(userStore);
+
+// App-shell watcher: notify ahead of upcoming meetings, on any screen.
+useMeetingReminders();
 
 onMounted(() => {
   void chatStore.syncRuntimeIdentity();

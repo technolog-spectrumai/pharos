@@ -20,6 +20,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# Native file/save dialogs for picking a file to send and where to save a received one.
+tauri-plugin-dialog = "2"
+# Native OS notifications (desktop + Android/iOS) for upcoming-meeting reminders.
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rotor-core = { path = "../../../toto/rotors/rotor_core" }
@@ -33,7 +37,7 @@ rustfft = "6"
 # Rust-owned data layer: HTTP gateway (reqwest), realtime WS backend
 # (tokio-tungstenite), async runtime + helpers.
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
-tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 # Embedded pure-Rust Tor (arti) so the client can reach a .onion server without an
