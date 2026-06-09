@@ -182,4 +182,10 @@ export default {
     encTransport: "MLS encryption unavailable — this call is protected only by the transport.",
     restart: "Restart call",
   },
+  profile: {
+    dangerZone: "Danger zone",
+    dangerZoneHint: "Clear local profile data, leave chats on the server, log out, and return to login.",
+    clearAllData: "Clear all data and logout",
+    clearingAllData: "Clearing…",
+  },
 };
