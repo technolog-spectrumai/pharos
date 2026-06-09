@@ -50,6 +50,55 @@ impl KvStore {
             .map_err(|e| e.to_string())?;
         Ok(KvStore { keyspace, kv })
     }
+
+    fn get(&self, ns: &str, scope: &str, k: &str) -> Result<Option<String>, String> {
+        match self.kv.get(enc_key(ns, scope, k)).map_err(|e| e.to_string())? {
+            Some(v) => Ok(Some(String::from_utf8_lossy(v.as_ref()).into_owned())),
+            None => Ok(None),
+        }
+    }
+
+    fn put(&self, ns: &str, scope: &str, k: &str, v: &str) -> Result<(), String> {
+        self.kv
+            .insert(enc_key(ns, scope, k), v.as_bytes())
+            .map_err(|e| e.to_string())?;
+        self.persist()
+    }
+
+    fn delete(&self, ns: &str, scope: &str, k: &str) -> Result<(), String> {
+        self.kv
+            .remove(enc_key(ns, scope, k))
+            .map_err(|e| e.to_string())?;
+        self.persist()
+    }
+
+    fn clear_namespace(&self, ns: &str, scope: Option<&str>) -> Result<(), String> {
+        let keys: Vec<_> = self
+            .kv
+            .prefix(enc_prefix(ns, scope))
+            .map(|entry| entry.map(|(k, _)| k))
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        for key in keys {
+            self.kv.remove(key).map_err(|e| e.to_string())?;
+        }
+        self.persist()
+    }
+
+    fn count(&self, ns: &str, scope: Option<&str>) -> Result<u64, String> {
+        let mut n: u64 = 0;
+        for entry in self.kv.prefix(enc_prefix(ns, scope)) {
+            entry.map_err(|e| e.to_string())?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    fn persist(&self) -> Result<(), String> {
+        self.keyspace
+            .persist(PersistMode::SyncAll)
+            .map_err(|e| e.to_string())
+    }
 }
 
 fn enc_key(ns: &str, scope: &str, k: &str) -> Vec<u8> {
@@ -87,11 +136,7 @@ pub fn kv_get(
     scope: String,
     k: String,
 ) -> Result<Option<String>, String> {
-    let st = store(&state)?;
-    match st.kv.get(enc_key(&ns, &scope, &k)).map_err(|e| e.to_string())? {
-        Some(v) => Ok(Some(String::from_utf8_lossy(v.as_ref()).into_owned())),
-        None => Ok(None),
-    }
+    store(&state)?.get(&ns, &scope, &k)
 }
 
 #[tauri::command]
@@ -102,14 +147,7 @@ pub fn kv_put(
     k: String,
     v: String,
 ) -> Result<(), String> {
-    let st = store(&state)?;
-    st.kv
-        .insert(enc_key(&ns, &scope, &k), v.into_bytes())
-        .map_err(|e| e.to_string())?;
-    st.keyspace
-        .persist(PersistMode::SyncAll)
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    store(&state)?.put(&ns, &scope, &k, &v)
 }
 
 #[tauri::command]
@@ -119,14 +157,7 @@ pub fn kv_delete(
     scope: String,
     k: String,
 ) -> Result<(), String> {
-    let st = store(&state)?;
-    st.kv
-        .remove(enc_key(&ns, &scope, &k))
-        .map_err(|e| e.to_string())?;
-    st.keyspace
-        .persist(PersistMode::SyncAll)
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    store(&state)?.delete(&ns, &scope, &k)
 }
 
 #[tauri::command]
@@ -135,21 +166,7 @@ pub fn kv_clear_namespace(
     ns: String,
     scope: Option<String>,
 ) -> Result<(), String> {
-    let st = store(&state)?;
-    let prefix = enc_prefix(&ns, scope.as_deref());
-    let keys: Vec<_> = st
-        .kv
-        .prefix(prefix)
-        .map(|entry| entry.map(|(k, _)| k))
-        .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())?;
-    for key in keys {
-        st.kv.remove(key).map_err(|e| e.to_string())?;
-    }
-    st.keyspace
-        .persist(PersistMode::SyncAll)
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    store(&state)?.clear_namespace(&ns, scope.as_deref())
 }
 
 #[tauri::command]
@@ -158,12 +175,97 @@ pub fn kv_count(
     ns: String,
     scope: Option<String>,
 ) -> Result<u64, String> {
-    let st = store(&state)?;
-    let prefix = enc_prefix(&ns, scope.as_deref());
-    let mut n: u64 = 0;
-    for entry in st.kv.prefix(prefix) {
-        entry.map_err(|e| e.to_string())?;
-        n += 1;
+    store(&state)?.count(&ns, scope.as_deref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn temp_store() -> (KvStore, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kvtest-{}", Uuid::new_v4()));
+        (KvStore::open_at(dir.clone()).expect("open kv"), dir)
     }
-    Ok(n)
+
+    #[test]
+    fn round_trips_and_misses() {
+        let (kv, dir) = temp_store();
+        assert_eq!(kv.get("cache", "s", "k").unwrap(), None);
+        kv.put("cache", "s", "k", "v1").unwrap();
+        assert_eq!(kv.get("cache", "s", "k").unwrap().as_deref(), Some("v1"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn upserts_in_place() {
+        let (kv, dir) = temp_store();
+        kv.put("cache", "s", "k", "v1").unwrap();
+        kv.put("cache", "s", "k", "v2").unwrap();
+        assert_eq!(kv.get("cache", "s", "k").unwrap().as_deref(), Some("v2"));
+        assert_eq!(kv.count("cache", Some("s")).unwrap(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn isolates_by_namespace_and_scope() {
+        let (kv, dir) = temp_store();
+        kv.put("cache", "a", "k", "1").unwrap();
+        kv.put("cache", "b", "k", "2").unwrap();
+        kv.put("notes:queue", "a", "", "3").unwrap();
+        assert_eq!(kv.get("cache", "a", "k").unwrap().as_deref(), Some("1"));
+        assert_eq!(kv.get("cache", "b", "k").unwrap().as_deref(), Some("2"));
+        assert_eq!(kv.count("cache", Some("a")).unwrap(), 1);
+        assert_eq!(kv.count("cache", None).unwrap(), 2); // both scopes, same ns
+        assert_eq!(kv.count("notes:queue", None).unwrap(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn scope_prefix_does_not_bleed_into_longer_scope() {
+        // The NUL separator must keep scope "a" distinct from scope "ab".
+        let (kv, dir) = temp_store();
+        kv.put("cache", "a", "k", "1").unwrap();
+        kv.put("cache", "ab", "k", "2").unwrap();
+        assert_eq!(kv.count("cache", Some("a")).unwrap(), 1);
+        assert_eq!(kv.count("cache", Some("ab")).unwrap(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deletes_single_key() {
+        let (kv, dir) = temp_store();
+        kv.put("cache", "s", "k", "v").unwrap();
+        kv.delete("cache", "s", "k").unwrap();
+        assert_eq!(kv.get("cache", "s", "k").unwrap(), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clears_namespace_by_scope_and_whole() {
+        let (kv, dir) = temp_store();
+        kv.put("cache", "s1", "a", "1").unwrap();
+        kv.put("cache", "s1", "b", "2").unwrap();
+        kv.put("cache", "s2", "a", "3").unwrap();
+        kv.clear_namespace("cache", Some("s1")).unwrap();
+        assert_eq!(kv.count("cache", Some("s1")).unwrap(), 0);
+        assert_eq!(kv.count("cache", Some("s2")).unwrap(), 1); // untouched
+        kv.clear_namespace("cache", None).unwrap();
+        assert_eq!(kv.count("cache", None).unwrap(), 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn survives_reopen_from_fjall() {
+        let (kv, dir) = temp_store();
+        kv.put("cache", "s", "k", "persisted").unwrap();
+        drop(kv); // release the fjall keyspace + locks
+
+        let reopened = KvStore::open_at(dir.clone()).unwrap();
+        assert_eq!(
+            reopened.get("cache", "s", "k").unwrap().as_deref(),
+            Some("persisted")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

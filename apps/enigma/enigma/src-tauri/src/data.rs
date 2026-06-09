@@ -305,3 +305,41 @@ fn resolve_scope(
     };
     Ok(scope_of(&url))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{build_multipart, scope_of};
+    use std::collections::HashMap;
+
+    #[test]
+    fn scope_trims_trailing_slash_and_handles_empty() {
+        assert_eq!(scope_of("http://x.onion/"), "http://x.onion");
+        assert_eq!(scope_of("http://x.onion"), "http://x.onion");
+        assert_eq!(scope_of(""), "default");
+    }
+
+    #[test]
+    fn multipart_has_boundary_file_part_and_extra_fields() {
+        let mut extra = HashMap::new();
+        extra.insert("kind".to_string(), "image".to_string());
+        let (content_type, body) = build_multipart("file", "a.png", b"PNGDATA", Some(&extra));
+
+        assert!(content_type.starts_with("multipart/form-data; boundary="));
+        let boundary = content_type.rsplit("boundary=").next().unwrap();
+        let text = String::from_utf8_lossy(&body);
+
+        assert!(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"a.png\""));
+        assert!(text.contains("Content-Type: application/octet-stream"));
+        assert!(text.contains("PNGDATA"));
+        assert!(text.contains("Content-Disposition: form-data; name=\"kind\""));
+        assert!(text.contains("image"));
+        assert!(text.contains(&format!("--{boundary}--")));
+    }
+
+    #[test]
+    fn multipart_preserves_raw_binary_bytes() {
+        let (content_type, body) = build_multipart("f", "x.bin", &[0u8, 1, 2, 0, 3], None);
+        assert!(content_type.contains("boundary="));
+        assert!(body.windows(5).any(|w| w == [0u8, 1, 2, 0, 3]));
+    }
+}
