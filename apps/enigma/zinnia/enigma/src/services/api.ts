@@ -19,6 +19,24 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   return invoke<T>(cmd, args);
 }
 
+// In Tauri, file/image uploads go through the Rust data gateway (Tor-aware) rather
+// than a raw XHR — so they work over a .onion. Returns the server's JSON response text.
+async function uploadViaRust(
+  path: string,
+  field: string,
+  file: File,
+  extra?: Record<string, string>,
+): Promise<string> {
+  const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+  return _invoke<string>("data_upload", {
+    path,
+    field,
+    filename: file.name,
+    bytes,
+    extra: extra ?? null,
+  });
+}
+
 // Thrown by egress points when the data layer is off (offline or server-data off).
 export const SERVER_OFF_ERROR = "Server data is off — enable it (or go online) in Settings.";
 
@@ -663,9 +681,10 @@ class ApiService {
   /** Fetch a vault image as a `data:` URL. In Tauri this goes through Rust (no CORS);
    *  in the browser it fetches the file's download URL directly. */
   async downloadVaultImageDataUrl(file: VaultFile): Promise<string> {
-    if (_isTauri()) return _invoke<string>("vault_image_data_url", { key: file.key });
     const url = file.download_url;
     if (!url) throw new Error("No download URL for this file.");
+    // In Tauri the fetch rides the data gateway (Tor-aware); Rust relativizes the URL.
+    if (_isTauri()) return _invoke<string>("vault_image_data_url", { path: url });
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${res.status}`);
     const blob = await res.blob();
@@ -707,6 +726,17 @@ class ApiService {
   uploadFile(file: File, title: string, bucketSlug?: string): Promise<VaultFile> {
     return new Promise(async (resolve, reject) => {
       try { await assertServerReachable(); } catch (e) { reject(e); return; }
+      if (_isTauri()) {
+        try {
+          const extra: Record<string, string> = { title: title || file.name };
+          if (bucketSlug) extra.bucket_slug = bucketSlug;
+          const text = await uploadViaRust("/vault/api/files/upload/", "file", file, extra);
+          resolve(JSON.parse(text));
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+        return;
+      }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();
@@ -902,6 +932,16 @@ class ApiService {
   ): Promise<{ ok: boolean }> {
     return new Promise(async (resolve, reject) => {
       try { await assertServerReachable(); } catch (e) { reject(e); return; }
+      if (_isTauri()) {
+        try {
+          onProgress?.(100); // progress isn't tracked through the Rust gateway
+          const text = await uploadViaRust(`/telegraph/api/channels/${slug}/upload/`, "image", file);
+          resolve(JSON.parse(text));
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+        return;
+      }
       const base = await serverBase();
       const token = await getAuthToken();
       const form = new FormData();

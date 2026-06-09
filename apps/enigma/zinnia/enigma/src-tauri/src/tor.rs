@@ -7,14 +7,20 @@
 // client is bootstrapped lazily on first use (bootstrap builds circuits and is
 // slow) and then cached for the lifetime of the process.
 //
-// The onion service speaks plain HTTP on port 80, so there is no TLS on top of
-// the Tor stream — the circuit itself provides the encryption.
+// The onion service may speak plain HTTP (the Tor circuit is the encryption) OR
+// HTTPS (TLS on top of the Tor stream). For TLS we accept the server certificate
+// WITHOUT name/CA verification: the Tor circuit already authenticates the .onion
+// address, and onion TLS certs are self-signed — the address itself is the identity.
 
 use std::sync::Arc;
 
 use arti_client::{DataStream, TorClient, TorClientConfig};
 use http_body_util::BodyExt;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::OnceCell;
+use tokio_rustls::client::TlsStream;
+use tokio_rustls::rustls::{self, ClientConfig};
+use tokio_rustls::TlsConnector;
 use tor_rtcompat::PreferredRuntime;
 
 #[derive(Default)]
@@ -39,54 +45,168 @@ impl TorState {
             .map_err(|e| format!("Tor connect to {host}:{port} failed: {e}"))
     }
 
+    /// Open a TLS-wrapped Tor stream (for https/wss onion endpoints). The server
+    /// cert is accepted without verification — see the module note for why.
+    pub async fn connect_tls(&self, host: &str, port: u16) -> Result<TlsStream<DataStream>, String> {
+        let stream = self.connect(host, port).await?;
+        tls_wrap(stream, host).await
+    }
+
     /// Perform one HTTP/1.1 request over a fresh Tor stream, returning
-    /// (status, body bytes). Plain HTTP — the onion circuit is the encryption.
+    /// (status, body bytes). `tls` selects HTTPS (TLS over the Tor stream) vs HTTP.
     pub async fn http_request(
         &self,
         host: &str,
         port: u16,
+        tls: bool,
         method: &str,
         path: &str,
         headers: &[(String, String)],
         body: Vec<u8>,
     ) -> Result<(u16, Vec<u8>), String> {
-        let stream = self.connect(host, port).await?;
-        let io = hyper_util::rt::TokioIo::new(stream);
-        let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
-            .await
-            .map_err(|e| e.to_string())?;
-        // Drive the connection in the background while we send/receive.
-        tokio::spawn(async move {
-            let _ = conn.await;
-        });
-
-        let authority = if port == 80 {
-            host.to_string()
+        if tls {
+            let stream = self.connect_tls(host, port).await?;
+            send_http(stream, host, port, tls, method, path, headers, body).await
         } else {
-            format!("{host}:{port}")
-        };
-        let target = if path.is_empty() { "/" } else { path };
-        let mut builder = hyper::Request::builder()
-            .method(hyper::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?)
-            .uri(target)
-            .header(hyper::header::HOST, authority);
-        for (k, v) in headers {
-            builder = builder.header(k.as_str(), v.as_str());
+            let stream = self.connect(host, port).await?;
+            send_http(stream, host, port, tls, method, path, headers, body).await
         }
-        let req = builder
-            .body(http_body_util::Full::new(bytes::Bytes::from(body)))
-            .map_err(|e| e.to_string())?;
+    }
+}
 
-        let resp = sender.send_request(req).await.map_err(|e| e.to_string())?;
-        let status = resp.status().as_u16();
-        let bytes = resp
-            .into_body()
-            .collect()
-            .await
-            .map_err(|e| e.to_string())?
-            .to_bytes()
-            .to_vec();
-        Ok((status, bytes))
+/// Wrap any byte stream in TLS using the accept-any-cert config (for https/wss
+/// over a Tor stream, and reused by the E2E harness for clearnet streams).
+pub(crate) async fn tls_wrap<S>(stream: S, host: &str) -> Result<TlsStream<S>, String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .map_err(|e| format!("invalid TLS server name {host:?}: {e}"))?;
+    TlsConnector::from(tls_config())
+        .connect(server_name, stream)
+        .await
+        .map_err(|e| format!("TLS handshake to {host} failed: {e}"))
+}
+
+/// Send one HTTP/1.1 request over an established (plain or TLS) stream.
+pub(crate) async fn send_http<S>(
+    stream: S,
+    host: &str,
+    port: u16,
+    tls: bool,
+    method: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: Vec<u8>,
+) -> Result<(u16, Vec<u8>), String>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let io = hyper_util::rt::TokioIo::new(stream);
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Drive the connection in the background while we send/receive.
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+
+    let default_port = if tls { 443 } else { 80 };
+    let authority = if port == default_port {
+        host.to_string()
+    } else {
+        format!("{host}:{port}")
+    };
+    let target = if path.is_empty() { "/" } else { path };
+    let mut builder = hyper::Request::builder()
+        .method(hyper::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?)
+        .uri(target)
+        .header(hyper::header::HOST, authority);
+    for (k, v) in headers {
+        builder = builder.header(k.as_str(), v.as_str());
+    }
+    let req = builder
+        .body(http_body_util::Full::new(bytes::Bytes::from(body)))
+        .map_err(|e| e.to_string())?;
+
+    let resp = sender.send_request(req).await.map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| e.to_string())?
+        .to_bytes()
+        .to_vec();
+    Ok((status, bytes))
+}
+
+/// A process-wide rustls client config that accepts any server certificate.
+/// Safe here only because every use is over a Tor circuit that already
+/// authenticates the .onion address (see the module note).
+pub(crate) fn tls_config() -> Arc<ClientConfig> {
+    static CONFIG: std::sync::OnceLock<Arc<ClientConfig>> = std::sync::OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+            let config = ClientConfig::builder_with_provider(provider.clone())
+                .with_safe_default_protocol_versions()
+                .expect("rustls default protocol versions")
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(AcceptAnyServerCert(provider)))
+                .with_no_client_auth();
+            Arc::new(config)
+        })
+        .clone()
+}
+
+/// Accepts any certificate but still validates handshake signatures (using the
+/// crypto provider's algorithms). The .onion address is the real identity.
+#[derive(Debug)]
+struct AcceptAnyServerCert(Arc<tokio_rustls::rustls::crypto::CryptoProvider>);
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
     }
 }
 

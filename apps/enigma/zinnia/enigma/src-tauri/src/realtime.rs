@@ -116,6 +116,33 @@ where
     }
 }
 
+/// Run the WS handshake over an already-opened transport (a plain or TLS Tor
+/// stream), then pump it. Returns `Some(stop)` when the handshake succeeded
+/// (caller resets backoff), or `None` when it failed (caller reconnects).
+async fn open_and_pump<S>(
+    app: &AppHandle,
+    room: &str,
+    realtime: &RealtimeState,
+    my_gen: u64,
+    url: &str,
+    raw: S,
+    out_rx: &mut mpsc::UnboundedReceiver<String>,
+) -> Option<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    match tokio_tungstenite::client_async(url, raw).await {
+        Ok((ws_stream, _)) => {
+            emit_status(app, room, "connected");
+            Some(pump_ws(app, room, realtime, my_gen, ws_stream, out_rx).await)
+        }
+        Err(_) => {
+            emit_status(app, room, "error");
+            None
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn realtime_connect(
     app: AppHandle,
@@ -150,6 +177,8 @@ pub async fn realtime_connect(
     } else {
         None
     };
+    // wss (TLS over the Tor stream) vs ws, decided by the (https→wss) scheme.
+    let onion_tls = is_onion && url.starts_with("wss");
 
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
     {
@@ -169,40 +198,53 @@ pub async fn realtime_connect(
             }
             emit_status(&app2, &room, "connecting");
 
-            let stop = if is_onion {
+            let outcome = if is_onion {
                 let (host, port) = onion_host_port.clone().expect("onion host:port");
                 let tor = app2.state::<crate::tor::TorState>();
-                match tor.connect(&host, port).await {
-                    Ok(stream) => {
-                        match tokio_tungstenite::client_async(url.as_str(), stream).await {
-                            Ok((ws_stream, _)) => {
-                                attempt = 0;
-                                emit_status(&app2, &room, "connected");
-                                pump_ws(&app2, &room, &realtime, my_gen, ws_stream, &mut out_rx).await
-                            }
-                            Err(_) => {
-                                emit_status(&app2, &room, "error");
-                                false
-                            }
+                if onion_tls {
+                    // wss: TLS over the Tor stream, then the WS handshake.
+                    match tor.connect_tls(&host, port).await {
+                        Ok(s) => {
+                            open_and_pump(&app2, &room, &realtime, my_gen, url.as_str(), s, &mut out_rx)
+                                .await
+                        }
+                        Err(_) => {
+                            emit_status(&app2, &room, "error");
+                            None
                         }
                     }
-                    Err(_) => {
-                        emit_status(&app2, &room, "error");
-                        false
+                } else {
+                    match tor.connect(&host, port).await {
+                        Ok(s) => {
+                            open_and_pump(&app2, &room, &realtime, my_gen, url.as_str(), s, &mut out_rx)
+                                .await
+                        }
+                        Err(_) => {
+                            emit_status(&app2, &room, "error");
+                            None
+                        }
                     }
                 }
             } else {
+                // Clearnet: connect_async handles plain ws and TLS wss itself.
                 match tokio_tungstenite::connect_async(url.as_str()).await {
                     Ok((ws_stream, _)) => {
-                        attempt = 0;
                         emit_status(&app2, &room, "connected");
-                        pump_ws(&app2, &room, &realtime, my_gen, ws_stream, &mut out_rx).await
+                        Some(pump_ws(&app2, &room, &realtime, my_gen, ws_stream, &mut out_rx).await)
                     }
                     Err(_) => {
                         emit_status(&app2, &room, "error");
-                        false
+                        None
                     }
                 }
+            };
+
+            let stop = match outcome {
+                Some(stop) => {
+                    attempt = 0; // connected → reset backoff
+                    stop
+                }
+                None => false, // connect failed → reconnect with backoff
             };
 
             if stop || realtime.generation.load(Ordering::SeqCst) != my_gen {
