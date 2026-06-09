@@ -16,6 +16,7 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 const LS_SERVER_URL     = "enigma:server_url";
 const LS_AUTH_TOKEN     = "enigma:auth_token";
 const LS_SERVER_DATA    = "enigma:server_data";
+const LS_SERVER_ONION   = "enigma:server_is_onion";
 const LS_OFFLINE        = "enigma:offline";
 const LS_CHAT_MODE      = "enigma:chat_mode";
 const DEFAULT_SERVER = "http://localhost:8000";
@@ -33,6 +34,7 @@ export interface OfflineProfile {
 export interface AppProfileState {
   server_url: string;
   auth_token: string | null;
+  server_is_onion: boolean;
   offline_profile: OfflineProfile;
   offline_profiles: OfflineProfileOption[];
   selected_offline_profile_id: string;
@@ -91,6 +93,20 @@ export async function setServerData(on: boolean): Promise<void> {
   localStorage.setItem(LS_SERVER_DATA, on ? "on" : "off");
 }
 
+// ── Server is onion (Tor) ─────────────────────────────────────────────────────
+// On → the server address is a .onion; route HTTP + WS through the embedded Tor
+// client instead of connecting directly. Default off.
+
+export async function getServerIsOnion(): Promise<boolean> {
+  if (_isTauri()) return _invoke<boolean>("app_get_server_is_onion");
+  return localStorage.getItem(LS_SERVER_ONION) === "on";
+}
+
+export async function setServerIsOnion(on: boolean): Promise<void> {
+  if (_isTauri()) { await _invoke("app_set_server_is_onion", { on }); return; }
+  localStorage.setItem(LS_SERVER_ONION, on ? "on" : "off");
+}
+
 // ── Offline / airplane mode (online / offline) ─────────────────────────────────
 // On → block EVERY network connection: server HTTP, relay WS, and P2P (iroh).
 
@@ -143,6 +159,7 @@ export async function getProfileState(): Promise<AppProfileState> {
   return {
     server_url: await getServerUrl(),
     auth_token: await getAuthToken(),
+    server_is_onion: await getServerIsOnion(),
     offline_profile: { display_name: "", email: "", phone: "", bio: "", date_of_birth: "" },
     offline_profiles: [],
     selected_offline_profile_id: "",

@@ -1,45 +1,27 @@
-// Unified local key/value store backed by SQLite.
+// Unified local key/value store.
 //
-// In the Tauri runtime (desktop + Android/iOS) this uses the official SQL plugin
-// (`@tauri-apps/plugin-sql`). In a plain browser (Vite dev / web build) and under
-// vitest (jsdom) the plugin is unavailable, so we fall back to `localStorage`
-// with the same API — mirroring the `_isTauri()` pattern in `appStorage.ts`.
+// In the Tauri runtime (desktop + Android/iOS) this goes through Rust via
+// invoke() to a fjall-backed store (see src-tauri/src/kv.rs) — pure Rust, no
+// libsqlite3-sys, so it doesn't collide with the sqlite arti links in for Tor.
+// In a plain browser (Vite dev / web build) and under vitest (jsdom) invoke is
+// unavailable, so we fall back to `localStorage` with the same API — mirroring
+// the `_isTauri()` pattern in `appStorage.ts`.
 //
 // It is the single local backing store for:
 //   - the offline response cache (api.ts), namespace "cache"
 //   - the Notes snapshot + mutation queue (notesOffline.ts), namespaces
 //     "notes:snapshot" / "notes:queue"
 //
-// Rows are keyed by (namespace, scope, key) so different backends (scope =
+// Entries are keyed by (namespace, scope, key) so different backends (scope =
 // server URL) never share data.
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
 
-const DB_URL = "sqlite:enigma.db";
-
-const CREATE_TABLE = `CREATE TABLE IF NOT EXISTS kv (
-  ns TEXT NOT NULL,
-  scope TEXT NOT NULL,
-  k TEXT NOT NULL,
-  v TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (ns, scope, k)
-)`;
-
-// Cached connection promise — the table is ensured exactly once per process.
-let _dbPromise: Promise<any> | null = null;
-
-async function _db(): Promise<any> {
-  if (!_dbPromise) {
-    _dbPromise = (async () => {
-      const { default: Database } = await import("@tauri-apps/plugin-sql");
-      const db = await Database.load(DB_URL);
-      await db.execute(CREATE_TABLE);
-      return db;
-    })();
-  }
-  return _dbPromise;
+// Lazy import so vite doesn't blow up during tree-shaking when Tauri is absent.
+async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
 }
 
 // ── localStorage fallback helpers ────────────────────────────────────────────
@@ -64,25 +46,13 @@ function _lsKeysWithPrefix(prefix: string): string[] {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function kvGet(ns: string, scope: string, k: string): Promise<string | null> {
-  if (_isTauri()) {
-    const db = await _db();
-    const rows = (await db.select(
-      "SELECT v FROM kv WHERE ns = $1 AND scope = $2 AND k = $3",
-      [ns, scope, k],
-    )) as { v: string }[];
-    return rows.length ? rows[0].v : null;
-  }
+  if (_isTauri()) return _invoke<string | null>("kv_get", { ns, scope, k });
   return localStorage.getItem(_lsKey(ns, scope, k));
 }
 
 export async function kvPut(ns: string, scope: string, k: string, v: string): Promise<void> {
   if (_isTauri()) {
-    const db = await _db();
-    await db.execute(
-      `INSERT INTO kv (ns, scope, k, v, updated_at) VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT(ns, scope, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`,
-      [ns, scope, k, v, new Date().toISOString()],
-    );
+    await _invoke("kv_put", { ns, scope, k, v });
     return;
   }
   try {
@@ -94,8 +64,7 @@ export async function kvPut(ns: string, scope: string, k: string, v: string): Pr
 
 export async function kvDelete(ns: string, scope: string, k: string): Promise<void> {
   if (_isTauri()) {
-    const db = await _db();
-    await db.execute("DELETE FROM kv WHERE ns = $1 AND scope = $2 AND k = $3", [ns, scope, k]);
+    await _invoke("kv_delete", { ns, scope, k });
     return;
   }
   localStorage.removeItem(_lsKey(ns, scope, k));
@@ -103,26 +72,13 @@ export async function kvDelete(ns: string, scope: string, k: string): Promise<vo
 
 export async function kvClearNamespace(ns: string, scope?: string): Promise<void> {
   if (_isTauri()) {
-    const db = await _db();
-    if (scope === undefined) {
-      await db.execute("DELETE FROM kv WHERE ns = $1", [ns]);
-    } else {
-      await db.execute("DELETE FROM kv WHERE ns = $1 AND scope = $2", [ns, scope]);
-    }
+    await _invoke("kv_clear_namespace", { ns, scope });
     return;
   }
   _lsKeysWithPrefix(_lsPrefix(ns, scope)).forEach((key) => localStorage.removeItem(key));
 }
 
 export async function kvCount(ns: string, scope?: string): Promise<number> {
-  if (_isTauri()) {
-    const db = await _db();
-    const rows = (
-      scope === undefined
-        ? await db.select("SELECT COUNT(*) AS n FROM kv WHERE ns = $1", [ns])
-        : await db.select("SELECT COUNT(*) AS n FROM kv WHERE ns = $1 AND scope = $2", [ns, scope])
-    ) as { n: number }[];
-    return rows.length ? Number(rows[0].n) : 0;
-  }
+  if (_isTauri()) return _invoke<number>("kv_count", { ns, scope });
   return _lsKeysWithPrefix(_lsPrefix(ns, scope)).length;
 }

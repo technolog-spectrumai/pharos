@@ -22,7 +22,6 @@
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-sql": "^2",
     "ace-builds": "^1.44.0",
     "cytoscape": "^3.30.2",
     "html5-qrcode": "^2.3.8",
