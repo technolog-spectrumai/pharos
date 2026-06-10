@@ -2,12 +2,13 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { useLocationsStore } from "../stores/locations";
+import GeoJsonPanel from "../components/GeoJsonPanel.vue";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const props = defineProps<{ darkMode: boolean }>();
 
-type Tab = "map" | "zones" | "addresses" | "route";
+type Tab = "map" | "zones" | "addresses" | "route" | "geojson";
 const tab = ref<Tab>("map");
 
 const store = useLocationsStore();
@@ -587,6 +588,9 @@ function panelCls() {
       <button :class="tabCls('route')" @click="tab = 'route'">
         <font-awesome-icon icon="route" class="mr-1.5" />Route Search
       </button>
+      <button :class="tabCls('geojson')" @click="tab = 'geojson'">
+        <font-awesome-icon icon="code" class="mr-1.5" />GeoJSON
+      </button>
     </div>
 
     <!-- ── MAP TAB ── -->
@@ -952,6 +956,9 @@ function panelCls() {
         </div>
       </div>
     </div>
+
+    <!-- ── GEOJSON TAB ────────────────────────────────────────────────────── -->
+    <GeoJsonPanel v-if="tab === 'geojson'" :dark-mode="darkMode" />
 
     <!-- logistics + incidents tabs removed (backed by limbo apps) -->
 

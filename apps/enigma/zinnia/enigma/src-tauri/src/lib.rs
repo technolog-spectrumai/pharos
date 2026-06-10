@@ -17,6 +17,7 @@ mod onion_e2e;
 mod tor;
 mod vox;
 mod file_xfer;
+mod fs_local;
 mod y_store;
 
 // ── App config ────────────────────────────────────────────────────────────────
@@ -1114,6 +1115,8 @@ pub fn run() {
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,
+            fs_local::fs_read_text_file,
+            fs_local::fs_write_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
