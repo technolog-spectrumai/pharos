@@ -37,7 +37,7 @@ export default {
     savedToProfile: "Saved to your profile.",
   },
   login: {
-    title: "Sign in to Enigma",
+    title: "Sign in to Aurora",
     connectedTo: "Connected to",
     configureServer: "configure server",
     username: "Username",
@@ -51,7 +51,7 @@ export default {
   config: {
     studio: "Oya Studio",
     title: "Configuration",
-    subtitle: "Set the server address Enigma connects to.",
+    subtitle: "Set the server address Aurora connects to.",
     serverAddress: "Server Address",
     serverHint: "Enter the URL manually or scan the QR code from the welcome page.",
     configuredServer: "Configured server",
@@ -75,7 +75,7 @@ export default {
     noServer: "No server URL configured.",
     serverReachable: "Server reachable ({ms} ms)",
     offlineData: "Offline Data",
-    offlineHint: "Manage the local profile data used when Enigma is disconnected.",
+    offlineHint: "Manage the local profile data used when Aurora is disconnected.",
     localDataProfile: "Local data profile",
     loadProfile: "Load profile",
     loadingProfile: "Loading...",
