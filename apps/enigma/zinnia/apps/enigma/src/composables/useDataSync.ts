@@ -14,7 +14,7 @@
 
 import { ref } from "vue";
 import { nanoid } from "nanoid";
-import type { ChatChannel } from "./useChatChannel";
+import type { ChatChannel } from "rakotis";
 
 /** `[doc, map, records]` — one collection in the export. */
 export type SyncBlob = [string, string, unknown[]];

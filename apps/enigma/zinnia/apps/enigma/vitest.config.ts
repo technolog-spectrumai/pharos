@@ -7,12 +7,14 @@ import vue from "@vitejs/plugin-vue";
 // editor — the editor's logic is covered through mocked interactions instead.
 const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 const euclidSrc = new URL("../../packages/euclid/src/index.ts", import.meta.url).pathname;
+const rakotisSrc = new URL("../../packages/rakotis/src/index.ts", import.meta.url).pathname;
 
 export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: [
       { find: /^euclid$/, replacement: euclidSrc },
+      { find: /^rakotis$/, replacement: rakotisSrc },
       { find: /^ace-builds\/src-noconflict\/ace$/, replacement: aceStub },
       { find: /^ace-builds\/src-noconflict\/.*/, replacement: aceStub },
     ],

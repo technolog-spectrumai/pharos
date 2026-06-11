@@ -1,0 +1,26 @@
+{
+  "name": "rakotis",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared MLS-over-WebSocket relay chat orchestration for Enigma and Aurora: a Rotor-backed crypto bridge, the relay chat transport, the chat-channel composable and the MLS envelope state machine (mls_key_package / mls_welcome / mls_commit / mls_app, participants, reconnect). No P2P/WebRTC, no voice calls, no product UI; does not reimplement crypto.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "vue-tsc --noEmit -p tsconfig.json",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "euclid": "*",
+    "@tauri-apps/api": "^2",
+    "nanoid": "^5.1.11",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.2",
+    "vue-tsc": "^2.1.10"
+  }
+}

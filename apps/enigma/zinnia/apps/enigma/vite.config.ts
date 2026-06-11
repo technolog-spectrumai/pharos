@@ -14,6 +14,7 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       euclid: fileURLToPath(new URL("../../packages/euclid/src/index.ts", import.meta.url)),
+      rakotis: fileURLToPath(new URL("../../packages/rakotis/src/index.ts", import.meta.url)),
     },
   },
 
