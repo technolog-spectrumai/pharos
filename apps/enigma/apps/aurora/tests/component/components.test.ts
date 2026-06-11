@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
-import OyaButton from "../../src/components/OyaButton.vue";
-import OyaCard from "../../src/components/OyaCard.vue";
+import { OyaButton } from "euclid";
+import { OyaCard } from "euclid";
 import ChatBubble from "../../src/components/ChatBubble.vue";
 import type { Message } from "../../src/stores/chat";
 

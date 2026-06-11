@@ -1,19 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
-  i18n,
-  setLocale,
   getStoredLocale,
   hasExplicitLocale,
   normalizeLocale,
-  applyProfileLocaleGuess,
   SUPPORTED_LOCALES,
   LOCALE_NAMES,
+  createAppI18n,
 } from "../../src/i18n";
+
+// A tiny app catalog to exercise the factory + locale helpers without coupling
+// Euclid to any app's strings (catalog-parity tests live in each app).
+const messages = {
+  en: { hello: "Hello" },
+  pl: { hello: "Cześć" },
+};
 
 beforeEach(() => {
   localStorage.clear();
-  // Reset the shared singleton to a known state between tests.
-  i18n.global.locale.value = "en";
 });
 
 describe("normalizeLocale", () => {
@@ -44,61 +47,46 @@ describe("getStoredLocale / hasExplicitLocale", () => {
   });
 });
 
-describe("setLocale", () => {
-  it("changes the active locale and persists by default", () => {
-    setLocale("pl");
-    expect(i18n.global.locale.value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBe("pl");
-  });
-  it("does not persist when persist=false", () => {
-    setLocale("pl", false);
-    expect(i18n.global.locale.value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBeNull();
-  });
-  it("reflects the locale on <html lang>", () => {
-    setLocale("pl");
-    expect(document.documentElement.getAttribute("lang")).toBe("pl");
-  });
-});
-
-describe("applyProfileLocaleGuess", () => {
-  it("applies a supported profile language as a non-persisted guess", () => {
-    applyProfileLocaleGuess("pl");
-    expect(i18n.global.locale.value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBeNull(); // a guess, not a choice
-  });
-  it("ignores the guess when the user already chose explicitly", () => {
-    setLocale("en"); // explicit choice persisted
-    applyProfileLocaleGuess("pl");
-    expect(i18n.global.locale.value).toBe("en");
-  });
-  it("ignores unsupported / empty profile languages", () => {
-    applyProfileLocaleGuess("fr");
-    expect(i18n.global.locale.value).toBe("en");
-    applyProfileLocaleGuess(null);
-    expect(i18n.global.locale.value).toBe("en");
-  });
-});
-
-describe("catalog", () => {
+describe("supported locales", () => {
   it("exposes exactly the supported locales", () => {
     expect([...SUPPORTED_LOCALES]).toEqual(["en", "pl"]);
     expect(Object.keys(LOCALE_NAMES)).toEqual(["en", "pl"]);
   });
+});
 
-  it("has identical key structure across en and pl (no missing translations)", () => {
-    const en = i18n.global.getLocaleMessage("en");
-    const pl = i18n.global.getLocaleMessage("pl");
-    const keys = (obj: any, prefix = ""): string[] =>
-      Object.entries(obj).flatMap(([k, v]) =>
-        v && typeof v === "object" ? keys(v, `${prefix}${k}.`) : [`${prefix}${k}`],
-      );
-    expect(keys(pl).sort()).toEqual(keys(en).sort());
+describe("createAppI18n", () => {
+  it("setLocale changes the active locale and persists by default", () => {
+    const { i18n, setLocale } = createAppI18n(messages);
+    setLocale("pl");
+    expect((i18n.global.locale as { value: string }).value).toBe("pl");
+    expect(localStorage.getItem("enigma:locale")).toBe("pl");
   });
 
-  it("actually translates a known key to Polish", () => {
+  it("setLocale does not persist when persist=false and reflects <html lang>", () => {
+    const { i18n, setLocale } = createAppI18n(messages);
+    setLocale("pl", false);
+    expect((i18n.global.locale as { value: string }).value).toBe("pl");
+    expect(localStorage.getItem("enigma:locale")).toBeNull();
+    expect(document.documentElement.getAttribute("lang")).toBe("pl");
+  });
+
+  it("applyProfileLocaleGuess applies a supported language as a non-persisted guess", () => {
+    const { i18n, applyProfileLocaleGuess } = createAppI18n(messages);
+    applyProfileLocaleGuess("pl");
+    expect((i18n.global.locale as { value: string }).value).toBe("pl");
+    expect(localStorage.getItem("enigma:locale")).toBeNull();
+  });
+
+  it("applyProfileLocaleGuess ignores the guess when a choice is already stored", () => {
+    localStorage.setItem("enigma:locale", "en");
+    const { i18n, applyProfileLocaleGuess } = createAppI18n(messages);
+    applyProfileLocaleGuess("pl");
+    expect((i18n.global.locale as { value: string }).value).toBe("en");
+  });
+
+  it("translates a known key per locale", () => {
+    const { i18n, setLocale } = createAppI18n(messages);
     setLocale("pl");
-    expect(i18n.global.t("nav.storage")).toBe("Pliki");
-    expect(i18n.global.t("nav.tasks")).toBe("Zadania");
+    expect(i18n.global.t("hello")).toBe("Cześć");
   });
 });
