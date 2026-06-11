@@ -9,13 +9,18 @@ export default defineConfig({
   fullyParallel: true,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://localhost:4173",
+    baseURL: "http://localhost:4273",
     trace: "on-first-retry",
+    // The live tier (e2e.py) may point at a backend served over a self-signed cert.
+    // ignoreHTTPSErrors covers the request context; the chromium flag also covers
+    // page-initiated fetch()/WSS to the cross-origin backend.
+    ignoreHTTPSErrors: true,
+    launchOptions: { args: ["--ignore-certificate-errors"] },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: "npm run build && npm run preview -- --port 4173 --strictPort",
-    url: "http://localhost:4173",
+    command: "npm run build && npm run preview -- --port 4273 --strictPort",
+    url: "http://localhost:4273",
     timeout: 180_000,
     reuseExistingServer: !process.env.CI,
   },

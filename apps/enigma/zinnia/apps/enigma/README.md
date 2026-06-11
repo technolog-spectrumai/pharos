@@ -48,8 +48,32 @@ npm run dev -w enigma     # http://localhost:1420
 ```bash
 npm run build -w enigma                 # vue-tsc + vite
 ( cd src-tauri && cargo build )         # Rust
-npm test -w enigma                      # vitest
+npm test -w enigma                      # vitest (unit/component/integration)
 ```
+
+## End-to-end (`e2e.py`)
+
+`e2e.py` is the CI/CD-ready end-to-end runner. It spins up the toto backend in
+Docker, waits for it to be reachable, seeds a test user + chat room (User →
+Person → active TelegraphMember), and runs the Playwright suite against the built
+bundle:
+
+- **smoke** tier — always runs, backend stubbed (router, i18n, comms nav);
+- **live** tier — runs when a backend is available: telegraph reachability, real
+  UI login (token stored end-to-end), authenticated chat UI, and a **relay-chat
+  round-trip over the WebSocket** (a sent message is echoed back to the room).
+
+```bash
+python apps/enigma/e2e.py                 # Docker backend → live + smoke, then tears down
+python apps/enigma/e2e.py --keep-up       # leave the stack running afterwards
+python apps/enigma/e2e.py --no-backend    # stubbed smoke tier only (no Docker)
+E2E_SERVER=https://localhost python apps/enigma/e2e.py   # use an already-running backend
+```
+
+Encryption note: browser-mode chat is **plaintext** (MLS is desktop/Tauri-only),
+so the live round-trip verifies reachability + relay-WebSocket delivery. MLS
+ciphertext itself is covered by Rust tests in `rotor-core` and the Rakotis
+envelope state machine.
 
 Android build helpers live in the workspace `scripts/` directory; see
 [build_android.md](../../build_android.md).

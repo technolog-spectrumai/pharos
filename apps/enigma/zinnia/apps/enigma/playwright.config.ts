@@ -11,6 +11,11 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:4173",
     trace: "on-first-retry",
+    // The live tier (e2e.py) may point at a backend served over a self-signed cert.
+    // ignoreHTTPSErrors covers the request context; the chromium flag also covers
+    // page-initiated fetch()/WSS to the cross-origin backend.
+    ignoreHTTPSErrors: true,
+    launchOptions: { args: ["--ignore-certificate-errors"] },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
