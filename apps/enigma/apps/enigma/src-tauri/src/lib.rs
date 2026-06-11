@@ -18,7 +18,6 @@ mod tor;
 mod vox;
 mod file_xfer;
 mod fs_local;
-mod y_store;
 
 // ── App config ────────────────────────────────────────────────────────────────
 
@@ -1026,8 +1025,6 @@ pub fn run() {
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
             app.manage(data::init(app.handle()));
-            // CRDT-backed local data store (fjall keyspace under the app data dir).
-            app.manage(y_store::init(app.handle()));
             // Local key/value cache (fjall) — replaces the old tauri-plugin-sql store.
             app.manage(kv::init(app.handle()));
 
@@ -1091,14 +1088,6 @@ pub fn run() {
             kv::kv_delete,
             kv::kv_clear_namespace,
             kv::kv_count,
-            y_store::y_store_ingest,
-            y_store::y_store_replace,
-            y_store::y_store_snapshot,
-            y_store::y_store_export_all,
-            y_store::y_store_import,
-            y_store::y_store_state_vectors,
-            y_store::y_store_diff,
-            y_store::y_store_apply,
             realtime::realtime_connect,
             realtime::realtime_disconnect,
             realtime::realtime_send,

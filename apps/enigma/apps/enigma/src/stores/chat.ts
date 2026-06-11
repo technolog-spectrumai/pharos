@@ -10,21 +10,19 @@
 import { ref, computed } from "vue";
 import { useChatChannel, type ChatChannel } from "rakotis";
 import { api } from "../services/api";
-import { useDataSync, type DataSync } from "../composables/useDataSync";
 import { useFileShare, type FileShare } from "../composables/useFileShare";
 import type { AppRuntimeConfig } from "euclid";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
-// "vox" is the real-time voice-call tab and "sync" is the full-data pull tab — neither
-// has a ChatChannel (no message history); they drive iroh/CRDT backends directly.
-export type ChatTab = "relay" | "p2p" | "vox" | "sync" | "files";
+// "vox" is the real-time voice-call tab; it has no ChatChannel (no message history)
+// and drives the iroh voice backend directly.
+export type ChatTab = "relay" | "p2p" | "vox" | "files";
 
 function createChatStore() {
   const relay: ChatChannel = useChatChannel("relay", api);
   const p2p: ChatChannel = useChatChannel("p2p", api);
-  // Full-data "Sync" and P2P file transfer both ride the p2p channel's MLS group.
-  const dataSync: DataSync = useDataSync(p2p);
+  // P2P file transfer rides the p2p channel's MLS group.
   const fileShare: FileShare = useFileShare(p2p);
 
   const activeTab = ref<ChatTab>("relay");
@@ -76,7 +74,7 @@ function createChatStore() {
   }
 
   return {
-    relay, p2p, dataSync, fileShare, activeTab, activeChannel, setTab,
+    relay, p2p, fileShare, activeTab, activeChannel, setTab,
     switchToP2p, switchToRelay, acceptP2pInvite,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
   };
