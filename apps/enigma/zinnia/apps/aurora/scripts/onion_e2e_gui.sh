@@ -5,7 +5,7 @@
 # the visual 2-instance demo.
 #
 # Prereqs: the studio onion stack is already up (run onion_e2e.sh with KEEP_UP=1, or
-# `deploy.py deployment/portal_onion_studio_tls.yaml up -d --service --admin-password test1234`),
+# `deploy.py deployment/faros_onion_tls.yaml up -d --service --admin-password test1234`),
 # and you have the .onion address (`deploy.py … onion --service`).
 #
 # Usage:   ONION=<hash>.onion bash enigma/enigma/scripts/onion_e2e_gui.sh
