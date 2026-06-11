@@ -1,18 +1,20 @@
 <script setup lang="ts">
 // Aurora knowledge-graph view — three things only: display the graph, run a saved
 // query (the admin-defined "Knowledge Graph Queries" visible in ravioli), and
-// search (client-side filter of the displayed graph). Reads are data_mesh-gated
-// and fail gracefully when Neo4j is absent/down (503).
+// search (client-side filter of the displayed graph). Nothing runs automatically:
+// pick a query / type a search term, then press Run. Reads are data_mesh-gated and
+// fail gracefully when Neo4j is absent/down (503).
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import cytoscape from "cytoscape";
 import { api, type KgQuery, type KgGraph, type KgNode } from "../services/api";
 
 const props = defineProps<{ darkMode: boolean }>();
 
-type GraphState = "loading" | "ready" | "empty" | "unavailable" | "gated" | "auth" | "error";
+type GraphState = "loading" | "idle" | "ready" | "empty" | "unavailable" | "gated" | "auth" | "error";
 
 const queries = ref<KgQuery[]>([]);
 const selectedId = ref<number | null>(null);
+const displayedId = ref<number | null>(null); // the query currently drawn on the canvas
 const graph = ref<KgGraph | null>(null);
 const state = ref<GraphState>("loading");
 const errorMsg = ref("");
@@ -56,7 +58,7 @@ async function loadQueries() {
       return;
     }
     selectedId.value = queries.value[0].id;
-    await runSelected();
+    state.value = "idle"; // nothing runs until the user presses Run
   } catch (e) {
     state.value = classify(e);
   }
@@ -67,6 +69,7 @@ async function runSelected() {
   state.value = "loading";
   try {
     graph.value = await api.runKgQuery(selectedId.value);
+    displayedId.value = selectedId.value;
     state.value = "ready";
     await nextTick();
     render();
@@ -74,6 +77,17 @@ async function runSelected() {
   } catch (e) {
     graph.value = null;
     state.value = classify(e);
+  }
+}
+
+// Run button: fetch the selected query if it isn't the one already drawn,
+// otherwise just (re)apply the current search filter — no needless re-query.
+async function onRun() {
+  if (selectedId.value == null) return;
+  if (state.value === "ready" && selectedId.value === displayedId.value) {
+    applySearch();
+  } else {
+    await runSelected();
   }
 }
 
@@ -145,7 +159,7 @@ function render() {
   container.value.style.backgroundColor = bg;
 }
 
-// ── search (client-side filter of the displayed graph) ────────────────────────
+// ── search (client-side filter of the displayed graph; applied on Run) ────────
 function applySearch() {
   if (!cy) return;
   const term = search.value.trim().toLowerCase();
@@ -161,12 +175,13 @@ function applySearch() {
   });
 }
 
-watch(search, applySearch);
+// Re-render on theme toggle (the already-fetched graph), keeping the filter.
 watch(() => props.darkMode, () => { if (state.value === "ready") { render(); applySearch(); } });
 
 const selectedDescription = computed(
   () => queries.value.find((q) => q.id === selectedId.value)?.description || "",
 );
+const canRun = computed(() => selectedId.value != null && state.value !== "loading");
 
 onMounted(loadQueries);
 onBeforeUnmount(() => cy?.destroy());
@@ -174,7 +189,7 @@ onBeforeUnmount(() => cy?.destroy());
 
 <template>
   <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
-    <!-- Toolbar: run query (dropdown) + search -->
+    <!-- Toolbar: pick a query, type a search term, then press Run -->
     <div
       :class="darkMode ? 'border-accent-1 bg-bubble-bg-dark' : 'border-accent-2 bg-bubble-bg-light'"
       class="flex shrink-0 flex-wrap items-center gap-3 rounded-lg border px-3 py-2"
@@ -182,26 +197,53 @@ onBeforeUnmount(() => cy?.destroy());
       <div class="flex min-w-0 items-center gap-2">
         <font-awesome-icon icon="diagram-project" class="opacity-60" />
         <label class="text-xs font-semibold uppercase tracking-wide opacity-60">{{ $t('graph.query') }}</label>
-        <select
-          v-model.number="selectedId"
-          :disabled="!queries.length"
-          class="min-w-0 max-w-[260px] rounded-lg border border-current/20 bg-transparent px-2 py-1.5 text-sm outline-none disabled:opacity-40"
-          @change="runSelected"
-        >
-          <option v-for="q in queries" :key="q.id" :value="q.id">{{ q.name }}</option>
-        </select>
+        <div class="relative">
+          <select
+            v-model.number="selectedId"
+            :disabled="!queries.length"
+            :class="darkMode
+              ? 'border-accent-1 bg-primary-bg-dark text-text-main-dark'
+              : 'border-accent-2 bg-primary-bg-light text-text-main-light'"
+            class="min-w-0 max-w-[260px] cursor-pointer appearance-none rounded-lg border px-2.5 py-1.5 pr-8 text-sm outline-none transition disabled:opacity-40"
+            @keydown.enter="onRun"
+          >
+            <option
+              v-for="q in queries"
+              :key="q.id"
+              :value="q.id"
+              :class="darkMode ? 'bg-primary-bg-dark text-text-main-dark' : 'bg-primary-bg-light text-text-main-light'"
+            >{{ q.name }}</option>
+          </select>
+          <font-awesome-icon
+            icon="chevron-down"
+            class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] opacity-60"
+          />
+        </div>
       </div>
+
       <div class="flex min-w-0 flex-1 items-center gap-2">
         <font-awesome-icon icon="magnifying-glass" class="opacity-60" />
         <input
           v-model="search"
           type="text"
           :placeholder="$t('graph.searchPlaceholder')"
-          :disabled="state !== 'ready'"
-          class="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm outline-none disabled:opacity-40"
+          class="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm outline-none"
+          @keydown.enter="onRun"
         />
       </div>
-      <p v-if="selectedDescription" class="hidden truncate text-xs opacity-50 lg:block">{{ selectedDescription }}</p>
+
+      <button
+        type="button"
+        :disabled="!canRun"
+        :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+        class="inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-semibold transition hover:opacity-90 disabled:opacity-40"
+        @click="onRun"
+      >
+        <font-awesome-icon :icon="state === 'loading' ? 'spinner' : 'bolt'" :spin="state === 'loading'" />
+        {{ $t('graph.run') }}
+      </button>
+
+      <p v-if="selectedDescription" class="hidden truncate text-xs opacity-50 xl:block">{{ selectedDescription }}</p>
     </div>
 
     <!-- Canvas + state overlays -->
@@ -219,6 +261,11 @@ onBeforeUnmount(() => cy?.destroy());
         <template v-if="state === 'loading'">
           <font-awesome-icon icon="spinner" spin class="text-2xl opacity-60" />
           <p class="text-sm opacity-60">{{ $t('graph.loading') }}</p>
+        </template>
+        <template v-else-if="state === 'idle'">
+          <font-awesome-icon icon="diagram-project" class="text-2xl opacity-40" />
+          <p class="text-sm font-semibold">{{ $t('graph.idleTitle') }}</p>
+          <p class="max-w-md text-xs opacity-60">{{ $t('graph.idleHint') }}</p>
         </template>
         <template v-else-if="state === 'empty'">
           <font-awesome-icon icon="diagram-project" class="text-2xl opacity-40" />

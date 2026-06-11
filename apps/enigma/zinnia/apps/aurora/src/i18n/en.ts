@@ -22,8 +22,11 @@ export default {
   },
   graph: {
     query: "Query",
+    run: "Run",
     searchPlaceholder: "Search the graph…",
     loading: "Loading graph…",
+    idleTitle: "Ready",
+    idleHint: "Pick a query and press Run to display the graph.",
     emptyTitle: "No knowledge-graph queries yet",
     emptyHint: "An admin defines queries in the toto admin (Knowledge Graph Query). Once some exist, pick one here to view it.",
     unavailableTitle: "Knowledge graph unavailable",
