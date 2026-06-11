@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Patches Cargo.toml to remove Linux-only dependencies before Android build.
 # Android uses WebView from the OS — webkit2gtk is not needed and won't compile.
-# Run from the repo root or enigma/enigma directory.
+# Run from the repo root or apps/enigma directory.
 set -euo pipefail
 
-CARGO_TOML="$(dirname "$0")/../enigma/src-tauri/Cargo.toml"
+CARGO_TOML="$(dirname "$0")/../apps/enigma/src-tauri/Cargo.toml"
 CARGO_TOML="$(realpath "${CARGO_TOML}")"
 
 if [[ ! -f "${CARGO_TOML}" ]]; then
