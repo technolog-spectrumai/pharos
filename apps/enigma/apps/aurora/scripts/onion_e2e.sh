@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end test: bring up the studio onion stack (HTTPS + WSS, served as a Tor v3
+# End-to-end test: bring up the faros onion stack (HTTPS + WSS, served as a Tor v3
 # hidden service), seed a chat channel, then run the Rust harness against the
 # transport matrix:
 #   - clearnet TLS : https://127.0.0.1:8443     (no Tor needed)
@@ -14,8 +14,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-CFG=deployment/portal_onion_studio_tls.yaml
-NAME=onion_studio_tls
+CFG=deployment/faros_onion_tls.yaml
+NAME=faros_onion_tls
 COMPOSE=.compose/$NAME/docker-compose.yaml
 ENVFILE=.env.$NAME
 ADMIN_PASS=test1234
@@ -32,7 +32,7 @@ teardown() {
 }
 trap teardown EXIT
 
-log "building + starting the TLS studio onion stack (first build is slow)…"
+log "building + starting the TLS faros onion stack (first build is slow)…"
 python portal/scripts/deploy.py "$CFG" up -d --service --admin-password "$ADMIN_PASS"
 
 log "waiting for migrations + admin seed (poll the login API until it returns a token)…"
