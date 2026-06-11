@@ -36,7 +36,7 @@ Rakotis (MLS relay chat, TS) ──► Euclid (non-crypto foundation, TS)
 ## Layout
 
 ```
-enigma/
+edge/
 ├── package.json              # workspace root: workspaces = packages/*, apps/*
 ├── apps/
 │   ├── enigma/               # secure comms app (bundle id: com.spectrumaipl.enigma)
@@ -51,7 +51,7 @@ enigma/
 ## Install
 
 ```bash
-cd enigma
+cd edge
 npm install        # once — sets up the workspace + all packages
 ```
 

@@ -35,7 +35,7 @@ Rotor-backed `mls_*` + the HTTP data gateway + relay WebSocket + embedded Tor + 
 ## Run
 
 ```bash
-# from the workspace root (enigma/)
+# from the workspace root (edge/)
 npm install
 
 # desktop
