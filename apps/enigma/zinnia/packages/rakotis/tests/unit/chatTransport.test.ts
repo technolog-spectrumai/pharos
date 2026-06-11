@@ -23,7 +23,7 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
     for (const k of Object.keys(listeners)) delete listeners[k];
     (window as any).__TAURI_INTERNALS__ = {};
     vi.resetModules();
-    transport = (await import("../../src/services/chatTransport")).chatTransport;
+    transport = (await import("../../src/chatTransport")).chatTransport;
   });
 
   afterEach(() => {

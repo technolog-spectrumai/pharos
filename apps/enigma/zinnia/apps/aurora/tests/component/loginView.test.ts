@@ -15,7 +15,7 @@ vi.mock("../../src/services/api", () => ({
 }));
 
 import LoginView from "../../src/views/EnigmaLoginView.vue";
-import OyaButton from "../../src/components/OyaButton.vue";
+import { OyaButton } from "euclid";
 import { api } from "../../src/services/api";
 
 function mountLogin() {

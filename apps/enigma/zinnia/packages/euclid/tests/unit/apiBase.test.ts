@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Mock the storage layer so the API client has a deterministic base URL + token.
+// Mock the storage layer so ApiBase has a deterministic base URL + token.
 const setAuthToken = vi.fn(async () => {});
 const clearAuthToken = vi.fn(async () => {});
 const isServerDataBlocked = vi.fn(async () => false);
@@ -12,7 +12,9 @@ vi.mock("../../src/services/appStorage", () => ({
   clearAuthToken: (...a: any[]) => clearAuthToken(...a),
 }));
 
-import { api } from "../../src/services/api";
+import { ApiBase } from "../../src/services/apiBase";
+
+const api = new ApiBase();
 
 function mockFetchOnce(body: unknown, ok = true, status = 200) {
   const fetchMock = vi.fn(async () => ({
@@ -40,36 +42,21 @@ beforeEach(() => {
   isServerDataBlocked.mockResolvedValue(false);
 });
 
-describe("ApiService request building", () => {
-  it("GET getFiles hits the right URL with a Bearer token and JSON headers", async () => {
-    const f = mockFetchOnce({ files: [] });
-    await api.getFiles();
+describe("ApiBase request building", () => {
+  it("GET getRooms hits the right URL with a Bearer token and JSON headers", async () => {
+    const f = mockFetchOnce({ channels: [] });
+    await api.getRooms();
     const { url, headers } = lastCall(f);
-    expect(url).toBe("http://test.local/vault/api/files/");
+    expect(url).toBe("http://test.local/telegraph/api/channels/");
     expect(headers.Authorization).toBe("Bearer tok123");
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["X-Requested-With"]).toBe("XMLHttpRequest");
   });
 
-  it("GET getBuckets hits the buckets endpoint", async () => {
-    const f = mockFetchOnce({ buckets: [] });
-    await api.getBuckets();
-    expect(lastCall(f).url).toBe("http://test.local/vault/api/buckets/");
-  });
-
-  it("GET getFileContent targets the file content endpoint", async () => {
-    const f = mockFetchOnce({ content: "hi", file_type: "text" });
-    const res = await api.getFileContent("notes-md");
-    expect(lastCall(f).url).toBe("http://test.local/vault/api/files/notes-md/content/");
-    expect(res.content).toBe("hi");
-  });
-
-  it("PUT saveFileContent sends method PUT and the content body", async () => {
-    const f = mockFetchOnce({ key: "k", title: "t" });
-    await api.saveFileContent("k", "new body");
-    const { init } = lastCall(f);
-    expect(init.method).toBe("PUT");
-    expect(JSON.parse(init.body as string)).toEqual({ content: "new body" });
+  it("GET getRoom targets the channel-detail endpoint", async () => {
+    const f = mockFetchOnce({ slug: "general" });
+    await api.getRoom("general");
+    expect(lastCall(f).url).toBe("http://test.local/telegraph/api/channels/general/");
   });
 
   it("PATCH setLanguage sends the language to the me endpoint", async () => {
@@ -99,38 +86,32 @@ describe("ApiService request building", () => {
 
   it("throws with status + body text on a non-OK response", async () => {
     mockFetchOnce({ error: "nope" }, false, 404);
-    await expect(api.getFiles()).rejects.toThrow(/404/);
+    await expect(api.getRooms()).rejects.toThrow(/404/);
   });
 
   it("with server data off, an uncached GET rejects and never calls fetch", async () => {
     isServerDataBlocked.mockResolvedValue(true);
-    const f = mockFetchOnce({ files: [] });
-    await expect(api.getFiles()).rejects.toThrow(/offline copy/i);
+    const f = mockFetchOnce({ channels: [] });
+    await expect(api.getRooms()).rejects.toThrow(/offline copy/i);
     expect(f).not.toHaveBeenCalled();
   });
 
   it("caches successful GETs and serves them from cache when server data is off", async () => {
     // Online request populates the cache…
-    const f1 = mockFetchOnce({ files: [{ id: 1 }] });
-    await api.getFiles();
+    const f1 = mockFetchOnce({ channels: [{ id: 1 }] });
+    await api.getRooms();
     expect(f1).toHaveBeenCalledTimes(1);
 
     // …then server-data-off serves the cached body without touching the network.
     isServerDataBlocked.mockResolvedValue(true);
-    const f2 = mockFetchOnce({ files: [{ id: 999 }] });
-    const res = await api.getFiles();
-    expect(res).toEqual({ files: [{ id: 1 }] });
+    const f2 = mockFetchOnce({ channels: [{ id: 999 }] });
+    const res = await api.getRooms();
+    expect(res).toEqual({ channels: [{ id: 1 }] });
     expect(f2).not.toHaveBeenCalled();
   });
 
   it("blocks writes (non-GET) when server data is off", async () => {
     isServerDataBlocked.mockResolvedValue(true);
-    await expect(api.deleteFile("k")).rejects.toThrow(/server data is off/i);
-  });
-
-  it("blocks uploads when server data is off", async () => {
-    isServerDataBlocked.mockResolvedValue(true);
-    const file = new File(["data"], "note.txt", { type: "text/plain" });
-    await expect(api.uploadFile(file, "note")).rejects.toThrow(/server data is off/i);
+    await expect(api.joinRoom("general")).rejects.toThrow(/server data is off/i);
   });
 });
