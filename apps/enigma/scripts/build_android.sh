@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Builds the Enigma Tauri app for Android (APK + AAB).
-# Must be run from inside enigma/enigma/ (the directory with package.json).
+# Must be run from inside apps/enigma/ (the directory with package.json).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENIGMA_DIR="$(realpath "${SCRIPT_DIR}/../enigma")"
+ENIGMA_DIR="$(realpath "${SCRIPT_DIR}/../apps/enigma")"
 REPO_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
 
 # ── Env auto-detection ────────────────────────────────────────────────────────

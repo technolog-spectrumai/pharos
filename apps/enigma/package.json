@@ -1,0 +1,10 @@
+{
+  "name": "enigma-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Monorepo for the Enigma (secure comms) and Aurora (data workspace) apps plus shared libraries (Euclid, Rakotis).",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}

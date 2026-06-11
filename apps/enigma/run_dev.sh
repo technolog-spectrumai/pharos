@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR/enigma"
+APP_DIR="$SCRIPT_DIR/apps/enigma"
 
 APP_PROFILE="${APP_PROFILE:-default}"
 CHAT_USER="${CHAT_USER:-default}"
