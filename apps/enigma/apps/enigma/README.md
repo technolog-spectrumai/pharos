@@ -1,80 +1,55 @@
-# Enigma Tauri App
+# Enigma
 
-Enigma is a Tauri v2, Vue 3, Pinia, and Rust desktop client for the Enigma chat API.
+The **secure-communication** app of the [workspace](../../README.md). Enigma is
+chat and real-time media only — the data workspace lives in
+[Aurora](../aurora).
 
-## Profile-Specific Local State
+## Features
 
-The app reads two environment variables at startup:
+- **Relay chat** — MLS-encrypted group messaging over the toto telegraph WebSocket.
+- **P2P chat** — peer-to-peer rooms over iroh (QUIC), MLS-encrypted, no server.
+- **Voice calls (Vox)** — real-time 1:1 voice over iroh, keyed by an MLS-exported secret.
+- **Voice + image messages** in both relay and P2P chats.
+- **P2P file transfer** and a **CRDT data-sync** channel (ride the P2P MLS group).
+- Login, settings and profile screens; embedded Tor for `.onion` servers.
 
-- `APP_PROFILE`: local storage namespace for this app instance.
-- `CHAT_USER`: default chat identity for MLS operations.
+Tabs in `/chat`: Forum (relay) · P2P · Vox · Sync · Files. `/` redirects to `/chat`.
 
-Persistent app state is stored by Rust/Tauri under the current profile:
+## Shared code
 
-```text
-app_data_dir/profiles/{APP_PROFILE}/profile_state.json
-```
+- **[euclid](../../packages/euclid)** — UI primitives, WS client, `ApiBase` (Enigma's `api` adds the chat-media uploads), storage, kv cache, i18n.
+- **[rakotis](../../packages/rakotis)** — the chat channel + MLS envelope state machine. Enigma runs both a `relay` and a `p2p` channel.
+- **Rotor** (`../../../toto/rotors/rotor_core`) — OpenMLS crypto, consumed from `src-tauri`.
 
-That file contains the configured server URL, auth token, selected offline data profile, and offline profile data entries. New profiles use `CHAT_USER` as the default offline data profile name. MLS state is stored in the same profile directory with `mls_*.bin` files.
+The Rust backend (`src-tauri/`) keeps the full comms stack: `mls_*` (Rotor-backed),
+relay WebSocket + iroh P2P (`realtime`/`p2p_iroh`), `vox`, `file_xfer`, `y_store`,
+the HTTP gateway, embedded Tor and kv.
 
-## Run Multiple Local Instances
-
-Start the first instance:
+## Run
 
 ```bash
-APP_PROFILE=alice CHAT_USER=alice cargo tauri dev
+# from the workspace root (edge/)
+npm install
+
+# desktop — APP_PROFILE isolates storage, CHAT_USER is the MLS identity
+APP_PROFILE=alice CHAT_USER=alice npm run tauri dev -w enigma
+# or, from the root:  ./run_dev.sh
+
+# two instances side by side
+APP_PROFILE=alice CHAT_USER=alice npm run tauri dev -w enigma
+APP_PROFILE=bob   CHAT_USER=bob   npx -w enigma tauri dev --no-dev-server
+
+# browser (MLS disabled → plaintext relay chat; P2P/voice are desktop-only)
+npm run dev -w enigma     # http://localhost:1420
 ```
 
-Start a second instance from another terminal:
+## Build / test
 
 ```bash
-APP_PROFILE=bob CHAT_USER=bob cargo tauri dev --no-dev-server
+npm run build -w enigma                 # vue-tsc + vite
+( cd src-tauri && cargo build )         # Rust
+npm test -w enigma                      # vitest
 ```
 
-Alice and Bob will use separate local files:
-
-```text
-profiles/alice/profile_state.json
-profiles/bob/profile_state.json
-```
-
-This means Alice and Bob can have different server URLs, auth tokens, offline data profiles, and MLS state.
-
-## Switch Local Profile At Runtime
-
-Settings has an Offline Data card with a Local data profile field. Enter a profile name such as `alice` or `bob` and click Load profile.
-
-Loading a profile updates the active Rust profile for this running app. Subsequent reads and writes use:
-
-```text
-app_data_dir/profiles/{profile_name}/profile_state.json
-```
-
-This gives the same storage separation as restarting with a different `APP_PROFILE`, without restarting the Tauri window. The active `CHAT_USER` value is set to the same name when switching this way.
-
-## Test Offline Data Separation
-
-1. Run Alice with `APP_PROFILE=alice CHAT_USER=alice`.
-2. Open Settings.
-3. Open Settings. Offline Data should default to an `alice` data profile.
-4. Optionally set Data profile name to `Alice local data` and save it.
-5. Open Profile, fill the offline profile form, and save it.
-6. Run Bob with `APP_PROFILE=bob CHAT_USER=bob`.
-7. Open Settings. Offline Data should default to a `bob` data profile.
-8. Optionally set Data profile name to `Bob local data` and save it.
-9. Open Profile, fill different offline data, and save it.
-10. Switch between the two running app instances.
-
-The Offline Data card also shows previous profile names as selectable chips, so you can quickly switch between saved local data profiles.
-
-Expected result: Alice's offline data and Bob's offline data stay separate because each instance writes to its own `APP_PROFILE` directory.
-
-## Test Server Connection
-
-Settings uses:
-
-```text
-GET /enigma/api/health/
-```
-
-This endpoint is public, so connection testing works even before login.
+Android build helpers live in the workspace `scripts/` directory; see
+[build_android.md](../../build_android.md).
