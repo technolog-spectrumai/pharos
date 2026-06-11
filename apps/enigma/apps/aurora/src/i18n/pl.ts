@@ -22,8 +22,11 @@ export default {
   },
   graph: {
     query: "Zapytanie",
+    run: "Uruchom",
     searchPlaceholder: "Szukaj w grafie…",
     loading: "Wczytywanie grafu…",
+    idleTitle: "Gotowe",
+    idleHint: "Wybierz zapytanie i naciśnij Uruchom, aby wyświetlić graf.",
     emptyTitle: "Brak zapytań grafu wiedzy",
     emptyHint: "Administrator definiuje zapytania w panelu toto (Knowledge Graph Query). Gdy powstaną, wybierz jedno tutaj, aby je zobaczyć.",
     unavailableTitle: "Graf wiedzy niedostępny",

@@ -224,6 +224,28 @@ function cardCls() {
         </OyaButton>
       </div>
 
+      <!-- Graph -->
+      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
+        <div class="flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
+              <font-awesome-icon icon="diagram-project" :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" />
+            </div>
+            <div>
+              <p class="font-bold text-sm">Graph</p>
+              <p class="text-xs opacity-50">Knowledge graph</p>
+            </div>
+          </div>
+          <span :class="darkMode ? 'bg-accent-dark/20 text-accent-dark' : 'bg-accent-light/10 text-accent-light'" class="rounded-full px-2 py-0.5 text-xs font-bold">
+            Neo4j
+          </span>
+        </div>
+        <p class="text-xs opacity-60 leading-relaxed">Explore the Neo4j knowledge graph — run saved queries and search across nodes and relationships.</p>
+        <OyaButton :dark-mode="darkMode" class="mt-auto" @click="router.push('/graph')">
+          <font-awesome-icon icon="arrow-right" />Open graph
+        </OyaButton>
+      </div>
+
     </div>
 
   </section>
