@@ -42,7 +42,6 @@ onMounted(() => {
 watch(me, (val) => {
   if (val) {
     chatStore.relay.currentUserName.value = val.full_name;
-    chatStore.p2p.currentUserName.value = val.full_name;
     // First guess for the UI language is the user's toto profile language,
     // unless they've already picked one explicitly in Enigma.
     applyProfileLocaleGuess(val.language);
@@ -78,8 +77,8 @@ async function handleLogout() {
 
         <!-- Logo -->
         <RouterLink to="/" class="flex items-center gap-3 hover:opacity-80 transition">
-          <img :src="appIcon" alt="Enigma icon" class="h-9 w-9 rounded-lg object-contain" />
-          <h1 class="text-xl font-bold tracking-wide sm:text-2xl">Enigma</h1>
+          <img :src="appIcon" alt="Aurora icon" class="h-9 w-9 rounded-lg object-contain" />
+          <h1 class="text-xl font-bold tracking-wide sm:text-2xl">Aurora</h1>
         </RouterLink>
 
         <!-- Desktop nav -->

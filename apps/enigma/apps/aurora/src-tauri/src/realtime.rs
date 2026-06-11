@@ -18,7 +18,6 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 
-use crate::p2p_iroh::{self, P2pState};
 use crate::{active_config, load_profile_state, AppConfigState};
 
 const BACKOFF_MS: [u64; 6] = [1000, 2000, 4000, 8000, 16000, 30000];
@@ -280,83 +279,17 @@ pub async fn realtime_send(
     app: AppHandle,
     config: State<'_, AppConfigState>,
     realtime: State<'_, RealtimeState>,
-    p2p: State<'_, P2pState>,
     room: Option<String>,
     payload: String,
 ) -> Result<(), String> {
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
-    // Route to the P2P backend if this room is a P2P (iroh) room…
-    if let Some(room) = &room {
-        if p2p_iroh::has_room(&p2p, room).await {
-            return p2p_iroh::broadcast(&p2p, room, payload)
-                .await
-                .map_err(|e| e.to_string());
-        }
-    }
-    // …otherwise it's the WS server room (single active connection).
+    // Aurora is relay-only (no P2P/iroh): send over the single WS server connection.
+    let _ = room;
     let inner = realtime.inner.lock().await;
     match &inner.out_tx {
         Some(tx) => tx.send(payload).map_err(|e| e.to_string()),
         None => Err("realtime: not connected".to_string()),
     }
-}
-
-// ── P2P (iroh) room commands — same realtime://* events as the WS backend ──────
-
-#[derive(Serialize)]
-pub struct CreatedRoom {
-    room: String,
-    name: String,
-    ticket: String,
-}
-
-#[derive(Serialize)]
-pub struct JoinedRoom {
-    room: String,
-    name: String,
-}
-
-#[tauri::command]
-pub async fn realtime_create_room(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    name: String,
-) -> Result<CreatedRoom, String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let (room, ticket) = p2p_iroh::create_room(&app, &p2p, name.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(CreatedRoom { room, name, ticket })
-}
-
-#[tauri::command]
-pub async fn realtime_join_room(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    ticket: String,
-) -> Result<JoinedRoom, String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let (room, name) = p2p_iroh::join_room(&app, &p2p, ticket)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(JoinedRoom { room, name })
-}
-
-#[tauri::command]
-pub async fn realtime_leave_room(p2p: State<'_, P2pState>, room: String) -> Result<(), String> {
-    p2p_iroh::leave_room(&p2p, &room).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn realtime_node_info(p2p: State<'_, P2pState>) -> Result<serde_json::Value, String> {
-    let node_id = p2p_iroh::node_info(&p2p).await.map_err(|e| e.to_string())?;
-    Ok(json!({ "node_id": node_id }))
 }

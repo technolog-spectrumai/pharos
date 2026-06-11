@@ -1,7 +1,7 @@
 [package]
-name = "enigma"
+name = "aurora"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Aurora — data workspace with MLS relay chat"
 authors = ["you"]
 edition = "2021"
 
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "enigma_lib"
+name = "aurora_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -28,12 +28,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rotor-core = { path = "../../../../toto/rotors/rotor_core" }
 zeroize = "1"
-# AEAD for Vox call audio, keyed by an MLS-exported secret (pure Rust, Android-safe).
-chacha20poly1305 = "0.10"
+# Audio capture/encoding for async voice messages (pure Rust, Android-safe).
 cpal = "0.15"
 hound = "3"
-# Pure-Rust FFT for the real-time Vox call equalizer (incoming-audio spectrum).
-rustfft = "6"
 # Rust-owned data layer: HTTP gateway (reqwest), realtime WS backend
 # (tokio-tungstenite), async runtime + helpers.
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
@@ -56,13 +53,10 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 # (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
 typed-index-collections = "=3.3.0"
 data-encoding = "2"
-# Direct P2P chat backend (iroh-gossip over QUIC).
-iroh = "0.98"
-iroh-gossip = "0.98"
-postcard = { version = "1", features = ["use-std"] }
+# blake3: content hashing for the y_store CRDT projection. bytes: shared buffer type
+# used across the data/realtime/tor layers.
 blake3 = "1"
 bytes = "1"
-futures-lite = "2"
 anyhow = "1"
 # Mission data layer: a yrs CRDT document persisted with fjall (pure-Rust LSM, no C
 # deps — same rationale as μ-law/rustls/flat-file cache). yrs is pinned to 0.19 to match

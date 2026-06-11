@@ -1,9 +1,9 @@
 {
-  "name": "enigma",
+  "name": "aurora",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "logoDir": "okti",
+  "logoDir": "aurora",
   "scripts": {
     "dev": "vite",
     "dev:tauri": "node scripts/tauri-dev-server.mjs",
