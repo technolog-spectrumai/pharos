@@ -57,7 +57,7 @@ export default {
     configuredServer: "Skonfigurowany serwer",
     clearSavedUrl: "Wyczyść zapisany adres",
     serverData: "Dane serwera",
-    serverDataOnHint: "Używaj serwera dla danych (pliki, sejf). Wył. → tylko z pamięci.",
+    serverDataOnHint: "Używaj serwera dla danych na żywo. Wył. → tylko z lokalnej pamięci.",
     serverDataOffHint: "Dane serwera wyłączone — odczyty z lokalnej pamięci.",
     serverOnion: "Onion (Tor)",
     serverOnionOnHint: "Łączenie z serwerem przez Tor (.onion) — wbudowany Tor.",
