@@ -9,6 +9,7 @@ import TasksView from "../views/TasksView.vue";
 import LocationsView from "../views/LocationsView.vue";
 import SocialhubView from "../views/SocialhubView.vue";
 import EventsView from "../views/EventsView.vue";
+import GraphView from "../views/GraphView.vue";
 
 const router = createRouter({
   history: createMemoryHistory(),
@@ -21,6 +22,7 @@ const router = createRouter({
     { path: "/locations", component: LocationsView, name: "locations" },
     { path: "/people", component: SocialhubView, name: "people" },
     { path: "/events", component: EventsView, name: "events" },
+    { path: "/graph", component: GraphView, name: "graph" },
     { path: "/config", component: EnigmaConfigView, name: "config" },
     { path: "/profile", component: EnigmaProfileView, name: "profile" },
   ],

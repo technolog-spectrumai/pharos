@@ -37,7 +37,7 @@ describe("EnigmaLoginView (interface)", () => {
   it("renders the localized title and field labels", async () => {
     const w = mountLogin();
     await flushPromises();
-    expect(w.text()).toContain("Sign in to Enigma");
+    expect(w.text()).toContain("Sign in to Aurora");
     expect(w.text()).toContain("Username");
     expect(w.text()).toContain("Password");
     expect(w.text()).toContain("server.test");

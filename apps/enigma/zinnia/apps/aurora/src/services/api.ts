@@ -379,6 +379,34 @@ export interface OrgNode {
   phone: string;
 }
 
+// ── Knowledge graph (ravioli) ──────────────────────────────────────────────────
+
+export interface KgQuery {
+  id: number;
+  name: string;
+  description: string;
+}
+
+export interface KgNode {
+  id: string;
+  labels: string[];
+  props: Record<string, unknown>;
+}
+
+export interface KgEdge {
+  id: string;
+  type: string;
+  start: string;
+  end: string;
+  props: Record<string, unknown>;
+}
+
+export interface KgGraph {
+  nodes: KgNode[];
+  edges: KgEdge[];
+  selected_query: { id: number; name: string; description: string };
+}
+
 class ApiService extends ApiBase {
   // ── Notes (Bento) ─────────────────────────────────────────────────────────
 
@@ -746,6 +774,18 @@ class ApiService extends ApiBase {
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       xhr.send(form);
     });
+  }
+
+  // ── Knowledge graph (ravioli) ──────────────────────────────────────────────
+  // Saved "Knowledge Graph Queries" (CypherQuery) defined in Django admin, gated
+  // by the data_mesh group. Reads fail gracefully when Neo4j is down (503).
+
+  getKgQueries(): Promise<{ queries: KgQuery[] }> {
+    return this.request<{ queries: KgQuery[] }>("/ravioli/api/queries/");
+  }
+
+  runKgQuery(id: number): Promise<KgGraph> {
+    return this.request<KgGraph>(`/ravioli/api/queries/${id}/run/`);
   }
 }
 

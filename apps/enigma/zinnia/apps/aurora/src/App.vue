@@ -24,6 +24,7 @@ const missionApps = [
   { to: "/locations", icon: "location-dot", label: "nav.locations" },
   { to: "/people", icon: "users", label: "nav.people" },
   { to: "/events", icon: "calendar", label: "nav.events" },
+  { to: "/graph", icon: "diagram-project", label: "nav.graph" },
 ] as const;
 const activeMission = computed(() => missionApps.find((m) => m.to === route.path) ?? null);
 
