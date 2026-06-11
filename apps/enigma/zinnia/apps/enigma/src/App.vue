@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, watch, onMounted } from "vue";
 import { RouterView, RouterLink, useRouter, useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "./stores/user";
@@ -7,32 +7,15 @@ import { useChatStore } from "./stores/chat";
 import { api } from "./services/api";
 import { appIcon } from "./assets/logos";
 import { applyProfileLocaleGuess } from "./i18n";
-import { useMeetingReminders } from "./composables/useMeetingReminders";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
-const missionMenuOpen = ref(false);   // desktop "Mission" dropdown
-const missionMobileOpen = ref(false); // mobile "Mission" collapsible
 const router = useRouter();
 const route = useRoute();
-
-// The "Mission" apps grouped under one app-bar entry. The dropdown keeps its
-// "Mission" label/icon even when a sub-app is open; `activeMission` is used only to
-// highlight the entry (bold) while you're inside one of these apps.
-const missionApps = [
-  { to: "/tasks", icon: "list-check", label: "nav.tasks" },
-  { to: "/locations", icon: "location-dot", label: "nav.locations" },
-  { to: "/people", icon: "users", label: "nav.people" },
-  { to: "/events", icon: "calendar", label: "nav.events" },
-] as const;
-const activeMission = computed(() => missionApps.find((m) => m.to === route.path) ?? null);
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
 const { me } = storeToRefs(userStore);
-
-// App-shell watcher: notify ahead of upcoming meetings, on any screen.
-useMeetingReminders();
 
 onMounted(() => {
   void chatStore.syncRuntimeIdentity();
@@ -49,11 +32,9 @@ watch(me, (val) => {
   }
 });
 
-// Close menus on navigation
+// Close menu on navigation
 watch(() => route.path, () => {
   menuOpen.value = false;
-  missionMenuOpen.value = false;
-  missionMobileOpen.value = false;
 });
 
 async function handleLogout() {
@@ -88,43 +69,6 @@ async function handleLogout() {
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <!-- Mission apps dropdown (notes / tasks / locations / people) -->
-          <div class="relative">
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 transition hover:opacity-70"
-              :class="activeMission ? 'font-semibold' : ''"
-              :title="$t('nav.mission')"
-              @click="missionMenuOpen = !missionMenuOpen"
-            >
-              <font-awesome-icon icon="bullseye" />
-              {{ $t('nav.mission') }}
-              <font-awesome-icon icon="chevron-down" class="text-[10px] opacity-60" />
-            </button>
-            <div v-if="missionMenuOpen" class="fixed inset-0 z-40" @click="missionMenuOpen = false" />
-            <div
-              v-if="missionMenuOpen"
-              :class="darkMode ? 'bg-header-bg-dark border-accent-1' : 'bg-header-bg-light border-accent-2'"
-              class="absolute left-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-lg border shadow-xl"
-            >
-              <RouterLink
-                v-for="m in missionApps"
-                :key="m.to"
-                :to="m.to"
-                class="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:opacity-70"
-                @click="missionMenuOpen = false"
-              >
-                <font-awesome-icon :icon="m.icon" class="w-4 text-center" />
-                {{ $t(m.label) }}
-              </RouterLink>
-            </div>
-          </div>
-
-          <RouterLink to="/vault" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.storage')">
-            <font-awesome-icon icon="hard-drive" />
-            {{ $t('nav.storage') }}
-          </RouterLink>
-
           <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <img
               v-if="me?.avatar_url"
@@ -210,33 +154,6 @@ async function handleLogout() {
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <!-- Mission apps (collapsible) -->
-          <button
-            type="button"
-            class="flex w-full items-center gap-3 px-5 py-3.5 text-sm transition hover:opacity-70"
-            @click="missionMobileOpen = !missionMobileOpen"
-          >
-            <font-awesome-icon icon="bullseye" class="w-4 text-center" />
-            {{ $t('nav.mission') }}
-            <font-awesome-icon :icon="missionMobileOpen ? 'chevron-up' : 'chevron-down'" class="ml-auto text-xs opacity-60" />
-          </button>
-          <template v-if="missionMobileOpen">
-            <RouterLink
-              v-for="m in missionApps"
-              :key="m.to"
-              :to="m.to"
-              class="flex items-center gap-3 py-3 pl-12 pr-5 text-sm transition hover:opacity-70"
-            >
-              <font-awesome-icon :icon="m.icon" class="w-4 text-center" />
-              {{ $t(m.label) }}
-            </RouterLink>
-          </template>
-
-          <RouterLink to="/vault" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="hard-drive" class="w-4 text-center" />
-            {{ $t('nav.storage') }}
-          </RouterLink>
-
           <RouterLink
             to="/profile"
             class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"

@@ -9,14 +9,11 @@ use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
 mod data;
-mod p2p_iroh;
 mod realtime;
 mod kv;
 #[cfg(test)]
 mod onion_e2e;
 mod tor;
-mod vox;
-mod file_xfer;
 mod fs_local;
 mod y_store;
 
@@ -1019,9 +1016,6 @@ pub fn run() {
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(realtime::RealtimeState::default())
-        .manage(p2p_iroh::P2pState::default())
-        .manage(vox::VoxState::default())
-        .manage(file_xfer::FileXferState::default())
         .manage(tor::TorState::default())
         .setup(|app| {
             // Rust-owned HTTP gateway state (needs the app data dir for its cache).
@@ -1102,19 +1096,6 @@ pub fn run() {
             realtime::realtime_connect,
             realtime::realtime_disconnect,
             realtime::realtime_send,
-            realtime::realtime_create_room,
-            realtime::realtime_join_room,
-            realtime::realtime_leave_room,
-            realtime::realtime_node_info,
-            vox::vox_create,
-            vox::vox_join,
-            vox::vox_accept,
-            vox::vox_decline,
-            vox::vox_hangup,
-            vox::vox_set_mute,
-            file_xfer::file_offer_create,
-            file_xfer::file_offer_cancel,
-            file_xfer::file_download,
             fs_local::fs_read_text_file,
             fs_local::fs_write_text_file,
         ])
