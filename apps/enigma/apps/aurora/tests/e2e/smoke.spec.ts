@@ -1,9 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// The app uses an in-memory router, so e2e drives it from "/" and navigates via
-// the UI. The backend is stubbed: a catch-all returns {} and /me returns the
-// identity (including the profile language we want the UI to adopt).
+// Aurora is the data-workspace app: "/" is the dashboard. The backend is stubbed
+// (no toto server) — a catch-all returns {} and /me returns the identity (incl. the
+// profile language the UI should adopt).
 async function stubApi(page: Page, language: string) {
+  // Playwright matches routes in reverse registration order, so register the
+  // catch-all FIRST and the specific /me endpoint AFTER (it takes precedence).
   await page.route("**/api/**", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
   );
@@ -23,21 +25,23 @@ async function stubApi(page: Page, language: string) {
   );
 }
 
-test.describe("Enigma shell", () => {
-  test("renders the header and English navigation by default", async ({ page }) => {
+test.describe("Aurora shell (data workspace + relay chat)", () => {
+  test("renders the header and data-workspace nav in English", async ({ page }) => {
     await stubApi(page, "en");
     await page.goto("/");
-    await expect(page.getByRole("banner").getByRole("heading", { name: "Enigma" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Storage" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Tasks" }).first()).toBeVisible();
+    await expect(page.getByRole("banner").getByRole("heading", { name: "Aurora" })).toBeVisible();
+    // Data-workspace nav: Chat, Mission (dropdown), and Files (the /vault label).
+    await expect(page.getByRole("link", { name: "Chat" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Files" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mission" }).first()).toBeVisible();
   });
 
   test("adopts the toto profile language (Polish) for the UI", async ({ page }) => {
     await stubApi(page, "pl");
     await page.goto("/");
-    // Once /me resolves, the nav should switch to Polish (Storage → Pliki).
+    // Once /me resolves, the nav switches to Polish (Files → Pliki, Chat → Czat).
     await expect(page.getByRole("link", { name: "Pliki" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Zadania" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Czat" }).first()).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("lang", "pl");
   });
 });
