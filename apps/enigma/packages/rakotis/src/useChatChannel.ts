@@ -8,13 +8,31 @@
 // (`@system:` vault commands, save-as-JSON). The P2P channel registers none.
 
 import { ref, computed, watch } from "vue";
-import { api, type Room, type Participant } from "../services/api";
-import { chatTransport, type WsStatus } from "../services/chatTransport";
-import { cryptoService, bytesToBase64, base64ToBytes } from "../services/crypto";
-import { getRuntimeConfig, type AppRuntimeConfig } from "euclid";
+import { chatTransport } from "./chatTransport";
+import { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
+import {
+  getRuntimeConfig,
+  type AppRuntimeConfig,
+  type Room,
+  type Participant,
+  type WsStatus,
+} from "euclid";
 import { kvGet, kvPut } from "euclid";
-import { runChatCommand } from "../services/chatCommands";
+import { runChatCommand } from "./chatCommands";
 import { nanoid } from "nanoid";
+
+// The app's API instance is injected (Enigma's and Aurora's `api` both extend
+// Euclid's ApiBase). Rakotis stays app-agnostic: it only needs this relay-chat
+// surface, never the data-workspace endpoints.
+export interface RelayChatApi {
+  getMe(): Promise<{ full_name?: string; username?: string }>;
+  getRooms(): Promise<{ channels: Room[] }>;
+  getRoom(slug: string): Promise<Room>;
+  joinRoom(slug: string): Promise<unknown>;
+  leaveRoom(slug: string): Promise<unknown>;
+  leaveAllRooms(): Promise<unknown>;
+  uploadImage(slug: string, file: File, onProgress?: (pct: number) => void): Promise<unknown>;
+}
 
 export type ChannelKind = "relay" | "p2p";
 
@@ -85,7 +103,7 @@ async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality = 0.85
 
 const log = (...args: unknown[]) => console.log("[enigma-chat]", ...args);
 
-export function useChatChannel(kind: ChannelKind) {
+export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   const isP2p = kind === "p2p";
 
   const rooms = ref<Room[]>([]);

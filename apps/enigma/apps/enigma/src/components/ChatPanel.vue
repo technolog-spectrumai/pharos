@@ -5,7 +5,7 @@ import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useVaultStore } from "../stores/vault";
 import { api, type VaultFile } from "../services/api";
-import type { ChatChannel, Message } from "../composables/useChatChannel";
+import type { ChatChannel, Message } from "rakotis";
 
 import { OyaButton } from "euclid";
 import ChatBubble from "./ChatBubble.vue";

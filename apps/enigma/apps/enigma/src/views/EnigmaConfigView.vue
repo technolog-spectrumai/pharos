@@ -22,7 +22,7 @@ import {
   type AppRuntimeConfig,
   type AppProfileState,
 } from "euclid";
-import { chatTransport as wsService } from "../services/chatTransport";
+import { chatTransport as wsService } from "rakotis";
 import {
   getReminderHorizonMin,
   setReminderHorizonMin,

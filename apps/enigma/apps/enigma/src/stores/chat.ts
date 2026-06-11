@@ -8,20 +8,21 @@
 // real Ref<>s for the ChatPanel prop and direct `.value` access.
 
 import { ref, computed } from "vue";
-import { useChatChannel, type ChatChannel } from "../composables/useChatChannel";
+import { useChatChannel, type ChatChannel } from "rakotis";
+import { api } from "../services/api";
 import { useDataSync, type DataSync } from "../composables/useDataSync";
 import { useFileShare, type FileShare } from "../composables/useFileShare";
 import type { AppRuntimeConfig } from "euclid";
 
-export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "../composables/useChatChannel";
+export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
 // "vox" is the real-time voice-call tab and "sync" is the full-data pull tab — neither
 // has a ChatChannel (no message history); they drive iroh/CRDT backends directly.
 export type ChatTab = "relay" | "p2p" | "vox" | "sync" | "files";
 
 function createChatStore() {
-  const relay: ChatChannel = useChatChannel("relay");
-  const p2p: ChatChannel = useChatChannel("p2p");
+  const relay: ChatChannel = useChatChannel("relay", api);
+  const p2p: ChatChannel = useChatChannel("p2p", api);
   // Full-data "Sync" and P2P file transfer both ride the p2p channel's MLS group.
   const dataSync: DataSync = useDataSync(p2p);
   const fileShare: FileShare = useFileShare(p2p);

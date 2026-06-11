@@ -14,7 +14,7 @@
 //   Progress on both sides arrives via the `file://*` backend events.
 
 import { ref } from "vue";
-import type { ChatChannel } from "./useChatChannel";
+import type { ChatChannel } from "rakotis";
 
 export type FileShareState =
   | "idle"
