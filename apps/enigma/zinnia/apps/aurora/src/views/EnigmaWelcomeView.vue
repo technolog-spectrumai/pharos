@@ -58,11 +58,11 @@ function cardCls() {
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
           <img
             :src="darkMode ? logo2Dark : logo2Light"
-            alt="Enigma logo"
+            alt="Aurora logo"
             class="h-20 w-20 rounded-2xl object-contain sm:h-24 sm:w-24"
           />
           <div>
-            <h1 class="text-3xl font-bold sm:text-4xl">Enigma</h1>
+            <h1 class="text-3xl font-bold sm:text-4xl">Aurora</h1>
             <p class="mt-1.5 max-w-xl text-sm opacity-65">
               Encrypted workspace — chat, vault, tasks, maps, and more.
             </p>

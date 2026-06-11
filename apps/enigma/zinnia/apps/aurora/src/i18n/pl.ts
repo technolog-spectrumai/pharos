@@ -51,7 +51,7 @@ export default {
   config: {
     studio: "Oya Studio",
     title: "Konfiguracja",
-    subtitle: "Ustaw adres serwera, z którym łączy się Enigma.",
+    subtitle: "Ustaw adres serwera, z którym łączy się Aurora.",
     serverAddress: "Adres serwera",
     serverHint: "Wpisz adres URL ręcznie lub zeskanuj kod QR ze strony powitalnej.",
     configuredServer: "Skonfigurowany serwer",
@@ -75,7 +75,7 @@ export default {
     noServer: "Nie skonfigurowano adresu serwera.",
     serverReachable: "Serwer dostępny ({ms} ms)",
     offlineData: "Dane offline",
-    offlineHint: "Zarządzaj lokalnymi danymi profilu używanymi, gdy Enigma jest odłączona.",
+    offlineHint: "Zarządzaj lokalnymi danymi profilu używanymi, gdy Aurora jest odłączona.",
     localDataProfile: "Lokalny profil danych",
     loadProfile: "Wczytaj profil",
     loadingProfile: "Wczytywanie...",
