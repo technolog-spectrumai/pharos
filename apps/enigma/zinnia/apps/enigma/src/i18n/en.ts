@@ -57,7 +57,7 @@ export default {
     configuredServer: "Configured server",
     clearSavedUrl: "Clear saved URL",
     serverData: "Server data",
-    serverDataOnHint: "Use the server for data (files, vault). Off → read from cache only.",
+    serverDataOnHint: "Use the server for live data. Off → read from the local cache only.",
     serverDataOffHint: "Server data is off — reads come from the local cache.",
     serverOnion: "Onion (Tor)",
     serverOnionOnHint: "Reaching the server over Tor (.onion) via embedded Tor.",
