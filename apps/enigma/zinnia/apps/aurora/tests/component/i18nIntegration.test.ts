@@ -16,7 +16,7 @@ beforeEach(() => {
 describe("i18n plugin integration", () => {
   it("renders English by default", () => {
     const w = mount(Probe, { global: { plugins: [i18n] } });
-    expect(w.get(".s").text()).toBe("Storage");
+    expect(w.get(".s").text()).toBe("Files");
     expect(w.get(".t").text()).toBe("Tasks");
   });
 

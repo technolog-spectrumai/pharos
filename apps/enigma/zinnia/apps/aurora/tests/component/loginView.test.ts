@@ -6,9 +6,10 @@ import { i18n, setLocale } from "../../src/i18n";
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: pushMock }) }));
-vi.mock("../../src/services/appStorage", () => ({
-  getServerUrl: vi.fn(async () => "http://server.test"),
-}));
+vi.mock("euclid", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("euclid")>();
+  return { ...actual, getServerUrl: vi.fn(async () => "http://server.test") };
+});
 vi.mock("../../src/assets/logos", () => ({ logo2Dark: "dark", logo2Light: "light", appIcon: "icon" }));
 vi.mock("../../src/services/api", () => ({
   api: { login: vi.fn(async () => {}), getMe: vi.fn(async () => ({})) },
