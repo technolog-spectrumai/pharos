@@ -169,7 +169,6 @@ export default {
     tabForum: "Forum",
     tabP2p: "P2P",
     tabVox: "Vox",
-    tabSync: "Sync",
     tabFiles: "Pliki",
     joinPrivateRoom: "Zaproszenie do pokoju prywatnego",
     invitePosted: "Zaproszenie wysłane — już jesteś w środku.",

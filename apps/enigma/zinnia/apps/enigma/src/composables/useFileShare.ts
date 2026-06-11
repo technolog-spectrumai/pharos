@@ -1,6 +1,6 @@
 // P2P file-sharing orchestrator — a call-style offer/accept that streams a single file
-// directly between two peers over iroh QUIC (see the Rust `file_xfer` backend). It mirrors
-// the data-sync flow (useDataSync) for the signaling: the offer/accept/decline handshake
+// directly between two peers over iroh QUIC (see the Rust `file_xfer` backend). The
+// offer/accept/decline signaling handshake
 // rides the p2p chat's MLS-encrypted channel via the channel's `onSync`/`sendSync` seam,
 // so the relay only ever sees ciphertext. The file bytes themselves never touch the chat —
 // they stream point-to-point over a dedicated QUIC connection (iroh TLS, node-id auth).
