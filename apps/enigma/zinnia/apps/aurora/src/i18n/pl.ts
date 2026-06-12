@@ -35,6 +35,7 @@ export default {
     gatedHint: "Podgląd grafu wiedzy wymaga dostępu data-mesh. Poproś administratora o dodanie do grupy data_mesh.",
     authHint: "Zaloguj się, aby zobaczyć graf wiedzy.",
     errorHint: "Nie udało się wczytać grafu.",
+    readOnly: "tylko do odczytu",
   },
   common: {
     save: "Zapisz",
