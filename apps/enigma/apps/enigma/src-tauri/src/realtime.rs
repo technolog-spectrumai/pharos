@@ -350,13 +350,35 @@ pub async fn realtime_join_room(
     Ok(JoinedRoom { room, name })
 }
 
+/// Join a P2P room by contact NodeId(s) — no ticket. Peer addresses are resolved via
+/// the aster directory over Tor.
+#[tauri::command]
+pub async fn realtime_join_room_by_node(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
+    name: String,
+    peer_node_ids: Vec<String>,
+) -> Result<JoinedRoom, String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    let room = p2p_iroh::join_room_by_node(&app, &p2p, name.clone(), peer_node_ids)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(JoinedRoom { room, name })
+}
+
 #[tauri::command]
 pub async fn realtime_leave_room(p2p: State<'_, P2pState>, room: String) -> Result<(), String> {
     p2p_iroh::leave_room(&p2p, &room).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn realtime_node_info(p2p: State<'_, P2pState>) -> Result<serde_json::Value, String> {
-    let node_id = p2p_iroh::node_info(&p2p).await.map_err(|e| e.to_string())?;
+pub async fn realtime_node_info(
+    app: AppHandle,
+    p2p: State<'_, P2pState>,
+) -> Result<serde_json::Value, String> {
+    let node_id = p2p_iroh::node_info(&app, &p2p).await.map_err(|e| e.to_string())?;
     Ok(json!({ "node_id": node_id }))
 }

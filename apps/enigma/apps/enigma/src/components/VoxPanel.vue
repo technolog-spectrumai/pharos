@@ -31,6 +31,15 @@ const bars = computed(() =>
 const joinTicket = ref("");
 const ticketCopied = ref(false);
 
+// Zero-ticket: call a contact by username (resolved via the aster directory over Tor).
+const contactName = ref("");
+function callContact() {
+  const u = contactName.value.trim();
+  if (!u) return;
+  void vox.callContact(u);
+  contactName.value = "";
+}
+
 async function copyTicket() {
   try {
     await navigator.clipboard.writeText(ticket.value);
@@ -250,6 +259,21 @@ const cardClass = computed(() =>
 
     <!-- Idle: start or join -->
     <div v-else class="flex w-full max-w-md flex-col gap-6">
+      <!-- Zero-ticket: call a contact by name (auto-signalled over Tor) -->
+      <div :class="cardClass">
+        <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
+        <p class="text-sm opacity-80">{{ t("vox.callContactHint") }}</p>
+        <input
+          v-model="contactName"
+          :placeholder="t('vox.contactPlaceholder')"
+          class="w-full rounded-lg border border-current/15 bg-transparent p-2 text-sm"
+          @keydown.enter="callContact"
+        />
+        <OyaButton :dark-mode="darkMode" variant="primary" @click="callContact">
+          <font-awesome-icon icon="phone" /> {{ t("vox.callContact") }}
+        </OyaButton>
+      </div>
+
       <div :class="cardClass">
         <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
         <p class="text-sm opacity-80">{{ t("vox.startHint") }}</p>

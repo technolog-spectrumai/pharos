@@ -94,6 +94,31 @@ describe("useVoxCall — iroh voice controller", () => {
     expect(invoke).toHaveBeenCalledWith("vox_join", { ticket: "tkt-xyz", name: "alice", identity: "alice-id" });
   });
 
+  it("callContact resolves the contact's vox node (aster) and dials it — no ticket", async () => {
+    const vox = await freshVox(true);
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === "aster_resolve" ? ["vox-node-bob"] : undefined,
+    );
+    await vox.callContact("  bob  ");
+    await tick();
+    expect(invoke).toHaveBeenCalledWith("aster_resolve", { username: "bob", kind: "vox" });
+    expect(invoke).toHaveBeenCalledWith("vox_call_node", {
+      nodeId: "vox-node-bob",
+      name: "alice",
+      identity: "alice-id",
+    });
+    expect(vox.phase.value).toBe("calling");
+  });
+
+  it("callContact reports an offline contact when no node is registered", async () => {
+    const vox = await freshVox(true);
+    invoke.mockImplementation(async (cmd: string) => (cmd === "aster_resolve" ? [] : undefined));
+    await vox.callContact("ghost");
+    await tick();
+    expect(vox.error.value).toBe("vox.contactOffline");
+    expect(invoke).not.toHaveBeenCalledWith("vox_call_node", expect.anything());
+  });
+
   it("toggleMute flips the mute flag through the backend", async () => {
     const vox = await freshVox(true);
     await vox.toggleMute();

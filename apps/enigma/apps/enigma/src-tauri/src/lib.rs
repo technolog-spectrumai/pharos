@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
+mod aster;
 mod data;
 mod p2p_iroh;
 mod realtime;
@@ -1093,14 +1094,17 @@ pub fn run() {
             realtime::realtime_send,
             realtime::realtime_create_room,
             realtime::realtime_join_room,
+            realtime::realtime_join_room_by_node,
             realtime::realtime_leave_room,
             realtime::realtime_node_info,
             vox::vox_create,
             vox::vox_join,
+            vox::vox_call_node,
             vox::vox_accept,
             vox::vox_decline,
             vox::vox_hangup,
             vox::vox_set_mute,
+            aster::aster_resolve,
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,

@@ -80,6 +80,16 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
     expect(joined).toEqual({ room: "topic-xyz", name: "secret" });
   });
 
+  it("joinRoomByNode bootstraps a named room from peer NodeIds — no ticket", async () => {
+    invoke.mockResolvedValueOnce({ room: "topic-n", name: "duo" });
+    const joined = await transport.joinRoomByNode("duo", ["node-a", "node-b"]);
+    expect(invoke).toHaveBeenCalledWith("realtime_join_room_by_node", {
+      name: "duo",
+      peerNodeIds: ["node-a", "node-b"],
+    });
+    expect(joined).toEqual({ room: "topic-n", name: "duo" });
+  });
+
   it("two channels filtering by room don't see each other's messages", async () => {
     const relay: any[] = [];
     const p2p: any[] = [];
