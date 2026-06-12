@@ -738,6 +738,22 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
+  // Ticketless join: enter a named P2P room, bootstrapping from a contact's NodeId(s).
+  // Peer addresses are resolved via the aster directory over Tor. Not persisted to the
+  // ticket-keyed room list (there is no ticket); callers re-join by NodeId.
+  async function joinByNode(name: string, peerNodeIds: string[]) {
+    error.value = null;
+    teardown();
+    messages.value = [];
+    try {
+      const res = await chatTransport.joinRoomByNode(name.trim(), peerNodeIds);
+      enterP2pRoom(res.room, res.name);
+      messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
+    } catch (e) {
+      error.value = errorMessage(e);
+    }
+  }
+
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
@@ -916,7 +932,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, forceResetMls,
-    p2pRooms, loadP2pRooms, createRoom, joinByTicket, openP2pRoom,
+    p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
     onSync, sendSync,
   };
 }

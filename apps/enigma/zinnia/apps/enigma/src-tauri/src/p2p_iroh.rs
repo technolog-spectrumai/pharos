@@ -16,7 +16,7 @@ use bytes::Bytes;
 use futures_lite::StreamExt;
 use iroh::{
     address_lookup::memory::MemoryLookup, endpoint::presets, protocol::Router, Endpoint,
-    EndpointAddr, RelayMode,
+    EndpointAddr, EndpointId, RelayMode,
 };
 use iroh_gossip::{
     api::{Event, GossipReceiver, GossipSender},
@@ -73,18 +73,30 @@ fn topic_for(name: &str) -> TopicId {
 
 // ── lifecycle ──────────────────────────────────────────────────────────────────
 
-async fn ensure_started(state: &P2pState) -> Result<()> {
+async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     let mut guard = state.0.lock().await;
     if guard.is_some() {
         return Ok(());
     }
+    // Stable secret key → stable NodeId, so this gossip endpoint is a durable handle
+    // discoverable via aster.
+    let secret = crate::aster::load_or_create_secret(app, "gossip");
     let lookup = MemoryLookup::new();
     let endpoint = Endpoint::builder(presets::N0)
-        .address_lookup(lookup.clone())
+        .secret_key(secret)
+        .address_lookup(lookup.clone()) // ticket path (manual fallback)
+        .address_lookup(crate::aster::TotoLookup::new(app.clone())) // aster NodeId discovery
         .relay_mode(RelayMode::Default)
         .bind()
         .await
         .map_err(|e| anyhow!("iroh bind failed: {e}"))?;
+    // Register + keep our relay URL fresh in the aster directory (best-effort).
+    crate::aster::spawn_publisher(
+        app.clone(),
+        endpoint.clone(),
+        endpoint.id().to_string(),
+        crate::aster::KIND_GOSSIP,
+    );
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
     let gossip = Gossip::builder()
@@ -105,7 +117,7 @@ async fn ensure_started(state: &P2pState) -> Result<()> {
 
 /// Open a room (we are the first member) and return `(room_id, ticket)`.
 pub async fn create_room(app: &AppHandle, state: &P2pState, name: String) -> Result<(String, String)> {
-    ensure_started(state).await?;
+    ensure_started(app, state).await?;
     let topic = topic_for(&name);
     let room = topic.to_string();
 
@@ -132,7 +144,7 @@ pub async fn create_room(app: &AppHandle, state: &P2pState, name: String) -> Res
 
 /// Join a room from a ticket and return `(room_id, name)`.
 pub async fn join_room(app: &AppHandle, state: &P2pState, ticket: String) -> Result<(String, String)> {
-    ensure_started(state).await?;
+    ensure_started(app, state).await?;
     let ticket = Ticket::decode(&ticket).map_err(|e| anyhow!("invalid ticket: {e}"))?;
     let topic = ticket.topic;
     let room = topic.to_string();
@@ -155,6 +167,35 @@ pub async fn join_room(app: &AppHandle, state: &P2pState, ticket: String) -> Res
             .insert(room.clone(), RoomHandle { sender, name: ticket.name.clone(), task });
     }
     Ok((room, ticket.name))
+}
+
+/// Join a room by name, bootstrapping from peer NodeIds. Unlike `join_room`, no ticket
+/// is needed — peer relay addresses are resolved on demand via the aster `TotoLookup`.
+pub async fn join_room_by_node(
+    app: &AppHandle,
+    state: &P2pState,
+    name: String,
+    peer_node_ids: Vec<String>,
+) -> Result<String> {
+    ensure_started(app, state).await?;
+    let topic = topic_for(&name);
+    let room = topic.to_string();
+    let peer_ids: Vec<EndpointId> = peer_node_ids.iter().filter_map(|s| s.parse().ok()).collect();
+
+    let mut guard = state.0.lock().await;
+    let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
+    if !node.rooms.contains_key(&room) {
+        let (sender, receiver) = node
+            .gossip
+            .subscribe(topic, peer_ids)
+            .await
+            .map_err(|e| anyhow!("subscribe failed: {e}"))?
+            .split();
+        let task = spawn_receiver(app.clone(), room.clone(), receiver);
+        node.rooms
+            .insert(room.clone(), RoomHandle { sender, name: name.clone(), task });
+    }
+    Ok(room)
 }
 
 pub async fn leave_room(state: &P2pState, room: &str) -> Result<()> {
@@ -184,8 +225,8 @@ pub async fn broadcast(state: &P2pState, room: &str, payload: String) -> Result<
         .map_err(|e| anyhow!("broadcast failed: {e}"))
 }
 
-pub async fn node_info(state: &P2pState) -> Result<String> {
-    ensure_started(state).await?;
+pub async fn node_info(app: &AppHandle, state: &P2pState) -> Result<String> {
+    ensure_started(app, state).await?;
     let guard = state.0.lock().await;
     Ok(guard
         .as_ref()

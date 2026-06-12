@@ -33,6 +33,8 @@ export interface ChatTransport {
   // P2P (iroh) rooms — desktop only.
   createRoom(name: string): Promise<CreatedRoom>;
   joinRoom(ticket: string): Promise<JoinedRoom>;
+  // Ticketless join: bootstrap from peer NodeId(s), addresses resolved via aster/Tor.
+  joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom>;
   leaveRoom(room: string): void;
   nodeInfo(): Promise<{ node_id: string } | null>;
   // Send a payload to a specific room (Rust routes p2p-vs-WS by the room id).
@@ -94,6 +96,11 @@ class GatewayChatTransport implements ChatTransport {
   async joinRoom(ticket: string): Promise<JoinedRoom> {
     await this.ensureListeners();
     return _invoke<JoinedRoom>("realtime_join_room", { ticket });
+  }
+
+  async joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom> {
+    await this.ensureListeners();
+    return _invoke<JoinedRoom>("realtime_join_room_by_node", { name, peerNodeIds });
   }
 
   leaveRoom(room: string): void {
@@ -162,6 +169,10 @@ class BrowserChatTransport implements ChatTransport {
   }
 
   joinRoom(): Promise<JoinedRoom> {
+    return Promise.reject(new Error("P2P rooms require the desktop app."));
+  }
+
+  joinRoomByNode(): Promise<JoinedRoom> {
     return Promise.reject(new Error("P2P rooms require the desktop app."));
   }
 

@@ -59,6 +59,8 @@ data-encoding = "2"
 # Direct P2P chat backend (iroh-gossip over QUIC).
 iroh = "0.98"
 iroh-gossip = "0.98"
+# Stream helpers for the aster address-lookup (matches iroh's BoxStream type).
+n0-future = "0.3"
 postcard = { version = "1", features = ["use-std"] }
 blake3 = "1"
 bytes = "1"
@@ -74,4 +76,12 @@ webkit2gtk = { version = "2.0", features = ["v2_22"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
+
+[profile.dev]
+# The enigma debug binary embeds hundreds of MB of DWARF (iroh + arti + cpal +
+# tauri). The GNU linker merging it all spikes to multiple GB and gets OOM-killed
+# (`ld ... signal 9`) on low-RAM machines. Keeping debug info in the object files
+# instead of linking it into the executable slashes peak linker memory and binary
+# size; full gdb debugging still works (it reads the .o files).
+split-debuginfo = "unpacked"
 

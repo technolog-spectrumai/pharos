@@ -142,6 +142,34 @@ function createVox() {
     }
   }
 
+  // Zero-ticket call: resolve a contact's stable Vox NodeId from the aster directory
+  // (over Tor) and dial it. The callee still rings — consent is unchanged.
+  async function callContact(username: string): Promise<void> {
+    if (!available) {
+      error.value = "vox.desktopOnly";
+      return;
+    }
+    const u = username.trim();
+    if (!u) return;
+    error.value = "";
+    try {
+      await ensureListeners();
+      const nodeIds = await _invoke<string[]>("aster_resolve", { username: u, kind: "vox" });
+      const nodeId = nodeIds[0];
+      if (!nodeId) {
+        error.value = "vox.contactOffline";
+        phase.value = "error";
+        setTimeout(() => { if (phase.value === "error") reset(); }, 1500);
+        return;
+      }
+      phase.value = "calling";
+      await _invoke("vox_call_node", { nodeId, name: myName(), identity: myIdentity() });
+    } catch (e) {
+      error.value = (e as Error).message || "vox.errorGeneric";
+      phase.value = "error";
+    }
+  }
+
   async function joinByTicket(t: string): Promise<void> {
     if (!available) {
       error.value = "vox.desktopOnly";
@@ -215,6 +243,7 @@ function createVox() {
     spectrum,
     encryption,
     createCall,
+    callContact,
     joinByTicket,
     accept,
     decline,

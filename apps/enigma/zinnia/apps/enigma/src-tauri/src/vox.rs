@@ -36,7 +36,7 @@ use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
-use iroh::{Endpoint, EndpointAddr, RelayMode};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -318,11 +318,22 @@ async fn ensure_started(app: &AppHandle, state: &VoxState) -> Result<()> {
     if guard.is_some() {
         return Ok(());
     }
+    // Stable secret key → stable NodeId so this Vox endpoint is a durable, aster-
+    // discoverable handle (callable by NodeId, no ticket).
+    let secret = crate::aster::load_or_create_secret(app, "vox");
     let endpoint = Endpoint::builder(presets::N0)
+        .secret_key(secret)
+        .address_lookup(crate::aster::TotoLookup::new(app.clone()))
         .relay_mode(RelayMode::Default)
         .bind()
         .await
         .map_err(|e| anyhow!("vox iroh bind failed: {e}"))?;
+    crate::aster::spawn_publisher(
+        app.clone(),
+        endpoint.clone(),
+        endpoint.id().to_string(),
+        crate::aster::KIND_VOX,
+    );
     let shared = VoxShared {
         app: app.clone(),
         generation: Arc::new(AtomicU64::new(0)),
@@ -945,6 +956,37 @@ pub async fn vox_join(
     tauri::async_runtime::spawn(async move {
         if let Err(e) = shared.clone().dial(endpoint, ticket.peer, call_id).await {
             eprintln!("[vox] dial failed: {e}");
+            emit_state(&shared.app, "error", None);
+        }
+    });
+    Ok(())
+}
+
+/// Dial a callee by their stable Vox NodeId (no ticket). The peer's relay address is
+/// resolved on demand via the aster directory; the callee still rings (vox://incoming).
+#[tauri::command]
+pub async fn vox_call_node(
+    app: AppHandle,
+    vox: State<'_, VoxState>,
+    node_id: String,
+    name: String,
+    identity: String,
+) -> Result<(), String> {
+    ensure_started(&app, &vox).await.map_err(|e| e.to_string())?;
+    let target: EndpointId = node_id.parse().map_err(|_| "invalid node id".to_string())?;
+    let (endpoint, shared) = {
+        let guard = vox.0.lock().await;
+        let node = guard.as_ref().ok_or("vox not started")?;
+        *node.shared.my_name.lock().unwrap() = name;
+        *node.shared.my_identity.lock().unwrap() = identity;
+        (node.endpoint.clone(), node.shared.clone())
+    };
+    // Address-less EndpointAddr — `endpoint.connect` triggers the aster lookup.
+    let addr = EndpointAddr::from_parts(target, []);
+    let call_id = format!("{}-{}", node_id, now_millis());
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = shared.clone().dial(endpoint, addr, call_id).await {
+            eprintln!("[vox] dial-by-node failed: {e}");
             emit_state(&shared.app, "error", None);
         }
     });
