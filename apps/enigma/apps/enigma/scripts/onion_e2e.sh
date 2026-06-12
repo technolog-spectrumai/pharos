@@ -14,7 +14,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-CFG=deployment/faros_onion_tls.yaml
+CFG=faros/deploy/configs/faros_onion_tls.yaml
 NAME=faros_onion_tls
 COMPOSE=.compose/$NAME/docker-compose.yaml
 ENVFILE=.env.$NAME
