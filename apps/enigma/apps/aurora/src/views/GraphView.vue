@@ -6,7 +6,13 @@
 // fail gracefully when Neo4j is absent/down (503).
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import cytoscape from "cytoscape";
+import ace from "ace-builds/src-noconflict/ace";
+import "ace-builds/src-noconflict/mode-json";
+import "ace-builds/src-noconflict/theme-monokai";
+import "ace-builds/src-noconflict/theme-chrome";
 import { api, type KgQuery, type KgGraph, type KgNode } from "../services/api";
+
+ace.config.set("useWorker", false);
 
 const props = defineProps<{ darkMode: boolean }>();
 
@@ -22,6 +28,57 @@ const search = ref("");
 
 const container = ref<HTMLElement | null>(null);
 let cy: cytoscape.Core | null = null;
+
+// ── node selection (click a node → show its properties + raw JSON) ────────────
+const selectedNode = ref<KgNode | null>(null);
+const propEditorEl = ref<HTMLElement | null>(null);
+let propEditor: any = null;
+
+const selectedNodeLabel = computed(() => (selectedNode.value ? nodeLabel(selectedNode.value) : ""));
+// The whole node (id, labels, props) rendered as JSON for the single read-only Ace window.
+const selectedNodeJson = computed(() =>
+  selectedNode.value ? JSON.stringify(selectedNode.value, null, 2) : "",
+);
+
+function selectNode(id: string) {
+  const node = graph.value?.nodes.find((n) => n.id === id) || null;
+  if (!node) return;
+  selectedNode.value = node;
+  nextTick(() => {
+    if (!propEditor) initPropEditor();
+    else propEditor.setValue(selectedNodeJson.value, -1);
+  });
+}
+
+function clearSelection() {
+  if (propEditor) {
+    propEditor.destroy();
+    propEditor = null;
+  }
+  selectedNode.value = null;
+}
+
+function initPropEditor() {
+  if (!propEditorEl.value || propEditor) return;
+  propEditor = ace.edit(propEditorEl.value);
+  propEditor.setTheme(`ace/theme/${props.darkMode ? "monokai" : "chrome"}`);
+  propEditor.session.setMode("ace/mode/json");
+  propEditor.setOptions({
+    fontSize: "12px",
+    showPrintMargin: false,
+    wrap: true,
+    useWorker: false,
+    tabSize: 2,
+    readOnly: true,            // graph view is read-only — JSON is for inspection/copy
+    highlightActiveLine: false,
+    // Autosize to content (the panel mounts via v-if, so the editor can't rely on a
+    // flex-derived height being ready at init time). The wrapper scrolls if it grows.
+    minLines: 4,
+    maxLines: 200,
+  });
+  propEditor.setValue(selectedNodeJson.value, -1);
+  propEditor.clearSelection();
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 function nodeLabel(n: KgNode): string {
@@ -67,6 +124,7 @@ async function loadQueries() {
 async function runSelected() {
   if (selectedId.value == null) return;
   state.value = "loading";
+  clearSelection(); // a fresh graph may not contain the previously selected node
   try {
     graph.value = await api.runKgQuery(selectedId.value);
     displayedId.value = selectedId.value;
@@ -157,6 +215,10 @@ function render() {
     layout: { name: "cose", animate: false, padding: 40, fit: true, nodeRepulsion: 6000 } as cytoscape.LayoutOptions,
   });
   container.value.style.backgroundColor = bg;
+
+  // Click a node → open its property panel; click empty canvas → close it.
+  cy.on("tap", "node", (evt) => selectNode(evt.target.id()));
+  cy.on("tap", (evt) => { if (evt.target === cy) clearSelection(); });
 }
 
 // ── search (client-side filter of the displayed graph; applied on Run) ────────
@@ -176,7 +238,10 @@ function applySearch() {
 }
 
 // Re-render on theme toggle (the already-fetched graph), keeping the filter.
-watch(() => props.darkMode, () => { if (state.value === "ready") { render(); applySearch(); } });
+watch(() => props.darkMode, (dark) => {
+  if (state.value === "ready") { render(); applySearch(); }
+  if (propEditor) propEditor.setTheme(`ace/theme/${dark ? "monokai" : "chrome"}`);
+});
 
 const selectedDescription = computed(
   () => queries.value.find((q) => q.id === selectedId.value)?.description || "",
@@ -184,7 +249,7 @@ const selectedDescription = computed(
 const canRun = computed(() => selectedId.value != null && state.value !== "loading");
 
 onMounted(loadQueries);
-onBeforeUnmount(() => cy?.destroy());
+onBeforeUnmount(() => { propEditor?.destroy(); cy?.destroy(); });
 </script>
 
 <template>
@@ -290,6 +355,35 @@ onBeforeUnmount(() => cy?.destroy());
           <font-awesome-icon icon="triangle-exclamation" class="text-2xl text-warn-dark" />
           <p class="max-w-md text-xs opacity-70">{{ errorMsg || $t('graph.errorHint') }}</p>
         </template>
+      </div>
+    </div>
+
+    <!-- Node detail: the whole node shown in one read-only Ace (JSON) window -->
+    <div
+      v-if="selectedNode"
+      :class="darkMode ? 'border-accent-1 bg-bubble-bg-dark' : 'border-accent-2 bg-bubble-bg-light'"
+      class="flex h-72 shrink-0 flex-col gap-2 overflow-hidden rounded-lg border p-3"
+    >
+      <!-- header: friendly label + read-only hint + close -->
+      <div class="flex shrink-0 items-center gap-2">
+        <font-awesome-icon icon="circle-nodes" class="opacity-60" />
+        <span class="truncate text-sm font-semibold">{{ selectedNodeLabel }}</span>
+        <span class="text-[10px] opacity-50">· {{ $t('graph.readOnly') }}</span>
+        <button
+          type="button"
+          class="ml-auto shrink-0 opacity-50 transition hover:opacity-100"
+          @click="clearSelection"
+        >
+          <font-awesome-icon icon="xmark" />
+        </button>
+      </div>
+
+      <!-- single read-only Ace window: full node JSON (id, labels, props) -->
+      <div
+        :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+        class="min-h-0 flex-1 overflow-auto rounded border"
+      >
+        <div ref="propEditorEl" class="w-full"></div>
       </div>
     </div>
   </div>

@@ -35,6 +35,7 @@ export default {
     gatedHint: "Viewing the knowledge graph needs data-mesh access. Ask an admin to add you to the data_mesh group.",
     authHint: "Please log in to view the knowledge graph.",
     errorHint: "Could not load the graph.",
+    readOnly: "read-only",
   },
   common: {
     save: "Save",
