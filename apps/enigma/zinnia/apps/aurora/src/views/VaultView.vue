@@ -282,6 +282,53 @@ watch(() => props.darkMode, () => {
 });
 onBeforeUnmount(destroyAce);
 
+// ── Create new file ─────────────────────────────────────────────────────────────
+// Creatable + Ace-editable types (mirrors server _INITIAL ∩ EDITABLE_FILE_TYPES).
+const NEW_FILE_TYPES: [string, string][] = [
+  ["text", ".txt"], ["json", ".json"], ["yaml", ".yaml"], ["xml", ".xml"],
+  ["csv", ".csv"], ["html", ".html"], ["latex", ".tex"], ["bib", ".bib"], ["svg", ".svg"],
+];
+const createModal = ref(false);
+const createBucket = ref<string | null>(null);
+const createDir = ref<number | null>(null);
+const createType = ref("text");
+const createName = ref("untitled.txt");
+const createBusy = ref(false);
+const createErr = ref("");
+
+function extFor(t: string) { return NEW_FILE_TYPES.find(([k]) => k === t)?.[1] ?? ""; }
+function openCreateFile() {
+  createBucket.value = gridBucket.value;
+  createDir.value = gridDirId.value;
+  createType.value = "text";
+  createName.value = "untitled.txt";
+  createErr.value = "";
+  createModal.value = true;
+}
+function setCreateType(t: string) {
+  const oldExt = extFor(createType.value);
+  if (oldExt && createName.value.endsWith(oldExt)) {
+    createName.value = createName.value.slice(0, -oldExt.length) + extFor(t);
+  }
+  createType.value = t;
+}
+async function submitCreateFile() {
+  const title = createName.value.trim();
+  if (!title) { createErr.value = "Filename is required."; return; }
+  if (!createBucket.value) { createErr.value = "No bucket selected."; return; }
+  createBusy.value = true;
+  createErr.value = "";
+  try {
+    const vf = await store.createFile(createBucket.value, createDir.value, title, createType.value);
+    createModal.value = false;
+    await openEditor(vf);   // jump straight into the Ace editor on the new file
+  } catch (e: any) {
+    createErr.value = e.message ?? "Create failed";
+  } finally {
+    createBusy.value = false;
+  }
+}
+
 // ── Metrics helpers ───────────────────────────────────────────────────────────
 function metricSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -513,11 +560,18 @@ function sparkPoints(data: number[]) {
               {{ c.label }}
             </button>
           </template>
-          <button v-if="gridBucket" @click="triggerPick(gridBucket)" :disabled="uploading"
-            class="ml-auto rounded border border-current/20 px-2 py-0.5 opacity-60 hover:opacity-100 transition disabled:opacity-30"
-            title="Upload to this bucket">
-            <font-awesome-icon :icon="uploading ? 'spinner' : 'upload'" :spin="uploading" /> Upload
-          </button>
+          <div v-if="gridBucket" class="ml-auto flex items-center gap-1.5">
+            <button @click="openCreateFile()"
+              class="rounded border border-current/20 px-2 py-0.5 opacity-60 hover:opacity-100 transition"
+              title="New file in this location">
+              <font-awesome-icon icon="plus" /> New file
+            </button>
+            <button @click="triggerPick(gridBucket)" :disabled="uploading"
+              class="rounded border border-current/20 px-2 py-0.5 opacity-60 hover:opacity-100 transition disabled:opacity-30"
+              title="Upload to this bucket">
+              <font-awesome-icon :icon="uploading ? 'spinner' : 'upload'" :spin="uploading" /> Upload
+            </button>
+          </div>
         </div>
 
         <div class="flex-1 overflow-y-auto">
@@ -779,6 +833,62 @@ function sparkPoints(data: number[]) {
               :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
               class="rounded-lg px-4 py-1.5 text-xs font-bold transition disabled:opacity-50">
               {{ cryptoBusy ? 'Working…' : (cryptoModal.mode === 'encrypt' ? 'Encrypt' : 'Decrypt') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ══════════════════════════ NEW FILE MODAL ═════════════════════════════ -->
+    <Transition
+      enter-active-class="transition-all duration-150 ease-out"
+      enter-from-class="opacity-0 scale-95"
+      enter-to-class="opacity-100 scale-100"
+      leave-active-class="transition-all duration-100 ease-in"
+      leave-from-class="opacity-100 scale-100"
+      leave-to-class="opacity-0 scale-95"
+    >
+      <div v-if="createModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        :class="darkMode ? 'bg-black/60' : 'bg-black/30'"
+        @click.self="createModal = false">
+        <div :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark [color-scheme:dark]' : 'bg-primary-bg-light border-accent-2 text-text-main-light [color-scheme:light]'"
+          class="w-full max-w-sm rounded-xl border shadow-2xl overflow-hidden">
+          <div class="flex items-center justify-between border-b border-current/10 px-5 py-3">
+            <h3 class="text-sm font-bold flex items-center gap-2">
+              <font-awesome-icon icon="plus" /> New file
+            </h3>
+            <button @click="createModal = false" class="opacity-50 hover:opacity-100 transition">
+              <font-awesome-icon icon="xmark" />
+            </button>
+          </div>
+          <div class="p-5 space-y-4">
+            <div>
+              <label class="text-xs opacity-50 uppercase tracking-wide block mb-2">Type</label>
+              <div class="flex flex-wrap gap-1.5">
+                <button v-for="[key, label] in NEW_FILE_TYPES" :key="key" @click="setCreateType(key)"
+                  :class="createType === key
+                    ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+                    : 'border border-current/20 opacity-60 hover:opacity-100'"
+                  class="rounded-lg px-2.5 py-1 text-xs font-semibold font-mono transition">{{ label }}</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs opacity-50 uppercase tracking-wide block mb-1">Filename</label>
+              <input v-model="createName" type="text" placeholder="untitled.txt"
+                @keydown.enter="submitCreateFile"
+                :class="darkMode ? 'bg-bubble-bg-dark border-accent-1 text-text-main-dark' : 'bg-bubble-bg-light border-accent-2 text-text-main-light'"
+                class="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none" />
+            </div>
+            <p v-if="createErr" class="text-xs text-red-400">{{ createErr }}</p>
+          </div>
+          <div class="flex justify-end gap-2 border-t border-current/10 px-5 py-3">
+            <button @click="createModal = false"
+              class="rounded-lg border border-current/20 px-3 py-1.5 text-xs transition hover:opacity-80">Cancel</button>
+            <button @click="submitCreateFile" :disabled="createBusy || !createName.trim()"
+              :class="darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light'"
+              class="rounded-lg px-4 py-1.5 text-xs font-bold transition disabled:opacity-50">
+              {{ createBusy ? 'Creating…' : 'Create & edit' }}
             </button>
           </div>
         </div>

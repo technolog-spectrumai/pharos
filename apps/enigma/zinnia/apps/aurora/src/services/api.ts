@@ -507,6 +507,15 @@ class ApiService extends ApiBase {
     });
   }
 
+  /** Create an empty editable file (text/json/yaml/xml/csv/html/latex/bib/svg) in a
+   *  bucket (optionally a directory) and return it, ready to open in the Ace editor. */
+  createFile(bucketSlug: string, directoryId: number | null, title: string, fileType: string): Promise<VaultFile> {
+    return this.request(`/vault/api/files/create/`, {
+      method: "POST",
+      body: JSON.stringify({ bucket_slug: bucketSlug, directory_id: directoryId, title, file_type: fileType }),
+    });
+  }
+
   renameFile(key: string, title: string): Promise<VaultFile> {
     return this.request(`/vault/api/files/${key}/`, { method: "PATCH", body: JSON.stringify({ title }) });
   }
