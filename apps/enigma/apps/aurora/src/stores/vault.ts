@@ -56,6 +56,12 @@ export const useVaultStore = defineStore("vault", () => {
     }
   }
 
+  async function createFile(bucketSlug: string, directoryId: number | null, title: string, fileType: string) {
+    const vf = await api.createFile(bucketSlug, directoryId, title, fileType);
+    files.value.unshift(vf);
+    return vf;
+  }
+
   async function rename(key: string, title: string) {
     const vf = await api.renameFile(key, title);
     const idx = files.value.findIndex((f) => f.key === key);
@@ -88,5 +94,5 @@ export const useVaultStore = defineStore("vault", () => {
     }
   }
 
-  return { files, buckets, loading, uploading, error, metrics, metricsLoading, fetchFiles, loadContent, saveContent, upload, rename, encrypt, decrypt, remove, fetchMetrics };
+  return { files, buckets, loading, uploading, error, metrics, metricsLoading, fetchFiles, loadContent, saveContent, createFile, upload, rename, encrypt, decrypt, remove, fetchMetrics };
 });
