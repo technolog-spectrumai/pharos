@@ -1,11 +1,57 @@
 #!/usr/bin/env bash
-# Builds the Enigma Tauri app for Android (APK + AAB).
-# Must be run from inside apps/enigma/ (the directory with package.json).
+# Builds a Tauri edge app for Android (APK + AAB).
+#
+#   bash edge/scripts/build_android.sh <app> [debug|release] [abi-spec]
+#
+#   <app>      enigma | aurora  (any dir under edge/apps/ with a src-tauri/)
+#   build type debug (default) | release
+#   abi-spec   comma-separated ABIs, or "all".  Default: aarch64
+#              valid ABIs: aarch64 (modern phones) · x86_64 (emulator) ·
+#                          armv7 (old 32-bit phones) · i686 (32-bit emulator)
+#
+# Examples:
+#   build_android.sh enigma release aarch64,x86_64
+#   build_android.sh aurora debug
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENIGMA_DIR="$(realpath "${SCRIPT_DIR}/../apps/enigma")"
 REPO_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
+
+# ── Parse args ────────────────────────────────────────────────────────────────
+
+APP="${1:-}"
+if [[ -z "${APP}" ]]; then
+  echo "Usage: $0 <app> [debug|release] [abi-spec]" >&2
+  echo "  e.g. $0 enigma release aarch64,x86_64" >&2
+  exit 1
+fi
+
+APP_DIR="$(realpath "${SCRIPT_DIR}/../apps/${APP}" 2>/dev/null || true)"
+if [[ -z "${APP_DIR}" || ! -d "${APP_DIR}/src-tauri" ]]; then
+  echo "ERROR: no Tauri app '${APP}' under edge/apps/ (expected ${APP_DIR}/src-tauri)" >&2
+  exit 1
+fi
+
+BUILD_TYPE="${2:-debug}"   # debug | release
+ABI_SPEC="${3:-aarch64}"   # comma list, or "all"
+
+if [[ "${BUILD_TYPE}" != "debug" && "${BUILD_TYPE}" != "release" ]]; then
+  echo "ERROR: build type must be 'debug' or 'release' (got '${BUILD_TYPE}')" >&2
+  exit 1
+fi
+
+# Map friendly ABI names → Tauri --target flags. "all" → no flag (Tauri builds
+# every installed ABI). Otherwise build a repeated "--target X --target Y" list.
+TAURI_TARGET=()
+if [[ "${ABI_SPEC}" != "all" ]]; then
+  IFS=',' read -ra _abis <<< "${ABI_SPEC}"
+  for abi in "${_abis[@]}"; do
+    case "${abi}" in
+      aarch64|x86_64|armv7|i686) TAURI_TARGET+=(--target "${abi}") ;;
+      *) echo "ERROR: unknown ABI '${abi}' (use aarch64|x86_64|armv7|i686|all)" >&2; exit 1 ;;
+    esac
+  done
+fi
 
 # ── Env auto-detection ────────────────────────────────────────────────────────
 
@@ -32,7 +78,7 @@ if [[ -z "${ANDROID_HOME:-}" ]]; then
   export ANDROID_HOME="${HOME}/Android/Sdk"
 fi
 
-# NDK_HOME: pick the first installed NDK if not set
+# NDK_HOME: pick the highest installed NDK if not set
 if [[ -z "${NDK_HOME:-}" ]]; then
   NDK_DIR="${ANDROID_HOME}/ndk"
   if [[ -d "${NDK_DIR}" ]]; then
@@ -55,40 +101,14 @@ require_env NDK_HOME
 require_env JAVA_HOME
 
 echo "==> Environment"
+echo "  App          : ${APP}  (${APP_DIR})"
+echo "  Build type   : ${BUILD_TYPE}"
+echo "  ABIs         : ${ABI_SPEC}"
 echo "  ANDROID_HOME : ${ANDROID_HOME}"
 echo "  NDK_HOME     : ${NDK_HOME}"
 echo "  JAVA_HOME    : ${JAVA_HOME}"
 echo "  Node         : $(node --version)"
 echo "  Rust         : $(rustc --version)"
-
-# ── Parse args ────────────────────────────────────────────────────────────────
-
-BUILD_TYPE="${1:-debug}"   # debug | release
-TARGET="${2:-aarch64}"    # aarch64 (physical ARM64 device) | x86_64 (emulator)
-
-if [[ "${BUILD_TYPE}" != "debug" && "${BUILD_TYPE}" != "release" ]]; then
-  echo "Usage: $0 [debug|release] [aarch64|x86_64|armv7|all]"
-  echo "  aarch64  — modern physical Android device (default)"
-  echo "  x86_64   — Android emulator"
-  echo "  armv7    — older 32-bit physical device"
-  echo "  all      — all four ABIs (slow, ~4× disk space)"
-  exit 1
-fi
-
-# Map friendly name to Tauri's --target flag value
-case "${TARGET}" in
-  aarch64) TAURI_TARGET="--target aarch64" ;;
-  x86_64)  TAURI_TARGET="--target x86_64" ;;
-  armv7)   TAURI_TARGET="--target armv7" ;;
-  all)     TAURI_TARGET="" ;;
-  *)
-    echo "Unknown target '${TARGET}'. Use: aarch64 | x86_64 | armv7 | all"
-    exit 1
-  ;;
-esac
-
-echo ""
-echo "==> Building Enigma for Android (${BUILD_TYPE})"
 
 # ── Build rotor_wasm (WASM dependency used by the Vue frontend) ───────────────
 
@@ -107,12 +127,12 @@ fi
 # ── npm install ────────────────────────────────────────────────────────────────
 
 echo "==> Installing npm dependencies"
-cd "${ENIGMA_DIR}"
+cd "${APP_DIR}"
 npm install
 
 # ── Initialize Android target (idempotent) ────────────────────────────────────
 
-if [[ ! -d "${ENIGMA_DIR}/src-tauri/gen/android" ]]; then
+if [[ ! -d "${APP_DIR}/src-tauri/gen/android" ]]; then
   echo "==> Initializing Tauri Android target"
   npx tauri android init
 else
@@ -121,21 +141,17 @@ fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-echo "  Target ABI   : ${TARGET}"
-
 if [[ "${BUILD_TYPE}" == "release" ]]; then
   echo "==> Building release APK + AAB"
-  # shellcheck disable=SC2086
-  npx tauri android build --apk --aab ${TAURI_TARGET}
+  npx tauri android build --apk --aab "${TAURI_TARGET[@]}"
 else
   echo "==> Building debug APK"
-  # shellcheck disable=SC2086
-  npx tauri android build --debug --apk ${TAURI_TARGET}
+  npx tauri android build --debug --apk "${TAURI_TARGET[@]}"
 fi
 
 # ── Output ────────────────────────────────────────────────────────────────────
 
-GEN_DIR="${ENIGMA_DIR}/src-tauri/gen/android"
+GEN_DIR="${APP_DIR}/src-tauri/gen/android"
 echo ""
 echo "==> Build complete. Artifacts:"
 find "${GEN_DIR}" \( -name "*.apk" -o -name "*.aab" \) 2>/dev/null | while read -r f; do
