@@ -2,10 +2,13 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
-import type { ChatChannel } from "rakotis";
+import { useI18n } from "vue-i18n";
+import type { ChatChannel, Message } from "rakotis";
 
 import { OyaButton } from "euclid";
 import ChatBubble from "./ChatBubble.vue";
+
+const { t } = useI18n();
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -242,7 +245,8 @@ function scrollToBottom() {
 watch(messages, scrollToBottom, { deep: true });
 
 const canSend = computed(
-  () => !!currentRoom.value && isConnected.value && isParticipant.value && mlsStatus.value === "ready" && (!!draft.value.trim() || !!pending.value),
+  () => !!currentRoom.value && isConnected.value && isParticipant.value &&
+    (isRelay || mlsStatus.value === "ready") && (!!draft.value.trim() || !!pending.value),
 );
 
 async function send() {
@@ -301,6 +305,20 @@ const mlsChipClass = computed(() => {
   if (mlsStatus.value === "error") return "bg-warn-dark text-primary-bg-dark border-warn-dark";
   return "border-current/20 opacity-50";
 });
+
+// Security badge. P2P (Signal) = end-to-end MLS. Relay (Discord) = TLS in transit +
+// encrypted at rest on the server (NOT end-to-end — the server can read history).
+const securityIcon = computed(() => (isRelay ? "lock" : isEncrypted.value ? "lock" : "lock-open"));
+const securityLabel = computed(() => (isRelay ? t("chat.securedTlsAtRest") : mlsLabel.value));
+const securityChipClass = computed(() =>
+  isRelay ? "bg-success-dark text-primary-bg-dark border-success-dark" : mlsChipClass.value,
+);
+
+// ── E2E pins (relay only) ─────────────────────────────────────────────────────
+const pins = channel.pins;
+const pinsOpen = ref(false);
+function onPin(message: Message) { void channel.pinMessage(message); }
+function onUnpin(pinId: string) { void channel.unpinMessage(pinId); }
 </script>
 
 <template>
@@ -453,13 +471,24 @@ const mlsChipClass = computed(() => {
               <font-awesome-icon icon="satellite-dish" />{{ $t('chat.switchToRelay') }}
             </button>
 
-            <span :class="mlsChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
-              <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />{{ mlsLabel }}
+            <span :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
+              <font-awesome-icon :icon="securityIcon" />{{ securityLabel }}
             </span>
+            <button
+              v-if="isRelay"
+              type="button"
+              :class="darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100'"
+              class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
+              :title="$t('chat.pinnedHint')"
+              @click="pinsOpen = !pinsOpen"
+            >
+              <font-awesome-icon icon="thumbtack" />{{ $t('chat.pinned') }} ({{ pins.length }})
+            </button>
             <span :class="wsChipClass" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
               <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />{{ wsLabel }}
             </span>
             <button
+              v-if="!isRelay"
               type="button"
               :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error') ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20' : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-100' : 'border-accent-2 opacity-60 hover:opacity-100')"
               class="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-xs shadow-sm transition"
@@ -497,13 +526,16 @@ const mlsChipClass = computed(() => {
         >
           <font-awesome-icon :icon="isRelay ? 'circle-nodes' : 'satellite-dish'" />{{ isRelay ? $t('chat.switchToP2p') : $t('chat.switchToRelay') }}
         </button>
-        <span :class="mlsChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
-          <font-awesome-icon :icon="isEncrypted ? 'lock' : 'lock-open'" />{{ mlsLabel }}
+        <span :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
+          <font-awesome-icon :icon="securityIcon" />{{ securityLabel }}
         </span>
+        <button v-if="isRelay" @click="pinsOpen = !pinsOpen" class="inline-flex items-center gap-1 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100">
+          <font-awesome-icon icon="thumbtack" />{{ pins.length }}
+        </button>
         <span :class="wsChipClass" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
           <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />{{ wsLabel }}
         </span>
-        <button @click="forceResetMls()" :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error') ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400' : 'border-current/20 opacity-60'" class="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100">
+        <button v-if="!isRelay" @click="forceResetMls()" :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error') ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400' : 'border-current/20 opacity-60'" class="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100">
           <font-awesome-icon icon="rotate-right" />Reset
         </button>
         <button :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }" class="ml-auto text-xs underline opacity-70 hover:opacity-100" @click="handleLeave">Leave</button>
@@ -511,6 +543,33 @@ const mlsChipClass = computed(() => {
 
       <div v-if="error" class="border-b border-warn-dark/30 bg-warn-dark/10 px-4 py-2 text-xs text-warn-dark">
         <font-awesome-icon icon="triangle-exclamation" class="mr-1" />{{ error }}
+      </div>
+
+      <!-- Pinned messages (relay only; end-to-end encrypted, server-opaque) -->
+      <div
+        v-if="isRelay && pinsOpen && currentRoom"
+        :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
+        class="max-h-60 overflow-y-auto border-b px-4 py-3"
+      >
+        <p class="mb-2 flex items-center gap-1.5 text-xs font-bold opacity-70">
+          <font-awesome-icon icon="thumbtack" />{{ $t('chat.pinned') }} — {{ $t('chat.pinnedE2e') }}
+        </p>
+        <p v-if="pins.length === 0" class="text-xs opacity-50">{{ $t('chat.noPins') }}</p>
+        <ul class="space-y-2">
+          <li v-for="pin in pins" :key="pin.id" class="flex items-start gap-2 rounded-lg border border-current/10 px-2.5 py-1.5 text-xs">
+            <font-awesome-icon :icon="pin.locked ? 'lock' : 'thumbtack'" class="mt-0.5 shrink-0 opacity-60" />
+            <span class="min-w-0 flex-1">
+              <span class="block font-semibold opacity-70">{{ pin.original_sender || '—' }}</span>
+              <span v-if="pin.locked" class="italic opacity-50">{{ $t('chat.pinLocked') }}</span>
+              <span v-else-if="pin.image_data" class="opacity-80">🖼️ {{ $t('chat.imageMessage') }}</span>
+              <span v-else-if="pin.audio_data" class="opacity-80">🎤 {{ $t('chat.voiceMessage') }}</span>
+              <span v-else class="break-words opacity-90">{{ pin.text }}</span>
+            </span>
+            <button type="button" class="shrink-0 underline opacity-50 hover:opacity-100" @click="onUnpin(pin.id)">
+              {{ $t('chat.unpin') }}
+            </button>
+          </li>
+        </ul>
       </div>
 
       <!-- Messages -->
@@ -525,8 +584,10 @@ const mlsChipClass = computed(() => {
           :key="msg.id"
           :dark-mode="darkMode"
           :message="msg"
+          :can-pin="isRelay && isParticipant"
           @join-p2p="onJoinP2p"
           @join-p2p-auto="onJoinP2pAuto"
+          @pin="onPin"
         />
       </div>
 

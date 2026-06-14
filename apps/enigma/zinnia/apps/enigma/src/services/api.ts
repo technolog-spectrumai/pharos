@@ -22,7 +22,47 @@ export {
   NO_SERVER_ERROR,
 } from "euclid";
 
+// An end-to-end encrypted pin as the server sees it: opaque ciphertext + key id.
+export interface PinDto {
+  id: string;
+  pin_key_id: string;
+  iv: string; // base64
+  ciphertext: string; // base64
+  pinned_by: string;
+  original_sender: string;
+  original_timestamp: string | null;
+  created_at: string;
+}
+
 class ApiService extends ApiBase {
+  // ── E2E pins (server stores opaque ciphertext only) ─────────────────────────
+  listPins(slug: string): Promise<{ pin_key_id: string; pins: PinDto[] }> {
+    return this.request(`/telegraph/api/channels/${slug}/pins/`);
+  }
+
+  createPin(
+    slug: string,
+    body: {
+      pin_key_id: string;
+      iv: string;
+      ciphertext: string;
+      message_id?: string;
+      original_sender?: string;
+      original_timestamp?: string | null;
+    },
+  ): Promise<{ ok: boolean; pin: PinDto }> {
+    return this.request(`/telegraph/api/channels/${slug}/pins/`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  unpin(slug: string, pinId: string): Promise<{ ok: boolean }> {
+    return this.request(`/telegraph/api/channels/${slug}/pins/${pinId}/unpin/`, {
+      method: "POST",
+    });
+  }
+
   // ── Chat media uploads (relay rooms) ───────────────────────────────────────
 
   uploadAudio(slug: string, audioBlob: Blob): Promise<{ ok: boolean }> {
