@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
+import { computed, ref, watch, onMounted, onUnmounted } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
+import EnigmaProfileView from "./EnigmaProfileView.vue";
 import { Html5Qrcode } from "html5-qrcode";
 import { api, clearResponseCache, countResponseCache } from "../services/api";
 import { useChatStore } from "../stores/chat";
@@ -29,8 +30,17 @@ import { OyaButton } from "euclid";
 defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
+const route = useRoute();
 const chatStore = useChatStore();
 const { t, locale } = useI18n({ useScope: "global" });
+
+// Profile now lives inside Settings as a tab. `?tab=profile` opens it directly
+// (the nav avatar/name links use that); otherwise we open on the settings controls.
+const activeTab = ref<"profile" | "settings">(route.query.tab === "profile" ? "profile" : "settings");
+// React to nav links changing ?tab while already on this route (the view is reused).
+watch(() => route.query.tab, (tab) => {
+  activeTab.value = tab === "profile" ? "profile" : "settings";
+});
 
 // ── Language ──────────────────────────────────────────────────────────────────
 const langSavedToProfile = ref(false);
@@ -334,6 +344,38 @@ async function clearSelectedOfflineData() {
       </div>
     </header>
 
+    <!-- Profile / Settings tabs -->
+    <div
+      :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+      class="flex gap-1 rounded-xl border p-1 text-sm font-semibold"
+    >
+      <button
+        type="button"
+        :class="activeTab === 'profile'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'profile'"
+      >
+        <font-awesome-icon icon="user" />{{ $t('nav.myProfile') }}
+      </button>
+      <button
+        type="button"
+        :class="activeTab === 'settings'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'settings'"
+      >
+        <font-awesome-icon icon="gear" />{{ $t('nav.settings') }}
+      </button>
+    </div>
+
+    <!-- Profile tab — the user profile, embedded -->
+    <EnigmaProfileView v-if="activeTab === 'profile'" :dark-mode="darkMode" embedded />
+
+    <!-- Settings tab -->
+    <template v-if="activeTab === 'settings'">
     <!-- Language card -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
       <div>
@@ -723,7 +765,7 @@ async function clearSelectedOfflineData() {
           :dark-mode="darkMode"
           variant="secondary"
           class="flex-1 justify-center"
-          @click="router.push('/profile')"
+          @click="activeTab = 'profile'"
         >
           <font-awesome-icon icon="user" />
           {{ $t('config.editProfiles') }}
@@ -799,6 +841,7 @@ async function clearSelectedOfflineData() {
         </div>
       </div>
     </OyaCard>
+    </template>
 
   </section>
 </template>

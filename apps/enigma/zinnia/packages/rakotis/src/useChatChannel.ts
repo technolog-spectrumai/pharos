@@ -25,17 +25,6 @@ import { nanoid } from "nanoid";
 // The app's API instance is injected (Enigma's and Aurora's `api` both extend
 // Euclid's ApiBase). Rakotis stays app-agnostic: it only needs this relay-chat
 // surface, never the data-workspace endpoints.
-export interface PinDto {
-  id: string;
-  pin_key_id: string;
-  iv: string;
-  ciphertext: string;
-  pinned_by: string;
-  original_sender: string;
-  original_timestamp: string | null;
-  created_at: string;
-}
-
 export interface RelayChatApi {
   getMe(): Promise<{ full_name?: string; username?: string }>;
   getRooms(): Promise<{ channels: Room[] }>;
@@ -44,10 +33,6 @@ export interface RelayChatApi {
   leaveRoom(slug: string): Promise<unknown>;
   leaveAllRooms(): Promise<unknown>;
   uploadImage(slug: string, file: File, onProgress?: (pct: number) => void): Promise<unknown>;
-  // E2E pins (server stores opaque ciphertext only).
-  listPins(slug: string): Promise<{ pin_key_id: string; pins: PinDto[] }>;
-  createPin(slug: string, body: { pin_key_id: string; iv: string; ciphertext: string; message_id?: string; original_sender?: string; original_timestamp?: string | null }): Promise<{ ok: boolean; pin: PinDto }>;
-  unpin(slug: string, pinId: string): Promise<{ ok: boolean }>;
 }
 
 export type ChannelKind = "relay" | "p2p";
@@ -57,20 +42,6 @@ export interface P2pRoomEntry {
   room: string;
   name: string;
   ticket: string;
-}
-
-/** A pinned message as the client renders it. `locked` = we don't hold the pin key. */
-export interface PinView {
-  id: string;
-  pin_key_id: string;
-  locked: boolean;
-  pinned_by: string;
-  original_sender: string;
-  created_at: string;
-  msg_type?: string;
-  text?: string | null;
-  image_data?: string | null;
-  audio_data?: string | null;
 }
 
 export type MlsStatus =
@@ -169,8 +140,8 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   const isParticipant = ref(false);
   const p2pRooms = ref<P2pRoomEntry[]>([]);
 
-  // E2E pins (relay only). The pin key is member-held and never sent to the server.
-  const pins = ref<PinView[]>([]);
+  // Secure-on-send (relay only): a per-channel member-held key, never sent to the
+  // server. Used to E2E-encrypt "secure" messages. (Internally still called the pin key.)
   let pinKey: Uint8Array | null = null;
   let pinKeyId = "";
   // Secure-on-send messages we received but can't decrypt yet (no pin key) — kept so we
@@ -216,7 +187,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   function clearMessages() {
     messages.value = [];
     renderedIds.clear();
-    pins.value = [];
     pendingSecure.clear();
   }
   /** True if a server-id'd message was already rendered (dedup live vs history). */
@@ -347,7 +317,9 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     if (status === "connected") {
       messages.value.push(systemMsg(`Connected to ${currentRoom.value?.name ?? "room"}.`));
       void startMls();
-      if (kind === "relay") void loadPins();
+      // Load this channel's secure-message key from local storage so replayed secure
+      // messages can be decrypted on connect.
+      if (kind === "relay" && currentRoom.value) void loadLocalPinKey(currentRoom.value.slug);
     } else if (status === "disconnected") {
       messages.value.push(systemMsg("Disconnected."));
     } else if (status === "error") {
@@ -385,17 +357,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       return;
     }
 
-    if (type === "message_pinned" && data.pin) {
-      onPinAdded(data.pin as PinDto);
-      if (data.removed_message_id) removeMessageById(data.removed_message_id as string);
-      return;
-    }
-    if (type === "message_unpinned" && data.pin_id) {
-      onPinRemoved(data.pin_id as string);
-      return;
-    }
-
-    // secure-on-send: end-to-end message; decrypt with the pin key or show locked.
+    // secure-on-send: end-to-end message; decrypt with the secure key or show locked.
     if (type === "secure_message" && data.ciphertext) {
       const mid = (data.id as string) || nanoid();
       if (alreadyRendered(mid)) return;
@@ -1107,36 +1069,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
-  async function decryptPinDto(p: PinDto): Promise<PinView> {
-    const view: PinView = {
-      id: p.id, pin_key_id: p.pin_key_id, locked: true,
-      pinned_by: p.pinned_by, original_sender: p.original_sender, created_at: p.created_at,
-    };
-    if (pinKey && pinKeyId === p.pin_key_id) {
-      try {
-        const inner = JSON.parse(await decryptPin(pinKey, p.iv, p.ciphertext));
-        view.locked = false;
-        view.msg_type = inner.type;
-        view.text = inner.content ?? "";
-        view.image_data = inner.image_data ?? null;
-        view.audio_data = inner.audio_data ?? null;
-      } catch { view.locked = true; }
-    }
-    return view;
-  }
-
-  /** Fetch + decrypt the channel's pins; ask members for the key if we lack it. */
-  async function loadPins() {
-    if (kind !== "relay" || !currentRoom.value) return;
-    const slug = currentRoom.value.slug;
-    await loadLocalPinKey(slug);
-    let resp: { pin_key_id: string; pins: PinDto[] };
-    try { resp = await api.listPins(slug); } catch { return; }
-    pins.value = await Promise.all(resp.pins.map(decryptPinDto));
-    const serverKeyId = resp.pin_key_id || "";
-    if (serverKeyId && (!pinKey || pinKeyId !== serverKeyId)) requestPinKey(serverKeyId);
-  }
-
   async function ensurePinKey() {
     if (pinKey) return;
     pinKey = randomPinKey();
@@ -1164,8 +1096,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       pinKey = b64ToPinKey(keyB64);
       pinKeyId = id;
       if (currentRoom.value) await savePinKey(currentRoom.value.slug);
-      await loadPins(); // re-decrypt now-unlockable pins
-      await unlockPendingSecure(); // and any inline secure messages
+      await unlockPendingSecure(); // unlock any secure messages we couldn't read before
     } catch { /* ignore bad key */ }
   }
 
@@ -1219,45 +1150,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
-  /** Pin a rendered message: encrypt its content under the pin key, upload ciphertext. */
-  async function pinMessage(message: Message) {
-    if (kind !== "relay" || !currentRoom.value) return;
-    await ensurePinKey();
-    if (!pinKey) return;
-    const plaintext = JSON.stringify({
-      type: message.type,
-      content: message.content ?? "",
-      image_data: message.image_data ?? null,
-      audio_data: message.audio_data ?? null,
-    });
-    const { iv, ciphertext } = await encryptPin(pinKey, plaintext);
-    try {
-      await api.createPin(currentRoom.value.slug, {
-        pin_key_id: pinKeyId, iv, ciphertext,
-        message_id: message.id,
-        original_sender: message.user,
-        original_timestamp: message.timestamp instanceof Date ? message.timestamp.toISOString() : null,
-      });
-    } catch (e) { error.value = errorMessage(e); }
-    // The server broadcasts `message_pinned`; onPinAdded renders it + drops the original.
-  }
-
-  async function unpinMessage(pinId: string) {
-    if (!currentRoom.value) return;
-    try { await api.unpin(currentRoom.value.slug, pinId); } catch (e) { error.value = errorMessage(e); }
-  }
-
-  function onPinAdded(dto: PinDto) {
-    if (pins.value.some((p) => p.id === dto.id)) return;
-    void decryptPinDto(dto).then((v) => { pins.value = [v, ...pins.value]; });
-  }
-  function onPinRemoved(pinId: string) {
-    pins.value = pins.value.filter((p) => p.id !== pinId);
-  }
-  function removeMessageById(id: string) {
-    messages.value = messages.value.filter((m) => m.id !== id);
-  }
-
   return {
     kind,
     rooms, currentRoom, messages, participants,
@@ -1269,7 +1161,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, sendAutoJoin, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
     ensureNode, resolveNodes,
-    pins, loadPins, pinMessage, unpinMessage,
     onSync, sendSync,
   };
 }
