@@ -100,6 +100,10 @@ export interface Message {
   invite_name?: string;
   /** Ticketless invite: join the named P2P room by resolving members from aster. */
   invite_auto?: boolean;
+  /** secure-on-send: end-to-end encrypted under the pin key (server can't read it). */
+  e2e?: boolean;
+  /** e2e message we can't decrypt yet (no pin key) → render a locked placeholder. */
+  locked?: boolean;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -169,6 +173,9 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   const pins = ref<PinView[]>([]);
   let pinKey: Uint8Array | null = null;
   let pinKeyId = "";
+  // Secure-on-send messages we received but can't decrypt yet (no pin key) — kept so we
+  // can unlock them inline once the key arrives.
+  const pendingSecure = new Map<string, { iv: string; ciphertext: string; keyId: string }>();
 
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
@@ -210,6 +217,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     messages.value = [];
     renderedIds.clear();
     pins.value = [];
+    pendingSecure.clear();
   }
   /** True if a server-id'd message was already rendered (dedup live vs history). */
   function alreadyRendered(id: unknown): boolean {
@@ -384,6 +392,14 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
     if (type === "message_unpinned" && data.pin_id) {
       onPinRemoved(data.pin_id as string);
+      return;
+    }
+
+    // secure-on-send: end-to-end message; decrypt with the pin key or show locked.
+    if (type === "secure_message" && data.ciphertext) {
+      const mid = (data.id as string) || nanoid();
+      if (alreadyRendered(mid)) return;
+      await renderSecureMessage(mid, data);
       return;
     }
 
@@ -995,7 +1011,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     } catch (e) { error.value = (e as Error).message; }
   }
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, opts?: { secure?: boolean }) {
     const text = content.trim();
     if (!text || !isConnected.value || !currentRoom.value) return;
 
@@ -1006,6 +1022,13 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
         system: (c, k) => messages.value.push(systemMsg(c, k)),
       });
       if (consumed) return;
+      if (opts?.secure) {
+        // secure-on-send: end-to-end under the pin key; the server stores opaque
+        // ciphertext and never sees the plaintext. The server echoes it back (rendered
+        // once via its id); the locally-held pin key decrypts it.
+        await sendSecureMessage(text);
+        return;
+      }
       // Discord model: relay content is plaintext over TLS so the server stores
       // readable history. The server echoes it back (rendered once via its server id).
       send({ type: "chat_message", message: text });
@@ -1142,7 +1165,58 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       pinKeyId = id;
       if (currentRoom.value) await savePinKey(currentRoom.value.slug);
       await loadPins(); // re-decrypt now-unlockable pins
+      await unlockPendingSecure(); // and any inline secure messages
     } catch { /* ignore bad key */ }
+  }
+
+  /** Secure-on-send: encrypt the text under the pin key and send it E2E over the WS. */
+  async function sendSecureMessage(text: string) {
+    await ensurePinKey();
+    if (!pinKey) return;
+    const plaintext = JSON.stringify({ type: "chat_message", content: text });
+    const { iv, ciphertext } = await encryptPin(pinKey, plaintext);
+    send({ type: "secure_message", pin_key_id: pinKeyId, iv, ciphertext });
+  }
+
+  /** Render an inbound secure (e2e) message: decrypt with the pin key, or show locked. */
+  async function renderSecureMessage(mid: string, data: Record<string, unknown>) {
+    const senderName = (data.user as string) ?? "Unknown";
+    const keyId = (data.pin_key_id as string) ?? "";
+    const iv = data.iv as string;
+    const ciphertext = data.ciphertext as string;
+    let content = "";
+    let locked = true;
+    if (pinKey && pinKeyId === keyId) {
+      try {
+        const inner = JSON.parse(await decryptPin(pinKey, iv, ciphertext));
+        content = inner.content ?? "";
+        locked = false;
+      } catch { locked = true; }
+    }
+    if (locked) {
+      pendingSecure.set(mid, { iv, ciphertext, keyId });
+      if (keyId) requestPinKey(keyId);
+    }
+    pushMessage({
+      id: mid, type: "chat_message", user: senderName, initials: initials(senderName),
+      avatar_url: (data.avatar_url as string) ?? null, content,
+      participant_type: "human", self: senderName === currentUserName.value,
+      encrypted: true, e2e: true, locked, timestamp: tsFrom(data),
+    });
+  }
+
+  /** After the pin key arrives, unlock any secure messages we couldn't read before. */
+  async function unlockPendingSecure() {
+    if (!pinKey) return;
+    for (const [mid, rec] of [...pendingSecure]) {
+      if (rec.keyId !== pinKeyId) continue;
+      try {
+        const inner = JSON.parse(await decryptPin(pinKey, rec.iv, rec.ciphertext));
+        const idx = messages.value.findIndex((m) => m.id === mid);
+        if (idx >= 0) messages.value[idx] = { ...messages.value[idx], content: inner.content ?? "", locked: false };
+        pendingSecure.delete(mid);
+      } catch { /* keep locked */ }
+    }
   }
 
   /** Pin a rendered message: encrypt its content under the pin key, upload ciphertext. */

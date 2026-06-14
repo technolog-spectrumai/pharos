@@ -106,6 +106,9 @@ onMounted(async () => {
         controls
         class="mt-2 w-full max-w-xs rounded"
       />
+      <p v-else-if="message.locked" class="mt-1 text-sm italic opacity-50">
+        <font-awesome-icon icon="lock" class="mr-1" />{{ $t('chat.pinLocked') }}
+      </p>
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}
       </p>
