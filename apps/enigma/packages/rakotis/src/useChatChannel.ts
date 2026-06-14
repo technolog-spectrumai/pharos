@@ -68,6 +68,8 @@ export interface Message {
   audio_data?: string;
   invite_ticket?: string;
   invite_name?: string;
+  /** Ticketless invite: join the named P2P room by resolving members from aster. */
+  invite_auto?: boolean;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -334,6 +336,13 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       return;
     }
 
+    // Plaintext ticketless auto-join nudge (relay only; MLS not ready yet).
+    if (type === "p2p_auto_join" && data.name && kind === "relay") {
+      const senderName = (data.user as string) ?? "Unknown";
+      pushMessage(autoJoinCard(senderName, data.name as string, senderName === currentUserName.value, false));
+      return;
+    }
+
     if (type === "image_message" && (data.image_data || data.image_url)) {
       const senderName = (data.user as string) ?? "Unknown";
       pushMessage({
@@ -481,6 +490,11 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
             pushMessage(inviteCard(senderName, inner.ticket as string, (inner.name as string) ?? "", isSelf, true));
             return;
           }
+          if (inner?.type === "p2p_auto_join" && inner.name) {
+            // Forum-only: a member opened a private P2P room; show a ticketless join card.
+            pushMessage(autoJoinCard(senderName, inner.name as string, isSelf, true));
+            return;
+          }
           if (inner?.type === "image_message" && inner.image_data) {
             pushMessage({ id: nanoid(), type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
           } else if (inner?.type === "voice_message" && inner.audio_data) {
@@ -507,6 +521,16 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     return {
       id: nanoid(), type: "p2p_invite", user, initials: initials(user),
       avatar_url: avatarForName(user), content: "", invite_ticket: ticket, invite_name: name,
+      participant_type: "human", self, encrypted, timestamp: new Date(),
+    };
+  }
+
+  /** Ticketless "join private room" card — accepting resolves members from aster
+   *  and joins the named room by NodeId (no ticket payload). */
+  function autoJoinCard(user: string, name: string, self: boolean, encrypted: boolean): Message {
+    return {
+      id: nanoid(), type: "p2p_invite", user, initials: initials(user),
+      avatar_url: avatarForName(user), content: "", invite_name: name, invite_auto: true,
       participant_type: "human", self, encrypted, timestamp: new Date(),
     };
   }
@@ -754,6 +778,22 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
+  /** Ensure this channel's iroh endpoint is started (and thus registered in the
+   *  aster directory) so peers can resolve our NodeId. Returns our NodeId, if any. */
+  async function ensureNode(): Promise<string | null> {
+    try {
+      const info = await chatTransport.nodeInfo();
+      return info?.node_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Resolve a user's iroh NodeId(s) for a service `kind` ("gossip"/"vox") via aster. */
+  function resolveNodes(username: string, nodeKind: string): Promise<string[]> {
+    return chatTransport.resolveNodes(username, nodeKind);
+  }
+
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
@@ -791,6 +831,18 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       await sendEncryptedMedia("p2p_invite", { ticket, name }).catch(() => {});
     } else {
       send({ type: "p2p_invite", ticket, name, user: currentUserName.value });
+    }
+  }
+
+  /** Forum-only: post a ticketless "join private room" nudge into the relay chat.
+   *  Recipients accept by resolving the room's members from aster and joining by node. */
+  async function sendAutoJoin(name: string) {
+    if (kind !== "relay" || !currentRoom.value) return;
+    pushMessage(autoJoinCard(currentUserName.value, name, true, mlsStatus.value === "ready"));
+    if (mlsStatus.value === "ready") {
+      await sendEncryptedMedia("p2p_auto_join", { name }).catch(() => {});
+    } else {
+      send({ type: "p2p_auto_join", name, user: currentUserName.value });
     }
   }
 
@@ -931,8 +983,9 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     isParticipant, currentUserName, mlsIdentity,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
     fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, forceResetMls,
+    sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, sendAutoJoin, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
+    ensureNode, resolveNodes,
     onSync, sendSync,
   };
 }

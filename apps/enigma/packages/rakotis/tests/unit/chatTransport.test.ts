@@ -90,6 +90,18 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
     expect(joined).toEqual({ room: "topic-n", name: "duo" });
   });
 
+  it("resolveNodes asks aster for a user's NodeIds of a given kind", async () => {
+    invoke.mockResolvedValueOnce(["node-vox-1", "node-vox-2"]);
+    const nodes = await transport.resolveNodes("alice", "gossip");
+    expect(invoke).toHaveBeenCalledWith("aster_resolve", { username: "alice", kind: "gossip" });
+    expect(nodes).toEqual(["node-vox-1", "node-vox-2"]);
+  });
+
+  it("resolveNodes returns [] when aster is unavailable (no throw)", async () => {
+    invoke.mockRejectedValueOnce(new Error("404"));
+    await expect(transport.resolveNodes("bob", "gossip")).resolves.toEqual([]);
+  });
+
   it("two channels filtering by room don't see each other's messages", async () => {
     const relay: any[] = [];
     const p2p: any[] = [];

@@ -9,6 +9,9 @@ export interface Participant {
    *  server-provided participants, where `name` is used as the key. */
   id?: string;
   name: string;
+  /** SSO username — used to resolve this member's iroh gossip NodeId from aster so a
+   *  P2P room can be opened without a ticket. Empty/absent for people with no account. */
+  username?: string;
   avatar_url: string;
   type: "human" | "ai_agent";
 }

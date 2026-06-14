@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "joinP2p", ticket: string): void;
+  (e: "joinP2pAuto", name: string): void;
   (e: "saveToVault", message: Message): void;
 }>();
 
@@ -68,13 +69,13 @@ onMounted(async () => {
         <p class="flex items-center gap-1.5 text-sm font-semibold">
           <font-awesome-icon icon="circle-nodes" />{{ $t('chat.joinPrivateRoom') }}
         </p>
-        <p v-if="message.invite_name" class="text-xs opacity-70">{{ message.invite_name }}</p>
+        <p v-if="message.invite_name && !message.invite_auto" class="text-xs opacity-70">{{ message.invite_name }}</p>
         <img v-if="qr" :src="qr" alt="" class="h-36 w-36 rounded-lg bg-white p-1.5" />
         <button
           v-if="!message.self"
           type="button"
           class="rounded-lg border border-current/25 px-3 py-1.5 text-xs font-semibold transition hover:opacity-80"
-          @click="emit('joinP2p', message.invite_ticket!)"
+          @click="message.invite_auto ? emit('joinP2pAuto', message.invite_name ?? '') : emit('joinP2p', message.invite_ticket!)"
         >
           <font-awesome-icon icon="circle-nodes" class="mr-1" />{{ $t('chat.join') }}
         </button>
