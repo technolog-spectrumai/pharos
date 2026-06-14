@@ -267,7 +267,7 @@ async function send() {
       URL.revokeObjectURL(att.url);
     }
   }
-  if (text) { channel.sendMessage(text); draft.value = ""; }
+  if (text) { channel.sendMessage(text, { secure: secureMode.value }); draft.value = ""; }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -319,6 +319,9 @@ const pins = channel.pins;
 const pinsOpen = ref(false);
 function onPin(message: Message) { void channel.pinMessage(message); }
 function onUnpin(pinId: string) { void channel.unpinMessage(pinId); }
+
+// Secure-on-send (relay only): next message goes end-to-end (server can't read it).
+const secureMode = ref(false);
 </script>
 
 <template>
@@ -649,10 +652,20 @@ function onUnpin(pinId: string) { void channel.unpinMessage(pinId); }
             </div>
           </div>
 
+          <button
+            v-if="isRelay"
+            type="button" :disabled="!currentRoom || !isParticipant"
+            :class="[secureMode ? 'border-success-dark bg-success-dark/15 text-success-dark' : (darkMode ? 'border-accent-1 text-text-main-dark' : 'border-accent-2 text-text-main-light'), (!currentRoom || !isParticipant) ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80']"
+            class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition"
+            :title="secureMode ? $t('chat.secureOn') : $t('chat.secureOff')"
+            @click="secureMode = !secureMode"
+          >
+            <font-awesome-icon :icon="secureMode ? 'lock' : 'lock-open'" />
+          </button>
           <textarea
             v-model="draft" rows="1"
-            :placeholder="!currentRoom ? 'Select a room to start chatting' : !isParticipant ? 'Join this room to send messages' : mlsStatus !== 'ready' ? 'Establishing secure session…' : isEncrypted ? 'Message (encrypted)…' : 'Message…'"
-            :disabled="!currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready'"
+            :placeholder="!currentRoom ? 'Select a room to start chatting' : !isParticipant ? 'Join this room to send messages' : (!isRelay && mlsStatus !== 'ready') ? 'Establishing secure session…' : secureMode ? $t('chat.securePlaceholder') : 'Message…'"
+            :disabled="!currentRoom || !isConnected || !isParticipant || (!isRelay && mlsStatus !== 'ready')"
             :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30 disabled:opacity-30' : 'bg-primary-bg-light border-accent-2 text-text-main-light placeholder:text-text-main-light/30 disabled:opacity-30'"
             class="max-h-32 min-h-[3rem] flex-1 resize-none rounded-lg border px-3 py-2.5 text-sm outline-none transition" @keydown="onKeydown"
           />
