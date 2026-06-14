@@ -259,6 +259,12 @@ export class ApiBase {
     return this.request<Health>("/telegraph/api/health/", {}, false);
   }
 
+  /** Capability descriptor: which feature apps the connected server has installed, so the
+   *  client only shows what the backend can serve (portal = all; faros = no graph, etc.). */
+  getApps(): Promise<{ apps: Record<string, boolean> }> {
+    return this.request<{ apps: Record<string, boolean> }>("/telegraph/api/apps/", {}, false);
+  }
+
   // ── Telegraph rooms (relay chat — shared by both apps' chat) ────────────────
 
   getRooms(): Promise<{ channels: Room[] }> {

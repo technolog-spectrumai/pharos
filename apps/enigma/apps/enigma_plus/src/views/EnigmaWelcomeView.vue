@@ -4,9 +4,12 @@ import { useRouter } from "vue-router";
 import { api } from "../services/api";
 import { logo2Dark, logo2Light } from "../assets/logos";
 import { OyaButton } from "euclid";
+import { useCapabilitiesStore } from "../stores/capabilities";
 
 const props = defineProps<{ darkMode: boolean }>();
 const router = useRouter();
+// Only show dashboard cards the connected server can actually back (portal vs faros).
+const caps = useCapabilitiesStore();
 
 const stats = ref({
   rooms: null as number | null,
@@ -131,7 +134,7 @@ function cardCls() {
       </div>
 
       <!-- Storage -->
-      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
+      <div v-if="caps.has('vault')" :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-3">
             <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
@@ -153,7 +156,7 @@ function cardCls() {
       </div>
 
       <!-- Tasks -->
-      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
+      <div v-if="caps.has('tasks')" :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-3">
             <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
@@ -175,7 +178,7 @@ function cardCls() {
       </div>
 
       <!-- Locations -->
-      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
+      <div v-if="caps.has('locations')" :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-3">
             <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
@@ -200,7 +203,7 @@ function cardCls() {
       </div>
 
       <!-- People -->
-      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
+      <div v-if="caps.has('people')" :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-3">
             <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
@@ -225,7 +228,7 @@ function cardCls() {
       </div>
 
       <!-- Graph -->
-      <div :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
+      <div v-if="caps.has('graph')" :class="cardCls()" class="rounded-xl border p-5 shadow-sm flex flex-col gap-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-3">
             <div :class="darkMode ? 'bg-accent-dark/15' : 'bg-accent-light/10'" class="h-10 w-10 rounded-xl flex items-center justify-center">
