@@ -34,6 +34,7 @@ const isRelay = kind === "relay";
 
 function forceResetMls() { return channel.forceResetMls(); }
 function onJoinP2p(ticket: string) { void store.acceptP2pInvite(ticket); }
+function onJoinP2pAuto(name: string) { void store.acceptP2pAutoJoin(name); }
 
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
@@ -525,6 +526,7 @@ const mlsChipClass = computed(() => {
           :dark-mode="darkMode"
           :message="msg"
           @join-p2p="onJoinP2p"
+          @join-p2p-auto="onJoinP2pAuto"
         />
       </div>
 

@@ -35,6 +35,9 @@ export interface ChatTransport {
   joinRoom(ticket: string): Promise<JoinedRoom>;
   // Ticketless join: bootstrap from peer NodeId(s), addresses resolved via aster/Tor.
   joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom>;
+  // Resolve a user's iroh NodeId(s) for a service `kind` ("gossip"/"vox") from the
+  // aster directory (over Tor). Empty when the user is offline or aster is absent.
+  resolveNodes(username: string, kind: string): Promise<string[]>;
   leaveRoom(room: string): void;
   nodeInfo(): Promise<{ node_id: string } | null>;
   // Send a payload to a specific room (Rust routes p2p-vs-WS by the room id).
@@ -101,6 +104,14 @@ class GatewayChatTransport implements ChatTransport {
   async joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom> {
     await this.ensureListeners();
     return _invoke<JoinedRoom>("realtime_join_room_by_node", { name, peerNodeIds });
+  }
+
+  async resolveNodes(username: string, kind: string): Promise<string[]> {
+    try {
+      return await _invoke<string[]>("aster_resolve", { username, kind });
+    } catch {
+      return []; // no aster / not logged in — caller falls back to manual tickets
+    }
   }
 
   leaveRoom(room: string): void {
@@ -174,6 +185,10 @@ class BrowserChatTransport implements ChatTransport {
 
   joinRoomByNode(): Promise<JoinedRoom> {
     return Promise.reject(new Error("P2P rooms require the desktop app."));
+  }
+
+  resolveNodes(): Promise<string[]> {
+    return Promise.resolve([]); // P2P/aster is desktop-only
   }
 
   leaveRoom(): void {}
