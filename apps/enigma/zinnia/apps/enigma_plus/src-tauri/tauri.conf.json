@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "enigma_plus",
+        "title": "Enigma+",
         "width": 800,
         "height": 600
       }
