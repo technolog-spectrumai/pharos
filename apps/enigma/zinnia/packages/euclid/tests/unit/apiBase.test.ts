@@ -12,7 +12,7 @@ vi.mock("../../src/services/appStorage", () => ({
   clearAuthToken: (...a: any[]) => clearAuthToken(...a),
 }));
 
-import { ApiBase } from "../../src/services/apiBase";
+import { ApiBase, httpErrorMessage, normalizeApiError } from "../../src/services/apiBase";
 
 const api = new ApiBase();
 
@@ -84,9 +84,52 @@ describe("ApiBase request building", () => {
     expect(lastCall(f).headers.Authorization).toBeUndefined();
   });
 
-  it("throws with status + body text on a non-OK response", async () => {
+  it("surfaces the server's error message on a non-OK response", async () => {
     mockFetchOnce({ error: "nope" }, false, 404);
-    await expect(api.getRooms()).rejects.toThrow(/404/);
+    await expect(api.getRooms()).rejects.toThrow(/nope/);
+  });
+
+  it("falls back to status + body when there is no error field", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false, status: 500, statusText: "ERR",
+      json: async () => ({}), text: async () => "boom",
+    }));
+    // @ts-expect-error jsdom global
+    global.fetch = fetchMock;
+    await expect(api.getRooms()).rejects.toThrow(/500: boom/);
+  });
+
+  it("login throws (not silently succeeds) when no token is returned", async () => {
+    mockFetchOnce({ ok: true }); // 2xx but no token
+    await expect(api.login("alice", "secret")).rejects.toThrow(/no session token/i);
+    expect(setAuthToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("API error normalization", () => {
+  it("httpErrorMessage prefers the server's error/detail field", () => {
+    expect(httpErrorMessage(401, '{"error":"Invalid credentials."}')).toBe("Invalid credentials.");
+    expect(httpErrorMessage(400, '{"detail":"bad"}')).toBe("bad");
+  });
+
+  it("httpErrorMessage falls back for non-JSON / empty bodies", () => {
+    expect(httpErrorMessage(500, "boom")).toBe("500: boom");
+    expect(httpErrorMessage(403, "")).toBe("Not authorized.");
+    expect(httpErrorMessage(502, "")).toMatch(/HTTP 502/);
+  });
+
+  it("normalizeApiError unwraps the Tauri gateway 'status: body' string", () => {
+    // This is exactly what the desktop app used to drop on the floor.
+    const err = normalizeApiError('401: {"error":"Invalid credentials."}');
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe("Invalid credentials.");
+  });
+
+  it("normalizeApiError passes through Errors and plain strings", () => {
+    const orig = new Error("kaboom");
+    expect(normalizeApiError(orig)).toBe(orig);
+    expect(normalizeApiError("network unreachable").message).toBe("network unreachable");
+    expect(normalizeApiError(undefined).message).toBe("Request failed.");
   });
 
   it("with server data off, an uncached GET rejects and never calls fetch", async () => {

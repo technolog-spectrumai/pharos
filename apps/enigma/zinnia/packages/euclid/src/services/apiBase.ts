@@ -126,6 +126,32 @@ export async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Turn an HTTP status + response body into a human-readable message. Prefers the
+ *  server's `{error|detail}` field over the raw body. */
+export function httpErrorMessage(status: number, bodyText: string): string {
+  const text = (bodyText ?? "").trim();
+  try {
+    const j = JSON.parse(text);
+    if (j && typeof j.error === "string" && j.error) return j.error;
+    if (j && typeof j.detail === "string" && j.detail) return j.detail;
+  } catch {
+    /* not JSON */
+  }
+  if (status === 401 || status === 403) return text || "Not authorized.";
+  return text ? `${status}: ${text}` : `Request failed (HTTP ${status}).`;
+}
+
+/** Normalize anything thrown by the Tauri gateway (which rejects with a raw `Err`
+ *  string like "401: {...}") or by fetch into a real Error with a useful `.message`,
+ *  so every caller and the UI can rely on `.message`. */
+export function normalizeApiError(e: unknown): Error {
+  if (e instanceof Error) return e;
+  if (e == null) return new Error("Request failed.");
+  const raw = typeof e === "string" ? e : String((e as { message?: string }).message ?? e);
+  const m = /^(\d{3}): ([\s\S]*)$/.exec(raw); // gateway format: "<status>: <body>"
+  return new Error(m ? httpErrorMessage(Number(m[1]), m[2]) : raw || "Request failed.");
+}
+
 export class ApiBase {
   protected async request<T>(
     path: string,
@@ -138,7 +164,14 @@ export class ApiBase {
     // auth, silent mode, the cache, and the actual transport).
     if (isTauri()) {
       const body = typeof init?.body === "string" ? init.body : undefined;
-      const text = await invoke<string>("data_http", { method, path, body, includeAuth });
+      let text: string;
+      try {
+        text = await invoke<string>("data_http", { method, path, body, includeAuth });
+      } catch (e) {
+        // Tauri rejects with the command's raw Err string, not an Error — normalize so
+        // callers (and the login/join error banners) always get a usable `.message`.
+        throw normalizeApiError(e);
+      }
       return (text ? JSON.parse(text) : undefined) as T;
     }
 
@@ -173,7 +206,7 @@ export class ApiBase {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
-      throw new Error(`${res.status}: ${text}`);
+      throw new Error(httpErrorMessage(res.status, text));
     }
 
     const text = await res.text();
@@ -195,10 +228,14 @@ export class ApiBase {
   // ── Auth / identity (shared by both apps) ──────────────────────────────────
 
   async login(username: string, password: string): Promise<void> {
-    const result = await this.request<{ ok: boolean; token: string }>("/telegraph/api/login/", {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    });
+    const result = await this.request<{ ok?: boolean; token?: string; error?: string }>(
+      "/telegraph/api/login/",
+      { method: "POST", body: JSON.stringify({ username, password }) },
+    );
+    // Defensive: a 2xx without a token (misconfigured server) must not silently "succeed".
+    if (!result?.token) {
+      throw new Error(result?.error || "Login failed — no session token returned.");
+    }
     await setAuthToken(result.token);
   }
 
