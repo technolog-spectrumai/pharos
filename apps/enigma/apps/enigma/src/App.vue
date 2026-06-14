@@ -69,17 +69,6 @@ async function handleLogout() {
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
-            <img
-              v-if="me?.avatar_url"
-              :src="me.avatar_url"
-              :alt="me.full_name"
-              class="h-5 w-5 rounded-full object-cover"
-            />
-            <font-awesome-icon v-else icon="user" />
-            <span>{{ me?.full_name ?? $t('nav.myProfile') }}</span>
-          </RouterLink>
-
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -114,16 +103,6 @@ async function handleLogout() {
 
         <!-- Mobile: avatar + hamburger -->
         <div class="flex items-center gap-3 lg:hidden">
-          <RouterLink to="/profile">
-            <img
-              v-if="me?.avatar_url"
-              :src="me.avatar_url"
-              :alt="me.full_name"
-              class="h-8 w-8 rounded-full object-cover border border-current/20"
-            />
-            <font-awesome-icon v-else icon="user" class="opacity-60" />
-          </RouterLink>
-
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"
@@ -154,14 +133,6 @@ async function handleLogout() {
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink
-            to="/profile"
-            class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
-          >
-            <font-awesome-icon icon="user" class="w-4 text-center" />
-            {{ me?.full_name ?? $t('nav.myProfile') }}
-          </RouterLink>
-
           <RouterLink
             to="/config"
             class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"

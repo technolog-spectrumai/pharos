@@ -6,18 +6,13 @@ const props = defineProps<{
   darkMode: boolean;
   message: Message;
   canSaveToVault?: boolean;
-  canPin?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "joinP2p", ticket: string): void;
   (e: "joinP2pAuto", name: string): void;
   (e: "saveToVault", message: Message): void;
-  (e: "pin", message: Message): void;
 }>();
-
-// Only real content (text/image/voice) can be pinned — not system notices or cards.
-const pinnable = ["chat_message", "mls_app", "image_message", "voice_message"];
 
 // "Join private room" invite cards carry a P2P ticket → render it as a QR code.
 const qr = ref("");
@@ -107,7 +102,7 @@ onMounted(async () => {
         class="mt-2 w-full max-w-xs rounded"
       />
       <p v-else-if="message.locked" class="mt-1 text-sm italic opacity-50">
-        <font-awesome-icon icon="lock" class="mr-1" />{{ $t('chat.pinLocked') }}
+        <font-awesome-icon icon="lock" class="mr-1" />{{ $t('chat.secureLocked') }}
       </p>
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}
@@ -120,16 +115,6 @@ onMounted(async () => {
         @click="emit('saveToVault', message)"
       >
         <font-awesome-icon icon="hard-drive" class="mr-1" />{{ $t('chat.saveToVault') }}
-      </button>
-      <button
-        v-if="canPin && pinnable.includes(message.type)"
-        type="button"
-        class="mt-1 text-[10px] underline opacity-50 transition hover:opacity-100"
-        :class="message.self ? 'ml-auto block' : ''"
-        :title="$t('chat.pinHint')"
-        @click="emit('pin', message)"
-      >
-        <font-awesome-icon icon="thumbtack" class="mr-1" />{{ $t('chat.pin') }}
       </button>
 
       <p

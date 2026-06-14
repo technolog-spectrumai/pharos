@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useI18n } from "vue-i18n";
-import type { ChatChannel, Message } from "rakotis";
+import type { ChatChannel } from "rakotis";
 
 import { OyaButton } from "euclid";
 import ChatBubble from "./ChatBubble.vue";
@@ -314,13 +314,7 @@ const securityChipClass = computed(() =>
   isRelay ? "bg-success-dark text-primary-bg-dark border-success-dark" : mlsChipClass.value,
 );
 
-// ── E2E pins (relay only) ─────────────────────────────────────────────────────
-const pins = channel.pins;
-const pinsOpen = ref(false);
-function onPin(message: Message) { void channel.pinMessage(message); }
-function onUnpin(pinId: string) { void channel.unpinMessage(pinId); }
-
-// Secure-on-send (relay only): next message goes end-to-end (server can't read it).
+// Secure-on-send (relay only): when on, messages go end-to-end (server can't read them).
 const secureMode = ref(false);
 </script>
 
@@ -474,19 +468,27 @@ const secureMode = ref(false);
               <font-awesome-icon icon="satellite-dish" />{{ $t('chat.switchToRelay') }}
             </button>
 
-            <span :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
+            <!-- P2P shows the MLS encryption status; the Forum uses the Secure switch below. -->
+            <span v-if="!isRelay" :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
               <font-awesome-icon :icon="securityIcon" />{{ securityLabel }}
             </span>
-            <button
+            <!-- Forum: secure-on-send toggle (end-to-end; the server can't read secure messages). -->
+            <span
               v-if="isRelay"
-              type="button"
-              :class="darkMode ? 'border-accent-1 opacity-70 hover:opacity-100' : 'border-accent-2 opacity-70 hover:opacity-100'"
-              class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-              :title="$t('chat.pinnedHint')"
-              @click="pinsOpen = !pinsOpen"
+              :title="secureMode ? $t('chat.secureOn') : $t('chat.secureOff')"
+              :class="secureMode ? 'border-success-dark text-success-dark' : (darkMode ? 'border-accent-1' : 'border-accent-2')"
+              class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
             >
-              <font-awesome-icon icon="thumbtack" />{{ $t('chat.pinned') }} ({{ pins.length }})
-            </button>
+              <font-awesome-icon :icon="secureMode ? 'lock' : 'lock-open'" />{{ $t('chat.secure') }}
+              <button
+                type="button" role="switch" :aria-checked="secureMode" :disabled="!isParticipant"
+                :class="secureMode ? 'bg-success-dark' : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition disabled:opacity-40"
+                @click="secureMode = !secureMode"
+              >
+                <span :class="secureMode ? 'translate-x-5' : 'translate-x-1'" class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition" />
+              </button>
+            </span>
             <span :class="wsChipClass" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
               <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />{{ wsLabel }}
             </span>
@@ -529,12 +531,25 @@ const secureMode = ref(false);
         >
           <font-awesome-icon :icon="isRelay ? 'circle-nodes' : 'satellite-dish'" />{{ isRelay ? $t('chat.switchToP2p') : $t('chat.switchToRelay') }}
         </button>
-        <span :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
+        <span v-if="!isRelay" :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
           <font-awesome-icon :icon="securityIcon" />{{ securityLabel }}
         </span>
-        <button v-if="isRelay" @click="pinsOpen = !pinsOpen" class="inline-flex items-center gap-1 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100">
-          <font-awesome-icon icon="thumbtack" />{{ pins.length }}
-        </button>
+        <span
+          v-if="isRelay"
+          :title="secureMode ? $t('chat.secureOn') : $t('chat.secureOff')"
+          :class="secureMode ? 'border-success-dark text-success-dark' : 'border-current/20'"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition"
+        >
+          <font-awesome-icon :icon="secureMode ? 'lock' : 'lock-open'" />{{ $t('chat.secure') }}
+          <button
+            type="button" role="switch" :aria-checked="secureMode" :disabled="!isParticipant"
+            :class="secureMode ? 'bg-success-dark' : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
+            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition disabled:opacity-40"
+            @click="secureMode = !secureMode"
+          >
+            <span :class="secureMode ? 'translate-x-5' : 'translate-x-1'" class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition" />
+          </button>
+        </span>
         <span :class="wsChipClass" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
           <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />{{ wsLabel }}
         </span>
@@ -546,33 +561,6 @@ const secureMode = ref(false);
 
       <div v-if="error" class="border-b border-warn-dark/30 bg-warn-dark/10 px-4 py-2 text-xs text-warn-dark">
         <font-awesome-icon icon="triangle-exclamation" class="mr-1" />{{ error }}
-      </div>
-
-      <!-- Pinned messages (relay only; end-to-end encrypted, server-opaque) -->
-      <div
-        v-if="isRelay && pinsOpen && currentRoom"
-        :class="darkMode ? 'bg-bubble-bg-dark border-accent-1' : 'bg-bubble-bg-light border-accent-2'"
-        class="max-h-60 overflow-y-auto border-b px-4 py-3"
-      >
-        <p class="mb-2 flex items-center gap-1.5 text-xs font-bold opacity-70">
-          <font-awesome-icon icon="thumbtack" />{{ $t('chat.pinned') }} — {{ $t('chat.pinnedE2e') }}
-        </p>
-        <p v-if="pins.length === 0" class="text-xs opacity-50">{{ $t('chat.noPins') }}</p>
-        <ul class="space-y-2">
-          <li v-for="pin in pins" :key="pin.id" class="flex items-start gap-2 rounded-lg border border-current/10 px-2.5 py-1.5 text-xs">
-            <font-awesome-icon :icon="pin.locked ? 'lock' : 'thumbtack'" class="mt-0.5 shrink-0 opacity-60" />
-            <span class="min-w-0 flex-1">
-              <span class="block font-semibold opacity-70">{{ pin.original_sender || '—' }}</span>
-              <span v-if="pin.locked" class="italic opacity-50">{{ $t('chat.pinLocked') }}</span>
-              <span v-else-if="pin.image_data" class="opacity-80">🖼️ {{ $t('chat.imageMessage') }}</span>
-              <span v-else-if="pin.audio_data" class="opacity-80">🎤 {{ $t('chat.voiceMessage') }}</span>
-              <span v-else class="break-words opacity-90">{{ pin.text }}</span>
-            </span>
-            <button type="button" class="shrink-0 underline opacity-50 hover:opacity-100" @click="onUnpin(pin.id)">
-              {{ $t('chat.unpin') }}
-            </button>
-          </li>
-        </ul>
       </div>
 
       <!-- Messages -->
@@ -587,10 +575,8 @@ const secureMode = ref(false);
           :key="msg.id"
           :dark-mode="darkMode"
           :message="msg"
-          :can-pin="isRelay && isParticipant"
           @join-p2p="onJoinP2p"
           @join-p2p-auto="onJoinP2pAuto"
-          @pin="onPin"
         />
       </div>
 
@@ -652,16 +638,6 @@ const secureMode = ref(false);
             </div>
           </div>
 
-          <button
-            v-if="isRelay"
-            type="button" :disabled="!currentRoom || !isParticipant"
-            :class="[secureMode ? 'border-success-dark bg-success-dark/15 text-success-dark' : (darkMode ? 'border-accent-1 text-text-main-dark' : 'border-accent-2 text-text-main-light'), (!currentRoom || !isParticipant) ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80']"
-            class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition"
-            :title="secureMode ? $t('chat.secureOn') : $t('chat.secureOff')"
-            @click="secureMode = !secureMode"
-          >
-            <font-awesome-icon :icon="secureMode ? 'lock' : 'lock-open'" />
-          </button>
           <textarea
             v-model="draft" rows="1"
             :placeholder="!currentRoom ? 'Select a room to start chatting' : !isParticipant ? 'Join this room to send messages' : (!isRelay && mlsStatus !== 'ready') ? 'Establishing secure session…' : secureMode ? $t('chat.securePlaceholder') : 'Message…'"
