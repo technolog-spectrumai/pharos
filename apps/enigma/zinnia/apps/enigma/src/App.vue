@@ -5,7 +5,7 @@ import { storeToRefs } from "pinia";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { api } from "./services/api";
-import { appIcon } from "./assets/logos";
+import { barIcon } from "./assets/logos";
 import { applyProfileLocaleGuess } from "./i18n";
 
 const darkMode = ref(true);
@@ -59,7 +59,7 @@ async function handleLogout() {
 
         <!-- Logo -->
         <RouterLink to="/" class="flex items-center gap-3 hover:opacity-80 transition">
-          <img :src="appIcon" alt="Enigma icon" class="h-9 w-9 rounded-lg object-contain" />
+          <img :src="barIcon" alt="Enigma icon" class="h-9 w-9 rounded-lg object-contain" />
           <h1 class="text-xl font-bold tracking-wide sm:text-2xl">Enigma</h1>
         </RouterLink>
 

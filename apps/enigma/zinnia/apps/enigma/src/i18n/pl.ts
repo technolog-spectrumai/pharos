@@ -172,7 +172,7 @@ export default {
     tabFiles: "Pliki",
     joinPrivateRoom: "Zaproszenie do pokoju prywatnego",
     invitePosted: "Zaproszenie wysłane — już jesteś w środku.",
-    securedTlsAtRest: "TLS + szyfr. w spoczynku",
+    securedTlsAtRest: "Szyfrowane",
     pin: "Przypnij",
     pinHint: "Przypnij tę wiadomość — szyfrowana end-to-end, przechowywana poza 24-godzinną historią.",
     unpin: "Odepnij",
