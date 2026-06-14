@@ -172,7 +172,7 @@ export default {
     tabFiles: "Files",
     joinPrivateRoom: "Private room invite",
     invitePosted: "Invite shared — you're already in.",
-    securedTlsAtRest: "TLS + at rest",
+    securedTlsAtRest: "Encrypted",
     pin: "Pin",
     pinHint: "Pin this message — end-to-end encrypted, kept beyond the 24h history window.",
     unpin: "Unpin",
