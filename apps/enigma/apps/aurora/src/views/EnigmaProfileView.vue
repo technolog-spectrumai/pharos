@@ -10,7 +10,8 @@ import { OyaCard } from "euclid";
 import { OyaButton } from "euclid";
 import { useRouter } from "vue-router";
 
-defineProps<{ darkMode: boolean }>();
+// `embedded` = rendered inside another page (Settings) → drop the page header/back button.
+defineProps<{ darkMode: boolean; embedded?: boolean }>();
 
 const { t } = useI18n();
 const router = useRouter();
@@ -128,8 +129,8 @@ async function clearAllDataAndLogout() {
 <template>
   <section class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
 
-    <!-- Header -->
-    <header class="space-y-2">
+    <!-- Header (hidden when embedded inside the Settings page) -->
+    <header v-if="!embedded" class="space-y-2">
       <button
         class="inline-flex items-center gap-2 text-sm underline hover:opacity-80"
         @click="router.push('/')"

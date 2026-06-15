@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
+import { computed, ref, watch, onMounted, onUnmounted } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
+import EnigmaProfileView from "./EnigmaProfileView.vue";
 import { Html5Qrcode } from "html5-qrcode";
 import { api, clearResponseCache, countResponseCache } from "../services/api";
 import { useChatStore } from "../stores/chat";
@@ -35,8 +36,17 @@ import { OyaButton } from "euclid";
 defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
+const route = useRoute();
 const chatStore = useChatStore();
 const { t, locale } = useI18n({ useScope: "global" });
+
+// Profile + Data live inside Settings as tabs. `?tab=profile`/`?tab=data` open them
+// directly (nav links use that); otherwise we open on the settings controls.
+type ConfigTab = "profile" | "settings" | "data";
+const tabFromQuery = (q: unknown): ConfigTab =>
+  q === "profile" ? "profile" : q === "data" ? "data" : "settings";
+const activeTab = ref<ConfigTab>(tabFromQuery(route.query.tab));
+watch(() => route.query.tab, (tab) => { activeTab.value = tabFromQuery(tab); });
 
 // ── Language ──────────────────────────────────────────────────────────────────
 const langSavedToProfile = ref(false);
@@ -350,6 +360,48 @@ async function clearSelectedOfflineData() {
       </div>
     </header>
 
+    <!-- Profile / Settings / Data tabs -->
+    <div
+      :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+      class="flex gap-1 rounded-xl border p-1 text-sm font-semibold"
+    >
+      <button
+        type="button"
+        :class="activeTab === 'profile'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'profile'"
+      >
+        <font-awesome-icon icon="user" />{{ $t('nav.myProfile') }}
+      </button>
+      <button
+        type="button"
+        :class="activeTab === 'settings'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'settings'"
+      >
+        <font-awesome-icon icon="gear" />{{ $t('nav.settings') }}
+      </button>
+      <button
+        type="button"
+        :class="activeTab === 'data'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'data'"
+      >
+        <font-awesome-icon icon="database" />{{ $t('nav.data') }}
+      </button>
+    </div>
+
+    <!-- Profile tab — the user profile, embedded -->
+    <EnigmaProfileView v-if="activeTab === 'profile'" :dark-mode="darkMode" embedded />
+
+    <!-- Settings tab -->
+    <template v-if="activeTab === 'settings'">
     <!-- Language card -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
       <div>
@@ -475,6 +527,143 @@ async function clearSelectedOfflineData() {
         </button>
       </div>
 
+      <!-- Stored URL row -->
+      <div
+        v-if="serverUrl"
+        :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
+        class="flex items-center gap-3 rounded-lg border px-3 py-2"
+      >
+        <div class="min-w-0 flex-1">
+          <p class="text-xs opacity-50">{{ $t('config.configuredServer') }}</p>
+          <p class="mt-0.5 break-all font-mono text-sm">{{ serverUrl }}</p>
+        </div>
+        <button
+          :class="darkMode ? 'hover:text-warn-dark' : 'hover:text-warn-light'"
+          class="shrink-0 text-sm opacity-40 transition hover:opacity-100"
+          :title="$t('config.clearSavedUrl')"
+          @click="clearConnection"
+        >
+          <font-awesome-icon icon="xmark" />
+        </button>
+      </div>
+
+      <!-- Test connection row -->
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Timeout selector -->
+          <div class="flex items-center gap-2 text-sm opacity-70">
+            <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
+              {{ $t('config.timeout') }}
+            </label>
+            <select
+              v-model.number="timeoutMs"
+              :class="
+                darkMode
+                  ? 'config-control-dark'
+                  : 'config-control-light'
+              "
+              class="config-control rounded-lg border px-2 py-1 text-sm outline-none transition"
+            >
+              <option :value="2000">2 s</option>
+              <option :value="5000">5 s</option>
+              <option :value="10000">10 s</option>
+              <option :value="30000">30 s</option>
+            </select>
+          </div>
+
+          <OyaButton
+            :dark-mode="darkMode"
+            variant="secondary"
+            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || serverDataBlocked }"
+            @click="testConnection"
+          >
+            <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />
+            <font-awesome-icon v-else-if="testStatus === 'testing'" icon="lock" />
+            <font-awesome-icon v-else-if="testStatus === 'ok'" icon="check" class="text-success-dark" />
+            <font-awesome-icon v-else icon="triangle-exclamation" class="text-warn-dark" />
+            {{ testStatus === "testing" ? $t('config.testing', { sec: timeoutMs / 1000 }) : $t('config.testConnection') }}
+          </OyaButton>
+        </div>
+
+        <p
+          v-if="testMessage"
+          :class="testStatus === 'ok' ? 'text-success-dark' : 'text-warn-dark'"
+          class="min-w-0 flex-1 break-all text-sm"
+        >
+          {{ testMessage }}
+        </p>
+      </div>
+    </OyaCard>
+
+    <!-- QR Scanner card -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
+        >
+          {{ $t('config.scanQr') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">
+          {{ $t('config.scanHint') }}
+        </p>
+      </div>
+
+      <!-- Camera viewport -->
+      <div v-if="scanning" class="space-y-3">
+        <div
+          id="qr-scanner-region"
+          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+          class="overflow-hidden rounded-xl border"
+        />
+        <OyaButton :dark-mode="darkMode" variant="secondary" class="w-full" @click="stopScan">
+          <font-awesome-icon icon="xmark" />
+          {{ $t('config.cancelScan') }}
+        </OyaButton>
+      </div>
+
+      <p v-if="scanError" class="text-sm text-warn-dark">
+        <font-awesome-icon icon="triangle-exclamation" class="mr-1" />
+        {{ scanError }}
+      </p>
+
+      <OyaButton v-if="!scanning" :dark-mode="darkMode" class="w-full" @click="startScan">
+        <font-awesome-icon icon="camera" />
+        {{ $t('config.startScan') }}
+      </OyaButton>
+
+      <!-- Scan log -->
+      <div v-if="scanLog.length" class="space-y-1">
+        <p class="text-xs font-semibold uppercase tracking-wide opacity-50">{{ $t('config.scanLog') }}</p>
+        <div
+          v-for="(entry, i) in scanLog"
+          :key="i"
+          :class="
+            entry.ok
+              ? darkMode ? 'border-success-dark/30 bg-success-dark/5' : 'border-success-light/30 bg-success-light/5'
+              : darkMode ? 'border-warn-dark/30 bg-warn-dark/5' : 'border-warn-light/30 bg-warn-light/5'
+          "
+          class="flex items-start gap-2 rounded-lg border px-3 py-2 font-mono text-xs"
+        >
+          <span :class="entry.ok ? 'text-success-dark' : 'text-warn-dark'" class="shrink-0 font-bold">
+            {{ entry.ok ? "✓" : "✗" }}
+          </span>
+          <span class="shrink-0 opacity-50">{{ entry.ts.toLocaleTimeString() }}</span>
+          <span class="min-w-0 flex-1 break-all opacity-80">{{ entry.text }}</span>
+        </div>
+      </div>
+    </OyaCard>
+    </template>
+
+    <!-- Data tab — data behaviour: server data, offline mode, local cache -->
+    <template v-if="activeTab === 'data'">
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('nav.data') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.dataHint') }}</p>
+      </div>
       <!-- Server data switch (on / off) -->
       <div class="flex items-center gap-3" :class="{ 'pointer-events-none opacity-50': offline }">
         <font-awesome-icon
@@ -558,73 +747,6 @@ async function clearSelectedOfflineData() {
           <font-awesome-icon :icon="clearingCache ? 'lock' : 'trash'" />
           {{ $t('config.clearCache') }}
         </button>
-      </div>
-
-      <!-- Stored URL row -->
-      <div
-        v-if="serverUrl"
-        :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
-        class="flex items-center gap-3 rounded-lg border px-3 py-2"
-      >
-        <div class="min-w-0 flex-1">
-          <p class="text-xs opacity-50">{{ $t('config.configuredServer') }}</p>
-          <p class="mt-0.5 break-all font-mono text-sm">{{ serverUrl }}</p>
-        </div>
-        <button
-          :class="darkMode ? 'hover:text-warn-dark' : 'hover:text-warn-light'"
-          class="shrink-0 text-sm opacity-40 transition hover:opacity-100"
-          :title="$t('config.clearSavedUrl')"
-          @click="clearConnection"
-        >
-          <font-awesome-icon icon="xmark" />
-        </button>
-      </div>
-
-      <!-- Test connection row -->
-      <div class="space-y-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <!-- Timeout selector -->
-          <div class="flex items-center gap-2 text-sm opacity-70">
-            <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
-              {{ $t('config.timeout') }}
-            </label>
-            <select
-              v-model.number="timeoutMs"
-              :class="
-                darkMode
-                  ? 'config-control-dark'
-                  : 'config-control-light'
-              "
-              class="config-control rounded-lg border px-2 py-1 text-sm outline-none transition"
-            >
-              <option :value="2000">2 s</option>
-              <option :value="5000">5 s</option>
-              <option :value="10000">10 s</option>
-              <option :value="30000">30 s</option>
-            </select>
-          </div>
-
-          <OyaButton
-            :dark-mode="darkMode"
-            variant="secondary"
-            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || serverDataBlocked }"
-            @click="testConnection"
-          >
-            <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />
-            <font-awesome-icon v-else-if="testStatus === 'testing'" icon="lock" />
-            <font-awesome-icon v-else-if="testStatus === 'ok'" icon="check" class="text-success-dark" />
-            <font-awesome-icon v-else icon="triangle-exclamation" class="text-warn-dark" />
-            {{ testStatus === "testing" ? $t('config.testing', { sec: timeoutMs / 1000 }) : $t('config.testConnection') }}
-          </OyaButton>
-        </div>
-
-        <p
-          v-if="testMessage"
-          :class="testStatus === 'ok' ? 'text-success-dark' : 'text-warn-dark'"
-          class="min-w-0 flex-1 break-all text-sm"
-        >
-          {{ testMessage }}
-        </p>
       </div>
     </OyaCard>
 
@@ -770,15 +892,6 @@ async function clearSelectedOfflineData() {
         <OyaButton
           :dark-mode="darkMode"
           variant="secondary"
-          class="flex-1 justify-center"
-          @click="router.push('/profile')"
-        >
-          <font-awesome-icon icon="user" />
-          {{ $t('config.editProfiles') }}
-        </OyaButton>
-        <OyaButton
-          :dark-mode="darkMode"
-          variant="secondary"
           :class="{ 'pointer-events-none opacity-50': clearingOffline || !selectedOfflineProfileHasData }"
           class="flex-1 justify-center"
           @click="clearSelectedOfflineData"
@@ -788,65 +901,7 @@ async function clearSelectedOfflineData() {
         </OyaButton>
       </div>
     </OyaCard>
-
-    <!-- QR Scanner card -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p
-          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-          class="text-xs font-semibold uppercase tracking-wide"
-        >
-          {{ $t('config.scanQr') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">
-          {{ $t('config.scanHint') }}
-        </p>
-      </div>
-
-      <!-- Camera viewport -->
-      <div v-if="scanning" class="space-y-3">
-        <div
-          id="qr-scanner-region"
-          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          class="overflow-hidden rounded-xl border"
-        />
-        <OyaButton :dark-mode="darkMode" variant="secondary" class="w-full" @click="stopScan">
-          <font-awesome-icon icon="xmark" />
-          {{ $t('config.cancelScan') }}
-        </OyaButton>
-      </div>
-
-      <p v-if="scanError" class="text-sm text-warn-dark">
-        <font-awesome-icon icon="triangle-exclamation" class="mr-1" />
-        {{ scanError }}
-      </p>
-
-      <OyaButton v-if="!scanning" :dark-mode="darkMode" class="w-full" @click="startScan">
-        <font-awesome-icon icon="camera" />
-        {{ $t('config.startScan') }}
-      </OyaButton>
-
-      <!-- Scan log -->
-      <div v-if="scanLog.length" class="space-y-1">
-        <p class="text-xs font-semibold uppercase tracking-wide opacity-50">{{ $t('config.scanLog') }}</p>
-        <div
-          v-for="(entry, i) in scanLog"
-          :key="i"
-          :class="
-            entry.ok
-              ? darkMode ? 'border-success-dark/30 bg-success-dark/5' : 'border-success-light/30 bg-success-light/5'
-              : darkMode ? 'border-warn-dark/30 bg-warn-dark/5' : 'border-warn-light/30 bg-warn-light/5'
-          "
-          class="flex items-start gap-2 rounded-lg border px-3 py-2 font-mono text-xs"
-        >
-          <span :class="entry.ok ? 'text-success-dark' : 'text-warn-dark'" class="shrink-0 font-bold">
-            {{ entry.ok ? "✓" : "✗" }}
-          </span>
-          <span class="shrink-0 opacity-50">{{ entry.ts.toLocaleTimeString() }}</span>
-          <span class="min-w-0 flex-1 break-all opacity-80">{{ entry.text }}</span>
-        </div>
-      </div>
-    </OyaCard>
+    </template>
 
   </section>
 </template>

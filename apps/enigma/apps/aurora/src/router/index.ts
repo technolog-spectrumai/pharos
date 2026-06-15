@@ -2,7 +2,6 @@ import { createRouter, createMemoryHistory } from "vue-router";
 import EnigmaWelcomeView from "../views/EnigmaWelcomeView.vue";
 import RelayChatView from "../views/RelayChatView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
-import EnigmaProfileView from "../views/EnigmaProfileView.vue";
 import EnigmaLoginView from "../views/EnigmaLoginView.vue";
 import VaultView from "../views/VaultView.vue";
 import TasksView from "../views/TasksView.vue";
@@ -24,7 +23,8 @@ const router = createRouter({
     { path: "/events", component: EventsView, name: "events" },
     { path: "/graph", component: GraphView, name: "graph" },
     { path: "/config", component: EnigmaConfigView, name: "config" },
-    { path: "/profile", component: EnigmaProfileView, name: "profile" },
+    // Profile now lives inside Settings (as a tab) — keep the old path working.
+    { path: "/profile", redirect: "/config?tab=profile" },
   ],
 });
 
