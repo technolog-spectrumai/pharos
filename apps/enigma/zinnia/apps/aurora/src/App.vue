@@ -125,7 +125,7 @@ async function handleLogout() {
             {{ $t('nav.storage') }}
           </RouterLink>
 
-          <RouterLink to="/profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
+          <RouterLink to="/config?tab=profile" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <img
               v-if="me?.avatar_url"
               :src="me.avatar_url"
@@ -170,7 +170,7 @@ async function handleLogout() {
 
         <!-- Mobile: avatar + hamburger -->
         <div class="flex items-center gap-3 lg:hidden">
-          <RouterLink to="/profile">
+          <RouterLink to="/config?tab=profile">
             <img
               v-if="me?.avatar_url"
               :src="me.avatar_url"
@@ -238,7 +238,7 @@ async function handleLogout() {
           </RouterLink>
 
           <RouterLink
-            to="/profile"
+            to="/config?tab=profile"
             class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
           >
             <font-awesome-icon icon="user" class="w-4 text-center" />

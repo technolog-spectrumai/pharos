@@ -411,7 +411,7 @@ function sparkPoints(data: number[]) {
         <font-awesome-icon icon="spinner" spin class="text-2xl" />
       </div>
 
-      <div v-else-if="files.length === 0" class="flex flex-1 flex-col items-center justify-center opacity-40 gap-3 py-16">
+      <div v-else-if="files.length === 0 && buckets.length === 0" class="flex flex-1 flex-col items-center justify-center opacity-40 gap-3 py-16">
         <font-awesome-icon icon="folder-open" class="text-4xl" />
         <p class="text-sm">No files yet. Upload something!</p>
         <button @click="triggerPick()" :disabled="uploading"
