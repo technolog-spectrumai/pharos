@@ -26,6 +26,11 @@ pub const NO_SERVER: &str = "No server configured — set a server address in Se
 
 pub struct DataState {
     client: Client,
+    // Used only when the active profile opts into accepting an untrusted /
+    // self-signed TLS cert on the clearnet HTTPS path (e.g. a self-hosted portal
+    // behind a gervazy cert). The onion path always skips verification (the Tor
+    // circuit authenticates the .onion address).
+    client_insecure: Client,
     cache_dir: PathBuf,
 }
 
@@ -38,6 +43,10 @@ pub fn init(app: &AppHandle) -> DataState {
     let _ = std::fs::create_dir_all(&cache_dir);
     DataState {
         client: Client::new(),
+        client_insecure: Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap_or_else(|_| Client::new()),
         cache_dir,
     }
 }
@@ -127,8 +136,8 @@ pub async fn data_http(
     } else {
         let url = format!("{base}{path}");
         let verb = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-        let mut req = data
-            .client
+        let client = if state.allow_self_signed_tls { &data.client_insecure } else { &data.client };
+        let mut req = client
             .request(verb, &url)
             .header("Content-Type", "application/json")
             .header("X-Requested-With", "XMLHttpRequest");
@@ -247,8 +256,8 @@ pub async fn data_upload(
     }
 
     let url = format!("{base}{path}");
-    let mut req = data
-        .client
+    let client = if state.allow_self_signed_tls { &data.client_insecure } else { &data.client };
+    let mut req = client
         .post(&url)
         .header("X-Requested-With", "XMLHttpRequest")
         .multipart(form);
@@ -307,8 +316,8 @@ pub async fn vault_image_data_url(
             .await?
     } else {
         let url = format!("{base}{rel}");
-        let mut req = data
-            .client
+        let client = if state.allow_self_signed_tls { &data.client_insecure } else { &data.client };
+        let mut req = client
             .get(&url)
             .header("X-Requested-With", "XMLHttpRequest");
         if let Some(token) = &state.auth_token {
