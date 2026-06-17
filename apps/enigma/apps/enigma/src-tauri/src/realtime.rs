@@ -179,6 +179,9 @@ pub async fn realtime_connect(
     };
     // wss (TLS over the Tor stream) vs ws, decided by the (https→wss) scheme.
     let onion_tls = is_onion && url.starts_with("wss");
+    // Accept a self-signed cert on the clearnet wss path when the profile opts in
+    // (mirrors the HTTP self-signed path in data.rs).
+    let allow_self_signed = state.allow_self_signed_tls;
 
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
     {
@@ -226,8 +229,19 @@ pub async fn realtime_connect(
                     }
                 }
             } else {
-                // Clearnet: connect_async handles plain ws and TLS wss itself.
-                match tokio_tungstenite::connect_async(url.as_str()).await {
+                // Clearnet: connect_async handles plain ws and TLS wss itself. When
+                // the profile opts into self-signed TLS, use a no-verify rustls
+                // connector for wss (reuses the tor module's accept-any config).
+                let connected = if allow_self_signed && url.starts_with("wss") {
+                    let connector = tokio_tungstenite::Connector::Rustls(crate::tor::tls_config());
+                    tokio_tungstenite::connect_async_tls_with_config(
+                        url.as_str(), None, false, Some(connector),
+                    )
+                    .await
+                } else {
+                    tokio_tungstenite::connect_async(url.as_str()).await
+                };
+                match connected {
                     Ok((ws_stream, _)) => {
                         emit_status(&app2, &room, "connected");
                         Some(pump_ws(&app2, &room, &realtime, my_gen, ws_stream, &mut out_rx).await)

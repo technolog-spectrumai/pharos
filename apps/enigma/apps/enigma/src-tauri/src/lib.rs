@@ -88,6 +88,11 @@ pub struct AppProfileState {
     //   the embedded Tor client instead of connecting directly. Default off.
     #[serde(default)]
     pub server_is_onion: bool,
+    //   allow_self_signed_tls — accept an untrusted/self-signed TLS cert on the
+    //   clearnet HTTPS path (e.g. a self-hosted portal behind a gervazy cert).
+    //   The onion path already skips verification (Tor authenticates the address).
+    #[serde(default)]
+    pub allow_self_signed_tls: bool,
 }
 
 fn default_true() -> bool {
@@ -455,6 +460,24 @@ fn app_set_server_is_onion(
     let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.server_is_onion = on;
+    save_profile_state(&app, &config, &state)
+}
+
+#[tauri::command]
+fn app_get_allow_self_signed_tls(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).allow_self_signed_tls)
+}
+
+#[tauri::command]
+fn app_set_allow_self_signed_tls(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    on: bool,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    state.allow_self_signed_tls = on;
     save_profile_state(&app, &config, &state)
 }
 
@@ -1059,6 +1082,8 @@ pub fn run() {
             app_set_server_data,
             app_get_server_is_onion,
             app_set_server_is_onion,
+            app_get_allow_self_signed_tls,
+            app_set_allow_self_signed_tls,
             app_get_offline,
             app_set_offline,
             app_clear_profile_state,

@@ -11,6 +11,7 @@ const LS_SERVER_URL     = "enigma:server_url";
 const LS_AUTH_TOKEN     = "enigma:auth_token";
 const LS_SERVER_DATA    = "enigma:server_data";
 const LS_SERVER_ONION   = "enigma:server_is_onion";
+const LS_SELF_SIGNED    = "enigma:allow_self_signed_tls";
 const LS_OFFLINE        = "enigma:offline";
 const DEFAULT_SERVER = "http://localhost:8000";
 
@@ -28,6 +29,7 @@ export interface AppProfileState {
   server_url: string;
   auth_token: string | null;
   server_is_onion: boolean;
+  allow_self_signed_tls?: boolean;
   offline_profile: OfflineProfile;
   offline_profiles: OfflineProfileOption[];
   selected_offline_profile_id: string;
@@ -98,6 +100,20 @@ export async function getServerIsOnion(): Promise<boolean> {
 export async function setServerIsOnion(on: boolean): Promise<void> {
   if (isTauri()) { await invoke("app_set_server_is_onion", { on }); return; }
   localStorage.setItem(LS_SERVER_ONION, on ? "on" : "off");
+}
+
+// ── Allow self-signed TLS (clearnet HTTPS) ────────────────────────────────────
+// On → accept an untrusted/self-signed cert on the clearnet HTTPS/WSS path (e.g. a
+// self-hosted portal behind a gervazy cert). The onion path already skips this.
+
+export async function getAllowSelfSignedTls(): Promise<boolean> {
+  if (isTauri()) return invoke<boolean>("app_get_allow_self_signed_tls");
+  return localStorage.getItem(LS_SELF_SIGNED) === "on";
+}
+
+export async function setAllowSelfSignedTls(on: boolean): Promise<void> {
+  if (isTauri()) { await invoke("app_set_allow_self_signed_tls", { on }); return; }
+  localStorage.setItem(LS_SELF_SIGNED, on ? "on" : "off");
 }
 
 // ── Offline / airplane mode (online / offline) ─────────────────────────────────

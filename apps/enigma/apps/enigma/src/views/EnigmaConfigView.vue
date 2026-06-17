@@ -14,11 +14,13 @@ import {
   getServerUrl,
   getServerData,
   getServerIsOnion,
+  getAllowSelfSignedTls,
   getOffline,
   setActiveProfile,
   setServerUrl,
   setServerData,
   setServerIsOnion,
+  setAllowSelfSignedTls,
   setOffline,
   type AppRuntimeConfig,
   type AppProfileState,
@@ -83,6 +85,17 @@ async function toggleServerIsOnion() {
   testMessage.value = "";
 }
 
+// ── Allow self-signed TLS (clearnet HTTPS) ────────────────────────────────────
+// On → accept an untrusted/self-signed cert on the clearnet HTTPS/WSS path (e.g. a
+// self-hosted portal behind a gervazy cert).
+const allowSelfSigned = ref(false);
+async function toggleAllowSelfSigned() {
+  allowSelfSigned.value = !allowSelfSigned.value;
+  await setAllowSelfSignedTls(allowSelfSigned.value);
+  testStatus.value = "idle";
+  testMessage.value = "";
+}
+
 // ── Offline / airplane mode (online / offline) ───────────────────────────────
 const offline = ref(false);
 async function toggleOffline() {
@@ -122,6 +135,7 @@ onMounted(async () => {
   serverUrl.value = await getServerUrl();
   serverData.value = await getServerData();
   serverIsOnion.value = await getServerIsOnion();
+  allowSelfSigned.value = await getAllowSelfSignedTls();
   offline.value = await getOffline();
   await refreshCacheCount();
   await loadOfflineData();
@@ -475,6 +489,39 @@ async function clearSelectedOfflineData() {
         >
           <span
             :class="serverIsOnion ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+
+      <!-- Allow self-signed TLS (clearnet only) -->
+      <div
+        v-if="!serverIsOnion"
+        class="flex items-center gap-3"
+        :class="{ 'pointer-events-none opacity-50': offline }"
+      >
+        <font-awesome-icon
+          icon="shield-halved"
+          :class="allowSelfSigned ? (darkMode ? 'text-accent-dark' : 'text-accent-light') : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.serverSelfSigned') }}</p>
+          <p class="text-xs opacity-60">
+            {{ allowSelfSigned ? $t('config.serverSelfSignedOnHint') : $t('config.serverSelfSignedOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="allowSelfSigned"
+          :disabled="offline"
+          :class="allowSelfSigned ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleAllowSelfSigned"
+        >
+          <span
+            :class="allowSelfSigned ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
         </button>
