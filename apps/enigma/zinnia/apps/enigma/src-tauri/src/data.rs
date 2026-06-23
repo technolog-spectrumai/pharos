@@ -177,6 +177,7 @@ fn build_multipart(
     field: &str,
     filename: &str,
     bytes: &[u8],
+    content_type: &str,
     extra: Option<&HashMap<String, String>>,
 ) -> (String, Vec<u8>) {
     let boundary = format!("----enigma{}", uuid::Uuid::new_v4().simple());
@@ -196,11 +197,25 @@ fn build_multipart(
         format!("Content-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\n")
             .as_bytes(),
     );
-    body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+    body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
     body.extend_from_slice(bytes);
     body.extend_from_slice(b"\r\n");
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
+/// Resolve the MIME type for an uploaded part. Trust the caller-provided type
+/// (the browser's `File.type`) when it's usable, otherwise sniff the bytes, and
+/// finally fall back to a generic binary type. Without this, parts default to
+/// `application/octet-stream` and the server rejects images as an unsupported type.
+fn effective_mime(provided: Option<&str>, bytes: &[u8]) -> String {
+    if let Some(ct) = provided {
+        let ct = ct.trim();
+        if !ct.is_empty() && ct != "application/octet-stream" {
+            return ct.to_string();
+        }
+    }
+    sniff_image_mime(bytes).to_string()
 }
 
 #[tauri::command]
@@ -213,6 +228,7 @@ pub async fn data_upload(
     field: String,
     filename: String,
     bytes: Vec<u8>,
+    content_type: Option<String>,
     extra: Option<HashMap<String, String>>,
 ) -> Result<String, String> {
     let cfg = active_config(&config)?;
@@ -226,11 +242,12 @@ pub async fn data_upload(
     }
 
     // Onion uploads: build the multipart body by hand and send it over Tor.
+    let mime = effective_mime(content_type.as_deref(), &bytes);
     if state.server_is_onion {
         let (host, port) = crate::tor::host_port(&base)?;
-        let (content_type, body_bytes) = build_multipart(&field, &filename, &bytes, extra.as_ref());
+        let (multipart_ct, body_bytes) = build_multipart(&field, &filename, &bytes, &mime, extra.as_ref());
         let mut headers = vec![
-            ("Content-Type".to_string(), content_type),
+            ("Content-Type".to_string(), multipart_ct),
             ("X-Requested-With".to_string(), "XMLHttpRequest".to_string()),
         ];
         if let Some(token) = &state.auth_token {
@@ -247,7 +264,10 @@ pub async fn data_upload(
         return Ok(text);
     }
 
-    let part = reqwest::multipart::Part::bytes(bytes).file_name(filename);
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(filename)
+        .mime_str(&mime)
+        .map_err(|e| e.to_string())?;
     let mut form = reqwest::multipart::Form::new().part(field, part);
     if let Some(fields) = extra {
         for (k, v) in fields {
@@ -398,7 +418,7 @@ fn resolve_scope(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_multipart, scope_of};
+    use super::{build_multipart, effective_mime, scope_of};
     use std::collections::HashMap;
 
     #[test]
@@ -412,14 +432,14 @@ mod tests {
     fn multipart_has_boundary_file_part_and_extra_fields() {
         let mut extra = HashMap::new();
         extra.insert("kind".to_string(), "image".to_string());
-        let (content_type, body) = build_multipart("file", "a.png", b"PNGDATA", Some(&extra));
+        let (content_type, body) = build_multipart("file", "a.png", b"PNGDATA", "image/png", Some(&extra));
 
         assert!(content_type.starts_with("multipart/form-data; boundary="));
         let boundary = content_type.rsplit("boundary=").next().unwrap();
         let text = String::from_utf8_lossy(&body);
 
         assert!(text.contains("Content-Disposition: form-data; name=\"file\"; filename=\"a.png\""));
-        assert!(text.contains("Content-Type: application/octet-stream"));
+        assert!(text.contains("Content-Type: image/png"));
         assert!(text.contains("PNGDATA"));
         assert!(text.contains("Content-Disposition: form-data; name=\"kind\""));
         assert!(text.contains("image"));
@@ -428,8 +448,21 @@ mod tests {
 
     #[test]
     fn multipart_preserves_raw_binary_bytes() {
-        let (content_type, body) = build_multipart("f", "x.bin", &[0u8, 1, 2, 0, 3], None);
+        let (content_type, body) = build_multipart("f", "x.bin", &[0u8, 1, 2, 0, 3], "application/octet-stream", None);
         assert!(content_type.contains("boundary="));
         assert!(body.windows(5).any(|w| w == [0u8, 1, 2, 0, 3]));
+    }
+
+    #[test]
+    fn effective_mime_prefers_provided_then_sniffs() {
+        let png = [0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0];
+        // A usable provided type wins outright.
+        assert_eq!(effective_mime(Some("image/png"), b"not-a-png"), "image/png");
+        // Empty or generic provided types fall back to byte sniffing.
+        assert_eq!(effective_mime(Some(""), &png), "image/png");
+        assert_eq!(effective_mime(Some("application/octet-stream"), &png), "image/png");
+        assert_eq!(effective_mime(None, &png), "image/png");
+        // Unknown bytes with no usable type stay generic.
+        assert_eq!(effective_mime(None, b"????"), "application/octet-stream");
     }
 }
