@@ -31,6 +31,7 @@ export async function uploadViaRust(
     field,
     filename: file.name,
     bytes,
+    contentType: file.type || null,
     extra: extra ?? null,
   });
 }
