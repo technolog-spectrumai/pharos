@@ -35,7 +35,7 @@ Rotor-backed `mls_*` + the HTTP data gateway + relay WebSocket + embedded Tor + 
 ## Run
 
 ```bash
-# from the workspace root (edge/)
+# from the workspace root
 npm install
 
 # desktop
