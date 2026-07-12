@@ -123,6 +123,13 @@ playwright:smoke:
     - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
   script:
     - npm ci
+    # Start from a clean bundle dir. The cargo-desktop cache retains target/ (for
+    # fast incremental compiles), but tauri only overwrites same-named outputs — so
+    # after a version bump, stale old-version installers would linger in
+    # release/bundle/ and get re-uploaded inside the artifacts. Removing just the
+    # bundle subdir keeps the compile cache while making the artifact + the
+    # assertion below reflect only the current build.
+    - rm -rf apps/enigma/src-tauri/target/release/bundle
     - (cd apps/enigma && npx tauri build)
     - |
       if ! find apps/enigma/src-tauri/target/release/bundle -type f \
