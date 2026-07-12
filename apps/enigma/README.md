@@ -7,7 +7,7 @@ shippable Tauri + Vue 3 apps** that share code through libraries:
 |---------|-----------|
 | **[apps/enigma](apps/enigma)** | **Secure communication** app — MLS chat over WebSocket relay **and** iroh P2P, voice calls, voice/image messages. |
 | **[apps/aurora](apps/aurora)** | **Data workspace** — dashboard, files/storage, tasks/missions, locations, people, events — **plus MLS relay chat over WebSocket only** (no P2P, no voice calls). |
-| **[rakotis](https://gitlab.com/janhagit-group/rakotis)** | Shared primitives package (its own repository, pinned git dependency) — the non-crypto foundation (UI primitives, WebSocket client, Tauri helpers, storage, `ApiBase`, kv cache, i18n) plus the MLS-over-WebSocket relay chat orchestration (Rotor-backed crypto bridge, relay transport, chat-channel composable + MLS envelope state machine). |
+| **[packages/rakotis](packages/rakotis)** | Shared primitives package (in-repo workspace) — the non-crypto foundation (UI primitives, WebSocket client, Tauri helpers, storage, `ApiBase`, kv cache, i18n) plus the MLS-over-WebSocket relay chat orchestration (Rotor-backed crypto bridge, relay transport, chat-channel composable + MLS envelope state machine). |
 | **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) | The crypto layer (OpenMLS). Lives in its own repository; the apps consume `rotor-core` from Rust as a pinned cargo git dependency (see `apps/*/src-tauri/Cargo.toml`). **All MLS crypto stays here.** |
 
 ### Dependency layering
@@ -17,26 +17,29 @@ Rotor (crypto, Rust)
    ▲
    │  mls_* Tauri commands
    │
-Rakotis (MLS relay chat, TS) ──► Euclid (non-crypto foundation, TS)
-   ▲                                ▲
-   └──────────────┬─────────────────┘
-                  │
-        apps/enigma   apps/aurora
+Rakotis (non-crypto foundation + MLS relay chat, TS)
+   ▲
+   └──────────────┬───────────────┬───────────────┐
+                  │               │               │
+            apps/enigma   apps/enigma_plus   apps/aurora
 ```
 
-- **Rakotis** bundles the former euclid foundation layer (non-crypto primitives)
-  and the chat orchestration layer; each app injects its own `api` instance into
-  the chat channel. It delegates all MLS to the Rotor-backed `mls_*` commands —
-  it never reimplements crypto.
-- The apps consume rakotis as **source** from a pinned git dependency via a
-  Vite/tsconfig/vitest alias (`rakotis` → `node_modules/rakotis/src/index.ts`);
-  no prebuild step.
+- **Rakotis** bundles the non-crypto foundation layer (the former euclid
+  primitives) and the chat orchestration layer; each app injects its own `api`
+  instance into the chat channel. It delegates all MLS to the Rotor-backed
+  `mls_*` commands — it never reimplements crypto.
+- The apps consume rakotis as **source** from the in-repo `packages/rakotis`
+  workspace via a Vite/tsconfig/vitest alias (`rakotis` →
+  `node_modules/rakotis/src/index.ts`, a symlink into `packages/rakotis`); no
+  prebuild step.
 
 ## Layout
 
 ```
 enigma/
-├── package.json              # workspace root: workspaces = apps/*
+├── package.json              # workspace root: workspaces = packages/* + apps/*
+├── packages/
+│   └── rakotis/              # shared primitives (non-crypto foundation + relay chat)
 ├── apps/
 │   ├── enigma/               # secure comms app (bundle id: com.spectrumaipl.enigma)
 │   ├── enigma_plus/          # secure comms superset app (bundle id: com.spectrumaipl.enigma_plus)
@@ -51,14 +54,13 @@ enigma/
 npm install        # once, at the repo root — sets up the workspace + all packages
 ```
 
-To pull a newer rakotis (repins the exact commit in every app and refreshes the
-install): `npm run rakotis:update` (defaults to the repo's default branch; pass a branch,
-tag, or commit — `bash scripts/update_rakotis.sh <ref>`).
+rakotis is an in-repo workspace package (`packages/rakotis`): npm symlinks it into
+each app's `node_modules`, so edits to its source are picked up immediately — no
+repin or resync step.
 
 ## Build
 
 ```bash
-npm run build -w euclid     # vue-tsc typecheck
 npm run build -w rakotis    # vue-tsc typecheck
 npm run build -w enigma     # vue-tsc + vite build (frontend)
 npm run build -w aurora     # vue-tsc + vite build (frontend)
@@ -68,13 +70,12 @@ npm run build -w aurora     # vue-tsc + vite build (frontend)
 ( cd apps/aurora/src-tauri && cargo build )
 ```
 
-Each of the four `npm run build` targets succeeds independently.
+Each `npm run build` target succeeds independently.
 
 ## Test
 
 ```bash
-npm test -w euclid    # 27 tests — appStorage, localDb, ApiBase, i18n framework
-npm test -w rakotis   # 6 tests  — relay chat transport (Rust-gateway backend)
+npm test -w rakotis   # 49 tests — appStorage, localDb, ApiBase, i18n, pinCrypto, relay chat transport
 npm test -w enigma    # 47 tests — vox call, yStore, chat components, login, i18n
 npm test -w aurora    # 81 tests — vaultTree, geojson, reminders, data stores, i18n…
 ```
