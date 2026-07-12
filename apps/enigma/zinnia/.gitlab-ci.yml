@@ -47,6 +47,34 @@ cargo:check:
   script:
     - cd apps/$APP/src-tauri && cargo check
 
+# Frontend build gate: `vue-tsc --noEmit && vite build` per app. This is the ONLY
+# place the app frontends are actually built in CI — node:vitest runs unit tests
+# and cargo:check only checks Rust, so a broken vite build or a TypeScript type
+# error would otherwise slip through to the (heavy, tag-only) tauri build. Runs on
+# every commit and asserts the build emitted dist/index.html.
+frontend:build:
+  stage: check
+  image: node:22-bookworm
+  parallel:
+    matrix:
+      - APP: [enigma, aurora, enigma_plus]
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key: npm
+    paths: [.npm/]
+  before_script:
+    # rakotis is a private git dependency; rewrite its https URL to a job-token URL.
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
+  script:
+    - npm ci
+    - npm run build -w apps/$APP
+    # assert the build actually produced a frontend bundle (not just exit 0)
+    - 'test -f "apps/$APP/dist/index.html" || { echo "ERROR: frontend build emitted no apps/$APP/dist/index.html"; exit 1; }'
+  artifacts:
+    paths: [apps/$APP/dist/]
+    expire_in: 1 week
+
 # Stubbed smoke tier only: live.spec self-skips without E2E_SERVER.
 # The image version must match @playwright/test in package-lock.json.
 playwright:smoke:
@@ -71,13 +99,14 @@ playwright:smoke:
     paths: [apps/$APP/test-results/]
     expire_in: 7 days
 
-tauri:desktop:
+# Shared desktop-build definition. `npx tauri build` runs the frontend build first
+# (beforeBuildCommand -> npm run build), compiles the Rust release binary, then
+# bundles it to src-tauri/target/release/bundle/ (.deb / .AppImage / .rpm). Two
+# jobs extend this: tauri:build (every-commit verification) and tauri:desktop
+# (tag releases). The script asserts at least one bundle artifact was produced.
+.tauri-build:
   stage: build
   image: rust:1-bookworm
-  rules:
-    - if: $CI_COMMIT_TAG
-    - when: manual
-      allow_failure: true
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo
   cache:
@@ -90,10 +119,44 @@ tauri:desktop:
       libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
       librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential curl file
     - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
+    # rakotis (npm) and cryptorotor (cargo) are private git deps: rewrite to job-token URLs.
     - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
   script:
     - npm ci
-    - cd apps/enigma && npx tauri build
+    - (cd apps/enigma && npx tauri build)
+    - |
+      if ! find apps/enigma/src-tauri/target/release/bundle -type f \
+           \( -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) | grep -q .; then
+        echo "ERROR: tauri build produced no desktop bundle artifacts"
+        exit 1
+      fi
+
+# Every-commit build verification: proves enigma still builds end-to-end
+# (frontend -> Rust release -> bundle) on every branch push. A full release build
+# is heavy (cold cache: tens of minutes); the cargo-desktop cache keeps warm runs
+# fast. To trim cost, scope `rules` to merge requests / the default branch, or use
+# `npx tauri build --debug`. Tag pipelines are excluded so tauri:desktop (below)
+# handles releases without a duplicate build.
+tauri:build:
+  extends: .tauri-build
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - when: on_success
+  retry:
+    max: 1
+    when: [runner_system_failure, stuck_or_timeout_failure]
+  artifacts:
+    paths: [apps/enigma/src-tauri/target/release/bundle/]
+    expire_in: 1 week
+
+# Release build on tags (and manual runs): same build, longer-lived artifacts.
+tauri:desktop:
+  extends: .tauri-build
+  rules:
+    - if: $CI_COMMIT_TAG
+    - when: manual
+      allow_failure: true
   artifacts:
     paths: [apps/enigma/src-tauri/target/release/bundle/]
     expire_in: 30 days
