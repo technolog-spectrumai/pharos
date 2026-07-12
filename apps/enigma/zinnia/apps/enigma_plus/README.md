@@ -19,7 +19,7 @@ Tabs in `/chat`: Forum (relay) · P2P · Vox · Sync · Files. `/` redirects to 
 
 - **[euclid](../../packages/euclid)** — UI primitives, WS client, `ApiBase` (Enigma's `api` adds the chat-media uploads), storage, kv cache, i18n.
 - **[rakotis](../../packages/rakotis)** — the chat channel + MLS envelope state machine. Enigma runs both a `relay` and a `p2p` channel.
-- **Rotor** (`../../../toto/rotors/rotor_core`) — OpenMLS crypto, consumed from `src-tauri`.
+- **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) — OpenMLS crypto, consumed from `src-tauri` as a pinned cargo git dependency.
 
 The Rust backend (`src-tauri/`) keeps the full comms stack: `mls_*` (Rotor-backed),
 relay WebSocket + iroh P2P (`realtime`/`p2p_iroh`), `vox`, `file_xfer`, `y_store`,
@@ -28,7 +28,7 @@ the HTTP gateway, embedded Tor and kv.
 ## Run
 
 ```bash
-# from the workspace root (edge/)
+# from the workspace root
 npm install
 
 # desktop — APP_PROFILE isolates storage, CHAT_USER is the MLS identity
