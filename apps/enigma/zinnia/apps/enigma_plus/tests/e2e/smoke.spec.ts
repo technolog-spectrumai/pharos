@@ -28,17 +28,21 @@ async function stubApi(page: Page, language: string) {
   );
 }
 
-test.describe("Enigma shell (comms-only)", () => {
-  test("redirects / to the chat view and renders the comms nav in English", async ({ page }) => {
+test.describe("Enigma+ shell (comms + data workspace)", () => {
+  test("shows the welcome dashboard at / and reaches the chat view in English", async ({ page }) => {
     await stubApi(page, "en");
     await page.goto("/");
     await expect(page.getByRole("banner").getByRole("heading", { name: "Enigma" })).toBeVisible();
-    // Comms-only nav: Chat + Settings, and NO data-workspace links.
+    // Combined nav: comms (Chat, Settings) plus the data-workspace "Mission"
+    // dropdown — enigma_plus is enigma's comms AND aurora's data workspace.
     await expect(page.getByRole("link", { name: "Chat" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Settings" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Storage" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Mission" })).toHaveCount(0);
-    // The chat shell is shown (Forum tab present).
+    await expect(page.getByRole("button", { name: "Mission" }).first()).toBeVisible();
+    // Unlike enigma, "/" is the welcome dashboard, not a chat redirect.
+    await expect(page.getByRole("heading", { name: "Aurora" })).toBeVisible();
+    // The router uses memory history, so navigate via the nav link; the chat
+    // shell then shows the Forum tab.
+    await page.getByRole("link", { name: "Chat" }).first().click();
     await expect(page.getByRole("button", { name: "Forum" })).toBeVisible();
   });
 
