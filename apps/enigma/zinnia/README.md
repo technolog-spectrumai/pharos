@@ -1,104 +1,53 @@
-# Enigma / Aurora workspace
+# Rakotis
 
-An npm-workspaces monorepo that splits the former single Enigma app into **two
-shippable Tauri + Vue 3 apps** that share code through libraries:
+Reusable app primitives for the Enigma family (and any other Vite + Vue 3 app).
+One package, two layers:
 
-| Package | What it is |
-|---------|-----------|
-| **[apps/enigma](apps/enigma)** | **Secure communication** app — MLS chat over WebSocket relay **and** iroh P2P, voice calls, voice/image messages. |
-| **[apps/aurora](apps/aurora)** | **Data workspace** — dashboard, files/storage, tasks/missions, locations, people, events — **plus MLS relay chat over WebSocket only** (no P2P, no voice calls). |
-| **[rakotis](https://gitlab.com/janhagit-group/rakotis)** | Shared primitives package (its own repository, pinned git dependency) — the non-crypto foundation (UI primitives, WebSocket client, Tauri helpers, storage, `ApiBase`, kv cache, i18n) plus the MLS-over-WebSocket relay chat orchestration (Rotor-backed crypto bridge, relay transport, chat-channel composable + MLS envelope state machine). |
-| **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) | The crypto layer (OpenMLS). Lives in its own repository; the apps consume `rotor-core` from Rust as a pinned cargo git dependency (see `apps/*/src-tauri/Cargo.toml`). **All MLS crypto stays here.** |
+- **Foundation** (formerly the `euclid` package — non-crypto):
+  - `services/` — reconnecting WebSocket client (`WsService`), Tauri `invoke` helpers,
+    auth/server/profile storage, HTTP `ApiBase` with offline cache semantics, local
+    kv cache (`kvGet`/`kvPut`), shared DTO types.
+  - `i18n/` — locale framework (`createAppI18n`, `SUPPORTED_LOCALES`, …).
+  - `components/` — `OyaButton`, `OyaCard`, `OyaHelloWorld` Vue components.
+- **Chat orchestration** (the original `rakotis` surface):
+  - `crypto.ts` — bridge to the Rotor-backed `mls_*` Tauri commands (MLS is delegated
+    to Rust; never reimplemented in TypeScript). `pinCrypto.ts` — WebCrypto AES-GCM
+    for pinned messages.
+  - `chatTransport.ts` — relay transport over the WebSocket/realtime gateway.
+  - `chatCommands.ts` — pluggable relay-only command seam.
+  - `useChatChannel.ts` — the chat-channel composable + MLS envelope state machine.
 
-### Dependency layering
+Everything is exported from the single entry point `src/index.ts`.
 
-```
-Rotor (crypto, Rust)
-   ▲
-   │  mls_* Tauri commands
-   │
-Rakotis (MLS relay chat, TS) ──► Euclid (non-crypto foundation, TS)
-   ▲                                ▲
-   └──────────────┬─────────────────┘
-                  │
-        apps/enigma   apps/aurora
-```
+## Consumption
 
-- **Rakotis** bundles the former euclid foundation layer (non-crypto primitives)
-  and the chat orchestration layer; each app injects its own `api` instance into
-  the chat channel. It delegates all MLS to the Rotor-backed `mls_*` commands —
-  it never reimplements crypto.
-- The apps consume rakotis as **source** from a pinned git dependency via a
-  Vite/tsconfig/vitest alias (`rakotis` → `node_modules/rakotis/src/index.ts`);
-  no prebuild step.
+rakotis is an **in-repo workspace package** of the Enigma monorepo
+(`packages/rakotis`). Each app depends on it as `"rakotis": "*"`; a root
+`npm install` symlinks it into `node_modules/rakotis`, so source edits are picked
+up with no build or repin step.
 
-## Layout
+The package ships TypeScript/Vue **source** (no build step) — consumers compile it.
+For Vite apps, keep the package out of dependency pre-bundling and point the alias
+(and, for TS `paths` users, type resolution) at the entry file:
 
-```
-enigma/
-├── package.json              # workspace root: workspaces = apps/*
-├── apps/
-│   ├── enigma/               # secure comms app (bundle id: com.spectrumaipl.enigma)
-│   ├── enigma_plus/          # secure comms superset app (bundle id: com.spectrumaipl.enigma_plus)
-│   └── aurora/               # data-workspace app (bundle id: com.spectrumaipl.aurora)
-├── run_dev.sh                # launch Enigma desktop with a profile
-└── scripts/                  # Android build helpers
+```ts
+// vite.config.ts
+resolve: { alias: { rakotis: fileURLToPath(new URL("../../node_modules/rakotis/src/index.ts", import.meta.url)) } },
+optimizeDeps: { exclude: ["rakotis"] }
 ```
 
-## Install
+```jsonc
+// tsconfig.json
+"paths": { "rakotis": ["../../node_modules/rakotis/src/index.ts"] }
+```
+
+## Development
 
 ```bash
-npm install        # once, at the repo root — sets up the workspace + all packages
+npm install
+npm test          # vitest: services, i18n, transport, pin crypto (jsdom)
+npm run typecheck # vue-tsc
 ```
 
-To pull a newer rakotis (repins the exact commit in every app and refreshes the
-install): `npm run rakotis:update` (defaults to the repo's default branch; pass a branch,
-tag, or commit — `bash scripts/update_rakotis.sh <ref>`).
-
-## Build
-
-```bash
-npm run build -w euclid     # vue-tsc typecheck
-npm run build -w rakotis    # vue-tsc typecheck
-npm run build -w enigma     # vue-tsc + vite build (frontend)
-npm run build -w aurora     # vue-tsc + vite build (frontend)
-
-# Rust (Tauri) — per app:
-( cd apps/enigma/src-tauri && cargo build )
-( cd apps/aurora/src-tauri && cargo build )
-```
-
-Each of the four `npm run build` targets succeeds independently.
-
-## Test
-
-```bash
-npm test -w euclid    # 27 tests — appStorage, localDb, ApiBase, i18n framework
-npm test -w rakotis   # 6 tests  — relay chat transport (Rust-gateway backend)
-npm test -w enigma    # 47 tests — vox call, yStore, chat components, login, i18n
-npm test -w aurora    # 81 tests — vaultTree, geojson, reminders, data stores, i18n…
-```
-
-## Run (desktop)
-
-```bash
-# Enigma (comms) — needs a profile + chat identity
-APP_PROFILE=alice CHAT_USER=alice npm run tauri dev -w enigma
-# or: ./run_dev.sh
-
-# Aurora (data workspace + relay chat)
-APP_PROFILE=alice CHAT_USER=alice npm run tauri dev -w aurora
-```
-
-Browser mode (no Rust, MLS disabled → plaintext relay chat):
-
-```bash
-npm run dev -w enigma     # http://localhost:1420
-npm run dev -w aurora
-```
-
-Each app stores its profile state under its own data dir and uses a **separate
-identity namespace** (no cross-app identity reuse). Browser-mode MLS is disabled
-in both apps (chat falls back to plaintext); MLS is desktop/Tauri-only.
-
-See each package's README for details.
+Layering rules: the foundation layer stays non-cryptographic; MLS operations are
+delegated to the host app's Rotor-backed Tauri commands via `cryptoService`.
