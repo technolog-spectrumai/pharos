@@ -51,6 +51,10 @@ enigma/
 npm install        # once, at the repo root — sets up the workspace + all packages
 ```
 
+To pull a newer rakotis (repins the exact commit in every app and refreshes the
+install): `npm run rakotis:update` (defaults to the repo's default branch; pass a branch,
+tag, or commit — `bash scripts/update_rakotis.sh <ref>`).
+
 ## Build
 
 ```bash
