@@ -9,7 +9,7 @@ shippable Tauri + Vue 3 apps** that share code through libraries:
 | **[apps/aurora](apps/aurora)** | **Data workspace** — dashboard, files/storage, tasks/missions, locations, people, events — **plus MLS relay chat over WebSocket only** (no P2P, no voice calls). |
 | **[packages/euclid](packages/euclid)** | Shared **non-crypto** foundation — UI primitives, reconnecting WebSocket client, Tauri helpers, auth/server/profile storage, HTTP `ApiBase`, local kv cache, i18n framework. |
 | **[packages/rakotis](packages/rakotis)** | Shared **MLS-over-WebSocket relay chat** orchestration — Rotor-backed crypto bridge, relay transport, the chat-channel composable + MLS envelope state machine. |
-| **Rotor** (`../toto/rotors/rotor_core`) | The crypto layer (OpenMLS). Lives in the toto repo; both apps depend on it from Rust. **All MLS crypto stays here.** |
+| **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) | The crypto layer (OpenMLS). Lives in its own repository; the apps consume `rotor-core` from Rust as a pinned cargo git dependency (see `apps/*/src-tauri/Cargo.toml`). **All MLS crypto stays here.** |
 
 ### Dependency layering
 
@@ -36,10 +36,11 @@ Rakotis (MLS relay chat, TS) ──► Euclid (non-crypto foundation, TS)
 ## Layout
 
 ```
-edge/
+enigma/
 ├── package.json              # workspace root: workspaces = packages/*, apps/*
 ├── apps/
 │   ├── enigma/               # secure comms app (bundle id: com.spectrumaipl.enigma)
+│   ├── enigma_plus/          # secure comms superset app (bundle id: com.spectrumaipl.enigma_plus)
 │   └── aurora/               # data-workspace app (bundle id: com.spectrumaipl.aurora)
 ├── packages/
 │   ├── euclid/               # shared non-crypto TS
@@ -51,8 +52,7 @@ edge/
 ## Install
 
 ```bash
-cd edge
-npm install        # once — sets up the workspace + all packages
+npm install        # once, at the repo root — sets up the workspace + all packages
 ```
 
 ## Build
