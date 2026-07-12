@@ -18,7 +18,6 @@ This guide covers building an Android APK / AAB from the Ubuntu dev machine.
 | Rust | stable (≥ 1.80) | Tauri Rust core + `rotor-core` |
 | cargo-ndk | latest | Rust → Android NDK bridge |
 | Node.js | ≥ 18 | Vue / Vite / Tauri CLI |
-| wasm-pack | latest | Builds `rotor_wasm` for Vue frontend |
 
 ---
 
@@ -87,15 +86,15 @@ rustup target list --installed | grep android
 cargo ndk --version
 ```
 
-## Step 4 — Install wasm-pack (for rotor_wasm)
+## Step 4 — Rotor dependency (fetched by cargo)
 
-The Vue frontend depends on `rotor_wasm`, a local WASM package built from
-`toto/rotors/rotor_wasm`. You need `wasm-pack` to compile it:
+The Rust backend depends on `rotor-core` from [CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor),
+pinned as a cargo git dependency. The repository is private, so make sure git
+can reach it (one-time setup; `.cargo/config.toml` already enables
+`git-fetch-with-cli`):
 
 ```bash
-curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-source ~/.bashrc
-wasm-pack --version
+git config --global url."git@gitlab.com:janhagit-group/".insteadOf "https://gitlab.com/janhagit-group/"
 ```
 
 ## Step 5 — Check Cargo.toml Android compatibility
@@ -110,7 +109,7 @@ bash enigma/scripts/patch_cargo_android.sh
 |---|---|---|---|
 | `webkit2gtk` | Linux only (cfg guard) | Skipped automatically | Tauri uses Android WebView |
 | `cpal 0.15` | ALSA/PulseAudio | Needs `oboe-shared-stdcxx` feature | See note below |
-| `rotor-core` | Local path | Cross-compiles fine | Pure Rust + openmls |
+| `rotor-core` | CryptoRotor git dep | Cross-compiles fine | Pure Rust + openmls |
 | `zeroize` | ✓ | ✓ | No platform deps |
 
 **Voice recording on Android:** `cpal` defaults to ALSA on Linux. For Android audio,
@@ -128,17 +127,20 @@ The `oboe` backend requires the NDK (already installed in Step 2).
 
 ```bash
 # Debug build (faster, no signing required)
-bash enigma/scripts/build_android.sh debug
+bash scripts/build_android.sh enigma debug
 
 # Release build (APK + AAB, requires signing — see Step 7)
-bash enigma/scripts/build_android.sh release
+bash scripts/build_android.sh enigma release
 ```
 
+(`enigma` and `aurora` ship committed Android projects under
+`src-tauri/gen/android/`; `enigma_plus` has never been initialized for
+Android — run `npx tauri android init` there first if you need it.)
+
 The script:
-1. Builds `rotor_wasm` (WASM bundle for the Vue frontend)
-2. Runs `npm install` in `enigma/enigma/`
-3. Runs `tauri android init` (first time only — generates `src-tauri/gen/android/`)
-4. Runs `tauri android build --apk [--aab]`
+1. Runs `npm install` in the app directory
+2. Runs `tauri android init` (first time only — generates `src-tauri/gen/android/`)
+3. Runs `tauri android build --apk [--aab]`
 
 Output artifacts are in:
 
@@ -232,16 +234,6 @@ echo $JAVA_HOME
 
 Run `setup_java.sh` again if wrong.
 
-### wasm-pack not found — rotor_wasm skipped
-
-The build script will skip `rotor_wasm` and use whatever is in
-`toto/rotors/rotor_wasm/build/`. If the `build/` directory is missing:
-
-```bash
-cd toto/rotors/rotor_wasm
-wasm-pack build --target bundler --out-dir build
-```
-
 ---
 
 ## Full environment variable reference
@@ -263,4 +255,4 @@ export PATH="${JAVA_HOME}/bin:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID
 | `scripts/setup_java.sh` | Install and activate OpenJDK 17 |
 | `scripts/setup_rust_android.sh` | Add Android Rust targets + cargo-ndk |
 | `scripts/patch_cargo_android.sh` | Check Cargo.toml Android compatibility |
-| `scripts/build_android.sh [debug\|release]` | Full build pipeline (wasm → npm → tauri android build) |
+| `scripts/build_android.sh <app> [debug\|release]` | Full build pipeline (npm → tauri android build) |
