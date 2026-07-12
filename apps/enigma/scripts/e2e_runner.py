@@ -15,6 +15,10 @@ The runner:
 Stdlib only — no Python Playwright needed; it drives the existing Node runner and
 browsers. Designed to be CI/CD friendly: non-zero exit on any failure.
 
+The Docker-backend path lives outside this repository: point ``TOTO_ROOT`` at a
+toto monorepo checkout (default: sibling ``../toto``); ``E2E_COMPOSE`` overrides
+the compose file. Without a backend, the smoke tier still runs (``--no-backend``).
+
 Encryption note: browser-mode chat is plaintext (MLS is a desktop/Tauri-only
 feature), so the live tier verifies reachability + relay-WS message delivery
 end-to-end. MLS ciphertext itself is covered by Rust tests in rotor-core and the
@@ -38,7 +42,9 @@ _INSECURE_SSL.check_hostname = False
 _INSECURE_SSL.verify_mode = ssl.CERT_NONE
 
 EDGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))   # the npm workspace
-REPO_ROOT = os.path.abspath(os.path.join(EDGE_ROOT, ".."))                    # the toto repo (docker, compose)
+# The live tier needs a toto monorepo checkout (Django backend + compose stack).
+# Set TOTO_ROOT to its path; defaults to a sibling ../toto checkout.
+REPO_ROOT = os.path.abspath(os.environ.get("TOTO_ROOT") or os.path.join(EDGE_ROOT, "..", "toto"))
 DEFAULT_COMPOSE = os.path.join(REPO_ROOT, ".compose", "portal", "docker-compose.yaml")
 
 
