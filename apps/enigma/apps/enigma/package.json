@@ -16,8 +16,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "euclid": "*",
-    "rakotis": "*",
+    "rakotis": "git+https://gitlab.com/janhagit-group/rakotis.git#8c2c254e1a9e2f2cec7c6720fdbd6bf6cb0b5c53",
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@fortawesome/vue-fontawesome": "^3.2.0",
