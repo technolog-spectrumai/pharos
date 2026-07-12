@@ -5,5 +5,8 @@
   "description": "Monorepo for the Enigma (secure comms), Enigma+ and Aurora (data workspace) apps. Shared primitives live in the external rakotis package.",
   "workspaces": [
     "apps/*"
-  ]
+  ],
+  "scripts": {
+    "rakotis:update": "bash scripts/update_rakotis.sh"
+  }
 }
