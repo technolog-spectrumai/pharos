@@ -3,7 +3,7 @@ import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../services/api";
 import { logo2Dark, logo2Light } from "../assets/logos";
-import { OyaButton } from "euclid";
+import { OyaButton } from "rakotis";
 import { useCapabilitiesStore } from "../stores/capabilities";
 
 const props = defineProps<{ darkMode: boolean }>();

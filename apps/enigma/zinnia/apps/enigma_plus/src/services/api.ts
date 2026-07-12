@@ -6,19 +6,19 @@ import {
   getAuthToken,
   isTauri,
   invoke,
-} from "euclid";
+} from "rakotis";
 
 // The HTTP transport, offline cache, auth/identity calls and shared response
 // types now live in Euclid's ApiBase. Re-export the shared types + cache/error
 // helpers so existing call sites that import them from this module keep working.
-export type { Me, Health, Room, Participant } from "euclid";
+export type { Me, Health, Room, Participant } from "rakotis";
 export {
   countResponseCache,
   clearResponseCache,
   SERVER_OFF_ERROR,
   SILENT_NO_CACHE,
   NO_SERVER_ERROR,
-} from "euclid";
+} from "rakotis";
 
 // ── Notes (Bento) ────────────────────────────────────────────────────────────
 

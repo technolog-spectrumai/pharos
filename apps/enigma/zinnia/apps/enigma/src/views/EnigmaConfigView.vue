@@ -24,10 +24,10 @@ import {
   setOffline,
   type AppRuntimeConfig,
   type AppProfileState,
-} from "euclid";
+} from "rakotis";
 import { chatTransport as wsService } from "rakotis";
-import { OyaCard } from "euclid";
-import { OyaButton } from "euclid";
+import { OyaCard } from "rakotis";
+import { OyaButton } from "rakotis";
 
 defineProps<{ darkMode: boolean }>();
 

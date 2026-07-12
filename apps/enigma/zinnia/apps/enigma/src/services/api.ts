@@ -10,17 +10,17 @@ import {
   uploadViaRust,
   getAuthToken,
   isTauri,
-} from "euclid";
+} from "rakotis";
 
 // Re-export shared types + cache/error helpers for existing call sites.
-export type { Me, Health, Room, Participant } from "euclid";
+export type { Me, Health, Room, Participant } from "rakotis";
 export {
   countResponseCache,
   clearResponseCache,
   SERVER_OFF_ERROR,
   SILENT_NO_CACHE,
   NO_SERVER_ERROR,
-} from "euclid";
+} from "rakotis";
 
 class ApiService extends ApiBase {
   // ── Chat media uploads (relay rooms) ───────────────────────────────────────

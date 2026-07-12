@@ -22,7 +22,7 @@ import {
   setOffline,
   type AppRuntimeConfig,
   type AppProfileState,
-} from "euclid";
+} from "rakotis";
 import { chatTransport as wsService } from "rakotis";
 import {
   getReminderHorizonMin,
@@ -30,8 +30,8 @@ import {
   MIN_HORIZON_MIN,
   MAX_HORIZON_MIN,
 } from "../services/reminderSettings";
-import { OyaCard } from "euclid";
-import { OyaButton } from "euclid";
+import { OyaCard } from "rakotis";
+import { OyaButton } from "rakotis";
 
 defineProps<{ darkMode: boolean }>();
 
