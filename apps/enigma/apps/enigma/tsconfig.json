@@ -17,8 +17,7 @@
     /* Shared workspace packages resolved as source */
     "baseUrl": ".",
     "paths": {
-      "euclid": ["../../packages/euclid/src/index.ts"],
-      "rakotis": ["../../packages/rakotis/src/index.ts"]
+      "rakotis": ["../../node_modules/rakotis/src/index.ts"]
     },
 
     /* Linting */
