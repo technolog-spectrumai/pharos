@@ -10,7 +10,9 @@
 #
 # Usage:   ONION=<hash>.onion bash enigma/enigma/scripts/onion_e2e_gui.sh
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# This harness drives the faros/portal deploy stack, which lives in the toto
+# monorepo — point TOTO_ROOT at a checkout of it.
+ROOT="${TOTO_ROOT:?set TOTO_ROOT to a toto monorepo checkout (faros/portal deploy stack)}"
 APP="$ROOT/enigma/enigma"
 : "${ONION:?set ONION=<hash>.onion}"
 
