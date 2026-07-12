@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds a Tauri edge app for Android (APK + AAB).
+# Builds a Tauri workspace app for Android (APK + AAB).
 #
-#   bash edge/scripts/build_android.sh <app> [debug|release] [abi-spec]
+#   bash scripts/build_android.sh <app> [debug|release] [abi-spec]
 #
-#   <app>      enigma | aurora  (any dir under edge/apps/ with a src-tauri/)
+#   <app>      enigma | aurora  (any dir under apps/ with a src-tauri/)
 #   build type debug (default) | release
 #   abi-spec   comma-separated ABIs, or "all".  Default: aarch64
 #              valid ABIs: aarch64 (modern phones) · x86_64 (emulator) ·
@@ -15,7 +15,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 
@@ -28,7 +27,7 @@ fi
 
 APP_DIR="$(realpath "${SCRIPT_DIR}/../apps/${APP}" 2>/dev/null || true)"
 if [[ -z "${APP_DIR}" || ! -d "${APP_DIR}/src-tauri" ]]; then
-  echo "ERROR: no Tauri app '${APP}' under edge/apps/ (expected ${APP_DIR}/src-tauri)" >&2
+  echo "ERROR: no Tauri app '${APP}' under apps/ (expected ${APP_DIR}/src-tauri)" >&2
   exit 1
 fi
 
@@ -109,20 +108,6 @@ echo "  NDK_HOME     : ${NDK_HOME}"
 echo "  JAVA_HOME    : ${JAVA_HOME}"
 echo "  Node         : $(node --version)"
 echo "  Rust         : $(rustc --version)"
-
-# ── Build rotor_wasm (WASM dependency used by the Vue frontend) ───────────────
-
-ROTOR_WASM_DIR="${REPO_ROOT}/toto/rotors/rotor_wasm"
-if [[ -d "${ROTOR_WASM_DIR}" ]]; then
-  echo "==> Building rotor_wasm"
-  pushd "${ROTOR_WASM_DIR}" > /dev/null
-  if command -v wasm-pack &>/dev/null; then
-    wasm-pack build --target bundler --out-dir build
-  else
-    echo "  wasm-pack not found — skipping rotor_wasm build (use pre-built build/ dir)"
-  fi
-  popd > /dev/null
-fi
 
 # ── npm install ────────────────────────────────────────────────────────────────
 
