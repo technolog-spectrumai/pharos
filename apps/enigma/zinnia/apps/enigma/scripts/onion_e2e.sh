@@ -12,7 +12,9 @@
 #          KEEP_UP=1      leave the stack running on exit (don't tear down)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# This harness drives the faros/portal deploy stack, which lives in the toto
+# monorepo — point TOTO_ROOT at a checkout of it.
+ROOT="${TOTO_ROOT:?set TOTO_ROOT to a toto monorepo checkout (faros/portal deploy stack)}"
 cd "$ROOT"
 CFG=faros/deploy/configs/faros_onion_tls.yaml
 NAME=faros_onion_tls
