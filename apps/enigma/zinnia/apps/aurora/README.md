@@ -23,10 +23,9 @@ supported in chat.
 
 ## Shared code
 
-Aurora composes the shared packages:
+Aurora composes the shared package:
 
-- **[euclid](../../packages/euclid)** — UI primitives, WS client, `ApiBase`, storage, kv cache, i18n. Aurora's `api` (with the data-workspace endpoints) extends `ApiBase`.
-- **[rakotis](../../packages/rakotis)** — the relay chat channel (`useChatChannel("relay", api)`). Aurora never instantiates a P2P channel.
+- **[rakotis](https://gitlab.com/janhagit-group/rakotis)** — shared primitives: UI components, WS client, `ApiBase` (Aurora's `api` adds the data-workspace endpoints), storage, kv cache, i18n, plus the relay chat channel (`useChatChannel("relay", api)`). Aurora never instantiates a P2P channel.
 
 The Rust backend (`src-tauri/`) is the **relay-only subset**: app/profile config +
 Rotor-backed `mls_*` + the HTTP data gateway + relay WebSocket + embedded Tor + kv
