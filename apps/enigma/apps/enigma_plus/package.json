@@ -33,7 +33,6 @@
     "nanoid": "^5.1.11",
     "pinia": "^3.0.4",
     "qrcode": "^1.5.4",
-    "rotor_wasm": "file:../../../toto/rotors/rotor_wasm/build",
     "tailwindcss": "^4.3.0",
     "vue": "^3.5.13",
     "vue-i18n": "^9.14.5",
