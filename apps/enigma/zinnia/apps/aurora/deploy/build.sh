@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Build this app's deployment artifacts and collect them into deploy/dist/.
-# The app name is derived from this script's location (edge/apps/<app>/deploy/),
+# The app name is derived from this script's location (apps/<app>/deploy/),
 # so the same script is dropped into each app's deploy/ dir.
 #
-#   bash edge/apps/<app>/deploy/build.sh [both|desktop|android] [debug|release] [abi-spec]
+#   bash apps/<app>/deploy/build.sh [both|desktop|android] [debug|release] [abi-spec]
 #
 # Targets:
 #   desktop  — `tauri build` → Linux .deb / .AppImage / .rpm
-#   android  — edge/scripts/build_android.sh → APK (+ AAB on release)
+#   android  — scripts/build_android.sh → APK (+ AAB on release)
 #   both     — desktop + android (default)
 #
 # Android build type (2nd arg, default `debug`): a debug APK is signed with the
@@ -21,8 +21,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(realpath "${HERE}/..")"               # edge/apps/<app>
 APP="$(basename "${APP_DIR}")"                    # <app>
-EDGE_DIR="$(realpath "${APP_DIR}/../..")"         # edge
-REPO_ROOT="$(realpath "${EDGE_DIR}/..")"          # repo root
+EDGE_DIR="$(realpath "${APP_DIR}/../..")"         # workspace root
 DIST="${HERE}/dist"
 
 WHAT="${1:-both}"
@@ -33,22 +32,8 @@ mkdir -p "${DIST}"
 echo "==> ${APP} deploy build  (target=${WHAT}, android=${ANDROID_BUILD}, abis=${ABI_SPEC})"
 echo "    artifacts → ${DIST}"
 
-# The Vue frontend imports the rotor MLS WASM (bundler build, linked into
-# node_modules); build it so `vite build` can resolve it. The Android script
-# builds its own copy, so this only matters for the desktop path.
-build_rotor_wasm() {
-  local rw="${REPO_ROOT}/toto/rotors/rotor_wasm"
-  if [[ -d "${rw}" ]] && command -v wasm-pack >/dev/null 2>&1; then
-    echo "==> rotor_wasm (bundler)"
-    ( cd "${rw}" && wasm-pack build --target bundler --out-dir build )
-  else
-    echo "==> rotor_wasm: wasm-pack/source absent — relying on existing build/"
-  fi
-}
-
 build_desktop() {
   echo "==> Desktop bundle (tauri build)"
-  build_rotor_wasm
   cd "${APP_DIR}"
   npm install
   npx tauri build
