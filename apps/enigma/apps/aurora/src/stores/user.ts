@@ -12,7 +12,7 @@ import {
   type OfflineProfile,
   type OfflineProfileOption,
   type AppProfileState,
-} from "euclid";
+} from "rakotis";
 
 export interface FetchLogEntry {
   timestamp: Date;

@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useVoxCall } from "../composables/useVoxCall";
-import { OyaButton } from "euclid";
+import { OyaButton } from "rakotis";
 
 defineProps<{ darkMode: boolean }>();
 

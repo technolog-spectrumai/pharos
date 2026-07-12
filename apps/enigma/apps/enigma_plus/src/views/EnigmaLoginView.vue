@@ -2,9 +2,9 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../services/api";
-import { getServerUrl } from "euclid";
+import { getServerUrl } from "rakotis";
 import { useUserStore } from "../stores/user";
-import { OyaButton } from "euclid";
+import { OyaButton } from "rakotis";
 import { logo2Dark, logo2Light } from "../assets/logos";
 
 defineProps<{ darkMode: boolean }>();

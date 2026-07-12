@@ -6,8 +6,8 @@ import { i18n, setLocale } from "../../src/i18n";
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: pushMock }) }));
-vi.mock("euclid", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("euclid")>();
+vi.mock("rakotis", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("rakotis")>();
   return { ...actual, getServerUrl: vi.fn(async () => "http://server.test") };
 });
 vi.mock("../../src/assets/logos", () => ({ logo2Dark: "dark", logo2Light: "light", appIcon: "icon" }));
@@ -16,7 +16,7 @@ vi.mock("../../src/services/api", () => ({
 }));
 
 import LoginView from "../../src/views/EnigmaLoginView.vue";
-import { OyaButton } from "euclid";
+import { OyaButton } from "rakotis";
 import { api } from "../../src/services/api";
 
 function mountLogin() {

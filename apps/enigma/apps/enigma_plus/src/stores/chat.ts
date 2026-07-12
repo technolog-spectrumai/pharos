@@ -11,7 +11,7 @@ import { ref, computed } from "vue";
 import { useChatChannel, type ChatChannel } from "rakotis";
 import { api } from "../services/api";
 import { useFileShare, type FileShare } from "../composables/useFileShare";
-import type { AppRuntimeConfig } from "euclid";
+import type { AppRuntimeConfig } from "rakotis";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 

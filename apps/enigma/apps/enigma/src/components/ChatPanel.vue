@@ -5,7 +5,7 @@ import { useChatStore } from "../stores/chat";
 import { useI18n } from "vue-i18n";
 import type { ChatChannel } from "rakotis";
 
-import { OyaButton } from "euclid";
+import { OyaButton } from "rakotis";
 import ChatBubble from "./ChatBubble.vue";
 
 const { t } = useI18n();

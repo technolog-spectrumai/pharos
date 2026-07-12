@@ -4,7 +4,7 @@
 
 import en from "./en";
 import pl from "./pl";
-import { createAppI18n } from "euclid";
+import { createAppI18n } from "rakotis";
 
 export {
   SUPPORTED_LOCALES,
@@ -12,8 +12,8 @@ export {
   normalizeLocale,
   getStoredLocale,
   hasExplicitLocale,
-} from "euclid";
-export type { Locale } from "euclid";
+} from "rakotis";
+export type { Locale } from "rakotis";
 
 const app = createAppI18n({ en, pl });
 export const i18n = app.i18n;

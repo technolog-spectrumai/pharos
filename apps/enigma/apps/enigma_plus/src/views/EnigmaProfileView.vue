@@ -4,10 +4,10 @@ import { useI18n } from "vue-i18n";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
-import { getAuthToken, getServerUrl } from "euclid";
+import { getAuthToken, getServerUrl } from "rakotis";
 import { api } from "../services/api";
-import { OyaCard } from "euclid";
-import { OyaButton } from "euclid";
+import { OyaCard } from "rakotis";
+import { OyaButton } from "rakotis";
 import { useRouter } from "vue-router";
 
 // `embedded` = rendered inside another page (Settings) → drop the page header/back button.
