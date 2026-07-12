@@ -7,8 +7,7 @@ shippable Tauri + Vue 3 apps** that share code through libraries:
 |---------|-----------|
 | **[apps/enigma](apps/enigma)** | **Secure communication** app — MLS chat over WebSocket relay **and** iroh P2P, voice calls, voice/image messages. |
 | **[apps/aurora](apps/aurora)** | **Data workspace** — dashboard, files/storage, tasks/missions, locations, people, events — **plus MLS relay chat over WebSocket only** (no P2P, no voice calls). |
-| **[packages/euclid](packages/euclid)** | Shared **non-crypto** foundation — UI primitives, reconnecting WebSocket client, Tauri helpers, auth/server/profile storage, HTTP `ApiBase`, local kv cache, i18n framework. |
-| **[packages/rakotis](packages/rakotis)** | Shared **MLS-over-WebSocket relay chat** orchestration — Rotor-backed crypto bridge, relay transport, the chat-channel composable + MLS envelope state machine. |
+| **[rakotis](https://gitlab.com/janhagit-group/rakotis)** | Shared primitives package (its own repository, pinned git dependency) — the non-crypto foundation (UI primitives, WebSocket client, Tauri helpers, storage, `ApiBase`, kv cache, i18n) plus the MLS-over-WebSocket relay chat orchestration (Rotor-backed crypto bridge, relay transport, chat-channel composable + MLS envelope state machine). |
 | **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) | The crypto layer (OpenMLS). Lives in its own repository; the apps consume `rotor-core` from Rust as a pinned cargo git dependency (see `apps/*/src-tauri/Cargo.toml`). **All MLS crypto stays here.** |
 
 ### Dependency layering
@@ -25,26 +24,23 @@ Rakotis (MLS relay chat, TS) ──► Euclid (non-crypto foundation, TS)
         apps/enigma   apps/aurora
 ```
 
-- **Euclid** never imports Rakotis and contains no crypto/MLS/P2P/voice.
-- **Rakotis** depends on Euclid for generic primitives (WS client, Tauri invoke, kv,
-  shared DTO types); each app injects its own `api` instance into the chat channel.
-  Rakotis delegates all MLS to the Rotor-backed `mls_*` commands — it never
-  reimplements crypto.
-- Both apps consume Euclid + Rakotis as **source** via a Vite/tsconfig/vitest
-  alias (`euclid`, `rakotis` → `packages/*/src/index.ts`); no prebuild step.
+- **Rakotis** bundles the former euclid foundation layer (non-crypto primitives)
+  and the chat orchestration layer; each app injects its own `api` instance into
+  the chat channel. It delegates all MLS to the Rotor-backed `mls_*` commands —
+  it never reimplements crypto.
+- The apps consume rakotis as **source** from a pinned git dependency via a
+  Vite/tsconfig/vitest alias (`rakotis` → `node_modules/rakotis/src/index.ts`);
+  no prebuild step.
 
 ## Layout
 
 ```
 enigma/
-├── package.json              # workspace root: workspaces = packages/*, apps/*
+├── package.json              # workspace root: workspaces = apps/*
 ├── apps/
 │   ├── enigma/               # secure comms app (bundle id: com.spectrumaipl.enigma)
 │   ├── enigma_plus/          # secure comms superset app (bundle id: com.spectrumaipl.enigma_plus)
 │   └── aurora/               # data-workspace app (bundle id: com.spectrumaipl.aurora)
-├── packages/
-│   ├── euclid/               # shared non-crypto TS
-│   └── rakotis/              # shared MLS-relay-chat TS
 ├── run_dev.sh                # launch Enigma desktop with a profile
 └── scripts/                  # Android build helpers
 ```

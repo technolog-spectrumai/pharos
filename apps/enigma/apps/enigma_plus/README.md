@@ -17,8 +17,7 @@ Tabs in `/chat`: Forum (relay) · P2P · Vox · Sync · Files. `/` redirects to 
 
 ## Shared code
 
-- **[euclid](../../packages/euclid)** — UI primitives, WS client, `ApiBase` (Enigma's `api` adds the chat-media uploads), storage, kv cache, i18n.
-- **[rakotis](../../packages/rakotis)** — the chat channel + MLS envelope state machine. Enigma runs both a `relay` and a `p2p` channel.
+- **[rakotis](https://gitlab.com/janhagit-group/rakotis)** — shared primitives: UI components, WS client, `ApiBase` (Enigma's `api` adds the chat-media uploads), storage, kv cache, i18n, plus the chat channel + MLS envelope state machine. Enigma runs both a `relay` and a `p2p` channel.
 - **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) — OpenMLS crypto, consumed from `src-tauri` as a pinned cargo git dependency.
 
 The Rust backend (`src-tauri/`) keeps the full comms stack: `mls_*` (Rotor-backed),
