@@ -10,12 +10,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [vue(), tailwindcss()],
 
-  // Shared workspace packages are consumed as TypeScript/Vue source (no prebuild).
+  // The shared rakotis package ships TypeScript/Vue source (no prebuild): alias it
+  // to its entry file and keep it out of esbuild dependency pre-bundling so the
+  // Vue plugin compiles it like app source.
   resolve: {
     alias: {
-      euclid: fileURLToPath(new URL("../../packages/euclid/src/index.ts", import.meta.url)),
-      rakotis: fileURLToPath(new URL("../../packages/rakotis/src/index.ts", import.meta.url)),
+      rakotis: fileURLToPath(new URL("../../node_modules/rakotis/src/index.ts", import.meta.url)),
     },
+  },
+  optimizeDeps: {
+    exclude: ["rakotis"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
