@@ -30,6 +30,11 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
+    // The Tauri desktop webview (WebKitGTK) otherwise disk-caches dev modules across
+    // sessions and can replay a stale module graph (e.g. a "SyntaxError: Importing
+    // binding name '…' is not found" after a refactor). `no-store` forbids caching
+    // dev responses so a restart always loads the current code.
+    headers: { "Cache-Control": "no-store" },
     host: host || false,
     hmr: host
       ? {
