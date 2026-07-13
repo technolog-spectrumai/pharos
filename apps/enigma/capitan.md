@@ -296,11 +296,18 @@ even before the removal commit propagates.
   `Participant` (already re-exported from rakotis).
 - `refreshP2pRoster`: sets `isCaptain` (D.4), gated on `currentRoomIsTor` so iroh
   rooms never get a star; the self row is covered by the same assignment.
-- [ParticipantRow.vue](apps/enigma/src/components/chat/ParticipantRow.vue): beside the
-  existing "On" badge —
-  `<OyaBadge v-if="participant.isCaptain" icon="star" tone="warn" title="Captain (onion host)">Host</OyaBadge>`.
+- [ParticipantRow.vue](apps/enigma/src/components/chat/ParticipantRow.vue): a **gold ★**
+  next to the name —
+  `<font-awesome-icon v-if="participant.isCaptain" icon="star" class="shrink-0 text-highlight" :title="$t('chat.captain')" />`.
+  The star is the `--color-highlight` palette token (`#facc15`, gold), consumed as
+  `text-highlight` — **not** a red `warn`/raw Tailwind yellow (see CONVENTIONS.md palette table).
 - [main.ts](apps/enigma/src/main.ts): register `faStar` (currently absent) in the
   Font Awesome import + `library.add(...)`, or the icon renders nothing.
+- **Also shown outside the roster (same gold ★, Tor only):** the create-success screen
+  ([CreateRoomModal.vue](apps/enigma/src/components/chat/CreateRoomModal.vue)) marks the
+  room creator as host, and each saved-room QR view
+  ([RoomInfoModal.vue](apps/enigma/src/components/chat/RoomInfoModal.vue)) re-shows the
+  host ★ — both via `text-highlight`.
 
 ---
 

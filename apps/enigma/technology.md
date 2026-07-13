@@ -421,10 +421,14 @@ A two-screen app (memory-history router, no URL bar):
 - **Chat** (`EnigmaChatView` / `ChatPanel`) — a responsive 3-column layout at desktop
   width (rooms sidebar · conversation · participants), collapsing to a hamburger drawer
   on mobile. It hosts:
-  - **Create room → QR:** name a room, get a ticket rendered as a QR (via `qrcode`) and
-    as copyable text.
-  - **Join:** paste a ticket, **scan a QR with the camera**, or **upload a QR image**
-    (both via `html5-qrcode`).
+  - **Create room → QR:** the rooms sidebar's **"New chat"** button opens
+    `CreateRoomModal` — name a room, a spinner covers the onion/iroh launch, then the
+    ticket renders as a QR (via `qrcode`) + copyable text with a "you're the host" badge
+    (gold ★ over Tor).
+  - **Join:** the **"Join a chat"** button opens `JoinRoomModal` — paste a ticket,
+    **scan a QR with the camera**, or **upload a QR image** (both via `html5-qrcode`);
+    a spinner runs through connecting → "encryption active" (waits for MLS). Each saved
+    room row also has a QR button (`RoomInfoModal`) that re-opens its ticket + host badge.
   - **Compose:** text (Enter to send), image attachments (with preview), voice notes
     (native recording in the app on desktop and mobile, `MediaRecorder` only in a plain
     browser), and an emoji picker.
@@ -435,7 +439,11 @@ A two-screen app (memory-history router, no URL bar):
   a "My identity" card showing the NodeId as text + QR; a **"Route over Tor"** switch),
   and **Data** (airplane/offline toggle; local data-profile loader).
 
-Styling is Tailwind v4 with a small in-repo "Oya" component kit (button, card).
+Styling is Tailwind v4 with a small in-repo "Oya" component kit (button, card). It is
+CSS-first: the design-token palette lives in the `@theme` block of
+`apps/enigma/src/style.css` (`--color-<role>` tokens), including the gold
+`--color-highlight` (`#facc15`) used for the host/captain ★ marker — see
+[CONVENTIONS.md](CONVENTIONS.md) for the full palette + naming reference.
 Dark mode defaults on but is not persisted across launches; locale is persisted.
 
 ---

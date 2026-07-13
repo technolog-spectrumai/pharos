@@ -47,8 +47,10 @@ Password change lives in **Settings → Data → "Reset passphrase."**
      window, swept on the next unlock). The switch's UI explains the tradeoff.
 5. **Unlock on launch only** (v1). One unlock per process; the DEK lives in memory
    for the session. No idle/background auto-lock yet (future enhancement).
-6. **Forgot passphrase → destructive wipe.** No recovery by design; the unlock
-   screen offers a strongly-confirmed "erase all data & start over."
+6. **No passphrase recovery.** By design there is no recovery and **no wipe-and-restart
+   shortcut on the unlock screen** — if the passphrase is lost the at-rest data is
+   permanently inaccessible. (A full destructive reset still exists, but only in
+   Settings → "Clear all data"; `vault_wipe` is not reachable from the unlock gate.)
 
 ## Architecture
 
@@ -59,7 +61,7 @@ Password change lives in **Settings → Data → "Reset passphrase."**
         ▲ path dep                         vault lifecycle + migration (Tauri-agnostic)
    enigma/src-tauri (lib.rs)            — vault_* commands, gating, wires persistence
         ▲ invoke
-   App.vue unlock gate + Settings       — setup/unlock/reset/forgot, stable-onion switch
+   App.vue unlock gate + Settings       — setup/unlock/reset, stable-onion switch
 ```
 Dependency paths: `src-tauri → protasius (../../../protasius) → gervasius
 (../cryptorotor/gervasius)`; `src-tauri → gervasius (../../../cryptorotor/gervasius)`.
@@ -222,7 +224,8 @@ standing plaintext exception, but the fs-mistrust check stays relaxed — update
   (`chatStore.syncRuntimeIdentity` / `userStore.loadOfflineProfile` / `chatStore.init`)
   behind unlock. On mount call `vaultStatus()`: `!exists` → **Setup** (new+confirm →
   `vault_setup`); `exists && !unlocked` → **Unlock** (enter → `vault_unlock`; wrong →
-  error; "Forgot passphrase?" → strong-confirm `vault_wipe` → back to Setup). Render
+  error). There is **no "Forgot passphrase?"** escape hatch — a lost passphrase means
+  the data is unrecoverable (the gate never wipes). Render
   a **non-dismissable** full-screen overlay (mirror `OyaModal`'s `fixed inset-0`
   teleport, **no** click-outside) instead of header/`RouterView`/footer until
   unlocked; only then run the loaders. `OyaTextField type="password"` + `OyaButton`;
@@ -271,7 +274,7 @@ standing plaintext exception, but the fs-mistrust check stays relaxed — update
 | `apps/enigma/src-tauri/src/p2p_iroh.rs` | `load_or_create_secret` → protasius `keys` (per-profile, fallible) |
 | `apps/enigma/src-tauri/src/p2p_tor.rs` | `load_or_create_peer_id` → protasius; `stable_onion` state-dir branch + managed keystore seal/extract in `ensure_started`/`shutdown` |
 | `apps/enigma/src-tauri/src/realtime.rs` | thread `ProtasiusState` through room commands |
-| `apps/enigma/src/App.vue` | unlock/setup/forgot gate |
+| `apps/enigma/src/App.vue` | unlock/setup gate (no forgot/wipe path) |
 | `apps/enigma/src/views/EnigmaConfigView.vue` | reset-passphrase card+modal; stable-onion switch |
 | `packages/rakotis/src/services/appStorage.ts` | `vault_*` + stable-onion wrappers, TS type |
 | `apps/enigma/src/i18n/{en,pl}.ts` | vault + stable-onion strings |
@@ -319,7 +322,7 @@ Deltas from the plan discovered while building + an adversarial review of the di
 
 Verified: `cargo test` — gervasius 10, protasius 7, backend 16; `cargo check` 0
 warnings; `vue-tsc` clean (both packages); `vitest` 70. The live desktop run
-(first-run passphrase → restart→unlock, reset, stable-onion, forgot→wipe) is the
+(first-run passphrase → restart→unlock, reset, stable-onion) is the
 remaining manual check below.
 
 ## Verification
@@ -336,5 +339,6 @@ remaining manual check below.
   4. Stable-onion ON → create a Tor room, note `.onion`, restart → same `.onion`; on
      disk while running the keystore exists, after clean close it's sealed in
      protasius + plaintext gone. Stable-onion OFF → `.onion` changes each restart.
-  5. Forgot passphrase → wipe (strong confirm) → back to Setup, store empty.
+  5. Lost passphrase → no recovery: the unlock gate offers no wipe/reset (the only
+     destructive reset is Settings → "Clear all data").
   6. Switch profile A→B while A unlocked → B shows its own Setup/Unlock gate.

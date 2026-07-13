@@ -170,7 +170,10 @@ joiner can connect — **seconds to tens of seconds on first run** (much slower
 than iroh's relay). Surface it honestly: emit `"connecting"` at launch and only
 `"connected"` when the first joiner stream is accepted. Optionally drive finer
 state from `RunningOnionService::status_events()` (`OnionServiceStatus`) to tell
-"still bootstrapping / not yet reachable" apart from "reachable".
+"still bootstrapping / not yet reachable" apart from "reachable". The frontend
+surfaces this delay directly: the create/join modal shows a circular spinner
+("Launching your onion service…") that clears only on the `"connected"` state, so a
+slow first descriptor publish reads as progress rather than a hang.
 
 ### 7. What the creator can and cannot see
 
@@ -336,9 +339,15 @@ end-to-end (the template is `offline`):
   (lines ~313-339) + an `onMounted` load; wired to `setUseTor`. New i18n keys
   (`useTor`, `useTorOnHint`, `useTorOffHint`) in `apps/enigma/src/i18n/en.ts`
   **and** `pl.ts`.
-- **Rendezvous (QR):** `chat/useP2pRooms.ts` and `chat/P2pCreateRoom.vue` already
-  render whatever ticket string `createRoom` returns, so an onion-bearing ticket
-  flows through the existing QR generate/scan UX unchanged.
+- **Rendezvous (QR):** `chat/useP2pRooms.ts` and the create/join modals
+  (`chat/CreateRoomModal.vue` / `chat/JoinRoomModal.vue`, plus `RoomInfoModal.vue`
+  which re-opens a saved room's QR) render whatever ticket string `createRoom`
+  returns, so an onion-bearing ticket flows through the existing QR generate/scan UX
+  unchanged. Create/join now run in a **modal with a circular spinner + live status +
+  Close** (rather than an always-on inline form): create shows *"Launching your onion
+  service…"* over Tor (*"Creating your room…"* over iroh) then *"You're the room host"*
+  + the QR to share; join steps through connecting → encrypting → *"Connected —
+  encryption active"* (waits for MLS `isEncrypted`).
 
 ---
 
@@ -376,6 +385,12 @@ who hosts.
   `app_data_dir()/profiles/<profile>/tor/state/keystore/…` (from
   `TorClientConfigBuilder::from_directories`), beside the existing per-profile
   `iroh_gossip.key` and `mls_*.bin`.
+- **Keystore reset (recovery path):** `p2p_tor::clean_keystore` (Tauri command
+  `tor_clean_keystore`) tears the node down *without* sealing, removes the on-disk
+  state/keystore dir, and clears the persisted key — so the next launch drops any
+  stale lock and mints a **fresh `.onion`**. Wired into the Settings "Clear selected
+  data" flow (`EnigmaConfigView.clearSelectedOfflineData` → `cleanTorKeystore`), the
+  escape hatch when a stale lock or bad key blocks launch.
 
 ---
 
@@ -408,6 +423,14 @@ who hosts.
   `cfg_builder.storage().permissions().dangerously_trust_everyone()`. Safe here —
   the dir is user-owned and the app already stores plaintext keys there. Regression
   test: `p2p_tor::tests::relaxed_permissions_accept_a_loose_state_dir`.
+- **Stale onion lockfile → "resource already in use" (HIT + fixed).** A crash — or a
+  keystore restored from a sealed archive — can leave arti's lockfile behind, so the
+  next `launch_onion_service` fails with *"local resource … already in use."*
+  `ensure_started` now runs `clear_lockfiles()` (recursive, matches any `*lock*` file)
+  before building the client, and `archive_dir` **skips lockfiles** so a stale lock is
+  never sealed into the keystore archive in the first place. `create_room` also has a
+  **double-launch guard**: after launching it re-checks the room under the state lock
+  and aborts its duplicate onion if a concurrent create won the race.
 - **sqlite `links="sqlite3"` collision.** `onion-service-service` adds
   `keymgr`/`tor-persist`/`tor-hsservice` but **no new sqlite** — `rusqlite` still
   comes only from `tor-dirmgr` (already handled by the Android bundled pin). No

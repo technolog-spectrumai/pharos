@@ -4,7 +4,8 @@ How to run Enigma locally. Enigma is a **serverless P2P chat** (Tauri 2 + Vue 3;
 iroh QUIC transport, MLS encryption). There is no backend to start — two app
 instances pair directly over a QR code. For build/packaging see
 [build.md](build.md); for the rework background see
-[serverless_plan.md](serverless_plan.md).
+[serverless_plan.md](serverless_plan.md); for naming/palette/config conventions
+and where each config value canonically lives, see [CONVENTIONS.md](CONVENTIONS.md).
 
 ---
 

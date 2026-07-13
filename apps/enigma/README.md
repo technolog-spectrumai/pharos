@@ -60,11 +60,16 @@ enigma/
 │   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma)
 ├── cryptorotor/              # vendored crypto (Rust): rotor_core / rotor_wasm / rotor_py
 ├── limbo/                    # parked features (voice calls, file transfer)
+├── CONVENTIONS.md            # naming, colour palette, config sources of truth
 ├── serverless_plan.md        # the rework plan/record
 ├── run_dev.sh                # launch a dev instance with a profile
 ├── build_desktop.sh          # one-click release build
 └── scripts/                  # Android build helpers
 ```
+
+See [CONVENTIONS.md](CONVENTIONS.md) for the naming scheme, colour palette, and
+config sources of truth — brand / policy / dev constants live in
+[`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts).
 
 ## Install
 
@@ -109,7 +114,9 @@ python apps/enigma/e2e.py   # Playwright smoke tier (no backend — there is non
 
 ## Pairing quick-start
 
-1. **A**: Chat → *New chat* → name it → **Create**. A QR code appears.
+1. **A**: Chat → *New chat* → name it → **Create**. A modal spins up the room,
+   then shows **You're the room host** with the QR to share (gold ★ host badge
+   over Tor). Every saved room keeps a **QR** button to reopen its code later.
 2. **B**: Chat → *Join a chat* → scan the QR (camera / image) or paste the ticket.
 3. Both sides show **Encrypted** once the MLS handshake completes — that's it.
    From now on the app reconnects automatically; no server, no accounts.

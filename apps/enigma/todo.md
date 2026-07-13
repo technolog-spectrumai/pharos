@@ -47,10 +47,11 @@ room creator hosts one onion service and relays MLS ciphertext to joiners (1:1 i
 N=2). Full record in [tor.md](tor.md). Multi-peer **mesh over Tor** stays out of
 scope. `tor.rs` remains the outbound Arti client base.
 
-**Follow-up — captain election for the onion host.** The onion host is currently
-the room **creator**, hardcoded — a fixed manual "captain" and a single point of
-failure (offline creator ⇒ room down). Elect the host automatically (e.g. lowest
-NodeId among members) with failover so hosting isn't tied to the creator.
+**Follow-up — captain election for the onion host. ✅ DONE.** The onion host is now
+**auto-elected** (lowest MLS identity among members) with loop-free tree-relay and
+failover, so hosting is no longer tied to the creator (offline captain ⇒ re-election).
+The captain is marked with a gold **★** on their profile row. Full record in
+[capitan.md](capitan.md).
 
 ### 3. Cold-start reconnection edge case
 If **every** member of a room is offline long enough for iroh's n0 discovery
@@ -68,7 +69,9 @@ groups.
 encrypts ALL app state through the new **`protasius`** store (built on the
 **`gervasius`** primitives crate): profile PII/settings, MLS session/signing keys,
 iroh key, room list. Unlock gate on launch; "Reset passphrase" in Settings → Data;
-forgot → wipe. The arti onion keystore is **managed** (sealed into protasius,
+**no forgot-recovery** — a lost passphrase is unrecoverable and the gate has no wipe
+(the only destructive reset is Settings → "Clear all data"). The arti onion keystore
+is **managed** (sealed into protasius,
 materialized on disk only while unlocked, wiped on lock/exit) behind the "keep onion
 stable" switch. Full record in [at_rest.md](at_rest.md).
 
