@@ -1,3 +1,6 @@
+// FIRST import: registers fatal-error handlers before any other module evaluates,
+// so startup failures surface on-page instead of a silent white screen.
+import { installVueErrorHandler } from "./errorOverlay";
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import "./style.css";
@@ -232,9 +235,11 @@ library.add(
   faDesktop,
 );
 
-createApp(App)
+const app = createApp(App)
   .use(createPinia())
   .use(router)
   .use(i18n)
-  .component("font-awesome-icon", FontAwesomeIcon)
-  .mount("#app");
+  .component("font-awesome-icon", FontAwesomeIcon);
+
+installVueErrorHandler(app);
+app.mount("#app");
