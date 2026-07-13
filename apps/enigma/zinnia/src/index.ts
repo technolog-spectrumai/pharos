@@ -22,7 +22,22 @@ export {
 export type { Locale, AppI18n } from "./i18n";
 
 // ── UI components (Oya primitives) ────────────────────────────────────────────
-export * from "./components/primitives";
+// Explicit single-level re-exports (NOT `export *` through a sub-barrel): WebKit's
+// JavaScriptCore fails to resolve a two-level `export * → export { default as … }`
+// chain in unbundled dev ESM ("Importing binding name 'X' is not found"), even
+// though bundlers flatten it fine. Keep these direct.
+export { default as OyaButton } from "./components/primitives/OyaButton.vue";
+export { default as OyaCard } from "./components/primitives/OyaCard.vue";
+export { default as OyaIconButton } from "./components/primitives/OyaIconButton.vue";
+export { default as OyaTextField } from "./components/primitives/OyaTextField.vue";
+export { default as OyaTextArea } from "./components/primitives/OyaTextArea.vue";
+export { default as OyaBadge } from "./components/primitives/OyaBadge.vue";
+export { default as OyaCopyField } from "./components/primitives/OyaCopyField.vue";
+export { default as OyaQrCode } from "./components/primitives/OyaQrCode.vue";
+export { default as OyaAvatar } from "./components/primitives/OyaAvatar.vue";
+export { default as OyaEmptyState } from "./components/primitives/OyaEmptyState.vue";
+export { default as OyaSectionHeader } from "./components/primitives/OyaSectionHeader.vue";
+export { default as OyaModal } from "./components/primitives/OyaModal.vue";
 
 // ── Crypto bridge (Rotor-backed MLS) ──────────────────────────────────────────
 export { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
