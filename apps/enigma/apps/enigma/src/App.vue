@@ -10,6 +10,13 @@ const darkMode = ref(true);
 const menuOpen = ref(false);
 const route = useRoute();
 
+// Class-based dark mode: toggle `.dark` on <html> so every `dark:` utility across the
+// app (Oya primitives + chat surface) reacts. The `:dark-mode` prop is still passed to
+// the not-yet-migrated Config/Profile views below during the transition.
+watch(darkMode, (on) => {
+  document.documentElement.classList.toggle("dark", on);
+}, { immediate: true });
+
 const userStore = useUserStore();
 const chatStore = useChatStore();
 const { displayName } = storeToRefs(userStore);
@@ -34,13 +41,11 @@ watch(() => route.path, () => {
 
 <template>
   <div
-    :class="darkMode ? 'bg-primary-bg-dark text-text-main-dark' : 'bg-primary-bg-light text-text-main-light'"
-    class="min-h-screen flex flex-col font-sans transition-colors duration-300"
+    class="min-h-screen flex flex-col font-sans transition-colors duration-300 bg-primary-bg-light text-text-main-light dark:bg-primary-bg-dark dark:text-text-main-dark"
   >
     <!-- Header -->
     <header
-      :class="darkMode ? 'bg-header-bg-dark text-appbar-text-dark' : 'bg-header-bg-light text-appbar-text-light'"
-      class="sticky top-0 z-50 border-b border-current/10 shadow-md pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+      class="sticky top-0 z-50 border-b border-current/10 shadow-md pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-header-bg-light text-appbar-text-light dark:bg-header-bg-dark dark:text-appbar-text-dark"
     >
       <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
 
@@ -96,8 +101,7 @@ watch(() => route.path, () => {
       >
         <div
           v-if="menuOpen"
-          :class="darkMode ? 'bg-header-bg-dark border-accent-1' : 'bg-header-bg-light border-accent-2'"
-          class="lg:hidden border-t divide-y divide-current/10"
+          class="lg:hidden border-t divide-y divide-current/10 bg-header-bg-light border-accent-2 dark:bg-header-bg-dark dark:border-accent-1"
         >
           <RouterLink to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
@@ -132,8 +136,7 @@ watch(() => route.path, () => {
 
     <!-- Footer -->
     <footer
-      :class="darkMode ? 'bg-footer-bg-dark text-footer-text-dark' : 'bg-footer-bg-light text-footer-text-light'"
-      class="border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+      class="border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-footer-bg-light text-footer-text-light dark:bg-footer-bg-dark dark:text-footer-text-dark"
     >
       <p class="opacity-90">© www.spectrumai.pl. All rights reserved.</p>
     </footer>

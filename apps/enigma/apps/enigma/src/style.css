@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: the `.dark` class on <html> (toggled in App.vue) drives every
+   `dark:` utility, replacing the old per-component `darkMode` boolean prop. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Scan the shared rakotis package source so its components' utility classes are generated. */
 @source "../../../packages/rakotis/src";
 

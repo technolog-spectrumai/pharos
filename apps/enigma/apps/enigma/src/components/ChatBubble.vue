@@ -1,34 +1,19 @@
 <script setup lang="ts">
+import { OyaAvatar } from "rakotis";
 import type { Message } from "../stores/chat";
 
-defineProps<{
-  darkMode: boolean;
-  message: Message;
-}>();
+defineProps<{ message: Message }>();
 </script>
 
 <template>
-  <article
-    class="flex min-w-0 gap-3"
-    :class="message.self ? 'justify-end' : 'justify-start'"
-  >
-    <div
+  <article class="flex min-w-0 gap-3" :class="message.self ? 'justify-end' : 'justify-start'">
+    <OyaAvatar
       v-if="!message.self"
-      :class="
-        message.type === 'system_error' || message.type === 'system_info'
-          ? 'border-current/20 opacity-50'
-          : darkMode ? 'border-accent-1' : 'border-accent-2'
-      "
-      class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border text-xs font-bold"
-    >
-      <img
-        v-if="message.avatar_url"
-        :src="message.avatar_url"
-        :alt="message.user"
-        class="h-full w-full object-cover"
-      />
-      <span v-else>{{ message.initials }}</span>
-    </div>
+      :name="message.user"
+      :src="message.avatar_url"
+      :initials="message.initials"
+      :muted="message.type === 'system_error' || message.type === 'system_info'"
+    />
 
     <div
       :class="[
@@ -36,9 +21,7 @@ defineProps<{
           ? 'border-warn-dark bg-warn-dark/10 text-warn-dark'
           : message.type === 'system_info'
             ? 'border-current/10 opacity-60 italic'
-            : darkMode
-              ? 'bg-bubble-bg-dark border-accent-1'
-              : 'bg-bubble-bg-light border-accent-2',
+            : 'bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1',
         message.self ? 'text-right' : '',
       ]"
       class="min-w-0 max-w-[calc(100%-3.25rem)] overflow-hidden rounded-lg border p-3 shadow-sm sm:max-w-[78%] xl:max-w-[42rem]"
@@ -52,11 +35,7 @@ defineProps<{
         rel="noopener noreferrer"
         class="mt-1 block"
       >
-        <img
-          :src="message.image_data"
-          alt="image"
-          class="max-h-64 max-w-full rounded object-contain"
-        />
+        <img :src="message.image_data" alt="image" class="max-h-64 max-w-full rounded object-contain" />
       </a>
       <audio
         v-else-if="message.type === 'voice_message' && message.audio_data"
@@ -68,10 +47,7 @@ defineProps<{
         {{ message.content }}
       </p>
 
-      <p
-        class="mt-1 flex items-center gap-1 text-[10px] opacity-40"
-        :class="message.self ? 'justify-end' : ''"
-      >
+      <p class="mt-1 flex items-center gap-1 text-[10px] opacity-40" :class="message.self ? 'justify-end' : ''">
         <font-awesome-icon
           v-if="message.encrypted"
           icon="lock"
@@ -82,18 +58,11 @@ defineProps<{
       </p>
     </div>
 
-    <div
+    <OyaAvatar
       v-if="message.self"
-      :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-      class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border text-xs font-bold"
-    >
-      <img
-        v-if="message.avatar_url"
-        :src="message.avatar_url"
-        :alt="message.user"
-        class="h-full w-full object-cover"
-      />
-      <span v-else>{{ message.initials }}</span>
-    </div>
+      :name="message.user"
+      :src="message.avatar_url"
+      :initials="message.initials"
+    />
   </article>
 </template>

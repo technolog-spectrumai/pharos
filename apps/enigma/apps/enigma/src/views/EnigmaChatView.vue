@@ -2,7 +2,9 @@
 import { useChatStore } from "../stores/chat";
 import ChatPanel from "../components/ChatPanel.vue";
 
-defineProps<{ darkMode: boolean }>();
+// darkMode is now class-based (`.dark` on <html>); the prop is declared only to
+// absorb the fall-through attr App.vue still passes during the Config/Profile transition.
+defineProps<{ darkMode?: boolean }>();
 
 const chat = useChatStore();
 </script>
@@ -12,7 +14,7 @@ const chat = useChatStore();
     <!-- Single serverless P2P chat surface: create a room (show its QR) or join
          one (scan / paste a ticket) from the panel's sidebar. -->
     <div class="min-h-0 flex-1">
-      <ChatPanel :dark-mode="darkMode" :channel="chat.p2p" />
+      <ChatPanel :channel="chat.p2p" />
     </div>
   </div>
 </template>
