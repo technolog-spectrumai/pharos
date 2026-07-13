@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 use tor_cell::relaycell::msg::Connected;
 use tor_hsservice::config::OnionServiceConfigBuilder;
 use tor_hsservice::{handle_rend_requests, HsNickname, RendRequest, RunningOnionService};
@@ -91,6 +91,12 @@ pub struct Node {
     /// Whether the onion is stable (persist the HS key, encrypted at rest) vs
     /// ephemeral (fresh key each session).
     stable: bool,
+    /// Cancel signal for the currently in-flight join, if any. The frontend's
+    /// "Cancel" button fires it to abort a hanging join — dropping the
+    /// half-launched onion so arti releases its keystore lock and a retry doesn't
+    /// fail with "local resource … already in use". Single slot: the join modal
+    /// only ever runs one join at a time.
+    join_cancel: Option<oneshot::Sender<()>>,
 }
 
 /// One Tor room from this member's view. Every member hosts its own onion + relay
@@ -333,6 +339,7 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
         rooms: HashMap::new(),
         state_dir,
         stable,
+        join_cancel: None,
     });
     Ok(())
 }
@@ -369,6 +376,25 @@ fn clear_lockfiles(dir: &std::path::Path) {
                 let _ = std::fs::remove_file(&p);
             }
         }
+    }
+}
+
+/// Before launching an onion: if NO room is currently live, clear any stale arti
+/// lockfile left behind by a failed or cancelled previous launch — otherwise
+/// `launch_onion_service` fails with "local resource … already in use" on the retry
+/// (`ensure_started` only clears locks once, at first bootstrap). Guarded on "no
+/// live room" so we never delete a lock belonging to another active onion sharing
+/// this profile's state dir.
+async fn clear_stale_locks_if_idle(state: &TorP2pState) {
+    let dir = {
+        let guard = state.0.lock().await;
+        match guard.as_ref() {
+            Some(node) if node.rooms.is_empty() => Some(node.state_dir.clone()),
+            _ => None,
+        }
+    };
+    if let Some(dir) = dir {
+        clear_lockfiles(&dir);
     }
 }
 
@@ -438,6 +464,9 @@ type HostParts = (
 );
 
 async fn host_onion(app: &AppHandle, state: &TorP2pState, room: &str, name: &str) -> Result<HostParts> {
+    // Drop any stale lock from a prior failed/cancelled launch (idle only) so this
+    // launch doesn't hit "local resource … already in use".
+    clear_stale_locks_if_idle(state).await;
     let client = client_of(state).await?;
     let nick = nickname_for(name)?;
     let svc_cfg = OnionServiceConfigBuilder::default()
@@ -545,43 +574,115 @@ pub async fn join_room(
     let my_id = load_or_create_peer_id(app)?;
     emit_status(app, &room, "connecting", 0, None);
 
-    // Host my own onion first (failover candidate / future captain).
-    let (my_onion, service, peers, accept_task, up) = host_onion(app, state, &room, &t.name).await?;
-
-    // Dial the initial captain synchronously so a bad onion fails loudly.
-    let client = client_of(state).await?;
-    let (rd, wr) = dial_and_handshake(&client, &t.onion, &t.name, &my_id).await?;
-    *up.lock().await = Some(wr);
-    let task = spawn_captain_manager(
-        app.clone(),
-        room.clone(),
-        t.name.clone(),
-        client,
-        my_id,
-        t.onion.clone(),
-        up.clone(),
-        peers.clone(),
-        Some(rd),
-    );
-
+    // Register a cancel channel so the frontend's "Cancel" button can abort this
+    // join while it is hosting the onion / dialling the captain (the slow, failure-
+    // prone Tor steps). Signal any prior in-flight join first — its onion would hold
+    // the same keystore lock and make ours fail "already in use".
+    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
     {
         let mut guard = state.0.lock().await;
         let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
-        node.rooms.insert(
-            room.clone(),
-            MemberRoom {
-                name: t.name.clone(),
-                my_onion: my_onion.clone(),
-                _service: service,
-                peers,
-                accept_task,
-                up,
-                outbound: Some(Outbound { captain_onion: t.onion.clone(), task }),
-            },
-        );
+        if let Some(prev) = node.join_cancel.take() {
+            let _ = prev.send(());
+        }
+        node.join_cancel = Some(cancel_tx);
     }
-    emit_status(app, &room, "connected", 1, Some(t.onion));
-    Ok((room, t.name, my_onion))
+
+    // The cancellable body: host my own onion (failover / future captain), dial the
+    // ticket's captain, then register the room. If `cancel_rx` fires first, this
+    // future is DROPPED at its current await point — which drops the onion `service`
+    // (releasing arti's lock) so a retry launches cleanly.
+    let body = async {
+        let (my_onion, service, peers, accept_task, up) = host_onion(app, state, &room, &t.name).await?;
+        // Dial the initial captain synchronously so a bad onion fails loudly.
+        let client = client_of(state).await?;
+        let (rd, wr) = dial_and_handshake(&client, &t.onion, &t.name, &my_id).await?;
+        *up.lock().await = Some(wr);
+        let task = spawn_captain_manager(
+            app.clone(),
+            room.clone(),
+            t.name.clone(),
+            client,
+            my_id.clone(),
+            t.onion.clone(),
+            up.clone(),
+            peers.clone(),
+            Some(rd),
+        );
+        {
+            let mut guard = state.0.lock().await;
+            let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
+            node.rooms.insert(
+                room.clone(),
+                MemberRoom {
+                    name: t.name.clone(),
+                    my_onion: my_onion.clone(),
+                    _service: service,
+                    peers,
+                    accept_task,
+                    up,
+                    outbound: Some(Outbound { captain_onion: t.onion.clone(), task }),
+                },
+            );
+        }
+        Ok::<(String, String, String), anyhow::Error>((room.clone(), t.name.clone(), my_onion))
+    };
+
+    let result = tokio::select! {
+        r = body => r,
+        _ = cancel_rx => Err(anyhow!("join cancelled")),
+    };
+
+    // Release our cancel slot (the UI serialises joins, so it is still ours).
+    {
+        let mut guard = state.0.lock().await;
+        if let Some(node) = guard.as_mut() {
+            node.join_cancel = None;
+        }
+    }
+
+    match result {
+        Ok(joined) => {
+            emit_status(app, &room, "connected", 1, Some(t.onion));
+            Ok(joined)
+        }
+        Err(e) => {
+            // Cancelled or failed: no room was registered. Signal disconnected so the
+            // status map is consistent for a retry.
+            emit_status(app, &room, "disconnected", 0, None);
+            Err(e)
+        }
+    }
+}
+
+/// Cancel any in-flight Tor join. Fires the join's cancel signal (dropping the
+/// half-launched onion so arti releases its keystore lock) and, when no room is
+/// live, clears any leftover lockfile so the next attempt launches cleanly. A no-op
+/// when nothing is joining.
+pub async fn cancel_join(state: &TorP2pState) {
+    let (tx, state_dir) = {
+        let mut guard = state.0.lock().await;
+        match guard.as_mut() {
+            Some(node) => (
+                node.join_cancel.take(),
+                node.rooms.is_empty().then(|| node.state_dir.clone()),
+            ),
+            None => (None, None),
+        }
+    };
+    let had_pending = tx.is_some();
+    if let Some(tx) = tx {
+        let _ = tx.send(());
+    }
+    // Give the aborted join a moment to drop its onion service, then clear any stale
+    // lock so the retry's `launch_onion_service` doesn't hit "resource already in
+    // use". Only when idle (no live onion whose lock we'd wrongly delete).
+    if had_pending {
+        if let Some(dir) = state_dir {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            clear_lockfiles(&dir);
+        }
+    }
 }
 
 /// Re-point this member's outbound dial to `captain_onion` (the elected captain).

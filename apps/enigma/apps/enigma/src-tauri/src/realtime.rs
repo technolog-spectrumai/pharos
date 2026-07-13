@@ -160,6 +160,16 @@ pub async fn realtime_leave_room(
     Ok(())
 }
 
+/// Cancel an in-flight Tor join (the join modal's "Cancel" button). Aborts the
+/// hanging onion-launch/dial so it releases arti's keystore lock, letting the user
+/// retry without a "local resource … already in use" error. No-op for iroh joins
+/// (and when nothing is joining), so it is safe to call unconditionally.
+#[tauri::command]
+pub async fn realtime_cancel_join(tor: State<'_, TorP2pState>) -> Result<(), String> {
+    p2p_tor::cancel_join(&tor).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn realtime_node_info(
     app: AppHandle,

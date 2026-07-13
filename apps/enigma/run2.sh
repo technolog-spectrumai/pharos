@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Run two Enigma dev instances side by side (default profiles: alice + bob) so you
+# can exercise a P2P chat between two identities on one machine.
+#
+#   ./run2.sh [profile-a] [profile-b]        # defaults: alice bob
+#
+# Each instance gets its own APP_PROFILE / CHAT_USER, so they keep separate data
+# dirs and identity namespaces (no cross-instance identity reuse). Both instances
+# share a single Vite dev server on :1420 — the first instance starts it, the
+# second reuses it (see apps/enigma/scripts/tauri-dev-server.mjs), so there is no
+# port collision. The two Rust/webview app processes are independent.
+#
+# Note: because the Vite server is a child of the first instance, closing the
+# first instance also stops Vite. This script therefore ties the two together:
+# Ctrl-C — or either instance exiting — tears both down.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR/apps/enigma"
+
+PROFILE_A="${1:-alice}"
+PROFILE_B="${2:-bob}"
+VITE_PORT=1420
+
+# Kill every process in this script's process group on exit, so no orphan vite /
+# cargo / app process survives a Ctrl-C.
+cleanup() {
+  trap - INT TERM EXIT
+  echo ""
+  echo "[run2] shutting down both instances…"
+  kill -- -$$ 2>/dev/null || true
+}
+trap cleanup INT TERM EXIT
+
+launch() {
+  local profile="$1"
+  echo "[run2] starting instance: profile=$profile"
+  # Subshell mirrors run_dev.sh (cd into the app, then `npm run tauri dev`).
+  # Output is line-prefixed with the profile so the two logs stay distinguishable.
+  (
+    cd "$APP_DIR"
+    APP_PROFILE="$profile" CHAT_USER="$profile" npm run tauri dev
+  ) 2>&1 | sed -u "s/^/[$profile] /" &
+}
+
+# Poll a TCP port using bash's /dev/tcp until it accepts a connection.
+wait_for_port() {
+  local port="$1" tries=240 # ~120s
+  for ((i = 0; i < tries; i++)); do
+    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      exec 3>&- 3<&-
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+# Start the first instance; it owns the shared Vite server. Wait until Vite is
+# accepting connections before starting the second, otherwise both could race to
+# bind :1420 (strictPort) and one would fail to start.
+launch "$PROFILE_A"
+echo "[run2] waiting for the Vite dev server on :$VITE_PORT…"
+if ! wait_for_port "$VITE_PORT"; then
+  echo "[run2] ERROR: Vite never came up on :$VITE_PORT" >&2
+  exit 1
+fi
+echo "[run2] Vite is up — starting second instance"
+launch "$PROFILE_B"
+
+# Block until either instance exits; the EXIT trap then tears the other down.
+wait -n

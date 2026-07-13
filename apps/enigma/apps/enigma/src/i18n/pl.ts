@@ -97,6 +97,8 @@ export default {
     connectedOk: "Połączono — szyfrowanie aktywne.",
     launchFailed: "Nie udało się uruchomić usługi onion.",
     retry: "Spróbuj ponownie",
+    cancelJoin: "Anuluj",
+    cancelling: "Anulowanie…",
     close: "Zamknij",
   },
   profile: {

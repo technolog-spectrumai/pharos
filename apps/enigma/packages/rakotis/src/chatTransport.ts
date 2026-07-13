@@ -38,6 +38,9 @@ export interface ChatTransport {
   joinRoom(ticket: string, peerNodeIds?: string[]): Promise<JoinedRoom>;
   /** Ticketless reconnect: re-subscribe to a named room from persisted peer NodeIds. */
   joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom>;
+  /** Abort an in-flight Tor join (frees the onion lock so a retry doesn't hit
+   *  "resource already in use"). No-op for iroh joins / when nothing is joining. */
+  cancelJoin(): void;
   leaveRoom(room: string): void;
   /** Re-point our outbound onion dial to the elected captain (Tor rooms only). */
   setCaptain(room: string, captainOnion: string): void;
@@ -100,6 +103,10 @@ class GatewayChatTransport implements ChatTransport {
     return _invoke<JoinedRoom>("realtime_join_room_by_node", { name, peerNodeIds });
   }
 
+  cancelJoin(): void {
+    void _invoke("realtime_cancel_join").catch(() => {});
+  }
+
   leaveRoom(room: string): void {
     this.roomStatus.delete(room);
     void _invoke("realtime_leave_room", { room }).catch(() => {});
@@ -147,6 +154,7 @@ class StubChatTransport implements ChatTransport {
   joinRoomByNode(): Promise<JoinedRoom> {
     return Promise.reject(new Error(P2P_REQUIRES_APP));
   }
+  cancelJoin(): void {}
   leaveRoom(): void {}
   setCaptain(): void {}
   nodeInfo(): Promise<{ node_id: string } | null> {
