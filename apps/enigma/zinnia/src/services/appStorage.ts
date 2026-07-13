@@ -115,6 +115,12 @@ export async function vaultWipe(): Promise<void> {
   if (isTauri()) await invoke("vault_wipe");
 }
 
+/// Reset the Tor onion keystore (identity) — clears stale locks; next Tor room mints
+/// a fresh .onion. Wired into "Clear selected data".
+export async function cleanTorKeystore(): Promise<void> {
+  if (isTauri()) await invoke("tor_clean_keystore");
+}
+
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────
 
 export async function getRuntimeConfig(): Promise<AppRuntimeConfig> {

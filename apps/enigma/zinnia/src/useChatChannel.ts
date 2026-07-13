@@ -667,6 +667,9 @@ export function useChatChannel() {
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = tor;
       myOnion.value = res.onion;
+      // Run the election now so the sole-member creator is marked captain (★) over
+      // Tor immediately — before any joiner arrives.
+      void refreshP2pRoster();
       messages.value.push(systemMsg(`Created “${res.name}”. Share the QR / ticket to invite peers.`));
       return res.ticket;
     } catch (e) {
@@ -886,7 +889,7 @@ export function useChatChannel() {
   return {
     currentRoom, messages, participants,
     wsStatus, error, isConnected, unread, clearUnread,
-    mlsStatus, mlsError, isEncrypted,
+    mlsStatus, mlsError, isEncrypted, currentRoomIsTor,
     isParticipant, currentUserName, mlsIdentity,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
