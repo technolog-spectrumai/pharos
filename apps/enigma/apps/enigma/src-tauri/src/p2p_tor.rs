@@ -309,6 +309,10 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
         d
     };
 
+    // Remove any stale arti lockfile (crash leftover, or restored from an archive)
+    // so `launch_onion_service` doesn't fail with "local resource … already in use".
+    clear_lockfiles(&state_dir);
+
     let mut cfg_builder = TorClientConfigBuilder::from_directories(state_dir.clone(), cache_dir);
     // Relax arti's fs-mistrust: it refuses a state/keystore dir that is (or whose
     // ancestor is) group/other-writable, which fails on a permissive umask or a
@@ -348,6 +352,26 @@ fn is_dir_empty(dir: &std::path::Path) -> bool {
     std::fs::read_dir(dir).map(|mut it| it.next().is_none()).unwrap_or(true)
 }
 
+/// A stale arti lockfile (from a crash, or restored from a sealed archive) makes
+/// `launch_onion_service` fail with "local resource … already in use". These locks
+/// are recreated on launch, so removing any left behind is safe.
+fn is_lockfile(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("lock")
+}
+
+fn clear_lockfiles(dir: &std::path::Path) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                clear_lockfiles(&p);
+            } else if p.file_name().and_then(|n| n.to_str()).map(is_lockfile).unwrap_or(false) {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+    }
+}
+
 /// Serialize a directory tree (relative path + bytes) into one blob, for sealing
 /// arti's keystore into protasius.
 fn archive_dir(dir: &std::path::Path) -> Result<Vec<u8>> {
@@ -356,6 +380,9 @@ fn archive_dir(dir: &std::path::Path) -> Result<Vec<u8>> {
             let path = entry?.path();
             if path.is_dir() {
                 walk(root, &path, out)?;
+            } else if path.file_name().and_then(|n| n.to_str()).map(is_lockfile).unwrap_or(false) {
+                // Never seal a lockfile — restoring it later would block the launch.
+                continue;
             } else if let Ok(rel) = path.strip_prefix(root) {
                 out.push((rel.to_string_lossy().into_owned(), std::fs::read(&path)?));
             }
@@ -478,6 +505,13 @@ pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> 
     {
         let mut guard = state.0.lock().await;
         let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
+        // A concurrent create for the same room won the race while we were launching:
+        // drop our duplicate service (it holds the same nickname/lock) and return theirs.
+        if let Some(mr) = node.rooms.get(&room) {
+            accept_task.abort();
+            let ticket = TorTicket { onion: mr.my_onion.clone(), port: ONION_PORT, name: name.clone() }.encode();
+            return Ok((room, ticket, mr.my_onion.clone()));
+        }
         node.rooms.insert(
             room.clone(),
             MemberRoom {
@@ -701,6 +735,31 @@ pub async fn shutdown(app: &AppHandle, state: &TorP2pState) {
             let _ = std::fs::remove_dir_all(&state_dir);
         }
     }
+}
+
+/// Reset the onion identity: tear the node down WITHOUT sealing, wipe the on-disk
+/// keystore, and drop the sealed copy from protasius. The next launch mints a fresh
+/// `.onion` (and any stale lock is gone). Wired into "Clear selected data".
+pub async fn clean_keystore(app: &AppHandle, state: &TorP2pState) {
+    {
+        let mut guard = state.0.lock().await;
+        if let Some(mut node) = guard.take() {
+            let rooms: Vec<String> = node.rooms.keys().cloned().collect();
+            for (_, mr) in node.rooms.drain() {
+                mr.accept_task.abort();
+                if let Some(out) = mr.outbound {
+                    out.task.abort();
+                }
+            }
+            let state_dir = node.state_dir.clone();
+            drop(node);
+            let _ = std::fs::remove_dir_all(&state_dir);
+            for room in rooms {
+                emit_status(app, &room, "disconnected", 0, None);
+            }
+        }
+    }
+    let _ = crate::vault::delete(app, "keys", "tor_keystore");
 }
 
 // ── outbound: dial the captain, read, reconnect ────────────────────────────────

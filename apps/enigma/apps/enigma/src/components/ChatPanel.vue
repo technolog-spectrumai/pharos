@@ -10,6 +10,9 @@ import MessageComposer from "./chat/MessageComposer.vue";
 import RoomsSidebar from "./chat/RoomsSidebar.vue";
 import ParticipantsPanel from "./chat/ParticipantsPanel.vue";
 import QrScannerModal from "./chat/QrScannerModal.vue";
+import CreateRoomModal from "./chat/CreateRoomModal.vue";
+import JoinRoomModal from "./chat/JoinRoomModal.vue";
+import RoomInfoModal from "./chat/RoomInfoModal.vue";
 import MobileRoomsDrawer from "./chat/MobileRoomsDrawer.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
@@ -18,6 +21,7 @@ const { currentRoom, error, isParticipant } = channel;
 
 // Shared P2P room state — one instance feeds both the desktop sidebar and the drawer.
 const p2p = useP2pRooms(channel);
+const { createOpen, joinOpen, infoOpen } = p2p;
 const sidebarOpen = ref(false);
 const scanning = ref(false);
 
@@ -35,7 +39,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
         <h2 class="text-sm font-bold"><font-awesome-icon icon="comments" class="mr-2" />{{ $t("chat.p2p") }}</h2>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-4">
-        <RoomsSidebar :channel="channel" :controller="p2p" :scanning="scanning" @toggle-camera="scanning = !scanning" />
+        <RoomsSidebar :channel="channel" :controller="p2p" />
       </div>
     </aside>
 
@@ -75,16 +79,21 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <!-- Off-screen mount point for html5-qrcode's scan-from-image-file flow. -->
     <div id="p2p-qr-file-region" class="hidden"></div>
 
-    <!-- QR camera scanner (shared by desktop sidebar + mobile drawer) -->
-    <QrScannerModal v-model:open="scanning" @decoded="channel.joinByTicket($event)" />
+    <!-- QR camera scanner (feeds the join modal's progress via the controller) -->
+    <QrScannerModal v-model:open="scanning" @decoded="p2p.joinTicket($event)" />
 
-    <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->
-    <MobileRoomsDrawer
-      v-model:open="sidebarOpen"
+    <!-- Create / Join modals (teleport to body, so they also cover the mobile drawer) -->
+    <CreateRoomModal v-model:open="createOpen" :controller="p2p" />
+    <JoinRoomModal
+      v-model:open="joinOpen"
       :channel="channel"
       :controller="p2p"
       :scanning="scanning"
       @toggle-camera="scanning = !scanning"
     />
+    <RoomInfoModal v-model:open="infoOpen" :controller="p2p" />
+
+    <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->
+    <MobileRoomsDrawer v-model:open="sidebarOpen" :channel="channel" :controller="p2p" />
   </div>
 </template>

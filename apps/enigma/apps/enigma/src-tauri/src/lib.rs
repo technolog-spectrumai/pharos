@@ -1093,6 +1093,7 @@ pub fn run() {
             vault::kv_delete,
             vault::kv_clear_namespace,
             vault::kv_count,
+            vault::tor_clean_keystore,
             realtime::realtime_send,
             realtime::realtime_create_room,
             realtime::realtime_join_room,

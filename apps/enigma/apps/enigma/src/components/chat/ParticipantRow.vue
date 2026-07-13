@@ -14,7 +14,7 @@ defineProps<{ participant: Participant; compact?: boolean }>();
         <font-awesome-icon
           v-if="participant.isCaptain"
           icon="star"
-          class="shrink-0 text-warn-dark"
+          class="shrink-0 text-yellow-400"
           :title="$t('chat.captain')"
         />
       </p>

@@ -122,6 +122,7 @@ import {
   faInbox,
   faCircleCheck,
   faDesktop,
+  faQrcode,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -235,6 +236,7 @@ library.add(
   faInbox,
   faCircleCheck,
   faDesktop,
+  faQrcode,
 );
 
 const app = createApp(App)

@@ -18,7 +18,7 @@ function close() {
     >
       <div
         v-if="open"
-        class="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-6"
+        class="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-6 text-text-main-light dark:text-text-main-dark"
         @click.self="close"
       >
         <slot />

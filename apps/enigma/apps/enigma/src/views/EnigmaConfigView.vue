@@ -17,6 +17,7 @@ import {
   getStableOnion,
   setStableOnion,
   vaultChangePassphrase,
+  cleanTorKeystore,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
@@ -208,6 +209,9 @@ async function clearSelectedOfflineData() {
   clearingOffline.value = true;
   try {
     offlineState.value = await clearOfflineProfile();
+    // Also reset the Tor onion keystore — clears stale locks (the "resource already
+    // in use" launch failure) and mints a fresh .onion next time.
+    await cleanTorKeystore();
     offlineMessage.value = t("config.offlineCleared");
     setTimeout(() => (offlineMessage.value = ""), 2000);
   } finally {

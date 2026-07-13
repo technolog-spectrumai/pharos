@@ -10,9 +10,8 @@ const props = defineProps<{
   open: boolean;
   channel: ChatChannel;
   controller: P2pRoomsController;
-  scanning?: boolean;
 }>();
-const emit = defineEmits<{ "update:open": [boolean]; "toggle-camera": [] }>();
+const emit = defineEmits<{ "update:open": [boolean] }>();
 
 const ch = props.channel;
 const { currentRoom, isParticipant, participants } = ch;
@@ -65,12 +64,7 @@ function close() {
       </div>
 
       <div class="mt-4">
-        <RoomsSidebar
-          :channel="channel"
-          :controller="controller"
-          :scanning="scanning"
-          @toggle-camera="$emit('toggle-camera')"
-        />
+        <RoomsSidebar :channel="channel" :controller="controller" />
       </div>
 
       <div class="mt-4 border-t border-current/10 pt-4">

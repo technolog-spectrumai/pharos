@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { ChatChannel } from "rakotis";
+import type { P2pRoomsController } from "./useP2pRooms";
 import RoomListRow from "./RoomListRow.vue";
 
-const props = defineProps<{ channel: ChatChannel }>();
+const props = defineProps<{ channel: ChatChannel; controller: P2pRoomsController }>();
 const ch = props.channel;
 const { p2pRooms, currentRoom } = ch;
 </script>
@@ -15,7 +16,8 @@ const { p2pRooms, currentRoom } = ch;
       :key="r.room"
       :room="r"
       :active="currentRoom?.slug === r.room"
-      @click="ch.openP2pRoom(r)"
+      :controller="controller"
+      @open="ch.openP2pRoom(r)"
     />
   </div>
 </template>

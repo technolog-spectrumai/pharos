@@ -173,3 +173,15 @@ pub fn kv_count(app: AppHandle, ns: String, scope: Option<String>) -> Result<u64
     let p = st.0.lock().map_err(|e| e.to_string())?;
     p.kv_count(&ns, scope.as_deref()).map_err(e)
 }
+
+/// Reset the Tor onion keystore (identity): tear the node down, wipe the on-disk
+/// keystore, and drop the sealed copy from protasius. Recovers from a stale
+/// "resource already in use" lock; the next Tor room mints a fresh `.onion`.
+#[tauri::command]
+pub async fn tor_clean_keystore(
+    app: AppHandle,
+    tor: State<'_, crate::p2p_tor::TorP2pState>,
+) -> Result<(), String> {
+    crate::p2p_tor::clean_keystore(&app, &tor).await;
+    Ok(())
+}
