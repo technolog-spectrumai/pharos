@@ -21,10 +21,8 @@ export {
 } from "./i18n";
 export type { Locale, AppI18n } from "./i18n";
 
-// ── UI components ─────────────────────────────────────────────────────────────
-export { default as OyaButton } from "./components/OyaButton.vue";
-export { default as OyaCard } from "./components/OyaCard.vue";
-export { default as OyaHelloWorld } from "./components/OyaHelloWorld.vue";
+// ── UI components (Oya primitives) ────────────────────────────────────────────
+export * from "./components/primitives";
 
 // ── Crypto bridge (Rotor-backed MLS) ──────────────────────────────────────────
 export { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
