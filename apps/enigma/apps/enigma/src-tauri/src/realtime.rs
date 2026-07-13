@@ -43,7 +43,9 @@ pub async fn realtime_send(
         return Err(OFFLINE_BLOCKED.to_string());
     }
     let room = room.ok_or_else(|| "realtime: room is required".to_string())?;
-    if use_tor(&app, &config) {
+    // Route by which transport actually owns the room, not the switch: a room
+    // joined from a ticket may be on the other transport than the switch selects.
+    if p2p_tor::has_room(&tor, &room).await {
         p2p_tor::broadcast(&tor, &room, payload).await.map_err(|e| e.to_string())
     } else {
         p2p_iroh::broadcast(&p2p, &room, payload).await.map_err(|e| e.to_string())

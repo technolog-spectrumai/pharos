@@ -49,6 +49,12 @@ struct RoomHandle {
 
 // ── ticket ────────────────────────────────────────────────────────────────────
 
+/// Leading tag byte on an iroh ticket. Distinguishes it from a Tor ticket (which
+/// is tagged `0x54`) so the realtime layer can route a scanned ticket by sniffing.
+/// Without this, an iroh ticket whose topic happens to start with `0x54` (~1/256)
+/// would be misrouted to the Tor backend. See `p2p_tor::TOR_TAG`.
+const IROH_TAG: u8 = 0x49; // 'I'
+
 #[derive(Serialize, Deserialize)]
 struct Ticket {
     topic: TopicId,
@@ -58,14 +64,20 @@ struct Ticket {
 
 impl Ticket {
     fn encode(&self) -> String {
-        let bytes = postcard::to_stdvec(self).expect("postcard::to_stdvec is infallible");
-        let mut text = data_encoding::BASE32_NOPAD.encode(&bytes);
+        let mut buf = vec![IROH_TAG];
+        buf.extend_from_slice(&postcard::to_stdvec(self).expect("postcard::to_stdvec is infallible"));
+        let mut text = data_encoding::BASE32_NOPAD.encode(&buf);
         text.make_ascii_lowercase();
         text
     }
     fn decode(s: &str) -> Result<Self> {
         let bytes = data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes())?;
-        Ok(postcard::from_bytes(&bytes)?)
+        // Strip the tag; older untagged tickets fall back to raw postcard.
+        let body = match bytes.split_first() {
+            Some((&IROH_TAG, rest)) => rest,
+            _ => &bytes[..],
+        };
+        Ok(postcard::from_bytes(body)?)
     }
 }
 

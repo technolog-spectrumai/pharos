@@ -455,6 +455,38 @@ Two dev instances with different `APP_PROFILE`s (`./run_dev.sh`):
 5. **Rust tests:** `TorTicket` base32 round-trip + tag discrimination; framing
    read/write round-trip. `( cd apps/enigma/src-tauri && cargo test )`; `npm test`.
 
+## Implementation notes (as built)
+
+Deltas discovered while implementing + building against arti 0.43 and an
+adversarial review of the diff:
+
+- **arti API specifics:** `TorClient::create_bootstrapped` returns
+  `Arc<TorClient>` (no extra `Arc::new`). `HsId` has **no plain `Display`** (it's
+  redaction-safe) — the full `.onion` comes from `safelog::DisplayRedacted::display_unredacted()`,
+  so `safelog = "0.8"` is a direct dep and `p2p_tor.rs` imports the trait.
+  `launch_onion_service` returns `Result<Option<(Arc<RunningOnionService>, impl
+  Stream<Item = RendRequest>)>>` — the `None → Err` arm is handled. The rend-request
+  stream is `Box::pin`ned before `.next()`.
+- **Ticket tagging is two-sided (review fix).** iroh tickets were tagless, so ~1/256
+  (whose topic starts with `0x54`) would be misrouted to Tor and become unjoinable.
+  Both tickets are now tagged: iroh `0x49`, Tor `0x54` (`p2p_iroh::IROH_TAG` /
+  `p2p_tor::TOR_TAG`). iroh `decode` still accepts older untagged tickets.
+- **Send routes by room ownership, not the switch (review fix).** Joining is by
+  ticket sniff, so a room can be on the transport the switch does *not* select.
+  `realtime_send` dispatches via `p2p_tor::has_room(room)` (else iroh), so a
+  ticket-sniffed join can always send. `leave` calls both backends; create/
+  join-by-node/node_info stay on the switch.
+- **Relay identity is a per-connection `seq`**, not the (persisted, reusable)
+  `peer_id` — a same-device redial can't alias a live stream in fan-out/removal.
+- **Bounded writes/handshake:** fan-out writes use a 20 s timeout and the join
+  handshake read a 30 s timeout, so one stalled onion circuit can't wedge the host
+  or hang a join.
+
+Verified locally: `cargo check` clean (no warnings), `cargo test` 21 pass (6 new
+`p2p_tor` tests), `vitest` 70 pass (new `appStorage`/`torTicket` tests), `vue-tsc`
+clean. The remaining end-to-end check (two live instances pairing over real Tor)
+is the manual step in "Verification" above.
+
 ## References (arti 0.43)
 
 - `arti-client` features (`onion-service-service` ⇒ keymgr/tor-persist/tor-hsservice): https://docs.rs/crate/arti-client/0.43.0/features

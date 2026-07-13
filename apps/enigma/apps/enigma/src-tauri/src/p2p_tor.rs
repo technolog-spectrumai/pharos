@@ -21,11 +21,14 @@
 // creator stays "connecting" until the first joiner stream is accepted.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use arti_client::{config::TorClientConfigBuilder, DataStream, TorClient};
 use futures_lite::StreamExt;
+use safelog::DisplayRedacted;
 use serde::{Deserialize, Serialize};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
@@ -43,8 +46,17 @@ const ONION_PORT: u16 = 9999;
 /// voice notes (which exceed the 64 KB vox.rs cap) fit in a single frame.
 const MAX_FRAME: usize = 16 * 1024 * 1024;
 /// One-byte magic prefixed before the postcard ticket bytes so the realtime layer
-/// can tell a Tor ticket from a (tagless) iroh ticket by sniffing. 'T'.
+/// can tell a Tor ticket from an iroh ticket (tagged `0x49`) by sniffing. 'T'.
 const TOR_TAG: u8 = 0x54;
+/// Cap per-frame writes so one stalled onion circuit can't block the host's
+/// fan-out (or a joiner's send) forever.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
+/// Cap the join handshake read so a silent peer can't hang the join command.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Per-connection sequence number, distinct from the (possibly reused) peer_id.
+/// Used to identify a specific joiner stream for relay fan-out + removal.
+static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 
 // ── state ───────────────────────────────────────────────────────────────────
 
@@ -80,7 +92,9 @@ struct JoinerRoom {
 
 #[derive(Clone)]
 struct PeerConn {
-    id: String,
+    /// Unique per connection — used for fan-out exclusion + removal, so a
+    /// same-device redial (same peer_id) doesn't alias a still-live stream.
+    seq: u64,
     write: Arc<Mutex<WriteHalf<DataStream>>>,
 }
 
@@ -189,6 +203,15 @@ async fn write_frame<W: AsyncWrite + Unpin>(w: &mut W, payload: &str) -> Result<
     Ok(())
 }
 
+/// `write_frame` bounded by `WRITE_TIMEOUT` — a stalled peer errors out instead of
+/// blocking every other peer in a fan-out.
+async fn write_frame_bounded<W: AsyncWrite + Unpin>(w: &mut W, payload: &str) -> Result<()> {
+    match tokio::time::timeout(WRITE_TIMEOUT, write_frame(w, payload)).await {
+        Ok(r) => r,
+        Err(_) => Err(anyhow!("write timed out")),
+    }
+}
+
 async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<String> {
     let mut len = [0u8; 4];
     r.read_exact(&mut len).await?;
@@ -231,11 +254,12 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
     let cfg = TorClientConfigBuilder::from_directories(state_dir, cache_dir)
         .build()
         .map_err(|e| anyhow!("tor config: {e}"))?;
+    // create_bootstrapped yields an Arc<TorClient> (cached for the process life).
     let client = TorClient::create_bootstrapped(cfg)
         .await
         .map_err(|e| anyhow!("tor bootstrap failed: {e}"))?;
     *guard = Some(Node {
-        client: Arc::new(client),
+        client,
         rooms: HashMap::new(),
     });
     Ok(())
@@ -245,7 +269,8 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
 async fn wait_onion_address(service: &RunningOnionService) -> Result<String> {
     for _ in 0..50 {
         if let Some(id) = service.onion_address() {
-            return Ok(id.to_string());
+            // HsId has no plain Display (redaction-safe); take the full address.
+            return Ok(id.display_unredacted().to_string());
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
@@ -328,9 +353,12 @@ pub async fn join_room(
         .map_err(|e| anyhow!("tor connect to {} failed: {e}", t.onion))?;
     let (mut rd, mut wr) = tokio::io::split(ds);
 
-    // Handshake: send Hello, expect Ready.
-    write_frame(&mut wr, &serde_json::to_string(&Hello { name: t.name.clone(), peer_id: my_id }).unwrap()).await?;
-    let _ready = read_frame(&mut rd).await.map_err(|e| anyhow!("handshake failed: {e}"))?;
+    // Handshake: send Hello, expect Ready (bounded so a silent peer can't hang).
+    write_frame_bounded(&mut wr, &serde_json::to_string(&Hello { name: t.name.clone(), peer_id: my_id }).unwrap()).await?;
+    let _ready = match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut rd)).await {
+        Ok(r) => r.map_err(|e| anyhow!("handshake failed: {e}"))?,
+        Err(_) => return Err(anyhow!("handshake timed out")),
+    };
 
     let write = Arc::new(Mutex::new(wr));
     let read_task = spawn_joiner_reader(app.clone(), room.clone(), rd);
@@ -371,9 +399,16 @@ pub async fn broadcast(state: &TorP2pState, room: &str, payload: String) -> Resu
     };
     for w in writes {
         let mut g = w.lock().await;
-        let _ = write_frame(&mut *g, &payload).await;
+        let _ = write_frame_bounded(&mut *g, &payload).await;
     }
     Ok(())
+}
+
+/// True if this backend currently owns `room` — lets the realtime layer route a
+/// send to the transport that actually holds the room, not the global switch.
+pub async fn has_room(state: &TorP2pState, room: &str) -> bool {
+    let guard = state.0.lock().await;
+    guard.as_ref().is_some_and(|node| node.rooms.contains_key(room))
 }
 
 pub async fn leave_room(state: &TorP2pState, room: &str) -> Result<()> {
@@ -458,14 +493,15 @@ where
                 continue;
             }
             let write = Arc::new(Mutex::new(wr));
-            let peer = PeerConn { id: hello.peer_id.clone(), write };
+            let seq = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
+            let peer = PeerConn { seq, write };
             let count = {
                 let mut p = peers.lock().await;
                 p.push(peer);
                 p.len() as u32
             };
-            emit_status(&app, &room, "connected", count, Some(hello.peer_id.clone()));
-            spawn_peer_reader(app.clone(), room.clone(), rd, peers.clone(), hello.peer_id);
+            emit_status(&app, &room, "connected", count, Some(hello.peer_id));
+            spawn_peer_reader(app.clone(), room.clone(), rd, peers.clone(), seq);
         }
     })
 }
@@ -477,20 +513,21 @@ fn spawn_peer_reader(
     room: String,
     mut rd: ReadHalf<DataStream>,
     peers: Arc<Mutex<Vec<PeerConn>>>,
-    origin_id: String,
+    origin_seq: u64,
 ) {
     tauri::async_runtime::spawn(async move {
         loop {
             match read_frame(&mut rd).await {
                 Ok(payload) => {
                     emit_message(&app, &room, &payload);
+                    // Fan out to every OTHER connection (never echo to the sender).
                     let targets: Vec<Arc<Mutex<WriteHalf<DataStream>>>> = {
                         let p = peers.lock().await;
-                        p.iter().filter(|c| c.id != origin_id).map(|c| c.write.clone()).collect()
+                        p.iter().filter(|c| c.seq != origin_seq).map(|c| c.write.clone()).collect()
                     };
                     for w in targets {
                         let mut g = w.lock().await;
-                        let _ = write_frame(&mut *g, &payload).await;
+                        let _ = write_frame_bounded(&mut *g, &payload).await;
                     }
                 }
                 Err(_) => break,
@@ -498,7 +535,7 @@ fn spawn_peer_reader(
         }
         let count = {
             let mut p = peers.lock().await;
-            if let Some(i) = p.iter().position(|c| c.id == origin_id) {
+            if let Some(i) = p.iter().position(|c| c.seq == origin_seq) {
                 p.remove(i);
             }
             p.len() as u32
