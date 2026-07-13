@@ -4,7 +4,6 @@ import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
 import { useChatStore } from "../stores/chat";
-import { useUserStore } from "../stores/user";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import {
   clearOfflineProfile,
@@ -15,18 +14,21 @@ import {
   setOffline,
   getUseTor,
   setUseTor,
+  getStableOnion,
+  setStableOnion,
+  vaultChangePassphrase,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
 import { OyaCard } from "rakotis";
 import { OyaButton } from "rakotis";
+import { OyaModal, OyaTextField } from "rakotis";
 
 defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
 const route = useRoute();
 const chatStore = useChatStore();
-const userStore = useUserStore();
 const { t, locale } = useI18n({ useScope: "global" });
 
 // Profile + Data live inside Settings as tabs. `?tab=profile`/`?tab=data` open them
@@ -91,10 +93,50 @@ async function toggleUseTor() {
   await setUseTor(useTor.value);
 }
 
+// ── Keep onion stable (encrypted-at-rest HS key) ─────────────────────────────
+const stableOnion = ref(false);
+async function toggleStableOnion() {
+  stableOnion.value = !stableOnion.value;
+  await setStableOnion(stableOnion.value);
+}
+
+// ── Reset passphrase modal ───────────────────────────────────────────────────
+const showResetPass = ref(false);
+const resetCurrent = ref("");
+const resetNew = ref("");
+const resetConfirm = ref("");
+const resetError = ref("");
+const resetBusy = ref(false);
+const resetDone = ref(false);
+function openResetPass() {
+  resetCurrent.value = "";
+  resetNew.value = "";
+  resetConfirm.value = "";
+  resetError.value = "";
+  resetDone.value = false;
+  showResetPass.value = true;
+}
+async function submitResetPass() {
+  resetError.value = "";
+  if (resetNew.value.length < 8) { resetError.value = t("vault.tooShort", { n: 8 }); return; }
+  if (resetNew.value !== resetConfirm.value) { resetError.value = t("vault.mismatch"); return; }
+  resetBusy.value = true;
+  try {
+    await vaultChangePassphrase(resetCurrent.value, resetNew.value);
+    resetDone.value = true;
+    setTimeout(() => { showResetPass.value = false; }, 1200);
+  } catch (_e) {
+    resetError.value = t("vault.wrongPass");
+  } finally {
+    resetBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   await loadRuntimeConfig();
   offline.value = await getOffline();
   useTor.value = await getUseTor();
+  stableOnion.value = await getStableOnion();
   await loadOfflineData();
   void loadNodeId();
 });
@@ -151,19 +193,11 @@ async function loadDataProfile() {
   loadProfileStatus.value = "loading";
   offlineMessage.value = "";
   try {
-    runtimeConfig.value = await setActiveProfile(label, label);
-    offlineState.value = await getProfileState();
-    await chatStore.applyRuntimeProfile(runtimeConfig.value);
-    // Re-read the local profile so the display name (App.vue watcher +
-    // chat) reflects the NEW profile, not the previous one.
-    await userStore.loadOfflineProfile();
-    chatStore.p2p.currentUserName.value =
-      userStore.displayName || runtimeConfig.value.identity;
-    dataProfileName.value = runtimeConfig.value.profile;
-    offlineMessage.value = t("config.profileLoaded");
-    loadProfileStatus.value = "success";
-    // The switched profile has its own iroh key → refresh the shown NodeId.
-    void loadNodeId();
+    await setActiveProfile(label, label);
+    // Each profile has its own encrypted vault, and switching re-opens the new
+    // one LOCKED. Reload so App.vue's gate re-runs and prompts for that profile's
+    // passphrase (setup on first use, or unlock) before anything loads.
+    window.location.reload();
   } catch (e) {
     offlineMessage.value = (e as Error).message;
     loadProfileStatus.value = "error";
@@ -344,6 +378,37 @@ async function clearSelectedOfflineData() {
         >
           <span
             :class="useTor ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+    </OyaCard>
+
+    <!-- Keep onion stable — encrypted-at-rest HS key (only relevant with Tor on) -->
+    <OyaCard v-if="useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.stableOnion') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="circle-nodes" :class="stableOnion ? 'text-accent-dark' : 'opacity-60'" class="shrink-0" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.stableOnion') }}</p>
+          <p class="text-xs opacity-60">
+            {{ stableOnion ? $t('config.stableOnionOnHint') : $t('config.stableOnionOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="stableOnion"
+          :class="stableOnion ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleStableOnion"
+        >
+          <span
+            :class="stableOnion ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
         </button>
@@ -540,7 +605,46 @@ async function clearSelectedOfflineData() {
         </OyaButton>
       </div>
     </OyaCard>
+
+    <!-- Reset passphrase — change the at-rest encryption passphrase -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.resetPass') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.resetPassHint') }}</p>
+      </div>
+      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openResetPass">
+        <font-awesome-icon icon="key" />{{ $t('config.resetPass') }}
+      </OyaButton>
+    </OyaCard>
     </template>
+
+    <!-- Reset-passphrase modal -->
+    <OyaModal v-model:open="showResetPass" @close="showResetPass = false">
+      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+        <p class="text-lg font-bold">{{ $t('vault.resetTitle') }}</p>
+        <OyaTextField v-model="resetCurrent" type="password" :placeholder="$t('config.currentPass')" :disabled="resetBusy" />
+        <OyaTextField v-model="resetNew" type="password" :placeholder="$t('config.newPass')" :disabled="resetBusy" />
+        <OyaTextField v-model="resetConfirm" type="password" :placeholder="$t('vault.confirmPass')" :disabled="resetBusy" />
+        <p v-if="resetError" class="text-sm text-warn-dark">{{ resetError }}</p>
+        <p v-if="resetDone" class="text-sm text-success-dark">{{ $t('config.resetPassOk') }}</p>
+      </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <OyaButton :dark-mode="darkMode" variant="secondary" @click="showResetPass = false">
+            {{ $t('vault.cancel') }}
+          </OyaButton>
+          <OyaButton
+            :dark-mode="darkMode"
+            :class="{ 'pointer-events-none opacity-60': resetBusy }"
+            @click="submitResetPass"
+          >
+            <font-awesome-icon :icon="resetBusy ? 'lock' : 'key'" />{{ $t('vault.reset') }}
+          </OyaButton>
+        </div>
+      </template>
+    </OyaModal>
 
   </section>
 </template>

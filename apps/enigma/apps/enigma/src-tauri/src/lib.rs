@@ -11,7 +11,9 @@ use zeroize::Zeroize;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
-mod kv;
+// Encryption-at-rest: the centralized encrypted store integration (protasius).
+// Replaces the old plaintext kv.rs + per-file persistence.
+mod vault;
 // Outbound Arti client plumbing, reused by the peer-hosted onion transport in
 // p2p_tor.rs (see the TODO(onion-p2p) note at the top of tor.rs).
 mod tor;
@@ -78,6 +80,11 @@ pub struct AppProfileState {
     // (p2p_tor.rs) instead of iroh. Exclusive: when on, iroh is not used.
     #[serde(default)]
     pub use_tor: bool,
+    // stable_onion — keep the Tor onion address stable across restarts. When on,
+    // the hidden-service key is kept (encrypted at rest, materialized only while
+    // unlocked); when off, the onion is ephemeral and regenerates each session.
+    #[serde(default)]
+    pub stable_onion: bool,
 }
 
 /// Airplane mode — blocks every network connection (all P2P).
@@ -90,9 +97,14 @@ pub(crate) fn is_use_tor(state: &AppProfileState) -> bool {
     state.use_tor
 }
 
+/// True when the Tor onion address should persist across restarts.
+pub(crate) fn is_stable_onion(state: &AppProfileState) -> bool {
+    state.stable_onion
+}
+
 // ── In-process session registry ───────────────────────────────────────────────
 
-type Sessions = Mutex<HashMap<String, RotorSession>>;
+pub(crate) type Sessions = Mutex<HashMap<String, RotorSession>>;
 
 fn session_key(profile: &str, room: &str, identity: &str) -> String {
     format!("{}:{}:{}", profile, room, identity)
@@ -129,7 +141,7 @@ fn runtime_config(app: &AppHandle, config: &AppConfig) -> AppRuntimeConfig {
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
 
-fn profile_dir(app: &AppHandle, config: &AppConfig) -> std::path::PathBuf {
+pub(crate) fn profile_dir(app: &AppHandle, config: &AppConfig) -> std::path::PathBuf {
     let base_dir = app
         .path()
         .app_data_dir()
@@ -148,16 +160,20 @@ fn profile_state_path(app: &AppHandle, config: &AppConfig) -> std::path::PathBuf
 }
 
 pub(crate) fn load_profile_state(app: &AppHandle, config: &AppConfig) -> AppProfileState {
-    let path = profile_state_path(app, config);
-
-    let Ok(bytes) = std::fs::read(path) else {
-        return normalize_profile_state(AppProfileState::default(), config);
+    // Encrypted at rest via protasius (`profile/state`).
+    let decoded = match vault::get(app, "profile", "state") {
+        Ok(Some(bytes)) => serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default(),
+        // Genuinely absent (first run): a fresh default.
+        Ok(None) => AppProfileState::default(),
+        // Locked (behind the gate — shouldn't happen) or a decrypt failure. Surface
+        // it rather than silently proceeding as if empty; callers that then save
+        // only overwrite already-undecryptable data (a locked save errors instead).
+        Err(err) => {
+            eprintln!("profile state load failed: {err}");
+            AppProfileState::default()
+        }
     };
-
-    normalize_profile_state(
-        serde_json::from_slice::<AppProfileState>(&bytes).unwrap_or_default(),
-        config,
-    )
+    normalize_profile_state(decoded, config)
 }
 
 fn save_profile_state(
@@ -165,12 +181,9 @@ fn save_profile_state(
     config: &AppConfig,
     state: &AppProfileState,
 ) -> Result<(), String> {
-    let path = profile_state_path(app, config);
     let state = normalize_profile_state(state.clone(), config);
-
-    let bytes = serde_json::to_vec_pretty(&state).map_err(|e| e.to_string())?;
-
-    std::fs::write(path, bytes).map_err(|e| e.to_string())
+    let bytes = serde_json::to_vec(&state).map_err(|e| e.to_string())?;
+    vault::put(app, "profile", "state", &bytes)
 }
 
 fn default_offline_profile_option(
@@ -244,54 +257,72 @@ fn normalize_profile_state(mut state: AppProfileState, config: &AppConfig) -> Ap
     state
 }
 
-fn state_path(
-    app: &AppHandle,
-    config: &AppConfig,
-    room: &str,
-    identity: &str,
-) -> std::path::PathBuf {
-    let room = safe_filename_component(room);
-    let identity = safe_filename_component(identity);
-
-    profile_dir(app, config).join(format!("mls_{}_{}.bin", room, identity))
+/// MLS session key within protasius' `mls` namespace: `room\0identity` (raw, so it
+/// matches the `room_slug`/`identity` fields the migration reads from a legacy blob).
+fn mls_key(room: &str, identity: &str) -> String {
+    format!("{room}\0{identity}")
 }
 
 fn persist(
     app: &AppHandle,
-    config: &AppConfig,
+    _config: &AppConfig,
     session: &RotorSession,
     room: &str,
     identity: &str,
 ) {
     if let Ok(mut bytes) = session.export_state() {
-        let _ = std::fs::write(state_path(app, config, room, identity), &bytes);
+        let _ = vault::put(app, "mls", &mls_key(room, identity), &bytes);
         bytes.zeroize();
     }
 }
 
 fn restore(
     app: &AppHandle,
-    config: &AppConfig,
+    _config: &AppConfig,
     room: &str,
     identity: &str,
 ) -> Option<RotorSession> {
-    let mut bytes = std::fs::read(state_path(app, config, room, identity)).ok()?;
+    let mut bytes = vault::get(app, "mls", &mls_key(room, identity)).ok()??;
     let result = RotorSession::import_state(&bytes).ok();
     bytes.zeroize();
     result
 }
 
-fn wipe_file(app: &AppHandle, config: &AppConfig, room: &str, identity: &str) {
-    let path = state_path(app, config, room, identity);
+fn wipe_file(app: &AppHandle, _config: &AppConfig, room: &str, identity: &str) {
+    let _ = vault::delete(app, "mls", &mls_key(room, identity));
+}
 
-    // Best-effort overwrite before delete.
-    if let Ok(meta) = std::fs::metadata(&path) {
-        let mut zeros = vec![0u8; meta.len() as usize];
-        let _ = std::fs::write(&path, &zeros);
-        zeros.zeroize();
+/// Minimal view of a legacy `mls_*.bin` (a serde_json `ExportedRotorState`) — just
+/// the two fields needed to key the record. Extra fields are ignored.
+#[derive(Deserialize)]
+struct MlsMeta {
+    room_slug: String,
+    identity: String,
+}
+
+/// Migrate any legacy plaintext `mls_*.bin` blobs in the profile dir into the
+/// encrypted store, then securely delete them. Idempotent (safe to re-run as a
+/// post-unlock sweep). Runs here (not in protasius) because it must parse the blob.
+pub(crate) fn migrate_mls(app: &AppHandle, config: &AppConfig) {
+    let dir = profile_dir(app, config);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        if !(name.starts_with("mls_") && name.ends_with(".bin")) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let Ok(meta) = serde_json::from_slice::<MlsMeta>(&bytes) else { continue };
+        if vault::put(app, "mls", &mls_key(&meta.room_slug, &meta.identity), &bytes).is_ok() {
+            if let Ok(m) = std::fs::metadata(&path) {
+                let _ = std::fs::write(&path, vec![0u8; m.len() as usize]);
+            }
+            let _ = std::fs::remove_file(&path);
+        }
     }
-
-    let _ = std::fs::remove_file(path);
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -315,10 +346,13 @@ fn app_get_runtime_config(
 }
 
 #[tauri::command]
-fn app_set_active_profile(
+async fn app_set_active_profile(
     app: AppHandle,
-    config: State<AppConfigState>,
-    sessions: State<Sessions>,
+    config: State<'_, AppConfigState>,
+    sessions: State<'_, Sessions>,
+    vault: State<'_, vault::ProtasiusState>,
+    p2p: State<'_, p2p_iroh::P2pState>,
+    tor: State<'_, p2p_tor::TorP2pState>,
     profile: String,
     identity: Option<String>,
 ) -> Result<AppRuntimeConfig, String> {
@@ -337,6 +371,12 @@ fn app_set_active_profile(
         identity,
     };
 
+    // Tear down the OLD profile's transports FIRST, while its vault is still
+    // unlocked and active — so p2p_tor::shutdown seals the stable-onion keystore
+    // into the correct (old) profile's store before we swap it out.
+    p2p_iroh::shutdown(&app, &p2p).await;
+    p2p_tor::shutdown(&app, &tor).await;
+
     {
         let mut guard = config.lock().map_err(|e| e.to_string())?;
         *guard = next_config.clone();
@@ -346,8 +386,12 @@ fn app_set_active_profile(
         sessions.clear();
     }
 
-    let state = load_profile_state(&app, &next_config);
-    save_profile_state(&app, &next_config, &state)?;
+    // Re-open the store for the new profile, LOCKED — each profile has its own
+    // vault/passphrase. The frontend re-runs the gate (status → setup/unlock).
+    {
+        let mut store = vault.0.lock().map_err(|e| e.to_string())?;
+        *store = vault::open(profile_dir(&app, &next_config))?;
+    }
 
     Ok(runtime_config(&app, &next_config))
 }
@@ -413,6 +457,29 @@ async fn app_set_use_tor(
     } else {
         p2p_tor::shutdown(&app, &tor).await;
     }
+    Ok(())
+}
+
+#[tauri::command]
+fn app_get_stable_onion(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).stable_onion)
+}
+
+#[tauri::command]
+async fn app_set_stable_onion(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    tor: State<'_, p2p_tor::TorP2pState>,
+    stable_onion: bool,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    state.stable_onion = stable_onion;
+    save_profile_state(&app, &config, &state)?;
+    // Tear the Tor node down so the next room command re-evaluates persistent vs
+    // ephemeral keystore for the new setting.
+    p2p_tor::shutdown(&app, &tor).await;
     Ok(())
 }
 
@@ -963,8 +1030,12 @@ pub fn run() {
         .manage(tor::TorState::default())
         .manage(p2p_tor::TorP2pState::default())
         .setup(|app| {
-            // Local key/value cache (fjall) — replaces the old tauri-plugin-sql store.
-            app.manage(kv::init(app.handle()));
+            // Open the active profile's encrypted store (protasius). All app data
+            // persists through it; it starts locked until the passphrase gate unlocks it.
+            let cfg = app.state::<AppConfigState>().lock().unwrap().clone();
+            let dir = profile_dir(app.handle(), &cfg);
+            let store = vault::open(dir).expect("open protasius store");
+            app.manage(vault::ProtasiusState(std::sync::Mutex::new(store)));
 
             #[cfg(target_os = "linux")]
             {
@@ -991,6 +1062,14 @@ pub fn run() {
             app_set_offline,
             app_get_use_tor,
             app_set_use_tor,
+            app_get_stable_onion,
+            app_set_stable_onion,
+            vault::vault_status,
+            vault::vault_setup,
+            vault::vault_unlock,
+            vault::vault_lock,
+            vault::vault_change_passphrase,
+            vault::vault_wipe,
             app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
@@ -1009,11 +1088,11 @@ pub fn run() {
             mls_remove_member,
             audio_start_recording,
             audio_stop_recording,
-            kv::kv_get,
-            kv::kv_put,
-            kv::kv_delete,
-            kv::kv_clear_namespace,
-            kv::kv_count,
+            vault::kv_get,
+            vault::kv_put,
+            vault::kv_delete,
+            vault::kv_clear_namespace,
+            vault::kv_count,
             realtime::realtime_send,
             realtime::realtime_create_room,
             realtime::realtime_join_room,
@@ -1024,6 +1103,14 @@ pub fn run() {
             fs_local::fs_read_text_file,
             fs_local::fs_write_text_file,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // On exit, seal + wipe the Tor onion keystore (stable-onion mode) so no
+            // plaintext HS key is left on disk when the app is closed.
+            if let tauri::RunEvent::Exit = event {
+                let tor = app_handle.state::<p2p_tor::TorP2pState>();
+                tauri::async_runtime::block_on(p2p_tor::shutdown(app_handle, &tor));
+            }
+        });
 }

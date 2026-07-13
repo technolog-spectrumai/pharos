@@ -29,6 +29,9 @@ serde_json = "1"
 # Crypto layer (OpenMLS via Rotor). Vendored in-repo at cryptorotor/rotor_core —
 # consumed by path, so building enigma needs no GitLab access.
 rotor-core = { path = "../../../cryptorotor/rotor_core" }
+# Encryption at rest: the centralized encrypted store (protasius) built on the
+# crypto primitives crate (gervasius). All app data persists through protasius.
+protasius = { path = "../../../protasius" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"

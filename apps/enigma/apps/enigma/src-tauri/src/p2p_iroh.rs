@@ -26,7 +26,7 @@ use iroh_gossip::{
     proto::TopicId,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 #[derive(Default)]
@@ -87,32 +87,23 @@ fn topic_for(name: &str) -> TopicId {
 
 // ── stable identity ────────────────────────────────────────────────────────────
 
-fn secret_path(app: &AppHandle, name: &str) -> std::path::PathBuf {
-    let base = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    base.join(format!("iroh_{name}.key"))
-}
-
 /// Load this endpoint's persisted secret key, or generate + persist a new one. A
 /// stable secret means a stable NodeId — the durable contact handle peers keep
-/// after a one-time QR pairing, so reconnects work without re-scanning.
-pub fn load_or_create_secret(app: &AppHandle, name: &str) -> SecretKey {
-    let path = secret_path(app, name);
-    if let Ok(bytes) = std::fs::read(&path) {
+/// after a one-time QR pairing, so reconnects work without re-scanning. Stored
+/// encrypted at rest via protasius (`keys/iroh_{name}`), per profile.
+pub fn load_or_create_secret(app: &AppHandle, name: &str) -> Result<SecretKey> {
+    let key = format!("iroh_{name}");
+    if let Ok(Some(bytes)) = crate::vault::get(app, "keys", &key) {
         if bytes.len() == 32 {
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&bytes);
-            return SecretKey::from_bytes(&arr);
+            return Ok(SecretKey::from_bytes(&arr));
         }
     }
     let sk = SecretKey::generate();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&path, sk.to_bytes());
-    sk
+    crate::vault::put(app, "keys", &key, &sk.to_bytes())
+        .map_err(|e| anyhow!("persist iroh key: {e}"))?;
+    Ok(sk)
 }
 
 // ── lifecycle ──────────────────────────────────────────────────────────────────
@@ -124,7 +115,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     }
     // Stable secret key → stable NodeId, so this gossip endpoint is a durable
     // contact handle across restarts (QR pairs once; reconnects go by NodeId).
-    let secret = load_or_create_secret(app, "gossip");
+    let secret = load_or_create_secret(app, "gossip")?;
     let lookup = MemoryLookup::new();
     // presets::N0 keeps iroh's built-in n0 relay + discovery (pkarr/DNS): peers
     // publish their own addresses and NodeId-only dials resolve without any app

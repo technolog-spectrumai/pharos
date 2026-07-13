@@ -84,6 +84,13 @@ pub struct TorP2pState(pub Mutex<Option<Node>>);
 pub struct Node {
     client: Arc<TorClient<PreferredRuntime>>,
     rooms: HashMap<String, MemberRoom>,
+    /// arti's on-disk state/keystore dir for this session. Plaintext only while the
+    /// node runs; sealed into protasius + wiped on shutdown (stable mode) or just
+    /// wiped (ephemeral mode).
+    state_dir: std::path::PathBuf,
+    /// Whether the onion is stable (persist the HS key, encrypted at rest) vs
+    /// ephemeral (fresh key each session).
+    stable: bool,
 }
 
 /// One Tor room from this member's view. Every member hosts its own onion + relay
@@ -198,22 +205,22 @@ fn tor_base(app: &AppHandle) -> std::path::PathBuf {
         .join("tor")
 }
 
-/// Our stable presence id, sent in the join handshake. Persisted per profile so a
-/// reconnecting joiner keeps the same id in the creator's presence view.
-fn load_or_create_peer_id(app: &AppHandle) -> String {
-    let path = tor_base(app).join("peer.id");
-    if let Ok(s) = std::fs::read_to_string(&path) {
-        let s = s.trim().to_string();
-        if !s.is_empty() {
-            return s;
+/// Our stable presence id, sent in the join handshake. Persisted per profile
+/// (encrypted at rest via protasius `keys/tor_peer_id`) so a reconnecting joiner
+/// keeps the same id in the creator's presence view.
+fn load_or_create_peer_id(app: &AppHandle) -> Result<String> {
+    if let Ok(Some(bytes)) = crate::vault::get(app, "keys", "tor_peer_id") {
+        if let Ok(s) = String::from_utf8(bytes) {
+            let s = s.trim().to_string();
+            if !s.is_empty() {
+                return Ok(s);
+            }
         }
     }
     let id = uuid::Uuid::new_v4().simple().to_string();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&path, &id);
-    id
+    crate::vault::put(app, "keys", "tor_peer_id", id.as_bytes())
+        .map_err(|e| anyhow!("persist tor peer id: {e}"))?;
+    Ok(id)
 }
 
 // ── framing (length-prefixed JSON string bodies) ───────────────────────────────
@@ -274,20 +281,41 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
         return Ok(());
     }
     let base = tor_base(app);
-    let state_dir = base.join("state");
-    let cache_dir = base.join("cache");
-    let _ = std::fs::create_dir_all(&state_dir);
+    let cache_dir = base.join("cache"); // dir cache isn't secret; persistent, speeds bootstrap
     let _ = std::fs::create_dir_all(&cache_dir);
-    // A per-profile on-disk state dir makes arti persist the hidden-service key in
-    // its keystore, so the same room nickname resolves to the same .onion forever.
-    let mut cfg_builder = TorClientConfigBuilder::from_directories(state_dir, cache_dir);
-    // arti's fs-mistrust refuses a state/keystore dir if it (or an ancestor) is
-    // group/other-writable — which fails on machines with a permissive umask or a
-    // group-writable home. The app-data dir is user-owned and we already store
-    // plaintext keys there (see tor.md's threat model), so this extra check adds
-    // little; relax it rather than block room creation.
-    // INTERIM: revisit once encryption-at-rest lands (todo.md) — with encrypted
-    // state the on-disk keys are protected regardless of dir permissions.
+
+    let stable = stable_onion_enabled(app);
+    let state_dir = if stable {
+        // Persistent keystore → stable `.onion`. Materialize the sealed keystore
+        // from protasius (if any) so arti finds the existing HS key. It is plaintext
+        // on disk only while running; shutdown re-seals + wipes it.
+        let d = base.join("state");
+        let _ = std::fs::create_dir_all(&d);
+        if is_dir_empty(&d) {
+            if let Ok(Some(archive)) = crate::vault::get(app, "keys", "tor_keystore") {
+                let _ = extract_archive(&d, &archive);
+            }
+        }
+        d
+    } else {
+        // Ephemeral: a fresh temp dir → arti generates a new HS key → the onion
+        // regenerates each session. Nothing persists in app-data.
+        let d = std::env::temp_dir().join(format!(
+            "enigma-tor-{}-{}",
+            crate::safe_filename_component(&profile_name(app)),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let _ = std::fs::create_dir_all(&d);
+        d
+    };
+
+    let mut cfg_builder = TorClientConfigBuilder::from_directories(state_dir.clone(), cache_dir);
+    // Relax arti's fs-mistrust: it refuses a state/keystore dir that is (or whose
+    // ancestor is) group/other-writable, which fails on a permissive umask or a
+    // group-writable home (and on the world-writable /tmp used for the ephemeral
+    // dir). With encryption-at-rest the sensitive keystore is sealed into protasius
+    // and only lives on disk transiently while unlocked, so the dir-permission
+    // check adds little here — keep it relaxed (see at_rest.md / todo.md §5).
     cfg_builder.storage().permissions().dangerously_trust_everyone();
     let cfg = cfg_builder
         .build()
@@ -299,7 +327,58 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
     *guard = Some(Node {
         client,
         rooms: HashMap::new(),
+        state_dir,
+        stable,
     });
+    Ok(())
+}
+
+/// Read the active profile's `stable_onion` flag (defaults false when locked/absent).
+fn stable_onion_enabled(app: &AppHandle) -> bool {
+    match app
+        .try_state::<crate::AppConfigState>()
+        .and_then(|s| s.lock().ok().map(|c| c.clone()))
+    {
+        Some(cfg) => crate::is_stable_onion(&crate::load_profile_state(app, &cfg)),
+        None => false,
+    }
+}
+
+fn is_dir_empty(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir).map(|mut it| it.next().is_none()).unwrap_or(true)
+}
+
+/// Serialize a directory tree (relative path + bytes) into one blob, for sealing
+/// arti's keystore into protasius.
+fn archive_dir(dir: &std::path::Path) -> Result<Vec<u8>> {
+    fn walk(root: &std::path::Path, cur: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
+        for entry in std::fs::read_dir(cur)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                walk(root, &path, out)?;
+            } else if let Ok(rel) = path.strip_prefix(root) {
+                out.push((rel.to_string_lossy().into_owned(), std::fs::read(&path)?));
+            }
+        }
+        Ok(())
+    }
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    if dir.exists() {
+        walk(dir, dir, &mut files)?;
+    }
+    Ok(postcard::to_stdvec(&files)?)
+}
+
+/// Restore a directory tree previously produced by `archive_dir`.
+fn extract_archive(dir: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    let files: Vec<(String, Vec<u8>)> = postcard::from_bytes(bytes)?;
+    for (rel, data) in files {
+        let p = dir.join(&rel);
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&p, &data)?;
+    }
     Ok(())
 }
 
@@ -429,7 +508,7 @@ pub async fn join_room(
     ensure_started(app, state).await?;
     let t = TorTicket::decode(&ticket).map_err(|e| anyhow!("invalid tor ticket: {e}"))?;
     let room = room_for(&t.name);
-    let my_id = load_or_create_peer_id(app);
+    let my_id = load_or_create_peer_id(app)?;
     emit_status(app, &room, "connecting", 0, None);
 
     // Host my own onion first (failover candidate / future captain).
@@ -475,7 +554,7 @@ pub async fn join_room(
 /// Idempotent: no-op when unchanged; drops the outbound (host-only) when I am the
 /// captain; aborts + redials on a change.
 pub async fn set_captain(app: &AppHandle, state: &TorP2pState, room: &str, captain_onion: String) -> Result<()> {
-    let my_id = load_or_create_peer_id(app);
+    let my_id = load_or_create_peer_id(app)?;
     let mut guard = state.0.lock().await;
     let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
     let client = node.client.clone();
@@ -599,10 +678,28 @@ pub async fn shutdown(app: &AppHandle, state: &TorP2pState) {
                 out.task.abort();
             }
         }
-        for room in rooms {
-            emit_status(app, &room, "disconnected", 0, None);
+        for room in &rooms {
+            emit_status(app, room, "disconnected", 0, None);
         }
-        // Dropping `node` (and its client + services) closes circuits + serving.
+        let state_dir = node.state_dir.clone();
+        let stable = node.stable;
+        // Drop the client + services first so arti releases the keystore dir.
+        drop(node);
+        // Ephemeral dirs are always disposable. For a stable onion, only wipe the
+        // plaintext keystore once it is durably SEALED into protasius — if the seal
+        // fails (e.g. the active vault is a different, locked profile), keep the
+        // plaintext (re-enter the crash window) rather than destroy the HS key.
+        let wipe = if stable {
+            archive_dir(&state_dir)
+                .ok()
+                .map(|a| crate::vault::put(app, "keys", "tor_keystore", &a).is_ok())
+                .unwrap_or(false)
+        } else {
+            true
+        };
+        if wipe {
+            let _ = std::fs::remove_dir_all(&state_dir);
+        }
     }
 }
 

@@ -63,14 +63,19 @@ Gossip fan-out and MLS admin election (`ourId < theirId`) are unchanged from the
 original implementation — **fine for small rooms**, not yet hardened for large
 groups.
 
-### 5. Encryption at rest (planned)
-On-disk state is plaintext today (iroh key, MLS session/signing keys, profile PII,
-saved tickets, and — over Tor — arti's hidden-service keystore). Encrypt it (a
-passphrase/keychain-derived key). **Interim coupling:** the Tor transport currently
-relaxes arti's `fs-mistrust` permission check
-(`dangerously_trust_everyone` in `p2p_tor.rs::ensure_started`) so room creation
-doesn't fail on a group-writable app-data dir; once state is encrypted at rest,
-revisit whether the dir-permission check should be re-enforced.
+### 5. ✅ Encryption at rest (DONE)
+**Implemented.** A per-profile passphrase (Argon2id → wrapped DEK → XChaCha20-Poly1305)
+encrypts ALL app state through the new **`protasius`** store (built on the
+**`gervasius`** primitives crate): profile PII/settings, MLS session/signing keys,
+iroh key, room list. Unlock gate on launch; "Reset passphrase" in Settings → Data;
+forgot → wipe. The arti onion keystore is **managed** (sealed into protasius,
+materialized on disk only while unlocked, wiped on lock/exit) behind the "keep onion
+stable" switch. Full record in [at_rest.md](at_rest.md).
+
+**fs-mistrust resolution:** the `dangerously_trust_everyone` relaxation in
+`p2p_tor.rs::ensure_started` **stays** — with the managed encrypted keystore the HS
+key is sealed in protasius and only transiently on disk while unlocked, so the
+dir-permission check adds little; do not re-enforce it.
 
 ---
 

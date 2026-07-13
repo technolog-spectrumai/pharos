@@ -289,6 +289,39 @@ standing plaintext exception, but the fs-mistrust check stays relaxed — update
 7. **Frontend**: appStorage wrappers, App.vue gate, reset modal, stable-onion switch, i18n.
 8. **CI**: add `cargo test` for gervasius + protasius.
 
+## Implementation notes (as built)
+
+Deltas from the plan discovered while building + an adversarial review of the diff:
+
+- **Persistence sites reach the store via `app.state::<ProtasiusState>()`** rather
+  than threaded params, so `realtime.rs` and most signatures are unchanged; being
+  locked surfaces naturally as a `protasius` error.
+- **Migration split:** protasius handles byte-copyable legacy files (profile state,
+  iroh key, tor peer id, old kvstore); `lib.rs::migrate_mls` handles `mls_*.bin`
+  (it parses `room_slug`/`identity`). Both are idempotent (import + `persist` before
+  deleting the original), run on setup AND unlock (crash sweep). `setup` migration
+  is best-effort so a mid-migration error never strands a just-created vault.
+- **Namespace tag bytes** (`0x01` internal / `0x02` kv) keep the generic and kv
+  keyspaces disjoint in the one partition — a future kv namespace can't collide with
+  reserved `profile`/`mls`/`keys`.
+- **Managed onion keystore** is archived (dir → postcard blob), sealed into
+  `keys/tor_keystore`, and wiped on `shutdown`; extracted on `ensure_started` when
+  the persistent state dir is empty. A Tauri `RunEvent::Exit` handler runs
+  `shutdown` on normal quit. **Review fix:** the plaintext keystore is wiped **only
+  after a successful seal** (else the key is kept, re-entering the crash window,
+  never destroyed), and **profile switch tears down the transports first** (while
+  the old vault is still unlocked/active) so the keystore seals into the correct
+  profile — `app_set_active_profile` is now async and shuts down iroh + Tor before
+  swapping the config/store.
+- **Profile switch reloads the webview** so `App.vue`'s gate re-runs for the new
+  (locked) profile.
+- **kv.rs deleted** (superseded by protasius + `vault.rs`).
+
+Verified: `cargo test` — gervasius 10, protasius 7, backend 16; `cargo check` 0
+warnings; `vue-tsc` clean (both packages); `vitest` 70. The live desktop run
+(first-run passphrase → restart→unlock, reset, stable-onion, forgot→wipe) is the
+remaining manual check below.
+
 ## Verification
 
 - **Automated:** `cargo test` for gervasius + protasius (all §A/§B cases); `cargo

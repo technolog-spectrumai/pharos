@@ -2,13 +2,16 @@
 import { ref, watch, onMounted } from "vue";
 import { RouterView, RouterLink, useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { barIcon } from "./assets/logos";
+import { OyaButton, OyaTextField, vaultStatus, vaultSetup, vaultUnlock, vaultWipe } from "rakotis";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
 const route = useRoute();
+const { t } = useI18n({ useScope: "global" });
 
 // Class-based dark mode: toggle `.dark` on <html> so every `dark:` utility across the
 // app (Oya primitives + chat surface) reacts. The `:dark-mode` prop is still passed to
@@ -21,11 +24,83 @@ const userStore = useUserStore();
 const chatStore = useChatStore();
 const { displayName } = storeToRefs(userStore);
 
-onMounted(async () => {
+// ── Encryption-at-rest gate ──────────────────────────────────────────────────
+// Nothing loads until the vault is unlocked (or set up on first run). The three
+// data loaders only run from `runLoaders`, behind this gate.
+type GateMode = "loading" | "setup" | "unlock" | "ready";
+const gateMode = ref<GateMode>("loading");
+const passphrase = ref("");
+const confirmPass = ref("");
+const gateError = ref("");
+const gateBusy = ref(false);
+const forgotArmed = ref(false);
+const MIN_LEN = 8;
+
+async function runLoaders() {
   await chatStore.syncRuntimeIdentity();
   await userStore.loadOfflineProfile();
   // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
   void chatStore.init();
+  gateMode.value = "ready";
+}
+
+async function doSetup() {
+  gateError.value = "";
+  if (passphrase.value.length < MIN_LEN) { gateError.value = t("vault.tooShort", { n: MIN_LEN }); return; }
+  if (passphrase.value !== confirmPass.value) { gateError.value = t("vault.mismatch"); return; }
+  gateBusy.value = true;
+  try {
+    await vaultSetup(passphrase.value);
+    passphrase.value = ""; confirmPass.value = "";
+    await runLoaders();
+  } catch (e) {
+    gateError.value = (e as Error).message || String(e);
+  } finally {
+    gateBusy.value = false;
+  }
+}
+
+async function doUnlock() {
+  gateError.value = "";
+  gateBusy.value = true;
+  try {
+    await vaultUnlock(passphrase.value);
+    passphrase.value = "";
+    await runLoaders();
+  } catch (_e) {
+    gateError.value = t("vault.wrongPass");
+  } finally {
+    gateBusy.value = false;
+  }
+}
+
+async function doForgotWipe() {
+  // Two-step: first click arms the destructive action, second confirms.
+  if (!forgotArmed.value) { forgotArmed.value = true; return; }
+  gateBusy.value = true;
+  try {
+    await vaultWipe();
+    forgotArmed.value = false;
+    passphrase.value = ""; confirmPass.value = "";
+    gateError.value = "";
+    gateMode.value = "setup";
+  } catch (e) {
+    gateError.value = (e as Error).message || String(e);
+  } finally {
+    gateBusy.value = false;
+  }
+}
+
+onMounted(async () => {
+  try {
+    const s = await vaultStatus();
+    if (!s.exists) gateMode.value = "setup";
+    else if (!s.unlocked) gateMode.value = "unlock";
+    else await runLoaders();
+  } catch (e) {
+    gateMode.value = "unlock";
+    gateError.value = (e as Error).message || String(e);
+  }
 });
 
 // The chat display name is the local profile's display name (identity otherwise).
@@ -43,6 +118,68 @@ watch(() => route.path, () => {
   <div
     class="min-h-screen flex flex-col font-sans transition-colors duration-300 bg-primary-bg-light text-text-main-light dark:bg-primary-bg-dark dark:text-text-main-dark"
   >
+    <!-- Encryption-at-rest gate: blocks everything until unlocked (non-dismissable) -->
+    <div
+      v-if="gateMode !== 'ready'"
+      class="fixed inset-0 z-[80] flex items-center justify-center bg-primary-bg-light p-6 dark:bg-primary-bg-dark"
+    >
+      <div class="w-full max-w-sm space-y-5">
+        <div class="space-y-2 text-center">
+          <img :src="barIcon" alt="Enigma" class="mx-auto h-14 w-14 rounded-xl object-contain" />
+          <h1 class="text-2xl font-bold">Enigma</h1>
+          <p v-if="gateMode !== 'loading'" class="text-sm opacity-70">
+            {{ gateMode === 'setup' ? $t('vault.setupHint') : $t('vault.unlockHint') }}
+          </p>
+        </div>
+
+        <p v-if="gateMode === 'loading'" class="text-center opacity-60">…</p>
+
+        <form
+          v-else
+          class="space-y-3"
+          @submit.prevent="gateMode === 'setup' ? doSetup() : doUnlock()"
+        >
+          <OyaTextField
+            v-model="passphrase"
+            type="password"
+            :placeholder="$t('vault.enterPass')"
+            :disabled="gateBusy"
+          />
+          <OyaTextField
+            v-if="gateMode === 'setup'"
+            v-model="confirmPass"
+            type="password"
+            :placeholder="$t('vault.confirmPass')"
+            :disabled="gateBusy"
+          />
+          <p v-if="gateError" class="text-sm text-warn-dark">{{ gateError }}</p>
+          <OyaButton
+            type="submit"
+            :dark-mode="darkMode"
+            class="w-full justify-center"
+            :class="{ 'pointer-events-none opacity-60': gateBusy }"
+          >
+            <font-awesome-icon :icon="gateBusy ? 'lock' : gateMode === 'setup' ? 'shield-halved' : 'lock-open'" />
+            {{ gateBusy ? $t('vault.deriving') : gateMode === 'setup' ? $t('vault.create') : $t('vault.unlock') }}
+          </OyaButton>
+        </form>
+
+        <div v-if="gateMode === 'unlock'" class="text-center">
+          <button
+            type="button"
+            class="text-xs underline opacity-60 transition hover:opacity-100"
+            :disabled="gateBusy"
+            @click="doForgotWipe"
+          >
+            {{ forgotArmed ? $t('vault.wipeConfirm') : $t('vault.forgot') }}
+          </button>
+          <p v-if="forgotArmed" class="mt-2 text-xs text-warn-dark">{{ $t('vault.wipeConfirmBody') }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- App shell (only after unlock) -->
+    <template v-if="gateMode === 'ready'">
     <!-- Header -->
     <header
       class="sticky top-0 z-50 border-b border-current/10 shadow-md pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-header-bg-light text-appbar-text-light dark:bg-header-bg-dark dark:text-appbar-text-dark"
@@ -140,5 +277,6 @@ watch(() => route.path, () => {
     >
       <p class="opacity-90">© www.spectrumai.pl. All rights reserved.</p>
     </footer>
+    </template>
   </div>
 </template>
