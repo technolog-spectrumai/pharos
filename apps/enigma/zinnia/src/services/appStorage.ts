@@ -8,6 +8,7 @@ import { isTauri, invoke } from "./tauri";
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_OFFLINE = "enigma:offline";
+const LS_USE_TOR = "enigma:useTor";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export interface AppProfileState {
   offline_profiles: OfflineProfileOption[];
   selected_offline_profile_id: string;
   offline?: boolean;
+  use_tor?: boolean;
 }
 
 export interface OfflineProfileOption {
@@ -52,6 +54,20 @@ export async function setOffline(offline: boolean): Promise<void> {
   localStorage.setItem(LS_OFFLINE, offline ? "on" : "off");
 }
 
+// ── Use Tor (route rendezvous + chat over peer-hosted onion services) ──────────
+// On → the app hosts an onion service, the room QR carries a `.onion`, and all
+// chat rides Tor; iroh is not used. Exclusive; enforced by the Rust command.
+
+export async function getUseTor(): Promise<boolean> {
+  if (isTauri()) return invoke<boolean>("app_get_use_tor");
+  return localStorage.getItem(LS_USE_TOR) === "on";
+}
+
+export async function setUseTor(useTor: boolean): Promise<void> {
+  if (isTauri()) { await invoke("app_set_use_tor", { useTor }); return; }
+  localStorage.setItem(LS_USE_TOR, useTor ? "on" : "off");
+}
+
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────
 
 export async function getRuntimeConfig(): Promise<AppRuntimeConfig> {
@@ -74,6 +90,7 @@ export async function getProfileState(): Promise<AppProfileState> {
     offline_profiles: [],
     selected_offline_profile_id: "",
     offline: await getOffline(),
+    use_tor: await getUseTor(),
   };
 }
 

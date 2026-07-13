@@ -1,7 +1,8 @@
 // One P2P chat channel, fully self-contained: its own room, messages,
 // participants, MLS session and transport wiring. The app is serverless — the
-// only transport is iroh-gossip (see chatTransport.ts); rendezvous is a QR-shared
-// ticket, and reconnects ride the peer NodeIds persisted per room.
+// transport (iroh-gossip, or peer-hosted Tor when the "use Tor" switch is on) is
+// chosen in Rust (see chatTransport.ts); rendezvous is a QR-shared ticket, and
+// reconnects ride the peer NodeIds / onion persisted per room.
 //
 // The MLS envelope state machine below (key_package → welcome/commit → app) is
 // transport-agnostic JSON; all crypto is delegated to the Rotor-backed `mls_*`
@@ -15,8 +16,8 @@ import type { Participant, Room } from "./services/types";
 import { kvGet, kvPut } from "./services/localDb";
 import { nanoid } from "nanoid";
 
-/** A locally-known P2P (iroh) room: topic id, display name, join ticket, and the
- *  peer NodeIds seen in it (the address book for ticketless reconnects). */
+/** A locally-known P2P room: topic id, display name, join ticket, and the peer
+ *  NodeIds seen in it (the address book for ticketless reconnects). */
 export interface P2pRoomEntry {
   room: string;
   name: string;
@@ -24,6 +25,23 @@ export interface P2pRoomEntry {
   /** NodeIds of peers seen in this room — persisted so a restart can re-subscribe
    *  and resolve their current addresses via n0 discovery (no fresh QR needed). */
   peers?: string[];
+  /** True when WE created (host) this room. Over Tor the creator hosts the onion
+   *  service and must re-host (not re-dial) on reopen; over iroh it's cosmetic. */
+  host?: boolean;
+}
+
+/** Tor tickets are base32(`0x54` ++ postcard) — a leading `0x54` ('T') byte marks
+ *  them apart from iroh's tagless tickets (mirrors `p2p_tor::ticket_is_tor`). We
+ *  decode just the first byte from the first two base32 chars. */
+const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+export function isTorTicket(ticket: string): boolean {
+  const s = ticket.trim().toLowerCase();
+  if (s.length < 2) return false;
+  const a = B32.indexOf(s[0]);
+  const b = B32.indexOf(s[1]);
+  if (a < 0 || b < 0) return false;
+  const firstByte = ((a << 3) | (b >> 2)) & 0xff;
+  return firstByte === 0x54;
 }
 
 export type MlsStatus =
@@ -555,7 +573,7 @@ export function useChatChannel() {
     clearMessages();
     try {
       const res = await chatTransport.createRoom(name.trim());
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket });
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket, host: true });
       enterP2pRoom(res.room, res.name);
       messages.value.push(systemMsg(`Created “${res.name}”. Share the QR / ticket to invite peers.`));
       return res.ticket;
@@ -605,15 +623,21 @@ export function useChatChannel() {
     }
   }
 
-  /** Open a saved room: rejoin by ticket, seeding the bootstrap with the room's
-   *  persisted peer NodeIds so stale ticket addresses don't strand us. */
+  /** Open a saved room. iroh: rejoin by ticket, seeding the persisted peer NodeIds
+   *  so stale ticket addresses don't strand us. Tor: the host re-launches its onion
+   *  (same nickname ⇒ same `.onion`, idempotent), a joiner re-dials the saved onion.
+   *  The transport is inferred from the ticket, so iroh rooms are unaffected. */
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
     teardown();
     clearMessages();
     try {
-      await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
+      if (isTorTicket(entry.ticket) && entry.host) {
+        await chatTransport.createRoom(entry.name);
+      } else {
+        await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
+      }
       enterP2pRoom(entry.room, entry.name);
     } catch (e) {
       error.value = errorMessage(e);
