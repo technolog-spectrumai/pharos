@@ -1,17 +1,14 @@
-// Rakotis — reusable app primitives for the Enigma family: the non-crypto
-// foundation (services, i18n, Oya UI components) plus the MLS-over-WebSocket
-// relay chat orchestration (Rotor-backed crypto bridge, relay transport, chat
-// channel composable + MLS envelope state machine). Crypto is delegated to the
-// Rotor-backed `mls_*` Tauri commands — never reimplemented here.
+// Rakotis — reusable app primitives for Enigma: the non-crypto foundation
+// (services, i18n, Oya UI components) plus the P2P chat orchestration
+// (Rotor-backed crypto bridge, iroh transport bridge, chat channel composable +
+// MLS envelope state machine). Crypto is delegated to the Rotor-backed `mls_*`
+// Tauri commands — never reimplemented here.
 
 // ── Services ──────────────────────────────────────────────────────────────────
 export { isTauri, invoke } from "./services/tauri";
 export * from "./services/appStorage";
 export * from "./services/localDb";
-export { WsService, wsService } from "./services/ws";
-export type { WsStatus, WsMessage } from "./services/ws";
-export * from "./services/apiBase";
-export type { Participant } from "./services/types";
+export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
 export {
@@ -32,21 +29,15 @@ export { default as OyaHelloWorld } from "./components/OyaHelloWorld.vue";
 // ── Crypto bridge (Rotor-backed MLS) ──────────────────────────────────────────
 export { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
 
-// ── Relay chat transport ──────────────────────────────────────────────────────
+// ── P2P chat transport ────────────────────────────────────────────────────────
 export { chatTransport } from "./chatTransport";
-export type { ChatTransport, CreatedRoom, JoinedRoom } from "./chatTransport";
-
-// ── Relay command seam ────────────────────────────────────────────────────────
-export { relayCommandHandlers, runChatCommand } from "./chatCommands";
-export type { ChatCommandContext, ChatCommandHandler } from "./chatCommands";
+export type { ChatTransport, CreatedRoom, JoinedRoom, WsStatus, WsMessage } from "./chatTransport";
 
 // ── Chat channel composable + MLS envelope state machine ──────────────────────
 export { useChatChannel } from "./useChatChannel";
 export type {
   ChatChannel,
-  ChannelKind,
   Message,
   MlsStatus,
   P2pRoomEntry,
-  RelayChatApi,
 } from "./useChatChannel";
