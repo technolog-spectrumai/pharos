@@ -1,6 +1,6 @@
 // Shared i18n framework: locale resolution + persistence helpers and a factory
 // that builds an app's i18n instance from its own message catalogs. The catalogs
-// themselves live in each app (Enigma/Aurora), so Euclid carries no app strings.
+// themselves live in the app (apps/enigma/src/i18n), so rakotis carries no app strings.
 
 import { createI18n, type I18n } from "vue-i18n";
 
@@ -53,8 +53,8 @@ export interface AppI18n {
  * Build an app's i18n instance from its message catalogs.
  *
  * Initial locale: an explicit local choice wins; otherwise fall back to the
- * browser language. The toto profile language is applied later (once /me
- * resolves) as the first guess when the user has made no explicit choice.
+ * browser language. `applyProfileLocaleGuess` remains for callers that obtain a
+ * language hint from elsewhere (e.g. a profile) without an explicit choice.
  */
 export function createAppI18n(messages: Record<Locale, unknown>): AppI18n {
   const i18n = createI18n({

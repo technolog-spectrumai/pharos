@@ -1,31 +1,21 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from "vue";
+import { computed, ref, watch, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
-import { Html5Qrcode } from "html5-qrcode";
-import { api, clearResponseCache, countResponseCache } from "../services/api";
 import { useChatStore } from "../stores/chat";
+import { useUserStore } from "../stores/user";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import {
   clearOfflineProfile,
   getProfileState,
   getRuntimeConfig,
-  getServerUrl,
-  getServerData,
-  getServerIsOnion,
-  getAllowSelfSignedTls,
   getOffline,
   setActiveProfile,
-  setServerUrl,
-  setServerData,
-  setServerIsOnion,
-  setAllowSelfSignedTls,
   setOffline,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
-import { chatTransport as wsService } from "rakotis";
 import { OyaCard } from "rakotis";
 import { OyaButton } from "rakotis";
 
@@ -34,6 +24,7 @@ defineProps<{ darkMode: boolean }>();
 const router = useRouter();
 const route = useRoute();
 const chatStore = useChatStore();
+const userStore = useUserStore();
 const { t, locale } = useI18n({ useScope: "global" });
 
 // Profile + Data live inside Settings as tabs. `?tab=profile`/`?tab=data` open them
@@ -46,54 +37,40 @@ const activeTab = ref<ConfigTab>(tabFromQuery(route.query.tab));
 watch(() => route.query.tab, (tab) => { activeTab.value = tabFromQuery(tab); });
 
 // ── Language ──────────────────────────────────────────────────────────────────
-const langSavedToProfile = ref(false);
-async function changeLanguage(value: string) {
-  const loc = value as Locale;
-  setLocale(loc, true); // explicit local choice — overrides the profile guess
-  langSavedToProfile.value = false;
+function changeLanguage(value: string) {
+  // Serverless: the choice is local-only (persisted by the i18n framework).
+  setLocale(value as Locale, true);
+}
+
+// ── My identity (iroh NodeId) ────────────────────────────────────────────────
+// The stable NodeId is this device's durable P2P handle: peers who paired once
+// (via a room QR) reconnect to it through n0 discovery even after IP changes.
+const nodeId = ref("");
+const nodeQr = ref("");
+const nodeIdCopied = ref(false);
+const nodeIdLoading = ref(false);
+
+async function loadNodeId() {
+  nodeIdLoading.value = true;
   try {
-    const res = await api.setLanguage(loc); // also persist to the toto profile
-    if (res.stored) {
-      langSavedToProfile.value = true;
-      setTimeout(() => (langSavedToProfile.value = false), 2500);
+    nodeId.value = (await chatStore.p2p.ensureNode()) ?? "";
+    if (nodeId.value) {
+      try {
+        const { toDataURL } = await import("qrcode");
+        nodeQr.value = await toDataURL(nodeId.value, { errorCorrectionLevel: "L", margin: 1, width: 220 });
+      } catch { nodeQr.value = ""; }
     }
-  } catch {
-    /* offline — the local choice still applies */
+  } finally {
+    nodeIdLoading.value = false;
   }
 }
 
-// ── Server URL ────────────────────────────────────────────────────────────────
-const serverUrl = ref("");
-const saved = ref(false);
-
-// ── Server data (on / off) ───────────────────────────────────────────────────
-const serverData = ref(true);
-async function toggleServerData() {
-  serverData.value = !serverData.value;
-  await setServerData(serverData.value);
-  testStatus.value = "idle";
-  testMessage.value = "";
-}
-
-// ── Server is onion (Tor) ─────────────────────────────────────────────────────
-// On → reach the server (a .onion) through the embedded Tor client.
-const serverIsOnion = ref(false);
-async function toggleServerIsOnion() {
-  serverIsOnion.value = !serverIsOnion.value;
-  await setServerIsOnion(serverIsOnion.value);
-  testStatus.value = "idle";
-  testMessage.value = "";
-}
-
-// ── Allow self-signed TLS (clearnet HTTPS) ────────────────────────────────────
-// On → accept an untrusted/self-signed cert on the clearnet HTTPS/WSS path (e.g. a
-// self-hosted portal behind a gervazy cert).
-const allowSelfSigned = ref(false);
-async function toggleAllowSelfSigned() {
-  allowSelfSigned.value = !allowSelfSigned.value;
-  await setAllowSelfSignedTls(allowSelfSigned.value);
-  testStatus.value = "idle";
-  testMessage.value = "";
+async function copyNodeId() {
+  try {
+    await navigator.clipboard.writeText(nodeId.value);
+    nodeIdCopied.value = true;
+    setTimeout(() => (nodeIdCopied.value = false), 1500);
+  } catch { /* clipboard unavailable */ }
 }
 
 // ── Offline / airplane mode (online / offline) ───────────────────────────────
@@ -101,153 +78,14 @@ const offline = ref(false);
 async function toggleOffline() {
   offline.value = !offline.value;
   await setOffline(offline.value);
-  if (offline.value) {
-    // Airplane mode — drop the relay leg; the Rust gate blocks P2P sends/joins too.
-    wsService.disconnectWs();
-    testStatus.value = "idle";
-    testMessage.value = "";
-  }
-}
-
-// The data layer is blocked when offline, or when server data is switched off.
-const serverDataBlocked = computed(() => offline.value || !serverData.value);
-
-// ── Local browsing cache (SQLite) ──────────────────────────────────────────────
-const cacheCount = ref(0);
-const clearingCache = ref(false);
-
-async function refreshCacheCount() {
-  cacheCount.value = await countResponseCache(serverUrl.value).catch(() => 0);
-}
-
-async function clearLocalCache() {
-  clearingCache.value = true;
-  try {
-    await clearResponseCache(serverUrl.value);
-    cacheCount.value = 0;
-  } finally {
-    clearingCache.value = false;
-  }
 }
 
 onMounted(async () => {
   await loadRuntimeConfig();
-  serverUrl.value = await getServerUrl();
-  serverData.value = await getServerData();
-  serverIsOnion.value = await getServerIsOnion();
-  allowSelfSigned.value = await getAllowSelfSignedTls();
   offline.value = await getOffline();
-  await refreshCacheCount();
   await loadOfflineData();
+  void loadNodeId();
 });
-
-async function save() {
-  await setServerUrl(serverUrl.value.trim());
-  saved.value = true;
-  setTimeout(() => (saved.value = false), 2000);
-}
-
-async function clearConnection() {
-  await setServerUrl("");
-  serverUrl.value = "";
-  testStatus.value = "idle";
-  testMessage.value = "";
-}
-
-// ── Test connection ───────────────────────────────────────────────────────────
-type TestStatus = "idle" | "testing" | "ok" | "error";
-const testStatus = ref<TestStatus>("idle");
-const testMessage = ref("");
-const timeoutMs = ref(5000); // user-configurable timeout in ms
-
-async function testConnection() {
-  if (serverDataBlocked.value) {
-    testStatus.value = "error";
-    testMessage.value = t("config.serverOffBlocked");
-    return;
-  }
-  if (!serverUrl.value) {
-    testStatus.value = "error";
-    testMessage.value = t("config.noServer");
-    return;
-  }
-  testStatus.value = "testing";
-  testMessage.value = "";
-  const t0 = Date.now();
-
-  try {
-    await Promise.race([
-      api.health(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Timed out after ${timeoutMs.value / 1000} s`)),
-          timeoutMs.value
-        )
-      ),
-    ]);
-    const ms = Date.now() - t0;
-    testStatus.value = "ok";
-    testMessage.value = t("config.serverReachable", { ms });
-  } catch (e) {
-    testStatus.value = "error";
-    const raw = (e as Error).message;
-    const elapsed = Date.now() - t0;
-    const timedOut = elapsed >= timeoutMs.value - 50;
-    testMessage.value = timedOut
-      ? `No response after ${timeoutMs.value / 1000} s — server may be unreachable. (${raw})`
-      : raw;
-  }
-}
-
-// ── QR scanner ───────────────────────────────────────────────────────────────
-interface ScanEntry {
-  ts: Date;
-  ok: boolean;
-  text: string;
-}
-
-const scanning = ref(false);
-const scanError = ref("");
-const scanLog = ref<ScanEntry[]>([]);
-let scanner: Html5Qrcode | null = null;
-
-async function startScan() {
-  scanError.value = "";
-  scanning.value = true;
-  await new Promise((r) => setTimeout(r, 50));
-  scanner = new Html5Qrcode("qr-scanner-region");
-  try {
-    await scanner.start(
-      { facingMode: "environment" },
-      { fps: 12, qrbox: { width: 220, height: 220 } },
-      (decoded) => {
-        scanLog.value.unshift({ ts: new Date(), ok: true, text: decoded });
-        serverUrl.value = decoded;
-        void save();      // auto-save scanned URL
-        stopScan();
-      },
-      () => {
-        // per-frame decode failure — ignore noise
-      }
-    );
-  } catch {
-    const msg = t("config.cameraDenied");
-    scanError.value = msg;
-    scanLog.value.unshift({ ts: new Date(), ok: false, text: msg });
-    scanning.value = false;
-    scanner = null;
-  }
-}
-
-async function stopScan() {
-  if (scanner) {
-    try { await scanner.stop(); } catch { /* ignore */ }
-    scanner = null;
-  }
-  scanning.value = false;
-}
-
-onUnmounted(stopScan);
 
 // ── Offline data ─────────────────────────────────────────────────────────────
 const offlineState = ref<AppProfileState | null>(null);
@@ -275,8 +113,6 @@ const loadedProfileChips = computed(() => {
     `APP_PROFILE: ${runtimeConfig.value.profile}`,
     `CHAT_USER: ${runtimeConfig.value.identity}`,
     `State: ${runtimeConfig.value.profile_state_path}`,
-    `Server: ${offlineState.value.server_url || "not set"}`,
-    `Token: ${offlineState.value.auth_token ? "saved" : "empty"}`,
     `Offline data: ${selectedOfflineProfileHasData.value ? "saved" : "empty"}`,
   ];
 });
@@ -303,16 +139,19 @@ async function loadDataProfile() {
   loadProfileStatus.value = "loading";
   offlineMessage.value = "";
   try {
-    await chatStore.leaveAllChatsOnServer().catch(() => {});
     runtimeConfig.value = await setActiveProfile(label, label);
-    serverUrl.value = await getServerUrl();
     offlineState.value = await getProfileState();
     await chatStore.applyRuntimeProfile(runtimeConfig.value);
+    // Re-read the local profile so the display name (App.vue watcher +
+    // chat) reflects the NEW profile, not the previous one.
+    await userStore.loadOfflineProfile();
+    chatStore.p2p.currentUserName.value =
+      userStore.displayName || runtimeConfig.value.identity;
     dataProfileName.value = runtimeConfig.value.profile;
-    testStatus.value = "idle";
-    testMessage.value = "";
     offlineMessage.value = t("config.profileLoaded");
     loadProfileStatus.value = "success";
+    // The switched profile has its own iroh key → refresh the shown NodeId.
+    void loadNodeId();
   } catch (e) {
     offlineMessage.value = (e as Error).message;
     loadProfileStatus.value = "error";
@@ -424,238 +263,44 @@ async function clearSelectedOfflineData() {
         >
           <option v-for="l in SUPPORTED_LOCALES" :key="l" :value="l">{{ LOCALE_NAMES[l] }}</option>
         </select>
-        <span v-if="langSavedToProfile" class="text-xs text-success-dark">
-          <font-awesome-icon icon="check" class="mr-1" />{{ $t('lang.savedToProfile') }}
-        </span>
       </div>
     </OyaCard>
 
-    <!-- Notifications card -->
-    <!-- Server URL card -->
+    <!-- My identity card — this device's stable P2P NodeId -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p
           :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
           class="text-xs font-semibold uppercase tracking-wide"
         >
-          {{ $t('config.serverAddress') }}
+          {{ $t('config.myIdentity') }}
         </p>
-        <p class="mt-1 text-sm opacity-65">
-          {{ $t('config.serverHint') }}
-        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.myIdentityHint') }}</p>
       </div>
 
-      <!-- Input row -->
-      <div class="flex gap-2">
-        <input
-          v-model="serverUrl"
-          type="url"
-          placeholder="http://192.168.x.x:8000"
-          :class="
-            darkMode
-              ? 'config-control-dark placeholder:text-text-main-dark/30'
-              : 'config-control-light placeholder:text-text-main-light/30'
-          "
-          class="config-control flex-1 rounded-lg border px-3 py-2 text-sm font-mono outline-none transition"
-          @keyup.enter="save"
-        />
-        <OyaButton :dark-mode="darkMode" @click="save">
-          <font-awesome-icon :icon="saved ? 'check' : 'floppy-disk'" />
-          {{ saved ? $t('common.saved') : $t('common.save') }}
-        </OyaButton>
-      </div>
-
-      <!-- Onion (Tor) switch — reach a .onion server through the embedded Tor client -->
-      <div class="flex items-center gap-3" :class="{ 'pointer-events-none opacity-50': offline }">
-        <font-awesome-icon
-          icon="lock"
-          :class="serverIsOnion ? (darkMode ? 'text-accent-dark' : 'text-accent-light') : 'opacity-60'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.serverOnion') }}</p>
-          <p class="text-xs opacity-60">
-            {{ serverIsOnion ? $t('config.serverOnionOnHint') : $t('config.serverOnionOffHint') }}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="serverIsOnion"
-          :disabled="offline"
-          :class="serverIsOnion ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleServerIsOnion"
-        >
-          <span
-            :class="serverIsOnion ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+      <div v-if="nodeId" class="space-y-3">
+        <img v-if="nodeQr" :src="nodeQr" alt="Node ID QR code" class="mx-auto h-44 w-44 rounded-lg bg-white p-2" />
+        <div class="flex gap-2">
+          <input
+            :value="nodeId" readonly
+            class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-2 py-1.5 font-mono text-[11px]"
           />
-        </button>
-      </div>
-
-      <!-- Allow self-signed TLS (clearnet only) -->
-      <div
-        v-if="!serverIsOnion"
-        class="flex items-center gap-3"
-        :class="{ 'pointer-events-none opacity-50': offline }"
-      >
-        <font-awesome-icon
-          icon="shield-halved"
-          :class="allowSelfSigned ? (darkMode ? 'text-accent-dark' : 'text-accent-light') : 'opacity-60'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.serverSelfSigned') }}</p>
-          <p class="text-xs opacity-60">
-            {{ allowSelfSigned ? $t('config.serverSelfSignedOnHint') : $t('config.serverSelfSignedOffHint') }}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="allowSelfSigned"
-          :disabled="offline"
-          :class="allowSelfSigned ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleAllowSelfSigned"
-        >
-          <span
-            :class="allowSelfSigned ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
-      </div>
-
-      <!-- Stored URL row -->
-      <div
-        v-if="serverUrl"
-        :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
-        class="flex items-center gap-3 rounded-lg border px-3 py-2"
-      >
-        <div class="min-w-0 flex-1">
-          <p class="text-xs opacity-50">{{ $t('config.configuredServer') }}</p>
-          <p class="mt-0.5 break-all font-mono text-sm">{{ serverUrl }}</p>
-        </div>
-        <button
-          :class="darkMode ? 'hover:text-warn-dark' : 'hover:text-warn-light'"
-          class="shrink-0 text-sm opacity-40 transition hover:opacity-100"
-          :title="$t('config.clearSavedUrl')"
-          @click="clearConnection"
-        >
-          <font-awesome-icon icon="xmark" />
-        </button>
-      </div>
-
-      <!-- Test connection row -->
-      <div class="space-y-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <!-- Timeout selector -->
-          <div class="flex items-center gap-2 text-sm opacity-70">
-            <label class="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-60">
-              {{ $t('config.timeout') }}
-            </label>
-            <select
-              v-model.number="timeoutMs"
-              :class="
-                darkMode
-                  ? 'config-control-dark'
-                  : 'config-control-light'
-              "
-              class="config-control rounded-lg border px-2 py-1 text-sm outline-none transition"
-            >
-              <option :value="2000">2 s</option>
-              <option :value="5000">5 s</option>
-              <option :value="10000">10 s</option>
-              <option :value="30000">30 s</option>
-            </select>
-          </div>
-
-          <OyaButton
-            :dark-mode="darkMode"
-            variant="secondary"
-            :class="{ 'pointer-events-none opacity-50': testStatus === 'testing' || serverDataBlocked }"
-            @click="testConnection"
+          <button
+            class="shrink-0 rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-80"
+            @click="copyNodeId"
           >
-            <font-awesome-icon v-if="testStatus === 'idle'" icon="gauge" />
-            <font-awesome-icon v-else-if="testStatus === 'testing'" icon="lock" />
-            <font-awesome-icon v-else-if="testStatus === 'ok'" icon="check" class="text-success-dark" />
-            <font-awesome-icon v-else icon="triangle-exclamation" class="text-warn-dark" />
-            {{ testStatus === "testing" ? $t('config.testing', { sec: timeoutMs / 1000 }) : $t('config.testConnection') }}
-          </OyaButton>
+            {{ nodeIdCopied ? "✓" : $t('chat.copy') }}
+          </button>
         </div>
-
-        <p
-          v-if="testMessage"
-          :class="testStatus === 'ok' ? 'text-success-dark' : 'text-warn-dark'"
-          class="min-w-0 flex-1 break-all text-sm"
-        >
-          {{ testMessage }}
-        </p>
       </div>
-    </OyaCard>
-
-    <!-- QR Scanner card -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p
-          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-          class="text-xs font-semibold uppercase tracking-wide"
-        >
-          {{ $t('config.scanQr') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">
-          {{ $t('config.scanHint') }}
-        </p>
-      </div>
-
-      <!-- Camera viewport -->
-      <div v-if="scanning" class="space-y-3">
-        <div
-          id="qr-scanner-region"
-          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          class="overflow-hidden rounded-xl border"
-        />
-        <OyaButton :dark-mode="darkMode" variant="secondary" class="w-full" @click="stopScan">
-          <font-awesome-icon icon="xmark" />
-          {{ $t('config.cancelScan') }}
-        </OyaButton>
-      </div>
-
-      <p v-if="scanError" class="text-sm text-warn-dark">
-        <font-awesome-icon icon="triangle-exclamation" class="mr-1" />
-        {{ scanError }}
-      </p>
-
-      <OyaButton v-if="!scanning" :dark-mode="darkMode" class="w-full" @click="startScan">
-        <font-awesome-icon icon="camera" />
-        {{ $t('config.startScan') }}
+      <p v-else-if="nodeIdLoading" class="text-sm opacity-60">…</p>
+      <OyaButton v-else :dark-mode="darkMode" variant="secondary" @click="loadNodeId">
+        <font-awesome-icon icon="circle-nodes" />{{ $t('config.showNodeId') }}
       </OyaButton>
-
-      <!-- Scan log -->
-      <div v-if="scanLog.length" class="space-y-1">
-        <p class="text-xs font-semibold uppercase tracking-wide opacity-50">{{ $t('config.scanLog') }}</p>
-        <div
-          v-for="(entry, i) in scanLog"
-          :key="i"
-          :class="
-            entry.ok
-              ? darkMode ? 'border-success-dark/30 bg-success-dark/5' : 'border-success-light/30 bg-success-light/5'
-              : darkMode ? 'border-warn-dark/30 bg-warn-dark/5' : 'border-warn-light/30 bg-warn-light/5'
-          "
-          class="flex items-start gap-2 rounded-lg border px-3 py-2 font-mono text-xs"
-        >
-          <span :class="entry.ok ? 'text-success-dark' : 'text-warn-dark'" class="shrink-0 font-bold">
-            {{ entry.ok ? "✓" : "✗" }}
-          </span>
-          <span class="shrink-0 opacity-50">{{ entry.ts.toLocaleTimeString() }}</span>
-          <span class="min-w-0 flex-1 break-all opacity-80">{{ entry.text }}</span>
-        </div>
-      </div>
     </OyaCard>
     </template>
 
-    <!-- Data tab — data behaviour: server data, offline mode, local cache -->
+    <!-- Data tab — offline mode + local data profiles -->
     <template v-if="activeTab === 'data'">
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
@@ -663,34 +308,6 @@ async function clearSelectedOfflineData() {
           {{ $t('nav.data') }}
         </p>
         <p class="mt-1 text-sm opacity-65">{{ $t('config.dataHint') }}</p>
-      </div>
-      <!-- Server data switch (on / off) -->
-      <div class="flex items-center gap-3" :class="{ 'pointer-events-none opacity-50': offline }">
-        <font-awesome-icon
-          icon="server"
-          :class="serverData && !offline ? 'opacity-60' : 'text-warn-dark'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.serverData') }}</p>
-          <p class="text-xs opacity-60">
-            {{ serverData ? $t('config.serverDataOnHint') : $t('config.serverDataOffHint') }}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="serverData"
-          :disabled="offline"
-          :class="serverData ? (darkMode ? 'bg-accent-dark' : 'bg-accent-light') : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleServerData"
-        >
-          <span
-            :class="serverData ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
       </div>
 
       <!-- Offline / airplane mode switch (online / offline) -->
@@ -718,34 +335,6 @@ async function clearSelectedOfflineData() {
             :class="offline ? 'translate-x-6' : 'translate-x-1'"
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
-        </button>
-      </div>
-
-      <!-- Local browsing cache -->
-      <div
-        :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'"
-        class="flex items-center gap-3 rounded-lg border px-3 py-2"
-      >
-        <font-awesome-icon icon="hard-drive" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.localCache') }}</p>
-          <p class="mt-0.5 text-xs opacity-65">
-            {{ $t('config.cachedEntries', { n: cacheCount }) }}
-          </p>
-        </div>
-        <button
-          type="button"
-          :class="[
-            darkMode
-              ? 'border-accent-1 bg-bubble-bg-dark text-text-main-dark hover:border-warn-dark'
-              : 'border-accent-2 bg-bubble-bg-light text-text-main-light hover:border-warn-light',
-            clearingCache || cacheCount === 0 ? 'pointer-events-none opacity-50' : '',
-          ]"
-          class="inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-          @click="clearLocalCache"
-        >
-          <font-awesome-icon :icon="clearingCache ? 'lock' : 'trash'" />
-          {{ $t('config.clearCache') }}
         </button>
       </div>
     </OyaCard>
@@ -826,7 +415,6 @@ async function clearSelectedOfflineData() {
                 : 'border-accent-2 bg-primary-bg-light text-text-main-light hover:border-warn-light'
             "
             class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-            :title="$t('config.clearSavedUrl')"
             @click="clearDataProfileName"
           >
             <span>{{ dataProfileName }}</span>

@@ -1,21 +1,21 @@
 # Rakotis
 
-Reusable app primitives for the Enigma family (and any other Vite + Vue 3 app).
+Reusable app primitives for Enigma (and any other Vite + Vue 3 app).
 One package, two layers:
 
-- **Foundation** (formerly the `euclid` package — non-crypto):
-  - `services/` — reconnecting WebSocket client (`WsService`), Tauri `invoke` helpers,
-    auth/server/profile storage, HTTP `ApiBase` with offline cache semantics, local
-    kv cache (`kvGet`/`kvPut`), shared DTO types.
+- **Foundation** (non-crypto):
+  - `services/` — Tauri `invoke` helpers, local profile storage, local kv cache
+    (`kvGet`/`kvPut`), shared DTO types.
   - `i18n/` — locale framework (`createAppI18n`, `SUPPORTED_LOCALES`, …).
   - `components/` — `OyaButton`, `OyaCard`, `OyaHelloWorld` Vue components.
-- **Chat orchestration** (the original `rakotis` surface):
+- **P2P chat orchestration**:
   - `crypto.ts` — bridge to the Rotor-backed `mls_*` Tauri commands (MLS is delegated
-    to Rust; never reimplemented in TypeScript). `pinCrypto.ts` — WebCrypto AES-GCM
-    for pinned messages.
-  - `chatTransport.ts` — relay transport over the WebSocket/realtime gateway.
-  - `chatCommands.ts` — pluggable relay-only command seam.
-  - `useChatChannel.ts` — the chat-channel composable + MLS envelope state machine.
+    to Rust; never reimplemented in TypeScript).
+  - `chatTransport.ts` — bridge to the Rust iroh gateway (`realtime_*` commands,
+    room-tagged `realtime://*` events).
+  - `useChatChannel.ts` — the chat-channel composable + MLS envelope state machine,
+    including the per-room peer-NodeId persistence that makes QR pair-once
+    reconnects work.
 
 Everything is exported from the single entry point `src/index.ts`.
 
@@ -45,7 +45,7 @@ optimizeDeps: { exclude: ["rakotis"] }
 
 ```bash
 npm install
-npm test          # vitest: services, i18n, transport, pin crypto (jsdom)
+npm test          # vitest: storage, localDb, i18n, chat transport (jsdom)
 npm run typecheck # vue-tsc
 ```
 

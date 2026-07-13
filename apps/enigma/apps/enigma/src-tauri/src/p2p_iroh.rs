@@ -1,13 +1,15 @@
-// Direct peer-to-peer chat backend using iroh-gossip (QUIC).
+// Direct peer-to-peer chat backend using iroh-gossip (QUIC) — the app's ONLY
+// transport (the WebSocket relay backend was removed in the serverless rework).
 //
 // A room is an iroh-gossip topic (blake3 of the room name). Peers bootstrap from
 // a `Ticket` (topic + name + our endpoint addresses, base32-encoded) shared out
-// of band. Messages are the same JSON payloads the WS backend carries, so the
-// MLS handshake + message protocol in the chat store is reused unchanged — even
-// a relay only ever sees MLS ciphertext.
+// of band — in practice as a QR code. Reconnects after the one-time pairing go by
+// persisted peer NodeIds, resolved via iroh's built-in n0 discovery. The MLS
+// handshake + message protocol ride the gossip topic; any relay hop only ever
+// sees MLS ciphertext.
 //
-// This emits the same `realtime://message` / `realtime://status` events as the
-// WS backend, so the frontend stays transport-agnostic.
+// Emits `realtime://message` / `realtime://status` events (room-tagged), keeping
+// the frontend transport-agnostic.
 
 use std::collections::HashMap;
 
@@ -16,7 +18,7 @@ use bytes::Bytes;
 use futures_lite::StreamExt;
 use iroh::{
     address_lookup::memory::MemoryLookup, endpoint::presets, protocol::Router, Endpoint,
-    EndpointAddr, EndpointId, RelayMode,
+    EndpointAddr, EndpointId, RelayMode, SecretKey,
 };
 use iroh_gossip::{
     api::{Event, GossipReceiver, GossipSender},
@@ -24,7 +26,7 @@ use iroh_gossip::{
     proto::TopicId,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 #[derive(Default)]
@@ -71,6 +73,36 @@ fn topic_for(name: &str) -> TopicId {
     TopicId::from_bytes(*blake3::hash(name.as_bytes()).as_bytes())
 }
 
+// ── stable identity ────────────────────────────────────────────────────────────
+
+fn secret_path(app: &AppHandle, name: &str) -> std::path::PathBuf {
+    let base = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    base.join(format!("iroh_{name}.key"))
+}
+
+/// Load this endpoint's persisted secret key, or generate + persist a new one. A
+/// stable secret means a stable NodeId — the durable contact handle peers keep
+/// after a one-time QR pairing, so reconnects work without re-scanning.
+pub fn load_or_create_secret(app: &AppHandle, name: &str) -> SecretKey {
+    let path = secret_path(app, name);
+    if let Ok(bytes) = std::fs::read(&path) {
+        if bytes.len() == 32 {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            return SecretKey::from_bytes(&arr);
+        }
+    }
+    let sk = SecretKey::generate();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, sk.to_bytes());
+    sk
+}
+
 // ── lifecycle ──────────────────────────────────────────────────────────────────
 
 async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
@@ -78,25 +110,21 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     if guard.is_some() {
         return Ok(());
     }
-    // Stable secret key → stable NodeId, so this gossip endpoint is a durable handle
-    // discoverable via aster.
-    let secret = crate::aster::load_or_create_secret(app, "gossip");
+    // Stable secret key → stable NodeId, so this gossip endpoint is a durable
+    // contact handle across restarts (QR pairs once; reconnects go by NodeId).
+    let secret = load_or_create_secret(app, "gossip");
     let lookup = MemoryLookup::new();
+    // presets::N0 keeps iroh's built-in n0 relay + discovery (pkarr/DNS): peers
+    // publish their own addresses and NodeId-only dials resolve without any app
+    // server. The QR ticket (EndpointAddr) is the bootstrap; discovery is the
+    // auto-refresh when addresses change later.
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret)
-        .address_lookup(lookup.clone()) // ticket path (manual fallback)
-        .address_lookup(crate::aster::TotoLookup::new(app.clone())) // aster NodeId discovery
+        .address_lookup(lookup.clone()) // ticket path (QR bootstrap)
         .relay_mode(RelayMode::Default)
         .bind()
         .await
         .map_err(|e| anyhow!("iroh bind failed: {e}"))?;
-    // Register + keep our relay URL fresh in the aster directory (best-effort).
-    crate::aster::spawn_publisher(
-        app.clone(),
-        endpoint.clone(),
-        endpoint.id().to_string(),
-        crate::aster::KIND_GOSSIP,
-    );
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
     let gossip = Gossip::builder()
@@ -143,12 +171,29 @@ pub async fn create_room(app: &AppHandle, state: &P2pState, name: String) -> Res
 }
 
 /// Join a room from a ticket and return `(room_id, name)`.
-pub async fn join_room(app: &AppHandle, state: &P2pState, ticket: String) -> Result<(String, String)> {
+///
+/// `extra_peer_ids` seeds the gossip bootstrap with additional known peers (the
+/// persisted NodeIds from previous sessions): the ticket's embedded addresses may
+/// be stale, but a bare NodeId still resolves through n0 discovery — this is what
+/// makes "pair once by QR, reconnect forever" work.
+pub async fn join_room(
+    app: &AppHandle,
+    state: &P2pState,
+    ticket: String,
+    extra_peer_ids: Vec<String>,
+) -> Result<(String, String)> {
     ensure_started(app, state).await?;
     let ticket = Ticket::decode(&ticket).map_err(|e| anyhow!("invalid ticket: {e}"))?;
     let topic = ticket.topic;
     let room = topic.to_string();
-    let peer_ids = ticket.peers.iter().map(|p| p.id).collect::<Vec<_>>();
+    let mut peer_ids = ticket.peers.iter().map(|p| p.id).collect::<Vec<_>>();
+    for id in &extra_peer_ids {
+        if let Ok(id) = id.parse::<EndpointId>() {
+            if !peer_ids.contains(&id) {
+                peer_ids.push(id);
+            }
+        }
+    }
 
     let mut guard = state.0.lock().await;
     let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
@@ -170,7 +215,9 @@ pub async fn join_room(app: &AppHandle, state: &P2pState, ticket: String) -> Res
 }
 
 /// Join a room by name, bootstrapping from peer NodeIds. Unlike `join_room`, no ticket
-/// is needed — peer relay addresses are resolved on demand via the aster `TotoLookup`.
+/// is needed — peer addresses are resolved via iroh's built-in n0 discovery. This is
+/// the reconnect path after a one-time QR pairing: the app persists each room's peer
+/// NodeIds and re-subscribes with them on startup.
 pub async fn join_room_by_node(
     app: &AppHandle,
     state: &P2pState,
@@ -198,6 +245,25 @@ pub async fn join_room_by_node(
     Ok(room)
 }
 
+/// Airplane mode: tear the whole P2P node down — abort every room's receive loop,
+/// close the iroh endpoint (drops the relay connection and stops discovery
+/// publishing), and emit a disconnected status for each open room so the UI
+/// reflects it. The next online command lazily re-binds via `ensure_started`.
+pub async fn shutdown(app: &AppHandle, state: &P2pState) {
+    let mut guard = state.0.lock().await;
+    if let Some(mut node) = guard.take() {
+        let rooms: Vec<String> = node.rooms.keys().cloned().collect();
+        for (_, handle) in node.rooms.drain() {
+            handle.task.abort();
+        }
+        // Best-effort graceful close; dropping the endpoint would also terminate.
+        node.endpoint.close().await;
+        for room in rooms {
+            emit_status(app, &room, "disconnected", 0, None);
+        }
+    }
+}
+
 pub async fn leave_room(state: &P2pState, room: &str) -> Result<()> {
     let mut guard = state.0.lock().await;
     if let Some(node) = guard.as_mut() {
@@ -207,11 +273,6 @@ pub async fn leave_room(state: &P2pState, room: &str) -> Result<()> {
         }
     }
     Ok(())
-}
-
-pub async fn has_room(state: &P2pState, room: &str) -> bool {
-    let guard = state.0.lock().await;
-    guard.as_ref().is_some_and(|n| n.rooms.contains_key(room))
 }
 
 pub async fn broadcast(state: &P2pState, room: &str, payload: String) -> Result<()> {
@@ -244,7 +305,7 @@ fn spawn_receiver(
     mut receiver: GossipReceiver,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
-        emit_status(&app, &room, "connecting", 0);
+        emit_status(&app, &room, "connecting", 0, None);
         let mut peers: u32 = 0;
         while let Some(item) = receiver.next().await {
             let Ok(event) = item else { break };
@@ -254,19 +315,21 @@ fn spawn_receiver(
                         emit_message(&app, &room, text);
                     }
                 }
-                Event::NeighborUp(_) => {
+                // The neighbor's NodeId rides the status event so the frontend can
+                // persist it per room — that's the address book for reconnects.
+                Event::NeighborUp(peer) => {
                     peers += 1;
-                    emit_status(&app, &room, "connected", peers);
+                    emit_status(&app, &room, "connected", peers, Some(peer.to_string()));
                 }
                 Event::NeighborDown(_) => {
                     peers = peers.saturating_sub(1);
                     let state = if peers > 0 { "connected" } else { "disconnected" };
-                    emit_status(&app, &room, state, peers);
+                    emit_status(&app, &room, state, peers, None);
                 }
                 Event::Lagged => {}
             }
         }
-        emit_status(&app, &room, "disconnected", 0);
+        emit_status(&app, &room, "disconnected", 0, None);
     })
 }
 
@@ -274,10 +337,10 @@ fn emit_message(app: &AppHandle, room: &str, payload: &str) {
     let _ = app.emit("realtime://message", serde_json::json!({ "room": room, "payload": payload }));
 }
 
-fn emit_status(app: &AppHandle, room: &str, state: &str, peers: u32) {
+fn emit_status(app: &AppHandle, room: &str, state: &str, peers: u32, peer_id: Option<String>) {
     let _ = app.emit(
         "realtime://status",
-        serde_json::json!({ "room": room, "state": state, "peers": peers }),
+        serde_json::json!({ "room": room, "state": state, "peers": peers, "peer_id": peer_id }),
     );
 }
 

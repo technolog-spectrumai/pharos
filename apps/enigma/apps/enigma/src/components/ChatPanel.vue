@@ -1,14 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
-import { useChatStore } from "../stores/chat";
-import { useI18n } from "vue-i18n";
 import type { ChatChannel } from "rakotis";
 
 import { OyaButton } from "rakotis";
 import ChatBubble from "./ChatBubble.vue";
-
-const { t } = useI18n();
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -20,24 +15,16 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 
 const props = defineProps<{ darkMode: boolean; channel: ChatChannel }>();
 
-const router = useRouter();
-const store = useChatStore();
-
 // The channel's refs are stable for this panel's lifetime — destructure for the
 // template (auto-unwrap). Actions are called via `channel.*`.
 const channel = props.channel;
 const {
-  kind,
-  rooms, currentRoom, messages, participants,
-  wsStatus, loadingRooms, error, isConnected,
+  currentRoom, messages, participants,
+  wsStatus, error, isConnected,
   mlsStatus, mlsError, isEncrypted, isParticipant, p2pRooms,
 } = channel;
 
-const isRelay = kind === "relay";
-
 function forceResetMls() { return channel.forceResetMls(); }
-function onJoinP2p(ticket: string) { void store.acceptP2pInvite(ticket); }
-function onJoinP2pAuto(name: string) { void store.acceptP2pAutoJoin(name); }
 
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
@@ -146,11 +133,7 @@ function recordingLabel() {
 }
 
 onMounted(() => {
-  if (isRelay) {
-    if (!rooms.value.length) channel.fetchRooms();
-  } else {
-    channel.loadP2pRooms();
-  }
+  channel.loadP2pRooms();
 });
 
 // ── P2P rooms (iroh) ──────────────────────────────────────────────────────────
@@ -246,7 +229,7 @@ watch(messages, scrollToBottom, { deep: true });
 
 const canSend = computed(
   () => !!currentRoom.value && isConnected.value && isParticipant.value &&
-    (isRelay || mlsStatus.value === "ready") && (!!draft.value.trim() || !!pending.value),
+    mlsStatus.value === "ready" && (!!draft.value.trim() || !!pending.value),
 );
 
 async function send() {
@@ -267,7 +250,7 @@ async function send() {
       URL.revokeObjectURL(att.url);
     }
   }
-  if (text) { channel.sendMessage(text, { secure: secureMode.value }); draft.value = ""; }
+  if (text) { channel.sendMessage(text); draft.value = ""; }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -306,16 +289,8 @@ const mlsChipClass = computed(() => {
   return "border-current/20 opacity-50";
 });
 
-// Security badge. P2P (Signal) = end-to-end MLS. Relay (Discord) = TLS in transit +
-// encrypted at rest on the server (NOT end-to-end — the server can read history).
-const securityIcon = computed(() => (isRelay ? "lock" : isEncrypted.value ? "lock" : "lock-open"));
-const securityLabel = computed(() => (isRelay ? t("chat.securedTlsAtRest") : mlsLabel.value));
-const securityChipClass = computed(() =>
-  isRelay ? "bg-success-dark text-primary-bg-dark border-success-dark" : mlsChipClass.value,
-);
-
-// Secure-on-send (relay only): when on, messages go end-to-end (server can't read them).
-const secureMode = ref(false);
+// Security badge: end-to-end MLS state of this room.
+const securityIcon = computed(() => (isEncrypted.value ? "lock" : "lock-open"));
 </script>
 
 <template>
@@ -329,15 +304,14 @@ const secureMode = ref(false);
     >
       <div class="flex items-center justify-between border-b border-current/10 p-4">
         <h2 class="text-sm font-bold">
-          <font-awesome-icon icon="comments" class="mr-2" />Rooms
+          <font-awesome-icon icon="comments" class="mr-2" />{{ $t('chat.p2p') }}
         </h2>
-        <button class="text-xs underline opacity-70 hover:opacity-100" @click="router.push('/')">← Back</button>
       </div>
 
-      <!-- P2P rooms (iroh) — P2P tab only -->
-      <div v-if="!isRelay" class="space-y-2.5 border-b border-current/10 p-4">
+      <!-- P2P rooms (iroh): create (QR out) / join (QR in) / saved rooms -->
+      <div class="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
         <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
-          <font-awesome-icon icon="circle-nodes" class="mr-1" />{{ $t('chat.p2p') }}
+          <font-awesome-icon icon="circle-nodes" class="mr-1" />{{ $t('chat.newChat') }}
         </p>
 
         <div class="flex gap-2">
@@ -364,6 +338,10 @@ const secureMode = ref(false);
           </div>
         </div>
 
+        <p class="pt-1 text-xs font-semibold uppercase tracking-wide opacity-60">
+          <font-awesome-icon icon="camera" class="mr-1" />{{ $t('chat.joinChat') }}
+        </p>
+
         <div class="flex gap-2">
           <input
             v-model="p2pTicket" type="text" :placeholder="$t('chat.pasteTicket')"
@@ -383,14 +361,10 @@ const secureMode = ref(false);
           <input ref="p2pFileInput" type="file" accept="image/*" class="hidden" @change="scanP2pFile" />
         </div>
 
-        <div v-if="scanningP2p" class="space-y-1">
-          <div id="p2p-qr-region" class="overflow-hidden rounded-lg border border-current/15"></div>
-          <button class="text-xs underline opacity-70 hover:opacity-100" @click="stopP2pScan">{{ $t('common.cancel') }}</button>
-        </div>
         <p v-if="scanP2pError" class="text-[10px] text-red-400">{{ $t(scanP2pError) }}</p>
-        <div id="p2p-qr-file-region" class="hidden"></div>
 
         <div v-if="p2pRooms.length" class="space-y-1 pt-1">
+          <p class="text-xs font-semibold uppercase tracking-wide opacity-60">{{ $t('chat.savedRooms') }}</p>
           <button
             v-for="r in p2pRooms" :key="r.room"
             :class="currentRoom?.slug === r.room ? (darkMode ? 'bg-primary-bg-dark border-accent-dark' : 'bg-primary-bg-light border-accent-light') : 'border-current/15 hover:opacity-80'"
@@ -402,20 +376,6 @@ const secureMode = ref(false);
           </button>
         </div>
       </div>
-
-      <div v-if="isRelay && loadingRooms" class="p-4 text-xs opacity-50">Loading…</div>
-      <nav v-else-if="isRelay" class="flex-1 space-y-2 overflow-y-auto p-4 pr-3">
-        <button
-          v-for="room in rooms" :key="room.slug"
-          :class="currentRoom?.slug === room.slug ? (darkMode ? 'bg-primary-bg-dark border-accent-dark' : 'bg-primary-bg-light border-accent-light') : (darkMode ? 'border-accent-1 hover:bg-primary-bg-dark' : 'border-accent-2 hover:bg-primary-bg-light')"
-          class="w-full rounded-lg border px-3 py-3 text-left transition"
-          @click="channel.joinRoom(room.slug)"
-        >
-          <span class="block truncate text-sm font-semibold">{{ room.name }}</span>
-          <span class="mt-1 block text-xs opacity-60">{{ room.participant_count }} participant{{ room.participant_count === 1 ? "" : "s" }}</span>
-        </button>
-        <p v-if="!rooms.length" class="text-xs opacity-50">No rooms found.</p>
-      </nav>
     </aside>
 
     <!-- ── CHATBOX ─────────────────────────────────────────────────────────── -->
@@ -446,54 +406,14 @@ const secureMode = ref(false);
 
         <div v-if="currentRoom" class="hidden flex-wrap items-center gap-2 sm:flex">
           <template v-if="isParticipant">
-            <!-- Fixed switch: jump to the other chat (Forum ⇄ P2P) -->
-            <button
-              v-if="isRelay"
-              type="button"
-              :class="darkMode ? 'border-accent-1 hover:opacity-100' : 'border-accent-2 hover:opacity-100'"
-              class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold opacity-80 shadow-sm transition"
-              :title="$t('chat.switchToP2pHint')"
-              @click="store.switchToP2p()"
-            >
-              <font-awesome-icon icon="circle-nodes" />{{ $t('chat.switchToP2p') }}
-            </button>
-            <button
-              v-else
-              type="button"
-              :class="darkMode ? 'border-accent-1 hover:opacity-100' : 'border-accent-2 hover:opacity-100'"
-              class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold opacity-80 shadow-sm transition"
-              :title="$t('chat.switchToRelayHint')"
-              @click="store.switchToRelay()"
-            >
-              <font-awesome-icon icon="satellite-dish" />{{ $t('chat.switchToRelay') }}
-            </button>
-
-            <!-- P2P shows the MLS encryption status; the Forum uses the Secure switch below. -->
-            <span v-if="!isRelay" :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
-              <font-awesome-icon :icon="securityIcon" />{{ securityLabel }}
-            </span>
-            <!-- Forum: secure-on-send toggle (end-to-end; the server can't read secure messages). -->
-            <span
-              v-if="isRelay"
-              :title="secureMode ? $t('chat.secureOn') : $t('chat.secureOff')"
-              :class="secureMode ? 'border-success-dark text-success-dark' : (darkMode ? 'border-accent-1' : 'border-accent-2')"
-              class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition"
-            >
-              <font-awesome-icon :icon="secureMode ? 'lock' : 'lock-open'" />{{ $t('chat.secure') }}
-              <button
-                type="button" role="switch" :aria-checked="secureMode" :disabled="!isParticipant"
-                :class="secureMode ? 'bg-success-dark' : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
-                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition disabled:opacity-40"
-                @click="secureMode = !secureMode"
-              >
-                <span :class="secureMode ? 'translate-x-5' : 'translate-x-1'" class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition" />
-              </button>
+            <!-- End-to-end MLS encryption status -->
+            <span :class="mlsChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
+              <font-awesome-icon :icon="securityIcon" />{{ mlsLabel }}
             </span>
             <span :class="wsChipClass" class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold shadow-sm transition">
               <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />{{ wsLabel }}
             </span>
             <button
-              v-if="!isRelay"
               type="button"
               :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error') ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20' : (darkMode ? 'border-accent-1 opacity-60 hover:opacity-100' : 'border-accent-2 opacity-60 hover:opacity-100')"
               class="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-xs shadow-sm transition"
@@ -524,36 +444,13 @@ const secureMode = ref(false);
 
       <!-- Mobile status strip -->
       <div v-if="currentRoom && isParticipant" :class="darkMode ? 'bg-primary-bg-dark border-accent-1' : 'bg-primary-bg-light border-accent-2'" class="flex flex-wrap items-center gap-2 border-b px-4 py-2 sm:hidden">
-        <button
-          type="button"
-          class="inline-flex items-center gap-1.5 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100"
-          @click="isRelay ? store.switchToP2p() : store.switchToRelay()"
-        >
-          <font-awesome-icon :icon="isRelay ? 'circle-nodes' : 'satellite-dish'" />{{ isRelay ? $t('chat.switchToP2p') : $t('chat.switchToRelay') }}
-        </button>
-        <span v-if="!isRelay" :class="securityChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
-          <font-awesome-icon :icon="securityIcon" />{{ securityLabel }}
-        </span>
-        <span
-          v-if="isRelay"
-          :title="secureMode ? $t('chat.secureOn') : $t('chat.secureOff')"
-          :class="secureMode ? 'border-success-dark text-success-dark' : 'border-current/20'"
-          class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition"
-        >
-          <font-awesome-icon :icon="secureMode ? 'lock' : 'lock-open'" />{{ $t('chat.secure') }}
-          <button
-            type="button" role="switch" :aria-checked="secureMode" :disabled="!isParticipant"
-            :class="secureMode ? 'bg-success-dark' : (darkMode ? 'bg-accent-1' : 'bg-accent-2')"
-            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition disabled:opacity-40"
-            @click="secureMode = !secureMode"
-          >
-            <span :class="secureMode ? 'translate-x-5' : 'translate-x-1'" class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition" />
-          </button>
+        <span :class="mlsChipClass" :title="mlsError ?? undefined" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
+          <font-awesome-icon :icon="securityIcon" />{{ mlsLabel }}
         </span>
         <span :class="wsChipClass" class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition">
           <font-awesome-icon :icon="wsStatus === 'connected' ? 'check' : 'xmark'" />{{ wsLabel }}
         </span>
-        <button v-if="!isRelay" @click="forceResetMls()" :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error') ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400' : 'border-current/20 opacity-60'" class="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100">
+        <button @click="forceResetMls()" :class="(mlsStatus === 'key_exchange' || mlsStatus === 'error') ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400' : 'border-current/20 opacity-60'" class="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition hover:opacity-100">
           <font-awesome-icon icon="rotate-right" />Reset
         </button>
         <button :class="{ 'opacity-60 pointer-events-none': joiningOrLeaving }" class="ml-auto text-xs underline opacity-70 hover:opacity-100" @click="handleLeave">Leave</button>
@@ -567,7 +464,7 @@ const secureMode = ref(false);
       <div ref="messagesEl" :class="darkMode ? 'bg-primary-bg-dark' : 'bg-primary-bg-light'" class="min-h-0 space-y-4 overflow-y-auto p-4">
         <div v-if="!currentRoom" class="flex h-full flex-col items-center justify-center gap-3 opacity-40">
           <font-awesome-icon icon="comments" class="text-4xl" />
-          <p class="text-sm">Pick a room from the sidebar to start chatting.</p>
+          <p class="text-sm">{{ $t('chat.emptyHint') }}</p>
           <OyaButton :dark-mode="darkMode" class="mt-2 lg:hidden" @click="sidebarOpen = true">Select a room</OyaButton>
         </div>
         <ChatBubble
@@ -575,8 +472,6 @@ const secureMode = ref(false);
           :key="msg.id"
           :dark-mode="darkMode"
           :message="msg"
-          @join-p2p="onJoinP2p"
-          @join-p2p-auto="onJoinP2pAuto"
         />
       </div>
 
@@ -595,7 +490,7 @@ const secureMode = ref(false);
         </div>
 
         <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">
-          <span>Uploading…</span>
+          <span>Sending…</span>
           <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-current/20">
             <div class="absolute left-0 top-0 h-full rounded-full bg-current transition-all duration-100" :style="{ width: uploadProgress + '%' }"></div>
           </div>
@@ -640,8 +535,8 @@ const secureMode = ref(false);
 
           <textarea
             v-model="draft" rows="1"
-            :placeholder="!currentRoom ? 'Select a room to start chatting' : !isParticipant ? 'Join this room to send messages' : (!isRelay && mlsStatus !== 'ready') ? 'Establishing secure session…' : secureMode ? $t('chat.securePlaceholder') : 'Message…'"
-            :disabled="!currentRoom || !isConnected || !isParticipant || (!isRelay && mlsStatus !== 'ready')"
+            :placeholder="!currentRoom ? 'Select a room to start chatting' : !isParticipant ? 'Join this room to send messages' : mlsStatus !== 'ready' ? 'Establishing secure session…' : 'Message…'"
+            :disabled="!currentRoom || !isConnected || !isParticipant || mlsStatus !== 'ready'"
             :class="darkMode ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30 disabled:opacity-30' : 'bg-primary-bg-light border-accent-2 text-text-main-light placeholder:text-text-main-light/30 disabled:opacity-30'"
             class="max-h-32 min-h-[3rem] flex-1 resize-none rounded-lg border px-3 py-2.5 text-sm outline-none transition" @keydown="onKeydown"
           />
@@ -675,6 +570,20 @@ const secureMode = ref(false);
       </div>
     </aside>
 
+    <!-- ── QR camera-scan overlay (shared by desktop sidebar + mobile drawer) ── -->
+    <div
+      v-if="scanningP2p"
+      class="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/70 p-6"
+      @click.self="stopP2pScan"
+    >
+      <div id="p2p-qr-region" class="w-full max-w-sm overflow-hidden rounded-xl border border-white/20 bg-black"></div>
+      <button class="rounded-lg border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-80" @click="stopP2pScan">
+        {{ $t('common.cancel') }}
+      </button>
+    </div>
+    <!-- Off-screen mount point for html5-qrcode's scan-from-image-file flow. -->
+    <div id="p2p-qr-file-region" class="hidden"></div>
+
     <!-- ── Mobile sidebar overlay ───────────────────────────────────────────── -->
     <Transition enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0" enter-to-class="opacity-100" leave-active-class="transition-opacity duration-200" leave-from-class="opacity-100" leave-to-class="opacity-0">
       <div v-if="sidebarOpen" class="fixed inset-0 z-40 bg-black/40 lg:hidden" @click="sidebarOpen = false" />
@@ -688,16 +597,37 @@ const secureMode = ref(false);
           </button>
         </div>
 
-        <!-- P2P controls (mobile, P2P tab) -->
-        <div v-if="!isRelay" class="mt-4 space-y-2">
+        <!-- P2P controls (mobile) -->
+        <div class="mt-4 space-y-2">
           <div class="flex gap-2">
             <input v-model="p2pName" type="text" :placeholder="$t('chat.newRoomName')" :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'" class="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm outline-none" @keyup.enter="createP2pRoom" />
             <button class="shrink-0 rounded-lg border border-current/20 px-2 py-1.5 text-xs font-semibold" @click="createP2pRoom">{{ $t('chat.create') }}</button>
           </div>
+
+          <!-- Created-room ticket + QR (mobile mirror of the desktop share block) -->
+          <div v-if="createdTicket" class="space-y-1.5">
+            <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t('chat.shareTicket') }}</p>
+            <img v-if="qrDataUrl" :src="qrDataUrl" alt="Room QR code" class="mx-auto h-44 w-44 rounded-lg bg-white p-2" />
+            <p class="text-center text-[10px] opacity-50">{{ $t('chat.scanToJoin') }}</p>
+            <div class="flex gap-2">
+              <input :value="createdTicket" readonly class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-2 py-1 font-mono text-[10px]" />
+              <button class="shrink-0 rounded-lg border border-current/20 px-2 py-1 text-xs transition hover:opacity-80" @click="copyTicket(createdTicket)">
+                {{ ticketCopied ? "✓" : $t('chat.copy') }}
+              </button>
+            </div>
+          </div>
+
           <div class="flex gap-2">
             <input v-model="p2pTicket" type="text" :placeholder="$t('chat.pasteTicket')" :class="darkMode ? 'border-accent-1 bg-primary-bg-dark' : 'border-accent-2 bg-primary-bg-light'" class="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm outline-none" @keyup.enter="joinP2pRoom" />
             <button class="shrink-0 rounded-lg border border-current/20 px-2 py-1.5 text-xs font-semibold" @click="joinP2pRoom">{{ $t('chat.join') }}</button>
+            <button class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs" :title="$t('chat.scanQr')" @click="scanningP2p ? stopP2pScan() : startP2pScan()">
+              <font-awesome-icon :icon="scanningP2p ? 'xmark' : 'camera'" />
+            </button>
+            <button class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs" :title="$t('chat.uploadQr')" @click="p2pFileInput?.click()">
+              <font-awesome-icon icon="image" />
+            </button>
           </div>
+          <p v-if="scanP2pError" class="text-[10px] text-red-400">{{ $t(scanP2pError) }}</p>
           <button
             v-for="r in p2pRooms" :key="r.room"
             :class="currentRoom?.slug === r.room ? (darkMode ? 'bg-primary-bg-dark border-accent-dark' : 'bg-primary-bg-light border-accent-light') : 'border-current/15'"
@@ -707,21 +637,6 @@ const secureMode = ref(false);
             <font-awesome-icon icon="circle-nodes" class="shrink-0 opacity-60" /><span class="min-w-0 flex-1 truncate">{{ r.name }}</span>
           </button>
         </div>
-
-        <template v-else>
-          <div v-if="loadingRooms" class="mt-4 text-xs opacity-50">Loading…</div>
-          <nav v-else class="mt-4 flex-1 space-y-2 overflow-y-auto">
-            <button
-              v-for="room in rooms" :key="room.slug"
-              :class="currentRoom?.slug === room.slug ? (darkMode ? 'bg-primary-bg-dark border-accent-dark' : 'bg-primary-bg-light border-accent-light') : (darkMode ? 'border-accent-1 hover:bg-primary-bg-dark' : 'border-accent-2 hover:bg-primary-bg-light')"
-              class="w-full rounded-lg border px-3 py-3 text-left transition" @click="channel.joinRoom(room.slug)"
-            >
-              <span class="block truncate text-sm font-semibold">{{ room.name }}</span>
-              <span class="mt-1 block text-xs opacity-60">{{ room.participant_count }} participant{{ room.participant_count === 1 ? "" : "s" }}</span>
-            </button>
-            <p v-if="!rooms.length" class="text-xs opacity-50">No rooms found.</p>
-          </nav>
-        </template>
 
         <div class="mt-4 border-t border-current/10 pt-4">
           <div class="flex items-center justify-between">

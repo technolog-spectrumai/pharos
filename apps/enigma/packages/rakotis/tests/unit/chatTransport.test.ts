@@ -15,7 +15,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-describe("chatTransport — room-multiplexing Rust gateway backend", () => {
+describe("chatTransport — room-multiplexing Rust gateway backend (P2P only)", () => {
   let transport: any;
 
   beforeEach(async () => {
@@ -28,16 +28,6 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
 
   afterEach(() => {
     delete (window as any).__TAURI_INTERNALS__;
-  });
-
-  it("connectWs invokes realtime_connect and wires the gateway events", async () => {
-    transport.onStatus(() => {}); // registering a handler wires the listeners
-    await tick();
-    transport.connectWs("room-1");
-    await tick();
-    expect(invoke).toHaveBeenCalledWith("realtime_connect", { room: "room-1" });
-    expect(typeof listeners["realtime://message"]).toBe("function");
-    expect(typeof listeners["realtime://status"]).toBe("function");
   });
 
   it("send routes the payload to a specific room via realtime_send", async () => {
@@ -68,6 +58,20 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
     expect(transport.lastStatus("room-9")).toBe("connected");
   });
 
+  it("neighbor-up status events carry the peer NodeId (the reconnect handle)", async () => {
+    const got: Array<[string, string, string | undefined]> = [];
+    transport.onStatus((room: string, state: string, peerId?: string) => got.push([room, state, peerId]));
+    await tick();
+    listeners["realtime://status"]({
+      payload: { room: "room-2", state: "connected", peers: 1, peer_id: "node-abc" },
+    });
+    listeners["realtime://status"]({
+      payload: { room: "room-2", state: "disconnected", peers: 0, peer_id: null },
+    });
+    expect(got).toContainEqual(["room-2", "connected", "node-abc"]);
+    expect(got).toContainEqual(["room-2", "disconnected", undefined]);
+  });
+
   it("createRoom and joinRoom call the right gateway commands", async () => {
     invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", ticket: "tkt" });
     const created = await transport.createRoom("general");
@@ -76,8 +80,20 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
 
     invoke.mockResolvedValueOnce({ room: "topic-xyz", name: "secret" });
     const joined = await transport.joinRoom("ticket-string");
-    expect(invoke).toHaveBeenCalledWith("realtime_join_room", { ticket: "ticket-string" });
+    expect(invoke).toHaveBeenCalledWith("realtime_join_room", {
+      ticket: "ticket-string",
+      peerNodeIds: null,
+    });
     expect(joined).toEqual({ room: "topic-xyz", name: "secret" });
+  });
+
+  it("joinRoom seeds the bootstrap with persisted peer NodeIds", async () => {
+    invoke.mockResolvedValueOnce({ room: "topic-xyz", name: "secret" });
+    await transport.joinRoom("ticket-string", ["node-a", "node-b"]);
+    expect(invoke).toHaveBeenCalledWith("realtime_join_room", {
+      ticket: "ticket-string",
+      peerNodeIds: ["node-a", "node-b"],
+    });
   });
 
   it("joinRoomByNode bootstraps a named room from peer NodeIds — no ticket", async () => {
@@ -90,28 +106,26 @@ describe("chatTransport — room-multiplexing Rust gateway backend", () => {
     expect(joined).toEqual({ room: "topic-n", name: "duo" });
   });
 
-  it("resolveNodes asks aster for a user's NodeIds of a given kind", async () => {
-    invoke.mockResolvedValueOnce(["node-vox-1", "node-vox-2"]);
-    const nodes = await transport.resolveNodes("alice", "gossip");
-    expect(invoke).toHaveBeenCalledWith("aster_resolve", { username: "alice", kind: "gossip" });
-    expect(nodes).toEqual(["node-vox-1", "node-vox-2"]);
-  });
-
-  it("resolveNodes returns [] when aster is unavailable (no throw)", async () => {
-    invoke.mockRejectedValueOnce(new Error("404"));
-    await expect(transport.resolveNodes("bob", "gossip")).resolves.toEqual([]);
-  });
-
-  it("two channels filtering by room don't see each other's messages", async () => {
-    const relay: any[] = [];
-    const p2p: any[] = [];
-    // Simulate two channels: each only keeps messages for the room it owns.
-    transport.onMessage((room: string, data: any) => { if (room === "relay-1") relay.push(data); });
-    transport.onMessage((room: string, data: any) => { if (room === "p2p-1") p2p.push(data); });
+  it("channels filtering by room don't see each other's messages", async () => {
+    const roomA: any[] = [];
+    const roomB: any[] = [];
+    transport.onMessage((room: string, data: any) => { if (room === "room-a") roomA.push(data); });
+    transport.onMessage((room: string, data: any) => { if (room === "room-b") roomB.push(data); });
     await tick();
-    listeners["realtime://message"]({ payload: { room: "relay-1", payload: JSON.stringify({ m: "a" }) } });
-    listeners["realtime://message"]({ payload: { room: "p2p-1", payload: JSON.stringify({ m: "b" }) } });
-    expect(relay).toEqual([{ m: "a" }]);
-    expect(p2p).toEqual([{ m: "b" }]);
+    listeners["realtime://message"]({ payload: { room: "room-a", payload: JSON.stringify({ m: "a" }) } });
+    listeners["realtime://message"]({ payload: { room: "room-b", payload: JSON.stringify({ m: "b" }) } });
+    expect(roomA).toEqual([{ m: "a" }]);
+    expect(roomB).toEqual([{ m: "b" }]);
+  });
+});
+
+describe("chatTransport — browser stub (no Tauri runtime)", () => {
+  it("rejects P2P operations with a clear message", async () => {
+    delete (window as any).__TAURI_INTERNALS__;
+    vi.resetModules();
+    const stub = (await import("../../src/chatTransport")).chatTransport;
+    await expect(stub.createRoom("x")).rejects.toThrow(/desktop/i);
+    await expect(stub.joinRoom("t")).rejects.toThrow(/desktop/i);
+    await expect(stub.nodeInfo()).resolves.toBeNull();
   });
 });

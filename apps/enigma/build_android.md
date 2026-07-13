@@ -133,9 +133,7 @@ bash scripts/build_android.sh enigma debug
 bash scripts/build_android.sh enigma release
 ```
 
-(`enigma` and `aurora` ship committed Android projects under
-`src-tauri/gen/android/`; `enigma_plus` has never been initialized for
-Android — run `npx tauri android init` there first if you need it.)
+(`enigma` ships a committed Android project under `src-tauri/gen/android/`.)
 
 The script:
 1. Runs `npm install` in the app directory

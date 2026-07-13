@@ -1,44 +1,29 @@
-// One chat channel (Forum/relay OR P2P), fully self-contained: its own room,
-// messages, participants, MLS session and transport wiring. Two instances run at
-// once (see the orchestrator store), giving two simultaneous encrypted chats. The
-// channel is single-transport: `kind` is fixed for its lifetime.
+// One P2P chat channel, fully self-contained: its own room, messages,
+// participants, MLS session and transport wiring. The app is serverless — the
+// only transport is iroh-gossip (see chatTransport.ts); rendezvous is a QR-shared
+// ticket, and reconnects ride the peer NodeIds persisted per room.
 //
-// The Forum (relay) channel additionally runs composed lines through a pluggable
-// command registry (`chatCommands.ts`) — the seam for future relay-only powers
-// (`@system:` vault commands, save-as-JSON). The P2P channel registers none.
+// The MLS envelope state machine below (key_package → welcome/commit → app) is
+// transport-agnostic JSON; all crypto is delegated to the Rotor-backed `mls_*`
+// Tauri commands via crypto.ts — never reimplemented here.
 
 import { ref, computed, watch } from "vue";
-import { chatTransport } from "./chatTransport";
+import { chatTransport, type WsStatus } from "./chatTransport";
 import { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
 import { getRuntimeConfig, type AppRuntimeConfig } from "./services/appStorage";
-import type { Room } from "./services/apiBase";
-import type { Participant } from "./services/types";
-import type { WsStatus } from "./services/ws";
+import type { Participant, Room } from "./services/types";
 import { kvGet, kvPut } from "./services/localDb";
-import { runChatCommand } from "./chatCommands";
-import { randomPinKey, newPinKeyId, encryptPin, decryptPin, pinKeyToB64, b64ToPinKey } from "./pinCrypto";
 import { nanoid } from "nanoid";
 
-// The app's API instance is injected (Enigma's and Aurora's `api` both extend
-// Euclid's ApiBase). Rakotis stays app-agnostic: it only needs this relay-chat
-// surface, never the data-workspace endpoints.
-export interface RelayChatApi {
-  getMe(): Promise<{ full_name?: string; username?: string }>;
-  getRooms(): Promise<{ channels: Room[] }>;
-  getRoom(slug: string): Promise<Room>;
-  joinRoom(slug: string): Promise<unknown>;
-  leaveRoom(slug: string): Promise<unknown>;
-  leaveAllRooms(): Promise<unknown>;
-  uploadImage(slug: string, file: File, onProgress?: (pct: number) => void): Promise<unknown>;
-}
-
-export type ChannelKind = "relay" | "p2p";
-
-/** A locally-known P2P (iroh) room: its topic id, display name and join ticket. */
+/** A locally-known P2P (iroh) room: topic id, display name, join ticket, and the
+ *  peer NodeIds seen in it (the address book for ticketless reconnects). */
 export interface P2pRoomEntry {
   room: string;
   name: string;
   ticket: string;
+  /** NodeIds of peers seen in this room — persisted so a restart can re-subscribe
+   *  and resolve their current addresses via n0 discovery (no fresh QR needed). */
+  peers?: string[];
 }
 
 export type MlsStatus =
@@ -55,7 +40,6 @@ export interface Message {
     | "mls_app"
     | "image_message"
     | "voice_message"
-    | "p2p_invite"
     | "system_error"
     | "system_info";
   user: string;
@@ -64,14 +48,6 @@ export interface Message {
   content: string;
   image_data?: string;
   audio_data?: string;
-  invite_ticket?: string;
-  invite_name?: string;
-  /** Ticketless invite: join the named P2P room by resolving members from aster. */
-  invite_auto?: boolean;
-  /** secure-on-send: end-to-end encrypted under the pin key (server can't read it). */
-  e2e?: boolean;
-  /** e2e message we can't decrypt yet (no pin key) → render a locked placeholder. */
-  locked?: boolean;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -107,15 +83,11 @@ async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality = 0.85
 
 const log = (...args: unknown[]) => console.log("[enigma-chat]", ...args);
 
-export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
-  const isP2p = kind === "p2p";
-
-  const rooms = ref<Room[]>([]);
+export function useChatChannel() {
   const currentRoom = ref<Room | null>(null);
   const messages = ref<Message[]>([]);
   const participants = ref<Participant[]>([]);
   const wsStatus = ref<WsStatus>("disconnected");
-  const loadingRooms = ref(false);
   const error = ref<string | null>(null);
   const unread = ref(0); // messages received while this tab wasn't active
 
@@ -137,14 +109,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   const isParticipant = ref(false);
   const p2pRooms = ref<P2pRoomEntry[]>([]);
 
-  // Secure-on-send (relay only): a per-channel member-held key, never sent to the
-  // server. Used to E2E-encrypt "secure" messages. (Internally still called the pin key.)
-  let pinKey: Uint8Array | null = null;
-  let pinKeyId = "";
-  // Secure-on-send messages we received but can't decrypt yet (no pin key) — kept so we
-  // can unlock them inline once the key arrives.
-  const pendingSecure = new Map<string, { iv: string; ciphertext: string; keyId: string }>();
-
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
 
@@ -154,12 +118,8 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     if (slug) chatTransport.send(slug, payload);
   }
   function teardown() {
-    if (isP2p) {
-      const slug = currentRoom.value?.slug;
-      if (slug) chatTransport.leaveRoom(slug);
-    } else {
-      chatTransport.disconnectWs();
-    }
+    const slug = currentRoom.value?.slug;
+    if (slug) chatTransport.leaveRoom(slug);
   }
 
   function initials(name: string): string {
@@ -179,19 +139,8 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     if (!msg.self && msg.participant_type !== "system") unread.value++;
   }
 
-  // Server-assigned ids let live + replayed-history copies of one message render once.
-  const renderedIds = new Set<string>();
   function clearMessages() {
     messages.value = [];
-    renderedIds.clear();
-    pendingSecure.clear();
-  }
-  /** True if a server-id'd message was already rendered (dedup live vs history). */
-  function alreadyRendered(id: unknown): boolean {
-    if (typeof id !== "string" || !id) return false;
-    if (renderedIds.has(id)) return true;
-    renderedIds.add(id);
-    return false;
   }
   function tsFrom(data: Record<string, unknown>): Date {
     const c = data.created_at;
@@ -217,8 +166,9 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   // ── Data-sync seam ───────────────────────────────────────────────────────────
   // External orchestrators ride this channel's MLS group by registering an `onSync`
   // handler and sending via `sendSync`. Routed inner-message families: `sync_*`
-  // (useDataSync, full-data pull) and `file_*` (useFileShare, P2P file transfer
-  // offer/accept signaling). Each handler ignores the prefixes it does not own.
+  // (full-data pull) and `file_*` (P2P file transfer offer/accept signaling — the
+  // file feature is parked in limbo/, the seam stays). Each handler ignores the
+  // prefixes it does not own.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
@@ -227,7 +177,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   }
 
   async function refreshP2pRoster() {
-    if (!isP2p || !currentRoom.value) return;
+    if (!currentRoom.value) return;
     const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
     const source = ids.length ? ids : [mlsIdentity.value];
     const list: Participant[] = source.map((id) => {
@@ -240,7 +190,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   }
 
   async function announcePresence(reply = false) {
-    if (!isP2p || mlsStatus.value !== "ready") return;
+    if (mlsStatus.value !== "ready") return;
     await sendEncryptedMedia("presence", {
       device_id: mlsIdentity.value, name: displayName(),
       avatar: avatarForName(currentUserName.value) ?? "", reply,
@@ -249,7 +199,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
 
   async function handlePeerLeave(deviceId: string) {
     presenceById.delete(deviceId);
-    if (!isP2p || !currentRoom.value) return;
+    if (!currentRoom.value) return;
     const room = currentRoom.value.slug;
     const ids = await cryptoService.members(room, mlsIdentity.value);
     if (ids.includes(deviceId)) {
@@ -263,7 +213,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   }
 
   watch(mlsStatus, (status) => {
-    if (status === "ready" && isP2p) {
+    if (status === "ready") {
       void announcePresence(false);
       void refreshP2pRoster();
     }
@@ -306,17 +256,17 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
-  // ── transport status / messages (filtered to this channel's room) ────────────
-  chatTransport.onStatus((room, status) => {
+  // ── transport status / messages ──────────────────────────────────────────────
+  chatTransport.onStatus((room, status, peerId) => {
+    // A neighbor's NodeId is our reconnect handle — persist it for ANY known room,
+    // not only the one on screen (several rooms can be live at once).
+    if (peerId) rememberPeerForRoom(room, peerId);
     if (room !== currentRoom.value?.slug) return;
-    log(kind, "status →", status);
+    log("status →", status);
     wsStatus.value = status;
     if (status === "connected") {
       messages.value.push(systemMsg(`Connected to ${currentRoom.value?.name ?? "room"}.`));
       void startMls();
-      // Load this channel's secure-message key from local storage so replayed secure
-      // messages can be decrypted on connect.
-      if (kind === "relay" && currentRoom.value) void loadLocalPinKey(currentRoom.value.slug);
     } else if (status === "disconnected") {
       messages.value.push(systemMsg("Disconnected."));
     } else if (status === "error") {
@@ -331,42 +281,12 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
 
   async function handleMessage(data: Record<string, unknown>) {
     const type = data.type as string;
-    log(kind, "←", type);
+    log("←", type);
 
-    if (type === "room_participants") {
-      const roomSlug = data.room_slug as string;
-      const room = currentRoom.value;
-      if (!room || roomSlug !== room.slug) return;
-      const nextParticipants = Array.isArray(data.participants) ? (data.participants as Participant[]) : [];
-      const participantCount = typeof data.participant_count === "number" ? data.participant_count : nextParticipants.length;
-      participants.value = nextParticipants;
-      currentRoom.value = { ...room, participant_count: participantCount, participants: nextParticipants };
-      rooms.value = rooms.value.map((r) => (r.slug === roomSlug ? { ...r, participant_count: participantCount } : r));
-      return;
-    }
-
-    // Replayed history batch (relay/Discord model): re-dispatch each entry so it
-    // renders through the normal renderers; dedup by server id avoids doubles.
-    if (type === "chat_history" && Array.isArray(data.messages)) {
-      for (const m of data.messages as Record<string, unknown>[]) {
-        await handleMessage(m);
-      }
-      return;
-    }
-
-    // secure-on-send: end-to-end message; decrypt with the secure key or show locked.
-    if (type === "secure_message" && data.ciphertext) {
-      const mid = (data.id as string) || nanoid();
-      if (alreadyRendered(mid)) return;
-      await renderSecureMessage(mid, data);
-      return;
-    }
-
+    // Plaintext fallback used only before MLS is ready.
     if (type === "chat_message" && data.message) {
-      const mid = (data.id as string) || nanoid();
-      if (alreadyRendered(mid)) return;
       pushMessage({
-        id: mid, type: "chat_message",
+        id: (data.id as string) || nanoid(), type: "chat_message",
         user: (data.user as string) ?? "Unknown", initials: initials((data.user as string) ?? "?"),
         avatar_url: (data.avatar_url as string) ?? null, content: data.message as string,
         participant_type: "human", self: data.user === currentUserName.value,
@@ -377,46 +297,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
 
     if (type === "system_error" && data.message) {
       messages.value.push(systemMsg(data.message as string, "system_error"));
-      return;
-    }
-
-    // Plaintext P2P invite fallback (relay only; used when MLS isn't ready yet).
-    if (type === "p2p_invite" && data.ticket && kind === "relay") {
-      const senderName = (data.user as string) ?? "Unknown";
-      pushMessage(inviteCard(senderName, data.ticket as string, (data.name as string) ?? "", senderName === currentUserName.value, false));
-      return;
-    }
-
-    // Plaintext ticketless auto-join nudge (relay only; MLS not ready yet).
-    if (type === "p2p_auto_join" && data.name && kind === "relay") {
-      const senderName = (data.user as string) ?? "Unknown";
-      pushMessage(autoJoinCard(senderName, data.name as string, senderName === currentUserName.value, false));
-      return;
-    }
-
-    if (type === "image_message" && (data.image_data || data.image_url)) {
-      const senderName = (data.user as string) ?? "Unknown";
-      const mid = (data.id as string) || nanoid();
-      if (alreadyRendered(mid)) return;
-      pushMessage({
-        id: mid, type: "image_message", user: senderName, initials: initials(senderName),
-        avatar_url: (data.avatar_url as string) ?? null, content: "",
-        image_data: (data.image_data ?? data.image_url) as string, participant_type: "human",
-        self: senderName === currentUserName.value, encrypted: false, timestamp: tsFrom(data),
-      });
-      return;
-    }
-
-    if (type === "voice_message" && data.audio_data) {
-      const senderName = (data.user as string) ?? "Unknown";
-      const mid = (data.id as string) || nanoid();
-      if (alreadyRendered(mid)) return;
-      pushMessage({
-        id: mid, type: "voice_message", user: senderName, initials: initials(senderName),
-        avatar_url: (data.avatar_url as string) ?? null, content: "",
-        audio_data: data.audio_data as string, participant_type: "human",
-        self: senderName === currentUserName.value, encrypted: false, timestamp: tsFrom(data),
-      });
       return;
     }
 
@@ -540,25 +420,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
-          if (inner?.type === "p2p_invite" && inner.ticket) {
-            // Forum-only: a member shared a private P2P room; show a join card.
-            pushMessage(inviteCard(senderName, inner.ticket as string, (inner.name as string) ?? "", isSelf, true));
-            return;
-          }
-          if (inner?.type === "p2p_auto_join" && inner.name) {
-            // Forum-only: a member opened a private P2P room; show a ticketless join card.
-            pushMessage(autoJoinCard(senderName, inner.name as string, isSelf, true));
-            return;
-          }
-          // E2E pin-key distribution (members only — rides MLS, never the server clear).
-          if (inner?.type === "pin_key" && inner.pin_key_id && inner.key) {
-            void onPinKeyReceived(inner.pin_key_id as string, inner.key as string);
-            return;
-          }
-          if (inner?.type === "pin_key_request") {
-            if (!isSelf) void respondPinKeyRequest(inner.pin_key_id as string | undefined);
-            return;
-          }
           if (inner?.type === "image_message" && inner.image_data) {
             pushMessage({ id: nanoid(), type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
           } else if (inner?.type === "voice_message" && inner.audio_data) {
@@ -579,24 +440,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       }
       return;
     }
-  }
-
-  function inviteCard(user: string, ticket: string, name: string, self: boolean, encrypted: boolean): Message {
-    return {
-      id: nanoid(), type: "p2p_invite", user, initials: initials(user),
-      avatar_url: avatarForName(user), content: "", invite_ticket: ticket, invite_name: name,
-      participant_type: "human", self, encrypted, timestamp: new Date(),
-    };
-  }
-
-  /** Ticketless "join private room" card — accepting resolves members from aster
-   *  and joins the named room by NodeId (no ticket payload). */
-  function autoJoinCard(user: string, name: string, self: boolean, encrypted: boolean): Message {
-    return {
-      id: nanoid(), type: "p2p_invite", user, initials: initials(user),
-      avatar_url: avatarForName(user), content: "", invite_name: name, invite_auto: true,
-      participant_type: "human", self, encrypted, timestamp: new Date(),
-    };
   }
 
   // ── MLS init ─────────────────────────────────────────────────────────────────
@@ -637,11 +480,9 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
   async function syncRuntimeIdentity() {
     const runtime = await getRuntimeConfig();
     mlsIdentity.value = runtime.identity;
-    try {
-      const me = await api.getMe();
-      if (me?.full_name) currentUserName.value = me.full_name;
-      else if (me?.username) currentUserName.value = me.username;
-    } catch { /* non-fatal */ }
+    // The display name is set by the app from the local offline profile; default
+    // to the runtime identity until it does.
+    if (currentUserName.value === "You") currentUserName.value = runtime.identity;
   }
 
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
@@ -651,7 +492,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
 
   function clearLocalChatState(message = "Left all chats and reset MLS.") {
     teardown();
-    rooms.value = [];
     currentRoom.value = null;
     messages.value = [systemMsg(message)];
     participants.value = [];
@@ -660,108 +500,6 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     mlsError.value = null;
     pendingInvites.clear();
     pendingRecoveryRooms.clear();
-  }
-
-  async function leaveAllChatsOnServer() {
-    await api.leaveAllRooms();
-  }
-
-  // ── relay (server) rooms ─────────────────────────────────────────────────────
-  async function fetchRooms() {
-    loadingRooms.value = true;
-    error.value = null;
-    try {
-      const data = await api.getRooms();
-      rooms.value = data.channels;
-    } catch (e) {
-      error.value = (e as Error).message;
-    } finally {
-      loadingRooms.value = false;
-    }
-  }
-
-  async function joinRoom(slug: string) {
-    if (currentRoom.value?.slug === slug) return;
-    teardown();
-    clearMessages();
-    participants.value = [];
-    currentRoom.value = null;
-    presenceById.clear();
-    mlsStatus.value = "idle";
-    mlsError.value = null;
-    pendingInvites.clear();
-    isParticipant.value = false;
-    try {
-      const room = await api.getRoom(slug);
-      currentRoom.value = room;
-      participants.value = room.participants ?? [];
-      isParticipant.value = room.is_participant ?? false;
-      if (isParticipant.value) {
-        wsStatus.value = "connecting";
-        chatTransport.connectWs(slug);
-      }
-    } catch (e) {
-      error.value = (e as Error).message;
-    }
-  }
-
-  function leaveRoom() {
-    teardown();
-    currentRoom.value = null;
-    clearMessages();
-    participants.value = [];
-    mlsStatus.value = "idle";
-    isParticipant.value = false;
-  }
-
-  async function joinParticipant() {
-    if (!currentRoom.value) return;
-    if (isP2p) { isParticipant.value = true; return; }
-    const slug = currentRoom.value.slug;
-    error.value = null;
-    try {
-      await api.joinRoom(slug);
-      isParticipant.value = true;
-      const room = await api.getRoom(slug);
-      currentRoom.value = room;
-      participants.value = room.participants ?? [];
-      clearMessages();
-      wsStatus.value = "connecting";
-      chatTransport.connectWs(slug);
-    } catch (e) {
-      error.value = (e as Error).message;
-    }
-  }
-
-  async function leaveParticipant() {
-    if (!currentRoom.value) return;
-    if (isP2p) {
-      if (mlsStatus.value === "ready") {
-        await sendEncryptedMedia("leave", { device_id: mlsIdentity.value }).catch(() => {});
-      }
-      presenceById.clear();
-      teardown();
-      currentRoom.value = null;
-      clearMessages();
-      participants.value = [];
-      isParticipant.value = false;
-      mlsStatus.value = "idle";
-      return;
-    }
-    const slug = currentRoom.value.slug;
-    mlsStatus.value = "idle";
-    error.value = null;
-    try {
-      await api.leaveRoom(slug);
-      teardown();
-      clearMessages();
-      isParticipant.value = false;
-      const room = await api.getRoom(slug);
-      currentRoom.value = room;
-      participants.value = room.participants ?? [];
-    } catch (e) {
-      error.value = (e as Error).message;
-    }
   }
 
   // ── P2P (iroh) rooms ─────────────────────────────────────────────────────────
@@ -774,11 +512,26 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
+  function persistP2pRooms() {
+    void kvPut("p2p:rooms", "default", "", JSON.stringify(p2pRooms.value)).catch(() => {});
+  }
+
   function rememberP2pRoom(entry: P2pRoomEntry) {
     const i = p2pRooms.value.findIndex((r) => r.room === entry.room);
     if (i === -1) p2pRooms.value.unshift(entry);
-    else p2pRooms.value[i] = entry;
-    void kvPut("p2p:rooms", "default", "", JSON.stringify(p2pRooms.value)).catch(() => {});
+    else p2pRooms.value[i] = { ...p2pRooms.value[i], ...entry };
+    persistP2pRooms();
+  }
+
+  /** Record a peer NodeId in a room's persisted address book (pair once by QR,
+   *  reconnect by NodeId + n0 discovery forever after). */
+  function rememberPeerForRoom(room: string, peerId: string) {
+    const entry = p2pRooms.value.find((r) => r.room === room);
+    if (!entry) return;
+    const peers = entry.peers ?? [];
+    if (peers.includes(peerId)) return;
+    entry.peers = [...peers, peerId];
+    persistP2pRooms();
   }
 
   function makeP2pRoom(room: string, name: string): Room {
@@ -804,7 +557,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
       const res = await chatTransport.createRoom(name.trim());
       rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket });
       enterP2pRoom(res.room, res.name);
-      messages.value.push(systemMsg(`Created “${res.name}”. Share the ticket to invite peers.`));
+      messages.value.push(systemMsg(`Created “${res.name}”. Share the QR / ticket to invite peers.`));
       return res.ticket;
     } catch (e) {
       error.value = errorMessage(e);
@@ -826,9 +579,8 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
-  // Ticketless join: enter a named P2P room, bootstrapping from a contact's NodeId(s).
-  // Peer addresses are resolved via the aster directory over Tor. Not persisted to the
-  // ticket-keyed room list (there is no ticket); callers re-join by NodeId.
+  // Ticketless reconnect: re-enter a named room, bootstrapping from persisted peer
+  // NodeIds (addresses resolve via iroh's n0 discovery).
   async function joinByNode(name: string, peerNodeIds: string[]) {
     error.value = null;
     teardown();
@@ -842,8 +594,8 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
-  /** Ensure this channel's iroh endpoint is started (and thus registered in the
-   *  aster directory) so peers can resolve our NodeId. Returns our NodeId, if any. */
+  /** Ensure this channel's iroh endpoint is started and return our NodeId (shown in
+   *  Settings; also what a future contact-QR would carry). */
   async function ensureNode(): Promise<string | null> {
     try {
       const info = await chatTransport.nodeInfo();
@@ -853,22 +605,40 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     }
   }
 
-  /** Resolve a user's iroh NodeId(s) for a service `kind` ("gossip"/"vox") via aster. */
-  function resolveNodes(username: string, nodeKind: string): Promise<string[]> {
-    return chatTransport.resolveNodes(username, nodeKind);
-  }
-
+  /** Open a saved room: rejoin by ticket, seeding the bootstrap with the room's
+   *  persisted peer NodeIds so stale ticket addresses don't strand us. */
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
     teardown();
     clearMessages();
     try {
-      await chatTransport.joinRoom(entry.ticket);
+      await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
       enterP2pRoom(entry.room, entry.name);
     } catch (e) {
       error.value = errorMessage(e);
     }
+  }
+
+  // "Join"/"Leave" for the current room. P2P rooms are joined implicitly on entry;
+  // leaving broadcasts an MLS leave so the admin can remove us from the group.
+  async function joinParticipant() {
+    if (!currentRoom.value) return;
+    isParticipant.value = true;
+  }
+
+  async function leaveParticipant() {
+    if (!currentRoom.value) return;
+    if (mlsStatus.value === "ready") {
+      await sendEncryptedMedia("leave", { device_id: mlsIdentity.value }).catch(() => {});
+    }
+    presenceById.clear();
+    teardown();
+    currentRoom.value = null;
+    clearMessages();
+    participants.value = [];
+    isParticipant.value = false;
+    mlsStatus.value = "idle";
   }
 
   // ── sending ──────────────────────────────────────────────────────────────────
@@ -887,112 +657,52 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
     await sendEncryptedMedia(type, payload);
   }
 
-  /** Forum-only: post a "join private room" card (ticket) into the relay chat. */
-  async function sendInvite(ticket: string, name: string) {
-    if (kind !== "relay" || !currentRoom.value) return;
-    pushMessage(inviteCard(currentUserName.value, ticket, name, true, mlsStatus.value === "ready"));
-    if (mlsStatus.value === "ready") {
-      await sendEncryptedMedia("p2p_invite", { ticket, name }).catch(() => {});
-    } else {
-      send({ type: "p2p_invite", ticket, name, user: currentUserName.value });
-    }
-  }
-
-  /** Forum-only: post a ticketless "join private room" nudge into the relay chat.
-   *  Recipients accept by resolving the room's members from aster and joining by node. */
-  async function sendAutoJoin(name: string) {
-    if (kind !== "relay" || !currentRoom.value) return;
-    pushMessage(autoJoinCard(currentUserName.value, name, true, mlsStatus.value === "ready"));
-    if (mlsStatus.value === "ready") {
-      await sendEncryptedMedia("p2p_auto_join", { name }).catch(() => {});
-    } else {
-      send({ type: "p2p_auto_join", name, user: currentUserName.value });
-    }
-  }
-
   async function sendImage(file: File, onProgress?: (pct: number) => void) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
-    if (isP2p) {
-      if (mlsStatus.value !== "ready") {
-        messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
-        return;
-      }
-      try {
-        const dataUrl = await downscaleImageToDataUrl(file);
-        await sendEncryptedMedia("image_message", { image_data: dataUrl });
-        pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
-        onProgress?.(100);
-      } catch (e) { error.value = errorMessage(e); }
+    if (mlsStatus.value !== "ready") {
+      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
       return;
     }
     try {
-      await api.uploadImage(currentRoom.value.slug, file, onProgress);
+      const dataUrl = await downscaleImageToDataUrl(file);
+      await sendEncryptedMedia("image_message", { image_data: dataUrl });
+      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      onProgress?.(100);
     } catch (e) { error.value = errorMessage(e); }
   }
 
-  /** Send an already-encoded image (data URL) — used to insert a vault image. */
+  /** Send an already-encoded image (data URL). */
   async function sendImageDataUrl(dataUrl: string) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
-    if (isP2p) {
-      if (mlsStatus.value !== "ready") {
-        messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
-        return;
-      }
-      try {
-        await sendEncryptedMedia("image_message", { image_data: dataUrl });
-        pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
-      } catch (e) { error.value = errorMessage(e); }
+    if (mlsStatus.value !== "ready") {
+      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
       return;
     }
-    // Forum/relay: inline image_message over the WS — the server relays + echoes it.
-    send({ type: "image_message", image_data: dataUrl });
+    try {
+      await sendEncryptedMedia("image_message", { image_data: dataUrl });
+      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+    } catch (e) { error.value = errorMessage(e); }
   }
 
   async function sendAudio(audioBlob: Blob) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     error.value = null;
-    if (isP2p) {
-      if (mlsStatus.value !== "ready") {
-        messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
-        return;
-      }
-      try {
-        const dataUrl = await blobToDataUrl(audioBlob);
-        await sendEncryptedMedia("voice_message", { audio_data: dataUrl });
-        pushMessage({ id: nanoid(), type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
-      } catch (e) { error.value = errorMessage(e); }
+    if (mlsStatus.value !== "ready") {
+      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
       return;
     }
     try {
-      send({ type: "voice_message", audio_data: await blobToDataUrl(audioBlob) });
-    } catch (e) { error.value = (e as Error).message; }
+      const dataUrl = await blobToDataUrl(audioBlob);
+      await sendEncryptedMedia("voice_message", { audio_data: dataUrl });
+      pushMessage({ id: nanoid(), type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+    } catch (e) { error.value = errorMessage(e); }
   }
 
-  async function sendMessage(content: string, opts?: { secure?: boolean }) {
+  async function sendMessage(content: string) {
     const text = content.trim();
     if (!text || !isConnected.value || !currentRoom.value) return;
-
-    // Forum-only command hook (future @system: commands). Empty registry today.
-    if (kind === "relay") {
-      const consumed = await runChatCommand(text, {
-        room: currentRoom.value.slug,
-        system: (c, k) => messages.value.push(systemMsg(c, k)),
-      });
-      if (consumed) return;
-      if (opts?.secure) {
-        // secure-on-send: end-to-end under the pin key; the server stores opaque
-        // ciphertext and never sees the plaintext. The server echoes it back (rendered
-        // once via its id); the locally-held pin key decrypts it.
-        await sendSecureMessage(text);
-        return;
-      }
-      // Discord model: relay content is plaintext over TLS so the server stores
-      // readable history. The server echoes it back (rendered once via its server id).
-      send({ type: "chat_message", message: text });
-      return;
-    }
 
     if (mlsStatus.value === "ready") {
       const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, text);
@@ -1003,6 +713,7 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
         messages.value.push(systemMsg("Encryption failed — message not sent.", "system_error"));
       }
     } else {
+      // Pre-MLS fallback (plaintext over the gossip topic; QUIC still encrypts hops).
       send({ type: "chat_message", message: text });
     }
   }
@@ -1050,114 +761,16 @@ export function useChatChannel(kind: ChannelKind, api: RelayChatApi) {
 
   function clearUnread() { unread.value = 0; }
 
-  // ── E2E pins (relay only) ─────────────────────────────────────────────────────
-  // Pinned messages are encrypted on-device under a member-held pin key (never sent
-  // to the server in clear) and distributed to members over MLS. See crypto.md.
-  async function loadLocalPinKey(slug: string) {
-    pinKey = null; pinKeyId = "";
-    const raw = await kvGet("pinkey", slug, "");
-    if (raw) {
-      try { const j = JSON.parse(raw); pinKey = b64ToPinKey(j.key); pinKeyId = j.pin_key_id; } catch { /* ignore */ }
-    }
-  }
-  async function savePinKey(slug: string) {
-    if (pinKey) {
-      await kvPut("pinkey", slug, "", JSON.stringify({ pin_key_id: pinKeyId, key: pinKeyToB64(pinKey) })).catch(() => {});
-    }
-  }
-
-  async function ensurePinKey() {
-    if (pinKey) return;
-    pinKey = randomPinKey();
-    pinKeyId = newPinKeyId();
-    if (currentRoom.value) await savePinKey(currentRoom.value.slug);
-    await distributePinKey();
-  }
-
-  async function distributePinKey() {
-    if (pinKey && kind === "relay" && mlsStatus.value === "ready") {
-      await sendEncryptedMedia("pin_key", { pin_key_id: pinKeyId, key: pinKeyToB64(pinKey) }).catch(() => {});
-    }
-  }
-  function requestPinKey(id?: string) {
-    if (kind === "relay" && mlsStatus.value === "ready") {
-      void sendEncryptedMedia("pin_key_request", { pin_key_id: id ?? "" }).catch(() => {});
-    }
-  }
-  async function respondPinKeyRequest(_id?: string) {
-    await distributePinKey();
-  }
-  async function onPinKeyReceived(id: string, keyB64: string) {
-    if (pinKey && pinKeyId === id) return; // already have it
-    try {
-      pinKey = b64ToPinKey(keyB64);
-      pinKeyId = id;
-      if (currentRoom.value) await savePinKey(currentRoom.value.slug);
-      await unlockPendingSecure(); // unlock any secure messages we couldn't read before
-    } catch { /* ignore bad key */ }
-  }
-
-  /** Secure-on-send: encrypt the text under the pin key and send it E2E over the WS. */
-  async function sendSecureMessage(text: string) {
-    await ensurePinKey();
-    if (!pinKey) return;
-    const plaintext = JSON.stringify({ type: "chat_message", content: text });
-    const { iv, ciphertext } = await encryptPin(pinKey, plaintext);
-    send({ type: "secure_message", pin_key_id: pinKeyId, iv, ciphertext });
-  }
-
-  /** Render an inbound secure (e2e) message: decrypt with the pin key, or show locked. */
-  async function renderSecureMessage(mid: string, data: Record<string, unknown>) {
-    const senderName = (data.user as string) ?? "Unknown";
-    const keyId = (data.pin_key_id as string) ?? "";
-    const iv = data.iv as string;
-    const ciphertext = data.ciphertext as string;
-    let content = "";
-    let locked = true;
-    if (pinKey && pinKeyId === keyId) {
-      try {
-        const inner = JSON.parse(await decryptPin(pinKey, iv, ciphertext));
-        content = inner.content ?? "";
-        locked = false;
-      } catch { locked = true; }
-    }
-    if (locked) {
-      pendingSecure.set(mid, { iv, ciphertext, keyId });
-      if (keyId) requestPinKey(keyId);
-    }
-    pushMessage({
-      id: mid, type: "chat_message", user: senderName, initials: initials(senderName),
-      avatar_url: (data.avatar_url as string) ?? null, content,
-      participant_type: "human", self: senderName === currentUserName.value,
-      encrypted: true, e2e: true, locked, timestamp: tsFrom(data),
-    });
-  }
-
-  /** After the pin key arrives, unlock any secure messages we couldn't read before. */
-  async function unlockPendingSecure() {
-    if (!pinKey) return;
-    for (const [mid, rec] of [...pendingSecure]) {
-      if (rec.keyId !== pinKeyId) continue;
-      try {
-        const inner = JSON.parse(await decryptPin(pinKey, rec.iv, rec.ciphertext));
-        const idx = messages.value.findIndex((m) => m.id === mid);
-        if (idx >= 0) messages.value[idx] = { ...messages.value[idx], content: inner.content ?? "", locked: false };
-        pendingSecure.delete(mid);
-      } catch { /* keep locked */ }
-    }
-  }
-
   return {
-    kind,
-    rooms, currentRoom, messages, participants,
-    wsStatus, loadingRooms, error, isConnected, unread, clearUnread,
+    currentRoom, messages, participants,
+    wsStatus, error, isConnected, unread, clearUnread,
     mlsStatus, mlsError, isEncrypted,
     isParticipant, currentUserName, mlsIdentity,
-    syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState, leaveAllChatsOnServer,
-    fetchRooms, joinRoom, leaveRoom, joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendImageDataUrl, sendAudio, sendInvite, sendAutoJoin, forceResetMls,
+    syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
+    joinParticipant, leaveParticipant,
+    sendMessage, sendImage, sendImageDataUrl, sendAudio, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
-    ensureNode, resolveNodes,
+    ensureNode,
     onSync, sendSync,
   };
 }

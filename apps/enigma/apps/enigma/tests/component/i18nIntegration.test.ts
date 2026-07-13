@@ -5,7 +5,7 @@ import { i18n, setLocale } from "../../src/i18n";
 
 // A throwaway component that leans on the globally-injected $t.
 const Probe = defineComponent({
-  template: `<div><span class="s">{{ $t('nav.storage') }}</span><span class="t">{{ $t('nav.tasks') }}</span></div>`,
+  template: `<div><span class="s">{{ $t('nav.chat') }}</span><span class="t">{{ $t('chat.create') }}</span></div>`,
 });
 
 beforeEach(() => {
@@ -16,15 +16,15 @@ beforeEach(() => {
 describe("i18n plugin integration", () => {
   it("renders English by default", () => {
     const w = mount(Probe, { global: { plugins: [i18n] } });
-    expect(w.get(".s").text()).toBe("Storage");
-    expect(w.get(".t").text()).toBe("Tasks");
+    expect(w.get(".s").text()).toBe("Chat");
+    expect(w.get(".t").text()).toBe("Create");
   });
 
   it("reactively re-renders when the locale switches to Polish", async () => {
     const w = mount(Probe, { global: { plugins: [i18n] } });
     setLocale("pl");
     await w.vm.$nextTick();
-    expect(w.get(".s").text()).toBe("Pliki");
-    expect(w.get(".t").text()).toBe("Zadania");
+    expect(w.get(".s").text()).toBe("Czat");
+    expect(w.get(".t").text()).toBe("Utwórz");
   });
 });

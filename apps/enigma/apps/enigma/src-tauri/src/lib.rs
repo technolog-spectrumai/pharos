@@ -8,16 +8,12 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
-mod aster;
-mod data;
 mod p2p_iroh;
 mod realtime;
 mod kv;
-#[cfg(test)]
-mod onion_e2e;
+// Kept (currently unused) for the future peer-to-peer onion transport — see the
+// TODO(onion-p2p) note at the top of tor.rs.
 mod tor;
-mod vox;
-mod file_xfer;
 mod fs_local;
 
 // ── App config ────────────────────────────────────────────────────────────────
@@ -68,43 +64,18 @@ pub struct OfflineProfileOption {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppProfileState {
     #[serde(default)]
-    pub server_url: String,
-    #[serde(default)]
-    pub auth_token: Option<String>,
-    #[serde(default)]
     pub offline_profile: OfflineProfile,
     #[serde(default)]
     pub offline_profiles: Vec<OfflineProfileOption>,
     #[serde(default)]
     pub selected_offline_profile_id: String,
-    // Three independent switches:
-    //   server_data — use the server for the data layer (REST/uploads). Default on.
-    //   offline     — airplane mode: block ALL network (server HTTP, relay WS, P2P).
-    #[serde(default = "default_true")]
-    pub server_data: bool,
+    // offline — airplane mode: block ALL network (the app is serverless, so this
+    // means every P2P connection).
     #[serde(default)]
     pub offline: bool,
-    //   server_is_onion — the server_url is a Tor .onion; route HTTP + WS through
-    //   the embedded Tor client instead of connecting directly. Default off.
-    #[serde(default)]
-    pub server_is_onion: bool,
-    //   allow_self_signed_tls — accept an untrusted/self-signed TLS cert on the
-    //   clearnet HTTPS path (e.g. a self-hosted portal behind a gervazy cert).
-    //   The onion path already skips verification (Tor authenticates the address).
-    #[serde(default)]
-    pub allow_self_signed_tls: bool,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-/// The data layer (REST/uploads) is blocked when offline, or when server data is off.
-pub(crate) fn data_blocked(state: &AppProfileState) -> bool {
-    state.offline || !state.server_data
-}
-
-/// Airplane mode — blocks every network connection (server HTTP, relay WS, P2P).
+/// Airplane mode — blocks every network connection (all P2P).
 pub(crate) fn is_offline(state: &AppProfileState) -> bool {
     state.offline
 }
@@ -381,122 +352,28 @@ fn app_get_profile_state(
 }
 
 #[tauri::command]
-fn app_set_server_url(
-    app: AppHandle,
-    config: State<AppConfigState>,
-    server_url: String,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.server_url = server_url.trim_end_matches('/').to_string();
-    save_profile_state(&app, &config, &state)
-}
-
-#[tauri::command]
-fn app_get_server_url(app: AppHandle, config: State<AppConfigState>) -> Result<String, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).server_url)
-}
-
-#[tauri::command]
-fn app_set_auth_token(
-    app: AppHandle,
-    config: State<AppConfigState>,
-    auth_token: String,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.auth_token = Some(auth_token);
-    save_profile_state(&app, &config, &state)
-}
-
-#[tauri::command]
-fn app_get_auth_token(
-    app: AppHandle,
-    config: State<AppConfigState>,
-) -> Result<Option<String>, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).auth_token)
-}
-
-#[tauri::command]
-fn app_clear_auth_token(app: AppHandle, config: State<AppConfigState>) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.auth_token = None;
-    save_profile_state(&app, &config, &state)
-}
-
-#[tauri::command]
-fn app_get_server_data(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).server_data)
-}
-
-#[tauri::command]
-fn app_set_server_data(
-    app: AppHandle,
-    config: State<AppConfigState>,
-    on: bool,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.server_data = on;
-    save_profile_state(&app, &config, &state)
-}
-
-#[tauri::command]
-fn app_get_server_is_onion(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).server_is_onion)
-}
-
-#[tauri::command]
-fn app_set_server_is_onion(
-    app: AppHandle,
-    config: State<AppConfigState>,
-    on: bool,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.server_is_onion = on;
-    save_profile_state(&app, &config, &state)
-}
-
-#[tauri::command]
-fn app_get_allow_self_signed_tls(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).allow_self_signed_tls)
-}
-
-#[tauri::command]
-fn app_set_allow_self_signed_tls(
-    app: AppHandle,
-    config: State<AppConfigState>,
-    on: bool,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.allow_self_signed_tls = on;
-    save_profile_state(&app, &config, &state)
-}
-
-#[tauri::command]
 fn app_get_offline(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
     let config = active_config(&config)?;
     Ok(load_profile_state(&app, &config).offline)
 }
 
 #[tauri::command]
-fn app_set_offline(
+async fn app_set_offline(
     app: AppHandle,
-    config: State<AppConfigState>,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, p2p_iroh::P2pState>,
     offline: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
     let mut state = load_profile_state(&app, &config);
     state.offline = offline;
-    save_profile_state(&app, &config, &state)
+    save_profile_state(&app, &config, &state)?;
+    // Airplane mode is "block ALL network": persisting the flag only gates NEW
+    // commands, so also tear down the live endpoint + gossip rooms.
+    if offline {
+        p2p_iroh::shutdown(&app, &p2p).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1041,14 +918,10 @@ pub fn run() {
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
-        .manage(realtime::RealtimeState::default())
         .manage(p2p_iroh::P2pState::default())
-        .manage(vox::VoxState::default())
-        .manage(file_xfer::FileXferState::default())
+        // Tor plumbing kept for the future onion-p2p transport (see tor.rs).
         .manage(tor::TorState::default())
         .setup(|app| {
-            // Rust-owned HTTP gateway state (needs the app data dir for its cache).
-            app.manage(data::init(app.handle()));
             // Local key/value cache (fjall) — replaces the old tauri-plugin-sql store.
             app.manage(kv::init(app.handle()));
 
@@ -1073,17 +946,6 @@ pub fn run() {
             app_get_runtime_config,
             app_set_active_profile,
             app_get_profile_state,
-            app_set_server_url,
-            app_get_server_url,
-            app_set_auth_token,
-            app_get_auth_token,
-            app_clear_auth_token,
-            app_get_server_data,
-            app_set_server_data,
-            app_get_server_is_onion,
-            app_set_server_is_onion,
-            app_get_allow_self_signed_tls,
-            app_set_allow_self_signed_tls,
             app_get_offline,
             app_set_offline,
             app_clear_profile_state,
@@ -1104,35 +966,17 @@ pub fn run() {
             mls_remove_member,
             audio_start_recording,
             audio_stop_recording,
-            data::data_http,
-            data::data_upload,
-            data::vault_image_data_url,
-            data::data_cache_count,
-            data::data_cache_clear,
             kv::kv_get,
             kv::kv_put,
             kv::kv_delete,
             kv::kv_clear_namespace,
             kv::kv_count,
-            realtime::realtime_connect,
-            realtime::realtime_disconnect,
             realtime::realtime_send,
             realtime::realtime_create_room,
             realtime::realtime_join_room,
             realtime::realtime_join_room_by_node,
             realtime::realtime_leave_room,
             realtime::realtime_node_info,
-            vox::vox_create,
-            vox::vox_join,
-            vox::vox_call_node,
-            vox::vox_accept,
-            vox::vox_decline,
-            vox::vox_hangup,
-            vox::vox_set_mute,
-            aster::aster_resolve,
-            file_xfer::file_offer_create,
-            file_xfer::file_offer_cancel,
-            file_xfer::file_download,
             fs_local::fs_read_text_file,
             fs_local::fs_write_text_file,
         ])

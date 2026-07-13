@@ -1,53 +1,26 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
-// Enigma is the secure-communication app: "/" redirects to "/chat". The backend is
-// stubbed (no toto server) — a catch-all returns {}, channels returns an empty list,
-// and /me returns the identity (incl. the profile language the UI should adopt).
-async function stubApi(page: Page, language: string) {
-  // Playwright matches routes in reverse registration order, so register the
-  // catch-all FIRST and the specific endpoints AFTER (they take precedence).
-  await page.route("**/api/**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
-  );
-  await page.route("**/telegraph/api/channels/", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ channels: [] }) }),
-  );
-  await page.route("**/telegraph/api/me/", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: 1,
-        username: "tester",
-        full_name: "Tester",
-        avatar_url: null,
-        profile_url: null,
-        language,
-      }),
-    }),
-  );
-}
+// Enigma is a serverless P2P chat: "/" redirects to "/chat". There is no backend
+// at all — the shell must render fully offline (P2P features themselves need the
+// Tauri runtime, so in the plain browser the panel just shows its empty state).
 
-test.describe("Enigma shell (comms-only)", () => {
-  test("redirects / to the chat view and renders the comms nav in English", async ({ page }) => {
-    await stubApi(page, "en");
+test.describe("Enigma shell (serverless P2P)", () => {
+  test("redirects / to the chat view and renders the nav in English", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("banner").getByRole("heading", { name: "Enigma" })).toBeVisible();
-    // Comms-only nav: Chat + Settings, and NO data-workspace links.
+    // Nav: Chat + Settings — and no server-era links (Login is gone).
     await expect(page.getByRole("link", { name: "Chat" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Settings" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Storage" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Mission" })).toHaveCount(0);
-    // The chat shell is shown (Forum tab present).
-    await expect(page.getByRole("button", { name: "Forum" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /login|zaloguj/i })).toHaveCount(0);
+    // The P2P chat shell is shown: the create-room control is present.
+    await expect(page.getByRole("button", { name: "Create" }).first()).toBeVisible();
   });
 
-  test("adopts the toto profile language (Polish) for the UI", async ({ page }) => {
-    await stubApi(page, "pl");
+  test("switches the UI to Polish via the language picker", async ({ page }) => {
     await page.goto("/");
-    // Once /me resolves, the nav switches to Polish (Chat → Czat, Settings → Ustawienia).
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await page.getByRole("combobox").first().selectOption("pl");
     await expect(page.getByRole("link", { name: "Czat" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Ustawienia" }).first()).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("lang", "pl");
   });
 });

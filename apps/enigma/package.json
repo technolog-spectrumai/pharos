@@ -2,9 +2,16 @@
   "name": "enigma-workspace",
   "private": true,
   "version": "0.1.0",
-  "description": "Monorepo for the Enigma (secure comms), Enigma+ and Aurora (data workspace) apps. Shared primitives live in the in-repo rakotis workspace package (packages/rakotis).",
+  "description": "Monorepo for Enigma — a serverless P2P chat (iroh + MLS, QR-code pairing). Shared primitives live in the in-repo rakotis workspace package (packages/rakotis).",
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "scripts": {
+    "dev": "bash run_dev.sh",
+    "build": "bash build_desktop.sh",
+    "build:debug": "bash build_desktop.sh --debug",
+    "build:android": "bash scripts/build_android.sh enigma",
+    "test": "npm run test --workspaces"
+  }
 }

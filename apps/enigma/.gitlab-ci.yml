@@ -22,7 +22,7 @@ cargo:check:
   image: rust:1-bookworm
   parallel:
     matrix:
-      - APP: [enigma, aurora, enigma_plus]
+      - APP: [enigma]
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo
   cache:
@@ -53,7 +53,7 @@ frontend:build:
   image: node:22-bookworm
   parallel:
     matrix:
-      - APP: [enigma, aurora, enigma_plus]
+      - APP: [enigma]
   variables:
     npm_config_cache: $CI_PROJECT_DIR/.npm
   cache:
@@ -68,14 +68,14 @@ frontend:build:
     paths: [apps/$APP/dist/]
     expire_in: 1 week
 
-# Stubbed smoke tier only: live.spec self-skips without E2E_SERVER.
+# Stubbed smoke tier (the app is serverless — there is no live backend tier).
 # The image version must match @playwright/test in package-lock.json.
 playwright:smoke:
   stage: e2e
   image: mcr.microsoft.com/playwright:v1.60.0-noble
   parallel:
     matrix:
-      - APP: [enigma, aurora, enigma_plus]
+      - APP: [enigma]
   retry: 1
   variables:
     npm_config_cache: $CI_PROJECT_DIR/.npm
@@ -169,6 +169,6 @@ android:build:
   allow_failure: true
   script:
     - echo "Android CI is not provisioned. Build locally with:"
-    - echo "  bash scripts/build_android.sh <enigma|aurora> [debug|release]"
+    - echo "  bash scripts/build_android.sh enigma [debug|release]"
     - echo "See build_android.md for SDK/NDK setup."
     - exit 1

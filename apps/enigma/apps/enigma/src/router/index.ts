@@ -1,16 +1,13 @@
 import { createRouter, createMemoryHistory } from "vue-router";
 import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
-import EnigmaLoginView from "../views/EnigmaLoginView.vue";
 
-// Enigma is the secure-communication app: chat (relay + P2P), voice calls and
-// media only. The data workspace (dashboard, vault, tasks, locations, people,
-// events) now lives in Aurora.
+// Enigma is a serverless P2P chat: one chat surface plus settings. There is no
+// login — identity is the local offline profile, pairing is a QR-shared ticket.
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: "/", redirect: "/chat" },
-    { path: "/login", component: EnigmaLoginView, name: "login" },
     { path: "/chat", component: EnigmaChatView, name: "chat" },
     { path: "/config", component: EnigmaConfigView, name: "config" },
     // Profile now lives inside Settings (as a tab) — keep the old path working.

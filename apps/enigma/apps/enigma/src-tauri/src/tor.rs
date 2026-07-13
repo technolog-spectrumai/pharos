@@ -1,16 +1,35 @@
-// Embedded Tor (Arti) transport for reaching a `.onion` server.
+// Embedded Tor (Arti) client transport.
 //
-// When the active profile has `server_is_onion` on, the HTTP gateway (data.rs)
-// and the realtime WS backend (realtime.rs) route through this module instead of
-// connecting directly — nothing can resolve a `.onion` without Tor. We embed a
-// pure-Rust Tor client (arti); no external tor daemon / Orbot is required. The
-// client is bootstrapped lazily on first use (bootstrap builds circuits and is
-// slow) and then cached for the lifetime of the process.
+// KEPT BUT CURRENTLY UNUSED: the server this module used to reach (the relay/data
+// `.onion`) was removed in the serverless rework. The plumbing stays so a future
+// peer-to-peer onion transport can build on it.
 //
-// The onion service may speak plain HTTP (the Tor circuit is the encryption) OR
+// TODO(onion-p2p): peer-to-peer chat over Tor, so a QR code can carry a `.onion`
+// address instead of (or in addition to) the iroh EndpointAddr. What's needed:
+//   1. Enable arti's onion-service HOSTING (Cargo feature `onion-service-service`
+//      / the `tor-hsservice` crate) — today only `onion-service-client` (outbound
+//      dialing, this module) is enabled.
+//   2. Publish a per-profile hidden service on startup; obtain our own `.onion`
+//      from the service descriptor and expose it to the frontend for the QR.
+//   3. Add a Tor transport backend that accepts inbound onion streams and carries
+//      the same JSON/MLS frames as p2p_iroh.rs, emitting the same
+//      `realtime://message` / `realtime://status` events (frontend stays unchanged).
+//      Model the framing/handshake on the removed onion_e2e.rs harness (git
+//      history) and vox.rs's self-contained 2-party handshake (limbo/rust/vox.rs).
+//   4. Extend the QR payload to optionally carry a `.onion`; pick the Tor backend
+//      when one is scanned.
+//   Skipped for now (too complex): multi-peer gossip MESH over Tor — start with
+//   1:1 / star topology instead.
+//
+// We embed a pure-Rust Tor client (arti); no external tor daemon / Orbot is
+// required. The client is bootstrapped lazily on first use (bootstrap builds
+// circuits and is slow) and then cached for the lifetime of the process.
+//
+// An onion service may speak plain HTTP (the Tor circuit is the encryption) OR
 // HTTPS (TLS on top of the Tor stream). For TLS we accept the server certificate
 // WITHOUT name/CA verification: the Tor circuit already authenticates the .onion
 // address, and onion TLS certs are self-signed — the address itself is the identity.
+#![allow(dead_code)]
 
 use std::sync::Arc;
 

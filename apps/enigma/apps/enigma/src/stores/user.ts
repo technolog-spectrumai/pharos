@@ -1,8 +1,10 @@
-import { ref } from "vue";
+// Local identity store. The app is serverless: there is no login and no /me —
+// who you are is the locally-stored offline profile (display name, bio, …),
+// selected per runtime profile. The chat display name comes from here.
+
+import { ref, computed } from "vue";
 import { defineStore } from "pinia";
-import { api, type Me } from "../services/api";
 import {
-  getServerUrl,
   getProfileState,
   setOfflineProfile,
   clearOfflineProfile,
@@ -14,14 +16,6 @@ import {
   type AppProfileState,
 } from "rakotis";
 
-export interface FetchLogEntry {
-  timestamp: Date;
-  url: string;
-  ok: boolean;
-  message: string;
-  detail?: string;
-}
-
 const EMPTY_PROFILE: OfflineProfile = {
   display_name: "",
   email: "",
@@ -31,15 +25,13 @@ const EMPTY_PROFILE: OfflineProfile = {
 };
 
 export const useUserStore = defineStore("user", () => {
-  const me = ref<Me | null>(null);
-  const loading = ref(false);
-  const error = ref<string | null>(null);
-  const fetchLog = ref<FetchLogEntry[]>([]);
-
   const offlineProfile = ref<OfflineProfile>({ ...EMPTY_PROFILE });
   const offlineProfiles = ref<OfflineProfileOption[]>([]);
   const selectedOfflineProfileId = ref("");
   const offlineProfileLoaded = ref(false);
+
+  /** The name shown in chat: the local profile's display name, if set. */
+  const displayName = computed(() => offlineProfile.value.display_name.trim());
 
   function applyProfileState(state: AppProfileState) {
     offlineProfile.value = {
@@ -60,35 +52,6 @@ export const useUserStore = defineStore("user", () => {
     offlineProfileLoaded.value = true;
   }
 
-  async function serverBase(): Promise<string> {
-    return (await getServerUrl()).replace(/\/$/, "");
-  }
-
-  async function fetchMe() {
-    loading.value = true;
-    error.value = null;
-    const base = await serverBase();
-    const url = `${base}/enigma/api/me/`;
-    const ts = new Date();
-
-    try {
-      me.value = await api.getMe();
-      fetchLog.value.push({ timestamp: ts, url, ok: true, message: `OK — ${me.value.full_name}` });
-    } catch (e) {
-      const msg = (e as Error).message;
-      error.value = msg;
-      fetchLog.value.push({
-        timestamp: ts,
-        url,
-        ok: false,
-        message: msg,
-        detail: (e as Error).stack,
-      });
-    } finally {
-      loading.value = false;
-    }
-  }
-
   async function saveOfflineProfile() {
     await setOfflineProfile(offlineProfile.value);
     await loadOfflineProfile();
@@ -106,24 +69,17 @@ export const useUserStore = defineStore("user", () => {
 
   async function clearAllProfileData() {
     applyProfileState(await clearProfileState());
-    me.value = null;
-    error.value = null;
-    fetchLog.value = [];
     offlineProfileLoaded.value = true;
   }
 
   return {
-    me,
-    loading,
-    error,
-    fetchLog,
     offlineProfile,
     offlineProfiles,
     selectedOfflineProfileId,
     offlineProfileLoaded,
+    displayName,
     loadOfflineProfile,
     selectOfflineProfile,
-    fetchMe,
     saveOfflineProfile,
     saveOfflineProfileAs,
     clearSelectedOfflineProfile,

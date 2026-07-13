@@ -98,7 +98,7 @@ describe("catalog", () => {
 
   it("actually translates a known key to Polish", () => {
     setLocale("pl");
-    expect(i18n.global.t("nav.storage")).toBe("Pliki");
-    expect(i18n.global.t("nav.tasks")).toBe("Zadania");
+    expect(i18n.global.t("nav.chat")).toBe("Czat");
+    expect(i18n.global.t("chat.join")).toBe("Dołącz");
   });
 });

@@ -1,48 +1,35 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from "vue";
-import { RouterView, RouterLink, useRouter, useRoute } from "vue-router";
+import { RouterView, RouterLink, useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
-import { api } from "./services/api";
 import { barIcon } from "./assets/logos";
-import { applyProfileLocaleGuess } from "./i18n";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
-const router = useRouter();
 const route = useRoute();
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
-const { me } = storeToRefs(userStore);
+const { displayName } = storeToRefs(userStore);
 
-onMounted(() => {
-  void chatStore.syncRuntimeIdentity();
-  userStore.fetchMe();
+onMounted(async () => {
+  await chatStore.syncRuntimeIdentity();
+  await userStore.loadOfflineProfile();
+  // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
+  void chatStore.init();
 });
 
-watch(me, (val) => {
-  if (val) {
-    chatStore.relay.currentUserName.value = val.full_name;
-    chatStore.p2p.currentUserName.value = val.full_name;
-    // First guess for the UI language is the user's toto profile language,
-    // unless they've already picked one explicitly in Enigma.
-    applyProfileLocaleGuess(val.language);
-  }
-});
+// The chat display name is the local profile's display name (identity otherwise).
+watch(displayName, (name) => {
+  if (name) chatStore.p2p.currentUserName.value = name;
+}, { immediate: true });
 
 // Close menu on navigation
 watch(() => route.path, () => {
   menuOpen.value = false;
 });
-
-async function handleLogout() {
-  await api.logout();
-  userStore.me = null;
-  menuOpen.value = false;
-  router.push("/login");
-}
 </script>
 
 <template>
@@ -81,23 +68,6 @@ async function handleLogout() {
           >
             <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" />
             {{ darkMode ? $t('nav.light') : $t('nav.dark') }}
-          </button>
-
-          <RouterLink
-            v-if="!me"
-            to="/login"
-            class="inline-flex items-center gap-2 transition hover:opacity-70"
-          >
-            <font-awesome-icon icon="right-to-bracket" />
-            {{ $t('nav.login') }}
-          </RouterLink>
-          <button
-            v-else
-            class="inline-flex items-center gap-2 transition hover:opacity-70"
-            @click="handleLogout"
-          >
-            <font-awesome-icon icon="right-from-bracket" />
-            {{ $t('nav.logout') }}
           </button>
         </nav>
 
@@ -148,23 +118,6 @@ async function handleLogout() {
           >
             <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" class="w-4 text-center" />
             {{ darkMode ? $t('nav.lightMode') : $t('nav.darkMode') }}
-          </button>
-
-          <RouterLink
-            v-if="!me"
-            to="/login"
-            class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
-          >
-            <font-awesome-icon icon="right-to-bracket" class="w-4 text-center" />
-            {{ $t('nav.login') }}
-          </RouterLink>
-          <button
-            v-else
-            class="flex w-full items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
-            @click="handleLogout"
-          >
-            <font-awesome-icon icon="right-from-bracket" class="w-4 text-center" />
-            {{ $t('nav.logout') }}
           </button>
         </div>
       </Transition>

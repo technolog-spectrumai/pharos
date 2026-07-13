@@ -1,40 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ref } from "vue";
 
-// The chat store orchestrates two rakotis channels (relay + p2p). We mock rakotis
-// so `relay`/`p2p` are controllable stubs and assert the ticketless "switch to P2P"
-// automation: resolve every *other* relay member's gossip NodeId from aster and
-// join the mirrored P2P room by node — no ticket.
-
-function makeRelayStub() {
-  return {
-    currentRoom: { value: { slug: "room-1", name: "General" } },
-    currentUserName: { value: "alice" },
-    participants: {
-      value: [
-        { name: "alice", username: "alice" }, // self — skipped
-        { name: "Bob", username: "bob" },
-        { name: "Carol", username: "carol" },
-        { name: "Ghost", username: "" }, // no account — skipped
-      ],
-    },
-    resolveNodes: vi.fn(async (u: string) =>
-      u === "bob" ? ["node-bob"] : u === "carol" ? ["node-carol"] : []
-    ),
-    sendAutoJoin: vi.fn(async () => {}),
-    sendInvite: vi.fn(async () => {}),
-    createRoom: vi.fn(async () => "tkt"),
-    clearUnread: vi.fn(),
-    syncRuntimeIdentity: vi.fn(async () => {}),
-    applyRuntimeProfile: vi.fn(async () => {}),
-    clearLocalChatState: vi.fn(),
-    leaveAllChatsOnServer: vi.fn(async () => {}),
-  };
-}
+// The chat store orchestrates the single rakotis P2P channel. We mock rakotis so
+// the channel is a controllable stub and assert the serverless bootstrap: on
+// init() the store loads the saved room list and auto-reopens the most recent
+// room (whose persisted peer NodeIds make the reconnect work without a fresh QR).
 
 function makeP2pStub() {
   return {
+    p2pRooms: ref<Array<{ room: string; name: string; ticket: string; peers?: string[] }>>([]),
+    currentUserName: ref("You"),
+    loadP2pRooms: vi.fn(async () => {}),
+    openP2pRoom: vi.fn(async () => {}),
     ensureNode: vi.fn(async () => "my-node"),
-    joinByNode: vi.fn(async () => {}),
     joinByTicket: vi.fn(async () => {}),
     clearUnread: vi.fn(),
     syncRuntimeIdentity: vi.fn(async () => {}),
@@ -43,62 +21,66 @@ function makeP2pStub() {
   };
 }
 
-let relayStub: ReturnType<typeof makeRelayStub>;
 let p2pStub: ReturnType<typeof makeP2pStub>;
 
 vi.mock("rakotis", () => ({
-  useChatChannel: (kind: string) => (kind === "relay" ? relayStub : p2pStub),
+  useChatChannel: () => p2pStub,
 }));
-vi.mock("../../src/composables/useFileShare", () => ({ useFileShare: () => ({}) }));
-vi.mock("../../src/services/api", () => ({ api: {} }));
 
 async function freshStore() {
   vi.resetModules();
-  relayStub = makeRelayStub();
   p2pStub = makeP2pStub();
   const mod = await import("../../src/stores/chat");
   return mod.useChatStore();
 }
 
-describe("chat store — ticketless P2P automation", () => {
+describe("chat store — serverless P2P bootstrap", () => {
   beforeEach(() => vi.resetModules());
 
-  it("switchToP2p resolves other members' gossip nodes and joins by node", async () => {
+  it("init loads saved rooms and auto-reopens the most recent one", async () => {
     const store = await freshStore();
-    await store.switchToP2p();
+    const entry = { room: "topic-1", name: "duo", ticket: "tkt", peers: ["node-bob"] };
+    p2pStub.loadP2pRooms.mockImplementation(async () => {
+      p2pStub.p2pRooms.value = [entry];
+    });
 
-    // Resolved only members with a username, excluding self.
-    expect(relayStub.resolveNodes).toHaveBeenCalledWith("bob", "gossip");
-    expect(relayStub.resolveNodes).toHaveBeenCalledWith("carol", "gossip");
-    expect(relayStub.resolveNodes).not.toHaveBeenCalledWith("alice", "gossip");
-    expect(relayStub.resolveNodes).toHaveBeenCalledTimes(2);
+    await store.init();
 
-    // Registered our own node, then joined the relay slug by the resolved NodeIds.
-    expect(p2pStub.ensureNode).toHaveBeenCalled();
-    expect(p2pStub.joinByNode).toHaveBeenCalledWith("room-1", ["node-bob", "node-carol"]);
-
-    // Posted a ticketless nudge keyed by the relay slug, and jumped to the P2P tab.
-    expect(relayStub.sendAutoJoin).toHaveBeenCalledWith("room-1");
-    expect(relayStub.createRoom).not.toHaveBeenCalled(); // no ticket path
-    expect(store.activeTab.value).toBe("p2p");
+    expect(p2pStub.loadP2pRooms).toHaveBeenCalled();
+    // The full entry is passed through — openP2pRoom seeds the rejoin with entry.peers.
+    expect(p2pStub.openP2pRoom).toHaveBeenCalledWith(entry);
   });
 
-  it("acceptP2pAutoJoin joins the named room by aster-resolved nodes", async () => {
+  it("init with no saved rooms opens nothing", async () => {
     const store = await freshStore();
-    await store.acceptP2pAutoJoin("room-1");
+    await store.init();
 
-    expect(p2pStub.ensureNode).toHaveBeenCalled();
-    expect(p2pStub.joinByNode).toHaveBeenCalledWith("room-1", ["node-bob", "node-carol"]);
-    expect(store.activeTab.value).toBe("p2p");
+    expect(p2pStub.loadP2pRooms).toHaveBeenCalled();
+    expect(p2pStub.openP2pRoom).not.toHaveBeenCalled();
   });
 
-  it("switchToP2p with no current relay room just opens the P2P tab", async () => {
+  it("init is idempotent — a second call does not reopen the room", async () => {
     const store = await freshStore();
-    relayStub.currentRoom.value = null as any;
-    await store.switchToP2p();
+    p2pStub.p2pRooms.value = [{ room: "topic-1", name: "duo", ticket: "tkt" }];
 
-    expect(p2pStub.joinByNode).not.toHaveBeenCalled();
-    expect(relayStub.sendAutoJoin).not.toHaveBeenCalled();
-    expect(store.activeTab.value).toBe("p2p");
+    await store.init();
+    await store.init();
+
+    expect(p2pStub.loadP2pRooms).toHaveBeenCalledTimes(1);
+    expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("identity fan-out delegates to the channel", async () => {
+    const store = await freshStore();
+
+    await store.syncRuntimeIdentity();
+    expect(p2pStub.syncRuntimeIdentity).toHaveBeenCalled();
+
+    const runtime = { profile: "alice", identity: "alice", profile_state_path: "" };
+    await store.applyRuntimeProfile(runtime);
+    expect(p2pStub.applyRuntimeProfile).toHaveBeenCalledWith(runtime);
+
+    store.clearLocalChatState("bye");
+    expect(p2pStub.clearLocalChatState).toHaveBeenCalledWith("bye");
   });
 });

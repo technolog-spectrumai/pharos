@@ -3,7 +3,7 @@
 #
 #   bash scripts/build_android.sh <app> [debug|release] [abi-spec]
 #
-#   <app>      enigma | aurora  (any dir under apps/ with a src-tauri/)
+#   <app>      enigma  (any dir under apps/ with a src-tauri/)
 #   build type debug (default) | release
 #   abi-spec   comma-separated ABIs, or "all".  Default: aarch64
 #              valid ABIs: aarch64 (modern phones) · x86_64 (emulator) ·
@@ -11,7 +11,7 @@
 #
 # Examples:
 #   build_android.sh enigma release aarch64,x86_64
-#   build_android.sh aurora debug
+#   build_android.sh enigma debug
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
