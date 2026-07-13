@@ -26,6 +26,14 @@ export interface AppProfileState {
   selected_offline_profile_id: string;
   offline?: boolean;
   use_tor?: boolean;
+  stable_onion?: boolean;
+}
+
+/** Encryption-at-rest vault state (Tauri only). `exists` = a passphrase has been
+ *  set; `unlocked` = the key is in memory this session. */
+export interface VaultStatus {
+  exists: boolean;
+  unlocked: boolean;
 }
 
 export interface OfflineProfileOption {
@@ -66,6 +74,45 @@ export async function getUseTor(): Promise<boolean> {
 export async function setUseTor(useTor: boolean): Promise<void> {
   if (isTauri()) { await invoke("app_set_use_tor", { useTor }); return; }
   localStorage.setItem(LS_USE_TOR, useTor ? "on" : "off");
+}
+
+// ── Keep onion stable (persist the Tor .onion, encrypted at rest) ──────────────
+
+export async function getStableOnion(): Promise<boolean> {
+  if (isTauri()) return invoke<boolean>("app_get_stable_onion");
+  return localStorage.getItem("enigma:stableOnion") === "on";
+}
+
+export async function setStableOnion(stableOnion: boolean): Promise<void> {
+  if (isTauri()) { await invoke("app_set_stable_onion", { stableOnion }); return; }
+  localStorage.setItem("enigma:stableOnion", stableOnion ? "on" : "off");
+}
+
+// ── Encryption-at-rest vault (Tauri only; browser fallback treats it unlocked) ─
+
+export async function vaultStatus(): Promise<VaultStatus> {
+  if (isTauri()) return invoke<VaultStatus>("vault_status");
+  return { exists: true, unlocked: true };
+}
+
+export async function vaultSetup(passphrase: string): Promise<void> {
+  if (isTauri()) await invoke("vault_setup", { passphrase });
+}
+
+export async function vaultUnlock(passphrase: string): Promise<void> {
+  if (isTauri()) await invoke("vault_unlock", { passphrase });
+}
+
+export async function vaultLock(): Promise<void> {
+  if (isTauri()) await invoke("vault_lock");
+}
+
+export async function vaultChangePassphrase(current: string, next: string): Promise<void> {
+  if (isTauri()) await invoke("vault_change_passphrase", { current, new: next });
+}
+
+export async function vaultWipe(): Promise<void> {
+  if (isTauri()) await invoke("vault_wipe");
 }
 
 // ── Tauri-only functions (degrade gracefully in browser) ──────────────────────
