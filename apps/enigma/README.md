@@ -33,7 +33,7 @@ content encrypted by **MLS** (OpenMLS via the Rotor crate).
 |---------|-----------|
 | **[apps/enigma](apps/enigma)** | The app — P2P MLS chat, QR pairing, voice/image messages. |
 | **[packages/rakotis](packages/rakotis)** | Shared primitives (in-repo workspace) — UI primitives, Tauri helpers, storage, kv cache, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, iroh transport bridge, chat-channel composable + MLS envelope state machine). |
-| **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) | The crypto layer (OpenMLS). Lives in its own repository; consumed from Rust as a pinned cargo git dependency (see `apps/enigma/src-tauri/Cargo.toml`). **All MLS crypto stays here.** |
+| **Rotor** ([cryptorotor/](cryptorotor)) | The crypto layer (OpenMLS). **Vendored in-repo** as its own nested cargo workspace (`rotor_core`, `rotor_wasm`, `rotor_py`); `apps/enigma/src-tauri` consumes `rotor-core` via a path dependency (no GitLab access needed to build). **All MLS crypto stays here.** |
 
 ### Dependency layering
 
@@ -57,6 +57,7 @@ enigma/
 │   └── rakotis/              # shared primitives + P2P chat orchestration
 ├── apps/
 │   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma)
+├── cryptorotor/              # vendored crypto (Rust): rotor_core / rotor_wasm / rotor_py
 ├── limbo/                    # parked features (voice calls, file transfer)
 ├── serverless_plan.md        # the rework plan/record
 ├── run_dev.sh                # launch a dev instance with a profile

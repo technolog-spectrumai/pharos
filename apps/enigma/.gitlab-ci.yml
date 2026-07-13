@@ -34,10 +34,6 @@ cargo:check:
     - apt-get update && apt-get install -y --no-install-recommends
       libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
       librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential
-    # cryptorotor is a private git dependency; rewrite its https URL to a
-    # job-token URL (requires this project on cryptorotor's job-token allowlist).
-    # .cargo/config.toml already sets net.git-fetch-with-cli = true.
-    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
     # tauri-build validates that frontendDist ("../dist") exists
     - mkdir -p apps/$APP/dist
   script:
@@ -110,8 +106,6 @@ playwright:smoke:
       libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
       librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential curl file
     - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
-    # cryptorotor (cargo) is a private git dependency: rewrite to a job-token URL.
-    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf "https://gitlab.com/"
   script:
     - npm ci
     # Start from a clean bundle dir. The cargo-desktop cache retains target/ (for

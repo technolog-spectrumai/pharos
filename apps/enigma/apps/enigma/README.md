@@ -25,8 +25,8 @@ Voice calls (Vox) and P2P file transfer are parked in
 - **[rakotis](../../packages/rakotis)** — shared primitives: UI components,
   Tauri helpers, storage, kv cache, i18n, plus the chat channel + MLS envelope
   state machine and the iroh transport bridge.
-- **Rotor** ([CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)) —
-  OpenMLS crypto, consumed from `src-tauri` as a pinned cargo git dependency.
+- **Rotor** ([cryptorotor/rotor_core](../../cryptorotor/rotor_core)) — OpenMLS
+  crypto, vendored in-repo and consumed from `src-tauri` via a path dependency.
 
 The Rust backend (`src-tauri/`) keeps: `mls_*` (Rotor-backed), the iroh P2P
 gateway (`realtime.rs`/`p2p_iroh.rs`), native voice-note recording, the fjall

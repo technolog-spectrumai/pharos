@@ -22,16 +22,11 @@ sudo apt-get install -y \
   librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential curl file
 ```
 
-**Private cargo dependency.** The Rust backend pins `rotor-core` from the private
-[CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor) repo. `.cargo/config.toml`
-enables `git-fetch-with-cli`; set up git access once:
-
-```bash
-git config --global url."git@gitlab.com:janhagit-group/".insteadOf "https://gitlab.com/janhagit-group/"
-```
-
-(In CI this is done with a job-token URL rewrite instead — see
-[.gitlab-ci.yml](.gitlab-ci.yml).)
+**No GitLab account needed.** The crypto crate `rotor-core` is **vendored in-repo**
+at [cryptorotor/rotor_core](cryptorotor/rotor_core) and consumed by `src-tauri` as a
+path dependency — there is nothing to authenticate or configure. (`rakotis` is
+likewise an in-repo workspace package.) The whole build is offline-friendly once
+crates.io/npm are cached.
 
 Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — see
 [build_android.md](build_android.md).
@@ -123,8 +118,8 @@ for keystore/signing, plus the full SDK/NDK/Java setup.
 - **`No space left on device` / linker (`collect2`) failure at the final link** —
   the release binary link step is large; this is almost always **disk space, not a
   code bug**. Free space (clear `target/`, docker/build caches) and retry.
-- **`cargo` can't fetch `rotor-core`** — private CryptoRotor repo; set the
-  `insteadOf` rewrite above and confirm your SSH key is on GitLab.
+- **`rotor-core` build error** — it's the vendored crate at `cryptorotor/rotor_core`
+  (no fetch involved); reproduce in isolation with `cd cryptorotor && cargo check -p rotor-core`.
 - **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
 - **`frontendDist` doesn't exist** — the frontend build didn't run/produce
   `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build_desktop.sh`).

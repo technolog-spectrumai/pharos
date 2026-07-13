@@ -86,16 +86,12 @@ rustup target list --installed | grep android
 cargo ndk --version
 ```
 
-## Step 4 — Rotor dependency (fetched by cargo)
+## Step 4 — Rotor dependency (vendored in-repo)
 
-The Rust backend depends on `rotor-core` from [CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor),
-pinned as a cargo git dependency. The repository is private, so make sure git
-can reach it (one-time setup; `.cargo/config.toml` already enables
-`git-fetch-with-cli`):
-
-```bash
-git config --global url."git@gitlab.com:janhagit-group/".insteadOf "https://gitlab.com/janhagit-group/"
-```
+The Rust backend depends on `rotor-core`, which is **vendored in this repo** at
+`cryptorotor/rotor_core` and consumed by `src-tauri` via a path dependency. It is
+pure Rust (+ OpenMLS) and cross-compiles for Android like any workspace crate —
+**no GitLab access or git setup is required.** Nothing to do here.
 
 ## Step 5 — Check Cargo.toml Android compatibility
 
@@ -109,7 +105,7 @@ bash enigma/scripts/patch_cargo_android.sh
 |---|---|---|---|
 | `webkit2gtk` | Linux only (cfg guard) | Skipped automatically | Tauri uses Android WebView |
 | `cpal 0.15` | ALSA/PulseAudio | Needs `oboe-shared-stdcxx` feature | See note below |
-| `rotor-core` | CryptoRotor git dep | Cross-compiles fine | Pure Rust + openmls |
+| `rotor-core` | vendored (`cryptorotor/rotor_core`) | Cross-compiles fine | Pure Rust + openmls |
 | `zeroize` | ✓ | ✓ | No platform deps |
 
 **Voice recording on Android:** `cpal` defaults to ALSA on Linux. For Android audio,

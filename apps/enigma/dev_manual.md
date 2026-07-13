@@ -24,13 +24,9 @@ sudo apt-get install -y \
   librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential
 ```
 
-`rotor-core` comes from the **private** [CryptoRotor](https://gitlab.com/janhagit-group/cryptorotor)
-repo (pinned cargo git dep). `.cargo/config.toml` already sets
-`git-fetch-with-cli = true`; make sure git can reach it (one-time):
-
-```bash
-git config --global url."git@gitlab.com:janhagit-group/".insteadOf "https://gitlab.com/janhagit-group/"
-```
+`rotor-core` (the crypto crate) is **vendored in-repo** at
+[cryptorotor/rotor_core](cryptorotor/rotor_core) and consumed via a path dependency —
+no GitLab account or git setup is needed to build.
 
 ---
 
@@ -129,9 +125,8 @@ python apps/enigma/e2e.py                  # Playwright smoke tier (no backend)
 - **Port 1420 already in use** — a stray Vite server is running.
   `npm run dev:tauri` reuses an existing server on `:1420`; otherwise kill the
   process holding the port (`lsof -i :1420`) and relaunch.
-- **`cargo` can't fetch `rotor-core`** — the CryptoRotor repo is private; set the
-  `insteadOf` git rewrite shown under Prerequisites and confirm your SSH key is on
-  GitLab.
+- **`rotor-core` build error** — it's the vendored crate at `cryptorotor/rotor_core`
+  (nothing is fetched); check it alone with `cd cryptorotor && cargo check -p rotor-core`.
 - **Window opens blank / WebKit errors** — the WebKitGTK dev libs above are
   missing or mismatched; reinstall them.
 - **First Rust compile is very slow / high memory** — expected for the initial

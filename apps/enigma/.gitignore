@@ -8,6 +8,9 @@ target/
 **/target/
 *.wasm
 Cargo.lock
+# ...except the vendored cryptorotor workspace, which commits its own lock (upstream does).
+# The app crate's own Cargo.lock (apps/enigma/src-tauri) stays ignored.
+!cryptorotor/Cargo.lock
 
 # Test artifacts
 test-results/

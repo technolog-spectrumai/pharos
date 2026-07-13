@@ -1,4 +1,0 @@
-# Use the git CLI for git dependencies (cryptorotor is private: the CLI
-# respects SSH agents and url.insteadOf rewrites; cargo's builtin fetcher does not).
-[net]
-git-fetch-with-cli = true
