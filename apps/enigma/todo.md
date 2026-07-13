@@ -63,6 +63,15 @@ Gossip fan-out and MLS admin election (`ourId < theirId`) are unchanged from the
 original implementation — **fine for small rooms**, not yet hardened for large
 groups.
 
+### 5. Encryption at rest (planned)
+On-disk state is plaintext today (iroh key, MLS session/signing keys, profile PII,
+saved tickets, and — over Tor — arti's hidden-service keystore). Encrypt it (a
+passphrase/keychain-derived key). **Interim coupling:** the Tor transport currently
+relaxes arti's `fs-mistrust` permission check
+(`dangerously_trust_everyone` in `p2p_tor.rs::ensure_started`) so room creation
+doesn't fail on a group-writable app-data dir; once state is encrypted at rest,
+revisit whether the dir-permission check should be re-enforced.
+
 ---
 
 ## Parked in `limbo/` (restorable features)

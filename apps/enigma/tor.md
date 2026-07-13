@@ -400,12 +400,14 @@ who hosts.
 
 ## Risks / gotchas
 
-- **fs-mistrust keystore permissions (most likely blocker).** The persistent
-  keystore enforces strict directory permissions via `fs-mistrust`; on
-  Windows/Android or a too-open app-data dir it refuses to load and the onion is
-  not stable (or launch fails). Mitigation: relax via config (the storage
-  permissions builder) or `ARTI_FS_DISABLE_PERMISSION_CHECKS=1`. Test on every
-  target early.
+- **fs-mistrust keystore permissions (HIT + fixed).** The persistent keystore
+  enforces strict directory permissions via `fs-mistrust`; a group/other-writable
+  app-data dir (permissive umask, group-writable home) makes bootstrap fail with
+  *"problem with filesystem permissions: Error while trying to access persistent
+  state."* Fixed in `ensure_started` by relaxing the check:
+  `cfg_builder.storage().permissions().dangerously_trust_everyone()`. Safe here —
+  the dir is user-owned and the app already stores plaintext keys there. Regression
+  test: `p2p_tor::tests::relaxed_permissions_accept_a_loose_state_dir`.
 - **sqlite `links="sqlite3"` collision.** `onion-service-service` adds
   `keymgr`/`tor-persist`/`tor-hsservice` but **no new sqlite** — `rusqlite` still
   comes only from `tor-dirmgr` (already handled by the Android bundled pin). No

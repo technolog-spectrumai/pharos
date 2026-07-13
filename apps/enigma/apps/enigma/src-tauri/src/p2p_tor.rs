@@ -280,7 +280,16 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
     let _ = std::fs::create_dir_all(&cache_dir);
     // A per-profile on-disk state dir makes arti persist the hidden-service key in
     // its keystore, so the same room nickname resolves to the same .onion forever.
-    let cfg = TorClientConfigBuilder::from_directories(state_dir, cache_dir)
+    let mut cfg_builder = TorClientConfigBuilder::from_directories(state_dir, cache_dir);
+    // arti's fs-mistrust refuses a state/keystore dir if it (or an ancestor) is
+    // group/other-writable — which fails on machines with a permissive umask or a
+    // group-writable home. The app-data dir is user-owned and we already store
+    // plaintext keys there (see tor.md's threat model), so this extra check adds
+    // little; relax it rather than block room creation.
+    // INTERIM: revisit once encryption-at-rest lands (todo.md) — with encrypted
+    // state the on-disk keys are protected regardless of dir permissions.
+    cfg_builder.storage().permissions().dangerously_trust_everyone();
+    let cfg = cfg_builder
         .build()
         .map_err(|e| anyhow!("tor config: {e}"))?;
     // create_bootstrapped yields an Arc<TorClient> (cached for the process life).
@@ -852,6 +861,37 @@ mod tests {
         let mut cursor = std::io::Cursor::new(buf);
         let got = read_frame(&mut cursor).await.unwrap();
         assert_eq!(got, payload);
+    }
+
+    // Regression test for "tor bootstrap failed: problem with filesystem
+    // permissions": a group/other-writable state dir must be accepted once we relax
+    // arti's fs-mistrust with `dangerously_trust_everyone` (the create-room fix).
+    #[cfg(unix)]
+    #[test]
+    fn relaxed_permissions_accept_a_loose_state_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("enigma_tor_perm_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        // Default arti mistrust rejects a world-writable dir (this is the crash).
+        let strict = TorClientConfigBuilder::from_directories(&dir, &dir).build().unwrap();
+        assert!(
+            strict.fs_mistrust().check_directory(&dir).is_err(),
+            "default mistrust should reject a 0777 dir"
+        );
+
+        // With the relaxation applied in `ensure_started`, the same dir is accepted.
+        let mut relaxed = TorClientConfigBuilder::from_directories(&dir, &dir);
+        relaxed.storage().permissions().dangerously_trust_everyone();
+        let relaxed = relaxed.build().unwrap();
+        assert!(
+            relaxed.fs_mistrust().check_directory(&dir).is_ok(),
+            "relaxed mistrust should accept the dir (create-room fix)"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
