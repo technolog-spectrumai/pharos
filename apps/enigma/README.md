@@ -25,9 +25,10 @@ content encrypted by **MLS** (OpenMLS via the Rotor crate).
   start (everyone offline, all addresses changed) needs a fresh QR.
 - **NAT traversal** uses iroh's public n0 relays (`RelayMode::Default`); the
   relay only ever carries MLS ciphertext.
-- **Tor**: an embedded Arti client ships as plumbing for a future
-  peer-to-peer onion transport — see `TODO(onion-p2p)` in
-  `apps/enigma/src-tauri/src/tor.rs`.
+- **Tor (optional)**: flip **"use Tor"** in Settings and the app hosts a
+  per-profile onion service — the QR then carries a `.onion` and chat rides Tor
+  (star topology: the creator hosts + relays; iroh is off while on). See
+  [tor.md](tor.md).
 
 | Package | What it is |
 |---------|-----------|

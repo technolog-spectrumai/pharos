@@ -49,10 +49,11 @@ Design principles:
 │  Tauri IPC  (invoke commands + realtime://* events)            │
 ├───────────────────────────────────────────────────────────────┤
 │  apps/enigma/src-tauri  (Rust)                                  │
-│   • p2p_iroh.rs  — iroh-gossip transport (the only transport)   │
-│   • realtime.rs  — realtime_* command gateway (offline-gated)   │
+│   • p2p_iroh.rs  — iroh-gossip transport (default)              │
+│   • p2p_tor.rs   — peer-hosted Tor onion transport (opt-in)     │
+│   • realtime.rs  — realtime_* gateway (offline-gated, dispatch) │
 │   • lib.rs       — mls_* commands, state persistence, audio     │
-│   • kv.rs (fjall) · fs_local.rs · tor.rs (dormant)             │
+│   • kv.rs (fjall) · fs_local.rs · tor.rs (outbound Arti client) │
 ├──────────────────────────┬────────────────────────────────────┤
 │  cryptorotor/rotor_core  │  iroh 0.98 + iroh-gossip 0.98        │
 │  (OpenMLS, path dep)     │  (QUIC P2P, n0 relay + discovery)    │
@@ -74,11 +75,11 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Desktop/mobile shell | Tauri 2 (Rust core + system WebView; Linux/Windows/macOS/Android) |
 | App language (frontend) | TypeScript (ES2020, `strict`) built with Vite |
 | App language (backend) | Rust (edition 2021), Tokio async runtime |
-| P2P transport | iroh 0.98 (QUIC endpoint, NodeId identity, NAT traversal) + iroh-gossip 0.98 (topic broadcast) |
+| P2P transport | iroh 0.98 (QUIC endpoint, NodeId identity, NAT traversal) + iroh-gossip 0.98 (topic broadcast); **or** peer-hosted Tor onion services (opt-in) |
 | Cryptography | OpenMLS 0.7 (RFC 9420 MLS) via the vendored `rotor_core` crate |
 | Local storage | fjall (pure-Rust LSM key/value store); JSON profile state; OS app-data dir |
 | Media capture | cpal (microphone) + hound (WAV) for native voice notes |
-| Tor (dormant) | arti-client 0.43 — compiled but unused plumbing for future onion transport |
+| Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it (star topology) |
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
@@ -105,8 +106,9 @@ which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
 | `blake3` | 1 | Topic id = `blake3(room name)` |
 | `data-encoding` | 2 | BASE32 (no-pad) ticket text encoding |
 | `bytes`, `futures-lite`, `anyhow` | — | Gossip stream plumbing, error handling |
-| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor client (**compiled but unused**) |
-| `hyper`, `hyper-util`, `http-body-util`, `tokio-rustls` | — | HTTP-over-Tor plumbing (only for the dormant Tor path) |
+| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor: outbound client (`tor.rs`) **and** `onion-service-service` hosting for the onion transport (`p2p_tor.rs`) |
+| `tor-hsservice`, `tor-cell`, `safelog` | 0.43 / 0.8 | Onion-service hosting types (launch/config, accept relay cell, unredacted `.onion` display) |
+| `hyper`, `hyper-util`, `http-body-util`, `tokio-rustls` | — | HTTP-over-Tor plumbing (outbound `tor.rs` client only) |
 | `tokio` | 1 | Async runtime |
 | `cpal` | 0.15 | Microphone capture (native voice notes) |
 | `hound` | 3 | WAV encoding of recordings |
@@ -148,9 +150,9 @@ pruning.
 The frontend talks to Rust through two mechanisms, both guarded by an `isTauri()`
 runtime check (in a plain browser there is no backend — chat is inert by design):
 
-- **`invoke` (commands):** `realtime_*` (transport), `mls_*` (crypto), `app_*`
-  (profiles/runtime/airplane), `kv_*` (local cache), `audio_*` (recording),
-  `fs_*` (local file IO).
+- **`invoke` (commands):** `realtime_*` (transport — dispatched to iroh or Tor),
+  `mls_*` (crypto), `app_*` (profiles/runtime/airplane/**use-Tor**), `kv_*` (local
+  cache), `audio_*` (recording), `fs_*` (local file IO).
 - **Events (`listen`):** `realtime://message` `{room, payload}` and
   `realtime://status` `{room, state, peer_id?}`. `chatTransport` registers these once
   and fans them out to per-room handlers in `useChatChannel`.
@@ -270,11 +272,14 @@ So "serverless" here means **"no *our* server,"** per the design's own wording �
 "no infrastructure." If n0's relays/discovery are unreachable or blocked, NAT'd peers
 may fail to connect and ticketless reconnect breaks. The relay/discovery operators (or
 a network observer) can build a who-talks-to-whom metadata graph even though they
-never see plaintext. There is **no metadata protection today** (the Tor path that
-could provide it is dormant — see [Roadmap](#roadmap)).
+never see plaintext. This n0 metadata exposure applies **only on the default iroh
+transport**; flipping **"use Tor"** on routes rendezvous + chat over peer-hosted
+onion services instead, which hides the NodeId↔IP graph from n0 (at the cost of
+Tor's own latency and a creator-as-host single point of failure).
 
-Topology today is intended to be **1:1 / small "star" rooms**; group scale (gossip
-fan-out + the naive admin election) is explicitly unverified for large groups.
+Topology is **1:1 / small "star" rooms** on both transports; over Tor the room
+creator is the onion host + relay. Group scale (gossip fan-out + the naive admin
+election) is explicitly unverified for large groups.
 
 ---
 
@@ -338,16 +343,19 @@ security), which implies:
 | Message content | **End-to-end encrypted (MLS).** Relays/discovery see only ciphertext. |
 | Accounts / identifiers | **None.** No phone number, email, or server account required. |
 | Identity | Local profile; `CHAT_USER` = MLS identity, NodeId = transport identity. Self-asserted, no PKI. |
-| Metadata to n0 relays/discovery | **Exposed:** NodeId↔IP, who-talks-to-whom, timing, sizes, online presence. |
-| QR ticket contents | Leaks the **plaintext room name** and the creator's **NodeId + IP addresses**. |
-| Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the topic. |
+| Metadata to n0 relays/discovery | **Exposed on iroh:** NodeId↔IP, who-talks-to-whom, timing, sizes, online presence. Avoided when "use Tor" is on. |
+| QR ticket contents | iroh: leaks the **plaintext room name** + the creator's **NodeId + IP addresses**. Tor: leaks the room name + the creator's `.onion` (no IP). |
+| Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join. |
 | Local at-rest | **Plaintext on disk** — no encryption/passphrase/keychain (see below). |
-| Metadata protection (Tor) | **None today** — the arti Tor client is compiled but dormant. |
+| Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services (`p2p_tor.rs`); off by default. |
 
 **Local at-rest storage is entirely plaintext** under the OS app-data dir: the iroh
 private key (`iroh_gossip.key`), the full MLS session state including the private
 signing key and epoch/ratchet secrets (`mls_*.bin`), profile PII
-(`profile_state.json`), and saved tickets + peer NodeIds (fjall `kvstore`). `zeroize`
+(`profile_state.json`), saved tickets + peer NodeIds (fjall `kvstore`), and — when
+the Tor transport is used — the hidden-service identity key in arti's per-profile
+keystore (`profiles/<profile>/tor/state/`), which is what keeps the `.onion`
+stable across restarts. `zeroize`
 scrubs only transient RAM buffers; the disk copies are not encrypted, and `wipe_file`
 is a best-effort single-pass overwrite (not a secure erase on SSD/journaling
 filesystems). Anyone with read access to the profile directory can decrypt current
@@ -394,10 +402,12 @@ least-serious) so they can be addressed:
    `fs_read_text_file` / `fs_write_text_file` are invokable with **unrestricted
    absolute paths** (no scope/allowlist). → *Add a CSP, gate permission requests, and
    scope or remove the raw FS commands.*
-9. **Dormant-Tor footgun.** `tor.rs` contains an `AcceptAnyServerCert` TLS verifier
-   (no name/CA validation) reachable via a `pub(crate)` clearnet helper. Safe for
-   onion use (the `.onion` self-authenticates) but a MITM trap if ever reused on
-   clearnet. Currently dead code.
+9. **`tor.rs` clearnet-TLS footgun.** `tor.rs` (the outbound Arti client, separate
+   from the `p2p_tor.rs` onion transport) contains an `AcceptAnyServerCert` TLS
+   verifier (no name/CA validation) reachable via a `pub(crate)` clearnet helper.
+   Safe for onion use (the `.onion` self-authenticates) but a MITM trap if ever
+   reused on clearnet. Currently unused. (The onion transport carries plaintext
+   frames over the Tor circuit — no TLS — so it doesn't touch this verifier.)
 10. **Minor:** `openmls_rust_crypto` is built with the `test-utils` feature in
     production; the untested orchestration core (`useChatChannel`/`crypto` have no unit
     tests); 16 MiB gossip frames are an amplification consideration.
@@ -422,8 +432,8 @@ A two-screen app (memory-history router, no URL bar):
     plus a "reset encryption" action.
 - **Settings** (`EnigmaConfigView`) — three tabs: **Profile** (local-only display
   name, email, phone, DOB, bio; multiple named profiles), **Settings** (language en/pl;
-  a "My identity" card showing the NodeId as text + QR), and **Data** (airplane/offline
-  toggle; local data-profile loader).
+  a "My identity" card showing the NodeId as text + QR; a **"Route over Tor"** switch),
+  and **Data** (airplane/offline toggle; local data-profile loader).
 
 Styling is Tailwind v4 with a small in-repo "Oya" component kit (button, card).
 Dark mode defaults on but is not persisted across launches; locale is persisted.
@@ -433,18 +443,20 @@ Dark mode defaults on but is not persisted across launches; locale is persisted.
 ## Roadmap
 
 Planned/known future work — the canonical trackers are [todo.md](todo.md),
-[serverless_plan.md](serverless_plan.md), and the `TODO(onion-p2p)` note in
-`apps/enigma/src-tauri/src/tor.rs`. Kept intentionally short:
+[serverless_plan.md](serverless_plan.md), and (for the Tor transport) [tor.md](tor.md).
+Kept intentionally short:
 
 - **`rotor_wasm` → toto artifact handoff** *(top priority — [todo.md](todo.md) #1).*
   Enigma is now the single home of CryptoRotor; enigma CI should build `rotor_wasm`
   (wasm-pack web + bundler) and publish it as an artifact so the *toto* project stops
   building its own copy.
-- **Peer-to-peer over Tor (`onion-p2p`).** Enable arti onion-service *hosting*, publish
-  a per-profile hidden service, add a Tor transport carrying the same frames, and let
-  the QR optionally carry a `.onion` address — giving metadata protection the n0 path
-  lacks. Multi-peer mesh-over-Tor is explicitly out of scope for the first iteration
-  (start 1:1/star). The arti client is already compiled in as plumbing.
+- **✅ Peer-to-peer over Tor (`onion-p2p`) — done.** arti onion-service hosting,
+  a per-profile hidden service, a Tor transport carrying the same frames, and a
+  `.onion`-bearing QR, behind the "use Tor" switch (star topology). See
+  [tor.md](tor.md). Multi-peer mesh-over-Tor remains out of scope.
+- **Captain election for the onion host.** The Tor host is currently the room
+  creator, hardcoded — a single point of failure. Elect it automatically (e.g.
+  lowest NodeId) with failover.
 - **Accepted limitations (deferred):** the cold-start edge case (if every member is
   offline long enough for discovery records to lapse *and* all addresses change, a
   fresh QR is needed) and group-scale hardening (gossip fan-out + a real leader

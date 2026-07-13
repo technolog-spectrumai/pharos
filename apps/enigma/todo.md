@@ -39,13 +39,18 @@ and publishes it as an artifact; toto consumes that artifact** instead of buildi
 > Not implemented yet — this records the design. The CI wasm job is the concrete
 > next step.
 
-### 2. `TODO(onion-p2p)` — peer-to-peer over Tor
-Today `apps/enigma/src-tauri/src/tor.rs` is an **outbound Arti client only**,
-shipped as compiled-but-unused plumbing. True P2P-over-onion needs hidden-service
-**hosting** so a QR can carry a `.onion` address (net-new work). Full breakdown at
-the `TODO(onion-p2p)` marker in `tor.rs`.
-- Start with **1:1 / star** topology; a multi-peer gossip **mesh over Tor** is
-  explicitly out of scope for the first iteration.
+### 2. ✅ `onion-p2p` — peer-to-peer over Tor (DONE)
+**Implemented.** `p2p_tor.rs` hosts a per-profile hidden service via arti's
+`onion-service-service`; a **"use Tor"** switch (Settings) routes rendezvous +
+chat over it exclusively, and the QR carries a `.onion`. **Star** topology: the
+room creator hosts one onion service and relays MLS ciphertext to joiners (1:1 is
+N=2). Full record in [tor.md](tor.md). Multi-peer **mesh over Tor** stays out of
+scope. `tor.rs` remains the outbound Arti client base.
+
+**Follow-up — captain election for the onion host.** The onion host is currently
+the room **creator**, hardcoded — a fixed manual "captain" and a single point of
+failure (offline creator ⇒ room down). Elect the host automatically (e.g. lowest
+NodeId among members) with failover so hosting isn't tied to the creator.
 
 ### 3. Cold-start reconnection edge case
 If **every** member of a room is offline long enough for iroh's n0 discovery

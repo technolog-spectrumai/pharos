@@ -1,15 +1,17 @@
-# Enigma onion-p2p — implementation plan (`TODO(onion-p2p)`)
+# Enigma onion-p2p — implementation plan & record (`TODO(onion-p2p)`, ✅ built)
 
-Companion to `serverless_plan.md`. This is the executable breakdown of the
-deferred **`TODO(onion-p2p)`** recorded at the top of
-`apps/enigma/src-tauri/src/tor.rs` and in `serverless_plan.md` §"Deferred (TODOs)".
+Companion to `serverless_plan.md`. This is the breakdown of the (originally
+deferred) **`TODO(onion-p2p)`** — **now implemented** as `p2p_tor.rs` + the
+"use Tor" switch. It stays as the reference for what was built and why; see
+"Implementation notes (as built)" near the end for the final deltas.
 
 ## Context
 
-Enigma became a serverless P2P chat. Its only live transport is iroh-gossip
+Enigma became a serverless P2P chat. Its default transport is iroh-gossip
 (`p2p_iroh.rs`); two people pair by sharing a QR code that carries an iroh
-*ticket* (topic + name + `EndpointAddr`). Tor already ships as **plumbing only**:
-`tor.rs` is an *outbound* Arti client (dial a `.onion`), compiled but unused.
+*ticket* (topic + name + `EndpointAddr`). Before this work Tor shipped as
+**plumbing only**: `tor.rs` was an *outbound* Arti client (dial a `.onion`),
+compiled but unused.
 
 The goal here is to add a **second, peer-hosted transport over Tor** so a QR can
 carry a `.onion` address, and to expose it behind a **"use Tor" switch in
@@ -418,6 +420,10 @@ who hosts.
   is down for everyone, including 1:1; fan-out is O(N) per message on the creator.
   Document as a star-design tradeoff; surface descriptor-publish latency as
   `"connecting"` so first launch doesn't look hung.
+  **Deferred follow-up — captain election:** the host is currently the room
+  *creator*, hardcoded. Elect it automatically (e.g. lowest NodeId among members)
+  with failover so hosting isn't tied to whoever created the room. Tracked in
+  [todo.md](todo.md) and `serverless_plan.md`.
 - **`launch_onion_service` return shape** — write the `Option`/`None → Err` arm
   defensively (see hosting §3).
 

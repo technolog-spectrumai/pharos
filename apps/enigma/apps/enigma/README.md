@@ -14,8 +14,10 @@ for the rework record.
 - **Voice + image messages** — sent inline over the MLS group.
 - **Local profiles** — identity is a locally-stored profile (`APP_PROFILE` /
   `CHAT_USER` isolate storage + MLS identity per instance).
-- **Embedded Tor (plumbing)** — kept for a future peer-to-peer onion transport
-  (`TODO(onion-p2p)` in `src-tauri/src/tor.rs`).
+- **Route over Tor (optional)** — a "use Tor" switch hosts a per-profile onion
+  service; the QR carries a `.onion` and chat rides Tor (star topology: creator
+  hosts + relays). Backend in `src-tauri/src/p2p_tor.rs`; see
+  [tor.md](../../tor.md).
 
 Voice calls (Vox) and P2P file transfer are parked in
 [limbo/](../../limbo/README.md).
@@ -28,9 +30,10 @@ Voice calls (Vox) and P2P file transfer are parked in
 - **Rotor** ([cryptorotor/rotor_core](../../cryptorotor/rotor_core)) — OpenMLS
   crypto, vendored in-repo and consumed from `src-tauri` via a path dependency.
 
-The Rust backend (`src-tauri/`) keeps: `mls_*` (Rotor-backed), the iroh P2P
-gateway (`realtime.rs`/`p2p_iroh.rs`), native voice-note recording, the fjall
-kv cache, local file IO, and the (currently unused) Arti Tor client.
+The Rust backend (`src-tauri/`) keeps: `mls_*` (Rotor-backed), the P2P gateway
+(`realtime.rs` dispatching to `p2p_iroh.rs` or the Tor onion transport
+`p2p_tor.rs`), the outbound Arti client (`tor.rs`), native voice-note recording,
+the fjall kv cache, and local file IO.
 
 ## Run
 

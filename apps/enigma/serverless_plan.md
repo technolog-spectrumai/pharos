@@ -16,8 +16,9 @@ and for the follow-up work that was deliberately deferred.
 - **Pair once, auto-refresh.** After the one-time QR pairing, reconnects don't
   need a new QR: every peer's stable NodeId is persisted per room and
   re-resolved through iroh's built-in n0 discovery when addresses change.
-- **Keep the Tor plumbing** for a future peer-to-peer onion transport
-  (see the TODO below).
+- **Tor onion transport (now implemented).** An opt-in "use Tor" switch routes
+  rendezvous + chat over peer-hosted onion services (star topology); the QR then
+  carries a `.onion`. Full breakdown in [tor.md](tor.md).
 - **Remove Aurora and Enigma+** (the sibling apps) entirely.
 - **Park voice calls + file transfer** in `limbo/` (unlinked, restorable).
 
@@ -27,10 +28,11 @@ and for the follow-up work that was deliberately deferred.
    `RelayMode::Default`). "No server" means *our* server; iroh's public
    infrastructure handles NAT traversal and NodeId→address resolution. This is
    what makes both QR pairing and ticketless reconnects work everywhere.
-2. **Tor ships as plumbing only for now.** Today's `tor.rs` is an outbound
-   Arti client; true P2P-over-onion needs hidden-service *hosting* (net-new).
-   Deferred — see `TODO(onion-p2p)` at the top of
-   `apps/enigma/src-tauri/src/tor.rs`.
+2. **Tor onion transport implemented (opt-in, exclusive).** `tor.rs` remains the
+   outbound Arti client; the net-new hidden-service *hosting* lives in
+   `p2p_tor.rs`. A per-profile "use Tor" switch selects it exclusively (iroh off
+   when on); the room creator hosts one onion service and relays (star topology).
+   Full record in [tor.md](tor.md).
 3. **Voice (Vox) + file transfer moved to `limbo/`**, not deleted — see
    `limbo/README.md` for the restore path.
 4. **Reconnect model:** the Rust gossip layer reports each neighbor's NodeId in
@@ -60,16 +62,26 @@ and for the follow-up work that was deliberately deferred.
   `p2p_iroh.rs`.
 - QR generate/scan (`qrcode` + `html5-qrcode`) — now the primary pairing UX in
   `ChatPanel.vue`; the NodeId is shown (text + QR) in Settings → My identity.
-- `tor.rs` + arti deps — compiled, unused, documented for onion-p2p.
+- `tor.rs` + arti deps — the outbound client base; now joined by `p2p_tor.rs`,
+  the peer-hosted onion transport built on arti's `onion-service-service`.
 - Native voice-note recording (`audio_*` commands) — voice notes go inline over
   MLS (`sendEncryptedMedia`), same as images.
 - `kv.rs` (fjall), `fs_local.rs`, offline profiles, airplane-mode switch.
 
+## Done since the rework
+
+- **onion-p2p** — peer-hosted onion services so a QR can carry a `.onion`
+  address. Shipped as `p2p_tor.rs` + the "use Tor" switch; star topology (creator
+  hosts + relays). Full record in [tor.md](tor.md). Multi-peer gossip *mesh* over
+  Tor remains out of scope.
+
 ## Deferred (TODOs)
 
-- **TODO(onion-p2p)** — peer-hosted onion services so a QR can carry a
-  `.onion` address; full breakdown in `tor.rs`. Multi-peer gossip *mesh* over
-  Tor is explicitly out of scope for the first iteration (start 1:1/star).
+- **Captain election for the onion host.** Today the room *creator* is a fixed,
+  manual "captain" — the sole onion host and relay, and a single point of failure
+  (if it goes offline the room is down). Next: elect the host automatically (e.g.
+  lowest NodeId among members) with failover, so hosting isn't tied to whoever
+  created the room. See the star-limitation note in [tor.md](tor.md).
 - **Cold-start edge case:** if *every* member of a room is offline long enough
   for n0 discovery records to lapse **and** all addresses changed, reconnection
   needs a fresh QR. Accepted; a bare NodeId still resolves as long as the peer
