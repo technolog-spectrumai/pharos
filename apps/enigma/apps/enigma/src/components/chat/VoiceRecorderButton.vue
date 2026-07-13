@@ -87,7 +87,7 @@ onUnmounted(stopTimer);
     :disabled="disabled"
     :class="[
       isRecording
-        ? 'border-red-500 text-red-500 animate-pulse'
+        ? 'border-warn-light text-warn-light dark:border-warn-dark dark:text-warn-dark animate-pulse'
         : 'border-accent-2 text-text-main-light dark:border-accent-1 dark:text-text-main-dark',
       disabled ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
     ]"

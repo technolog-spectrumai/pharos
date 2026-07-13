@@ -25,7 +25,7 @@ function close() {
           {{ room.tor ? "Tor" : "iroh" }}
         </span>
         <span v-if="room.host" class="flex items-center gap-1 font-semibold text-success-dark">
-          <font-awesome-icon v-if="room.tor" icon="star" class="text-yellow-400" />{{ $t("chat.youAreHost") }}
+          <font-awesome-icon v-if="room.tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
         </span>
       </div>
 

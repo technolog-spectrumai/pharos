@@ -7,6 +7,7 @@ import { useChatStore } from "../stores/chat";
 import { OyaCard } from "rakotis";
 import { OyaButton } from "rakotis";
 import { useRouter } from "vue-router";
+import { policy } from "../config/app";
 
 // `embedded` = rendered inside another page (Settings) → drop the page header/back button.
 defineProps<{ darkMode: boolean; embedded?: boolean }>();
@@ -164,7 +165,7 @@ async function clearAllData() {
             v-model="offlineProfile.display_name"
             type="text"
             placeholder="Your name"
-            maxlength="150"
+            :maxlength="policy.displayNameMaxLen"
             :class="
               darkMode
                 ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30'
@@ -266,7 +267,7 @@ async function clearAllData() {
           v-model="newOfflineProfileLabel"
           type="text"
           placeholder="New profile name"
-          maxlength="80"
+          :maxlength="policy.profileNameMaxLen"
           :class="
             darkMode
               ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30'

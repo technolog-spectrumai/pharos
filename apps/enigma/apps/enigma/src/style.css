@@ -40,8 +40,15 @@
   --color-sunken-dark: #141821;
   --color-link-dark: #5f7fc9;
 
+  /* Mode-independent accents (no light/dark suffix) — the two ends of the accent
+     scale, reused for borders/gradients. accent-1 == accent-dark, accent-2 == accent-light. */
   --color-accent-1: #4f5fa1;
   --color-accent-2: #2f3d63;
+
+  /* Highlight / host marker (gold). One value for both themes — the captain ★ and
+     the "attention" MLS key-exchange state. Use text-highlight, bg-highlight/10,
+     border-highlight/40 (never a raw Tailwind yellow-* — keep it tokenized). */
+  --color-highlight: #facc15;
 }
 
 html,

@@ -6,7 +6,8 @@ import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { barIcon } from "./assets/logos";
-import { OyaButton, OyaTextField, vaultStatus, vaultSetup, vaultUnlock, vaultWipe } from "rakotis";
+import { brand, policy } from "./config/app";
+import { OyaButton, OyaTextField, vaultStatus, vaultSetup, vaultUnlock } from "rakotis";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
@@ -33,8 +34,7 @@ const passphrase = ref("");
 const confirmPass = ref("");
 const gateError = ref("");
 const gateBusy = ref(false);
-const forgotArmed = ref(false);
-const MIN_LEN = 8;
+const MIN_LEN = policy.passphraseMinLen;
 
 async function runLoaders() {
   await chatStore.syncRuntimeIdentity();
@@ -74,23 +74,6 @@ async function doUnlock() {
   }
 }
 
-async function doForgotWipe() {
-  // Two-step: first click arms the destructive action, second confirms.
-  if (!forgotArmed.value) { forgotArmed.value = true; return; }
-  gateBusy.value = true;
-  try {
-    await vaultWipe();
-    forgotArmed.value = false;
-    passphrase.value = ""; confirmPass.value = "";
-    gateError.value = "";
-    gateMode.value = "setup";
-  } catch (e) {
-    gateError.value = (e as Error).message || String(e);
-  } finally {
-    gateBusy.value = false;
-  }
-}
-
 onMounted(async () => {
   try {
     const s = await vaultStatus();
@@ -125,8 +108,8 @@ watch(() => route.path, () => {
     >
       <div class="w-full max-w-sm space-y-5">
         <div class="space-y-2 text-center">
-          <img :src="barIcon" alt="Enigma" class="mx-auto h-14 w-14 rounded-xl object-contain" />
-          <h1 class="text-2xl font-bold">Enigma</h1>
+          <img :src="barIcon" :alt="brand.name" class="mx-auto h-14 w-14 rounded-xl object-contain" />
+          <h1 class="text-2xl font-bold">{{ brand.name }}</h1>
           <p v-if="gateMode !== 'loading'" class="text-sm opacity-70">
             {{ gateMode === 'setup' ? $t('vault.setupHint') : $t('vault.unlockHint') }}
           </p>
@@ -163,18 +146,6 @@ watch(() => route.path, () => {
             {{ gateBusy ? $t('vault.deriving') : gateMode === 'setup' ? $t('vault.create') : $t('vault.unlock') }}
           </OyaButton>
         </form>
-
-        <div v-if="gateMode === 'unlock'" class="text-center">
-          <button
-            type="button"
-            class="text-xs underline opacity-60 transition hover:opacity-100"
-            :disabled="gateBusy"
-            @click="doForgotWipe"
-          >
-            {{ forgotArmed ? $t('vault.wipeConfirm') : $t('vault.forgot') }}
-          </button>
-          <p v-if="forgotArmed" class="mt-2 text-xs text-warn-dark">{{ $t('vault.wipeConfirmBody') }}</p>
-        </div>
       </div>
     </div>
 
@@ -189,7 +160,7 @@ watch(() => route.path, () => {
         <!-- Logo -->
         <RouterLink to="/" class="flex items-center gap-3 hover:opacity-80 transition">
           <img :src="barIcon" alt="Enigma icon" class="h-9 w-9 rounded-lg object-contain" />
-          <h1 class="text-xl font-bold tracking-wide sm:text-2xl">Enigma</h1>
+          <h1 class="text-xl font-bold tracking-wide sm:text-2xl">{{ brand.name }}</h1>
         </RouterLink>
 
         <!-- Desktop nav -->
@@ -275,7 +246,7 @@ watch(() => route.path, () => {
     <footer
       class="border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-footer-bg-light text-footer-text-light dark:bg-footer-bg-dark dark:text-footer-text-dark"
     >
-      <p class="opacity-90">© www.spectrumai.pl. All rights reserved.</p>
+      <p class="opacity-90">{{ brand.copyright }}</p>
     </footer>
     </template>
   </div>

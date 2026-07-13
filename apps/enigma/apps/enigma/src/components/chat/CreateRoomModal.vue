@@ -50,7 +50,7 @@ function close() {
       <!-- Success: you're the host + QR to share -->
       <div v-else-if="createdTicket" class="space-y-2.5">
         <p class="flex items-center gap-2 text-sm font-semibold text-success-dark">
-          <font-awesome-icon v-if="tor" icon="star" class="text-yellow-400" />{{ $t("chat.youAreHost") }}
+          <font-awesome-icon v-if="tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
         </p>
         <p v-if="tor" class="text-xs opacity-60">{{ $t("chat.hostStarHint") }}</p>
         <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>

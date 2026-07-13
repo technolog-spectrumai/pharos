@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
 import { useChatStore } from "../stores/chat";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
+import { policy } from "../config/app";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -482,7 +483,7 @@ async function clearSelectedOfflineData() {
             <input
               v-model="dataProfileName"
               type="text"
-              maxlength="80"
+              :maxlength="policy.profileNameMaxLen"
               placeholder="alice"
               :class="
                 darkMode
@@ -658,27 +659,30 @@ async function clearSelectedOfflineData() {
   color-scheme: light;
 }
 
+/* Native <select>/<option> can't take Tailwind classes reliably (color-scheme),
+   so we style them here — but pull from the @theme tokens (exposed as :root CSS
+   vars by Tailwind v4) instead of re-hardcoding the palette hexes. */
 .config-control-light {
-  background-color: #f2f3f5;
-  border-color: #2f3d63;
-  color: #0f1114;
+  background-color: var(--color-primary-bg-light);
+  border-color: var(--color-accent-light);
+  color: var(--color-text-main-light);
 }
 
 .config-control-light option {
-  background-color: #f2f3f5;
-  color: #0f1114;
+  background-color: var(--color-primary-bg-light);
+  color: var(--color-text-main-light);
 }
 
 .config-control-dark {
   color-scheme: dark;
-  background-color: #0a0c11;
-  border-color: #4f5fa1;
-  color: #d3d7e0;
+  background-color: var(--color-primary-bg-dark);
+  border-color: var(--color-accent-dark);
+  color: var(--color-text-main-dark);
 }
 
 .config-control-dark option {
-  background-color: #0a0c11;
-  color: #d3d7e0;
+  background-color: var(--color-primary-bg-dark);
+  color: var(--color-text-main-dark);
 }
 
 .config-control:focus {

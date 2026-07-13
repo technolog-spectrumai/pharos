@@ -39,7 +39,7 @@ async function leave() {
         label="Reset encryption session — clears history and renegotiates keys"
         :class="
           mlsStatus === 'key_exchange' || mlsStatus === 'error'
-            ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400'
+            ? 'border-highlight/40 bg-highlight/10 text-highlight'
             : 'opacity-60 hover:opacity-100'
         "
         @click="ch.forceResetMls()"
