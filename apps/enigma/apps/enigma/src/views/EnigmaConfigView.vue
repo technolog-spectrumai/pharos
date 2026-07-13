@@ -13,6 +13,8 @@ import {
   getOffline,
   setActiveProfile,
   setOffline,
+  getUseTor,
+  setUseTor,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
@@ -80,9 +82,19 @@ async function toggleOffline() {
   await setOffline(offline.value);
 }
 
+// ── Use Tor (peer-hosted onion transport) ────────────────────────────────────
+// Exclusive with iroh: toggling tears down the other transport in Rust, so the
+// shown NodeId (iroh) / onion refreshes on the next room command.
+const useTor = ref(false);
+async function toggleUseTor() {
+  useTor.value = !useTor.value;
+  await setUseTor(useTor.value);
+}
+
 onMounted(async () => {
   await loadRuntimeConfig();
   offline.value = await getOffline();
+  useTor.value = await getUseTor();
   await loadOfflineData();
   void loadNodeId();
 });
@@ -297,6 +309,45 @@ async function clearSelectedOfflineData() {
       <OyaButton v-else :dark-mode="darkMode" variant="secondary" @click="loadNodeId">
         <font-awesome-icon icon="circle-nodes" />{{ $t('config.showNodeId') }}
       </OyaButton>
+    </OyaCard>
+
+    <!-- Use Tor card — route rendezvous + chat over peer-hosted onion services -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p
+          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
+          class="text-xs font-semibold uppercase tracking-wide"
+        >
+          {{ $t('config.useTor') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.useTorHint') }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon
+          icon="shield-halved"
+          :class="useTor ? 'text-accent-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.useTor') }}</p>
+          <p class="text-xs opacity-60">
+            {{ useTor ? $t('config.useTorOnHint') : $t('config.useTorOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="useTor"
+          :class="useTor ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleUseTor"
+        >
+          <span
+            :class="useTor ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
     </OyaCard>
     </template>
 

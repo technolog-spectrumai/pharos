@@ -9,10 +9,11 @@ use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
 mod p2p_iroh;
+mod p2p_tor;
 mod realtime;
 mod kv;
-// Kept (currently unused) for the future peer-to-peer onion transport — see the
-// TODO(onion-p2p) note at the top of tor.rs.
+// Outbound Arti client plumbing, reused by the peer-hosted onion transport in
+// p2p_tor.rs (see the TODO(onion-p2p) note at the top of tor.rs).
 mod tor;
 mod fs_local;
 
@@ -73,11 +74,20 @@ pub struct AppProfileState {
     // means every P2P connection).
     #[serde(default)]
     pub offline: bool,
+    // use_tor — route rendezvous + chat over the peer-hosted Tor onion transport
+    // (p2p_tor.rs) instead of iroh. Exclusive: when on, iroh is not used.
+    #[serde(default)]
+    pub use_tor: bool,
 }
 
 /// Airplane mode — blocks every network connection (all P2P).
 pub(crate) fn is_offline(state: &AppProfileState) -> bool {
     state.offline
+}
+
+/// True when this profile routes over the Tor onion transport instead of iroh.
+pub(crate) fn is_use_tor(state: &AppProfileState) -> bool {
+    state.use_tor
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -90,7 +100,7 @@ fn session_key(profile: &str, room: &str, identity: &str) -> String {
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
-fn safe_filename_component(s: &str) -> String {
+pub(crate) fn safe_filename_component(s: &str) -> String {
     s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -362,6 +372,7 @@ async fn app_set_offline(
     app: AppHandle,
     config: State<'_, AppConfigState>,
     p2p: State<'_, p2p_iroh::P2pState>,
+    tor: State<'_, p2p_tor::TorP2pState>,
     offline: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
@@ -369,9 +380,38 @@ async fn app_set_offline(
     state.offline = offline;
     save_profile_state(&app, &config, &state)?;
     // Airplane mode is "block ALL network": persisting the flag only gates NEW
-    // commands, so also tear down the live endpoint + gossip rooms.
+    // commands, so also tear down whichever transport(s) are live.
     if offline {
         p2p_iroh::shutdown(&app, &p2p).await;
+        p2p_tor::shutdown(&app, &tor).await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn app_get_use_tor(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
+    let config = active_config(&config)?;
+    Ok(load_profile_state(&app, &config).use_tor)
+}
+
+#[tauri::command]
+async fn app_set_use_tor(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, p2p_iroh::P2pState>,
+    tor: State<'_, p2p_tor::TorP2pState>,
+    use_tor: bool,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let mut state = load_profile_state(&app, &config);
+    state.use_tor = use_tor;
+    save_profile_state(&app, &config, &state)?;
+    // Tor is exclusive: tear down the transport we're leaving so the next room
+    // command lazily re-binds on the chosen one.
+    if use_tor {
+        p2p_iroh::shutdown(&app, &p2p).await;
+    } else {
+        p2p_tor::shutdown(&app, &tor).await;
     }
     Ok(())
 }
@@ -919,8 +959,9 @@ pub fn run() {
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(p2p_iroh::P2pState::default())
-        // Tor plumbing kept for the future onion-p2p transport (see tor.rs).
+        // Outbound Arti client (tor.rs) + the peer-hosted onion transport (p2p_tor.rs).
         .manage(tor::TorState::default())
+        .manage(p2p_tor::TorP2pState::default())
         .setup(|app| {
             // Local key/value cache (fjall) — replaces the old tauri-plugin-sql store.
             app.manage(kv::init(app.handle()));
@@ -948,6 +989,8 @@ pub fn run() {
             app_get_profile_state,
             app_get_offline,
             app_set_offline,
+            app_get_use_tor,
+            app_set_use_tor,
             app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
