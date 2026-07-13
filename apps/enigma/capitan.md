@@ -4,6 +4,56 @@ Companion to [tor.md](tor.md). Plan for electing the onion **captain** (host +
 relay) automatically instead of hardcoding it to the room creator, with failover,
 plus a ★ badge on the captain in the participant list.
 
+## Status (implemented vs. not yet)
+
+**✅ Implemented and merged (compiles clean, unit-tested — `cargo test` 22, `vue-tsc`
+clean, `vitest` 70, 0 warnings):**
+
+- **Transport rewrite** (`p2p_tor.rs`): every member hosts its own onion + accept
+  loop; one re-pointable outbound to the captain via a stable `up` slot;
+  `set_captain` reconciliation; connection manager with retry/backoff emitting
+  `captain_unreachable`; **loop-free tree relay** (each hop bridges child↔parent so
+  any member is a valid entry point); `broadcast` floods up + down;
+  `create_room`/`join_room` return the member's own onion.
+- **Command layer** (`realtime.rs`, `lib.rs`): `realtime_tor_set_captain`; `onion`
+  on the `CreatedRoom`/`JoinedRoom` DTOs; command registered.
+- **Bridge** (`chatTransport.ts`): `setCaptain`; `onion` DTOs; `reason` on status.
+- **Election + failover** (`useChatChannel.ts`): `electCaptain` (lowest live MLS
+  id), onion shared over `presence`, wired into `refreshP2pRoster`, debounced
+  re-point, gated to Tor; `handleCaptainDeath` (mark dead → re-elect → re-point →
+  deferred MLS eviction); revival clears the dead flag on fresh presence.
+- **★ badge** (`types.ts`, `ParticipantRow.vue`, `main.ts`, i18n en/pl):
+  `Participant.isCaptain`, star on captain rows incl. your own, `faStar`
+  registered. Tor rooms only; iroh unaffected.
+
+**🚧 Not yet done / not verified:**
+
+- **Live end-to-end run NOT executed.** Only compile + unit + typecheck. The real
+  3-instance Tor failover (create → join×2 → hard-kill the ★ captain → watch the ★
+  move and survivors reconnect → revival) — the "Verification" section below — has
+  **not** been run (needs real Tor bootstraps).
+- **No automated test of the election / failover / tree-relay logic.** Only the
+  pure helpers are unit-tested (`captain_backoff`, ticket, framing). `electCaptain`,
+  `handleCaptainDeath`, and the bridging rest on reasoning + the diff review, not on
+  tests.
+
+**⚠️ Known limitations (by design / accepted, not bugs to fix):**
+
+- **New joins still require the original creator online.** Failover keeps *existing*
+  members connected when the captain dies, but the QR ticket only carries the
+  creator's `.onion`. A *brand-new* joiner dials that onion; if the creator is
+  offline it can't bootstrap (even though existing members are fine). A current
+  member must share a fresh QR.
+- **Creator-revival after its own full failover** → a lone, non-corrupting solo
+  group (no surviving peer onion to re-dial). A non-creator former captain rejoins
+  fine via the tree bridge.
+- **Transients (mitigated, not eliminated):** message loss during the ~2 s handoff
+  debounce if presence is slower than the debounce; a brief split-brain window
+  during death detection (converges to the lowest live id); best-effort frame drop
+  while an outbound is mid-reconnect.
+- **Out of scope:** multi-peer **mesh** over Tor (still star/tree); **off-screen**
+  Tor rooms re-elect only when reopened (election is scoped to the current room).
+
 ## Context
 
 The Tor onion transport ([p2p_tor.rs](apps/enigma/src-tauri/src/p2p_tor.rs)) uses a
@@ -310,6 +360,36 @@ even before the removal commit propagates.
    `faStar` renders.
 5. **Orchestration** (`useChatChannel.ts`): refs, presence, election, failover,
    debounce; `vue-tsc` + `vitest` (jsdom uses the stub `setCaptain` no-op).
+
+## Implementation notes (as built)
+
+Refinements from building + an adversarial review of the diff:
+
+- **Relay is a TREE, not a single-hop star (review fix, important).** A member that
+  both hosts inbound dialers *and* has an outbound to the captain now **bridges**:
+  it forwards each child's frame up to its parent *and* across to its other
+  children, and each parent frame down to all children. Without this, once
+  captaincy moved off the creator, any 3rd+ member dialing the creator's (now
+  non-captain) QR onion was a black hole — stranded, and able to inject phantom MLS
+  members. The bridge makes **any member a valid entry point**. It's provably
+  loop-free: everyone dials the *lowest-id* member it knows, so parent pointers go
+  strictly downward in id ⇒ the graph is always a tree rooted at the captain (no
+  cycles, even during split-brain), so no TTL/dedup is needed. The `up` write-slot
+  is stable per room (re-pointing reuses it); `broadcast` floods up + down.
+- **Death eviction deferred (review fix).** `handleCaptainDeath` re-points first,
+  then evicts the dead captain from MLS after the re-point debounce, so the
+  `removeMember` commit rides the *new* captain's connection instead of being
+  dropped on the dead one.
+- **Residual limitation (no-discovery boundary):** a member that was the captain,
+  fully failed over, *and* is the room **creator** can, on restart, re-host as a
+  lone solo group — it has no surviving peer onion to re-dial and nobody dials its
+  QR onion anymore. It is isolated but **not corrupting** (it never reaches the live
+  group). A *non-creator* former captain re-joins fine via the tree bridge. Full
+  cold-start still needs a fresh QR (documented in tor.md / todo.md).
+
+Verified locally: `cargo test` 22 pass (incl. `captain_backoff`), 0 warnings;
+`vue-tsc` clean (both packages); `vitest` 70 pass. The live 3-instance failover run
+below is the remaining manual check.
 
 ## Verification (3 dev instances over Tor)
 

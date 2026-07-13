@@ -9,6 +9,8 @@ export interface Participant {
   name: string;
   avatar_url: string;
   type: "human" | "ai_agent";
+  /** True for the elected onion captain (host/relay) — Tor rooms only. */
+  isCaptain?: boolean;
 }
 
 /** A chat room as the UI sees it. P2P rooms synthesize this locally (slug = the

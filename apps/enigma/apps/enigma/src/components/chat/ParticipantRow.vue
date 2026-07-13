@@ -9,7 +9,15 @@ defineProps<{ participant: Participant; compact?: boolean }>();
   <div class="flex items-center gap-3">
     <OyaAvatar :name="participant.name" :src="participant.avatar_url" :size="compact ? 'sm' : 'md'" />
     <div class="min-w-0 flex-1">
-      <p class="truncate text-sm font-semibold">{{ participant.name }}</p>
+      <p class="flex items-center gap-1.5 truncate text-sm font-semibold">
+        {{ participant.name }}
+        <font-awesome-icon
+          v-if="participant.isCaptain"
+          icon="star"
+          class="shrink-0 text-warn-dark"
+          :title="$t('chat.captain')"
+        />
+      </p>
       <p v-if="!compact" class="text-xs opacity-60">Human</p>
     </div>
     <OyaBadge v-if="!compact" tone="success">On</OyaBadge>

@@ -59,12 +59,17 @@ pub struct CreatedRoom {
     room: String,
     name: String,
     ticket: String,
+    /// This member's own onion (Tor rooms) — announced over presence so peers can
+    /// dial us if we're elected captain. Empty for iroh rooms.
+    onion: String,
 }
 
 #[derive(Serialize)]
 pub struct JoinedRoom {
     room: String,
     name: String,
+    /// This member's own onion (Tor rooms); empty for iroh. See `CreatedRoom`.
+    onion: String,
 }
 
 #[tauri::command]
@@ -78,12 +83,13 @@ pub async fn realtime_create_room(
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
-    let (room, ticket) = if use_tor(&app, &config) {
+    let (room, ticket, onion) = if use_tor(&app, &config) {
         p2p_tor::create_room(&app, &tor, name.clone()).await.map_err(|e| e.to_string())?
     } else {
-        p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?
+        let (room, ticket) = p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?;
+        (room, ticket, String::new())
     };
-    Ok(CreatedRoom { room, name, ticket })
+    Ok(CreatedRoom { room, name, ticket, onion })
 }
 
 /// Join by ticket. Routing is decided by the ticket itself (a Tor ticket is
@@ -101,16 +107,17 @@ pub async fn realtime_join_room(
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
-    let (room, name) = if p2p_tor::ticket_is_tor(&ticket) {
+    let (room, name, onion) = if p2p_tor::ticket_is_tor(&ticket) {
         p2p_tor::join_room(&app, &tor, ticket, peer_node_ids.unwrap_or_default())
             .await
             .map_err(|e| e.to_string())?
     } else {
-        p2p_iroh::join_room(&app, &p2p, ticket, peer_node_ids.unwrap_or_default())
+        let (room, name) = p2p_iroh::join_room(&app, &p2p, ticket, peer_node_ids.unwrap_or_default())
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        (room, name, String::new())
     };
-    Ok(JoinedRoom { room, name })
+    Ok(JoinedRoom { room, name, onion })
 }
 
 /// Reconnect to a room by name + peers — no ticket. For iroh this re-subscribes
@@ -136,7 +143,9 @@ pub async fn realtime_join_room_by_node(
             .await
             .map_err(|e| e.to_string())?
     };
-    Ok(JoinedRoom { room, name })
+    // Reconnect-by-name doesn't surface an onion; the Tor reopen paths that need it
+    // (host re-create / joiner re-dial-by-ticket) go through create/join instead.
+    Ok(JoinedRoom { room, name, onion: String::new() })
 }
 
 #[tauri::command]
@@ -169,4 +178,22 @@ pub async fn realtime_node_info(
         p2p_iroh::node_info(&app, &p2p).await.map_err(|e| e.to_string())?
     };
     Ok(json!({ "node_id": node_id }))
+}
+
+/// Re-point this member's outbound onion dial to the elected captain (Tor only).
+/// Driven by the frontend's captain election in `useChatChannel.ts`; idempotent.
+#[tauri::command]
+pub async fn realtime_tor_set_captain(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    tor: State<'_, TorP2pState>,
+    room: String,
+    captain_onion: String,
+) -> Result<(), String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    p2p_tor::set_captain(&app, &tor, &room, captain_onion)
+        .await
+        .map_err(|e| e.to_string())
 }

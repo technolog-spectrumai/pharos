@@ -69,6 +69,7 @@ export default {
     create: "Utwórz",
     shareTicket: "Udostępnij ten QR / bilet, aby zaprosić uczestników",
     copy: "Kopiuj",
+    captain: "Host pokoju (przekazuje przez Tor)",
     pasteTicket: "Wklej bilet, aby dołączyć",
     join: "Dołącz",
     scanQr: "Skanuj kod QR",

@@ -1020,6 +1020,7 @@ pub fn run() {
             realtime::realtime_join_room_by_node,
             realtime::realtime_leave_room,
             realtime::realtime_node_info,
+            realtime::realtime_tor_set_captain,
             fs_local::fs_read_text_file,
             fs_local::fs_write_text_file,
         ])

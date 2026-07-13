@@ -69,6 +69,7 @@ export default {
     create: "Create",
     shareTicket: "Share this QR / ticket to invite peers",
     copy: "Copy",
+    captain: "Room host (relays over Tor)",
     pasteTicket: "Paste ticket to join",
     join: "Join",
     scanQr: "Scan QR code",

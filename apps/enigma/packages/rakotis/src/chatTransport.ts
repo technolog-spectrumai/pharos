@@ -22,10 +22,13 @@ export type WsMessage = Record<string, unknown> & { type?: string };
 /** `peerId` is set on neighbor-up status events: the NodeId of the peer that just
  *  connected. Channels persist it per room so reconnects work without a fresh QR. */
 type MessageHandler = (room: string, data: WsMessage) => void;
-type StatusHandler = (room: string, state: WsStatus, peerId?: string) => void;
+/** `reason` distinguishes transport-specific status causes — currently
+ *  `"captain_unreachable"` (Tor), signalling the elected onion host went down so
+ *  the channel should re-elect. Absent/undefined for ordinary status changes. */
+type StatusHandler = (room: string, state: WsStatus, peerId?: string, reason?: string) => void;
 
-export interface CreatedRoom { room: string; name: string; ticket: string }
-export interface JoinedRoom { room: string; name: string }
+export interface CreatedRoom { room: string; name: string; ticket: string; onion: string }
+export interface JoinedRoom { room: string; name: string; onion: string }
 
 export interface ChatTransport {
   // P2P (iroh) rooms — Tauri only.
@@ -36,6 +39,8 @@ export interface ChatTransport {
   /** Ticketless reconnect: re-subscribe to a named room from persisted peer NodeIds. */
   joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom>;
   leaveRoom(room: string): void;
+  /** Re-point our outbound onion dial to the elected captain (Tor rooms only). */
+  setCaptain(room: string, captainOnion: string): void;
   nodeInfo(): Promise<{ node_id: string } | null>;
   // Send a payload to a specific room.
   send(room: string, payload: Record<string, unknown>): void;
@@ -66,12 +71,13 @@ class GatewayChatTransport implements ChatTransport {
       }
       this.messageHandlers.forEach((h) => h(e.payload.room, data));
     });
-    await listen<{ room: string; state: WsStatus; peer_id?: string | null }>(
+    await listen<{ room: string; state: WsStatus; peer_id?: string | null; reason?: string | null }>(
       "realtime://status",
       (e) => {
         this.roomStatus.set(e.payload.room, e.payload.state);
         const peerId = e.payload.peer_id ?? undefined;
-        this.statusHandlers.forEach((h) => h(e.payload.room, e.payload.state, peerId));
+        const reason = e.payload.reason ?? undefined;
+        this.statusHandlers.forEach((h) => h(e.payload.room, e.payload.state, peerId, reason));
       },
     );
   }
@@ -97,6 +103,10 @@ class GatewayChatTransport implements ChatTransport {
   leaveRoom(room: string): void {
     this.roomStatus.delete(room);
     void _invoke("realtime_leave_room", { room }).catch(() => {});
+  }
+
+  setCaptain(room: string, captainOnion: string): void {
+    void _invoke("realtime_tor_set_captain", { room, captainOnion }).catch(() => {});
   }
 
   send(room: string, payload: Record<string, unknown>): void {
@@ -138,6 +148,7 @@ class StubChatTransport implements ChatTransport {
     return Promise.reject(new Error(P2P_REQUIRES_APP));
   }
   leaveRoom(): void {}
+  setCaptain(): void {}
   nodeInfo(): Promise<{ node_id: string } | null> {
     return Promise.resolve(null);
   }

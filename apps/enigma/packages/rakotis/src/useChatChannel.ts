@@ -28,6 +28,10 @@ export interface P2pRoomEntry {
   /** True when WE created (host) this room. Over Tor the creator hosts the onion
    *  service and must re-host (not re-dial) on reopen; over iroh it's cosmetic. */
   host?: boolean;
+  /** True for Tor rooms (the transport that has an elected onion captain). */
+  tor?: boolean;
+  /** Our own onion for this room (Tor) — announced over presence for election. */
+  onion?: string;
 }
 
 /** Tor tickets are base32(`0x54` ++ postcard) — a leading `0x54` ('T') byte marks
@@ -127,6 +131,18 @@ export function useChatChannel() {
   const isParticipant = ref(false);
   const p2pRooms = ref<P2pRoomEntry[]>([]);
 
+  // ── Tor captain election (onion host) ────────────────────────────────────────
+  // Over Tor every member hosts its own onion; the frontend elects the captain
+  // (lowest MLS id) and re-points the transport's outbound dial to it. Failover:
+  // on a `captain_unreachable` status we mark that captain dead and re-elect. See
+  // capitan.md. All of this is a no-op on iroh rooms (gated by currentRoomIsTor).
+  const myOnion = ref("");                              // my onion for the current room
+  const currentRoomIsTor = ref(false);                 // gate: only Tor rooms elect a captain
+  const currentCaptainOnion = ref<string | null>(null); // last onion pushed to setCaptain
+  const deadCaptains = new Set<string>();              // MLS ids currently believed unreachable
+  let electionTimer: ReturnType<typeof setTimeout> | null = null;
+  const CAPTAIN_DEBOUNCE_MS = 2000;                    // absorb join/presence bursts into one re-point
+
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
 
@@ -179,7 +195,8 @@ export function useChatChannel() {
   }
 
   // ── P2P roster (authenticated from MLS membership) ───────────────────────────
-  const presenceById = new Map<string, { name: string; avatar: string }>();
+  // `onion` is the member's Tor onion (empty on iroh), learned from its presence.
+  const presenceById = new Map<string, { name: string; avatar: string; onion: string }>();
 
   // ── Data-sync seam ───────────────────────────────────────────────────────────
   // External orchestrators ride this channel's MLS group by registering an `onSync`
@@ -194,6 +211,26 @@ export function useChatChannel() {
     return () => { syncHandlers.delete(fn); };
   }
 
+  /** The captain is the lowest MLS identity among live members (same rule as the
+   *  leave-path admin). `captainOnion` is its onion if known (self trivially, else
+   *  from presence) — null means "elected, but we can't dial it yet", in which case
+   *  we keep the current connection rather than stranding ourselves. */
+  function electCaptain(memberIds: string[]): { captainId: string | null; captainOnion: string | null } {
+    const alive = memberIds.filter((id) => !deadCaptains.has(id)).slice().sort();
+    const captainId = alive[0] ?? null;
+    if (!captainId) return { captainId: null, captainOnion: null };
+    const onion = captainId === mlsIdentity.value ? myOnion.value : presenceById.get(captainId)?.onion || "";
+    return { captainId, captainOnion: onion || null };
+  }
+
+  function scheduleSetCaptain(slug: string, onion: string) {
+    if (electionTimer) clearTimeout(electionTimer);
+    electionTimer = setTimeout(() => {
+      electionTimer = null;
+      chatTransport.setCaptain(slug, onion);
+    }, CAPTAIN_DEBOUNCE_MS);
+  }
+
   async function refreshP2pRoster() {
     if (!currentRoom.value) return;
     const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
@@ -203,6 +240,18 @@ export function useChatChannel() {
       const info = presenceById.get(id);
       return { id, name: info?.name || id, avatar_url: info?.avatar || "", type: "human" as const };
     });
+
+    // Tor: elect the onion captain (the host/relay), badge it, and re-point the
+    // transport when the elected captain changes AND we can reach it.
+    if (currentRoomIsTor.value) {
+      const { captainId, captainOnion } = electCaptain(source);
+      for (const p of list) p.isCaptain = !!captainId && p.id === captainId;
+      if (captainOnion && captainOnion !== currentCaptainOnion.value) {
+        currentCaptainOnion.value = captainOnion;
+        scheduleSetCaptain(currentRoom.value.slug, captainOnion);
+      }
+    }
+
     participants.value = list;
     currentRoom.value = { ...currentRoom.value, participant_count: list.length };
   }
@@ -211,7 +260,9 @@ export function useChatChannel() {
     if (mlsStatus.value !== "ready") return;
     await sendEncryptedMedia("presence", {
       device_id: mlsIdentity.value, name: displayName(),
-      avatar: avatarForName(currentUserName.value) ?? "", reply,
+      avatar: avatarForName(currentUserName.value) ?? "",
+      onion: myOnion.value, // Tor: our dialable address, for captain election
+      reply,
     }).catch(() => {});
   }
 
@@ -228,6 +279,28 @@ export function useChatChannel() {
       }
     }
     await refreshP2pRoster();
+  }
+
+  /** The elected onion captain became unreachable (Tor). Mark it dead so election
+   *  skips it, re-elect + re-point to the next-lowest live member (whose onion we
+   *  already know from presence), and — if we're now the admin — evict the dead
+   *  captain from the MLS group so the roster + star converge. */
+  async function handleCaptainDeath(deadOnion?: string) {
+    if (!currentRoom.value || !currentRoomIsTor.value || !deadOnion) return;
+    let deadId: string | null = null;
+    for (const [id, info] of presenceById) {
+      if (info.onion === deadOnion) { deadId = id; break; }
+    }
+    if (deadId) deadCaptains.add(deadId);
+    currentCaptainOnion.value = null; // force a re-point on the next election
+    messages.value.push(systemMsg("The room host went offline — electing a new host…"));
+    await refreshP2pRoster(); // re-elect (skips deadCaptains) + re-point to the next captain
+    // Evict the dead host from MLS only AFTER the re-point lands, so the removal
+    // commit is broadcast over the NEW captain's connection (the old one is dead).
+    if (deadId) {
+      const id = deadId;
+      setTimeout(() => { void handlePeerLeave(id); }, CAPTAIN_DEBOUNCE_MS + 1000);
+    }
   }
 
   watch(mlsStatus, (status) => {
@@ -275,7 +348,13 @@ export function useChatChannel() {
   }
 
   // ── transport status / messages ──────────────────────────────────────────────
-  chatTransport.onStatus((room, status, peerId) => {
+  chatTransport.onStatus((room, status, peerId, reason) => {
+    // Tor captain died (peerId = its onion): re-elect around it. Don't persist the
+    // onion as a reconnect peer — captain failover is election-driven, not by-id.
+    if (reason === "captain_unreachable") {
+      if (room === currentRoom.value?.slug) void handleCaptainDeath(peerId);
+      return;
+    }
     // A neighbor's NodeId is our reconnect handle — persist it for ANY known room,
     // not only the one on screen (several rooms can be live at once).
     if (peerId) rememberPeerForRoom(room, peerId);
@@ -424,7 +503,12 @@ export function useChatChannel() {
           if (inner?.type === "presence" && inner.device_id) {
             const id = inner.device_id as string;
             if (id !== mlsIdentity.value) {
-              presenceById.set(id, { name: (inner.name as string) || id, avatar: (inner.avatar as string) || "" });
+              presenceById.set(id, {
+                name: (inner.name as string) || id,
+                avatar: (inner.avatar as string) || "",
+                onion: (inner.onion as string) || "",
+              });
+              deadCaptains.delete(id); // a fresh presence ⇒ this member is alive again
               void refreshP2pRoster();
               if (!inner.reply) void announcePresence(true);
             }
@@ -558,6 +642,11 @@ export function useChatChannel() {
 
   function enterP2pRoom(room: string, name: string) {
     presenceById.clear();
+    // Reset captain-election state for the new room (myOnion / currentRoomIsTor are
+    // set by the caller right after this, from the transport's create/join result).
+    currentCaptainOnion.value = null;
+    deadCaptains.clear();
+    if (electionTimer) { clearTimeout(electionTimer); electionTimer = null; }
     currentRoom.value = makeP2pRoom(room, name);
     participants.value = [selfParticipant()];
     isParticipant.value = true;
@@ -573,8 +662,11 @@ export function useChatChannel() {
     clearMessages();
     try {
       const res = await chatTransport.createRoom(name.trim());
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket, host: true });
+      const tor = isTorTicket(res.ticket);
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket, host: true, tor, onion: res.onion });
       enterP2pRoom(res.room, res.name);
+      currentRoomIsTor.value = tor;
+      myOnion.value = res.onion;
       messages.value.push(systemMsg(`Created “${res.name}”. Share the QR / ticket to invite peers.`));
       return res.ticket;
     } catch (e) {
@@ -589,8 +681,11 @@ export function useChatChannel() {
     clearMessages();
     try {
       const res = await chatTransport.joinRoom(ticket.trim());
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim() });
+      const tor = isTorTicket(ticket.trim());
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim(), tor, onion: res.onion });
       enterP2pRoom(res.room, res.name);
+      currentRoomIsTor.value = tor;
+      myOnion.value = res.onion;
       messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
     } catch (e) {
       error.value = errorMessage(e);
@@ -606,6 +701,8 @@ export function useChatChannel() {
     try {
       const res = await chatTransport.joinRoomByNode(name.trim(), peerNodeIds);
       enterP2pRoom(res.room, res.name);
+      currentRoomIsTor.value = false; // ticketless reconnect is the iroh path
+      myOnion.value = "";
       messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
     } catch (e) {
       error.value = errorMessage(e);
@@ -633,12 +730,13 @@ export function useChatChannel() {
     teardown();
     clearMessages();
     try {
-      if (isTorTicket(entry.ticket) && entry.host) {
-        await chatTransport.createRoom(entry.name);
-      } else {
-        await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
-      }
+      const tor = isTorTicket(entry.ticket);
+      const res = tor && entry.host
+        ? await chatTransport.createRoom(entry.name)
+        : await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
       enterP2pRoom(entry.room, entry.name);
+      currentRoomIsTor.value = tor;
+      myOnion.value = res.onion;
     } catch (e) {
       error.value = errorMessage(e);
     }

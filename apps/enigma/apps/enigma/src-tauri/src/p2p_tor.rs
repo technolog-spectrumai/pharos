@@ -1,24 +1,31 @@
 // Peer-hosted Tor onion transport — the second P2P backend, selected by the
 // "use Tor" switch (see realtime.rs / lib.rs `use_tor`).
 //
-// Topology is a STAR: the room CREATOR publishes one onion hidden service and
-// acts as a relay; joiners DIAL the creator's `.onion` (they never host). Every
-// frame a joiner sends is re-broadcast by the creator to all OTHER joiners and
-// delivered locally — so an MLS envelope reaches every member exactly as it does
-// over iroh-gossip's broadcast. The relay only ever forwards MLS ciphertext; it
-// never has the group keys for messages it relays. 1:1 is just the N=2 case.
+// Topology is a STAR with an ELECTED CAPTAIN. EVERY member hosts its own onion
+// service (and runs an accept/relay loop) and, unless it is the captain, holds ONE
+// outbound dial to the current captain. The captain relays every frame it receives
+// to all OTHER dialers and delivers it locally — so an MLS envelope reaches every
+// member exactly as it does over iroh-gossip's broadcast. The relay only ever
+// forwards MLS ciphertext; it never has the group keys. 1:1 is just the N=2 case.
 //
-// This module mirrors p2p_iroh.rs's public surface (create_room / join_room /
-// broadcast / leave_room / node_info / shutdown) and emits the SAME
+// Why every member hosts: Tor has no discovery. If the captain dies, all star
+// connections drop and there is no way to look up a replacement — you can only
+// dial a `.onion` you already know. So the frontend elects a captain (lowest MLS
+// identity), shares each member's `.onion` over the encrypted presence message,
+// and on captain loss re-points every member's single outbound to the next
+// captain's ALREADY-PUBLISHED onion via `set_captain`. This module owns only the
+// mechanism (host, dial, relay, re-point); the election lives in useChatChannel.ts.
+//
+// This module mirrors p2p_iroh.rs's public surface and emits the SAME
 // `realtime://message` / `realtime://status` events, so the frontend transport
-// layer and the MLS state machine are unchanged. The framing + handshake shape
-// is modelled on limbo/rust/vox.rs (4-byte LE length prefix + JSON body).
+// layer and the MLS state machine are unchanged (a captain-death event just adds
+// an optional `reason:"captain_unreachable"`). Framing + handshake shape are
+// modelled on limbo/rust/vox.rs (4-byte LE length prefix + JSON body).
 //
 // arti hosting notes: we build a per-profile state-dir client so arti's keystore
-// persists the hidden-service identity key — relaunching the same room nickname
-// yields the SAME `.onion`, which is what keeps an old QR valid. The onion
-// descriptor takes seconds to publish on first launch (slower than iroh), so the
-// creator stays "connecting" until the first joiner stream is accepted.
+// persists each member's hidden-service identity key — relaunching the same room
+// nickname yields the SAME `.onion`, which keeps an old QR valid and lets a
+// re-elected captain be dialed at a stable address.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -53,6 +60,17 @@ const TOR_TAG: u8 = 0x54;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Cap the join handshake read so a silent peer can't hang the join command.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+/// How many times the outbound connection manager retries dialing the captain
+/// (with backoff) before declaring it unreachable — a slow Tor dial must not be
+/// mistaken for a dead captain.
+const MAX_CAPTAIN_RETRIES: u32 = 3;
+/// Base backoff between captain redial attempts (doubles each attempt, capped).
+const CAPTAIN_RETRY_BASE_SECS: u64 = 2;
+
+fn captain_backoff(attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(3);
+    Duration::from_secs((CAPTAIN_RETRY_BASE_SECS << shift).min(15))
+}
 
 /// Per-connection sequence number, distinct from the (possibly reused) peer_id.
 /// Used to identify a specific joiner stream for relay fan-out + removal.
@@ -65,29 +83,40 @@ pub struct TorP2pState(pub Mutex<Option<Node>>);
 
 pub struct Node {
     client: Arc<TorClient<PreferredRuntime>>,
-    rooms: HashMap<String, RoomHandle>,
+    rooms: HashMap<String, MemberRoom>,
 }
 
-enum RoomHandle {
-    Host(HostRoom),
-    Joiner(JoinerRoom),
-}
-
-struct HostRoom {
-    onion: String,
+/// One Tor room from this member's view. Every member hosts its own onion + relay
+/// (`_service` / `peers` / `accept_task`) and, unless it is the captain, holds one
+/// outbound dial to the current captain (`up`).
+///
+/// Relay is a TREE rooted at the captain: a member forwards each frame from a child
+/// (inbound peer) up to its parent (`up`) AND across to its other children, and each
+/// frame from its parent down to all children. Parent pointers always go to a
+/// strictly-lower MLS id (everyone dials the lowest-id member it knows), so the
+/// graph is acyclic — the flood can't loop. This lets ANY member be an entry point:
+/// a joiner that dials a non-captain (e.g. the creator's QR onion after captaincy
+/// moved) is still bridged to the real captain.
+struct MemberRoom {
+    name: String,
+    my_onion: String,
     // Keep the service alive; dropping it stops serving + descriptor publishing.
     _service: Arc<RunningOnionService>,
-    // Connected joiner write-halves — the relay fan-out set.
+    // Inbound peer write-halves — our children in the relay tree.
     peers: Arc<Mutex<Vec<PeerConn>>>,
     accept_task: JoinHandle<()>,
+    // Write-half to our parent (the captain), or `None` when we ARE the captain or
+    // are mid-reconnect. Stable across captain changes — the connection manager
+    // publishes the current stream here, and re-pointing reuses this slot.
+    up: Arc<Mutex<Option<WriteHalf<DataStream>>>>,
+    // The task managing the `up` connection; `None` ⇒ I am the captain (host-only).
+    outbound: Option<Outbound>,
 }
 
-struct JoinerRoom {
-    #[allow(dead_code)]
-    onion: String,
-    // The single stream to the creator.
-    write: Arc<Mutex<WriteHalf<DataStream>>>,
-    read_task: JoinHandle<()>,
+/// The background task dialing + reading + reconnecting the outbound to the captain.
+struct Outbound {
+    captain_onion: String,
+    task: JoinHandle<()>,
 }
 
 #[derive(Clone)]
@@ -265,6 +294,11 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
     Ok(())
 }
 
+async fn client_of(state: &TorP2pState) -> Result<Arc<TorClient<PreferredRuntime>>> {
+    let guard = state.0.lock().await;
+    Ok(guard.as_ref().ok_or_else(|| anyhow!("tor not started"))?.client.clone())
+}
+
 /// Poll the running service for its address (the descriptor is not instant).
 async fn wait_onion_address(service: &RunningOnionService) -> Result<String> {
     for _ in 0..50 {
@@ -277,30 +311,20 @@ async fn wait_onion_address(service: &RunningOnionService) -> Result<String> {
     Err(anyhow!("onion address was not ready"))
 }
 
-/// Open a room as the host and return `(room, ticket)`. Idempotent: recreating an
-/// already-hosted room returns the existing onion (the reconnect/re-host path).
-pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> Result<(String, String)> {
-    ensure_started(app, state).await?;
-    let room = room_for(&name);
+/// Launch this member's own onion service + accept/relay loop. Every member does
+/// this (create AND join) so anyone can become the captain without a fresh
+/// descriptor publish. Returns `(my_onion, service, peers, accept_task)`.
+type HostParts = (
+    String,                          // my_onion
+    Arc<RunningOnionService>,        // service
+    Arc<Mutex<Vec<PeerConn>>>,       // inbound children
+    JoinHandle<()>,                  // accept task
+    Arc<Mutex<Option<WriteHalf<DataStream>>>>, // `up` slot (to parent)
+);
 
-    // Already hosting this room? Return the existing ticket.
-    {
-        let guard = state.0.lock().await;
-        if let Some(node) = guard.as_ref() {
-            if let Some(RoomHandle::Host(h)) = node.rooms.get(&room) {
-                let ticket = TorTicket { onion: h.onion.clone(), port: ONION_PORT, name: name.clone() }.encode();
-                return Ok((room, ticket));
-            }
-        }
-    }
-
-    // Launch OUTSIDE the state lock — descriptor publish can take tens of seconds
-    // and must not block other rooms' commands.
-    let client = {
-        let guard = state.0.lock().await;
-        guard.as_ref().ok_or_else(|| anyhow!("tor not started"))?.client.clone()
-    };
-    let nick = nickname_for(&name)?;
+async fn host_onion(app: &AppHandle, state: &TorP2pState, room: &str, name: &str) -> Result<HostParts> {
+    let client = client_of(state).await?;
+    let nick = nickname_for(name)?;
     let svc_cfg = OnionServiceConfigBuilder::default()
         .nickname(nick)
         .build()
@@ -310,68 +334,176 @@ pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> 
         .map_err(|e| anyhow!("launch onion service: {e}"))?
         .ok_or_else(|| anyhow!("onion service disabled in config"))?;
     let onion = wait_onion_address(&service).await?;
-
     let peers = Arc::new(Mutex::new(Vec::new()));
-    let accept_task = spawn_accept_loop(app.clone(), room.clone(), rend, peers.clone());
+    // `up` is created here (empty) and stays stable for the room's life; the accept
+    // loop's per-peer readers bridge child frames up through it.
+    let up = Arc::new(Mutex::new(None));
+    let accept_task = spawn_accept_loop(app.clone(), room.to_string(), rend, peers.clone(), up.clone());
+    Ok((onion, service, peers, accept_task, up))
+}
 
+/// Dial an onion and run the `Hello`/`Ready` handshake. Returns the split stream.
+async fn dial_and_handshake(
+    client: &Arc<TorClient<PreferredRuntime>>,
+    onion: &str,
+    name: &str,
+    my_id: &str,
+) -> Result<(ReadHalf<DataStream>, WriteHalf<DataStream>)> {
+    let ds = client
+        .connect((onion, ONION_PORT))
+        .await
+        .map_err(|e| anyhow!("tor connect to {onion} failed: {e}"))?;
+    let (mut rd, mut wr) = tokio::io::split(ds);
+    write_frame_bounded(
+        &mut wr,
+        &serde_json::to_string(&Hello { name: name.to_string(), peer_id: my_id.to_string() }).unwrap(),
+    )
+    .await?;
+    match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut rd)).await {
+        Ok(r) => {
+            r.map_err(|e| anyhow!("handshake failed: {e}"))?;
+        }
+        Err(_) => return Err(anyhow!("handshake timed out")),
+    }
+    Ok((rd, wr))
+}
+
+/// Open a room as the initial captain and return `(room, ticket, my_onion)`.
+/// Idempotent: recreating an already-open room returns the existing onion (the
+/// reconnect / re-host path).
+pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> Result<(String, String, String)> {
+    ensure_started(app, state).await?;
+    let room = room_for(&name);
+
+    // Already in this room? Return the existing onion.
+    {
+        let guard = state.0.lock().await;
+        if let Some(node) = guard.as_ref() {
+            if let Some(mr) = node.rooms.get(&room) {
+                let ticket = TorTicket { onion: mr.my_onion.clone(), port: ONION_PORT, name: name.clone() }.encode();
+                return Ok((room, ticket, mr.my_onion.clone()));
+            }
+        }
+    }
+
+    let (my_onion, service, peers, accept_task, up) = host_onion(app, state, &room, &name).await?;
     {
         let mut guard = state.0.lock().await;
         let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
         node.rooms.insert(
             room.clone(),
-            RoomHandle::Host(HostRoom { onion: onion.clone(), _service: service, peers, accept_task }),
+            MemberRoom {
+                name: name.clone(),
+                my_onion: my_onion.clone(),
+                _service: service,
+                peers,
+                accept_task,
+                up,
+                outbound: None, // sole member ⇒ trivially the captain
+            },
         );
     }
     emit_status(app, &room, "connecting", 0, None);
-    let ticket = TorTicket { onion, port: ONION_PORT, name }.encode();
-    Ok((room, ticket))
+    let ticket = TorTicket { onion: my_onion.clone(), port: ONION_PORT, name }.encode();
+    Ok((room, ticket, my_onion))
 }
 
-/// Join a room by dialing the creator's onion. Returns `(room, name)`.
-/// `_extra` (persisted reconnect handles) is accepted for parity with the iroh
-/// backend but unused — the onion is already in the ticket.
+/// Join a room: host my own onion (so I can become captain), then dial the ticket
+/// onion (the initial captain). Returns `(room, name, my_onion)`.
+/// `_extra` is accepted for parity with the iroh backend but unused.
 pub async fn join_room(
     app: &AppHandle,
     state: &TorP2pState,
     ticket: String,
     _extra: Vec<String>,
-) -> Result<(String, String)> {
+) -> Result<(String, String, String)> {
     ensure_started(app, state).await?;
     let t = TorTicket::decode(&ticket).map_err(|e| anyhow!("invalid tor ticket: {e}"))?;
     let room = room_for(&t.name);
     let my_id = load_or_create_peer_id(app);
     emit_status(app, &room, "connecting", 0, None);
 
-    // Dial without holding the state lock (Tor connect is slow).
-    let client = {
-        let guard = state.0.lock().await;
-        guard.as_ref().ok_or_else(|| anyhow!("tor not started"))?.client.clone()
-    };
-    let ds = client
-        .connect((t.onion.as_str(), t.port))
-        .await
-        .map_err(|e| anyhow!("tor connect to {} failed: {e}", t.onion))?;
-    let (mut rd, mut wr) = tokio::io::split(ds);
+    // Host my own onion first (failover candidate / future captain).
+    let (my_onion, service, peers, accept_task, up) = host_onion(app, state, &room, &t.name).await?;
 
-    // Handshake: send Hello, expect Ready (bounded so a silent peer can't hang).
-    write_frame_bounded(&mut wr, &serde_json::to_string(&Hello { name: t.name.clone(), peer_id: my_id }).unwrap()).await?;
-    let _ready = match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut rd)).await {
-        Ok(r) => r.map_err(|e| anyhow!("handshake failed: {e}"))?,
-        Err(_) => return Err(anyhow!("handshake timed out")),
-    };
+    // Dial the initial captain synchronously so a bad onion fails loudly.
+    let client = client_of(state).await?;
+    let (rd, wr) = dial_and_handshake(&client, &t.onion, &t.name, &my_id).await?;
+    *up.lock().await = Some(wr);
+    let task = spawn_captain_manager(
+        app.clone(),
+        room.clone(),
+        t.name.clone(),
+        client,
+        my_id,
+        t.onion.clone(),
+        up.clone(),
+        peers.clone(),
+        Some(rd),
+    );
 
-    let write = Arc::new(Mutex::new(wr));
-    let read_task = spawn_joiner_reader(app.clone(), room.clone(), rd);
     {
         let mut guard = state.0.lock().await;
         let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
         node.rooms.insert(
             room.clone(),
-            RoomHandle::Joiner(JoinerRoom { onion: t.onion.clone(), write, read_task }),
+            MemberRoom {
+                name: t.name.clone(),
+                my_onion: my_onion.clone(),
+                _service: service,
+                peers,
+                accept_task,
+                up,
+                outbound: Some(Outbound { captain_onion: t.onion.clone(), task }),
+            },
         );
     }
     emit_status(app, &room, "connected", 1, Some(t.onion));
-    Ok((room, t.name))
+    Ok((room, t.name, my_onion))
+}
+
+/// Re-point this member's outbound dial to `captain_onion` (the elected captain).
+/// Idempotent: no-op when unchanged; drops the outbound (host-only) when I am the
+/// captain; aborts + redials on a change.
+pub async fn set_captain(app: &AppHandle, state: &TorP2pState, room: &str, captain_onion: String) -> Result<()> {
+    let my_id = load_or_create_peer_id(app);
+    let mut guard = state.0.lock().await;
+    let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
+    let client = node.client.clone();
+    let mr = node.rooms.get_mut(room).ok_or_else(|| anyhow!("no such tor room"))?;
+
+    // Unchanged captain → no-op (avoids redial blips on stable elections).
+    if captain_onion != mr.my_onion {
+        if let Some(out) = &mr.outbound {
+            if out.captain_onion == captain_onion {
+                return Ok(());
+            }
+        }
+    }
+    // Abort any existing outbound and stop sending to the old captain.
+    if let Some(out) = mr.outbound.take() {
+        out.task.abort();
+    }
+    *mr.up.lock().await = None;
+
+    // I am the captain → host-only, no outbound (accept/relay loop already runs).
+    if captain_onion == mr.my_onion {
+        return Ok(());
+    }
+    // Otherwise dial the new captain (the manager reuses the stable `up` slot).
+    let task = spawn_captain_manager(
+        app.clone(),
+        room.to_string(),
+        mr.name.clone(),
+        client,
+        my_id,
+        captain_onion.clone(),
+        mr.up.clone(),
+        mr.peers.clone(),
+        None,
+    );
+    mr.outbound = Some(Outbound { captain_onion, task });
+    Ok(())
 }
 
 /// Reconnect by name — for Tor this means "re-host" (same nickname ⇒ same onion).
@@ -382,22 +514,32 @@ pub async fn join_room_by_node(
     name: String,
     _onions: Vec<String>,
 ) -> Result<String> {
-    let (room, _ticket) = create_room(app, state, name).await?;
+    let (room, _ticket, _onion) = create_room(app, state, name).await?;
     Ok(room)
 }
 
 pub async fn broadcast(state: &TorP2pState, room: &str, payload: String) -> Result<()> {
-    // Collect the target write-halves, then drop the state lock before doing any
-    // (slow) network writes.
-    let writes: Vec<Arc<Mutex<WriteHalf<DataStream>>>> = {
+    // Our own frame floods both ways in the relay tree: up to the captain (parent)
+    // and down to every inbound peer (children). Snapshot handles under the lock,
+    // then write after dropping it (Tor writes are slow).
+    let (up, children) = {
         let guard = state.0.lock().await;
         let node = guard.as_ref().ok_or_else(|| anyhow!("tor not started"))?;
-        match node.rooms.get(room).ok_or_else(|| anyhow!("no such tor room"))? {
-            RoomHandle::Host(h) => h.peers.lock().await.iter().map(|c| c.write.clone()).collect(),
-            RoomHandle::Joiner(j) => vec![j.write.clone()],
-        }
+        let mr = node.rooms.get(room).ok_or_else(|| anyhow!("no such tor room"))?;
+        let up = mr.up.clone();
+        let children: Vec<Arc<Mutex<WriteHalf<DataStream>>>> =
+            mr.peers.lock().await.iter().map(|c| c.write.clone()).collect();
+        (up, children)
     };
-    for w in writes {
+    // Up to the captain (None while captain / mid-reconnect ⇒ skip, best-effort).
+    {
+        let mut g = up.lock().await;
+        if let Some(w) = g.as_mut() {
+            let _ = write_frame_bounded(w, &payload).await;
+        }
+    }
+    // Down to our children.
+    for w in children {
         let mut g = w.lock().await;
         let _ = write_frame_bounded(&mut *g, &payload).await;
     }
@@ -414,25 +556,23 @@ pub async fn has_room(state: &TorP2pState, room: &str) -> bool {
 pub async fn leave_room(state: &TorP2pState, room: &str) -> Result<()> {
     let mut guard = state.0.lock().await;
     if let Some(node) = guard.as_mut() {
-        if let Some(handle) = node.rooms.remove(room) {
-            match handle {
-                RoomHandle::Host(h) => h.accept_task.abort(), // dropping _service stops serving
-                RoomHandle::Joiner(j) => j.read_task.abort(),
+        if let Some(mr) = node.rooms.remove(room) {
+            mr.accept_task.abort(); // dropping _service stops serving
+            if let Some(out) = mr.outbound {
+                out.task.abort();
             }
         }
     }
     Ok(())
 }
 
-/// Our onion for a currently-hosted room, or "" (no global identity over Tor). Does
+/// Our onion for a currently-open room, or "" (no global identity over Tor). Does
 /// not bootstrap Tor — the Settings "My identity" card must not hang on this.
 pub async fn node_info(_app: &AppHandle, state: &TorP2pState) -> Result<String> {
     let guard = state.0.lock().await;
     if let Some(node) = guard.as_ref() {
-        for handle in node.rooms.values() {
-            if let RoomHandle::Host(h) = handle {
-                return Ok(h.onion.clone());
-            }
+        if let Some(mr) = node.rooms.values().next() {
+            return Ok(mr.my_onion.clone());
         }
     }
     Ok(String::new())
@@ -444,10 +584,10 @@ pub async fn shutdown(app: &AppHandle, state: &TorP2pState) {
     let mut guard = state.0.lock().await;
     if let Some(mut node) = guard.take() {
         let rooms: Vec<String> = node.rooms.keys().cloned().collect();
-        for (_, handle) in node.rooms.drain() {
-            match handle {
-                RoomHandle::Host(h) => h.accept_task.abort(),
-                RoomHandle::Joiner(j) => j.read_task.abort(),
+        for (_, mr) in node.rooms.drain() {
+            mr.accept_task.abort();
+            if let Some(out) = mr.outbound {
+                out.task.abort();
             }
         }
         for room in rooms {
@@ -457,6 +597,73 @@ pub async fn shutdown(app: &AppHandle, state: &TorP2pState) {
     }
 }
 
+// ── outbound: dial the captain, read, reconnect ────────────────────────────────
+
+/// Manages this member's single outbound connection to the captain: reads relayed
+/// frames, publishes the live write-half into `write` for `broadcast`, and
+/// reconnects with backoff. After `MAX_CAPTAIN_RETRIES` failed dials it emits a
+/// `captain_unreachable` status so the frontend can re-elect. `initial_rd` is the
+/// read half of an already-established connection (from a synchronous join); when
+/// `Some`, `write` must already hold that connection's write half.
+#[allow(clippy::too_many_arguments)]
+fn spawn_captain_manager(
+    app: AppHandle,
+    room: String,
+    name: String,
+    client: Arc<TorClient<PreferredRuntime>>,
+    my_id: String,
+    captain_onion: String,
+    up: Arc<Mutex<Option<WriteHalf<DataStream>>>>,
+    peers: Arc<Mutex<Vec<PeerConn>>>,
+    mut initial_rd: Option<ReadHalf<DataStream>>,
+) -> JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        let mut attempt: u32 = 0;
+        loop {
+            // Acquire a read half: reuse the pre-established one, else dial fresh.
+            let mut rd = match initial_rd.take() {
+                Some(rd) => rd,
+                None => match dial_and_handshake(&client, &captain_onion, &name, &my_id).await {
+                    Ok((rd, wr)) => {
+                        *up.lock().await = Some(wr);
+                        rd
+                    }
+                    Err(_) => {
+                        attempt += 1;
+                        if attempt > MAX_CAPTAIN_RETRIES {
+                            emit_status_reason(&app, &room, "disconnected", 0, Some(captain_onion.clone()), Some("captain_unreachable"));
+                            return;
+                        }
+                        tokio::time::sleep(captain_backoff(attempt)).await;
+                        continue;
+                    }
+                },
+            };
+            attempt = 0;
+            emit_status(&app, &room, "connected", 1, Some(captain_onion.clone()));
+            while let Ok(payload) = read_frame(&mut rd).await {
+                emit_message(&app, &room, &payload);
+                // Bridge down: fan the captain's frame to our own inbound children.
+                let targets: Vec<Arc<Mutex<WriteHalf<DataStream>>>> = {
+                    peers.lock().await.iter().map(|c| c.write.clone()).collect()
+                };
+                for w in targets {
+                    let mut g = w.lock().await;
+                    let _ = write_frame_bounded(&mut *g, &payload).await;
+                }
+            }
+            // Connection dropped: stop sending, then reconnect (or declare death).
+            *up.lock().await = None;
+            attempt += 1;
+            if attempt > MAX_CAPTAIN_RETRIES {
+                emit_status_reason(&app, &room, "disconnected", 0, Some(captain_onion.clone()), Some("captain_unreachable"));
+                return;
+            }
+            tokio::time::sleep(captain_backoff(attempt)).await;
+        }
+    })
+}
+
 // ── host: accept + relay ───────────────────────────────────────────────────────
 
 fn spawn_accept_loop<S>(
@@ -464,6 +671,7 @@ fn spawn_accept_loop<S>(
     room: String,
     rend: S,
     peers: Arc<Mutex<Vec<PeerConn>>>,
+    up: Arc<Mutex<Option<WriteHalf<DataStream>>>>,
 ) -> JoinHandle<()>
 where
     S: futures_lite::stream::Stream<Item = RendRequest> + Send + 'static,
@@ -471,7 +679,7 @@ where
     tauri::async_runtime::spawn(async move {
         // Box::pin so the returned stream is Unpin for `.next()`.
         let mut streams = Box::pin(handle_rend_requests(rend));
-        // Only our own joiners dial this service, so accept every stream request.
+        // Only our own members dial this service, so accept every stream request.
         while let Some(req) = streams.next().await {
             let ds = match req.accept(Connected::new_empty()).await {
                 Ok(ds) => ds,
@@ -501,18 +709,19 @@ where
                 p.len() as u32
             };
             emit_status(&app, &room, "connected", count, Some(hello.peer_id));
-            spawn_peer_reader(app.clone(), room.clone(), rd, peers.clone(), seq);
+            spawn_peer_reader(app.clone(), room.clone(), rd, peers.clone(), up.clone(), seq);
         }
     })
 }
 
-/// Per-joiner reader on the host: deliver each frame locally AND fan it out to the
-/// other joiners (star relay). On disconnect, drop the peer + update status.
+/// Per-dialer reader on the captain: deliver each frame locally AND fan it out to
+/// the other dialers (star relay). On disconnect, drop the peer + update status.
 fn spawn_peer_reader(
     app: AppHandle,
     room: String,
     mut rd: ReadHalf<DataStream>,
     peers: Arc<Mutex<Vec<PeerConn>>>,
+    up: Arc<Mutex<Option<WriteHalf<DataStream>>>>,
     origin_seq: u64,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -520,7 +729,7 @@ fn spawn_peer_reader(
             match read_frame(&mut rd).await {
                 Ok(payload) => {
                     emit_message(&app, &room, &payload);
-                    // Fan out to every OTHER connection (never echo to the sender).
+                    // Fan across to our OTHER children (never echo to the sender).
                     let targets: Vec<Arc<Mutex<WriteHalf<DataStream>>>> = {
                         let p = peers.lock().await;
                         p.iter().filter(|c| c.seq != origin_seq).map(|c| c.write.clone()).collect()
@@ -528,6 +737,12 @@ fn spawn_peer_reader(
                     for w in targets {
                         let mut g = w.lock().await;
                         let _ = write_frame_bounded(&mut *g, &payload).await;
+                    }
+                    // Bridge up: if we are a relay hop (not the captain), forward the
+                    // child's frame to our own parent so it reaches the real captain.
+                    let mut g = up.lock().await;
+                    if let Some(w) = g.as_mut() {
+                        let _ = write_frame_bounded(w, &payload).await;
                     }
                 }
                 Err(_) => break,
@@ -545,29 +760,29 @@ fn spawn_peer_reader(
     });
 }
 
-/// Joiner-side reader: every frame from the creator is a delivered message.
-fn spawn_joiner_reader(app: AppHandle, room: String, mut rd: ReadHalf<DataStream>) -> JoinHandle<()> {
-    tauri::async_runtime::spawn(async move {
-        loop {
-            match read_frame(&mut rd).await {
-                Ok(payload) => emit_message(&app, &room, &payload),
-                Err(_) => break,
-            }
-        }
-        emit_status(&app, &room, "disconnected", 0, None);
-    })
-}
-
-// ── events (identical shape to p2p_iroh.rs) ────────────────────────────────────
+// ── events (identical shape to p2p_iroh.rs, plus an optional `reason`) ──────────
 
 fn emit_message(app: &AppHandle, room: &str, payload: &str) {
     let _ = app.emit("realtime://message", serde_json::json!({ "room": room, "payload": payload }));
 }
 
 fn emit_status(app: &AppHandle, room: &str, state: &str, peers: u32, peer_id: Option<String>) {
+    emit_status_reason(app, room, state, peers, peer_id, None);
+}
+
+/// Like `emit_status` but carries an optional `reason` (e.g. `captain_unreachable`)
+/// so the frontend can distinguish a captain-death from an ordinary disconnect.
+fn emit_status_reason(
+    app: &AppHandle,
+    room: &str,
+    state: &str,
+    peers: u32,
+    peer_id: Option<String>,
+    reason: Option<&str>,
+) {
     let _ = app.emit(
         "realtime://status",
-        serde_json::json!({ "room": room, "state": state, "peers": peers, "peer_id": peer_id }),
+        serde_json::json!({ "room": room, "state": state, "peers": peers, "peer_id": peer_id, "reason": reason }),
     );
 }
 
@@ -616,6 +831,14 @@ mod tests {
         let n1 = nickname_for("room-a").unwrap();
         let n2 = nickname_for("room-a").unwrap();
         assert_eq!(n1.to_string(), n2.to_string());
+    }
+
+    #[test]
+    fn captain_backoff_grows_then_caps() {
+        assert_eq!(captain_backoff(1), Duration::from_secs(2));
+        assert_eq!(captain_backoff(2), Duration::from_secs(4));
+        assert_eq!(captain_backoff(3), Duration::from_secs(8));
+        assert_eq!(captain_backoff(9), Duration::from_secs(15)); // capped
     }
 
     #[tokio::test]
