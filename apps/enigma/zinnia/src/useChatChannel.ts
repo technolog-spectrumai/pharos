@@ -695,6 +695,14 @@ export function useChatChannel() {
     }
   }
 
+  // Abort an in-flight Tor join (the join modal's "Cancel" button). Frees the
+  // half-launched onion's lock in Rust so a retry doesn't hit "resource already in
+  // use". No-op for iroh joins. Clears any error the aborted join left behind.
+  async function cancelJoin() {
+    chatTransport.cancelJoin();
+    error.value = null;
+  }
+
   // Ticketless reconnect: re-enter a named room, bootstrapping from persisted peer
   // NodeIds (addresses resolve via iroh's n0 discovery).
   async function joinByNode(name: string, peerNodeIds: string[]) {
@@ -895,6 +903,7 @@ export function useChatChannel() {
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendImageDataUrl, sendAudio, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
+    cancelJoin,
     ensureNode,
     onSync, sendSync,
   };
