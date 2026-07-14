@@ -8,6 +8,7 @@
 export { isTauri, invoke } from "./services/tauri";
 export * from "./services/appStorage";
 export * from "./services/localDb";
+export * from "./services/contacts";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ export { chatTransport } from "./chatTransport";
 export type { ChatTransport, CreatedRoom, JoinedRoom, WsStatus, WsMessage } from "./chatTransport";
 
 // ── Chat channel composable + MLS envelope state machine ──────────────────────
-export { useChatChannel, isTorTicket } from "./useChatChannel";
+export { useChatChannel, isTorTicket, isDhtCode } from "./useChatChannel";
 export type {
   ChatChannel,
   Message,

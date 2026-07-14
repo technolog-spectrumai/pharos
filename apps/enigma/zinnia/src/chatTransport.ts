@@ -27,7 +27,9 @@ type MessageHandler = (room: string, data: WsMessage) => void;
  *  the channel should re-elect. Absent/undefined for ordinary status changes. */
 type StatusHandler = (room: string, state: WsStatus, peerId?: string, reason?: string) => void;
 
-export interface CreatedRoom { room: string; name: string; ticket: string; onion: string }
+/** `code` is the ticketless-join room code (DHT rendezvous — dht.md); empty
+ *  while the DHT discovery toggle is off, and for Tor rooms. */
+export interface CreatedRoom { room: string; name: string; ticket: string; onion: string; code: string }
 export interface JoinedRoom { room: string; name: string; onion: string }
 
 export interface ChatTransport {
