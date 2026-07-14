@@ -4,7 +4,7 @@ import type { ChatChannel } from "rakotis";
 import RoomStatusBar from "./RoomStatusBar.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
-defineEmits<{ "open-sidebar": [] }>();
+defineEmits<{ "open-sidebar": []; "open-files": [] }>();
 const { currentRoom, isParticipant } = props.channel;
 </script>
 
@@ -24,6 +24,13 @@ const { currentRoom, isParticipant } = props.channel;
           <span>{{ isParticipant ? "Joined" : "Observer" }}</span>
         </div>
       </div>
+      <OyaIconButton
+        v-if="currentRoom && isParticipant"
+        icon="file-arrow-up"
+        :label="$t('fileShare.title')"
+        :title="$t('fileShare.title')"
+        @click="$emit('open-files')"
+      />
     </div>
 
     <div v-if="currentRoom" class="hidden sm:flex">

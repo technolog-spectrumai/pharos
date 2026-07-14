@@ -8,7 +8,7 @@
 // Flow (host H offers a file to recipient R, both in the same p2p room):
 //   H picks a file → file_offer_create → { offerId, addr, name, size, mime }
 //   H → file_offer{offerId, target: R, addr, name, size, mime}   (the invite, addressed to R)
-//   R shows it (Files tab) → accept/decline
+//   R shows it (Files modal, auto-opened) → accept/decline
 //   R accept  → pick a save location → file_download(addr, offerId, dest) → streams to disk
 //   R decline → file_decline{offerId}
 //   Progress on both sides arrives via the `file://*` backend events.

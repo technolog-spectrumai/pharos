@@ -106,22 +106,25 @@ Restore blockers: depends on the removed `chacha20poly1305` / `rustfft` Cargo de
 and on `load_or_create_secret` (now relocated to `p2p_iroh.rs`); `useVoxCall.ts`
 calls the removed `aster_resolve` command (call-by-username) that no longer exists.
 
-### File transfer
-P2P file transfer over iroh QUIC.
-
-| Parked file | Original location |
-|---|---|
-| `limbo/rust/file_xfer.rs` | `apps/enigma/src-tauri/src/file_xfer.rs` |
-| `limbo/frontend/FilePanel.vue` | `apps/enigma/src/components/FilePanel.vue` |
-| `limbo/frontend/useFileShare.ts` | `apps/enigma/src/composables/useFileShare.ts` |
-
-Restore notes: same `load_or_create_secret` relocation note as Vox;
-`useFileShare.ts` rides the p2p channel's MLS group via the `onSync` / `sendSync`
-seam (still present in rakotis).
+### ✅ File transfer (RESTORED)
+P2P file transfer over iroh QUIC. **Restored from limbo 2026-07:**
+`file_xfer.rs` → `apps/enigma/src-tauri/src/file_xfer.rs` unchanged (it never
+used `load_or_create_secret` — the endpoint is deliberately ephemeral), plus
+offline/Tor gating (iroh-only feature, so it's blocked in Tor-exclusive mode)
+and a `shutdown()` hook wired into airplane mode / Tor switch / profile swap.
+Frontend went to `apps/enigma/src/components/chat/{FilePanel.vue,useFileShare.ts}`
+(feature-folder convention; the old tab UI is gone — the panel is now an
+`OyaModal` opened from a Files button in `ChatHeader.vue`, auto-opened on an
+incoming offer). Signaling still rides the p2p channel's MLS group via the
+`onSync`/`sendSync` seam in rakotis. Unit tests: `tests/unit/fileShare.test.ts`.
 
 ### How to restore a parked feature
 1. Move the files back to their original locations (table above).
 2. Re-add the `mod` + `invoke_handler` entries in `apps/enigma/src-tauri/src/lib.rs`.
 3. `manage()` its state in `lib.rs`.
 4. Re-add its removed Cargo deps (e.g. `chacha20poly1305`, `rustfft` for Vox).
-5. Re-add its tab in `EnigmaChatView.vue` and the store wiring in `stores/chat.ts`.
+5. Mount the UI (the tab bar is gone — use a header button + `OyaModal` in
+   `ChatPanel.vue`, like the restored file transfer) and wire the store in
+   `stores/chat.ts`.
+6. Gate any networked commands on airplane mode, and on Tor-exclusive mode if the
+   feature is iroh-only (see `file_xfer.rs::check_network_policy`).

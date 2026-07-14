@@ -10,6 +10,10 @@ function makeP2pStub() {
   return {
     p2pRooms: ref<Array<{ room: string; name: string; ticket: string; peers?: string[] }>>([]),
     currentUserName: ref("You"),
+    mlsIdentity: ref("You"),
+    // Data-sync seam (consumed by the store's fileShare singleton).
+    onSync: vi.fn(() => () => {}),
+    sendSync: vi.fn(async () => {}),
     loadP2pRooms: vi.fn(async () => {}),
     openP2pRoom: vi.fn(async () => {}),
     ensureNode: vi.fn(async () => "my-node"),
@@ -68,6 +72,15 @@ describe("chat store — serverless P2P bootstrap", () => {
 
     expect(p2pStub.loadP2pRooms).toHaveBeenCalledTimes(1);
     expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates the fileShare singleton riding the channel's sync seam", async () => {
+    const store = await freshStore();
+    expect(store.fileShare).toBeDefined();
+    expect(store.fileShare.state.value).toBe("idle");
+    // useFileShare registers its signaling handler at store creation, so offers
+    // are caught even while the Files modal is closed.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(1);
   });
 
   it("identity fan-out delegates to the channel", async () => {

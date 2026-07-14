@@ -8,11 +8,16 @@
 
 import { useChatChannel, type ChatChannel } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
+import { useFileShare } from "../components/chat/useFileShare";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
 function createChatStore() {
   const p2p: ChatChannel = useChatChannel();
+  // P2P file transfer rides the p2p channel's MLS group (onSync/sendSync seam).
+  // Created here (once, for the app's lifetime) so incoming offers are caught
+  // even while the Files modal is closed.
+  const fileShare = useFileShare(p2p);
 
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
@@ -38,7 +43,7 @@ function createChatStore() {
   }
 
   return {
-    p2p, init,
+    p2p, fileShare, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

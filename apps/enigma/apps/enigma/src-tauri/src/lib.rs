@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
+// P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
+mod file_xfer;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
@@ -353,6 +355,7 @@ async fn app_set_active_profile(
     vault: State<'_, vault::ProtasiusState>,
     p2p: State<'_, p2p_iroh::P2pState>,
     tor: State<'_, p2p_tor::TorP2pState>,
+    file: State<'_, file_xfer::FileXferState>,
     profile: String,
     identity: Option<String>,
 ) -> Result<AppRuntimeConfig, String> {
@@ -376,6 +379,7 @@ async fn app_set_active_profile(
     // into the correct (old) profile's store before we swap it out.
     p2p_iroh::shutdown(&app, &p2p).await;
     p2p_tor::shutdown(&app, &tor).await;
+    file_xfer::shutdown(&file).await;
 
     {
         let mut guard = config.lock().map_err(|e| e.to_string())?;
@@ -417,6 +421,7 @@ async fn app_set_offline(
     config: State<'_, AppConfigState>,
     p2p: State<'_, p2p_iroh::P2pState>,
     tor: State<'_, p2p_tor::TorP2pState>,
+    file: State<'_, file_xfer::FileXferState>,
     offline: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
@@ -428,6 +433,7 @@ async fn app_set_offline(
     if offline {
         p2p_iroh::shutdown(&app, &p2p).await;
         p2p_tor::shutdown(&app, &tor).await;
+        file_xfer::shutdown(&file).await;
     }
     Ok(())
 }
@@ -444,6 +450,7 @@ async fn app_set_use_tor(
     config: State<'_, AppConfigState>,
     p2p: State<'_, p2p_iroh::P2pState>,
     tor: State<'_, p2p_tor::TorP2pState>,
+    file: State<'_, file_xfer::FileXferState>,
     use_tor: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
@@ -451,9 +458,11 @@ async fn app_set_use_tor(
     state.use_tor = use_tor;
     save_profile_state(&app, &config, &state)?;
     // Tor is exclusive: tear down the transport we're leaving so the next room
-    // command lazily re-binds on the chosen one.
+    // command lazily re-binds on the chosen one. File transfer is iroh-only, so
+    // entering Tor mode kills its node too (its commands are gated meanwhile).
     if use_tor {
         p2p_iroh::shutdown(&app, &p2p).await;
+        file_xfer::shutdown(&file).await;
     } else {
         p2p_tor::shutdown(&app, &tor).await;
     }
@@ -1026,6 +1035,7 @@ pub fn run() {
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(p2p_iroh::P2pState::default())
+        .manage(file_xfer::FileXferState::default())
         // Outbound Arti client (tor.rs) + the peer-hosted onion transport (p2p_tor.rs).
         .manage(tor::TorState::default())
         .manage(p2p_tor::TorP2pState::default())
@@ -1103,6 +1113,9 @@ pub fn run() {
             realtime::realtime_forget_tor_onion,
             realtime::realtime_node_info,
             realtime::realtime_tor_set_captain,
+            file_xfer::file_offer_create,
+            file_xfer::file_offer_cancel,
+            file_xfer::file_download,
             fs_local::fs_read_text_file,
             fs_local::fs_write_text_file,
         ])

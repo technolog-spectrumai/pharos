@@ -1,6 +1,6 @@
 // Direct 1:1 peer-to-peer file transfer over iroh (QUIC), end-to-end encrypted by
-// iroh's TLS 1.3 transport (peers authenticated by node id). Mirrors the Vox call
-// backend (see vox.rs): a dedicated iroh node accepts a custom ALPN
+// iroh's TLS 1.3 transport (peers authenticated by node id). Mirrors the parked Vox
+// call backend (limbo/rust/vox.rs): a dedicated iroh node accepts a custom ALPN
 // (`enigma/file/0`); the file owner (host) registers a file and shares its
 // `EndpointAddr` + a one-time `offer_id` out of band — the frontend relays them as
 // an MLS-encrypted `file_offer` chat message. The recipient `endpoint.connect()`s,
@@ -9,6 +9,15 @@
 // Both sides stream in fixed chunks (never buffering the whole file in memory), so
 // arbitrarily large files transfer with bounded memory. Progress is reported via
 // `file://progress`; completion/failure via `file://done` / `file://error`.
+//
+// The endpoint is deliberately ephemeral (no `load_or_create_secret`): the offer
+// addr is relayed fresh per offer, so no reconnect-by-NodeId is ever needed, and an
+// ephemeral identity avoids linkability across transfers.
+//
+// Network-policy gates (both checked in `file_offer_create` / `file_download`):
+// airplane mode blocks all networking; Tor-exclusive mode blocks file transfer
+// entirely because it is iroh-only — a direct QUIC connection from a Tor-routed
+// profile would leak the user's IP outside Tor.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -24,10 +33,38 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+use crate::{active_config, load_profile_state, AppConfigState};
+
 const FILE_ALPN: &[u8] = b"enigma/file/0";
 /// Streaming chunk size for both directions. Large enough to keep QUIC busy, small
 /// enough that memory stays bounded regardless of file size.
 const CHUNK: usize = 64 * 1024;
+
+const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
+const TOR_BLOCKED: &str = "File transfer is unavailable in Tor mode.";
+
+// ── network-policy gates ──────────────────────────────────────────────────────
+
+/// Airplane mode: true when the offline switch is on (blocks all P2P networking).
+fn offline(app: &AppHandle, config: &State<'_, AppConfigState>) -> bool {
+    matches!(active_config(config), Ok(cfg) if crate::is_offline(&load_profile_state(app, &cfg)))
+}
+
+/// True when this profile routes over the Tor onion transport instead of iroh.
+fn use_tor(app: &AppHandle, config: &State<'_, AppConfigState>) -> bool {
+    matches!(active_config(config), Ok(cfg) if crate::is_use_tor(&load_profile_state(app, &cfg)))
+}
+
+/// Both gates at once — every networked file command runs this first.
+fn check_network_policy(app: &AppHandle, config: &State<'_, AppConfigState>) -> Result<(), String> {
+    if offline(app, config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    if use_tor(app, config) {
+        return Err(TOR_BLOCKED.to_string());
+    }
+    Ok(())
+}
 
 // ── state ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +133,7 @@ async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
     Ok(serde_json::from_slice(&body)?)
 }
 
-// ── addr encoding (postcard + base32, like the Vox ticket) ────────────────────
+// ── addr encoding (postcard + base32, like the room ticket) ───────────────────
 
 fn encode_addr(addr: &EndpointAddr) -> String {
     let bytes = postcard::to_stdvec(addr).expect("postcard::to_stdvec is infallible");
@@ -170,6 +207,17 @@ async fn ensure_started(app: &AppHandle, state: &FileXferState) -> Result<()> {
         .spawn();
     *guard = Some(FileNode { endpoint, _router: router, offers });
     Ok(())
+}
+
+/// Tear down the file node (airplane mode on, Tor mode on, profile switch). Pending
+/// offers and in-flight transfers die with the endpoint; the next offer/download
+/// lazily re-binds a fresh (ephemeral-identity) node.
+pub async fn shutdown(state: &FileXferState) {
+    let mut guard = state.0.lock().await;
+    if let Some(node) = guard.take() {
+        // Best-effort graceful close; dropping the endpoint would also terminate.
+        node.endpoint.close().await;
+    }
 }
 
 // ── inbound (host serves an offered file) ─────────────────────────────────────
@@ -286,9 +334,11 @@ pub struct OfferCreated {
 #[tauri::command]
 pub async fn file_offer_create(
     app: AppHandle,
+    config: State<'_, AppConfigState>,
     state: State<'_, FileXferState>,
     path: String,
 ) -> Result<OfferCreated, String> {
+    check_network_policy(&app, &config)?;
     ensure_started(&app, &state).await.map_err(|e| e.to_string())?;
     let p = PathBuf::from(&path);
     let meta = std::fs::metadata(&p).map_err(|e| format!("stat failed: {e}"))?;
@@ -310,7 +360,8 @@ pub async fn file_offer_create(
     Ok(OfferCreated { offer_id, addr, name, size, mime })
 }
 
-/// Host: forget an offer (declined / cancelled / finished).
+/// Host: forget an offer (declined / cancelled / finished). Ungated — it only clears
+/// local state.
 #[tauri::command]
 pub async fn file_offer_cancel(state: State<'_, FileXferState>, offer_id: String) -> Result<(), String> {
     let guard = state.0.lock().await;
@@ -325,11 +376,13 @@ pub async fn file_offer_cancel(state: State<'_, FileXferState>, offer_id: String
 #[tauri::command]
 pub async fn file_download(
     app: AppHandle,
+    config: State<'_, AppConfigState>,
     state: State<'_, FileXferState>,
     addr: String,
     offer_id: String,
     dest: String,
 ) -> Result<(), String> {
+    check_network_policy(&app, &config)?;
     ensure_started(&app, &state).await.map_err(|e| e.to_string())?;
     let endpoint = {
         let guard = state.0.lock().await;

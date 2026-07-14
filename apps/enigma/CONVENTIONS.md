@@ -37,17 +37,19 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
   Composables are `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
-`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`. All registered in the single
+`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
 
-**Events.** One family, `scheme://path`: `realtime://message` and `realtime://status`.
-Both transports (`p2p_iroh`, `p2p_tor`) emit identical names so the frontend is
-transport-agnostic; a single event multiplexes all rooms (payload carries the room id).
+**Events.** `scheme://path` naming: `realtime://message` and `realtime://status`
+(both transports — `p2p_iroh`, `p2p_tor` — emit identical names so the frontend is
+transport-agnostic; a single event multiplexes all rooms, the payload carries the
+room id), plus `file://progress`, `file://done`, `file://error` from the file-transfer
+backend (`file_xfer.rs`).
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
-7 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `profile`, `vault`).
+8 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `fileShare`, `profile`, `vault`).
 Interpolation uses single-brace named tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;

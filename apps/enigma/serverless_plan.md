@@ -21,6 +21,8 @@ and for the follow-up work that was deliberately deferred.
   carries a `.onion`. Full breakdown in [tor.md](tor.md).
 - **Remove Aurora and Enigma+** (the sibling apps) entirely.
 - **Park voice calls + file transfer** in `limbo/` (unlinked, restorable).
+  File transfer was restored in 2026-07 (Files modal in the chat header,
+  offline/Tor-gated); Vox remains parked.
 
 ## Decisions
 
@@ -34,7 +36,8 @@ and for the follow-up work that was deliberately deferred.
    when on); the room creator hosts one onion service and relays (star topology).
    Full record in [tor.md](tor.md).
 3. **Voice (Vox) + file transfer moved to `limbo/`**, not deleted — see
-   `limbo/README.md` for the restore path.
+   `limbo/README.md` for the restore path. File transfer has since been
+   restored (2026-07); Vox is still parked.
 4. **Reconnect model:** the Rust gossip layer reports each neighbor's NodeId in
    the `realtime://status` event (`peer_id`); the frontend persists it into the
    room entry (`p2p:rooms` kv). Reopening a room rejoins by ticket **seeded
