@@ -95,20 +95,45 @@ function lastSeenLabel(c: ContactEntry): string {
 // ── My nickname (opt-in "findable as ‹nick›" claim on the DHT directory) ──────
 const nickPublish = ref(false);
 const nickname = ref("");
-const nickSaved = ref(false);
-async function saveNickSettings() {
+// Publish is an explicit, awaited action: the spinner runs until the DHT write
+// completes, so "name published" is a confirmation — not fire-and-forget.
+const publishState = ref<"idle" | "publishing" | "published" | "error">("idle");
+const publishError = ref("");
+
+async function saveNickname() {
   nickname.value = await setDhtNickname(nickname.value);
-  await setDhtNickPublish(nickPublish.value && !!nickname.value);
-  nickPublish.value = nickPublish.value && !!nickname.value;
-  // Rebind the node so the claim publishes (or stops) immediately instead of
-  // waiting for the next announce round — same UX as the DHT toggle.
-  await invoke("dht_apply").catch(() => {});
-  nickSaved.value = true;
-  setTimeout(() => { nickSaved.value = false; }, 1500);
 }
+
+async function publishNick() {
+  if (publishState.value === "publishing") return;
+  await saveNickname();
+  if (!nickname.value) return;
+  // Publishing implies staying findable: the background announcer keeps the
+  // claim fresh (records age out of the DHT in ~1–2 h otherwise).
+  nickPublish.value = true;
+  await setDhtNickPublish(true);
+  publishState.value = "publishing";
+  publishError.value = "";
+  try {
+    await invoke("dht_publish_nick");
+    publishState.value = "published";
+  } catch (e) {
+    publishState.value = "error";
+    publishError.value = typeof e === "string" ? e : ((e as Error).message ?? "");
+  }
+}
+
 async function toggleNickPublish() {
   nickPublish.value = !nickPublish.value;
-  await saveNickSettings();
+  if (nickPublish.value) {
+    // Turning findability ON = publish now, with feedback.
+    await publishNick();
+    return;
+  }
+  await setDhtNickPublish(false);
+  publishState.value = "idle";
+  // Rebind so the announcer stops immediately; the record then ages out.
+  await invoke("dht_apply").catch(() => {});
 }
 
 // ── Find people (nickname search — results are CLAIMS, not identities) ────────
@@ -129,13 +154,12 @@ async function findPeople() {
   }
 }
 const contactIds = computed(() => new Set(contacts.value.map((c) => c.nodeId)));
-async function addFromSearch(claim: NickClaim) {
-  contacts.value = await upsertContact({
-    nodeId: claim.node_id,
-    name: claim.name || claim.node_id.slice(0, 8),
-    addedAt: Date.now(),
-  });
-  void refreshPresence();
+// Adding ALWAYS goes through the code-validated add flow — a search result just
+// prefills the modal with the claimant's code + claimed name; the user confirms.
+function openAddFromClaim(claim: NickClaim) {
+  openAdd();
+  addNodeId.value = claim.node_id;
+  addName.value = claim.name;
 }
 
 // ── Add contact ────────────────────────────────────────────────────────────────
@@ -345,10 +369,31 @@ async function acceptIncoming() {
             :maxlength="DHT_NICKNAME_MAX_LEN"
             :placeholder="$t('contacts.nickPlaceholder')"
             class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-3 py-1.5 text-sm"
-            @change="saveNickSettings"
-            @keyup.enter="saveNickSettings"
+            @input="publishState = 'idle'"
+            @change="saveNickname"
+            @keyup.enter="publishNick"
           />
-          <span v-if="nickSaved" class="shrink-0 text-xs text-success-dark">{{ $t('common.saved') }}</span>
+          <OyaButton
+            :dark-mode="darkMode"
+            variant="secondary"
+            :class="{ 'pointer-events-none opacity-50': publishState === 'publishing' || !nickname.trim() }"
+            @click="publishNick"
+          >
+            <font-awesome-icon
+              :icon="publishState === 'publishing' ? 'spinner' : 'arrow-up'"
+              :spin="publishState === 'publishing'"
+            />
+            {{ publishState === 'publishing' ? $t('contacts.publishing') : $t('contacts.publish') }}
+          </OyaButton>
+        </div>
+        <p v-if="publishState === 'published'" class="flex items-center gap-2 text-xs text-success-dark">
+          <font-awesome-icon icon="check" />{{ $t('contacts.nickPublished') }}
+        </p>
+        <div v-else-if="publishState === 'error'" class="space-y-1">
+          <p class="flex items-center gap-2 text-xs text-warn-dark">
+            <font-awesome-icon icon="triangle-exclamation" />{{ $t('contacts.publishFailed') }}
+          </p>
+          <p v-if="publishError" class="text-xs opacity-60">{{ publishError }}</p>
         </div>
       </div>
     </OyaCard>
@@ -402,13 +447,15 @@ async function acceptIncoming() {
           <span v-if="contactIds.has(claim.node_id)" class="shrink-0 text-xs text-success-dark">
             <font-awesome-icon icon="check" /> {{ $t('contacts.addedBadge') }}
           </span>
+          <!-- Adding only works by code: this prefills the code-validated
+               add-contact modal — the user confirms there. -->
           <button
             v-else-if="claim.node_id !== myNodeId"
             type="button"
             class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-semibold transition hover:opacity-80"
-            @click="addFromSearch(claim)"
+            @click="openAddFromClaim(claim)"
           >
-            <font-awesome-icon icon="plus" /> {{ $t('contacts.add') }}
+            <font-awesome-icon icon="plus" /> {{ $t('contacts.useCode') }}
           </button>
         </li>
       </ul>

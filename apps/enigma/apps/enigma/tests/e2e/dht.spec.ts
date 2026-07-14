@@ -110,9 +110,14 @@ test.describe("Contacts tab", () => {
     await page.getByRole("button", { name: "Search" }).click();
     await expect(page.getByText("No one is currently publishing that nickname.")).toBeVisible();
 
-    // My-nickname field persists across reload (kv → localStorage fallback).
+    // Publishing is an explicit button with real feedback: in the browser
+    // shell the DHT write can't run, so the error state must surface (never a
+    // silent success), while the nickname itself is saved.
     await page.getByPlaceholder("Your public nickname").fill("Alice-Dev");
-    await page.getByPlaceholder("Your public nickname").press("Enter");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(page.getByText("Couldn't publish the name.")).toBeVisible();
+
+    // Nickname persists across reload (kv → localStorage fallback).
     await page.reload();
     await page.getByRole("link", { name: "Contacts" }).first().click();
     await expect(page.getByPlaceholder("Your public nickname")).toHaveValue("Alice-Dev");

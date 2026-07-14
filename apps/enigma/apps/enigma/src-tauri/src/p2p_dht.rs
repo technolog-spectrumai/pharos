@@ -454,10 +454,33 @@ impl DhtHandle {
     }
 }
 
-/// Keep this node findable by nickname: publish the claim now and then every
-/// announce interval while the node runs. Settings are re-read every round, so
-/// renames apply on the next round and turning the toggle off stops publishing
-/// without a rebind (the record then ages out of the DHT in ~1–2 h).
+/// One immediate claim publish — the Contacts "Publish" button awaits this so
+/// its spinner reflects a REAL `put_mutable` reaching the DHT's storage nodes,
+/// and "name published" is a confirmation, not a hope. Errors surface to the UI.
+pub async fn publish_nick_once(app: &AppHandle, dht: &AsyncDht, self_id: EndpointId) -> Result<()> {
+    let name = nickname(app);
+    if name.is_empty() {
+        return Err(anyhow!("set a nickname first"));
+    }
+    let normalized = normalize_nick(&name);
+    let now = now_secs();
+    let record = NickRecord { v: RECORD_VERSION, node_id: *self_id.as_bytes(), name, ts: now };
+    let value = encode_nick_record(&derive_nick_enc_key(&normalized), &record)
+        .ok_or_else(|| anyhow!("failed to encode the claim"))?;
+    let item = MutableItem::new(
+        derive_nick_signing_key(&normalized),
+        &value,
+        now as i64,
+        Some(NICK_SALT),
+    );
+    dht.put_mutable(item, None).await.map_err(|e| anyhow!("publish failed: {e}"))?;
+    Ok(())
+}
+
+/// Keep this node findable by nickname: refresh the claim every announce
+/// interval while the node runs. Settings are re-read every round, so renames
+/// apply on the next round and turning the toggle off stops publishing without
+/// a rebind (the record then ages out of the DHT in ~1–2 h).
 pub fn spawn_nick_publisher(
     app: AppHandle,
     dht: AsyncDht,
@@ -465,23 +488,9 @@ pub fn spawn_nick_publisher(
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         loop {
-            let name = nickname(&app);
-            if nick_publish_enabled(&app) && !name.is_empty() {
-                let normalized = normalize_nick(&name);
-                let enc = derive_nick_enc_key(&normalized);
-                let now = now_secs();
-                let record =
-                    NickRecord { v: RECORD_VERSION, node_id: *self_id.as_bytes(), name, ts: now };
-                if let Some(value) = encode_nick_record(&enc, &record) {
-                    let item = MutableItem::new(
-                        derive_nick_signing_key(&normalized),
-                        &value,
-                        now as i64,
-                        Some(NICK_SALT),
-                    );
-                    // Non-fatal like every DHT publish; next round retries.
-                    let _ = dht.put_mutable(item, None).await;
-                }
+            if nick_publish_enabled(&app) {
+                // Refresh failures are non-fatal; the next round retries.
+                let _ = publish_nick_once(&app, &dht, self_id).await;
             }
             let base = room_publish_secs(&app);
             tokio::time::sleep(Duration::from_secs(jittered(base))).await;

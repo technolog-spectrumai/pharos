@@ -143,6 +143,11 @@ export default {
     nickPublishHint:
       "Publikuje deklarację tej nazwy w publicznym DHT (odczytają ją tylko osoby szukające dokładnie tej nazwy). Jesteś wyszukiwalny, gdy aplikacja działa.",
     nickPlaceholder: "Twój publiczny pseudonim",
+    publish: "Opublikuj",
+    publishing: "Publikowanie…",
+    nickPublished: "Nazwa opublikowana — wyszukiwalna, gdy aplikacja działa.",
+    publishFailed: "Nie udało się opublikować nazwy.",
+    useCode: "Użyj kodu",
     findPeople: "Znajdź osoby",
     findPlaceholder: "Szukaj pseudonimu (dokładna pisownia)",
     findHint:

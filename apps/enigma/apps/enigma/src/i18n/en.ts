@@ -143,6 +143,11 @@ export default {
     nickPublishHint:
       "Publishes a claim on this name to the public DHT (readable only by people who search exactly this name). You're findable while the app is running.",
     nickPlaceholder: "Your public nickname",
+    publish: "Publish",
+    publishing: "Publishing…",
+    nickPublished: "Name published — searchable while the app is running.",
+    publishFailed: "Couldn't publish the name.",
+    useCode: "Use code",
     findPeople: "Find people",
     findPlaceholder: "Search a nickname (exact spelling)",
     findHint:

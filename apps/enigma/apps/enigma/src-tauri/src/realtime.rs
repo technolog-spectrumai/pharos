@@ -289,6 +289,23 @@ pub async fn dht_presence(
         .collect::<Vec<_>>()))
 }
 
+/// Publish the nickname claim NOW and wait for the DHT write to complete —
+/// backs the Contacts "Publish" button's spinner and "name published" state.
+#[tauri::command]
+pub async fn dht_publish_nick(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
+) -> Result<(), String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    if use_tor(&app, &config) {
+        return Err("Nickname publishing is unavailable while Tor mode is on.".to_string());
+    }
+    p2p_iroh::dht_publish_nick(&app, &p2p).await.map_err(|e| e.to_string())
+}
+
 /// Search the DHT nickname directory (Contacts "Find people"). Results are
 /// CLAIMS — anyone can publish any name; the UI shows NodeId fingerprints.
 #[tauri::command]

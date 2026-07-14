@@ -590,6 +590,23 @@ pub async fn dht_presence(
     Ok(dht.presence(node_ids).await)
 }
 
+/// One awaited nickname-claim publish (the Contacts "Publish" button): success
+/// means the record reached the DHT's storage nodes.
+pub async fn dht_publish_nick(app: &AppHandle, state: &P2pState) -> Result<()> {
+    ensure_started(app, state).await?;
+    let (dht, self_id) = {
+        let guard = state.0.lock().await;
+        let node = guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?;
+        let dht = node
+            .dht
+            .as_ref()
+            .map(|d| d.clone_dht())
+            .ok_or_else(|| anyhow!("DHT discovery is off"))?;
+        (dht, node.endpoint.id())
+    };
+    crate::p2p_dht::publish_nick_once(app, &dht, self_id).await
+}
+
 /// Nickname-directory search (Contacts "Find people"). Returns every fresh
 /// CLAIM on the name — `(node_id, claimed display name, ts)` — freshest first.
 pub async fn dht_find_nick(
