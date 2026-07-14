@@ -118,6 +118,36 @@ export async function setConnectTimeoutSecs(secs: number): Promise<number> {
   return v;
 }
 
+// ── Max file-transfer size (0 = unlimited) ────────────────────────────────────
+// A local guard on P2P file sharing, enforced by `useFileShare` on both sides:
+// offering a larger file is blocked, and an incoming offer over the limit is
+// auto-declined. Stored in the encrypted kv store, in MB.
+
+export const MAX_FILE_SIZE_DEFAULT_MB = 0; // 0 = unlimited
+export const MAX_FILE_SIZE_MIN_MB = 0;
+export const MAX_FILE_SIZE_MAX_MB = 100 * 1024; // 100 GB
+
+export function clampMaxFileSizeMb(mb: number): number {
+  if (!Number.isFinite(mb)) return MAX_FILE_SIZE_DEFAULT_MB;
+  return Math.min(MAX_FILE_SIZE_MAX_MB, Math.max(MAX_FILE_SIZE_MIN_MB, Math.round(mb)));
+}
+
+export async function getMaxFileSizeMb(): Promise<number> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", "max_file_size_mb");
+    if (raw === null || raw === "") return MAX_FILE_SIZE_DEFAULT_MB;
+    return clampMaxFileSizeMb(Number(raw));
+  } catch {
+    return MAX_FILE_SIZE_DEFAULT_MB;
+  }
+}
+
+export async function setMaxFileSizeMb(mb: number): Promise<number> {
+  const v = clampMaxFileSizeMb(mb);
+  await kvPut("p2p:settings", "default", "max_file_size_mb", String(v)).catch(() => {});
+  return v;
+}
+
 // ── Encryption-at-rest vault (Tauri only; browser fallback treats it unlocked) ─
 
 export async function vaultStatus(): Promise<VaultStatus> {
