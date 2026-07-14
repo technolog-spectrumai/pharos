@@ -12,8 +12,10 @@ test.describe("Enigma shell (serverless P2P)", () => {
     await expect(page.getByRole("link", { name: "Chat" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Settings" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /login|zaloguj/i })).toHaveCount(0);
-    // The P2P chat shell is shown: the create-room control is present.
-    await expect(page.getByRole("button", { name: "Create" }).first()).toBeVisible();
+    // The P2P chat shell is shown: the create-room flow lives behind "New chat"
+    // (a modal since the QR-ticket rework), which opens onto the Create button.
+    await page.getByRole("button", { name: "New chat" }).first().click();
+    await expect(page.getByRole("button", { name: "Create", exact: true })).toBeVisible();
   });
 
   test("switches the UI to Polish via the language picker", async ({ page }) => {

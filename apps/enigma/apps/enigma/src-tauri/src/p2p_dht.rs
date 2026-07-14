@@ -186,9 +186,13 @@ pub struct DhtHandle {
 
 impl DhtHandle {
     pub fn new() -> Result<Self> {
-        let dht = Dht::builder()
-            .build()
-            .map_err(|e| anyhow!("mainline dht bind failed: {e}"))?;
+        Self::from_builder(&Dht::builder())
+    }
+
+    /// Seam for tests: the testnet e2e tests point this at a local
+    /// `mainline::Testnet` instead of the public bootstrap nodes.
+    fn from_builder(builder: &mainline::DhtBuilder) -> Result<Self> {
+        let dht = builder.build().map_err(|e| anyhow!("mainline dht bind failed: {e}"))?;
         Ok(Self { dht: dht.as_async() })
     }
 
@@ -400,5 +404,131 @@ mod tests {
             let v = jittered(600);
             assert!((480..=720).contains(&v), "jittered(600) out of range: {v}");
         }
+    }
+
+    #[test]
+    fn encoding_twice_yields_distinct_ciphertexts_that_both_decode() {
+        // Random nonces: identical plaintext must never seal to identical bytes
+        // (otherwise DHT observers could correlate members across publishes).
+        let enc = derive_enc_key(&SECRET, 3);
+        let record = Record { v: RECORD_VERSION, node_id: [4u8; 32], peers: vec![], ts: 99 };
+        let a = encode_record(&enc, &record).expect("encode a");
+        let b = encode_record(&enc, &record).expect("encode b");
+        assert_ne!(a, b);
+        assert!(decode_record(&enc, &a).is_some());
+        assert!(decode_record(&enc, &b).is_some());
+    }
+
+    #[test]
+    fn buckets_rotate_hourly_and_readers_cover_the_boundary() {
+        assert_eq!(bucket_of(0), 0);
+        assert_eq!(bucket_of(BUCKET_SECS - 1), 0);
+        assert_eq!(bucket_of(BUCKET_SECS), 1);
+        // A record published at the end of bucket N is found by a reader in
+        // bucket N+1 (readers query b and b-1) and only ages out past the
+        // freshness window.
+        let published_at = 5 * BUCKET_SECS - 1;
+        let read_at = 5 * BUCKET_SECS + 1;
+        assert_eq!(bucket_of(read_at) - 1, bucket_of(published_at));
+        assert!(read_at - published_at <= RECORD_FRESH_SECS);
+    }
+
+    // ── e2e over a local Kademlia testnet (no public DHT, no network) ────────────
+    //
+    // `mainline::Testnet` spins up an in-process DHT swarm on loopback; these
+    // tests exercise the REAL rendezvous protocol — derived signing keys, sealed
+    // records, BEP44 multi-writer put/get — end to end against it.
+
+    fn testnet_handle(testnet: &mainline::Testnet) -> DhtHandle {
+        let mut builder = Dht::builder();
+        builder.bootstrap(&testnet.bootstrap);
+        DhtHandle::from_builder(&builder).expect("bind testnet dht")
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rendezvous_round_trips_over_a_local_testnet() {
+        let testnet = mainline::Testnet::new(8).expect("spawn testnet");
+        let publisher = testnet_handle(&testnet);
+        let joiner = testnet_handle(&testnet);
+
+        // A real ed25519 identity — resolve validates EndpointId parsing.
+        let member_id = iroh::SecretKey::generate().public();
+        let secret: [u8; 32] = [9u8; 32];
+        let now = now_secs();
+        let bucket = bucket_of(now);
+        let record =
+            Record { v: RECORD_VERSION, node_id: *member_id.as_bytes(), peers: vec![], ts: now };
+        let value = encode_record(&derive_enc_key(&secret, bucket), &record).expect("encode");
+        let item = MutableItem::new(
+            derive_signing_key(&secret, bucket),
+            &value,
+            now as i64,
+            Some(RENDEZVOUS_SALT),
+        );
+        publisher.dht.put_mutable(item, None).await.expect("publish rendezvous record");
+
+        // Secret-holder finds the member…
+        let found = joiner.resolve_room_peers(&secret, None).await;
+        assert!(found.contains(&member_id), "joiner should resolve the published member");
+
+        // …the member's own resolve excludes itself…
+        let excluded = joiner.resolve_room_peers(&secret, Some(member_id)).await;
+        assert!(!excluded.contains(&member_id));
+
+        // …and a different secret derives a different rendezvous: nothing there.
+        let other = joiner.resolve_room_peers(&[1u8; 32], None).await;
+        assert!(other.is_empty(), "wrong secret must not find the room");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stale_rendezvous_records_are_ignored() {
+        let testnet = mainline::Testnet::new(8).expect("spawn testnet");
+        let handle = testnet_handle(&testnet);
+
+        let member_id = iroh::SecretKey::generate().public();
+        let secret: [u8; 32] = [8u8; 32];
+        let now = now_secs();
+        let bucket = bucket_of(now);
+        // Fresh signature/key (current bucket) but a plaintext timestamp past
+        // the freshness window — a member that stopped publishing long ago.
+        let stale_ts = now - RECORD_FRESH_SECS - 60;
+        let record =
+            Record { v: RECORD_VERSION, node_id: *member_id.as_bytes(), peers: vec![], ts: stale_ts };
+        let value = encode_record(&derive_enc_key(&secret, bucket), &record).expect("encode");
+        let item = MutableItem::new(
+            derive_signing_key(&secret, bucket),
+            &value,
+            now as i64,
+            Some(RENDEZVOUS_SALT),
+        );
+        handle.dht.put_mutable(item, None).await.expect("publish stale record");
+
+        let found = handle.resolve_room_peers(&secret, None).await;
+        assert!(found.is_empty(), "stale records must not resolve");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn presence_sees_a_fresh_pkarr_style_record() {
+        let testnet = mainline::Testnet::new(8).expect("spawn testnet");
+        let handle = testnet_handle(&testnet);
+
+        // Simulate exactly what iroh's DhtAddressLookup publishes: a mutable
+        // item signed with the node's own ed25519 key, salt=None, seq in µs.
+        let peer_sk = iroh::SecretKey::generate();
+        let peer_id = peer_sk.public();
+        let signer = SigningKey::from_bytes(&peer_sk.to_bytes());
+        let now_micros = (now_secs() as i64) * 1_000_000;
+        let item = MutableItem::new(signer, b"addrs", now_micros, None);
+        // The item lands under the NodeId — same ed25519 keypair on both sides.
+        assert_eq!(item.key(), peer_id.as_bytes());
+        handle.dht.put_mutable(item, None).await.expect("publish presence record");
+
+        let unseen_id = iroh::SecretKey::generate().public();
+        let presence =
+            handle.presence(vec![peer_id.to_string(), unseen_id.to_string(), "junk".into()]).await;
+        let get = |id: &str| presence.iter().find(|(n, _)| n == id).map(|(_, online)| *online);
+        assert_eq!(get(&peer_id.to_string()), Some(true), "fresh record ⇒ recently online");
+        assert_eq!(get(&unseen_id.to_string()), Some(false), "no record ⇒ offline");
+        assert_eq!(get("junk"), Some(false), "unparseable id ⇒ offline, not an error");
     }
 }

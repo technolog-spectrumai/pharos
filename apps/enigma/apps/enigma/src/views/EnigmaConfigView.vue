@@ -547,6 +547,7 @@ async function clearSelectedOfflineData() {
           type="button"
           role="switch"
           :aria-checked="dhtDiscovery"
+          :aria-label="$t('config.dhtDiscovery')"
           :class="dhtDiscovery ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
           class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
           @click="toggleDhtDiscovery"
