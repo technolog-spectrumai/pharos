@@ -8,12 +8,13 @@
 // Flow (host H offers a file to recipient R, both in the same p2p room):
 //   H picks a file → file_offer_create → { offerId, addr, name, size, mime }
 //   H → file_offer{offerId, target: R, addr, name, size, mime}   (the invite, addressed to R)
-//   R shows it (Files modal, auto-opened) → accept/decline
+//   R shows it (Files tab; the nav marks it with a dot) → accept/decline
 //   R accept  → pick a save location → file_download(addr, offerId, dest) → streams to disk
 //   R decline → file_decline{offerId}
 //   Progress on both sides arrives via the `file://*` backend events.
 
 import { ref } from "vue";
+import { getMaxFileSizeMb } from "rakotis";
 import type { ChatChannel } from "rakotis";
 
 export type FileShareState =
@@ -41,6 +42,12 @@ interface OfferCreated {
   name: string;
   size: number;
   mime: string;
+}
+
+/** The Settings "max file size" guard (0 = unlimited): bytes over the limit, or 0. */
+async function overSizeLimitMb(sizeBytes: number): Promise<number> {
+  const maxMb = await getMaxFileSizeMb();
+  return maxMb > 0 && sizeBytes > maxMb * 1024 * 1024 ? maxMb : 0;
 }
 
 export function useFileShare(channel: ChatChannel) {
@@ -112,6 +119,13 @@ export function useFileShare(channel: ChatChannel) {
       const path = await open({ multiple: false, directory: false });
       if (typeof path !== "string" || !path) return; // user cancelled
       const meta = await _invoke<OfferCreated>("file_offer_create", { path });
+      const limitMb = await overSizeLimitMb(meta.size);
+      if (limitMb) {
+        void _invoke("file_offer_cancel", { offerId: meta.offer_id }).catch(() => {});
+        error.value = `File exceeds the ${limitMb} MB limit (Settings).`;
+        state.value = "error";
+        return;
+      }
       reset();
       myOfferId = meta.offer_id;
       peerName.value = target.name;
@@ -175,10 +189,19 @@ export function useFileShare(channel: ChatChannel) {
     if (!type.startsWith("file_")) return; // not ours (data sync owns `sync_*`)
     const offerId = payload.offerId as string;
     switch (type) {
-      case "file_offer":
+      case "file_offer": {
         // Recipient side: only act if addressed to us (multi-party rooms broadcast).
         if (payload.target && payload.target !== channel.mlsIdentity.value) return;
         if (state.value === "offering" || state.value === "transferring") return; // busy
+        // Settings guard: auto-decline offers over the max file size (the sender
+        // sees a decline; we surface why locally).
+        const limitMb = await overSizeLimitMb((payload.size as number) ?? 0);
+        if (limitMb) {
+          try { await channel.sendSync("file_decline", { offerId }); } catch { /* ignore */ }
+          error.value = `Declined "${(payload.name as string) ?? "a file"}" — over the ${limitMb} MB limit (Settings).`;
+          state.value = "error";
+          return;
+        }
         void ensureListeners();
         incomingOfferId = offerId;
         incomingAddr = (payload.addr as string) ?? "";
@@ -189,6 +212,7 @@ export function useFileShare(channel: ChatChannel) {
         progress.value = 0;
         state.value = "incoming";
         break;
+      }
       case "file_accept":
         // Host side: the peer accepted; the inbound QUIC connection + progress events
         // take it from here. Reflect the state change immediately.

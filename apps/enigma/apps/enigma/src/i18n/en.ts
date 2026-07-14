@@ -1,6 +1,7 @@
 export default {
   nav: {
     chat: "Chat",
+    files: "Files",
     myProfile: "My Profile",
     settings: "Settings",
     data: "Data",
@@ -48,6 +49,8 @@ export default {
     stableOnionOffHint: "Off — the .onion changes each restart, so peers must re-pair with a fresh QR. Nothing onion-related is kept on disk.",
     connectTimeout: "Connection timeout",
     connectTimeoutHint: "Seconds a room create / join may take before giving up; the join window then stays another interval so you can read the outcome (total 2×). Tor onions routinely need 30–90 s.",
+    maxFileSize: "Max file size",
+    maxFileSizeHint: "Largest file (MB) you allow over P2P file transfer — bigger sends are blocked and bigger incoming offers are declined automatically. 0 = no limit.",
     resetPass: "Reset passphrase",
     resetPassHint: "Change the passphrase that encrypts this device's data. Your data is preserved.",
     currentPass: "Current passphrase",
@@ -118,6 +121,7 @@ export default {
     title: "Share a file",
     desktopOnly: "File sharing is available in the desktop app only.",
     needP2p: "File transfer needs an active, encrypted peer-to-peer room.",
+    goToChat: "Open the chat",
     aPeer: "A peer",
     wantsToSend: "wants to send you a file",
     decline: "Decline",

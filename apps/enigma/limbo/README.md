@@ -16,11 +16,12 @@ Parked here, restorable later:
 | `frontend/voxPanel.test.ts` | `apps/enigma/tests/component/voxPanel.test.ts` | |
 
 To restore a feature: move the files back, re-add the `mod`/`invoke_handler`
-entries in `lib.rs`, re-`manage()` its state, re-add its Cargo deps, and re-add the
-UI mount (the tab bar is gone — mount as a header-button + `OyaModal` in
-`ChatPanel.vue`) + the store wiring in `stores/chat.ts`.
+entries in `lib.rs`, re-`manage()` its state, re-add its Cargo deps, and mount the
+UI as its own route/view + nav entry (`router/index.ts` + `App.vue`) + the store
+wiring in `stores/chat.ts`.
 
 **Restored so far:** file transfer (2026-07) — `file_xfer.rs`, `FilePanel.vue`,
 `useFileShare.ts` went back as `apps/enigma/src-tauri/src/file_xfer.rs` +
-`apps/enigma/src/components/chat/{FilePanel.vue,useFileShare.ts}` (Files modal in
-the chat header; commands gated on airplane mode and Tor-exclusive mode).
+`apps/enigma/src/components/chat/{FilePanel.vue,useFileShare.ts}`, surfaced as the
+Files tab (`EnigmaFilesView.vue`, route `/files`); commands gated on airplane mode
+and Tor-exclusive mode, with a max-file-size guard in Settings.

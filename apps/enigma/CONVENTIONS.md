@@ -32,8 +32,8 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
 - App components are PascalCase, **no** prefix, grouped by feature folder
   (`components/chat/`), and carry a type suffix: `*Modal`, `*Chip`, `*Panel`, `*Bar`,
   `*Row`, `*Sidebar`, `*Drawer`, `*List`.
-- Route views are `Enigma<Domain>View` (`EnigmaChatView`, `EnigmaConfigView`,
-  `EnigmaProfileView`). Stores are lowercase domain files (`chat.ts`, `user.ts`).
+- Route views are `Enigma<Domain>View` (`EnigmaChatView`, `EnigmaFilesView`,
+  `EnigmaConfigView`, `EnigmaProfileView`). Stores are lowercase domain files (`chat.ts`, `user.ts`).
   Composables are `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,

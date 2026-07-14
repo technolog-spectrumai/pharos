@@ -1,6 +1,7 @@
 export default {
   nav: {
     chat: "Czat",
+    files: "Pliki",
     myProfile: "Mój profil",
     settings: "Ustawienia",
     data: "Dane",
@@ -48,6 +49,8 @@ export default {
     stableOnionOffHint: "Wył. — adres .onion zmienia się przy każdym uruchomieniu, więc trzeba się sparować od nowa nowym QR. Nic związanego z onion nie jest zapisywane na dysku.",
     connectTimeout: "Limit czasu połączenia",
     connectTimeoutHint: "Ile sekund może trwać tworzenie / dołączanie do pokoju, zanim zgłosi błąd; okno dołączania zostaje potem jeszcze jeden interwał, aby dało się przeczytać wynik (łącznie 2×). Usługi onion przez Tor potrzebują zwykle 30–90 s.",
+    maxFileSize: "Maksymalny rozmiar pliku",
+    maxFileSizeHint: "Największy plik (MB) dozwolony w transferze P2P — większe wysyłki są blokowane, a większe przychodzące oferty automatycznie odrzucane. 0 = bez limitu.",
     resetPass: "Zmień hasło",
     resetPassHint: "Zmień hasło szyfrujące dane tego urządzenia. Twoje dane zostaną zachowane.",
     currentPass: "Obecne hasło",
@@ -118,6 +121,7 @@ export default {
     title: "Udostępnij plik",
     desktopOnly: "Udostępnianie plików działa tylko w aplikacji desktopowej.",
     needP2p: "Przesyłanie plików wymaga aktywnego, zaszyfrowanego pokoju peer-to-peer.",
+    goToChat: "Otwórz czat",
     aPeer: "Ktoś",
     wantsToSend: "chce wysłać Ci plik",
     decline: "Odrzuć",

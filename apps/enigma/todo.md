@@ -113,18 +113,22 @@ used `load_or_create_secret` — the endpoint is deliberately ephemeral), plus
 offline/Tor gating (iroh-only feature, so it's blocked in Tor-exclusive mode)
 and a `shutdown()` hook wired into airplane mode / Tor switch / profile swap.
 Frontend went to `apps/enigma/src/components/chat/{FilePanel.vue,useFileShare.ts}`
-(feature-folder convention; the old tab UI is gone — the panel is now an
-`OyaModal` opened from a Files button in `ChatHeader.vue`, auto-opened on an
-incoming offer). Signaling still rides the p2p channel's MLS group via the
-`onSync`/`sendSync` seam in rakotis. Unit tests: `tests/unit/fileShare.test.ts`.
+(feature-folder convention), surfaced as a dedicated **Files tab**
+(`EnigmaFilesView.vue`, route `/files`) alongside Chat and Settings; the nav link
+shows a pulsing dot while an incoming offer waits. A **max file size** setting
+(Settings → "Max file size", MB, 0 = unlimited, stored in the encrypted kv as
+`p2p:settings/max_file_size_mb`) is enforced by `useFileShare` on both sides:
+oversized sends are blocked, oversized incoming offers are auto-declined.
+Signaling still rides the p2p channel's MLS group via the `onSync`/`sendSync`
+seam in rakotis. Unit tests: `tests/unit/fileShare.test.ts`.
 
 ### How to restore a parked feature
 1. Move the files back to their original locations (table above).
 2. Re-add the `mod` + `invoke_handler` entries in `apps/enigma/src-tauri/src/lib.rs`.
 3. `manage()` its state in `lib.rs`.
 4. Re-add its removed Cargo deps (e.g. `chacha20poly1305`, `rustfft` for Vox).
-5. Mount the UI (the tab bar is gone — use a header button + `OyaModal` in
-   `ChatPanel.vue`, like the restored file transfer) and wire the store in
-   `stores/chat.ts`.
+5. Mount the UI as its own route/view + nav entry (an `Enigma<Domain>View` in
+   `router/index.ts` and `App.vue`, like the restored file transfer's Files tab)
+   and wire the store in `stores/chat.ts`.
 6. Gate any networked commands on airplane mode, and on Tor-exclusive mode if the
    feature is iroh-only (see `file_xfer.rs::check_network_policy`).

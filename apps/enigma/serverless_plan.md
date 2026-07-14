@@ -21,8 +21,8 @@ and for the follow-up work that was deliberately deferred.
   carries a `.onion`. Full breakdown in [tor.md](tor.md).
 - **Remove Aurora and Enigma+** (the sibling apps) entirely.
 - **Park voice calls + file transfer** in `limbo/` (unlinked, restorable).
-  File transfer was restored in 2026-07 (Files modal in the chat header,
-  offline/Tor-gated); Vox remains parked.
+  File transfer was restored in 2026-07 (Files tab alongside Chat/Settings,
+  offline/Tor-gated, max-size guard in Settings); Vox remains parked.
 
 ## Decisions
 

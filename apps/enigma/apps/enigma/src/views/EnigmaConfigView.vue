@@ -21,6 +21,10 @@ import {
   setConnectTimeoutSecs,
   CONNECT_TIMEOUT_MIN_SECS,
   CONNECT_TIMEOUT_MAX_SECS,
+  getMaxFileSizeMb,
+  setMaxFileSizeMb,
+  MAX_FILE_SIZE_MIN_MB,
+  MAX_FILE_SIZE_MAX_MB,
   vaultChangePassphrase,
   cleanTorKeystore,
   type AppRuntimeConfig,
@@ -116,6 +120,16 @@ async function saveConnectTimeout() {
   setTimeout(() => { connectTimeoutSaved.value = false; }, 1500);
 }
 
+// ── Max file-transfer size (0 = unlimited) ─────────────────────────────────────
+const maxFileSizeMb = ref(0);
+const maxFileSizeSaved = ref(false);
+async function saveMaxFileSize() {
+  // setMaxFileSizeMb clamps to [min, max] and returns the stored value.
+  maxFileSizeMb.value = await setMaxFileSizeMb(Number(maxFileSizeMb.value));
+  maxFileSizeSaved.value = true;
+  setTimeout(() => { maxFileSizeSaved.value = false; }, 1500);
+}
+
 // ── Reset passphrase modal ───────────────────────────────────────────────────
 const showResetPass = ref(false);
 const resetCurrent = ref("");
@@ -154,6 +168,7 @@ onMounted(async () => {
   useTor.value = await getUseTor();
   stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
+  maxFileSizeMb.value = await getMaxFileSizeMb();
   await loadOfflineData();
   void loadNodeId();
 });
@@ -462,6 +477,37 @@ async function clearSelectedOfflineData() {
           />
           <span class="text-xs opacity-60">s</span>
           <span v-if="connectTimeoutSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Max file-transfer size — local guard on P2P file sharing (both directions);
+         0 disables the limit. Enforced by useFileShare, not the backend. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.maxFileSize') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="file-arrow-up" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.maxFileSize') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.maxFileSizeHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="maxFileSizeMb"
+            type="number"
+            :min="MAX_FILE_SIZE_MIN_MB"
+            :max="MAX_FILE_SIZE_MAX_MB"
+            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveMaxFileSize"
+            @keyup.enter="saveMaxFileSize"
+          />
+          <span class="text-xs opacity-60">MB</span>
+          <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
     </OyaCard>

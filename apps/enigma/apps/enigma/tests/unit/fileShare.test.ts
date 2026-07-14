@@ -231,6 +231,16 @@ describe("useFileShare — recipient side", () => {
     expect(share.state.value).toBe("idle");
   });
 
+  it("a huge offer is still shown when no limit is set (0 = unlimited)", async () => {
+    const { channel, emitSync } = makeChannel();
+    const share = useFileShare(channel);
+
+    emitSync("file_offer", { ...incomingOffer, size: 10 * 1024 * 1024 * 1024 });
+    await flush();
+
+    expect(share.state.value).toBe("incoming");
+  });
+
   it("a busy host ignores a new incoming offer", async () => {
     const { channel, emitSync } = makeChannel();
     const share = useFileShare(channel);
@@ -244,5 +254,68 @@ describe("useFileShare — recipient side", () => {
 
     expect(share.state.value).toBe("offering");
     expect(share.fileName.value).toBe("report.pdf");
+  });
+});
+
+describe("useFileShare — max file size guard (Settings)", () => {
+  // The guard reads Settings via rakotis' getMaxFileSizeMb() → kv_get on the
+  // encrypted store, which lands on the same invoke mock ("1" = 1 MB limit).
+  const TWO_MB = 2 * 1024 * 1024;
+
+  it("blocks sending a file over the limit and forgets the offer", async () => {
+    const { channel, stub } = makeChannel();
+    const share = useFileShare(channel);
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "file_offer_create"
+        ? { ...OFFER_META, size: TWO_MB }
+        : cmd === "kv_get"
+          ? "1"
+          : undefined,
+    );
+
+    await share.offer({ id: "bob-device", name: "bob" });
+    await flush(); // the cancel is fire-and-forget behind a lazy import
+
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toContain("1 MB");
+    expect(stub.sendSync).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledWith("file_offer_cancel", { offerId: "offer-1" });
+  });
+
+  it("auto-declines an incoming offer over the limit", async () => {
+    const { channel, stub, emitSync } = makeChannel();
+    const share = useFileShare(channel);
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "1" : undefined));
+
+    emitSync("file_offer", {
+      offerId: "offer-9",
+      target: "alice-device",
+      addr: "peer-addr",
+      name: "movie.mp4",
+      size: TWO_MB,
+      fromName: "bob",
+    });
+    await flush();
+
+    expect(stub.sendSync).toHaveBeenCalledWith("file_decline", { offerId: "offer-9" });
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toContain("1 MB");
+  });
+
+  it("allows a file exactly at the limit", async () => {
+    const { channel, stub } = makeChannel();
+    const share = useFileShare(channel);
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "file_offer_create"
+        ? { ...OFFER_META, size: 1024 * 1024 }
+        : cmd === "kv_get"
+          ? "1"
+          : undefined,
+    );
+
+    await share.offer({ id: "bob-device", name: "bob" });
+
+    expect(share.state.value).toBe("offering");
+    expect(stub.sendSync).toHaveBeenCalledWith("file_offer", expect.objectContaining({ offerId: "offer-1" }));
   });
 });

@@ -1,13 +1,16 @@
 <script setup lang="ts">
-// P2P file-transfer UI (restored from limbo/, reworked from a full tab into the
-// Files modal content hosted by ChatPanel). All state lives in the chat store's
-// `fileShare` singleton, so transfers keep running while the modal is closed.
+// P2P file-transfer UI (restored from limbo/) — the full surface of the Files tab
+// (EnigmaFilesView). All state lives in the chat store's `fileShare` singleton, so
+// transfers keep running while the user is on another tab; the App nav marks the
+// Files tab with a dot when an offer is waiting.
 import { computed } from "vue";
+import { useRouter } from "vue-router";
 import { useChatStore } from "../../stores/chat";
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
 
+const router = useRouter();
 const chat = useChatStore();
 const p2p = chat.p2p;
 const file = chat.fileShare;
@@ -30,14 +33,16 @@ function fmtSize(bytes: number): string {
 </script>
 
 <template>
-  <div class="flex w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-primary-bg-light dark:bg-primary-bg-dark">
+  <div
+    class="flex h-full w-full flex-col overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
+  >
     <!-- Header -->
     <div class="flex items-center gap-2 border-b border-current/10 p-4">
       <font-awesome-icon icon="file-arrow-down" class="text-accent-light dark:text-accent-dark" />
       <h2 class="text-lg font-bold">{{ $t('fileShare.title') }}</h2>
     </div>
 
-    <div class="flex max-h-[70vh] flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center">
+    <div class="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center">
       <!-- Desktop-only -->
       <template v-if="!_isTauri()">
         <font-awesome-icon icon="desktop" class="text-3xl opacity-30" />
@@ -48,6 +53,10 @@ function fmtSize(bytes: number): string {
       <template v-else-if="!ready">
         <font-awesome-icon icon="circle-nodes" class="text-3xl opacity-30" />
         <p class="text-sm opacity-60">{{ $t('fileShare.needP2p') }}</p>
+        <button
+          class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-80"
+          @click="router.push('/chat')"
+        >{{ $t('fileShare.goToChat') }}</button>
       </template>
 
       <!-- Incoming offer (recipient) -->

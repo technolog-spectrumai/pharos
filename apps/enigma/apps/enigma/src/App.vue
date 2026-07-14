@@ -91,6 +91,9 @@ watch(displayName, (name) => {
   if (name) chatStore.p2p.currentUserName.value = name;
 }, { immediate: true });
 
+// Files tab attention dot: an incoming file offer is waiting for accept/decline.
+const fileShare = chatStore.fileShare;
+
 // Close menu on navigation
 watch(() => route.path, () => {
   menuOpen.value = false;
@@ -169,6 +172,15 @@ watch(() => route.path, () => {
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
           </RouterLink>
+          <RouterLink to="/files" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.files')">
+            <font-awesome-icon icon="file-arrow-up" />
+            {{ $t('nav.files') }}
+            <span
+              v-if="fileShare.state.value === 'incoming'"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+              :title="$t('fileShare.wantsToSend')"
+            />
+          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -214,6 +226,14 @@ watch(() => route.path, () => {
           <RouterLink to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}
+          </RouterLink>
+          <RouterLink to="/files" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="file-arrow-up" class="w-4 text-center" />
+            {{ $t('nav.files') }}
+            <span
+              v-if="fileShare.state.value === 'incoming'"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+            />
           </RouterLink>
           <RouterLink
             to="/config"

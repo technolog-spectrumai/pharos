@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from "vue";
-import { OyaModal } from "rakotis";
 import type { ChatChannel } from "rakotis";
-import { useChatStore } from "../stores/chat";
 import { useP2pRooms } from "./chat/useP2pRooms";
 import ChatHeader from "./chat/ChatHeader.vue";
-import FilePanel from "./chat/FilePanel.vue";
 import ObserverBanner from "./chat/ObserverBanner.vue";
 import RoomStatusBar from "./chat/RoomStatusBar.vue";
 import MessageList from "./chat/MessageList.vue";
@@ -29,15 +26,6 @@ const { createOpen, joinOpen, infoOpen, deleteOpen } = p2p;
 const sidebarOpen = ref(false);
 const scanning = ref(false);
 
-// P2P file transfer: the fileShare singleton lives in the chat store (so offers
-// arrive while the modal is closed); this panel only owns the modal visibility.
-// An incoming offer auto-opens the modal, call-style.
-const { fileShare } = useChatStore();
-const filesOpen = ref(false);
-watch(fileShare.state, (s) => {
-  if (s === "incoming") filesOpen.value = true;
-});
-
 onMounted(() => channel.loadP2pRooms());
 watch(currentRoom, () => (sidebarOpen.value = false));
 </script>
@@ -60,7 +48,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <section
       class="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
-      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" @open-files="filesOpen = true" />
+      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" />
       <ObserverBanner v-if="currentRoom && !isParticipant" :channel="channel" />
       <div
         v-if="currentRoom && isParticipant"
@@ -106,11 +94,6 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     />
     <RoomInfoModal v-model:open="infoOpen" :controller="p2p" />
     <DeleteRoomModal v-model:open="deleteOpen" :controller="p2p" />
-
-    <!-- P2P file transfer (offer / accept / progress) -->
-    <OyaModal v-model:open="filesOpen">
-      <FilePanel />
-    </OyaModal>
 
     <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->
     <MobileRoomsDrawer v-model:open="sidebarOpen" :channel="channel" :controller="p2p" />
