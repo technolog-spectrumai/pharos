@@ -9,35 +9,38 @@ plus every feature **parked in [limbo/](limbo/README.md)**. Sources of truth:
 
 ## Staged for later (deferred TODOs)
 
-### 1. ⭐ `rotor_wasm` → toto artifact handoff (MOST IMPORTANT)
-CryptoRotor now lives **only** inside this repo at [cryptorotor/](cryptorotor/)
+### 1. ✅ `rotor_wasm` → toto static handoff (DONE 2026-07-14, telegraph scope)
+CryptoRotor lives **only** inside this repo at [cryptorotor/](cryptorotor/)
 (crates `rotor_core`, `rotor_py`, `rotor_wasm`) — enigma is the single source of
-truth. But **toto** still builds `rotor_wasm` from its own in-tree copy
-`toto/rotors/`, which is slated for removal. Goal: **enigma CI builds `rotor_wasm`
-and publishes it as an artifact; toto consumes that artifact** instead of building
-`toto/rotors/`.
+truth. Toto's Django telegraph chat now consumes a **static, committed copy** of
+the wasm instead of compiling its own `toto/rotors/` copy in Docker. **No GitLab
+anywhere in toto's path** (decided during implementation — the original
+"toto pulls enigma CI artifacts" design was dropped: enigma's GitLab project is
+private and toto lives on GitHub).
 
-**Enigma CI job to add** (recipe preserved from the dropped
-`cryptorotor/.gitlab-ci.yml` `build:wasm` job; or run `python3 cryptorotor/compile.py --tauri …`):
-- `rustup target add wasm32-unknown-unknown`; install `wasm-pack`.
-- In `cryptorotor/rotor_wasm/`: `wasm-pack build --target web --out-dir build_web`
-  **and** `wasm-pack build --target bundler --out-dir build`.
-- Publish `cryptorotor/rotor_wasm/build_web/` (web) + `cryptorotor/rotor_wasm/build/`
-  (bundler) as CI artifacts; attach to tag/release pipelines, built at the exact
-  enigma commit shipping that crate revision. (Deps are already wasm-ready:
-  `wasm-bindgen =0.2.100`, `js-sys =0.3.77`, `getrandom` `features=["js"]`, and
-  `rotor_core` uses `openmls` `features=["js"]`.)
+**Implemented — enigma side:**
+- [cryptorotor/build_wasm.sh](cryptorotor/build_wasm.sh) — one-click WASM build
+  (`web` → `rotor_wasm/build_web/`, `bundler` → `rotor_wasm/build/`).
+- `.gitlab-ci.yml` `rotor:wasm` job runs that same script on every branch/tag
+  pipeline as a build gate; publishes both packages as artifacts (30 days) with a
+  `COMMIT` provenance stamp. **Enigma-side only** — toto does not fetch them.
 
-**toto touchpoints to repoint** (in the toto repo, once the enigma artifact exists):
-- `toto/portal/deploy/Dockerfile` + `toto/faros/deploy/Dockerfile` — currently
-  `wasm-pack --target web` from `toto/rotors/` into
-  `toto/toto/telegraph/static/js/rotor_wasm/`; fetch enigma's **web** artifact instead.
-- `toto/edge/apps/*` — consume the **bundler** package via a `file:` npm dep on
-  `toto/rotors/rotor_wasm/build`; repoint to enigma's **bundler** artifact.
-- Delete `toto/rotors/` once nothing in toto builds from it.
+**Implemented — toto side (telegraph/HTML use only):**
+- Deploy config YAMLs carry a **required** top-level `rotor_wasm_dir:` prop
+  pointing at the local `build_web/` output (e.g. this checkout's
+  `cryptorotor/rotor_wasm/build_web`).
+- `portal/scripts/deploy.py` `sync_rotor_wasm()` copies it into
+  `toto/toto/telegraph/static/js/rotor_wasm/` on `up`/`push` (fails loud if the
+  path is missing/unbuilt); the files are **tracked in toto's git**, so plain
+  checkouts and images work without an enigma checkout.
+- Both Dockerfiles dropped the `rust:1-slim` rotor-wasm build stage — the wasm
+  rides in with `COPY toto/`.
 
-> Not implemented yet — this records the design. The CI wasm job is the concrete
-> next step.
+**Still open (out of scope for this item):**
+- `toto/edge/apps/*` still build from `toto/rotors/` (npm `file:` dep on
+  `rotor_wasm/build` **and** `rotor-core` Rust path deps in each `src-tauri`), so
+  **`toto/rotors/` cannot be deleted yet** — repointing edge (or retiring it in
+  favor of this repo's app) is a separate decision.
 
 ### 2. ✅ `onion-p2p` — peer-to-peer over Tor (DONE)
 **Implemented.** `p2p_tor.rs` hosts a per-profile hidden service via arti's

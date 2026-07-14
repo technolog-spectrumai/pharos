@@ -2,8 +2,9 @@
 
 > **Vendored inside the [enigma](../README.md) repo.** This directory is a self-contained
 > nested cargo workspace and the single source of truth for the crypto layer. enigma
-> consumes `rotor-core` by **path** (no GitLab access needed to build). Publishing
-> `rotor_wasm` as an artifact for the toto project is the top item in [todo.md](../todo.md).
+> consumes `rotor-core` by **path** (no GitLab access needed to build). The toto
+> project vendors a static copy of the `rotor_wasm` build produced by
+> [build_wasm.sh](build_wasm.sh) — see [todo.md](../todo.md) #1.
 
 CryptoRotor is the canonical home of **Rotor** — a small, reusable [MLS](https://www.rfc-editor.org/rfc/rfc9420)
 (Messaging Layer Security) engine built on [OpenMLS](https://github.com/openmls/openmls).
@@ -22,7 +23,8 @@ Rotor owns MLS cryptography and OpenMLS integration only. Application concerns
 | `rotor-wasm` | [rotor_wasm/](rotor_wasm/) | wasm-bindgen bindings (`WasmRotorSession`), built with wasm-pack (`web` and `bundler` targets). |
 | `rotor-py` | [rotor_py/](rotor_py/) | PyO3 bindings (`rotor_py.RotorEngine`), built with maturin. |
 
-`compile.py` orchestrates all builds and tests.
+`compile.py` orchestrates all builds and tests; `build_wasm.sh` is the one-click
+WASM-only build (the `rotor:wasm` CI job runs the same script).
 
 ## Build & test
 
@@ -33,10 +35,12 @@ python3 compile.py
 # Also build the bundler-target WASM package (rotor_wasm/build/)
 python3 compile.py --tauri
 
+# WASM only — web (rotor_wasm/build_web/) + bundler (rotor_wasm/build/)
+./build_wasm.sh              # or: ./build_wasm.sh web|bundler
+
 # Individual pieces
 cargo test -p rotor-core --locked          # Rust unit tests
 cd rotor_py && maturin develop && pytest -q test   # Python bindings + tests
-cd rotor_wasm && wasm-pack build --target web --out-dir build_web
 ```
 
 Prerequisites: Rust (with the `wasm32-unknown-unknown` target), `wasm-pack`,
@@ -53,15 +57,16 @@ Now that Rotor is vendored, consumers use it **by path**, not over git:
   rotor-core = { path = "../../../cryptorotor/rotor_core" }
   ```
 
-- **WASM consumers** (toto's Django telegraph chat + the toto/edge apps) use
-  `rotor_wasm`. Build it at the enigma commit you want, then consume the output:
+- **WASM consumers** use `rotor_wasm`. Build it at the enigma commit you want,
+  then consume the output as static files:
   ```bash
-  cd rotor_wasm
-  wasm-pack build --target web     --out-dir build_web   # browser: <script> / dynamic import()
-  wasm-pack build --target bundler --out-dir build       # Vite / webpack bundlers
+  ./build_wasm.sh    # build_web/ (web: <script>/dynamic import) + build/ (bundler)
   ```
-  Delivering these as a published **enigma CI artifact** (so toto stops building its
-  own `toto/rotors/` copy) is the **top item** in [todo.md](../todo.md).
+  **toto's Django telegraph chat** does exactly this: its `deploy.py` copies the
+  `build_web/` package from a `rotor_wasm_dir` config-yaml prop (pointing at this
+  checkout) into its tracked telegraph static dir — no GitLab involved. The
+  `rotor:wasm` CI job runs the same script as a build gate and attaches the output
+  to pipelines/tags for provenance only.
 
 - **Python consumers** use `rotor-py` via maturin (`cd rotor_py && maturin develop`).
 
