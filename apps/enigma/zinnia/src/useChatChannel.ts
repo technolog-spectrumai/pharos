@@ -211,9 +211,10 @@ export function useChatChannel() {
   // ── Data-sync seam ───────────────────────────────────────────────────────────
   // External orchestrators ride this channel's MLS group by registering an `onSync`
   // handler and sending via `sendSync`. Routed inner-message families: `sync_*`
-  // (full-data pull) and `file_*` (P2P file transfer offer/accept signaling —
-  // consumed by `useFileShare` in the app). Each handler ignores the prefixes it
-  // does not own.
+  // (full-data pull), `file_*` (P2P file transfer offer/accept signaling —
+  // consumed by `useFileShare` in the app) and `meeting_*` (meeting invite/RSVP
+  // signaling — consumed by `useMeetings` in the app). Each handler ignores the
+  // prefixes it does not own.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
@@ -532,7 +533,7 @@ export function useChatChannel() {
             void handleRoomClosed();
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_"))) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_"))) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
@@ -967,6 +968,13 @@ export function useChatChannel() {
 
   function clearUnread() { unread.value = 0; }
 
+  /** Post a local system_info line into the chat log (e.g. "X invited you to a
+   *  meeting"). Local-only — nothing is sent; sync orchestrators use this to
+   *  leave a human-readable trace of signaling they consumed. */
+  function postSystemNotice(content: string) {
+    messages.value.push(systemMsg(content));
+  }
+
   return {
     currentRoom, messages, participants,
     wsStatus, error, isConnected, unread, clearUnread,
@@ -978,7 +986,7 @@ export function useChatChannel() {
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
     cancelJoin, deleteRoom,
     ensureNode,
-    onSync, sendSync,
+    onSync, sendSync, postSystemNotice,
   };
 }
 
