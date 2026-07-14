@@ -103,3 +103,23 @@ export async function dhtRoomCode(room: string, name: string): Promise<string | 
     return null;
   }
 }
+
+export interface NickClaim {
+  node_id: string;
+  /** The display form the claimant published — a CLAIM, not verified identity. */
+  name: string;
+  /** Unix seconds when the claim was last published. */
+  ts: number;
+}
+
+/** Search the DHT nickname directory. Every result is a claim (anyone can
+ *  publish any name) — the UI must show NodeId fingerprints. Requires the DHT
+ *  toggle; errors and the browser fallback resolve to []. */
+export async function dhtFindNick(nick: string): Promise<NickClaim[]> {
+  if (!isTauri() || !nick.trim()) return [];
+  try {
+    return await invoke<NickClaim[]>("dht_find_nick", { nick });
+  } catch {
+    return [];
+  }
+}

@@ -15,10 +15,16 @@
 //    publishes each node's pkarr record under its own EndpointId roughly every
 //    hour. "Recently online" = that record's timestamp is fresh. Verified
 //    against iroh 0.98.2 source: salt is None, seq is pkarr µs-since-epoch.
+// 3. Nickname directory: an opt-in "findable as ‹nick›" record under a key
+//    derived STATICALLY from the normalized nickname (no rotation — lookups
+//    must always land). Sealed like room records, so only someone searching
+//    that exact name can read it. A serverless namespace has no registry:
+//    results are CLAIMS (any client can publish any name) — the UI shows the
+//    NodeId fingerprint and the invite handshake authenticates later.
 //
 // The DHT only introduces transport connections — MLS still gates membership.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -61,6 +67,19 @@ fn room_publish_secs(app: &AppHandle) -> u64 {
 /// the rendezvous resolver keeps retrying after a ticketless join.
 pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
     setting_secs(app, "connect_timeout_secs", 60, 5, 600)
+}
+
+/// Opt-in "findable by nickname" toggle (Contacts tab). Default off.
+pub fn nick_publish_enabled(app: &AppHandle) -> bool {
+    crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_nick_publish").as_deref()
+        == Some("on")
+}
+
+/// The user's public nickname (display form). Empty/missing ⇒ nothing publishes.
+pub fn nickname(app: &AppHandle) -> String {
+    crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_nickname")
+        .map(|n| n.trim().to_string())
+        .unwrap_or_default()
 }
 
 // ── protocol constants (spec: dht.md) ───────────────────────────────────────────
@@ -153,24 +172,32 @@ struct Record {
     ts: u64,
 }
 
-fn encode_record(enc_key: &[u8; 32], record: &Record) -> Option<Vec<u8>> {
-    let plaintext = postcard::to_stdvec(record).ok()?;
+/// Seal a plaintext for the DHT: random 12-byte nonce ‖ ChaCha20-Poly1305.
+/// Shared by room rendezvous records and nickname-directory records.
+fn seal(enc_key: &[u8; 32], plaintext: &[u8]) -> Option<Vec<u8>> {
     let cipher = ChaCha20Poly1305::new(Key::from_slice(enc_key));
     let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-    let sealed = cipher.encrypt(&nonce, plaintext.as_slice()).ok()?;
+    let sealed = cipher.encrypt(&nonce, plaintext).ok()?;
     let mut value = nonce.to_vec();
     value.extend_from_slice(&sealed);
     Some(value)
 }
 
-fn decode_record(enc_key: &[u8; 32], value: &[u8]) -> Option<Record> {
+fn open(enc_key: &[u8; 32], value: &[u8]) -> Option<Vec<u8>> {
     if value.len() < 12 {
         return None;
     }
     let (nonce, sealed) = value.split_at(12);
     let cipher = ChaCha20Poly1305::new(Key::from_slice(enc_key));
-    let plaintext = cipher.decrypt(Nonce::from_slice(nonce), sealed).ok()?;
-    let record: Record = postcard::from_bytes(&plaintext).ok()?;
+    cipher.decrypt(Nonce::from_slice(nonce), sealed).ok()
+}
+
+fn encode_record(enc_key: &[u8; 32], record: &Record) -> Option<Vec<u8>> {
+    seal(enc_key, &postcard::to_stdvec(record).ok()?)
+}
+
+fn decode_record(enc_key: &[u8; 32], value: &[u8]) -> Option<Record> {
+    let record: Record = postcard::from_bytes(&open(enc_key, value)?).ok()?;
     (record.v == RECORD_VERSION).then_some(record)
 }
 
@@ -334,6 +361,134 @@ pub fn spawn_room_publisher(
     })
 }
 
+// ── nickname directory ("find people" — see dht.md) ─────────────────────────────
+
+/// BEP44 salt for nickname records — domain-separates them from room records.
+const NICK_SALT: &[u8] = b"enigma-nick-v1";
+/// Claimed display names are capped so a record can never approach the BEP44
+/// value limit (and so the UI stays sane).
+const NICK_NAME_MAX_CHARS: usize = 64;
+
+/// The lookup key: exact spelling matters (documented in the UI), but case and
+/// surrounding whitespace don't. Mirrored by the frontend's trim/toLowerCase.
+pub fn normalize_nick(nick: &str) -> String {
+    nick.trim().to_lowercase()
+}
+
+/// STATIC derivation (unlike hourly room keys): a nickname must resolve for as
+/// long as its owner keeps publishing. Anyone who knows the name derives the
+/// same keypair — multi-writer claims, exactly like the room rendezvous.
+fn derive_nick_signing_key(normalized: &str) -> SigningKey {
+    SigningKey::from_bytes(&blake3::derive_key("enigma/dht/nick-sign/v1", normalized.as_bytes()))
+}
+
+fn derive_nick_enc_key(normalized: &str) -> [u8; 32] {
+    blake3::derive_key("enigma/dht/nick-enc/v1", normalized.as_bytes())
+}
+
+/// A nickname claim: "this NodeId answers to this name". Sealed with the
+/// nick-derived key, so only someone searching this exact name can read it.
+#[derive(Serialize, Deserialize)]
+struct NickRecord {
+    v: u8,
+    node_id: [u8; 32],
+    /// Display form as the owner typed it (the lookup key is the normalized form).
+    name: String,
+    ts: u64,
+}
+
+fn encode_nick_record(enc_key: &[u8; 32], record: &NickRecord) -> Option<Vec<u8>> {
+    let mut capped = NickRecord {
+        v: record.v,
+        node_id: record.node_id,
+        name: record.name.clone(),
+        ts: record.ts,
+    };
+    if capped.name.chars().count() > NICK_NAME_MAX_CHARS {
+        capped.name = capped.name.chars().take(NICK_NAME_MAX_CHARS).collect();
+    }
+    seal(enc_key, &postcard::to_stdvec(&capped).ok()?)
+}
+
+fn decode_nick_record(enc_key: &[u8; 32], value: &[u8]) -> Option<NickRecord> {
+    let record: NickRecord = postcard::from_bytes(&open(enc_key, value)?).ok()?;
+    (record.v == RECORD_VERSION && record.name.chars().count() <= NICK_NAME_MAX_CHARS)
+        .then_some(record)
+}
+
+impl DhtHandle {
+    /// Search the nickname directory: every fresh claim on `nick`, deduped by
+    /// NodeId (keeping each claimant's freshest record). Results are CLAIMS —
+    /// the caller shows fingerprints; nothing here implies verified identity.
+    pub async fn find_nick(&self, nick: &str) -> Vec<(EndpointId, String, u64)> {
+        let normalized = normalize_nick(nick);
+        if normalized.is_empty() {
+            return Vec::new();
+        }
+        let signing = derive_nick_signing_key(&normalized);
+        let enc = derive_nick_enc_key(&normalized);
+        let public_key = signing.verifying_key().to_bytes();
+        let now = now_secs();
+
+        let mut freshest: HashMap<[u8; 32], NickRecord> = HashMap::new();
+        let mut stream = self.dht.get_mutable(&public_key, Some(NICK_SALT), None);
+        while let Some(item) = stream.next().await {
+            let Some(record) = decode_nick_record(&enc, item.value()) else { continue };
+            if now.saturating_sub(record.ts) > RECORD_FRESH_SECS {
+                continue;
+            }
+            match freshest.get(&record.node_id) {
+                Some(existing) if existing.ts >= record.ts => {}
+                _ => {
+                    freshest.insert(record.node_id, record);
+                }
+            }
+        }
+        let mut claims: Vec<(EndpointId, String, u64)> = freshest
+            .into_values()
+            .filter_map(|r| Some((EndpointId::from_bytes(&r.node_id).ok()?, r.name, r.ts)))
+            .collect();
+        // Freshest claim first — a stable order for the results list.
+        claims.sort_by(|a, b| b.2.cmp(&a.2));
+        claims
+    }
+}
+
+/// Keep this node findable by nickname: publish the claim now and then every
+/// announce interval while the node runs. Settings are re-read every round, so
+/// renames apply on the next round and turning the toggle off stops publishing
+/// without a rebind (the record then ages out of the DHT in ~1–2 h).
+pub fn spawn_nick_publisher(
+    app: AppHandle,
+    dht: AsyncDht,
+    self_id: EndpointId,
+) -> tauri::async_runtime::JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let name = nickname(&app);
+            if nick_publish_enabled(&app) && !name.is_empty() {
+                let normalized = normalize_nick(&name);
+                let enc = derive_nick_enc_key(&normalized);
+                let now = now_secs();
+                let record =
+                    NickRecord { v: RECORD_VERSION, node_id: *self_id.as_bytes(), name, ts: now };
+                if let Some(value) = encode_nick_record(&enc, &record) {
+                    let item = MutableItem::new(
+                        derive_nick_signing_key(&normalized),
+                        &value,
+                        now as i64,
+                        Some(NICK_SALT),
+                    );
+                    // Non-fatal like every DHT publish; next round retries.
+                    let _ = dht.put_mutable(item, None).await;
+                }
+            }
+            let base = room_publish_secs(&app);
+            tokio::time::sleep(Duration::from_secs(jittered(base))).await;
+        }
+    })
+}
+
 /// ±20 % jitter so a room's members don't stampede the rendezvous in sync.
 /// Derived from the clock's sub-second noise — no rand dependency needed.
 fn jittered(base: u64) -> u64 {
@@ -433,6 +588,61 @@ mod tests {
         assert!(read_at - published_at <= RECORD_FRESH_SECS);
     }
 
+    #[test]
+    fn nick_normalization_folds_case_and_whitespace_only() {
+        assert_eq!(normalize_nick("  Alice-Dev "), "alice-dev");
+        assert_eq!(normalize_nick("ŻÓŁW"), "żółw"); // Unicode-aware lowercase
+        assert_ne!(normalize_nick("alice"), normalize_nick("alicę")); // spelling matters
+        assert_eq!(normalize_nick("   "), "");
+    }
+
+    #[test]
+    fn nick_record_round_trips_only_with_the_right_name() {
+        let enc = derive_nick_enc_key("alice-dev");
+        let record = NickRecord {
+            v: RECORD_VERSION,
+            node_id: [3u8; 32],
+            name: "Alice-Dev".into(),
+            ts: 777,
+        };
+        let value = encode_nick_record(&enc, &record).expect("encode");
+        let decoded = decode_nick_record(&enc, &value).expect("decode");
+        assert_eq!(decoded.node_id, [3u8; 32]);
+        assert_eq!(decoded.name, "Alice-Dev");
+
+        // Searching a different name derives a different key ⇒ unreadable.
+        let wrong = derive_nick_enc_key("alice");
+        assert!(decode_nick_record(&wrong, &value).is_none());
+        assert!(decode_nick_record(&enc, b"garbage").is_none());
+    }
+
+    #[test]
+    fn nick_claims_are_capped_and_stay_under_bep44() {
+        let enc = derive_nick_enc_key("x");
+        let record = NickRecord {
+            v: RECORD_VERSION,
+            node_id: [1u8; 32],
+            name: "n".repeat(500),
+            ts: 1,
+        };
+        let value = encode_nick_record(&enc, &record).expect("encode");
+        assert!(value.len() < 1000, "BEP44 caps values at 1000 B, got {}", value.len());
+        let decoded = decode_nick_record(&enc, &value).expect("decode");
+        assert_eq!(decoded.name.chars().count(), NICK_NAME_MAX_CHARS);
+    }
+
+    #[test]
+    fn nick_keys_never_collide_with_room_keys() {
+        // A room secret that happens to equal a nickname's bytes must still
+        // derive different DHT targets (separate derivation contexts + salts).
+        let nick_pk = derive_nick_signing_key("aaaa").verifying_key().to_bytes();
+        let mut secret = [0u8; 32];
+        secret[..4].copy_from_slice(b"aaaa");
+        let room_pk = derive_signing_key(&secret, 0).verifying_key().to_bytes();
+        assert_ne!(nick_pk, room_pk);
+        assert_ne!(NICK_SALT, RENDEZVOUS_SALT);
+    }
+
     // ── e2e over a local Kademlia testnet (no public DHT, no network) ────────────
     //
     // `mainline::Testnet` spins up an in-process DHT swarm on loopback; these
@@ -505,6 +715,72 @@ mod tests {
 
         let found = handle.resolve_room_peers(&secret, None).await;
         assert!(found.is_empty(), "stale records must not resolve");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn nickname_search_round_trips_over_a_local_testnet() {
+        let testnet = mainline::Testnet::new(8).expect("spawn testnet");
+        let publisher = testnet_handle(&testnet);
+        let searcher = testnet_handle(&testnet);
+
+        let owner_id = iroh::SecretKey::generate().public();
+        let normalized = normalize_nick(" Alice-Dev ");
+        let now = now_secs();
+        let record = NickRecord {
+            v: RECORD_VERSION,
+            node_id: *owner_id.as_bytes(),
+            name: "Alice-Dev".into(),
+            ts: now,
+        };
+        let value =
+            encode_nick_record(&derive_nick_enc_key(&normalized), &record).expect("encode");
+        let item = MutableItem::new(
+            derive_nick_signing_key(&normalized),
+            &value,
+            now as i64,
+            Some(NICK_SALT),
+        );
+        publisher.dht.put_mutable(item, None).await.expect("publish nick claim");
+
+        // Search normalizes too: differently-cased/spaced input finds the claim.
+        let claims = searcher.find_nick("alice-dev").await;
+        assert!(
+            claims.iter().any(|(id, name, _)| *id == owner_id && name == "Alice-Dev"),
+            "searcher should find the published claim"
+        );
+
+        // A different name derives a different key — nothing there.
+        assert!(searcher.find_nick("alice").await.is_empty());
+        assert!(searcher.find_nick("   ").await.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stale_nickname_claims_are_ignored() {
+        let testnet = mainline::Testnet::new(8).expect("spawn testnet");
+        let handle = testnet_handle(&testnet);
+
+        let owner_id = iroh::SecretKey::generate().public();
+        let normalized = normalize_nick("ghost");
+        let now = now_secs();
+        // Valid key/signature, but the claim's own timestamp is long past the
+        // freshness window — an owner that stopped publishing.
+        let record = NickRecord {
+            v: RECORD_VERSION,
+            node_id: *owner_id.as_bytes(),
+            name: "ghost".into(),
+            ts: now - RECORD_FRESH_SECS - 60,
+        };
+        let value =
+            encode_nick_record(&derive_nick_enc_key(&normalized), &record).expect("encode");
+        let item = MutableItem::new(
+            derive_nick_signing_key(&normalized),
+            &value,
+            now as i64,
+            Some(NICK_SALT),
+        );
+        handle.dht.put_mutable(item, None).await.expect("publish stale claim");
+
+        assert!(handle.find_nick("ghost").await.is_empty(), "stale claims must not resolve");
     }
 
     #[tokio::test(flavor = "multi_thread")]

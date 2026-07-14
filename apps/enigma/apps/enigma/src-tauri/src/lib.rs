@@ -1123,6 +1123,7 @@ pub fn run() {
             realtime::dht_presence,
             realtime::dht_room_code,
             realtime::dht_apply,
+            realtime::dht_find_nick,
             realtime::invite_send,
             p2p_invite::invite_respond,
             file_xfer::file_offer_create,

@@ -20,10 +20,18 @@ import {
   removeContact,
   touchContact,
   dhtPresence,
+  dhtFindNick,
   getDhtDiscovery,
   getDhtPresencePollSecs,
+  getDhtNickPublish,
+  setDhtNickPublish,
+  getDhtNickname,
+  setDhtNickname,
+  DHT_NICKNAME_MAX_LEN,
+  invoke,
   type ContactEntry,
   type P2pRoomEntry,
+  type NickClaim,
 } from "rakotis";
 import { useChatStore } from "../stores/chat";
 
@@ -66,6 +74,8 @@ let presenceTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(async () => {
   contacts.value = await listContacts();
   dhtOn.value = await getDhtDiscovery();
+  nickPublish.value = await getDhtNickPublish();
+  nickname.value = await getDhtNickname();
   void loadMyNodeId();
   await chatStore.p2p.loadP2pRooms();
   if (dhtOn.value) {
@@ -80,6 +90,52 @@ onUnmounted(() => {
 
 function lastSeenLabel(c: ContactEntry): string {
   return c.lastSeen ? new Date(c.lastSeen).toLocaleString() : "";
+}
+
+// ── My nickname (opt-in "findable as ‹nick›" claim on the DHT directory) ──────
+const nickPublish = ref(false);
+const nickname = ref("");
+const nickSaved = ref(false);
+async function saveNickSettings() {
+  nickname.value = await setDhtNickname(nickname.value);
+  await setDhtNickPublish(nickPublish.value && !!nickname.value);
+  nickPublish.value = nickPublish.value && !!nickname.value;
+  // Rebind the node so the claim publishes (or stops) immediately instead of
+  // waiting for the next announce round — same UX as the DHT toggle.
+  await invoke("dht_apply").catch(() => {});
+  nickSaved.value = true;
+  setTimeout(() => { nickSaved.value = false; }, 1500);
+}
+async function toggleNickPublish() {
+  nickPublish.value = !nickPublish.value;
+  await saveNickSettings();
+}
+
+// ── Find people (nickname search — results are CLAIMS, not identities) ────────
+const searchNick = ref("");
+const searching = ref(false);
+const searched = ref(false); // a search completed → "no results" is meaningful
+const searchResults = ref<NickClaim[]>([]);
+async function findPeople() {
+  const nick = searchNick.value.trim();
+  if (!nick || searching.value || !dhtOn.value) return;
+  searching.value = true;
+  searched.value = false;
+  try {
+    searchResults.value = await dhtFindNick(nick);
+    searched.value = true;
+  } finally {
+    searching.value = false;
+  }
+}
+const contactIds = computed(() => new Set(contacts.value.map((c) => c.nodeId)));
+async function addFromSearch(claim: NickClaim) {
+  contacts.value = await upsertContact({
+    nodeId: claim.node_id,
+    name: claim.name || claim.node_id.slice(0, 8),
+    addedAt: Date.now(),
+  });
+  void refreshPresence();
 }
 
 // ── Add contact ────────────────────────────────────────────────────────────────
@@ -249,6 +305,113 @@ async function acceptIncoming() {
       <OyaButton v-else :dark-mode="darkMode" variant="secondary" @click="loadMyNodeId">
         <font-awesome-icon icon="circle-nodes" />{{ $t('config.showNodeId') }}
       </OyaButton>
+
+      <!-- Findable by nickname: an opt-in claim on the DHT directory -->
+      <div class="space-y-3 border-t border-current/10 pt-4">
+        <div class="flex items-center gap-3">
+          <font-awesome-icon
+            icon="magnifying-glass"
+            :class="nickPublish ? 'text-accent-dark' : 'opacity-60'"
+            class="shrink-0"
+          />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold">{{ $t('contacts.nickPublish') }}</p>
+            <p class="text-xs opacity-60">
+              {{ dhtOn ? $t('contacts.nickPublishHint') : $t('contacts.findNeedsDht') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="nickPublish"
+            :aria-label="$t('contacts.nickPublish')"
+            :class="[
+              nickPublish ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2',
+              !dhtOn ? 'pointer-events-none opacity-50' : '',
+            ]"
+            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+            @click="toggleNickPublish"
+          >
+            <span
+              :class="nickPublish ? 'translate-x-6' : 'translate-x-1'"
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+            />
+          </button>
+        </div>
+        <div v-if="dhtOn" class="flex items-center gap-2">
+          <input
+            v-model="nickname"
+            type="text"
+            :maxlength="DHT_NICKNAME_MAX_LEN"
+            :placeholder="$t('contacts.nickPlaceholder')"
+            class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-3 py-1.5 text-sm"
+            @change="saveNickSettings"
+            @keyup.enter="saveNickSettings"
+          />
+          <span v-if="nickSaved" class="shrink-0 text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Find people — nickname search on the DHT directory -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('contacts.findPeople') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">
+          {{ dhtOn ? $t('contacts.findHint') : $t('contacts.findNeedsDht') }}
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <input
+          v-model="searchNick"
+          type="text"
+          :maxlength="DHT_NICKNAME_MAX_LEN"
+          :placeholder="$t('contacts.findPlaceholder')"
+          :disabled="!dhtOn"
+          class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-3 py-1.5 text-sm disabled:opacity-50"
+          @keyup.enter="findPeople"
+        />
+        <OyaButton
+          :dark-mode="darkMode"
+          variant="secondary"
+          :class="{ 'pointer-events-none opacity-50': !dhtOn || searching || !searchNick.trim() }"
+          @click="findPeople"
+        >
+          <font-awesome-icon :icon="searching ? 'spinner' : 'magnifying-glass'" :spin="searching" />
+          {{ searching ? $t('contacts.searching') : $t('contacts.find') }}
+        </OyaButton>
+      </div>
+
+      <p v-if="searched && searchResults.length === 0" class="py-2 text-center text-sm opacity-60">
+        {{ $t('contacts.noResults') }}
+      </p>
+      <ul v-else-if="searchResults.length" class="divide-y divide-current/10">
+        <li v-for="claim in searchResults" :key="claim.node_id" class="flex items-center gap-3 py-3">
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-semibold">
+              {{ claim.name }}
+              <span
+                v-if="claim.node_id === myNodeId"
+                class="ml-1 rounded-full border border-current/20 px-1.5 text-[10px] uppercase opacity-60"
+              >{{ $t('contacts.youBadge') }}</span>
+            </p>
+            <p class="truncate font-mono text-[11px] opacity-50">{{ claim.node_id }}</p>
+          </div>
+          <span v-if="contactIds.has(claim.node_id)" class="shrink-0 text-xs text-success-dark">
+            <font-awesome-icon icon="check" /> {{ $t('contacts.addedBadge') }}
+          </span>
+          <button
+            v-else-if="claim.node_id !== myNodeId"
+            type="button"
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-semibold transition hover:opacity-80"
+            @click="addFromSearch(claim)"
+          >
+            <font-awesome-icon icon="plus" /> {{ $t('contacts.add') }}
+          </button>
+        </li>
+      </ul>
     </OyaCard>
 
     <!-- Saved contacts -->

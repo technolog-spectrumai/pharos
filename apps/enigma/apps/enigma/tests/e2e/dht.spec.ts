@@ -44,7 +44,9 @@ test.describe("Contacts tab", () => {
     await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
     await expect(page.getByText("No contacts yet", { exact: false })).toBeVisible();
     // DHT off ⇒ the presence hint points at Settings instead of showing dots.
-    await expect(page.getByText("Enable DHT discovery in Settings", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("Enable DHT discovery in Settings to see who's recently online."),
+    ).toBeVisible();
   });
 
   test("adds, renames, deletes a contact — persisted locally", async ({ page }) => {
@@ -82,6 +84,38 @@ test.describe("Contacts tab", () => {
     await page.getByPlaceholder("Paste a contact code (node ID)").fill("not-a-node-id");
     await page.getByRole("button", { name: "Add contact" }).last().click();
     await expect(page.getByText("That doesn't look like a contact code.")).toBeVisible();
+  });
+
+  test("find people: search is gated on the DHT toggle, then usable with honest claim copy", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "Contacts" }).first().click();
+
+    // DHT off ⇒ search disabled with the pointer at Settings; publish toggle inert.
+    await expect(page.getByPlaceholder("Search a nickname (exact spelling)")).toBeDisabled();
+    await expect(
+      page.getByText("Enable DHT discovery in Settings", { exact: false }).first(),
+    ).toBeVisible();
+
+    // Turn DHT on in Settings, come back.
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await page.getByRole("switch", { name: "DHT discovery" }).click();
+    await page.getByRole("link", { name: "Contacts" }).first().click();
+
+    const search = page.getByPlaceholder("Search a nickname (exact spelling)");
+    await expect(search).toBeEnabled();
+    // Honest-claims warning is shown with the search.
+    await expect(page.getByText("Results are claims, not verified identities", { exact: false })).toBeVisible();
+    // In the browser shell the search degrades to no results (no Tauri runtime).
+    await search.fill("alice-dev");
+    await page.getByRole("button", { name: "Search" }).click();
+    await expect(page.getByText("No one is currently publishing that nickname.")).toBeVisible();
+
+    // My-nickname field persists across reload (kv → localStorage fallback).
+    await page.getByPlaceholder("Your public nickname").fill("Alice-Dev");
+    await page.getByPlaceholder("Your public nickname").press("Enter");
+    await page.reload();
+    await page.getByRole("link", { name: "Contacts" }).first().click();
+    await expect(page.getByPlaceholder("Your public nickname")).toHaveValue("Alice-Dev");
   });
 
   test("direct invite: contact row opens the room picker (empty in the browser shell)", async ({ page }) => {

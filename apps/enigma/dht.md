@@ -102,6 +102,35 @@ item      = MutableItem::new(signing_key, value, seq = unix_seconds, salt)
 - Encryption hides room membership (NodeIds) from DHT observers; the derived
   signing key means only secret-holders can write records storage nodes accept.
 
+### Nickname directory (Contacts "Find people")
+
+An opt-in, serverless *name → NodeId* directory. The user sets a public
+nickname and a "findable" toggle (Contacts tab; kv `dht_nick_publish` /
+`dht_nickname`, default off); while the app runs with DHT on, a claim record
+is announced every `dht_room_publish_secs`.
+
+```
+normalized  = nick.trim().to_lowercase()          (exact spelling is the key)
+signing_key = ed25519 from blake3::derive_key("enigma/dht/nick-sign/v1", normalized)
+enc_key     =              blake3::derive_key("enigma/dht/nick-enc/v1",  normalized)
+salt        = b"enigma-nick-v1"
+plaintext   = postcard{ v:1, node_id, name (display form, ≤64 chars), ts }
+```
+
+Unlike room keys, nickname keys are **static** — lookups must always land;
+freshness comes from `ts` (claims older than the 2 h window are ignored) and
+BEP44 expiry (~1–2 h), so **you are findable only while the app is publishing**.
+Records are sealed with the nick-derived key: a DHT crawler can't harvest the
+directory — you must already know the name you're searching.
+
+**Claims, not identities.** A serverless namespace has no registry: anyone can
+publish any name. Search results therefore list every fresh claimant with its
+NodeId fingerprint, deduped per NodeId (freshest kept); verification is
+out-of-band (compare codes) and the direct-invite handshake authenticates the
+NodeId cryptographically anyway. Known limitation: colliding claimants race on
+BEP44 `seq` per storage node, so a heavily-squatted name may shadow some
+claimants — an accepted property of the honest-claims model.
+
 ### Presence (Contacts)
 
 iroh's `DhtAddressLookup` already publishes every enabled node's pkarr record

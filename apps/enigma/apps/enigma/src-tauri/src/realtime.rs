@@ -289,6 +289,29 @@ pub async fn dht_presence(
         .collect::<Vec<_>>()))
 }
 
+/// Search the DHT nickname directory (Contacts "Find people"). Results are
+/// CLAIMS — anyone can publish any name; the UI shows NodeId fingerprints.
+#[tauri::command]
+pub async fn dht_find_nick(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
+    nick: String,
+) -> Result<serde_json::Value, String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    // Tor is exclusive: the search would lazily start the iroh node.
+    if use_tor(&app, &config) {
+        return Err("Nickname search is unavailable while Tor mode is on.".to_string());
+    }
+    let claims = p2p_iroh::dht_find_nick(&app, &p2p, &nick).await.map_err(|e| e.to_string())?;
+    Ok(json!(claims
+        .into_iter()
+        .map(|(node_id, name, ts)| json!({ "node_id": node_id, "name": name, "ts": ts }))
+        .collect::<Vec<_>>()))
+}
+
 /// Mint/show the ticketless-join code for an open room (e.g. rooms created
 /// before the toggle). `None` while DHT discovery is off.
 #[tauri::command]

@@ -49,6 +49,10 @@ pub struct Node {
     /// Mainline rendezvous/presence node — `Some` only while the Settings DHT
     /// discovery toggle is on (read at bind time; `dht_apply` rebinds).
     dht: Option<crate::p2p_dht::DhtHandle>,
+    /// "Findable by nickname" announcer — runs whenever the DHT is on (each
+    /// round no-ops unless the opt-in toggle is on and a nickname is set, so
+    /// renames/toggles apply without a rebind). Aborted in `shutdown`.
+    nick_publisher: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 struct RoomHandle {
@@ -199,6 +203,9 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     // Rendezvous/presence node. A bind failure here is non-fatal — chat still
     // works via ticket + n0; `dht_status` then reports unreachable.
     let dht = if dht_enabled { crate::p2p_dht::DhtHandle::new().ok() } else { None };
+    let nick_publisher = dht.as_ref().map(|handle| {
+        crate::p2p_dht::spawn_nick_publisher(app.clone(), handle.clone_dht(), endpoint.id())
+    });
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
     let gossip = Gossip::builder()
@@ -221,6 +228,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         _router: router,
         rooms: HashMap::new(),
         dht,
+        nick_publisher,
     });
     Ok(())
 }
@@ -474,6 +482,9 @@ pub async fn join_room_by_node(
 pub async fn shutdown(app: &AppHandle, state: &P2pState) {
     let mut guard = state.0.lock().await;
     if let Some(mut node) = guard.take() {
+        if let Some(publisher) = &node.nick_publisher {
+            publisher.abort();
+        }
         let rooms: Vec<String> = node.rooms.keys().cloned().collect();
         for (_, handle) in node.rooms.drain() {
             handle.task.abort();
@@ -577,6 +588,24 @@ pub async fn dht_presence(
     let dht = { state.0.lock().await.as_ref().and_then(|n| n.dht.clone()) }
         .ok_or_else(|| anyhow!("DHT discovery is off"))?;
     Ok(dht.presence(node_ids).await)
+}
+
+/// Nickname-directory search (Contacts "Find people"). Returns every fresh
+/// CLAIM on the name — `(node_id, claimed display name, ts)` — freshest first.
+pub async fn dht_find_nick(
+    app: &AppHandle,
+    state: &P2pState,
+    nick: &str,
+) -> Result<Vec<(String, String, u64)>> {
+    ensure_started(app, state).await?;
+    let dht = { state.0.lock().await.as_ref().and_then(|n| n.dht.clone()) }
+        .ok_or_else(|| anyhow!("DHT discovery is off"))?;
+    Ok(dht
+        .find_nick(nick)
+        .await
+        .into_iter()
+        .map(|(id, name, ts)| (id.to_string(), name, ts))
+        .collect())
 }
 
 /// Mint (or re-surface) the ticketless-join code for a saved room — lets rooms
