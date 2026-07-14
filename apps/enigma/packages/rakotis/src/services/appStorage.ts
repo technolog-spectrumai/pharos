@@ -150,6 +150,101 @@ export async function setMaxFileSizeMb(mb: number, defaultMb: number = MAX_FILE_
   return v;
 }
 
+// ── DHT discovery (Mainline/Kademlia rendezvous + presence — see dht.md) ───────
+// Opt-in, default off. On → the iroh endpoint additionally publishes/resolves
+// addresses on the public BitTorrent DHT (server-free), rooms get a ticketless
+// join code, and Contacts presence works. Rust reads the same kv keys directly.
+
+export async function getDhtDiscovery(): Promise<boolean> {
+  try {
+    return (await kvGet("p2p:settings", "default", "dht_discovery")) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export async function setDhtDiscovery(on: boolean): Promise<void> {
+  await kvPut("p2p:settings", "default", "dht_discovery", on ? "on" : "off").catch(() => {});
+}
+
+/** Apply a flipped DHT toggle: tears the iroh node down in Rust; the next room
+ *  command lazily re-binds with the new setting. */
+export async function applyDhtDiscovery(): Promise<void> {
+  if (isTauri()) await invoke("dht_apply").catch(() => {});
+}
+
+export interface DhtStatus {
+  enabled: boolean;
+  bootstrapped: boolean;
+}
+
+/** Status line for Settings/Contacts. `bootstrapped` needs the node started —
+ *  before the first room command it reads false even with the toggle on. */
+export async function getDhtStatus(): Promise<DhtStatus> {
+  if (isTauri()) {
+    try {
+      return await invoke<DhtStatus>("dht_status");
+    } catch {
+      /* fall through */
+    }
+  }
+  return { enabled: false, bootstrapped: false };
+}
+
+// How often an open room's rendezvous record is re-published (Rust re-reads this
+// every round) — lower finds code-joiners faster, higher saves battery/traffic.
+export const DHT_ROOM_PUBLISH_DEFAULT_SECS = 600;
+export const DHT_ROOM_PUBLISH_MIN_SECS = 60;
+export const DHT_ROOM_PUBLISH_MAX_SECS = 3600;
+
+export function clampDhtRoomPublishSecs(secs: number): number {
+  if (!Number.isFinite(secs)) return DHT_ROOM_PUBLISH_DEFAULT_SECS;
+  return Math.min(DHT_ROOM_PUBLISH_MAX_SECS, Math.max(DHT_ROOM_PUBLISH_MIN_SECS, Math.round(secs)));
+}
+
+export async function getDhtRoomPublishSecs(): Promise<number> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", "dht_room_publish_secs");
+    if (raw === null || raw === "") return DHT_ROOM_PUBLISH_DEFAULT_SECS;
+    return clampDhtRoomPublishSecs(Number(raw));
+  } catch {
+    return DHT_ROOM_PUBLISH_DEFAULT_SECS;
+  }
+}
+
+export async function setDhtRoomPublishSecs(secs: number): Promise<number> {
+  const v = clampDhtRoomPublishSecs(secs);
+  await kvPut("p2p:settings", "default", "dht_room_publish_secs", String(v)).catch(() => {});
+  return v;
+}
+
+// How often the Contacts view polls presence. Purely frontend-driven
+// (setInterval), so it suspends with the webview — battery-safe on Android.
+export const DHT_PRESENCE_POLL_DEFAULT_SECS = 300;
+export const DHT_PRESENCE_POLL_MIN_SECS = 60;
+export const DHT_PRESENCE_POLL_MAX_SECS = 3600;
+
+export function clampDhtPresencePollSecs(secs: number): number {
+  if (!Number.isFinite(secs)) return DHT_PRESENCE_POLL_DEFAULT_SECS;
+  return Math.min(DHT_PRESENCE_POLL_MAX_SECS, Math.max(DHT_PRESENCE_POLL_MIN_SECS, Math.round(secs)));
+}
+
+export async function getDhtPresencePollSecs(): Promise<number> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", "dht_presence_poll_secs");
+    if (raw === null || raw === "") return DHT_PRESENCE_POLL_DEFAULT_SECS;
+    return clampDhtPresencePollSecs(Number(raw));
+  } catch {
+    return DHT_PRESENCE_POLL_DEFAULT_SECS;
+  }
+}
+
+export async function setDhtPresencePollSecs(secs: number): Promise<number> {
+  const v = clampDhtPresencePollSecs(secs);
+  await kvPut("p2p:settings", "default", "dht_presence_poll_secs", String(v)).catch(() => {});
+  return v;
+}
+
 // ── Encryption-at-rest vault (Tauri only; browser fallback treats it unlocked) ─
 
 export async function vaultStatus(): Promise<VaultStatus> {

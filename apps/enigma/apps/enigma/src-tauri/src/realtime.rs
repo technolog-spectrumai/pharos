@@ -62,6 +62,9 @@ pub struct CreatedRoom {
     /// This member's own onion (Tor rooms) — announced over presence so peers can
     /// dial us if we're elected captain. Empty for iroh rooms.
     onion: String,
+    /// Ticketless-join room code (DHT rendezvous — dht.md). Empty while the DHT
+    /// discovery toggle is off, and for Tor rooms.
+    code: String,
 }
 
 #[derive(Serialize)]
@@ -83,13 +86,16 @@ pub async fn realtime_create_room(
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
-    let (room, ticket, onion) = if use_tor(&app, &config) {
-        p2p_tor::create_room(&app, &tor, name.clone()).await.map_err(|e| e.to_string())?
+    let (room, ticket, onion, code) = if use_tor(&app, &config) {
+        let (room, ticket, onion) =
+            p2p_tor::create_room(&app, &tor, name.clone()).await.map_err(|e| e.to_string())?;
+        (room, ticket, onion, String::new())
     } else {
-        let (room, ticket) = p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?;
-        (room, ticket, String::new())
+        let (room, ticket, code) =
+            p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?;
+        (room, ticket, String::new(), code.unwrap_or_default())
     };
-    Ok(CreatedRoom { room, name, ticket, onion })
+    Ok(CreatedRoom { room, name, ticket, onion, code })
 }
 
 /// Join by ticket. Routing is decided by the ticket itself (a Tor ticket is
@@ -107,7 +113,12 @@ pub async fn realtime_join_room(
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
-    let (room, name, onion) = if p2p_tor::ticket_is_tor(&ticket) {
+    let (room, name, onion) = if p2p_iroh::code_is_dht(&ticket) {
+        // DHT room code (ticketless join) — same field, routed by its tag byte.
+        let (room, name) =
+            p2p_iroh::join_room_by_code(&app, &p2p, ticket).await.map_err(|e| e.to_string())?;
+        (room, name, String::new())
+    } else if p2p_tor::ticket_is_tor(&ticket) {
         p2p_tor::join_room(&app, &tor, ticket, peer_node_ids.unwrap_or_default())
             .await
             .map_err(|e| e.to_string())?
@@ -200,6 +211,69 @@ pub async fn realtime_node_info(
         p2p_iroh::node_info(&app, &p2p).await.map_err(|e| e.to_string())?
     };
     Ok(json!({ "node_id": node_id }))
+}
+
+// ── DHT discovery commands (`dht_*` family — see dht.md) ────────────────────────
+
+#[derive(Serialize)]
+pub struct DhtStatus {
+    enabled: bool,
+    bootstrapped: bool,
+}
+
+/// Status line for Settings/Contacts: is the toggle on, and does our Mainline
+/// node have a live routing table. Read-only (does not start the node).
+#[tauri::command]
+pub async fn dht_status(
+    app: AppHandle,
+    p2p: State<'_, P2pState>,
+) -> Result<DhtStatus, String> {
+    let (enabled, bootstrapped) = p2p_iroh::dht_status(&app, &p2p).await;
+    Ok(DhtStatus { enabled, bootstrapped })
+}
+
+/// "Recently online" per contact NodeId (Contacts presence poll). Granularity is
+/// ~1 h — the cadence of the pkarr records DHT-enabled peers publish.
+#[tauri::command]
+pub async fn dht_presence(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
+    node_ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    let presence = p2p_iroh::dht_presence(&app, &p2p, node_ids).await.map_err(|e| e.to_string())?;
+    Ok(json!(presence
+        .into_iter()
+        .map(|(node_id, online)| json!({ "node_id": node_id, "online": online }))
+        .collect::<Vec<_>>()))
+}
+
+/// Mint/show the ticketless-join code for an open room (e.g. rooms created
+/// before the toggle). `None` while DHT discovery is off.
+#[tauri::command]
+pub async fn dht_room_code(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
+    room: String,
+    name: String,
+) -> Result<Option<String>, String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    p2p_iroh::dht_room_code(&app, &p2p, &room, &name).await.map_err(|e| e.to_string())
+}
+
+/// Apply a flipped DHT toggle: tear the iroh node down (same pattern as the
+/// airplane-mode switch); the next realtime command lazily re-binds with the
+/// new setting and rooms re-join through the reconnect machinery.
+#[tauri::command]
+pub async fn dht_apply(app: AppHandle, p2p: State<'_, P2pState>) -> Result<(), String> {
+    p2p_iroh::shutdown(&app, &p2p).await;
+    Ok(())
 }
 
 /// Re-point this member's outbound onion dial to the elected captain (Tor only).

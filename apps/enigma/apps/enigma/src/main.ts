@@ -12,6 +12,7 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 
 import {
+  faAddressBook,
   faArrowDown,
   faArrowLeft,
   faArrowUpRightFromSquare,
@@ -127,6 +128,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
+  faAddressBook,
   faArrowDown,
   faArrowLeft,
   faArrowUpRightFromSquare,

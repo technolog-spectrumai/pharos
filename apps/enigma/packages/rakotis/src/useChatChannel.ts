@@ -32,20 +32,30 @@ export interface P2pRoomEntry {
   tor?: boolean;
   /** Our own onion for this room (Tor) — announced over presence for election. */
   onion?: string;
+  /** Ticketless-join room code (DHT rendezvous — dht.md). Present when this room
+   *  was created/joined with DHT discovery on, or a code was minted for it. */
+  code?: string;
 }
 
 /** Tor tickets are base32(`0x54` ++ postcard) — a leading `0x54` ('T') byte marks
  *  them apart from iroh's tagless tickets (mirrors `p2p_tor::ticket_is_tor`). We
  *  decode just the first byte from the first two base32 chars. */
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
-export function isTorTicket(ticket: string): boolean {
+function firstTagByte(ticket: string): number {
   const s = ticket.trim().toLowerCase();
-  if (s.length < 2) return false;
+  if (s.length < 2) return -1;
   const a = B32.indexOf(s[0]);
   const b = B32.indexOf(s[1]);
-  if (a < 0 || b < 0) return false;
-  const firstByte = ((a << 3) | (b >> 2)) & 0xff;
-  return firstByte === 0x54;
+  if (a < 0 || b < 0) return -1;
+  return ((a << 3) | (b >> 2)) & 0xff;
+}
+export function isTorTicket(ticket: string): boolean {
+  return firstTagByte(ticket) === 0x54;
+}
+/** DHT room codes are base32(`0x44` ('D') ++ postcard) — the ticketless-join
+ *  credential (dht.md; mirrors `p2p_iroh::code_is_dht`). */
+export function isDhtCode(ticket: string): boolean {
+  return firstTagByte(ticket) === 0x44;
 }
 
 export type MlsStatus =
@@ -681,7 +691,10 @@ export function useChatChannel() {
     try {
       const res = await chatTransport.createRoom(name.trim());
       const tor = isTorTicket(res.ticket);
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: res.ticket, host: true, tor, onion: res.onion });
+      rememberP2pRoom({
+        room: res.room, name: res.name, ticket: res.ticket, host: true, tor,
+        onion: res.onion, ...(res.code ? { code: res.code } : {}),
+      });
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = tor;
       myOnion.value = res.onion;
@@ -703,7 +716,11 @@ export function useChatChannel() {
     try {
       const res = await chatTransport.joinRoom(ticket.trim());
       const tor = isTorTicket(ticket.trim());
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim(), tor, onion: res.onion });
+      // A DHT code join stores the code as the entry's "ticket" too — reopening
+      // by it routes back through the code path (tag-sniffed), which never goes
+      // stale the way a ticket's embedded addresses can.
+      const code = isDhtCode(ticket.trim()) ? { code: ticket.trim() } : {};
+      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim(), tor, onion: res.onion, ...code });
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = tor;
       myOnion.value = res.onion;

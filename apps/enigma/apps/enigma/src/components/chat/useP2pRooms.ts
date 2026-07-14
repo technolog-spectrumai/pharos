@@ -10,6 +10,7 @@ export function useP2pRooms(channel: ChatChannel) {
   const name = ref("");
   const ticket = ref("");
   const createdTicket = ref("");
+  const createdCode = ref(""); // ticketless-join room code — "" while DHT discovery is off
   const scanError = ref(""); // i18n key, "" when clear
 
   // ── Create modal ─────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ export function useP2pRooms(channel: ChatChannel) {
   function openCreate() {
     name.value = "";
     createdTicket.value = "";
+    createdCode.value = "";
     createError.value = "";
     createBusy.value = false;
     clearCreateTimer();
@@ -56,6 +58,9 @@ export function useP2pRooms(channel: ChatChannel) {
       clearCreateTimer();
       if (t) {
         createdTicket.value = t; // success wins, even after a timeout was shown
+        // The room code (ticketless join) rides the remembered entry.
+        createdCode.value =
+          channel.p2pRooms.value.find((r) => r.ticket === t)?.code ?? "";
         createError.value = "";
         name.value = "";
       } else if (!createError.value) {
@@ -274,6 +279,7 @@ export function useP2pRooms(channel: ChatChannel) {
     name,
     ticket,
     createdTicket,
+    createdCode,
     scanError,
     createOpen,
     createBusy,

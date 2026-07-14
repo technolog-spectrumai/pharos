@@ -10,6 +10,9 @@ use zeroize::Zeroize;
 
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
+// Mainline-DHT (Kademlia) rendezvous + presence — the opt-in server-free
+// discovery behind the Settings toggle (see dht.md).
+mod p2p_dht;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
@@ -1113,6 +1116,10 @@ pub fn run() {
             realtime::realtime_forget_tor_onion,
             realtime::realtime_node_info,
             realtime::realtime_tor_set_captain,
+            realtime::dht_status,
+            realtime::dht_presence,
+            realtime::dht_room_code,
+            realtime::dht_apply,
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,

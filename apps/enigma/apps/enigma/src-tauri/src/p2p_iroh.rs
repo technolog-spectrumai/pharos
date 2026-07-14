@@ -8,17 +8,25 @@
 // handshake + message protocol ride the gossip topic; any relay hop only ever
 // sees MLS ciphertext.
 //
+// With the opt-in DHT discovery toggle (dht.md), rooms are additionally joinable
+// ticketlessly from a `RoomCode` (name + rendezvous secret): member addresses
+// come from the Mainline DHT via p2p_dht.rs, and the same blake3 topic keeps
+// code-joiners, ticket-joiners and reconnects in one room.
+//
 // Emits `realtime://message` / `realtime://status` events (room-tagged), keeping
 // the frontend transport-agnostic.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures_lite::StreamExt;
 use iroh::{
-    address_lookup::memory::MemoryLookup, endpoint::presets, protocol::Router, Endpoint,
-    EndpointAddr, EndpointId, RelayMode, SecretKey,
+    address_lookup::{memory::MemoryLookup, pkarr::dht::DhtAddressLookup},
+    endpoint::presets,
+    protocol::Router,
+    Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey,
 };
 use iroh_gossip::{
     api::{Event, GossipReceiver, GossipSender},
@@ -38,6 +46,9 @@ pub struct Node {
     lookup: MemoryLookup,
     _router: Router,
     rooms: HashMap<String, RoomHandle>,
+    /// Mainline rendezvous/presence node — `Some` only while the Settings DHT
+    /// discovery toggle is on (read at bind time; `dht_apply` rebinds).
+    dht: Option<crate::p2p_dht::DhtHandle>,
 }
 
 struct RoomHandle {
@@ -45,6 +56,16 @@ struct RoomHandle {
     #[allow(dead_code)]
     name: String,
     task: tauri::async_runtime::JoinHandle<()>,
+    /// Live gossip neighbors, maintained by the receive loop. Read by the
+    /// rendezvous publisher (records advertise a few neighbors) and by the
+    /// resolver (stops once the room has a connection).
+    neighbors: Arc<StdMutex<HashSet<EndpointId>>>,
+    /// DHT rendezvous publisher — running only while this room is open AND the
+    /// room's secret exists (created rooms, code-joins, code-minted rooms).
+    publisher: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// DHT rendezvous reader retrying until the room has a neighbor (code joins
+    /// and reconnects); bounded by the user-set connect timeout.
+    resolver: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 // ── ticket ────────────────────────────────────────────────────────────────────
@@ -78,6 +99,47 @@ impl Ticket {
             _ => &bytes[..],
         };
         Ok(postcard::from_bytes(body)?)
+    }
+}
+
+// ── room code (ticketless join via DHT rendezvous — dht.md) ─────────────────────
+
+/// Leading tag byte on a DHT room code, joining the `IROH_TAG 0x49` /
+/// `TOR_TAG 0x54` family so the one join field routes any pasted/scanned code.
+const DHT_TAG: u8 = 0x44; // 'D'
+
+/// Ticketless-join credential: the room name (→ the SAME blake3 gossip topic
+/// ticket-joiners use) plus the rendezvous secret. No addresses embedded — those
+/// come from the DHT, so a code never goes stale the way a ticket's peers can.
+/// It is a bearer credential (see dht.md threat notes), like the ticket itself.
+#[derive(Serialize, Deserialize)]
+struct RoomCode {
+    name: String,
+    secret: [u8; 32],
+}
+
+impl RoomCode {
+    fn encode(&self) -> String {
+        let mut buf = vec![DHT_TAG];
+        buf.extend_from_slice(&postcard::to_stdvec(self).expect("postcard::to_stdvec is infallible"));
+        let mut text = data_encoding::BASE32_NOPAD.encode(&buf);
+        text.make_ascii_lowercase();
+        text
+    }
+    fn decode(s: &str) -> Result<Self> {
+        let bytes = data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes())?;
+        match bytes.split_first() {
+            Some((&DHT_TAG, body)) => Ok(postcard::from_bytes(body)?),
+            _ => Err(anyhow!("not a DHT room code")),
+        }
+    }
+}
+
+/// Tag sniff for the realtime router (mirrors `p2p_tor::ticket_is_tor`).
+pub fn code_is_dht(s: &str) -> bool {
+    match data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes()) {
+        Ok(bytes) => bytes.first() == Some(&DHT_TAG),
+        Err(_) => false,
     }
 }
 
@@ -117,17 +179,26 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     // contact handle across restarts (QR pairs once; reconnects go by NodeId).
     let secret = load_or_create_secret(app, "gossip")?;
     let lookup = MemoryLookup::new();
+    let dht_enabled = crate::p2p_dht::discovery_enabled(app);
     // presets::N0 keeps iroh's built-in n0 relay + discovery (pkarr/DNS): peers
     // publish their own addresses and NodeId-only dials resolve without any app
     // server. The QR ticket (EndpointAddr) is the bootstrap; discovery is the
     // auto-refresh when addresses change later.
-    let endpoint = Endpoint::builder(presets::N0)
+    let mut builder = Endpoint::builder(presets::N0)
         .secret_key(secret)
         .address_lookup(lookup.clone()) // ticket path (QR bootstrap)
-        .relay_mode(RelayMode::Default)
-        .bind()
-        .await
-        .map_err(|e| anyhow!("iroh bind failed: {e}"))?;
+        .relay_mode(RelayMode::Default);
+    if dht_enabled {
+        // Mainline-DHT address lookup stacked on n0 (lookups race in parallel):
+        // publishes our pkarr record to the DHT (relay addrs only, the privacy
+        // default) and resolves NodeIds server-free. Secret key is inherited
+        // from the endpoint by `into_address_lookup`.
+        builder = builder.address_lookup(DhtAddressLookup::builder());
+    }
+    let endpoint = builder.bind().await.map_err(|e| anyhow!("iroh bind failed: {e}"))?;
+    // Rendezvous/presence node. A bind failure here is non-fatal — chat still
+    // works via ticket + n0; `dht_status` then reports unreachable.
+    let dht = if dht_enabled { crate::p2p_dht::DhtHandle::new().ok() } else { None };
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
     let gossip = Gossip::builder()
@@ -142,35 +213,149 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         lookup,
         _router: router,
         rooms: HashMap::new(),
+        dht,
     });
     Ok(())
 }
 
-/// Open a room (we are the first member) and return `(room_id, ticket)`.
-pub async fn create_room(app: &AppHandle, state: &P2pState, name: String) -> Result<(String, String)> {
+/// Subscribe to a room's gossip topic and register its handle (idempotent).
+async fn open_room(
+    app: &AppHandle,
+    node: &mut Node,
+    topic: TopicId,
+    room: &str,
+    name: &str,
+    peer_ids: Vec<EndpointId>,
+) -> Result<()> {
+    if node.rooms.contains_key(room) {
+        return Ok(());
+    }
+    let (sender, receiver) = node
+        .gossip
+        .subscribe(topic, peer_ids)
+        .await
+        .map_err(|e| anyhow!("subscribe failed: {e}"))?
+        .split();
+    let neighbors = Arc::new(StdMutex::new(HashSet::new()));
+    let task = spawn_receiver(app.clone(), room.to_string(), receiver, neighbors.clone());
+    node.rooms.insert(
+        room.to_string(),
+        RoomHandle {
+            sender,
+            name: name.to_string(),
+            task,
+            neighbors,
+            publisher: None,
+            resolver: None,
+        },
+    );
+    Ok(())
+}
+
+/// Start the rendezvous publisher for an open room — no-op unless discovery is
+/// on AND the room's secret exists (i.e. this member can serve code-joiners).
+/// Idempotent; the task is aborted by `leave_room`/`shutdown`.
+fn start_publisher(app: &AppHandle, node: &mut Node, room: &str) {
+    let Some(dht) = node.dht.as_ref().map(|d| d.clone_dht()) else { return };
+    let Some(secret) = crate::p2p_dht::load_room_secret(app, room) else { return };
+    let self_id = node.endpoint.id();
+    if let Some(handle) = node.rooms.get_mut(room) {
+        if handle.publisher.is_none() {
+            handle.publisher = Some(crate::p2p_dht::spawn_room_publisher(
+                app.clone(),
+                dht,
+                secret,
+                self_id,
+                handle.neighbors.clone(),
+            ));
+        }
+    }
+}
+
+/// Keep reading the rendezvous until the room has a live neighbor, feeding found
+/// member NodeIds to gossip as extra bootstrap peers. Covers the race where the
+/// other side's record hasn't propagated yet at join time. No-op without the
+/// room secret / discovery.
+fn start_resolver(app: &AppHandle, node: &mut Node, room: &str) {
+    let Some(dht) = node.dht.clone() else { return };
+    let Some(secret) = crate::p2p_dht::load_room_secret(app, room) else { return };
+    let self_id = node.endpoint.id();
+    if let Some(handle) = node.rooms.get_mut(room) {
+        // Replace any previous attempt (a finished one gave up at its connect
+        // deadline; an aborted running one just restarts its window).
+        if let Some(old) = handle.resolver.take() {
+            old.abort();
+        }
+        handle.resolver = Some(spawn_rendezvous_resolver(
+            app.clone(),
+            dht,
+            secret,
+            self_id,
+            handle.sender.clone(),
+            handle.neighbors.clone(),
+        ));
+    }
+}
+
+fn spawn_rendezvous_resolver(
+    app: AppHandle,
+    dht: crate::p2p_dht::DhtHandle,
+    secret: [u8; 32],
+    self_id: EndpointId,
+    sender: GossipSender,
+    neighbors: Arc<StdMutex<HashSet<EndpointId>>>,
+) -> tauri::async_runtime::JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        // Deadline = the user-set connect timeout (the frontend's join window
+        // spans the same setting — never a hardcoded connect deadline).
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&app));
+        loop {
+            if neighbors.lock().map(|s| !s.is_empty()).unwrap_or(false) {
+                break;
+            }
+            let found = dht.resolve_room_peers(&secret, Some(self_id)).await;
+            if !found.is_empty() {
+                // Feeding known-but-unreached peers again is harmless; gossip
+                // dials the new ones and ignores active neighbors.
+                let _ = sender.join_peers(found).await;
+            }
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    })
+}
+
+/// Open a room (we are the first member) and return `(room_id, ticket, code)`.
+/// `code` is the ticketless-join room code — `None` while DHT discovery is off.
+pub async fn create_room(
+    app: &AppHandle,
+    state: &P2pState,
+    name: String,
+) -> Result<(String, String, Option<String>)> {
     ensure_started(app, state).await?;
     let topic = topic_for(&name);
     let room = topic.to_string();
 
     let mut guard = state.0.lock().await;
     let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
-    if !node.rooms.contains_key(&room) {
-        let (sender, receiver) = node
-            .gossip
-            .subscribe(topic, vec![])
-            .await
-            .map_err(|e| anyhow!("subscribe failed: {e}"))?
-            .split();
-        let task = spawn_receiver(app.clone(), room.clone(), receiver);
-        node.rooms.insert(room.clone(), RoomHandle { sender, name: name.clone(), task });
-    }
+    open_room(app, node, topic, &room, &name, vec![]).await?;
     let ticket = Ticket {
         topic,
-        name,
+        name: name.clone(),
         peers: vec![node.endpoint.addr()],
     }
     .encode();
-    Ok((room, ticket))
+    let code = if node.dht.is_some() {
+        let secret = crate::p2p_dht::load_or_create_room_secret(app, &room)?;
+        start_publisher(app, node, &room);
+        Some(RoomCode { name, secret }.encode())
+    } else {
+        None
+    };
+    Ok((room, ticket, code))
 }
 
 /// Join a room from a ticket and return `(room_id, name)`.
@@ -203,18 +388,50 @@ pub async fn join_room(
     for peer in &ticket.peers {
         node.lookup.add_endpoint_info(peer.clone());
     }
-    if !node.rooms.contains_key(&room) {
-        let (sender, receiver) = node
-            .gossip
-            .subscribe(topic, peer_ids)
-            .await
-            .map_err(|e| anyhow!("subscribe failed: {e}"))?
-            .split();
-        let task = spawn_receiver(app.clone(), room.clone(), receiver);
-        node.rooms
-            .insert(room.clone(), RoomHandle { sender, name: ticket.name.clone(), task });
-    }
+    open_room(app, node, topic, &room, &ticket.name, peer_ids).await?;
+    // No-op unless this room's rendezvous secret exists from an earlier
+    // create/code-join — then keep the room discoverable for code-joiners.
+    start_publisher(app, node, &room);
     Ok((room, ticket.name))
+}
+
+/// Ticketless join from a DHT room code (see dht.md): the code carries the room
+/// name + rendezvous secret; member addresses come from the Mainline DHT. The
+/// topic stays `blake3(name)`, so code-joiners land in the same room as
+/// ticket-joiners and reconnects.
+pub async fn join_room_by_code(
+    app: &AppHandle,
+    state: &P2pState,
+    code: String,
+) -> Result<(String, String)> {
+    ensure_started(app, state).await?;
+    let RoomCode { name, secret } =
+        RoomCode::decode(&code).map_err(|e| anyhow!("invalid room code: {e}"))?;
+    let topic = topic_for(&name);
+    let room = topic.to_string();
+
+    // Resolve OUTSIDE the state lock — a DHT lookup takes seconds and must not
+    // stall other realtime commands.
+    let (dht, self_id) = {
+        let guard = state.0.lock().await;
+        let node = guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?;
+        let dht = node.dht.clone().ok_or_else(|| {
+            anyhow!("DHT discovery is off — enable it in Settings to join by room code")
+        })?;
+        (dht, node.endpoint.id())
+    };
+    // Persist first: we are now a secret-holder and keep the room discoverable.
+    crate::p2p_dht::store_room_secret(app, &room, &secret)?;
+    let peer_ids = dht.resolve_room_peers(&secret, Some(self_id)).await;
+
+    let mut guard = state.0.lock().await;
+    let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
+    // An empty bootstrap is fine: subscribe anyway — our publisher makes US
+    // findable, and the resolver keeps looking until a neighbor appears.
+    open_room(app, node, topic, &room, &name, peer_ids).await?;
+    start_publisher(app, node, &room);
+    start_resolver(app, node, &room);
+    Ok((room, name))
 }
 
 /// Join a room by name, bootstrapping from peer NodeIds. Unlike `join_room`, no ticket
@@ -234,17 +451,12 @@ pub async fn join_room_by_node(
 
     let mut guard = state.0.lock().await;
     let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
-    if !node.rooms.contains_key(&room) {
-        let (sender, receiver) = node
-            .gossip
-            .subscribe(topic, peer_ids)
-            .await
-            .map_err(|e| anyhow!("subscribe failed: {e}"))?
-            .split();
-        let task = spawn_receiver(app.clone(), room.clone(), receiver);
-        node.rooms
-            .insert(room.clone(), RoomHandle { sender, name: name.clone(), task });
-    }
+    open_room(app, node, topic, &room, &name, peer_ids).await?;
+    // If this room has a rendezvous secret, publish + merge DHT-found members
+    // into the reconnect bootstrap (non-blocking; persisted NodeIds may be
+    // offline while a newer member is reachable via the rendezvous).
+    start_publisher(app, node, &room);
+    start_resolver(app, node, &room);
     Ok(room)
 }
 
@@ -258,6 +470,7 @@ pub async fn shutdown(app: &AppHandle, state: &P2pState) {
         let rooms: Vec<String> = node.rooms.keys().cloned().collect();
         for (_, handle) in node.rooms.drain() {
             handle.task.abort();
+            abort_dht_tasks(&handle);
         }
         // Best-effort graceful close; dropping the endpoint would also terminate.
         node.endpoint.close().await;
@@ -272,10 +485,70 @@ pub async fn leave_room(state: &P2pState, room: &str) -> Result<()> {
     if let Some(node) = guard.as_mut() {
         if let Some(handle) = node.rooms.remove(room) {
             handle.task.abort();
+            abort_dht_tasks(&handle);
             // dropping `sender` leaves the gossip topic
         }
     }
     Ok(())
+}
+
+/// Stop a room's DHT rendezvous tasks with it — the publisher must never keep
+/// announcing a room we've left (battery + metadata).
+fn abort_dht_tasks(handle: &RoomHandle) {
+    if let Some(publisher) = &handle.publisher {
+        publisher.abort();
+    }
+    if let Some(resolver) = &handle.resolver {
+        resolver.abort();
+    }
+}
+
+// ── DHT command helpers (realtime.rs `dht_*`) ───────────────────────────────────
+
+/// `(enabled, bootstrapped)` for the Settings/Contacts status line. Does not
+/// start the node: before the first room command, bootstrapped reads false.
+pub async fn dht_status(app: &AppHandle, state: &P2pState) -> (bool, bool) {
+    if !crate::p2p_dht::discovery_enabled(app) {
+        return (false, false);
+    }
+    let dht = { state.0.lock().await.as_ref().and_then(|n| n.dht.clone()) };
+    match dht {
+        Some(dht) => (true, dht.bootstrapped().await),
+        None => (true, false),
+    }
+}
+
+/// "Recently online" per contact NodeId, via the pkarr records DHT-enabled
+/// peers publish (dht.md). Starts the node lazily like every network command.
+pub async fn dht_presence(
+    app: &AppHandle,
+    state: &P2pState,
+    node_ids: Vec<String>,
+) -> Result<Vec<(String, bool)>> {
+    ensure_started(app, state).await?;
+    let dht = { state.0.lock().await.as_ref().and_then(|n| n.dht.clone()) }
+        .ok_or_else(|| anyhow!("DHT discovery is off"))?;
+    Ok(dht.presence(node_ids).await)
+}
+
+/// Mint (or re-surface) the ticketless-join code for an open room — lets rooms
+/// created before the toggle (or ticket-joined) become code-shareable. `None`
+/// while discovery is off.
+pub async fn dht_room_code(
+    app: &AppHandle,
+    state: &P2pState,
+    room: &str,
+    name: &str,
+) -> Result<Option<String>> {
+    let mut guard = state.0.lock().await;
+    let Some(node) = guard.as_mut() else { return Ok(None) };
+    if node.dht.is_none() {
+        return Ok(None);
+    }
+    let secret = crate::p2p_dht::load_or_create_room_secret(app, room)?;
+    // Newly minted secret on an open room ⇒ start serving code-joiners now.
+    start_publisher(app, node, room);
+    Ok(Some(RoomCode { name: name.to_string(), secret }.encode()))
 }
 
 pub async fn broadcast(state: &P2pState, room: &str, payload: String) -> Result<()> {
@@ -306,10 +579,10 @@ fn spawn_receiver(
     app: AppHandle,
     room: String,
     mut receiver: GossipReceiver,
+    neighbors: Arc<StdMutex<HashSet<EndpointId>>>,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         emit_status(&app, &room, "connecting", 0, None);
-        let mut peers: u32 = 0;
         while let Some(item) = receiver.next().await {
             let Ok(event) = item else { break };
             match event {
@@ -320,17 +593,34 @@ fn spawn_receiver(
                 }
                 // The neighbor's NodeId rides the status event so the frontend can
                 // persist it per room — that's the address book for reconnects.
+                // The shared set additionally feeds the DHT rendezvous publisher
+                // (records advertise a few neighbors) and stops the resolver.
                 Event::NeighborUp(peer) => {
-                    peers += 1;
+                    let peers = neighbors
+                        .lock()
+                        .map(|mut set| {
+                            set.insert(peer);
+                            set.len() as u32
+                        })
+                        .unwrap_or(0);
                     emit_status(&app, &room, "connected", peers, Some(peer.to_string()));
                 }
-                Event::NeighborDown(_) => {
-                    peers = peers.saturating_sub(1);
+                Event::NeighborDown(peer) => {
+                    let peers = neighbors
+                        .lock()
+                        .map(|mut set| {
+                            set.remove(&peer);
+                            set.len() as u32
+                        })
+                        .unwrap_or(0);
                     let state = if peers > 0 { "connected" } else { "disconnected" };
                     emit_status(&app, &room, state, peers, None);
                 }
                 Event::Lagged => {}
             }
+        }
+        if let Ok(mut set) = neighbors.lock() {
+            set.clear();
         }
         emit_status(&app, &room, "disconnected", 0, None);
     })
@@ -376,5 +666,42 @@ mod tests {
     fn topic_is_derived_deterministically_from_name() {
         assert_eq!(topic_for("room-a").to_string(), topic_for("room-a").to_string());
         assert_ne!(topic_for("room-a").to_string(), topic_for("room-b").to_string());
+    }
+
+    #[test]
+    fn room_code_round_trips_through_base32() {
+        let code = RoomCode { name: "general".to_string(), secret: [5u8; 32] };
+        let encoded = code.encode();
+        assert_eq!(encoded, encoded.to_ascii_lowercase()); // codes are lowercase
+
+        let decoded = RoomCode::decode(&encoded).expect("decode our own code");
+        assert_eq!(decoded.name, "general");
+        assert_eq!(decoded.secret, [5u8; 32]);
+    }
+
+    #[test]
+    fn room_code_decode_rejects_garbage_and_foreign_tags() {
+        assert!(RoomCode::decode("not a valid code!!!").is_err());
+        // An iroh ticket must not decode as a room code (routing depends on it).
+        let ticket = Ticket {
+            topic: TopicId::from_bytes([7u8; 32]),
+            name: "general".to_string(),
+            peers: vec![],
+        };
+        assert!(RoomCode::decode(&ticket.encode()).is_err());
+    }
+
+    #[test]
+    fn code_sniff_routes_only_dht_codes() {
+        let code = RoomCode { name: "general".to_string(), secret: [5u8; 32] }.encode();
+        assert!(code_is_dht(&code));
+
+        let ticket = Ticket {
+            topic: TopicId::from_bytes([7u8; 32]),
+            name: "general".to_string(),
+            peers: vec![],
+        };
+        assert!(!code_is_dht(&ticket.encode()));
+        assert!(!code_is_dht("not a valid code!!!"));
     }
 }

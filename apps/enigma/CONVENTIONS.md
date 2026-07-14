@@ -33,11 +33,11 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
   (`components/chat/`), and carry a type suffix: `*Modal`, `*Chip`, `*Panel`, `*Bar`,
   `*Row`, `*Sidebar`, `*Drawer`, `*List`.
 - Route views are `Enigma<Domain>View` (`EnigmaChatView`, `EnigmaFilesView`,
-  `EnigmaConfigView`, `EnigmaProfileView`). Stores are lowercase domain files (`chat.ts`, `user.ts`).
-  Composables are `useXxx` camelCase.
+  `EnigmaContactsView`, `EnigmaConfigView`, `EnigmaProfileView`). Stores are lowercase
+  domain files (`chat.ts`, `user.ts`). Composables are `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
-`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`. All registered in the single
+`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -49,8 +49,8 @@ room id), plus `file://progress`, `file://done`, `file://error` from the file-tr
 backend (`file_xfer.rs`).
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
-8 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `fileShare`, `profile`, `vault`).
-Interpolation uses single-brace named tokens (`{n}`).
+9 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `contacts`, `fileShare`,
+`profile`, `vault`). Interpolation uses single-brace named tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
 keyspace tiers are separated by a leading tag byte (`TAG_INTERNAL = 0x01`,
@@ -119,7 +119,8 @@ instead of hardcoding.
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see §4 |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
 | Feature defaults (offline/tor/stable) | Rust `AppProfileState` serde defaults | UI mirrors via `policy.featureDefaults`; **Rust is authoritative** |
-| P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default 60 s, clamped 5–600. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline |
+| P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default 60 s, clamped 5–600. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
+| DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish 600 s clamp 60–3600; presence poll 300 s clamp 60–3600. Rust reads the same keys directly (`vault::kv_get_raw`); see `dht.md` |
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `cryptorotor/gervasius/src/vault.rs` `KdfParams::Default` | Persisted per-vault in the header |
@@ -143,8 +144,10 @@ audit found. Do these when touching the relevant subsystem:
 
 **Rust consts (a shared module, or in-crate):**
 - `gervasius`: name the magic sizes — `SALT_LEN = 16`, `KEY_LEN = 32`, `VAULT_VERSION = 1`.
-- Transport: `IROH_TAG 0x49` / `TOR_TAG 0x54` (ticket routing) currently one per file,
-  cross-referenced only in comments → **one shared module** so they can't collide.
+- Transport: `IROH_TAG 0x49` / `TOR_TAG 0x54` / `DHT_TAG 0x44` (ticket/code routing)
+  currently one per file, cross-referenced only in comments (and mirrored in
+  `useChatChannel.ts` `isTorTicket`/`isDhtCode`) → **one shared module** so they
+  can't collide.
 - `MAX_P2P_FRAME 16 MiB` — written independently in `p2p_tor.rs` and `p2p_iroh.rs`
   (comment even says "must match") → single const.
 - protasius namespace/key strings (`profile`/`keys`/`cache`/`state`, `tor_peer_id`,

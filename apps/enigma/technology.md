@@ -270,7 +270,10 @@ introduces two categories of third-party, always-on "intermittent" nodes:
 
 So "serverless" here means **"no *our* server,"** per the design's own wording — not
 "no infrastructure." If n0's relays/discovery are unreachable or blocked, NAT'd peers
-may fail to connect and ticketless reconnect breaks. The relay/discovery operators (or
+may fail to connect and ticketless reconnect breaks. (The opt-in **DHT discovery**
+toggle — see `dht.md` — adds a community-run alternative for the discovery half:
+address records and room rendezvous ride the public BitTorrent Mainline DHT, racing
+n0 in parallel; relays remain the NAT-traversal path.) The relay/discovery operators (or
 a network observer) can build a who-talks-to-whom metadata graph even though they
 never see plaintext. This n0 metadata exposure applies **only on the default iroh
 transport**; flipping **"use Tor"** on routes rendezvous + chat over peer-hosted

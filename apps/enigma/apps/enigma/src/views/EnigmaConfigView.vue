@@ -21,6 +21,18 @@ import {
   setConnectTimeoutSecs,
   CONNECT_TIMEOUT_MIN_SECS,
   CONNECT_TIMEOUT_MAX_SECS,
+  getDhtDiscovery,
+  setDhtDiscovery,
+  applyDhtDiscovery,
+  getDhtStatus,
+  getDhtRoomPublishSecs,
+  setDhtRoomPublishSecs,
+  DHT_ROOM_PUBLISH_MIN_SECS,
+  DHT_ROOM_PUBLISH_MAX_SECS,
+  getDhtPresencePollSecs,
+  setDhtPresencePollSecs,
+  DHT_PRESENCE_POLL_MIN_SECS,
+  DHT_PRESENCE_POLL_MAX_SECS,
   getMaxFileSizeMb,
   setMaxFileSizeMb,
   MAX_FILE_SIZE_MIN_MB,
@@ -110,6 +122,39 @@ async function toggleStableOnion() {
   await setStableOnion(stableOnion.value);
 }
 
+// ── DHT discovery (Mainline/Kademlia rendezvous + presence — dht.md) ──────────
+// Flipping the toggle rebinds the iroh node in Rust (dht_apply), so the new
+// setting applies without an app restart; open rooms re-join lazily.
+const dhtDiscovery = ref(false);
+const dhtBootstrapped = ref<boolean | null>(null); // null = not checked yet
+async function refreshDhtStatus() {
+  if (!dhtDiscovery.value) { dhtBootstrapped.value = null; return; }
+  dhtBootstrapped.value = (await getDhtStatus()).bootstrapped;
+}
+async function toggleDhtDiscovery() {
+  dhtDiscovery.value = !dhtDiscovery.value;
+  await setDhtDiscovery(dhtDiscovery.value);
+  await applyDhtDiscovery();
+  dhtBootstrapped.value = null;
+  void refreshDhtStatus();
+}
+
+const dhtRoomPublishSecs = ref(600);
+const dhtRoomPublishSaved = ref(false);
+async function saveDhtRoomPublish() {
+  dhtRoomPublishSecs.value = await setDhtRoomPublishSecs(Number(dhtRoomPublishSecs.value));
+  dhtRoomPublishSaved.value = true;
+  setTimeout(() => { dhtRoomPublishSaved.value = false; }, 1500);
+}
+
+const dhtPresencePollSecs = ref(300);
+const dhtPresencePollSaved = ref(false);
+async function saveDhtPresencePoll() {
+  dhtPresencePollSecs.value = await setDhtPresencePollSecs(Number(dhtPresencePollSecs.value));
+  dhtPresencePollSaved.value = true;
+  setTimeout(() => { dhtPresencePollSaved.value = false; }, 1500);
+}
+
 // ── Connection timeout (room create + join give up after this many seconds) ───
 const connectTimeoutSecs = ref(60);
 const connectTimeoutSaved = ref(false);
@@ -170,6 +215,10 @@ onMounted(async () => {
   stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   maxFileSizeMb.value = await getMaxFileSizeMb(policy.fileShare.defaultMaxFileSizeMb);
+  dhtDiscovery.value = await getDhtDiscovery();
+  dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
+  dhtPresencePollSecs.value = await getDhtPresencePollSecs();
+  void refreshDhtStatus();
   await loadOfflineData();
   void loadNodeId();
 });
@@ -449,6 +498,104 @@ async function clearSelectedOfflineData() {
           />
         </button>
       </div>
+    </OyaCard>
+
+    <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (dht.md). Opt-in;
+         on → rooms get a ticketless join code and Contacts presence works. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.dhtDiscovery') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.dhtDiscoveryHint') }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon
+          icon="satellite-dish"
+          :class="dhtDiscovery ? 'text-accent-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.dhtDiscovery') }}</p>
+          <p class="text-xs opacity-60">
+            {{ dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="dhtDiscovery"
+          :class="dhtDiscovery ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleDhtDiscovery"
+        >
+          <span
+            :class="dhtDiscovery ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+
+      <template v-if="dhtDiscovery">
+        <!-- Status: has our Kademlia node a live routing table -->
+        <p class="flex items-center gap-2 text-xs">
+          <span
+            :class="dhtBootstrapped ? 'bg-success-dark' : 'bg-warn-dark'"
+            class="inline-block h-2 w-2 rounded-full"
+          />
+          <span class="opacity-70">
+            {{ dhtBootstrapped === null
+              ? $t('config.dhtStatusChecking')
+              : dhtBootstrapped ? $t('config.dhtStatusOk') : $t('config.dhtStatusUnreachable') }}
+          </span>
+        </p>
+
+        <!-- Rendezvous re-publish cadence -->
+        <div class="flex items-center gap-3">
+          <font-awesome-icon icon="rotate-right" class="shrink-0 opacity-60" />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold">{{ $t('config.dhtRoomPublish') }}</p>
+            <p class="text-xs opacity-60">{{ $t('config.dhtRoomPublishHint') }}</p>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <input
+              v-model.number="dhtRoomPublishSecs"
+              type="number"
+              :min="DHT_ROOM_PUBLISH_MIN_SECS"
+              :max="DHT_ROOM_PUBLISH_MAX_SECS"
+              class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+              :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+              @change="saveDhtRoomPublish"
+              @keyup.enter="saveDhtRoomPublish"
+            />
+            <span class="text-xs opacity-60">s</span>
+            <span v-if="dhtRoomPublishSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+          </div>
+        </div>
+
+        <!-- Contacts presence poll cadence -->
+        <div class="flex items-center gap-3">
+          <font-awesome-icon icon="clock" class="shrink-0 opacity-60" />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold">{{ $t('config.dhtPresencePoll') }}</p>
+            <p class="text-xs opacity-60">{{ $t('config.dhtPresencePollHint') }}</p>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <input
+              v-model.number="dhtPresencePollSecs"
+              type="number"
+              :min="DHT_PRESENCE_POLL_MIN_SECS"
+              :max="DHT_PRESENCE_POLL_MAX_SECS"
+              class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+              :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+              @change="saveDhtPresencePoll"
+              @keyup.enter="saveDhtPresencePoll"
+            />
+            <span class="text-xs opacity-60">s</span>
+            <span v-if="dhtPresencePollSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+          </div>
+        </div>
+      </template>
     </OyaCard>
 
     <!-- Connection timeout — room create/join give up (and the join modal auto-closes

@@ -46,6 +46,15 @@ pub fn delete(app: &AppHandle, ns: &str, key: &str) -> Result<(), String> {
     p.delete(ns, key).map_err(e)
 }
 
+/// Read a frontend-namespaced kv value from Rust (same store the `kv_*` commands
+/// serve). Lets backend code honor Settings-tab values (e.g. `p2p:settings/…`)
+/// without threading flags through every command. Locked/missing ⇒ `None`.
+pub fn kv_get_raw(app: &AppHandle, ns: &str, scope: &str, k: &str) -> Option<String> {
+    let st = store(app).ok()?;
+    let p = st.0.lock().ok()?;
+    p.kv_get(ns, scope, k).ok().flatten()
+}
+
 /// Open the store for a profile directory (used at startup + on profile switch).
 pub fn open(dir: std::path::PathBuf) -> Result<Protasius, String> {
     Protasius::open(dir).map_err(e)

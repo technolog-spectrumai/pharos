@@ -33,6 +33,11 @@ function close() {
       <OyaQrCode :value="room.ticket" :size="176" alt="Room QR code" />
       <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
       <OyaCopyField :value="room.ticket" mono :copy-label="$t('chat.copy')" />
+      <!-- Ticketless-join room code (DHT rendezvous) — present when minted -->
+      <template v-if="room.code">
+        <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareCode") }}</p>
+        <OyaCopyField :value="room.code" mono :copy-label="$t('chat.copy')" />
+      </template>
     </div>
 
     <template #footer>

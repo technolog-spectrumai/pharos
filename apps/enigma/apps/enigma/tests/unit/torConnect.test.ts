@@ -48,6 +48,8 @@ function makeChannel() {
   return {
     error: ref<string | null>(null),
     isEncrypted: ref(false),
+    // The controller reads the created room's DHT code off the remembered list.
+    p2pRooms: ref<Array<{ room: string; name: string; ticket: string; code?: string }>>([]),
     createRoom: vi.fn<(name: string) => Promise<string | null>>(),
     joinByTicket: vi.fn<(t: string) => Promise<void>>(),
     cancelJoin: vi.fn(async () => {}),

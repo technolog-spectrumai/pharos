@@ -6,7 +6,7 @@ import type { P2pRoomsController } from "./useP2pRooms";
 const props = defineProps<{ open: boolean; controller: P2pRoomsController }>();
 const emit = defineEmits<{ "update:open": [boolean] }>();
 
-const { name, createdTicket, createBusy, createError, createRoom } = props.controller;
+const { name, createdTicket, createdCode, createBusy, createError, createRoom } = props.controller;
 
 // Whether this will be a Tor room — drives the spinner wording + the captain ★ hint.
 const tor = ref(false);
@@ -57,6 +57,11 @@ function close() {
         <OyaQrCode :value="createdTicket" :size="176" alt="Room QR code" />
         <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
         <OyaCopyField :value="createdTicket" mono :copy-label="$t('chat.copy')" />
+        <!-- Ticketless-join room code (DHT rendezvous) — only with discovery on -->
+        <template v-if="createdCode">
+          <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareCode") }}</p>
+          <OyaCopyField :value="createdCode" mono :copy-label="$t('chat.copy')" />
+        </template>
       </div>
 
       <!-- Error -->

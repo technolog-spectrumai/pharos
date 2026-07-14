@@ -16,6 +16,8 @@ and for the follow-up work that was deliberately deferred.
 - **Pair once, auto-refresh.** After the one-time QR pairing, reconnects don't
   need a new QR: every peer's stable NodeId is persisted per room and
   re-resolved through iroh's built-in n0 discovery when addresses change.
+  (Later addition: the opt-in DHT discovery toggle — `dht.md` — adds ticketless
+  *first* joins by room code and a Contacts tab, over the Mainline DHT.)
 - **Tor onion transport (now implemented).** An opt-in "use Tor" switch routes
   rendezvous + chat over peer-hosted onion services (star topology); the QR then
   carries a `.onion`. Full breakdown in [tor.md](tor.md).

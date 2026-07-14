@@ -181,6 +181,10 @@ watch(() => route.path, () => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
+          <RouterLink to="/contacts" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
+            <font-awesome-icon icon="address-book" />
+            {{ $t('nav.contacts') }}
+          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -234,6 +238,10 @@ watch(() => route.path, () => {
               v-if="fileShare.state.value === 'incoming'"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
+          </RouterLink>
+          <RouterLink to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="address-book" class="w-4 text-center" />
+            {{ $t('nav.contacts') }}
           </RouterLink>
           <RouterLink
             to="/config"
