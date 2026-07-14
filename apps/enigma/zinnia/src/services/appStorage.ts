@@ -196,6 +196,44 @@ export async function getDhtStatus(): Promise<DhtStatus> {
   return { enabled: false, running: false, bootstrapped: false };
 }
 
+// ── Nickname directory ("findable as ‹nick›" — dht.md) ────────────────────────
+// Opt-in claim on the DHT nickname directory. Rust re-reads both keys every
+// announce round, so renames/toggles apply live; `dht_apply` forces an
+// immediate first publish. Findable only while the app runs with DHT on.
+
+export const DHT_NICKNAME_MAX_LEN = 64;
+
+export function clampDhtNickname(nick: string): string {
+  const trimmed = nick.trim();
+  return trimmed.length > DHT_NICKNAME_MAX_LEN ? trimmed.slice(0, DHT_NICKNAME_MAX_LEN) : trimmed;
+}
+
+export async function getDhtNickPublish(): Promise<boolean> {
+  try {
+    return (await kvGet("p2p:settings", "default", "dht_nick_publish")) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export async function setDhtNickPublish(on: boolean): Promise<void> {
+  await kvPut("p2p:settings", "default", "dht_nick_publish", on ? "on" : "off").catch(() => {});
+}
+
+export async function getDhtNickname(): Promise<string> {
+  try {
+    return clampDhtNickname((await kvGet("p2p:settings", "default", "dht_nickname")) ?? "");
+  } catch {
+    return "";
+  }
+}
+
+export async function setDhtNickname(nick: string): Promise<string> {
+  const v = clampDhtNickname(nick);
+  await kvPut("p2p:settings", "default", "dht_nickname", v).catch(() => {});
+  return v;
+}
+
 // How often an open room's rendezvous record is re-published (Rust re-reads this
 // every round) — lower finds code-joiners faster, higher saves battery/traffic.
 export const DHT_ROOM_PUBLISH_DEFAULT_SECS = 600;
