@@ -201,9 +201,9 @@ export function useChatChannel() {
   // ── Data-sync seam ───────────────────────────────────────────────────────────
   // External orchestrators ride this channel's MLS group by registering an `onSync`
   // handler and sending via `sendSync`. Routed inner-message families: `sync_*`
-  // (full-data pull) and `file_*` (P2P file transfer offer/accept signaling — the
-  // file feature is parked in limbo/, the seam stays). Each handler ignores the
-  // prefixes it does not own.
+  // (full-data pull) and `file_*` (P2P file transfer offer/accept signaling —
+  // consumed by `useFileShare` in the app). Each handler ignores the prefixes it
+  // does not own.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
