@@ -124,8 +124,9 @@ async function saveConnectTimeout() {
 const maxFileSizeMb = ref(0);
 const maxFileSizeSaved = ref(false);
 async function saveMaxFileSize() {
-  // setMaxFileSizeMb clamps to [min, max] and returns the stored value.
-  maxFileSizeMb.value = await setMaxFileSizeMb(Number(maxFileSizeMb.value));
+  // setMaxFileSizeMb clamps to [min, max] and returns the stored value; the
+  // build-config default (policy.fileShare) is the fallback for garbage input.
+  maxFileSizeMb.value = await setMaxFileSizeMb(Number(maxFileSizeMb.value), policy.fileShare.defaultMaxFileSizeMb);
   maxFileSizeSaved.value = true;
   setTimeout(() => { maxFileSizeSaved.value = false; }, 1500);
 }
@@ -168,7 +169,7 @@ onMounted(async () => {
   useTor.value = await getUseTor();
   stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
-  maxFileSizeMb.value = await getMaxFileSizeMb();
+  maxFileSizeMb.value = await getMaxFileSizeMb(policy.fileShare.defaultMaxFileSizeMb);
   await loadOfflineData();
   void loadNodeId();
 });

@@ -38,6 +38,16 @@ export const policy = {
    *  `AppProfileState` serde defaults (all false). The backend is authoritative;
    *  the UI must never hardcode a different default. */
   featureDefaults: { offline: false, useTor: false, stableOnion: false },
+  /** P2P file-transfer UI policy. */
+  fileShare: {
+    /** Transfers this size or smaller (bytes) render without a progress bar —
+     *  they finish instantly, a bar is noise. */
+    progressBarMinBytes: 1024,
+    /** Default "max file size" (MB) before the user changes it in Settings;
+     *  0 = unlimited. Rakotis can't import app config, so callers pass this to
+     *  `getMaxFileSizeMb` / `setMaxFileSizeMb`. */
+    defaultMaxFileSizeMb: 16,
+  },
 } as const;
 
 /** Dev-tooling constants. `vitePort` MUST agree with vite.config.ts `server.port`,

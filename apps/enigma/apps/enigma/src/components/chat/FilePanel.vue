@@ -6,6 +6,7 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../../stores/chat";
+import { policy } from "../../config/app";
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -23,6 +24,8 @@ const peers = computed(() =>
   ),
 );
 const pct = computed(() => Math.round(file.progress.value * 100));
+// Tiny transfers finish instantly — below the build threshold the bar is noise.
+const showBar = computed(() => file.fileSize.value > policy.fileShare.progressBarMinBytes);
 
 function fmtSize(bytes: number): string {
   if (!bytes) return "0 B";
@@ -89,10 +92,13 @@ function fmtSize(bytes: number): string {
           {{ file.direction.value === 'send' ? $t('fileShare.sending') : $t('fileShare.receiving') }}
         </p>
         <p class="text-xs opacity-60 break-all">{{ file.fileName.value }}</p>
-        <div class="h-2 w-56 overflow-hidden rounded-full bg-sunken-light dark:bg-sunken-dark">
-          <div class="h-full rounded-full bg-accent-light transition-all dark:bg-accent-dark" :style="`width:${pct}%`" />
-        </div>
-        <p class="text-xs opacity-50">{{ pct }}% · {{ fmtSize(file.fileSize.value) }}</p>
+        <template v-if="showBar">
+          <div class="h-2 w-56 overflow-hidden rounded-full bg-sunken-light dark:bg-sunken-dark">
+            <div class="h-full rounded-full bg-accent-light transition-all dark:bg-accent-dark" :style="`width:${pct}%`" />
+          </div>
+          <p class="text-xs opacity-50">{{ pct }}% · {{ fmtSize(file.fileSize.value) }}</p>
+        </template>
+        <p v-else class="text-xs opacity-50">{{ fmtSize(file.fileSize.value) }}</p>
         <button class="text-xs underline opacity-70 hover:opacity-100" @click="file.cancel()">{{ $t('common.cancel') }}</button>
       </template>
 

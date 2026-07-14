@@ -231,9 +231,22 @@ describe("useFileShare — recipient side", () => {
     expect(share.state.value).toBe("idle");
   });
 
-  it("a huge offer is still shown when no limit is set (0 = unlimited)", async () => {
+  it("with nothing stored, the build-config default (16 MB) is enforced", async () => {
+    const { channel, stub, emitSync } = makeChannel();
+    const share = useFileShare(channel);
+
+    emitSync("file_offer", { ...incomingOffer, size: 10 * 1024 * 1024 * 1024 });
+    await flush();
+
+    expect(stub.sendSync).toHaveBeenCalledWith("file_decline", { offerId: "offer-9" });
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toContain("16 MB");
+  });
+
+  it("a stored 0 disables the limit — a huge offer is still shown", async () => {
     const { channel, emitSync } = makeChannel();
     const share = useFileShare(channel);
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "0" : undefined));
 
     emitSync("file_offer", { ...incomingOffer, size: 10 * 1024 * 1024 * 1024 });
     await flush();

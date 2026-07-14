@@ -119,6 +119,10 @@ shows a pulsing dot while an incoming offer waits. A **max file size** setting
 (Settings → "Max file size", MB, 0 = unlimited, stored in the encrypted kv as
 `p2p:settings/max_file_size_mb`) is enforced by `useFileShare` on both sides:
 oversized sends are blocked, oversized incoming offers are auto-declined.
+Build knobs live in `config/app.ts` → `policy.fileShare`: `progressBarMinBytes`
+(transfers ≤ 1 KB render without a progress bar) and `defaultMaxFileSizeMb`
+(the shipped Settings default, 16 — rakotis can't import app config, so callers
+pass it to `get/setMaxFileSizeMb`).
 Signaling still rides the p2p channel's MLS group via the `onSync`/`sendSync`
 seam in rakotis. Unit tests: `tests/unit/fileShare.test.ts`.
 

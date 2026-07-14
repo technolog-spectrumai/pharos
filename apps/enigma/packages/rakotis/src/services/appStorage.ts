@@ -121,29 +121,31 @@ export async function setConnectTimeoutSecs(secs: number): Promise<number> {
 // ── Max file-transfer size (0 = unlimited) ────────────────────────────────────
 // A local guard on P2P file sharing, enforced by `useFileShare` on both sides:
 // offering a larger file is blocked, and an incoming offer over the limit is
-// auto-declined. Stored in the encrypted kv store, in MB.
+// auto-declined. Stored in the encrypted kv store, in MB. The app's build config
+// (`policy.fileShare.defaultMaxFileSizeMb`) owns the shipped default and passes it
+// in — rakotis only knows the generic fallback.
 
-export const MAX_FILE_SIZE_DEFAULT_MB = 0; // 0 = unlimited
+export const MAX_FILE_SIZE_DEFAULT_MB = 0; // generic fallback: 0 = unlimited
 export const MAX_FILE_SIZE_MIN_MB = 0;
 export const MAX_FILE_SIZE_MAX_MB = 100 * 1024; // 100 GB
 
-export function clampMaxFileSizeMb(mb: number): number {
-  if (!Number.isFinite(mb)) return MAX_FILE_SIZE_DEFAULT_MB;
+export function clampMaxFileSizeMb(mb: number, fallback: number = MAX_FILE_SIZE_DEFAULT_MB): number {
+  if (!Number.isFinite(mb)) return fallback;
   return Math.min(MAX_FILE_SIZE_MAX_MB, Math.max(MAX_FILE_SIZE_MIN_MB, Math.round(mb)));
 }
 
-export async function getMaxFileSizeMb(): Promise<number> {
+export async function getMaxFileSizeMb(defaultMb: number = MAX_FILE_SIZE_DEFAULT_MB): Promise<number> {
   try {
     const raw = await kvGet("p2p:settings", "default", "max_file_size_mb");
-    if (raw === null || raw === "") return MAX_FILE_SIZE_DEFAULT_MB;
-    return clampMaxFileSizeMb(Number(raw));
+    if (raw === null || raw === "") return defaultMb;
+    return clampMaxFileSizeMb(Number(raw), defaultMb);
   } catch {
-    return MAX_FILE_SIZE_DEFAULT_MB;
+    return defaultMb;
   }
 }
 
-export async function setMaxFileSizeMb(mb: number): Promise<number> {
-  const v = clampMaxFileSizeMb(mb);
+export async function setMaxFileSizeMb(mb: number, defaultMb: number = MAX_FILE_SIZE_DEFAULT_MB): Promise<number> {
+  const v = clampMaxFileSizeMb(mb, defaultMb);
   await kvPut("p2p:settings", "default", "max_file_size_mb", String(v)).catch(() => {});
   return v;
 }

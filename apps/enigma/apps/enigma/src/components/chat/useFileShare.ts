@@ -16,6 +16,7 @@
 import { ref } from "vue";
 import { getMaxFileSizeMb } from "rakotis";
 import type { ChatChannel } from "rakotis";
+import { policy } from "../../config/app";
 
 export type FileShareState =
   | "idle"
@@ -44,9 +45,10 @@ interface OfferCreated {
   mime: string;
 }
 
-/** The Settings "max file size" guard (0 = unlimited): bytes over the limit, or 0. */
+/** The Settings "max file size" guard (0 = unlimited): the violated limit in MB,
+ *  or 0 when the size is allowed. The shipped default comes from build config. */
 async function overSizeLimitMb(sizeBytes: number): Promise<number> {
-  const maxMb = await getMaxFileSizeMb();
+  const maxMb = await getMaxFileSizeMb(policy.fileShare.defaultMaxFileSizeMb);
   return maxMb > 0 && sizeBytes > maxMb * 1024 * 1024 ? maxMb : 0;
 }
 
