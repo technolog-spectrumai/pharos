@@ -150,6 +150,36 @@ export async function setMaxFileSizeMb(mb: number, defaultMb: number = MAX_FILE_
   return v;
 }
 
+// ── Meeting reminder lead time (0 = reminders off) ────────────────────────────
+// How many minutes before a meeting starts the app fires a local OS notification.
+// Enforced by `useMeetings` in the app (its reminder tick re-reads this every
+// round, so Settings changes apply live). Stored in the encrypted kv store.
+
+export const MEETING_REMINDER_DEFAULT_MINS = 15;
+export const MEETING_REMINDER_MIN_MINS = 0; // 0 = off
+export const MEETING_REMINDER_MAX_MINS = 24 * 60;
+
+export function clampMeetingReminderMins(mins: number): number {
+  if (!Number.isFinite(mins)) return MEETING_REMINDER_DEFAULT_MINS;
+  return Math.min(MEETING_REMINDER_MAX_MINS, Math.max(MEETING_REMINDER_MIN_MINS, Math.round(mins)));
+}
+
+export async function getMeetingReminderMins(): Promise<number> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", "meeting_reminder_mins");
+    if (raw === null || raw === "") return MEETING_REMINDER_DEFAULT_MINS;
+    return clampMeetingReminderMins(Number(raw));
+  } catch {
+    return MEETING_REMINDER_DEFAULT_MINS;
+  }
+}
+
+export async function setMeetingReminderMins(mins: number): Promise<number> {
+  const v = clampMeetingReminderMins(mins);
+  await kvPut("p2p:settings", "default", "meeting_reminder_mins", String(v)).catch(() => {});
+  return v;
+}
+
 // ── DHT discovery (Mainline/Kademlia rendezvous + presence — see dht.md) ───────
 // Opt-in, default off. On → the iroh endpoint additionally publishes/resolves
 // addresses on the public BitTorrent DHT (server-free), rooms get a ticketless

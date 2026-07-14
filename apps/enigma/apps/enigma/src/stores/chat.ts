@@ -10,6 +10,7 @@ import { useChatChannel, type ChatChannel } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
 import { useRoomInvites } from "../components/contacts/useRoomInvites";
+import { useMeetings } from "../components/calendar/useMeetings";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
@@ -22,6 +23,9 @@ function createChatStore() {
   // Direct room invites (Contacts) — same lifetime rationale: an incoming
   // invite must be caught (and the Contacts nav dot lit) wherever the user is.
   const invites = useRoomInvites(p2p);
+  // Meeting scheduling — rides the same seam; app-lifetime so incoming invites
+  // land (Calendar nav dot) and the reminder tick runs regardless of the view.
+  const meetings = useMeetings(p2p);
 
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
@@ -41,13 +45,15 @@ function createChatStore() {
   }
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     await p2p.applyRuntimeProfile(runtime);
+    // The profile switch swapped the kv data dir — re-read the meeting list.
+    await meetings.reload();
   }
   function clearLocalChatState(message?: string) {
     p2p.clearLocalChatState(message);
   }
 
   return {
-    p2p, fileShare, invites, init,
+    p2p, fileShare, invites, meetings, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

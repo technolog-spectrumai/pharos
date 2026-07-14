@@ -50,8 +50,8 @@ backend (`file_xfer.rs`), and `invite://incoming`, `invite://resolved` from the
 direct-room-invite handshake (`p2p_invite.rs`).
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
-9 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `contacts`, `fileShare`,
-`profile`, `vault`). Interpolation uses single-brace named tokens (`{n}`).
+10 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `calendar`, `contacts`,
+`fileShare`, `profile`, `vault`). Interpolation uses single-brace named tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
 keyspace tiers are separated by a leading tag byte (`TAG_INTERNAL = 0x01`,
@@ -122,6 +122,7 @@ instead of hardcoding.
 | Feature defaults (offline/tor/stable) | Rust `AppProfileState` serde defaults | UI mirrors via `policy.featureDefaults`; **Rust is authoritative** |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default 60 s, clamped 5–600. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish 600 s clamp 60–3600; presence poll 300 s clamp 60–3600. Rust reads the same keys directly (`vault::kv_get_raw`); see `dht.md` |
+| Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `cryptorotor/gervasius/src/vault.rs` `KdfParams::Default` | Persisted per-vault in the header |

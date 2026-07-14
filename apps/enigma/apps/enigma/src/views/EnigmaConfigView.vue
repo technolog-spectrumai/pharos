@@ -37,6 +37,10 @@ import {
   setMaxFileSizeMb,
   MAX_FILE_SIZE_MIN_MB,
   MAX_FILE_SIZE_MAX_MB,
+  getMeetingReminderMins,
+  setMeetingReminderMins,
+  MEETING_REMINDER_MIN_MINS,
+  MEETING_REMINDER_MAX_MINS,
   vaultChangePassphrase,
   cleanTorKeystore,
   type AppRuntimeConfig,
@@ -187,6 +191,22 @@ async function saveConnectTimeout() {
   setTimeout(() => { connectTimeoutSaved.value = false; }, 1500);
 }
 
+const meetingReminderMins = ref(15);
+const meetingReminderSaved = ref(false);
+async function saveMeetingReminder() {
+  meetingReminderMins.value = await setMeetingReminderMins(Number(meetingReminderMins.value));
+  meetingReminderSaved.value = true;
+  setTimeout(() => { meetingReminderSaved.value = false; }, 1500);
+  // Turning reminders on is the friendly moment to ask for the notification
+  // permission (idempotent; the tick would otherwise ask at the first firing).
+  if (meetingReminderMins.value > 0 && (window as any).__TAURI_INTERNALS__) {
+    try {
+      const { isPermissionGranted, requestPermission } = await import("@tauri-apps/plugin-notification");
+      if (!(await isPermissionGranted())) await requestPermission();
+    } catch { /* permission stays lazy */ }
+  }
+}
+
 // ── Max file-transfer size (0 = unlimited) ─────────────────────────────────────
 const maxFileSizeMb = ref(0);
 const maxFileSizeSaved = ref(false);
@@ -236,6 +256,7 @@ onMounted(async () => {
   useTor.value = await getUseTor();
   stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
+  meetingReminderMins.value = await getMeetingReminderMins();
   maxFileSizeMb.value = await getMaxFileSizeMb(policy.fileShare.defaultMaxFileSizeMb);
   dhtDiscovery.value = await getDhtDiscovery();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
@@ -687,6 +708,37 @@ async function clearSelectedOfflineData() {
           />
           <span class="text-xs opacity-60">MB</span>
           <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Meeting reminder lead time — minutes before a meeting starts to fire a
+         local OS notification (0 disables). Enforced by useMeetings' tick. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.meetingReminder') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="calendar" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.meetingReminder') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.meetingReminderHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="meetingReminderMins"
+            type="number"
+            :min="MEETING_REMINDER_MIN_MINS"
+            :max="MEETING_REMINDER_MAX_MINS"
+            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveMeetingReminder"
+            @keyup.enter="saveMeetingReminder"
+          />
+          <span class="text-xs opacity-60">min</span>
+          <span v-if="meetingReminderSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
     </OyaCard>

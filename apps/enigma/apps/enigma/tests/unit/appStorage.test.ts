@@ -4,6 +4,11 @@ import {
   setMaxFileSizeMb,
   clampMaxFileSizeMb,
   MAX_FILE_SIZE_MAX_MB,
+  getMeetingReminderMins,
+  setMeetingReminderMins,
+  clampMeetingReminderMins,
+  MEETING_REMINDER_DEFAULT_MINS,
+  MEETING_REMINDER_MAX_MINS,
 } from "rakotis";
 
 // The max-file-size setting is stored in the encrypted kv; the *shipped default*
@@ -52,5 +57,35 @@ describe("appStorage — max file size", () => {
   it("clamp bounds negative input to 0 and honours the fallback", () => {
     expect(clampMaxFileSizeMb(-5)).toBe(0);
     expect(clampMaxFileSizeMb(Number.NaN, 7)).toBe(7);
+  });
+});
+
+describe("appStorage — meeting reminder lead time", () => {
+  it("falls back to the default when nothing is stored", async () => {
+    expect(await getMeetingReminderMins()).toBe(MEETING_REMINDER_DEFAULT_MINS);
+  });
+
+  it("a stored value wins and is clamped; 0 = reminders off", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "5" : null));
+    expect(await getMeetingReminderMins()).toBe(5);
+
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "0" : null));
+    expect(await getMeetingReminderMins()).toBe(0);
+
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "99999" : null));
+    expect(await getMeetingReminderMins()).toBe(MEETING_REMINDER_MAX_MINS);
+  });
+
+  it("set persists the clamped value; garbage falls back to the default", async () => {
+    expect(await setMeetingReminderMins(Number.NaN)).toBe(MEETING_REMINDER_DEFAULT_MINS);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "kv_put",
+      expect.objectContaining({ k: "meeting_reminder_mins", v: String(MEETING_REMINDER_DEFAULT_MINS) }),
+    );
+  });
+
+  it("clamp bounds negatives to 0 (off)", () => {
+    expect(clampMeetingReminderMins(-10)).toBe(0);
+    expect(clampMeetingReminderMins(25 * 60)).toBe(MEETING_REMINDER_MAX_MINS);
   });
 });

@@ -11,9 +11,13 @@ function makeP2pStub() {
     p2pRooms: ref<Array<{ room: string; name: string; ticket: string; peers?: string[] }>>([]),
     currentUserName: ref("You"),
     mlsIdentity: ref("You"),
-    // Data-sync seam (consumed by the store's fileShare singleton).
+    currentRoom: ref(null),
+    participants: ref([]),
+    mlsStatus: ref("idle"),
+    // Data-sync seam (consumed by the store's fileShare + meetings singletons).
     onSync: vi.fn(() => () => {}),
     sendSync: vi.fn(async () => {}),
+    postSystemNotice: vi.fn(),
     loadP2pRooms: vi.fn(async () => {}),
     openP2pRoom: vi.fn(async () => {}),
     ensureNode: vi.fn(async () => "my-node"),
@@ -27,7 +31,10 @@ function makeP2pStub() {
 
 let p2pStub: ReturnType<typeof makeP2pStub>;
 
-vi.mock("rakotis", () => ({
+// Partial mock: only the channel is stubbed — the store's singletons also pull
+// real rakotis helpers (createAppI18n via src/i18n, kv storage, settings).
+vi.mock("rakotis", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("rakotis")>()),
   useChatChannel: () => p2pStub,
 }));
 
@@ -74,13 +81,15 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
   });
 
-  it("creates the fileShare singleton riding the channel's sync seam", async () => {
+  it("creates the fileShare + meetings singletons riding the channel's sync seam", async () => {
     const store = await freshStore();
     expect(store.fileShare).toBeDefined();
     expect(store.fileShare.state.value).toBe("idle");
-    // useFileShare registers its signaling handler at store creation, so offers
-    // are caught even while the Files modal is closed.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(1);
+    expect(store.meetings).toBeDefined();
+    expect(store.meetings.pendingInviteCount.value).toBe(0);
+    // Both register their signaling handlers at store creation, so offers and
+    // meeting invites are caught even while their tabs are closed.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(2);
   });
 
   it("identity fan-out delegates to the channel", async () => {
