@@ -13,6 +13,8 @@ mod file_xfer;
 // Mainline-DHT (Kademlia) rendezvous + presence — the opt-in server-free
 // discovery behind the Settings toggle (see dht.md).
 mod p2p_dht;
+// Direct room invites between contacts (offer/accept over a dedicated ALPN).
+mod p2p_invite;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
@@ -1038,6 +1040,7 @@ pub fn run() {
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
         .manage(p2p_iroh::P2pState::default())
+        .manage(p2p_invite::InviteState::default())
         .manage(file_xfer::FileXferState::default())
         // Outbound Arti client (tor.rs) + the peer-hosted onion transport (p2p_tor.rs).
         .manage(tor::TorState::default())
@@ -1120,6 +1123,8 @@ pub fn run() {
             realtime::dht_presence,
             realtime::dht_room_code,
             realtime::dht_apply,
+            realtime::invite_send,
+            p2p_invite::invite_respond,
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,

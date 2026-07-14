@@ -93,6 +93,7 @@ watch(displayName, (name) => {
 
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
+const invites = chatStore.invites;
 
 // Close menu on navigation
 watch(() => route.path, () => {
@@ -181,9 +182,14 @@ watch(() => route.path, () => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
-          <RouterLink to="/contacts" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
+          <RouterLink to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
+            <span
+              v-if="invites.incoming.value"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+              :title="$t('contacts.incomingTitle')"
+            />
           </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
@@ -242,6 +248,10 @@ watch(() => route.path, () => {
           <RouterLink to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />
             {{ $t('nav.contacts') }}
+            <span
+              v-if="invites.incoming.value"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+            />
           </RouterLink>
           <RouterLink
             to="/config"

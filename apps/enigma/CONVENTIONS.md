@@ -37,7 +37,7 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
   domain files (`chat.ts`, `user.ts`). Composables are `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
-`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`. All registered in the single
+`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`, `invite_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -46,7 +46,8 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
 (both transports — `p2p_iroh`, `p2p_tor` — emit identical names so the frontend is
 transport-agnostic; a single event multiplexes all rooms, the payload carries the
 room id), plus `file://progress`, `file://done`, `file://error` from the file-transfer
-backend (`file_xfer.rs`).
+backend (`file_xfer.rs`), and `invite://incoming`, `invite://resolved` from the
+direct-room-invite handshake (`p2p_invite.rs`).
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 9 namespaces (`nav`, `common`, `lang`, `config`, `chat`, `contacts`, `fileShare`,

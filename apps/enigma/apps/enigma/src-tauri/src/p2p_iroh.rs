@@ -204,8 +204,15 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     let gossip = Gossip::builder()
         .max_message_size(16 * 1024 * 1024)
         .spawn(endpoint.clone());
+    // Direct room invites from contacts ride this same endpoint, so a contact
+    // is invitable at the stable NodeId they already have saved.
+    let invites = crate::p2p_invite::InviteProtocol::new(
+        app.clone(),
+        tauri::Manager::state::<crate::p2p_invite::InviteState>(app).inner().clone(),
+    );
     let router = Router::builder(endpoint.clone())
         .accept(GOSSIP_ALPN, gossip.clone())
+        .accept(crate::p2p_invite::INVITE_ALPN, invites)
         .spawn();
     *guard = Some(Node {
         endpoint,
@@ -501,6 +508,40 @@ fn abort_dht_tasks(handle: &RoomHandle) {
     if let Some(resolver) = &handle.resolver {
         resolver.abort();
     }
+}
+
+/// Direct room invite to a contact (see p2p_invite.rs): mint a fresh ticket
+/// (+ code when DHT discovery is on) for the room and offer it over the invite
+/// ALPN, returning the contact's answer. The frontend opens the room before
+/// calling this, so an accepting invitee finds a live member for MLS admission.
+pub async fn invite_send(
+    app: &AppHandle,
+    state: &P2pState,
+    node_id: &str,
+    room: &str,
+    name: &str,
+) -> Result<bool> {
+    ensure_started(app, state).await?;
+    let (endpoint, ticket, code) = {
+        let mut guard = state.0.lock().await;
+        let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
+        // Fresh ticket every time — the embedded addresses are ours, right now.
+        let ticket = Ticket {
+            topic: topic_for(name),
+            name: name.to_string(),
+            peers: vec![node.endpoint.addr()],
+        }
+        .encode();
+        let code = if node.dht.is_some() {
+            let secret = crate::p2p_dht::load_or_create_room_secret(app, room)?;
+            start_publisher(app, node, room);
+            RoomCode { name: name.to_string(), secret }.encode()
+        } else {
+            String::new()
+        };
+        (node.endpoint.clone(), ticket, code)
+    };
+    crate::p2p_invite::send(app, endpoint, node_id, name.to_string(), ticket, code).await
 }
 
 // ── DHT command helpers (realtime.rs `dht_*`) ───────────────────────────────────

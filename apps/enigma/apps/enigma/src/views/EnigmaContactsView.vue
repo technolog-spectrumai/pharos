@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// Contacts — saved peers (stable iroh NodeIds) + DHT presence + invite-to-room.
-//
-// A contact is exchanged once (paste or QR of the NodeId, like a room ticket);
-// with the Settings DHT toggle on, each contact row shows "recently online"
-// (the freshness of the address record DHT-enabled peers publish — ~1 h
-// granularity, honest in the tooltip) and saved rooms can be shared as a
-// ticketless join code. See dht.md.
+// Contacts — saved peers (stable iroh NodeIds), DHT presence, and DIRECT room
+// invites: pick a contact, pick a room, and the contact gets an Accept/Decline
+// prompt (file-transfer-style handshake over a dedicated iroh ALPN — see Rust
+// p2p_invite.rs). On accept they join through the exact path a scanned QR
+// takes, MLS admission included. The passive share-a-code flow lives in the
+// chat tab (create/info modals); here inviting is person-first.
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import {
   OyaCard,
   OyaButton,
@@ -20,7 +20,6 @@ import {
   removeContact,
   touchContact,
   dhtPresence,
-  dhtRoomCode,
   getDhtDiscovery,
   getDhtPresencePollSecs,
   type ContactEntry,
@@ -30,7 +29,9 @@ import { useChatStore } from "../stores/chat";
 
 defineProps<{ darkMode: boolean }>();
 
+const router = useRouter();
 const chatStore = useChatStore();
+const invites = chatStore.invites;
 
 // ── My code (this device's stable NodeId — what a contact saves about ME) ─────
 const myNodeId = ref("");
@@ -160,32 +161,43 @@ async function deleteContact(c: ContactEntry) {
   contacts.value = await removeContact(c.nodeId);
 }
 
-// ── Invite to room (share a saved room as a ticketless join code) ──────────────
+// ── Direct room invite (offer → the contact must accept) ──────────────────────
 const inviteOpen = ref(false);
-const inviteCode = ref("");
-const inviteRoomName = ref("");
-const inviteError = ref(""); // i18n key
-// Tor rooms can't be DHT-shared (different transport); offer the iroh ones.
+const inviteTarget = ref<ContactEntry | null>(null);
+// Tor rooms can't be invite-shared (different transport); offer the iroh ones.
 const invitableRooms = computed<P2pRoomEntry[]>(() =>
   chatStore.p2p.p2pRooms.value.filter((r) => !r.tor),
 );
 
-function openInvite() {
-  inviteCode.value = "";
-  inviteRoomName.value = "";
-  inviteError.value = "";
+function openInviteFor(contact: ContactEntry) {
+  inviteTarget.value = contact;
+  invites.resetOutgoing();
   inviteOpen.value = true;
 }
 
+function closeInvite() {
+  inviteOpen.value = false;
+  invites.resetOutgoing();
+}
+
 async function pickInviteRoom(room: P2pRoomEntry) {
-  inviteError.value = "";
-  const code = room.code ?? (await dhtRoomCode(room.room, room.name));
-  if (code) {
-    inviteCode.value = code;
-    inviteRoomName.value = room.name;
-  } else {
-    inviteError.value = "contacts.inviteNeedsDht";
-  }
+  const target = inviteTarget.value;
+  if (!target) return;
+  await invites.sendInvite(target.nodeId, room);
+}
+
+// ── Incoming invite (Accept / Decline) ─────────────────────────────────────────
+const incomingFromName = computed(() => {
+  const invite = invites.incoming.value;
+  if (!invite) return "";
+  const known = contacts.value.find((c) => c.nodeId === invite.fromNodeId);
+  return known?.name ?? `${invite.fromNodeId.slice(0, 10)}…`;
+});
+
+async function acceptIncoming() {
+  await invites.accept();
+  // The join entered the room — take the user to it.
+  void router.push("/chat");
 }
 </script>
 
@@ -200,6 +212,26 @@ async function pickInviteRoom(room: P2pRoomEntry) {
       </h1>
       <p class="mt-2 text-sm opacity-70">{{ $t('contacts.subtitle') }}</p>
     </header>
+
+    <!-- Incoming invite — file-share-style: nothing happens until Accept -->
+    <OyaCard v-if="invites.incoming.value" :dark-mode="darkMode" :padded="true" class="space-y-3">
+      <p class="flex items-center gap-2 text-sm font-semibold">
+        <span class="h-2 w-2 animate-pulse rounded-full bg-warn-dark" />
+        {{ $t('contacts.incomingTitle') }}
+      </p>
+      <p class="text-sm">
+        {{ $t('contacts.incomingBody', { name: incomingFromName, room: invites.incoming.value.roomName }) }}
+      </p>
+      <p class="truncate font-mono text-[11px] opacity-50">{{ invites.incoming.value.fromNodeId }}</p>
+      <div class="flex gap-2">
+        <OyaButton :dark-mode="darkMode" class="flex-1 justify-center" @click="acceptIncoming">
+          <font-awesome-icon icon="check" />{{ $t('contacts.accept') }}
+        </OyaButton>
+        <OyaButton :dark-mode="darkMode" variant="secondary" class="flex-1 justify-center" @click="invites.decline">
+          <font-awesome-icon icon="xmark" />{{ $t('contacts.decline') }}
+        </OyaButton>
+      </div>
+    </OyaCard>
 
     <!-- My code — share it once; the peer saves it as a contact -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
@@ -258,6 +290,14 @@ async function pickInviteRoom(room: P2pRoomEntry) {
           <button
             type="button"
             class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
+            :title="$t('contacts.inviteDirect')"
+            @click="openInviteFor(c)"
+          >
+            <font-awesome-icon icon="paper-plane" />
+          </button>
+          <button
+            type="button"
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
             :title="$t('contacts.rename')"
             @click="openEdit(c)"
           >
@@ -273,19 +313,6 @@ async function pickInviteRoom(room: P2pRoomEntry) {
           </button>
         </li>
       </ul>
-    </OyaCard>
-
-    <!-- Invite to a room — share a saved room as a ticketless join code -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('contacts.invite') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('contacts.inviteHint') }}</p>
-      </div>
-      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openInvite">
-        <font-awesome-icon icon="share-nodes" />{{ $t('contacts.invite') }}
-      </OyaButton>
     </OyaCard>
 
     <!-- Off-screen QR decode region (html5-qrcode needs a mounted element) -->
@@ -348,14 +375,16 @@ async function pickInviteRoom(room: P2pRoomEntry) {
       </template>
     </OyaModal>
 
-    <!-- Invite modal: pick a saved room → show its join code as QR + copy -->
-    <OyaModal v-model:open="inviteOpen" @close="inviteOpen = false">
+    <!-- Direct-invite modal: pick a room → live handshake → outcome -->
+    <OyaModal :open="inviteOpen" @close="closeInvite">
       <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
-          <font-awesome-icon icon="share-nodes" />{{ $t('contacts.invite') }}
+          <font-awesome-icon icon="paper-plane" />
+          {{ $t('contacts.invitePickTitle', { name: inviteTarget?.name ?? '' }) }}
         </p>
 
-        <template v-if="!inviteCode">
+        <!-- Room picker -->
+        <template v-if="invites.outgoing.value === 'idle'">
           <p v-if="invitableRooms.length === 0" class="text-sm opacity-60">
             {{ $t('contacts.noRooms') }}
           </p>
@@ -372,22 +401,50 @@ async function pickInviteRoom(room: P2pRoomEntry) {
               </button>
             </li>
           </ul>
-          <p v-if="inviteError" class="text-sm text-warn-dark">{{ $t(inviteError) }}</p>
         </template>
 
-        <template v-else>
-          <p class="text-sm font-semibold">{{ inviteRoomName }}</p>
-          <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t('chat.shareCode') }}</p>
-          <OyaQrCode :value="inviteCode" :size="176" alt="Room code QR" />
-          <OyaCopyField :value="inviteCode" mono :copy-label="$t('chat.copy')" />
-          <p class="text-xs opacity-60">{{ $t('contacts.inviteCodeHint') }}</p>
-        </template>
+        <!-- Waiting for the contact's answer -->
+        <div v-else-if="invites.outgoing.value === 'waiting'" class="flex flex-col items-center gap-3 py-6 text-center">
+          <font-awesome-icon icon="spinner" spin class="text-3xl text-accent-dark" />
+          <p class="text-sm opacity-70">
+            {{ $t('contacts.inviteWaiting', { name: inviteTarget?.name ?? '' }) }}
+          </p>
+        </div>
+
+        <!-- Outcome -->
+        <p v-else-if="invites.outgoing.value === 'accepted'" class="flex items-center gap-2 text-sm font-semibold text-success-dark">
+          <font-awesome-icon icon="check" />
+          {{ $t('contacts.inviteAccepted', { name: inviteTarget?.name ?? '' }) }}
+        </p>
+        <p v-else-if="invites.outgoing.value === 'declined'" class="flex items-center gap-2 text-sm text-warn-dark">
+          <font-awesome-icon icon="xmark" />
+          {{ $t('contacts.inviteDeclined', { name: inviteTarget?.name ?? '' }) }}
+        </p>
+        <div v-else-if="invites.outgoing.value === 'error'" class="space-y-2">
+          <p class="flex items-center gap-2 text-sm text-warn-dark">
+            <font-awesome-icon icon="triangle-exclamation" />
+            {{ $t('contacts.inviteUnreachable', { name: inviteTarget?.name ?? '' }) }}
+          </p>
+          <p v-if="invites.outgoingError.value && invites.outgoingError.value !== 'contacts.inviteUnavailable'" class="text-xs opacity-60">
+            {{ invites.outgoingError.value }}
+          </p>
+          <p v-else-if="invites.outgoingError.value === 'contacts.inviteUnavailable'" class="text-xs opacity-60">
+            {{ $t('contacts.inviteUnavailable') }}
+          </p>
+          <button
+            type="button"
+            class="w-full rounded-lg border border-current/20 px-4 py-2 text-sm font-semibold transition hover:opacity-80"
+            @click="invites.resetOutgoing"
+          >
+            {{ $t('chat.retry') }}
+          </button>
+        </div>
       </div>
       <template #footer>
         <button
           type="button"
           class="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-          @click="inviteOpen = false"
+          @click="closeInvite"
         >
           {{ $t('chat.close') }}
         </button>

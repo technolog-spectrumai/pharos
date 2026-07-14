@@ -213,6 +213,33 @@ pub async fn realtime_node_info(
     Ok(json!({ "node_id": node_id }))
 }
 
+// ── Direct room invites (`invite_*` family — see p2p_invite.rs) ─────────────────
+
+/// Offer a room directly to a contact (by NodeId) and wait for their answer:
+/// `"accepted"` or `"declined"`. Unreachable / unanswered invites surface as
+/// errors. The frontend opens the room first (MLS admission needs a live member).
+#[tauri::command]
+pub async fn invite_send(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
+    node_id: String,
+    room: String,
+    name: String,
+) -> Result<String, String> {
+    if offline(&app, &config) {
+        return Err(OFFLINE_BLOCKED.to_string());
+    }
+    // Tor is exclusive: an invite would dial over iroh.
+    if use_tor(&app, &config) {
+        return Err("Direct invites are unavailable while Tor mode is on.".to_string());
+    }
+    let accepted = p2p_iroh::invite_send(&app, &p2p, &node_id, &room, &name)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(if accepted { "accepted" } else { "declined" }.to_string())
+}
+
 // ── DHT discovery commands (`dht_*` family — see dht.md) ────────────────────────
 
 #[derive(Serialize)]

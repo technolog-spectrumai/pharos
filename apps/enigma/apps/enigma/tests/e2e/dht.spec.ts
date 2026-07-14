@@ -84,10 +84,17 @@ test.describe("Contacts tab", () => {
     await expect(page.getByText("That doesn't look like a contact code.")).toBeVisible();
   });
 
-  test("invite modal shows the no-rooms empty state in the browser shell", async ({ page }) => {
+  test("direct invite: contact row opens the room picker (empty in the browser shell)", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: "Contacts" }).first().click();
-    await page.getByRole("button", { name: "Invite to a room" }).click();
+    // Direct invites are per-contact — add one to get a row.
+    await page.getByRole("button", { name: "Add contact" }).click();
+    await page.getByPlaceholder("Paste a contact code (node ID)").fill("cd".repeat(32));
+    await page.getByPlaceholder("Display name").fill("Bob");
+    await page.getByRole("button", { name: "Add contact" }).last().click();
+
+    await page.getByRole("button", { name: "Send room invite" }).click();
+    await expect(page.getByText("Invite Bob to a room")).toBeVisible();
     await expect(page.getByText("No shareable rooms yet", { exact: false })).toBeVisible();
   });
 });

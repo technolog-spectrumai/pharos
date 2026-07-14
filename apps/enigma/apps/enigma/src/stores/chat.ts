@@ -9,6 +9,7 @@
 import { useChatChannel, type ChatChannel } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
+import { useRoomInvites } from "../components/contacts/useRoomInvites";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
@@ -18,6 +19,9 @@ function createChatStore() {
   // Created here (once, for the app's lifetime) so incoming offers are caught
   // even while the Files modal is closed.
   const fileShare = useFileShare(p2p);
+  // Direct room invites (Contacts) — same lifetime rationale: an incoming
+  // invite must be caught (and the Contacts nav dot lit) wherever the user is.
+  const invites = useRoomInvites(p2p);
 
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
@@ -43,7 +47,7 @@ function createChatStore() {
   }
 
   return {
-    p2p, fileShare, init,
+    p2p, fileShare, invites, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

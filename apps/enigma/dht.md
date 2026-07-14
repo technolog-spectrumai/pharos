@@ -181,6 +181,7 @@ realtime command lazily re-binds with the new setting.
 | Contacts store (kv ns `contacts`) | `packages/rakotis/src/services/contacts.ts` (new) |
 | Settings toggle + cadence fields + status | `apps/enigma/src/views/EnigmaConfigView.vue` |
 | Contacts tab | `apps/enigma/src/views/EnigmaContactsView.vue` (new) + router + `App.vue` nav |
+| Direct room invites (offer/accept over a dedicated ALPN on the main endpoint; the payload carries a fresh ticket + the DHT room code) | `apps/enigma/src-tauri/src/p2p_invite.rs` + `useRoomInvites.ts` |
 
 New crates: `mainline = "6"` (async), `chacha20poly1305 = "0.10"`; iroh gains
 feature `address-lookup-pkarr-dht`. Known cost when enabled: two mainline UDP
