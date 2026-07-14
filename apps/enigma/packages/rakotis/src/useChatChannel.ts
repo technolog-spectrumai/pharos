@@ -518,6 +518,10 @@ export function useChatChannel() {
             void handlePeerLeave(inner.device_id as string);
             return;
           }
+          if (inner?.type === "room_closed") {
+            void handleRoomClosed();
+            return;
+          }
           if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_"))) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
@@ -623,6 +627,14 @@ export function useChatChannel() {
     if (i === -1) p2pRooms.value.unshift(entry);
     else p2pRooms.value[i] = { ...p2pRooms.value[i], ...entry };
     persistP2pRooms();
+  }
+
+  /** Drop a room from the saved list + persisted `p2p:rooms` KV (the delete/forget
+   *  counterpart of `rememberP2pRoom`). */
+  function forgetP2pRoom(slug: string) {
+    const before = p2pRooms.value.length;
+    p2pRooms.value = p2pRooms.value.filter((r) => r.room !== slug);
+    if (p2pRooms.value.length !== before) persistP2pRooms();
   }
 
   /** Record a peer NodeId in a room's persisted address book (pair once by QR,
@@ -774,6 +786,44 @@ export function useChatChannel() {
     mlsStatus.value = "idle";
   }
 
+  /** Delete a saved room: kick + wipe. If we HOST it and are connected, broadcast
+   *  `room_closed` so every participant tears down + forgets it too; if we only joined,
+   *  broadcast the ordinary `leave` (the remaining admin evicts us from MLS). Then wipe
+   *  all local data for the room — MLS group state, the persisted entry, and (Tor) the
+   *  onion identity — and close its connections. Kicking peers only reaches them while
+   *  we are connected to the room with MLS ready (i.e. deleting the open room). */
+  async function deleteRoom(entry: P2pRoomEntry) {
+    const slug = entry.room;
+    const identity = mlsIdentity.value;
+    const isCurrent = currentRoom.value?.slug === slug;
+
+    if (isCurrent && mlsStatus.value === "ready") {
+      await sendEncryptedMedia(entry.host ? "room_closed" : "leave", { device_id: identity }).catch(() => {});
+    }
+    // Wipe local data.
+    await cryptoService.clearState(slug, identity).catch(() => {});
+    if (entry.tor) chatTransport.forgetTorOnion(entry.name); // stops the service + drops the key
+    forgetP2pRoom(slug);
+    // Close connections / reset the view.
+    if (isCurrent) clearLocalChatState("Room deleted.");
+    else chatTransport.leaveRoom(slug); // stop hosting/dialing a non-open room
+  }
+
+  /** A room's host broadcast `room_closed` — tear down + wipe it on our side, per the
+   *  "fully wiped + notified" delete behaviour. Only fires for the room on screen (the
+   *  transport delivers `room_closed` only for `currentRoom`). */
+  async function handleRoomClosed() {
+    if (!currentRoom.value) return;
+    const slug = currentRoom.value.slug;
+    const name = currentRoom.value.name;
+    const tor = currentRoomIsTor.value;
+    await cryptoService.clearState(slug, mlsIdentity.value).catch(() => {});
+    if (tor) chatTransport.forgetTorOnion(name);
+    forgetP2pRoom(slug);
+    // Resets the channel + leaves the notice as the sole system message.
+    clearLocalChatState("This room was deleted by the host.");
+  }
+
   // ── sending ──────────────────────────────────────────────────────────────────
   async function sendEncryptedMedia(innerType: string, payload: Record<string, unknown>) {
     const ct = await cryptoService.encrypt(currentRoom.value!.slug, mlsIdentity.value, JSON.stringify({ type: innerType, ...payload }));
@@ -903,7 +953,7 @@ export function useChatChannel() {
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendImageDataUrl, sendAudio, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
-    cancelJoin,
+    cancelJoin, deleteRoom,
     ensureNode,
     onSync, sendSync,
   };

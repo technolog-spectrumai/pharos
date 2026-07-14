@@ -12,7 +12,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ "update:open": [boolean]; "toggle-camera": [] }>();
 
-const { ticket, scanError, joinStarted, joinError, joiningTor, joinCancelling, joinRoom, cancelJoin, scanFile, resetJoin } =
+const { ticket, scanError, joinStarted, joinError, joiningTor, joinRoom, cancelJoin, scanFile, resetJoin } =
   props.controller;
 // Live status from the channel — "established" = MLS Encrypted.
 const { isEncrypted, mlsStatus } = props.channel;
@@ -77,11 +77,10 @@ function close() {
         <button
           v-else-if="joiningTor && !isEncrypted"
           type="button"
-          :disabled="joinCancelling"
-          class="rounded-lg border border-current/20 px-4 py-2 text-sm font-semibold transition hover:opacity-80 disabled:opacity-50"
+          class="rounded-lg border border-current/20 px-4 py-2 text-sm font-semibold transition hover:opacity-80"
           @click="cancelJoin"
         >
-          {{ joinCancelling ? $t("chat.cancelling") : $t("chat.cancelJoin") }}
+          {{ $t("chat.cancelJoin") }}
         </button>
       </div>
     </div>

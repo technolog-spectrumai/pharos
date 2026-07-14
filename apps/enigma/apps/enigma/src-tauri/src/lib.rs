@@ -1100,6 +1100,7 @@ pub fn run() {
             realtime::realtime_join_room_by_node,
             realtime::realtime_leave_room,
             realtime::realtime_cancel_join,
+            realtime::realtime_forget_tor_onion,
             realtime::realtime_node_info,
             realtime::realtime_tor_set_captain,
             fs_local::fs_read_text_file,

@@ -96,9 +96,19 @@ export default {
     encrypting: "Establishing encryption…",
     connectedOk: "Connected — encryption active.",
     launchFailed: "Couldn't launch the onion service.",
+    joinTimeout: "Couldn't connect in time. Try again.",
     retry: "Try again",
     cancelJoin: "Cancel",
     cancelling: "Cancelling…",
+    deleteRoom: "Delete room",
+    deleteRoomTitle: "Delete room?",
+    deleteRoomHostWarn:
+      "You host this room. Deleting it kicks out all participants, closes connections, and wipes its data for everyone. This can't be undone.",
+    deleteRoomLocalWarn:
+      "This removes the room from this device and wipes its local data. Other participants keep the room. This can't be undone.",
+    delete: "Delete",
+    deleting: "Deleting…",
+    cancel: "Cancel",
     close: "Close",
   },
   profile: {

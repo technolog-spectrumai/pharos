@@ -96,9 +96,19 @@ export default {
     encrypting: "Ustanawianie szyfrowania…",
     connectedOk: "Połączono — szyfrowanie aktywne.",
     launchFailed: "Nie udało się uruchomić usługi onion.",
+    joinTimeout: "Nie udało się połączyć na czas. Spróbuj ponownie.",
     retry: "Spróbuj ponownie",
     cancelJoin: "Anuluj",
     cancelling: "Anulowanie…",
+    deleteRoom: "Usuń pokój",
+    deleteRoomTitle: "Usunąć pokój?",
+    deleteRoomHostWarn:
+      "Jesteś gospodarzem tego pokoju. Usunięcie wyrzuci wszystkich uczestników, zamknie połączenia i wymaże jego dane u wszystkich. Tej operacji nie można cofnąć.",
+    deleteRoomLocalWarn:
+      "To usunie pokój z tego urządzenia i wymaże jego lokalne dane. Pozostali uczestnicy zachowają pokój. Tej operacji nie można cofnąć.",
+    delete: "Usuń",
+    deleting: "Usuwanie…",
+    cancel: "Anuluj",
     close: "Zamknij",
   },
   profile: {

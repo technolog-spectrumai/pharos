@@ -2,6 +2,10 @@ import { ref } from "vue";
 import { isTorTicket } from "rakotis";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
 
+// Default time a join is given to connect before it times out (aborting the
+// in-flight connect and offering a retry). Tunable.
+const CONNECT_TIMEOUT_MS = 5000;
+
 // Shared P2P room state + actions for the chat surface. One instance is created in
 // ChatPanel and passed to both the desktop rooms sidebar and the mobile drawer so
 // they stay in sync (the refs are shared by reference). Create + join run in modals
@@ -56,12 +60,58 @@ export function useP2pRooms(channel: ChatChannel) {
     infoOpen.value = true;
   }
 
+  // ── Delete-room confirmation ─────────────────────────────────────────────────
+  const deleteOpen = ref(false);
+  const deleteRoomEntry = ref<P2pRoomEntry | null>(null);
+  const deleteBusy = ref(false);
+
+  function openDeleteConfirm(room: P2pRoomEntry) {
+    deleteRoomEntry.value = room;
+    deleteBusy.value = false;
+    deleteOpen.value = true;
+  }
+
+  async function confirmDelete() {
+    const room = deleteRoomEntry.value;
+    if (!room || deleteBusy.value) return;
+    deleteBusy.value = true;
+    try {
+      // Kicks participants (if host + connected), closes connections, wipes the data.
+      await channel.deleteRoom(room);
+      deleteOpen.value = false;
+      deleteRoomEntry.value = null;
+    } finally {
+      deleteBusy.value = false;
+    }
+  }
+
   // ── Join modal ───────────────────────────────────────────────────────────────
   const joinOpen = ref(false);
   const joinStarted = ref(false); // a join was initiated → show live progress
   const joinError = ref("");
   const joiningTor = ref(false); // current in-flight join is over Tor → offer Cancel
   const joinCancelling = ref(false); // Cancel pressed → abort in progress, swallow error
+  const joinTimedOut = ref(false); // connect timed out → keep the timeout error, swallow the abort
+
+  // Connect-timeout timer: armed when a join begins, cleared once it connects
+  // (joinByTicket resolves), the user cancels, or the modal resets.
+  let connectTimer: ReturnType<typeof setTimeout> | null = null;
+  function clearConnectTimer() {
+    if (connectTimer !== null) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
+    }
+  }
+  function armConnectTimer() {
+    clearConnectTimer();
+    connectTimer = setTimeout(() => {
+      connectTimer = null;
+      if (!joinStarted.value || joinError.value) return;
+      joinTimedOut.value = true;
+      if (joiningTor.value) void channel.cancelJoin(); // free the hung onion/dial in Rust
+      joinError.value = "chat.joinTimeout";
+    }, CONNECT_TIMEOUT_MS);
+  }
 
   function openJoin() {
     ticket.value = "";
@@ -70,6 +120,8 @@ export function useP2pRooms(channel: ChatChannel) {
     joinStarted.value = false;
     joiningTor.value = false;
     joinCancelling.value = false;
+    joinTimedOut.value = false;
+    clearConnectTimer();
     joinOpen.value = true;
   }
   function resetJoin() {
@@ -77,6 +129,8 @@ export function useP2pRooms(channel: ChatChannel) {
     joinError.value = "";
     joiningTor.value = false;
     joinCancelling.value = false;
+    joinTimedOut.value = false;
+    clearConnectTimer();
   }
 
   async function joinRoom() {
@@ -86,12 +140,21 @@ export function useP2pRooms(channel: ChatChannel) {
     joinStarted.value = true;
     joiningTor.value = isTorTicket(t);
     joinCancelling.value = false;
+    joinTimedOut.value = false;
+    armConnectTimer();
     await channel.joinByTicket(t);
+    clearConnectTimer(); // connected (or failed) → the connect window is over
     ticket.value = "";
     // If the user cancelled mid-join, cancelJoin() already reset the UI — swallow the
     // "join cancelled" error the aborted invoke produced (in both this controller and
     // the channel) instead of surfacing it anywhere.
     if (joinCancelling.value) {
+      channel.error.value = null;
+      return;
+    }
+    // Connect timed out: keep the timeout error (the modal shows Retry), and swallow
+    // the "join cancelled" error the timeout's abort produced.
+    if (joinTimedOut.value) {
       channel.error.value = null;
       return;
     }
@@ -105,6 +168,7 @@ export function useP2pRooms(channel: ChatChannel) {
   async function cancelJoin() {
     if (joinCancelling.value) return;
     joinCancelling.value = true;
+    clearConnectTimer();
     await channel.cancelJoin();
     joinStarted.value = false;
     joinError.value = "";
@@ -151,6 +215,11 @@ export function useP2pRooms(channel: ChatChannel) {
     infoOpen,
     infoRoom,
     openInfo,
+    deleteOpen,
+    deleteRoomEntry,
+    deleteBusy,
+    openDeleteConfirm,
+    confirmDelete,
     joinOpen,
     joinStarted,
     joinError,

@@ -13,6 +13,7 @@ import QrScannerModal from "./chat/QrScannerModal.vue";
 import CreateRoomModal from "./chat/CreateRoomModal.vue";
 import JoinRoomModal from "./chat/JoinRoomModal.vue";
 import RoomInfoModal from "./chat/RoomInfoModal.vue";
+import DeleteRoomModal from "./chat/DeleteRoomModal.vue";
 import MobileRoomsDrawer from "./chat/MobileRoomsDrawer.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
@@ -21,7 +22,7 @@ const { currentRoom, error, isParticipant } = channel;
 
 // Shared P2P room state — one instance feeds both the desktop sidebar and the drawer.
 const p2p = useP2pRooms(channel);
-const { createOpen, joinOpen, infoOpen } = p2p;
+const { createOpen, joinOpen, infoOpen, deleteOpen } = p2p;
 const sidebarOpen = ref(false);
 const scanning = ref(false);
 
@@ -92,6 +93,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
       @toggle-camera="scanning = !scanning"
     />
     <RoomInfoModal v-model:open="infoOpen" :controller="p2p" />
+    <DeleteRoomModal v-model:open="deleteOpen" :controller="p2p" />
 
     <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->
     <MobileRoomsDrawer v-model:open="sidebarOpen" :channel="channel" :controller="p2p" />

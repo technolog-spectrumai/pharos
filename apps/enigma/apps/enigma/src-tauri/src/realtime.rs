@@ -170,6 +170,18 @@ pub async fn realtime_cancel_join(tor: State<'_, TorP2pState>) -> Result<(), Str
     Ok(())
 }
 
+/// Destroy a room's onion identity (part of "delete room" for a Tor room): stops the
+/// room's onion service and removes its hidden-service keys so a future same-named
+/// room mints a fresh `.onion`. No-op for a room this device never hosted over Tor.
+#[tauri::command]
+pub async fn realtime_forget_tor_onion(
+    app: AppHandle,
+    tor: State<'_, TorP2pState>,
+    name: String,
+) -> Result<(), String> {
+    p2p_tor::forget_onion(&app, &tor, name).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn realtime_node_info(
     app: AppHandle,

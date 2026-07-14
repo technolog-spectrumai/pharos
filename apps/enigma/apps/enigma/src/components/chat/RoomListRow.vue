@@ -30,5 +30,12 @@ const emit = defineEmits<{ open: [] }>();
       class="h-7 w-7 border-transparent opacity-60 hover:opacity-100"
       @click="controller.openInfo(room)"
     />
+    <OyaIconButton
+      icon="trash"
+      size="sm"
+      :label="$t('chat.deleteRoom')"
+      class="h-7 w-7 border-transparent opacity-60 hover:text-warn-dark hover:opacity-100"
+      @click="controller.openDeleteConfirm(room)"
+    />
   </div>
 </template>

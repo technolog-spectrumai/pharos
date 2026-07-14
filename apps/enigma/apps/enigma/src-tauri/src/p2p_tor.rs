@@ -863,6 +863,73 @@ pub async fn clean_keystore(app: &AppHandle, state: &TorP2pState) {
     let _ = crate::vault::delete(app, "keys", "tor_keystore");
 }
 
+/// Destroy a SINGLE room's onion identity (used by "delete room"): stop that room's
+/// service, then remove its nickname-keyed hidden-service keys from arti's keystore so
+/// a future same-named room mints a FRESH `.onion` instead of reusing the persisted HS
+/// key. Handles both a running node (live state dir) and a stopped one (the sealed
+/// keystore blob). Other rooms' onions are untouched.
+pub async fn forget_onion(app: &AppHandle, state: &TorP2pState, name: String) -> Result<()> {
+    // Stop this room's onion service first so its keys are idle before we remove them.
+    let room = room_for(&name);
+    let _ = leave_room(state, &room).await;
+    let nick = nickname_for(&name)?.to_string();
+
+    // The on-disk keystore only exists while the node runs; snapshot its dir if so.
+    let running = {
+        let guard = state.0.lock().await;
+        guard.as_ref().map(|n| (n.state_dir.clone(), n.stable))
+    };
+
+    match running {
+        Some((state_dir, stable)) => {
+            remove_nickname_from_keystore(&state_dir, &nick);
+            // Persist the removal for a stable onion, else the sealed blob would
+            // restore the deleted key on the next launch.
+            if stable {
+                if let Ok(archive) = archive_dir(&state_dir) {
+                    let _ = crate::vault::put(app, "keys", "tor_keystore", &archive);
+                }
+            }
+        }
+        None => {
+            // Node down: operate on the sealed keystore blob (stable mode only —
+            // ephemeral keys never persist, so there is nothing to forget). Extract to
+            // a temp dir, drop the nickname subtree, re-seal, wipe the temp dir.
+            if let Ok(Some(archive)) = crate::vault::get(app, "keys", "tor_keystore") {
+                let tmp = std::env::temp_dir()
+                    .join(format!("enigma-tor-forget-{}", uuid::Uuid::new_v4().simple()));
+                let _ = std::fs::create_dir_all(&tmp);
+                if extract_archive(&tmp, &archive).is_ok() {
+                    remove_nickname_from_keystore(&tmp, &nick);
+                    if let Ok(re) = archive_dir(&tmp) {
+                        let _ = crate::vault::put(app, "keys", "tor_keystore", &re);
+                    }
+                }
+                let _ = std::fs::remove_dir_all(&tmp);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Remove the keystore subtree for a single HS nickname (arti stores hidden-service
+/// keys under `…/hss/<nickname>/`). Recursive, mirroring `clear_lockfiles`: any
+/// directory whose name equals the nickname is removed whole, wherever it sits.
+fn remove_nickname_from_keystore(dir: &std::path::Path, nick: &str) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if p.file_name().and_then(|n| n.to_str()) == Some(nick) {
+                    let _ = std::fs::remove_dir_all(&p);
+                } else {
+                    remove_nickname_from_keystore(&p, nick);
+                }
+            }
+        }
+    }
+}
+
 // ── outbound: dial the captain, read, reconnect ────────────────────────────────
 
 /// Manages this member's single outbound connection to the captain: reads relayed
