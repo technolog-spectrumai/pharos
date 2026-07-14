@@ -42,6 +42,10 @@ export interface ChatTransport {
    *  "resource already in use"). No-op for iroh joins / when nothing is joining. */
   cancelJoin(): void;
   leaveRoom(room: string): void;
+  /** Destroy a Tor room's onion identity (part of deleting the room): stops its
+   *  service and removes its hidden-service keys so a same-named room later mints a
+   *  fresh `.onion`. No-op for iroh rooms / rooms never hosted over Tor. */
+  forgetTorOnion(name: string): void;
   /** Re-point our outbound onion dial to the elected captain (Tor rooms only). */
   setCaptain(room: string, captainOnion: string): void;
   nodeInfo(): Promise<{ node_id: string } | null>;
@@ -112,6 +116,10 @@ class GatewayChatTransport implements ChatTransport {
     void _invoke("realtime_leave_room", { room }).catch(() => {});
   }
 
+  forgetTorOnion(name: string): void {
+    void _invoke("realtime_forget_tor_onion", { name }).catch(() => {});
+  }
+
   setCaptain(room: string, captainOnion: string): void {
     void _invoke("realtime_tor_set_captain", { room, captainOnion }).catch(() => {});
   }
@@ -156,6 +164,7 @@ class StubChatTransport implements ChatTransport {
   }
   cancelJoin(): void {}
   leaveRoom(): void {}
+  forgetTorOnion(): void {}
   setCaptain(): void {}
   nodeInfo(): Promise<{ node_id: string } | null> {
     return Promise.resolve(null);
