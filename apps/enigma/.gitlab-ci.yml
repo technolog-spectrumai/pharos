@@ -153,6 +153,50 @@ tauri:desktop:
     paths: [apps/enigma/src-tauri/target/release/bundle/]
     expire_in: 30 days
 
+# Rotor WASM for external consumers. CryptoRotor's single source of truth is this
+# repo (cryptorotor/); the toto project fetches these artifacts instead of building
+# its own rotors copy. Two wasm-pack targets from cryptorotor/rotor_wasm:
+#   web     → build_web/  (toto Dockerfiles → Django telegraph static dir)
+#   bundler → build/      (toto edge apps' `rotor_wasm` file: npm dep)
+# Runs on every branch AND tag pipeline (needs: [] → starts immediately), so a
+# release tag carries the wasm built at the exact commit shipping that crate
+# revision. Consumers download the latest successful build on a ref via:
+#   https://gitlab.com/api/v4/projects/janhagit-group%2Fenigma/jobs/artifacts/<ref>/download?job=rotor:wasm
+# (private project → needs a read_api token in a PRIVATE-TOKEN header).
+rotor:wasm:
+  stage: build
+  needs: []
+  image: rust:1-bookworm
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  cache:
+    key: cargo-rotor-wasm
+    paths:
+      - .cargo/registry
+      - .cargo/bin
+      - cryptorotor/target/
+  before_script:
+    # the wasm-pack installer drops the binary into $CARGO_HOME/bin, which the
+    # cache keeps across runs — install only on a cold cache
+    - export PATH="$CARGO_HOME/bin:$PATH"
+    - rustup target add wasm32-unknown-unknown
+    - command -v wasm-pack >/dev/null
+      || curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+  script:
+    - cd cryptorotor/rotor_wasm
+    - wasm-pack build --target web --out-dir build_web
+    - wasm-pack build --target bundler --out-dir build
+    # assert both packages materialized (not just exit 0)
+    - test -f build_web/rotor_wasm_bg.wasm
+    - test -f build/rotor_wasm_bg.wasm && test -f build/package.json
+    # provenance stamp so consumers can tell which enigma commit built the wasm
+    - echo "$CI_COMMIT_SHA" | tee build/COMMIT build_web/COMMIT
+  artifacts:
+    paths:
+      - cryptorotor/rotor_wasm/build_web/
+      - cryptorotor/rotor_wasm/build/
+    expire_in: 30 days
+
 # Android needs an SDK/NDK image plus signing configuration; the host-provisioning
 # scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)
 # and build_android.md document the requirements. Not wired to a CI image yet.
