@@ -54,9 +54,11 @@ export default {
     dhtDiscoveryOnHint:
       "Wł. — Twój węzeł publikuje swój rekord adresowy w DHT (tylko adres przekaźnika), a do pokoi można dołączać kodem.",
     dhtDiscoveryOffHint: "Wył. — wykrywanie używa tylko wbudowanej usługi n0 i biletów QR.",
-    dhtStatusChecking: "Sprawdzanie DHT…",
+    dhtStatusChecking: "Sprawdzanie DHT… (świeży węzeł potrzebuje kilku sekund na start)",
     dhtStatusOk: "DHT osiągalne",
     dhtStatusUnreachable: "DHT nieosiągalne — powrót do n0 / biletów",
+    dhtStatusIdle: "Nieaktywne — tryb offline lub Tor blokuje węzeł P2P",
+    dhtTest: "Testuj DHT",
     dhtRoomPublish: "Częstotliwość ogłaszania pokoju",
     dhtRoomPublishHint: "Co ile sekund otwarty pokój jest ponownie ogłaszany w DHT. Mniej — szybsze znajdowanie dołączających; więcej — oszczędza baterię i transfer.",
     dhtPresencePoll: "Odświeżanie obecności",

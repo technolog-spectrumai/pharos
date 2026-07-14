@@ -505,16 +505,23 @@ fn abort_dht_tasks(handle: &RoomHandle) {
 
 // ── DHT command helpers (realtime.rs `dht_*`) ───────────────────────────────────
 
-/// `(enabled, bootstrapped)` for the Settings/Contacts status line. Does not
-/// start the node: before the first room command, bootstrapped reads false.
-pub async fn dht_status(app: &AppHandle, state: &P2pState) -> (bool, bool) {
+/// `(enabled, running, bootstrapped)` for the Settings/Contacts status line.
+/// With `may_start`, the probe lazily binds the node first (same start every
+/// room command does) — otherwise a freshly-applied toggle would always read
+/// "unreachable" purely because `dht_apply` tore the node down. `running=false`
+/// then means: not allowed to start (offline/Tor) or the DHT bind failed.
+pub async fn dht_status(app: &AppHandle, state: &P2pState, may_start: bool) -> (bool, bool, bool) {
     if !crate::p2p_dht::discovery_enabled(app) {
-        return (false, false);
+        return (false, false, false);
+    }
+    if may_start {
+        // Bind failure is non-fatal here — it reads as not-running below.
+        let _ = ensure_started(app, state).await;
     }
     let dht = { state.0.lock().await.as_ref().and_then(|n| n.dht.clone()) };
     match dht {
-        Some(dht) => (true, dht.bootstrapped().await),
-        None => (true, false),
+        Some(dht) => (true, true, dht.bootstrapped().await),
+        None => (true, false, false),
     }
 }
 
@@ -531,15 +538,17 @@ pub async fn dht_presence(
     Ok(dht.presence(node_ids).await)
 }
 
-/// Mint (or re-surface) the ticketless-join code for an open room — lets rooms
+/// Mint (or re-surface) the ticketless-join code for a saved room — lets rooms
 /// created before the toggle (or ticket-joined) become code-shareable. `None`
-/// while discovery is off.
+/// while discovery is off. Starts the node lazily like every room command, so
+/// the Contacts invite flow works before any room is opened this session.
 pub async fn dht_room_code(
     app: &AppHandle,
     state: &P2pState,
     room: &str,
     name: &str,
 ) -> Result<Option<String>> {
+    ensure_started(app, state).await?;
     let mut guard = state.0.lock().await;
     let Some(node) = guard.as_mut() else { return Ok(None) };
     if node.dht.is_none() {

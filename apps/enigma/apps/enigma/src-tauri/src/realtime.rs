@@ -218,18 +218,24 @@ pub async fn realtime_node_info(
 #[derive(Serialize)]
 pub struct DhtStatus {
     enabled: bool,
+    /// The iroh node is up with a DHT handle. False = blocked from starting
+    /// (offline / Tor mode) or the Mainline UDP bind failed.
+    running: bool,
     bootstrapped: bool,
 }
 
-/// Status line for Settings/Contacts: is the toggle on, and does our Mainline
-/// node have a live routing table. Read-only (does not start the node).
+/// Status probe for Settings/Contacts: is the toggle on, is the node running,
+/// and does our Mainline node have a live routing table. May lazily start the
+/// node (like any room command) — but never in airplane or Tor mode.
 #[tauri::command]
 pub async fn dht_status(
     app: AppHandle,
+    config: State<'_, AppConfigState>,
     p2p: State<'_, P2pState>,
 ) -> Result<DhtStatus, String> {
-    let (enabled, bootstrapped) = p2p_iroh::dht_status(&app, &p2p).await;
-    Ok(DhtStatus { enabled, bootstrapped })
+    let may_start = !offline(&app, &config) && !use_tor(&app, &config);
+    let (enabled, running, bootstrapped) = p2p_iroh::dht_status(&app, &p2p, may_start).await;
+    Ok(DhtStatus { enabled, running, bootstrapped })
 }
 
 /// "Recently online" per contact NodeId (Contacts presence poll). Granularity is
@@ -243,6 +249,11 @@ pub async fn dht_presence(
 ) -> Result<serde_json::Value, String> {
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
+    }
+    // Tor is exclusive: presence would lazily start the iroh node, so block it
+    // (same reason app_set_use_tor tears iroh down).
+    if use_tor(&app, &config) {
+        return Err("DHT presence is unavailable while Tor mode is on.".to_string());
     }
     let presence = p2p_iroh::dht_presence(&app, &p2p, node_ids).await.map_err(|e| e.to_string())?;
     Ok(json!(presence
@@ -263,6 +274,11 @@ pub async fn dht_room_code(
 ) -> Result<Option<String>, String> {
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
+    }
+    // Room codes are iroh-only; minting one would start the iroh node, which
+    // Tor-exclusive mode forbids.
+    if use_tor(&app, &config) {
+        return Ok(None);
     }
     p2p_iroh::dht_room_code(&app, &p2p, &room, &name).await.map_err(|e| e.to_string())
 }

@@ -54,9 +54,11 @@ export default {
     dhtDiscoveryOnHint:
       "On — your node publishes its address record to the DHT (relay address only) and rooms are joinable by code.",
     dhtDiscoveryOffHint: "Off — discovery uses the built-in n0 service and QR tickets only.",
-    dhtStatusChecking: "Checking DHT…",
+    dhtStatusChecking: "Checking DHT… (a fresh node needs a few seconds to bootstrap)",
     dhtStatusOk: "DHT reachable",
     dhtStatusUnreachable: "DHT unreachable — falling back to n0 / tickets",
+    dhtStatusIdle: "Not active — offline or Tor mode is blocking the P2P node",
+    dhtTest: "Test DHT",
     dhtRoomPublish: "Room announce interval",
     dhtRoomPublishHint: "Seconds between re-announcing an open room on the DHT. Lower finds joiners faster, higher saves battery and traffic.",
     dhtPresencePoll: "Presence refresh",

@@ -175,11 +175,16 @@ export async function applyDhtDiscovery(): Promise<void> {
 
 export interface DhtStatus {
   enabled: boolean;
+  /** The iroh node is up with a DHT handle. False = blocked from starting
+   *  (offline / Tor mode) or the Mainline UDP bind failed. */
+  running: boolean;
   bootstrapped: boolean;
 }
 
-/** Status line for Settings/Contacts. `bootstrapped` needs the node started —
- *  before the first room command it reads false even with the toggle on. */
+/** Status probe for Settings/Contacts. May lazily start the node (like any
+ *  room command) — never in airplane or Tor mode. A fresh Mainline node takes
+ *  a few seconds to bootstrap, so callers should retry before declaring the
+ *  DHT unreachable. */
 export async function getDhtStatus(): Promise<DhtStatus> {
   if (isTauri()) {
     try {
@@ -188,7 +193,7 @@ export async function getDhtStatus(): Promise<DhtStatus> {
       /* fall through */
     }
   }
-  return { enabled: false, bootstrapped: false };
+  return { enabled: false, running: false, bootstrapped: false };
 }
 
 // How often an open room's rendezvous record is re-published (Rust re-reads this

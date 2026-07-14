@@ -126,16 +126,38 @@ async function toggleStableOnion() {
 // Flipping the toggle rebinds the iroh node in Rust (dht_apply), so the new
 // setting applies without an app restart; open rooms re-join lazily.
 const dhtDiscovery = ref(false);
-const dhtBootstrapped = ref<boolean | null>(null); // null = not checked yet
+const dhtBootstrapped = ref<boolean | null>(null); // null = checking / not checked
+const dhtRunning = ref(true);
+const dhtStatusKey = computed(() => {
+  if (dhtBootstrapped.value === null) return "config.dhtStatusChecking";
+  if (!dhtRunning.value) return "config.dhtStatusIdle";
+  return dhtBootstrapped.value ? "config.dhtStatusOk" : "config.dhtStatusUnreachable";
+});
+// The probe starts the node if needed, and a fresh Mainline node takes a few
+// seconds to fill its routing table — retry before declaring "unreachable".
+// The generation counter cancels a stale loop when the toggle/test re-fires.
+let dhtStatusGen = 0;
 async function refreshDhtStatus() {
+  const gen = ++dhtStatusGen;
   if (!dhtDiscovery.value) { dhtBootstrapped.value = null; return; }
-  dhtBootstrapped.value = (await getDhtStatus()).bootstrapped;
+  dhtBootstrapped.value = null; // "Checking…"
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const status = await getDhtStatus();
+    if (gen !== dhtStatusGen) return;
+    dhtRunning.value = status.running;
+    if (!status.enabled || !status.running || status.bootstrapped) {
+      dhtBootstrapped.value = status.bootstrapped;
+      return;
+    }
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 5000));
+    if (gen !== dhtStatusGen) return;
+  }
+  dhtBootstrapped.value = false;
 }
 async function toggleDhtDiscovery() {
   dhtDiscovery.value = !dhtDiscovery.value;
   await setDhtDiscovery(dhtDiscovery.value);
   await applyDhtDiscovery();
-  dhtBootstrapped.value = null;
   void refreshDhtStatus();
 }
 
@@ -537,18 +559,26 @@ async function clearSelectedOfflineData() {
       </div>
 
       <template v-if="dhtDiscovery">
-        <!-- Status: has our Kademlia node a live routing table -->
-        <p class="flex items-center gap-2 text-xs">
+        <!-- Status: has our Kademlia node a live routing table + manual probe -->
+        <div class="flex items-center gap-2 text-xs">
           <span
-            :class="dhtBootstrapped ? 'bg-success-dark' : 'bg-warn-dark'"
-            class="inline-block h-2 w-2 rounded-full"
+            :class="dhtBootstrapped === null
+              ? 'animate-pulse bg-current opacity-30'
+              : !dhtRunning
+                ? 'bg-current opacity-20'
+                : dhtBootstrapped ? 'bg-success-dark' : 'bg-warn-dark'"
+            class="inline-block h-2 w-2 shrink-0 rounded-full"
           />
-          <span class="opacity-70">
-            {{ dhtBootstrapped === null
-              ? $t('config.dhtStatusChecking')
-              : dhtBootstrapped ? $t('config.dhtStatusOk') : $t('config.dhtStatusUnreachable') }}
-          </span>
-        </p>
+          <span class="min-w-0 flex-1 opacity-70">{{ $t(dhtStatusKey) }}</span>
+          <button
+            type="button"
+            :class="{ 'pointer-events-none opacity-50': dhtBootstrapped === null }"
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1 font-semibold transition hover:opacity-80"
+            @click="refreshDhtStatus"
+          >
+            <font-awesome-icon icon="satellite-dish" class="mr-1" />{{ $t('config.dhtTest') }}
+          </button>
+        </div>
 
         <!-- Rendezvous re-publish cadence -->
         <div class="flex items-center gap-3">
