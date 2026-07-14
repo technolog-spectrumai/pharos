@@ -1,10 +1,6 @@
-import { ref } from "vue";
-import { isTorTicket } from "rakotis";
+import { ref, watch } from "vue";
+import { isTorTicket, getConnectTimeoutSecs } from "rakotis";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
-
-// Default time a join is given to connect before it times out (aborting the
-// in-flight connect and offering a retry). Tunable.
-const CONNECT_TIMEOUT_MS = 5000;
 
 // Shared P2P room state + actions for the chat surface. One instance is created in
 // ChatPanel and passed to both the desktop rooms sidebar and the mobile drawer so
@@ -21,11 +17,23 @@ export function useP2pRooms(channel: ChatChannel) {
   const createBusy = ref(false); // launching (onion publish / room create) → spinner
   const createError = ref(""); // i18n key or raw backend message
 
+  // Create shares the join's user-configurable connect timeout (Settings): if the
+  // launch hasn't finished in time, surface the timeout error + Retry. The invoke
+  // keeps running in the background — a late success still shows the ticket.
+  let createTimer: ReturnType<typeof setTimeout> | null = null;
+  function clearCreateTimer() {
+    if (createTimer !== null) {
+      clearTimeout(createTimer);
+      createTimer = null;
+    }
+  }
+
   function openCreate() {
     name.value = "";
     createdTicket.value = "";
     createError.value = "";
     createBusy.value = false;
+    clearCreateTimer();
     createOpen.value = true;
   }
 
@@ -34,17 +42,28 @@ export function useP2pRooms(channel: ChatChannel) {
     if (!n || createBusy.value) return;
     createError.value = "";
     createBusy.value = true;
+    const timeoutMs = 1000 * (await getConnectTimeoutSecs());
+    clearCreateTimer();
+    createTimer = setTimeout(() => {
+      createTimer = null;
+      if (!createBusy.value) return;
+      createBusy.value = false; // leave the spinner → show the error + Retry
+      createError.value = "chat.joinTimeout";
+    }, timeoutMs);
     try {
       // Blocks until the onion descriptor is published (Tor) / room is created (iroh).
       const t = await channel.createRoom(n);
+      clearCreateTimer();
       if (t) {
-        createdTicket.value = t;
+        createdTicket.value = t; // success wins, even after a timeout was shown
+        createError.value = "";
         name.value = "";
-      } else {
+      } else if (!createError.value) {
         createError.value = channel.error.value || "chat.launchFailed";
       }
     } catch (e) {
-      createError.value = (e as Error).message || "chat.launchFailed";
+      clearCreateTimer();
+      if (!createError.value) createError.value = (e as Error).message || "chat.launchFailed";
     } finally {
       createBusy.value = false;
     }
@@ -102,15 +121,18 @@ export function useP2pRooms(channel: ChatChannel) {
       connectTimer = null;
     }
   }
-  function armConnectTimer() {
+  function armConnectTimer(timeoutMs: number) {
     clearConnectTimer();
     connectTimer = setTimeout(() => {
       connectTimer = null;
-      if (!joinStarted.value || joinError.value) return;
+      // "Connected" means the ENCRYPTED session is up (the modal's success state) —
+      // the window covers the transport dial AND the MLS key exchange, so a
+      // transport-connected-but-never-encrypted join still times out.
+      if (!joinStarted.value || joinError.value || channel.isEncrypted.value) return;
       joinTimedOut.value = true;
       if (joiningTor.value) void channel.cancelJoin(); // free the hung onion/dial in Rust
       joinError.value = "chat.joinTimeout";
-    }, CONNECT_TIMEOUT_MS);
+    }, timeoutMs);
   }
 
   function openJoin() {
@@ -141,9 +163,11 @@ export function useP2pRooms(channel: ChatChannel) {
     joiningTor.value = isTorTicket(t);
     joinCancelling.value = false;
     joinTimedOut.value = false;
-    armConnectTimer();
+    armConnectTimer(1000 * (await getConnectTimeoutSecs()));
     await channel.joinByTicket(t);
-    clearConnectTimer(); // connected (or failed) → the connect window is over
+    // NOTE: the connect timer stays armed past this point — the transport is up but
+    // the window only ends on a terminal state (Encrypted, or an error), which the
+    // terminal watcher below handles. This keeps an MLS hang covered by the timeout.
     ticket.value = "";
     // If the user cancelled mid-join, cancelJoin() already reset the UI — swallow the
     // "join cancelled" error the aborted invoke produced (in both this controller and
@@ -174,6 +198,50 @@ export function useP2pRooms(channel: ChatChannel) {
     joinError.value = "";
     joiningTor.value = false;
   }
+
+  // ── Auto-close countdown (join modal) ────────────────────────────────────────
+  // The join window lives at most 2×N seconds (N = the user-configured connect
+  // timeout): N seconds to connect, then — once a terminal state is reached
+  // (established = MLS Encrypted, or an error such as the timeout) — N more seconds
+  // for the user to read the outcome, with a visible countdown, before the modal
+  // closes itself. Manual Close/Retry still work; Retry resets the countdown.
+  const autoCloseSecs = ref<number | null>(null);
+  let autoCloseTimer: ReturnType<typeof setInterval> | null = null;
+  function clearAutoClose() {
+    if (autoCloseTimer !== null) {
+      clearInterval(autoCloseTimer);
+      autoCloseTimer = null;
+    }
+    autoCloseSecs.value = null;
+  }
+  function armAutoClose() {
+    if (autoCloseTimer !== null) return;
+    void (async () => {
+      autoCloseSecs.value = await getConnectTimeoutSecs();
+      autoCloseTimer = setInterval(() => {
+        if (autoCloseSecs.value === null) return;
+        autoCloseSecs.value -= 1;
+        if (autoCloseSecs.value <= 0) {
+          clearAutoClose();
+          joinOpen.value = false;
+        }
+      }, 1000);
+    })();
+  }
+  watch(
+    [channel.isEncrypted, joinError, joinStarted, joinOpen],
+    ([encrypted, err, started, open]) => {
+      // Terminal outcome visible in an open join window → the connect window is over:
+      // disarm the connect timer and start the read countdown. Any reset (Retry,
+      // Cancel, close, reopen) clears the countdown.
+      if (!open || !started || (!encrypted && !err)) {
+        clearAutoClose();
+        return;
+      }
+      clearConnectTimer();
+      armAutoClose();
+    },
+  );
 
   async function joinTicket(raw: string) {
     ticket.value = raw.trim();
@@ -225,6 +293,7 @@ export function useP2pRooms(channel: ChatChannel) {
     joinError,
     joiningTor,
     joinCancelling,
+    autoCloseSecs,
     openJoin,
     resetJoin,
     joinRoom,

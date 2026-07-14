@@ -5,6 +5,7 @@
 // localStorage so the app remains functional without the desktop runtime.
 
 import { isTauri, invoke } from "./tauri";
+import { kvGet, kvPut } from "./localDb";
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_OFFLINE = "enigma:offline";
@@ -86,6 +87,35 @@ export async function getStableOnion(): Promise<boolean> {
 export async function setStableOnion(stableOnion: boolean): Promise<void> {
   if (isTauri()) { await invoke("app_set_stable_onion", { stableOnion }); return; }
   localStorage.setItem("enigma:stableOnion", stableOnion ? "on" : "off");
+}
+
+// ── P2P connection timeout (room create + join give up after this many seconds) ─
+// Tor onion publish + rendezvous routinely takes 30–90 s, so keep the default
+// generous; the user can tune it in Settings. Stored in the encrypted kv store.
+
+export const CONNECT_TIMEOUT_DEFAULT_SECS = 60;
+export const CONNECT_TIMEOUT_MIN_SECS = 5;
+export const CONNECT_TIMEOUT_MAX_SECS = 600;
+
+export function clampConnectTimeoutSecs(secs: number): number {
+  if (!Number.isFinite(secs)) return CONNECT_TIMEOUT_DEFAULT_SECS;
+  return Math.min(CONNECT_TIMEOUT_MAX_SECS, Math.max(CONNECT_TIMEOUT_MIN_SECS, Math.round(secs)));
+}
+
+export async function getConnectTimeoutSecs(): Promise<number> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", "connect_timeout_secs");
+    if (raw === null || raw === "") return CONNECT_TIMEOUT_DEFAULT_SECS;
+    return clampConnectTimeoutSecs(Number(raw));
+  } catch {
+    return CONNECT_TIMEOUT_DEFAULT_SECS;
+  }
+}
+
+export async function setConnectTimeoutSecs(secs: number): Promise<number> {
+  const v = clampConnectTimeoutSecs(secs);
+  await kvPut("p2p:settings", "default", "connect_timeout_secs", String(v)).catch(() => {});
+  return v;
 }
 
 // ── Encryption-at-rest vault (Tauri only; browser fallback treats it unlocked) ─

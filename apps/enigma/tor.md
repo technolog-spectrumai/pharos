@@ -431,6 +431,20 @@ who hosts.
   never sealed into the keystore archive in the first place. `create_room` also has a
   **double-launch guard**: after launching it re-checks the room under the state lock
   and aborts its duplicate onion if a concurrent create won the race.
+- **Status events outrun the join invoke → MLS never started (HIT + fixed).** Over Tor,
+  `realtime://status "connected"` is emitted **while `realtime_join_room` is still in
+  flight** — before the frontend has set the current room — so the status handler's
+  `startMls()` kick was dropped: the joiner never sent its key package and sat at
+  "Connected / **Not encrypted**" forever (only a manual MLS reset recovered). Fixed in
+  rakotis `useChatChannel.enterP2pRoom`, which now kicks `startMls()` itself when the
+  transport's cached `lastStatus` is already `"connected"` (guarded, so a late duplicate
+  event can't double-init). Regression tests: `packages/rakotis/tests/unit/torJoinMls.test.ts`.
+- **Connection timeout is a user setting** (Settings tab, default 60 s, clamped 5–600;
+  kv `p2p:settings/connect_timeout_secs`). Room create and join give up (join also
+  aborts the hung onion dial via `realtime_cancel_join`) after N seconds, then the join
+  window stays **one more N-second interval** with a countdown so the outcome can be
+  read — total lifetime ≤ 2×N. Tor onions routinely need 30–90 s, so never hardcode a
+  short connect deadline. Tests: `apps/enigma/tests/unit/torConnect.test.ts`.
 - **sqlite `links="sqlite3"` collision.** `onion-service-service` adds
   `keymgr`/`tor-persist`/`tor-hsservice` but **no new sqlite** — `rusqlite` still
   comes only from `tor-dirmgr` (already handled by the Android bundled pin). No

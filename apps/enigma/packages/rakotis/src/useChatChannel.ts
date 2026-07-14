@@ -666,6 +666,12 @@ export function useChatChannel() {
     mlsError.value = null;
     pendingInvites.clear();
     wsStatus.value = chatTransport.lastStatus(room) ?? "connecting";
+    // Tor emits "connected" DURING the join/create invoke — before this room is
+    // current — so the status handler's startMls() kick gets dropped (the joiner
+    // then never sends its key package and stays "Not encrypted" forever). If the
+    // transport already reports connected by the time we enter, kick MLS here;
+    // startMls() guards on mlsStatus, so a late duplicate event is harmless.
+    if (wsStatus.value === "connected") void startMls();
   }
 
   async function createRoom(name: string): Promise<string | null> {

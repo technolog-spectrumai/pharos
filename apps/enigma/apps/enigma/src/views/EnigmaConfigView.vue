@@ -17,6 +17,10 @@ import {
   setUseTor,
   getStableOnion,
   setStableOnion,
+  getConnectTimeoutSecs,
+  setConnectTimeoutSecs,
+  CONNECT_TIMEOUT_MIN_SECS,
+  CONNECT_TIMEOUT_MAX_SECS,
   vaultChangePassphrase,
   cleanTorKeystore,
   type AppRuntimeConfig,
@@ -102,6 +106,16 @@ async function toggleStableOnion() {
   await setStableOnion(stableOnion.value);
 }
 
+// ── Connection timeout (room create + join give up after this many seconds) ───
+const connectTimeoutSecs = ref(60);
+const connectTimeoutSaved = ref(false);
+async function saveConnectTimeout() {
+  // setConnectTimeoutSecs clamps to [min, max] and returns the stored value.
+  connectTimeoutSecs.value = await setConnectTimeoutSecs(Number(connectTimeoutSecs.value));
+  connectTimeoutSaved.value = true;
+  setTimeout(() => { connectTimeoutSaved.value = false; }, 1500);
+}
+
 // ── Reset passphrase modal ───────────────────────────────────────────────────
 const showResetPass = ref(false);
 const resetCurrent = ref("");
@@ -139,6 +153,7 @@ onMounted(async () => {
   offline.value = await getOffline();
   useTor.value = await getUseTor();
   stableOnion.value = await getStableOnion();
+  connectTimeoutSecs.value = await getConnectTimeoutSecs();
   await loadOfflineData();
   void loadNodeId();
 });
@@ -417,6 +432,37 @@ async function clearSelectedOfflineData() {
             class="inline-block h-4 w-4 transform rounded-full bg-white transition"
           />
         </button>
+      </div>
+    </OyaCard>
+
+    <!-- Connection timeout — room create/join give up (and the join modal auto-closes
+         after connecting) once this many seconds elapse. Applies to Tor AND iroh. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.connectTimeout') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="clock" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.connectTimeout') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.connectTimeoutHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="connectTimeoutSecs"
+            type="number"
+            :min="CONNECT_TIMEOUT_MIN_SECS"
+            :max="CONNECT_TIMEOUT_MAX_SECS"
+            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveConnectTimeout"
+            @keyup.enter="saveConnectTimeout"
+          />
+          <span class="text-xs opacity-60">s</span>
+          <span v-if="connectTimeoutSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
       </div>
     </OyaCard>
     </template>

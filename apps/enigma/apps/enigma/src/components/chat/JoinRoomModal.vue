@@ -12,7 +12,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ "update:open": [boolean]; "toggle-camera": [] }>();
 
-const { ticket, scanError, joinStarted, joinError, joiningTor, joinRoom, cancelJoin, scanFile, resetJoin } =
+const { ticket, scanError, joinStarted, joinError, joiningTor, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin } =
   props.controller;
 // Live status from the channel — "established" = MLS Encrypted.
 const { isEncrypted, mlsStatus } = props.channel;
@@ -61,8 +61,15 @@ function close() {
                 ? $t("chat.connectedOk")
                 : mlsStatus === "key_exchange"
                   ? $t("chat.encrypting")
-                  : $t("chat.joining")
+                  : joiningTor
+                    ? $t("chat.launchingOnion")
+                    : $t("chat.joining")
           }}
+        </p>
+        <!-- Terminal outcome (established or error) → the window closes itself after
+             one more connect-timeout interval (total lifetime ≈ 2× the timeout). -->
+        <p v-if="autoCloseSecs !== null" class="text-xs opacity-60">
+          {{ $t("chat.autoClose", { n: autoCloseSecs }) }}
         </p>
         <button
           v-if="joinError"

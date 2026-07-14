@@ -427,7 +427,10 @@ A two-screen app (memory-history router, no URL bar):
     (gold ★ over Tor).
   - **Join:** the **"Join a chat"** button opens `JoinRoomModal` — paste a ticket,
     **scan a QR with the camera**, or **upload a QR image** (both via `html5-qrcode`);
-    a spinner runs through connecting → "encryption active" (waits for MLS). Each saved
+    a spinner runs through connecting → "encryption active" (waits for MLS). The window
+    waits the user-set **connection timeout** (N s) for the connect, then stays one more
+    interval with a countdown so the outcome can be read (≤ 2×N total; a hung Tor dial
+    is aborted so a retry launches cleanly). Each saved
     room row also has a QR button (`RoomInfoModal`) that re-opens its ticket + host badge.
   - **Compose:** text (Enter to send), image attachments (with preview), voice notes
     (native recording in the app on desktop and mobile, `MediaRecorder` only in a plain
@@ -436,8 +439,9 @@ A two-screen app (memory-history router, no URL bar):
     plus a "reset encryption" action.
 - **Settings** (`EnigmaConfigView`) — three tabs: **Profile** (local-only display
   name, email, phone, DOB, bio; multiple named profiles), **Settings** (language en/pl;
-  a "My identity" card showing the NodeId as text + QR; a **"Route over Tor"** switch),
-  and **Data** (airplane/offline toggle; local data-profile loader).
+  a "My identity" card showing the NodeId as text + QR; a **"Route over Tor"** switch;
+  a **"Connection timeout"** field — seconds a room create/join may take, also the join
+  window's read countdown), and **Data** (airplane/offline toggle; local data-profile loader).
 
 Styling is Tailwind v4 with a small in-repo "Oya" component kit (button, card). It is
 CSS-first: the design-token palette lives in the `@theme` block of

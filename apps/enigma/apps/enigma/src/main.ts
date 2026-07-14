@@ -123,6 +123,7 @@ import {
   faCircleCheck,
   faDesktop,
   faQrcode,
+  faClock,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -237,6 +238,7 @@ library.add(
   faCircleCheck,
   faDesktop,
   faQrcode,
+  faClock,
 );
 
 const app = createApp(App)

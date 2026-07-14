@@ -117,6 +117,7 @@ instead of hardcoding.
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see §4 |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
 | Feature defaults (offline/tor/stable) | Rust `AppProfileState` serde defaults | UI mirrors via `policy.featureDefaults`; **Rust is authoritative** |
+| P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default 60 s, clamped 5–600. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline |
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `cryptorotor/gervasius/src/vault.rs` `KdfParams::Default` | Persisted per-vault in the header |
