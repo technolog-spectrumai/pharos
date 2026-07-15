@@ -184,11 +184,26 @@ function submit() {
   padding: 0.4rem 0.6rem;
   font-size: 0.875rem;
   outline: none;
+  color: var(--color-text-main-light);
   color-scheme: light;
+}
+/* Native selects ignore a transparent background and fall back to the UA's
+   default (white) — pin the theme surface explicitly, options included so the
+   opened list matches too. */
+select.native-field,
+select.native-field option {
+  background: var(--color-primary-bg-light);
+  color: var(--color-text-main-light);
 }
 :global(.dark) .native-field {
   border-color: var(--color-accent-1);
+  color: var(--color-text-main-dark);
   color-scheme: dark;
+}
+:global(.dark) select.native-field,
+:global(.dark) select.native-field option {
+  background: var(--color-primary-bg-dark);
+  color: var(--color-text-main-dark);
 }
 .native-field:disabled {
   opacity: 0.4;
