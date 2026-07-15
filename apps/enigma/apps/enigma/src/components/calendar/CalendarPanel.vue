@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Hand-rolled month grid (native Date, Monday-first): ‹ month › + Today nav,
 // event dots per day, click a day to select it (drives DayEventsPanel).
+// Filled dots = scheduled meetings; hollow dots = open-poll proposed slots.
 import { computed, ref } from "vue";
 import { OyaCard } from "rakotis";
-import { dayKey, monthGrid, type Meeting } from "./meetingModel";
+import { dayKey, monthGrid, type Meeting, type MeetingPoll } from "./meetingModel";
 
-const props = defineProps<{ meetings: Meeting[]; modelValue: Date }>();
+const props = defineProps<{ meetings: Meeting[]; polls?: MeetingPoll[]; modelValue: Date }>();
 const emit = defineEmits<{ "update:modelValue": [Date] }>();
 
 const anchor = ref(new Date(props.modelValue.getFullYear(), props.modelValue.getMonth(), 1));
@@ -14,16 +15,30 @@ const weeks = computed(() => monthGrid(anchor.value));
 const todayKey = dayKey(new Date());
 const selectedKey = computed(() => dayKey(props.modelValue));
 
-// Scheduled-meeting dots per day (capped at 3 per cell).
 const dotsByDay = computed(() => {
-  const map = new Map<string, number>();
+  const map = new Map<string, { filled: number; hollow: number }>();
+  const bump = (k: string, kind: "filled" | "hollow") => {
+    const cell = map.get(k) ?? { filled: 0, hollow: 0 };
+    cell[kind] += 1;
+    map.set(k, cell);
+  };
   for (const m of props.meetings) {
-    if (m.status !== "scheduled") continue;
-    const k = dayKey(m.start);
-    map.set(k, Math.min(3, (map.get(k) ?? 0) + 1));
+    if (m.status === "scheduled") bump(dayKey(m.start), "filled");
+  }
+  for (const p of props.polls ?? []) {
+    if (p.status !== "open") continue;
+    for (const s of p.slots) bump(dayKey(s.start), "hollow");
   }
   return map;
 });
+
+/** At most 3 dots per cell; confirmed meetings take precedence over proposals. */
+function dotsFor(day: Date): { filled: number; hollow: number } {
+  const cell = dotsByDay.value.get(dayKey(day));
+  if (!cell) return { filled: 0, hollow: 0 };
+  const filled = Math.min(3, cell.filled);
+  return { filled, hollow: Math.min(3 - filled, cell.hollow) };
+}
 
 const monthLabel = computed(() =>
   anchor.value.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
@@ -98,9 +113,14 @@ function pick(day: Date) {
         <span>{{ day.getDate() }}</span>
         <span class="flex h-1.5 items-center gap-0.5">
           <span
-            v-for="n in dotsByDay.get(dayKey(day)) ?? 0"
-            :key="n"
+            v-for="n in dotsFor(day).filled"
+            :key="`f${n}`"
             class="h-1.5 w-1.5 rounded-full bg-accent-light dark:bg-accent-dark"
+          />
+          <span
+            v-for="n in dotsFor(day).hollow"
+            :key="`h${n}`"
+            class="h-1.5 w-1.5 rounded-full border border-accent-light dark:border-accent-dark"
           />
         </span>
       </button>

@@ -188,9 +188,9 @@ watch(() => route.path, () => {
             <font-awesome-icon icon="calendar" />
             {{ $t('nav.calendar') }}
             <span
-              v-if="meetings.pendingInviteCount.value > 0"
+              v-if="meetings.attentionCount.value > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('calendar.pendingTitle')"
+              :title="$t('calendar.attentionTitle')"
             />
           </RouterLink>
           <RouterLink to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
@@ -260,7 +260,7 @@ watch(() => route.path, () => {
             <font-awesome-icon icon="calendar" class="w-4 text-center" />
             {{ $t('nav.calendar') }}
             <span
-              v-if="meetings.pendingInviteCount.value > 0"
+              v-if="meetings.attentionCount.value > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
