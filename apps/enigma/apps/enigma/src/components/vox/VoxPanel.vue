@@ -30,9 +30,11 @@ const bars = computed(() =>
   spectrum.value.length ? spectrum.value : new Array(BAR_COUNT).fill(0),
 );
 
-// Members of the current room we can ring (everyone but ourselves).
+// Members of the current room we can ring (everyone but ourselves who has an id).
 const roomPeers = computed(() =>
-  p2p.participants.value.filter((pp) => pp.id !== p2p.mlsIdentity.value),
+  p2p.participants.value.filter(
+    (pp): pp is typeof pp & { id: string } => !!pp.id && pp.id !== p2p.mlsIdentity.value,
+  ),
 );
 
 /** Short, human-comparable fingerprint of an unauthenticated NodeId claim. */

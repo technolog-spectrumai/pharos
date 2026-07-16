@@ -7,6 +7,7 @@ export default {
     contacts: "Kontakty",
     myProfile: "Mój profil",
     settings: "Ustawienia",
+    connections: "Połączenia",
     data: "Dane",
     light: "Jasny",
     dark: "Ciemny",

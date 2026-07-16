@@ -62,9 +62,9 @@ const { t, locale } = useI18n({ useScope: "global" });
 
 // Profile + Data live inside Settings as tabs. `?tab=profile`/`?tab=data` open them
 // directly (nav links use that); otherwise we open on the settings controls.
-type ConfigTab = "profile" | "settings" | "data";
+type ConfigTab = "profile" | "settings" | "connections" | "data";
 const tabFromQuery = (q: unknown): ConfigTab =>
-  q === "profile" ? "profile" : q === "data" ? "data" : "settings";
+  q === "profile" ? "profile" : q === "connections" ? "connections" : q === "data" ? "data" : "settings";
 const activeTab = ref<ConfigTab>(tabFromQuery(route.query.tab));
 // React to nav links changing ?tab while already on this route (the view is reused).
 watch(() => route.query.tab, (tab) => { activeTab.value = tabFromQuery(tab); });
@@ -417,6 +417,16 @@ async function clearSelectedOfflineData() {
       </button>
       <button
         type="button"
+        :class="activeTab === 'connections'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'connections'"
+      >
+        <font-awesome-icon icon="circle-nodes" />{{ $t('nav.connections') }}
+      </button>
+      <button
+        type="button"
         :class="activeTab === 'data'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
@@ -491,6 +501,101 @@ async function clearSelectedOfflineData() {
       </OyaButton>
     </OyaCard>
 
+    <!-- Max file-transfer size — local guard on P2P file sharing (both directions);
+         0 disables the limit. Enforced by useFileShare, not the backend. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.maxFileSize') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="file-arrow-up" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.maxFileSize') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.maxFileSizeHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="maxFileSizeMb"
+            type="number"
+            :min="MAX_FILE_SIZE_MIN_MB"
+            :max="MAX_FILE_SIZE_MAX_MB"
+            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveMaxFileSize"
+            @keyup.enter="saveMaxFileSize"
+          />
+          <span class="text-xs opacity-60">MB</span>
+          <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Meeting reminder lead time — minutes before a meeting starts to fire a
+         local OS notification (0 disables). Enforced by useMeetings' tick. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.meetingReminder') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="calendar" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.meetingReminder') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.meetingReminderHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="meetingReminderMins"
+            type="number"
+            :min="MEETING_REMINDER_MIN_MINS"
+            :max="MEETING_REMINDER_MAX_MINS"
+            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveMeetingReminder"
+            @keyup.enter="saveMeetingReminder"
+          />
+          <span class="text-xs opacity-60">min</span>
+          <span v-if="meetingReminderSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Enigma Cloud server — where the Files tab's Cloud panel stores files.
+         Saving re-checks the login state for the new server. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.cloudServer') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="cloud" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.cloudServer') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.cloudServerHint') }}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input
+          v-model="cloudServerUrl"
+          type="text"
+          :placeholder="CLOUD_SERVER_URL_DEFAULT"
+          class="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm"
+          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+          @change="saveCloudServer"
+          @keyup.enter="saveCloudServer"
+        />
+        <span v-if="cloudServerSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+      </div>
+      <p class="text-xs opacity-50">{{ $t('config.cloudServerDefault', { url: CLOUD_SERVER_URL_DEFAULT }) }}</p>
+    </OyaCard>
+    </template>
+
+    <!-- Data tab — offline mode + local data profiles -->
+    <template v-if="activeTab === 'connections'">
     <!-- Use Tor card — route rendezvous + chat over peer-hosted onion services -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
@@ -698,101 +803,8 @@ async function clearSelectedOfflineData() {
         </div>
       </div>
     </OyaCard>
-
-    <!-- Max file-transfer size — local guard on P2P file sharing (both directions);
-         0 disables the limit. Enforced by useFileShare, not the backend. -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.maxFileSize') }}
-        </p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="file-arrow-up" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.maxFileSize') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.maxFileSizeHint') }}</p>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <input
-            v-model.number="maxFileSizeMb"
-            type="number"
-            :min="MAX_FILE_SIZE_MIN_MB"
-            :max="MAX_FILE_SIZE_MAX_MB"
-            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
-            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-            @change="saveMaxFileSize"
-            @keyup.enter="saveMaxFileSize"
-          />
-          <span class="text-xs opacity-60">MB</span>
-          <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-        </div>
-      </div>
-    </OyaCard>
-
-    <!-- Meeting reminder lead time — minutes before a meeting starts to fire a
-         local OS notification (0 disables). Enforced by useMeetings' tick. -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.meetingReminder') }}
-        </p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="calendar" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.meetingReminder') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.meetingReminderHint') }}</p>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <input
-            v-model.number="meetingReminderMins"
-            type="number"
-            :min="MEETING_REMINDER_MIN_MINS"
-            :max="MEETING_REMINDER_MAX_MINS"
-            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
-            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-            @change="saveMeetingReminder"
-            @keyup.enter="saveMeetingReminder"
-          />
-          <span class="text-xs opacity-60">min</span>
-          <span v-if="meetingReminderSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-        </div>
-      </div>
-    </OyaCard>
-
-    <!-- Enigma Cloud server — where the Files tab's Cloud panel stores files.
-         Saving re-checks the login state for the new server. -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.cloudServer') }}
-        </p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="cloud" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.cloudServer') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.cloudServerHint') }}</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <input
-          v-model="cloudServerUrl"
-          type="text"
-          :placeholder="CLOUD_SERVER_URL_DEFAULT"
-          class="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm"
-          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          @change="saveCloudServer"
-          @keyup.enter="saveCloudServer"
-        />
-        <span v-if="cloudServerSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-      </div>
-      <p class="text-xs opacity-50">{{ $t('config.cloudServerDefault', { url: CLOUD_SERVER_URL_DEFAULT }) }}</p>
-    </OyaCard>
     </template>
 
-    <!-- Data tab — offline mode + local data profiles -->
     <template v-if="activeTab === 'data'">
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
