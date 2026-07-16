@@ -1,11 +1,15 @@
 // Real-time 1:1 voice calls over iroh (QUIC), end-to-end encrypted by iroh's
 // TLS 1.3 transport (peers authenticated by node id). No WebRTC / STUN / TURN.
 //
-// A dedicated iroh node accepts a custom ALPN (`enigma/vox/0`). The callee shares
-// a `VoxTicket` (its EndpointAddr, base32-encoded) out of band — pasted or as a QR.
-// The caller `endpoint.connect()`s to it, opens one control bi-stream for the
-// hello / accept / decline handshake, and then audio flows as Opus frames over
-// unreliable QUIC datagrams (no head-of-line blocking).
+// The custom ALPN (`enigma/vox/0`) is accepted on the app's MAIN p2p endpoint
+// (p2p_iroh.rs), alongside gossip and invites — so a callee is call-reachable at
+// the exact stable NodeId their contacts/nickname already resolve to, and the call
+// inherits the main node's lifecycle (airplane / Tor / profile-switch teardown).
+// The callee shares a `VoxTicket` (its EndpointAddr, base32-encoded) out of band —
+// pasted or as a QR; a room-peer or nickname/contact call dials the peer NodeId
+// directly. The caller `endpoint.connect()`s, opens one control bi-stream for the
+// hello / accept / decline handshake, and then audio flows over unreliable QUIC
+// datagrams (no head-of-line blocking).
 //
 // Audio is captured/played natively with cpal (already a dep) — so no webview
 // getUserMedia is involved. cpal::Stream is !Send, so capture and playback each
@@ -14,10 +18,15 @@
 //
 // Frames are companded with G.711 μ-law (pure Rust, no native codec dep): 1 byte
 // per sample, halving bandwidth and keeping a 10 ms frame well under the QUIC
-// datagram size limit. Clear for speech; can be swapped for Opus later if a
-// libopus build toolchain is available on every target.
+// datagram size limit. Clear for speech.
 //
-// Emits `vox://state` (call progress) and `vox://incoming` (ring) events.
+// Media is additionally E2E-encrypted by a per-call ephemeral 2-member MLS group
+// (rotor_core) keying two directional ChaCha20-Poly1305 ciphers, fail-soft to the
+// QUIC-TLS transport when the MLS handshake can't complete.
+//
+// Emits `vox://state` (call progress), `vox://incoming` (ring) and `vox://spectrum`
+// (equalizer) events. Networked commands are blocked offline and in Tor-exclusive
+// mode (voice is iroh-only — a direct QUIC call would leak the IP outside Tor).
 
 use std::collections::VecDeque;
 use std::f32::consts::PI;
@@ -34,15 +43,18 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rotor_core::RotorSession;
 use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
-use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
-use iroh::protocol::{AcceptError, ProtocolHandler, Router};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode};
+use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::protocol::{AcceptError, ProtocolHandler};
+use iroh::{Endpoint, EndpointAddr, EndpointId};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 
-const VOX_ALPN: &[u8] = b"enigma/vox/0";
+use crate::{active_config, load_profile_state, AppConfigState};
+use crate::p2p_iroh::P2pState;
+
+pub(crate) const VOX_ALPN: &[u8] = b"enigma/vox/0";
 const SAMPLE_RATE: u32 = 48_000;
 /// 10 ms @ 48 kHz mono — one μ-law frame (480 bytes + 2-byte seq) per datagram,
 /// comfortably under the QUIC datagram MTU, and low latency.
@@ -115,19 +127,28 @@ fn resample_linear(input: &[f32], out_len: usize) -> Vec<f32> {
 
 // ── state ────────────────────────────────────────────────────────────────────
 
-#[derive(Default)]
-pub struct VoxState(pub Mutex<Option<VoxNode>>);
+/// Managed call state. Lazily holds the single `VoxShared` (one call at a time);
+/// both the inbound protocol handler (registered on the main p2p router) and the
+/// commands resolve the same instance via `shared`.
+#[derive(Default, Clone)]
+pub struct VoxState(pub Arc<StdMutex<Option<VoxShared>>>);
 
-pub struct VoxNode {
-    endpoint: Endpoint,
-    _router: Router,
-    shared: VoxShared,
+impl VoxState {
+    /// Get (or lazily create) the shared call state. All `VoxShared` fields are
+    /// behind `Arc`s, so every caller shares the same generation/mute/pending/conn.
+    fn shared(&self, app: &AppHandle) -> VoxShared {
+        self.0
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| VoxShared::new(app.clone()))
+            .clone()
+    }
 }
 
 /// Everything the inbound protocol handler and the commands both need, behind
 /// `Arc`s so it can be cloned into the router and the per-call tasks.
 #[derive(Clone)]
-struct VoxShared {
+pub struct VoxShared {
     app: AppHandle,
     /// Bumped to tear down the active call's audio loops (hangup / superseded).
     generation: Arc<AtomicU64>,
@@ -141,6 +162,20 @@ struct VoxShared {
     my_name: Arc<StdMutex<String>>,
     /// Our MLS device identity (same one the chat uses) for the call's MLS group.
     my_identity: Arc<StdMutex<String>>,
+}
+
+impl VoxShared {
+    fn new(app: AppHandle) -> Self {
+        Self {
+            app,
+            generation: Arc::new(AtomicU64::new(0)),
+            mute: Arc::new(AtomicBool::new(false)),
+            pending: Arc::new(StdMutex::new(None)),
+            conn: Arc::new(StdMutex::new(None)),
+            my_name: Arc::new(StdMutex::new(String::new())),
+            my_identity: Arc::new(StdMutex::new(String::new())),
+        }
+    }
 }
 
 // ── ticket ───────────────────────────────────────────────────────────────────
@@ -227,10 +262,10 @@ fn emit_state(app: &AppHandle, state: &str, peer: Option<&str>) {
     let _ = app.emit("vox://state", serde_json::json!({ "state": state, "peer": peer }));
 }
 
-fn emit_incoming(app: &AppHandle, from_name: &str, node_id: &str) {
+fn emit_incoming(app: &AppHandle, from_name: &str, node_id: &str, call_id: &str) {
     let _ = app.emit(
         "vox://incoming",
-        serde_json::json!({ "from_name": from_name, "node_id": node_id }),
+        serde_json::json!({ "from_name": from_name, "node_id": node_id, "call_id": call_id }),
     );
 }
 
@@ -311,50 +346,37 @@ fn mls_caller_join(session: &mut RotorSession, welcome_b64: &str, call_id: &str)
     derive_vox_keys(session, call_id, true)
 }
 
-// ── lifecycle ────────────────────────────────────────────────────────────────
+// ── network policy ───────────────────────────────────────────────────────────
 
-async fn ensure_started(app: &AppHandle, state: &VoxState) -> Result<()> {
-    let mut guard = state.0.lock().await;
-    if guard.is_some() {
-        return Ok(());
+const TOR_BLOCKED: &str = "Voice calls are unavailable in Tor mode.";
+
+/// Airplane mode blocks all networking; Tor-exclusive mode blocks voice because it
+/// is iroh-only (a direct QUIC call from a Tor-routed profile would leak the IP).
+/// Every network-touching command runs this first (mirrors file_xfer).
+fn check_network_policy(app: &AppHandle, config: &State<'_, AppConfigState>) -> Result<(), String> {
+    if matches!(active_config(config), Ok(cfg) if crate::is_offline(&load_profile_state(app, &cfg))) {
+        return Err(crate::file_xfer::OFFLINE_BLOCKED.to_string());
     }
-    // Stable secret key → stable NodeId so this Vox endpoint is a durable, aster-
-    // discoverable handle (callable by NodeId, no ticket).
-    let secret = crate::aster::load_or_create_secret(app, "vox");
-    let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(secret)
-        .address_lookup(crate::aster::TotoLookup::new(app.clone()))
-        .relay_mode(RelayMode::Default)
-        .bind()
-        .await
-        .map_err(|e| anyhow!("vox iroh bind failed: {e}"))?;
-    crate::aster::spawn_publisher(
-        app.clone(),
-        endpoint.clone(),
-        endpoint.id().to_string(),
-        crate::aster::KIND_VOX,
-    );
-    let shared = VoxShared {
-        app: app.clone(),
-        generation: Arc::new(AtomicU64::new(0)),
-        mute: Arc::new(AtomicBool::new(false)),
-        pending: Arc::new(StdMutex::new(None)),
-        conn: Arc::new(StdMutex::new(None)),
-        my_name: Arc::new(StdMutex::new(String::new())),
-        my_identity: Arc::new(StdMutex::new(String::new())),
-    };
-    let router = Router::builder(endpoint.clone())
-        .accept(VOX_ALPN, VoxProtocol { shared: shared.clone() })
-        .spawn();
-    *guard = Some(VoxNode { endpoint, _router: router, shared });
+    if matches!(active_config(config), Ok(cfg) if crate::is_use_tor(&load_profile_state(app, &cfg))) {
+        return Err(TOR_BLOCKED.to_string());
+    }
     Ok(())
 }
 
 // ── inbound (callee) ─────────────────────────────────────────────────────────
 
+/// Accepts `VOX_ALPN` on the main p2p router (registered in `p2p_iroh::ensure_started`).
+/// Resolves the shared call state lazily so it's the same instance the commands use.
 #[derive(Clone)]
-struct VoxProtocol {
-    shared: VoxShared,
+pub(crate) struct VoxProtocol {
+    app: AppHandle,
+    state: VoxState,
+}
+
+impl VoxProtocol {
+    pub(crate) fn new(app: AppHandle, state: VoxState) -> Self {
+        Self { app, state }
+    }
 }
 
 impl std::fmt::Debug for VoxProtocol {
@@ -366,7 +388,7 @@ impl std::fmt::Debug for VoxProtocol {
 impl ProtocolHandler for VoxProtocol {
     async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
         // The whole call lives inside this future — when it returns, `conn` drops.
-        if let Err(e) = self.shared.clone().handle_incoming(conn).await {
+        if let Err(e) = self.state.shared(&self.app).handle_incoming(conn).await {
             eprintln!("[vox] inbound call ended: {e}");
         }
         Ok(())
@@ -389,7 +411,7 @@ impl VoxShared {
 
         let (tx, rx) = oneshot::channel::<bool>();
         *self.pending.lock().unwrap() = Some(tx);
-        emit_incoming(&self.app, &hello.name, &node_id);
+        emit_incoming(&self.app, &hello.name, &node_id, &hello.call_id);
         emit_state(&self.app, "ringing", Some(&hello.name));
 
         // Wait for the user to accept/decline, or for the caller to give up.
@@ -909,28 +931,34 @@ fn spawn_playback_thread(app: AppHandle, pkt_rx: stdmpsc::Receiver<Bytes>, stop:
 pub struct VoxCreated {
     ticket: String,
     node_id: String,
+    /// The call id embedded in the ticket — lets a room-flow initiator match the
+    /// inbound `vox://incoming` it triggered and auto-accept it.
+    call_id: String,
 }
 
-/// Open a call slot (we are the callee) and return a shareable ticket + QR source.
+/// Open a call slot (we are the callee/listener) and return a shareable ticket. The
+/// ticket embeds our MAIN endpoint address, so a joiner reaches us at the same
+/// NodeId our contacts/chat already use.
 #[tauri::command]
 pub async fn vox_create(
     app: AppHandle,
     vox: State<'_, VoxState>,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
     name: String,
     identity: String,
 ) -> Result<VoxCreated, String> {
-    ensure_started(&app, &vox).await.map_err(|e| e.to_string())?;
-    let guard = vox.0.lock().await;
-    let node = guard.as_ref().ok_or("vox not started")?;
-    *node.shared.my_name.lock().unwrap() = name;
-    *node.shared.my_identity.lock().unwrap() = identity;
-    let node_id = node.endpoint.id().to_string();
-    let ticket = VoxTicket {
-        call_id: format!("{}-{}", node_id, now_millis()),
-        peer: node.endpoint.addr(),
-    }
-    .encode();
-    Ok(VoxCreated { ticket, node_id })
+    check_network_policy(&app, &config)?;
+    let endpoint = crate::p2p_iroh::vox_endpoint(&app, &p2p, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    let shared = vox.shared(&app);
+    *shared.my_name.lock().unwrap() = name;
+    *shared.my_identity.lock().unwrap() = identity;
+    let node_id = endpoint.id().to_string();
+    let call_id = format!("{}-{}", node_id, now_millis());
+    let ticket = VoxTicket { call_id: call_id.clone(), peer: endpoint.addr() }.encode();
+    Ok(VoxCreated { ticket, node_id, call_id })
 }
 
 /// Dial a callee from their ticket (we are the caller). Returns once dialing has
@@ -939,19 +967,21 @@ pub async fn vox_create(
 pub async fn vox_join(
     app: AppHandle,
     vox: State<'_, VoxState>,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
     ticket: String,
     name: String,
     identity: String,
 ) -> Result<(), String> {
-    ensure_started(&app, &vox).await.map_err(|e| e.to_string())?;
+    check_network_policy(&app, &config)?;
     let ticket = VoxTicket::decode(&ticket).map_err(|e| format!("invalid ticket: {e}"))?;
-    let (endpoint, shared) = {
-        let guard = vox.0.lock().await;
-        let node = guard.as_ref().ok_or("vox not started")?;
-        *node.shared.my_name.lock().unwrap() = name;
-        *node.shared.my_identity.lock().unwrap() = identity;
-        (node.endpoint.clone(), node.shared.clone())
-    };
+    // Seed the ticket's embedded address into discovery so the dial can resolve it.
+    let endpoint = crate::p2p_iroh::vox_endpoint(&app, &p2p, Some(ticket.peer.clone()))
+        .await
+        .map_err(|e| e.to_string())?;
+    let shared = vox.shared(&app);
+    *shared.my_name.lock().unwrap() = name;
+    *shared.my_identity.lock().unwrap() = identity;
     let call_id = ticket.call_id.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(e) = shared.clone().dial(endpoint, ticket.peer, call_id).await {
@@ -962,26 +992,28 @@ pub async fn vox_join(
     Ok(())
 }
 
-/// Dial a callee by their stable Vox NodeId (no ticket). The peer's relay address is
-/// resolved on demand via the aster directory; the callee still rings (vox://incoming).
+/// Dial a callee by their NodeId (no ticket) — a saved contact or a DHT nickname
+/// claim. The address is resolved on demand via n0/DHT discovery; the callee still
+/// rings (vox://incoming).
 #[tauri::command]
 pub async fn vox_call_node(
     app: AppHandle,
     vox: State<'_, VoxState>,
+    config: State<'_, AppConfigState>,
+    p2p: State<'_, P2pState>,
     node_id: String,
     name: String,
     identity: String,
 ) -> Result<(), String> {
-    ensure_started(&app, &vox).await.map_err(|e| e.to_string())?;
+    check_network_policy(&app, &config)?;
     let target: EndpointId = node_id.parse().map_err(|_| "invalid node id".to_string())?;
-    let (endpoint, shared) = {
-        let guard = vox.0.lock().await;
-        let node = guard.as_ref().ok_or("vox not started")?;
-        *node.shared.my_name.lock().unwrap() = name;
-        *node.shared.my_identity.lock().unwrap() = identity;
-        (node.endpoint.clone(), node.shared.clone())
-    };
-    // Address-less EndpointAddr — `endpoint.connect` triggers the aster lookup.
+    let endpoint = crate::p2p_iroh::vox_endpoint(&app, &p2p, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    let shared = vox.shared(&app);
+    *shared.my_name.lock().unwrap() = name;
+    *shared.my_identity.lock().unwrap() = identity;
+    // Address-less EndpointAddr — `endpoint.connect` triggers discovery.
     let addr = EndpointAddr::from_parts(target, []);
     let call_id = format!("{}-{}", node_id, now_millis());
     tauri::async_runtime::spawn(async move {
@@ -994,49 +1026,59 @@ pub async fn vox_call_node(
 }
 
 #[tauri::command]
-pub async fn vox_accept(vox: State<'_, VoxState>) -> Result<(), String> {
-    let guard = vox.0.lock().await;
-    if let Some(node) = guard.as_ref() {
-        if let Some(tx) = node.shared.pending.lock().unwrap().take() {
-            let _ = tx.send(true);
-        }
+pub async fn vox_accept(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), String> {
+    if let Some(tx) = vox.shared(&app).pending.lock().unwrap().take() {
+        let _ = tx.send(true);
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn vox_decline(vox: State<'_, VoxState>) -> Result<(), String> {
-    let guard = vox.0.lock().await;
-    if let Some(node) = guard.as_ref() {
-        if let Some(tx) = node.shared.pending.lock().unwrap().take() {
+pub async fn vox_decline(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), String> {
+    if let Some(tx) = vox.shared(&app).pending.lock().unwrap().take() {
+        let _ = tx.send(false);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vox_hangup(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), String> {
+    let shared = vox.shared(&app);
+    shared.generation.fetch_add(1, Ordering::SeqCst);
+    if let Some(tx) = shared.pending.lock().unwrap().take() {
+        let _ = tx.send(false);
+    }
+    if let Some(conn) = shared.conn.lock().unwrap().take() {
+        conn.close(0u32.into(), b"hangup");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn vox_set_mute(app: AppHandle, vox: State<'_, VoxState>, muted: bool) -> Result<(), String> {
+    vox.shared(&app).mute.store(muted, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Tear down any live/pending call (airplane / Tor toggle / profile switch). The
+/// main endpoint itself is owned and closed by p2p_iroh.
+pub async fn shutdown(app: &AppHandle, vox: &VoxState) {
+    let shared = vox.0.lock().unwrap().clone();
+    if let Some(shared) = shared {
+        shared.generation.fetch_add(1, Ordering::SeqCst);
+        let mut active = false;
+        if let Some(tx) = shared.pending.lock().unwrap().take() {
             let _ = tx.send(false);
+            active = true;
+        }
+        if let Some(conn) = shared.conn.lock().unwrap().take() {
+            conn.close(0u32.into(), b"shutdown");
+            active = true;
+        }
+        if active {
+            emit_state(app, "ended", None);
         }
     }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn vox_hangup(vox: State<'_, VoxState>) -> Result<(), String> {
-    let guard = vox.0.lock().await;
-    if let Some(node) = guard.as_ref() {
-        node.shared.generation.fetch_add(1, Ordering::SeqCst);
-        if let Some(tx) = node.shared.pending.lock().unwrap().take() {
-            let _ = tx.send(false);
-        }
-        if let Some(conn) = node.shared.conn.lock().unwrap().take() {
-            conn.close(0u32.into(), b"hangup");
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn vox_set_mute(vox: State<'_, VoxState>, muted: bool) -> Result<(), String> {
-    let guard = vox.0.lock().await;
-    if let Some(node) = guard.as_ref() {
-        node.shared.mute.store(muted, Ordering::SeqCst);
-    }
-    Ok(())
 }
 
 fn now_millis() -> u128 {
@@ -1151,7 +1193,7 @@ mod tests {
     // VoxProtocol::handle_incoming and VoxShared::dial do on the wire.
     #[tokio::test]
     async fn two_endpoints_handshake_and_exchange_a_datagram() -> Result<()> {
-        use iroh::endpoint::presets;
+        use iroh::{endpoint::presets, RelayMode};
 
         // ── callee ────────────────────────────────────────────────────────────
         let server = Endpoint::builder(presets::Minimal)

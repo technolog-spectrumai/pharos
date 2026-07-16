@@ -35,6 +35,9 @@ protasius = { path = "../../../protasius" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"
+# Pure-Rust FFT for the voice-call equalizer (vox.rs → `vox://spectrum`); no C
+# toolchain, MSRV-safe.
+rustfft = "6"
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }
 # Embedded pure-Rust Tor (arti). Outbound client plumbing (tor.rs) plus the
 # peer-hosted onion transport (p2p_tor.rs). `onion-service-service` enables
@@ -54,6 +57,10 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 # TLS over the Tor stream (https onion); ring provider avoids a C toolchain.
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+# Mozilla root bundle for verifying real CA-signed certs on direct clearnet cloud
+# HTTPS (loopback/onion keep tor.rs's accept-any-cert). Pure Rust, no C toolchain;
+# already in the tree transitively via arti, so this adds no new compilation.
+webpki-roots = "1"
 # MSRV pin (Cargo.lock is gitignored, so this must live here): typed-index-collections
 # 3.4+ requires rustc 1.90, but arti pulls it in transitively. Hold it at 3.3.0
 # (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.

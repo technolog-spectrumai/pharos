@@ -93,6 +93,7 @@ watch(displayName, (name) => {
 
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
+const vox = chatStore.vox;
 const invites = chatStore.invites;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.
 const meetings = chatStore.meetings;
@@ -184,6 +185,15 @@ watch(() => route.path, () => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
+          <RouterLink to="/calls" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
+            <font-awesome-icon icon="phone" />
+            {{ $t('nav.calls') }}
+            <span
+              v-if="vox.phase.value === 'incoming'"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+              :title="$t('vox.incomingTitle')"
+            />
+          </RouterLink>
           <RouterLink to="/calendar" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calendar')">
             <font-awesome-icon icon="calendar" />
             {{ $t('nav.calendar') }}
@@ -253,6 +263,14 @@ watch(() => route.path, () => {
             {{ $t('nav.files') }}
             <span
               v-if="fileShare.state.value === 'incoming'"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+            />
+          </RouterLink>
+          <RouterLink to="/calls" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="phone" class="w-4 text-center" />
+            {{ $t('nav.calls') }}
+            <span
+              v-if="vox.phase.value === 'incoming'"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>

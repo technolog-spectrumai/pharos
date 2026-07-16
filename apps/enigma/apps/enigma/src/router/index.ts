@@ -1,6 +1,7 @@
 import { createRouter, createMemoryHistory } from "vue-router";
 import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
+import EnigmaCallsView from "../views/EnigmaCallsView.vue";
 import EnigmaCalendarView from "../views/EnigmaCalendarView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
@@ -15,6 +16,7 @@ const router = createRouter({
     { path: "/", redirect: "/chat" },
     { path: "/chat", component: EnigmaChatView, name: "chat" },
     { path: "/files", component: EnigmaFilesView, name: "files" },
+    { path: "/calls", component: EnigmaCallsView, name: "calls" },
     { path: "/calendar", component: EnigmaCalendarView, name: "calendar" },
     { path: "/contacts", component: EnigmaContactsView, name: "contacts" },
     { path: "/config", component: EnigmaConfigView, name: "config" },

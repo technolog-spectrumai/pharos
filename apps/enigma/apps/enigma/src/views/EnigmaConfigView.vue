@@ -4,6 +4,7 @@ import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
 import { useChatStore } from "../stores/chat";
+import { useCloudStore } from "../stores/cloud";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
 import {
@@ -43,6 +44,8 @@ import {
   MEETING_REMINDER_MAX_MINS,
   vaultChangePassphrase,
   cleanTorKeystore,
+  getCloudServerUrl,
+  CLOUD_SERVER_URL_DEFAULT,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
@@ -218,6 +221,20 @@ async function saveMaxFileSize() {
   setTimeout(() => { maxFileSizeSaved.value = false; }, 1500);
 }
 
+// ── Enigma Cloud server URL ────────────────────────────────────────────────────
+// Saved through the cloud store so the login state re-checks for the new server
+// immediately (the token kv namespace is scoped by the normalized URL).
+const cloudStore = useCloudStore();
+const cloudServerUrl = ref("");
+const cloudServerSaved = ref(false);
+async function saveCloudServer() {
+  // setServerUrl persists the normalized URL (trim, no trailing slash; empty →
+  // default) and re-runs the local session check for that server.
+  cloudServerUrl.value = await cloudStore.setServerUrl(cloudServerUrl.value);
+  cloudServerSaved.value = true;
+  setTimeout(() => { cloudServerSaved.value = false; }, 1500);
+}
+
 // ── Reset passphrase modal ───────────────────────────────────────────────────
 const showResetPass = ref(false);
 const resetCurrent = ref("");
@@ -261,6 +278,7 @@ onMounted(async () => {
   dhtDiscovery.value = await getDhtDiscovery();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
+  cloudServerUrl.value = await getCloudServerUrl();
   void refreshDhtStatus();
   await loadOfflineData();
   void loadNodeId();
@@ -741,6 +759,36 @@ async function clearSelectedOfflineData() {
           <span v-if="meetingReminderSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
+    </OyaCard>
+
+    <!-- Enigma Cloud server — where the Files tab's Cloud panel stores files.
+         Saving re-checks the login state for the new server. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.cloudServer') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="cloud" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.cloudServer') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.cloudServerHint') }}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input
+          v-model="cloudServerUrl"
+          type="text"
+          :placeholder="CLOUD_SERVER_URL_DEFAULT"
+          class="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm"
+          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+          @change="saveCloudServer"
+          @keyup.enter="saveCloudServer"
+        />
+        <span v-if="cloudServerSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+      </div>
+      <p class="text-xs opacity-50">{{ $t('config.cloudServerDefault', { url: CLOUD_SERVER_URL_DEFAULT }) }}</p>
     </OyaCard>
     </template>
 

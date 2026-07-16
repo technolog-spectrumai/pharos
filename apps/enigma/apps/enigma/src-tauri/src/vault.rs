@@ -55,6 +55,22 @@ pub fn kv_get_raw(app: &AppHandle, ns: &str, scope: &str, k: &str) -> Option<Str
     p.kv_get(ns, scope, k).ok().flatten()
 }
 
+/// Write counterpart of `kv_get_raw` — lets backend code persist values into a
+/// frontend-visible kv namespace (e.g. cloud.rs storing the session under
+/// `cloud:auth` so the frontend can read the username but Rust owns the token).
+pub fn kv_put_raw(app: &AppHandle, ns: &str, scope: &str, k: &str, v: &str) -> Result<(), String> {
+    let st = store(app)?;
+    let p = st.0.lock().map_err(|e| e.to_string())?;
+    p.kv_put(ns, scope, k, v).map_err(e)
+}
+
+/// Delete counterpart of `kv_get_raw` (see `kv_put_raw`).
+pub fn kv_delete_raw(app: &AppHandle, ns: &str, scope: &str, k: &str) -> Result<(), String> {
+    let st = store(app)?;
+    let p = st.0.lock().map_err(|e| e.to_string())?;
+    p.kv_delete(ns, scope, k).map_err(e)
+}
+
 /// Open the store for a profile directory (used at startup + on profile switch).
 pub fn open(dir: std::path::PathBuf) -> Result<Protasius, String> {
     Protasius::open(dir).map_err(e)

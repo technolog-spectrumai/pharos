@@ -91,20 +91,27 @@ Moved out of the build during the rework. **Not** compiled, bundled, or referenc
 anywhere (`limbo/` is outside the npm `workspaces` globs and every `src-tauri`
 crate). Restorable — see the checklist below.
 
-### Voice calls (Vox)
-1:1 voice calls over iroh QUIC (ALPN `enigma/vox/0`), self-contained MLS handshake.
-
-| Parked file | Original location |
-|---|---|
-| `limbo/rust/vox.rs` | `apps/enigma/src-tauri/src/vox.rs` |
-| `limbo/frontend/VoxPanel.vue` | `apps/enigma/src/components/VoxPanel.vue` |
-| `limbo/frontend/useVoxCall.ts` | `apps/enigma/src/composables/useVoxCall.ts` |
-| `limbo/frontend/voxCall.test.ts` | `apps/enigma/tests/unit/voxCall.test.ts` |
-| `limbo/frontend/voxPanel.test.ts` | `apps/enigma/tests/component/voxPanel.test.ts` |
-
-Restore blockers: depends on the removed `chacha20poly1305` / `rustfft` Cargo deps
-and on `load_or_create_secret` (now relocated to `p2p_iroh.rs`); `useVoxCall.ts`
-calls the removed `aster_resolve` command (call-by-username) that no longer exists.
+### ✅ Voice calls (Vox) (RESTORED)
+1:1 voice calls over iroh QUIC (ALPN `enigma/vox/0`). **Restored from limbo 2026-07:**
+`vox.rs` → `apps/enigma/src-tauri/src/vox.rs`, but it now accepts `VOX_ALPN` on the
+**main** p2p endpoint (registered in `p2p_iroh::ensure_started`, endpoint obtained via
+`p2p_iroh::vox_endpoint`) instead of the removed dedicated aster-published node — so a
+callee is reachable at the same stable NodeId their contacts/nickname already resolve
+to, and the `aster.rs` dependency (`load_or_create_secret`, `TotoLookup`,
+`spawn_publisher`) is gone. `rustfft` re-added to Cargo.toml (chacha20poly1305 already
+back). Network-policy gated (blocked offline + Tor-exclusive, voice being iroh-only)
+with a `vox::shutdown` hook wired into airplane / Tor / profile-switch teardown.
+Frontend went to `apps/enigma/src/components/vox/{VoxPanel.vue,useVoxCall.ts}`
+(feature-folder convention), surfaced as a dedicated **Calls tab**
+(`EnigmaCallsView.vue`, route `/calls`) with an incoming-call nav dot. `useVoxCall` is
+now a channel-scoped controller created once in `stores/chat.ts` (like `useFileShare`).
+Three call flows: **QR/ticket** (create → share → join); **call a room member** (offer
+signaled over the chat MLS `onSync`/`sendSync` seam, `vox_*` family — the initiator
+listens, the target dials back and the initiator auto-accepts the matching `call_id`);
+and **call by DHT nickname / saved contact** (`dht_find_nick` claim pick-list, plus a
+phone button on Contacts). The voice-message mic button is disabled during a live call
+(both fight for the default cpal input). Unit tests: `tests/unit/voxCall.test.ts`,
+`tests/component/voxPanel.test.ts`.
 
 ### ✅ File transfer (RESTORED)
 P2P file transfer over iroh QUIC. **Restored from limbo 2026-07:**

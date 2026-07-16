@@ -78,7 +78,8 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | P2P transport | iroh 0.98 (QUIC endpoint, NodeId identity, NAT traversal) + iroh-gossip 0.98 (topic broadcast); **or** peer-hosted Tor onion services (opt-in) |
 | Cryptography | OpenMLS 0.7 (RFC 9420 MLS) via the vendored `rotor_core` crate |
 | Local storage | fjall (pure-Rust LSM key/value store); JSON profile state; OS app-data dir |
-| Media capture | cpal (microphone) + hound (WAV) for native voice notes |
+| Media capture | cpal (microphone + speaker) + hound (WAV) for native voice notes; cpal + rustfft for live voice calls |
+| Voice calls (Vox) | 1:1 real-time voice over iroh QUIC datagrams (ALPN `enigma/vox/0` on the main endpoint); G.711 μ-law audio, per-call MLS-keyed ChaCha20-Poly1305, rustfft equalizer |
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it (star topology) |
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
@@ -110,8 +111,10 @@ which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
 | `tor-hsservice`, `tor-cell`, `safelog` | 0.43 / 0.8 | Onion-service hosting types (launch/config, accept relay cell, unredacted `.onion` display) |
 | `hyper`, `hyper-util`, `http-body-util`, `tokio-rustls` | — | HTTP-over-Tor plumbing (outbound `tor.rs` client only) |
 | `tokio` | 1 | Async runtime |
-| `cpal` | 0.15 | Microphone capture (native voice notes) |
+| `cpal` | 0.15 | Microphone capture (native voice notes) + duplex capture/playback for voice calls (`vox.rs`) |
 | `hound` | 3 | WAV encoding of recordings |
+| `rustfft` | 6 | Pure-Rust FFT of the incoming call audio → the `vox://spectrum` equalizer |
+| `chacha20poly1305` | 0.10 | AEAD for voice-call media (keyed per call by an MLS exporter secret) + DHT-rendezvous record sealing |
 | `fjall` | 2 | Local key/value cache (pure-Rust LSM; avoids a second SQLite link) |
 | `zeroize` | 1 | Wipe plaintext/state buffers in RAM |
 | `serde`/`serde_json`, `uuid` | — | Serialization, ids |
@@ -246,6 +249,32 @@ path (the server relay and REST gateway were removed in the serverless rework).
   `realtime_*` command refuses while set (`realtime_leave_room` is the one exempt
   command). This is a **cooperative app-level gate**, not an OS firewall.
 
+### Voice calls (Vox) — real-time media over the same endpoint
+
+1:1 voice calls (`vox.rs`, Calls tab) reuse the **main iroh endpoint**: a second ALPN
+(`enigma/vox/0`) is registered on the same router as gossip and invites, so a callee is
+call-reachable at the very NodeId their contacts/nickname already resolve to (no
+separate identity, no directory). Three ways to place a call, all ending in one dial:
+
+- **Ticket / QR** — the callee `vox_create`s a `VoxTicket { call_id, EndpointAddr }`
+  (postcard + BASE32, like a room ticket) and shares it; the caller `vox_join`s it.
+- **Call a room member** — the call *offer* is signaled over the chat's MLS group via
+  the `onSync`/`sendSync` seam (the `vox_*` message family), exactly like file offers;
+  the initiator listens and the accepting member dials back.
+- **Call by nickname / saved contact** — `dht_find_nick` (or a Contacts entry) yields
+  the peer's NodeId, dialed directly (`vox_call_node`).
+
+Once connected, a control **bi-stream** carries a length-prefixed-JSON
+hello/accept/decline handshake, then audio flows as **G.711 μ-law** frames (48 kHz,
+10 ms / 480 samples) over **unreliable QUIC datagrams** — no head-of-line blocking, a
+~0.5 s jitter buffer, and a linear resampler so each device runs at its native rate.
+cpal capture and playback each live on their own OS thread (`cpal::Stream` is `!Send`).
+Media is end-to-end encrypted (see [§7](#7-encryption--algorithms)), with a fail-soft
+fallback to the QUIC-TLS transport when the media handshake can't complete. Voice is
+iroh-only, so `vox_*` commands are **blocked offline and in Tor-exclusive mode** (a
+direct QUIC call would leak the IP outside Tor), and a `vox::shutdown` hangs up any
+live call when airplane/Tor is toggled or the profile is switched.
+
 ---
 
 ## 6. Is it truly P2P? (intermittent nodes)
@@ -317,8 +346,8 @@ security), which implies:
 
 `create_group` / `key_package` / `add_member` (→ welcome+commit) / `join_from_welcome`
 / `process_message` / `encrypt_app` / `members` (authenticated roster) / `remove_member`
-/ `export_secret` (RFC 9420 exporter — present but unused by the shipping chat) /
-`export_state` + `import_state` (serializable session).
+/ `export_secret` (RFC 9420 exporter — keys the Vox voice-call media ciphers; see
+below) / `export_state` + `import_state` (serializable session).
 
 ### What is encrypted
 
@@ -327,6 +356,15 @@ security), which implies:
   data-URL inside an encrypted `image_message`.
 - **Voice notes** → native cpal capture → hound WAV → encrypted `voice_message`.
 - **Presence, leave, and control messages** → encrypted inner JSON over the same group.
+- **Voice-call media** → a *separate*, ephemeral per-call MLS group (a 2-member
+  `RotorSession` keyed by the `call_id`) whose **RFC 9420 exporter secret**
+  (`export_secret`) derives two directional 256-bit keys → two **ChaCha20-Poly1305**
+  ciphers (one per direction; 96-bit nonce = a per-direction monotonic counter). Each
+  10 ms μ-law datagram is `[counter‖ciphertext]`. If the MLS handshake over the call's
+  bi-stream fails for any reason, the call **falls back to transport-only** (QUIC TLS,
+  peers authenticated by NodeId) and the UI shows a downgraded-encryption badge. This
+  is distinct from the chat's AES-128-GCM MLS ciphersuite — the call media uses MLS
+  only to *agree a shared secret*, then a stream cipher suited to 50 packets/s.
 
 ### Security properties
 

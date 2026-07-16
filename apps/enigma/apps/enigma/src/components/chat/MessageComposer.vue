@@ -5,10 +5,17 @@ import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import VoiceRecorderButton from "./VoiceRecorderButton.vue";
+import { useChatStore } from "../../stores/chat";
 
 const props = defineProps<{ channel: ChatChannel }>();
 const ch = props.channel;
 const { currentRoom, isConnected, isParticipant, mlsStatus } = ch;
+
+// A live/soon-live voice call owns the default microphone device; block staging a
+// voice message while one is active so the two don't fight over cpal input.
+const voxBusy = computed(() =>
+  ["calling", "connected"].includes(useChatStore().vox.phase.value),
+);
 
 const draft = ref("");
 const uploadingImage = ref(false);
@@ -137,7 +144,7 @@ function onKeydown(e: KeyboardEvent) {
         <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'image'" :spin="uploadingImage" />
       </button>
 
-      <VoiceRecorderButton :disabled="!currentRoom || !isParticipant" @staged="onVoiceStaged" />
+      <VoiceRecorderButton :disabled="!currentRoom || !isParticipant || voxBusy" @staged="onVoiceStaged" />
       <EmojiPicker :disabled="!currentRoom || !isParticipant" @select="draft += $event" />
 
       <OyaTextArea

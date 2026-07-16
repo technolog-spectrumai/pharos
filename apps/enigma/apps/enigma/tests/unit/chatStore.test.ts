@@ -81,15 +81,17 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
   });
 
-  it("creates the fileShare + meetings singletons riding the channel's sync seam", async () => {
+  it("creates the fileShare + vox + meetings singletons riding the channel's sync seam", async () => {
     const store = await freshStore();
     expect(store.fileShare).toBeDefined();
     expect(store.fileShare.state.value).toBe("idle");
+    expect(store.vox).toBeDefined();
+    expect(store.vox.phase.value).toBe("idle");
     expect(store.meetings).toBeDefined();
     expect(store.meetings.pendingInviteCount.value).toBe(0);
-    // Both register their signaling handlers at store creation, so offers and
-    // meeting invites are caught even while their tabs are closed.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(2);
+    // Each registers its signaling handler at store creation, so file offers, call
+    // offers and meeting invites are caught even while their tabs are closed.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(3);
   });
 
   it("identity fan-out delegates to the channel", async () => {

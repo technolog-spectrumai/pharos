@@ -255,6 +255,12 @@ function openInviteFor(contact: ContactEntry) {
   inviteOpen.value = true;
 }
 
+// Ring a saved contact by their stable NodeId and jump to the Calls tab.
+async function callContact(contact: ContactEntry) {
+  await chatStore.vox.callNode(contact.nodeId, contact.name);
+  void router.push("/calls");
+}
+
 function closeInvite() {
   inviteOpen.value = false;
   invites.resetOutgoing();
@@ -497,6 +503,14 @@ async function acceptIncoming() {
               {{ $t('contacts.lastSeen', { date: lastSeenLabel(c) }) }}
             </p>
           </div>
+          <button
+            type="button"
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
+            :title="$t('contacts.call')"
+            @click="callContact(c)"
+          >
+            <font-awesome-icon icon="phone" />
+          </button>
           <button
             type="button"
             class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"

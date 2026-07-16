@@ -118,6 +118,36 @@ export async function setConnectTimeoutSecs(secs: number): Promise<number> {
   return v;
 }
 
+// ── Enigma Cloud server URL ────────────────────────────────────────────────────
+// The base URL of the user's own Enigma Cloud (faros/toto Vault API) server.
+// Consumed by the `cloud_*` Tauri commands and the cloud Pinia store. Stored in
+// the encrypted kv store; the normalized form (no trailing slash) also scopes
+// the "cloud:auth" token namespace, so keep normalization in one place.
+
+export const CLOUD_SERVER_URL_DEFAULT = "https://localhost:8443";
+
+export function normalizeCloudServerUrl(url: string): string {
+  let v = (url ?? "").trim();
+  while (v.endsWith("/")) v = v.slice(0, -1);
+  return v || CLOUD_SERVER_URL_DEFAULT;
+}
+
+export async function getCloudServerUrl(): Promise<string> {
+  try {
+    const raw = await kvGet("cloud:settings", "default", "server_url");
+    if (raw === null || raw === "") return CLOUD_SERVER_URL_DEFAULT;
+    return normalizeCloudServerUrl(raw);
+  } catch {
+    return CLOUD_SERVER_URL_DEFAULT;
+  }
+}
+
+export async function setCloudServerUrl(url: string): Promise<string> {
+  const v = normalizeCloudServerUrl(url);
+  await kvPut("cloud:settings", "default", "server_url", v).catch(() => {});
+  return v;
+}
+
 // ── Max file-transfer size (0 = unlimited) ────────────────────────────────────
 // A local guard on P2P file sharing, enforced by `useFileShare` on both sides:
 // offering a larger file is blocked, and an incoming offer over the limit is

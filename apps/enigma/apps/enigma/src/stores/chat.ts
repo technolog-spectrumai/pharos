@@ -9,6 +9,7 @@
 import { useChatChannel, type ChatChannel } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
+import { useVoxCall } from "../components/vox/useVoxCall";
 import { useRoomInvites } from "../components/contacts/useRoomInvites";
 import { useMeetings } from "../components/calendar/useMeetings";
 
@@ -20,6 +21,10 @@ function createChatStore() {
   // Created here (once, for the app's lifetime) so incoming offers are caught
   // even while the Files modal is closed.
   const fileShare = useFileShare(p2p);
+  // 1:1 voice calls — same lifetime rationale: an incoming ring (and its nav dot)
+  // must be caught wherever the user is, and room-peer call offers ride this
+  // channel's MLS group (onSync/sendSync seam) like file offers.
+  const vox = useVoxCall(p2p);
   // Direct room invites (Contacts) — same lifetime rationale: an incoming
   // invite must be caught (and the Contacts nav dot lit) wherever the user is.
   const invites = useRoomInvites(p2p);
@@ -53,7 +58,7 @@ function createChatStore() {
   }
 
   return {
-    p2p, fileShare, invites, meetings, init,
+    p2p, fileShare, vox, invites, meetings, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

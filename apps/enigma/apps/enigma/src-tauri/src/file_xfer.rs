@@ -40,7 +40,8 @@ const FILE_ALPN: &[u8] = b"enigma/file/0";
 /// enough that memory stays bounded regardless of file size.
 const CHUNK: usize = 64 * 1024;
 
-const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
+// Shared with cloud.rs so every networked feature reports airplane mode identically.
+pub(crate) const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
 const TOR_BLOCKED: &str = "File transfer is unavailable in Tor mode.";
 
 // ── network-policy gates ──────────────────────────────────────────────────────
@@ -147,7 +148,8 @@ fn decode_addr(s: &str) -> Result<EndpointAddr> {
     Ok(postcard::from_bytes(&bytes)?)
 }
 
-fn mime_from_ext(name: &str) -> String {
+// Also used by cloud.rs for the multipart upload's file part Content-Type.
+pub(crate) fn mime_from_ext(name: &str) -> String {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     let m = match ext.as_str() {
         "png" => "image/png",

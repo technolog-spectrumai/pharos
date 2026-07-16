@@ -217,9 +217,16 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         app.clone(),
         tauri::Manager::state::<crate::p2p_invite::InviteState>(app).inner().clone(),
     );
+    // Voice calls (vox) ride this same endpoint too, so a callee is reachable at the
+    // stable NodeId their contacts/nickname already resolve to.
+    let vox = crate::vox::VoxProtocol::new(
+        app.clone(),
+        tauri::Manager::state::<crate::vox::VoxState>(app).inner().clone(),
+    );
     let router = Router::builder(endpoint.clone())
         .accept(GOSSIP_ALPN, gossip.clone())
         .accept(crate::p2p_invite::INVITE_ALPN, invites)
+        .accept(crate::vox::VOX_ALPN, vox)
         .spawn();
     *guard = Some(Node {
         endpoint,
@@ -553,6 +560,24 @@ pub async fn invite_send(
         (node.endpoint.clone(), ticket, code)
     };
     crate::p2p_invite::send(app, endpoint, node_id, name.to_string(), ticket, code).await
+}
+
+/// Ensure the main node is up and hand its endpoint to a Vox call (which accepts
+/// `VOX_ALPN` on this same router). `peer` — a vox ticket's embedded address — is
+/// seeded into discovery so the dial can resolve it, exactly as `join_room` seeds
+/// room tickets.
+pub async fn vox_endpoint(
+    app: &AppHandle,
+    state: &P2pState,
+    peer: Option<EndpointAddr>,
+) -> Result<Endpoint> {
+    ensure_started(app, state).await?;
+    let guard = state.0.lock().await;
+    let node = guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?;
+    if let Some(peer) = peer {
+        node.lookup.add_endpoint_info(peer);
+    }
+    Ok(node.endpoint.clone())
 }
 
 // ── DHT command helpers (realtime.rs `dht_*`) ───────────────────────────────────

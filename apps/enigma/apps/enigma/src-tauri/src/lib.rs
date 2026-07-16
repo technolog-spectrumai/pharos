@@ -8,8 +8,14 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
+// "Enigma Cloud" — HTTP client for the user's self-hosted faros server (telegraph
+// auth + vault file storage), over direct TCP/TLS or Tor per host + profile policy.
+mod cloud;
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
+// 1:1 voice calls over iroh QUIC (restored from limbo/ 2026-07), accepting
+// VOX_ALPN on the main p2p endpoint.
+mod vox;
 // Mainline-DHT (Kademlia) rendezvous + presence — the opt-in server-free
 // discovery behind the Settings toggle (see dht.md).
 mod p2p_dht;
@@ -361,6 +367,7 @@ async fn app_set_active_profile(
     p2p: State<'_, p2p_iroh::P2pState>,
     tor: State<'_, p2p_tor::TorP2pState>,
     file: State<'_, file_xfer::FileXferState>,
+    vox: State<'_, vox::VoxState>,
     profile: String,
     identity: Option<String>,
 ) -> Result<AppRuntimeConfig, String> {
@@ -382,6 +389,8 @@ async fn app_set_active_profile(
     // Tear down the OLD profile's transports FIRST, while its vault is still
     // unlocked and active — so p2p_tor::shutdown seals the stable-onion keystore
     // into the correct (old) profile's store before we swap it out.
+    // Hang up any live call before the endpoint it rides on is closed.
+    vox::shutdown(&app, &vox).await;
     p2p_iroh::shutdown(&app, &p2p).await;
     p2p_tor::shutdown(&app, &tor).await;
     file_xfer::shutdown(&file).await;
@@ -427,6 +436,7 @@ async fn app_set_offline(
     p2p: State<'_, p2p_iroh::P2pState>,
     tor: State<'_, p2p_tor::TorP2pState>,
     file: State<'_, file_xfer::FileXferState>,
+    vox: State<'_, vox::VoxState>,
     offline: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
@@ -436,9 +446,14 @@ async fn app_set_offline(
     // Airplane mode is "block ALL network": persisting the flag only gates NEW
     // commands, so also tear down whichever transport(s) are live.
     if offline {
+        // End any live call before its endpoint goes away.
+        vox::shutdown(&app, &vox).await;
         p2p_iroh::shutdown(&app, &p2p).await;
         p2p_tor::shutdown(&app, &tor).await;
         file_xfer::shutdown(&file).await;
+        // Abort any in-flight cloud transfer too — a running upload/download would
+        // otherwise keep streaming after airplane mode is meant to block all network.
+        cloud::shutdown(&app).await;
     }
     Ok(())
 }
@@ -456,6 +471,7 @@ async fn app_set_use_tor(
     p2p: State<'_, p2p_iroh::P2pState>,
     tor: State<'_, p2p_tor::TorP2pState>,
     file: State<'_, file_xfer::FileXferState>,
+    vox: State<'_, vox::VoxState>,
     use_tor: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
@@ -466,8 +482,15 @@ async fn app_set_use_tor(
     // command lazily re-binds on the chosen one. File transfer is iroh-only, so
     // entering Tor mode kills its node too (its commands are gated meanwhile).
     if use_tor {
+        // Voice is iroh-only: a live call over direct QUIC would keep leaking the
+        // IP after switching to Tor-exclusive mode, so hang it up first.
+        vox::shutdown(&app, &vox).await;
         p2p_iroh::shutdown(&app, &p2p).await;
         file_xfer::shutdown(&file).await;
+        // A cloud transfer already streaming over a direct clearnet TCP connection
+        // would keep exposing the user's IP after switching to Tor-exclusive mode;
+        // abort in-flight transfers so the next one re-establishes over Tor.
+        cloud::shutdown(&app).await;
     } else {
         p2p_tor::shutdown(&app, &tor).await;
     }
@@ -1042,9 +1065,13 @@ pub fn run() {
         .manage(p2p_iroh::P2pState::default())
         .manage(p2p_invite::InviteState::default())
         .manage(file_xfer::FileXferState::default())
+        // 1:1 voice-call state (accepts VOX_ALPN on the main p2p endpoint).
+        .manage(vox::VoxState::default())
         // Outbound Arti client (tor.rs) + the peer-hosted onion transport (p2p_tor.rs).
         .manage(tor::TorState::default())
         .manage(p2p_tor::TorP2pState::default())
+        // In-flight cloud transfer handles (aborted on airplane / Tor toggles).
+        .manage(cloud::CloudState::default())
         .setup(|app| {
             // Open the active profile's encrypted store (protasius). All app data
             // persists through it; it starts locked until the passphrase gate unlocks it.
@@ -1130,6 +1157,25 @@ pub fn run() {
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,
+            vox::vox_create,
+            vox::vox_join,
+            vox::vox_call_node,
+            vox::vox_accept,
+            vox::vox_decline,
+            vox::vox_hangup,
+            vox::vox_set_mute,
+            cloud::cloud_status,
+            cloud::cloud_login,
+            cloud::cloud_register,
+            cloud::cloud_logout,
+            cloud::cloud_me,
+            cloud::cloud_list,
+            cloud::cloud_upload,
+            cloud::cloud_download,
+            cloud::cloud_delete,
+            cloud::cloud_mkdir,
+            cloud::cloud_rmdir,
+            cloud::cloud_move,
             fs_local::fs_read_text_file,
             fs_local::fs_write_text_file,
         ])
