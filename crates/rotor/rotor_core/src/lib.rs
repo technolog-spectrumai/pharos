@@ -12,6 +12,28 @@ use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
 
 pub type RotorResult<T> = Result<T, String>;
 
+/// The one MLS ciphersuite this build of Rotor runs. `CIPHERSUITE_NAME` is
+/// derived from it below, so swapping the suite here automatically renames
+/// both — the app's build_config.yaml assert compares against the name and
+/// fails the build on drift.
+pub const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+pub const CIPHERSUITE_NAME: &str = ciphersuite_name(CIPHERSUITE);
+
+const fn ciphersuite_name(cs: Ciphersuite) -> &'static str {
+    match cs {
+        Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 => {
+            "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
+        }
+        Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256 => {
+            "MLS_128_DHKEMP256_AES128GCM_SHA256_P256"
+        }
+        Ciphersuite::MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448 => {
+            "MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448"
+        }
+        _ => "UNKNOWN", // extend the map when adopting a new suite
+    }
+}
+
 fn rotor_err<E: std::fmt::Display>(err: E) -> String {
     err.to_string()
 }
@@ -78,7 +100,7 @@ impl RotorSession {
     }
 
     pub fn ciphersuite() -> Ciphersuite {
-        Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
+        CIPHERSUITE
     }
 
     fn fallback_group_id(&self) -> GroupId {
