@@ -5,6 +5,13 @@ use zeroize::Zeroizing;
 
 use crate::{vault::KdfParams, CryptoError};
 
+/// Canonical name of the KDF compiled into this crate (`Algorithm::Argon2id`
+/// below). The app's build_config.yaml assert compares against it.
+pub const KDF_NAME: &str = "argon2id";
+
+/// The only supported derived-key length; `derive_ukek` rejects anything else.
+pub const KDF_OUT_LEN: u32 = 32;
+
 /// Derive the user key-encryption key (UKEK) from a passphrase. Deterministic for a
 /// given (passphrase, salt, params) — the same inputs always yield the same key, so
 /// `unlock` can re-derive it. The result zeroizes on drop.
@@ -13,7 +20,7 @@ pub(crate) fn derive_ukek(
     salt: &[u8; 16],
     p: &KdfParams,
 ) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
-    if p.out_len != 32 {
+    if p.out_len != KDF_OUT_LEN {
         return Err(CryptoError::BadParams);
     }
     let params = Params::new(p.m_cost_kib, p.t_cost, p.p_cost, Some(32))
