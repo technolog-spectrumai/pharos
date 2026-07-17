@@ -15,8 +15,9 @@ mod aead;
 mod kdf;
 mod vault;
 
-pub use aead::{open, seal};
-pub use vault::{create_vault, rewrap, unlock, KdfParams, VaultHeader};
+pub use aead::{open, seal, AEAD_NAME};
+pub use kdf::{KDF_NAME, KDF_OUT_LEN};
+pub use vault::{create_vault, create_vault_with_params, rewrap, unlock, KdfParams, VaultHeader};
 
 /// A 32-byte data-encryption key, zeroized on drop. Obtained from `create_vault`
 /// or `unlock`; used with `seal`/`open`.

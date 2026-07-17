@@ -59,9 +59,21 @@ use crate::vault;
 /// Encrypted kv namespace holding the session per server (keys: token, username).
 const NS_AUTH: &str = "cloud:auth";
 /// Streaming chunk size for both directions (same rationale as file_xfer::CHUNK).
-const CHUNK: usize = 64 * 1024;
+const CHUNK: usize = crate::build_config::network::TRANSFER_CHUNK_BYTES;
 /// Redirect-follow cap for the download 302 → media URL hop.
-const MAX_REDIRECTS: usize = 5;
+const MAX_REDIRECTS: usize = crate::build_config::network::MAX_REDIRECTS;
+
+/// Returned by every cloud command in a build with cloud.allow_connections: false.
+pub(crate) const CLOUD_DISABLED: &str = "Enigma Cloud is disabled in this build.";
+
+/// Build-time gate: the whole faros client is off when the build config says so
+/// (the airplane-mode check in `ensure_online` stays the runtime gate).
+fn ensure_cloud_enabled() -> Result<(), String> {
+    if !crate::build_config::cloud::ALLOW_CONNECTIONS {
+        return Err(CLOUD_DISABLED.to_string());
+    }
+    Ok(())
+}
 
 // ── URL / host helpers (pure — unit-tested below) ─────────────────────────────
 
@@ -849,6 +861,7 @@ pub struct DownloadStarted {
 /// Local-only login state (kv): no network touched.
 #[tauri::command]
 pub fn cloud_status(app: AppHandle, server_url: String) -> Result<CloudStatus, String> {
+    ensure_cloud_enabled()?;
     let scope = normalize_scope(&server_url);
     let logged_in = stored_token(&app, &scope).is_some();
     let username = vault::kv_get_raw(&app, NS_AUTH, &scope, "username");
@@ -862,6 +875,7 @@ pub async fn cloud_login(
     username: String,
     password: String,
 ) -> Result<CloudUser, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let body = json!({ "username": username, "password": password });
     let (status, value) =
@@ -883,6 +897,7 @@ pub async fn cloud_register(
     username: String,
     password: String,
 ) -> Result<CloudUser, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let body = json!({ "username": username, "password": password });
     let (status, value) = request_json(
@@ -907,6 +922,7 @@ pub async fn cloud_register(
 /// Best-effort server logout; ALWAYS clears the local session.
 #[tauri::command]
 pub async fn cloud_logout(app: AppHandle, server_url: String) -> Result<(), String> {
+    ensure_cloud_enabled()?;
     let scope = normalize_scope(&server_url);
     if stored_token(&app, &scope).is_some() && ensure_online(&app).is_ok() {
         let _ = request_json(&app, &server_url, "POST", "/telegraph/api/logout/", true, None).await;
@@ -919,6 +935,7 @@ pub async fn cloud_logout(app: AppHandle, server_url: String) -> Result<(), Stri
 /// frontend's "unauthorized" handling lands in a consistent logged-out state.
 #[tauri::command]
 pub async fn cloud_me(app: AppHandle, server_url: String) -> Result<CloudUser, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let (status, value) = request_json(&app, &server_url, "GET", "/telegraph/api/me/", true, None).await?;
     if status == 401 {
@@ -937,6 +954,7 @@ pub async fn cloud_me(app: AppHandle, server_url: String) -> Result<CloudUser, S
 /// Files + buckets in one call (two GETs, passthrough of the server JSON).
 #[tauri::command]
 pub async fn cloud_list(app: AppHandle, server_url: String) -> Result<Value, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let (status, files) = request_json(&app, &server_url, "GET", "/vault/api/files/", true, None).await?;
     expect_2xx(status, &files)?;
@@ -959,6 +977,7 @@ pub async fn cloud_upload(
     bucket_slug: Option<String>,
     directory_id: Option<i64>,
 ) -> Result<UploadStarted, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let scope = normalize_scope(&server_url);
     if stored_token(&app, &scope).is_none() {
@@ -1011,6 +1030,7 @@ pub async fn cloud_download(
     key: String,
     dest: String,
 ) -> Result<DownloadStarted, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let scope = normalize_scope(&server_url);
     if stored_token(&app, &scope).is_none() {
@@ -1034,6 +1054,7 @@ pub async fn cloud_download(
 
 #[tauri::command]
 pub async fn cloud_delete(app: AppHandle, server_url: String, key: String) -> Result<(), String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let (status, value) = request_json(
         &app,
@@ -1057,6 +1078,7 @@ pub async fn cloud_mkdir(
     name: String,
     parent_id: Option<i64>,
 ) -> Result<Value, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let mut body = serde_json::Map::new();
     body.insert("name".to_string(), json!(name));
@@ -1081,6 +1103,7 @@ pub async fn cloud_mkdir(
 
 #[tauri::command]
 pub async fn cloud_rmdir(app: AppHandle, server_url: String, directory_id: i64) -> Result<(), String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     let (status, value) = request_json(
         &app,
@@ -1103,6 +1126,7 @@ pub async fn cloud_move(
     key: String,
     directory_id: Option<i64>,
 ) -> Result<Value, String> {
+    ensure_cloud_enabled()?;
     ensure_online(&app)?;
     // Option<i64> serializes to null/number — exactly the contract's PATCH body.
     let body = json!({ "directory_id": directory_id });

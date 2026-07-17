@@ -16,6 +16,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# build_config.yaml → generated consts (see build.rs). Build-time only: the
+# shipped binary contains no YAML parser. serde_norway is the maintained fork
+# of the archived serde_yaml (same serde API, pure Rust — Android-safe).
+serde = { version = "1", features = ["derive"] }
+serde_norway = "0.9"
+# Reads tauri.conf.json for the app-identity equality assert.
+serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -32,6 +39,9 @@ rotor-core = { path = "../../../cryptorotor/rotor_core" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
 protasius = { path = "../../../protasius" }
+# Reused directly (not just via protasius) for passphrase-protected local files
+# (local_lock.rs): per-file vault + seal/open over the chosen file's bytes.
+gervasius = { path = "../../../cryptorotor/gervasius" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"

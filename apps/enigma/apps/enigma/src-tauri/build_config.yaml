@@ -1,0 +1,75 @@
+# Enigma build configuration — baked in at COMPILE TIME by src-tauri/build.rs.
+# build.rs validates this file, generates Rust consts from it (enigma_lib's
+# `build_config` module), and FAILS THE BUILD on any invalid or missing value.
+# The shipped binary never re-reads this file. Defaults below match current
+# main exactly: a default build is behaviorally identical to one before this
+# file existed.
+
+app:
+  # Must MATCH tauri.conf.json (productName / identifier / version), which stays
+  # authoritative for the native bundle — build.rs asserts equality.
+  name: Enigma
+  identifier: com.spectrumaipl.enigma
+  version: 0.1.0
+
+cloud:
+  # false = every cloud_* command fails fast with CLOUD_DISABLED and the
+  # frontend hides the Files→Cloud tab and the cloud-server settings section.
+  allow_connections: true
+
+p2p:
+  # false = iroh runs with RelayMode::Disabled (no n0-hosted relays) and all
+  # hosted discovery is off: pkarr/DNS publishing and Mainline-DHT rendezvous /
+  # presence / nickname (the Settings DHT toggles become inert). Direct QUIC
+  # (ticket/QR bootstrap) and the Tor onion transport keep working.
+  allow_hosted_relays: true
+
+crypto:
+  # Declarations, ASSERTED at compile time against the vendored crates
+  # (cryptorotor/rotor_core, cryptorotor/gervasius) — a mismatch fails the
+  # build. Changing these strings does NOT change the algorithms; change the
+  # crates and then update the declaration here.
+  mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
+  at_rest_aead: xchacha20-poly1305
+  kdf:
+    algorithm: argon2id
+    # Argon2id costs for NEWLY created vaults (the per-profile protasius store
+    # and per-file "lock a file"). Existing vaults are untouched: each vault
+    # header records its own costs, so old data always unlocks. The derived-key
+    # length is fixed at 32 bytes and not configurable.
+    m_cost_kib: 65536   # 64 MiB
+    t_cost: 3
+    p_cost: 4
+
+features:
+  # Initial values for a NEW profile's toggles. Runtime Settings switches still
+  # override per profile; profiles saved by any build keep their stored values.
+  # "offline" (airplane mode) is deliberately not configurable — always starts
+  # off.
+  use_tor: false
+  stable_onion: false
+  dht_discovery: false
+  dht_nick_publish: false
+
+settings:
+  # Defaults + clamp bounds for the user-tunable settings. The encrypted KV
+  # store (ns p2p:settings) remains the runtime source of truth; these only
+  # seed and bound it. Build-checked invariant: min <= default <= max.
+  connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
+  dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
+  max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
+
+network:
+  # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the
+  # Tor transport frame AND the iroh-gossip message size. A peer built with a
+  # larger value can emit messages a smaller-cap peer rejects. Change only in
+  # lockstep across a fleet.
+  max_frame_bytes: 16777216      # 16 MiB
+  # Not interop-sensitive: the virtual onion port rides inside each ticket, so
+  # joiners always use the ticket's value; changing it affects new tickets only.
+  onion_port: 9999
+  # Local-only tuning (no wire impact).
+  transfer_chunk_bytes: 65536    # file_xfer + cloud streaming granularity, 64 KiB
+  max_redirects: 5               # cloud download redirect-follow cap
+  tor_write_timeout_secs: 20
+  tor_handshake_timeout_secs: 30

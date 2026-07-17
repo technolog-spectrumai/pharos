@@ -16,7 +16,6 @@
 import { ref } from "vue";
 import { getMaxFileSizeMb } from "rakotis";
 import type { ChatChannel } from "rakotis";
-import { policy } from "../../config/app";
 
 export type FileShareState =
   | "idle"
@@ -46,9 +45,10 @@ interface OfferCreated {
 }
 
 /** The Settings "max file size" guard (0 = unlimited): the violated limit in MB,
- *  or 0 when the size is allowed. The shipped default comes from build config. */
+ *  or 0 when the size is allowed. The shipped default comes from the build
+ *  config (build_config.yaml in Tauri; app-config fallback in the browser). */
 async function overSizeLimitMb(sizeBytes: number): Promise<number> {
-  const maxMb = await getMaxFileSizeMb(policy.fileShare.defaultMaxFileSizeMb);
+  const maxMb = await getMaxFileSizeMb();
   return maxMb > 0 && sizeBytes > maxMb * 1024 * 1024 ? maxMb : 0;
 }
 

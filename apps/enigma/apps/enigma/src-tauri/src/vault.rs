@@ -105,7 +105,12 @@ pub fn vault_setup(
 ) -> Result<(), String> {
     let cfg = active_config(&config)?;
     let plan = migration_plan(&app, &cfg);
-    vault.0.lock().map_err(|e| e.to_string())?.setup(&passphrase, &plan).map_err(e)?;
+    vault
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .setup_with_kdf(&passphrase, crate::kdf_params(), &plan)
+        .map_err(e)?;
     // MLS `.bin` blobs need parsing to key them, so migrate them here (after the
     // vault is committed + unlocked).
     crate::migrate_mls(&app, &cfg);

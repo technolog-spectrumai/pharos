@@ -7,6 +7,8 @@ import "./style.css";
 import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
+import { initBuildConfig } from "rakotis";
+import { brand, policy } from "./config/app";
 
 import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
@@ -256,4 +258,20 @@ const app = createApp(App)
   .component("font-awesome-icon", FontAwesomeIcon);
 
 installVueErrorHandler(app);
-app.mount("#app");
+
+// Fetch the compile-time build config (allow flags, setting clamps) before
+// mount so every component sees final values; in the browser the app-config
+// values below apply instead. initBuildConfig never throws.
+void initBuildConfig({
+  app_name: brand.name,
+  app_identifier: brand.bundleId,
+  use_tor_default: policy.featureDefaults.useTor,
+  stable_onion_default: policy.featureDefaults.stableOnion,
+  max_file_size_mb: {
+    default: policy.fileShare.defaultMaxFileSizeMb,
+    min: 0,
+    max: 100 * 1024,
+  },
+}).then(() => {
+  app.mount("#app");
+});

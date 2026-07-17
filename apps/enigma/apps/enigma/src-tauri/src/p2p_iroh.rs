@@ -187,11 +187,17 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     // presets::N0 keeps iroh's built-in n0 relay + discovery (pkarr/DNS): peers
     // publish their own addresses and NodeId-only dials resolve without any app
     // server. The QR ticket (EndpointAddr) is the bootstrap; discovery is the
-    // auto-refresh when addresses change later.
-    let mut builder = Endpoint::builder(presets::N0)
+    // auto-refresh when addresses change later. A build with
+    // p2p.allow_hosted_relays: false drops all of that (Minimal + Disabled,
+    // direct QUIC only) — the MemoryLookup ticket path stays on both arms.
+    let mut builder = if crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        Endpoint::builder(presets::N0).relay_mode(RelayMode::Default)
+    } else {
+        Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled)
+    };
+    builder = builder
         .secret_key(secret)
-        .address_lookup(lookup.clone()) // ticket path (QR bootstrap)
-        .relay_mode(RelayMode::Default);
+        .address_lookup(lookup.clone()); // ticket path (QR bootstrap)
     if dht_enabled {
         // Mainline-DHT address lookup stacked on n0 (lookups race in parallel):
         // publishes our pkarr record to the DHT (relay addrs only, the privacy
@@ -209,7 +215,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
     let gossip = Gossip::builder()
-        .max_message_size(16 * 1024 * 1024)
+        .max_message_size(crate::build_config::network::MAX_FRAME_BYTES)
         .spawn(endpoint.clone());
     // Direct room invites from contacts ride this same endpoint, so a contact
     // is invitable at the stable NodeId they already have saved.

@@ -38,7 +38,7 @@ use crate::{active_config, load_profile_state, AppConfigState};
 const FILE_ALPN: &[u8] = b"enigma/file/0";
 /// Streaming chunk size for both directions. Large enough to keep QUIC busy, small
 /// enough that memory stays bounded regardless of file size.
-const CHUNK: usize = 64 * 1024;
+const CHUNK: usize = crate::build_config::network::TRANSFER_CHUNK_BYTES;
 
 // Shared with cloud.rs so every networked feature reports airplane mode identically.
 pub(crate) const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
@@ -197,8 +197,14 @@ async fn ensure_started(app: &AppHandle, state: &FileXferState) -> Result<()> {
     if guard.is_some() {
         return Ok(());
     }
-    let endpoint = Endpoint::builder(presets::N0)
-        .relay_mode(RelayMode::Default)
+    // Hosted-infra policy is build-time: N0 = n0 relay + pkarr/DNS discovery,
+    // Minimal + Disabled = direct QUIC only (same pair the vox tests use).
+    let builder = if crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        Endpoint::builder(presets::N0).relay_mode(RelayMode::Default)
+    } else {
+        Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled)
+    };
+    let endpoint = builder
         .bind()
         .await
         .map_err(|e| anyhow!("file iroh bind failed: {e}"))?;

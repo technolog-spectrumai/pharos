@@ -17,6 +17,7 @@ import { defineStore } from "pinia";
 import {
   isTauri,
   invoke,
+  getBuildConfig,
   getCloudServerUrl,
   setCloudServerUrl as persistCloudServerUrl,
 } from "rakotis";
@@ -74,6 +75,11 @@ export const useCloudStore = defineStore("cloud", () => {
   const error = ref<string | null>(null);
   const transfers = reactive(new Map<string, CloudTransfer>());
 
+  // A build with cloud.allow_connections: false behaves like the browser here:
+  // every action no-ops locally (the UI is hidden anyway) and Rust rejects any
+  // direct invoke with CLOUD_DISABLED — that remains the real boundary.
+  const cloudAvailable = isTauri() && getBuildConfig().cloud_allow_connections;
+
   function asMessage(e: unknown): string {
     if (typeof e === "string") return e;
     return (e as Error)?.message ?? String(e);
@@ -108,7 +114,7 @@ export const useCloudStore = defineStore("cloud", () => {
   // useFileShare.ensureListeners).
   let listening = false;
   async function ensureListeners(): Promise<void> {
-    if (listening || !isTauri()) return;
+    if (listening || !cloudAvailable) return;
     listening = true;
     const { listen } = await import("@tauri-apps/api/event");
     await listen<{ transferId: string; dir: "up" | "down"; transferred: number; total: number }>(
@@ -175,7 +181,7 @@ export const useCloudStore = defineStore("cloud", () => {
     checking.value = true;
     try {
       serverUrl.value = await getCloudServerUrl();
-      if (!isTauri()) {
+      if (!cloudAvailable) {
         clearLocal();
         return;
       }
@@ -205,6 +211,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   async function login(user: string, password: string): Promise<void> {
     if (!isTauri()) throw new Error("Enigma Cloud is desktop-only.");
+    if (!cloudAvailable) throw new Error("Enigma Cloud is disabled in this build.");
     const res = await invoke<{ username: string }>("cloud_login", {
       serverUrl: serverUrl.value,
       username: user,
@@ -219,6 +226,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   async function register(user: string, password: string): Promise<void> {
     if (!isTauri()) throw new Error("Enigma Cloud is desktop-only.");
+    if (!cloudAvailable) throw new Error("Enigma Cloud is disabled in this build.");
     const res = await invoke<{ username: string }>("cloud_register", {
       serverUrl: serverUrl.value,
       username: user,
@@ -246,7 +254,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   // ── listing ───────────────────────────────────────────────────────────────────
   async function refresh(): Promise<void> {
-    if (!isTauri() || !loggedIn.value) return;
+    if (!cloudAvailable || !loggedIn.value) return;
     loading.value = true;
     try {
       const res = await invoke<{ files: CloudFile[]; buckets: CloudBucket[] }>("cloud_list", {
@@ -280,7 +288,7 @@ export const useCloudStore = defineStore("cloud", () => {
     path: string,
     opts: { bucketSlug?: string; directoryId?: number } = {},
   ): Promise<void> {
-    if (!isTauri()) return;
+    if (!cloudAvailable) return;
     await ensureListeners();
     try {
       const res = await invoke<{ transfer_id: string; name: string; size: number }>(
@@ -307,7 +315,7 @@ export const useCloudStore = defineStore("cloud", () => {
   }
 
   async function download(key: string, dest: string): Promise<void> {
-    if (!isTauri()) return;
+    if (!cloudAvailable) return;
     await ensureListeners();
     try {
       const res = await invoke<{ transfer_id: string }>("cloud_download", {
@@ -332,7 +340,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   // ── files & directories ───────────────────────────────────────────────────────
   async function remove(key: string): Promise<void> {
-    if (!isTauri()) return;
+    if (!cloudAvailable) return;
     return guarded(async () => {
       await invoke("cloud_delete", { serverUrl: serverUrl.value, key });
       files.value = files.value.filter((f) => f.key !== key);
@@ -343,7 +351,7 @@ export const useCloudStore = defineStore("cloud", () => {
     name: string,
     opts: { bucketSlug?: string; parentId?: number } = {},
   ): Promise<void> {
-    if (!isTauri()) return;
+    if (!cloudAvailable) return;
     return guarded(async () => {
       const dir = await invoke<{
         id: number;
@@ -369,7 +377,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   /** null directoryId = move to the bucket root (the command sends JSON null). */
   async function move(key: string, directoryId: number | null): Promise<void> {
-    if (!isTauri()) return;
+    if (!cloudAvailable) return;
     return guarded(async () => {
       const f = await invoke<CloudFile>("cloud_move", {
         serverUrl: serverUrl.value,
@@ -381,7 +389,7 @@ export const useCloudStore = defineStore("cloud", () => {
   }
 
   async function rmdir(id: number): Promise<void> {
-    if (!isTauri()) return;
+    if (!cloudAvailable) return;
     return guarded(async () => {
       await invoke("cloud_rmdir", { serverUrl: serverUrl.value, directoryId: id });
       for (const b of buckets.value) {

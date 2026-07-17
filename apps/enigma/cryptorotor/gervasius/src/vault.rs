@@ -42,9 +42,18 @@ pub struct VaultHeader {
 /// Create a fresh vault: random salt + random DEK, DEK wrapped under the
 /// passphrase-derived UKEK. Returns the header (to persist) and the live DEK.
 pub fn create_vault(passphrase: &str) -> Result<(VaultHeader, Dek), CryptoError> {
+    create_vault_with_params(passphrase, KdfParams::default())
+}
+
+/// `create_vault` with caller-chosen Argon2id costs (e.g. from the app's build
+/// config). The params are recorded in the header, so the vault opens under any
+/// future costs. `out_len` must be 32 (`derive_ukek` rejects otherwise).
+pub fn create_vault_with_params(
+    passphrase: &str,
+    kdf: KdfParams,
+) -> Result<(VaultHeader, Dek), CryptoError> {
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
-    let kdf = KdfParams::default();
     let ukek = derive_ukek(passphrase, &salt, &kdf)?;
 
     let mut dek = Zeroizing::new([0u8; 32]);

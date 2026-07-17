@@ -8,6 +8,10 @@ use rand_core::{OsRng, RngCore};
 
 use crate::{CryptoError, Dek};
 
+/// Canonical name of the AEAD compiled into this crate. Kept beside the cipher
+/// use below; the app's build_config.yaml assert compares against it.
+pub const AEAD_NAME: &str = "xchacha20-poly1305";
+
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
 

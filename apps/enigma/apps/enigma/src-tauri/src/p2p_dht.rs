@@ -44,10 +44,18 @@ use tauri::AppHandle;
 const SETTINGS_NS: &str = "p2p:settings";
 const SETTINGS_SCOPE: &str = "default";
 
-/// The opt-in toggle. Locked vault / missing key ⇒ off (today's behavior).
+/// The opt-in toggle. Build-time relay/discovery kill switch first, then the
+/// user's setting; locked vault / missing key ⇒ the build-config default.
+/// Single choke point: gates DhtHandle, DhtAddressLookup, the nick publisher,
+/// dht_status and ticketless joins.
 pub fn discovery_enabled(app: &AppHandle) -> bool {
-    crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_discovery").as_deref()
-        == Some("on")
+    if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        return false;
+    }
+    match crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_discovery") {
+        Some(v) => v == "on",
+        None => crate::build_config::features::DHT_DISCOVERY_DEFAULT,
+    }
 }
 
 fn setting_secs(app: &AppHandle, key: &str, default: u64, min: u64, max: u64) -> u64 {
@@ -58,21 +66,43 @@ fn setting_secs(app: &AppHandle, key: &str, default: u64, min: u64, max: u64) ->
 }
 
 /// Rendezvous publish interval. Re-read every round so Settings edits apply live.
+/// Default + clamp bounds come from build_config.yaml (settings section).
 fn room_publish_secs(app: &AppHandle) -> u64 {
-    setting_secs(app, "dht_room_publish_secs", 600, 60, 3600)
+    use crate::build_config::settings as s;
+    setting_secs(
+        app,
+        "dht_room_publish_secs",
+        s::DHT_ROOM_PUBLISH_DEFAULT_SECS,
+        s::DHT_ROOM_PUBLISH_MIN_SECS,
+        s::DHT_ROOM_PUBLISH_MAX_SECS,
+    )
 }
 
 /// The user-set connect deadline (same value the frontend's join window uses —
 /// see CONVENTIONS.md §3: never hardcode a connect deadline). Bounds how long
 /// the rendezvous resolver keeps retrying after a ticketless join.
+/// Default + clamp bounds come from build_config.yaml (settings section).
 pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
-    setting_secs(app, "connect_timeout_secs", 60, 5, 600)
+    use crate::build_config::settings as s;
+    setting_secs(
+        app,
+        "connect_timeout_secs",
+        s::CONNECT_TIMEOUT_DEFAULT_SECS,
+        s::CONNECT_TIMEOUT_MIN_SECS,
+        s::CONNECT_TIMEOUT_MAX_SECS,
+    )
 }
 
-/// Opt-in "findable by nickname" toggle (Contacts tab). Default off.
+/// Opt-in "findable by nickname" toggle (Contacts tab). Missing key ⇒ the
+/// build-config default; inert in a build without hosted relays.
 pub fn nick_publish_enabled(app: &AppHandle) -> bool {
-    crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_nick_publish").as_deref()
-        == Some("on")
+    if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        return false;
+    }
+    match crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_nick_publish") {
+        Some(v) => v == "on",
+        None => crate::build_config::features::DHT_NICK_PUBLISH_DEFAULT,
+    }
 }
 
 /// The user's public nickname (display form). Empty/missing ⇒ nothing publishes.

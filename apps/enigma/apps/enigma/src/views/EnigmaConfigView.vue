@@ -20,24 +20,18 @@ import {
   setStableOnion,
   getConnectTimeoutSecs,
   setConnectTimeoutSecs,
-  CONNECT_TIMEOUT_MIN_SECS,
-  CONNECT_TIMEOUT_MAX_SECS,
   getDhtDiscovery,
   setDhtDiscovery,
   applyDhtDiscovery,
   getDhtStatus,
   getDhtRoomPublishSecs,
   setDhtRoomPublishSecs,
-  DHT_ROOM_PUBLISH_MIN_SECS,
-  DHT_ROOM_PUBLISH_MAX_SECS,
   getDhtPresencePollSecs,
   setDhtPresencePollSecs,
   DHT_PRESENCE_POLL_MIN_SECS,
   DHT_PRESENCE_POLL_MAX_SECS,
   getMaxFileSizeMb,
   setMaxFileSizeMb,
-  MAX_FILE_SIZE_MIN_MB,
-  MAX_FILE_SIZE_MAX_MB,
   getMeetingReminderMins,
   setMeetingReminderMins,
   MEETING_REMINDER_MIN_MINS,
@@ -46,6 +40,7 @@ import {
   cleanTorKeystore,
   getCloudServerUrl,
   CLOUD_SERVER_URL_DEFAULT,
+  getBuildConfig,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
@@ -54,6 +49,12 @@ import { OyaButton } from "rakotis";
 import { OyaModal, OyaTextField } from "rakotis";
 
 defineProps<{ darkMode: boolean }>();
+
+// Compile-time build config (fetched at boot): allow flags decide which
+// sections exist at all; the clamps drive the number inputs' min/max.
+const buildCfg = getBuildConfig();
+const cloudAllowed = buildCfg.cloud_allow_connections;
+const hostedRelaysAllowed = buildCfg.p2p_allow_hosted_relays;
 
 const router = useRouter();
 const route = useRoute();
@@ -215,8 +216,8 @@ const maxFileSizeMb = ref(0);
 const maxFileSizeSaved = ref(false);
 async function saveMaxFileSize() {
   // setMaxFileSizeMb clamps to [min, max] and returns the stored value; the
-  // build-config default (policy.fileShare) is the fallback for garbage input.
-  maxFileSizeMb.value = await setMaxFileSizeMb(Number(maxFileSizeMb.value), policy.fileShare.defaultMaxFileSizeMb);
+  // build-config default is the fallback for garbage input.
+  maxFileSizeMb.value = await setMaxFileSizeMb(Number(maxFileSizeMb.value));
   maxFileSizeSaved.value = true;
   setTimeout(() => { maxFileSizeSaved.value = false; }, 1500);
 }
@@ -274,7 +275,7 @@ onMounted(async () => {
   stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   meetingReminderMins.value = await getMeetingReminderMins();
-  maxFileSizeMb.value = await getMaxFileSizeMb(policy.fileShare.defaultMaxFileSizeMb);
+  maxFileSizeMb.value = await getMaxFileSizeMb();
   dhtDiscovery.value = await getDhtDiscovery();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
@@ -519,8 +520,8 @@ async function clearSelectedOfflineData() {
           <input
             v-model.number="maxFileSizeMb"
             type="number"
-            :min="MAX_FILE_SIZE_MIN_MB"
-            :max="MAX_FILE_SIZE_MAX_MB"
+            :min="buildCfg.max_file_size_mb.min"
+            :max="buildCfg.max_file_size_mb.max"
             class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
             :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
             @change="saveMaxFileSize"
@@ -564,8 +565,9 @@ async function clearSelectedOfflineData() {
     </OyaCard>
 
     <!-- Enigma Cloud server — where the Files tab's Cloud panel stores files.
-         Saving re-checks the login state for the new server. -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+         Saving re-checks the login state for the new server. Absent entirely in
+         a build with cloud.allow_connections: false. -->
+    <OyaCard v-if="cloudAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('config.cloudServer') }}
@@ -667,8 +669,10 @@ async function clearSelectedOfflineData() {
     </OyaCard>
 
     <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (dht.md). Opt-in;
-         on → rooms get a ticketless join code and Contacts presence works. -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+         on → rooms get a ticketless join code and Contacts presence works.
+         Absent in a build with p2p.allow_hosted_relays: false (Rust reports the
+         DHT disabled regardless of the kv toggle). -->
+    <OyaCard v-if="hostedRelaysAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('config.dhtDiscovery') }}
@@ -736,8 +740,8 @@ async function clearSelectedOfflineData() {
             <input
               v-model.number="dhtRoomPublishSecs"
               type="number"
-              :min="DHT_ROOM_PUBLISH_MIN_SECS"
-              :max="DHT_ROOM_PUBLISH_MAX_SECS"
+              :min="buildCfg.dht_room_publish_secs.min"
+              :max="buildCfg.dht_room_publish_secs.max"
               class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
               :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
               @change="saveDhtRoomPublish"
@@ -791,8 +795,8 @@ async function clearSelectedOfflineData() {
           <input
             v-model.number="connectTimeoutSecs"
             type="number"
-            :min="CONNECT_TIMEOUT_MIN_SECS"
-            :max="CONNECT_TIMEOUT_MAX_SECS"
+            :min="buildCfg.connect_timeout_secs.min"
+            :max="buildCfg.connect_timeout_secs.max"
             class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
             :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
             @change="saveConnectTimeout"

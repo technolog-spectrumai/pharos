@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, PersistMode};
 use gervasius::{Dek, VaultHeader};
+pub use gervasius::KdfParams;
 use serde::Serialize;
 
 /// AAD prefix binding every sealed value to its (versioned) store + key.
@@ -127,10 +128,21 @@ impl Protasius {
     /// First-run: create the vault (random DEK wrapped by the passphrase), commit
     /// `vault.json`, then fold in any legacy plaintext (`plan`). Leaves unlocked.
     pub fn setup(&mut self, passphrase: &str, plan: &MigrationPlan) -> Result<(), ProtasiusError> {
+        self.setup_with_kdf(passphrase, KdfParams::default(), plan)
+    }
+
+    /// `setup` with caller-chosen Argon2id costs (e.g. the app's build config).
+    /// The costs are recorded in the vault header, so unlocking never needs them.
+    pub fn setup_with_kdf(
+        &mut self,
+        passphrase: &str,
+        kdf: KdfParams,
+        plan: &MigrationPlan,
+    ) -> Result<(), ProtasiusError> {
         if self.header.is_some() {
             return Err(ProtasiusError::VaultExists);
         }
-        let (header, dek) = gervasius::create_vault(passphrase)?;
+        let (header, dek) = gervasius::create_vault_with_params(passphrase, kdf)?;
         self.dek = Some(dek); // enable seals during migration
         self.write_header(&header)?; // durable commit point — the vault now exists
         self.header = Some(header);

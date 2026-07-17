@@ -108,6 +108,19 @@ primitive). Tracked in §4.
 
 ## 3. Config — sources of truth
 
+**Build config (compile-time):**
+[`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
+— baked into the binary by `build.rs` (codegen → `enigma_lib::build_config` consts;
+invalid file = build error). Owns: the cloud/hosted-relay allow flags, crypto
+declarations (compile-asserted against rotor_core/gervasius) + Argon2id costs for
+new vaults, feature defaults for new profiles, defaults **and clamp bounds** of the
+kv-backed settings, and network constants (frame cap, onion port, chunk size,
+timeouts). The frontend fetches the relevant subset once at boot via
+`app_get_build_config` (rakotis `initBuildConfig`/`getBuildConfig`; `main.ts` seeds
+the browser-mode fallback from `config/app.ts`). `tauri.conf.json` stays
+authoritative for productName/identifier/version — `build.rs` asserts the YAML
+mirrors it.
+
 **Frontend app config:** [`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts)
 — brand identity, UI policy, dev port. Import `brand` / `policy` / `dev` from here
 instead of hardcoding.
@@ -119,13 +132,15 @@ instead of hardcoding.
 | Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` (`com.spectrumaipl.enigma`) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see §4 |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
-| Feature defaults (offline/tor/stable) | Rust `AppProfileState` serde defaults | UI mirrors via `policy.featureDefaults`; **Rust is authoritative** |
-| P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default 60 s, clamped 5–600. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
-| DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish 600 s clamp 60–3600; presence poll 300 s clamp 60–3600. Rust reads the same keys directly (`vault::kv_get_raw`); see `dht.md` |
+| Cloud / hosted-relay allow flags | `build_config.yaml` `cloud.allow_connections`, `p2p.allow_hosted_relays` | Compile-time kill switches: cloud gates all `cloud_*` commands (`CLOUD_DISABLED`) + hides the Cloud UI; relays flips iroh to `RelayMode::Disabled` and forces DHT discovery off |
+| Feature defaults (tor/stable/dht) | `build_config.yaml` `features:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable) |
+| P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
+| DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); inert when `p2p.allow_hosted_relays: false`; see `dht.md` |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
-| Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests |
+| Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests. `build_config.yaml` `app:` must mirror it — `build.rs` fails the build on drift |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
-| Argon2id params | `cryptorotor/gervasius/src/vault.rs` `KdfParams::Default` | Persisted per-vault in the header |
+| Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
+| P2P frame cap / onion port / chunk sizes / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
 | Window size, bundle targets | `tauri.conf.json` | — |
 | Two-profile dev instances | `APP_PROFILE` / `CHAT_USER` env | Defaulted in `run_dev.sh`; **`lib.rs` owns the `"default"` fallback** |
@@ -150,8 +165,8 @@ audit found. Do these when touching the relevant subsystem:
   currently one per file, cross-referenced only in comments (and mirrored in
   `useChatChannel.ts` `isTorTicket`/`isDhtCode`) → **one shared module** so they
   can't collide.
-- `MAX_P2P_FRAME 16 MiB` — written independently in `p2p_tor.rs` and `p2p_iroh.rs`
-  (comment even says "must match") → single const.
+- ~~`MAX_P2P_FRAME 16 MiB` — written independently in `p2p_tor.rs` and `p2p_iroh.rs`~~
+  **done**: both now read `build_config::network::MAX_FRAME_BYTES`.
 - protasius namespace/key strings (`profile`/`keys`/`cache`/`state`, `tor_peer_id`,
   `tor_keystore`, `iroh_gossip`) are bare literals across 4 files → named consts (a
   typo silently loses stored data).

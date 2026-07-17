@@ -46,20 +46,22 @@ use tor_hsservice::config::OnionServiceConfigBuilder;
 use tor_hsservice::{handle_rend_requests, HsNickname, RendRequest, RunningOnionService};
 use tor_rtcompat::PreferredRuntime;
 
-/// Virtual onion port every peer connects to. Fixed, and also carried in the
-/// ticket so it can change later without breaking old tickets.
-const ONION_PORT: u16 = 9999;
-/// Frame size cap — matches iroh's `max_message_size` so MLS-encrypted images and
-/// voice notes (which exceed the 64 KB vox.rs cap) fit in a single frame.
-const MAX_FRAME: usize = 16 * 1024 * 1024;
+/// Virtual onion port every peer connects to. Fixed per build (build_config.yaml),
+/// and also carried in the ticket so it can change without breaking old tickets.
+const ONION_PORT: u16 = crate::build_config::network::ONION_PORT;
+/// Frame size cap — matches iroh's `max_message_size` (same build_config value)
+/// so MLS-encrypted images and voice notes fit in a single frame.
+const MAX_FRAME: usize = crate::build_config::network::MAX_FRAME_BYTES;
 /// One-byte magic prefixed before the postcard ticket bytes so the realtime layer
 /// can tell a Tor ticket from an iroh ticket (tagged `0x49`) by sniffing. 'T'.
 const TOR_TAG: u8 = 0x54;
 /// Cap per-frame writes so one stalled onion circuit can't block the host's
 /// fan-out (or a joiner's send) forever.
-const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
+const WRITE_TIMEOUT: Duration =
+    Duration::from_secs(crate::build_config::network::TOR_WRITE_TIMEOUT_SECS);
 /// Cap the join handshake read so a silent peer can't hang the join command.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+const HANDSHAKE_TIMEOUT: Duration =
+    Duration::from_secs(crate::build_config::network::TOR_HANDSHAKE_TIMEOUT_SECS);
 /// How many times the outbound connection manager retries dialing the captain
 /// (with backoff) before declaring it unreachable — a slow Tor dial must not be
 /// mistaken for a dead captain.

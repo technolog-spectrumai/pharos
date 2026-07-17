@@ -33,6 +33,33 @@ Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — s
 
 ---
 
+## Build configuration (`build_config.yaml`)
+
+[`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
+is the compile-time build config: `build.rs` parses + validates it and generates
+Rust consts (`enigma_lib::build_config`); the shipped binary never re-reads the
+file. **An invalid or missing file fails the build** with the offending YAML paths
+listed. The checked-in defaults reproduce stock behavior exactly.
+
+What it owns (see the file's comments and CONVENTIONS.md §3 for details):
+
+- `cloud.allow_connections` — `false` builds a binary with no Enigma Cloud at all.
+- `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/Mainline-DHT
+  discovery; direct QUIC (tickets) and Tor keep working.
+- `crypto` — declared algorithms are **compile-asserted** against the vendored
+  rotor_core/gervasius crates (editing the strings can't change the crypto; drift
+  in either direction is a build error). Argon2id costs apply to newly created
+  vaults only.
+- `features` / `settings` — new-profile defaults and settings defaults+clamps.
+- `network` — frame cap (**wire-interop**: all peers must agree), onion port,
+  chunk sizes, Tor timeouts.
+
+`app:` must match `tauri.conf.json` (`productName`/`identifier`/`version`) —
+`tauri.conf.json` stays authoritative and `build.rs` rejects drift. The same YAML
+drives desktop and Android builds (the codegen is target-agnostic).
+
+---
+
 ## Desktop build
 
 One-click (installs workspace deps, then builds — the frontend build runs
