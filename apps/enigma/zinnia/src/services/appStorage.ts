@@ -49,6 +49,76 @@ export interface AppRuntimeConfig {
   profile_state_path: string;
 }
 
+// ── Build config (compile-time — src-tauri/build_config.yaml) ─────────────────
+// Baked into the Rust binary by build.rs and fetched ONCE at boot via
+// `app_get_build_config` (initBuildConfig below, awaited in main.ts before
+// mount). In a plain browser there is no binary, so the fallback applies —
+// the app may seed it from its own config via initBuildConfig(fallback).
+
+/** One `{default, min, max}` triple of a user-tunable setting. The kv store
+ *  keeps the runtime value; the build config only seeds and bounds it. */
+export interface SettingClamp {
+  default: number;
+  min: number;
+  max: number;
+}
+
+export interface BuildConfig {
+  app_name: string;
+  app_identifier: string;
+  app_version: string;
+  /** false = this build has no Enigma Cloud: cloud_* commands error, hide the UI. */
+  cloud_allow_connections: boolean;
+  /** false = no n0 relay / pkarr / Mainline DHT; DHT toggles are inert. */
+  p2p_allow_hosted_relays: boolean;
+  use_tor_default: boolean;
+  stable_onion_default: boolean;
+  dht_discovery_default: boolean;
+  dht_nick_publish_default: boolean;
+  connect_timeout_secs: SettingClamp;
+  dht_room_publish_secs: SettingClamp;
+  max_file_size_mb: SettingClamp;
+}
+
+// Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
+// consts below (literals here: the consts are declared later in the module).
+const FALLBACK_BUILD_CONFIG: BuildConfig = {
+  app_name: "Enigma",
+  app_identifier: "com.spectrumaipl.enigma",
+  app_version: "0.1.0",
+  cloud_allow_connections: true,
+  p2p_allow_hosted_relays: true,
+  use_tor_default: false,
+  stable_onion_default: false,
+  dht_discovery_default: false,
+  dht_nick_publish_default: false,
+  connect_timeout_secs: { default: 60, min: 5, max: 600 },
+  dht_room_publish_secs: { default: 600, min: 60, max: 3600 },
+  max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
+};
+
+let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
+
+/** Fetch the build config once at boot (await before mounting the app). In the
+ *  browser the optional `fallback` patch applies instead (e.g. the app's own
+ *  shipped defaults); in Tauri the binary's values always win. */
+export async function initBuildConfig(fallback?: Partial<BuildConfig>): Promise<BuildConfig> {
+  if (fallback) buildConfig = { ...buildConfig, ...fallback };
+  if (isTauri()) {
+    try {
+      buildConfig = await invoke<BuildConfig>("app_get_build_config");
+    } catch {
+      /* keep the fallback — browser-equivalent behavior */
+    }
+  }
+  return buildConfig;
+}
+
+/** The build config as fetched at boot (fallback until initBuildConfig ran). */
+export function getBuildConfig(): BuildConfig {
+  return buildConfig;
+}
+
 // ── Offline / airplane mode (online / offline) ─────────────────────────────────
 // On → block EVERY network connection (the app is serverless, so this means all
 // P2P). Enforced by the Rust command gate.
@@ -92,23 +162,27 @@ export async function setStableOnion(stableOnion: boolean): Promise<void> {
 // ── P2P connection timeout (room create + join give up after this many seconds) ─
 // Tor onion publish + rendezvous routinely takes 30–90 s, so keep the default
 // generous; the user can tune it in Settings. Stored in the encrypted kv store.
+// Default + clamp bounds come from the build config; the legacy consts stay as
+// the browser-mode mirror.
 
 export const CONNECT_TIMEOUT_DEFAULT_SECS = 60;
 export const CONNECT_TIMEOUT_MIN_SECS = 5;
 export const CONNECT_TIMEOUT_MAX_SECS = 600;
 
 export function clampConnectTimeoutSecs(secs: number): number {
-  if (!Number.isFinite(secs)) return CONNECT_TIMEOUT_DEFAULT_SECS;
-  return Math.min(CONNECT_TIMEOUT_MAX_SECS, Math.max(CONNECT_TIMEOUT_MIN_SECS, Math.round(secs)));
+  const c = getBuildConfig().connect_timeout_secs;
+  if (!Number.isFinite(secs)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
 }
 
 export async function getConnectTimeoutSecs(): Promise<number> {
+  const c = getBuildConfig().connect_timeout_secs;
   try {
     const raw = await kvGet("p2p:settings", "default", "connect_timeout_secs");
-    if (raw === null || raw === "") return CONNECT_TIMEOUT_DEFAULT_SECS;
+    if (raw === null || raw === "") return c.default;
     return clampConnectTimeoutSecs(Number(raw));
   } catch {
-    return CONNECT_TIMEOUT_DEFAULT_SECS;
+    return c.default;
   }
 }
 
@@ -159,23 +233,25 @@ export const MAX_FILE_SIZE_DEFAULT_MB = 0; // generic fallback: 0 = unlimited
 export const MAX_FILE_SIZE_MIN_MB = 0;
 export const MAX_FILE_SIZE_MAX_MB = 100 * 1024; // 100 GB
 
-export function clampMaxFileSizeMb(mb: number, fallback: number = MAX_FILE_SIZE_DEFAULT_MB): number {
-  if (!Number.isFinite(mb)) return fallback;
-  return Math.min(MAX_FILE_SIZE_MAX_MB, Math.max(MAX_FILE_SIZE_MIN_MB, Math.round(mb)));
+export function clampMaxFileSizeMb(mb: number, fallback?: number): number {
+  const c = getBuildConfig().max_file_size_mb;
+  if (!Number.isFinite(mb)) return fallback ?? c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(mb)));
 }
 
-export async function getMaxFileSizeMb(defaultMb: number = MAX_FILE_SIZE_DEFAULT_MB): Promise<number> {
+export async function getMaxFileSizeMb(defaultMb?: number): Promise<number> {
+  const fallback = defaultMb ?? getBuildConfig().max_file_size_mb.default;
   try {
     const raw = await kvGet("p2p:settings", "default", "max_file_size_mb");
-    if (raw === null || raw === "") return defaultMb;
-    return clampMaxFileSizeMb(Number(raw), defaultMb);
+    if (raw === null || raw === "") return fallback;
+    return clampMaxFileSizeMb(Number(raw), fallback);
   } catch {
-    return defaultMb;
+    return fallback;
   }
 }
 
-export async function setMaxFileSizeMb(mb: number, defaultMb: number = MAX_FILE_SIZE_DEFAULT_MB): Promise<number> {
-  const v = clampMaxFileSizeMb(mb, defaultMb);
+export async function setMaxFileSizeMb(mb: number, defaultMb?: number): Promise<number> {
+  const v = clampMaxFileSizeMb(mb, defaultMb ?? getBuildConfig().max_file_size_mb.default);
   await kvPut("p2p:settings", "default", "max_file_size_mb", String(v)).catch(() => {});
   return v;
 }
@@ -301,17 +377,19 @@ export const DHT_ROOM_PUBLISH_MIN_SECS = 60;
 export const DHT_ROOM_PUBLISH_MAX_SECS = 3600;
 
 export function clampDhtRoomPublishSecs(secs: number): number {
-  if (!Number.isFinite(secs)) return DHT_ROOM_PUBLISH_DEFAULT_SECS;
-  return Math.min(DHT_ROOM_PUBLISH_MAX_SECS, Math.max(DHT_ROOM_PUBLISH_MIN_SECS, Math.round(secs)));
+  const c = getBuildConfig().dht_room_publish_secs;
+  if (!Number.isFinite(secs)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
 }
 
 export async function getDhtRoomPublishSecs(): Promise<number> {
+  const c = getBuildConfig().dht_room_publish_secs;
   try {
     const raw = await kvGet("p2p:settings", "default", "dht_room_publish_secs");
-    if (raw === null || raw === "") return DHT_ROOM_PUBLISH_DEFAULT_SECS;
+    if (raw === null || raw === "") return c.default;
     return clampDhtRoomPublishSecs(Number(raw));
   } catch {
-    return DHT_ROOM_PUBLISH_DEFAULT_SECS;
+    return c.default;
   }
 }
 
@@ -373,6 +451,79 @@ export async function vaultChangePassphrase(current: string, next: string): Prom
 
 export async function vaultWipe(): Promise<void> {
   if (isTauri()) await invoke("vault_wipe");
+}
+
+// ── Passphrase-protected local files ("lock a file") ──────────────────────────
+// Encrypt a user-chosen file in place with a per-file passphrase (reuses the
+// gervasius at-rest primitives in Rust; see src-tauri/src/local_lock.rs). The
+// passphrase is never stored — we only keep a record of *which* files are locked
+// so the UI can list them. The record lives in the encrypted kv store as one JSON
+// array (kv has no key-enumeration, so we read-modify-write a single value).
+
+/** Info returned by the Rust lock/unlock commands. */
+export interface LockedFileResult {
+  name: string;
+  size: number;
+}
+
+/** A remembered locked file (no secrets — just enough to show + act on a row). */
+export interface LockedFileRecord {
+  path: string;
+  name: string;
+  /** Plaintext size at lock time, bytes. */
+  size: number;
+  /** Epoch millis when it was locked. */
+  lockedAt: number;
+}
+
+const NS_LOCAL_FILES = "files:local";
+const LOCAL_FILES_KEY = "index";
+
+/** Encrypt `path` in place under `passphrase`. Tauri-only. */
+export async function lockLocalFile(path: string, passphrase: string): Promise<LockedFileResult> {
+  if (!isTauri()) throw new Error("Local file locking is only available in the desktop app.");
+  return invoke<LockedFileResult>("local_lock_file", { path, passphrase });
+}
+
+/** Decrypt a locked `path` in place under `passphrase`; fails closed on a wrong
+ *  passphrase (the file is left untouched). Tauri-only. */
+export async function unlockLocalFile(path: string, passphrase: string): Promise<LockedFileResult> {
+  if (!isTauri()) throw new Error("Local file locking is only available in the desktop app.");
+  return invoke<LockedFileResult>("local_unlock_file", { path, passphrase });
+}
+
+/** True if the file on disk currently begins with the lock magic. */
+export async function isLocalFileLocked(path: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("local_is_locked", { path });
+}
+
+export async function getLockedFiles(): Promise<LockedFileRecord[]> {
+  try {
+    const raw = await kvGet(NS_LOCAL_FILES, "default", LOCAL_FILES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as LockedFileRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveLockedFiles(list: LockedFileRecord[]): Promise<void> {
+  await kvPut(NS_LOCAL_FILES, "default", LOCAL_FILES_KEY, JSON.stringify(list)).catch(() => {});
+}
+
+/** Add (or replace, by path) a locked-file record. */
+export async function addLockedFile(rec: LockedFileRecord): Promise<void> {
+  const list = (await getLockedFiles()).filter((r) => r.path !== rec.path);
+  list.push(rec);
+  await saveLockedFiles(list);
+}
+
+/** Forget a locked-file record (does not touch the file on disk). */
+export async function removeLockedFile(path: string): Promise<void> {
+  const list = (await getLockedFiles()).filter((r) => r.path !== path);
+  await saveLockedFiles(list);
 }
 
 /// Reset the Tor onion keystore (identity) — clears stale locks; next Tor room mints
