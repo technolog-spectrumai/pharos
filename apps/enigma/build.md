@@ -1,8 +1,15 @@
-# Enigma — Build Instructions
+# Enigma — Build & Run
 
-Packaging Enigma into installable artifacts. Enigma is a Tauri 2 (Vue 3 frontend +
-Rust backend) app; a "build" compiles the frontend (`vue-tsc` + Vite) and the Rust
-core, then bundles them. To run it in dev instead, see [dev_manual.md](dev_manual.md).
+How to run Enigma in dev and package it into installable artifacts. Enigma is a
+Tauri 2 (Vue 3 frontend + Rust backend) app; a "build" compiles the frontend
+(`vue-tsc` + Vite) and the Rust core, then bundles them. For how the app *works*
+(architecture, crypto, conventions, config sources) see
+[technology.md](technology.md).
+
+Contents: [Prerequisites](#prerequisites) · [First-time setup](#first-time-setup) ·
+[Run (dev)](#run-dev) · [Build configuration](#build-configuration-build_configyaml) ·
+[Desktop build](#desktop-build) · [Android](#android-toolchain-setup--build) ·
+[CI](#ci-builds) · [Tests](#tests) · [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -22,14 +29,91 @@ sudo apt-get install -y \
   librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential curl file
 ```
 
-**No GitLab account needed.** The crypto crate `rotor-core` is **vendored in-repo**
-at [cryptorotor/rotor_core](cryptorotor/rotor_core) and consumed by `src-tauri` as a
-path dependency — there is nothing to authenticate or configure. (`rakotis` is
-likewise an in-repo workspace package.) The whole build is offline-friendly once
-crates.io/npm are cached.
+**No GitLab account needed.** The crypto crates are **vendored in-repo**
+([cryptorotor/](cryptorotor) — `rotor-core`, `gervasius`) and consumed by
+`src-tauri` as path dependencies, as are [protasius/](protasius) and the
+`rakotis` npm workspace package — there is nothing to authenticate or configure.
+The whole build is offline-friendly once crates.io/npm are cached.
 
 Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — see
-[build_android.md](build_android.md).
+[Android](#android-toolchain-setup--build) below.
+
+---
+
+## First-time setup
+
+```bash
+npm install        # once, at the repo root — sets up the workspace + all packages
+```
+
+`rakotis` is an in-repo workspace package (`packages/rakotis`); npm symlinks it
+into the app's `node_modules`, so edits to its source are picked up immediately —
+no rebuild step.
+
+---
+
+## Run (dev)
+
+```bash
+./run_dev.sh          # or: npm run dev
+```
+
+Both run `npm run tauri dev` inside `apps/enigma`: Vite starts on
+`http://localhost:1420` and Tauri opens the native window pointed at it. Frontend
+edits hot-reload; Rust edits trigger a rebuild.
+
+> The first launch compiles the full Rust dependency tree (incl. OpenMLS + iroh +
+> arti) and is slow. Later runs are incremental.
+
+### Profiles & two-instance pairing
+
+Two env vars isolate instances so you can pair two on one machine:
+
+| Var | Default | Effect |
+|---|---|---|
+| `APP_PROFILE` | `default` | Storage namespace (separate encrypted store / profile dir) |
+| `CHAT_USER` | `default` | MLS identity namespace |
+
+```bash
+# terminal 1
+APP_PROFILE=alice CHAT_USER=alice ./run_dev.sh
+# terminal 2
+APP_PROFILE=bob   CHAT_USER=bob   ./run_dev.sh
+# or both at once, sharing one Vite server:
+./run2.sh
+```
+
+### Pairing quick-start
+
+1. **A**: Chat → *New chat* → name it → **Create**. A QR code appears (gold ★ host
+   badge over Tor).
+2. **B**: Chat → *Join a chat* → scan the QR (camera / image) or paste the ticket.
+3. Both sides show **Encrypted** once the MLS handshake completes.
+
+After the one-time pairing the app reconnects automatically (peer NodeIds are
+persisted per room and re-resolved via iroh discovery) — no server, no accounts.
+Restart B and it reopens the room and reconnects.
+
+### Browser-only mode (UI shell, no P2P)
+
+```bash
+npm run dev -w enigma        # http://localhost:1420
+```
+
+Plain Vite with no Tauri runtime — renders the UI shell only. P2P and MLS need
+the Rust backend, so chat does not function here; use it for pure-frontend work.
+
+### Android emulator
+
+Full walkthrough (boot AVD, `npm run tauri android dev`, driving via `adb`) is in
+[apps/enigma/emulator.md](apps/enigma/emulator.md). One-time SDK/NDK/Java setup is
+[below](#android-toolchain-setup--build). Short version, from `apps/enigma/`:
+
+```bash
+"$ANDROID_HOME/emulator/emulator" -avd Pixel_9 -no-snapshot-save -gpu swiftshader_indirect &
+until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do sleep 5; done
+npm run tauri android dev     # auto-detects the emulator, builds, installs, launches
+```
 
 ---
 
@@ -41,7 +125,8 @@ Rust consts (`enigma_lib::build_config`); the shipped binary never re-reads the
 file. **An invalid or missing file fails the build** with the offending YAML paths
 listed. The checked-in defaults reproduce stock behavior exactly.
 
-What it owns (see the file's comments and CONVENTIONS.md §3 for details):
+What it owns (see the file's comments and [technology.md](technology.md) §15 for
+details):
 
 - `cloud.allow_connections` — `false` builds a binary with no Enigma Cloud at all.
 - `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/Mainline-DHT
@@ -98,10 +183,62 @@ it via `frontendDist: "../dist"`.
 
 ---
 
-## Android build
+## Android — toolchain setup & build
+
+Building an Android APK/AAB from an Ubuntu dev machine.
+
+### Toolchain overview
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Java (OpenJDK) | 17 | Gradle & Android build tools |
+| Android Studio | 2024.3.x | SDK manager UI (optional but recommended) |
+| Android SDK | platform 35 | Android platform headers |
+| Android NDK | 27.2.12479018 | Native (C/Rust) cross-compilation |
+| Android Build Tools | 35.0.0 | `aapt2`, `d8`, `apksigner`, `zipalign` |
+| CMake | 3.31.6 | Required by NDK toolchain |
+| Rust | stable | Tauri Rust core + vendored crates |
+| cargo-ndk | latest | Rust → Android NDK bridge |
+
+### One-time setup (scripted)
 
 ```bash
-npm run build:android                             # debug APK for enigma (default)
+bash scripts/setup_java.sh              # OpenJDK 17 (+ JAVA_HOME in ~/.bashrc)
+bash scripts/install_android_studio.sh  # Studio, SDK 35, NDK, build tools, CMake, i386 libs
+bash scripts/setup_rust_android.sh      # rustup Android targets + cargo-ndk
+bash scripts/patch_cargo_android.sh     # Cargo.toml Android-compat check
+source ~/.bashrc
+```
+
+Environment written to `~/.bashrc` / `~/.profile` (full reference):
+
+```bash
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+export ANDROID_HOME="${HOME}/Android/Sdk"
+export NDK_HOME="${ANDROID_HOME}/ndk/27.2.12479018"
+export PATH="${JAVA_HOME}/bin:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/emulator:${PATH}"
+```
+
+Verify:
+
+```bash
+java -version                                   # must print "openjdk 17..."
+sdkmanager --list_installed
+ls "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep aarch64
+rustup target list --installed | grep android   # aarch64 / armv7 / x86_64 / i686
+cargo ndk --version
+```
+
+Native-dependency notes: `webkit2gtk` is Linux-only (cfg-guarded; Android uses the
+system WebView); `cpal` uses the `oboe-shared-stdcxx` feature on Android (already
+declared in `Cargo.toml`); arti's transitive `rusqlite` is pinned `bundled` on
+Android (the NDK ships no `libsqlite3` — the pin compiles SQLite from source); all
+vendored crates are pure Rust and cross-compile fine.
+
+### Build the APK / AAB
+
+```bash
+npm run build:android                             # debug APK (default)
 
 # full control (build type + ABIs):
 bash scripts/build_android.sh enigma debug                    # debug APK, aarch64
@@ -109,7 +246,8 @@ bash scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AA
 ```
 
 `build_android.sh <app> [debug|release] [abi-spec]` runs `npm install`,
-`tauri android init` (first time only), then `tauri android build`. Valid ABIs:
+`tauri android init` (first time only — the generated project under
+`src-tauri/gen/android/` is committed), then `tauri android build`. Valid ABIs:
 `aarch64` (modern phones), `x86_64` (emulator), `armv7` (old 32-bit), `i686`
 (32-bit emulator), or `all`.
 
@@ -122,8 +260,29 @@ apps/enigma/src-tauri/gen/android/app/build/outputs/
   bundle/release/app-release.aab    # release only
 ```
 
-Release APK/AAB are unsigned — see [build_android.md](build_android.md) (Step 7)
-for keystore/signing, plus the full SDK/NDK/Java setup.
+### Signing a release build
+
+Generate a keystore once, then sign:
+
+```bash
+keytool -genkey -v -keystore enigma-release.jks -alias enigma \
+  -keyalg RSA -keysize 4096 -validity 10000
+
+apksigner sign --ks enigma-release.jks --ks-key-alias enigma \
+  --out enigma-release-signed.apk app-release.apk
+```
+
+Or configure `src-tauri/gen/android/app/build.gradle.kts` with your signing config
+before the release build — see the
+[Tauri Android signing docs](https://tauri.app/distribute/sign/android/).
+
+### Install & inspect on a device
+
+```bash
+adb devices
+adb install apps/enigma/src-tauri/gen/android/app/build/outputs/apk/debug/app-debug.apk
+adb logcat -s RustStdoutStderr enigma
+```
 
 ---
 
@@ -134,21 +293,63 @@ for keystore/signing, plus the full SDK/NDK/Java setup.
 | Job | Stage | When | What |
 |---|---|---|---|
 | `frontend:build` | check | every commit | `vue-tsc` + `vite build`, asserts `dist/index.html` |
+| `rotor:wasm` | build | every branch/tag | wasm-pack build of `rotor_wasm` (web + bundler) as a gate; 30-day artifacts with a `COMMIT` provenance stamp |
 | `tauri:build` | build | every branch commit | full desktop bundle, asserts a `.deb`/`.AppImage`/`.rpm` was produced |
 | `tauri:desktop` | build | tags / manual | release bundle, 30-day artifacts |
 | `android:build` | build | manual | stubbed (not provisioned to a CI image yet) |
 
 ---
 
+## Tests
+
+```bash
+npm test                                   # all workspaces
+npm test -w enigma                         # vitest: chat store, components, i18n, …
+npm test -w rakotis                        # vitest: transport bridge, storage, i18n
+( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, cloud, …
+( cd cryptorotor/gervasius && cargo test ) # at-rest primitives
+( cd protasius && cargo test )             # encrypted store
+python apps/enigma/e2e.py                  # Playwright smoke tier (no backend — there is none)
+```
+
+---
+
 ## Troubleshooting
+
+**Dev:**
+
+- **Port 1420 already in use** — a stray Vite server is running.
+  `npm run dev:tauri` reuses an existing server on `:1420`; otherwise kill the
+  process holding the port (`lsof -i :1420`) and relaunch.
+- **Window opens blank / WebKit errors** — the WebKitGTK dev libs above are
+  missing or mismatched; reinstall them.
+- **First Rust compile is very slow / high memory** — expected for the initial
+  build; subsequent runs are incremental.
+
+**Desktop build:**
 
 - **`No space left on device` / linker (`collect2`) failure at the final link** —
   the release binary link step is large; this is almost always **disk space, not a
   code bug**. Free space (clear `target/`, docker/build caches) and retry.
+- **`build_config.yaml is invalid` / `not found`** — the compile-time build config
+  failed validation; the panic message lists the offending YAML paths (see
+  [Build configuration](#build-configuration-build_configyaml)).
 - **`rotor-core` build error** — it's the vendored crate at `cryptorotor/rotor_core`
   (no fetch involved); reproduce in isolation with `cd cryptorotor && cargo check -p rotor-core`.
 - **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
 - **`frontendDist` doesn't exist** — the frontend build didn't run/produce
   `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build_desktop.sh`).
-- **Android: `ANDROID_HOME` / NDK not found, linker errors** — see the
-  Troubleshooting section of [build_android.md](build_android.md).
+
+**Android:**
+
+- **`ANDROID_HOME` / NDK not found during `tauri android build`** —
+  `source ~/.bashrc`, or export `ANDROID_HOME`/`NDK_HOME` per the reference above.
+- **`linker aarch64-linux-android-clang not found`** — NDK not on PATH or wrong
+  version; confirm with `ls "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep aarch64`.
+- **`ld.lld: unable to find library -lsqlite3`** — the Android `rusqlite { bundled }`
+  pin in `Cargo.toml` is missing/removed; restore it.
+- **`webkit2gtk` compile error when targeting Android** — should not happen (it's
+  cfg-guarded to Linux); verify you're running `tauri android build`, not plain
+  `cargo build`.
+- **Gradle Java version mismatch** — `JAVA_HOME` must point at JDK 17 (not 11/21);
+  re-run `scripts/setup_java.sh`.

@@ -14,6 +14,10 @@ import { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
 import { getRuntimeConfig, type AppRuntimeConfig } from "./services/appStorage";
 import type { Participant, Room } from "./services/types";
 import { kvGet, kvPut } from "./services/localDb";
+import {
+  activeMuteUntil, clampRules, formatRemaining, pruneMutes, sanitizeMuteUntil,
+  type MuteMap,
+} from "./services/moderation";
 import { nanoid } from "nanoid";
 
 /** A locally-known P2P room: topic id, display name, join ticket, and the peer
@@ -32,9 +36,19 @@ export interface P2pRoomEntry {
   tor?: boolean;
   /** Our own onion for this room (Tor) — announced over presence for election. */
   onion?: string;
-  /** Ticketless-join room code (DHT rendezvous — dht.md). Present when this room
+  /** Ticketless-join room code (DHT rendezvous — technology.md §12). Present when this room
    *  was created/joined with DHT discovery on, or a code was minted for it. */
   code?: string;
+  /** Room logo (small JPEG data URL) — captain-set, distributed via `room_meta`. */
+  logo?: string;
+  /** Room rules text — captain-set, distributed via `room_meta`. */
+  rules?: string;
+  /** Monotonic revision of the captain-authoritative meta/moderation snapshot. */
+  metaRev?: number;
+  /** Active mutes (MLS id → expiry epoch ms), captain-set. */
+  mutes?: MuteMap;
+  /** Kicked (banned) MLS identities — refused re-admission by the acting admin. */
+  bans?: string[];
 }
 
 /** Tor tickets are base32(`0x54` ++ postcard) — a leading `0x54` ('T') byte marks
@@ -53,7 +67,7 @@ export function isTorTicket(ticket: string): boolean {
   return firstTagByte(ticket) === 0x54;
 }
 /** DHT room codes are base32(`0x44` ('D') ++ postcard) — the ticketless-join
- *  credential (dht.md; mirrors `p2p_iroh::code_is_dht`). */
+ *  credential (technology.md §12; mirrors `p2p_iroh::code_is_dht`). */
 export function isDhtCode(ticket: string): boolean {
   return firstTagByte(ticket) === 0x44;
 }
@@ -145,13 +159,41 @@ export function useChatChannel() {
   // Over Tor every member hosts its own onion; the frontend elects the captain
   // (lowest MLS id) and re-points the transport's outbound dial to it. Failover:
   // on a `captain_unreachable` status we mark that captain dead and re-elect. See
-  // capitan.md. All of this is a no-op on iroh rooms (gated by currentRoomIsTor).
+  // technology.md §11. All of this is a no-op on iroh rooms (gated by currentRoomIsTor).
   const myOnion = ref("");                              // my onion for the current room
-  const currentRoomIsTor = ref(false);                 // gate: only Tor rooms elect a captain
+  const currentRoomIsTor = ref(false);                 // gate: only Tor rooms re-point the transport
   const currentCaptainOnion = ref<string | null>(null); // last onion pushed to setCaptain
   const deadCaptains = new Set<string>();              // MLS ids currently believed unreachable
   let electionTimer: ReturnType<typeof setTimeout> | null = null;
   const CAPTAIN_DEBOUNCE_MS = 2000;                    // absorb join/presence bursts into one re-point
+
+  // ── Room meta + moderation (captain-authoritative — technology.md §9) ────────
+  // The captain (lowest live MLS id, elected on BOTH transports; over Tor it is
+  // also the onion host) owns the room logo, the room rules, and moderation:
+  // kick (MLS removal + ban) and timed mutes. State is broadcast as a `room_meta`
+  // snapshot over the encrypted seam, validated on receive against the locally
+  // elected captain, and persisted on the room's `P2pRoomEntry` so any future
+  // admin keeps enforcing bans. Cooperative, like all group management here.
+  const captainId = ref<string | null>(null);
+  const amCaptain = computed(() => !!captainId.value && captainId.value === mlsIdentity.value);
+  const roomLogo = ref("");
+  const roomRules = ref("");
+  const metaRev = ref(0);
+  const mutes = ref<MuteMap>({});
+  const bans = ref<string[]>([]);
+  // Coarse clock for mute countdowns/expiry (badges tick, expired mutes lift).
+  const nowTick = ref(Date.now());
+  setInterval(() => { nowTick.value = Date.now(); }, 15_000);
+  const selfMuteUntil = computed(() =>
+    activeMuteUntil(mutes.value, mlsIdentity.value, nowTick.value));
+  watch(nowTick, (now) => {
+    const pruned = pruneMutes(mutes.value, now);
+    if (pruned !== mutes.value) {
+      mutes.value = pruned;
+      persistRoomMod();
+      void refreshP2pRoster(); // lift expired mute badges
+    }
+  });
 
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
@@ -247,17 +289,28 @@ export function useChatChannel() {
     if (!currentRoom.value) return;
     const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
     const source = ids.length ? ids : [mlsIdentity.value];
+    const now = Date.now();
     const list: Participant[] = source.map((id) => {
-      if (id === mlsIdentity.value) return selfParticipant();
-      const info = presenceById.get(id);
-      return { id, name: info?.name || id, avatar_url: info?.avatar || "", type: "human" as const };
+      const p: Participant = id === mlsIdentity.value
+        ? selfParticipant()
+        : (() => {
+            const info = presenceById.get(id);
+            return { id, name: info?.name || id, avatar_url: info?.avatar || "", type: "human" as const };
+          })();
+      const muteUntil = activeMuteUntil(mutes.value, id, now);
+      if (muteUntil) p.muteUntil = muteUntil;
+      return p;
     });
 
-    // Tor: elect the onion captain (the host/relay), badge it, and re-point the
-    // transport when the elected captain changes AND we can reach it.
+    // Elect the captain (lowest live MLS id) on BOTH transports — it is the room
+    // authority for moderation + meta. Over Tor it is additionally the onion
+    // host/relay: re-point the transport when the elected captain changes AND we
+    // can reach it.
+    const elected = electCaptain(source);
+    captainId.value = elected.captainId;
+    for (const p of list) p.isCaptain = !!elected.captainId && p.id === elected.captainId;
     if (currentRoomIsTor.value) {
-      const { captainId, captainOnion } = electCaptain(source);
-      for (const p of list) p.isCaptain = !!captainId && p.id === captainId;
+      const { captainOnion } = elected;
       if (captainOnion && captainOnion !== currentCaptainOnion.value) {
         currentCaptainOnion.value = captainOnion;
         scheduleSetCaptain(currentRoom.value.slug, captainOnion);
@@ -291,6 +344,173 @@ export function useChatChannel() {
       }
     }
     await refreshP2pRoster();
+  }
+
+  // ── Moderation + room meta (captain actions & wire handlers) ─────────────────
+
+  /** Merge a patch into the current room's persisted entry (no-op when the room
+   *  was never saved — e.g. a ticketless `joinByNode` reconnect). */
+  function updateRoomEntry(patch: Partial<P2pRoomEntry>) {
+    const slug = currentRoom.value?.slug;
+    if (!slug) return;
+    const entry = p2pRooms.value.find((r) => r.room === slug);
+    if (!entry) return;
+    Object.assign(entry, patch);
+    persistP2pRooms();
+  }
+
+  function persistRoomMod() {
+    updateRoomEntry({
+      logo: roomLogo.value || undefined,
+      rules: roomRules.value || undefined,
+      metaRev: metaRev.value,
+      mutes: mutes.value,
+      bans: bans.value,
+    });
+  }
+
+  /** Captain: broadcast the full authoritative snapshot (logo, rules, mutes,
+   *  bans). Sent after every moderation/meta change and to newly joining members
+   *  (their initial presence), so late joiners converge. */
+  async function broadcastRoomMeta() {
+    if (!amCaptain.value || mlsStatus.value !== "ready") return;
+    await sendEncryptedMedia("room_meta", {
+      device_id: mlsIdentity.value,
+      logo: roomLogo.value,
+      rules: roomRules.value,
+      mutes: mutes.value,
+      bans: bans.value,
+      rev: metaRev.value,
+    }).catch(() => {});
+  }
+
+  /** Apply a received `room_meta` snapshot (already captain-validated). */
+  function applyRoomMeta(inner: Record<string, unknown>) {
+    const rev = typeof inner.rev === "number" ? inner.rev : 0;
+    if (rev < metaRev.value) return; // stale snapshot (equal rev re-applies — idempotent)
+    const now = Date.now();
+    const nextMutes: MuteMap = {};
+    if (inner.mutes && typeof inner.mutes === "object") {
+      for (const [id, until] of Object.entries(inner.mutes as Record<string, unknown>)) {
+        const u = sanitizeMuteUntil(until, now);
+        if (u) nextMutes[id] = u;
+      }
+    }
+    const rulesBefore = roomRules.value;
+    metaRev.value = rev;
+    roomLogo.value = typeof inner.logo === "string" ? inner.logo : "";
+    roomRules.value = typeof inner.rules === "string" ? clampRules(inner.rules) : "";
+    mutes.value = nextMutes;
+    bans.value = Array.isArray(inner.bans) ? (inner.bans as unknown[]).filter((b): b is string => typeof b === "string") : [];
+    persistRoomMod();
+    if (roomRules.value && roomRules.value !== rulesBefore) {
+      messages.value.push(systemMsg(`📜 Room rules:\n${roomRules.value}`));
+    }
+    void refreshP2pRoster();
+  }
+
+  /** True when the envelope sender is the locally elected captain — the authz
+   *  check for every moderation/meta message. Advisory (ids are self-asserted;
+   *  see technology.md §9), consistent with the rest of group management. */
+  function fromCaptain(data: Record<string, unknown>): boolean {
+    return !!captainId.value && data.device_id === captainId.value;
+  }
+
+  function bumpRev() {
+    metaRev.value += 1;
+  }
+
+  /** Captain: set / clear the room logo (small JPEG data URL). */
+  async function setRoomLogo(file: File | null) {
+    if (!amCaptain.value) return;
+    roomLogo.value = file ? await downscaleImageToDataUrl(file, 256, 0.8) : "";
+    bumpRev();
+    persistRoomMod();
+    await broadcastRoomMeta();
+  }
+
+  /** Captain: set the room rules text (clamped; empty clears). */
+  async function setRoomRules(text: string) {
+    if (!amCaptain.value) return;
+    roomRules.value = clampRules(text);
+    bumpRev();
+    persistRoomMod();
+    await broadcastRoomMeta();
+  }
+
+  /** Captain: mute a member for `minutes`. Enforced cooperatively: everyone drops
+   *  the muted member's messages until expiry, and its own composer locks. */
+  async function muteMember(id: string, minutes: number) {
+    if (!amCaptain.value || id === mlsIdentity.value || !currentRoom.value) return;
+    const until = sanitizeMuteUntil(Date.now() + minutes * 60_000, Date.now());
+    if (!until) return;
+    mutes.value = { ...mutes.value, [id]: until };
+    bumpRev();
+    persistRoomMod();
+    await sendEncryptedMedia("mod_mute", { device_id: mlsIdentity.value, target: id, until }).catch(() => {});
+    await broadcastRoomMeta();
+    messages.value.push(systemMsg(`🔇 ${nameFor(id)} was muted for ${formatRemaining(until, Date.now())}.`));
+    void refreshP2pRoster();
+  }
+
+  /** Captain: lift a member's mute early. */
+  async function unmuteMember(id: string) {
+    if (!amCaptain.value || !(id in mutes.value)) return;
+    const next = { ...mutes.value };
+    delete next[id];
+    mutes.value = next;
+    bumpRev();
+    persistRoomMod();
+    await sendEncryptedMedia("mod_unmute", { device_id: mlsIdentity.value, target: id }).catch(() => {});
+    await broadcastRoomMeta();
+    messages.value.push(systemMsg(`🔊 ${nameFor(id)} was unmuted.`));
+    void refreshP2pRoster();
+  }
+
+  /** Captain: kick a member — notify (while it can still decrypt), ban the
+   *  identity (the acting admin refuses its future key packages), then remove it
+   *  from the MLS group. Cryptographic removal is what actually cuts access. */
+  async function kickMember(id: string) {
+    if (!amCaptain.value || id === mlsIdentity.value || !currentRoom.value) return;
+    const room = currentRoom.value.slug;
+    if (!bans.value.includes(id)) bans.value = [...bans.value, id];
+    bumpRev();
+    persistRoomMod();
+    // Order matters: the kick notice + snapshot go out BEFORE the removal commit,
+    // so the target still decrypts them and leaves cleanly.
+    await sendEncryptedMedia("mod_kick", { device_id: mlsIdentity.value, target: id }).catch(() => {});
+    await broadcastRoomMeta();
+    presenceById.delete(id);
+    const commit = await cryptoService.removeMember(room, mlsIdentity.value, id).catch(() => null);
+    if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
+    messages.value.push(systemMsg(`🚫 ${nameFor(id)} was removed from the room.`));
+    void refreshP2pRoster();
+  }
+
+  /** Captain: lift a ban (the identity may re-join with a fresh key package). */
+  async function unbanMember(id: string) {
+    if (!amCaptain.value || !bans.value.includes(id)) return;
+    bans.value = bans.value.filter((b) => b !== id);
+    bumpRev();
+    persistRoomMod();
+    await broadcastRoomMeta();
+  }
+
+  /** We were kicked: leave + forget the room (mirrors `handleRoomClosed`). */
+  async function handleKicked() {
+    if (!currentRoom.value) return;
+    const slug = currentRoom.value.slug;
+    const name = currentRoom.value.name;
+    const tor = currentRoomIsTor.value;
+    await cryptoService.clearState(slug, mlsIdentity.value).catch(() => {});
+    if (tor) chatTransport.forgetTorOnion(name);
+    forgetP2pRoom(slug);
+    clearLocalChatState("🚫 You were removed from this room by the host.");
+  }
+
+  function nameFor(id: string): string {
+    if (id === mlsIdentity.value) return displayName();
+    return presenceById.get(id)?.name || id;
   }
 
   /** The elected onion captain became unreachable (Tor). Mark it dead so election
@@ -424,6 +644,9 @@ export function useChatChannel() {
     const rawKp = (data.key_package ?? data.package) as string | undefined;
     if (type === "mls_key_package" && rawKp) {
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
+      // Banned (kicked) identities are refused re-admission: the acting admin
+      // never adds them, and nobody defers to them with a counter key package.
+      if (deviceId && bans.value.includes(deviceId)) return;
       const canAdd = (mlsStatus.value === "ready" || mlsStatus.value === "key_exchange") && currentRoom.value && !pendingInvites.has(deviceId);
       if (canAdd) {
         clearCreatorTimer();
@@ -521,8 +744,12 @@ export function useChatChannel() {
                 onion: (inner.onion as string) || "",
               });
               deadCaptains.delete(id); // a fresh presence ⇒ this member is alive again
-              void refreshP2pRoster();
-              if (!inner.reply) void announcePresence(true);
+              const initialAnnounce = !inner.reply;
+              void refreshP2pRoster().then(() => {
+                // Captain: bring the new member up to date (logo/rules/mutes/bans).
+                if (initialAnnounce && amCaptain.value && metaRev.value > 0) void broadcastRoomMeta();
+              });
+              if (initialAnnounce) void announcePresence(true);
             }
             return;
           }
@@ -534,10 +761,58 @@ export function useChatChannel() {
             void handleRoomClosed();
             return;
           }
+          // Captain-authoritative meta + moderation (validated against the
+          // locally elected captain — a non-captain's copy is ignored).
+          if (inner?.type === "room_meta") {
+            if (fromCaptain(data)) applyRoomMeta(inner);
+            return;
+          }
+          if (inner?.type === "mod_mute" && typeof inner.target === "string") {
+            if (fromCaptain(data)) {
+              const until = sanitizeMuteUntil(inner.until, Date.now());
+              if (until) {
+                mutes.value = { ...mutes.value, [inner.target]: until };
+                persistRoomMod();
+                const who = inner.target === mlsIdentity.value ? "You were" : `${nameFor(inner.target)} was`;
+                messages.value.push(systemMsg(`🔇 ${who} muted for ${formatRemaining(until, Date.now())}.`));
+                void refreshP2pRoster();
+              }
+            }
+            return;
+          }
+          if (inner?.type === "mod_unmute" && typeof inner.target === "string") {
+            if (fromCaptain(data) && inner.target in mutes.value) {
+              const next = { ...mutes.value };
+              delete next[inner.target];
+              mutes.value = next;
+              persistRoomMod();
+              const who = inner.target === mlsIdentity.value ? "You were" : `${nameFor(inner.target)} was`;
+              messages.value.push(systemMsg(`🔊 ${who} unmuted.`));
+              void refreshP2pRoster();
+            }
+            return;
+          }
+          if (inner?.type === "mod_kick" && typeof inner.target === "string") {
+            if (fromCaptain(data)) {
+              if (!bans.value.includes(inner.target)) bans.value = [...bans.value, inner.target];
+              persistRoomMod();
+              if (inner.target === mlsIdentity.value) {
+                void handleKicked();
+              } else {
+                presenceById.delete(inner.target);
+                messages.value.push(systemMsg(`🚫 ${nameFor(inner.target)} was removed from the room.`));
+                void refreshP2pRoster();
+              }
+            }
+            return;
+          }
           if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_"))) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
+          // Mute enforcement (receive side): drop a muted member's HUMAN messages.
+          // Control traffic above (presence/leave/sync/moderation) stays routed.
+          if (activeMuteUntil(mutes.value, data.device_id as string, Date.now())) return;
           if (inner?.type === "image_message" && inner.image_data) {
             pushMessage({ id: nanoid(), type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
           } else if (inner?.type === "voice_message" && inner.audio_data) {
@@ -669,8 +944,17 @@ export function useChatChannel() {
     // Reset captain-election state for the new room (myOnion / currentRoomIsTor are
     // set by the caller right after this, from the transport's create/join result).
     currentCaptainOnion.value = null;
+    captainId.value = null;
     deadCaptains.clear();
     if (electionTimer) { clearTimeout(electionTimer); electionTimer = null; }
+    // Load the room's persisted meta + moderation state (captain snapshots
+    // received later overwrite this by revision).
+    const saved = p2pRooms.value.find((r) => r.room === room);
+    roomLogo.value = saved?.logo ?? "";
+    roomRules.value = saved?.rules ?? "";
+    metaRev.value = saved?.metaRev ?? 0;
+    mutes.value = pruneMutes(saved?.mutes ?? {}, Date.now());
+    bans.value = saved?.bans ?? [];
     currentRoom.value = makeP2pRoom(room, name);
     participants.value = [selfParticipant()];
     isParticipant.value = true;
@@ -865,8 +1149,17 @@ export function useChatChannel() {
     await sendEncryptedMedia(type, payload);
   }
 
+  /** Self-mute send guard: posts a notice + returns true while we are muted. */
+  function blockedByMute(): boolean {
+    const until = activeMuteUntil(mutes.value, mlsIdentity.value, Date.now());
+    if (!until) return false;
+    messages.value.push(systemMsg(`🔇 You are muted for another ${formatRemaining(until, Date.now())}.`, "system_error"));
+    return true;
+  }
+
   async function sendImage(file: File, onProgress?: (pct: number) => void) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
+    if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
       messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
@@ -883,6 +1176,7 @@ export function useChatChannel() {
   /** Send an already-encoded image (data URL). */
   async function sendImageDataUrl(dataUrl: string) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
+    if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
       messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
@@ -896,6 +1190,7 @@ export function useChatChannel() {
 
   async function sendAudio(audioBlob: Blob) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
+    if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
       messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
@@ -911,6 +1206,7 @@ export function useChatChannel() {
   async function sendMessage(content: string) {
     const text = content.trim();
     if (!text || !isConnected.value || !currentRoom.value) return;
+    if (blockedByMute()) return;
 
     if (mlsStatus.value === "ready") {
       const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, text);
@@ -988,6 +1284,9 @@ export function useChatChannel() {
     cancelJoin, deleteRoom,
     ensureNode,
     onSync, sendSync, postSystemNotice,
+    // Room meta + moderation (captain-authoritative)
+    captainId, amCaptain, roomLogo, roomRules, bans, selfMuteUntil,
+    setRoomLogo, setRoomRules, kickMember, muteMember, unmuteMember, unbanMember,
   };
 }
 

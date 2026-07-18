@@ -130,6 +130,9 @@ import {
   faDesktop,
   faQrcode,
   faClock,
+  faGavel,
+  faCommentSlash,
+  faUserSlash,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -249,6 +252,9 @@ library.add(
   faDesktop,
   faQrcode,
   faClock,
+  faGavel,
+  faCommentSlash,
+  faUserSlash,
 );
 
 const app = createApp(App)

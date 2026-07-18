@@ -327,7 +327,7 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
     // group-writable home (and on the world-writable /tmp used for the ephemeral
     // dir). With encryption-at-rest the sensitive keystore is sealed into protasius
     // and only lives on disk transiently while unlocked, so the dir-permission
-    // check adds little here — keep it relaxed (see at_rest.md / todo.md §5).
+    // check adds little here — keep it relaxed (see technology.md §13).
     cfg_builder.storage().permissions().dangerously_trust_everyone();
     let cfg = cfg_builder
         .build()

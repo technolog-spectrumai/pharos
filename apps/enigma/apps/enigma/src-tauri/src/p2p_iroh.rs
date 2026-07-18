@@ -8,7 +8,7 @@
 // handshake + message protocol ride the gossip topic; any relay hop only ever
 // sees MLS ciphertext.
 //
-// With the opt-in DHT discovery toggle (dht.md), rooms are additionally joinable
+// With the opt-in DHT discovery toggle (technology.md §12), rooms are additionally joinable
 // ticketlessly from a `RoomCode` (name + rendezvous secret): member addresses
 // come from the Mainline DHT via p2p_dht.rs, and the same blake3 topic keeps
 // code-joiners, ticket-joiners and reconnects in one room.
@@ -106,7 +106,7 @@ impl Ticket {
     }
 }
 
-// ── room code (ticketless join via DHT rendezvous — dht.md) ─────────────────────
+// ── room code (ticketless join via DHT rendezvous — technology.md §12) ─────────────────────
 
 /// Leading tag byte on a DHT room code, joining the `IROH_TAG 0x49` /
 /// `TOR_TAG 0x54` family so the one join field routes any pasted/scanned code.
@@ -115,7 +115,7 @@ const DHT_TAG: u8 = 0x44; // 'D'
 /// Ticketless-join credential: the room name (→ the SAME blake3 gossip topic
 /// ticket-joiners use) plus the rendezvous secret. No addresses embedded — those
 /// come from the DHT, so a code never goes stale the way a ticket's peers can.
-/// It is a bearer credential (see dht.md threat notes), like the ticket itself.
+/// It is a bearer credential (see technology.md §12 threat notes), like the ticket itself.
 #[derive(Serialize, Deserialize)]
 struct RoomCode {
     name: String,
@@ -423,7 +423,7 @@ pub async fn join_room(
     Ok((room, ticket.name))
 }
 
-/// Ticketless join from a DHT room code (see dht.md): the code carries the room
+/// Ticketless join from a DHT room code (see technology.md §12): the code carries the room
 /// name + rendezvous secret; member addresses come from the Mainline DHT. The
 /// topic stays `blake3(name)`, so code-joiners land in the same room as
 /// ticket-joiners and reconnects.
@@ -609,7 +609,7 @@ pub async fn dht_status(app: &AppHandle, state: &P2pState, may_start: bool) -> (
 }
 
 /// "Recently online" per contact NodeId, via the pkarr records DHT-enabled
-/// peers publish (dht.md). Starts the node lazily like every network command.
+/// peers publish (technology.md §12). Starts the node lazily like every network command.
 pub async fn dht_presence(
     app: &AppHandle,
     state: &P2pState,

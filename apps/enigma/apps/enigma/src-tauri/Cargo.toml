@@ -78,7 +78,7 @@ typed-index-collections = "=3.3.0"
 data-encoding = "2"
 # Direct P2P chat backend (iroh-gossip over QUIC) — the app's only transport.
 # `address-lookup-pkarr-dht` adds Mainline-DHT publish/resolve of node addresses
-# (serverless discovery, opt-in via the Settings DHT toggle — see dht.md).
+# (serverless discovery, opt-in via the Settings DHT toggle — technology.md §12).
 iroh = { version = "0.98", features = ["address-lookup-pkarr-dht"] }
 iroh-gossip = "0.98"
 # Direct BEP44 access to the Mainline DHT for the room-rendezvous records

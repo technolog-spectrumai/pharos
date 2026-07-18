@@ -62,7 +62,7 @@ pub struct CreatedRoom {
     /// This member's own onion (Tor rooms) — announced over presence so peers can
     /// dial us if we're elected captain. Empty for iroh rooms.
     onion: String,
-    /// Ticketless-join room code (DHT rendezvous — dht.md). Empty while the DHT
+    /// Ticketless-join room code (DHT rendezvous — technology.md §12). Empty while the DHT
     /// discovery toggle is off, and for Tor rooms.
     code: String,
 }
@@ -240,7 +240,7 @@ pub async fn invite_send(
     Ok(if accepted { "accepted" } else { "declined" }.to_string())
 }
 
-// ── DHT discovery commands (`dht_*` family — see dht.md) ────────────────────────
+// ── DHT discovery commands (`dht_*` family — see technology.md §12) ────────────────────────
 
 #[derive(Serialize)]
 pub struct DhtStatus {

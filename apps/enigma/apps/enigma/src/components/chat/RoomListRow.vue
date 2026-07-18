@@ -20,7 +20,9 @@ const emit = defineEmits<{ open: [] }>();
       class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left transition hover:opacity-80"
       @click="emit('open')"
     >
-      <font-awesome-icon icon="circle-nodes" class="shrink-0 opacity-60" />
+      <!-- Captain-set room logo, else the generic room glyph -->
+      <img v-if="room.logo" :src="room.logo" alt="" class="h-5 w-5 shrink-0 rounded object-cover" />
+      <font-awesome-icon v-else icon="circle-nodes" class="shrink-0 opacity-60" />
       <span class="min-w-0 flex-1 truncate">{{ room.name }}</span>
     </button>
     <OyaIconButton

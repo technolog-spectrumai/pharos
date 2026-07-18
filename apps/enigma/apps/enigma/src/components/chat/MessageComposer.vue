@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
-import { OyaButton, OyaTextArea } from "rakotis";
+import { OyaButton, OyaTextArea, formatRemaining } from "rakotis";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
 import EmojiPicker from "./EmojiPicker.vue";
@@ -9,7 +9,7 @@ import { useChatStore } from "../../stores/chat";
 
 const props = defineProps<{ channel: ChatChannel }>();
 const ch = props.channel;
-const { currentRoom, isConnected, isParticipant, mlsStatus } = ch;
+const { currentRoom, isConnected, isParticipant, mlsStatus, selfMuteUntil } = ch;
 
 // A live/soon-live voice call owns the default microphone device; block staging a
 // voice message while one is active so the two don't fight over cpal input.
@@ -52,26 +52,32 @@ function onVoiceStaged(blob: Blob, label: string) {
   stagePending("voice", blob, label);
 }
 
+// Captain-imposed timed mute: the composer locks with a countdown (the channel
+// also refuses sends, and every peer drops a muted member's messages).
+const muted = computed(() => !!selfMuteUntil.value);
 const canSend = computed(
   () =>
     !!currentRoom.value &&
     isConnected.value &&
     isParticipant.value &&
     mlsStatus.value === "ready" &&
+    !muted.value &&
     (!!draft.value.trim() || !!pending.value),
 );
 const composerDisabled = computed(
-  () => !currentRoom.value || !isConnected.value || !isParticipant.value || mlsStatus.value !== "ready",
+  () => !currentRoom.value || !isConnected.value || !isParticipant.value || mlsStatus.value !== "ready" || muted.value,
 );
-const attachDisabled = computed(() => !currentRoom.value || !isConnected.value || !isParticipant.value);
+const attachDisabled = computed(() => !currentRoom.value || !isConnected.value || !isParticipant.value || muted.value);
 const placeholder = computed(() =>
   !currentRoom.value
     ? "Select a room to start chatting"
     : !isParticipant.value
       ? "Join this room to send messages"
-      : mlsStatus.value !== "ready"
-        ? "Establishing secure session…"
-        : "Message…",
+      : muted.value
+        ? `You are muted (${formatRemaining(selfMuteUntil.value!, Date.now())} left)`
+        : mlsStatus.value !== "ready"
+          ? "Establishing secure session…"
+          : "Message…",
 );
 
 async function send() {

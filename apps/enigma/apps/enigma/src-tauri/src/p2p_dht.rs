@@ -1,5 +1,5 @@
 // Mainline-DHT (Kademlia) rendezvous + presence engine — the server-free peer
-// discovery behind the Settings "DHT discovery" toggle. See dht.md for the
+// discovery behind the Settings "DHT discovery" toggle. See technology.md §12 for the
 // protocol spec and threat notes.
 //
 // Two functions ride the public BitTorrent DHT (community bootstrap, no infra
@@ -79,7 +79,7 @@ fn room_publish_secs(app: &AppHandle) -> u64 {
 }
 
 /// The user-set connect deadline (same value the frontend's join window uses —
-/// see CONVENTIONS.md §3: never hardcode a connect deadline). Bounds how long
+/// see technology.md §15: never hardcode a connect deadline). Bounds how long
 /// the rendezvous resolver keeps retrying after a ticketless join.
 /// Default + clamp bounds come from build_config.yaml (settings section).
 pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
@@ -112,7 +112,7 @@ pub fn nickname(app: &AppHandle) -> String {
         .unwrap_or_default()
 }
 
-// ── protocol constants (spec: dht.md) ───────────────────────────────────────────
+// ── protocol constants (spec: technology.md §12) ───────────────────────────────────────────
 
 /// Rendezvous keys rotate hourly; readers query the current and previous bucket.
 const BUCKET_SECS: u64 = 3600;
@@ -235,7 +235,7 @@ fn decode_record(enc_key: &[u8; 32], value: &[u8]) -> Option<Record> {
 
 /// One extra Mainline node (client mode, community bootstrap) for the rendezvous
 /// and presence queries. iroh's DhtAddressLookup runs its own — two UDP sockets
-/// while the toggle is on, accepted in dht.md. Clones share the same node.
+/// while the toggle is on, accepted in technology.md §12. Clones share the same node.
 #[derive(Clone)]
 pub struct DhtHandle {
     dht: AsyncDht,
@@ -391,7 +391,7 @@ pub fn spawn_room_publisher(
     })
 }
 
-// ── nickname directory ("find people" — see dht.md) ─────────────────────────────
+// ── nickname directory ("find people" — see technology.md §12) ─────────────────────────────
 
 /// BEP44 salt for nickname records — domain-separates them from room records.
 const NICK_SALT: &[u8] = b"enigma-nick-v1";

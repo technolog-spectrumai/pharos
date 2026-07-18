@@ -159,7 +159,7 @@ tauri:desktop:
 # targets still build, and tags carry the wasm built at the exact commit shipping
 # that crate revision. NOTE: consumers do NOT pull these artifacts — toto vendors
 # a static copy of the build_wasm.sh output, synced by its deploy.py from a
-# `rotor_wasm_dir` config prop (see todo.md #1). Targets:
+# `rotor_wasm_dir` config prop (see technology.md §16). Targets:
 #   web     → cryptorotor/rotor_wasm/build_web/  (static/HTML consumers, e.g.
 #             toto telegraph)
 #   bundler → cryptorotor/rotor_wasm/build/      (`rotor_wasm` file: npm dep)
@@ -198,7 +198,7 @@ rotor:wasm:
 
 # Android needs an SDK/NDK image plus signing configuration; the host-provisioning
 # scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)
-# and build_android.md document the requirements. Not wired to a CI image yet.
+# and build.md documents the requirements. Not wired to a CI image yet.
 android:build:
   stage: build
   image: rust:1-bookworm
@@ -207,5 +207,5 @@ android:build:
   script:
     - echo "Android CI is not provisioned. Build locally with:"
     - echo "  bash scripts/build_android.sh enigma [debug|release]"
-    - echo "See build_android.md for SDK/NDK setup."
+    - echo "See build.md for SDK/NDK setup."
     - exit 1

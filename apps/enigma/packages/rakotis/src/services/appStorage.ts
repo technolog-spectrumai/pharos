@@ -286,7 +286,7 @@ export async function setMeetingReminderMins(mins: number): Promise<number> {
   return v;
 }
 
-// ── DHT discovery (Mainline/Kademlia rendezvous + presence — see dht.md) ───────
+// ── DHT discovery (Mainline/Kademlia rendezvous + presence — see technology.md §12) ───────
 // Opt-in, default off. On → the iroh endpoint additionally publishes/resolves
 // addresses on the public BitTorrent DHT (server-free), rooms get a ticketless
 // join code, and Contacts presence works. Rust reads the same kv keys directly.
@@ -332,7 +332,7 @@ export async function getDhtStatus(): Promise<DhtStatus> {
   return { enabled: false, running: false, bootstrapped: false };
 }
 
-// ── Nickname directory ("findable as ‹nick›" — dht.md) ────────────────────────
+// ── Nickname directory ("findable as ‹nick›" — technology.md §12) ────────────────────────
 // Opt-in claim on the DHT nickname directory. Rust re-reads both keys every
 // announce round, so renames/toggles apply live; `dht_apply` forces an
 // immediate first publish. Findable only while the app runs with DHT on.

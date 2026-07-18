@@ -130,7 +130,7 @@ async function toggleStableOnion() {
   await setStableOnion(stableOnion.value);
 }
 
-// ── DHT discovery (Mainline/Kademlia rendezvous + presence — dht.md) ──────────
+// ── DHT discovery (Mainline/Kademlia rendezvous + presence — technology.md §12) ──────────
 // Flipping the toggle rebinds the iroh node in Rust (dht_apply), so the new
 // setting applies without an app restart; open rooms re-join lazily.
 const dhtDiscovery = ref(false);
@@ -668,7 +668,7 @@ async function clearSelectedOfflineData() {
       </div>
     </OyaCard>
 
-    <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (dht.md). Opt-in;
+    <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (technology.md §12). Opt-in;
          on → rooms get a ticketless join code and Contacts presence works.
          Absent in a build with p2p.allow_hosted_relays: false (Rust reports the
          DHT disabled regardless of the kv toggle). -->

@@ -4,6 +4,8 @@
 // crypto/MLS internals.
 
 export interface Participant {
+  /** Active mute expiry (epoch ms) set by the room captain — badge + countdown. */
+  muteUntil?: number;
   /** Stable identity: the device id (MLS credential). */
   id?: string;
   name: string;

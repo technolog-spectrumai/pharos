@@ -2,7 +2,7 @@
 // Enigma app config — brand identity, UI policy, and dev-tooling constants that
 // the *frontend* consumes. Values that also exist in a build manifest
 // (tauri.conf.json / Cargo.toml / vite.config.ts) are mirrored here with a note;
-// those manifests remain authoritative for the native build, and CONVENTIONS.md
+// those manifests remain authoritative for the native build, and technology.md §15
 // tracks the pairs that must be bumped together.
 //
 // In the Tauri runtime, src-tauri/build_config.yaml (compile-time, fetched via
@@ -31,7 +31,7 @@ export const brand = {
 /** User-facing UI policy. NOTE: these are *frontend* guards only — the Rust side
  *  does not currently re-enforce them (a direct `invoke` bypasses them). If any of
  *  these becomes a security boundary, enforce the same value in Rust too
- *  (see CONVENTIONS.md → "Policy split across layers"). */
+ *  (see technology.md §15 → "Policy enforced on both layers"). */
 export const policy = {
   /** Minimum passphrase length for the at-rest vault (App.vue setup gate). */
   passphraseMinLen: 8,

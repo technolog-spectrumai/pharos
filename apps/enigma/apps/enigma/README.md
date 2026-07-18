@@ -1,7 +1,7 @@
 # Enigma
 
 The serverless **P2P chat** app of the [workspace](../../README.md). One chat
-surface, no server, no accounts — see [serverless_plan.md](../../serverless_plan.md)
+surface, no server, no accounts — see [technology.md](../../technology.md) §16
 for the rework record.
 
 ## Features
@@ -17,7 +17,7 @@ for the rework record.
 - **Route over Tor (optional)** — a "use Tor" switch hosts a per-profile onion
   service; the QR carries a `.onion` and chat rides Tor (star topology: creator
   hosts + relays). Backend in `src-tauri/src/p2p_tor.rs`; see
-  [tor.md](../../tor.md).
+  [technology.md](../../technology.md) §11.
 
 Voice calls (Vox) and P2P file transfer are parked in
 [limbo/](../../limbo/README.md).
@@ -61,5 +61,5 @@ python e2e.py                           # Playwright smoke tier (no backend)
 ```
 
 Android build helpers live in the workspace `scripts/` directory; see
-[build_android.md](../../build_android.md). The Android manifest declares
+[build.md](../../build.md). The Android manifest declares
 CAMERA (QR scan) and RECORD_AUDIO (voice notes).

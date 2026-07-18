@@ -17,7 +17,7 @@ mod file_xfer;
 // VOX_ALPN on the main p2p endpoint.
 mod vox;
 // Mainline-DHT (Kademlia) rendezvous + presence — the opt-in server-free
-// discovery behind the Settings toggle (see dht.md).
+// discovery behind the Settings toggle (see technology.md §12).
 mod p2p_dht;
 // Direct room invites between contacts (offer/accept over a dedicated ALPN).
 mod p2p_invite;

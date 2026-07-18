@@ -92,7 +92,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
       :scanning="scanning"
       @toggle-camera="scanning = !scanning"
     />
-    <RoomInfoModal v-model:open="infoOpen" :controller="p2p" />
+    <RoomInfoModal v-model:open="infoOpen" :controller="p2p" :channel="channel" />
     <DeleteRoomModal v-model:open="deleteOpen" :controller="p2p" />
 
     <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->

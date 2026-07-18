@@ -1,7 +1,7 @@
 # limbo/ — parked features
 
 Features moved out of the build during the serverless P2P rework (see
-`serverless_plan.md` at the repo root). They are **not** compiled, bundled, or
+`technology.md` §16 at the repo root). They are **not** compiled, bundled, or
 referenced anywhere — this directory is outside the npm `workspaces` globs and
 outside every `src-tauri` crate.
 
