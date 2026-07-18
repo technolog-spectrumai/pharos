@@ -1290,6 +1290,7 @@ pub fn run() {
             fs_local::fs_write_text_file,
             local_lock::local_lock_file,
             local_lock::local_unlock_file,
+            local_lock::local_rotate_file,
             local_lock::local_is_locked,
         ])
         .build(tauri::generate_context!())

@@ -32,6 +32,10 @@ import {
   DHT_PRESENCE_POLL_MAX_SECS,
   getMaxFileSizeMb,
   setMaxFileSizeMb,
+  getFileKeyRotationDays,
+  setFileKeyRotationDays,
+  FILE_KEY_ROTATION_MIN_DAYS,
+  FILE_KEY_ROTATION_MAX_DAYS,
   getMeetingReminderMins,
   setMeetingReminderMins,
   MEETING_REMINDER_MIN_MINS,
@@ -222,6 +226,17 @@ async function saveMaxFileSize() {
   setTimeout(() => { maxFileSizeSaved.value = false; }, 1500);
 }
 
+// ── Local-file key-rotation reminder interval (0 = off) ────────────────────────
+// Flags locked files in Files → Local whose key is older than N days. Reminder
+// only: rotation always needs the passphrase, so nothing rotates in the background.
+const fileKeyRotationDays = ref(0);
+const fileKeyRotationSaved = ref(false);
+async function saveFileKeyRotation() {
+  fileKeyRotationDays.value = await setFileKeyRotationDays(Number(fileKeyRotationDays.value));
+  fileKeyRotationSaved.value = true;
+  setTimeout(() => { fileKeyRotationSaved.value = false; }, 1500);
+}
+
 // ── Enigma Cloud server URL ────────────────────────────────────────────────────
 // Saved through the cloud store so the login state re-checks for the new server
 // immediately (the token kv namespace is scoped by the normalized URL).
@@ -276,6 +291,7 @@ onMounted(async () => {
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   meetingReminderMins.value = await getMeetingReminderMins();
   maxFileSizeMb.value = await getMaxFileSizeMb();
+  fileKeyRotationDays.value = await getFileKeyRotationDays();
   dhtDiscovery.value = await getDhtDiscovery();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
@@ -529,6 +545,38 @@ async function clearSelectedOfflineData() {
           />
           <span class="text-xs opacity-60">MB</span>
           <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Local-file key rotation reminder — flags locked files in Files → Local whose
+         key is older than N days. Reminder only (rotating a file needs its passphrase,
+         which is never stored). 0 disables the reminder. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.fileKeyRotation') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="rotate-right" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.fileKeyRotation') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.fileKeyRotationHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="fileKeyRotationDays"
+            type="number"
+            :min="FILE_KEY_ROTATION_MIN_DAYS"
+            :max="FILE_KEY_ROTATION_MAX_DAYS"
+            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveFileKeyRotation"
+            @keyup.enter="saveFileKeyRotation"
+          />
+          <span class="text-xs opacity-60">{{ $t('config.days') }}</span>
+          <span v-if="fileKeyRotationSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
     </OyaCard>

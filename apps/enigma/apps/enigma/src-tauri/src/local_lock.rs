@@ -68,38 +68,9 @@ fn has_magic(bytes: &[u8]) -> bool {
     bytes.len() >= MAGIC.len() && &bytes[..MAGIC.len()] == MAGIC
 }
 
-/// Encrypt `path` in place under `passphrase`. Errors if the file is already
-/// locked. The plaintext never leaves the process; the passphrase is not stored.
-#[tauri::command]
-pub fn local_lock_file(path: String, passphrase: String) -> Result<LockedFileInfo, String> {
-    let plain = std::fs::read(&path).map_err(|e| e.to_string())?;
-    if has_magic(&plain) {
-        return Err("file is already locked".to_string());
-    }
-
-    let (header, dek) =
-        create_vault_with_params(&passphrase, crate::kdf_params()).map_err(crypto_err)?;
-    let sealed = seal(&dek, AAD, &plain).map_err(crypto_err)?;
-    let header_json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
-
-    let mut out = Vec::with_capacity(MAGIC.len() + 1 + 4 + header_json.len() + sealed.len());
-    out.extend_from_slice(MAGIC);
-    out.push(VERSION);
-    out.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
-    out.extend_from_slice(&header_json);
-    out.extend_from_slice(&sealed);
-
-    atomic_write(&path, &out)?;
-    Ok(LockedFileInfo { name: file_name(&path), size: plain.len() as u64 })
-}
-
-/// Decrypt a locked `path` in place under `passphrase`. Wrong passphrase (or a
-/// tampered file) fails closed and leaves the file untouched.
-#[tauri::command]
-pub fn local_unlock_file(path: String, passphrase: String) -> Result<LockedFileInfo, String> {
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-
-    // Parse frame: MAGIC || VERSION || header_len(u32 LE) || header || sealed.
+/// Parse a locked-file frame into its `VaultHeader` and the sealed body (borrowed from
+/// `bytes`). Frame: `MAGIC || VERSION || header_len(u32 LE) || header || sealed`.
+fn parse_frame(bytes: &[u8]) -> Result<(VaultHeader, &[u8]), String> {
     let head = MAGIC.len() + 1 + 4;
     if bytes.len() < head || &bytes[..MAGIC.len()] != MAGIC {
         return Err("not a locked file".to_string());
@@ -117,12 +88,72 @@ pub fn local_unlock_file(path: String, passphrase: String) -> Result<LockedFileI
     }
     let header: VaultHeader =
         serde_json::from_slice(&bytes[head..header_end]).map_err(|e| e.to_string())?;
-    let sealed = &bytes[header_end..];
+    Ok((header, &bytes[header_end..]))
+}
+
+/// Build a locked-file frame from a header + already-sealed body.
+fn build_frame(header: &VaultHeader, sealed: &[u8]) -> Result<Vec<u8>, String> {
+    let header_json = serde_json::to_vec(header).map_err(|e| e.to_string())?;
+    let mut out = Vec::with_capacity(MAGIC.len() + 1 + 4 + header_json.len() + sealed.len());
+    out.extend_from_slice(MAGIC);
+    out.push(VERSION);
+    out.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
+    out.extend_from_slice(&header_json);
+    out.extend_from_slice(sealed);
+    Ok(out)
+}
+
+/// Encrypt `path` in place under `passphrase`. Errors if the file is already
+/// locked. The plaintext never leaves the process; the passphrase is not stored.
+#[tauri::command]
+pub fn local_lock_file(path: String, passphrase: String) -> Result<LockedFileInfo, String> {
+    let plain = std::fs::read(&path).map_err(|e| e.to_string())?;
+    if has_magic(&plain) {
+        return Err("file is already locked".to_string());
+    }
+
+    let (header, dek) =
+        create_vault_with_params(&passphrase, crate::kdf_params()).map_err(crypto_err)?;
+    let sealed = seal(&dek, AAD, &plain).map_err(crypto_err)?;
+
+    atomic_write(&path, &build_frame(&header, &sealed)?)?;
+    Ok(LockedFileInfo { name: file_name(&path), size: plain.len() as u64 })
+}
+
+/// Decrypt a locked `path` in place under `passphrase`. Wrong passphrase (or a
+/// tampered file) fails closed and leaves the file untouched.
+#[tauri::command]
+pub fn local_unlock_file(path: String, passphrase: String) -> Result<LockedFileInfo, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let (header, sealed) = parse_frame(&bytes)?;
 
     let dek = unlock(&header, &passphrase).map_err(crypto_err)?;
     let plain = open(&dek, AAD, sealed).map_err(crypto_err)?;
 
     atomic_write(&path, &plain)?;
+    Ok(LockedFileInfo { name: file_name(&path), size: plain.len() as u64 })
+}
+
+/// Rotate a locked file's key: unlock under `current`, mint a fresh vault (new random
+/// DEK + salt) under `new`, and re-encrypt the body under it. Pass `new == current` to
+/// keep the same passphrase while still rolling the key. Wrong `current` (or a tampered
+/// file) fails closed and leaves the file untouched.
+#[tauri::command]
+pub fn local_rotate_file(
+    path: String,
+    current: String,
+    new: String,
+) -> Result<LockedFileInfo, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let (header, sealed) = parse_frame(&bytes)?;
+
+    let dek = unlock(&header, &current).map_err(crypto_err)?;
+    let plain = open(&dek, AAD, sealed).map_err(crypto_err)?;
+
+    let (header2, dek2) = create_vault_with_params(&new, crate::kdf_params()).map_err(crypto_err)?;
+    let sealed2 = seal(&dek2, AAD, &plain).map_err(crypto_err)?;
+
+    atomic_write(&path, &build_frame(&header2, &sealed2)?)?;
     Ok(LockedFileInfo { name: file_name(&path), size: plain.len() as u64 })
 }
 
@@ -206,6 +237,60 @@ mod tests {
         local_lock_file(path.clone(), "pw".into()).unwrap();
         assert!(local_is_locked(path.clone()).unwrap());
         assert!(!local_is_locked(tmp_path("missing")).unwrap());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn rotate_rolls_key_but_keeps_content_same_passphrase() {
+        let path = tmp_path("rotate");
+        let original = b"rotate me please".to_vec();
+        std::fs::write(&path, &original).unwrap();
+        local_lock_file(path.clone(), "pass-one".into()).unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        // Same-passphrase rotation still rolls salt/DEK/nonce → on-disk bytes differ.
+        local_rotate_file(path.clone(), "pass-one".into(), "pass-one".into()).unwrap();
+        let after = std::fs::read(&path).unwrap();
+        assert!(has_magic(&after));
+        assert_ne!(before, after, "rotation must roll the key material");
+
+        // Content still recovers under the same passphrase.
+        local_unlock_file(path.clone(), "pass-one".into()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn rotate_can_change_passphrase() {
+        let path = tmp_path("rotate_pass");
+        let original = b"secret".to_vec();
+        std::fs::write(&path, &original).unwrap();
+        local_lock_file(path.clone(), "old-pass".into()).unwrap();
+
+        local_rotate_file(path.clone(), "old-pass".into(), "new-pass".into()).unwrap();
+
+        // Old passphrase no longer unlocks; the new one does.
+        let err = local_unlock_file(path.clone(), "old-pass".into()).unwrap_err();
+        assert!(err.contains("wrong passphrase"), "got: {err}");
+        local_unlock_file(path.clone(), "new-pass".into()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn rotate_wrong_current_fails_closed() {
+        let path = tmp_path("rotate_wrong");
+        std::fs::write(&path, b"data").unwrap();
+        local_lock_file(path.clone(), "right".into()).unwrap();
+        let locked = std::fs::read(&path).unwrap();
+
+        let err = local_rotate_file(path.clone(), "wrong".into(), "whatever".into()).unwrap_err();
+        assert!(err.contains("wrong passphrase"), "got: {err}");
+        // The file is untouched after a failed rotation.
+        assert_eq!(std::fs::read(&path).unwrap(), locked);
+
         std::fs::remove_file(&path).ok();
     }
 }

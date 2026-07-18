@@ -12,6 +12,7 @@ import {
   addLockedFile,
   removeLockedFile,
   isLocalFileLocked,
+  getFileKeyRotationDays,
   type LockedFileRecord,
   type LockedFileResult,
 } from "rakotis";
@@ -28,6 +29,8 @@ const cloud = useCloudStore();
 const files = ref<LockedFileRecord[]>([]);
 // path → is the file still a locked blob on disk? (reconciles our record with reality)
 const onDisk = ref<Record<string, boolean>>({});
+// "Rotate keys every N days" reminder interval (0 = off). See appStorage.
+const rotationDays = ref(0);
 const loading = ref(false);
 const error = ref("");
 
@@ -36,6 +39,7 @@ async function refresh() {
   error.value = "";
   try {
     files.value = await getLockedFiles();
+    rotationDays.value = await getFileKeyRotationDays();
     const checks = await Promise.all(
       files.value.map(async (r) => [r.path, await isLocalFileLocked(r.path).catch(() => true)] as const),
     );
@@ -47,14 +51,23 @@ async function refresh() {
   }
 }
 
+const DAY_MS = 86_400_000;
+/** A locked file is "rotation due" when its key is older than the interval. Reminder
+ *  only — nothing rotates automatically. Files not actually locked on disk don't count. */
+function isDue(rec: LockedFileRecord): boolean {
+  if (rotationDays.value <= 0 || onDisk.value[rec.path] === false) return false;
+  const last = rec.rotatedAt ?? rec.lockedAt;
+  return Date.now() - last >= rotationDays.value * DAY_MS;
+}
+
 onMounted(async () => {
   await cloud.init(); // idempotent; makes upload work even if Cloud tab wasn't opened
   await refresh();
 });
 
-// ── passphrase modal (lock / unlock) ────────────────────────────────────────────
+// ── passphrase modal (lock / unlock / rotate) ────────────────────────────────────
 const showModal = ref(false);
-const modalMode = ref<"lock" | "unlock">("lock");
+const modalMode = ref<"lock" | "unlock" | "rotate">("lock");
 const modalPath = ref("");
 const modalName = ref("");
 
@@ -75,6 +88,13 @@ function askUnlock(rec: LockedFileRecord) {
   showModal.value = true;
 }
 
+function askRotate(rec: LockedFileRecord) {
+  modalMode.value = "rotate";
+  modalPath.value = rec.path;
+  modalName.value = rec.name;
+  showModal.value = true;
+}
+
 async function onLocked(res: LockedFileResult) {
   await addLockedFile({ path: modalPath.value, name: res.name, size: res.size, lockedAt: Date.now() });
   await refresh();
@@ -82,6 +102,19 @@ async function onLocked(res: LockedFileResult) {
 
 async function onUnlocked() {
   await removeLockedFile(modalPath.value);
+  await refresh();
+}
+
+async function onRotated(res: LockedFileResult) {
+  // Keep the original lock time; stamp the rotation so the "due" clock resets.
+  const existing = files.value.find((r) => r.path === modalPath.value);
+  await addLockedFile({
+    path: modalPath.value,
+    name: res.name,
+    size: res.size,
+    lockedAt: existing?.lockedAt ?? Date.now(),
+    rotatedAt: Date.now(),
+  });
   await refresh();
 }
 
@@ -195,9 +228,17 @@ function pct(tr: { transferred: number; total: number }): number {
             :class="onDisk[f.path] === false ? 'text-warn-dark' : 'opacity-50'"
           />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold">{{ f.name }}</p>
+            <p class="flex items-center gap-2">
+              <span class="truncate text-sm font-semibold">{{ f.name }}</span>
+              <span
+                v-if="isDue(f)"
+                class="shrink-0 rounded-full bg-warn-light/15 px-1.5 py-0.5 text-[10px] font-semibold text-warn-dark dark:bg-warn-dark/20"
+              >
+                {{ $t('local.rotationDue') }}
+              </span>
+            </p>
             <p class="truncate text-xs opacity-50">
-              {{ fmtSize(f.size) }} · {{ fmtDate(f.lockedAt) }}
+              {{ fmtSize(f.size) }} · {{ fmtDate(f.rotatedAt ?? f.lockedAt) }}
               <template v-if="onDisk[f.path] === false"> · {{ $t('local.notOnDisk') }}</template>
             </p>
           </div>
@@ -205,7 +246,15 @@ function pct(tr: { transferred: number; total: number }): number {
             size="sm"
             icon="lock-open"
             :label="$t('local.unlock')"
+            :disabled="onDisk[f.path] === false"
             @click="askUnlock(f)"
+          />
+          <OyaIconButton
+            size="sm"
+            icon="rotate-right"
+            :label="$t('local.rotate')"
+            :disabled="onDisk[f.path] === false"
+            @click="askRotate(f)"
           />
           <OyaIconButton
             size="sm"
@@ -254,7 +303,7 @@ function pct(tr: { transferred: number; total: number }): number {
       </div>
     </template>
 
-    <!-- Passphrase (lock / unlock) -->
+    <!-- Passphrase (lock / unlock / rotate) -->
     <LocalPassphraseModal
       v-model:open="showModal"
       :mode="modalMode"
@@ -263,6 +312,7 @@ function pct(tr: { transferred: number; total: number }): number {
       :min-len="policy.passphraseMinLen"
       @locked="onLocked"
       @unlocked="onUnlocked"
+      @rotated="onRotated"
     />
 
     <!-- Cloud login (when uploading while logged out) -->

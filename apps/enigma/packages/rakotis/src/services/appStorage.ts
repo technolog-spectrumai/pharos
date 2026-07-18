@@ -478,6 +478,8 @@ export interface LockedFileRecord {
   size: number;
   /** Epoch millis when it was locked. */
   lockedAt: number;
+  /** Epoch millis of the last key rotation; absent ⇒ never rotated (use lockedAt). */
+  rotatedAt?: number;
 }
 
 const NS_LOCAL_FILES = "files:local";
@@ -494,6 +496,19 @@ export async function lockLocalFile(path: string, passphrase: string): Promise<L
 export async function unlockLocalFile(path: string, passphrase: string): Promise<LockedFileResult> {
   if (!isTauri()) throw new Error("Local file locking is only available in the desktop app.");
   return invoke<LockedFileResult>("local_unlock_file", { path, passphrase });
+}
+
+/** Rotate a locked file's key: re-key under a fresh random DEK + salt. Pass
+ *  `next === current` to keep the same passphrase while still rolling the key, or a
+ *  different `next` to also change the passphrase. Fails closed on a wrong `current`
+ *  (the file is left untouched). Tauri-only. */
+export async function rotateLocalFile(
+  path: string,
+  current: string,
+  next: string,
+): Promise<LockedFileResult> {
+  if (!isTauri()) throw new Error("Local file locking is only available in the desktop app.");
+  return invoke<LockedFileResult>("local_rotate_file", { path, current, new: next });
 }
 
 /** True if the file on disk currently begins with the lock magic. */
@@ -528,6 +543,37 @@ export async function addLockedFile(rec: LockedFileRecord): Promise<void> {
 export async function removeLockedFile(path: string): Promise<void> {
   const list = (await getLockedFiles()).filter((r) => r.path !== path);
   await saveLockedFiles(list);
+}
+
+// ── Local-file key-rotation reminder interval ─────────────────────────────────
+// How many days a locked file's key may age before the Local tab flags it
+// "rotation due". 0 = off. This is a REMINDER only — rotation always needs the
+// passphrase (nothing is stored/cached), so nothing rotates in the background.
+// Stored in the encrypted kv store, days. Mirrors the meeting-reminder setting.
+
+export const FILE_KEY_ROTATION_DEFAULT_DAYS = 0; // 0 = off
+export const FILE_KEY_ROTATION_MIN_DAYS = 0;
+export const FILE_KEY_ROTATION_MAX_DAYS = 3650; // ~10 years
+
+export function clampFileKeyRotationDays(days: number): number {
+  if (!Number.isFinite(days)) return FILE_KEY_ROTATION_DEFAULT_DAYS;
+  return Math.min(FILE_KEY_ROTATION_MAX_DAYS, Math.max(FILE_KEY_ROTATION_MIN_DAYS, Math.round(days)));
+}
+
+export async function getFileKeyRotationDays(): Promise<number> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", "file_key_rotation_days");
+    if (raw === null || raw === "") return FILE_KEY_ROTATION_DEFAULT_DAYS;
+    return clampFileKeyRotationDays(Number(raw));
+  } catch {
+    return FILE_KEY_ROTATION_DEFAULT_DAYS;
+  }
+}
+
+export async function setFileKeyRotationDays(days: number): Promise<number> {
+  const v = clampFileKeyRotationDays(days);
+  await kvPut("p2p:settings", "default", "file_key_rotation_days", String(v)).catch(() => {});
+  return v;
 }
 
 /// Reset the Tor onion keystore (identity) — clears stale locks; next Tor room mints
