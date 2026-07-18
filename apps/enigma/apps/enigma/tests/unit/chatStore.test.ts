@@ -14,7 +14,10 @@ function makeP2pStub() {
     currentRoom: ref(null),
     participants: ref([]),
     mlsStatus: ref("idle"),
-    // Data-sync seam (consumed by the store's fileShare + meetings singletons).
+    // Captain election (consumed by the kanban singleton's column authority).
+    amCaptain: ref(false),
+    captainId: ref<string | null>(null),
+    // Data-sync seam (consumed by the store's fileShare + meetings + kanban singletons).
     onSync: vi.fn(() => () => {}),
     sendSync: vi.fn(async () => {}),
     postSystemNotice: vi.fn(),
@@ -81,7 +84,7 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
   });
 
-  it("creates the fileShare + vox + meetings singletons riding the channel's sync seam", async () => {
+  it("creates the fileShare + vox + meetings + kanban singletons riding the channel's sync seam", async () => {
     const store = await freshStore();
     expect(store.fileShare).toBeDefined();
     expect(store.fileShare.state.value).toBe("idle");
@@ -89,9 +92,15 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(store.vox.phase.value).toBe("idle");
     expect(store.meetings).toBeDefined();
     expect(store.meetings.pendingInviteCount.value).toBe(0);
+    // Kanban is compile-time gated; the test env uses the fallback build config
+    // (kanban_enabled: true), so the singleton exists and rides the seam too.
+    expect(store.kanbanEnabled).toBe(true);
+    expect(store.kanban).toBeDefined();
+    expect(store.kanban!.attentionCount.value).toBe(0);
     // Each registers its signaling handler at store creation, so file offers, call
-    // offers and meeting invites are caught even while their tabs are closed.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(3);
+    // offers, meeting invites and board changes are caught even while their tabs
+    // are closed.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(4);
   });
 
   it("identity fan-out delegates to the channel", async () => {

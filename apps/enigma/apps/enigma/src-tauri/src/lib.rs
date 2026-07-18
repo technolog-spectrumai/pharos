@@ -426,6 +426,12 @@ pub struct BuildConfigSummary {
     pub app_version: &'static str,
     pub cloud_allow_connections: bool,
     pub p2p_allow_hosted_relays: bool,
+    pub kanban_enabled: bool,
+    pub kanban_allow_reorder: bool,
+    pub kanban_default_columns: Vec<&'static str>,
+    pub kanban_max_cards_per_board: u32,
+    pub kanban_max_card_title_len: u32,
+    pub kanban_max_card_description_len: u32,
     pub use_tor_default: bool,
     pub stable_onion_default: bool,
     pub dht_discovery_default: bool,
@@ -438,13 +444,19 @@ pub struct BuildConfigSummary {
 /// Fetched once by the frontend at boot (rakotis `initBuildConfig`).
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
-    use build_config::{app, cloud, features, p2p, settings as s};
+    use build_config::{app, cloud, features, kanban, p2p, settings as s};
     BuildConfigSummary {
         app_name: app::NAME,
         app_identifier: app::IDENTIFIER,
         app_version: app::VERSION,
         cloud_allow_connections: cloud::ALLOW_CONNECTIONS,
         p2p_allow_hosted_relays: p2p::ALLOW_HOSTED_RELAYS,
+        kanban_enabled: kanban::ENABLED,
+        kanban_allow_reorder: kanban::ALLOW_REORDER,
+        kanban_default_columns: kanban::DEFAULT_COLUMNS.to_vec(),
+        kanban_max_cards_per_board: kanban::MAX_CARDS_PER_BOARD,
+        kanban_max_card_title_len: kanban::MAX_CARD_TITLE_LEN,
+        kanban_max_card_description_len: kanban::MAX_CARD_DESCRIPTION_LEN,
         use_tor_default: features::USE_TOR_DEFAULT,
         stable_onion_default: features::STABLE_ONION_DEFAULT,
         dht_discovery_default: features::DHT_DISCOVERY_DEFAULT,

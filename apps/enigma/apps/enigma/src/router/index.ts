@@ -1,8 +1,10 @@
 import { createRouter, createMemoryHistory } from "vue-router";
+import { getBuildConfig } from "rakotis";
 import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
 import EnigmaCallsView from "../views/EnigmaCallsView.vue";
 import EnigmaCalendarView from "../views/EnigmaCalendarView.vue";
+import EnigmaKanbanView from "../views/EnigmaKanbanView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 
@@ -18,6 +20,16 @@ const router = createRouter({
     { path: "/files", component: EnigmaFilesView, name: "files" },
     { path: "/calls", component: EnigmaCallsView, name: "calls" },
     { path: "/calendar", component: EnigmaCalendarView, name: "calendar" },
+    // Group Kanban board — gated by the compile-time build flag. `beforeEnter`
+    // runs at navigation time (after initBuildConfig resolved), so it reads the
+    // real flag; a flag-off build redirects to chat. (A top-level `if` in this
+    // table would run at module-eval time, before initBuildConfig — too early.)
+    {
+      path: "/board",
+      component: EnigmaKanbanView,
+      name: "board",
+      beforeEnter: () => getBuildConfig().kanban_enabled || "/chat",
+    },
     { path: "/contacts", component: EnigmaContactsView, name: "contacts" },
     { path: "/config", component: EnigmaConfigView, name: "config" },
     // Profile now lives inside Settings (as a tab) — keep the old path working.

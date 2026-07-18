@@ -20,6 +20,7 @@ struct RawConfig {
     cloud: CloudSection,
     p2p: P2pSection,
     crypto: CryptoSection,
+    kanban: KanbanSection,
     features: FeaturesSection,
     settings: SettingsSection,
     network: NetworkSection,
@@ -60,6 +61,17 @@ struct KdfSection {
     m_cost_kib: u32,
     t_cost: u32,
     p_cost: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KanbanSection {
+    enabled: bool,
+    allow_reorder: bool,
+    default_columns: Vec<String>,
+    max_cards_per_board: u32,
+    max_card_title_len: u32,
+    max_card_description_len: u32,
 }
 
 #[derive(Deserialize)]
@@ -190,6 +202,24 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         }
     }
 
+    // kanban.
+    let kb = &cfg.kanban;
+    if kb.default_columns.is_empty() {
+        err("kanban.default_columns", "must list at least one column".into());
+    }
+    if kb.default_columns.iter().any(|c| c.trim().is_empty()) {
+        err("kanban.default_columns", "column names must not be empty".into());
+    }
+    for (path, v) in [
+        ("kanban.max_cards_per_board", kb.max_cards_per_board),
+        ("kanban.max_card_title_len", kb.max_card_title_len),
+        ("kanban.max_card_description_len", kb.max_card_description_len),
+    ] {
+        if v == 0 {
+            err(path, format!("{v} must be > 0"));
+        }
+    }
+
     // network.
     let net = &cfg.network;
     if net.onion_port == 0 {
@@ -281,6 +311,15 @@ pub mod network {{
     pub const TOR_HANDSHAKE_TIMEOUT_SECS: u64 = {tor_hs};
 }}
 
+pub mod kanban {{
+    pub const ENABLED: bool = {kanban_enabled};
+    pub const ALLOW_REORDER: bool = {kanban_allow_reorder};
+    pub const DEFAULT_COLUMNS: &[&str] = &[{kanban_default_columns}];
+    pub const MAX_CARDS_PER_BOARD: u32 = {kanban_max_cards};
+    pub const MAX_CARD_TITLE_LEN: u32 = {kanban_max_title};
+    pub const MAX_CARD_DESCRIPTION_LEN: u32 = {kanban_max_desc};
+}}
+
 // ── compile-time algorithm asserts against the vendored crates ──────────────
 
 const fn str_eq(a: &str, b: &str) -> bool {{
@@ -345,6 +384,18 @@ const _: () = assert!(
         redirects = cfg.network.max_redirects,
         tor_write = cfg.network.tor_write_timeout_secs,
         tor_hs = cfg.network.tor_handshake_timeout_secs,
+        kanban_enabled = cfg.kanban.enabled,
+        kanban_allow_reorder = cfg.kanban.allow_reorder,
+        kanban_default_columns = cfg
+            .kanban
+            .default_columns
+            .iter()
+            .map(|c| rust_str(c))
+            .collect::<Vec<_>>()
+            .join(", "),
+        kanban_max_cards = cfg.kanban.max_cards_per_board,
+        kanban_max_title = cfg.kanban.max_card_title_len,
+        kanban_max_desc = cfg.kanban.max_card_description_len,
     );
     o
 }

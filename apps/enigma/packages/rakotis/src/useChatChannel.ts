@@ -261,8 +261,9 @@ export function useChatChannel() {
   // handler and sending via `sendSync`. Routed inner-message families: `sync_*`
   // (full-data pull), `file_*` (P2P file transfer offer/accept signaling —
   // consumed by `useFileShare` in the app), `meeting_*` (meeting invite/RSVP
-  // signaling — consumed by `useMeetings`) and `vox_*` (voice-call offer/decline/
-  // cancel signaling — consumed by `useVoxCall`). Each handler ignores the
+  // signaling — consumed by `useMeetings`), `vox_*` (voice-call offer/decline/
+  // cancel signaling — consumed by `useVoxCall`) and `kanban_*` (group Kanban
+  // board columns/cards — consumed by `useKanban`). Each handler ignores the
   // prefixes it does not own.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
@@ -834,7 +835,7 @@ export function useChatChannel() {
             }
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_"))) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_"))) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }

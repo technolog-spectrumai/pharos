@@ -103,6 +103,9 @@ const vox = chatStore.vox;
 const invites = chatStore.invites;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.
 const meetings = chatStore.meetings;
+// Board tab (compile-time gated): remote board changes awaiting a look.
+const kanban = chatStore.kanban;
+const kanbanEnabled = chatStore.kanbanEnabled;
 
 // Close menu on navigation
 watch(() => route.path, () => {
@@ -209,6 +212,15 @@ watch(() => route.path, () => {
               :title="$t('calendar.attentionTitle')"
             />
           </RouterLink>
+          <RouterLink v-if="kanbanEnabled" to="/board" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.board')">
+            <font-awesome-icon icon="table-columns" />
+            {{ $t('nav.board') }}
+            <span
+              v-if="(kanban?.attentionCount.value ?? 0) > 0"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+              :title="$t('kanban.attentionTitle')"
+            />
+          </RouterLink>
           <RouterLink to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
@@ -285,6 +297,14 @@ watch(() => route.path, () => {
             {{ $t('nav.calendar') }}
             <span
               v-if="meetings.attentionCount.value > 0"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+            />
+          </RouterLink>
+          <RouterLink v-if="kanbanEnabled" to="/board" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="table-columns" class="w-4 text-center" />
+            {{ $t('nav.board') }}
+            <span
+              v-if="(kanban?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>

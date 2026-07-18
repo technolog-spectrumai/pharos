@@ -41,6 +41,20 @@ crypto:
     t_cost: 3
     p_cost: 4
 
+kanban:
+  # false = this build has no Kanban board: no Board tab, /board redirects, and
+  # stores/chat.ts never instantiates the sync composable. Default true ships the
+  # feature; flip to false to produce a Kanban-free binary.
+  enabled: true
+  # Within-column drag-to-reorder. false = promote/demote across columns only.
+  allow_reorder: true
+  # Seed columns a captain gets when first creating a board in a room.
+  default_columns: ["To Do", "In Progress", "Done"]
+  # Caps (wire-size + abuse safety); build.rs asserts each is > 0.
+  max_cards_per_board: 500
+  max_card_title_len: 200
+  max_card_description_len: 4000
+
 features:
   # Initial values for a NEW profile's toggles. Runtime Settings switches still
   # override per profile; profiles saved by any build keep their stored values.

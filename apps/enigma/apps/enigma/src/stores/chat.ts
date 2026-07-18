@@ -6,12 +6,13 @@
 // reactive() would deep-unwrap the channel's inner refs, which we want to keep as
 // real Ref<>s for the ChatPanel prop and direct `.value` access.
 
-import { useChatChannel, type ChatChannel } from "rakotis";
+import { getBuildConfig, useChatChannel, type ChatChannel } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
 import { useVoxCall } from "../components/vox/useVoxCall";
 import { useRoomInvites } from "../components/contacts/useRoomInvites";
 import { useMeetings } from "../components/calendar/useMeetings";
+import { useKanban } from "../components/kanban/useKanban";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
@@ -31,6 +32,13 @@ function createChatStore() {
   // Meeting scheduling — rides the same seam; app-lifetime so incoming invites
   // land (Calendar nav dot) and the reminder tick runs regardless of the view.
   const meetings = useMeetings(p2p);
+  // Group Kanban board — one per room, rides the same seam; app-lifetime so
+  // remote column/card changes land (Board nav dot) regardless of the view. Gated
+  // by the compile-time build flag: a flag-off build never instantiates it, so no
+  // sync handler / watchers register at all (getBuildConfig is final by now —
+  // initBuildConfig is awaited in main.ts before the app mounts / this runs).
+  const kanbanEnabled = getBuildConfig().kanban_enabled;
+  const kanban = kanbanEnabled ? useKanban(p2p) : null;
 
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
@@ -50,15 +58,17 @@ function createChatStore() {
   }
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     await p2p.applyRuntimeProfile(runtime);
-    // The profile switch swapped the kv data dir — re-read the meeting list.
+    // The profile switch swapped the kv data dir — re-read the meeting list and
+    // the open room's board.
     await meetings.reload();
+    if (kanban) await kanban.reload();
   }
   function clearLocalChatState(message?: string) {
     p2p.clearLocalChatState(message);
   }
 
   return {
-    p2p, fileShare, vox, invites, meetings, init,
+    p2p, fileShare, vox, invites, meetings, kanban, kanbanEnabled, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }
