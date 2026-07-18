@@ -75,6 +75,17 @@ export interface BuildConfig {
   cloud_allow_connections: boolean;
   /** false = no n0 relay / pkarr / Mainline DHT; DHT toggles are inert. */
   p2p_allow_hosted_relays: boolean;
+  /** false = this build has no Kanban board: no Board tab, /board redirects,
+   *  and stores/chat.ts never instantiates the sync composable. */
+  kanban_enabled: boolean;
+  /** false = promote/demote across columns only (no within-column drag-reorder). */
+  kanban_allow_reorder: boolean;
+  /** Columns a captain gets when first creating a board in a room. */
+  kanban_default_columns: string[];
+  /** Board/card caps enforced in the composable + card form (wire-size safety). */
+  kanban_max_cards_per_board: number;
+  kanban_max_card_title_len: number;
+  kanban_max_card_description_len: number;
   use_tor_default: boolean;
   stable_onion_default: boolean;
   dht_discovery_default: boolean;
@@ -92,6 +103,12 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   app_version: "0.1.0",
   cloud_allow_connections: true,
   p2p_allow_hosted_relays: true,
+  kanban_enabled: true,
+  kanban_allow_reorder: true,
+  kanban_default_columns: ["To Do", "In Progress", "Done"],
+  kanban_max_cards_per_board: 500,
+  kanban_max_card_title_len: 200,
+  kanban_max_card_description_len: 4000,
   use_tor_default: false,
   stable_onion_default: false,
   dht_discovery_default: false,
