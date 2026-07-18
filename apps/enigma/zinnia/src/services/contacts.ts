@@ -2,7 +2,7 @@
 //
 // A contact is the durable P2P handle of a person you paired with: their stable
 // NodeId (shared as text/QR, like a room ticket). With DHT discovery on
-// (dht.md), contacts get "recently online" presence — the freshness of the
+// (technology.md §12), contacts get "recently online" presence — the freshness of the
 // address record every DHT-enabled peer publishes about itself.
 //
 // Stored as one JSON array under the encrypted kv (same single-key pattern as

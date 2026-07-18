@@ -9,6 +9,7 @@ export { isTauri, invoke } from "./services/tauri";
 export * from "./services/appStorage";
 export * from "./services/localDb";
 export * from "./services/contacts";
+export * from "./services/moderation";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
