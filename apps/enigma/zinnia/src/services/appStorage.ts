@@ -19,6 +19,10 @@ export interface OfflineProfile {
   phone: string;
   bio: string;
   date_of_birth: string;
+  /** The user's picture as a small JPEG data URL ("" = none). Shared to room
+   *  members over encrypted presence. Optional: profiles saved before this
+   *  field existed load without it. */
+  avatar?: string;
 }
 
 export interface AppProfileState {
