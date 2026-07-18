@@ -597,9 +597,14 @@ transports it is the room's moderation authority — it sets the room **logo** a
 **rules** and can **kick** (MLS removal + identity ban, refused re-admission by the
 acting admin) or **time-mute** members (everyone drops the muted member's messages
 until expiry; its composer locks). State travels as a captain-authoritative
-`room_meta` snapshot over the encrypted seam, validated on receive against the
-locally elected captain and persisted per room; enforcement is cooperative, like
-all group management here ([§9](#9-security--privacy-considerations)).
+`room_meta` snapshot over the encrypted seam and is persisted per room. When a
+member joins (its first presence), **every holder shares the snapshot** — a
+captain's copy applies at same-or-higher revision, anyone else's only when
+strictly newer, which hands the state over when captaincy shifts (e.g. a
+lower-id joiner becomes captain and re-broadcasts the adopted snapshot).
+User avatars ride presence the same way, so logo + member pictures arrive
+automatically on join. Enforcement is cooperative, like all group management
+here ([§9](#9-security--privacy-considerations)).
 
 **Topology — everyone hosts, one relay, re-pointable dial.** Every member of a Tor
 room hosts its own onion (always-on accept loop) and maintains **one outbound dial
