@@ -382,11 +382,14 @@ export function useChatChannel() {
     });
   }
 
-  /** Captain: broadcast the full authoritative snapshot (logo, rules, mutes,
-   *  bans). Sent after every moderation/meta change and to newly joining members
-   *  (their initial presence), so late joiners converge. */
-  async function broadcastRoomMeta() {
-    if (!amCaptain.value || mlsStatus.value !== "ready") return;
+  /** Broadcast the full meta snapshot (logo, rules, mutes, bans). The captain
+   *  sends it after every moderation/meta change; with `share=true` ANY holder
+   *  sends it (a new member just announced itself) — receivers apply a
+   *  non-captain copy only when strictly newer, which is what hands the state
+   *  over when captaincy shifted to a member that doesn't have it yet (e.g. a
+   *  lower-id joiner became captain). */
+  async function broadcastRoomMeta(share = false) {
+    if ((!amCaptain.value && !share) || mlsStatus.value !== "ready") return;
     await sendEncryptedMedia("room_meta", {
       device_id: mlsIdentity.value,
       logo: roomLogo.value,
@@ -759,8 +762,11 @@ export function useChatChannel() {
               deadCaptains.delete(id); // a fresh presence ⇒ this member is alive again
               const initialAnnounce = !inner.reply;
               void refreshP2pRoster().then(() => {
-                // Captain: bring the new member up to date (logo/rules/mutes/bans).
-                if (initialAnnounce && amCaptain.value && metaRev.value > 0) void broadcastRoomMeta();
+                // A new member announced itself: every meta holder shares the
+                // snapshot (logo/rules/mutes/bans) so the joiner converges even
+                // when the captain just changed or is missing. Receivers dedupe
+                // by revision, so redundant copies are idempotent.
+                if (initialAnnounce && metaRev.value > 0) void broadcastRoomMeta(true);
               });
               if (initialAnnounce) void announcePresence(true);
             }
@@ -774,10 +780,19 @@ export function useChatChannel() {
             void handleRoomClosed();
             return;
           }
-          // Captain-authoritative meta + moderation (validated against the
-          // locally elected captain — a non-captain's copy is ignored).
+          // Captain-authoritative meta + moderation. The captain's snapshot
+          // applies at same-or-higher revision; anyone else's only when
+          // STRICTLY newer — that's the handoff path for a captaincy change
+          // (the previous captain shares state the new captain doesn't hold).
           if (inner?.type === "room_meta") {
-            if (fromCaptain(data)) applyRoomMeta(inner);
+            const rev = typeof inner.rev === "number" ? inner.rev : 0;
+            const accept = fromCaptain(data) ? rev >= metaRev.value : rev > metaRev.value;
+            if (accept) {
+              applyRoomMeta(inner);
+              // If WE are the (new) captain adopting a handed-over snapshot,
+              // re-broadcast it authoritatively so the whole room converges.
+              if (amCaptain.value) void broadcastRoomMeta();
+            }
             return;
           }
           if (inner?.type === "mod_mute" && typeof inner.target === "string") {
