@@ -23,7 +23,7 @@ watch(darkMode, (on) => {
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
-const { displayName } = storeToRefs(userStore);
+const { displayName, avatarDataUrl } = storeToRefs(userStore);
 
 // ── Encryption-at-rest gate ──────────────────────────────────────────────────
 // Nothing loads until the vault is unlocked (or set up on first run). The three
@@ -89,6 +89,12 @@ onMounted(async () => {
 // The chat display name is the local profile's display name (identity otherwise).
 watch(displayName, (name) => {
   if (name) chatStore.p2p.currentUserName.value = name;
+}, { immediate: true });
+
+// The chat avatar is the local profile's picture — the channel shares it over
+// encrypted presence and message envelopes (change propagates live).
+watch(avatarDataUrl, (avatar) => {
+  chatStore.p2p.myAvatar.value = avatar;
 }, { immediate: true });
 
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.

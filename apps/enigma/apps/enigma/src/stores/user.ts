@@ -22,6 +22,7 @@ const EMPTY_PROFILE: OfflineProfile = {
   phone: "",
   bio: "",
   date_of_birth: "",
+  avatar: "",
 };
 
 export const useUserStore = defineStore("user", () => {
@@ -32,6 +33,10 @@ export const useUserStore = defineStore("user", () => {
 
   /** The name shown in chat: the local profile's display name, if set. */
   const displayName = computed(() => offlineProfile.value.display_name.trim());
+
+  /** The user's picture (small JPEG data URL, "" = none) — shown in chat and
+   *  shared to room members over encrypted presence. */
+  const avatarDataUrl = computed(() => offlineProfile.value.avatar ?? "");
 
   function applyProfileState(state: AppProfileState) {
     offlineProfile.value = {
@@ -78,6 +83,7 @@ export const useUserStore = defineStore("user", () => {
     selectedOfflineProfileId,
     offlineProfileLoaded,
     displayName,
+    avatarDataUrl,
     loadOfflineProfile,
     selectOfflineProfile,
     saveOfflineProfile,

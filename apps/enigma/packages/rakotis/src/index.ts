@@ -49,7 +49,7 @@ export { chatTransport } from "./chatTransport";
 export type { ChatTransport, CreatedRoom, JoinedRoom, WsStatus, WsMessage } from "./chatTransport";
 
 // ── Chat channel composable + MLS envelope state machine ──────────────────────
-export { useChatChannel, isTorTicket, isDhtCode } from "./useChatChannel";
+export { useChatChannel, isTorTicket, isDhtCode, downscaleImageToDataUrl } from "./useChatChannel";
 export type {
   ChatChannel,
   Message,

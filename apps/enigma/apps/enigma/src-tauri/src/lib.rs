@@ -63,6 +63,11 @@ pub struct OfflineProfile {
     pub phone: String,
     pub bio: String,
     pub date_of_birth: String,
+    // avatar — the user's picture as a small JPEG data URL ("" = none). Shown on
+    // their profile and shared to room members over encrypted presence. Default
+    // keeps profiles saved before this field existed loading.
+    #[serde(default)]
+    pub avatar: String,
 }
 
 impl Default for OfflineProfile {
@@ -73,6 +78,7 @@ impl Default for OfflineProfile {
             phone: String::new(),
             bio: String::new(),
             date_of_birth: String::new(),
+            avatar: String::new(),
         }
     }
 }

@@ -109,7 +109,9 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
+/** Downscale an image file to a JPEG data URL (exported: also used by the
+ *  profile avatar picker and the room-logo picker). */
+export async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
@@ -139,6 +141,9 @@ export function useChatChannel() {
 
   const currentUserName = ref<string>("You");
   const mlsIdentity = ref<string>("You");
+  // The user's own avatar (small JPEG data URL, "" = none) — set by the app from
+  // the local profile; rides presence + message envelopes so peers see it.
+  const myAvatar = ref("");
 
   const mlsStatus = ref<MlsStatus>("idle");
   const mlsError = ref<string | null>(null);
@@ -236,14 +241,15 @@ export function useChatChannel() {
   function participantForName(name: string): Participant | undefined {
     return participants.value.find((p) => p.name === name);
   }
-  function avatarForName(name: string): string | null {
-    return participantForName(name)?.avatar_url ?? null;
-  }
   function displayName(): string {
     return currentUserName.value !== "You" ? currentUserName.value : mlsIdentity.value;
   }
   function selfParticipant(): Participant {
-    return { id: mlsIdentity.value, name: displayName(), avatar_url: avatarForName(currentUserName.value) ?? "", type: "human" };
+    return { id: mlsIdentity.value, name: displayName(), avatar_url: myAvatar.value, type: "human" };
+  }
+  /** Our avatar as sent on message envelopes (null when unset, like peers'). */
+  function myAvatarOrNull(): string | null {
+    return myAvatar.value || null;
   }
 
   // ── P2P roster (authenticated from MLS membership) ───────────────────────────
@@ -325,11 +331,18 @@ export function useChatChannel() {
     if (mlsStatus.value !== "ready") return;
     await sendEncryptedMedia("presence", {
       device_id: mlsIdentity.value, name: displayName(),
-      avatar: avatarForName(currentUserName.value) ?? "",
+      avatar: myAvatar.value,
       onion: myOnion.value, // Tor: our dialable address, for captain election
       reply,
     }).catch(() => {});
   }
+
+  // A profile picture change propagates live: refresh our own roster row and
+  // re-announce so peers pick it up (no-op until MLS is ready).
+  watch(myAvatar, () => {
+    void refreshP2pRoster();
+    void announcePresence(true); // reply=true: peers just store it, no echo storm
+  });
 
   async function handlePeerLeave(deviceId: string) {
     presenceById.delete(deviceId);
@@ -1140,7 +1153,7 @@ export function useChatChannel() {
     send({
       type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value,
       user: currentUserName.value, sender_name: currentUserName.value,
-      sender_avatar_url: avatarForName(currentUserName.value),
+      sender_avatar_url: myAvatarOrNull(),
     });
   }
 
@@ -1168,7 +1181,7 @@ export function useChatChannel() {
     try {
       const dataUrl = await downscaleImageToDataUrl(file);
       await sendEncryptedMedia("image_message", { image_data: dataUrl });
-      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
       onProgress?.(100);
     } catch (e) { error.value = errorMessage(e); }
   }
@@ -1184,7 +1197,7 @@ export function useChatChannel() {
     }
     try {
       await sendEncryptedMedia("image_message", { image_data: dataUrl });
-      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
     } catch (e) { error.value = errorMessage(e); }
   }
 
@@ -1199,7 +1212,7 @@ export function useChatChannel() {
     try {
       const dataUrl = await blobToDataUrl(audioBlob);
       await sendEncryptedMedia("voice_message", { audio_data: dataUrl });
-      pushMessage({ id: nanoid(), type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      pushMessage({ id: nanoid(), type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
     } catch (e) { error.value = errorMessage(e); }
   }
 
@@ -1211,8 +1224,8 @@ export function useChatChannel() {
     if (mlsStatus.value === "ready") {
       const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, text);
       if (ct) {
-        send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: avatarForName(currentUserName.value) });
-        pushMessage({ id: nanoid(), type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: avatarForName(currentUserName.value), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+        send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: myAvatarOrNull() });
+        pushMessage({ id: nanoid(), type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
       } else {
         messages.value.push(systemMsg("Encryption failed — message not sent.", "system_error"));
       }
@@ -1276,7 +1289,7 @@ export function useChatChannel() {
     currentRoom, messages, participants,
     wsStatus, error, isConnected, unread, clearUnread,
     mlsStatus, mlsError, isEncrypted, currentRoomIsTor,
-    isParticipant, currentUserName, mlsIdentity,
+    isParticipant, currentUserName, mlsIdentity, myAvatar,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendImageDataUrl, sendAudio, forceResetMls,
