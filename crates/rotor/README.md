@@ -4,7 +4,7 @@
 > nested cargo workspace and the single source of truth for the crypto layer. enigma
 > consumes `rotor-core` by **path** (no GitLab access needed to build). The toto
 > project vendors a static copy of the `rotor_wasm` build produced by
-> [build_wasm.sh](build_wasm.sh) — see [todo.md](../todo.md) #1.
+> [build_wasm.sh](build_wasm.sh) — see [technology.md](../technology.md) §16.
 
 CryptoRotor is the canonical home of **Rotor** — a small, reusable [MLS](https://www.rfc-editor.org/rfc/rfc9420)
 (Messaging Layer Security) engine built on [OpenMLS](https://github.com/openmls/openmls).
