@@ -18,7 +18,14 @@ import {
   activeMuteUntil, clampRules, formatRemaining, pruneMutes, sanitizeMuteUntil,
   type MuteMap,
 } from "./services/moderation";
+import {
+  validatePinShare, validateRouteShare, validateRegionShare,
+  type MapPinShare, type MapRouteShare, type MapRegionShare,
+} from "./mapModel";
 import { nanoid } from "nanoid";
+
+/** A validated map share riding a chat-timeline card (mapModel wire shapes). */
+export type MapShare = MapPinShare | MapRouteShare | MapRegionShare;
 
 /** A locally-known P2P room: topic id, display name, join ticket, and the peer
  *  NodeIds seen in it (the address book for ticketless reconnects). */
@@ -86,6 +93,9 @@ export interface Message {
     | "mls_app"
     | "image_message"
     | "voice_message"
+    | "map_pin"
+    | "map_route"
+    | "map_region"
     | "system_error"
     | "system_info";
   user: string;
@@ -94,6 +104,8 @@ export interface Message {
   content: string;
   image_data?: string;
   audio_data?: string;
+  /** Validated map share payload (map_pin / map_route / map_region cards). */
+  map?: MapShare;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -264,7 +276,9 @@ export function useChatChannel() {
   // signaling — consumed by `useMeetings`), `vox_*` (voice-call offer/decline/
   // cancel signaling — consumed by `useVoxCall`) and `kanban_*` (group Kanban
   // board columns/cards — consumed by `useKanban`). Each handler ignores the
-  // prefixes it does not own.
+  // prefixes it does not own. `map_*` is deliberately NOT routed here: map
+  // shares are human content rendered as timeline cards (handled inline after
+  // the mute check), not control traffic.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
@@ -846,6 +860,20 @@ export function useChatChannel() {
             pushMessage({ id: nanoid(), type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
           } else if (inner?.type === "voice_message" && inner.audio_data) {
             pushMessage({ id: nanoid(), type: "voice_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", audio_data: inner.audio_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
+          } else if (typeof inner?.type === "string" && inner.type.startsWith("map_")) {
+            // Map shares (mapModel wire shapes) become timeline cards; anything
+            // that fails validation — junk, unknown map_* kinds, newer `v` — is
+            // dropped silently, never rendered as a raw-JSON bubble. Deliberately
+            // NOT a sync family: cards are human content, so they sit after the
+            // mute check above (control traffic they are not).
+            const share =
+              inner.type === "map_pin" ? validatePinShare(inner)
+              : inner.type === "map_route" ? validateRouteShare(inner)
+              : inner.type === "map_region" ? validateRegionShare(inner)
+              : null;
+            if (share) {
+              pushMessage({ id: nanoid(), type: share.type, user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", map: share, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
+            }
           } else {
             pushMessage({ id: nanoid(), type: "mls_app", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: text, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
           }
@@ -1202,6 +1230,23 @@ export function useChatChannel() {
     } catch (e) { error.value = errorMessage(e); }
   }
 
+  /** Send a validated map share (pin / route / region offer) as a chat card.
+   *  Payloads are the compact mapModel wire shapes — map BYTES never ride MLS
+   *  (regions transfer over the file_xfer QUIC path). */
+  async function sendMapShare(share: MapShare) {
+    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
+    if (blockedByMute()) return;
+    error.value = null;
+    if (mlsStatus.value !== "ready") {
+      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      return;
+    }
+    try {
+      await sendEncryptedMedia(share.type, { ...share });
+      pushMessage({ id: nanoid(), type: share.type, user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", map: share, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+    } catch (e) { error.value = errorMessage(e); }
+  }
+
   /** Send an already-encoded image (data URL). */
   async function sendImageDataUrl(dataUrl: string) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
@@ -1308,7 +1353,7 @@ export function useChatChannel() {
     isParticipant, currentUserName, mlsIdentity, myAvatar,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendImageDataUrl, sendAudio, forceResetMls,
+    sendMessage, sendImage, sendImageDataUrl, sendAudio, sendMapShare, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
     cancelJoin, deleteRoom,
     ensureNode,
