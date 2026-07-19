@@ -90,6 +90,9 @@ chacha20poly1305 = "0.10"
 postcard = { version = "1", features = ["use-std"] }
 blake3 = "1"
 bytes = "1"
+# PMTiles read (mmap local blobs + custom range-HTTP backend) and write (region
+# extraction). Kept to the minimal feature set: no reqwest/S3/zstd/brotli.
+pmtiles = { version = "0.23", default-features = false, features = ["write", "mmap-async-tokio"] }
 futures-lite = "2"
 anyhow = "1"
 # Local key/value cache backend (pure-Rust LSM, no C deps — same rationale as

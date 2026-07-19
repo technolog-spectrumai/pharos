@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { OyaAvatar } from "rakotis";
 import type { Message } from "../stores/chat";
+import MapShareCard from "./map/MapShareCard.vue";
 
 defineProps<{ message: Message }>();
 </script>
@@ -42,6 +43,11 @@ defineProps<{ message: Message }>();
         :src="message.audio_data"
         controls
         class="mt-2 w-full max-w-xs rounded"
+      />
+      <!-- Map shares (pin / route / region offer) — open/download only on user action. -->
+      <MapShareCard
+        v-else-if="(message.type === 'map_pin' || message.type === 'map_route' || message.type === 'map_region') && message.map"
+        :message="message"
       />
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}

@@ -56,6 +56,15 @@ export const policy = {
      *  fallback to `initBuildConfig`. */
     defaultMaxFileSizeMb: 16,
   },
+  /** Maps UI policy (privacy-neutral defaults: a world view leaks nothing). */
+  map: {
+    /** Initial view: whole-world, never a stored/last location. */
+    defaultCenter: [10, 30] as [number, number], // [lng, lat]
+    defaultZoom: 1.5,
+    /** Source maxzoom used until map_source_info answers (protomaps builds
+     *  are z15; overzoom renders beyond it either way). */
+    fallbackSourceMaxZoom: 15,
+  },
 } as const;
 
 /** Dev-tooling constants. `vitePort` MUST agree with vite.config.ts `server.port`,

@@ -1,0 +1,4 @@
+PyQt6>=6.6
+pmtiles>=3.7
+requests>=2.31
+blake3>=0.4

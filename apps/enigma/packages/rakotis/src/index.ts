@@ -10,6 +10,8 @@ export * from "./services/appStorage";
 export * from "./services/localDb";
 export * from "./services/contacts";
 export * from "./services/moderation";
+export * from "./services/mapData";
+export * from "./mapModel";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
@@ -53,6 +55,7 @@ export { useChatChannel, isTorTicket, isDhtCode, downscaleImageToDataUrl } from 
 export type {
   ChatChannel,
   Message,
+  MapShare,
   MlsStatus,
   P2pRoomEntry,
 } from "./useChatChannel";

@@ -431,7 +431,7 @@ press (requirement 8).
 
 ---
 
-## 12. Full changed/new file list (expected — Part I)
+## 12. Full changed/new file list (expected — Part I, as shipped)
 
 ```
 build_config.yaml                                   ~ maps/features/settings blocks
@@ -465,3 +465,65 @@ apps/enigma/tests/component/maps.test.ts            +
 apps/enigma/tests/e2e/map.spec.ts                   +
 technology.md, build.md                             ~ per §9
 ```
+
+---
+
+# Part II — PIVOT (planned 2026-07-19): packager tool + app simplification
+
+Status: PLAN approved by Janek 2026-07-19. Supersedes the (never-implemented)
+"place search + bundled world map" extension. Rationale: make the app simpler
+and free of direct map-download APIs — a standalone tool owns all tile-server
+contact; the app only ever imports files.
+
+## Decisions (Q&A 2026-07-19)
+
+- **D-II.1 — Remove ALL remote-fetch machinery from the app**: commands
+  `map_region_download`/`map_region_estimate`/`map_region_cancel`, the
+  `RangeHttpBackend`, settings `map_remote_tiles`/`map_source_url`, build keys
+  `maps.allow_remote_sources`/`default_source_url`/`max_region_tiles`, the
+  download form/progress UI and `map://*` download events. What stays: region
+  list, **import from device**, export, P2P share, remove, storage budget,
+  tile serving from local blobs.
+- **D-II.2 — Extension dropped**: no in-app town search, no draw-rect, no
+  compiled-in world map. A coarse world overview is **just another package**
+  the tool produces; imported like any region, it renders as the base layer.
+- **D-II.3 — Tool UX = form, no embedded map**: source URL, optional Nominatim
+  town lookup (fills the bbox), manual W/S/E/N + zoom range, live tile count,
+  progress + cancel. No QtWebEngine.
+- **D-II.4 — Distribution fully manual** (USB / own Enigma Cloud via Files
+  tab / any channel); the BLAKE3-verified `map_region_import` stays the single
+  entry point. No in-app Cloud→Maps coupling.
+
+## Part A — app simplification
+
+Deletions across `maps.rs` (remote backend, download task machinery,
+task registry + events; `map_get_tile`/`map_source_info` become
+regions-only), `lib.rs` (handler list, shutdown hooks, BuildConfigSummary
+fields), `build_config.yaml`+`build.rs` (`maps:` shrinks to `enabled`;
+`features.map_remote_tiles` gone), `cloud.rs` (revert pub(crate) widenings),
+rakotis `appStorage.ts` (remote settings + BuildConfig fields), app UI
+(RegionsPanel download card, store download state, ConfigView remote rows),
+i18n en+pl, and the affected tests. Plus one polish: `map_region_import`
+auto-detects a `<stem>.manifest.json` sidecar when none is passed, so tool
+packages get full BLAKE3 verification automatically.
+
+## Part B — `tools/map_packager/` (PyQt6, video_tools conventions)
+
+Flat module dir run with `python main.py`; requirements.txt = PyQt6,
+pmtiles>=3.7, requests, blake3. QThread worker + pyqtSignal progress +
+threading.Event cancel; QSS-token theme. Modules: main/window/theme/utils,
+`packager.py` (tab+worker), `pm_source.py` (requests range `get_bytes` +
+extraction loop), `tile_math.py` + `manifest.py` (pure, pytest-covered),
+`geocode.py` (Nominatim jsonv2, honest UA, editable endpoint). Output package
+= `<name>.pmtiles` + `<name>.manifest.json` in the exact `MapRegionManifest`
+shape the app verifies. "Coarse world (z0–5)" one-click preset. Python
+`pmtiles` 3.7.0 has reader+writer (verified); exact signatures pinned by a
+step-0 spike (hard gate — writer unusable ⇒ stop and reconsider).
+
+## Steps
+
+0 spike (gate) · 1 app deletions (all suites green + grep-clean) ·
+2 sidecar auto-detect + tests · 3 tool pure modules + pytest · 4 tool UI +
+real-archive run (city + world packages) · 5 end-to-end import/share in app ·
+6 docs (technology.md, build.md, tool README, this file's outcome note) ·
+7 full gates.

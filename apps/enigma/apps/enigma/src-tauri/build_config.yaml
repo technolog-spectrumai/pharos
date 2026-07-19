@@ -55,6 +55,13 @@ kanban:
   max_card_title_len: 200
   max_card_description_len: 4000
 
+maps:
+  # false = this build has no Maps: no Map tab, /map redirects, and every map_*
+  # command fails fast with MAPS_DISABLED. Default true ships the feature.
+  # The app NEVER fetches tiles itself — region packages are produced by the
+  # standalone tools/map_packager and imported from the device (map.md Part II).
+  enabled: true
+
 features:
   # Initial values for a NEW profile's toggles. Runtime Settings switches still
   # override per profile; profiles saved by any build keep their stored values.
@@ -72,6 +79,7 @@ settings:
   connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
   max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
+  map_storage_limit_mb:  { default: 512, min: 64, max: 65536 }   # total on-disk map regions
 
 network:
   # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the

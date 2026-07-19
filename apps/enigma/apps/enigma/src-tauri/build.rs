@@ -21,6 +21,7 @@ struct RawConfig {
     p2p: P2pSection,
     crypto: CryptoSection,
     kanban: KanbanSection,
+    maps: MapsSection,
     features: FeaturesSection,
     settings: SettingsSection,
     network: NetworkSection,
@@ -76,6 +77,12 @@ struct KanbanSection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MapsSection {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FeaturesSection {
     use_tor: bool,
     stable_onion: bool,
@@ -89,6 +96,7 @@ struct SettingsSection {
     connect_timeout_secs: Clamp,
     dht_room_publish_secs: Clamp,
     max_file_size_mb: Clamp,
+    map_storage_limit_mb: Clamp,
 }
 
 #[derive(Deserialize)]
@@ -192,6 +200,7 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         ("settings.connect_timeout_secs", &cfg.settings.connect_timeout_secs, 1u64),
         ("settings.dht_room_publish_secs", &cfg.settings.dht_room_publish_secs, 10u64),
         ("settings.max_file_size_mb", &cfg.settings.max_file_size_mb, 0u64),
+        ("settings.map_storage_limit_mb", &cfg.settings.map_storage_limit_mb, 1u64),
     ];
     for (path, c, floor) in clamps {
         if !(c.min <= c.default && c.default <= c.max) {
@@ -300,6 +309,9 @@ pub mod settings {{
     pub const MAX_FILE_SIZE_DEFAULT_MB: u64 = {fs_def};
     pub const MAX_FILE_SIZE_MIN_MB: u64 = {fs_min};
     pub const MAX_FILE_SIZE_MAX_MB: u64 = {fs_max};
+    pub const MAP_STORAGE_LIMIT_DEFAULT_MB: u64 = {ms_def};
+    pub const MAP_STORAGE_LIMIT_MIN_MB: u64 = {ms_min};
+    pub const MAP_STORAGE_LIMIT_MAX_MB: u64 = {ms_max};
 }}
 
 pub mod network {{
@@ -318,6 +330,10 @@ pub mod kanban {{
     pub const MAX_CARDS_PER_BOARD: u32 = {kanban_max_cards};
     pub const MAX_CARD_TITLE_LEN: u32 = {kanban_max_title};
     pub const MAX_CARD_DESCRIPTION_LEN: u32 = {kanban_max_desc};
+}}
+
+pub mod maps {{
+    pub const ENABLED: bool = {maps_enabled};
 }}
 
 // ── compile-time algorithm asserts against the vendored crates ──────────────
@@ -378,6 +394,9 @@ const _: () = assert!(
         fs_def = cfg.settings.max_file_size_mb.default,
         fs_min = cfg.settings.max_file_size_mb.min,
         fs_max = cfg.settings.max_file_size_mb.max,
+        ms_def = cfg.settings.map_storage_limit_mb.default,
+        ms_min = cfg.settings.map_storage_limit_mb.min,
+        ms_max = cfg.settings.map_storage_limit_mb.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
         chunk = cfg.network.transfer_chunk_bytes,
@@ -396,6 +415,7 @@ const _: () = assert!(
         kanban_max_cards = cfg.kanban.max_cards_per_board,
         kanban_max_title = cfg.kanban.max_card_title_len,
         kanban_max_desc = cfg.kanban.max_card_description_len,
+        maps_enabled = cfg.maps.enabled,
     );
     o
 }

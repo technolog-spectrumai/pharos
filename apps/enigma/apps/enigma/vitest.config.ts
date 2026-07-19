@@ -6,6 +6,9 @@ import vue from "@vitejs/plugin-vue";
 // subpaths are aliased to a lightweight stub so jsdom never loads the real
 // editor — the editor's logic is covered through mocked interactions instead.
 const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
+// maplibre-gl needs WebGL — same treatment as ace: an inert stub in jsdom.
+const maplibreStub = new URL("./tests/stubs/maplibre.ts", import.meta.url).pathname;
+const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("../../node_modules/rakotis/src/index.ts", import.meta.url).pathname;
 
 export default defineConfig({
@@ -15,6 +18,8 @@ export default defineConfig({
       { find: /^rakotis$/, replacement: rakotisSrc },
       { find: /^ace-builds\/src-noconflict\/ace$/, replacement: aceStub },
       { find: /^ace-builds\/src-noconflict\/.*/, replacement: aceStub },
+      { find: /^maplibre-gl\/dist\/maplibre-gl\.css$/, replacement: cssStub },
+      { find: /^maplibre-gl$/, replacement: maplibreStub },
     ],
   },
   test: {

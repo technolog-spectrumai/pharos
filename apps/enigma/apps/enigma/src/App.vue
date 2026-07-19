@@ -7,7 +7,7 @@ import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
-import { OyaButton, OyaTextField, vaultStatus, vaultSetup, vaultUnlock } from "rakotis";
+import { OyaButton, OyaTextField, getBuildConfig, vaultStatus, vaultSetup, vaultUnlock } from "rakotis";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
@@ -106,6 +106,8 @@ const meetings = chatStore.meetings;
 // Board tab (compile-time gated): remote board changes awaiting a look.
 const kanban = chatStore.kanban;
 const kanbanEnabled = chatStore.kanbanEnabled;
+// Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
+const mapsEnabled = getBuildConfig().maps_enabled;
 
 // Close menu on navigation
 watch(() => route.path, () => {
@@ -221,6 +223,10 @@ watch(() => route.path, () => {
               :title="$t('kanban.attentionTitle')"
             />
           </RouterLink>
+          <RouterLink v-if="mapsEnabled" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
+            <font-awesome-icon icon="map" />
+            {{ $t('nav.map') }}
+          </RouterLink>
           <RouterLink to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
@@ -307,6 +313,10 @@ watch(() => route.path, () => {
               v-if="(kanban?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
+          </RouterLink>
+          <RouterLink v-if="mapsEnabled" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="map" class="w-4 text-center" />
+            {{ $t('nav.map') }}
           </RouterLink>
           <RouterLink to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />

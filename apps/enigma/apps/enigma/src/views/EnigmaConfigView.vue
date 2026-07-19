@@ -32,6 +32,8 @@ import {
   DHT_PRESENCE_POLL_MAX_SECS,
   getMaxFileSizeMb,
   setMaxFileSizeMb,
+  getMapStorageLimitMb,
+  setMapStorageLimitMb,
   getFileKeyRotationDays,
   setFileKeyRotationDays,
   FILE_KEY_ROTATION_MIN_DAYS,
@@ -226,6 +228,18 @@ async function saveMaxFileSize() {
   setTimeout(() => { maxFileSizeSaved.value = false; }, 1500);
 }
 
+// ── Maps: on-disk storage budget for imported regions ──────────────────────────
+// Hidden entirely in maps-disabled builds. The app never downloads tiles —
+// region packages come from the standalone map_packager tool (map.md Part II).
+const mapsEnabled = buildCfg.maps_enabled;
+const mapStorageLimitMb = ref(buildCfg.map_storage_limit_mb.default);
+const mapStorageSaved = ref(false);
+async function saveMapStorageLimit() {
+  mapStorageLimitMb.value = await setMapStorageLimitMb(Number(mapStorageLimitMb.value));
+  mapStorageSaved.value = true;
+  setTimeout(() => { mapStorageSaved.value = false; }, 1500);
+}
+
 // ── Local-file key-rotation reminder interval (0 = off) ────────────────────────
 // Flags locked files in Files → Local whose key is older than N days. Reminder
 // only: rotation always needs the passphrase, so nothing rotates in the background.
@@ -291,6 +305,7 @@ onMounted(async () => {
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   meetingReminderMins.value = await getMeetingReminderMins();
   maxFileSizeMb.value = await getMaxFileSizeMb();
+  mapStorageLimitMb.value = await getMapStorageLimitMb();
   fileKeyRotationDays.value = await getFileKeyRotationDays();
   dhtDiscovery.value = await getDhtDiscovery();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
@@ -545,6 +560,37 @@ async function clearSelectedOfflineData() {
           />
           <span class="text-xs opacity-60">MB</span>
           <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+    </OyaCard>
+
+    <!-- Maps — the on-disk storage budget for imported offline regions. -->
+    <OyaCard v-if="mapsEnabled" :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.mapsSection') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="download" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.mapStorageLimit') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.mapStorageLimitHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="mapStorageLimitMb"
+            type="number"
+            :aria-label="$t('config.mapStorageLimit')"
+            :min="buildCfg.map_storage_limit_mb.min"
+            :max="buildCfg.map_storage_limit_mb.max"
+            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveMapStorageLimit"
+            @keyup.enter="saveMapStorageLimit"
+          />
+          <span class="text-xs opacity-60">MB</span>
+          <span v-if="mapStorageSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
     </OyaCard>

@@ -10,6 +10,8 @@ test.describe("DHT discovery — Settings card", () => {
   test("toggle reveals the controls, status degrades honestly, and persists across reload", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: "Settings" }).first().click();
+    // The DHT card moved to the Connections sub-tab.
+    await page.getByRole("button", { name: "Connections" }).click();
 
     const dhtSwitch = page.getByRole("switch", { name: "DHT discovery" });
     await expect(dhtSwitch).toBeVisible();
@@ -28,6 +30,7 @@ test.describe("DHT discovery — Settings card", () => {
     // The setting rides the localStorage kv fallback — survives a reload.
     await page.reload();
     await page.getByRole("link", { name: "Settings" }).first().click();
+    await page.getByRole("button", { name: "Connections" }).click();
     await expect(page.getByRole("switch", { name: "DHT discovery" })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -96,8 +99,9 @@ test.describe("Contacts tab", () => {
       page.getByText("Enable DHT discovery in Settings", { exact: false }).first(),
     ).toBeVisible();
 
-    // Turn DHT on in Settings, come back.
+    // Turn DHT on in Settings (Connections sub-tab), come back.
     await page.getByRole("link", { name: "Settings" }).first().click();
+    await page.getByRole("button", { name: "Connections" }).click();
     await page.getByRole("switch", { name: "DHT discovery" }).click();
     await page.getByRole("link", { name: "Contacts" }).first().click();
 

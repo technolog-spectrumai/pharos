@@ -135,6 +135,10 @@ details):
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
   vaults only.
+- `kanban` / `maps` — feature kill switches (`enabled: false` builds without the
+  Board / Map tab) plus kanban's caps. `maps` has no other knobs: the app has no
+  tile-fetch path at all — region packages are produced by the standalone
+  `tools/map_packager` and imported from the device (see map.md Part II).
 - `features` / `settings` — new-profile defaults and settings defaults+clamps.
 - `network` — frame cap (**wire-interop**: all peers must agree), onion port,
   chunk sizes, Tor timeouts.
@@ -233,7 +237,22 @@ Native-dependency notes: `webkit2gtk` is Linux-only (cfg-guarded; Android uses t
 system WebView); `cpal` uses the `oboe-shared-stdcxx` feature on Android (already
 declared in `Cargo.toml`); arti's transitive `rusqlite` is pinned `bundled` on
 Android (the NDK ships no `libsqlite3` — the pin compiles SQLite from source); all
-vendored crates are pure Rust and cross-compile fine.
+vendored crates are pure Rust and cross-compile fine; `pmtiles` (Maps) is pure
+Rust too (mmap via `fmmap`) — no extra native deps.
+
+Offline map assets: `apps/enigma/public/map/` bundles the Map tab's glyphs (a
+Latin/Greek/Cyrillic subset of the Noto Sans stacks, OFL-licensed — `OFL.txt`
+sits alongside) and the v4 light sprite sheet from
+[protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets), so map
+styling never fetches from a CDN. To widen script coverage, copy more range
+`.pbf` files from that repo into the same folders.
+
+Map region packages are NOT built here: the standalone PyQt6 tool
+[tools/map_packager](tools/map_packager) (`pip install -r requirements.txt`,
+`python main.py`; pytest suite in `tools/map_packager/tests`) extracts
+bbox/zoom subsets from any PMTiles archive over HTTP range requests and writes
+`<name>.pmtiles` + `<name>.manifest.json` — the pair the app's
+Maps → Regions → Import verifies (BLAKE3 + manifest, sidecar auto-detected).
 
 ### Build the APK / AAB
 
@@ -325,6 +344,10 @@ python apps/enigma/e2e.py                  # Playwright smoke tier (no backend �
   missing or mismatched; reinstall them.
 - **First Rust compile is very slow / high memory** — expected for the initial
   build; subsequent runs are incremental.
+- **Map tab says "WebGL is unavailable" (Linux)** — WebKitGTK's DMABUF renderer
+  can break WebGL on some GPUs/drivers. Launch with
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./run_dev.sh` (or export it for the installed
+  app); only the map canvas needs WebGL, everything else is unaffected.
 
 **Desktop build:**
 

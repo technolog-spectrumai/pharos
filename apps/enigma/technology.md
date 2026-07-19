@@ -143,7 +143,8 @@ which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
 | `iroh-gossip` | 0.98 | Epidemic broadcast over a topic (one room = one topic) |
 | `mainline` | 6 | Direct BEP44 access to the BitTorrent Mainline DHT (room rendezvous, [§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | `postcard` | 1 | Serialize the pairing `Ticket` / room codes / archives |
-| `blake3` | 1 | Topic id = `blake3(room name)`; DHT key derivation |
+| `blake3` | 1 | Topic id = `blake3(room name)`; DHT key derivation; map-region content addressing |
+| `pmtiles` | 0.23 | PMTiles v3 read/write for the Map tab: mmap'd local region blobs (`maps.rs`; minimal features — no reqwest/S3/zstd). The app never fetches tiles — packages come from `tools/map_packager` |
 | `data-encoding` | 2 | BASE32 (no-pad) ticket/code text encoding |
 | `bytes`, `futures-lite`, `anyhow` | — | Gossip stream plumbing, error handling |
 | `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor: outbound client (`tor.rs`) **and** `onion-service-service` hosting for the onion transport (`p2p_tor.rs`) |
@@ -185,7 +186,9 @@ compile-time `build_config.yaml` codegen ([build.md](build.md)).
 **Used at runtime:** `vue` 3.5, `vue-router` 5 (`createMemoryHistory`), `pinia`,
 `vue-i18n` 9 (en/pl), `tailwindcss` 4, `@fortawesome/*`, `@tauri-apps/api` 2,
 `qrcode` (generate ticket/NodeId QR), `html5-qrcode` (scan), `nanoid` (message ids),
-and the in-repo `rakotis` workspace package.
+`maplibre-gl` 5 (Map tab canvas; WebGL), `protomaps-themes-base` 4 (basemap style
+layers as code — glyphs/sprites are bundled under `public/map/`, so styling makes
+no CDN contact), and the in-repo `rakotis` workspace package.
 
 **Dormant / carried from the earlier multi-app codebase (declared but unused by this
 app):** `cytoscape`, `leaflet`, `ace-builds` (+ their `@types`). Dead weight worth
@@ -473,13 +476,18 @@ below) / `export_state` + `import_state` (serializable session).
 | QR ticket contents | iroh: leaks the **plaintext room name** + the creator's **NodeId + IP addresses**. Tor: leaks the room name + the creator's `.onion` (no IP). |
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
+| Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
 **At-rest posture.** All persisted state is sealed in the per-profile protasius vault
 (Argon2id-derived key wrap, XChaCha20-Poly1305 values, AAD-bound to each record's
 location). The plaintext exceptions are: the vault header `vault.json` (salt +
-wrapped DEK — useless without the passphrase), and — only while the app is unlocked
+wrapped DEK — useless without the passphrase); map-region blobs
+(`profiles/<p>/maps/<blake3>.pmtiles` — public map data, immutable and
+content-addressed, so filenames carry no coordinates; which area they cover, plus
+all pins/routes, lives only in sealed kv — accepted because whole-blob sealing
+is incompatible with the random-access reads the map needs); and — only while the app is unlocked
 *and* "keep onion stable" is on — arti's materialized onion keystore, which is sealed
 back into the vault and wiped on lock/exit (a crash can leave it until the next
 unlock's sweep). `zeroize` scrubs transient RAM buffers; `wipe_file` is a
@@ -569,6 +577,15 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   online"), find-by-nickname, invite-to-room, call buttons ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 - **Calendar** (`EnigmaCalendarView`) — room-scoped meetings + scheduling polls over
   the MLS seam; local OS notification reminders (lead time in Settings).
+- **Map** (`EnigmaMapView` / `MapPanel`, `RegionsPanel`) — fully offline MapLibre map
+  over imported PMTiles region packages: immutable content-addressed blobs made by
+  the standalone `tools/map_packager` (the app never talks to tile servers),
+  imported from the device with BLAKE3 + manifest verification and storage-budgeted;
+  import/export region files, private pins + hand-drawn routes (sealed kv), and
+  room sharing — pins/routes as compact MLS chat cards ("Open in Maps" is always an
+  explicit action), region files over the P2P file-transfer path (never MLS).
+  Compile-time gated (`maps.enabled`). No geolocation, no tracking, no directions
+  engine.
 - **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; "My identity" NodeId QR;
   connection timeout; max file size; meeting reminder; DHT discovery + cadences +
@@ -784,6 +801,10 @@ Settings → "Clear all data".
   nonce(24) ‖ ct+tag`, AAD `enigma:localfile:v1` (constant, so locked files can be
   renamed/moved). The passphrase is never stored; the UI keeps only a record of
   which files are locked (kv ns `files:local`).
+- **Maps data:** region manifests (`map:regions`), pins (`map:pins`) and routes
+  (`map:routes`) are sealed kv like everything else — coordinates never persist
+  outside the vault. The region *blobs* are the documented plaintext exception
+  (see §8 at-rest posture).
 
 Notes: the first profile to run setup inherited the previously-global kvstore and
 iroh key; other profiles start fresh (accepted pre-release). Values decrypted for
@@ -822,7 +843,7 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
 `kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`,
-`invite_*`, `vox_*`, `cloud_*`, `local_*`. All registered in the single
+`invite_*`, `vox_*`, `cloud_*`, `local_*`, `map_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -834,8 +855,9 @@ single event multiplexes all rooms, the payload carries the room id), plus
 `invite://incoming|resolved`, `vox://*`.
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
-Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `contacts`,
-`fileShare`, `profile`, `vault`, `files`. Interpolation uses single-brace named
+Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `kanban`,
+`map`, `contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `cloud`,
+`local`. Interpolation uses single-brace named
 tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
@@ -919,6 +941,8 @@ instead of hardcoding.
 | Feature defaults (tor/stable/dht) | `build_config.yaml` `features:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable) |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
+| Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
+| Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests. `build_config.yaml` `app:` must mirror it — `build.rs` fails the build on drift |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
@@ -1003,6 +1027,10 @@ recording; offline profiles and the airplane switch.
   `edge/apps/*` still build from `toto/rotors/` — repointing or retiring edge is a
   separate decision.)
 - **Compile-time build config** (`build_config.yaml`, [§15](#15-config--sources-of-truth)).
+- **Maps** (MapLibre + PMTiles, `maps.rs` + `EnigmaMapView`): fully offline regions
+  imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
+  manifest verified), P2P region sharing over file_xfer, pins/routes as MLS chat
+  cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
 
 ---
 

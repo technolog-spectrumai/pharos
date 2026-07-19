@@ -86,6 +86,10 @@ export interface BuildConfig {
   kanban_max_cards_per_board: number;
   kanban_max_card_title_len: number;
   kanban_max_card_description_len: number;
+  /** false = this build has no Maps: no Map tab, /map redirects, map_* commands
+   *  error. The app never fetches tiles — region packages come from the
+   *  standalone tools/map_packager and are imported from the device. */
+  maps_enabled: boolean;
   use_tor_default: boolean;
   stable_onion_default: boolean;
   dht_discovery_default: boolean;
@@ -93,6 +97,7 @@ export interface BuildConfig {
   connect_timeout_secs: SettingClamp;
   dht_room_publish_secs: SettingClamp;
   max_file_size_mb: SettingClamp;
+  map_storage_limit_mb: SettingClamp;
 }
 
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
@@ -109,6 +114,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   kanban_max_cards_per_board: 500,
   kanban_max_card_title_len: 200,
   kanban_max_card_description_len: 4000,
+  maps_enabled: true,
   use_tor_default: false,
   stable_onion_default: false,
   dht_discovery_default: false,
@@ -116,6 +122,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   connect_timeout_secs: { default: 60, min: 5, max: 600 },
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 },
   max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
+  map_storage_limit_mb: { default: 512, min: 64, max: 65536 },
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -304,6 +311,40 @@ export async function getMeetingReminderMins(): Promise<number> {
 export async function setMeetingReminderMins(mins: number): Promise<number> {
   const v = clampMeetingReminderMins(mins);
   await kvPut("p2p:settings", "default", "meeting_reminder_mins", String(v)).catch(() => {});
+  return v;
+}
+
+// ── Maps (MapLibre + PMTiles — imported offline regions) ──────────────────────
+// The app never fetches tiles; region packages are produced by the standalone
+// tools/map_packager and imported from the device (map.md Part II).
+
+// Total on-disk budget for imported map regions, enforced in Rust before every
+// region import.
+
+export const MAP_STORAGE_LIMIT_DEFAULT_MB = 512;
+export const MAP_STORAGE_LIMIT_MIN_MB = 64;
+export const MAP_STORAGE_LIMIT_MAX_MB = 64 * 1024;
+
+export function clampMapStorageLimitMb(mb: number): number {
+  const c = getBuildConfig().map_storage_limit_mb;
+  if (!Number.isFinite(mb)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(mb)));
+}
+
+export async function getMapStorageLimitMb(): Promise<number> {
+  const c = getBuildConfig().map_storage_limit_mb;
+  try {
+    const raw = await kvGet("p2p:settings", "default", "map_storage_limit_mb");
+    if (raw === null || raw === "") return c.default;
+    return clampMapStorageLimitMb(Number(raw));
+  } catch {
+    return c.default;
+  }
+}
+
+export async function setMapStorageLimitMb(mb: number): Promise<number> {
+  const v = clampMapStorageLimitMb(mb);
+  await kvPut("p2p:settings", "default", "map_storage_limit_mb", String(v)).catch(() => {});
   return v;
 }
 
