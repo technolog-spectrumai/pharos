@@ -56,9 +56,12 @@ export const policy = {
      *  fallback to `initBuildConfig`. */
     defaultMaxFileSizeMb: 16,
   },
-  /** Maps UI policy (privacy-neutral defaults: a world view leaks nothing). */
+  /** Maps UI policy. */
   map: {
-    /** Initial view: whole-world, never a stored/last location. */
+    /** Initial view when NO region is active: whole-world. When the user has
+     *  explicitly activated a region, the map deliberately opens spread to it
+     *  (their own choice, stored sealed per profile) — that is the one
+     *  sanctioned "stored location" in the app. */
     defaultCenter: [10, 30] as [number, number], // [lng, lat]
     defaultZoom: 1.5,
     /** Source maxzoom used until map_source_info answers (protomaps builds

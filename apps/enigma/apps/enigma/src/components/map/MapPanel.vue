@@ -7,7 +7,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import layersFn, { labels as labelsFn } from "protomaps-themes-base";
+import layersFn from "protomaps-themes-base";
 import {
   isTauri,
   invoke,
@@ -32,6 +32,8 @@ const store = useMapStore();
 const chatStore = useChatStore();
 
 const container = ref<HTMLDivElement | null>(null);
+/** True once unmount begins — boot must not touch the DOM past this point. */
+let disposed = false;
 const ready = ref(false);
 const webglOk = ref(true);
 const tauri = isTauri();
@@ -159,7 +161,19 @@ onMounted(async () => {
   try {
     const info = await invoke<{ maxZoom: number } | null>("map_source_info");
     if (info) maxZoom = info.maxZoom;
-  } catch { /* no source yet — regions/remote may come later */ }
+  } catch { /* no source yet — more regions may be imported later */ }
+
+  // The awaits above can outlive this instance: reload() resolving the
+  // persisted active region changes the parent's :key, which unmounts us
+  // mid-boot (and a fast sub-tab flip does the same). By then the template
+  // ref is nulled — constructing the Map would throw in _resolveContainer
+  // ("Enigma hit an error while starting"). The replacement instance, keyed
+  // on the resolved id, performs the real init.
+  if (disposed || !container.value) return;
+
+  // Offline style assets under public/map/, resolved against the app origin
+  // (tauri://localhost in the bundle, the Vite port in dev). No trailing slash.
+  const assetBase = new URL("/map", location.href).toString().replace(/\/$/, "");
 
   map = new maplibregl.Map({
     container: container.value,
@@ -169,8 +183,12 @@ onMounted(async () => {
     maxZoom: 20,
     style: {
       version: 8,
-      glyphs: new URL("/map/glyphs/{fontstack}/{range}.pbf", location.href).toString(),
-      sprite: new URL("/map/sprites/v4/light", location.href).toString(),
+      // NOTE: build these by concatenation, NOT `new URL(...)` — the URL
+      // constructor percent-encodes the braces ("%7Bfontstack%7D") and
+      // MapLibre then rejects the style for missing its {fontstack}/{range}
+      // tokens, which aborts the whole style load (blank canvas).
+      glyphs: `${assetBase}/glyphs/{fontstack}/{range}.pbf`,
+      sprite: `${assetBase}/sprites/v4/light`,
       sources: {
         protomaps: {
           type: "vector",
@@ -179,10 +197,9 @@ onMounted(async () => {
           attribution: "© OpenStreetMap contributors, Protomaps",
         },
       },
-      layers: [
-        ...layersFn("protomaps", "light", "en"),
-        ...labelsFn("protomaps", "light", "en"),
-      ],
+      // `layers()` ALREADY includes the 11 label layers — spreading `labels()`
+      // on top duplicates every id, which fails style validation outright.
+      layers: layersFn("protomaps", "light", "en"),
     },
   });
 
@@ -204,6 +221,17 @@ onMounted(async () => {
     });
     refreshPins();
     ready.value = true;
+    // Spread to the active region on every boot (D8 — a deliberate policy
+    // choice, see config/app.ts policy.map). Runs BEFORE applyPendingFocus so
+    // an explicitly opened chat-card pin/route still wins the camera. Region
+    // bboxes are [west, south, east, north] — already maplibre lng/lat order.
+    const active = store.activeRegion;
+    if (active) {
+      map.fitBounds(
+        [[active.bbox[0], active.bbox[1]], [active.bbox[2], active.bbox[3]]],
+        { padding: 60, maxZoom: 15, animate: false },
+      );
+    }
     applyPendingFocus();
   });
 
@@ -211,6 +239,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
   for (const marker of pinMarkers.values()) marker.remove();
   pinMarkers.clear();
   focusMarker?.remove();
@@ -352,6 +381,15 @@ function dismissFocus() {
     <template v-else>
       <div class="relative min-h-[24rem] flex-1 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1">
         <div ref="container" class="absolute inset-0" data-testid="map-canvas" />
+
+        <!-- Active-region chip (D9) — read-only; deactivation lives in Regions. -->
+        <div
+          v-if="store.activeRegion"
+          class="absolute right-3 top-3 z-10 max-w-[50%] truncate rounded-full bg-accent-light/85 px-3 py-1 text-xs font-semibold text-white dark:bg-accent-dark/85"
+          :title="$t('map.activeBadge')"
+        >
+          <font-awesome-icon icon="layer-group" /> {{ store.activeRegion.name }}
+        </div>
 
         <!-- Toolbar -->
         <div class="absolute left-3 top-3 z-10 flex flex-col gap-2">

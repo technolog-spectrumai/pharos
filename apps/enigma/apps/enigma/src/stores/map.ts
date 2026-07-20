@@ -14,13 +14,15 @@
 // Any Err string starting with "MAPS_STORAGE_LIMIT" means the storage budget
 // blocked an import — surfaced verbatim under the usage bar.
 
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 import { nanoid } from "nanoid";
 import {
   isTauri,
   invoke,
   getBuildConfig,
+  getMapActiveRegion,
+  setMapActiveRegion,
   listPins,
   listRoutes,
   upsertPin,
@@ -64,6 +66,13 @@ export const useMapStore = defineStore("map", () => {
   const pendingFocus = ref<MapShare | null>(null);
   /** Latest storage/import error (MAPS_STORAGE_LIMIT etc.), shown in Regions. */
   const lastError = ref<string | null>(null);
+  /** Active (priority) region id, or null — restored from the sealed setting
+   *  on reload. Rust reads the same key for tile ordering; removing the
+   *  region clears it Rust-side. */
+  const activeRegionId = ref<string | null>(null);
+  const activeRegion = computed(
+    () => regions.value.find((r) => r.id === activeRegionId.value) ?? null,
+  );
 
   // ── event wiring (once, lazily — pattern: chatTransport.ensureListeners) ────
   let listenersReady = false;
@@ -109,8 +118,16 @@ export const useMapStore = defineStore("map", () => {
         );
         usedBytes.value = usage.usedBytes;
         limitBytes.value = usage.limitBytes;
+        // Fail soft: an id that no longer resolves means "no active region".
+        // The kv is deliberately left alone — map_region_remove owns clearing
+        // it, and a read must never mutate a setting.
+        const stored = await getMapActiveRegion();
+        activeRegionId.value =
+          stored && regions.value.some((r) => r.id === stored) ? stored : null;
       } catch {
         regions.value = [];
+        // activeRegionId is intentionally untouched: a transient command
+        // failure must not look like "the region is gone" and drop the choice.
       }
     }
   }
@@ -142,6 +159,13 @@ export const useMapStore = defineStore("map", () => {
   }
 
   // ── regions ─────────────────────────────────────────────────────────────────
+  /** Activate (id) or deactivate (null) the priority region. Camera moves are
+   *  the Map panel's business — it fits the active region on every mount. */
+  async function setActiveRegion(id: string | null): Promise<void> {
+    activeRegionId.value = id;
+    await setMapActiveRegion(id ?? "");
+  }
+
   async function removeRegion(id: string): Promise<void> {
     await invoke("map_region_remove", { id });
     await reload();
@@ -230,8 +254,8 @@ export const useMapStore = defineStore("map", () => {
   return {
     mapsEnabled,
     regions, pins, routes, usedBytes, limitBytes, receives,
-    pendingFocus, lastError,
-    reload,
+    pendingFocus, lastError, activeRegionId, activeRegion,
+    reload, setActiveRegion,
     addPin, savePin, deletePin, addRoute, deleteRoute,
     removeRegion, importRegion, exportRegion,
     offerRegion, acceptRegionShare,

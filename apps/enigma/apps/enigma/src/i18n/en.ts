@@ -427,6 +427,10 @@ export default {
     regionsTitle: "Saved regions",
     noRegions: "No offline regions yet — import a region package (.pmtiles) made with the Enigma map packager.",
     importButton: "Import…",
+    activate: "Activate",
+    deactivate: "Deactivate",
+    activeBadge: "Active",
+    activateHint: "Use as the current map — its tiles are served first and the view opens on it; the other regions fill the rest.",
     exportButton: "Export",
   },
   contacts: {

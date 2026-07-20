@@ -43,6 +43,11 @@ const SETTINGS_NS: &str = "p2p:settings";
 const SETTINGS_SCOPE: &str = "default";
 const REGIONS_SCOPE: &str = "default";
 const REGIONS_KEY: &str = "";
+/// Active (priority) region for tile resolution — sealed per-profile setting;
+/// the frontend writes it via rakotis appStorage.setMapActiveRegion. Device-
+/// local by design: deliberately NOT in device_link::SYNC_KV (each device
+/// imports its own packages, so a synced id would usually dangle).
+const KEY_ACTIVE_REGION: &str = "map_active_region";
 
 /// Caps mirrored from rakotis mapModel.ts — the Rust side re-validates
 /// independently and never trusts the frontend or the wire.
@@ -71,6 +76,14 @@ fn storage_limit_bytes(app: &AppHandle) -> u64 {
         None => s::MAP_STORAGE_LIMIT_DEFAULT_MB,
     };
     mb.saturating_mul(1024 * 1024)
+}
+
+/// The active region id, or None ("" and absent read identically — the TS
+/// clear path writes "" while map_region_remove deletes the row).
+fn active_region_id(app: &AppHandle) -> Option<String> {
+    vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, KEY_ACTIVE_REGION)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 // ── manifest (mirrors rakotis mapModel.ts field-for-field) ────────────────────
@@ -247,6 +260,23 @@ fn write_regions(app: &AppHandle, regions: &[MapRegionManifest]) -> Result<(), S
     vault::kv_put_raw(app, NS_REGIONS, REGIONS_SCOPE, REGIONS_KEY, &json)
 }
 
+// ── lookup order (pure — unit-tested below) ───────────────────────────────────
+
+/// Tile-resolution order: the active region first, then every other region in
+/// stored (newest-first) order — so a coarse world package keeps filling the
+/// gaps a detailed active package doesn't cover. An `active_id` matching
+/// nothing leaves the order untouched: a stale id degrades to "no active
+/// region", never to "no tiles".
+fn ordered_for_lookup(
+    regions: Vec<MapRegionManifest>,
+    active_id: Option<&str>,
+) -> Vec<MapRegionManifest> {
+    let Some(id) = active_id else { return regions };
+    let (mut active, rest): (Vec<_>, Vec<_>) = regions.into_iter().partition(|r| r.id == id);
+    active.extend(rest);
+    active
+}
+
 // ── state ─────────────────────────────────────────────────────────────────────
 
 type LocalReader = AsyncPmTilesReader<MmapBackend, HashMapCache>;
@@ -298,7 +328,7 @@ pub async fn map_get_tile(app: AppHandle, z: u8, x: u32, y: u32) -> Result<tauri
     };
 
     // Local regions (newest first — the order read_regions preserves).
-    for region in read_regions(&app) {
+    for region in ordered_for_lookup(read_regions(&app), active_region_id(&app).as_deref()) {
         if z < region.min_zoom || z > region.max_zoom || !tile_in_bbox(&region.bbox, z, x, y) {
             continue;
         }
@@ -366,6 +396,11 @@ pub async fn map_region_remove(app: AppHandle, id: String) -> Result<(), String>
     let remaining: Vec<MapRegionManifest> =
         regions.into_iter().filter(|r| r.id != id).collect();
     write_regions(&app, &remaining)?;
+    // The active region just went away — clear the pointer rather than leave a
+    // dangling id (best-effort: the read paths fail soft on one anyway).
+    if active_region_id(&app).as_deref() == Some(id.as_str()) {
+        let _ = vault::kv_delete_raw(&app, SETTINGS_NS, SETTINGS_SCOPE, KEY_ACTIVE_REGION);
+    }
     if !remaining.iter().any(|r| r.blake3 == removed.blake3) {
         let _ = std::fs::remove_file(blob_path(&app, &removed.blake3)?);
         app.state::<MapsState>().local_readers.lock().await.remove(&removed.blake3);
@@ -723,6 +758,41 @@ mod tests {
             source_url: "https://example.org/planet.pmtiles".into(),
             version: 1,
         }
+    }
+
+    fn region(id: &str) -> MapRegionManifest {
+        MapRegionManifest {
+            id: id.into(),
+            name: format!("Region {id}"),
+            bbox: [16.8, 52.3, 17.1, 52.5],
+            min_zoom: 0,
+            max_zoom: 12,
+            size: 1,
+            blake3: "a".repeat(64),
+            source_url: String::new(),
+            version: 1,
+        }
+    }
+
+    #[test]
+    fn active_region_is_checked_first() {
+        let ids = |v: Vec<MapRegionManifest>| v.into_iter().map(|r| r.id).collect::<Vec<_>>();
+        let regions = vec![region("a"), region("b"), region("c")];
+        // The active region moves to the front; the rest keep relative order.
+        assert_eq!(ids(ordered_for_lookup(regions.clone(), Some("b"))), ["b", "a", "c"]);
+        assert_eq!(ids(ordered_for_lookup(regions.clone(), Some("c"))), ["c", "a", "b"]);
+        // Already-first stays a no-op reorder.
+        assert_eq!(ids(ordered_for_lookup(regions, Some("a"))), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn unknown_or_absent_active_id_leaves_order_untouched() {
+        let ids = |v: Vec<MapRegionManifest>| v.into_iter().map(|r| r.id).collect::<Vec<_>>();
+        let regions = vec![region("a"), region("b")];
+        // Fail-soft contract: a dangling id degrades to "no active region".
+        assert_eq!(ids(ordered_for_lookup(regions.clone(), Some("gone"))), ["a", "b"]);
+        assert_eq!(ids(ordered_for_lookup(regions.clone(), None)), ["a", "b"]);
+        assert_eq!(ids(ordered_for_lookup(Vec::new(), Some("x"))), Vec::<String>::new());
     }
 
     #[test]

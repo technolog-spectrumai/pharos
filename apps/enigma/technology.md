@@ -584,6 +584,9 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   import/export region files, private pins + hand-drawn routes (sealed kv), and
   room sharing — pins/routes as compact MLS chat cards ("Open in Maps" is always an
   explicit action), region files over the P2P file-transfer path (never MLS).
+  One region can be **activated** (Regions → Activate): served first for tiles
+  (others still fill), badged in the list + a chip on the canvas, the view opens
+  spread to it, and the choice persists sealed per profile (device-local).
   Compile-time gated (`maps.enabled`). No geolocation, no tracking, no directions
   engine.
 - **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
@@ -957,6 +960,7 @@ instead of hardcoding.
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
 | Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
+| Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |
 | Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Settings→Devices tab and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
 | Devlink pairing window / resync cadence | kv `p2p:settings` / `devlink_pair_window_secs`, `devlink_resync_secs` | Window bounds how long a pairing QR's one-time secret stays redeemable (default 600 s, 60–3600; read Rust-side in `device_link.rs`); resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list. Pairing dials use `connect_timeout_secs` like every other connect deadline |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |

@@ -527,3 +527,24 @@ step-0 spike (hard gate — writer unusable ⇒ stop and reconsider).
 real-archive run (city + world packages) · 5 end-to-end import/share in app ·
 6 docs (technology.md, build.md, tool README, this file's outcome note) ·
 7 full gates.
+
+
+---
+
+# Part III — Active region (implemented 2026-07-20)
+
+One imported package can be **activated** as the current map (Q&A-decided:
+priority-not-exclusive, switch+fit on Activate, toggle+badge, sealed per-profile
+persistence, device-local, no auto-activate on import, zoom ceiling stays at the
+union, fly-to-active on boot — a deliberate supersession of the old
+"never a stored location" comment in config/app.ts — plus a canvas chip).
+
+As built: `map_active_region` in sealed kv (`p2p:settings`); Rust
+`ordered_for_lookup` (pure, tested) front-loads the active region in
+`map_get_tile`; `map_region_remove` clears a dangling pointer;
+`map_source_info` unchanged. rakotis `get/setMapActiveRegion`; store
+`activeRegionId`/`activeRegion`/`setActiveRegion` with fail-soft reload
+resolution; RegionsPanel Activate toggle (emit `show-map`) + badge;
+EnigmaMapView `:key` remount = GL tile-cache invalidation; MapPanel fits the
+active bbox on load (before chat-card focus) + shows a name chip. Four i18n
+keys en+pl. NOT in the device-link sync allow-list (pinned by test).

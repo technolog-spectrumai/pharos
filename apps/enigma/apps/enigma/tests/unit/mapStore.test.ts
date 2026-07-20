@@ -157,6 +157,93 @@ describe("map store — accepting a shared region", () => {
   });
 });
 
+describe("map store — active region", () => {
+  // __TAURI_INTERNALS__ is stubbed, so the rakotis accessors go through
+  // invoke("kv_get"/"kv_put") and land in invokeMock like everything else.
+  it("reload restores a stored id that resolves against the region list", async () => {
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "map_regions_list") return [MANIFEST];
+      if (cmd === "map_storage_usage") return { usedBytes: 0, limitBytes: 1 };
+      if (cmd === "kv_get" && args?.k === "map_active_region") return MANIFEST.id;
+      return null;
+    });
+    const store = useMapStore();
+    await store.reload();
+    expect(store.activeRegionId).toBe(MANIFEST.id);
+    expect(store.activeRegion?.name).toBe(MANIFEST.name);
+  });
+
+  it("a dangling stored id fails soft to null WITHOUT writing kv", async () => {
+    const kvPuts: unknown[] = [];
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "map_regions_list") return [MANIFEST];
+      if (cmd === "map_storage_usage") return { usedBytes: 0, limitBytes: 1 };
+      if (cmd === "kv_get" && args?.k === "map_active_region") return "gone";
+      if (cmd === "kv_put") kvPuts.push(args);
+      return null;
+    });
+    const store = useMapStore();
+    await store.reload();
+    expect(store.activeRegionId).toBeNull();
+    expect(kvPuts).toHaveLength(0); // a read must never mutate the setting
+  });
+
+  it("setActiveRegion persists the id; deactivating writes the empty string", async () => {
+    const puts: Array<Record<string, unknown>> = [];
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "kv_put") puts.push(args ?? {});
+      if (cmd === "map_regions_list") return [MANIFEST];
+      if (cmd === "map_storage_usage") return { usedBytes: 0, limitBytes: 1 };
+      return null;
+    });
+    const store = useMapStore();
+    await store.reload();
+    await store.setActiveRegion(MANIFEST.id);
+    expect(store.activeRegionId).toBe(MANIFEST.id);
+    await store.setActiveRegion(null);
+    expect(store.activeRegionId).toBeNull();
+    const mapPuts = puts.filter((p) => p.k === "map_active_region");
+    expect(mapPuts.map((p) => p.v)).toEqual([MANIFEST.id, ""]);
+    expect(mapPuts[0]).toMatchObject({ ns: "p2p:settings", scope: "default" });
+  });
+
+  it("a throwing region list leaves the user's choice intact", async () => {
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "map_regions_list") return [MANIFEST];
+      if (cmd === "map_storage_usage") return { usedBytes: 0, limitBytes: 1 };
+      if (cmd === "kv_get" && args?.k === "map_active_region") return MANIFEST.id;
+      return null;
+    });
+    const store = useMapStore();
+    await store.reload();
+    expect(store.activeRegionId).toBe(MANIFEST.id);
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "map_regions_list") throw "transient";
+      return null;
+    });
+    await store.reload();
+    expect(store.activeRegionId).toBe(MANIFEST.id); // not dropped by a hiccup
+  });
+
+  it("import and the P2P accept path never write the active-region key (D7)", async () => {
+    const puts: Array<Record<string, unknown>> = [];
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "kv_put") puts.push(args ?? {});
+      if (cmd === "map_region_import") return MANIFEST;
+      if (cmd === "map_regions_list") return [MANIFEST];
+      if (cmd === "map_storage_usage") return { usedBytes: 0, limitBytes: 1 };
+      if (cmd === "map_region_recv_path") return "/tmp/recv-x.pmtiles";
+      return null;
+    });
+    const store = useMapStore();
+    await store.importRegion("/tmp/pkg.pmtiles");
+    await store.acceptRegionShare({
+      type: "map_region", v: 1, manifest: MANIFEST, offerId: "o1", addr: "b32",
+    });
+    expect(puts.filter((p) => p.k === "map_active_region")).toHaveLength(0);
+  });
+});
+
 describe("map store — chat-card focus handoff", () => {
   it("focusShare stores the share; consumeFocus hands it over exactly once", () => {
     const store = useMapStore();

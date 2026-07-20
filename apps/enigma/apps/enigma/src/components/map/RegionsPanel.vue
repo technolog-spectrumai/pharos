@@ -21,6 +21,10 @@ const store = useMapStore();
 const chatStore = useChatStore();
 const tauri = isTauri();
 
+// Parent→child UI navigation is an emit; only data that must survive the
+// MapPanel remount (the active id itself) goes through the store.
+const emit = defineEmits<{ (e: "show-map"): void }>();
+
 const torMode = ref(false);
 const shareBusy = ref<string | null>(null);
 
@@ -61,6 +65,18 @@ async function share(region: MapRegionManifest) {
   } finally {
     shareBusy.value = null;
   }
+}
+
+/** Activate = make this the current map and jump to it; pressing again
+ *  deactivates without moving the camera (D3). The kv write must land BEFORE
+ *  the emit — the switch remounts MapPanel, which reads the setting on boot. */
+async function toggleActive(region: MapRegionManifest) {
+  if (store.activeRegionId === region.id) {
+    await store.setActiveRegion(null);
+    return;
+  }
+  await store.setActiveRegion(region.id);
+  emit("show-map");
 }
 
 async function importFile() {
@@ -123,11 +139,28 @@ async function exportFile(region: MapRegionManifest) {
             class="flex flex-wrap items-center gap-2 rounded-lg border border-accent-2 p-2 text-sm dark:border-accent-1"
           >
             <div class="min-w-0 flex-1">
-              <p class="truncate font-semibold">{{ region.name }}</p>
+              <p class="flex items-center gap-2 font-semibold">
+                <span class="truncate">{{ region.name }}</span>
+                <span
+                  v-if="store.activeRegionId === region.id"
+                  class="shrink-0 rounded-full bg-accent-light/20 px-2 py-0.5 text-[0.65rem] font-bold uppercase text-accent-light dark:bg-accent-dark/20 dark:text-accent-dark"
+                >{{ $t('map.activeBadge') }}</span>
+              </p>
               <p class="text-xs opacity-60">
                 {{ human(region.size) }} · z{{ region.minZoom }}–{{ region.maxZoom }}
               </p>
             </div>
+            <button
+              type="button"
+              class="transition"
+              :class="store.activeRegionId === region.id
+                ? 'text-accent-light dark:text-accent-dark'
+                : 'opacity-60 hover:opacity-100'"
+              :title="store.activeRegionId === region.id ? $t('map.deactivate') : $t('map.activateHint')"
+              @click="toggleActive(region)"
+            >
+              <font-awesome-icon icon="layer-group" />
+            </button>
             <button
               type="button"
               class="opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-25"

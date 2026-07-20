@@ -2,6 +2,9 @@
 import { ref } from "vue";
 import MapPanel from "../components/map/MapPanel.vue";
 import RegionsPanel from "../components/map/RegionsPanel.vue";
+import { useMapStore } from "../stores/map";
+
+const mapStore = useMapStore();
 
 // darkMode is class-based (`.dark` on <html>); the prop also drives the
 // segmented pill borders (mirroring EnigmaFilesView's tab pill).
@@ -44,10 +47,19 @@ const activeTab = ref<MapTab>("map");
     </div>
 
     <div class="min-h-0 flex-1">
-      <!-- The MapLibre canvas + private pins/routes. -->
-      <MapPanel v-if="activeTab === 'map'" :dark-mode="darkMode" />
-      <!-- Offline regions: download / import / export / share / remove. -->
-      <RegionsPanel v-else />
+      <!-- The MapLibre canvas + private pins/routes. The :key forces a fresh
+           MapLibre instance when the active region changes: MapLibre caches
+           parsed tiles in the GL source, so a priority switch would otherwise
+           not repaint. (Lighter alternative if a full re-init ever proves too
+           heavy: map.refreshTiles("protomaps") — reloads tiles but cannot
+           change source maxzoom.) -->
+      <MapPanel
+        v-if="activeTab === 'map'"
+        :key="mapStore.activeRegionId ?? 'none'"
+        :dark-mode="darkMode"
+      />
+      <!-- Offline regions: import / export / share / activate / remove. -->
+      <RegionsPanel v-else @show-map="activeTab = 'map'" />
     </div>
   </div>
 </template>

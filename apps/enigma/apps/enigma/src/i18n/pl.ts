@@ -427,6 +427,10 @@ export default {
     regionsTitle: "Zapisane regiony",
     noRegions: "Brak regionów offline — zaimportuj pakiet regionu (.pmtiles) utworzony w pakowaczu map Enigmy.",
     importButton: "Importuj…",
+    activate: "Aktywuj",
+    deactivate: "Dezaktywuj",
+    activeBadge: "Aktywny",
+    activateHint: "Użyj jako bieżącej mapy — jej kafelki są serwowane jako pierwsze, a widok otwiera się na niej; pozostałe regiony uzupełniają resztę.",
     exportButton: "Eksportuj",
   },
   contacts: {
