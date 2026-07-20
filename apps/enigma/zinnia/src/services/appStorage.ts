@@ -668,6 +668,97 @@ export async function removeLockedFile(path: string): Promise<void> {
   await saveLockedFiles(list);
 }
 
+// ── Local notes (editing local text files) ────────────────────────────────────
+// The editor opens plain files directly and locked ones after a passphrase prompt;
+// a locked file is decrypted in memory only and re-sealed on save, so its plaintext
+// never reaches disk (see src-tauri/src/local_lock.rs). The passphrase lives in the
+// editor's memory while the file is open and is never persisted here — we only
+// remember which files were edited, in the same encrypted kv namespace as the
+// locked-file index but under its own key, since these records carry none of the
+// lock/rotate/upload semantics that one does.
+
+/** A file's text plus how it is stored on disk. */
+export interface LocalNoteContent {
+  name: string;
+  content: string;
+  /** True if the bytes on disk are a locked frame (saves must supply the passphrase). */
+  locked: boolean;
+  /** Plaintext size, bytes. */
+  size: number;
+}
+
+/** Disk reality for a remembered note. */
+export interface LocalNoteStat {
+  exists: boolean;
+  locked: boolean;
+  size: number;
+}
+
+/** A recently edited file, plain or locked. Newest first. */
+export interface NoteRecentRecord {
+  path: string;
+  name: string;
+  size: number;
+  locked: boolean;
+  /** Epoch millis it was last opened or saved. */
+  openedAt: number;
+}
+
+const NOTE_RECENTS_KEY = "notes";
+export const NOTE_RECENTS_MAX = 20;
+
+/** Read a text file for the editor. Locked files need `passphrase` and are decrypted
+ *  in memory only — reading never rewrites the file. Tauri-only. */
+export async function readLocalNote(path: string, passphrase?: string): Promise<LocalNoteContent> {
+  if (!isTauri()) throw new Error("Local notes are only available in the desktop app.");
+  return invoke<LocalNoteContent>("local_note_read", { path, passphrase: passphrase ?? null });
+}
+
+/** Save an edited buffer. With a passphrase the file is written as a locked frame;
+ *  without one it is written as plaintext, which is refused if the file on disk is
+ *  currently locked. Tauri-only. */
+export async function writeLocalNote(
+  path: string,
+  content: string,
+  passphrase?: string,
+): Promise<LockedFileResult> {
+  if (!isTauri()) throw new Error("Local notes are only available in the desktop app.");
+  return invoke<LockedFileResult>("local_note_write", { path, content, passphrase: passphrase ?? null });
+}
+
+/** Existence + lock state + size in one call, for reconciling the recents list. */
+export async function statLocalNote(path: string): Promise<LocalNoteStat> {
+  if (!isTauri()) return { exists: false, locked: false, size: 0 };
+  return invoke<LocalNoteStat>("local_note_stat", { path });
+}
+
+export async function getNoteRecents(): Promise<NoteRecentRecord[]> {
+  try {
+    const raw = await kvGet(NS_LOCAL_FILES, "default", NOTE_RECENTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as NoteRecentRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveNoteRecents(list: NoteRecentRecord[]): Promise<void> {
+  await kvPut(NS_LOCAL_FILES, "default", NOTE_RECENTS_KEY, JSON.stringify(list)).catch(() => {});
+}
+
+/** Record a file as most-recently edited, dropping the oldest past the cap. */
+export async function addNoteRecent(rec: NoteRecentRecord): Promise<void> {
+  const list = (await getNoteRecents()).filter((r) => r.path !== rec.path);
+  list.unshift(rec);
+  await saveNoteRecents(list.slice(0, NOTE_RECENTS_MAX));
+}
+
+/** Drop a note from the recents list (does not touch the file on disk). */
+export async function removeNoteRecent(path: string): Promise<void> {
+  await saveNoteRecents((await getNoteRecents()).filter((r) => r.path !== path));
+}
+
 // ── Local-file key-rotation reminder interval ─────────────────────────────────
 // How many days a locked file's key may age before the Local tab flags it
 // "rotation due". 0 = off. This is a REMINDER only — rotation always needs the
