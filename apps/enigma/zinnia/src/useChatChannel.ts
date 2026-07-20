@@ -997,7 +997,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             }
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("dlink_"))) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("sketch_") || inner.type.startsWith("dlink_"))) {
             // `dlink_*` is the linked-device sync family (useDeviceSync). It is
             // only ever produced/consumed on the headless devlink channel; on a
             // normal room channel no handler owns the prefix, so it drops here
