@@ -440,6 +440,11 @@ pub struct BuildConfigSummary {
     pub kanban_max_cards_per_board: u32,
     pub kanban_max_card_title_len: u32,
     pub kanban_max_card_description_len: u32,
+    pub sketch_enabled: bool,
+    pub sketch_max_shapes_per_board: u32,
+    pub sketch_max_points_per_stroke: u32,
+    pub sketch_max_text_len: u32,
+    pub sketch_snapshot_max_bytes: u64,
     pub maps_enabled: bool,
     pub devices_allow_linking: bool,
     pub use_tor_default: bool,
@@ -458,7 +463,7 @@ pub struct BuildConfigSummary {
 /// Fetched once by the frontend at boot (rakotis `initBuildConfig`).
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
-    use build_config::{app, cloud, devices, features, kanban, maps, p2p, settings as s};
+    use build_config::{app, cloud, devices, features, kanban, maps, p2p, settings as s, sketch};
     BuildConfigSummary {
         app_name: app::NAME,
         app_identifier: app::IDENTIFIER,
@@ -471,6 +476,11 @@ fn app_get_build_config() -> BuildConfigSummary {
         kanban_max_cards_per_board: kanban::MAX_CARDS_PER_BOARD,
         kanban_max_card_title_len: kanban::MAX_CARD_TITLE_LEN,
         kanban_max_card_description_len: kanban::MAX_CARD_DESCRIPTION_LEN,
+        sketch_enabled: sketch::ENABLED,
+        sketch_max_shapes_per_board: sketch::MAX_SHAPES_PER_BOARD,
+        sketch_max_points_per_stroke: sketch::MAX_POINTS_PER_STROKE,
+        sketch_max_text_len: sketch::MAX_TEXT_LEN,
+        sketch_snapshot_max_bytes: sketch::SNAPSHOT_MAX_BYTES,
         maps_enabled: maps::ENABLED,
         devices_allow_linking: devices::ALLOW_LINKING,
         use_tor_default: features::USE_TOR_DEFAULT,

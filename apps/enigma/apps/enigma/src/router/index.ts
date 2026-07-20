@@ -8,6 +8,7 @@ import EnigmaKanbanView from "../views/EnigmaKanbanView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 import EnigmaMapView from "../views/EnigmaMapView.vue";
+import EnigmaSketchView from "../views/EnigmaSketchView.vue";
 
 // Enigma is a serverless P2P chat: one chat surface, P2P file transfer,
 // meeting scheduling (calendar), contacts (peer discovery), and settings.
@@ -37,6 +38,13 @@ const router = createRouter({
       component: EnigmaMapView,
       name: "map",
       beforeEnter: () => getBuildConfig().maps_enabled || "/chat",
+    },
+    // Shared sketch board — same compile-time gate pattern as the board.
+    {
+      path: "/sketch",
+      component: EnigmaSketchView,
+      name: "sketch",
+      beforeEnter: () => getBuildConfig().sketch_enabled || "/chat",
     },
     { path: "/contacts", component: EnigmaContactsView, name: "contacts" },
     { path: "/config", component: EnigmaConfigView, name: "config" },

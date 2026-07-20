@@ -16,6 +16,7 @@ import { useVoxCall } from "../components/vox/useVoxCall";
 import { useRoomInvites } from "../components/contacts/useRoomInvites";
 import { useMeetings } from "../components/calendar/useMeetings";
 import { useKanban } from "../components/kanban/useKanban";
+import { useSketch } from "../components/sketch/useSketch";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
@@ -42,6 +43,10 @@ function createChatStore() {
   // initBuildConfig is awaited in main.ts before the app mounts / this runs).
   const kanbanEnabled = getBuildConfig().kanban_enabled;
   const kanban = kanbanEnabled ? useKanban(p2p) : null;
+  // Shared sketch board — one per room on the same seam, app-lifetime for the same
+  // reason (remote strokes land, and the Sketch nav dot updates, from any view).
+  const sketchEnabled = getBuildConfig().sketch_enabled;
+  const sketch = sketchEnabled ? useSketch(p2p) : null;
   // Linked-device sync — owns the hidden devlink channel (headless second
   // useChatChannel instance) for registry/kv/history convergence with the
   // user's other devices. Flag-off builds never instantiate it.
@@ -77,6 +82,7 @@ function createChatStore() {
     // the open room's board.
     await meetings.reload();
     if (kanban) await kanban.reload();
+    if (sketch) await sketch.reload();
     if (deviceSync) {
       deviceSync.stop();
       await deviceSync.start();
@@ -87,7 +93,7 @@ function createChatStore() {
   }
 
   return {
-    p2p, fileShare, vox, invites, meetings, kanban, kanbanEnabled,
+    p2p, fileShare, vox, invites, meetings, kanban, kanbanEnabled, sketch, sketchEnabled,
     deviceSync, devicesEnabled, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
