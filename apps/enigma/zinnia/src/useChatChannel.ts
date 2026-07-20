@@ -997,7 +997,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             }
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("sketch_") || inner.type.startsWith("dlink_"))) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("dlink_"))) {
             // `dlink_*` is the linked-device sync family (useDeviceSync). It is
             // only ever produced/consumed on the headless devlink channel; on a
             // normal room channel no handler owns the prefix, so it drops here
@@ -1428,22 +1428,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     } catch (e) { error.value = errorMessage(e); }
   }
 
-  /** Send an already-encoded image (data URL). */
-  async function sendImageDataUrl(dataUrl: string) {
-    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
-    if (blockedByMute()) return;
-    error.value = null;
-    if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
-      return;
-    }
-    try {
-      const msgId = nanoid();
-      await sendEncryptedMedia("image_message", { image_data: dataUrl }, msgId);
-      pushMessage({ id: msgId, type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
-    } catch (e) { error.value = errorMessage(e); }
-  }
-
   async function sendAudio(audioBlob: Blob) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     if (blockedByMute()) return;
@@ -1570,7 +1554,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     isParticipant, currentUserName, mlsIdentity, myAvatar,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendImageDataUrl, sendAudio, sendMapShare, forceResetMls,
+    sendMessage, sendImage, sendAudio, sendMapShare, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
     cancelJoin, deleteRoom,
     ensureNode,
