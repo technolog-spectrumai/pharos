@@ -801,6 +801,19 @@ Settings → "Clear all data".
   nonce(24) ‖ ct+tag`, AAD `enigma:localfile:v1` (constant, so locked files can be
   renamed/moved). The passphrase is never stored; the UI keeps only a record of
   which files are locked (kv ns `files:local`).
+- **Notes editor** (`local_note_read` / `local_note_write` / `local_note_stat` in
+  `local_lock.rs`, Files → Local): edits local text files in an ACE editor. A locked
+  file is decrypted into memory only — reading never rewrites it, and saving re-seals
+  from the buffer, so its plaintext never lands on disk. Encryption is opt-in per file:
+  a plain file saves as plaintext (refused if the file on disk is currently `ENIGLOCK`,
+  so ciphertext is never clobbered), and "Encrypt…" converts it. Saves are stateless —
+  no DEK is cached in Rust; each encrypted save re-reads the file's *current* header and
+  re-derives the key from the passphrase the editor holds, so a file re-keyed by another
+  process fails closed instead of being overwritten under a stale key. Recently edited
+  files are remembered under kv ns `files:local`, key `notes`. ACE is bundled offline:
+  modes and themes are static imports and its six syntax workers are registered with
+  `ace.config.setModuleUrl` against bundler-emitted asset URLs (`aceSetup.ts`), so it
+  never falls back to fetching them from a CDN.
 - **Maps data:** region manifests (`map:regions`), pins (`map:pins`) and routes
   (`map:routes`) are sealed kv like everything else — coordinates never persist
   outside the vault. The region *blobs* are the documented plaintext exception

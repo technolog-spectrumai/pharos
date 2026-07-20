@@ -1,11 +1,16 @@
 <script setup lang="ts">
-// Passphrase prompt for locking / unlocking / rotating a local file. One form, three
-// modes:
+// Passphrase prompt for locking / unlocking / rotating a local file, and for the notes
+// editor. One form, five modes:
 //  - "lock": passphrase + confirm (min-length enforced), encrypts the file in place.
 //  - "unlock": single passphrase, decrypts in place; wrong passphrase keeps the modal
 //    open with an inline error (the file on disk is left untouched).
 //  - "rotate": current passphrase + optional new passphrase (blank = keep the same);
 //    re-keys the file under a fresh random key. Wrong current passphrase → inline error.
+//  - "open": single passphrase, to decrypt a locked file into the editor.
+//  - "encrypt": new passphrase + confirm, to seal a plain note from the editor.
+// The last two don't map to a fixed command — what "submit" does depends on the editor's
+// state — so the parent supplies it as `action`. A rejected action keeps the modal open
+// with its message inline, same as a wrong passphrase anywhere else.
 // Modeled on CloudLoginModal + the App.vue vault gate. The passphrase is never stored;
 // on success we emit the result and let the parent update its record.
 import { computed, ref, watch } from "vue";
@@ -15,10 +20,12 @@ import { lockLocalFile, unlockLocalFile, rotateLocalFile, type LockedFileResult 
 
 const props = defineProps<{
   open: boolean;
-  mode: "lock" | "unlock" | "rotate";
+  mode: "lock" | "unlock" | "rotate" | "open" | "encrypt";
   path: string;
   name: string;
   minLen: number;
+  /** Required by the "open" and "encrypt" modes; ignored by the others. */
+  action?: (passphrase: string) => Promise<void>;
 }>();
 const emit = defineEmits<{
   "update:open": [boolean];
@@ -51,21 +58,46 @@ watch(
   },
 );
 
-const titleKey = computed(() =>
-  props.mode === "lock" ? "local.lockTitle" : props.mode === "unlock" ? "local.unlockTitle" : "local.rotateTitle",
-);
-const hintKey = computed(() =>
-  props.mode === "lock" ? "local.lockHint" : props.mode === "rotate" ? "local.rotateHint" : "",
-);
-const primaryIcon = computed(() =>
-  props.mode === "lock" ? "lock" : props.mode === "unlock" ? "lock-open" : "rotate-right",
-);
-const primaryLabelKey = computed(() =>
-  props.mode === "lock" ? "local.lock" : props.mode === "unlock" ? "local.unlock" : "local.rotate",
-);
-// Confirm field: always for lock; for rotate only when actually setting a new passphrase.
+const TITLE_KEYS = {
+  lock: "local.lockTitle",
+  unlock: "local.unlockTitle",
+  rotate: "local.rotateTitle",
+  open: "local.openTitle",
+  encrypt: "local.encryptTitle",
+} as const;
+const HINT_KEYS = {
+  lock: "local.lockHint",
+  unlock: "",
+  rotate: "local.rotateHint",
+  open: "",
+  encrypt: "local.encryptHint",
+} as const;
+const PRIMARY_ICONS = {
+  lock: "lock",
+  unlock: "lock-open",
+  rotate: "rotate-right",
+  open: "lock-open",
+  encrypt: "lock",
+} as const;
+const PRIMARY_LABEL_KEYS = {
+  lock: "local.lock",
+  unlock: "local.unlock",
+  rotate: "local.rotate",
+  open: "local.open",
+  encrypt: "local.encrypt",
+} as const;
+
+const titleKey = computed(() => TITLE_KEYS[props.mode]);
+const hintKey = computed(() => HINT_KEYS[props.mode]);
+const primaryIcon = computed(() => PRIMARY_ICONS[props.mode]);
+const primaryLabelKey = computed(() => PRIMARY_LABEL_KEYS[props.mode]);
+// Confirm field: whenever a new passphrase is being set — always for lock and encrypt,
+// for rotate only when actually changing it.
 const showConfirm = computed(
-  () => props.mode === "lock" || (props.mode === "rotate" && newPass.value.trim() !== ""),
+  () =>
+    props.mode === "lock" ||
+    props.mode === "encrypt" ||
+    (props.mode === "rotate" && newPass.value.trim() !== ""),
 );
 
 function close() {
@@ -87,7 +119,7 @@ async function submit() {
     error.value = t("local.passphraseRequired");
     return;
   }
-  if (props.mode === "lock") {
+  if (props.mode === "lock" || props.mode === "encrypt") {
     const bad = newPassInvalid(passphrase.value);
     if (bad) {
       error.value = bad;
@@ -102,7 +134,10 @@ async function submit() {
   }
   busy.value = true;
   try {
-    if (props.mode === "lock") {
+    if (props.mode === "open" || props.mode === "encrypt") {
+      // The parent decides what to do with the passphrase (read, save, or seal).
+      await props.action?.(passphrase.value);
+    } else if (props.mode === "lock") {
       emit("locked", await lockLocalFile(props.path, passphrase.value));
     } else if (props.mode === "unlock") {
       emit("unlocked", await unlockLocalFile(props.path, passphrase.value));

@@ -175,6 +175,120 @@ pub fn local_is_locked(path: String) -> Result<bool, String> {
     }
 }
 
+/// Editor size cap: keeps the editor responsive and bounds decrypt cost.
+const MAX_NOTE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Disk reality for a note the UI remembers: `local_is_locked` alone can't tell a
+/// missing file from a plain one (both are `Ok(false)`).
+#[derive(Serialize, Debug)]
+pub struct NoteStat {
+    pub exists: bool,
+    pub locked: bool,
+    /// On-disk byte length (the locked frame's length for a locked file).
+    pub size: u64,
+}
+
+/// A file's text handed to the editor, plus how it is stored on disk.
+#[derive(Serialize, Debug)]
+pub struct NoteReadResult {
+    pub name: String,
+    pub content: String,
+    /// True if the bytes on disk are a locked frame (so saves must be re-sealed).
+    pub locked: bool,
+    /// Plaintext byte length.
+    pub size: u64,
+}
+
+/// Existence + lock state + size in one call, so the notes list can reconcile its
+/// records with disk in a single round trip per file.
+#[tauri::command]
+pub fn local_note_stat(path: String) -> Result<NoteStat, String> {
+    let md = match std::fs::metadata(&path) {
+        Ok(md) => md,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(NoteStat { exists: false, locked: false, size: 0 })
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    Ok(NoteStat { exists: true, locked: local_is_locked(path)?, size: md.len() })
+}
+
+/// Read a text file for the editor. A locked file needs `passphrase` and is decrypted
+/// *in memory only* — reading never writes plaintext to disk.
+#[tauri::command]
+pub fn local_note_read(path: String, passphrase: Option<String>) -> Result<NoteReadResult, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    // Reject oversize before decrypting; the slack covers the frame's own overhead.
+    if bytes.len() > MAX_NOTE_BYTES + 4096 {
+        return Err("file too large to edit (max 8 MB)".to_string());
+    }
+
+    let locked = has_magic(&bytes);
+    let plain = if locked {
+        let pass = passphrase.ok_or_else(|| "passphrase required".to_string())?;
+        let (header, sealed) = parse_frame(&bytes)?;
+        let dek = unlock(&header, &pass).map_err(crypto_err)?;
+        open(&dek, AAD, sealed).map_err(crypto_err)?
+    } else {
+        bytes
+    };
+    if plain.len() > MAX_NOTE_BYTES {
+        return Err("file too large to edit (max 8 MB)".to_string());
+    }
+
+    let content = String::from_utf8(plain).map_err(|_| "not a UTF-8 text file".to_string())?;
+    let size = content.len() as u64;
+    Ok(NoteReadResult { name: file_name(&path), content, locked, size })
+}
+
+/// Save an edited buffer back to `path`.
+///
+/// Without a passphrase this writes plaintext, but refuses if the file on disk is
+/// currently locked — we never clobber ciphertext with plaintext. With a passphrase it
+/// writes a locked frame: for an already-locked file the passphrase is checked against
+/// the file's *current* header and that header + DEK are reused, so a file re-keyed by
+/// something else in the meantime fails closed instead of being overwritten under a
+/// stale key. A fresh vault is minted only for a new file or a plain → locked
+/// conversion. Either way the write is atomic, and the temp file only ever holds the
+/// same bytes the final file does.
+#[tauri::command]
+pub fn local_note_write(
+    path: String,
+    content: String,
+    passphrase: Option<String>,
+) -> Result<LockedFileInfo, String> {
+    let plain = content.into_bytes();
+    let size = plain.len() as u64;
+
+    match passphrase {
+        None => {
+            if local_is_locked(path.clone())? {
+                return Err("file is locked on disk — save it with its passphrase".to_string());
+            }
+            atomic_write(&path, &plain)?;
+        }
+        Some(pass) => {
+            let existing = match std::fs::read(&path) {
+                Ok(b) => Some(b),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e.to_string()),
+            };
+            let (header, dek) = match existing.as_deref().filter(|b| has_magic(b)) {
+                Some(bytes) => {
+                    let (header, _) = parse_frame(bytes)?;
+                    let dek = unlock(&header, &pass).map_err(crypto_err)?;
+                    (header, dek)
+                }
+                None => create_vault_with_params(&pass, crate::kdf_params()).map_err(crypto_err)?,
+            };
+            let sealed = seal(&dek, AAD, &plain).map_err(crypto_err)?;
+            atomic_write(&path, &build_frame(&header, &sealed)?)?;
+        }
+    }
+
+    Ok(LockedFileInfo { name: file_name(&path), size })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +404,151 @@ mod tests {
         assert!(err.contains("wrong passphrase"), "got: {err}");
         // The file is untouched after a failed rotation.
         assert_eq!(std::fs::read(&path).unwrap(), locked);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    // ── editor reads/writes ──────────────────────────────────────────────────────
+
+    #[test]
+    fn note_plain_roundtrips() {
+        let path = tmp_path("note_plain");
+        std::fs::write(&path, b"first draft").unwrap();
+
+        let read = local_note_read(path.clone(), None).unwrap();
+        assert_eq!(read.content, "first draft");
+        assert!(!read.locked);
+
+        local_note_write(path.clone(), "second draft".into(), None).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second draft");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_locked_roundtrips_without_ever_writing_plaintext() {
+        let path = tmp_path("note_locked");
+        std::fs::write(&path, b"classified").unwrap();
+        local_lock_file(path.clone(), "pw-note".into()).unwrap();
+
+        let read = local_note_read(path.clone(), Some("pw-note".into())).unwrap();
+        assert_eq!(read.content, "classified");
+        assert!(read.locked);
+        // Reading did not decrypt the file in place.
+        assert!(has_magic(&std::fs::read(&path).unwrap()));
+
+        local_note_write(path.clone(), "classified, edited".into(), Some("pw-note".into())).unwrap();
+        let on_disk = std::fs::read(&path).unwrap();
+        assert!(has_magic(&on_disk));
+        assert!(!on_disk.windows(10).any(|w| w == b"classified"), "plaintext leaked into the frame");
+
+        let again = local_note_read(path.clone(), Some("pw-note".into())).unwrap();
+        assert_eq!(again.content, "classified, edited");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_read_locked_without_passphrase_is_rejected() {
+        let path = tmp_path("note_nopass");
+        std::fs::write(&path, b"data").unwrap();
+        local_lock_file(path.clone(), "pw".into()).unwrap();
+
+        let err = local_note_read(path.clone(), None).unwrap_err();
+        assert!(err.contains("passphrase required"), "got: {err}");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_plain_write_over_locked_file_is_refused() {
+        let path = tmp_path("note_clobber");
+        std::fs::write(&path, b"secret").unwrap();
+        local_lock_file(path.clone(), "pw".into()).unwrap();
+        let locked = std::fs::read(&path).unwrap();
+
+        let err = local_note_write(path.clone(), "oops".into(), None).unwrap_err();
+        assert!(err.contains("locked on disk"), "got: {err}");
+        // Ciphertext survived the refused write.
+        assert_eq!(std::fs::read(&path).unwrap(), locked);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_write_with_passphrase_converts_plain_file() {
+        let path = tmp_path("note_convert");
+        std::fs::write(&path, b"was plain").unwrap();
+        assert!(!local_is_locked(path.clone()).unwrap());
+
+        local_note_write(path.clone(), "now sealed".into(), Some("pw".into())).unwrap();
+        assert!(local_is_locked(path.clone()).unwrap());
+        assert_eq!(
+            local_note_read(path.clone(), Some("pw".into())).unwrap().content,
+            "now sealed"
+        );
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_write_after_external_rotation_fails_closed() {
+        let path = tmp_path("note_rotated");
+        std::fs::write(&path, b"original").unwrap();
+        local_lock_file(path.clone(), "pass-one".into()).unwrap();
+
+        // Something else re-keys the file while the editor holds the old passphrase.
+        local_rotate_file(path.clone(), "pass-one".into(), "pass-two".into()).unwrap();
+        let rotated = std::fs::read(&path).unwrap();
+
+        let err = local_note_write(path.clone(), "edited".into(), Some("pass-one".into())).unwrap_err();
+        assert!(err.contains("wrong passphrase"), "got: {err}");
+        // Nothing was written under the stale key.
+        assert_eq!(std::fs::read(&path).unwrap(), rotated);
+        assert_eq!(
+            local_note_read(path.clone(), Some("pass-two".into())).unwrap().content,
+            "original"
+        );
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_read_rejects_non_utf8() {
+        let path = tmp_path("note_binary");
+        std::fs::write(&path, [0xff, 0xfe, 0x00, 0x01]).unwrap();
+
+        let err = local_note_read(path.clone(), None).unwrap_err();
+        assert!(err.contains("UTF-8"), "got: {err}");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_read_rejects_oversize() {
+        let path = tmp_path("note_big");
+        std::fs::write(&path, vec![b'a'; MAX_NOTE_BYTES + 8192]).unwrap();
+
+        let err = local_note_read(path.clone(), None).unwrap_err();
+        assert!(err.contains("too large"), "got: {err}");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn note_stat_distinguishes_missing_plain_and_locked() {
+        let path = tmp_path("note_stat");
+        let missing = local_note_stat(tmp_path("note_stat_missing")).unwrap();
+        assert!(!missing.exists && !missing.locked);
+
+        std::fs::write(&path, b"plain bytes").unwrap();
+        let plain = local_note_stat(path.clone()).unwrap();
+        assert!(plain.exists && !plain.locked);
+        assert_eq!(plain.size, 11);
+
+        local_lock_file(path.clone(), "pw".into()).unwrap();
+        let locked = local_note_stat(path.clone()).unwrap();
+        assert!(locked.exists && locked.locked);
 
         std::fs::remove_file(&path).ok();
     }

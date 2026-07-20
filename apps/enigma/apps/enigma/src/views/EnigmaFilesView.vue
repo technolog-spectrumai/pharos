@@ -65,8 +65,9 @@ const activeTab = ref<FilesTab>("p2p");
       <FilePanel v-if="activeTab === 'p2p'" />
       <!-- Enigma Cloud: files stored on the user's own server. -->
       <CloudPanel v-else-if="activeTab === 'cloud' && cloudAllowed" />
-      <!-- Local: passphrase-protected files encrypted on this device. -->
-      <LocalPanel v-else />
+      <!-- Local: passphrase-protected files encrypted on this device, and the notes
+           editor for reading and editing local text files. -->
+      <LocalPanel v-else :dark-mode="darkMode" />
     </div>
   </div>
 </template>
