@@ -316,6 +316,16 @@ const cursorClass = computed(() => {
   if (props.tool === "eraser") return "cursor-none";
   return "cursor-crosshair";
 });
+
+/** A transparent board is transparent all the way through: no sunken tint and no
+ *  inner shadow, so the surface drawn on is exactly the panel behind the widget.
+ *  A colour or image board is a real sheet, so it keeps the inset treatment in
+ *  the letterboxed margins around it. */
+const boardSurfaceClass = computed(() =>
+  sketch.value.doc.value.background || sketch.value.backgroundImage.value
+    ? "bg-sunken-light shadow-inner dark:bg-sunken-dark"
+    : "",
+);
 </script>
 
 <template>
@@ -324,28 +334,24 @@ const cursorClass = computed(() => {
       ref="svgEl"
       :viewBox="`0 0 ${BOARD_W} ${BOARD_H}`"
       preserveAspectRatio="xMidYMid meet"
-      class="block h-full w-full touch-none select-none rounded-xl shadow-inner"
-      :class="cursorClass"
+      class="block h-full w-full touch-none select-none rounded-xl"
+      :class="[cursorClass, boardSurfaceClass]"
       @pointerdown="onDown"
       @pointermove="onMove"
       @pointerup="onUp"
       @pointercancel="onUp"
       @pointerleave="cursor = null"
     >
-      <defs>
-        <!-- Transparency checkerboard. A UI affordance only: exports come from the
-             model (toSvg / rasterize), which omit the background entirely when it
-             is null, so this never leaks into a saved file. -->
-        <pattern id="sketchTransparency" width="24" height="24" patternUnits="userSpaceOnUse">
-          <rect width="24" height="24" fill="#ffffff" />
-          <rect width="12" height="12" fill="#e5e7eb" />
-          <rect x="12" y="12" width="12" height="12" fill="#e5e7eb" />
-        </pattern>
-      </defs>
+      <!-- A transparent board paints NOTHING here AND carries no surface class,
+           so the widget's own background shows through untouched — drawing
+           happens over the same colour as the surrounding panel, in both light
+           and dark. Matches the exports, which omit the background in exactly
+           this case. -->
       <rect
+        v-if="sketch.doc.value.background"
         :width="BOARD_W"
         :height="BOARD_H"
-        :fill="sketch.doc.value.background ?? 'url(#sketchTransparency)'"
+        :fill="sketch.doc.value.background"
       />
 
       <!-- Background image: cropped to the board at import, so it draws at the
