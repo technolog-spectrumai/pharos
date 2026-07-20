@@ -490,4 +490,56 @@ mod tests {
         let other = admin.export_secret("enigma/vox/s2c", b"call-123", 32).unwrap();
         assert_ne!(a, other, "different labels yield independent keys");
     }
+
+    /// Two leaves whose identities share a user part ("alice" and
+    /// "alice#dev-aaaaaaab") coexist in one group alongside a third member,
+    /// all traffic decrypts, and removal by full identity takes out exactly
+    /// the addressed leaf — the crypto basis for linked devices.
+    #[test]
+    fn same_user_second_device_leaf_coexists_and_removes_cleanly() {
+        let mut alice = RotorSession::new("room-1".into(), "alice".into()).unwrap();
+        let mut dev = RotorSession::new("room-1".into(), "alice#dev-aaaaaaab".into()).unwrap();
+        let mut bob = RotorSession::new("room-1".into(), "bob".into()).unwrap();
+
+        alice.create_group().unwrap();
+        let dev_kp = dev.key_package().unwrap();
+        let (welcome, _commit) = alice.add_member(&dev_kp).unwrap();
+        dev.join_from_welcome(&welcome).unwrap();
+
+        let bob_kp = bob.key_package().unwrap();
+        let (welcome, commit) = alice.add_member(&bob_kp).unwrap();
+        bob.join_from_welcome(&welcome).unwrap();
+        assert!(dev.process_message(&commit).unwrap().is_none(), "commit is not app data");
+
+        // Every leaf's app traffic decrypts at every other leaf.
+        let ct = alice.encrypt_app(b"from alice").unwrap();
+        assert_eq!(dev.process_message(&ct).unwrap().as_deref(), Some(&b"from alice"[..]));
+        let ct = alice.encrypt_app(b"from alice 2").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"from alice 2"[..]));
+        let ct = dev.encrypt_app(b"from dev").unwrap();
+        assert_eq!(alice.process_message(&ct).unwrap().as_deref(), Some(&b"from dev"[..]));
+        let ct = dev.encrypt_app(b"from dev 2").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"from dev 2"[..]));
+        let ct = bob.encrypt_app(b"from bob").unwrap();
+        assert_eq!(alice.process_message(&ct).unwrap().as_deref(), Some(&b"from bob"[..]));
+
+        let mut roster = alice.members().unwrap();
+        roster.sort();
+        assert_eq!(roster, vec!["alice", "alice#dev-aaaaaaab", "bob"]);
+
+        // Exact-identity removal takes out only the device leaf.
+        let commit = alice.remove_member("alice#dev-aaaaaaab").unwrap();
+        assert!(bob.process_message(&commit).unwrap().is_none());
+        let mut roster = alice.members().unwrap();
+        roster.sort();
+        assert_eq!(roster, vec!["alice", "bob"]);
+        let mut roster = bob.members().unwrap();
+        roster.sort();
+        assert_eq!(roster, vec!["alice", "bob"]);
+
+        // The surviving pair still converses; the removed leaf is locked out.
+        let ct = alice.encrypt_app(b"post-removal").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"post-removal"[..]));
+        assert!(dev.process_message(&ct).is_err(), "removed leaf cannot decrypt the new epoch");
+    }
 }
