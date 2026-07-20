@@ -422,6 +422,24 @@ export async function setMapStorageLimitMb(mb: number): Promise<number> {
   return v;
 }
 
+/** The active (priority) region for tile resolution: checked FIRST, with every
+ *  other imported region still filling the gaps it doesn't cover. "" = none.
+ *  Rust reads the same key directly (maps.rs KEY_ACTIVE_REGION) for tile
+ *  ordering and clears it when the region is removed. Device-local by design —
+ *  deliberately NOT in DEVLINK_SYNC_KV: each device imports its own region
+ *  packages, so a synced id would usually dangle on the other device. */
+export async function getMapActiveRegion(): Promise<string> {
+  try {
+    return (await kvGet("p2p:settings", "default", "map_active_region")) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export async function setMapActiveRegion(id: string): Promise<void> {
+  await kvPut("p2p:settings", "default", "map_active_region", id).catch(() => {});
+}
+
 // ── DHT discovery (Mainline/Kademlia rendezvous + presence — see technology.md §12) ───────
 // Opt-in, default off. On → the iroh endpoint additionally publishes/resolves
 // addresses on the public BitTorrent DHT (server-free), rooms get a ticketless
