@@ -1,22 +1,25 @@
 <script setup lang="ts">
 // The drawing surface: a plain SVG whose children are the document's shapes.
 //
-// SVG DOM rather than canvas because Vue's keyed diff already gives us minimal
-// updates when one shape changes, and because the export format IS SVG — display
-// and export therefore share one representation.
+// SVG DOM rather than canvas because Vue's keyed diff already gives minimal updates
+// when one shape changes, and because the export format IS SVG — display and export
+// therefore share one representation.
 //
-// Everything is in fixed board units (BOARD_W x BOARD_H) so peers on different
-// window sizes agree on coordinates; the viewBox letterboxes to fit, and
-// `toBoard` undoes that mapping for pointer events.
+// Everything is in fixed board units (BOARD_W x BOARD_H); the viewBox letterboxes to
+// fit and `toBoard` undoes that mapping for pointer events. Rotation is applied as an
+// SVG transform about each shape's pivot, and hit-testing inverts the same transform
+// (see distToShapeRotated), so what you can click always matches what you can see.
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import {
   arrowHead,
   BOARD_H,
   BOARD_W,
   canFill,
-  MIN_POINT_DIST,
   pathD,
   quant,
+  ROTATE_SNAP_DEG,
+  rotatePoint,
+  shapePivot,
   SVG_FONT_STACK,
   trianglePoints,
   type Shape,
@@ -25,7 +28,7 @@ import type { Sketch } from "./useSketch";
 
 export type Tool = "select" | "draw" | "rect" | "ellipse" | "triangle" | "arrow" | "text" | "eraser";
 
-const props = defineProps<{ sketch: Sketch; tool: Tool; textSize: number; darkMode?: boolean }>();
+const props = defineProps<{ sketch: Sketch; tool: Tool }>();
 const emit = defineEmits<{ requestText: [x: number, y: number] }>();
 
 const svgEl = ref<SVGSVGElement | null>(null);
@@ -35,8 +38,14 @@ const sketch = computed(() => props.sketch);
 const ERASER_RADIUS = 10;
 /** Click tolerance for selecting. */
 const SELECT_RADIUS = 8;
-/** Side of a resize handle, board units. */
+/** Side of the resize handle, board units. */
 const HANDLE = 14;
+/** Half-extent used to hit-test a handle: its drawn half-size plus a little slack
+ *  for touch. Must stay well under HANDLE, or a small selected shape is grabbed by
+ *  its resize handle everywhere and can never be dragged. */
+const HANDLE_HIT = HANDLE / 2 + 3;
+/** How far above the selection box the rotate handle sits. */
+const ROTATE_OFFSET = 34;
 
 // ── coordinate mapping ──────────────────────────────────────────────────────
 // The rect is cached per gesture: reading getBoundingClientRect on every
@@ -68,15 +77,28 @@ onBeforeUnmount(() => window.removeEventListener("resize", refreshRect));
 
 type Drag =
   | { mode: "none" }
-  | { mode: "draw"; last: { x: number; y: number } }
+  | { mode: "draw" }
   | { mode: "shape"; start: { x: number; y: number }; cur: { x: number; y: number } }
   | { mode: "erase"; last: { x: number; y: number } }
   | { mode: "move"; last: { x: number; y: number } }
-  | { mode: "resize"; origin: { x: number; y: number }; base: { w: number; h: number } };
+  | {
+      mode: "resize";
+      origin: { x: number; y: number };
+      base: { w: number; h: number };
+      /** Frame captured at grab time so every step inverts the SAME rotation. */
+      pivot: { cx: number; cy: number };
+      rot: number;
+    }
+  | { mode: "rotate"; pivot: { cx: number; cy: number }; grabOffset: number };
 
 const drag = ref<Drag>({ mode: "none" });
 /** Eraser ring follows the pointer even when not dragging. */
 const cursor = ref<{ x: number; y: number } | null>(null);
+
+/** Angle from a pivot to a point, in degrees, matching SVG's clockwise positive. */
+function angleTo(pivot: { cx: number; cy: number }, p: { x: number; y: number }): number {
+  return (Math.atan2(p.y - pivot.cy, p.x - pivot.cx) * 180) / Math.PI;
+}
 
 function onDown(e: PointerEvent) {
   if (e.button !== 0) return;
@@ -87,7 +109,7 @@ function onDown(e: PointerEvent) {
   switch (props.tool) {
     case "draw":
       sketch.value.beginStroke(p.x, p.y);
-      drag.value = { mode: "draw", last: p };
+      drag.value = { mode: "draw" };
       return;
     case "rect":
     case "ellipse":
@@ -96,6 +118,7 @@ function onDown(e: PointerEvent) {
       drag.value = { mode: "shape", start: p, cur: p };
       return;
     case "eraser":
+      sketch.value.beginErase();
       sketch.value.eraseAlong(p.x, p.y, p.x, p.y, ERASER_RADIUS);
       drag.value = { mode: "erase", last: p };
       return;
@@ -103,16 +126,30 @@ function onDown(e: PointerEvent) {
       emit("requestText", p.x, p.y);
       return;
     case "select": {
-      // A press inside the resize handle scales; anywhere else selects and moves.
+      const sel = sketch.value.selected.value;
       const b = sketch.value.selectionBounds.value;
-      if (b && withinHandle(p, b)) {
-        sketch.value.beginTransform();
-        drag.value = {
-          mode: "resize",
-          origin: { x: b.x, y: b.y },
-          base: { w: Math.max(b.w, 1), h: Math.max(b.h, 1) },
-        };
-        return;
+      const pivot = sketch.value.selectionPivot.value;
+      if (sel && b && pivot) {
+        // Handles live in the shape's rotated frame, so map the pointer into it
+        // before testing them — otherwise they'd only work at rot === 0.
+        const local = sel.rot ? rotatePoint(p.x, p.y, pivot.cx, pivot.cy, -sel.rot) : p;
+        if (Math.abs(local.x - (b.x + b.w / 2)) <= HANDLE_HIT && Math.abs(local.y - (b.y - ROTATE_OFFSET)) <= HANDLE_HIT) {
+          sketch.value.beginTransform();
+          // Remember where on the handle the grab started so the shape doesn't jump.
+          drag.value = { mode: "rotate", pivot, grabOffset: angleTo(pivot, p) - sel.rot };
+          return;
+        }
+        if (Math.abs(local.x - (b.x + b.w)) <= HANDLE_HIT && Math.abs(local.y - (b.y + b.h)) <= HANDLE_HIT) {
+          sketch.value.beginTransform();
+          drag.value = {
+            mode: "resize",
+            origin: { x: b.x, y: b.y },
+            base: { w: Math.max(b.w, 1), h: Math.max(b.h, 1) },
+            pivot,
+            rot: sel.rot,
+          };
+          return;
+        }
       }
       const hit = sketch.value.selectAt(p.x, p.y, SELECT_RADIUS);
       if (hit) {
@@ -131,17 +168,16 @@ function onMove(e: PointerEvent) {
   const d = drag.value;
   if (d.mode === "none") return;
 
-  // Recover the samples the browser batched — smoother strokes at no network cost
-  // (they are thinned below anyway).
-  const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
+  // Recover the samples the browser batched — smoother strokes at no cost, since
+  // the model thins them anyway.
+  const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
+  const events = coalesced.length ? coalesced : [e];
 
-  for (const ev of events.length ? events : [e]) {
+  for (const ev of events) {
     const p = toBoard(ev);
     switch (d.mode) {
       case "draw":
-        if (Math.hypot(p.x - d.last.x, p.y - d.last.y) < MIN_POINT_DIST) break;
         sketch.value.extendStroke(p.x, p.y);
-        d.last = p;
         break;
       case "erase":
         sketch.value.eraseAlong(d.last.x, d.last.y, p.x, p.y, ERASER_RADIUS);
@@ -155,11 +191,21 @@ function onMove(e: PointerEvent) {
         d.last = p;
         break;
       case "resize": {
-        const w = Math.max(1, p.x - d.origin.x);
-        const h = Math.max(1, p.y - d.origin.y);
-        // Scale relative to the size at gesture start, so the drag tracks the pointer.
+        // `d.origin` lives in the shape's UNROTATED frame (selectionBounds), so the
+        // pointer has to be mapped into that frame too — otherwise a rotated shape
+        // is scaled along the wrong axes and collapses on the first move.
+        const q = d.rot ? rotatePoint(p.x, p.y, d.pivot.cx, d.pivot.cy, -d.rot) : p;
+        const w = Math.max(1, q.x - d.origin.x);
+        const h = Math.max(1, q.y - d.origin.y);
+        // Relative to the size at gesture start, so the drag tracks the pointer.
         sketch.value.resizeSelected(w / d.base.w, h / d.base.h, d.origin.x, d.origin.y);
         d.base = { w, h };
+        break;
+      }
+      case "rotate": {
+        let deg = angleTo(d.pivot, p) - d.grabOffset;
+        if (ev.shiftKey) deg = Math.round(deg / ROTATE_SNAP_DEG) * ROTATE_SNAP_DEG;
+        sketch.value.rotateSelected(deg);
         break;
       }
     }
@@ -172,7 +218,7 @@ function onUp(e: PointerEvent) {
   svgEl.value?.releasePointerCapture?.(e.pointerId);
 
   if (d.mode === "draw") {
-    void sketch.value.commitStroke();
+    sketch.value.commitStroke();
   } else if (d.mode === "shape") {
     const { start, cur } = d;
     const w = cur.x - start.x;
@@ -183,13 +229,13 @@ function onUp(e: PointerEvent) {
     else if (props.tool === "ellipse") {
       sketch.value.addEllipse((start.x + cur.x) / 2, (start.y + cur.y) / 2, Math.abs(w) / 2, Math.abs(h) / 2);
     }
-  } else if (d.mode === "move" || d.mode === "resize") {
+  } else if (d.mode === "move" || d.mode === "resize" || d.mode === "rotate") {
     sketch.value.endTransform();
   }
   drag.value = { mode: "none" };
 }
 
-// Switching tools mid-gesture would commit a shape with the wrong kind.
+// Switching tools mid-gesture would commit a shape of the wrong kind.
 watch(
   () => props.tool,
   () => {
@@ -199,7 +245,27 @@ watch(
   },
 );
 
-// ── preview geometry for the shape being dragged out ────────────────────────
+// ── render helpers ──────────────────────────────────────────────────────────
+
+/** The rotate transform for a shape, or undefined so the attribute is omitted. */
+function rotOf(s: Shape): string | undefined {
+  if (!s.rot) return undefined;
+  const { cx, cy } = shapePivot(s);
+  return `rotate(${s.rot} ${cx} ${cy})`;
+}
+function triPoints(s: Shape): string {
+  return trianglePoints(s as never)
+    .map(([x, y]) => `${x},${y}`)
+    .join(" ");
+}
+function headPoints(s: Shape): string {
+  return arrowHead(s as never)
+    .map(([x, y]) => `${x},${y}`)
+    .join(" ");
+}
+function fillOf(s: Shape): string {
+  return canFill(s.kind) && s.fill ? s.fill : "none";
+}
 
 const previewShape = computed(() => {
   const d = drag.value;
@@ -232,31 +298,16 @@ const previewArrowHead = computed(() => {
     .join(" ");
 });
 
-function triPoints(s: Shape): string {
-  return trianglePoints(s as never)
-    .map(([x, y]) => `${x},${y}`)
-    .join(" ");
-}
-function headPoints(s: Shape): string {
-  return arrowHead(s as never)
-    .map(([x, y]) => `${x},${y}`)
-    .join(" ");
-}
-function fillOf(s: Shape): string {
-  return canFill(s.kind) && s.fill ? s.fill : "none";
-}
-
-// ── selection handle ────────────────────────────────────────────────────────
-
-function withinHandle(p: { x: number; y: number }, b: { x: number; y: number; w: number; h: number }): boolean {
-  const hx = b.x + b.w;
-  const hy = b.y + b.h;
-  return Math.abs(p.x - hx) <= HANDLE && Math.abs(p.y - hy) <= HANDLE;
-}
-
 const selfLiveD = computed(() => {
   const l = sketch.value.selfLive.value;
   return l ? pathD(l.pts) : "";
+});
+
+/** Selection chrome is drawn inside the shape's own rotate transform, so the box
+ *  and handles turn with it. */
+const selectionTransform = computed(() => {
+  const sel = sketch.value.selected.value;
+  return sel ? rotOf(sel) : undefined;
 });
 
 const cursorClass = computed(() => {
@@ -293,6 +344,7 @@ const cursorClass = computed(() => {
             :opacity="s.opacity"
             stroke-linecap="round"
             stroke-linejoin="round"
+            :transform="rotOf(s)"
           />
           <rect
             v-else-if="s.kind === 'rect'"
@@ -304,6 +356,7 @@ const cursorClass = computed(() => {
             :stroke="s.color"
             :stroke-width="s.sw"
             :opacity="s.opacity"
+            :transform="rotOf(s)"
           />
           <ellipse
             v-else-if="s.kind === 'ellipse'"
@@ -315,6 +368,7 @@ const cursorClass = computed(() => {
             :stroke="s.color"
             :stroke-width="s.sw"
             :opacity="s.opacity"
+            :transform="rotOf(s)"
           />
           <polygon
             v-else-if="s.kind === 'triangle'"
@@ -324,8 +378,9 @@ const cursorClass = computed(() => {
             :stroke-width="s.sw"
             :opacity="s.opacity"
             stroke-linejoin="round"
+            :transform="rotOf(s)"
           />
-          <g v-else-if="s.kind === 'arrow'" :opacity="s.opacity">
+          <g v-else-if="s.kind === 'arrow'" :opacity="s.opacity" :transform="rotOf(s)">
             <line
               :x1="s.x1"
               :y1="s.y1"
@@ -345,48 +400,24 @@ const cursorClass = computed(() => {
             :opacity="s.opacity"
             :font-size="s.size"
             :font-family="SVG_FONT_STACK"
+            :transform="rotOf(s)"
           >
             {{ s.text }}
           </text>
         </template>
       </g>
 
-      <!-- Live overlay: my stroke (input latency) + every peer's (network latency) -->
-      <g>
-        <path
-          v-if="selfLiveD"
-          :d="selfLiveD"
-          fill="none"
-          :stroke="sketch.currentColor.value"
-          :stroke-width="sketch.currentWidth.value"
-          :opacity="sketch.currentOpacity.value"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        <g v-for="l in sketch.remoteLive.value" :key="l.strokeId">
-          <path
-            :d="pathD(l.pts)"
-            fill="none"
-            :stroke="l.color"
-            :stroke-width="l.sw"
-            :opacity="l.opacity * 0.85"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <!-- Who is drawing it, so concurrent strokes stay legible -->
-          <text
-            v-if="l.pts.length >= 2 && l.authorName"
-            :x="l.pts[l.pts.length - 2] + 12"
-            :y="l.pts[l.pts.length - 1] - 8"
-            :fill="l.color"
-            font-size="20"
-            opacity="0.75"
-            :font-family="SVG_FONT_STACK"
-          >
-            {{ l.authorName }}
-          </text>
-        </g>
-      </g>
+      <!-- Stroke in progress: local state, so it draws at input latency -->
+      <path
+        v-if="selfLiveD"
+        :d="selfLiveD"
+        fill="none"
+        :stroke="sketch.currentColor.value"
+        :stroke-width="sketch.currentWidth.value"
+        :opacity="sketch.currentOpacity.value"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
 
       <!-- Shape being dragged out -->
       <g v-if="previewShape" opacity="0.8">
@@ -431,8 +462,12 @@ const cursorClass = computed(() => {
         </g>
       </g>
 
-      <!-- Selection box + resize handle -->
-      <g v-if="tool === 'select' && sketch.selectionBounds.value" pointer-events="none">
+      <!-- Selection box, resize + rotate handles (rotate with the shape) -->
+      <g
+        v-if="tool === 'select' && sketch.selectionBounds.value"
+        :transform="selectionTransform"
+        pointer-events="none"
+      >
         <rect
           :x="sketch.selectionBounds.value.x - 4"
           :y="sketch.selectionBounds.value.y - 4"
@@ -442,6 +477,23 @@ const cursorClass = computed(() => {
           stroke="#3b82f6"
           stroke-width="2"
           stroke-dasharray="8 6"
+        />
+        <!-- stalk + knob for rotation -->
+        <line
+          :x1="sketch.selectionBounds.value.x + sketch.selectionBounds.value.w / 2"
+          :y1="sketch.selectionBounds.value.y - 4"
+          :x2="sketch.selectionBounds.value.x + sketch.selectionBounds.value.w / 2"
+          :y2="sketch.selectionBounds.value.y - ROTATE_OFFSET"
+          stroke="#3b82f6"
+          stroke-width="2"
+        />
+        <circle
+          :cx="sketch.selectionBounds.value.x + sketch.selectionBounds.value.w / 2"
+          :cy="sketch.selectionBounds.value.y - ROTATE_OFFSET"
+          :r="HANDLE / 2"
+          fill="#3b82f6"
+          stroke="#ffffff"
+          stroke-width="2"
         />
         <rect
           :x="sketch.selectionBounds.value.x + sketch.selectionBounds.value.w - HANDLE / 2"

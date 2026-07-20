@@ -56,18 +56,12 @@ kanban:
   max_card_description_len: 4000
 
 sketch:
-  # false = this build has no sketch board: no Sketch tab, /sketch redirects, and
-  # stores/chat.ts never instantiates the sync composable. Same gate as kanban.
+  # false = this build has no sketch board: no Sketch tab and /sketch redirects.
+  # The board is local and standalone — nothing is shared with room members.
   enabled: true
-  # Caps (wire-size + abuse safety); build.rs asserts each is > 0.
+  # Caps enforced in the composable + validators (memory / render cost).
   max_shapes_per_board: 1000
-  # A single freehand stroke auto-splits past this, so one shape always fits a frame.
-  max_points_per_stroke: 2000
   max_text_len: 200
-  # Snapshot budget measured on the JSON, BEFORE base64 + MLS framing. Must stay
-  # well under network.max_frame_bytes: the JSON is base64'd inside the ciphertext
-  # (x4/3) plus envelope. build.rs asserts snapshot_max_bytes * 2 <= max_frame_bytes.
-  snapshot_max_bytes: 4194304
 
 maps:
   # false = this build has no Maps: no Map tab, /map redirects, and every map_*

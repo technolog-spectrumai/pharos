@@ -84,7 +84,7 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
   });
 
-  it("creates the fileShare + vox + meetings + kanban + sketch singletons riding the channel's sync seam", async () => {
+  it("creates the fileShare + vox + meetings + kanban singletons riding the channel's sync seam", async () => {
     const store = await freshStore();
     expect(store.fileShare).toBeDefined();
     expect(store.fileShare.state.value).toBe("idle");
@@ -97,14 +97,10 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(store.kanbanEnabled).toBe(true);
     expect(store.kanban).toBeDefined();
     expect(store.kanban!.attentionCount.value).toBe(0);
-    // Sketch is gated the same way and rides the same seam.
-    expect(store.sketchEnabled).toBe(true);
-    expect(store.sketch).toBeDefined();
-    expect(store.sketch!.attentionCount.value).toBe(0);
     // Each registers its signaling handler at store creation, so file offers, call
-    // offers, meeting invites, board changes and remote strokes are caught even
-    // while their tabs are closed.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(5);
+    // offers, meeting invites and board changes are caught even while their tabs
+    // are closed.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(4);
   });
 
   it("identity fan-out delegates to the channel", async () => {

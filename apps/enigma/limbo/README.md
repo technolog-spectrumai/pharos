@@ -7,7 +7,14 @@ outside every `src-tauri` crate.
 
 Parked here, restorable later:
 
-_(nothing parked right now — both parked features have been restored.)_
+- **Sketch realtime collaboration** (2026-07) — `frontend/sketch-collab/`. The Sketch
+  board shipped as a shared per-room whiteboard (LWW-element-set CRDT + hybrid logical
+  clock, live stroke streaming, snapshots for late joiners, all over the MLS `onSync`/
+  `sendSync` seam) and was cut back to a standalone local SVG/PNG editor. The engine
+  (`useSketch.ts`), its matching CRDT model and its tests are kept here; the drawing
+  half (shapes, geometry, SVG serialization, rotation) stayed in the app. See
+  `frontend/sketch-collab/NOTES.md` for the design and a step-by-step restore checklist.
+  Deliberately not kept compiling — it no longer typechecks against the live model.
 
 To restore a feature: move the files back, re-add the `mod`/`invoke_handler`
 entries in `lib.rs`, re-`manage()` its state, re-add its Cargo deps, and mount the

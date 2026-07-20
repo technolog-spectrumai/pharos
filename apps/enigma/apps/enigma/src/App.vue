@@ -106,9 +106,8 @@ const meetings = chatStore.meetings;
 // Board tab (compile-time gated): remote board changes awaiting a look.
 const kanban = chatStore.kanban;
 const kanbanEnabled = chatStore.kanbanEnabled;
-// Sketch tab (compile-time gated): remote drawing awaiting a look.
-const sketch = chatStore.sketch;
-const sketchEnabled = chatStore.sketchEnabled;
+// Sketch tab (compile-time gated) — a standalone local drawing board.
+const sketchEnabled = getBuildConfig().sketch_enabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
 
@@ -229,11 +228,6 @@ watch(() => route.path, () => {
           <RouterLink v-if="sketchEnabled" to="/sketch" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.sketch')">
             <font-awesome-icon icon="pencil" />
             {{ $t('nav.sketch') }}
-            <span
-              v-if="(sketch?.attentionCount.value ?? 0) > 0"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('sketch.attentionTitle')"
-            />
           </RouterLink>
           <RouterLink v-if="mapsEnabled" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
             <font-awesome-icon icon="map" />
@@ -329,10 +323,6 @@ watch(() => route.path, () => {
           <RouterLink v-if="sketchEnabled" to="/sketch" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="pencil" class="w-4 text-center" />
             {{ $t('nav.sketch') }}
-            <span
-              v-if="(sketch?.attentionCount.value ?? 0) > 0"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
           </RouterLink>
           <RouterLink v-if="mapsEnabled" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="map" class="w-4 text-center" />

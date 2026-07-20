@@ -82,9 +82,7 @@ struct KanbanSection {
 struct SketchSection {
     enabled: bool,
     max_shapes_per_board: u32,
-    max_points_per_stroke: u32,
     max_text_len: u32,
-    snapshot_max_bytes: u64,
 }
 
 #[derive(Deserialize)]
@@ -257,26 +255,11 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
     let sk = &cfg.sketch;
     for (path, v) in [
         ("sketch.max_shapes_per_board", sk.max_shapes_per_board),
-        ("sketch.max_points_per_stroke", sk.max_points_per_stroke),
         ("sketch.max_text_len", sk.max_text_len),
     ] {
         if v == 0 {
             err(path, format!("{v} must be > 0"));
         }
-    }
-    if sk.snapshot_max_bytes == 0 {
-        err("sketch.snapshot_max_bytes", "must be > 0".into());
-    }
-    // A snapshot is base64'd inside the MLS ciphertext (x4/3) plus envelope, so the
-    // JSON budget must leave headroom under the wire frame cap.
-    if sk.snapshot_max_bytes.saturating_mul(2) > cfg.network.max_frame_bytes {
-        err(
-            "sketch.snapshot_max_bytes",
-            format!(
-                "{} x2 exceeds network.max_frame_bytes ({})",
-                sk.snapshot_max_bytes, cfg.network.max_frame_bytes
-            ),
-        );
     }
 
     // network.
@@ -394,9 +377,7 @@ pub mod kanban {{
 pub mod sketch {{
     pub const ENABLED: bool = {sketch_enabled};
     pub const MAX_SHAPES_PER_BOARD: u32 = {sketch_max_shapes};
-    pub const MAX_POINTS_PER_STROKE: u32 = {sketch_max_points};
     pub const MAX_TEXT_LEN: u32 = {sketch_max_text};
-    pub const SNAPSHOT_MAX_BYTES: u64 = {sketch_snapshot_max};
 }}
 
 pub mod maps {{
@@ -497,9 +478,7 @@ const _: () = assert!(
         kanban_max_desc = cfg.kanban.max_card_description_len,
         sketch_enabled = cfg.sketch.enabled,
         sketch_max_shapes = cfg.sketch.max_shapes_per_board,
-        sketch_max_points = cfg.sketch.max_points_per_stroke,
         sketch_max_text = cfg.sketch.max_text_len,
-        sketch_snapshot_max = cfg.sketch.snapshot_max_bytes,
         maps_enabled = cfg.maps.enabled,
         devices_allow_linking = cfg.devices.allow_linking,
     );

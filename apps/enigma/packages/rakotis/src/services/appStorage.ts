@@ -86,17 +86,12 @@ export interface BuildConfig {
   kanban_max_cards_per_board: number;
   kanban_max_card_title_len: number;
   kanban_max_card_description_len: number;
-  /** false = this build has no sketch board: no Sketch tab, /sketch redirects,
-   *  and stores/chat.ts never instantiates the sync composable. */
+  /** false = this build has no sketch board: no Sketch tab and /sketch redirects.
+   *  The board is local and standalone — nothing is shared with room members. */
   sketch_enabled: boolean;
-  /** Board caps enforced in the composable + validators (wire-size safety). */
+  /** Board caps enforced in the composable + validators (memory / render cost). */
   sketch_max_shapes_per_board: number;
-  /** A freehand stroke auto-splits past this, so one shape always fits a frame. */
-  sketch_max_points_per_stroke: number;
   sketch_max_text_len: number;
-  /** Snapshot JSON budget before base64 + MLS framing; build.rs asserts it leaves
-   *  headroom under network.max_frame_bytes. */
-  sketch_snapshot_max_bytes: number;
   /** false = this build has no Maps: no Map tab, /map redirects, map_* commands
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
@@ -133,9 +128,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   kanban_max_card_description_len: 4000,
   sketch_enabled: true,
   sketch_max_shapes_per_board: 1000,
-  sketch_max_points_per_stroke: 2000,
   sketch_max_text_len: 200,
-  sketch_snapshot_max_bytes: 4194304,
   maps_enabled: true,
   devices_allow_linking: true,
   use_tor_default: false,
@@ -781,6 +774,14 @@ export async function removeNoteRecent(path: string): Promise<void> {
 export async function writeTextFileToDisk(path: string, contents: string): Promise<void> {
   if (!isTauri()) throw new Error("Saving to disk is only available in the desktop app.");
   await invoke("fs_write_text_file", { path, contents });
+}
+
+/** Write binary content, supplied as base64, to a user-chosen path
+ *  (`fs_local::fs_write_base64_file`). Base64 because the callers are canvas data
+ *  URLs, which already carry their payload that way. Tauri-only. */
+export async function writeBase64FileToDisk(path: string, b64: string): Promise<void> {
+  if (!isTauri()) throw new Error("Saving to disk is only available in the desktop app.");
+  await invoke("fs_write_base64_file", { path, b64 });
 }
 
 // ── Local-file key-rotation reminder interval ─────────────────────────────────

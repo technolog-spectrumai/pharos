@@ -1,26 +1,22 @@
 <script setup lang="ts">
-// Sketch tab: the currently-open room's shared drawing board. All state lives in
-// the app-wide sketch orchestrator (stores/chat.ts) — this view is its surface and
-// owns the tool selection and the modals (text entry, clear confirmation).
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { OyaButton, OyaEmptyState, OyaModal, OyaTextField } from "rakotis";
-import { useChatStore } from "../stores/chat";
+// Sketch tab: a standalone local drawing board. Not tied to a chat room and not
+// shared — it saves itself locally and exports to SVG or PNG.
+//
+// The board lives in the module singleton from useSketch, not in this view: the
+// router unmounts views on navigation, so view-local state would drop the drawing
+// and its undo history every time the user looks at another tab.
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { OyaButton, OyaModal, OyaTextField } from "rakotis";
 import SketchCanvas, { type Tool } from "../components/sketch/SketchCanvas.vue";
 import SketchToolbar from "../components/sketch/SketchToolbar.vue";
-import { exportSvg, rasterize } from "../components/sketch/sketchExport";
+import { exportPng, exportSvg } from "../components/sketch/sketchExport";
 import { SVG_FONT_STACK } from "../components/sketch/sketchModel";
+import { getSketch } from "../components/sketch/useSketch";
 
-// darkMode is class-based (`.dark` on <html>); the prop only absorbs the
-// fall-through attr App.vue passes to every routed view.
 defineProps<{ darkMode?: boolean }>();
 
-const chatStore = useChatStore();
-// Guaranteed non-null here: /sketch's `beforeEnter` redirects unless the build
-// flag is on, and a flag-off build never mounts this view.
-const sketch = chatStore.sketch!;
-const p2p = chatStore.p2p;
+const sketch = getSketch();
 
-const currentRoomSlug = computed(() => p2p.currentRoom.value?.slug ?? "");
 const tool = ref<Tool>("draw");
 const textSize = ref(24);
 const busy = ref(false);
@@ -64,26 +60,21 @@ function confirmClear() {
   clearOpen.value = false;
 }
 
-// ── export / share ──────────────────────────────────────────────────────────
-async function onExportSvg() {
-  busy.value = true;
-  notice.value = "";
-  try {
-    const name = `sketch-${currentRoomSlug.value || "board"}.svg`;
-    if (await exportSvg(sketch.doc.value, name)) notice.value = "exported";
-  } catch (e) {
-    notice.value = (e as Error)?.message ?? String(e);
-  } finally {
-    busy.value = false;
-  }
-}
+// ── export ──────────────────────────────────────────────────────────────────
+const stamp = () => new Date().toISOString().slice(0, 10);
 
-async function onSendToChat() {
+async function runExport(kind: "svg" | "png") {
   busy.value = true;
   notice.value = "";
   try {
-    await p2p.sendImageDataUrl(rasterize(sketch.doc.value));
-    notice.value = "sent";
+    // Persist first: what lands on disk should match what's saved.
+    await sketch.flushPersist();
+    const name = `sketch-${stamp()}.${kind}`;
+    const ok =
+      kind === "svg"
+        ? await exportSvg(sketch.doc.value, name)
+        : await exportPng(sketch.doc.value, name);
+    if (ok) notice.value = "exported";
   } catch (e) {
     notice.value = (e as Error)?.message ?? String(e);
   } finally {
@@ -113,22 +104,17 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
+const shapeCount = computed(() => sketch.shapes.value.length);
+
 onMounted(() => {
-  sketch.markSeen();
+  void sketch.load();
   window.addEventListener("keydown", onKey);
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
-  // Don't leave the open room's board unsaved behind a debounce.
+  // Don't leave the board unsaved behind a debounce when navigating away.
   void sketch.flushPersist();
 });
-
-watch(
-  () => sketch.attentionCount.value,
-  (n) => {
-    if (n > 0) sketch.markSeen();
-  },
-);
 </script>
 
 <template>
@@ -138,44 +124,29 @@ watch(
         <h1 class="text-xl font-bold">{{ $t('sketch.title') }}</h1>
         <p class="text-sm opacity-60">{{ $t('sketch.subtitle') }}</p>
       </div>
+      <p class="text-xs opacity-50">{{ $t('sketch.shapeCount', { n: shapeCount }) }}</p>
     </div>
 
-    <!-- No room open -->
-    <div v-if="!currentRoomSlug" class="flex flex-1 items-center justify-center">
-      <OyaEmptyState icon="pencil" size="lg">{{ $t('sketch.noRoom') }}</OyaEmptyState>
-    </div>
+    <SketchToolbar
+      :sketch="sketch"
+      :tool="tool"
+      :text-size="textSize"
+      :busy="busy"
+      :dark-mode="darkMode"
+      @update:tool="tool = $event"
+      @update:text-size="textSize = $event"
+      @clear="clearOpen = true"
+      @export-svg="runExport('svg')"
+      @export-png="runExport('png')"
+    />
 
-    <template v-else>
-      <SketchToolbar
-        :sketch="sketch"
-        :tool="tool"
-        :text-size="textSize"
-        :busy="busy"
-        @update:tool="tool = $event"
-        @update:text-size="textSize = $event"
-        @clear="clearOpen = true"
-        @export-svg="onExportSvg"
-        @send-to-chat="onSendToChat"
-      />
+    <p v-if="sketch.boardFull.value" class="text-xs text-warn-dark">
+      {{ $t('sketch.boardFull', { n: sketch.maxShapes }) }}
+    </p>
+    <p v-else-if="notice === 'exported'" class="text-xs opacity-60">{{ $t('sketch.exportDone') }}</p>
+    <p v-else-if="notice" class="text-xs text-warn-dark">{{ notice }}</p>
 
-      <p v-if="sketch.boardFull.value" class="text-xs text-warn-dark">
-        {{ $t('sketch.boardFull', { n: sketch.maxShapes }) }}
-      </p>
-      <p v-else-if="sketch.truncatedWarning.value" class="text-xs text-warn-dark">
-        {{ $t('sketch.truncatedWarning') }}
-      </p>
-      <p v-else-if="notice === 'exported'" class="text-xs opacity-60">{{ $t('sketch.exportDone') }}</p>
-      <p v-else-if="notice === 'sent'" class="text-xs opacity-60">{{ $t('sketch.sendDone') }}</p>
-      <p v-else-if="notice" class="text-xs text-warn-dark">{{ notice }}</p>
-
-      <SketchCanvas
-        :sketch="sketch"
-        :tool="tool"
-        :text-size="textSize"
-        :dark-mode="darkMode"
-        @request-text="onRequestText"
-      />
-    </template>
+    <SketchCanvas :sketch="sketch" :tool="tool" @request-text="onRequestText" />
 
     <!-- Text entry -->
     <OyaModal :open="textOpen" @close="textOpen = false">
