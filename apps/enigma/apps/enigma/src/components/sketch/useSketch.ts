@@ -17,7 +17,7 @@
 // take the whole orchestrator as a prop and read `.value` directly.
 
 import { computed, ref } from "vue";
-import { getBuildConfig, kvGet, kvPut } from "rakotis";
+import { getBuildConfig, kvDelete, kvGet, kvPut } from "rakotis";
 import {
   emptyDoc,
   hitTest,
@@ -29,6 +29,7 @@ import {
   shapeBounds,
   shapePivot,
   translateShape,
+  validateBackgroundImage,
   validateDoc,
   type ArrowShape,
   type EllipseShape,
@@ -46,6 +47,11 @@ const KV_SCOPE = "default";
 /** Single board ⇒ the empty-key convention used by `contacts` / `p2p:rooms`.
  *  Not in DEVLINK_SYNC_KV, so the board stays device-local by construction. */
 const KV_KEY = "";
+/** The background image lives under its own key. Drawing rewrites the shape
+ *  document constantly (and every kvPut is an fsync), so a megabyte of base64
+ *  riding along on each autosave would be paid over and over for nothing — the
+ *  image only changes when the user picks one. */
+const KV_KEY_IMAGE = "background";
 
 const PERSIST_DEBOUNCE_MS = 800;
 /** Bounded so a long session can't grow the history without limit. */
@@ -71,6 +77,8 @@ export function useSketch() {
   };
 
   const doc = ref<SketchDoc>(emptyDoc());
+  /** Board-cropped data URL, or null. Kept beside the document, not inside it. */
+  const backgroundImage = ref<string | null>(null);
   const selfLive = ref<LiveStroke | null>(null);
   const selectedId = ref<string | null>(null);
   const boardFull = ref(false);
@@ -79,6 +87,9 @@ export function useSketch() {
   /** A load has FINISHED. Persisting before this would write the initial empty
    *  document over the user's saved board — see persist(). */
   const ready = ref(false);
+  /** Storage could not be read, so persistence is disabled to avoid overwriting a
+   *  board we never managed to see. Surfaced in the UI. */
+  const loadFailed = ref(false);
 
   const shapes = computed(() => doc.value.shapes);
   const selected = computed(() => doc.value.shapes.find((s) => s.id === selectedId.value) ?? null);
@@ -124,6 +135,16 @@ export function useSketch() {
     await kvPut(KV_NS, KV_SCOPE, KV_KEY, JSON.stringify(doc.value)).catch(() => {});
   }
 
+  /** Written on its own, only from setBackgroundImage / undo-redo of one. */
+  async function persistImage() {
+    if (!ready.value) return;
+    const v = backgroundImage.value;
+    await (v
+      ? kvPut(KV_NS, KV_SCOPE, KV_KEY_IMAGE, v)
+      : kvDelete(KV_NS, KV_SCOPE, KV_KEY_IMAGE)
+    ).catch(() => {});
+  }
+
   /** Persist now — before unmount or export. */
   async function flushPersist() {
     if (persistTimer) {
@@ -133,21 +154,47 @@ export function useSketch() {
     await persist();
   }
 
-  /** Load the saved board. Safe to call repeatedly; only the first load applies. */
+  /** Load the saved board. Safe to call repeatedly; only the first load applies.
+   *
+   *  The two keys are read and recovered INDEPENDENTLY. Sharing one try (or one
+   *  Promise.all) means a failure in either discards the other — and a failure
+   *  reading the image would open the persist gate over an empty document, so the
+   *  next flush would destroy a drawing that was never even unreadable. */
   async function load() {
     if (loading.value) return;
     loading.value = true;
+
+    // Storage read and content parse are handled separately, because they call for
+    // opposite responses: unreadable STORAGE means we must not write (we would be
+    // overwriting something we failed to see), while readable-but-corrupt CONTENT
+    // means there is nothing left to protect and starting fresh is right.
+    let raw: string | null = null;
+    let storageOk = true;
     try {
-      const raw = await kvGet(KV_NS, KV_SCOPE, KV_KEY);
-      // Re-validate: a corrupt or hand-edited kv entry must not poison the renderer.
-      const parsed = raw ? validateDoc(JSON.parse(raw), caps) : null;
-      if (parsed) doc.value = parsed;
+      raw = await kvGet(KV_NS, KV_SCOPE, KV_KEY);
     } catch {
-      doc.value = emptyDoc();
-    } finally {
-      // Even a failed read opens the gate: the board is now legitimately empty and
-      // must be saveable, otherwise the feature would silently stop persisting.
+      storageOk = false;
+    }
+
+    if (storageOk) {
+      try {
+        const parsed = raw ? validateDoc(JSON.parse(raw), caps) : null;
+        if (parsed) doc.value = parsed;
+      } catch {
+        doc.value = emptyDoc();
+      }
       ready.value = true;
+    } else {
+      // Refuse to persist for the rest of the session rather than clobber the
+      // board, and say so — silently not saving would be its own kind of loss.
+      loadFailed.value = true;
+    }
+
+    try {
+      // Validated because this string goes straight into an SVG href and the DOM.
+      backgroundImage.value = validateBackgroundImage(await kvGet(KV_NS, KV_SCOPE, KV_KEY_IMAGE));
+    } catch {
+      backgroundImage.value = null;
     }
   }
 
@@ -155,7 +202,9 @@ export function useSketch() {
   async function reload() {
     loading.value = false;
     ready.value = false;
+    loadFailed.value = false;
     doc.value = emptyDoc();
+    backgroundImage.value = null;
     selectedId.value = null;
     undoStack.value = [];
     redoStack.value = [];
@@ -163,19 +212,37 @@ export function useSketch() {
   }
 
   // ── undo / redo ────────────────────────────────────────────────────────────
-  // Whole-array snapshots. With one user and an immutable-by-convention shape list,
-  // this is both simpler and harder to get wrong than inverse operations — and the
-  // boards are small enough (capped at `maxShapes`) that the copies are cheap.
+  // Whole-document snapshots. With one user and an immutable-by-convention shape
+  // list, this is both simpler and harder to get wrong than inverse operations —
+  // and boards are small enough (capped at `maxShapes`) that the copies are cheap.
+  // The background is document state too, so it rides in the snapshot; otherwise
+  // undoing a shape edit would silently revert a background change made after it.
 
-  const undoStack = ref<Shape[][]>([]);
-  const redoStack = ref<Shape[][]>([]);
+  interface DocState {
+    shapes: Shape[];
+    background: string | null;
+    /** A reference, not a copy: strings are immutable, so repeating a multi-MB
+     *  data URL across 100 undo entries costs 100 pointers. */
+    image: string | null;
+  }
+
+  const undoStack = ref<DocState[]>([]);
+  const redoStack = ref<DocState[]>([]);
 
   const canUndo = computed(() => undoStack.value.length > 0);
   const canRedo = computed(() => redoStack.value.length > 0);
 
-  /** Call BEFORE mutating `doc.shapes`. */
+  function currentState(): DocState {
+    return {
+      shapes: doc.value.shapes.slice(),
+      background: doc.value.background,
+      image: backgroundImage.value,
+    };
+  }
+
+  /** Call BEFORE mutating the document. */
   function snapshot() {
-    undoStack.value.push(doc.value.shapes.slice());
+    undoStack.value.push(currentState());
     if (undoStack.value.length > UNDO_LIMIT) undoStack.value.shift();
     redoStack.value = []; // a fresh action forks the timeline
   }
@@ -189,18 +256,27 @@ export function useSketch() {
     schedulePersist();
   }
 
+  function applyState(next: DocState) {
+    doc.value.background = next.background;
+    const imageChanged = backgroundImage.value !== next.image;
+    backgroundImage.value = next.image;
+    applyShapes(next.shapes);
+    // Only touch the image key when it actually moved — see KV_KEY_IMAGE.
+    if (imageChanged) void persistImage();
+  }
+
   function undo() {
     const prev = undoStack.value.pop();
     if (!prev) return;
-    redoStack.value.push(doc.value.shapes.slice());
-    applyShapes(prev);
+    redoStack.value.push(currentState());
+    applyState(prev);
   }
 
   function redo() {
     const next = redoStack.value.pop();
     if (!next) return;
-    undoStack.value.push(doc.value.shapes.slice());
-    applyShapes(next);
+    undoStack.value.push(currentState());
+    applyState(next);
   }
 
   // ── creating shapes ────────────────────────────────────────────────────────
@@ -459,6 +535,24 @@ export function useSketch() {
     applyShapes(doc.value.shapes.filter((s) => !hits.has(s.id)));
   }
 
+  /** Set the board background, or null for transparent. Undoable. */
+  function setBackground(color: string | null) {
+    if (doc.value.background === color) return;
+    snapshot();
+    doc.value.background = color;
+    schedulePersist();
+  }
+
+  /** Set or clear the board background image. Expects an already board-cropped,
+   *  validated data URL from `backgroundImageFromFile`. Undoable. */
+  function setBackgroundImage(dataUrl: string | null) {
+    const next = dataUrl === null ? null : validateBackgroundImage(dataUrl);
+    if (backgroundImage.value === next) return;
+    snapshot();
+    backgroundImage.value = next;
+    void persistImage();
+  }
+
   function clearBoard() {
     if (!doc.value.shapes.length) return;
     snapshot();
@@ -472,6 +566,7 @@ export function useSketch() {
     shapes,
     selfLive,
     boardFull,
+    loadFailed,
     // tool settings
     currentColor,
     currentWidth,
@@ -493,6 +588,9 @@ export function useSketch() {
     beginErase,
     eraseAlong,
     clearBoard,
+    setBackground,
+    backgroundImage,
+    setBackgroundImage,
     // selection + transforms
     selectedId,
     selected,

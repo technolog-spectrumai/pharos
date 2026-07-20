@@ -126,10 +126,34 @@ export function canFill(kind: ShapeKind): boolean {
 export interface SketchDoc {
   v: 1;
   shapes: Shape[];
+  /** Board background, or null for transparent — the default. Transparent means
+   *  the SVG omits its background rect entirely and the PNG keeps its alpha
+   *  channel, so an export drops straight onto whatever it is placed over. */
+  background: string | null;
 }
 
 export function emptyDoc(): SketchDoc {
-  return { v: 1, shapes: [] };
+  return { v: 1, shapes: [], background: null };
+}
+
+/** Offered as board backgrounds. `null` (transparent) is the default and is added
+ *  by the UI, not listed here. White and near-black lead because an export usually
+ *  wants one or the other when it is not transparent. */
+export const BACKGROUND_COLORS = ["#ffffff", "#111827", "#f3f4f6", "#fef3c7", "#dbeafe", "#dcfce7"] as const;
+
+/** Upper bound on a stored background image, as data-URL characters (~9 MB of
+ *  base64 ≈ 6.7 MB of bytes). Import already crops and re-encodes to board size, so
+ *  anything past this is a corrupt or hand-edited entry, not a real photo. */
+export const MAX_BG_IMAGE_CHARS = 9_000_000;
+
+/** A background image is a base64 data URL, cropped to the board at import.
+ *  Validated on every load because it is written straight into an SVG `href` and a
+ *  file on the user's disk: only these raster types, only base64, nothing else. */
+const BG_IMAGE_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
+
+export function validateBackgroundImage(x: unknown): string | null {
+  if (typeof x !== "string" || x.length === 0 || x.length > MAX_BG_IMAGE_CHARS) return null;
+  return BG_IMAGE_RE.test(x) ? x : null;
 }
 
 /** Caps from build config; the model takes them as data so it stays pure. */
@@ -550,6 +574,9 @@ export function validateDoc(x: unknown, caps: SketchCaps): SketchDoc | null {
   const o = x as Record<string, unknown>;
   if (!Array.isArray(o.shapes)) return null;
   const doc = emptyDoc();
+  // Absent or malformed ⇒ transparent, which is also what a pre-background
+  // document (saved before this field existed) should become.
+  doc.background = color(o.background);
   for (const s of o.shapes) {
     if (doc.shapes.length >= caps.maxShapes) break;
     const v = validateShape(s, caps);
@@ -615,14 +642,26 @@ export function shapeToSvg(s: Shape): string {
  *  From the model, not the live DOM: the DOM also holds the in-progress shape
  *  preview, selection handles, the eraser cursor, Vue's scoping attributes and
  *  Tailwind classes — and export has to work regardless of what is on screen. */
-export function toSvg(doc: SketchDoc, opts: { background?: string } = {}): string {
-  const bg = opts.background ?? "#ffffff";
+export function toSvg(
+  doc: SketchDoc,
+  opts: { background?: string | null; image?: string | null } = {},
+): string {
+  const bg = opts.background !== undefined ? opts.background : doc.background;
+  // Transparent means NO background rect at all — an empty or white-filled rect
+  // would defeat the point by making the export opaque.
+  const bgRect = bg ? `  <rect width="${BOARD_W}" height="${BOARD_H}" fill="${esc(bg)}"/>\n` : "";
+  // The image is embedded, not linked, so the .svg stays portable. It is already
+  // cropped to the board at import, so it draws at the full board rect and every
+  // renderer agrees without any fit maths.
+  const img = validateBackgroundImage(opts.image);
+  const bgImage = img
+    ? `  <image href="${esc(img)}" x="0" y="0" width="${BOARD_W}" height="${BOARD_H}"/>\n`
+    : "";
   const body = doc.shapes.map(shapeToSvg).join("\n  ");
   // width/height are required, not decorative: an SVG with no intrinsic size
   // renders at 0x0 when loaded as an image in WebKit.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${BOARD_W}" height="${BOARD_H}" viewBox="0 0 ${BOARD_W} ${BOARD_H}">
-  <rect width="${BOARD_W}" height="${BOARD_H}" fill="${esc(bg)}"/>
-  ${body}
+${bgRect}${bgImage}  ${body}
 </svg>`;
 }

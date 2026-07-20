@@ -6,21 +6,26 @@
 // router unmounts views on navigation, so view-local state would drop the drawing
 // and its undo history every time the user looks at another tab.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { OyaButton, OyaModal, OyaTextField } from "rakotis";
 import SketchCanvas, { type Tool } from "../components/sketch/SketchCanvas.vue";
 import SketchToolbar from "../components/sketch/SketchToolbar.vue";
-import { exportPng, exportSvg } from "../components/sketch/sketchExport";
+import { backgroundImageFromFile, exportPng, exportSvg } from "../components/sketch/sketchExport";
 import { SVG_FONT_STACK } from "../components/sketch/sketchModel";
 import { getSketch } from "../components/sketch/useSketch";
 
 defineProps<{ darkMode?: boolean }>();
 
+const { t } = useI18n();
 const sketch = getSketch();
 
 const tool = ref<Tool>("draw");
 const textSize = ref(24);
 const busy = ref(false);
 const notice = ref("");
+/** Errors are held separately from `notice` so a transient board state can never
+ *  hide one — the two used to share a v-if chain, where boardFull always won. */
+const error = ref("");
 
 // ── text entry ──────────────────────────────────────────────────────────────
 // A modal rather than an inline caret: one code path for desktop and touch, no
@@ -53,6 +58,41 @@ function commitText() {
   textOpen.value = false;
 }
 
+// ── background image ────────────────────────────────────────────────────────
+// A hidden <input type="file"> rather than the Tauri dialog plugin: reading needs
+// the bytes, not a path, so this works identically in the desktop webview and in
+// the browser dev build with no Rust command at all. Same pattern as the QR
+// upload in JoinRoomModal.vue.
+const imageInput = ref<HTMLInputElement | null>(null);
+
+/** The import helpers throw stable codes rather than English prose, so the message
+ *  the user reads is translated like the rest of the UI. */
+const IMAGE_ERROR_KEYS: Record<string, string> = {
+  "not-an-image": "sketch.imageNotAnImage",
+  unreadable: "sketch.imageUnreadable",
+  "prepare-failed": "sketch.imageFailed",
+  "canvas-unavailable": "sketch.imageFailed",
+};
+
+async function onImagePicked(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  // Clear immediately so re-picking the SAME file still fires a change event.
+  input.value = "";
+  if (!file) return;
+  busy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    sketch.setBackgroundImage(await backgroundImageFromFile(file));
+  } catch (e) {
+    const code = (e as Error)?.message ?? "";
+    error.value = t(IMAGE_ERROR_KEYS[code] ?? "sketch.imageFailed");
+  } finally {
+    busy.value = false;
+  }
+}
+
 // ── clear confirm ───────────────────────────────────────────────────────────
 const clearOpen = ref(false);
 function confirmClear() {
@@ -65,6 +105,7 @@ const stamp = () => new Date().toISOString().slice(0, 10);
 
 async function runExport(kind: "svg" | "png") {
   busy.value = true;
+  error.value = "";
   notice.value = "";
   try {
     // Persist first: what lands on disk should match what's saved.
@@ -72,11 +113,11 @@ async function runExport(kind: "svg" | "png") {
     const name = `sketch-${stamp()}.${kind}`;
     const ok =
       kind === "svg"
-        ? await exportSvg(sketch.doc.value, name)
-        : await exportPng(sketch.doc.value, name);
+        ? await exportSvg(sketch.doc.value, name, sketch.backgroundImage.value)
+        : await exportPng(sketch.doc.value, name, sketch.backgroundImage.value);
     if (ok) notice.value = "exported";
   } catch (e) {
-    notice.value = (e as Error)?.message ?? String(e);
+    error.value = (e as Error)?.message ?? String(e);
   } finally {
     busy.value = false;
   }
@@ -138,13 +179,24 @@ onBeforeUnmount(() => {
       @clear="clearOpen = true"
       @export-svg="runExport('svg')"
       @export-png="runExport('png')"
+      @choose-image="imageInput?.click()"
+    />
+    <input
+      ref="imageInput"
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+      class="hidden"
+      @change="onImagePicked"
     />
 
-    <p v-if="sketch.boardFull.value" class="text-xs text-warn-dark">
+    <p v-if="sketch.loadFailed.value" class="text-xs text-warn-dark">
+      {{ $t('sketch.loadFailed') }}
+    </p>
+    <p v-if="error" class="text-xs text-warn-dark">{{ error }}</p>
+    <p v-else-if="sketch.boardFull.value" class="text-xs text-warn-dark">
       {{ $t('sketch.boardFull', { n: sketch.maxShapes }) }}
     </p>
     <p v-else-if="notice === 'exported'" class="text-xs opacity-60">{{ $t('sketch.exportDone') }}</p>
-    <p v-else-if="notice" class="text-xs text-warn-dark">{{ notice }}</p>
 
     <SketchCanvas :sketch="sketch" :tool="tool" @request-text="onRequestText" />
 

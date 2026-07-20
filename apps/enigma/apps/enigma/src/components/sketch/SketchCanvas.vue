@@ -324,7 +324,7 @@ const cursorClass = computed(() => {
       ref="svgEl"
       :viewBox="`0 0 ${BOARD_W} ${BOARD_H}`"
       preserveAspectRatio="xMidYMid meet"
-      class="block h-full w-full touch-none select-none rounded-xl bg-white shadow-inner"
+      class="block h-full w-full touch-none select-none rounded-xl shadow-inner"
       :class="cursorClass"
       @pointerdown="onDown"
       @pointermove="onMove"
@@ -332,6 +332,33 @@ const cursorClass = computed(() => {
       @pointercancel="onUp"
       @pointerleave="cursor = null"
     >
+      <defs>
+        <!-- Transparency checkerboard. A UI affordance only: exports come from the
+             model (toSvg / rasterize), which omit the background entirely when it
+             is null, so this never leaks into a saved file. -->
+        <pattern id="sketchTransparency" width="24" height="24" patternUnits="userSpaceOnUse">
+          <rect width="24" height="24" fill="#ffffff" />
+          <rect width="12" height="12" fill="#e5e7eb" />
+          <rect x="12" y="12" width="12" height="12" fill="#e5e7eb" />
+        </pattern>
+      </defs>
+      <rect
+        :width="BOARD_W"
+        :height="BOARD_H"
+        :fill="sketch.doc.value.background ?? 'url(#sketchTransparency)'"
+      />
+
+      <!-- Background image: cropped to the board at import, so it draws at the
+           full rect exactly as both exporters do. Over the colour, under the art. -->
+      <image
+        v-if="sketch.backgroundImage.value"
+        :href="sketch.backgroundImage.value"
+        x="0"
+        y="0"
+        :width="BOARD_W"
+        :height="BOARD_H"
+      />
+
       <!-- Committed document, in paint order -->
       <g>
         <template v-for="s in sketch.shapes.value" :key="s.id">

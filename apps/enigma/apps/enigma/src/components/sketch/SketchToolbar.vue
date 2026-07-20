@@ -3,7 +3,14 @@
 // mutation goes through the sketch orchestrator the parent owns.
 import { computed } from "vue";
 import { OyaIconButton } from "rakotis";
-import { canFill, OPACITY_STEPS, SKETCH_COLORS, STROKE_SIZES, TEXT_SIZES } from "./sketchModel";
+import {
+  BACKGROUND_COLORS,
+  canFill,
+  OPACITY_STEPS,
+  SKETCH_COLORS,
+  STROKE_SIZES,
+  TEXT_SIZES,
+} from "./sketchModel";
 import type { Sketch } from "./useSketch";
 import type { Tool } from "./SketchCanvas.vue";
 
@@ -14,6 +21,7 @@ const emit = defineEmits<{
   clear: [];
   exportSvg: [];
   exportPng: [];
+  chooseImage: [];
 }>();
 
 const TOOLS: { id: Tool; icon: string; labelKey: string }[] = [
@@ -45,6 +53,10 @@ function pickFill(c: string | null) {
   props.sketch.currentFill.value = c;
   props.sketch.restyleSelected();
 }
+
+/** Board background — a document property, so it is read straight off the doc
+ *  rather than from a tool ref. null = transparent (the default). */
+const background = computed(() => props.sketch.doc.value.background);
 
 const fillApplies = computed(() => {
   const sel = props.sketch.selected.value;
@@ -148,6 +160,45 @@ const rotation = computed({
         :style="{ backgroundColor: c }"
         :aria-label="c"
         @click="pickFill(c)"
+      />
+    </div>
+
+    <!-- Board background -->
+    <div class="flex items-center gap-1" :title="$t('sketch.background')">
+      <font-awesome-icon icon="image" class="text-xs opacity-60" />
+      <button
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded border-2 text-[10px] transition hover:scale-110"
+        :class="background === null ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
+        :aria-label="$t('sketch.noBackground')"
+        :title="$t('sketch.noBackground')"
+        @click="sketch.setBackground(null)"
+      >
+        <font-awesome-icon icon="ban" />
+      </button>
+      <button
+        v-for="c in BACKGROUND_COLORS"
+        :key="`bg-${c}`"
+        type="button"
+        class="h-6 w-6 rounded border-2 transition hover:scale-110"
+        :class="background === c ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
+        :style="{ backgroundColor: c }"
+        :aria-label="c"
+        @click="sketch.setBackground(c)"
+      />
+      <OyaIconButton
+        size="sm"
+        icon="file-image"
+        :label="$t('sketch.chooseImage')"
+        :disabled="busy"
+        @click="emit('chooseImage')"
+      />
+      <OyaIconButton
+        v-if="sketch.backgroundImage.value"
+        size="sm"
+        icon="xmark"
+        :label="$t('sketch.removeImage')"
+        @click="sketch.setBackgroundImage(null)"
       />
     </div>
 

@@ -1,5 +1,5 @@
-// Sketch export — a standalone .svg or .png on disk. Kept out of sketchModel.ts
-// because this half touches the DOM and Tauri.
+// Sketch export and image import — everything that needs a canvas, the DOM, or
+// Tauri. Kept out of sketchModel.ts so that stays a pure, testable module.
 
 import { writeBase64FileToDisk, writeTextFileToDisk } from "rakotis";
 import {
@@ -12,8 +12,86 @@ import {
   SVG_FONT_STACK,
   toSvg,
   trianglePoints,
+  validateBackgroundImage,
   type SketchDoc,
 } from "./sketchModel";
+
+/** Decode a data URL into an <img> that is ready to draw. */
+async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  const img = new Image();
+  img.src = dataUrl;
+  // decode() rejects on a malformed payload instead of leaving a 0x0 image, which
+  // would otherwise rasterize as a silent no-op. Its DOMException text is
+  // browser-specific English, so normalise it to a code the UI can translate.
+  try {
+    await img.decode();
+  } catch {
+    throw new Error("not-an-image");
+  }
+  return img;
+}
+
+/** Past this many data-URL characters a photographic PNG is worth re-encoding —
+ *  but only when it has no transparency to lose. */
+const PNG_SIZE_LIMIT = 1_500_000;
+
+/** True when any pixel is not fully opaque. One pass over the alpha bytes of a
+ *  board-sized bitmap, run once per import. */
+function hasTransparency(ctx: CanvasRenderingContext2D): boolean {
+  const { data } = ctx.getImageData(0, 0, BOARD_W, BOARD_H);
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 255) return true;
+  }
+  return false;
+}
+
+/** Crop-to-fill an arbitrary image onto the board and re-encode it.
+ *
+ *  The crop is baked in at import rather than expressed as a fit mode, so the three
+ *  renderers (canvas, SVG, PNG) all just draw the result at the full board rect and
+ *  cannot disagree about framing. Also bounds what gets stored: whatever the user
+ *  picked, what we keep is one board-sized frame. */
+export async function prepareBackgroundImage(dataUrl: string): Promise<string> {
+  const img = await loadImage(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = BOARD_W;
+  canvas.height = BOARD_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas-unavailable");
+
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) throw new Error("not-an-image");
+  // "cover": scale until both axes are filled, centre, let the overflow fall off.
+  const scale = Math.max(BOARD_W / iw, BOARD_H / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  ctx.drawImage(img, (BOARD_W - w) / 2, (BOARD_H - h) / 2, w, h);
+
+  // PNG keeps alpha; JPEG is far smaller but has none, and per the HTML spec a
+  // canvas with transparency is composited onto BLACK when serialized to a format
+  // without an alpha channel. So the fallback is gated on whether this image
+  // actually uses transparency — not on size alone, which was exactly backwards:
+  // an alpha channel makes the PNG bigger, so a size-only rule flattened the very
+  // images that needed alpha, silently turning transparent regions black.
+  const png = canvas.toDataURL("image/png");
+  if (png.length <= PNG_SIZE_LIMIT || hasTransparency(ctx)) return png;
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+/** Read a user-picked File into a validated, board-cropped background image. */
+export async function backgroundImageFromFile(file: File): Promise<string> {
+  const raw = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("unreadable"));
+    reader.readAsDataURL(file);
+  });
+  if (!raw.startsWith("data:image/")) throw new Error("not-an-image");
+  const prepared = await prepareBackgroundImage(raw);
+  if (!validateBackgroundImage(prepared)) throw new Error("prepare-failed");
+  return prepared;
+}
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && !!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -36,8 +114,12 @@ function stripDataUrl(dataUrl: string): string {
 }
 
 /** Save the board as an .svg. Returns false if the user cancelled the dialog. */
-export async function exportSvg(doc: SketchDoc, defaultName: string): Promise<boolean> {
-  const svg = toSvg(doc);
+export async function exportSvg(
+  doc: SketchDoc,
+  defaultName: string,
+  image?: string | null,
+): Promise<boolean> {
+  const svg = toSvg(doc, { image });
   if (!isTauri()) {
     browserDownload(new Blob([svg], { type: "image/svg+xml" }), defaultName);
     return true;
@@ -50,8 +132,12 @@ export async function exportSvg(doc: SketchDoc, defaultName: string): Promise<bo
 }
 
 /** Save the board as a .png. Returns false if the user cancelled the dialog. */
-export async function exportPng(doc: SketchDoc, defaultName: string): Promise<boolean> {
-  const dataUrl = rasterize(doc);
+export async function exportPng(
+  doc: SketchDoc,
+  defaultName: string,
+  image?: string | null,
+): Promise<boolean> {
+  const dataUrl = await rasterize(doc, image);
   if (!isTauri()) {
     const bin = atob(stripDataUrl(dataUrl));
     const bytes = new Uint8Array(bin.length);
@@ -95,7 +181,11 @@ function scratchCtx(w: number, h: number, scale: number): CanvasRenderingContext
  *  vanish, and canvas-taint rules around SVG images vary enough that toDataURL can
  *  throw. Path geometry comes from the very same `pathD` the SVG uses, and rotation
  *  from the same `shapePivot`, so the two renderers cannot drift. */
-export function rasterize(doc: SketchDoc, scale = 1): string {
+export async function rasterize(
+  doc: SketchDoc,
+  image?: string | null,
+  scale = 1,
+): Promise<string> {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(BOARD_W * scale);
   canvas.height = Math.round(BOARD_H * scale);
@@ -103,8 +193,17 @@ export function rasterize(doc: SketchDoc, scale = 1): string {
   if (!ctx) throw new Error("Canvas is unavailable.");
 
   ctx.scale(scale, scale);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+  // A fresh canvas is already transparent, so a null background means painting
+  // nothing here — PNG keeps its alpha channel and matches the SVG, which omits
+  // its background rect in the same case.
+  if (doc.background) {
+    ctx.fillStyle = doc.background;
+    ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+  }
+  // Already cropped to the board at import, so it draws at the full rect — the same
+  // geometry the SVG uses. Over the colour, under every shape.
+  const bgImage = validateBackgroundImage(image);
+  if (bgImage) ctx.drawImage(await loadImage(bgImage), 0, 0, BOARD_W, BOARD_H);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 

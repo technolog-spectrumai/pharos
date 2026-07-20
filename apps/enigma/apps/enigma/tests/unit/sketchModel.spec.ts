@@ -5,6 +5,7 @@ import {
   distToShapeRotated,
   emptyDoc,
   hitTest,
+  MAX_BG_IMAGE_CHARS,
   normDeg,
   pathD,
   rotatePoint,
@@ -15,6 +16,7 @@ import {
   toSvg,
   translateShape,
   trianglePoints,
+  validateBackgroundImage,
   validateDoc,
   validateShape,
   type PathShape,
@@ -447,6 +449,138 @@ describe("validation", () => {
     expect(validateDoc(null, CAPS)).toBeNull();
     expect(validateDoc({ v: 1 }, CAPS)).toBeNull();
     expect(validateDoc("nope", CAPS)).toBeNull();
+  });
+});
+
+describe("background", () => {
+  it("defaults to transparent", () => {
+    expect(emptyDoc().background).toBeNull();
+  });
+
+  it("omits the background rect entirely when transparent", () => {
+    const svg = toSvg(emptyDoc());
+    // Not a white rect, not an empty one — no rect at all, or the export would be
+    // opaque and defeat the point.
+    expect(svg).not.toContain("<rect");
+  });
+
+  it("paints a background rect covering the board when one is set", () => {
+    const doc = emptyDoc();
+    doc.background = "#111827";
+    const svg = toSvg(doc);
+    expect(svg).toContain('<rect width="1920" height="1080" fill="#111827"/>');
+  });
+
+  it("draws the background beneath the shapes", () => {
+    const doc = emptyDoc();
+    doc.background = "#ffffff";
+    doc.shapes.push(path("p", [0, 0, 10, 10]));
+    const svg = toSvg(doc);
+    expect(svg.indexOf("<rect")).toBeLessThan(svg.indexOf("<path"));
+  });
+
+  it("lets an explicit option override the document, including forcing transparent", () => {
+    const doc = emptyDoc();
+    doc.background = "#ffffff";
+    expect(toSvg(doc, { background: "#ef4444" })).toContain('fill="#ef4444"');
+    expect(toSvg(doc, { background: null })).not.toContain("<rect");
+  });
+
+  it("round-trips a background through validation", () => {
+    const doc = validateDoc({ v: 1, shapes: [], background: "#dbeafe" }, CAPS);
+    expect(doc?.background).toBe("#dbeafe");
+  });
+
+  it("treats a missing or malformed background as transparent", () => {
+    // A document saved before the field existed must not become opaque.
+    expect(validateDoc({ v: 1, shapes: [] }, CAPS)?.background).toBeNull();
+    expect(validateDoc({ v: 1, shapes: [], background: "white" }, CAPS)?.background).toBeNull();
+    expect(validateDoc({ v: 1, shapes: [], background: 'x" onload="y' }, CAPS)?.background).toBeNull();
+  });
+
+  it("escapes the background colour it emits", () => {
+    // Belt and braces: validation already rejects this, but toSvg must not trust it.
+    const doc = emptyDoc();
+    doc.background = '#fff" onload="alert(1)';
+    expect(toSvg(doc)).not.toContain('onload="alert(1)"');
+  });
+});
+
+describe("background image", () => {
+  const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+
+  it("accepts the raster types the importer produces", () => {
+    expect(validateBackgroundImage(PNG)).toBe(PNG);
+    expect(validateBackgroundImage("data:image/jpeg;base64,/9j/4AAQSkZJRg==")).not.toBeNull();
+    expect(validateBackgroundImage("data:image/webp;base64,UklGRh4AAABXRUJQ")).not.toBeNull();
+  });
+
+  it("rejects anything that is not a base64 raster data URL", () => {
+    // An SVG background would let arbitrary markup into the exported file, and a
+    // remote URL would make an "offline" export silently phone home.
+    expect(validateBackgroundImage("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=")).toBeNull();
+    expect(validateBackgroundImage("https://example.com/x.png")).toBeNull();
+    expect(validateBackgroundImage("data:text/html;base64,PGh0bWw+")).toBeNull();
+    expect(validateBackgroundImage('data:image/png;base64,AAA" onload="alert(1)')).toBeNull();
+    expect(validateBackgroundImage("")).toBeNull();
+    expect(validateBackgroundImage(null)).toBeNull();
+    expect(validateBackgroundImage(undefined)).toBeNull();
+    expect(validateBackgroundImage(42)).toBeNull();
+  });
+
+  it("rejects an oversized payload", () => {
+    const huge = `data:image/png;base64,${"A".repeat(MAX_BG_IMAGE_CHARS)}`;
+    expect(validateBackgroundImage(huge)).toBeNull();
+  });
+
+  it("embeds the image in the SVG so the export stays self-contained", () => {
+    const svg = toSvg(emptyDoc(), { image: PNG });
+    expect(svg).toContain(`<image href="${PNG}"`);
+    expect(svg).toContain(`width="1920" height="1080"`);
+  });
+
+  it("omits the image element when there is none, and when it is invalid", () => {
+    expect(toSvg(emptyDoc())).not.toContain("<image");
+    expect(toSvg(emptyDoc(), { image: "https://example.com/x.png" })).not.toContain("<image");
+  });
+
+  it("layers colour, then image, then shapes", () => {
+    const doc = emptyDoc();
+    doc.background = "#ffffff";
+    doc.shapes.push(path("p", [0, 0, 10, 10]));
+    const svg = toSvg(doc, { image: PNG });
+    expect(svg.indexOf("<rect")).toBeLessThan(svg.indexOf("<image"));
+    expect(svg.indexOf("<image")).toBeLessThan(svg.indexOf("<path"));
+  });
+});
+
+describe("load recovery invariants", () => {
+  // useSketch.load() separates a storage read from a content parse and recovers the
+  // two kv keys independently. These pin the model-side behaviour it depends on:
+  // a bad document must be *reported* as unusable, never throw, so the caller can
+  // tell "corrupt content" (safe to start fresh) from "unreadable storage" (must
+  // not overwrite). A validator that threw would collapse that distinction.
+
+  it("reports an unusable document by returning null rather than throwing", () => {
+    for (const bad of [null, undefined, 42, "nope", {}, { v: 1 }, { shapes: "no" }]) {
+      expect(() => validateDoc(bad, CAPS)).not.toThrow();
+      expect(validateDoc(bad, CAPS)).toBeNull();
+    }
+  });
+
+  it("never throws on a hostile background image, however malformed", () => {
+    for (const bad of [null, undefined, 0, {}, [], "data:image/png;base64, ", "\n\n"]) {
+      expect(() => validateBackgroundImage(bad)).not.toThrow();
+      expect(validateBackgroundImage(bad)).toBeNull();
+    }
+  });
+
+  it("recovers a document whose shapes are partly corrupt instead of losing all of them", () => {
+    const doc = validateDoc(
+      { v: 1, shapes: [path("keep", [0, 0, 1, 1]), null, { kind: "nope" }, path("keep2", [0, 0, 1, 1])] },
+      CAPS,
+    );
+    expect(doc?.shapes.map((s) => s.id)).toEqual(["keep", "keep2"]);
   });
 });
 
