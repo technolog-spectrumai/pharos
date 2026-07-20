@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // Tool palette, brush settings and board actions. Purely presentational — every
 // mutation goes through the sketch orchestrator the parent owns.
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { OyaIconButton } from "rakotis";
 import {
   BACKGROUND_COLORS,
   canFill,
+  COLOR_NAME_KEYS,
   OPACITY_STEPS,
-  SKETCH_COLORS,
+  PICKER_COLORS,
   STROKE_SIZES,
   TEXT_SIZES,
 } from "./sketchModel";
@@ -54,6 +55,55 @@ function pickFill(c: string | null) {
   props.sketch.restyleSelected();
 }
 
+// ── palette editing ─────────────────────────────────────────────────────────
+// The colour row is seven assignable slots. Normally a slot click picks a drawing
+// colour; with the pencil on, it opens a picker that reassigns the slot instead.
+// Invariant: openSlot !== null implies paletteEditing.
+
+const paletteEditing = ref(false);
+const openSlot = ref<number | null>(null);
+
+function toggleEditing() {
+  paletteEditing.value = !paletteEditing.value;
+  // Closed in BOTH directions — leaving edit mode with a panel up would strand it.
+  openSlot.value = null;
+}
+
+/** Deliberately does not funnel through pickColor: that also calls
+ *  restyleSelected(), so reusing it here would let a palette edit restyle the
+ *  selected shape. */
+function onSlotClick(i: number) {
+  if (!paletteEditing.value) {
+    pickColor(props.sketch.slots.value[i]);
+    return;
+  }
+  openSlot.value = openSlot.value === i ? null : i;
+}
+
+function assignSlot(c: string) {
+  const i = openSlot.value;
+  if (i === null) return;
+  props.sketch.setSlot(i, c);
+  // Edit mode stays on so several slots can be reassigned in one visit.
+  openSlot.value = null;
+}
+
+// The fill row unmounts on a tool change (v-if="fillApplies"); the stroke row does
+// not, but closing on a tool switch keeps the panel from lingering over a toolbar
+// the user has visibly moved on from.
+watch(
+  () => props.tool,
+  () => {
+    openSlot.value = null;
+  },
+);
+
+const colorLabel = (c: string) => `sketch.colorNames.${COLOR_NAME_KEYS[c]}`;
+
+/** Unselected swatch ring. `border-black/20` alone vanishes against the dark
+ *  toolbar, which turns the white and silver chips into unbordered blobs. */
+const IDLE_SWATCH = "border-black/20 dark:border-white/30";
+
 /** Board background — a document property, so it is read straight off the doc
  *  rather than from a tool ref. null = transparent (the default). */
 const background = computed(() => props.sketch.doc.value.background);
@@ -89,18 +139,69 @@ const rotation = computed({
       />
     </div>
 
-    <!-- Colour -->
-    <div class="flex items-center gap-1" :title="$t('sketch.color')">
-      <button
-        v-for="c in SKETCH_COLORS"
-        :key="c"
-        type="button"
-        class="h-6 w-6 rounded-full border-2 transition hover:scale-110"
-        :class="sketch.currentColor.value === c ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
-        :style="{ backgroundColor: c }"
-        :aria-label="c"
-        @click="pickColor(c)"
-      />
+    <!-- Colour slots. Escape is stopped here on purpose: the view's window handler
+         only ignores INPUT/TEXTAREA, so an Escape on a focused slot button would
+         otherwise fall through and clear the shape selection. -->
+    <div class="relative" @keydown.esc.stop="openSlot = null">
+      <!-- z-50 lifts the triggers above the backdrop below. Without it the backdrop
+           swallows the first click on any other slot (and on the pencil), so
+           switching slots or leaving edit mode would silently cost two clicks. -->
+      <div class="relative z-50 flex items-center gap-1" :title="$t('sketch.color')">
+        <OyaIconButton
+          size="sm"
+          icon="pencil"
+          :label="$t('sketch.editPalette')"
+          :active="paletteEditing"
+          :aria-pressed="paletteEditing"
+          @click="toggleEditing()"
+        />
+        <!-- Keyed by INDEX, not colour: two slots may hold the same colour, and a
+             colour key would then misorder these nodes. -->
+        <button
+          v-for="(c, i) in sketch.slots.value"
+          :key="i"
+          type="button"
+          class="h-6 w-6 rounded-full border-2 transition hover:scale-110"
+          :class="[
+            paletteEditing
+              ? openSlot === i
+                ? 'border-dashed border-accent-light dark:border-accent-dark'
+                : `border-dashed ${IDLE_SWATCH}`
+              : sketch.currentColor.value === c
+                ? 'border-accent-light dark:border-accent-dark'
+                : IDLE_SWATCH,
+          ]"
+          :style="{ backgroundColor: c }"
+          :aria-label="`${$t(paletteEditing ? 'sketch.editSlot' : 'sketch.slot', { n: i + 1 })} — ${$t(colorLabel(c))}`"
+          :aria-haspopup="paletteEditing ? 'dialog' : undefined"
+          :aria-expanded="paletteEditing ? openSlot === i : undefined"
+          @click="onSlotClick(i)"
+        />
+      </div>
+
+      <!-- Outside-click via a full-screen backdrop rather than a document listener,
+           so there is no listener to leak. Same approach as EmojiPicker. -->
+      <div v-if="openSlot !== null" class="fixed inset-0 z-40" @click="openSlot = null" />
+      <div
+        v-if="openSlot !== null"
+        class="absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border p-2 shadow-xl border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark"
+        role="dialog"
+        :aria-label="$t('sketch.editSlot', { n: openSlot + 1 })"
+      >
+        <div class="grid grid-cols-6 gap-1.5">
+          <button
+            v-for="c in PICKER_COLORS"
+            :key="c"
+            type="button"
+            class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
+            :class="sketch.slots.value[openSlot] === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+            :style="{ backgroundColor: c }"
+            :aria-label="$t(colorLabel(c))"
+            :title="$t(colorLabel(c))"
+            @click="assignSlot(c)"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- Stroke width -->
@@ -140,25 +241,37 @@ const rotation = computed({
       </button>
     </div>
 
-    <!-- Fill (shapes only) -->
-    <div v-if="fillApplies" class="flex items-center gap-1" :title="$t('sketch.fill')">
+    <!-- Fill (shapes only). Mirrors the same seven slots — reassigning one updates
+         both rows, which is what shows they are one palette. Goes inert during edit
+         mode so two identical-looking rows never do different things at once. -->
+    <div
+      v-if="fillApplies"
+      class="flex items-center gap-1"
+      :class="paletteEditing && 'pointer-events-none opacity-40'"
+      :title="$t('sketch.fill')"
+    >
+      <!-- `disabled`, not just pointer-events-none: the row has to be inert to the
+           keyboard too, or it stays tabbable and Enter still fills while it reads as
+           switched off. -->
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded-full border-2 text-[10px] transition hover:scale-110"
-        :class="sketch.currentFill.value === null ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
+        :class="sketch.currentFill.value === null ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+        :disabled="paletteEditing"
         :aria-label="$t('sketch.noFill')"
         @click="pickFill(null)"
       >
         <font-awesome-icon icon="ban" />
       </button>
       <button
-        v-for="c in SKETCH_COLORS"
-        :key="`fill-${c}`"
+        v-for="(c, i) in sketch.slots.value"
+        :key="i"
         type="button"
         class="h-6 w-6 rounded border-2 transition hover:scale-110"
-        :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
+        :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
         :style="{ backgroundColor: c }"
-        :aria-label="c"
+        :disabled="paletteEditing"
+        :aria-label="$t(colorLabel(c))"
         @click="pickFill(c)"
       />
     </div>

@@ -19,10 +19,14 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, kvDelete, kvGet, kvPut } from "rakotis";
 import {
+  DEFAULT_SLOT_COLORS,
   emptyDoc,
   hitTest,
   MIN_POINT_DIST,
+  normalizeSlots,
   normDeg,
+  PALETTE_SLOTS,
+  PICKER_COLORS,
   quant,
   rotatePoint,
   scaleShape,
@@ -52,6 +56,11 @@ const KV_KEY = "";
  *  riding along on each autosave would be paid over and over for nothing — the
  *  image only changes when the user picks one. */
 const KV_KEY_IMAGE = "background";
+/** The seven colour slots, also on their own key. The palette is a tool preference
+ *  that outlives any one board, so it must not ride the debounced document save
+ *  (a swap would then be lost if the app closed inside the debounce window) and
+ *  must not be inside the document (clearing the board would reset it). */
+const KV_KEY_PALETTE = "palette";
 
 const PERSIST_DEBOUNCE_MS = 800;
 /** Bounded so a long session can't grow the history without limit. */
@@ -90,6 +99,12 @@ export function useSketch() {
   /** Storage could not be read, so persistence is disabled to avoid overwriting a
    *  board we never managed to see. Surfaced in the UI. */
   const loadFailed = ref(false);
+  /** The palette key has been read. Deliberately NOT `ready`, which guards the
+   *  DOCUMENT key and says nothing about this one: if the palette read failed while
+   *  the document read succeeded, gating on `ready` would let the very first swap
+   *  write an all-defaults palette over the user's real saved one. Same reasoning
+   *  as the separate try blocks in load(). */
+  const paletteReady = ref(false);
 
   const shapes = computed(() => doc.value.shapes);
   const selected = computed(() => doc.value.shapes.find((s) => s.id === selectedId.value) ?? null);
@@ -103,6 +118,39 @@ export function useSketch() {
   const currentOpacity = ref<number>(1);
   /** null = outline only. Applies to rect / ellipse / triangle. */
   const currentFill = ref<string | null>(null);
+  /** The seven assignable colours behind both the stroke row and the fill row. */
+  const slots = ref<string[]>([...DEFAULT_SLOT_COLORS]);
+
+  /** Assign a colour to one slot.
+   *
+   *  NOT undoable, and it must never call snapshot() or restyleSelected(): the
+   *  palette is a device preference, and those would push an undo entry, clear the
+   *  redo stack and schedule a document write — turning a palette edit into a
+   *  drawing edit. (Which is also why `currentColor` must never grow a
+   *  `watch(..., restyleSelected)`: the follow rule below would start mutating
+   *  shapes.)
+   *
+   *  The active stroke/fill FOLLOWS the slot it was pinned to, but only when the
+   *  old colour has left the row entirely — duplicates are legal, and if another
+   *  slot still shows it the highlight belongs there instead. Without this the row
+   *  can end up with nothing highlighted and no way back to the active colour.
+   *  Note the pre-check on `prev`: the tempting shortcut of testing afterwards
+   *  whether currentColor is still on the row is wrong for a currentColor that was
+   *  already off-palette, where editing ANY unrelated slot would yank it. */
+  function setSlot(i: number, color: string) {
+    // The index needs its own guard — the colour check says nothing about it, and
+    // an out-of-range write would silently lengthen the row.
+    if (!Number.isInteger(i) || i < 0 || i >= PALETTE_SLOTS) return;
+    if (!PICKER_COLORS.includes(color)) return;
+    const prev = slots.value[i];
+    if (prev === color) return;
+    const next = slots.value.slice();
+    next[i] = color;
+    slots.value = next;
+    if (currentColor.value === prev && !next.includes(prev)) currentColor.value = color;
+    if (currentFill.value === prev && !next.includes(prev)) currentFill.value = color;
+    void persistPalette();
+  }
 
   function styleOf() {
     return {
@@ -143,6 +191,14 @@ export function useSketch() {
       ? kvPut(KV_NS, KV_SCOPE, KV_KEY_IMAGE, v)
       : kvDelete(KV_NS, KV_SCOPE, KV_KEY_IMAGE)
     ).catch(() => {});
+  }
+
+  /** Written on its own, from setSlot only. Not debounced: a swap is one deliberate
+   *  click in the picker, not a stream of them like drawing, so there is nothing to
+   *  coalesce — which is also why flushPersist() needs no palette branch. */
+  async function persistPalette() {
+    if (!paletteReady.value) return;
+    await kvPut(KV_NS, KV_SCOPE, KV_KEY_PALETTE, JSON.stringify(slots.value)).catch(() => {});
   }
 
   /** Persist now — before unmount or export. */
@@ -196,6 +252,30 @@ export function useSketch() {
     } catch {
       backgroundImage.value = null;
     }
+
+    // Third key, and it splits storage from content for the same reason the document
+    // does above — the two call for opposite responses. A palette we could not READ
+    // must not be written over. A palette we read but could not PARSE has nothing
+    // left to protect, so the defaults are safe to write and the next swap repairs
+    // the record. Folding the parse back into the read would make one bad byte
+    // disable palette saving permanently: load() is one-shot and nothing else ever
+    // rewrites this key, so the corrupt value would outlive every restart.
+    let rawPalette: string | null = null;
+    let paletteStorageOk = true;
+    try {
+      rawPalette = await kvGet(KV_NS, KV_SCOPE, KV_KEY_PALETTE);
+    } catch {
+      paletteStorageOk = false;
+    }
+
+    if (paletteStorageOk) {
+      try {
+        slots.value = normalizeSlots(rawPalette ? JSON.parse(rawPalette) : null);
+      } catch {
+        slots.value = [...DEFAULT_SLOT_COLORS];
+      }
+      paletteReady.value = true;
+    }
   }
 
   /** Re-read the board from scratch (profile switch). */
@@ -203,8 +283,10 @@ export function useSketch() {
     loading.value = false;
     ready.value = false;
     loadFailed.value = false;
+    paletteReady.value = false;
     doc.value = emptyDoc();
     backgroundImage.value = null;
+    slots.value = [...DEFAULT_SLOT_COLORS];
     selectedId.value = null;
     undoStack.value = [];
     redoStack.value = [];
@@ -572,6 +654,8 @@ export function useSketch() {
     currentWidth,
     currentOpacity,
     currentFill,
+    slots,
+    setSlot,
     // caps
     maxShapes: caps.maxShapes,
     maxTextLen: caps.maxTextLen,

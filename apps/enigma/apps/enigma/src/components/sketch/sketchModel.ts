@@ -23,15 +23,96 @@ export const BOARD_H = 1080;
  *  ~600-sample drag to ~150 with no visible loss. */
 export const MIN_POINT_DIST = 1.5;
 
-export const SKETCH_COLORS = [
-  "#111827",
-  "#ef4444",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#8b5cf6",
-  "#ffffff",
+// ── palette ───────────────────────────────────────────────────────────────────
+// The colour row is seven user-assignable SLOTS rather than a fixed list. Slots are
+// a per-device tool preference, not part of the document: swapping one must not
+// touch the drawing, ride the undo stack, or change what a board looks like when
+// it is opened somewhere else. Shape colours are validated by COLOR_RE, never
+// against this palette, so a board drawn with colours no longer on the row still
+// loads and still exports exactly as it was.
+//
+// DEFAULT_SLOT_COLORS and EXTRA_COLORS must stay DISJOINT: PICKER_COLORS is the
+// concatenation, and a colour appearing in both would render twice in the picker
+// (and collide on its v-for key). `palette invariants` in sketchModel.spec.ts
+// pins that.
+
+/** What a fresh install starts with, in row order: the primary hues, then a
+ *  neutral ramp — annotating over a photo background needs greys that saturated
+ *  hues can't provide. Purple was on the old fixed row and is still one pick away
+ *  in EXTRA_COLORS; it lost its slot as the least-used of the original seven. */
+export const DEFAULT_SLOT_COLORS = [
+  "#ef4444", // red
+  "#10b981", // green
+  "#3b82f6", // blue
+  "#f59e0b", // yellow
+  "#6b7280", // grey
+  "#111827", // black
+  "#ffffff", // white
 ] as const;
+
+export const PALETTE_SLOTS = DEFAULT_SLOT_COLORS.length;
+
+/** Offered in the slot picker on top of the defaults: the popular secondary
+ *  colours. Hues are spread so no two read as each other at a 2px stroke. */
+export const EXTRA_COLORS = [
+  "#f97316", // orange
+  "#8b5cf6", // purple
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+  "#14b8a6", // teal
+  "#d946ef", // magenta
+  "#84cc16", // lime
+  "#6366f1", // indigo
+  "#92400e", // brown
+  "#1e40af", // navy
+] as const;
+
+/** Everything a slot may hold. The defaults stay offered alongside the extras so a
+ *  slot can be put back to its original colour without a dedicated reset control. */
+export const PICKER_COLORS: readonly string[] = [...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS];
+
+/** Hex → i18n leaf key under `sketch.colorNames`. Swatches are bare colour chips
+ *  with no text, so this is the only thing that makes them speakable: without it a
+ *  screen reader announces the hex, and "#ef4444" reads as "number E F four four
+ *  four four" rather than "red". Must cover every PICKER_COLORS entry. */
+export const COLOR_NAME_KEYS: Readonly<Record<string, string>> = {
+  "#ef4444": "red",
+  "#10b981": "green",
+  "#3b82f6": "blue",
+  "#f59e0b": "yellow",
+  "#6b7280": "grey",
+  "#111827": "black",
+  "#ffffff": "white",
+  "#f97316": "orange",
+  "#8b5cf6": "purple",
+  "#ec4899": "pink",
+  "#06b6d4": "cyan",
+  "#14b8a6": "teal",
+  "#d946ef": "magenta",
+  "#84cc16": "lime",
+  "#6366f1": "indigo",
+  "#92400e": "brown",
+  "#1e40af": "navy",
+};
+
+/** Coerce a stored palette to exactly PALETTE_SLOTS pickable colours.
+ *
+ *  Falls back PER SLOT rather than discarding the whole array, so a palette that
+ *  is short, over-long, or has one unrecognised entry keeps every slot that did
+ *  survive instead of resetting the user's other six.
+ *
+ *  Duplicates are deliberately legal — nothing stops two slots holding the same
+ *  colour, and `setSlot` in useSketch.ts depends on that being allowed. The
+ *  membership test is case-sensitive: the only writer is `setSlot`, which can only
+ *  emit PICKER_COLORS values, so a differently-cased entry can only have come from
+ *  a hand-edited kv record and falling back is the safe reading of it. */
+export function normalizeSlots(x: unknown): string[] {
+  const arr: unknown[] = Array.isArray(x) ? x : [];
+  return DEFAULT_SLOT_COLORS.map((fallback, i) => {
+    const v = arr[i];
+    return typeof v === "string" && PICKER_COLORS.includes(v) ? v : fallback;
+  });
+}
 export const STROKE_SIZES = [2, 4, 8, 16] as const;
 export const TEXT_SIZES = [16, 24, 36, 56] as const;
 export const OPACITY_STEPS = [0.25, 0.5, 0.75, 1] as const;
