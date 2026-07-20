@@ -6,7 +6,10 @@
 // reactive() would deep-unwrap the channel's inner refs, which we want to keep as
 // real Ref<>s for the ChatPanel prop and direct `.value` access.
 
-import { getBuildConfig, useChatChannel, type ChatChannel } from "rakotis";
+import {
+  getBuildConfig, invoke, isTauri, useChatChannel, useDeviceSync,
+  type ChatChannel, type DeviceSync,
+} from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
 import { useVoxCall } from "../components/vox/useVoxCall";
@@ -39,6 +42,11 @@ function createChatStore() {
   // initBuildConfig is awaited in main.ts before the app mounts / this runs).
   const kanbanEnabled = getBuildConfig().kanban_enabled;
   const kanban = kanbanEnabled ? useKanban(p2p) : null;
+  // Linked-device sync — owns the hidden devlink channel (headless second
+  // useChatChannel instance) for registry/kv/history convergence with the
+  // user's other devices. Flag-off builds never instantiate it.
+  const devicesEnabled = getBuildConfig().devices_allow_linking;
+  const deviceSync: DeviceSync | null = devicesEnabled ? useDeviceSync(p2p) : null;
 
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
@@ -48,12 +56,19 @@ function createChatStore() {
     if (initialized) return;
     initialized = true;
     await p2p.loadP2pRooms();
+    // A paired profile starts its devlink channel (no-op when never paired).
+    if (deviceSync) await deviceSync.start();
     const last = p2p.p2pRooms.value[0];
     if (last) await p2p.openP2pRoom(last);
   }
 
   // ── identity / profile fan-out ────────────────────────────────────────────────
   async function syncRuntimeIdentity() {
+    // A paired (linked) profile boots with the profile-name identity; adopt its
+    // stored leaf id ("user#dev-…") BEFORE the channel reads the runtime config.
+    if (devicesEnabled && isTauri()) {
+      try { await invoke("devlink_adopt_identity"); } catch { /* never paired */ }
+    }
     await p2p.syncRuntimeIdentity();
   }
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
@@ -62,13 +77,18 @@ function createChatStore() {
     // the open room's board.
     await meetings.reload();
     if (kanban) await kanban.reload();
+    if (deviceSync) {
+      deviceSync.stop();
+      await deviceSync.start();
+    }
   }
   function clearLocalChatState(message?: string) {
     p2p.clearLocalChatState(message);
   }
 
   return {
-    p2p, fileShare, vox, invites, meetings, kanban, kanbanEnabled, init,
+    p2p, fileShare, vox, invites, meetings, kanban, kanbanEnabled,
+    deviceSync, devicesEnabled, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

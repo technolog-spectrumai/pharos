@@ -12,6 +12,10 @@ export * from "./services/contacts";
 export * from "./services/moderation";
 export * from "./services/mapData";
 export * from "./mapModel";
+export * from "./deviceSyncModel";
+export * from "./services/chatLog";
+export { useDeviceSync, registryMac, kpProof } from "./useDeviceSync";
+export type { DeviceSync } from "./useDeviceSync";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
@@ -54,6 +58,7 @@ export type { ChatTransport, CreatedRoom, JoinedRoom, WsStatus, WsMessage } from
 export { useChatChannel, isTorTicket, isDhtCode, downscaleImageToDataUrl } from "./useChatChannel";
 export type {
   ChatChannel,
+  ChatChannelOptions,
   Message,
   MapShare,
   MlsStatus,

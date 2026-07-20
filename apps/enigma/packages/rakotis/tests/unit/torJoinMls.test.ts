@@ -52,11 +52,14 @@ vi.mock("../../src/crypto", () => ({
 
 vi.mock("../../src/services/appStorage", () => ({
   getRuntimeConfig: vi.fn(async () => ({ profile: "t", identity: "me-device", profile_state_path: "" })),
+  getChatHistoryCapMsgs: vi.fn(async () => 500),
 }));
 
 vi.mock("../../src/services/localDb", () => ({
   kvGet: vi.fn(async () => null),
   kvPut: vi.fn(async () => {}),
+  kvDelete: vi.fn(async () => {}),
+  kvClearNamespace: vi.fn(async () => {}),
 }));
 
 import { useChatChannel } from "../../src/useChatChannel";

@@ -62,6 +62,14 @@ maps:
   # standalone tools/map_packager and imported from the device (map.md Part II).
   enabled: true
 
+devices:
+  # false = this build has no device linking: every devlink_* command fails
+  # fast with DEVLINK_DISABLED and the Settings→Devices tab is hidden. Linking
+  # is pure P2P (iroh QUIC between the user's own devices; no third parties),
+  # so default true ships the feature — the cloud allow_connections precedent
+  # applies to external services only.
+  allow_linking: true
+
 features:
   # Initial values for a NEW profile's toggles. Runtime Settings switches still
   # override per profile; profiles saved by any build keep their stored values.
@@ -80,6 +88,13 @@ settings:
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
   max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
   map_storage_limit_mb:  { default: 512, min: 64, max: 65536 }   # total on-disk map regions
+  # Device linking (Settings → Devices). pair_window bounds how long a pairing
+  # QR (and its one-time secret) stays redeemable on the primary; resync paces
+  # the linked-device catch-up exchange; history cap bounds the per-room
+  # persisted chat log (oldest segment pruned past it).
+  devlink_pair_window_secs: { default: 600, min: 60, max: 3600 }
+  devlink_resync_secs:      { default: 300, min: 30, max: 3600 }
+  chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
 
 network:
   # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the

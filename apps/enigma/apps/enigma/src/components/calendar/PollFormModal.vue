@@ -36,6 +36,9 @@ function toTimeStr(ms: number): string {
 function defaultRow(daysAhead: number): SlotRow {
   const next = new Date(Date.now() + 24 * 3_600_000 * daysAhead);
   next.setMinutes(0, 0, 0);
+  // A row shares one date for start AND end: a 23:00 start would put the
+  // +1 h end past midnight (end <= start after parsing) — cap at 22:00.
+  if (next.getHours() === 23) next.setHours(22);
   return {
     dateStr: dayKey(next),
     startStr: toTimeStr(next.getTime()),

@@ -22,6 +22,7 @@ struct RawConfig {
     crypto: CryptoSection,
     kanban: KanbanSection,
     maps: MapsSection,
+    devices: DevicesSection,
     features: FeaturesSection,
     settings: SettingsSection,
     network: NetworkSection,
@@ -83,6 +84,12 @@ struct MapsSection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DevicesSection {
+    allow_linking: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FeaturesSection {
     use_tor: bool,
     stable_onion: bool,
@@ -97,6 +104,9 @@ struct SettingsSection {
     dht_room_publish_secs: Clamp,
     max_file_size_mb: Clamp,
     map_storage_limit_mb: Clamp,
+    devlink_pair_window_secs: Clamp,
+    devlink_resync_secs: Clamp,
+    chat_history_cap_msgs: Clamp,
 }
 
 #[derive(Deserialize)]
@@ -201,6 +211,9 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         ("settings.dht_room_publish_secs", &cfg.settings.dht_room_publish_secs, 10u64),
         ("settings.max_file_size_mb", &cfg.settings.max_file_size_mb, 0u64),
         ("settings.map_storage_limit_mb", &cfg.settings.map_storage_limit_mb, 1u64),
+        ("settings.devlink_pair_window_secs", &cfg.settings.devlink_pair_window_secs, 30u64),
+        ("settings.devlink_resync_secs", &cfg.settings.devlink_resync_secs, 10u64),
+        ("settings.chat_history_cap_msgs", &cfg.settings.chat_history_cap_msgs, 10u64),
     ];
     for (path, c, floor) in clamps {
         if !(c.min <= c.default && c.default <= c.max) {
@@ -312,6 +325,15 @@ pub mod settings {{
     pub const MAP_STORAGE_LIMIT_DEFAULT_MB: u64 = {ms_def};
     pub const MAP_STORAGE_LIMIT_MIN_MB: u64 = {ms_min};
     pub const MAP_STORAGE_LIMIT_MAX_MB: u64 = {ms_max};
+    pub const DEVLINK_PAIR_WINDOW_DEFAULT_SECS: u64 = {pw_def};
+    pub const DEVLINK_PAIR_WINDOW_MIN_SECS: u64 = {pw_min};
+    pub const DEVLINK_PAIR_WINDOW_MAX_SECS: u64 = {pw_max};
+    pub const DEVLINK_RESYNC_DEFAULT_SECS: u64 = {rs_def};
+    pub const DEVLINK_RESYNC_MIN_SECS: u64 = {rs_min};
+    pub const DEVLINK_RESYNC_MAX_SECS: u64 = {rs_max};
+    pub const CHAT_HISTORY_CAP_DEFAULT_MSGS: u64 = {hc_def};
+    pub const CHAT_HISTORY_CAP_MIN_MSGS: u64 = {hc_min};
+    pub const CHAT_HISTORY_CAP_MAX_MSGS: u64 = {hc_max};
 }}
 
 pub mod network {{
@@ -334,6 +356,10 @@ pub mod kanban {{
 
 pub mod maps {{
     pub const ENABLED: bool = {maps_enabled};
+}}
+
+pub mod devices {{
+    pub const ALLOW_LINKING: bool = {devices_allow_linking};
 }}
 
 // ── compile-time algorithm asserts against the vendored crates ──────────────
@@ -397,6 +423,15 @@ const _: () = assert!(
         ms_def = cfg.settings.map_storage_limit_mb.default,
         ms_min = cfg.settings.map_storage_limit_mb.min,
         ms_max = cfg.settings.map_storage_limit_mb.max,
+        pw_def = cfg.settings.devlink_pair_window_secs.default,
+        pw_min = cfg.settings.devlink_pair_window_secs.min,
+        pw_max = cfg.settings.devlink_pair_window_secs.max,
+        rs_def = cfg.settings.devlink_resync_secs.default,
+        rs_min = cfg.settings.devlink_resync_secs.min,
+        rs_max = cfg.settings.devlink_resync_secs.max,
+        hc_def = cfg.settings.chat_history_cap_msgs.default,
+        hc_min = cfg.settings.chat_history_cap_msgs.min,
+        hc_max = cfg.settings.chat_history_cap_msgs.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
         chunk = cfg.network.transfer_chunk_bytes,
@@ -416,6 +451,7 @@ const _: () = assert!(
         kanban_max_title = cfg.kanban.max_card_title_len,
         kanban_max_desc = cfg.kanban.max_card_description_len,
         maps_enabled = cfg.maps.enabled,
+        devices_allow_linking = cfg.devices.allow_linking,
     );
     o
 }

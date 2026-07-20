@@ -139,6 +139,9 @@ details):
   Board / Map tab) plus kanban's caps. `maps` has no other knobs: the app has no
   tile-fetch path at all — region packages are produced by the standalone
   `tools/map_packager` and imported from the device (see map.md Part II).
+- `devices.allow_linking` — `false` builds without device linking: no
+  Settings→Devices tab, every `devlink_*` command errors `DEVLINK_DISABLED`
+  (see sync.md). Linking is pure P2P, so the shipped default is `true`.
 - `features` / `settings` — new-profile defaults and settings defaults+clamps.
 - `network` — frame cap (**wire-interop**: all peers must agree), onion port,
   chunk sizes, Tor timeouts.

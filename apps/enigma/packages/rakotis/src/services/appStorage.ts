@@ -90,6 +90,9 @@ export interface BuildConfig {
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
   maps_enabled: boolean;
+  /** false = this build has no device linking: devlink_* commands error with
+   *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
+  devices_allow_linking: boolean;
   use_tor_default: boolean;
   stable_onion_default: boolean;
   dht_discovery_default: boolean;
@@ -98,6 +101,9 @@ export interface BuildConfig {
   dht_room_publish_secs: SettingClamp;
   max_file_size_mb: SettingClamp;
   map_storage_limit_mb: SettingClamp;
+  devlink_pair_window_secs: SettingClamp;
+  devlink_resync_secs: SettingClamp;
+  chat_history_cap_msgs: SettingClamp;
 }
 
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
@@ -115,6 +121,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   kanban_max_card_title_len: 200,
   kanban_max_card_description_len: 4000,
   maps_enabled: true,
+  devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,
   dht_discovery_default: false,
@@ -123,6 +130,9 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 },
   max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
   map_storage_limit_mb: { default: 512, min: 64, max: 65536 },
+  devlink_pair_window_secs: { default: 600, min: 60, max: 3600 },
+  devlink_resync_secs: { default: 300, min: 30, max: 3600 },
+  chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -217,6 +227,61 @@ export async function getConnectTimeoutSecs(): Promise<number> {
 export async function setConnectTimeoutSecs(secs: number): Promise<number> {
   const v = clampConnectTimeoutSecs(secs);
   await kvPut("p2p:settings", "default", "connect_timeout_secs", String(v)).catch(() => {});
+  return v;
+}
+
+// ── Device-link resync interval (linked-device catch-up cadence) ───────────────
+// How often paired devices exchange dlink_hello and reconcile state/history
+// while both are online. Stored in the encrypted kv store; device-local (each
+// device may pace itself differently — deliberately NOT in the sync allow-list).
+
+export function clampDevlinkResyncSecs(secs: number): number {
+  const c = getBuildConfig().devlink_resync_secs;
+  if (!Number.isFinite(secs)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
+}
+
+export async function getDevlinkResyncSecs(): Promise<number> {
+  const c = getBuildConfig().devlink_resync_secs;
+  try {
+    const raw = await kvGet("p2p:settings", "default", "devlink_resync_secs");
+    if (raw === null || raw === "") return c.default;
+    return clampDevlinkResyncSecs(Number(raw));
+  } catch {
+    return c.default;
+  }
+}
+
+export async function setDevlinkResyncSecs(secs: number): Promise<number> {
+  const v = clampDevlinkResyncSecs(secs);
+  await kvPut("p2p:settings", "default", "devlink_resync_secs", String(v)).catch(() => {});
+  return v;
+}
+
+// ── Chat history cap (persisted per-room message log, in messages) ─────────────
+// Bounds the sealed chat:log kv namespace per room; the oldest segment is
+// pruned once the cap is exceeded. Device-local.
+
+export function clampChatHistoryCapMsgs(cap: number): number {
+  const c = getBuildConfig().chat_history_cap_msgs;
+  if (!Number.isFinite(cap)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(cap)));
+}
+
+export async function getChatHistoryCapMsgs(): Promise<number> {
+  const c = getBuildConfig().chat_history_cap_msgs;
+  try {
+    const raw = await kvGet("p2p:settings", "default", "chat_history_cap_msgs");
+    if (raw === null || raw === "") return c.default;
+    return clampChatHistoryCapMsgs(Number(raw));
+  } catch {
+    return c.default;
+  }
+}
+
+export async function setChatHistoryCapMsgs(cap: number): Promise<number> {
+  const v = clampChatHistoryCapMsgs(cap);
+  await kvPut("p2p:settings", "default", "chat_history_cap_msgs", String(v)).catch(() => {});
   return v;
 }
 

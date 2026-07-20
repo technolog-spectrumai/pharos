@@ -6,13 +6,19 @@
 export interface Participant {
   /** Active mute expiry (epoch ms) set by the room captain — badge + countdown. */
   muteUntil?: number;
-  /** Stable identity: the device id (MLS credential). */
+  /** Stable identity: the device id (MLS credential). With linked devices this
+   *  is the user's representative leaf id (the bare id when present). */
   id?: string;
   name: string;
   avatar_url: string;
   type: "human" | "ai_agent";
   /** True for the elected onion captain (host/relay) — Tor rooms only. */
   isCaptain?: boolean;
+  /** All MLS leaf ids grouped into this roster row (present when the user has
+   *  more than one linked device in the room). */
+  leafIds?: string[];
+  /** Convenience: leafIds.length when > 1 (the "2 devices" roster badge). */
+  deviceCount?: number;
 }
 
 /** A chat room as the UI sees it. P2P rooms synthesize this locally (slug = the

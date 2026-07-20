@@ -22,6 +22,9 @@ import {
   validatePinShare, validateRouteShare, validateRegionShare,
   type MapPinShare, type MapRouteShare, type MapRegionShare,
 } from "./mapModel";
+import { sameUser, userPartOf, type PersistedMessage } from "./deviceSyncModel";
+import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
+import { getChatHistoryCapMsgs } from "./services/appStorage";
 import { nanoid } from "nanoid";
 
 /** A validated map share riding a chat-timeline card (mapModel wire shapes). */
@@ -143,7 +146,18 @@ export async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality
 
 const log = (...args: unknown[]) => console.log("[enigma-chat]", ...args);
 
-export function useChatChannel() {
+/** Options for secondary channel instances (the hidden device-link room). A
+ *  headless channel never touches the saved-rooms kv or the chat log; an
+ *  `admissionCheck` gates inbound key packages (devlink: linkKey HMAC proof)
+ *  and `keyPackageExtra` decorates outbound ones with that proof. */
+export interface ChatChannelOptions {
+  headless?: boolean;
+  admissionCheck?: (data: Record<string, unknown>) => boolean | Promise<boolean>;
+  keyPackageExtra?: (kpB64: string) => Record<string, unknown> | Promise<Record<string, unknown>>;
+}
+
+export function useChatChannel(options: ChatChannelOptions = {}) {
+  const headless = !!options.headless;
   const currentRoom = ref<Room | null>(null);
   const messages = ref<Message[]>([]);
   const participants = ref<Participant[]>([]);
@@ -201,8 +215,20 @@ export function useChatChannel() {
   // Coarse clock for mute countdowns/expiry (badges tick, expired mutes lift).
   const nowTick = ref(Date.now());
   setInterval(() => { nowTick.value = Date.now(); }, 15_000);
-  const selfMuteUntil = computed(() =>
-    activeMuteUntil(mutes.value, mlsIdentity.value, nowTick.value));
+  /** Mute lookup that honours both keying schemes: new mutes key by user part
+   *  (one mute covers all of a user's linked devices), legacy/old-build mutes
+   *  by full leaf id. */
+  function mutedUntilFor(id: string, now: number): number | null {
+    return (
+      activeMuteUntil(mutes.value, id, now) ??
+      activeMuteUntil(mutes.value, userPartOf(id), now)
+    );
+  }
+  /** Ban lookup with the same dual keying as mutes. */
+  function isBanned(id: string): boolean {
+    return bans.value.includes(id) || bans.value.includes(userPartOf(id));
+  }
+  const selfMuteUntil = computed(() => mutedUntilFor(mlsIdentity.value, nowTick.value));
   watch(nowTick, (now) => {
     const pruned = pruneMutes(mutes.value, now);
     if (pruned !== mutes.value) {
@@ -222,6 +248,7 @@ export function useChatChannel() {
   }
   function teardown() {
     const slug = currentRoom.value?.slug;
+    void logAppender.flushNow(); // don't lose buffered log entries on switch
     if (slug) chatTransport.leaveRoom(slug);
   }
 
@@ -237,9 +264,69 @@ export function useChatChannel() {
     };
   }
 
-  function pushMessage(msg: Message) {
+  // ── Persisted timeline (chat:log kv — the storage half of history sync) ──────
+  // Human messages append (debounced) to the sealed per-room log; the log is
+  // reloaded on room entry so the timeline survives restarts, and it is what a
+  // linked device replays over the devlink channel. System messages and
+  // headless channels never persist.
+  let historyCap = 500;
+  const logAppender = createLogAppender(() => historyCap);
+
+  function toPersisted(msg: Message, senderLeafId?: string): PersistedMessage | null {
+    if (msg.participant_type !== "human") return null;
+    if (msg.type === "system_error" || msg.type === "system_info") return null;
+    const pm: PersistedMessage = {
+      id: msg.id, type: msg.type, user: msg.user, content: msg.content,
+      encrypted: msg.encrypted, ts: msg.timestamp.getTime(),
+    };
+    if (senderLeafId) pm.deviceId = senderLeafId;
+    if (msg.image_data) pm.image_data = msg.image_data;
+    if (msg.audio_data) pm.audio_data = msg.audio_data;
+    if (msg.map) pm.map = msg.map;
+    return pm;
+  }
+
+  function fromPersisted(pm: PersistedMessage): Message {
+    const self = pm.deviceId
+      ? sameUser(pm.deviceId, mlsIdentity.value)
+      : pm.user === currentUserName.value;
+    return {
+      id: pm.id, type: pm.type, user: pm.user, initials: initials(pm.user),
+      avatar_url: null, content: pm.content,
+      ...(pm.image_data ? { image_data: pm.image_data } : {}),
+      ...(pm.audio_data ? { audio_data: pm.audio_data } : {}),
+      ...(pm.map ? { map: pm.map } : {}),
+      participant_type: "human", self, encrypted: pm.encrypted,
+      timestamp: new Date(pm.ts),
+    };
+  }
+
+  /** Prepend the stored log to the live timeline (skipping ids already shown —
+   *  a live message can land while the load is in flight). Best-effort: a
+   *  storage hiccup must never break entering a room. */
+  async function restoreTimeline(slug: string) {
+    try {
+      historyCap = await getChatHistoryCapMsgs();
+      const stored = await loadLog(slug);
+      if (!stored.length || currentRoom.value?.slug !== slug) return;
+      const seen = new Set(messages.value.map((m) => m.id));
+      const restored = stored.filter((pm) => !seen.has(pm.id)).map(fromPersisted);
+      if (restored.length) messages.value = [...restored, ...messages.value];
+    } catch {
+      /* keep the live timeline */
+    }
+  }
+
+  function pushMessage(msg: Message, senderLeafId?: string) {
+    // Stable sender-minted ids make cross-device replays idempotent — drop a
+    // message we already show (live echo vs restored log vs devlink replay).
+    if (msg.participant_type === "human" && messages.value.some((m) => m.id === msg.id)) return;
     messages.value.push(msg);
     if (!msg.self && msg.participant_type !== "system") unread.value++;
+    if (!headless && currentRoom.value) {
+      const pm = toPersisted(msg, senderLeafId);
+      if (pm) logAppender.push(currentRoom.value.slug, pm);
+    }
   }
 
   function clearMessages() {
@@ -274,9 +361,11 @@ export function useChatChannel() {
   // (full-data pull), `file_*` (P2P file transfer offer/accept signaling —
   // consumed by `useFileShare` in the app), `meeting_*` (meeting invite/RSVP
   // signaling — consumed by `useMeetings`), `vox_*` (voice-call offer/decline/
-  // cancel signaling — consumed by `useVoxCall`) and `kanban_*` (group Kanban
-  // board columns/cards — consumed by `useKanban`). Each handler ignores the
-  // prefixes it does not own. `map_*` is deliberately NOT routed here: map
+  // cancel signaling — consumed by `useVoxCall`), `kanban_*` (group Kanban
+  // board columns/cards — consumed by `useKanban`) and `dlink_*` (linked-device
+  // registry/kv/history sync — consumed by `useDeviceSync` on its HEADLESS
+  // devlink channel only). Each handler ignores the prefixes it does not own.
+  // `map_*` is deliberately NOT routed here: map
   // shares are human content rendered as timeline cards (handled inline after
   // the mute check), not control traffic.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
@@ -311,14 +400,34 @@ export function useChatChannel() {
     const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
     const source = ids.length ? ids : [mlsIdentity.value];
     const now = Date.now();
-    const list: Participant[] = source.map((id) => {
-      const p: Participant = id === mlsIdentity.value
-        ? selfParticipant()
+    // One roster row per USER: linked-device leaves ("alice", "alice#dev-x")
+    // group together; the row keeps every leaf id for moderation/election.
+    const byUser = new Map<string, string[]>();
+    for (const id of source) {
+      const user = userPartOf(id);
+      const leaves = byUser.get(user);
+      if (leaves) leaves.push(id);
+      else byUser.set(user, [id]);
+    }
+    const list: Participant[] = [...byUser.entries()].map(([user, leafIds]) => {
+      leafIds.sort();
+      const rep = leafIds.includes(user) ? user : leafIds[0];
+      const mine = user === userPartOf(mlsIdentity.value);
+      const p: Participant = mine
+        ? { ...selfParticipant(), id: rep }
         : (() => {
-            const info = presenceById.get(id);
-            return { id, name: info?.name || id, avatar_url: info?.avatar || "", type: "human" as const };
+            const info = leafIds
+              .map((id) => presenceById.get(id))
+              .find((i) => i && (i.name || i.avatar));
+            return { id: rep, name: info?.name || user, avatar_url: info?.avatar || "", type: "human" as const };
           })();
-      const muteUntil = activeMuteUntil(mutes.value, id, now);
+      if (leafIds.length > 1) {
+        p.leafIds = [...leafIds];
+        p.deviceCount = leafIds.length;
+      }
+      const muteUntil = leafIds
+        .map((id) => mutedUntilFor(id, now))
+        .reduce<number | null>((max, u) => (u && (!max || u > max) ? u : max), null);
       if (muteUntil) p.muteUntil = muteUntil;
       return p;
     });
@@ -329,7 +438,10 @@ export function useChatChannel() {
     // can reach it.
     const elected = electCaptain(source);
     captainId.value = elected.captainId;
-    for (const p of list) p.isCaptain = !!elected.captainId && p.id === elected.captainId;
+    for (const p of list) {
+      p.isCaptain = !!elected.captainId &&
+        (p.id === elected.captainId || (p.leafIds?.includes(elected.captainId) ?? false));
+    }
     if (currentRoomIsTor.value) {
       const { captainOnion } = elected;
       if (captainOnion && captainOnion !== currentCaptainOnion.value) {
@@ -470,51 +582,61 @@ export function useChatChannel() {
   }
 
   /** Captain: mute a member for `minutes`. Enforced cooperatively: everyone drops
-   *  the muted member's messages until expiry, and its own composer locks. */
+   *  the muted member's messages until expiry, and its own composer locks.
+   *  Keyed by USER part — one mute covers all of the member's linked devices. */
   async function muteMember(id: string, minutes: number) {
-    if (!amCaptain.value || id === mlsIdentity.value || !currentRoom.value) return;
+    if (!amCaptain.value || sameUser(id, mlsIdentity.value) || !currentRoom.value) return;
+    const target = userPartOf(id);
     const until = sanitizeMuteUntil(Date.now() + minutes * 60_000, Date.now());
     if (!until) return;
-    mutes.value = { ...mutes.value, [id]: until };
+    mutes.value = { ...mutes.value, [target]: until };
     bumpRev();
     persistRoomMod();
-    await sendEncryptedMedia("mod_mute", { device_id: mlsIdentity.value, target: id, until }).catch(() => {});
+    await sendEncryptedMedia("mod_mute", { device_id: mlsIdentity.value, target, until }).catch(() => {});
     await broadcastRoomMeta();
-    messages.value.push(systemMsg(`🔇 ${nameFor(id)} was muted for ${formatRemaining(until, Date.now())}.`));
+    messages.value.push(systemMsg(`🔇 ${nameFor(target)} was muted for ${formatRemaining(until, Date.now())}.`));
     void refreshP2pRoster();
   }
 
-  /** Captain: lift a member's mute early. */
+  /** Captain: lift a member's mute early (either keying scheme). */
   async function unmuteMember(id: string) {
-    if (!amCaptain.value || !(id in mutes.value)) return;
+    const target = id in mutes.value ? id : userPartOf(id);
+    if (!amCaptain.value || !(target in mutes.value)) return;
     const next = { ...mutes.value };
-    delete next[id];
+    delete next[target];
     mutes.value = next;
     bumpRev();
     persistRoomMod();
-    await sendEncryptedMedia("mod_unmute", { device_id: mlsIdentity.value, target: id }).catch(() => {});
+    await sendEncryptedMedia("mod_unmute", { device_id: mlsIdentity.value, target }).catch(() => {});
     await broadcastRoomMeta();
-    messages.value.push(systemMsg(`🔊 ${nameFor(id)} was unmuted.`));
+    messages.value.push(systemMsg(`🔊 ${nameFor(target)} was unmuted.`));
     void refreshP2pRoster();
   }
 
   /** Captain: kick a member — notify (while it can still decrypt), ban the
    *  identity (the acting admin refuses its future key packages), then remove it
-   *  from the MLS group. Cryptographic removal is what actually cuts access. */
+   *  from the MLS group. Cryptographic removal is what actually cuts access.
+   *  Bans key by USER part and the removal takes out EVERY leaf of that user —
+   *  kicking someone kicks all their linked devices. */
   async function kickMember(id: string) {
-    if (!amCaptain.value || id === mlsIdentity.value || !currentRoom.value) return;
+    if (!amCaptain.value || sameUser(id, mlsIdentity.value) || !currentRoom.value) return;
     const room = currentRoom.value.slug;
-    if (!bans.value.includes(id)) bans.value = [...bans.value, id];
+    const target = userPartOf(id);
+    if (!bans.value.includes(target)) bans.value = [...bans.value, target];
     bumpRev();
     persistRoomMod();
     // Order matters: the kick notice + snapshot go out BEFORE the removal commit,
     // so the target still decrypts them and leaves cleanly.
-    await sendEncryptedMedia("mod_kick", { device_id: mlsIdentity.value, target: id }).catch(() => {});
+    await sendEncryptedMedia("mod_kick", { device_id: mlsIdentity.value, target }).catch(() => {});
     await broadcastRoomMeta();
-    presenceById.delete(id);
-    const commit = await cryptoService.removeMember(room, mlsIdentity.value, id).catch(() => null);
-    if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
-    messages.value.push(systemMsg(`🚫 ${nameFor(id)} was removed from the room.`));
+    const memberIds = await cryptoService.members(room, mlsIdentity.value).catch(() => [] as string[]);
+    const leaves = memberIds.filter((m) => userPartOf(m) === target);
+    for (const leaf of leaves.length ? leaves : [id]) {
+      presenceById.delete(leaf);
+      const commit = await cryptoService.removeMember(room, mlsIdentity.value, leaf).catch(() => null);
+      if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
+    }
+    messages.value.push(systemMsg(`🚫 ${nameFor(target)} was removed from the room.`));
     void refreshP2pRoster();
   }
 
@@ -535,13 +657,20 @@ export function useChatChannel() {
     const tor = currentRoomIsTor.value;
     await cryptoService.clearState(slug, mlsIdentity.value).catch(() => {});
     if (tor) chatTransport.forgetTorOnion(name);
+    if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
     clearLocalChatState("🚫 You were removed from this room by the host.");
   }
 
   function nameFor(id: string): string {
-    if (id === mlsIdentity.value) return displayName();
-    return presenceById.get(id)?.name || id;
+    if (sameUser(id, mlsIdentity.value)) return displayName();
+    const direct = presenceById.get(id)?.name;
+    if (direct) return direct;
+    // A user-part key (new-style mute/kick target): any of its leaves' presence.
+    for (const [leaf, info] of presenceById) {
+      if (userPartOf(leaf) === id && info.name) return info.name;
+    }
+    return id;
   }
 
   /** The elected onion captain became unreachable (Tor). Mark it dead so election
@@ -595,7 +724,8 @@ export function useChatChannel() {
       await cryptoService.initSession(room, identity);
       const kp = await cryptoService.keyPackage(room, identity);
       if (kp) {
-        send({ type: "mls_key_package", key_package: bytesToBase64(kp), device_id: identity });
+        const b64 = bytesToBase64(kp);
+        send({ type: "mls_key_package", key_package: b64, device_id: identity, ...(await kpEnvelopeExtra(b64)) });
         messages.value.push(systemMsg("🔑 MLS group changed — sent a fresh key package."));
       } else {
         mlsStatus.value = "error";
@@ -674,10 +804,14 @@ export function useChatChannel() {
 
     const rawKp = (data.key_package ?? data.package) as string | undefined;
     if (type === "mls_key_package" && rawKp) {
+      // Devlink channel: a key package must prove possession of the linkKey
+      // (HMAC over the kp bytes) before anyone here even considers it.
+      if (options.admissionCheck && !(await options.admissionCheck(data))) return;
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
       // Banned (kicked) identities are refused re-admission: the acting admin
       // never adds them, and nobody defers to them with a counter key package.
-      if (deviceId && bans.value.includes(deviceId)) return;
+      // Bans key by user part, so every linked device of a kicked user is out.
+      if (deviceId && isBanned(deviceId)) return;
       const canAdd = (mlsStatus.value === "ready" || mlsStatus.value === "key_exchange") && currentRoom.value && !pendingInvites.has(deviceId);
       if (canAdd) {
         clearCreatorTimer();
@@ -689,7 +823,7 @@ export function useChatChannel() {
           const kpDefer = await cryptoService.keyPackage(currentRoom.value!.slug, mlsIdentity.value);
           if (kpDefer) {
             const b64 = bytesToBase64(kpDefer);
-            send({ type: "mls_key_package", key_package: b64, package: b64, device_id: mlsIdentity.value, user: currentUserName.value, target_channel: data.sender_channel });
+            send({ type: "mls_key_package", key_package: b64, package: b64, device_id: mlsIdentity.value, user: currentUserName.value, target_channel: data.sender_channel, ...(await kpEnvelopeExtra(b64)) });
           }
           return;
         }
@@ -762,9 +896,18 @@ export function useChatChannel() {
         if (plaintext) {
           const text = new TextDecoder().decode(plaintext);
           const avatarUrl = (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null;
-          const isSelf = senderName === currentUserName.value || data.device_id === mlsIdentity.value;
+          const senderLeafId = (data.device_id as string) || undefined;
+          // "Self" spans the whole user: a message from our OTHER linked device
+          // renders as ours (right-aligned, no unread bump).
+          const isSelf = senderName === currentUserName.value ||
+            (!!senderLeafId && sameUser(senderLeafId, mlsIdentity.value));
           let inner: Record<string, unknown> | null = null;
           try { inner = JSON.parse(text); } catch (_) {}
+          // Sender-minted stable id (inner = encrypted, preferred; outer covers
+          // raw-text messages) — the cross-device dedupe key. Old builds send
+          // neither and fall back to a local nanoid (no dedupe, still renders).
+          const rxId = (typeof inner?.msg_id === "string" && inner.msg_id) ||
+            (typeof data.msg_id === "string" && data.msg_id) || nanoid();
 
           if (inner?.type === "presence" && inner.device_id) {
             const id = inner.device_id as string;
@@ -816,7 +959,9 @@ export function useChatChannel() {
               if (until) {
                 mutes.value = { ...mutes.value, [inner.target]: until };
                 persistRoomMod();
-                const who = inner.target === mlsIdentity.value ? "You were" : `${nameFor(inner.target)} was`;
+                // Targets are user parts from new builds, full ids from old ones
+                // — sameUser covers both against our leaf identity.
+                const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
                 messages.value.push(systemMsg(`🔇 ${who} muted for ${formatRemaining(until, Date.now())}.`));
                 void refreshP2pRoster();
               }
@@ -829,7 +974,7 @@ export function useChatChannel() {
               delete next[inner.target];
               mutes.value = next;
               persistRoomMod();
-              const who = inner.target === mlsIdentity.value ? "You were" : `${nameFor(inner.target)} was`;
+              const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
               messages.value.push(systemMsg(`🔊 ${who} unmuted.`));
               void refreshP2pRoster();
             }
@@ -839,27 +984,34 @@ export function useChatChannel() {
             if (fromCaptain(data)) {
               if (!bans.value.includes(inner.target)) bans.value = [...bans.value, inner.target];
               persistRoomMod();
-              if (inner.target === mlsIdentity.value) {
+              if (sameUser(inner.target, mlsIdentity.value)) {
                 void handleKicked();
               } else {
-                presenceById.delete(inner.target);
+                // Kicking a user drops the presence of every one of its leaves.
+                for (const leaf of [...presenceById.keys()]) {
+                  if (leaf === inner.target || userPartOf(leaf) === inner.target) presenceById.delete(leaf);
+                }
                 messages.value.push(systemMsg(`🚫 ${nameFor(inner.target)} was removed from the room.`));
                 void refreshP2pRoster();
               }
             }
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_"))) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("dlink_"))) {
+            // `dlink_*` is the linked-device sync family (useDeviceSync). It is
+            // only ever produced/consumed on the headless devlink channel; on a
+            // normal room channel no handler owns the prefix, so it drops here
+            // harmlessly (same contract as every other sync family).
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
           // Mute enforcement (receive side): drop a muted member's HUMAN messages.
           // Control traffic above (presence/leave/sync/moderation) stays routed.
-          if (activeMuteUntil(mutes.value, data.device_id as string, Date.now())) return;
+          if (mutedUntilFor((data.device_id as string) ?? "", Date.now())) return;
           if (inner?.type === "image_message" && inner.image_data) {
-            pushMessage({ id: nanoid(), type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
+            pushMessage({ id: rxId, type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           } else if (inner?.type === "voice_message" && inner.audio_data) {
-            pushMessage({ id: nanoid(), type: "voice_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", audio_data: inner.audio_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
+            pushMessage({ id: rxId, type: "voice_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", audio_data: inner.audio_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           } else if (typeof inner?.type === "string" && inner.type.startsWith("map_")) {
             // Map shares (mapModel wire shapes) become timeline cards; anything
             // that fails validation — junk, unknown map_* kinds, newer `v` — is
@@ -872,16 +1024,19 @@ export function useChatChannel() {
               : inner.type === "map_region" ? validateRegionShare(inner)
               : null;
             if (share) {
-              pushMessage({ id: nanoid(), type: share.type, user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", map: share, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
+              pushMessage({ id: rxId, type: share.type, user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", map: share, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
             }
           } else {
-            pushMessage({ id: nanoid(), type: "mls_app", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: text, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() });
+            pushMessage({ id: rxId, type: "mls_app", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: text, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           }
         } else {
           messages.value.push(systemMsg("⚠ Could not decrypt an incoming message.", "system_error"));
         }
       } else {
-        pushMessage({
+        // Transient "arrived before MLS was ready" placeholder — pushed straight
+        // to the live view, NOT through pushMessage, so it is never persisted to
+        // chat:log (and never replayed to a linked device or restored on reload).
+        messages.value.push({
           id: nanoid(), type: "mls_app", user: senderName, initials: initials(senderName),
           avatar_url: (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null,
           content: "🔒 [encrypted — session not ready]", participant_type: "human",
@@ -889,6 +1044,17 @@ export function useChatChannel() {
         });
       }
       return;
+    }
+  }
+
+  /** Extra outbound fields for `mls_key_package` envelopes (devlink attaches
+   *  its linkKey HMAC proof here). Failures degrade to a bare envelope. */
+  async function kpEnvelopeExtra(kpB64: string): Promise<Record<string, unknown>> {
+    if (!options.keyPackageExtra) return {};
+    try {
+      return await options.keyPackageExtra(kpB64);
+    } catch {
+      return {};
     }
   }
 
@@ -907,7 +1073,7 @@ export function useChatChannel() {
       const kp = await cryptoService.keyPackage(room, identity);
       if (kp) {
         const b64 = bytesToBase64(kp);
-        send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value });
+        send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
         messages.value.push(systemMsg("🔑 Setting up encryption…"));
         mlsStatus.value = "key_exchange";
         clearCreatorTimer();
@@ -954,6 +1120,7 @@ export function useChatChannel() {
 
   // ── P2P (iroh) rooms ─────────────────────────────────────────────────────────
   async function loadP2pRooms() {
+    if (headless) return; // the hidden devlink room never touches the saved list
     try {
       const raw = await kvGet("p2p:rooms", "default", "");
       p2pRooms.value = raw ? (JSON.parse(raw) as P2pRoomEntry[]) : [];
@@ -963,10 +1130,12 @@ export function useChatChannel() {
   }
 
   function persistP2pRooms() {
+    if (headless) return;
     void kvPut("p2p:rooms", "default", "", JSON.stringify(p2pRooms.value)).catch(() => {});
   }
 
   function rememberP2pRoom(entry: P2pRoomEntry) {
+    if (headless) return;
     const i = p2pRooms.value.findIndex((r) => r.room === entry.room);
     if (i === -1) p2pRooms.value.unshift(entry);
     else p2pRooms.value[i] = { ...p2pRooms.value[i], ...entry };
@@ -1019,6 +1188,8 @@ export function useChatChannel() {
     mlsError.value = null;
     pendingInvites.clear();
     wsStatus.value = chatTransport.lastStatus(room) ?? "connecting";
+    // The stored timeline (chat:log) comes back so a reopened room isn't blank.
+    if (!headless) void restoreTimeline(room);
     // Tor emits "connected" DURING the join/create invoke — before this room is
     // current — so the status handler's startMls() kick gets dropped (the joiner
     // then never sends its key package and stays "Not encrypted" forever). If the
@@ -1166,9 +1337,10 @@ export function useChatChannel() {
     if (isCurrent && mlsStatus.value === "ready") {
       await sendEncryptedMedia(entry.host ? "room_closed" : "leave", { device_id: identity }).catch(() => {});
     }
-    // Wipe local data.
+    // Wipe local data (MLS state, saved entry, stored timeline).
     await cryptoService.clearState(slug, identity).catch(() => {});
     if (entry.tor) chatTransport.forgetTorOnion(entry.name); // stops the service + drops the key
+    if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
     // Close connections / reset the view.
     if (isCurrent) clearLocalChatState("Room deleted.");
@@ -1185,14 +1357,19 @@ export function useChatChannel() {
     const tor = currentRoomIsTor.value;
     await cryptoService.clearState(slug, mlsIdentity.value).catch(() => {});
     if (tor) chatTransport.forgetTorOnion(name);
+    if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
     // Resets the channel + leaves the notice as the sole system message.
     clearLocalChatState("This room was deleted by the host.");
   }
 
   // ── sending ──────────────────────────────────────────────────────────────────
-  async function sendEncryptedMedia(innerType: string, payload: Record<string, unknown>) {
-    const ct = await cryptoService.encrypt(currentRoom.value!.slug, mlsIdentity.value, JSON.stringify({ type: innerType, ...payload }));
+  /** `msgId` (human content only) rides INSIDE the ciphertext — the stable
+   *  sender-minted id that keeps linked devices' timelines deduplicated without
+   *  leaking anything to the topic. Control payloads pass none. */
+  async function sendEncryptedMedia(innerType: string, payload: Record<string, unknown>, msgId?: string) {
+    const inner = msgId ? { type: innerType, msg_id: msgId, ...payload } : { type: innerType, ...payload };
+    const ct = await cryptoService.encrypt(currentRoom.value!.slug, mlsIdentity.value, JSON.stringify(inner));
     if (!ct) throw new Error("Encryption failed");
     send({
       type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value,
@@ -1206,9 +1383,11 @@ export function useChatChannel() {
     await sendEncryptedMedia(type, payload);
   }
 
-  /** Self-mute send guard: posts a notice + returns true while we are muted. */
+  /** Self-mute send guard: posts a notice + returns true while we are muted.
+   *  Honors both keying schemes (user-part and legacy full-leaf) so a mute set
+   *  against our user still locks a secondary device's composer. */
   function blockedByMute(): boolean {
-    const until = activeMuteUntil(mutes.value, mlsIdentity.value, Date.now());
+    const until = mutedUntilFor(mlsIdentity.value, Date.now());
     if (!until) return false;
     messages.value.push(systemMsg(`🔇 You are muted for another ${formatRemaining(until, Date.now())}.`, "system_error"));
     return true;
@@ -1224,8 +1403,9 @@ export function useChatChannel() {
     }
     try {
       const dataUrl = await downscaleImageToDataUrl(file);
-      await sendEncryptedMedia("image_message", { image_data: dataUrl });
-      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      const msgId = nanoid();
+      await sendEncryptedMedia("image_message", { image_data: dataUrl }, msgId);
+      pushMessage({ id: msgId, type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
       onProgress?.(100);
     } catch (e) { error.value = errorMessage(e); }
   }
@@ -1242,8 +1422,9 @@ export function useChatChannel() {
       return;
     }
     try {
-      await sendEncryptedMedia(share.type, { ...share });
-      pushMessage({ id: nanoid(), type: share.type, user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", map: share, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      const msgId = nanoid();
+      await sendEncryptedMedia(share.type, { ...share }, msgId);
+      pushMessage({ id: msgId, type: share.type, user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", map: share, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
     } catch (e) { error.value = errorMessage(e); }
   }
 
@@ -1257,8 +1438,9 @@ export function useChatChannel() {
       return;
     }
     try {
-      await sendEncryptedMedia("image_message", { image_data: dataUrl });
-      pushMessage({ id: nanoid(), type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      const msgId = nanoid();
+      await sendEncryptedMedia("image_message", { image_data: dataUrl }, msgId);
+      pushMessage({ id: msgId, type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
     } catch (e) { error.value = errorMessage(e); }
   }
 
@@ -1272,8 +1454,9 @@ export function useChatChannel() {
     }
     try {
       const dataUrl = await blobToDataUrl(audioBlob);
-      await sendEncryptedMedia("voice_message", { audio_data: dataUrl });
-      pushMessage({ id: nanoid(), type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+      const msgId = nanoid();
+      await sendEncryptedMedia("voice_message", { audio_data: dataUrl }, msgId);
+      pushMessage({ id: msgId, type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
     } catch (e) { error.value = errorMessage(e); }
   }
 
@@ -1285,14 +1468,19 @@ export function useChatChannel() {
     if (mlsStatus.value === "ready") {
       const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, text);
       if (ct) {
-        send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: myAvatarOrNull() });
-        pushMessage({ id: nanoid(), type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date() });
+        // Text stays RAW inside the ciphertext (old-build receivers render it
+        // as-is), so its stable id rides the outer envelope. msg_id is a random
+        // nanoid — it correlates nothing an observer doesn't already see as a
+        // discrete gossip frame.
+        const msgId = nanoid();
+        send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: myAvatarOrNull(), msg_id: msgId });
+        pushMessage({ id: msgId, type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
       } else {
         messages.value.push(systemMsg("Encryption failed — message not sent.", "system_error"));
       }
     } else {
       // Pre-MLS fallback (plaintext over the gossip topic; QUIC still encrypts hops).
-      send({ type: "chat_message", message: text });
+      send({ type: "chat_message", message: text, id: nanoid() });
     }
   }
 
@@ -1317,7 +1505,7 @@ export function useChatChannel() {
       const kp = await cryptoService.keyPackage(room, identity);
       if (kp) {
         const b64 = bytesToBase64(kp);
-        send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value });
+        send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
         mlsStatus.value = "key_exchange";
         messages.value.push(systemMsg("🔑 Fresh key package sent."));
         setTimeout(() => {
@@ -1339,6 +1527,35 @@ export function useChatChannel() {
 
   function clearUnread() { unread.value = 0; }
 
+  /** Devlink catch-up: splice replayed history into the OPEN room's timeline
+   *  (storage merge is the caller's job — this is only the live view). Ids
+   *  dedupe against what's already shown; the result stays ts-ordered. */
+  function mergeHistory(slug: string, incoming: PersistedMessage[]) {
+    if (headless || currentRoom.value?.slug !== slug || incoming.length === 0) return;
+    const seen = new Set(messages.value.map((m) => m.id));
+    const fresh = incoming.filter((pm) => !seen.has(pm.id)).map(fromPersisted);
+    if (!fresh.length) return;
+    const merged = [...messages.value, ...fresh].sort(
+      (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
+    );
+    messages.value = merged;
+  }
+
+  /** Remove ONE leaf from the current room's MLS group (linked-device unlink —
+   *  unlike kickMember this must not touch the user's other leaves). Any member
+   *  may enforce a registry revocation this way; exact-identity removal is safe
+   *  because leaf ids are unique. */
+  async function removeLeaf(leafId: string) {
+    if (!currentRoom.value || leafId === mlsIdentity.value) return;
+    const room = currentRoom.value.slug;
+    const ids = await cryptoService.members(room, mlsIdentity.value).catch(() => [] as string[]);
+    if (!ids.includes(leafId)) return;
+    presenceById.delete(leafId);
+    const commit = await cryptoService.removeMember(room, mlsIdentity.value, leafId).catch(() => null);
+    if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
+    void refreshP2pRoster();
+  }
+
   /** Post a local system_info line into the chat log (e.g. "X invited you to a
    *  meeting"). Local-only — nothing is sent; sync orchestrators use this to
    *  leave a human-readable trace of signaling they consumed. */
@@ -1358,6 +1575,7 @@ export function useChatChannel() {
     cancelJoin, deleteRoom,
     ensureNode,
     onSync, sendSync, postSystemNotice,
+    mergeHistory, removeLeaf,
     // Room meta + moderation (captain-authoritative)
     captainId, amCaptain, roomLogo, roomRules, bans, selfMuteUntil,
     setRoomLogo, setRoomRules, kickMember, muteMember, unmuteMember, unbanMember,

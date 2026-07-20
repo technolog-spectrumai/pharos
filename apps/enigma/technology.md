@@ -843,7 +843,7 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
 `kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`,
-`invite_*`, `vox_*`, `cloud_*`, `local_*`, `map_*`. All registered in the single
+`invite_*`, `vox_*`, `cloud_*`, `local_*`, `map_*`, `devlink_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -852,12 +852,13 @@ bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clas
 (both transports emit identical names so the frontend is transport-agnostic; a
 single event multiplexes all rooms, the payload carries the room id), plus
 `file://progress|done|error`, `cloud://progress|done|error`,
-`invite://incoming|resolved`, `vox://*`.
+`invite://incoming|resolved`, `vox://*`,
+`devlink://request|paired|progress|done|error`.
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `kanban`,
 `map`, `contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `cloud`,
-`local`. Interpolation uses single-brace named
+`local`, `devices`. Interpolation uses single-brace named
 tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
@@ -943,6 +944,9 @@ instead of hardcoding.
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
 | Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
+| Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Settings→Devices tab and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
+| Devlink pairing window / resync cadence | kv `p2p:settings` / `devlink_pair_window_secs`, `devlink_resync_secs` | Window bounds how long a pairing QR's one-time secret stays redeemable (default 600 s, 60–3600; read Rust-side in `device_link.rs`); resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list. Pairing dials use `connect_timeout_secs` like every other connect deadline |
+| Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests. `build_config.yaml` `app:` must mirror it — `build.rs` fails the build on drift |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
@@ -1031,6 +1035,13 @@ recording; offline profiles and the airplane switch.
   imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
   manifest verified), P2P region sharing over file_xfer, pins/routes as MLS chat
   cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
+- **Multi-device (linked devices)** (`device_link.rs` + rakotis `useDeviceSync`,
+  plan + decisions in [sync.md](sync.md)): QR pairing streams an E2EE one-shot
+  bundle (rooms/tickets, contacts, calendar, settings subset, personas, chat
+  history) over a dedicated iroh QUIC endpoint; each device is its own MLS leaf
+  (`user#dev-xxxxxxxx`, grouped by user in rosters) and ongoing catch-up rides a
+  hidden `devlink-…` gossip room gated by a linkKey HMAC. Chat history is now
+  persisted per room (sealed `chat:log` kv) so timelines survive restarts.
 
 ---
 
