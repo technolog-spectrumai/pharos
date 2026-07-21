@@ -11,7 +11,7 @@ import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, type IdleLockHandle } from "./idleLock";
 import {
-  OyaButton, OyaTextField, getBuildConfig, getIdleLockMins,
+  OyaButton, OyaTextField, getBuildConfig, getIdleLockMins, isTauri,
   vaultStatus, vaultSetup, vaultUnlock, vaultLock,
 } from "rakotis";
 
@@ -77,6 +77,9 @@ function isBusy(): boolean {
 }
 
 async function startIdleLock() {
+  // Browser-fallback mode has no vault to lock (vaultStatus reports unlocked), so
+  // a watcher there would just reload the dev server page on a timer.
+  if (!isTauri()) return;
   const mins = await getIdleLockMins();
   idleLock?.stop();
   idleLock = useIdleLock({
