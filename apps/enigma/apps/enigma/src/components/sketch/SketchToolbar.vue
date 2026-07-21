@@ -282,21 +282,25 @@ const rotation = computed({
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded border-2 text-[10px] transition hover:scale-110"
-        :class="background === null ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
+        :class="background === null ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
         :aria-label="$t('sketch.noBackground')"
         :title="$t('sketch.noBackground')"
         @click="sketch.setBackground(null)"
       >
         <font-awesome-icon icon="ban" />
       </button>
+      <!-- White and black only. IDLE_SWATCH matters more here than anywhere else:
+           the two swatches ARE white and near-black, so a ring that vanishes in one
+           theme loses one of the only two chips in the row. -->
       <button
         v-for="c in BACKGROUND_COLORS"
         :key="`bg-${c}`"
         type="button"
         class="h-6 w-6 rounded border-2 transition hover:scale-110"
-        :class="background === c ? 'border-accent-light dark:border-accent-dark' : 'border-black/20'"
+        :class="background === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
         :style="{ backgroundColor: c }"
-        :aria-label="c"
+        :aria-label="$t(colorLabel(c))"
+        :title="$t(colorLabel(c))"
         @click="sketch.setBackground(c)"
       />
       <OyaIconButton

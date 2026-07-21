@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   arrowHead,
+  BACKGROUND_COLORS,
   COLOR_NAME_KEYS,
   DEFAULT_SLOT_COLORS,
   distToShape,
@@ -643,6 +644,13 @@ describe("palette invariants", () => {
     // A missing entry renders `sketch.colorNames.undefined` as the aria-label.
     for (const c of PICKER_COLORS) expect(COLOR_NAME_KEYS[c]).toBeTruthy();
     expect(Object.keys(COLOR_NAME_KEYS)).toHaveLength(PICKER_COLORS.length);
+  });
+
+  it("names the board backgrounds too, which share the same label helper", () => {
+    // The background row is white/black/transparent/image; the two COLOURS are
+    // labelled through COLOR_NAME_KEYS, so adding one that is not a slot colour
+    // would need an entry here as well.
+    for (const c of BACKGROUND_COLORS) expect(COLOR_NAME_KEYS[c]).toBeTruthy();
   });
 });
 

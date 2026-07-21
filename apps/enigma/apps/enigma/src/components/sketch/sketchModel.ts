@@ -217,10 +217,16 @@ export function emptyDoc(): SketchDoc {
   return { v: 1, shapes: [], background: null };
 }
 
-/** Offered as board backgrounds. `null` (transparent) is the default and is added
- *  by the UI, not listed here. White and near-black lead because an export usually
- *  wants one or the other when it is not transparent. */
-export const BACKGROUND_COLORS = ["#ffffff", "#111827", "#f3f4f6", "#fef3c7", "#dbeafe", "#dcfce7"] as const;
+/** Offered as board backgrounds: white or near-black, which is what an export
+ *  wants when it is not transparent. The other two choices are not colours and so
+ *  are not listed here — `null` (transparent, the default) and a background image
+ *  both come from their own controls in the toolbar.
+ *
+ *  Trimming this list does NOT invalidate existing boards: `background` is checked
+ *  by COLOR_RE in validateDoc, never against this array, so a board saved with a
+ *  colour that used to be offered still loads and exports in that colour. It just
+ *  has no swatch highlighted until the user picks a different one. */
+export const BACKGROUND_COLORS = ["#ffffff", "#111827"] as const;
 
 /** Upper bound on a stored background image, as data-URL characters (~9 MB of
  *  base64 ≈ 6.7 MB of bytes). Import already crops and re-encodes to board size, so
