@@ -5,11 +5,14 @@
 // keeps them from firing before unlock).
 //
 // The `Protasius` store is opened per active profile and held in managed state.
-// `vault_*` commands drive the lifecycle (setup / unlock / lock / change / wipe).
+// `vault_*` commands drive the lifecycle (setup / unlock / lock / change / wipe),
+// including the PANIC CODE: a second passphrase that, typed at the unlock gate,
+// destroys every profile on the device and silently opens a fresh empty one
+// (`panic_wipe` below).
 
 use std::sync::Mutex;
 
-use protasius::{MigrationPlan, Protasius, ProtasiusError, VaultStatus};
+use protasius::{MigrationPlan, Protasius, ProtasiusError, UnlockOutcome, VaultStatus};
 use tauri::{AppHandle, Manager, State};
 
 use crate::{active_config, profile_dir, AppConfig, AppConfigState, Sessions};
@@ -117,17 +120,28 @@ pub fn vault_setup(
     Ok(())
 }
 
+/// Unlock the vault — or, if the passphrase is the PANIC CODE, destroy everything
+/// and hand back a clean profile.
+///
+/// The panic path deliberately returns `Ok(())` exactly like a normal unlock: the
+/// frontend proceeds into a working (empty) app and nothing in the UI, the return
+/// value, or the logs distinguishes the two. Whoever is watching over the user's
+/// shoulder sees an ordinary login.
 #[tauri::command]
 pub fn vault_unlock(
     app: AppHandle,
     config: State<AppConfigState>,
     vault: State<ProtasiusState>,
+    sessions: State<Sessions>,
     passphrase: String,
 ) -> Result<(), String> {
     let cfg = active_config(&config)?;
     {
         let mut p = vault.0.lock().map_err(|e| e.to_string())?;
-        p.unlock(&passphrase).map_err(e)?;
+        if p.unlock(&passphrase).map_err(e)? == UnlockOutcome::Panic {
+            drop(p); // panic_wipe re-takes the lock (and replaces the store)
+            return panic_wipe(&app, &cfg, &vault, &sessions, &passphrase);
+        }
         // Sweep any legacy plaintext a prior crash left behind (idempotent).
         let _ = p.migrate(&migration_plan(&app, &cfg));
     }
@@ -135,8 +149,106 @@ pub fn vault_unlock(
     Ok(())
 }
 
+/// Duress wipe: erase every profile on this device, then start a fresh vault keyed
+/// by the panic code itself so the app opens clean.
+///
+/// INVARIANT: this only ever runs from the unlock gate, and nothing is live when
+/// it does — at startup the gate blocks everything before the loaders run, and a
+/// mid-session gate is only ever reached through `vault_lock`, which has already
+/// torn every transport down. So, unlike a profile switch, nothing needs stopping
+/// here. Any future path that locks the vault must keep that true.
+///
+/// What survives, deliberately: ENIGLOCK-locked files the user keeps elsewhere on
+/// disk (only the index of them dies with the vault; each is still encrypted under
+/// its own passphrase), arti's consensus cache (no identity material), the webview's
+/// localStorage (in the desktop app that is the UI locale — all real data goes
+/// through `kv_*` into protasius), and anything already uploaded to Enigma Cloud
+/// (the local session token dies with the vault, but nothing is deleted remotely).
+/// Files are unlinked, not shredded: without `vault.json`'s wrapped DEK the
+/// remaining ciphertext is unopenable anyway.
+fn panic_wipe(
+    app: &AppHandle,
+    cfg: &AppConfig,
+    vault: &State<ProtasiusState>,
+    sessions: &State<Sessions>,
+    panic_pass: &str,
+) -> Result<(), String> {
+    if let Ok(mut s) = sessions.lock() {
+        s.clear();
+    }
+
+    let base = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+
+    let mut store = vault.0.lock().map_err(|e| e.to_string())?;
+    // Point the managed store at an empty scratch keyspace FIRST. That drops the
+    // live `Protasius` (zeroizing the DEK and closing fjall's file handles), which
+    // is what makes deleting the directory underneath it safe on every platform.
+    // Nothing is ever written to the scratch store. Falls back inside app-data if
+    // the system temp dir isn't writable (some Android configurations) — that path
+    // is not one of the three we delete below, so it survives long enough to be
+    // swapped out and removed at the end.
+    let (scratch, scratch_store) = [
+        std::env::temp_dir().join(format!("enigma-{tag}")),
+        base.join(format!(".wipe-{tag}")),
+    ]
+    .into_iter()
+    .find_map(|dir| open(dir.clone()).ok().map(|s| (dir, s)))
+    .ok_or_else(|| "no writable scratch location".to_string())?;
+    *store = scratch_store;
+
+    // Everything Enigma owns: all profiles (protasius stores, vault.json headers,
+    // maps/*.pmtiles, tor/ onion keystores) plus the pre-vault legacy plaintext.
+    let _ = std::fs::remove_dir_all(base.join("profiles"));
+    let _ = std::fs::remove_dir_all(base.join("kvstore"));
+    let _ = std::fs::remove_file(base.join("iroh_gossip.key"));
+
+    // A brand-new vault for the active profile, keyed by the panic code — so the
+    // code the user just typed keeps working as their passphrase from here on (and
+    // no panic code is armed on the fresh profile).
+    *store = open(profile_dir(app, cfg))?;
+    store
+        .setup_with_kdf(panic_pass, crate::kdf_params(), &MigrationPlan::default())
+        .map_err(e)?;
+
+    let _ = std::fs::remove_dir_all(&scratch);
+    Ok(())
+}
+
+/// Lock a LIVE session (Settings → "Lock now", and the idle auto-lock in
+/// `src/idleLock.ts`). Every data op goes through the vault, so a transport left
+/// running against a locked store would just error on each persist — tear the
+/// whole session down first, in the same order as a profile switch. In
+/// particular `p2p_tor::shutdown` seals the stable-onion keystore INTO the vault,
+/// so it has to run while the DEK is still in memory.
+///
+/// The frontend reloads the webview afterwards, which is what actually drops the
+/// decrypted values from JS memory; this side drops the DEK and the in-memory MLS
+/// sessions.
 #[tauri::command]
-pub fn vault_lock(vault: State<ProtasiusState>) -> Result<(), String> {
+pub async fn vault_lock(
+    app: AppHandle,
+    vault: State<'_, ProtasiusState>,
+    sessions: State<'_, Sessions>,
+    p2p: State<'_, crate::p2p_iroh::P2pState>,
+    tor: State<'_, crate::p2p_tor::TorP2pState>,
+    file: State<'_, crate::file_xfer::FileXferState>,
+    vox: State<'_, crate::vox::VoxState>,
+    devlink: State<'_, crate::device_link::DevLinkState>,
+) -> Result<(), String> {
+    crate::vox::shutdown(&app, &vox).await;
+    crate::p2p_iroh::shutdown(&app, &p2p).await;
+    crate::p2p_tor::shutdown(&app, &tor).await;
+    crate::file_xfer::shutdown(&file).await;
+    crate::device_link::shutdown(&devlink).await;
+    crate::cloud::shutdown(&app).await;
+    // Cached mmap readers point into the profile's maps dir — drop them so the
+    // locked session holds no open handles into it.
+    crate::maps::reset_readers(&app).await;
+
+    if let Ok(mut s) = sessions.lock() {
+        s.clear(); // in-memory MLS material
+    }
     vault.0.lock().map_err(|e| e.to_string())?.lock();
     Ok(())
 }
@@ -152,6 +264,45 @@ pub fn vault_change_passphrase(
         .lock()
         .map_err(|e| e.to_string())?
         .change_passphrase(&current, &new)
+        .map_err(e)
+}
+
+/// Arm the panic code (Settings → Data). `current` is the real passphrase; `code`
+/// is what wipes this device when typed at the unlock screen.
+#[tauri::command]
+pub fn vault_set_panic_code(
+    vault: State<ProtasiusState>,
+    current: String,
+    code: String,
+) -> Result<(), String> {
+    vault
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .set_panic_passphrase(&current, &code)
+        .map_err(e)
+}
+
+/// Disarm the panic code; the old code becomes an ordinary wrong passphrase.
+#[tauri::command]
+pub fn vault_clear_panic_code(vault: State<ProtasiusState>, current: String) -> Result<(), String> {
+    vault
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clear_panic_passphrase(&current)
+        .map_err(e)
+}
+
+/// Whether a panic code is armed (for the Settings card). Answered from *inside*
+/// the encrypted store — `vault.json` looks identical either way.
+#[tauri::command]
+pub fn vault_has_panic_code(vault: State<ProtasiusState>) -> Result<bool, String> {
+    vault
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .has_panic_passphrase()
         .map_err(e)
 }
 

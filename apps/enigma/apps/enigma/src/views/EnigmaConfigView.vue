@@ -8,6 +8,7 @@ import { useChatStore } from "../stores/chat";
 import { useCloudStore } from "../stores/cloud";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
+import { applyIdleLockMins } from "../idleLock";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -44,6 +45,12 @@ import {
   MEETING_REMINDER_MIN_MINS,
   MEETING_REMINDER_MAX_MINS,
   vaultChangePassphrase,
+  vaultLock,
+  getIdleLockMins,
+  setIdleLockMins,
+  vaultSetPanicCode,
+  vaultClearPanicCode,
+  vaultHasPanicCode,
   cleanTorKeystore,
   getCloudServerUrl,
   CLOUD_SERVER_URL_DEFAULT,
@@ -303,6 +310,96 @@ async function submitResetPass() {
   }
 }
 
+// ── Auto-lock (idle timeout) ─────────────────────────────────────────────────
+// Minutes of inactivity before the vault re-locks; 0 = never. Saving pushes the
+// new value straight to the running watcher in App.vue (applyIdleLockMins) so it
+// takes effect without a restart.
+const idleLockMins = ref(15);
+const idleLockSaved = ref(false);
+const locking = ref(false);
+
+async function saveIdleLock() {
+  idleLockMins.value = await setIdleLockMins(Number(idleLockMins.value));
+  applyIdleLockMins(idleLockMins.value);
+  idleLockSaved.value = true;
+  setTimeout(() => { idleLockSaved.value = false; }, 1500);
+}
+
+/** "Lock now" — the same path the idle timer takes: Rust tears the session down,
+ *  then the reload drops every decrypted value from the webview's memory. */
+async function lockNow() {
+  locking.value = true;
+  try {
+    await vaultLock();
+  } finally {
+    window.location.reload();
+  }
+}
+
+// ── Panic code modal ─────────────────────────────────────────────────────────
+// A duress passphrase for the unlock gate: typing it there wipes every profile on
+// this device and opens a fresh empty one keyed by that code. Arming/removing it
+// requires the real passphrase, exactly like changing it.
+const panicArmed = ref(false);
+const showPanic = ref(false);
+const panicCurrent = ref("");
+const panicNew = ref("");
+const panicConfirm = ref("");
+const panicError = ref("");
+const panicBusy = ref(false);
+const panicDone = ref("");
+
+async function loadPanicState() {
+  try { panicArmed.value = await vaultHasPanicCode(); } catch { panicArmed.value = false; }
+}
+
+function openPanic() {
+  panicCurrent.value = "";
+  panicNew.value = "";
+  panicConfirm.value = "";
+  panicError.value = "";
+  panicDone.value = "";
+  showPanic.value = true;
+}
+
+async function submitPanic() {
+  panicError.value = "";
+  if (panicNew.value.length < policy.passphraseMinLen) {
+    panicError.value = t("vault.tooShort", { n: policy.passphraseMinLen });
+    return;
+  }
+  if (panicNew.value !== panicConfirm.value) { panicError.value = t("vault.mismatch"); return; }
+  panicBusy.value = true;
+  try {
+    await vaultSetPanicCode(panicCurrent.value, panicNew.value);
+    panicArmed.value = true;
+    panicDone.value = t("config.panicCodeSaved");
+    setTimeout(() => { showPanic.value = false; }, 1200);
+  } catch (err) {
+    // The backend is the authority on "same as your passphrase" (it tests the code
+    // against the real key slot); everything else is a bad current passphrase.
+    const msg = (err as Error).message ?? String(err);
+    panicError.value = msg.includes("differ") ? t("vault.panicSame") : t("vault.wrongPass");
+  } finally {
+    panicBusy.value = false;
+  }
+}
+
+async function removePanic() {
+  panicError.value = "";
+  panicBusy.value = true;
+  try {
+    await vaultClearPanicCode(panicCurrent.value);
+    panicArmed.value = false;
+    panicDone.value = t("config.panicCodeRemoved");
+    setTimeout(() => { showPanic.value = false; }, 1200);
+  } catch (_e) {
+    panicError.value = t("vault.wrongPass");
+  } finally {
+    panicBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   await loadRuntimeConfig();
   offline.value = await getOffline();
@@ -317,8 +414,10 @@ onMounted(async () => {
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
   cloudServerUrl.value = await getCloudServerUrl();
+  idleLockMins.value = await getIdleLockMins();
   void refreshDhtStatus();
   await loadOfflineData();
+  void loadPanicState();
   void loadNodeId();
 });
 
@@ -1112,6 +1211,45 @@ async function clearSelectedOfflineData() {
       </div>
     </OyaCard>
 
+    <!-- Auto-lock — re-lock the vault after a stretch of inactivity -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.idleLock') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.idleLockHint') }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="clock" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.idleLock') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.idleLockOff') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="idleLockMins"
+            type="number"
+            :min="buildCfg.idle_lock_mins.min"
+            :max="buildCfg.idle_lock_mins.max"
+            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveIdleLock"
+            @keyup.enter="saveIdleLock"
+          />
+          <span class="text-xs opacity-60">{{ $t('config.minutesShort') }}</span>
+          <span v-if="idleLockSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+      <OyaButton
+        :dark-mode="darkMode"
+        variant="secondary"
+        :class="{ 'pointer-events-none opacity-60': locking }"
+        @click="lockNow"
+      >
+        <font-awesome-icon icon="lock" />{{ $t('config.lockNow') }}
+      </OyaButton>
+    </OyaCard>
+
     <!-- Reset passphrase — change the at-rest encryption passphrase -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
@@ -1122,6 +1260,24 @@ async function clearSelectedOfflineData() {
       </div>
       <OyaButton :dark-mode="darkMode" variant="secondary" @click="openResetPass">
         <font-awesome-icon icon="key" />{{ $t('config.resetPass') }}
+      </OyaButton>
+    </OyaCard>
+
+    <!-- Panic code — duress passphrase that wipes this device at the unlock gate -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.panicCode') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.panicCodeHint') }}</p>
+        <p class="mt-2 text-sm" :class="panicArmed ? 'text-warn-dark' : 'opacity-65'">
+          <font-awesome-icon v-if="panicArmed" icon="shield-halved" class="mr-1" />
+          {{ panicArmed ? $t('config.panicCodeArmed') : $t('config.panicCodeNone') }}
+        </p>
+      </div>
+      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openPanic">
+        <font-awesome-icon icon="triangle-exclamation" />
+        {{ panicArmed ? $t('config.panicCodeChange') : $t('config.panicCodeSet') }}
       </OyaButton>
     </OyaCard>
     </template>
@@ -1147,6 +1303,43 @@ async function clearSelectedOfflineData() {
             @click="submitResetPass"
           >
             <font-awesome-icon :icon="resetBusy ? 'lock' : 'key'" />{{ $t('vault.reset') }}
+          </OyaButton>
+        </div>
+      </template>
+    </OyaModal>
+
+    <!-- Panic-code modal -->
+    <OyaModal v-model:open="showPanic" @close="showPanic = false">
+      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+        <p class="text-lg font-bold">{{ $t('vault.panicTitle') }}</p>
+        <p class="text-sm text-warn-dark">{{ $t('vault.panicWarning') }}</p>
+        <OyaTextField v-model="panicCurrent" type="password" :placeholder="$t('config.currentPass')" :disabled="panicBusy" />
+        <OyaTextField v-model="panicNew" type="password" :placeholder="$t('vault.panicCode')" :disabled="panicBusy" />
+        <OyaTextField v-model="panicConfirm" type="password" :placeholder="$t('vault.panicConfirm')" :disabled="panicBusy" />
+        <p v-if="panicError" class="text-sm text-warn-dark">{{ panicError }}</p>
+        <p v-if="panicDone" class="text-sm text-success-dark">{{ panicDone }}</p>
+      </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <OyaButton :dark-mode="darkMode" variant="secondary" @click="showPanic = false">
+            {{ $t('vault.cancel') }}
+          </OyaButton>
+          <!-- Removing only needs the real passphrase — the code fields stay blank. -->
+          <OyaButton
+            v-if="panicArmed"
+            :dark-mode="darkMode"
+            variant="secondary"
+            :class="{ 'pointer-events-none opacity-60': panicBusy }"
+            @click="removePanic"
+          >
+            <font-awesome-icon icon="trash" />{{ $t('config.panicCodeRemove') }}
+          </OyaButton>
+          <OyaButton
+            :dark-mode="darkMode"
+            :class="{ 'pointer-events-none opacity-60': panicBusy }"
+            @click="submitPanic"
+          >
+            <font-awesome-icon :icon="panicBusy ? 'lock' : 'triangle-exclamation'" />{{ $t('config.panicCodeSet') }}
           </OyaButton>
         </div>
       </template>

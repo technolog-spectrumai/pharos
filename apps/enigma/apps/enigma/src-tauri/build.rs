@@ -116,6 +116,7 @@ struct SettingsSection {
     devlink_pair_window_secs: Clamp,
     devlink_resync_secs: Clamp,
     chat_history_cap_msgs: Clamp,
+    idle_lock_mins: Clamp,
 }
 
 #[derive(Deserialize)]
@@ -223,6 +224,8 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         ("settings.devlink_pair_window_secs", &cfg.settings.devlink_pair_window_secs, 30u64),
         ("settings.devlink_resync_secs", &cfg.settings.devlink_resync_secs, 10u64),
         ("settings.chat_history_cap_msgs", &cfg.settings.chat_history_cap_msgs, 10u64),
+        // floor 0: auto-lock off is a legitimate configuration.
+        ("settings.idle_lock_mins", &cfg.settings.idle_lock_mins, 0u64),
     ];
     for (path, c, floor) in clamps {
         if !(c.min <= c.default && c.default <= c.max) {
@@ -354,6 +357,9 @@ pub mod settings {{
     pub const CHAT_HISTORY_CAP_DEFAULT_MSGS: u64 = {hc_def};
     pub const CHAT_HISTORY_CAP_MIN_MSGS: u64 = {hc_min};
     pub const CHAT_HISTORY_CAP_MAX_MSGS: u64 = {hc_max};
+    pub const IDLE_LOCK_DEFAULT_MINS: u64 = {il_def};
+    pub const IDLE_LOCK_MIN_MINS: u64 = {il_min};
+    pub const IDLE_LOCK_MAX_MINS: u64 = {il_max};
 }}
 
 pub mod network {{
@@ -458,6 +464,9 @@ const _: () = assert!(
         hc_def = cfg.settings.chat_history_cap_msgs.default,
         hc_min = cfg.settings.chat_history_cap_msgs.min,
         hc_max = cfg.settings.chat_history_cap_msgs.max,
+        il_def = cfg.settings.idle_lock_mins.default,
+        il_min = cfg.settings.idle_lock_mins.min,
+        il_max = cfg.settings.idle_lock_mins.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
         chunk = cfg.network.transfer_chunk_bytes,

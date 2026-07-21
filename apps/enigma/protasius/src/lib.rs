@@ -11,17 +11,26 @@
 //!   - internal: key `ns\0<key>` — e.g. `profile\0state`, `mls\0{room}\0{identity}`,
 //!     `keys\0iroh_gossip`, `keys\0tor_peer_id`, `keys\0tor_keystore`.
 //!
-//! Vault: passphrase → gervasius UKEK → wraps a random DEK; the `VaultHeader` is a
+//! Vault: passphrase → gervasius UKEK → wraps a random DEK; the header lives in a
 //! plaintext `<profile_dir>/vault.json` (safe in the clear). The DEK lives in
 //! memory only while unlocked (zeroized on lock/drop). Tauri-agnostic — the host
 //! app wires the commands and supplies migration paths.
+//!
+//! `vault.json` holds **two** key slots (v2): slot 0 is the real passphrase, slot 1
+//! is the optional PANIC CODE — a duress passphrase whose only effect is to tell
+//! the host to destroy everything (`unlock` returns `UnlockOutcome::Panic` and the
+//! store stays locked). When no panic code is set, slot 1 is random filler of the
+//! exact same shape, so nobody inspecting the file on disk can tell whether a panic
+//! code exists. Whether one is set is recorded *inside* the encrypted store
+//! (`vault/panic_set`), readable only once unlocked.
 
 use std::path::{Path, PathBuf};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, PersistMode};
 use gervasius::{Dek, VaultHeader};
 pub use gervasius::KdfParams;
-use serde::Serialize;
+use rand_core::{OsRng, RngCore};
+use serde::{Deserialize, Serialize};
 
 /// AAD prefix binding every sealed value to its (versioned) store + key.
 const AAD_PREFIX: &[u8] = b"protasius:v1:";
@@ -35,7 +44,7 @@ pub struct Protasius {
     profile_dir: PathBuf,
     keyspace: Keyspace,
     data: PartitionHandle,
-    header: Option<VaultHeader>,
+    file: Option<VaultFile>,
     dek: Option<Dek>,
 }
 
@@ -46,6 +55,36 @@ pub struct VaultStatus {
     /// Currently unlocked (DEK held in memory).
     pub unlocked: bool,
 }
+
+/// What a passphrase turned out to be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnlockOutcome {
+    /// The real passphrase — the DEK is now in memory.
+    Unlocked,
+    /// The PANIC CODE. The store is left LOCKED; the host is expected to destroy
+    /// the data and start a fresh vault (see `Protasius::wipe`).
+    Panic,
+}
+
+/// On-disk `vault.json` (v2): always exactly `SLOT_COUNT` key slots — slot 0 real,
+/// slot 1 panic-or-filler. v1 files (a bare `VaultHeader`) are read transparently
+/// and lifted into this shape; see `read_vault_file`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct VaultFile {
+    version: u16,
+    slots: Vec<VaultHeader>,
+}
+
+const VAULT_FILE_VERSION: u16 = 2;
+const SLOT_REAL: usize = 0;
+const SLOT_PANIC: usize = 1;
+const SLOT_COUNT: usize = 2;
+
+/// Internal ns/key of the "a panic code is set" marker. Lives inside the encrypted
+/// store on purpose: the UI can answer "is one configured?" while unlocked, and the
+/// on-disk vault.json stays identical either way.
+const PANIC_NS: &str = "vault";
+const PANIC_KEY: &str = "panic_set";
 
 /// Byte-copyable legacy sources to fold into the encrypted store on first setup
 /// (and to sweep on later unlocks if a crash left them behind). MLS `.bin` blobs
@@ -68,6 +107,10 @@ pub enum ProtasiusError {
     VaultExists,
     /// unlock()/change_passphrase() with the wrong current passphrase.
     WrongPassphrase,
+    /// set_panic_passphrase() with a code that already opens the real slot — it
+    /// would never fire (slot 0 is tried first) and would lock the user out of
+    /// their own duress switch.
+    PanicSameAsPassphrase,
     Crypto(gervasius::CryptoError),
     Store(String),
     Io(String),
@@ -81,6 +124,9 @@ impl std::fmt::Display for ProtasiusError {
             ProtasiusError::NoVault => write!(f, "no vault has been set up"),
             ProtasiusError::VaultExists => write!(f, "a vault already exists"),
             ProtasiusError::WrongPassphrase => write!(f, "wrong passphrase"),
+            ProtasiusError::PanicSameAsPassphrase => {
+                write!(f, "the panic code must differ from the passphrase")
+            }
             ProtasiusError::Crypto(e) => write!(f, "{e}"),
             ProtasiusError::Store(e) => write!(f, "store error: {e}"),
             ProtasiusError::Io(e) => write!(f, "io error: {e}"),
@@ -117,12 +163,12 @@ impl Protasius {
         let data = keyspace
             .open_partition("data", PartitionCreateOptions::default())
             .map_err(store_err)?;
-        let header = read_header(&profile_dir)?;
-        Ok(Protasius { profile_dir, keyspace, data, header, dek: None })
+        let file = read_vault_file(&profile_dir)?;
+        Ok(Protasius { profile_dir, keyspace, data, file, dek: None })
     }
 
     pub fn status(&self) -> VaultStatus {
-        VaultStatus { exists: self.header.is_some(), unlocked: self.dek.is_some() }
+        VaultStatus { exists: self.file.is_some(), unlocked: self.dek.is_some() }
     }
 
     /// First-run: create the vault (random DEK wrapped by the passphrase), commit
@@ -139,13 +185,19 @@ impl Protasius {
         kdf: KdfParams,
         plan: &MigrationPlan,
     ) -> Result<(), ProtasiusError> {
-        if self.header.is_some() {
+        if self.file.is_some() {
             return Err(ProtasiusError::VaultExists);
         }
-        let (header, dek) = gervasius::create_vault_with_params(passphrase, kdf)?;
+        let (header, dek) = gervasius::create_vault_with_params(passphrase, kdf.clone())?;
         self.dek = Some(dek); // enable seals during migration
-        self.write_header(&header)?; // durable commit point — the vault now exists
-        self.header = Some(header);
+        // Slot 1 starts as filler: a fresh vault is byte-shaped exactly like one
+        // with a panic code set.
+        let file = VaultFile {
+            version: VAULT_FILE_VERSION,
+            slots: vec![header, filler_slot(kdf)],
+        };
+        self.write_vault_file(&file)?; // durable commit point — the vault now exists
+        self.file = Some(file);
         // Best-effort: the vault is created + unlocked regardless. A migration that
         // errors mid-way is idempotent and completes on the next unlock's sweep, so
         // don't strand a just-created vault by returning Err here.
@@ -154,11 +206,31 @@ impl Protasius {
     }
 
     /// Unlock with a passphrase. Wrong passphrase fails closed (the wrapped-DEK tag).
-    pub fn unlock(&mut self, passphrase: &str) -> Result<(), ProtasiusError> {
-        let header = self.header.as_ref().ok_or(ProtasiusError::NoVault)?;
-        let dek = gervasius::unlock(header, passphrase).map_err(|_| ProtasiusError::WrongPassphrase)?;
-        self.dek = Some(dek);
-        Ok(())
+    ///
+    /// The real slot is tried first, so a correct passphrase costs exactly one
+    /// Argon2id derivation as before. Only a *failed* one pays for the second
+    /// (panic-slot) derivation — which doubles the cost of a wrong guess, i.e. it
+    /// also mildly slows brute force. A match on the panic slot does NOT unlock:
+    /// it returns `Panic` and leaves the store locked for the host to destroy.
+    pub fn unlock(&mut self, passphrase: &str) -> Result<UnlockOutcome, ProtasiusError> {
+        let (mut file, real) = self.real_slot()?;
+        if let Ok(dek) = gervasius::unlock(&real, passphrase) {
+            self.dek = Some(dek);
+            // Converge v1 files onto the two-slot layout now that we know the
+            // passphrase was right (the lift already happened in memory on open).
+            if file.version != VAULT_FILE_VERSION {
+                file.version = VAULT_FILE_VERSION;
+                self.write_vault_file(&file)?;
+                self.file = Some(file);
+            }
+            return Ok(UnlockOutcome::Unlocked);
+        }
+        let panic_slot = file.slots.get(SLOT_PANIC).ok_or(ProtasiusError::WrongPassphrase)?;
+        match gervasius::unlock(panic_slot, passphrase) {
+            // Filler never opens, so this only happens for a real panic code.
+            Ok(_) => Ok(UnlockOutcome::Panic),
+            Err(_) => Err(ProtasiusError::WrongPassphrase),
+        }
     }
 
     /// Drop the in-memory DEK (zeroized). The store stays open but data ops error.
@@ -167,22 +239,61 @@ impl Protasius {
     }
 
     /// Change the passphrase: verify `current`, re-wrap the SAME DEK under `new`.
-    /// Data is untouched (O(1)). Stays unlocked.
+    /// Data is untouched (O(1)). Stays unlocked. The panic slot is left as-is, so a
+    /// configured panic code survives a passphrase change.
     pub fn change_passphrase(&mut self, current: &str, new: &str) -> Result<(), ProtasiusError> {
-        let header = self.header.as_ref().ok_or(ProtasiusError::NoVault)?;
-        let dek = gervasius::unlock(header, current).map_err(|_| ProtasiusError::WrongPassphrase)?;
-        let new_header = gervasius::rewrap(header, &dek, new)?;
-        self.write_header(&new_header)?;
-        self.header = Some(new_header);
+        let (mut file, real) = self.real_slot()?;
+        let dek = gervasius::unlock(&real, current).map_err(|_| ProtasiusError::WrongPassphrase)?;
+        file.slots[SLOT_REAL] = gervasius::rewrap(&real, &dek, new)?;
+        self.write_vault_file(&file)?;
+        self.file = Some(file);
         self.dek = Some(dek);
         Ok(())
+    }
+
+    // ── panic code (duress passphrase) ──────────────────────────────────────────
+
+    /// Arm the panic code: verify `current` (the real passphrase), then wrap a
+    /// throwaway key under `panic` into slot 1. The wrapped key is never used —
+    /// only the fact that it opens matters (see `unlock`).
+    pub fn set_panic_passphrase(&mut self, current: &str, panic: &str) -> Result<(), ProtasiusError> {
+        let (mut file, real) = self.real_slot()?;
+        let dek = gervasius::unlock(&real, current).map_err(|_| ProtasiusError::WrongPassphrase)?;
+        if gervasius::unlock(&real, panic).is_ok() {
+            return Err(ProtasiusError::PanicSameAsPassphrase);
+        }
+        let (panic_header, _throwaway) =
+            gervasius::create_vault_with_params(panic, real.kdf.clone())?;
+        file.slots[SLOT_PANIC] = panic_header;
+        self.write_vault_file(&file)?;
+        self.file = Some(file);
+        self.dek = Some(dek); // `current` verified above ⇒ stay/become unlocked
+        self.put(PANIC_NS, PANIC_KEY, b"1")
+    }
+
+    /// Disarm the panic code: verify `current`, overwrite slot 1 with fresh filler.
+    /// The old code becomes an ordinary wrong passphrase.
+    pub fn clear_panic_passphrase(&mut self, current: &str) -> Result<(), ProtasiusError> {
+        let (mut file, real) = self.real_slot()?;
+        let dek = gervasius::unlock(&real, current).map_err(|_| ProtasiusError::WrongPassphrase)?;
+        file.slots[SLOT_PANIC] = filler_slot(real.kdf.clone());
+        self.write_vault_file(&file)?;
+        self.file = Some(file);
+        self.dek = Some(dek);
+        self.delete(PANIC_NS, PANIC_KEY)
+    }
+
+    /// Whether a panic code is armed. Requires unlock — the answer lives inside the
+    /// encrypted store precisely so that `vault.json` gives nothing away.
+    pub fn has_panic_passphrase(&self) -> Result<bool, ProtasiusError> {
+        Ok(self.get(PANIC_NS, PANIC_KEY)?.is_some())
     }
 
     /// Destroy everything for this profile (forgot-passphrase flow): drop keys,
     /// clear all entries, delete `vault.json`. The store is reusable (back to setup).
     pub fn wipe(&mut self) -> Result<(), ProtasiusError> {
         self.dek = None;
-        self.header = None;
+        self.file = None;
         let keys: Vec<Vec<u8>> = self
             .data
             .iter()
@@ -293,6 +404,14 @@ impl Protasius {
         self.dek.as_ref().ok_or(ProtasiusError::Locked)
     }
 
+    /// The current vault file plus its real slot, both cloned so callers can edit a
+    /// slot and write the result back without fighting the borrow checker.
+    fn real_slot(&self) -> Result<(VaultFile, VaultHeader), ProtasiusError> {
+        let file = self.file.clone().ok_or(ProtasiusError::NoVault)?;
+        let real = file.slots.get(SLOT_REAL).cloned().ok_or(ProtasiusError::NoVault)?;
+        Ok((file, real))
+    }
+
     fn get_enc(&self, ek: &[u8]) -> Result<Option<Vec<u8>>, ProtasiusError> {
         let dek = self.dek()?;
         match self.data.get(ek).map_err(store_err)? {
@@ -329,10 +448,10 @@ impl Protasius {
         self.keyspace.persist(PersistMode::SyncAll).map_err(store_err)
     }
 
-    fn write_header(&self, header: &VaultHeader) -> Result<(), ProtasiusError> {
+    fn write_vault_file(&self, file: &VaultFile) -> Result<(), ProtasiusError> {
         let path = vault_path(&self.profile_dir);
         let tmp = path.with_extension("json.tmp");
-        let bytes = serde_json::to_vec_pretty(header)?;
+        let bytes = serde_json::to_vec_pretty(file)?;
         std::fs::write(&tmp, &bytes).map_err(io_err)?;
         std::fs::rename(&tmp, &path).map_err(io_err)?; // atomic commit
         Ok(())
@@ -343,12 +462,37 @@ fn vault_path(profile_dir: &Path) -> PathBuf {
     profile_dir.join("vault.json")
 }
 
-fn read_header(profile_dir: &Path) -> Result<Option<VaultHeader>, ProtasiusError> {
-    match std::fs::read(vault_path(profile_dir)) {
-        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(io_err(e)),
+/// A slot that opens for nobody, shaped exactly like a real one: random salt and a
+/// random `wrapped_dek` of the exact ciphertext length gervasius produces
+/// (`24-byte nonce || 32-byte key || 16-byte tag`). No KDF work — the bytes only
+/// have to be indistinguishable, not derived.
+fn filler_slot(kdf: KdfParams) -> VaultHeader {
+    let mut salt = [0u8; 16];
+    OsRng.fill_bytes(&mut salt);
+    let mut wrapped_dek = vec![0u8; 24 + 32 + 16];
+    OsRng.fill_bytes(&mut wrapped_dek);
+    VaultHeader { version: 1, kdf, salt, wrapped_dek }
+}
+
+/// Read `vault.json`. v2 files parse directly; a v1 file (a bare `VaultHeader`,
+/// written before panic codes existed) is lifted to the two-slot shape with filler
+/// in the panic slot — `unlock` persists that upgrade once the passphrase checks
+/// out, so an old vault silently gains the layout without a migration pass.
+fn read_vault_file(profile_dir: &Path) -> Result<Option<VaultFile>, ProtasiusError> {
+    let bytes = match std::fs::read(vault_path(profile_dir)) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_err(e)),
+    };
+    if let Ok(file) = serde_json::from_slice::<VaultFile>(&bytes) {
+        if file.slots.len() == SLOT_COUNT {
+            return Ok(Some(file));
+        }
     }
+    let legacy: VaultHeader = serde_json::from_slice(&bytes)?;
+    let filler = filler_slot(legacy.kdf.clone());
+    // version 1 marks "not yet rewritten"; unlock() converges it.
+    Ok(Some(VaultFile { version: 1, slots: vec![legacy, filler] }))
 }
 
 fn aad(enc_key: &[u8]) -> Vec<u8> {
@@ -526,6 +670,145 @@ mod tests {
         assert!(!peer.exists());
         assert!(!legacy_kv.exists());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // ── panic code ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn panic_code_reports_panic_and_leaves_store_locked() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+        p.set_panic_passphrase("real", "burn").unwrap();
+        assert!(p.has_panic_passphrase().unwrap());
+        p.lock();
+
+        assert_eq!(p.unlock("burn").unwrap(), UnlockOutcome::Panic);
+        assert!(!p.status().unlocked, "panic must NOT open the vault");
+        // The real passphrase still works, and anything else is still just wrong.
+        assert!(matches!(p.unlock("nope"), Err(ProtasiusError::WrongPassphrase)));
+        assert_eq!(p.unlock("real").unwrap(), UnlockOutcome::Unlocked);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn panic_code_must_differ_from_passphrase() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+        assert!(matches!(
+            p.set_panic_passphrase("real", "real"),
+            Err(ProtasiusError::PanicSameAsPassphrase)
+        ));
+        assert!(matches!(
+            p.set_panic_passphrase("wrong", "burn"),
+            Err(ProtasiusError::WrongPassphrase)
+        ));
+        assert!(!p.has_panic_passphrase().unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cleared_panic_code_is_just_a_wrong_passphrase() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+        p.set_panic_passphrase("real", "burn").unwrap();
+        p.clear_panic_passphrase("real").unwrap();
+        assert!(!p.has_panic_passphrase().unwrap());
+        p.lock();
+        assert!(matches!(p.unlock("burn"), Err(ProtasiusError::WrongPassphrase)));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn panic_code_survives_a_passphrase_change() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("old", &MigrationPlan::default()).unwrap();
+        p.set_panic_passphrase("old", "burn").unwrap();
+        p.change_passphrase("old", "new").unwrap();
+        p.lock();
+        assert_eq!(p.unlock("burn").unwrap(), UnlockOutcome::Panic);
+        assert_eq!(p.unlock("new").unwrap(), UnlockOutcome::Unlocked);
+        assert!(p.has_panic_passphrase().unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The whole point of the filler slot: vault.json must look the same whether or
+    /// not a panic code is armed (same slot count, same field shapes, same lengths).
+    #[test]
+    fn vault_file_shape_is_identical_with_and_without_a_panic_code() {
+        let shape = |dir: &PathBuf| -> (usize, Vec<usize>) {
+            let bytes = std::fs::read(vault_path(dir)).unwrap();
+            let file: VaultFile = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(file.version, VAULT_FILE_VERSION);
+            (file.slots.len(), file.slots.iter().map(|s| s.wrapped_dek.len()).collect())
+        };
+
+        let bare = temp_dir();
+        let mut p = Protasius::open(bare.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+
+        let armed = temp_dir();
+        let mut q = Protasius::open(armed.clone()).unwrap();
+        q.setup("real", &MigrationPlan::default()).unwrap();
+        q.set_panic_passphrase("real", "burn").unwrap();
+
+        assert_eq!(shape(&bare), shape(&armed));
+        assert_eq!(shape(&bare), (SLOT_COUNT, vec![24 + 32 + 16; SLOT_COUNT]));
+        let _ = std::fs::remove_dir_all(bare);
+        let _ = std::fs::remove_dir_all(armed);
+    }
+
+    /// A vault.json written before panic codes existed (a bare VaultHeader) must
+    /// still unlock, and gets upgraded to the two-slot layout in place.
+    #[test]
+    fn legacy_v1_vault_file_unlocks_and_upgrades() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        let (header, _dek) = gervasius::create_vault("pw").unwrap();
+        std::fs::write(vault_path(&dir), serde_json::to_vec_pretty(&header).unwrap()).unwrap();
+
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        assert!(p.status().exists);
+        assert_eq!(p.unlock("pw").unwrap(), UnlockOutcome::Unlocked);
+
+        // Rewritten as v2, and a panic code can now be armed on it.
+        let bytes = std::fs::read(vault_path(&dir)).unwrap();
+        let file: VaultFile = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(file.version, VAULT_FILE_VERSION);
+        assert_eq!(file.slots.len(), SLOT_COUNT);
+        p.set_panic_passphrase("pw", "burn").unwrap();
+        p.lock();
+        assert_eq!(p.unlock("burn").unwrap(), UnlockOutcome::Panic);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The panic wipe (host side) works by swapping the live store for one on a
+    /// scratch dir — dropping the old `Protasius` so fjall releases its handles —
+    /// and only then deleting the profile directory. Pin that sequence down here.
+    #[test]
+    fn profile_dir_can_be_deleted_once_the_store_is_dropped() {
+        let dir = temp_dir();
+        let scratch = temp_dir();
+        let mut store = Protasius::open(dir.clone()).unwrap();
+        store.setup("pw", &MigrationPlan::default()).unwrap();
+        store.put("profile", "state", b"secrets").unwrap();
+
+        // Same move the host makes: replace the live store, drop the old one.
+        drop(std::mem::replace(&mut store, Protasius::open(scratch.clone()).unwrap()));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!dir.exists());
+
+        // Re-open at the same path and set up fresh: nothing survives.
+        store = Protasius::open(dir.clone()).unwrap();
+        assert!(!store.status().exists);
+        store.setup("panic-code", &MigrationPlan::default()).unwrap();
+        assert!(store.get("profile", "state").unwrap().is_none());
+        assert!(!store.has_panic_passphrase().unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(scratch);
     }
 
     #[test]

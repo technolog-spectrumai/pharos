@@ -103,6 +103,10 @@ settings:
   devlink_pair_window_secs: { default: 600, min: 60, max: 3600 }
   devlink_resync_secs:      { default: 300, min: 30, max: 3600 }
   chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
+  # Auto-lock: minutes of user inactivity before the vault locks itself and the
+  # app returns to the passphrase gate. 0 = never auto-lock. A live call or
+  # in-flight transfer defers the countdown (see src/idleLock.ts).
+  idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
 
 network:
   # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the

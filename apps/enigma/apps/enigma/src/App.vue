@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { RouterView, RouterLink, useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
+import { useCloudStore } from "./stores/cloud";
+import { useMapStore } from "./stores/map";
 import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
-import { OyaButton, OyaTextField, getBuildConfig, vaultStatus, vaultSetup, vaultUnlock } from "rakotis";
+import { useIdleLock, type IdleLockHandle } from "./idleLock";
+import {
+  OyaButton, OyaTextField, getBuildConfig, getIdleLockMins,
+  vaultStatus, vaultSetup, vaultUnlock, vaultLock,
+} from "rakotis";
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
@@ -23,6 +29,8 @@ watch(darkMode, (on) => {
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
+const cloudStore = useCloudStore();
+const mapStore = useMapStore();
 const { displayName, avatarDataUrl } = storeToRefs(userStore);
 
 // ── Encryption-at-rest gate ──────────────────────────────────────────────────
@@ -42,6 +50,54 @@ async function runLoaders() {
   // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
   void chatStore.init();
   gateMode.value = "ready";
+  // Auto-lock starts only once we're past the gate (the setting lives in the
+  // encrypted kv, so it can't be read any earlier anyway).
+  void startIdleLock();
+}
+
+// ── Auto-lock ────────────────────────────────────────────────────────────────
+// After the configured idle time the vault re-locks: Rust tears the session down
+// (vault_lock) and we reload, which is what clears every decrypted value out of
+// the webview's memory. Unsent drafts are lost — the security trade the feature
+// exists to make.
+let idleLock: IdleLockHandle | null = null;
+
+/** Background work that should hold the countdown off: nothing here involves the
+ *  keyboard, but the user is still mid-task and locking would abort it. Outbound
+ *  map-region offers ride file_xfer without their own store row, so they're only
+ *  covered while the shared fileShare state reflects them. */
+function isBusy(): boolean {
+  if (chatStore.vox.phase.value !== "idle") return true;
+  if (["offering", "incoming", "transferring"].includes(chatStore.fileShare.state.value)) return true;
+  if (cloudStore.transfers.size > 0) return true;
+  for (const rx of mapStore.receives.values()) {
+    if (rx.state === "transferring" || rx.state === "importing") return true;
+  }
+  return false;
+}
+
+async function startIdleLock() {
+  const mins = await getIdleLockMins();
+  idleLock?.stop();
+  idleLock = useIdleLock({
+    timeoutMs: mins * 60_000,
+    isBusy,
+    onLock: () => {
+      void lockNow();
+    },
+  });
+}
+
+async function lockNow() {
+  idleLock?.stop();
+  idleLock = null;
+  try {
+    await vaultLock();
+  } finally {
+    // Reload regardless: even if the teardown errored the vault may be locked,
+    // and a reload lands on the gate rather than a half-dead session.
+    window.location.reload();
+  }
 }
 
 async function doSetup() {
@@ -114,6 +170,11 @@ const mapsEnabled = getBuildConfig().maps_enabled;
 // Close menu on navigation
 watch(() => route.path, () => {
   menuOpen.value = false;
+});
+
+onBeforeUnmount(() => {
+  idleLock?.stop();
+  idleLock = null;
 });
 </script>
 

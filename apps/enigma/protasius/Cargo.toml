@@ -11,6 +11,9 @@ description = "Enigma's centralized per-profile encrypted-at-rest data store (fj
 [dependencies]
 gervasius = { path = "../cryptorotor/gervasius" }
 fjall = "2"
+# Filler bytes for the unused panic slot (must be indistinguishable from a real
+# wrapped key, so they come from the OS CSPRNG — same source gervasius uses).
+rand_core = { version = "0.6", features = ["getrandom"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = "1"

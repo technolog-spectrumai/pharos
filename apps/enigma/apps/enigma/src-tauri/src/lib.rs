@@ -456,6 +456,7 @@ pub struct BuildConfigSummary {
     pub devlink_pair_window_secs: SettingClamp,
     pub devlink_resync_secs: SettingClamp,
     pub chat_history_cap_msgs: SettingClamp,
+    pub idle_lock_mins: SettingClamp,
 }
 
 /// Fetched once by the frontend at boot (rakotis `initBuildConfig`).
@@ -517,6 +518,11 @@ fn app_get_build_config() -> BuildConfigSummary {
             default: s::CHAT_HISTORY_CAP_DEFAULT_MSGS,
             min: s::CHAT_HISTORY_CAP_MIN_MSGS,
             max: s::CHAT_HISTORY_CAP_MAX_MSGS,
+        },
+        idle_lock_mins: SettingClamp {
+            default: s::IDLE_LOCK_DEFAULT_MINS,
+            min: s::IDLE_LOCK_MIN_MINS,
+            max: s::IDLE_LOCK_MAX_MINS,
         },
     }
 }
@@ -1291,6 +1297,9 @@ pub fn run() {
             vault::vault_unlock,
             vault::vault_lock,
             vault::vault_change_passphrase,
+            vault::vault_set_panic_code,
+            vault::vault_clear_panic_code,
+            vault::vault_has_panic_code,
             vault::vault_wipe,
             app_clear_profile_state,
             app_get_offline_profile,
