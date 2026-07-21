@@ -75,6 +75,18 @@ export interface BuildConfig {
   cloud_allow_connections: boolean;
   /** false = no n0 relay / pkarr / Mainline DHT; DHT toggles are inert. */
   p2p_allow_hosted_relays: boolean;
+  /** false = this build has no 1:1 voice calls: no Calls tab, /calls redirects,
+   *  useVoxCall is never instantiated, the vox ALPN is not accepted, and every
+   *  vox_* command errors with CALLS_DISABLED. (pland.md — Plus and up.) */
+  calls_enabled: boolean;
+  /** false = this build has no Contacts: no Contacts tab, /contacts redirects,
+   *  useRoomInvites is never instantiated and the invite ALPN is not accepted.
+   *  DHT room codes are unaffected. (pland.md — Plus and up.) */
+  contacts_enabled: boolean;
+  /** false = this build has no Calendar: no Calendar tab, /calendar redirects,
+   *  useMeetings is never instantiated (no meetings, polls or reminder tick).
+   *  (pland.md — Pro only.) */
+  calendar_enabled: boolean;
   /** false = this build has no Kanban board: no Board tab, /board redirects,
    *  and stores/chat.ts never instantiates the sync composable. */
   kanban_enabled: boolean;
@@ -122,6 +134,9 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   app_version: "0.1.0",
   cloud_allow_connections: true,
   p2p_allow_hosted_relays: true,
+  calls_enabled: true,
+  contacts_enabled: true,
+  calendar_enabled: true,
   kanban_enabled: true,
   kanban_allow_reorder: true,
   kanban_default_columns: ["To Do", "In Progress", "Done"],
