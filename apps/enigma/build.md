@@ -248,7 +248,10 @@ Latin/Greek/Cyrillic subset of the Noto Sans stacks, OFL-licensed — `OFL.txt`
 sits alongside) and the v4 light sprite sheet from
 [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets), so map
 styling never fetches from a CDN. To widen script coverage, copy more range
-`.pbf` files from that repo into the same folders.
+`.pbf` files from that repo into the same folders. Sprites are bundled for
+BOTH theme flavours (`sprites/v4/light*` and `sprites/v4/dark*`) — the Map tab
+switches flavour with the app's dark mode, so a missing dark sheet would show
+up as broken icons at night.
 
 Map region packages are NOT built here: the standalone PyQt6 tool
 [tools/map_packager](tools/map_packager) (`pip install -r requirements.txt`,

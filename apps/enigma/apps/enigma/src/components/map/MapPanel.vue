@@ -26,7 +26,7 @@ import { policy } from "../../config/app";
 import { useChatStore } from "../../stores/chat";
 import { useMapStore } from "../../stores/map";
 
-defineProps<{ darkMode?: boolean }>();
+const props = defineProps<{ darkMode?: boolean }>();
 
 const store = useMapStore();
 const chatStore = useChatStore();
@@ -74,6 +74,63 @@ const canShare = computed(
 );
 
 let map: maplibregl.Map | null = null;
+/** Source maxzoom resolved at boot — kept so a theme switch can rebuild the
+ *  style without re-querying the backend. */
+let sourceMaxZoom: number = policy.map.fallbackSourceMaxZoom;
+
+/** The protomaps flavor matching the app theme: a night basemap in dark mode.
+ *  (The reference implementation in toto/locations swaps to CARTO dark raster
+ *  tiles; Enigma renders vector tiles offline, so it swaps the theme flavor
+ *  instead — same result, no tile server involved.) */
+const flavor = computed(() => (props.darkMode ? "dark" : "light"));
+
+/** Style for a flavor. Assets are bundled per flavor under public/map/. */
+function buildStyle(themeFlavor: string, maxZoom: number): maplibregl.StyleSpecification {
+  // Offline style assets under public/map/, resolved against the app origin
+  // (tauri://localhost in the bundle, the Vite port in dev). No trailing slash.
+  const assetBase = new URL("/map", location.href).toString().replace(/\/$/, "");
+  return {
+    version: 8,
+    // NOTE: build these by concatenation, NOT `new URL(...)` — the URL
+    // constructor percent-encodes the braces ("%7Bfontstack%7D") and MapLibre
+    // then rejects the style for missing its {fontstack}/{range} tokens,
+    // which aborts the whole style load (blank canvas).
+    glyphs: `${assetBase}/glyphs/{fontstack}/{range}.pbf`,
+    sprite: `${assetBase}/sprites/v4/${themeFlavor}`,
+    sources: {
+      protomaps: {
+        type: "vector",
+        tiles: ["enigma-map://tile/{z}/{x}/{y}"],
+        maxzoom: maxZoom,
+        attribution: "© OpenStreetMap contributors, Protomaps",
+      },
+    },
+    // `layers()` ALREADY includes the label layers — spreading `labels()` on
+    // top duplicates every id, which fails style validation outright.
+    layers: layersFn("protomaps", themeFlavor, "en"),
+  } as maplibregl.StyleSpecification;
+}
+
+/** Route overlays live outside the theme style, so they must be re-added
+ *  whenever the style is replaced (setStyle drops user sources/layers).
+ *  Pin markers are DOM overlays and survive untouched. */
+function addOverlayLayers() {
+  if (!map || map.getSource("user-routes")) return;
+  map.addSource("user-routes", { type: "geojson", data: routesGeoJson() });
+  map.addLayer({
+    id: "user-routes-line",
+    type: "line",
+    source: "user-routes",
+    paint: { "line-color": "#dc2626", "line-width": 3, "line-opacity": 0.85 },
+  });
+  map.addSource("draft-route", { type: "geojson", data: draftGeoJson(draftPoints.value) });
+  map.addLayer({
+    id: "draft-route-line",
+    type: "line",
+    source: "draft-route",
+    paint: { "line-color": "#f59e0b", "line-width": 3, "line-dasharray": [2, 1] },
+  });
+}
 const pinMarkers = new Map<string, maplibregl.Marker>();
 let focusMarker: maplibregl.Marker | null = null;
 
@@ -210,10 +267,9 @@ onMounted(async () => {
       pushDiag(`data load failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    let maxZoom: number = policy.map.fallbackSourceMaxZoom;
     try {
       const info = await invoke<{ maxZoom: number } | null>("map_source_info");
-      if (info) maxZoom = info.maxZoom;
+      if (info) sourceMaxZoom = info.maxZoom;
     } catch { /* no source yet — more regions may be imported later */ }
 
     // A sub-tab flip (or a late :key change) can unmount us mid-boot; the
@@ -227,37 +283,14 @@ onMounted(async () => {
       return;
     }
 
-    // Offline style assets under public/map/, resolved against the app origin
-    // (tauri://localhost in the bundle, the Vite port in dev). No trailing slash.
-    const assetBase = new URL("/map", location.href).toString().replace(/\/$/, "");
-
-    trace(`boot: constructing MapLibre (maxZoom=${maxZoom})`);
+    trace(`boot: constructing MapLibre (maxZoom=${sourceMaxZoom}, theme=${flavor.value})`);
     map = new maplibregl.Map({
       container: container.value,
       attributionControl: { compact: true },
       center: policy.map.defaultCenter,
       zoom: policy.map.defaultZoom,
       maxZoom: 20,
-      style: {
-        version: 8,
-        // NOTE: build these by concatenation, NOT `new URL(...)` — the URL
-        // constructor percent-encodes the braces ("%7Bfontstack%7D") and
-        // MapLibre then rejects the style for missing its {fontstack}/{range}
-        // tokens, which aborts the whole style load (blank canvas).
-        glyphs: `${assetBase}/glyphs/{fontstack}/{range}.pbf`,
-        sprite: `${assetBase}/sprites/v4/light`,
-        sources: {
-          protomaps: {
-            type: "vector",
-            tiles: ["enigma-map://tile/{z}/{x}/{y}"],
-            maxzoom: maxZoom,
-            attribution: "© OpenStreetMap contributors, Protomaps",
-          },
-        },
-        // `layers()` ALREADY includes the label layers — spreading `labels()`
-        // on top duplicates every id, which fails style validation outright.
-        layers: layersFn("protomaps", "light", "en"),
-      },
+      style: buildStyle(flavor.value, sourceMaxZoom),
     });
 
     trace("boot: MapLibre constructed, awaiting style load…");
@@ -271,20 +304,7 @@ onMounted(async () => {
 
     map.on("load", () => {
       if (!map) return;
-      map.addSource("user-routes", { type: "geojson", data: routesGeoJson() });
-      map.addLayer({
-        id: "user-routes-line",
-        type: "line",
-        source: "user-routes",
-        paint: { "line-color": "#dc2626", "line-width": 3, "line-opacity": 0.85 },
-      });
-      map.addSource("draft-route", { type: "geojson", data: draftGeoJson([]) });
-      map.addLayer({
-        id: "draft-route-line",
-        type: "line",
-        source: "draft-route",
-        paint: { "line-color": "#f59e0b", "line-width": 3, "line-dasharray": [2, 1] },
-      });
+      addOverlayLayers();
       refreshPins();
       ready.value = true;
 
@@ -326,6 +346,20 @@ onBeforeUnmount(() => {
   focusMarker?.remove();
   map?.remove();
   map = null;
+});
+
+// Follow the app theme live: setStyle keeps the camera and the DOM markers,
+// but drops user sources/layers — so the route overlays are re-added once the
+// new style is in place.
+watch(flavor, (next) => {
+  if (!map || !ready.value) return;
+  trace(`theme: switching basemap to ${next}`);
+  map.setStyle(buildStyle(next, sourceMaxZoom));
+  map.once("styledata", () => {
+    addOverlayLayers();
+    refreshRoutes();
+    refreshDraft();
+  });
 });
 
 watch(() => store.pins, refreshPins, { deep: true });

@@ -79,3 +79,27 @@ test.describe("Map container vs MapLibre's own CSS", () => {
     expect(probe.unprotected.after).toBe(0);
   });
 });
+
+// The basemap follows the app theme (dark mode -> protomaps "dark" flavor).
+// Both flavors' sprite sheets are BUNDLED — the map never fetches from a CDN —
+// so a missing dark sprite would only show up as broken icons at runtime.
+test.describe("Offline basemap assets", () => {
+  test("ships sprites for both theme flavors and the glyph stack", async ({ page }) => {
+    await page.goto("/");
+
+    const status = await page.evaluate(async () => {
+      const out: Record<string, number> = {};
+      for (const flavor of ["light", "dark"]) {
+        for (const ext of [".json", ".png", "@2x.json", "@2x.png"]) {
+          out[flavor + ext] = (await fetch(`/map/sprites/v4/${flavor}${ext}`)).status;
+        }
+      }
+      out.glyph = (await fetch("/map/glyphs/Noto%20Sans%20Regular/0-255.pbf")).status;
+      return out;
+    });
+
+    for (const [asset, code] of Object.entries(status)) {
+      expect(code, `${asset} must be bundled`).toBe(200);
+    }
+  });
+});

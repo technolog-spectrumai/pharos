@@ -587,7 +587,9 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   One region can be **activated** (Regions → Activate): served first for tiles
   (others still fill), badged in the list + a chip on the canvas, the view opens
   spread to it, and the choice persists sealed per profile (device-local).
-  Compile-time gated (`maps.enabled`). No geolocation, no tracking, no directions
+  Compile-time gated (`maps.enabled`). The basemap follows the app theme (a
+  night-styled map in dark mode) by swapping the bundled protomaps flavour —
+  no tile server is involved. No geolocation, no tracking, no directions
   engine.
 - **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; "My identity" NodeId QR;
