@@ -34,15 +34,25 @@ function makeP2pStub() {
 
 let p2pStub: ReturnType<typeof makeP2pStub>;
 
+// Per-test build-config overrides, layered over the real fallback config so a
+// test can simulate a product edition (pland.md) without a rebuild. The store
+// reads getBuildConfig() at creation, hence the freshStore() argument.
+let buildFlags: Partial<Record<string, unknown>> = {};
+
 // Partial mock: only the channel is stubbed — the store's singletons also pull
 // real rakotis helpers (createAppI18n via src/i18n, kv storage, settings).
-vi.mock("rakotis", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("rakotis")>()),
-  useChatChannel: () => p2pStub,
-}));
+vi.mock("rakotis", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("rakotis")>();
+  return {
+    ...actual,
+    useChatChannel: () => p2pStub,
+    getBuildConfig: () => ({ ...actual.getBuildConfig(), ...buildFlags }),
+  };
+});
 
-async function freshStore() {
+async function freshStore(flags: Partial<Record<string, unknown>> = {}) {
   vi.resetModules();
+  buildFlags = flags;
   p2pStub = makeP2pStub();
   const mod = await import("../../src/stores/chat");
   return mod.useChatStore();
@@ -101,6 +111,34 @@ describe("chat store — serverless P2P bootstrap", () => {
     // offers, meeting invites and board changes are caught even while their tabs
     // are closed.
     expect(p2pStub.onSync).toHaveBeenCalledTimes(4);
+  });
+
+  it("a Light edition instantiates none of the gated singletons", async () => {
+    // pland.md: Light ships chat + files only. The flags being off must mean the
+    // composables are never created — not merely that their tabs are hidden — so
+    // no sync handler for calls / meetings / board is registered at all and an
+    // offer from a higher-edition peer lands as an unhandled sync type.
+    const store = await freshStore({
+      calls_enabled: false,
+      contacts_enabled: false,
+      calendar_enabled: false,
+      kanban_enabled: false,
+    });
+
+    expect(store.callsEnabled).toBe(false);
+    expect(store.vox).toBeNull();
+    expect(store.contactsEnabled).toBe(false);
+    expect(store.invites).toBeNull();
+    expect(store.calendarEnabled).toBe(false);
+    expect(store.meetings).toBeNull();
+    expect(store.kanbanEnabled).toBe(false);
+    expect(store.kanban).toBeNull();
+    // Only fileShare remains on the sync seam.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(1);
+    // The profile fan-out must stay null-safe with the composables absent.
+    await expect(
+      store.applyRuntimeProfile({ profile: "alice", identity: "alice", profile_state_path: "" }),
+    ).resolves.toBeUndefined();
   });
 
   it("identity fan-out delegates to the channel", async () => {

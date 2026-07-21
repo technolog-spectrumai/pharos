@@ -20,8 +20,20 @@ const router = createRouter({
     { path: "/", redirect: "/chat" },
     { path: "/chat", component: EnigmaChatView, name: "chat" },
     { path: "/files", component: EnigmaFilesView, name: "files" },
-    { path: "/calls", component: EnigmaCallsView, name: "calls" },
-    { path: "/calendar", component: EnigmaCalendarView, name: "calendar" },
+    // Voice calls / calendar / contacts — build-gated editions (pland.md), same
+    // `beforeEnter` pattern as the board below.
+    {
+      path: "/calls",
+      component: EnigmaCallsView,
+      name: "calls",
+      beforeEnter: () => getBuildConfig().calls_enabled || "/chat",
+    },
+    {
+      path: "/calendar",
+      component: EnigmaCalendarView,
+      name: "calendar",
+      beforeEnter: () => getBuildConfig().calendar_enabled || "/chat",
+    },
     // Group Kanban board — gated by the compile-time build flag. `beforeEnter`
     // runs at navigation time (after initBuildConfig resolved), so it reads the
     // real flag; a flag-off build redirects to chat. (A top-level `if` in this
@@ -46,7 +58,12 @@ const router = createRouter({
       name: "sketch",
       beforeEnter: () => getBuildConfig().sketch_enabled || "/chat",
     },
-    { path: "/contacts", component: EnigmaContactsView, name: "contacts" },
+    {
+      path: "/contacts",
+      component: EnigmaContactsView,
+      name: "contacts",
+      beforeEnter: () => getBuildConfig().contacts_enabled || "/chat",
+    },
     { path: "/config", component: EnigmaConfigView, name: "config" },
     // Profile now lives inside Settings (as a tab) — keep the old path working.
     { path: "/profile", redirect: "/config?tab=profile" },

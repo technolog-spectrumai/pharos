@@ -41,6 +41,24 @@ crypto:
     t_cost: 3
     p_cost: 4
 
+calls:
+  # false = this build has no 1:1 voice calls: no Calls tab, /calls redirects,
+  # stores/chat.ts never instantiates useVoxCall (so no call offer ever lands),
+  # and every vox_* command fails fast with CALLS_DISABLED.
+  enabled: true
+
+contacts:
+  # false = this build has no Contacts: no Contacts tab, /contacts redirects,
+  # and useRoomInvites is never instantiated (direct room invites are neither
+  # sent nor received). DHT room codes are unaffected — only the presence /
+  # nickname-directory surface lives in Contacts.
+  enabled: true
+
+calendar:
+  # false = this build has no Calendar: no Calendar tab, /calendar redirects,
+  # useMeetings is never instantiated (no meetings, no polls, no reminder tick).
+  enabled: true
+
 kanban:
   # false = this build has no Kanban board: no Board tab, /board redirects, and
   # stores/chat.ts never instantiates the sync composable. Default true ships the

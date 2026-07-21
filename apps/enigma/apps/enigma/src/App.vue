@@ -67,7 +67,7 @@ let idleLock: IdleLockHandle | null = null;
  *  map-region offers ride file_xfer without their own store row, so they're only
  *  covered while the shared fileShare state reflects them. */
 function isBusy(): boolean {
-  if (chatStore.vox.phase.value !== "idle") return true;
+  if (chatStore.vox && chatStore.vox.phase.value !== "idle") return true;
   if (["offering", "incoming", "transferring"].includes(chatStore.fileShare.state.value)) return true;
   if (cloudStore.transfers.size > 0) return true;
   for (const rx of mapStore.receives.values()) {
@@ -158,10 +158,15 @@ watch(avatarDataUrl, (avatar) => {
 
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
+// Calls / Contacts / Calendar (compile-time gated — pland.md): each is null in
+// an edition without the feature, so every consumer below is null-guarded.
 const vox = chatStore.vox;
+const callsEnabled = chatStore.callsEnabled;
 const invites = chatStore.invites;
+const contactsEnabled = chatStore.contactsEnabled;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.
 const meetings = chatStore.meetings;
+const calendarEnabled = chatStore.calendarEnabled;
 // Board tab (compile-time gated): remote board changes awaiting a look.
 const kanban = chatStore.kanban;
 const kanbanEnabled = chatStore.kanbanEnabled;
@@ -262,20 +267,20 @@ onBeforeUnmount(() => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
-          <RouterLink to="/calls" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
+          <RouterLink v-if="callsEnabled" to="/calls" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
             <font-awesome-icon icon="phone" />
             {{ $t('nav.calls') }}
             <span
-              v-if="vox.phase.value === 'incoming'"
+              v-if="vox?.phase.value === 'incoming'"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
               :title="$t('vox.incomingTitle')"
             />
           </RouterLink>
-          <RouterLink to="/calendar" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calendar')">
+          <RouterLink v-if="calendarEnabled" to="/calendar" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calendar')">
             <font-awesome-icon icon="calendar" />
             {{ $t('nav.calendar') }}
             <span
-              v-if="meetings.attentionCount.value > 0"
+              v-if="(meetings?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
               :title="$t('calendar.attentionTitle')"
             />
@@ -297,11 +302,11 @@ onBeforeUnmount(() => {
             <font-awesome-icon icon="map" />
             {{ $t('nav.map') }}
           </RouterLink>
-          <RouterLink to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
+          <RouterLink v-if="contactsEnabled" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
             <span
-              v-if="invites.incoming.value"
+              v-if="invites?.incoming.value"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
               :title="$t('contacts.incomingTitle')"
             />
@@ -360,19 +365,19 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink to="/calls" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="callsEnabled" to="/calls" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="phone" class="w-4 text-center" />
             {{ $t('nav.calls') }}
             <span
-              v-if="vox.phase.value === 'incoming'"
+              v-if="vox?.phase.value === 'incoming'"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink to="/calendar" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="calendarEnabled" to="/calendar" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="calendar" class="w-4 text-center" />
             {{ $t('nav.calendar') }}
             <span
-              v-if="meetings.attentionCount.value > 0"
+              v-if="(meetings?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
@@ -392,11 +397,11 @@ onBeforeUnmount(() => {
             <font-awesome-icon icon="map" class="w-4 text-center" />
             {{ $t('nav.map') }}
           </RouterLink>
-          <RouterLink to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="contactsEnabled" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />
             {{ $t('nav.contacts') }}
             <span
-              v-if="invites.incoming.value"
+              v-if="invites?.incoming.value"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>

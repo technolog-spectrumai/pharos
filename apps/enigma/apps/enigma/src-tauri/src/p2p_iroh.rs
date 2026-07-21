@@ -217,23 +217,35 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     let gossip = Gossip::builder()
         .max_message_size(crate::build_config::network::MAX_FRAME_BYTES)
         .spawn(endpoint.clone());
-    // Direct room invites from contacts ride this same endpoint, so a contact
-    // is invitable at the stable NodeId they already have saved.
-    let invites = crate::p2p_invite::InviteProtocol::new(
-        app.clone(),
-        tauri::Manager::state::<crate::p2p_invite::InviteState>(app).inner().clone(),
-    );
-    // Voice calls (vox) ride this same endpoint too, so a callee is reachable at the
-    // stable NodeId their contacts/nickname already resolve to.
-    let vox = crate::vox::VoxProtocol::new(
-        app.clone(),
-        tauri::Manager::state::<crate::vox::VoxState>(app).inner().clone(),
-    );
-    let router = Router::builder(endpoint.clone())
-        .accept(GOSSIP_ALPN, gossip.clone())
-        .accept(crate::p2p_invite::INVITE_ALPN, invites)
-        .accept(crate::vox::VOX_ALPN, vox)
-        .spawn();
+    // Gossip is the chat channel itself and is always accepted. The invite and
+    // vox ALPNs belong to build-gated features (pland.md): an edition without
+    // Contacts / Calls does not merely hide their UI — it never advertises the
+    // protocol, so a dial from a higher-edition peer is refused at the ALPN
+    // negotiation rather than ringing a surface that isn't there.
+    let mut router = Router::builder(endpoint.clone()).accept(GOSSIP_ALPN, gossip.clone());
+    if crate::build_config::contacts::ENABLED {
+        // Direct room invites from contacts ride this same endpoint, so a contact
+        // is invitable at the stable NodeId they already have saved.
+        router = router.accept(
+            crate::p2p_invite::INVITE_ALPN,
+            crate::p2p_invite::InviteProtocol::new(
+                app.clone(),
+                tauri::Manager::state::<crate::p2p_invite::InviteState>(app).inner().clone(),
+            ),
+        );
+    }
+    if crate::build_config::calls::ENABLED {
+        // Voice calls (vox) ride this same endpoint too, so a callee is reachable at
+        // the stable NodeId their contacts/nickname already resolve to.
+        router = router.accept(
+            crate::vox::VOX_ALPN,
+            crate::vox::VoxProtocol::new(
+                app.clone(),
+                tauri::Manager::state::<crate::vox::VoxState>(app).inner().clone(),
+            ),
+        );
+    }
+    let router = router.spawn();
     *guard = Some(Node {
         endpoint,
         gossip,

@@ -28,13 +28,20 @@ function createChatStore() {
   // 1:1 voice calls — same lifetime rationale: an incoming ring (and its nav dot)
   // must be caught wherever the user is, and room-peer call offers ride this
   // channel's MLS group (onSync/sendSync seam) like file offers.
-  const vox = useVoxCall(p2p);
+  // Gated by the compile-time build flag (pland.md: Plus and up) — the same
+  // pattern as kanban below. A flag-off build never instantiates the composable,
+  // so it registers no sync handler at all: a call offer from a higher-edition
+  // peer is an unhandled sync type and is dropped, not merely hidden.
+  const callsEnabled = getBuildConfig().calls_enabled;
+  const vox = callsEnabled ? useVoxCall(p2p) : null;
   // Direct room invites (Contacts) — same lifetime rationale: an incoming
   // invite must be caught (and the Contacts nav dot lit) wherever the user is.
-  const invites = useRoomInvites(p2p);
+  const contactsEnabled = getBuildConfig().contacts_enabled;
+  const invites = contactsEnabled ? useRoomInvites(p2p) : null;
   // Meeting scheduling — rides the same seam; app-lifetime so incoming invites
   // land (Calendar nav dot) and the reminder tick runs regardless of the view.
-  const meetings = useMeetings(p2p);
+  const calendarEnabled = getBuildConfig().calendar_enabled;
+  const meetings = calendarEnabled ? useMeetings(p2p) : null;
   // Group Kanban board — one per room, rides the same seam; app-lifetime so
   // remote column/card changes land (Board nav dot) regardless of the view. Gated
   // by the compile-time build flag: a flag-off build never instantiates it, so no
@@ -75,7 +82,7 @@ function createChatStore() {
     await p2p.applyRuntimeProfile(runtime);
     // The profile switch swapped the kv data dir — re-read the meeting list and
     // the open room's board.
-    await meetings.reload();
+    if (meetings) await meetings.reload();
     if (kanban) await kanban.reload();
     if (deviceSync) {
       deviceSync.stop();
@@ -87,7 +94,8 @@ function createChatStore() {
   }
 
   return {
-    p2p, fileShare, vox, invites, meetings, kanban, kanbanEnabled,
+    p2p, fileShare, vox, callsEnabled, invites, contactsEnabled,
+    meetings, calendarEnabled, kanban, kanbanEnabled,
     deviceSync, devicesEnabled, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };

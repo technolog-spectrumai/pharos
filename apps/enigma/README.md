@@ -9,7 +9,8 @@ content encrypted by **MLS** (OpenMLS via the Rotor crate) and all local state
 **Docs:** this README (orientation) · [build.md](build.md) (run in dev, desktop +
 Android builds, CI, troubleshooting) · [technology.md](technology.md) (the deep
 dive: architecture, transports, crypto, privacy posture, conventions, config
-sources of truth, rework history).
+sources of truth, rework history) · [pland.md](pland.md) (the Light / Plus / Pro
+product line and how an edition is built).
 
 ## How it works
 

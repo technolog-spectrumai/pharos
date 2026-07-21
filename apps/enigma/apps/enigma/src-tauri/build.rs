@@ -4,6 +4,10 @@
 //! algorithm declarations are additionally const-asserted in the generated
 //! code against the vendored crypto crates, so drift in either direction
 //! (YAML edited, or rotor_core/gervasius changed) is a compile error.
+//!
+//! WHICH yaml is chosen by the `ENIGMA_EDITION` env var (light/plus/pro →
+//! `configs/build_config.<edition>.yaml`); unset keeps the historical
+//! `build_config.yaml`. See pland.md for the product line.
 
 use std::env;
 use std::fmt::Write as _;
@@ -20,6 +24,9 @@ struct RawConfig {
     cloud: CloudSection,
     p2p: P2pSection,
     crypto: CryptoSection,
+    calls: CallsSection,
+    contacts: ContactsSection,
+    calendar: CalendarSection,
     kanban: KanbanSection,
     sketch: SketchSection,
     maps: MapsSection,
@@ -64,6 +71,24 @@ struct KdfSection {
     m_cost_kib: u32,
     t_cost: u32,
     p_cost: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CallsSection {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContactsSection {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CalendarSection {
+    enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -371,6 +396,18 @@ pub mod network {{
     pub const TOR_HANDSHAKE_TIMEOUT_SECS: u64 = {tor_hs};
 }}
 
+pub mod calls {{
+    pub const ENABLED: bool = {calls_enabled};
+}}
+
+pub mod contacts {{
+    pub const ENABLED: bool = {contacts_enabled};
+}}
+
+pub mod calendar {{
+    pub const ENABLED: bool = {calendar_enabled};
+}}
+
 pub mod kanban {{
     pub const ENABLED: bool = {kanban_enabled};
     pub const ALLOW_REORDER: bool = {kanban_allow_reorder};
@@ -473,6 +510,9 @@ const _: () = assert!(
         redirects = cfg.network.max_redirects,
         tor_write = cfg.network.tor_write_timeout_secs,
         tor_hs = cfg.network.tor_handshake_timeout_secs,
+        calls_enabled = cfg.calls.enabled,
+        contacts_enabled = cfg.contacts.enabled,
+        calendar_enabled = cfg.calendar.enabled,
         kanban_enabled = cfg.kanban.enabled,
         kanban_allow_reorder = cfg.kanban.allow_reorder,
         kanban_default_columns = cfg
@@ -494,28 +534,47 @@ const _: () = assert!(
     o
 }
 
+/// Product editions (pland.md). Each maps to `configs/build_config.<name>.yaml`;
+/// an unset ENIGMA_EDITION keeps the historical top-level build_config.yaml.
+const EDITIONS: &[&str] = &["light", "plus", "pro"];
+
+/// Resolve which YAML to bake in. Unknown names FAIL — never silently fall back
+/// to the default config, or a typo'd edition would ship every feature.
+fn resolve_config_path(manifest_dir: &Path) -> std::path::PathBuf {
+    println!("cargo:rerun-if-env-changed=ENIGMA_EDITION");
+    let edition = match env::var("ENIGMA_EDITION") {
+        Ok(e) if !e.trim().is_empty() => e.trim().to_ascii_lowercase(),
+        _ => return manifest_dir.join("build_config.yaml"),
+    };
+    if !EDITIONS.contains(&edition.as_str()) {
+        panic!("\n\nENIGMA_EDITION='{edition}' is not a known edition (valid: {EDITIONS:?}) — see pland.md\n");
+    }
+    manifest_dir.join("configs").join(format!("build_config.{edition}.yaml"))
+}
+
 fn generate_build_config() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_dir = Path::new(&manifest_dir);
-    let yaml_path = manifest_dir.join("build_config.yaml");
+    let yaml_path = resolve_config_path(manifest_dir);
     println!("cargo:rerun-if-changed=build_config.yaml");
+    println!("cargo:rerun-if-changed=configs");
     println!("cargo:rerun-if-changed=tauri.conf.json");
 
     let raw = std::fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
         panic!(
-            "\n\nbuild_config.yaml not found at {} ({e}) — this file is required (see build.md)\n",
+            "\n\nbuild config not found at {} ({e}) — this file is required (see build.md, pland.md)\n",
             yaml_path.display()
         )
     });
     let cfg: RawConfig = serde_norway::from_str(&raw).unwrap_or_else(|e| {
-        panic!("\n\nbuild_config.yaml is not valid ({}):\n  {e}\n", yaml_path.display())
+        panic!("\n\nbuild config is not valid ({}):\n  {e}\n", yaml_path.display())
     });
 
     let mut errors = Vec::new();
     validate(&cfg, manifest_dir, &mut errors);
     if !errors.is_empty() {
         let list: String = errors.iter().map(|e| format!("  - {e}\n")).collect();
-        panic!("\n\nbuild_config.yaml is invalid:\n{list}(file: {})\n", yaml_path.display());
+        panic!("\n\nbuild config is invalid:\n{list}(file: {})\n", yaml_path.display());
     }
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");

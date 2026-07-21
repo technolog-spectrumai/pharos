@@ -39,7 +39,9 @@ defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
 const chatStore = useChatStore();
-const invites = chatStore.invites;
+// Non-null: the /contacts route is build-gated (pland.md), so this view only
+// ever mounts in an edition where the composable exists.
+const invites = chatStore.invites!;
 
 // ── My code (this device's stable NodeId — what a contact saves about ME) ─────
 const myNodeId = ref("");
@@ -255,8 +257,13 @@ function openInviteFor(contact: ContactEntry) {
   inviteOpen.value = true;
 }
 
+// Calls are their own build gate (pland.md) — Contacts can ship without them,
+// so the ring button is hidden and this is a no-op in a calls-off edition.
+const callsEnabled = chatStore.callsEnabled;
+
 // Ring a saved contact by their stable NodeId and jump to the Calls tab.
 async function callContact(contact: ContactEntry) {
+  if (!chatStore.vox) return;
   await chatStore.vox.callNode(contact.nodeId, contact.name);
   void router.push("/calls");
 }
@@ -504,6 +511,7 @@ async function acceptIncoming() {
             </p>
           </div>
           <button
+            v-if="callsEnabled"
             type="button"
             class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
             :title="$t('contacts.call')"

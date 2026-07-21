@@ -22,7 +22,9 @@ import type {
 defineProps<{ darkMode?: boolean }>();
 
 const chatStore = useChatStore();
-const meetings = chatStore.meetings;
+// Non-null: the /calendar route is build-gated (pland.md), so this view only
+// ever mounts in an edition where the composable exists.
+const meetings = chatStore.meetings!;
 const p2p = chatStore.p2p;
 
 const selectedDay = ref(new Date());

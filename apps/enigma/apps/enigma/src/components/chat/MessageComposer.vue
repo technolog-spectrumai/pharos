@@ -14,7 +14,7 @@ const { currentRoom, isConnected, isParticipant, mlsStatus, selfMuteUntil } = ch
 // A live/soon-live voice call owns the default microphone device; block staging a
 // voice message while one is active so the two don't fight over cpal input.
 const voxBusy = computed(() =>
-  ["calling", "connected"].includes(useChatStore().vox.phase.value),
+  ["calling", "connected"].includes(useChatStore().vox?.phase.value ?? "idle"),
 );
 
 const draft = ref("");

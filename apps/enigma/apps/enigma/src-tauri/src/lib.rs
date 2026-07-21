@@ -434,6 +434,9 @@ pub struct BuildConfigSummary {
     pub app_version: &'static str,
     pub cloud_allow_connections: bool,
     pub p2p_allow_hosted_relays: bool,
+    pub calls_enabled: bool,
+    pub contacts_enabled: bool,
+    pub calendar_enabled: bool,
     pub kanban_enabled: bool,
     pub kanban_allow_reorder: bool,
     pub kanban_default_columns: Vec<&'static str>,
@@ -462,13 +465,19 @@ pub struct BuildConfigSummary {
 /// Fetched once by the frontend at boot (rakotis `initBuildConfig`).
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
-    use build_config::{app, cloud, devices, features, kanban, maps, p2p, settings as s, sketch};
+    use build_config::{
+        app, calendar, calls, cloud, contacts, devices, features, kanban, maps, p2p,
+        settings as s, sketch,
+    };
     BuildConfigSummary {
         app_name: app::NAME,
         app_identifier: app::IDENTIFIER,
         app_version: app::VERSION,
         cloud_allow_connections: cloud::ALLOW_CONNECTIONS,
         p2p_allow_hosted_relays: p2p::ALLOW_HOSTED_RELAYS,
+        calls_enabled: calls::ENABLED,
+        contacts_enabled: contacts::ENABLED,
+        calendar_enabled: calendar::ENABLED,
         kanban_enabled: kanban::ENABLED,
         kanban_allow_reorder: kanban::ALLOW_REORDER,
         kanban_default_columns: kanban::DEFAULT_COLUMNS.to_vec(),

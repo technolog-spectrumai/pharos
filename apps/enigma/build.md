@@ -8,6 +8,7 @@ Tauri 2 (Vue 3 frontend + Rust backend) app; a "build" compiles the frontend
 
 Contents: [Prerequisites](#prerequisites) · [First-time setup](#first-time-setup) ·
 [Run (dev)](#run-dev) · [Build configuration](#build-configuration-build_configyaml) ·
+[Editions](#editions-enigma_edition) ·
 [Desktop build](#desktop-build) · [Android](#android-toolchain-setup--build) ·
 [CI](#ci-builds) · [Tests](#tests) · [Troubleshooting](#troubleshooting)
 
@@ -135,8 +136,13 @@ details):
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
   vaults only.
-- `kanban` / `maps` — feature kill switches (`enabled: false` builds without the
-  Board / Map tab) plus kanban's caps. `maps` has no other knobs: the app has no
+- `calls` / `contacts` / `calendar` / `kanban` / `sketch` / `maps` — feature kill
+  switches (`enabled: false` builds without the tab, redirects the route, and
+  never instantiates the composable — so the feature's sync handlers and, for
+  calls/contacts, its ALPN are absent from the binary). `calls` additionally
+  makes every `vox_*` command error `CALLS_DISABLED`. These are what the product
+  editions are made of — see [pland.md](pland.md). `kanban` and `sketch` carry
+  caps alongside their switch; `maps` has no other knobs, because the app has no
   tile-fetch path at all — region packages are produced by the standalone
   `tools/map_packager` and imported from the device (see map.md Part II).
 - `devices.allow_linking` — `false` builds without device linking: no
@@ -149,6 +155,30 @@ details):
 `app:` must match `tauri.conf.json` (`productName`/`identifier`/`version`) —
 `tauri.conf.json` stays authoritative and `build.rs` rejects drift. The same YAML
 drives desktop and Android builds (the codegen is target-agnostic).
+
+### Editions (`ENIGMA_EDITION`)
+
+The product line — **Light / Plus / Pro** — is three checked-in configs under
+[`apps/enigma/src-tauri/configs/`](apps/enigma/src-tauri/configs/), selected by
+an environment variable that `build.rs` reads:
+
+```bash
+ENIGMA_EDITION=light ./build_desktop.sh      # basic encrypted chat only
+ENIGMA_EDITION=plus  ./run_dev.sh            # + contacts, voice calls, device linking
+ENIGMA_EDITION=pro   npm run build:android   # + calendar, board, sketch, maps, cloud
+./build_desktop.sh                           # unset → build_config.yaml (everything on)
+```
+
+Unset keeps the historical behavior: the top-level `build_config.yaml` is the
+default and is what CI builds. An **unknown** edition name fails the build rather
+than falling back, and `build.rs` declares `rerun-if-env-changed=ENIGMA_EDITION`,
+so switching editions always regenerates rather than reusing a cached binary
+(the Rust crate does recompile — expect a full rebuild when you switch).
+
+Editions differ **only** in feature gates; `crypto`, `network` and `settings` are
+identical across all three, deliberately — `network.max_frame_bytes` is
+wire-interop sensitive and a Light peer must be able to share a room with a Pro
+peer. Who gets what, and why, is [pland.md](pland.md).
 
 ---
 

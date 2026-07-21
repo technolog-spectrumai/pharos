@@ -8,7 +8,9 @@ defineProps<{ darkMode: boolean }>();
 
 const { t } = useI18n();
 const chat = useChatStore();
-const vox = chat.vox;
+// Non-null: this panel is only reachable through the build-gated /calls route
+// (pland.md), so it never renders in a calls-off edition.
+const vox = chat.vox!;
 const p2p = chat.p2p;
 const {
   available,

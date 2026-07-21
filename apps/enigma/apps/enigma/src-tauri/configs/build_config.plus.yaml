@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ENIGMA PLUS — "chat with people, not just rooms".
+#
+# Selected with `ENIGMA_EDITION=plus` (build.rs reads this file instead of
+# ../build_config.yaml). Product rationale + the full feature matrix live in
+# pland.md; the per-key semantics are documented in ../build_config.yaml, which
+# stays the annotated reference copy.
+#
+# = Light, PLUS: contacts (DHT presence, nickname directory, direct room
+#   invites), 1:1 voice calls, and multi-device linking.
+# OUT: calendar, board, sketch, maps, Enigma Cloud (all Pro).
+#
+# INVARIANT: only the feature gates differ between editions. crypto:, network:
+# and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
+# in particular is wire-interop sensitive (a Light peer must be able to share a
+# room with a Pro peer). See pland.md §3.
+# ─────────────────────────────────────────────────────────────────────────────
+
+app:
+  # Must MATCH tauri.conf.json — build.rs asserts equality. Distinct per-edition
+  # product names / bundle ids need per-edition tauri.conf.json variants first
+  # (pland.md §6.1), so all three editions currently declare the same identity.
+  name: Enigma
+  identifier: com.spectrumaipl.enigma
+  version: 0.1.0
+
+cloud:
+  allow_connections: false        # Pro-only feature
+
+p2p:
+  allow_hosted_relays: true
+
+crypto:
+  mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
+  at_rest_aead: xchacha20-poly1305
+  kdf:
+    algorithm: argon2id
+    m_cost_kib: 65536   # 64 MiB
+    t_cost: 3
+    p_cost: 4
+
+calls:
+  enabled: true
+
+contacts:
+  enabled: true
+
+calendar:
+  enabled: false                  # Pro only
+
+kanban:
+  enabled: false                  # Pro only
+  # Inert while enabled: false, but still required + validated by build.rs.
+  allow_reorder: true
+  default_columns: ["To Do", "In Progress", "Done"]
+  max_cards_per_board: 500
+  max_card_title_len: 200
+  max_card_description_len: 4000
+
+sketch:
+  enabled: false                  # Pro only
+  max_shapes_per_board: 1000
+  max_text_len: 200
+
+maps:
+  enabled: false                  # Pro only
+
+devices:
+  allow_linking: true
+
+features:
+  # Contacts presence + the nickname directory ride the Mainline DHT, so Plus is
+  # the first edition where the DHT toggle buys the user more than room codes.
+  # It stays OPT-IN regardless: nothing is published until the user flips it.
+  use_tor: false
+  stable_onion: false
+  dht_discovery: false
+  dht_nick_publish: false
+
+settings:
+  connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
+  dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
+  max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
+  map_storage_limit_mb:  { default: 512, min: 64, max: 65536 }   # inert (maps off)
+  devlink_pair_window_secs: { default: 600, min: 60, max: 3600 }
+  devlink_resync_secs:      { default: 300, min: 30, max: 3600 }
+  chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
+  idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
+
+network:
+  max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition
+  onion_port: 9999
+  transfer_chunk_bytes: 65536    # 64 KiB
+  max_redirects: 5
+  tor_write_timeout_secs: 20
+  tor_handshake_timeout_secs: 30
