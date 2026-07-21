@@ -225,6 +225,9 @@ fn panic_wipe(
 /// The frontend reloads the webview afterwards, which is what actually drops the
 /// decrypted values from JS memory; this side drops the DEK and the in-memory MLS
 /// sessions.
+// Every parameter past `passphrase` is Tauri-injected managed state, not a call
+// site's burden — same shape as `app_set_active_profile`.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn vault_lock(
     app: AppHandle,

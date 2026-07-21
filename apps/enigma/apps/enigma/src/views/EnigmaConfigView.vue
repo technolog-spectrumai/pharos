@@ -1236,7 +1236,7 @@ async function clearSelectedOfflineData() {
             @change="saveIdleLock"
             @keyup.enter="saveIdleLock"
           />
-          <span class="text-xs opacity-60">{{ $t('config.minutesShort') }}</span>
+          <span class="text-xs opacity-60">min</span>
           <span v-if="idleLockSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
