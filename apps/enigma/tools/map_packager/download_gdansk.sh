@@ -5,20 +5,21 @@
 # Produces <out>/Gdansk_region.pmtiles + .manifest.json; import the .pmtiles in
 # Enigma → Map → Regions.
 #
-#   ./scripts/download_gdansk.sh [OUT_DIR]
+#   ./tools/map_packager/download_gdansk.sh [OUT_DIR]
 #
 # OUT_DIR defaults to ~/enigma-maps.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(dirname "$HERE")"
 OUT="${1:-$HOME/enigma-maps}"
 
-VENV="$REPO/tools/map_packager/.venv"
-if [ ! -x "$VENV/bin/python" ]; then
-  echo "Setting up the packager virtualenv (one-off)…"
-  python3 -m venv "$VENV"
-  "$VENV/bin/pip" install -q -r "$REPO/tools/map_packager/requirements.txt"
+# Shared venv for the CLI deps (no PyQt6). Deps are (re)installed whenever any
+# are missing — so a venv from before a requirements bump self-heals.
+VENV="$HERE/.venv"
+[ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
+if ! "$VENV/bin/python" -c "import pmtiles, requests, blake3, tqdm" 2>/dev/null; then
+  echo "Installing map-download dependencies (one-off)…"
+  "$VENV/bin/pip" install -q -r "$HERE/requirements-download.txt"
 fi
 
 # Gdańsk + the region around it (Tricity metro + delta + near lakes).

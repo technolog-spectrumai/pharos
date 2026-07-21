@@ -11,10 +11,10 @@ uses the **Protomaps** vector schema the app's bundled style expects. (A file
 in a different schema — e.g. Shortbread — imports fine but paints blank,
 because the style's layers reference different source-layers.)
 
-Used by the ready-made scripts/download_warsaw.sh and download_gdansk.sh; run
-directly for any other area:
+Used by the ready-made download_warsaw.sh / download_gdansk.sh in this folder;
+run directly for any other area:
 
-    python scripts/download_map.py --name "Kraków" --bbox 19.8,50.0,20.2,50.15
+    python tools/map_packager/download_map.py --name "Kraków" --bbox 19.8,50.0,20.2,50.15
 """
 from __future__ import annotations
 
@@ -23,10 +23,13 @@ import datetime
 import sys
 from pathlib import Path
 
-# Reuse the packager modules (kept as the single source of truth for tile math,
-# extraction, and the manifest shape the Rust importer re-verifies).
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "tools" / "map_packager"))
+from tqdm import tqdm
+
+# The packager modules are siblings of this file (single source of truth for
+# tile math, extraction, and the manifest shape the Rust importer re-verifies).
+# Running `python .../download_map.py` already puts this dir on sys.path[0];
+# the explicit insert keeps it working when imported by other means.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from manifest import build_manifest, write_sidecar  # noqa: E402
 from pm_source import CachingSource, HttpRangeSource, extract, source_info  # noqa: E402
@@ -101,10 +104,14 @@ def main() -> int:
     archive = out_dir / f"{safe_filename(args.name)}.pmtiles"
     reads = CachingSource(HttpRangeSource(source, timeout=30))
 
-    def on_progress(done: int, total: int) -> None:
-        if done == total or done % max(1, total // 50) == 0:
-            pct = round(done / total * 100) if total else 0
-            print(f"\r  extracting {done:,}/{total:,} ({pct}%)", end="", flush=True)
+    # extract() calls progress(done, total) once per tile; drive tqdm by the
+    # delta. Created lazily on the first tick so total always matches extract's
+    # own count. `disable=None` auto-silences the bar when stdout is redirected
+    # (a log file), so piped runs stay clean.
+    bar = tqdm(total=tiles, unit="tile", desc="Extracting", disable=None)
+
+    def on_progress(done: int, _total: int) -> None:
+        bar.update(done - bar.n)
 
     try:
         stats = extract(
@@ -112,10 +119,11 @@ def main() -> int:
             progress=on_progress, metadata_name=args.name,
         )
     except KeyboardInterrupt:
+        bar.close()
         archive.unlink(missing_ok=True)
-        print("\nCancelled — partial file removed.")
+        print("Cancelled — partial file removed.")
         return 130
-    print()  # end progress line
+    bar.close()
 
     manifest = build_manifest(archive, args.name, bbox, min_zoom, max_zoom, source)
     sidecar = write_sidecar(archive, manifest)

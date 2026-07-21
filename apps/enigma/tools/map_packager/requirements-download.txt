@@ -1,0 +1,7 @@
+# Dependencies for the command-line downloaders (download_map.py + the
+# download_*.sh wrappers). No PyQt6 — the CLI needs no GUI. The GUI's
+# requirements.txt includes this file and adds PyQt6 on top.
+pmtiles>=3.7
+requests>=2.31
+blake3>=0.4
+tqdm>=4.66

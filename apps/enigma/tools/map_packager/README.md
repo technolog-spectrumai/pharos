@@ -37,6 +37,31 @@ python main.py
    **Enigma → Map → Regions → Import** — the manifest sidecar is auto-detected
    by filename and the app re-verifies BLAKE3 + every field itself.
 
+## Command-line downloads (no GUI)
+
+Ready-made one-command scripts live alongside the tool — they bootstrap a
+`.venv` on first run (from `requirements.txt`), download from the latest
+Protomaps daily build, and show a `tqdm` progress bar. Output defaults to
+`~/enigma-maps`; pass a folder to override.
+
+```bash
+./download_warsaw.sh            # Warsaw + immediate surroundings
+./download_gdansk.sh            # Gdańsk + region (Tricity, delta, near lakes)
+./download_gdansk.sh /media/usb # …to a chosen folder
+```
+
+For any other area, drive the shared CLI directly:
+
+```bash
+python download_map.py --name "Kraków" --bbox 19.8,50.0,20.2,50.15 \
+    --min-zoom 0 --max-zoom 14 --out ~/enigma-maps
+```
+
+These produce **Protomaps-schema** packages, which is what the app's bundled
+style renders — a `.pmtiles` in another schema (e.g. Shortbread) imports fine
+but paints blank. Copy both output files to the device and import the
+`.pmtiles` in Enigma → Map → Regions.
+
 ## Notes
 
 - Extraction copies stored tile bytes (no recompression); the output archive
@@ -59,3 +84,5 @@ python main.py
 | `tile_math.py` | Web-Mercator bbox↔tile math — mirrors the app's `maps.rs` |
 | `manifest.py` | `MapRegionManifest` wire shape + validation + BLAKE3 — mirrors `maps.rs` |
 | `geocode.py` | Nominatim jsonv2 town→bbox lookup (honest UA, editable endpoint) |
+| `download_map.py` | CLI: extract a bbox/zoom package from a source (tqdm progress) |
+| `download_warsaw.sh` / `download_gdansk.sh` | One-command wrappers over `download_map.py` |

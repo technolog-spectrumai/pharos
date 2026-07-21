@@ -256,6 +256,9 @@ Map region packages are NOT built here: the standalone PyQt6 tool
 bbox/zoom subsets from any PMTiles archive over HTTP range requests and writes
 `<name>.pmtiles` + `<name>.manifest.json` — the pair the app's
 Maps → Regions → Import verifies (BLAKE3 + manifest, sidecar auto-detected).
+For a no-GUI download, the same folder ships one-command scripts
+(`./download_warsaw.sh`, `./download_gdansk.sh`) and a `download_map.py` CLI for
+any bbox — see the tool's README.
 
 ### Build the APK / AAB
 
