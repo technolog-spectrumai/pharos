@@ -37,6 +37,23 @@ let disposed = false;
 const ready = ref(false);
 const webglOk = ref(true);
 const tauri = isTauri();
+/** First few distinct map failures (style/tile/GL) — rendered as an inline
+ *  overlay so a blank canvas is never silent. Console gets the full objects. */
+const mapErrors = ref<string[]>([]);
+/** Echo a lifecycle line to console AND the app's stderr (see maps.rs
+ *  map_debug_log) so a dark canvas can be diagnosed from the run_dev.sh
+ *  terminal alone. Fire-and-forget: tracing must never break the boot. */
+function trace(msg: string) {
+  console.info(`[map] ${msg}`);
+  if (tauri) void invoke("map_debug_log", { message: msg }).catch(() => {});
+}
+
+function pushDiag(msg: string) {
+  trace(`DIAG: ${msg}`);
+  if (!mapErrors.value.includes(msg) && mapErrors.value.length < 6) {
+    mapErrors.value = [...mapErrors.value, msg];
+  }
+}
 
 // Placement / drawing state machine (explicit user actions only).
 type Mode = "idle" | "add-pin" | "draw-route";
@@ -75,8 +92,15 @@ function registerProtocol() {
         y: Number(m[3]),
       });
       return { data: new Uint8Array(data) };
-    } catch {
-      // Source unreachable / policy-blocked: an empty tile, never a crash loop.
+    } catch (e) {
+      // An empty tile, never a crash loop — but do NOT stay silent about it:
+      // if map_get_tile rejects for every tile (locked vault, unreadable blob)
+      // the map is blank with nothing else reporting why. pushDiag dedupes, so
+      // a repeated failure surfaces once. Safe to capture: this closure is
+      // re-registered per mount (`protocolRegistered` is per-instance).
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[map] tile request failed:", e);
+      pushDiag(`tile request failed: ${msg}`);
       return { data: new Uint8Array(0) };
     }
   });
@@ -151,91 +175,148 @@ function refreshDraft() {
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  if (!tauri) return;
+  if (!tauri) return;               // honest desktop-only state renders instead
+  trace("boot: mounted (tauri)");
   webglOk.value = webglAvailable();
-  if (!webglOk.value || !container.value) return;
-  registerProtocol();
-  await store.reload();
+  trace(`boot: webgl=${webglOk.value}`);
+  if (!webglOk.value) return;       // honest no-WebGL state renders instead
+  if (!container.value) {
+    pushDiag("map container was not available at mount");
+    return;
+  }
 
-  let maxZoom: number = policy.map.fallbackSourceMaxZoom;
-  try {
-    const info = await invoke<{ maxZoom: number } | null>("map_source_info");
-    if (info) maxZoom = info.maxZoom;
-  } catch { /* no source yet — more regions may be imported later */ }
-
-  // The awaits above can outlive this instance: reload() resolving the
-  // persisted active region changes the parent's :key, which unmounts us
-  // mid-boot (and a fast sub-tab flip does the same). By then the template
-  // ref is nulled — constructing the Map would throw in _resolveContainer
-  // ("Enigma hit an error while starting"). The replacement instance, keyed
-  // on the resolved id, performs the real init.
-  if (disposed || !container.value) return;
-
-  // Offline style assets under public/map/, resolved against the app origin
-  // (tauri://localhost in the bundle, the Vite port in dev). No trailing slash.
-  const assetBase = new URL("/map", location.href).toString().replace(/\/$/, "");
-
-  map = new maplibregl.Map({
-    container: container.value,
-    attributionControl: { compact: true },
-    center: policy.map.defaultCenter,
-    zoom: policy.map.defaultZoom,
-    maxZoom: 20,
-    style: {
-      version: 8,
-      // NOTE: build these by concatenation, NOT `new URL(...)` — the URL
-      // constructor percent-encodes the braces ("%7Bfontstack%7D") and
-      // MapLibre then rejects the style for missing its {fontstack}/{range}
-      // tokens, which aborts the whole style load (blank canvas).
-      glyphs: `${assetBase}/glyphs/{fontstack}/{range}.pbf`,
-      sprite: `${assetBase}/sprites/v4/light`,
-      sources: {
-        protomaps: {
-          type: "vector",
-          tiles: ["enigma-map://tile/{z}/{x}/{y}"],
-          maxzoom: maxZoom,
-          attribution: "© OpenStreetMap contributors, Protomaps",
-        },
-      },
-      // `layers()` ALREADY includes the 11 label layers — spreading `labels()`
-      // on top duplicates every id, which fails style validation outright.
-      layers: layersFn("protomaps", "light", "en"),
-    },
-  });
-
-  map.on("load", () => {
-    if (!map) return;
-    map.addSource("user-routes", { type: "geojson", data: routesGeoJson() });
-    map.addLayer({
-      id: "user-routes-line",
-      type: "line",
-      source: "user-routes",
-      paint: { "line-color": "#dc2626", "line-width": 3, "line-opacity": 0.85 },
-    });
-    map.addSource("draft-route", { type: "geojson", data: draftGeoJson([]) });
-    map.addLayer({
-      id: "draft-route-line",
-      type: "line",
-      source: "draft-route",
-      paint: { "line-color": "#f59e0b", "line-width": 3, "line-dasharray": [2, 1] },
-    });
-    refreshPins();
-    ready.value = true;
-    // Spread to the active region on every boot (D8 — a deliberate policy
-    // choice, see config/app.ts policy.map). Runs BEFORE applyPendingFocus so
-    // an explicitly opened chat-card pin/route still wins the camera. Region
-    // bboxes are [west, south, east, north] — already maplibre lng/lat order.
-    const active = store.activeRegion;
-    if (active) {
-      map.fitBounds(
-        [[active.bbox[0], active.bbox[1]], [active.bbox[2], active.bbox[3]]],
-        { padding: 60, maxZoom: 15, animate: false },
-      );
+  // Arm the watchdog BEFORE the first await. Everything below can fail in a way
+  // that leaves the canvas permanently dark — a rejected store load, a mid-boot
+  // unmount, a constructor throw — and without this the failure is reported
+  // nowhere at all (the exact "no overlay, still dark" symptom).
+  window.setTimeout(() => {
+    if (!disposed && !ready.value && mapErrors.value.length === 0) {
+      pushDiag("map did not finish loading within 8s (and reported no error)");
     }
-    applyPendingFocus();
-  });
+  }, 8000);
 
-  map.on("click", onMapClick);
+  try {
+    registerProtocol();
+
+    // Region/pin data is BEST-EFFORT: the basemap must still render when the
+    // sealed store is unavailable (e.g. the vault is not unlocked yet). This
+    // await used to be unguarded, so one rejected kv read killed the whole boot.
+    trace("boot: protocol registered, loading regions…");
+    try {
+      await store.reload();
+      trace(`boot: regions=${store.regions.length} active=${store.activeRegion?.name ?? "none"}`);
+    } catch (e) {
+      console.error("[map] region/pin load failed:", e);
+      pushDiag(`data load failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    let maxZoom: number = policy.map.fallbackSourceMaxZoom;
+    try {
+      const info = await invoke<{ maxZoom: number } | null>("map_source_info");
+      if (info) maxZoom = info.maxZoom;
+    } catch { /* no source yet — more regions may be imported later */ }
+
+    // A sub-tab flip (or a late :key change) can unmount us mid-boot; the
+    // replacement instance performs the real init, so bail quietly.
+    if (disposed) {
+      trace("boot: aborted — component unmounted mid-startup (a remount will retry)");
+      return;
+    }
+    if (!container.value) {
+      pushDiag("map container disappeared during startup");
+      return;
+    }
+
+    // Offline style assets under public/map/, resolved against the app origin
+    // (tauri://localhost in the bundle, the Vite port in dev). No trailing slash.
+    const assetBase = new URL("/map", location.href).toString().replace(/\/$/, "");
+
+    trace(`boot: constructing MapLibre (maxZoom=${maxZoom})`);
+    map = new maplibregl.Map({
+      container: container.value,
+      attributionControl: { compact: true },
+      center: policy.map.defaultCenter,
+      zoom: policy.map.defaultZoom,
+      maxZoom: 20,
+      style: {
+        version: 8,
+        // NOTE: build these by concatenation, NOT `new URL(...)` — the URL
+        // constructor percent-encodes the braces ("%7Bfontstack%7D") and
+        // MapLibre then rejects the style for missing its {fontstack}/{range}
+        // tokens, which aborts the whole style load (blank canvas).
+        glyphs: `${assetBase}/glyphs/{fontstack}/{range}.pbf`,
+        sprite: `${assetBase}/sprites/v4/light`,
+        sources: {
+          protomaps: {
+            type: "vector",
+            tiles: ["enigma-map://tile/{z}/{x}/{y}"],
+            maxzoom: maxZoom,
+            attribution: "© OpenStreetMap contributors, Protomaps",
+          },
+        },
+        // `layers()` ALREADY includes the label layers — spreading `labels()`
+        // on top duplicates every id, which fails style validation outright.
+        layers: layersFn("protomaps", "light", "en"),
+      },
+    });
+
+    trace("boot: MapLibre constructed, awaiting style load…");
+    // A blank canvas must never be silent: surface style/tile/GL failures both
+    // to the console (full objects) and to the inline diagnostics overlay.
+    map.on("error", (e) => {
+      const raw = (e as { error?: unknown }).error;
+      console.error("[map] error:", raw ?? e);
+      pushDiag(raw instanceof Error ? raw.message : String(raw ?? "unknown map error"));
+    });
+
+    map.on("load", () => {
+      if (!map) return;
+      map.addSource("user-routes", { type: "geojson", data: routesGeoJson() });
+      map.addLayer({
+        id: "user-routes-line",
+        type: "line",
+        source: "user-routes",
+        paint: { "line-color": "#dc2626", "line-width": 3, "line-opacity": 0.85 },
+      });
+      map.addSource("draft-route", { type: "geojson", data: draftGeoJson([]) });
+      map.addLayer({
+        id: "draft-route-line",
+        type: "line",
+        source: "draft-route",
+        paint: { "line-color": "#f59e0b", "line-width": 3, "line-dasharray": [2, 1] },
+      });
+      refreshPins();
+      ready.value = true;
+
+      // GL ground truth for bug reports: which device actually renders, is the
+      // canvas non-degenerate, and does a readback show painted pixels? (The
+      // WebKitGTK compositing failure mode is a valid context that never
+      // reaches the screen — pixels present here but a dark window.)
+      const canvas = map.getCanvas();
+      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      const dbg = gl?.getExtension("WEBGL_debug_renderer_info");
+      const renderer = gl && dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown";
+      trace(`loaded; canvas ${canvas.width}x${canvas.height}; GL: ${renderer}`);
+      if (!canvas.width || !canvas.height) {
+        pushDiag(`canvas has zero size (${canvas.width}x${canvas.height})`);
+      }
+
+      const active = store.activeRegion;
+      if (active) {
+        // Region bboxes are [west, south, east, north] — maplibre lng/lat order.
+        map.fitBounds(
+          [[active.bbox[0], active.bbox[1]], [active.bbox[2], active.bbox[3]]],
+          { padding: 60, maxZoom: 15, animate: false },
+        );
+      }
+      applyPendingFocus();
+    });
+
+    map.on("click", onMapClick);
+  } catch (e) {
+    console.error("[map] startup failed:", e);
+    pushDiag(`startup failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -380,7 +461,15 @@ function dismissFocus() {
 
     <template v-else>
       <div class="relative min-h-[24rem] flex-1 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1">
-        <div ref="container" class="absolute inset-0" data-testid="map-canvas" />
+        <!-- `map-canvas-host` is load-bearing, not cosmetic: see style.css —
+             MapLibre's unlayered `.maplibregl-map { position: relative }` beats
+             Tailwind v4's layered `.absolute`, so the box needs an unlayered
+             rule of its own to keep filling the wrapper. -->
+        <div
+          ref="container"
+          class="map-canvas-host absolute inset-0 h-full w-full"
+          data-testid="map-canvas"
+        />
 
         <!-- Active-region chip (D9) — read-only; deactivation lives in Regions. -->
         <div
@@ -389,6 +478,15 @@ function dismissFocus() {
           :title="$t('map.activeBadge')"
         >
           <font-awesome-icon icon="layer-group" /> {{ store.activeRegion.name }}
+        </div>
+
+        <!-- Inline diagnostics: a blank map explains itself. -->
+        <div
+          v-if="mapErrors.length"
+          class="absolute bottom-3 left-3 right-3 z-20 rounded-lg bg-primary-bg-light/95 p-2 text-xs shadow dark:bg-primary-bg-dark/95"
+        >
+          <p class="font-bold">{{ $t('map.diagTitle') }}</p>
+          <p v-for="err in mapErrors" :key="err" class="truncate text-warn-dark" :title="err">{{ err }}</p>
         </div>
 
         <!-- Toolbar -->

@@ -34,6 +34,16 @@ use crate::vault;
 pub(crate) const MAPS_DISABLED: &str = "Maps are disabled in this build.";
 /// Error prefix contract for the storage budget (frontend matches on it).
 pub(crate) const MAPS_STORAGE_LIMIT: &str = "MAPS_STORAGE_LIMIT";
+/// Error prefix contract for a package whose tiles the bundled style cannot
+/// draw (wrong vector schema — e.g. Shortbread instead of Protomaps).
+pub(crate) const MAPS_SCHEMA_UNSUPPORTED: &str = "MAPS_SCHEMA_UNSUPPORTED";
+
+/// Source layers the bundled protomaps-themes-base style draws from. An
+/// archive missing these paints an entirely blank map, so the import is
+/// refused up front rather than leaving the user staring at empty canvas.
+/// Only the core four are required: a Protomaps build always has them, and no
+/// other common schema (Shortbread uses land/streets/water_polygons/…) does.
+const REQUIRED_SOURCE_LAYERS: [&str; 4] = ["earth", "roads", "water", "places"];
 
 /// Encrypted kv namespace holding the region manifest list (single JSON array
 /// under scope "default", key "" — same pattern as `p2p:rooms`; rakotis
@@ -354,6 +364,18 @@ pub struct MapSourceInfo {
 
 /// Zoom/bbox envelope for style bootstrap: the union of imported regions,
 /// else null (nothing imported yet).
+/// Mirror a Map-tab lifecycle line to the app's stderr.
+///
+/// The map canvas is the one surface whose failures are invisible without
+/// devtools (a dark canvas reports nothing), and devtools are awkward in the
+/// WebKitGTK shell — so the panel echoes its startup trace here, where
+/// `run_dev.sh` shows it and a user can paste it into a bug report.
+#[tauri::command]
+pub fn map_debug_log(message: String) {
+    let msg: String = message.chars().take(400).collect();
+    eprintln!("[map-ui] {msg}");
+}
+
 #[tauri::command]
 pub async fn map_source_info(app: AppHandle) -> Result<Option<MapSourceInfo>, String> {
     ensure_maps_enabled()?;
@@ -475,6 +497,36 @@ pub async fn map_region_recv_path(app: AppHandle, offer_id: String) -> Result<St
 /// and size EXACTLY, else nothing is imported. Absent = manual import: the
 /// manifest is derived from the archive header. Dedup is by content hash; the
 /// storage budget only counts blobs not already stored.
+/// Which required source layers an archive's metadata does NOT advertise
+/// (pure — unit-tested below).
+///
+/// PMTiles archives declare their vector schema in the metadata JSON as
+/// `vector_layers[].id`; comparing those ids is far cheaper than decoding a
+/// tile, and it is exactly what MapLibre matches style layers against.
+/// Returns an empty vec when the archive is compatible OR when it advertises
+/// no `vector_layers` at all — an archive that declares nothing is a "cannot
+/// tell", and refusing those would block legitimate imports.
+fn missing_source_layers(metadata_json: &str) -> Vec<String> {
+    let Ok(meta) = serde_json::from_str::<serde_json::Value>(metadata_json) else {
+        return Vec::new();
+    };
+    let Some(layers) = meta.get("vector_layers").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    if layers.is_empty() {
+        return Vec::new();
+    }
+    let ids: Vec<&str> = layers
+        .iter()
+        .filter_map(|l| l.get("id").and_then(|v| v.as_str()))
+        .collect();
+    REQUIRED_SOURCE_LAYERS
+        .iter()
+        .filter(|req| !ids.contains(req))
+        .map(|s| (*s).to_string())
+        .collect()
+}
+
 /// Decide the manifest for an import (pure — unit-tested below).
 ///
 /// Precedence: an explicit manifest (P2P accept path) → a `<name>.manifest.json`
@@ -570,6 +622,18 @@ pub async fn map_region_import(
             h.max_zoom,
         )
     };
+    // Refuse archives the bundled style cannot draw: they import fine, then
+    // render an entirely blank map with nothing to explain why.
+    if let Ok(metadata) = reader.get_metadata().await {
+        let missing = missing_source_layers(&metadata);
+        if !missing.is_empty() {
+            return Err(format!(
+                "{MAPS_SCHEMA_UNSUPPORTED}: this archive uses a different vector schema \
+                 (missing layers: {}). Build the package with the Enigma map packager.",
+                missing.join(", ")
+            ));
+        }
+    }
     drop(reader);
     let (header_bbox, header_min_zoom, header_max_zoom) = header;
 
@@ -647,6 +711,7 @@ pub async fn map_region_export(app: AppHandle, id: String, dest_path: String) ->
 mod tests {
     use super::*;
     use pmtiles::{Compression, PmTilesWriter, TileType};
+    use serde_json::json;
 
     const BBOX: [f64; 4] = [16.8, 52.3, 17.1, 52.5];
 
@@ -793,6 +858,43 @@ mod tests {
         assert_eq!(ids(ordered_for_lookup(regions.clone(), Some("gone"))), ["a", "b"]);
         assert_eq!(ids(ordered_for_lookup(regions.clone(), None)), ["a", "b"]);
         assert_eq!(ids(ordered_for_lookup(Vec::new(), Some("x"))), Vec::<String>::new());
+    }
+
+    fn meta_with(ids: &[&str]) -> String {
+        let layers: Vec<serde_json::Value> = ids.iter().map(|id| json!({ "id": id })).collect();
+        json!({ "name": "x", "vector_layers": layers }).to_string()
+    }
+
+    #[test]
+    fn detects_incompatible_tile_schemas() {
+        // A real Protomaps build (what tools/map_packager produces) — drawable.
+        let protomaps = meta_with(&[
+            "boundaries", "buildings", "earth", "landcover", "landuse", "places", "pois",
+            "roads", "water",
+        ]);
+        assert!(missing_source_layers(&protomaps).is_empty());
+
+        // A real Shortbread build: imports fine, then paints nothing because
+        // the style's earth/roads/water/places layers match no source layer.
+        let shortbread = meta_with(&[
+            "place_labels", "boundaries", "addresses", "water_lines", "bridges", "streets",
+            "street_labels", "public_transport", "buildings", "water_polygons", "ocean",
+            "land", "sites", "pois",
+        ]);
+        let missing = missing_source_layers(&shortbread);
+        assert_eq!(missing, vec!["earth", "roads", "water", "places"]);
+
+        // Partial overlap still fails — one missing core layer is enough.
+        let partial = meta_with(&["earth", "water", "places"]);
+        assert_eq!(missing_source_layers(&partial), vec!["roads"]);
+    }
+
+    #[test]
+    fn undeclared_schema_is_allowed_through() {
+        // "Cannot tell" must never block a legitimate import.
+        assert!(missing_source_layers("not json at all").is_empty());
+        assert!(missing_source_layers(r#"{"name":"no vector_layers key"}"#).is_empty());
+        assert!(missing_source_layers(r#"{"vector_layers":[]}"#).is_empty());
     }
 
     #[test]

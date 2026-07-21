@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
+import { OyaCard } from "rakotis";
 import MapPanel from "../components/map/MapPanel.vue";
 import RegionsPanel from "../components/map/RegionsPanel.vue";
 import { useMapStore } from "../stores/map";
 
 const mapStore = useMapStore();
+
+// Resolve regions + the active region BEFORE MapLibre mounts (see the :key note
+// in the template). reload() is internally best-effort and always flips
+// `loaded`, so a failing sealed store still lets the basemap render.
+onMounted(() => { void mapStore.reload(); });
 
 // darkMode is class-based (`.dark` on <html>); the prop also drives the
 // segmented pill borders (mirroring EnigmaFilesView's tab pill).
@@ -54,10 +60,16 @@ const activeTab = ref<MapTab>("map");
            heavy: map.refreshTiles("protomaps") — reloads tiles but cannot
            change source maxzoom.) -->
       <MapPanel
-        v-if="activeTab === 'map'"
+        v-if="activeTab === 'map' && mapStore.loaded"
         :key="mapStore.activeRegionId ?? 'none'"
         :dark-mode="darkMode"
       />
+      <!-- Until the sealed store answers we do NOT mount MapLibre: the :key
+           would change the moment the active region resolves and unmount the
+           instance mid-startup. -->
+      <OyaCard v-else-if="activeTab === 'map'" class="flex h-full items-center justify-center">
+        <p class="text-sm opacity-60">{{ $t('common.loading') }}</p>
+      </OyaCard>
       <!-- Offline regions: import / export / share / activate / remove. -->
       <RegionsPanel v-else @show-map="activeTab = 'map'" />
     </div>

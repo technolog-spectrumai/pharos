@@ -392,6 +392,7 @@ export default {
   },
   map: {
     title: "Mapa",
+    diagTitle: "Diagnostyka mapy",
     mapTab: "Mapa",
     regionsTab: "Regiony",
     desktopOnlyTitle: "Mapy wymagają aplikacji desktopowej lub mobilnej",
@@ -426,6 +427,8 @@ export default {
     storageTitle: "Pamięć map",
     regionsTitle: "Zapisane regiony",
     noRegions: "Brak regionów offline — zaimportuj pakiet regionu (.pmtiles) utworzony w pakowaczu map Enigmy.",
+    importSchemaError: "Ten plik .pmtiles używa innego schematu map, więc mapa byłaby pusta. Utwórz pakiet w pakowaczu map Enigmy (tools/map_packager).",
+    importLimitError: "Za mało miejsca na mapy — usuń jakiś region albo zwiększ limit w Ustawieniach.",
     importButton: "Importuj…",
     activate: "Aktywuj",
     deactivate: "Dezaktywuj",

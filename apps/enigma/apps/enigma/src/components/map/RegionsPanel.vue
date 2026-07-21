@@ -14,12 +14,22 @@ import {
   OyaEmptyState,
   type MapRegionManifest,
 } from "rakotis";
+import { useI18n } from "vue-i18n";
 import { useChatStore } from "../../stores/chat";
 import { useMapStore } from "../../stores/map";
 
 const store = useMapStore();
 const chatStore = useChatStore();
 const tauri = isTauri();
+const { t } = useI18n();
+
+/** Rust surfaces contract-prefixed errors; translate the ones a user can act
+ *  on (a blank-rendering package is otherwise a total mystery). */
+function humanError(raw: string): string {
+  if (raw.includes("MAPS_SCHEMA_UNSUPPORTED")) return t("map.importSchemaError");
+  if (raw.includes("MAPS_STORAGE_LIMIT")) return t("map.importLimitError");
+  return raw;
+}
 
 // Parent→child UI navigation is an emit; only data that must survive the
 // MapPanel remount (the active id itself) goes through the store.
@@ -120,7 +130,7 @@ async function exportFile(region: MapRegionManifest) {
             :style="{ width: `${usagePct}%` }"
           />
         </div>
-        <p v-if="store.lastError" class="mt-2 text-xs text-warn-dark">{{ store.lastError }}</p>
+        <p v-if="store.lastError" class="mt-2 text-xs text-warn-dark">{{ humanError(store.lastError) }}</p>
       </OyaCard>
 
       <!-- Saved regions -->

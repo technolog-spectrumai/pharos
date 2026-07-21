@@ -350,10 +350,14 @@ python apps/enigma/e2e.py                  # Playwright smoke tier (no backend �
   missing or mismatched; reinstall them.
 - **First Rust compile is very slow / high memory** — expected for the initial
   build; subsequent runs are incremental.
-- **Map tab says "WebGL is unavailable" (Linux)** — WebKitGTK's DMABUF renderer
-  can break WebGL on some GPUs/drivers. Launch with
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./run_dev.sh` (or export it for the installed
-  app); only the map canvas needs WebGL, everything else is unaffected.
+- **Map tab renders blank / "WebGL is unavailable" (Linux)** — WebKitGTK's
+  DMABUF renderer breaks WebGL on NVIDIA and some hybrid-GPU stacks: the map
+  canvas stays fully transparent while the rest of the UI paints normally.
+  The app disables DMABUF itself on Linux (`main.rs` sets
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` before WebKit initializes), so this should
+  not occur since 2026-07-21; export `WEBKIT_DISABLE_DMABUF_RENDERER=0` to
+  re-enable DMABUF on a stack where it works. Only the map canvas needs WebGL,
+  everything else is unaffected.
 
 **Desktop build:**
 

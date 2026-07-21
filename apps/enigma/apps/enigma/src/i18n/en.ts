@@ -392,6 +392,7 @@ export default {
   },
   map: {
     title: "Map",
+    diagTitle: "Map diagnostics",
     mapTab: "Map",
     regionsTab: "Regions",
     desktopOnlyTitle: "Maps require the desktop or mobile app",
@@ -426,6 +427,8 @@ export default {
     storageTitle: "Map storage",
     regionsTitle: "Saved regions",
     noRegions: "No offline regions yet — import a region package (.pmtiles) made with the Enigma map packager.",
+    importSchemaError: "This .pmtiles uses a different map schema, so it would draw a blank map. Build the package with the Enigma map packager (tools/map_packager).",
+    importLimitError: "Not enough map storage — free space by removing a region, or raise the limit in Settings.",
     importButton: "Import…",
     activate: "Activate",
     deactivate: "Deactivate",

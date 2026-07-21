@@ -1372,6 +1372,7 @@ pub fn run() {
             local_lock::local_note_write,
             local_lock::local_note_stat,
             maps::map_get_tile,
+            maps::map_debug_log,
             maps::map_source_info,
             maps::map_regions_list,
             maps::map_region_remove,

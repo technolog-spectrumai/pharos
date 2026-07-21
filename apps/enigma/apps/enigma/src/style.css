@@ -60,3 +60,19 @@ body,
 body {
   font-family: "Orbitron", sans-serif;
 }
+
+/* MapLibre vs Tailwind v4 cascade layers.
+   Tailwind v4 emits every utility inside `@layer utilities`, while
+   maplibre-gl.css is imported unlayered from JS — and unlayered author rules
+   beat layered ones no matter the specificity. So when MapLibre stamps
+   `maplibregl-map` onto our container, its `position: relative` silently
+   overrode `.absolute`: `inset-0` stopped stretching the box, the div
+   collapsed to 0 height (all MapLibre children are absolutely positioned), and
+   its `overflow: hidden` clipped the canvas AND the attribution control away.
+   The map still "loaded" (MapLibre falls back to a 400x300 backing store when
+   clientHeight is 0), so nothing errored — a silently blank map.
+   These rules are unlayered too and more specific, so they win deterministically. */
+.map-canvas-host.maplibregl-map {
+  position: absolute;
+  inset: 0;
+}

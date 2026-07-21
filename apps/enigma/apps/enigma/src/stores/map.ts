@@ -106,10 +106,28 @@ export const useMapStore = defineStore("map", () => {
   }
 
   // ── loading ─────────────────────────────────────────────────────────────────
+  /** True once a first reload has been ATTEMPTED (success or not). The Map view
+   *  waits for this so MapLibre mounts with the resolved active region already
+   *  in its :key — otherwise the key flips mid-boot and tears the instance down
+   *  while it is still starting up. Outside Tauri there is no sealed store to
+   *  resolve (and no map), so nothing is ever gated. */
+  const loaded = ref(!isTauri());
+
   async function reload(): Promise<void> {
-    await ensureListeners();
-    pins.value = await listPins();
-    routes.value = await listRoutes();
+    // Every step is best-effort and independent: a failure loading pins (e.g. a
+    // sealed-store read before the vault is unlocked) must never prevent the
+    // regions from loading — or, upstream, the basemap from rendering at all.
+    try {
+      await ensureListeners();
+    } catch (e) {
+      console.error("[map] event listeners failed:", e);
+    }
+    try {
+      pins.value = await listPins();
+      routes.value = await listRoutes();
+    } catch (e) {
+      console.error("[map] pins/routes load failed:", e);
+    }
     if (isTauri()) {
       try {
         regions.value = await invoke<MapRegionManifest[]>("map_regions_list");
@@ -124,12 +142,14 @@ export const useMapStore = defineStore("map", () => {
         const stored = await getMapActiveRegion();
         activeRegionId.value =
           stored && regions.value.some((r) => r.id === stored) ? stored : null;
-      } catch {
+      } catch (e) {
+        console.error("[map] regions load failed:", e);
         regions.value = [];
         // activeRegionId is intentionally untouched: a transient command
         // failure must not look like "the region is gone" and drop the choice.
       }
     }
+    loaded.value = true;
   }
 
   // ── pins / routes (private, sealed at rest — never shared implicitly) ───────
@@ -254,7 +274,7 @@ export const useMapStore = defineStore("map", () => {
   return {
     mapsEnabled,
     regions, pins, routes, usedBytes, limitBytes, receives,
-    pendingFocus, lastError, activeRegionId, activeRegion,
+    pendingFocus, lastError, activeRegionId, activeRegion, loaded,
     reload, setActiveRegion,
     addPin, savePin, deletePin, addRoute, deleteRoute,
     removeRegion, importRegion, exportRegion,
