@@ -110,6 +110,8 @@ export interface BuildConfig {
   devlink_pair_window_secs: SettingClamp;
   devlink_resync_secs: SettingClamp;
   chat_history_cap_msgs: SettingClamp;
+  /** Auto-lock: minutes of inactivity before the vault re-locks. 0 = never. */
+  idle_lock_mins: SettingClamp;
 }
 
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
@@ -142,6 +144,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   devlink_pair_window_secs: { default: 600, min: 60, max: 3600 },
   devlink_resync_secs: { default: 300, min: 30, max: 3600 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
+  idle_lock_mins: { default: 15, min: 0, max: 120 },
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -236,6 +239,34 @@ export async function getConnectTimeoutSecs(): Promise<number> {
 export async function setConnectTimeoutSecs(secs: number): Promise<number> {
   const v = clampConnectTimeoutSecs(secs);
   await kvPut("p2p:settings", "default", "connect_timeout_secs", String(v)).catch(() => {});
+  return v;
+}
+
+// ── Auto-lock (idle timeout) ─────────────────────────────────────────────────
+// Minutes of user inactivity before the vault locks itself and the app returns
+// to the passphrase gate; 0 = never. Device-local on purpose — deliberately NOT
+// in DEVLINK_SYNC_KV, since a phone and a laptop want different values.
+
+export function clampIdleLockMins(mins: number): number {
+  const c = getBuildConfig().idle_lock_mins;
+  if (!Number.isFinite(mins)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(mins)));
+}
+
+export async function getIdleLockMins(): Promise<number> {
+  const c = getBuildConfig().idle_lock_mins;
+  try {
+    const raw = await kvGet("p2p:settings", "default", "idle_lock_mins");
+    if (raw === null || raw === "") return c.default;
+    return clampIdleLockMins(Number(raw));
+  } catch {
+    return c.default;
+  }
+}
+
+export async function setIdleLockMins(mins: number): Promise<number> {
+  const v = clampIdleLockMins(mins);
+  await kvPut("p2p:settings", "default", "idle_lock_mins", String(v)).catch(() => {});
   return v;
 }
 
@@ -605,6 +636,30 @@ export async function vaultChangePassphrase(current: string, next: string): Prom
 
 export async function vaultWipe(): Promise<void> {
   if (isTauri()) await invoke("vault_wipe");
+}
+
+// ── Panic code (duress passphrase) ───────────────────────────────────────────
+// A second passphrase for the unlock gate. Typing it there erases every profile
+// on this device and opens a fresh empty vault keyed by that same code — the
+// wipe is silent (vault_unlock returns exactly as it does for a normal unlock),
+// so nothing on screen betrays what happened. Configured in Settings → Data.
+
+/** Arm the panic code. `current` is the real passphrase (authorizes the change);
+ *  the backend rejects a `code` equal to it. */
+export async function vaultSetPanicCode(current: string, code: string): Promise<void> {
+  if (isTauri()) await invoke("vault_set_panic_code", { current, code });
+}
+
+/** Disarm the panic code — it goes back to being an ordinary wrong passphrase. */
+export async function vaultClearPanicCode(current: string): Promise<void> {
+  if (isTauri()) await invoke("vault_clear_panic_code", { current });
+}
+
+/** Whether a panic code is armed. Read from inside the encrypted store, so the
+ *  vault file on disk looks the same either way. Browser fallback: never. */
+export async function vaultHasPanicCode(): Promise<boolean> {
+  if (isTauri()) return invoke<boolean>("vault_has_panic_code");
+  return false;
 }
 
 // ── Passphrase-protected local files ("lock a file") ──────────────────────────
