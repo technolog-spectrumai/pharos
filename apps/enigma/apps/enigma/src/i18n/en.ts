@@ -12,6 +12,7 @@ export default {
     settings: "Settings",
     connections: "Connections",
     devices: "Devices",
+    lock: "Lock",
     data: "Data",
     light: "Light",
     dark: "Dark",
@@ -79,6 +80,7 @@ export default {
     title: "Configuration",
     subtitle: "Language, your P2P identity, and local data.",
     dataHint: "Offline mode and local profile data.",
+    lockHint: "How this device locks itself, the passphrase that opens it, and the code that wipes it.",
     myIdentity: "My identity",
     myIdentityHint:
       "This device's stable P2P node ID. Peers who paired with you once can reconnect to it even after your IP changes.",

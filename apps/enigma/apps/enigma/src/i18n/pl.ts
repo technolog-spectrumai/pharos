@@ -12,6 +12,7 @@ export default {
     settings: "Ustawienia",
     connections: "Połączenia",
     devices: "Urządzenia",
+    lock: "Blokada",
     data: "Dane",
     light: "Jasny",
     dark: "Ciemny",
@@ -79,6 +80,7 @@ export default {
     title: "Konfiguracja",
     subtitle: "Język, Twoja tożsamość P2P i dane lokalne.",
     dataHint: "Tryb offline i lokalne dane profilu.",
+    lockHint: "Jak to urządzenie się blokuje, hasło które je otwiera i kod który je kasuje.",
     myIdentity: "Moja tożsamość",
     myIdentityHint:
       "Stały identyfikator P2P tego urządzenia. Osoby, które raz się z Tobą sparowały, połączą się ponownie nawet po zmianie Twojego IP.",

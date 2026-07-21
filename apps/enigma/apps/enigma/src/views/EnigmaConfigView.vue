@@ -77,12 +77,15 @@ const chatStore = useChatStore();
 const { t, locale } = useI18n({ useScope: "global" });
 
 // Profile + Data live inside Settings as tabs. `?tab=profile`/`?tab=data` open them
-// directly (nav links use that); otherwise we open on the settings controls.
-type ConfigTab = "profile" | "settings" | "connections" | "devices" | "data";
+// directly (nav links use that); otherwise we open on the settings controls. The
+// Lock tab gathers everything that guards the vault (auto-lock, passphrase, panic
+// code); Data is purely about the offline profile data again.
+type ConfigTab = "profile" | "settings" | "connections" | "devices" | "lock" | "data";
 const tabFromQuery = (q: unknown): ConfigTab =>
   q === "profile" ? "profile"
   : q === "connections" ? "connections"
   : q === "devices" && devicesAllowed ? "devices"
+  : q === "lock" ? "lock"
   : q === "data" ? "data"
   : "settings";
 const activeTab = ref<ConfigTab>(tabFromQuery(route.query.tab));
@@ -575,6 +578,16 @@ async function clearSelectedOfflineData() {
       </button>
       <button
         type="button"
+        :class="activeTab === 'lock'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        @click="activeTab = 'lock'"
+      >
+        <font-awesome-icon icon="key" />{{ $t('nav.lock') }}
+      </button>
+      <button
+        type="button"
         :class="activeTab === 'data'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
@@ -1022,6 +1035,89 @@ async function clearSelectedOfflineData() {
     </OyaCard>
     </template>
 
+    <!-- Lock tab — everything guarding the vault: when it locks itself, the
+         passphrase that opens it, and the code that destroys it -->
+    <template v-if="activeTab === 'lock'">
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('nav.lock') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.lockHint') }}</p>
+      </div>
+    </OyaCard>
+
+    <!-- Auto-lock — re-lock the vault after a stretch of inactivity -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.idleLock') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.idleLockHint') }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="clock" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.idleLock') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.idleLockOff') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="idleLockMins"
+            type="number"
+            :min="buildCfg.idle_lock_mins.min"
+            :max="buildCfg.idle_lock_mins.max"
+            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            @change="saveIdleLock"
+            @keyup.enter="saveIdleLock"
+          />
+          <span class="text-xs opacity-60">min</span>
+          <span v-if="idleLockSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+      <OyaButton
+        :dark-mode="darkMode"
+        variant="secondary"
+        :class="{ 'pointer-events-none opacity-60': locking }"
+        @click="lockNow"
+      >
+        <font-awesome-icon icon="lock" />{{ $t('config.lockNow') }}
+      </OyaButton>
+    </OyaCard>
+
+    <!-- Reset passphrase — change the at-rest encryption passphrase -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.resetPass') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.resetPassHint') }}</p>
+      </div>
+      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openResetPass">
+        <font-awesome-icon icon="key" />{{ $t('config.resetPass') }}
+      </OyaButton>
+    </OyaCard>
+
+    <!-- Panic code — duress passphrase that wipes this device at the unlock gate -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.panicCode') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.panicCodeHint') }}</p>
+        <p class="mt-2 text-sm" :class="panicArmed ? 'text-warn-dark' : 'opacity-65'">
+          <font-awesome-icon v-if="panicArmed" icon="shield-halved" class="mr-1" />
+          {{ panicArmed ? $t('config.panicCodeArmed') : $t('config.panicCodeNone') }}
+        </p>
+      </div>
+      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openPanic">
+        <font-awesome-icon icon="triangle-exclamation" />
+        {{ panicArmed ? $t('config.panicCodeChange') : $t('config.panicCodeSet') }}
+      </OyaButton>
+    </OyaCard>
+    </template>
+
     <template v-if="activeTab === 'data'">
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
@@ -1211,75 +1307,6 @@ async function clearSelectedOfflineData() {
       </div>
     </OyaCard>
 
-    <!-- Auto-lock — re-lock the vault after a stretch of inactivity -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.idleLock') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.idleLockHint') }}</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="clock" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.idleLock') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.idleLockOff') }}</p>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <input
-            v-model.number="idleLockMins"
-            type="number"
-            :min="buildCfg.idle_lock_mins.min"
-            :max="buildCfg.idle_lock_mins.max"
-            class="w-20 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
-            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-            @change="saveIdleLock"
-            @keyup.enter="saveIdleLock"
-          />
-          <span class="text-xs opacity-60">min</span>
-          <span v-if="idleLockSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-        </div>
-      </div>
-      <OyaButton
-        :dark-mode="darkMode"
-        variant="secondary"
-        :class="{ 'pointer-events-none opacity-60': locking }"
-        @click="lockNow"
-      >
-        <font-awesome-icon icon="lock" />{{ $t('config.lockNow') }}
-      </OyaButton>
-    </OyaCard>
-
-    <!-- Reset passphrase — change the at-rest encryption passphrase -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.resetPass') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.resetPassHint') }}</p>
-      </div>
-      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openResetPass">
-        <font-awesome-icon icon="key" />{{ $t('config.resetPass') }}
-      </OyaButton>
-    </OyaCard>
-
-    <!-- Panic code — duress passphrase that wipes this device at the unlock gate -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.panicCode') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.panicCodeHint') }}</p>
-        <p class="mt-2 text-sm" :class="panicArmed ? 'text-warn-dark' : 'opacity-65'">
-          <font-awesome-icon v-if="panicArmed" icon="shield-halved" class="mr-1" />
-          {{ panicArmed ? $t('config.panicCodeArmed') : $t('config.panicCodeNone') }}
-        </p>
-      </div>
-      <OyaButton :dark-mode="darkMode" variant="secondary" @click="openPanic">
-        <font-awesome-icon icon="triangle-exclamation" />
-        {{ panicArmed ? $t('config.panicCodeChange') : $t('config.panicCodeSet') }}
-      </OyaButton>
-    </OyaCard>
     </template>
 
     <!-- Reset-passphrase modal -->
