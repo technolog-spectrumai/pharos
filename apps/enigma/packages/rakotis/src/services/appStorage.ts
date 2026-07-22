@@ -87,6 +87,10 @@ export interface BuildConfig {
    *  useMeetings is never instantiated (no meetings, polls or reminder tick).
    *  (pland.md — Pro only.) */
   calendar_enabled: boolean;
+  /** false = this build has no peer sync: the `enigma/plink/0` ALPN is not
+   *  registered, usePeerSync is never instantiated, and every peer_* command
+   *  errors with PEERS_DISABLED. (peer.md; pland.md — Pro only.) */
+  peers_enabled: boolean;
   /** false = this build has no Kanban board: no Board tab, /board redirects,
    *  and stores/chat.ts never instantiates the sync composable. */
   kanban_enabled: boolean;
@@ -124,6 +128,8 @@ export interface BuildConfig {
   chat_history_cap_msgs: SettingClamp;
   /** Auto-lock: minutes of inactivity before the vault re-locks. 0 = never. */
   idle_lock_mins: SettingClamp;
+  /** Peer sync: seconds between a live link's hello + diff pull. */
+  peer_resync_secs: SettingClamp;
 }
 
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
@@ -137,6 +143,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   calls_enabled: true,
   contacts_enabled: true,
   calendar_enabled: true,
+  peers_enabled: true,
   kanban_enabled: true,
   kanban_allow_reorder: true,
   kanban_default_columns: ["To Do", "In Progress", "Done"],
@@ -160,6 +167,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   devlink_resync_secs: { default: 300, min: 30, max: 3600 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
+  peer_resync_secs: { default: 300, min: 30, max: 3600 },
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -310,6 +318,34 @@ export async function getDevlinkResyncSecs(): Promise<number> {
 export async function setDevlinkResyncSecs(secs: number): Promise<number> {
   const v = clampDevlinkResyncSecs(secs);
   await kvPut("p2p:settings", "default", "devlink_resync_secs", String(v)).catch(() => {});
+  return v;
+}
+
+// ── Peer-sync resync interval (peer.md) ───────────────────────────────────────
+// How often a live peer link re-announces (plink_hello) and pulls the diff for
+// its granted scopes. Device-local, like the devlink cadence above — never in
+// any sync allow-list.
+
+export function clampPeerResyncSecs(secs: number): number {
+  const c = getBuildConfig().peer_resync_secs;
+  if (!Number.isFinite(secs)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
+}
+
+export async function getPeerResyncSecs(): Promise<number> {
+  const c = getBuildConfig().peer_resync_secs;
+  try {
+    const raw = await kvGet("p2p:settings", "default", "peer_resync_secs");
+    if (raw === null || raw === "") return c.default;
+    return clampPeerResyncSecs(Number(raw));
+  } catch {
+    return c.default;
+  }
+}
+
+export async function setPeerResyncSecs(secs: number): Promise<number> {
+  const v = clampPeerResyncSecs(secs);
+  await kvPut("p2p:settings", "default", "peer_resync_secs", String(v)).catch(() => {});
   return v;
 }
 

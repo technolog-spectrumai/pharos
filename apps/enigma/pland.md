@@ -58,7 +58,8 @@ it is the first feature that makes the profile exist in more than one place.
 Everything. Plus, extended with the shared-workspace features and the optional
 self-hosted server client.
 
-**Adds:** **Calendar** (meetings + scheduling polls) · **Kanban board** ·
+**Adds:** **Peer sync** (scoped, revocable person-to-person links — see
+[peer.md](peer.md)) · **Calendar** (meetings + scheduling polls) · **Kanban board** ·
 **Sketch board** · **Maps** (offline region packages) · **Enigma Cloud** (client
 for the user's *own* self-hosted server).
 
@@ -85,6 +86,7 @@ the one edition whose users have deliberately stood up their own infrastructure.
 | **Kanban board** | ❌ | ❌ | ✅ | `kanban.enabled` |
 | **Sketch board** | ❌ | ❌ | ✅ | `sketch.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
+| **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
 | **Enigma Cloud** | ❌ | ❌ | ✅ | `cloud.allow_connections` |
 
 DHT nuance: the DHT toggle covers three things — ticketless room joins by short
@@ -183,7 +185,9 @@ this design — see §6.
 2. **No cross-edition capability signalling.** A Pro peer cannot tell that a
    room member is on Light, so it cannot warn "3 members won't see this
    meeting". A capability byte in the MLS-carried presence/join payload would
-   fix it; today the degradation is silent.
+   fix it; today the degradation is silent. Peer sync makes this sharper: a sync
+   request to a Light or Plus peer is refused at ALPN negotiation and the
+   requester cannot explain why (peer.md §6).
 3. **Upgrade path.** Moving a profile from Light to Pro is "install the other
    build and point it at the same profile" — the vault format is
    edition-independent, so this works, but it is untested and undocumented.

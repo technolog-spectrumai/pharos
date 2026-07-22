@@ -143,6 +143,8 @@ import {
   faGavel,
   faCommentSlash,
   faUserSlash,
+  faArrowsRotate,
+  faLinkSlash,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -275,6 +277,8 @@ library.add(
   faGavel,
   faCommentSlash,
   faUserSlash,
+  faArrowsRotate,
+  faLinkSlash,
 );
 
 const app = createApp(App)

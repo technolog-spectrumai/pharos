@@ -27,6 +27,7 @@ struct RawConfig {
     calls: CallsSection,
     contacts: ContactsSection,
     calendar: CalendarSection,
+    peers: PeersSection,
     kanban: KanbanSection,
     sketch: SketchSection,
     maps: MapsSection,
@@ -93,6 +94,12 @@ struct CalendarSection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PeersSection {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct KanbanSection {
     enabled: bool,
     allow_reorder: bool,
@@ -142,6 +149,7 @@ struct SettingsSection {
     devlink_resync_secs: Clamp,
     chat_history_cap_msgs: Clamp,
     idle_lock_mins: Clamp,
+    peer_resync_secs: Clamp,
 }
 
 #[derive(Deserialize)]
@@ -251,6 +259,7 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         ("settings.chat_history_cap_msgs", &cfg.settings.chat_history_cap_msgs, 10u64),
         // floor 0: auto-lock off is a legitimate configuration.
         ("settings.idle_lock_mins", &cfg.settings.idle_lock_mins, 0u64),
+        ("settings.peer_resync_secs", &cfg.settings.peer_resync_secs, 10u64),
     ];
     for (path, c, floor) in clamps {
         if !(c.min <= c.default && c.default <= c.max) {
@@ -385,6 +394,9 @@ pub mod settings {{
     pub const IDLE_LOCK_DEFAULT_MINS: u64 = {il_def};
     pub const IDLE_LOCK_MIN_MINS: u64 = {il_min};
     pub const IDLE_LOCK_MAX_MINS: u64 = {il_max};
+    pub const PEER_RESYNC_DEFAULT_SECS: u64 = {pr_def};
+    pub const PEER_RESYNC_MIN_SECS: u64 = {pr_min};
+    pub const PEER_RESYNC_MAX_SECS: u64 = {pr_max};
 }}
 
 pub mod network {{
@@ -406,6 +418,10 @@ pub mod contacts {{
 
 pub mod calendar {{
     pub const ENABLED: bool = {calendar_enabled};
+}}
+
+pub mod peers {{
+    pub const ENABLED: bool = {peers_enabled};
 }}
 
 pub mod kanban {{
@@ -504,6 +520,9 @@ const _: () = assert!(
         il_def = cfg.settings.idle_lock_mins.default,
         il_min = cfg.settings.idle_lock_mins.min,
         il_max = cfg.settings.idle_lock_mins.max,
+        pr_def = cfg.settings.peer_resync_secs.default,
+        pr_min = cfg.settings.peer_resync_secs.min,
+        pr_max = cfg.settings.peer_resync_secs.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
         chunk = cfg.network.transfer_chunk_bytes,
@@ -513,6 +532,7 @@ const _: () = assert!(
         calls_enabled = cfg.calls.enabled,
         contacts_enabled = cfg.contacts.enabled,
         calendar_enabled = cfg.calendar.enabled,
+        peers_enabled = cfg.peers.enabled,
         kanban_enabled = cfg.kanban.enabled,
         kanban_allow_reorder = cfg.kanban.allow_reorder,
         kanban_default_columns = cfg

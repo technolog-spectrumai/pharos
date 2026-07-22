@@ -7,6 +7,8 @@ import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { useCloudStore } from "./stores/cloud";
 import { useMapStore } from "./stores/map";
+import { usePeersStore } from "./stores/peers";
+import PeerRequestModal from "./components/peers/PeerRequestModal.vue";
 import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, type IdleLockHandle } from "./idleLock";
@@ -174,6 +176,11 @@ const kanbanEnabled = chatStore.kanbanEnabled;
 const sketchEnabled = getBuildConfig().sketch_enabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
+// Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
+// a request lands on the main endpoint whatever tab is open, and the answer
+// window is short, so it can't wait behind a route.
+const peersEnabled = getBuildConfig().peers_enabled;
+const peers = peersEnabled ? usePeersStore() : null;
 
 // Close menu on navigation
 watch(() => route.path, () => {
@@ -310,6 +317,11 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
               :title="$t('contacts.incomingTitle')"
             />
+            <span
+              v-if="peers?.incoming"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+              :title="$t('peers.incomingTitle')"
+            />
           </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
@@ -404,6 +416,10 @@ onBeforeUnmount(() => {
               v-if="invites?.incoming.value"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
+            <span
+              v-if="peers?.incoming"
+              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
+            />
           </RouterLink>
           <RouterLink
             to="/config"
@@ -438,6 +454,9 @@ onBeforeUnmount(() => {
     >
       <p class="opacity-90">{{ brand.copyright }}</p>
     </footer>
+
+    <!-- Incoming peer-link request: caught anywhere in the app -->
+    <PeerRequestModal v-if="peersEnabled" :dark-mode="darkMode" />
     </template>
   </div>
 </template>

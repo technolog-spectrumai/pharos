@@ -59,6 +59,13 @@ calendar:
   # useMeetings is never instantiated (no meetings, no polls, no reminder tick).
   enabled: true
 
+peers:
+  # false = this build has no peer sync: no Peers surface, the `enigma/plink/0`
+  # ALPN is not registered (a request from a Pro peer is refused at negotiation),
+  # usePeerSync is never instantiated, and every peer_* command fails fast with
+  # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
+  enabled: true
+
 kanban:
   # false = this build has no Kanban board: no Board tab, /board redirects, and
   # stores/chat.ts never instantiates the sync composable. Default true ships the
@@ -125,6 +132,8 @@ settings:
   # app returns to the passphrase gate. 0 = never auto-lock. A live call or
   # in-flight transfer defers the countdown (see src/idleLock.ts).
   idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
+  # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
+  peer_resync_secs:         { default: 300, min: 30, max: 3600 }
 
 network:
   # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the

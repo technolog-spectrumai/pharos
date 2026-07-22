@@ -28,12 +28,16 @@ import {
   getDhtNickname,
   setDhtNickname,
   DHT_NICKNAME_MAX_LEN,
+  getBuildConfig,
   invoke,
   type ContactEntry,
   type P2pRoomEntry,
   type NickClaim,
 } from "rakotis";
 import { useChatStore } from "../stores/chat";
+import { usePeersStore } from "../stores/peers";
+import PeerLinksPanel from "../components/peers/PeerLinksPanel.vue";
+import PeerRequestForm from "../components/peers/PeerRequestForm.vue";
 
 defineProps<{ darkMode: boolean }>();
 
@@ -42,6 +46,10 @@ const chatStore = useChatStore();
 // Non-null: the /contacts route is build-gated (pland.md), so this view only
 // ever mounts in an edition where the composable exists.
 const invites = chatStore.invites!;
+// Peer sync is its own build gate (peer.md P4 — Pro only): in a flag-off build
+// the store is never touched and nothing below renders.
+const peersEnabled = getBuildConfig().peers_enabled;
+const peers = peersEnabled ? usePeersStore() : null;
 
 // ── My code (this device's stable NodeId — what a contact saves about ME) ─────
 const myNodeId = ref("");
@@ -279,6 +287,22 @@ async function pickInviteRoom(room: P2pRoomEntry) {
   await invites.sendInvite(target.nodeId, room);
 }
 
+// ── Peer sync (scoped person-to-person link — peer.md) ────────────────────────
+// Person-first like the direct invite above: pick the contact, then pick what
+// each side shares. Nothing leaves this device until they accept.
+const syncOpen = ref(false);
+const syncTarget = ref<ContactEntry | null>(null);
+
+function openSyncFor(contact: ContactEntry) {
+  syncTarget.value = contact;
+  syncOpen.value = true;
+}
+
+function closeSync() {
+  syncOpen.value = false;
+  peers?.resetOutgoing();
+}
+
 // ── Incoming invite (Accept / Decline) ─────────────────────────────────────────
 const incomingFromName = computed(() => {
   const invite = invites.incoming.value;
@@ -504,7 +528,17 @@ async function acceptIncoming() {
             :title="online[c.nodeId] ? $t('contacts.recentlyOnline') : $t('contacts.notSeenRecently')"
           />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold">{{ c.name }}</p>
+            <p class="truncate text-sm font-semibold">
+              {{ c.name }}
+              <!-- Already peer-linked: the sync button below re-negotiates it -->
+              <span
+                v-if="peers?.isLinked(c.nodeId)"
+                class="ml-1 rounded-full border border-current/20 px-1.5 text-[10px] uppercase text-success-dark"
+                :title="$t('peers.linkedBadgeTitle')"
+              >
+                <font-awesome-icon icon="arrows-rotate" /> {{ $t('peers.linkedBadge') }}
+              </span>
+            </p>
             <p class="truncate font-mono text-[11px] opacity-50">{{ c.nodeId }}</p>
             <p v-if="c.lastSeen && !online[c.nodeId]" class="text-[11px] opacity-50">
               {{ $t('contacts.lastSeen', { date: lastSeenLabel(c) }) }}
@@ -528,6 +562,15 @@ async function acceptIncoming() {
             <font-awesome-icon icon="paper-plane" />
           </button>
           <button
+            v-if="peersEnabled"
+            type="button"
+            class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
+            :title="$t('peers.sync')"
+            @click="openSyncFor(c)"
+          >
+            <font-awesome-icon icon="arrows-rotate" />
+          </button>
+          <button
             type="button"
             class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
             :title="$t('contacts.rename')"
@@ -546,6 +589,9 @@ async function acceptIncoming() {
         </li>
       </ul>
     </OyaCard>
+
+    <!-- Peer links — what each side of a scoped sync actually shares -->
+    <PeerLinksPanel v-if="peersEnabled" :dark-mode="darkMode" />
 
     <!-- Off-screen QR decode region (html5-qrcode needs a mounted element) -->
     <div id="contacts-qr-file-region" class="hidden" />
@@ -677,6 +723,25 @@ async function acceptIncoming() {
           type="button"
           class="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
           @click="closeInvite"
+        >
+          {{ $t('chat.close') }}
+        </button>
+      </template>
+    </OyaModal>
+
+    <!-- Peer-sync request: pick per-direction scopes → live handshake → outcome -->
+    <OyaModal v-if="peersEnabled" :open="syncOpen" @close="closeSync">
+      <PeerRequestForm
+        v-if="syncTarget"
+        :dark-mode="darkMode"
+        :node-id="syncTarget.nodeId"
+        :name="syncTarget.name"
+      />
+      <template #footer>
+        <button
+          type="button"
+          class="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+          @click="closeSync"
         >
           {{ $t('chat.close') }}
         </button>

@@ -7,8 +7,8 @@
 // real Ref<>s for the ChatPanel prop and direct `.value` access.
 
 import {
-  getBuildConfig, invoke, isTauri, useChatChannel, useDeviceSync,
-  type ChatChannel, type DeviceSync,
+  getBuildConfig, invoke, isTauri, useChatChannel, useDeviceSync, usePeerSync,
+  type ChatChannel, type DeviceSync, type PeerSync, type PeerSyncSources,
 } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
@@ -54,6 +54,25 @@ function createChatStore() {
   // user's other devices. Flag-off builds never instantiate it.
   const devicesEnabled = getBuildConfig().devices_allow_linking;
   const deviceSync: DeviceSync | null = devicesEnabled ? useDeviceSync(p2p) : null;
+  // Peer links — scoped person-to-person sync (peer.md). Flag-off builds never
+  // instantiate it, so no `plink_` handler registers and no link channel exists.
+  // The data sources are injected by stores/peers.ts (rakotis must not reach
+  // into app state); until it calls `setSources` the link converges nothing,
+  // which is exactly right for a profile that has not opened Peers yet.
+  const peersEnabled = getBuildConfig().peers_enabled;
+  let peerSources: PeerSyncSources = { myNodeId: () => "" };
+  const peerSync: PeerSync | null = peersEnabled
+    ? usePeerSync(p2p, {
+        myNodeId: () => peerSources.myNodeId(),
+        myMeetings: () => peerSources.myMeetings?.() ?? Promise.resolve([]),
+        myCard: () => peerSources.myCard?.() ?? Promise.resolve(null),
+        sharedRooms: (id) => peerSources.sharedRooms?.(id) ?? Promise.resolve([]),
+      })
+    : null;
+  /** Hand the peer-sync composable its app-side data sources (stores/peers.ts). */
+  function setPeerSources(next: PeerSyncSources): void {
+    peerSources = next;
+  }
 
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
@@ -88,6 +107,12 @@ function createChatStore() {
       deviceSync.stop();
       await deviceSync.start();
     }
+    // The profile switch swapped the kv data dir — reload this profile's peer
+    // grants and reconnect their link rooms.
+    if (peerSync) {
+      peerSync.stop();
+      await peerSync.start();
+    }
   }
   function clearLocalChatState(message?: string) {
     p2p.clearLocalChatState(message);
@@ -96,7 +121,7 @@ function createChatStore() {
   return {
     p2p, fileShare, vox, callsEnabled, invites, contactsEnabled,
     meetings, calendarEnabled, kanban, kanbanEnabled,
-    deviceSync, devicesEnabled, init,
+    deviceSync, devicesEnabled, peerSync, peersEnabled, setPeerSources, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

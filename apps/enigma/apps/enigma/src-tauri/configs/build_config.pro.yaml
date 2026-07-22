@@ -51,6 +51,13 @@ contacts:
 calendar:
   enabled: true
 
+peers:
+  # false = this build has no peer sync: no Peers surface, the `enigma/plink/0`
+  # ALPN is not registered (a request from a Pro peer is refused at negotiation),
+  # usePeerSync is never instantiated, and every peer_* command fails fast with
+  # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
+  enabled: true
+
 kanban:
   enabled: true
   allow_reorder: true
@@ -85,6 +92,8 @@ settings:
   devlink_resync_secs:      { default: 300, min: 30, max: 3600 }
   chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
   idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
+  # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
+  peer_resync_secs:         { default: 300, min: 30, max: 3600 }
 
 network:
   max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition
