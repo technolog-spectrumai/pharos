@@ -14,10 +14,49 @@
 // in the coordinate schema (`x/y/w/h`, `cx/cy/rx/ry` are axis-aligned by definition),
 // so baking rotation into coordinates would silently restrict which shapes can turn.
 
-/** Fixed logical board space. The view letterboxes to fit, so window size never
- *  affects stored coordinates. */
-export const BOARD_W = 1920;
+// ── board space ───────────────────────────────────────────────────────────────
+// The board's HEIGHT is fixed and its WIDTH is elastic: the view widens the board
+// until it fills its container edge to edge, instead of letterboxing a fixed 16:9
+// sheet inside it and wasting the side margins.
+//
+// Height is what stays fixed because it anchors the unit scale. A stroke width, a
+// font size and every coordinate in an already-saved board keep meaning exactly
+// what they meant before; a wider window only adds room on the RIGHT, so nothing
+// that was drawn before moves or resizes. (Fixing the width instead, and letting
+// height float, would rescale every existing drawing on every window.)
+
+/** The board's vertical extent in board units. Fixed — see above. */
 export const BOARD_H = 1080;
+
+/** The board's DEFAULT width: a 16:9 board, which is what the board always used to
+ *  be. Still the fallback whenever no live width is known — a headless export, a
+ *  unit test, or the first frame before the container has been measured. */
+export const BOARD_W = 1920;
+
+/** Bounds on the elastic width, so a freak container size cannot produce a board
+ *  that is degenerate or absurd. Roughly 1:2 (portrait phone) to 6:1 (a very wide
+ *  desktop); COORD_MAX is derived from MAX_BOARD_W so a shape drawn at the right
+ *  edge of the widest board still survives validation on the narrowest one. */
+export const MIN_BOARD_W = 540;
+export const MAX_BOARD_W = 6 * BOARD_H;
+
+/** The board width that fills an element of the given pixel size.
+ *
+ *  Matching the viewBox aspect to the element's aspect is what removes the
+ *  letterbox: `preserveAspectRatio` has nothing left to letterbox once the two
+ *  agree. Falls back to the default board for a zero or unmeasured element, which
+ *  is what the first frame sees. */
+export function boardWidthFor(elW: number, elH: number): number {
+  if (!Number.isFinite(elW) || !Number.isFinite(elH) || elW <= 0 || elH <= 0) return BOARD_W;
+  const raw = Math.round((BOARD_H * elW) / elH);
+  return Math.min(Math.max(raw, MIN_BOARD_W), MAX_BOARD_W);
+}
+
+/** Coerce an untrusted or absent width to a usable board width. */
+export function boardWidth(w?: number | null): number {
+  if (typeof w !== "number" || !Number.isFinite(w)) return BOARD_W;
+  return Math.min(Math.max(Math.round(w), MIN_BOARD_W), MAX_BOARD_W);
+}
 
 /** Minimum pointer travel (board units) before a freehand sample is kept. Thins a
  *  ~600-sample drag to ~150 with no visible loss. */
@@ -564,9 +603,15 @@ export function hitTest(shapes: Shape[], x: number, y: number, radius: number): 
 // non-finite number or an unescaped string is a real correctness/injection issue.
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-/** Allow modest overdraw outside the board, reject NaN/Infinity/1e300. */
-const COORD_MIN = -BOARD_W;
-const COORD_MAX = 2 * BOARD_W;
+/** Allow modest overdraw outside the board, reject NaN/Infinity/1e300.
+ *
+ *  Keyed to MAX_BOARD_W rather than to the default board: the board is elastic, so
+ *  a shape drawn near the right edge on a very wide window must still validate when
+ *  the same document is opened on a narrow one. Bounding to the old 2×1920 would
+ *  silently DELETE such shapes on load. This is a sanity bound on hostile input,
+ *  not a layout constraint, so being generous costs nothing. */
+const COORD_MIN = -MAX_BOARD_W;
+const COORD_MAX = 2 * MAX_BOARD_W;
 
 function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v >= COORD_MIN && v <= COORD_MAX ? v : null;
@@ -731,24 +776,29 @@ export function shapeToSvg(s: Shape): string {
  *  Tailwind classes — and export has to work regardless of what is on screen. */
 export function toSvg(
   doc: SketchDoc,
-  opts: { background?: string | null; image?: string | null } = {},
+  opts: { background?: string | null; image?: string | null; width?: number | null } = {},
 ): string {
+  // Defaults to the 16:9 board, so a caller that does not know the live width
+  // (a test, a headless export) gets exactly what this function always produced.
+  const w = boardWidth(opts.width);
   const bg = opts.background !== undefined ? opts.background : doc.background;
   // Transparent means NO background rect at all — an empty or white-filled rect
   // would defeat the point by making the export opaque.
-  const bgRect = bg ? `  <rect width="${BOARD_W}" height="${BOARD_H}" fill="${esc(bg)}"/>\n` : "";
-  // The image is embedded, not linked, so the .svg stays portable. It is already
-  // cropped to the board at import, so it draws at the full board rect and every
-  // renderer agrees without any fit maths.
+  const bgRect = bg ? `  <rect width="${w}" height="${BOARD_H}" fill="${esc(bg)}"/>\n` : "";
+  // The image is embedded, not linked, so the .svg stays portable. It is cropped to
+  // the DEFAULT board at import, so on an elastic board it no longer matches the
+  // rect's aspect — `slice` scales it to cover and crops the overflow, which keeps
+  // it undistorted. Stretching it to the rect instead would visibly squash it on
+  // any window that is not 16:9.
   const img = validateBackgroundImage(opts.image);
   const bgImage = img
-    ? `  <image href="${esc(img)}" x="0" y="0" width="${BOARD_W}" height="${BOARD_H}"/>\n`
+    ? `  <image href="${esc(img)}" x="0" y="0" width="${w}" height="${BOARD_H}" preserveAspectRatio="xMidYMid slice"/>\n`
     : "";
   const body = doc.shapes.map(shapeToSvg).join("\n  ");
   // width/height are required, not decorative: an SVG with no intrinsic size
   // renders at 0x0 when loaded as an image in WebKit.
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${BOARD_W}" height="${BOARD_H}" viewBox="0 0 ${BOARD_W} ${BOARD_H}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${BOARD_H}" viewBox="0 0 ${w} ${BOARD_H}">
 ${bgRect}${bgImage}  ${body}
 </svg>`;
 }

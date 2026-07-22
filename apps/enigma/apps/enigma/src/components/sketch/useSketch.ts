@@ -19,6 +19,8 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, kvDelete, kvGet, kvPut } from "rakotis";
 import {
+  BOARD_W,
+  boardWidth,
   DEFAULT_SLOT_COLORS,
   emptyDoc,
   hitTest,
@@ -120,6 +122,18 @@ export function useSketch() {
   const currentFill = ref<string | null>(null);
   /** The seven assignable colours behind both the stroke row and the fill row. */
   const slots = ref<string[]>([...DEFAULT_SLOT_COLORS]);
+
+  /** Live board width in board units — the board is elastic horizontally so it
+   *  fills its container (see BOARD_H/boardWidthFor in sketchModel).
+   *
+   *  It lives here, rather than inside the canvas that measures it, because the
+   *  EXPORT buttons live in the view and an export has to match what is on screen.
+   *  Deriving it from the window, it is never persisted: a board opened on another
+   *  window size simply gets that window's width. */
+  const boardW = ref<number>(BOARD_W);
+  function setBoardWidth(w: number) {
+    boardW.value = boardWidth(w);
+  }
 
   /** Assign a colour to one slot.
    *
@@ -656,6 +670,8 @@ export function useSketch() {
     currentFill,
     slots,
     setSlot,
+    boardW,
+    setBoardWidth,
     // caps
     maxShapes: caps.maxShapes,
     maxTextLen: caps.maxTextLen,

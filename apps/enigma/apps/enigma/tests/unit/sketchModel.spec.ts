@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   arrowHead,
   BACKGROUND_COLORS,
+  BOARD_H,
+  BOARD_W,
+  boardWidth,
+  boardWidthFor,
   COLOR_NAME_KEYS,
   DEFAULT_SLOT_COLORS,
   distToShape,
@@ -10,6 +14,8 @@ import {
   EXTRA_COLORS,
   hitTest,
   MAX_BG_IMAGE_CHARS,
+  MAX_BOARD_W,
+  MIN_BOARD_W,
   normalizeSlots,
   normDeg,
   PALETTE_SLOTS,
@@ -713,5 +719,95 @@ describe("normalizeSlots", () => {
     normalizeSlots(JSON.parse('{"__proto__":{"polluted":1}}'));
     normalizeSlots(["__proto__", "constructor"]);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+// The board is BOARD_H tall and elastic in width so it fills its container instead
+// of letterboxing a fixed 16:9 sheet. These pin the two things that makes safe:
+// the width matches the container's aspect exactly (no letterbox left to draw), and
+// an already-saved drawing keeps validating whatever width it is opened at.
+describe("elastic board width", () => {
+  it("matches the container's aspect, so nothing is letterboxed", () => {
+    // The reported bug: a 1280x602 widget letterboxed a 16:9 board to 1070 wide and
+    // wasted 210px. The board must now be as wide as the container's aspect implies.
+    expect(boardWidthFor(1280, 602)).toBe(Math.round((BOARD_H * 1280) / 602));
+    // Aspect, not absolute size — a half-size window gets the same board.
+    expect(boardWidthFor(640, 301)).toBe(boardWidthFor(1280, 602));
+    // A 16:9 container still yields exactly the classic board.
+    expect(boardWidthFor(1920, 1080)).toBe(BOARD_W);
+    expect(boardWidthFor(800, 450)).toBe(BOARD_W);
+  });
+
+  it("keeps the aspect it promises, to within rounding", () => {
+    for (const [w, h] of [
+      [1280, 602],
+      [1000, 1000],
+      [2560, 900],
+      [700, 1200],
+    ]) {
+      const bw = boardWidthFor(w, h);
+      // Only meaningful when the clamp did not bite.
+      if (bw > MIN_BOARD_W && bw < MAX_BOARD_W) {
+        expect(Math.abs(bw / BOARD_H - w / h)).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it("clamps a degenerate or absurd container instead of producing a broken board", () => {
+    expect(boardWidthFor(10_000, 10)).toBe(MAX_BOARD_W);
+    expect(boardWidthFor(10, 10_000)).toBe(MIN_BOARD_W);
+    // Unmeasured / zero-size element (the first frame) falls back to the default.
+    for (const [w, h] of [
+      [0, 0],
+      [1280, 0],
+      [Number.NaN, 100],
+      [-5, 100],
+    ]) {
+      expect(boardWidthFor(w, h)).toBe(BOARD_W);
+    }
+  });
+
+  it("coerces an untrusted width", () => {
+    expect(boardWidth(undefined)).toBe(BOARD_W);
+    expect(boardWidth(null)).toBe(BOARD_W);
+    expect(boardWidth(Number.NaN)).toBe(BOARD_W);
+    expect(boardWidth(Number.POSITIVE_INFINITY)).toBe(BOARD_W);
+    expect(boardWidth(1e9)).toBe(MAX_BOARD_W);
+    expect(boardWidth(1)).toBe(MIN_BOARD_W);
+    expect(boardWidth(2296)).toBe(2296);
+  });
+
+  it("still accepts a shape drawn at the far edge of the widest board", () => {
+    // Regression: COORD_MAX used to be 2*1920, so a shape drawn near the right edge
+    // of a very wide window would be silently DELETED by validateDoc when the same
+    // board was reopened on a narrower one.
+    const far = { ...path("p", [MAX_BOARD_W - 1, 10, MAX_BOARD_W, 20]) };
+    const doc = validateDoc({ v: 1, shapes: [far] }, CAPS);
+    expect(doc?.shapes).toHaveLength(1);
+    expect((doc?.shapes[0] as PathShape).pts).toEqual([MAX_BOARD_W - 1, 10, MAX_BOARD_W, 20]);
+  });
+
+  it("exports at the width it is given, and at the classic board when given none", () => {
+    const doc = emptyDoc();
+    doc.background = "#ffffff";
+    doc.shapes.push(shape({ kind: "rect", x: 0, y: 0, w: 10, h: 10 }));
+
+    const wide = toSvg(doc, { width: 2296 });
+    expect(wide).toContain('viewBox="0 0 2296 1080"');
+    expect(wide).toContain('width="2296" height="1080"');
+    // The background must cover the WHOLE elastic board, not just the classic part.
+    expect(wide).toContain('<rect width="2296" height="1080" fill="#ffffff"/>');
+
+    const bare = toSvg(doc);
+    expect(bare).toContain('viewBox="0 0 1920 1080"');
+  });
+
+  it("covers rather than stretches a background image on a non-16:9 board", () => {
+    // The stored image is cropped to the classic board, so on an elastic board its
+    // aspect no longer matches; without `slice` it would visibly squash.
+    const img = `data:image/png;base64,${"A".repeat(40)}=`;
+    const svg = toSvg(emptyDoc(), { image: img, width: 2296 });
+    expect(svg).toContain('preserveAspectRatio="xMidYMid slice"');
+    expect(svg).toContain('width="2296" height="1080"');
   });
 });

@@ -111,10 +111,13 @@ async function runExport(kind: "svg" | "png") {
     // Persist first: what lands on disk should match what's saved.
     await sketch.flushPersist();
     const name = `sketch-${stamp()}.${kind}`;
+    // The board is elastic, so the export takes the width that is actually on
+    // screen — otherwise a wide window would export with its right-hand side cropped
+    // back to the old fixed 16:9 board.
     const ok =
       kind === "svg"
-        ? await exportSvg(sketch.doc.value, name, sketch.backgroundImage.value)
-        : await exportPng(sketch.doc.value, name, sketch.backgroundImage.value);
+        ? await exportSvg(sketch.doc.value, name, sketch.backgroundImage.value, sketch.boardW.value)
+        : await exportPng(sketch.doc.value, name, sketch.backgroundImage.value, sketch.boardW.value);
     if (ok) notice.value = "exported";
   } catch (e) {
     error.value = (e as Error)?.message ?? String(e);

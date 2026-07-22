@@ -5,15 +5,17 @@
 // when one shape changes, and because the export format IS SVG — display and export
 // therefore share one representation.
 //
-// Everything is in fixed board units (BOARD_W x BOARD_H); the viewBox letterboxes to
-// fit and `toBoard` undoes that mapping for pointer events. Rotation is applied as an
+// Everything is in board units. The board is BOARD_H tall and ELASTIC in width: the
+// viewBox aspect is kept equal to the element's so the board fills its container
+// edge to edge rather than letterboxing a fixed 16:9 sheet inside it, and `toBoard`
+// undoes that mapping for pointer events. Rotation is applied as an
 // SVG transform about each shape's pivot, and hit-testing inverts the same transform
 // (see distToShapeRotated), so what you can click always matches what you can see.
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   arrowHead,
   BOARD_H,
-  BOARD_W,
+  boardWidthFor,
   canFill,
   pathD,
   quant,
@@ -60,9 +62,13 @@ function toBoard(e: PointerEvent): { x: number; y: number } {
   if (!rectCache) refreshRect();
   const r = rectCache;
   if (!r || r.width === 0 || r.height === 0) return { x: 0, y: 0 };
-  // preserveAspectRatio="xMidYMid meet" letterboxes, so undo the offset too.
-  const scale = Math.min(r.width / BOARD_W, r.height / BOARD_H);
-  const offX = (r.width - BOARD_W * scale) / 2;
+  // The viewBox aspect is kept equal to the element's, so there is normally no
+  // letterbox at all — but the general `meet` maths is retained rather than assuming
+  // scale = height/BOARD_H, because the two can disagree for a frame after a resize
+  // (boardW updates on the observer callback, the rect is read on the next pointer
+  // event) and by a sub-pixel rounding of the width.
+  const scale = Math.min(r.width / boardW.value, r.height / BOARD_H);
+  const offX = (r.width - boardW.value * scale) / 2;
   const offY = (r.height - BOARD_H * scale) / 2;
   return {
     x: quant((e.clientX - r.left - offX) / scale),
@@ -70,8 +76,38 @@ function toBoard(e: PointerEvent): { x: number; y: number } {
   };
 }
 
-window.addEventListener("resize", refreshRect);
-onBeforeUnmount(() => window.removeEventListener("resize", refreshRect));
+// ── elastic board width ─────────────────────────────────────────────────────
+// The board fills its container instead of letterboxing a fixed 16:9 sheet inside
+// it. Held in the orchestrator because the export buttons live in the parent view
+// and an export must match what is on screen.
+
+const boardW = computed(() => sketch.value.boardW.value);
+
+/** Re-measure and republish the width. A ResizeObserver rather than a window
+ *  `resize` listener: the container also changes height when the toolbar wraps to a
+ *  second row, which fires no window event, and it must fire once on attach so the
+ *  first real frame is already the right width. */
+function remeasure() {
+  refreshRect();
+  const r = rectCache;
+  if (r) sketch.value.setBoardWidth(boardWidthFor(r.width, r.height));
+}
+
+let ro: ResizeObserver | null = null;
+onMounted(() => {
+  if (svgEl.value && typeof ResizeObserver !== "undefined") {
+    ro = new ResizeObserver(remeasure);
+    ro.observe(svgEl.value);
+  }
+  remeasure();
+});
+
+window.addEventListener("resize", remeasure);
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", remeasure);
+  ro?.disconnect();
+  ro = null;
+});
 
 // ── gesture state ───────────────────────────────────────────────────────────
 
@@ -332,7 +368,7 @@ const boardSurfaceClass = computed(() =>
   <div class="relative min-h-0 w-full flex-1">
     <svg
       ref="svgEl"
-      :viewBox="`0 0 ${BOARD_W} ${BOARD_H}`"
+      :viewBox="`0 0 ${boardW} ${BOARD_H}`"
       preserveAspectRatio="xMidYMid meet"
       class="block h-full w-full touch-none select-none rounded-xl"
       :class="[cursorClass, boardSurfaceClass]"
@@ -349,20 +385,22 @@ const boardSurfaceClass = computed(() =>
            this case. -->
       <rect
         v-if="sketch.doc.value.background"
-        :width="BOARD_W"
+        :width="boardW"
         :height="BOARD_H"
         :fill="sketch.doc.value.background"
       />
 
-      <!-- Background image: cropped to the board at import, so it draws at the
-           full rect exactly as both exporters do. Over the colour, under the art. -->
+      <!-- Background image: cropped to the DEFAULT board at import, so on an elastic
+           board its aspect no longer matches the rect. `slice` covers and crops
+           rather than stretching, and both exporters do the same. -->
       <image
         v-if="sketch.backgroundImage.value"
         :href="sketch.backgroundImage.value"
         x="0"
         y="0"
-        :width="BOARD_W"
+        :width="boardW"
         :height="BOARD_H"
+        preserveAspectRatio="xMidYMid slice"
       />
 
       <!-- Committed document, in paint order -->

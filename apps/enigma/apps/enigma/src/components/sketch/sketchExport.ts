@@ -6,6 +6,7 @@ import {
   arrowHead,
   BOARD_H,
   BOARD_W,
+  boardWidth,
   canFill,
   pathD,
   shapePivot,
@@ -118,8 +119,9 @@ export async function exportSvg(
   doc: SketchDoc,
   defaultName: string,
   image?: string | null,
+  width?: number | null,
 ): Promise<boolean> {
-  const svg = toSvg(doc, { image });
+  const svg = toSvg(doc, { image, width });
   if (!isTauri()) {
     browserDownload(new Blob([svg], { type: "image/svg+xml" }), defaultName);
     return true;
@@ -136,8 +138,9 @@ export async function exportPng(
   doc: SketchDoc,
   defaultName: string,
   image?: string | null,
+  width?: number | null,
 ): Promise<boolean> {
-  const dataUrl = await rasterize(doc, image);
+  const dataUrl = await rasterize(doc, image, 1, width);
   if (!isTauri()) {
     const bin = atob(stripDataUrl(dataUrl));
     const bytes = new Uint8Array(bin.length);
@@ -185,9 +188,13 @@ export async function rasterize(
   doc: SketchDoc,
   image?: string | null,
   scale = 1,
+  width?: number | null,
 ): Promise<string> {
+  // Defaults to the 16:9 board so a caller with no live width gets exactly what
+  // this function always produced.
+  const boardW = boardWidth(width);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(BOARD_W * scale);
+  canvas.width = Math.round(boardW * scale);
   canvas.height = Math.round(BOARD_H * scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas is unavailable.");
@@ -198,12 +205,22 @@ export async function rasterize(
   // its background rect in the same case.
   if (doc.background) {
     ctx.fillStyle = doc.background;
-    ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+    ctx.fillRect(0, 0, boardW, BOARD_H);
   }
-  // Already cropped to the board at import, so it draws at the full rect — the same
-  // geometry the SVG uses. Over the colour, under every shape.
+  // Cropped to the DEFAULT board at import, so on an elastic board its aspect no
+  // longer matches the rect. Cover-crop it here — the same thing the SVG's
+  // preserveAspectRatio="xMidYMid slice" does — so the two renderers still agree
+  // and neither stretches it. Over the colour, under every shape.
   const bgImage = validateBackgroundImage(image);
-  if (bgImage) ctx.drawImage(await loadImage(bgImage), 0, 0, BOARD_W, BOARD_H);
+  if (bgImage) {
+    const img = await loadImage(bgImage);
+    const iw = img.naturalWidth || boardW;
+    const ih = img.naturalHeight || BOARD_H;
+    const cover = Math.max(boardW / iw, BOARD_H / ih);
+    const dw = iw * cover;
+    const dh = ih * cover;
+    ctx.drawImage(img, (boardW - dw) / 2, (BOARD_H - dh) / 2, dw, dh);
+  }
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
