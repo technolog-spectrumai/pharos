@@ -175,6 +175,33 @@ describe("dlink_ sync-seam routing (regression: it was never wired)", () => {
   });
 });
 
+describe("plink_ sync-seam routing (the same regression, for peer links)", () => {
+  it("routes a plink_* inner frame through the REAL handler to onSync", async () => {
+    // Dispatching through the real handler is the whole point: calling the sync
+    // handler directly is what MASKED the missing dlink_ prefix in 2026-07-20.
+    // A prefix absent from the gate does not merely fail to route — the frame
+    // renders as a raw-JSON chat bubble and gets persisted to chat:log.
+    const ch = await readyChannel("alice", "plink-x", { headless: true });
+    const seen: string[] = [];
+    ch.onSync((type) => seen.push(type));
+    await dispatch("plink-x", {
+      type: "mls_app", ciphertext: b64(JSON.stringify({ type: "plink_hello", v: 1 })),
+      device_id: "bob", sender_name: "Bob",
+    });
+    expect(seen).toContain("plink_hello");
+  });
+
+  it("does not render a plink_ frame as a chat bubble", async () => {
+    const ch = await readyChannel("alice", "plink-y", { headless: true });
+    const before = ch.messages.value.length;
+    await dispatch("plink-y", {
+      type: "mls_app", ciphertext: b64(JSON.stringify({ type: "plink_board", v: 1 })),
+      device_id: "bob", sender_name: "Bob",
+    });
+    expect(ch.messages.value.length).toBe(before);
+  });
+});
+
 describe("headless devlink channel", () => {
   it("never persists a saved-room entry", async () => {
     const ch = useChatChannel({ headless: true });

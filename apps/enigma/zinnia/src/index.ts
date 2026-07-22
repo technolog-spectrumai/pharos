@@ -16,6 +16,9 @@ export * from "./deviceSyncModel";
 export * from "./services/chatLog";
 export { useDeviceSync, registryMac, kpProof } from "./useDeviceSync";
 export type { DeviceSync } from "./useDeviceSync";
+export * from "./peerSyncModel";
+export { usePeerSync, peerKpProof } from "./usePeerSync";
+export type { PeerSync, PeerSyncSources } from "./usePeerSync";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────

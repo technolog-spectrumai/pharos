@@ -997,11 +997,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             }
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("dlink_"))) {
-            // `dlink_*` is the linked-device sync family (useDeviceSync). It is
-            // only ever produced/consumed on the headless devlink channel; on a
-            // normal room channel no handler owns the prefix, so it drops here
-            // harmlessly (same contract as every other sync family).
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("dlink_") || inner.type.startsWith("plink_"))) {
+            // `dlink_*` is the linked-device sync family (useDeviceSync) and
+            // `plink_*` the peer-link family (usePeerSync). Each is only ever
+            // produced/consumed on its own headless channel; on a normal room
+            // channel no handler owns the prefix, so it drops here harmlessly
+            // (same contract as every other sync family). A prefix MISSING from
+            // this gate does not drop — it renders as a raw-JSON chat bubble and
+            // gets persisted to chat:log. That was the CRITICAL finding of the
+            // 2026-07-20 review; both families have a routing regression test.
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
