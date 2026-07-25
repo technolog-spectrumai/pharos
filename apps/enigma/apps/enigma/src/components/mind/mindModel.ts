@@ -20,7 +20,10 @@ export interface MindNode {
   kind: MindNodeKind;
   /** Canvas label. Never empty — an untitled node would be an invisible target. */
   title: string;
-  /** Free text, edited in the inspector. Empty is the norm. */
+  /** Rich text as Trix-flavored HTML, edited in the inspector's Trix editor.
+   *  Treated as an opaque capped string here. SAFETY: only ever rendered
+   *  through Trix's own parser (whose element/attribute whitelist drops
+   *  anything active) — never via v-html. Empty is the norm. */
   content: string;
   /** Model-space position. The canvas runs a preset layout from these, so a saved
    *  map reopens exactly as it was arranged. */
@@ -245,8 +248,17 @@ export function parseImportFile(x: unknown, caps: MindCaps): MindDoc | null {
 
 // ── dump → node ───────────────────────────────────────────────────────────────
 
+/** Escape plain text into minimal HTML for a Trix-backed content field: entities
+ *  escaped, newlines become <br>. Node content is HTML (see MindNode.content);
+ *  feeding raw captured text into it unescaped would let a jotted "<b>" turn
+ *  into formatting — or worse survive a round-trip as markup. */
+export function plainTextToHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+}
+
 /** How a dump entry becomes a node: first non-empty line (trimmed) is the title,
- *  everything after that line (trimmed) is the content. Both honour the caps, so
+ *  everything after that line (trimmed) is the content — still PLAIN text here;
+ *  the orchestrator runs it through plainTextToHtml. Both honour the caps, so
  *  the conversion can never construct a node the validator would reject. */
 export function splitDumpEntry(text: string, caps: MindCaps): { title: string; content: string } {
   const lines = text.split("\n");

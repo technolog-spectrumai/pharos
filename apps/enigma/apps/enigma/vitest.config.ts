@@ -8,11 +8,15 @@ import vue from "@vitejs/plugin-vue";
 const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 // maplibre-gl needs WebGL — same treatment as ace: an inert stub in jsdom.
 const maplibreStub = new URL("./tests/stubs/maplibre.ts", import.meta.url).pathname;
+// cytoscape paints to canvas — inert stub; graph logic lives in pure modules.
+const cytoscapeStub = new URL("./tests/stubs/cytoscape.ts", import.meta.url).pathname;
+// trix registers custom elements at import time — inert stub.
+const trixStub = new URL("./tests/stubs/trix.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("../../node_modules/rakotis/src/index.ts", import.meta.url).pathname;
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue({ template: { compilerOptions: { isCustomElement: (tag) => tag.startsWith("trix-") } } })],
   resolve: {
     alias: [
       { find: /^rakotis$/, replacement: rakotisSrc },
@@ -20,6 +24,9 @@ export default defineConfig({
       { find: /^ace-builds\/src-noconflict\/.*/, replacement: aceStub },
       { find: /^maplibre-gl\/dist\/maplibre-gl\.css$/, replacement: cssStub },
       { find: /^maplibre-gl$/, replacement: maplibreStub },
+      { find: /^cytoscape$/, replacement: cytoscapeStub },
+      { find: /^trix\/dist\/trix\.css$/, replacement: cssStub },
+      { find: /^trix$/, replacement: trixStub },
     ],
   },
   test: {

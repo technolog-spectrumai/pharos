@@ -8,7 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [vue(), tailwindcss()],
+  // trix-editor / trix-toolbar are Trix's self-registering custom elements
+  // (Mind node content editor) — tell the Vue compiler they are not components.
+  plugins: [
+    vue({ template: { compilerOptions: { isCustomElement: (tag) => tag.startsWith("trix-") } } }),
+    tailwindcss(),
+  ],
 
   // The shared rakotis package ships TypeScript/Vue source (no prebuild): alias it
   // to its entry file and keep it out of esbuild dependency pre-bundling so the

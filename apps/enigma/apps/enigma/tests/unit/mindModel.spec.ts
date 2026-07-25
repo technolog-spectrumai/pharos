@@ -6,6 +6,7 @@ import {
   MIND_EXPORT_FORMAT,
   MIND_EXPORT_VERSION,
   parseImportFile,
+  plainTextToHtml,
   roundPos,
   splitDumpEntry,
   toExportFile,
@@ -22,7 +23,7 @@ const CAPS: MindCaps = {
   maxNodes: 500,
   maxEdges: 1000,
   maxTitleLen: 200,
-  maxContentLen: 4000,
+  maxContentLen: 20000,
   maxDumpEntries: 200,
   maxDumpEntryLen: 4000,
 };
@@ -66,7 +67,7 @@ describe("validateMindNode", () => {
   });
 
   it("slices overlong content and defaults missing content to empty", () => {
-    expect(validateMindNode(node({ content: "y".repeat(9000) }), CAPS)?.content).toHaveLength(CAPS.maxContentLen);
+    expect(validateMindNode(node({ content: "y".repeat(25000) }), CAPS)?.content).toHaveLength(CAPS.maxContentLen);
     const noContent = { ...node() } as Record<string, unknown>;
     delete noContent.content;
     expect(validateMindNode(noContent, CAPS)?.content).toBe("");
@@ -260,6 +261,16 @@ describe("export / import round-trip", () => {
     const back = parseImportFile(file, CAPS);
     expect(back?.nodes.map((n) => n.id)).toEqual(["a"]);
     expect(back?.edges).toEqual([]);
+  });
+});
+
+describe("plainTextToHtml", () => {
+  it("escapes markup and turns newlines into <br>", () => {
+    expect(plainTextToHtml('a <b>&"x"\nnext')).toBe('a &lt;b&gt;&amp;"x"<br>next');
+  });
+
+  it("leaves plain prose untouched", () => {
+    expect(plainTextToHtml("just words")).toBe("just words");
   });
 });
 

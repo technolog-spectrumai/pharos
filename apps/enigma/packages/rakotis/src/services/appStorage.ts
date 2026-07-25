@@ -170,7 +170,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   mind_max_nodes: 500,
   mind_max_edges: 1000,
   mind_max_title_len: 200,
-  mind_max_content_len: 4000,
+  mind_max_content_len: 20000,
   mind_max_dump_entries: 200,
   mind_max_dump_entry_len: 4000,
   devices_allow_linking: true,
