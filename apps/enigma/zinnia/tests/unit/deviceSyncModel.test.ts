@@ -180,6 +180,9 @@ describe("sync allow-list", () => {
     expect(isSyncableKv("devices", "default", "link")).toBe(false);
     expect(isSyncableKv("kanban", "default", "room-1")).toBe(false);
     expect(isSyncableKv("chat:log", "room-1", "index")).toBe(false);
+    // The mind map is local-only by design: never device-synced.
+    expect(isSyncableKv("mind", "default", "")).toBe(false);
+    expect(isSyncableKv("mind", "default", "dump")).toBe(false);
   });
 });
 

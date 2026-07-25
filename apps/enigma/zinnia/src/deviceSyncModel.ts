@@ -294,7 +294,9 @@ export function mergeMessages(
 // test on each side keeps them from drifting. Everything else is deliberately
 // device-local: connect_timeout_secs (per-device network conditions), all
 // map:* / map settings (locked decision), cloud:*, keys/*, mls/*, dht secrets,
-// kanban (its room seam already converges), and the devlink pacing knobs.
+// kanban (its room seam already converges), mind (the mind map is this
+// device's only — a design promise, not an oversight), and the devlink
+// pacing knobs.
 
 export interface SyncKvKey {
   ns: string;
