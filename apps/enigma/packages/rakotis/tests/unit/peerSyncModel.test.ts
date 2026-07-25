@@ -115,7 +115,7 @@ describe("peerSyncModel — scope enforcement", () => {
     expect(peerScopeKv("calendar", "node-bob")).toEqual({ ns: "peer:cal", scope: "node-bob", k: "" });
     expect(peerScopeKv("board", "node-bob").ns).toBe("peer:board");
     expect(peerScopeKv("card", "node-bob").ns).toBe("peer:card");
-    for (const ns of ["contacts", "p2p:rooms", "meetings", "p2p:settings", "keys", "mls", "map:regions", "devices"]) {
+    for (const ns of ["contacts", "p2p:rooms", "meetings", "p2p:settings", "keys", "mls", "map:regions", "devices", "mind"]) {
       expect(isPeerWritableNs(ns)).toBe(false);
     }
     expect(PEER_SCOPE_KV).toEqual(["peer:cal", "peer:board", "peer:card", "chat:log"]);
