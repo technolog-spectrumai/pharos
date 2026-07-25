@@ -594,20 +594,24 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   night-styled map in dark mode) by swapping the bundled protomaps flavour —
   no tile server is involved. No geolocation, no tracking, no directions
   engine.
-- **Mind** (`EnigmaMindView` / `MindMapPanel`, `MindDumpPanel`) — a private mind
-  map plus a "dump" capture inbox, both strictly this device's: sealed kv
-  (ns `mind`), deliberately absent from the device-link and peer-sync allow-lists
-  (negative pinning tests), and no `mind_*` wire messages exist. One directed
-  graph on a cytoscape canvas: note nodes (title + Trix rich-text content) and
-  hexagonal **topic** hubs, labeled directed edges with two-click connect + a
-  rubber-band ghost, endpoint **reconnect** handles on the selected edge, and
-  collapse-a-branch (double-tap / Space / ⊖ chip; hidden = unreachable except
-  through a collapsed frontier, so cross-linked topics never punch holes in each
-  other). Autosaved (debounced doc key, immediate dump key), whole-doc undo/redo,
-  breadthfirst auto-arrange, JSON export/import (validated, replace-after-confirm,
-  one Undo restores). The dump inbox turns an entry into a note under a chosen
-  topic (first line → title) — one atomic, undoable step. Compile-time gated
-  (`mind.enabled`).
+- **Mind** (`EnigmaMindView` / `MindMapPanel`, `MindTopicsPanel`) — a private
+  mind map, strictly this device's: sealed kv (ns `mind`), deliberately absent
+  from the device-link and peer-sync allow-lists (negative pinning tests), and
+  no `mind_*` wire messages exist. One directed graph on a cytoscape canvas:
+  note nodes and hexagonal **topic** hubs, labeled directed edges with
+  two-click connect + a rubber-band ghost, endpoint **reconnect** handles on
+  the selected edge, and collapse-a-branch (double-tap / Space / ⊖ chip;
+  hidden = unreachable except through a collapsed frontier, so cross-linked
+  topics never punch holes in each other). All node text lives in ONE edit
+  modal (`MindNodeEditModal`, opened from the ✎ chip / inspector / F2 / node
+  creation): title, kind, and content as Trix rich text or plain text,
+  buffered drafts, Save = one undo step, Discard = nothing happened. The
+  Topics sub-tab browses topic hubs — a read-only details modal (description
+  through read-only Trix, linked nodes either direction) with "add note",
+  which creates a note wired note → topic and hands it to the editor.
+  Autosaved (debounced), whole-doc undo/redo, breadthfirst auto-arrange, JSON
+  export/import (validated, replace-after-confirm, one Undo restores).
+  Compile-time gated (`mind.enabled`).
 - **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; "My identity" NodeId QR;
   connection timeout; max file size; meeting reminder; DHT discovery + cadences +
@@ -840,9 +844,9 @@ Settings → "Clear all data".
   (`map:routes`) are sealed kv like everything else — coordinates never persist
   outside the vault. The region *blobs* are the documented plaintext exception
   (see §8 at-rest posture).
-- **Mind data:** the mind-map document (ns `mind`, key `""`) and the dump inbox
-  (key `dump`) are sealed kv, device-local by construction (absent from
-  `DEVLINK_SYNC_KV` and `PEER_SCOPE_KV`; pinned by negative tests). Node content
+- **Mind data:** the mind-map document (ns `mind`, key `""`) is sealed kv,
+  device-local by construction (absent from `DEVLINK_SYNC_KV` and
+  `PEER_SCOPE_KV`; pinned by negative tests). Node content
   is Trix HTML treated as an opaque capped string, scrubbed at validation
   (`scrubContentHtml`): images/attachments/scripts stripped and hrefs allowlisted
   to http(s)/mailto, because the webview has no CSP and a smuggled
@@ -989,7 +993,7 @@ instead of hardcoding.
 | Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |
-| Mind kill switch + caps | `build_config.yaml` `mind.enabled`, `mind.max_nodes` 500, `max_edges` 1000, `max_title_len` 200 (also edge labels), `max_content_len` 20000 (Trix HTML), `max_dump_entries` 200, `max_dump_entry_len` 4000 | Compile-time: `false` builds without the Mind tab (`/mind` redirects). Caps enforced in `useMind` (creation refused at capacity) and `mindModel` validators (load/import truncate). No Rust surface — the feature is pure frontend over sealed kv |
+| Mind kill switch + caps | `build_config.yaml` `mind.enabled`, `mind.max_nodes` 500, `max_edges` 1000, `max_title_len` 200 (also edge labels), `max_content_len` 20000 (Trix HTML) | Compile-time: `false` builds without the Mind tab (`/mind` redirects). Caps enforced in `useMind` (creation refused at capacity) and `mindModel` validators (load/import truncate). No Rust surface — the feature is pure frontend over sealed kv |
 | Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Settings→Devices tab and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
 | Devlink pairing window / resync cadence | kv `p2p:settings` / `devlink_pair_window_secs`, `devlink_resync_secs` | Window bounds how long a pairing QR's one-time secret stays redeemable (default 600 s, 60–3600; read Rust-side in `device_link.rs`); resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list. Pairing dials use `connect_timeout_secs` like every other connect deadline |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |

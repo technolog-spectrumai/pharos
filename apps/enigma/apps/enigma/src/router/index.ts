@@ -59,7 +59,7 @@ const router = createRouter({
       name: "sketch",
       beforeEnter: () => getBuildConfig().sketch_enabled || "/chat",
     },
-    // Mind map + dump inbox — local-only, same compile-time gate pattern.
+    // Mind map — local-only, same compile-time gate pattern.
     {
       path: "/mind",
       component: EnigmaMindView,

@@ -176,7 +176,7 @@ const kanbanEnabled = chatStore.kanbanEnabled;
 const sketchEnabled = getBuildConfig().sketch_enabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
-// Mind tab (compile-time gated) — a local-only mind map + dump inbox.
+// Mind tab (compile-time gated) — a local-only mind map + topics browser.
 const mindEnabled = getBuildConfig().mind_enabled;
 // Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
 // a request lands on the main endpoint whatever tab is open, and the answer

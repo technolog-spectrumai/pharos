@@ -194,9 +194,9 @@ export function needsMaterialization(nodes: MindNode[]): boolean {
   return nodes.length > 1 && nodes.every((n) => n.x === 0 && n.y === 0);
 }
 
-/** A free spot for a node created without a canvas position (dump links use
- *  their topic-relative slot instead): the viewport centre, nudged outward in
- *  a ring walk until nothing sits within `spacing`. */
+/** A free spot for a node created without a canvas position (topic-attached
+ *  notes use their topic-relative slot instead): the viewport centre, nudged
+ *  outward in a ring walk until nothing sits within `spacing`. */
 export function nextNodePosition(
   center: { x: number; y: number },
   taken: { x: number; y: number }[],

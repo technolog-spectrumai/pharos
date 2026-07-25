@@ -85,7 +85,7 @@ the one edition whose users have deliberately stood up their own infrastructure.
 | **Calendar** (meetings + polls) | ❌ | ❌ | ✅ | `calendar.enabled` |
 | **Kanban board** | ❌ | ❌ | ✅ | `kanban.enabled` |
 | **Sketch board** | ❌ | ❌ | ✅ | `sketch.enabled` |
-| **Mind map** (graph + dump inbox) | ❌ | ❌ | ✅ | `mind.enabled` |
+| **Mind map** (graph + topics browser) | ❌ | ❌ | ✅ | `mind.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
 | **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
 | **Enigma Cloud** | ❌ | ❌ | ✅ | `cloud.allow_connections` |

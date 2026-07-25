@@ -8,8 +8,8 @@
 // Nodes carry a title (the canvas label) and free-text content; edges carry only
 // a label. Edges are directed (source → target): direction is what gives
 // "collapse this node's subtree" a meaning. Topic nodes are ordinary nodes with
-// `kind: "topic"` — hubs that cross-link ideas and that dump entries convert
-// under. The renderer decides how they look; the model only stores the kind.
+// `kind: "topic"` — hubs that cross-link ideas and that the Topics tab
+// browses. The renderer decides how they look; the model only stores the kind.
 
 // ── document ──────────────────────────────────────────────────────────────────
 

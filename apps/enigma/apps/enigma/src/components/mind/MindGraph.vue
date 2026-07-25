@@ -3,8 +3,9 @@
 // memory-history router unmounts views on navigation) — the document in the
 // useMind singleton is the only source of truth. Everything the user does on
 // the canvas becomes an orchestrator mutation; a single diff watcher folds
-// every document change (from ANY caller: canvas, inspector, keyboard, dump
-// link, undo) back into cytoscape, so no call site needs to patch cy by hand.
+// every document change (from ANY caller: canvas, inspector, edit modal,
+// Topics tab, keyboard, undo) back into cytoscape, so no call site needs to
+// patch cy by hand.
 //
 // Gestures cytoscape core lacks are built from primitives:
 // - connect / reconnect: two-click with a rubber band (a ghost node with
