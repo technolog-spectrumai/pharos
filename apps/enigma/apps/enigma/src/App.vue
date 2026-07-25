@@ -176,6 +176,8 @@ const kanbanEnabled = chatStore.kanbanEnabled;
 const sketchEnabled = getBuildConfig().sketch_enabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
+// Mind tab (compile-time gated) — a local-only mind map + dump inbox.
+const mindEnabled = getBuildConfig().mind_enabled;
 // Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
 // a request lands on the main endpoint whatever tab is open, and the answer
 // window is short, so it can't wait behind a route.
@@ -309,6 +311,10 @@ onBeforeUnmount(() => {
             <font-awesome-icon icon="map" />
             {{ $t('nav.map') }}
           </RouterLink>
+          <RouterLink v-if="mindEnabled" to="/mind" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.mind')">
+            <font-awesome-icon icon="diagram-project" />
+            {{ $t('nav.mind') }}
+          </RouterLink>
           <RouterLink v-if="contactsEnabled" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
@@ -408,6 +414,10 @@ onBeforeUnmount(() => {
           <RouterLink v-if="mapsEnabled" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="map" class="w-4 text-center" />
             {{ $t('nav.map') }}
+          </RouterLink>
+          <RouterLink v-if="mindEnabled" to="/mind" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="diagram-project" class="w-4 text-center" />
+            {{ $t('nav.mind') }}
           </RouterLink>
           <RouterLink v-if="contactsEnabled" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />

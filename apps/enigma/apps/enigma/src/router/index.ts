@@ -8,6 +8,7 @@ import EnigmaKanbanView from "../views/EnigmaKanbanView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 import EnigmaMapView from "../views/EnigmaMapView.vue";
+import EnigmaMindView from "../views/EnigmaMindView.vue";
 import EnigmaSketchView from "../views/EnigmaSketchView.vue";
 
 // Enigma is a serverless P2P chat: one chat surface, P2P file transfer,
@@ -57,6 +58,13 @@ const router = createRouter({
       component: EnigmaSketchView,
       name: "sketch",
       beforeEnter: () => getBuildConfig().sketch_enabled || "/chat",
+    },
+    // Mind map + dump inbox — local-only, same compile-time gate pattern.
+    {
+      path: "/mind",
+      component: EnigmaMindView,
+      name: "mind",
+      beforeEnter: () => getBuildConfig().mind_enabled || "/chat",
     },
     {
       path: "/contacts",
