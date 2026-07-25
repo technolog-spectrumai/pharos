@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyMindDoc,
-  emptyMindDump,
+  htmlToPlainText,
   MIND_COORD_LIMIT,
   MIND_EXPORT_FORMAT,
   MIND_EXPORT_VERSION,
@@ -9,10 +9,8 @@ import {
   plainTextToHtml,
   roundPos,
   scrubContentHtml,
-  splitDumpEntry,
   toExportFile,
   validateMindDoc,
-  validateMindDump,
   validateMindEdge,
   validateMindNode,
   type MindCaps,
@@ -25,8 +23,6 @@ const CAPS: MindCaps = {
   maxEdges: 1000,
   maxTitleLen: 200,
   maxContentLen: 20000,
-  maxDumpEntries: 200,
-  maxDumpEntryLen: 4000,
 };
 
 function node(over: Partial<MindNode> = {}): MindNode {
@@ -36,7 +32,6 @@ function node(over: Partial<MindNode> = {}): MindNode {
 describe("empty documents", () => {
   it("shapes", () => {
     expect(emptyMindDoc()).toEqual({ v: 1, nodes: [], edges: [] });
-    expect(emptyMindDump()).toEqual({ v: 1, entries: [] });
   });
 });
 
@@ -186,43 +181,6 @@ describe("validateMindDoc", () => {
   });
 });
 
-describe("validateMindDump", () => {
-  it("rejects non-dumps and drops malformed entries", () => {
-    expect(validateMindDump(null, CAPS)).toBeNull();
-    expect(validateMindDump({ entries: "x" }, CAPS)).toBeNull();
-    const dump = validateMindDump(
-      {
-        entries: [
-          { id: "d1", text: "keep", createdAt: 5 },
-          { id: "d2", text: "", createdAt: 5 },
-          { id: "d3", text: "bad clock", createdAt: Number.NaN },
-          { id: "d1", text: "dup id", createdAt: 6 },
-          "junk",
-        ],
-      },
-      CAPS,
-    );
-    expect(dump?.entries.map((e) => e.id)).toEqual(["d1"]);
-    expect(dump?.entries[0].text).toBe("keep");
-  });
-
-  it("caps the entry count and slices overlong text", () => {
-    const caps: MindCaps = { ...CAPS, maxDumpEntries: 2, maxDumpEntryLen: 4 };
-    const dump = validateMindDump(
-      {
-        entries: [
-          { id: "a", text: "abcdefgh", createdAt: 1 },
-          { id: "b", text: "ok", createdAt: 2 },
-          { id: "c", text: "over", createdAt: 3 },
-        ],
-      },
-      caps,
-    );
-    expect(dump?.entries.map((e) => e.id)).toEqual(["a", "b"]);
-    expect(dump?.entries[0].text).toBe("abcd");
-  });
-});
-
 describe("export / import round-trip", () => {
   const doc: MindDoc = {
     v: 1,
@@ -306,28 +264,20 @@ describe("plainTextToHtml", () => {
   });
 });
 
-describe("splitDumpEntry", () => {
-  it("uses the first non-empty line as title, the remainder as content", () => {
-    expect(splitDumpEntry("Title line\nbody one\nbody two", CAPS)).toEqual({
-      title: "Title line",
-      content: "body one\nbody two",
-    });
+describe("htmlToPlainText", () => {
+  it("turns trix blocks and breaks into newlines and drops tags", () => {
+    expect(htmlToPlainText("<div>a<br>b</div><div><strong>c</strong></div>")).toBe("a\nb\nc");
   });
 
-  it("skips leading blank lines and trims", () => {
-    expect(splitDumpEntry("\n\n  Idea  \n\nrest\n", CAPS)).toEqual({ title: "Idea", content: "rest" });
+  it("decodes the basic entities without double-decoding", () => {
+    expect(htmlToPlainText("&lt;b&gt; &amp; &quot;x&quot; &#39;y&#39;")).toBe("<b> & \"x\" 'y'");
+    // A literal "&amp;lt;" is an escaped "&lt;", not a "<".
+    expect(htmlToPlainText("&amp;lt;")).toBe("&lt;");
   });
 
-  it("single line means empty content", () => {
-    expect(splitDumpEntry("just this", CAPS)).toEqual({ title: "just this", content: "" });
-  });
-
-  it("whitespace-only text produces an empty title (caller must refuse)", () => {
-    expect(splitDumpEntry("   \n  ", CAPS)).toEqual({ title: "", content: "" });
-  });
-
-  it("slices both parts to their caps", () => {
-    const caps: MindCaps = { ...CAPS, maxTitleLen: 3, maxContentLen: 5 };
-    expect(splitDumpEntry("abcdef\nghijklmn", caps)).toEqual({ title: "abc", content: "ghijk" });
+  it("round-trips simple plain text through plainTextToHtml", () => {
+    const text = "line one\nline & <two>";
+    expect(htmlToPlainText(plainTextToHtml(text))).toBe(text);
   });
 });
+

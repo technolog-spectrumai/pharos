@@ -30,7 +30,7 @@ DHT room codes · P2P file transfer · per-file local locking + the notes editor
 the encrypted-at-rest vault (passphrase gate, panic code, idle auto-lock,
 airplane mode) · profile + settings + i18n.
 
-**Out:** Contacts, voice calls, calendar, board, sketch, maps, Enigma Cloud,
+**Out:** Contacts, voice calls, calendar, board, sketch, maps, mind, Enigma Cloud,
 multi-device linking.
 
 **Who it's for:** the user who wants one thing to work and to be able to explain
@@ -47,7 +47,7 @@ invites with Accept/Decline) · **1:1 voice calls** (`vox`, riding the room's ML
 group) · **multi-device linking** (the user's own devices converge over pure
 P2P — no third party).
 
-**Out:** calendar, board, sketch, maps, Enigma Cloud.
+**Out:** calendar, board, sketch, maps, mind, Enigma Cloud.
 
 **Who it's for:** the everyday user. Device linking lands here rather than in
 Light because "my phone and my laptop" is a Plus-shaped expectation, and because
@@ -85,6 +85,7 @@ the one edition whose users have deliberately stood up their own infrastructure.
 | **Calendar** (meetings + polls) | ❌ | ❌ | ✅ | `calendar.enabled` |
 | **Kanban board** | ❌ | ❌ | ✅ | `kanban.enabled` |
 | **Sketch board** | ❌ | ❌ | ✅ | `sketch.enabled` |
+| **Mind map** (graph + dump inbox) | ❌ | ❌ | ✅ | `mind.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
 | **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
 | **Enigma Cloud** | ❌ | ❌ | ✅ | `cloud.allow_connections` |

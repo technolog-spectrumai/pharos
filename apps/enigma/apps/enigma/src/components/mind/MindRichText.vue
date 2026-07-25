@@ -22,7 +22,13 @@ import "trix";
 import { onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
 import { scrubContentHtml } from "./mindModel";
 
-const props = defineProps<{ modelValue: string }>();
+const props = defineProps<{
+  modelValue: string;
+  /** Display-only rendering (Topics details): toolbar hidden via CSS, the
+   *  editing surface locked. Still Trix, so stored HTML renders exactly as it
+   *  was written — and still never v-html. */
+  readonly?: boolean;
+}>();
 const emit = defineEmits<{ "update:modelValue": [string] }>();
 
 const inputId = useId();
@@ -58,6 +64,7 @@ onMounted(() => {
   editorEl.value?.addEventListener("trix-file-accept", onFileAccept);
   editorEl.value?.addEventListener("trix-attachment-add", onAttachmentAdd);
   editorEl.value?.addEventListener("paste", onPaste, true);
+  if (props.readonly) editorEl.value?.setAttribute("contenteditable", "false");
 });
 
 onBeforeUnmount(() => {
@@ -82,7 +89,7 @@ watch(
 </script>
 
 <template>
-  <div class="mind-trix-wrap">
+  <div class="mind-trix-wrap" :class="{ 'mind-trix-readonly': readonly }">
     <input :id="inputId" ref="inputEl" type="hidden" :value="modelValue" />
     <trix-editor ref="editorEl" :input="inputId" />
   </div>

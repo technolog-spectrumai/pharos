@@ -6,15 +6,9 @@ import { getMind, resetMind } from "../../src/components/mind/useMind";
 // kv falls back to localStorage in vitest, so writes are directly observable.
 
 const DOC_KEY = "enigma:db:mind:default:";
-const DUMP_KEY = "enigma:db:mind:default:dump";
 
 function docInStore() {
   const raw = localStorage.getItem(DOC_KEY);
-  return raw ? JSON.parse(raw) : null;
-}
-
-function dumpInStore() {
-  const raw = localStorage.getItem(DUMP_KEY);
   return raw ? JSON.parse(raw) : null;
 }
 
@@ -83,14 +77,6 @@ describe("persistence gates", () => {
     expect(mind.nodes.value.map((n) => n.id)).toEqual(["a"]);
   });
 
-  it("writes the dump immediately, without touching the doc key", async () => {
-    const mind = await loadedMind();
-    mind.addDumpEntry("quick thought");
-    // No timer advance: the dump write is deliberate-click-paced, not debounced.
-    await Promise.resolve();
-    expect(dumpInStore()?.entries).toHaveLength(1);
-    expect(localStorage.getItem(DOC_KEY)).toBeNull();
-  });
 });
 
 describe("graph mutations", () => {
@@ -230,40 +216,69 @@ describe("undo / redo", () => {
   });
 });
 
-describe("dump → topic", () => {
-  it("converts an entry into an escaped-HTML note under the topic, atomically undoable", async () => {
+describe("topics", () => {
+  it("addNoteToTopic creates node + note→topic edge atomically", async () => {
     const mind = await loadedMind();
-    const topic = mind.addNode("topic", "Ideas", "", 0, 0)!;
-    const entry = mind.addDumpEntry("Title line\nbody <b>&</b>")!;
-    const node = mind.linkDumpEntryToTopic(entry.id, topic.id)!;
+    const topic = mind.addNode("topic", "Ideas", "", 100, 100)!;
+    const note = mind.addNoteToTopic(topic.id, "Untitled")!;
 
-    expect(node.title).toBe("Title line");
-    expect(node.content).toBe("body &lt;b&gt;&amp;&lt;/b&gt;");
-    expect(mind.dump.value.entries).toHaveLength(0);
-    expect(mind.edges.value[0]).toMatchObject({ source: topic.id, target: node.id });
-
-    mind.undo(); // ONE step: node+edge gone AND the entry is back
+    expect(note.kind).toBe("note");
+    expect(mind.edges.value[0]).toMatchObject({ source: note.id, target: topic.id });
+    mind.undo(); // ONE step: node and edge disappear together
     expect(mind.nodes.value).toHaveLength(1);
     expect(mind.edges.value).toHaveLength(0);
-    expect(mind.dump.value.entries).toHaveLength(1);
   });
 
-  it("refuses to link to a non-topic node or a whitespace-only entry", async () => {
+  it("refuses non-topics and blank titles", async () => {
     const mind = await loadedMind();
-    const note = mind.addNode("note", "not a topic", "", 0, 0)!;
-    const entry = mind.addDumpEntry("text")!;
-    expect(mind.linkDumpEntryToTopic(entry.id, note.id)).toBeNull();
-    expect(mind.dump.value.entries).toHaveLength(1);
+    const note = mind.addNode("note", "not a hub", "", 0, 0)!;
+    const topic = mind.addNode("topic", "T", "", 0, 0)!;
+    expect(mind.addNoteToTopic(note.id, "x")).toBeNull();
+    expect(mind.addNoteToTopic(topic.id, "   ")).toBeNull();
+    expect(mind.nodes.value).toHaveLength(2);
   });
 
-  it("persists both keys after a link", async () => {
+  it("fans successive notes out to distinct slots", async () => {
     const mind = await loadedMind();
     const topic = mind.addNode("topic", "T", "", 0, 0)!;
-    const entry = mind.addDumpEntry("thought")!;
-    mind.linkDumpEntryToTopic(entry.id, topic.id);
-    await vi.advanceTimersByTimeAsync(800);
-    expect(docInStore()?.nodes).toHaveLength(2);
-    expect(dumpInStore()?.entries).toHaveLength(0);
+    const n1 = mind.addNoteToTopic(topic.id, "one")!;
+    const n2 = mind.addNoteToTopic(topic.id, "two")!;
+    expect(n1.y).not.toBe(n2.y);
+  });
+});
+
+describe("commitNodeEdit (the edit modal's Save)", () => {
+  it("applies title, kind and content in ONE undo step, scrubbing content", async () => {
+    const mind = await loadedMind();
+    const n = mind.addNode("note", "before", "", 0, 0)!;
+    mind.commitNodeEdit(n.id, {
+      title: "after",
+      kind: "topic",
+      content: '<div>ok<img src="https://evil.example/x.png"></div>',
+    });
+
+    const edited = mind.nodes.value[0];
+    expect(edited).toMatchObject({ title: "after", kind: "topic", content: "<div>ok</div>" });
+
+    mind.undo();
+    expect(mind.nodes.value[0]).toMatchObject({ title: "before", kind: "note", content: "" });
+  });
+
+  it("keeps the old title when the draft is blank, and no-ops on no change", async () => {
+    const mind = await loadedMind();
+    const n = mind.addNode("note", "keep", "", 0, 0)!;
+    mind.commitNodeEdit(n.id, { title: "   ", kind: "note", content: "<div>x</div>" });
+    expect(mind.nodes.value[0].title).toBe("keep");
+
+    const canUndoBefore = mind.canUndo.value;
+    mind.undo();
+    mind.redo();
+    mind.commitNodeEdit(n.id, { title: "keep", kind: "note", content: "<div>x</div>" }); // identical
+    expect(mind.canRedo.value).toBe(false); // redo was already consumed…
+    void canUndoBefore;
+    // …and the identical commit took no snapshot: one undo returns to pre-edit.
+    mind.undo();
+    expect(mind.nodes.value[0].content).toBe("");
   });
 });
 

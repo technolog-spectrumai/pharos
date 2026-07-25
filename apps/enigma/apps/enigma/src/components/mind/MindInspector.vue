@@ -1,17 +1,11 @@
 <script setup lang="ts">
-// Selection-bound side panel. Editing happens here rather than on the canvas
-// because cytoscape labels are canvas-painted — there is no DOM element to
-// attach an inline editor to. Every field writes straight through to the
-// orchestrator, which takes ONE undo snapshot per editing session.
-//
-// The title field keeps a local draft: the orchestrator ignores empty-title
-// updates (the validator would drop the node on the next load), so while the
-// user has the field cleared the doc keeps the last real title and the field
-// re-syncs on the next selection change.
-import { computed, nextTick, ref, watch } from "vue";
+// Selection-bound side panel. Node TEXT editing lives in the edit modal
+// (MindNodeEditModal — one commit model, Save/Discard); this panel keeps the
+// selection summary and the quick actions. Edge editing stays here: a label
+// is one small field, and the reattach buttons need the canvas anyway.
+import { computed, ref, watch } from "vue";
 import { OyaButton, OyaEmptyState, OyaTextField } from "rakotis";
 import { computeHiddenNodes, hiddenCounts } from "./mindGraphModel";
-import MindRichText from "./MindRichText.vue";
 import type { Mind } from "./useMind";
 
 const props = defineProps<{
@@ -21,26 +15,6 @@ const props = defineProps<{
 
 const node = computed(() => props.mind.selectedNode.value);
 const edge = computed(() => props.mind.selectedEdge.value);
-
-// ── node fields ─────────────────────────────────────────────────────────────
-
-const titleDraft = ref("");
-watch(
-  node,
-  (n) => {
-    titleDraft.value = n?.title ?? "";
-  },
-  { immediate: true },
-);
-
-function onTitleInput(v: string) {
-  titleDraft.value = v;
-  if (node.value) props.mind.updateNodeFields(node.value.id, { title: v });
-}
-
-function onContentInput(v: string) {
-  if (node.value) props.mind.updateNodeFields(node.value.id, { content: v });
-}
 
 const hasOutgoing = computed(() => !!node.value && props.mind.edges.value.some((e) => e.source === node.value!.id));
 
@@ -75,19 +49,6 @@ const edgeEnds = computed(() => {
   const to = props.mind.doc.value.nodes.find((n) => n.id === e.target);
   return { from: from?.title ?? "?", to: to?.title ?? "?" };
 });
-
-// ── F2 / post-create focus ──────────────────────────────────────────────────
-// OyaTextField's root element IS the <input>, so the component ref exposes it.
-
-const titleField = ref<{ $el: HTMLInputElement } | null>(null);
-watch(
-  () => props.mind.focusTitleRequest.value,
-  async () => {
-    await nextTick();
-    titleField.value?.$el?.focus();
-    titleField.value?.$el?.select();
-  },
-);
 </script>
 
 <template>
@@ -97,42 +58,13 @@ watch(
   >
     <!-- node -->
     <template v-if="node">
-      <label class="text-xs font-semibold opacity-60">{{ $t('mind.nodeTitle') }}</label>
-      <OyaTextField
-        ref="titleField"
-        :model-value="titleDraft"
-        :maxlength="mind.caps.maxTitleLen"
-        data-testid="mind-title-input"
-        @update:model-value="onTitleInput"
-      />
+      <p class="break-words text-sm font-semibold">{{ node.title }}</p>
+      <p class="text-xs opacity-60">{{ node.kind === 'topic' ? $t('mind.kindTopic') : $t('mind.kindNote') }}</p>
 
-      <div class="flex gap-1 rounded-lg border p-1 text-xs font-semibold" :class="darkMode ? 'border-accent-1' : 'border-accent-2'">
-        <button
-          type="button"
-          data-testid="mind-kind-note"
-          :class="node.kind === 'note'
-            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-            : 'opacity-60 hover:opacity-100'"
-          class="flex-1 rounded-md px-2 py-1.5 transition"
-          @click="mind.setNodeKind(node.id, 'note')"
-        >
-          {{ $t('mind.kindNote') }}
-        </button>
-        <button
-          type="button"
-          data-testid="mind-kind-topic"
-          :class="node.kind === 'topic'
-            ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-            : 'opacity-60 hover:opacity-100'"
-          class="flex-1 rounded-md px-2 py-1.5 transition"
-          @click="mind.setNodeKind(node.id, 'topic')"
-        >
-          {{ $t('mind.kindTopic') }}
-        </button>
-      </div>
-
-      <label class="text-xs font-semibold opacity-60">{{ $t('mind.nodeContent') }}</label>
-      <MindRichText :model-value="node.content" @update:model-value="onContentInput" />
+      <OyaButton data-testid="mind-open-edit" @click="mind.editNodeId.value = node.id">
+        <font-awesome-icon icon="pen" />
+        {{ $t('mind.editNode') }}
+      </OyaButton>
 
       <OyaButton
         v-if="node.collapsed || hasOutgoing"

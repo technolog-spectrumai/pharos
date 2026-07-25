@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-// Mind tab in the browser shell. Unlike Maps, the feature is 100% client-side,
-// so everything works here: the cytoscape canvas, the dump inbox, and
-// persistence through the localStorage kv fallback.
+// Mind tab in the browser shell. The feature is 100% client-side, so the whole
+// flow works here: the cytoscape canvas, the node edit modal, the Topics
+// browser, and persistence through the localStorage kv fallback.
 
 test.describe("Mind tab — happy path (browser shell)", () => {
-  test("renders a real-sized canvas, captures a dump entry, persists across reload", async ({ page }) => {
+  test("creates a topic on the canvas, adds a note via Topics, persists across reload", async ({ page }) => {
     await page.goto("/");
 
     // Nav → Mind (compile-time gated; default build ships it).
@@ -14,22 +14,40 @@ test.describe("Mind tab — happy path (browser shell)", () => {
 
     // The anti-blank-canvas probe: cytoscape silently renders nothing into a
     // 0-height div (the MapLibre lesson from map.spec.ts, cheap insurance here).
-    const canvasHeight = await page.getByTestId("mind-canvas").evaluate((el) => el.clientHeight);
+    const host = page.getByTestId("mind-canvas");
+    const canvasHeight = await host.evaluate((el) => el.clientHeight);
     expect(canvasHeight).toBeGreaterThan(0);
-    // Cytoscape mounted for real — it stamps its own container div + canvases.
     await expect(page.locator("[data-testid='mind-canvas'] canvas").first()).toBeAttached();
 
-    // Dump sub-tab: capture an entry.
-    await page.getByRole("button", { name: "Dump" }).click();
-    await page.getByPlaceholder(/Type a thought/).fill("remember the milk");
-    await page.getByRole("button", { name: "Capture" }).click();
-    await expect(page.getByText("remember the milk")).toBeVisible();
+    // Add-topic tool → tap the canvas → the shared edit modal opens on the
+    // fresh node; name it and Save.
+    await page.getByRole("button", { name: "Add a topic (tap the canvas)" }).click();
+    await host.click({ position: { x: 300, y: 200 } });
+    await expect(page.getByTestId("mind-edit-title")).toBeVisible();
+    await page.getByTestId("mind-edit-title").fill("Big Plan");
+    await page.getByTestId("mind-edit-save").click();
 
-    // Survives a full reload via the localStorage kv fallback (map.spec.ts
-    // pattern) — the dump write is immediate, no debounce to wait out.
+    // Topics sub-tab lists it; details modal offers "Add note", which hands
+    // off to the same edit modal (details closes — one modal at a time).
+    await page.getByRole("button", { name: "Topics" }).click();
+    await page.getByRole("button", { name: /Big Plan/ }).click();
+    await page.getByTestId("mind-topic-add-note").click();
+    await expect(page.getByTestId("mind-edit-title")).toBeVisible();
+    await page.getByTestId("mind-edit-title").fill("first step");
+    await page.getByTestId("mind-edit-save").click();
+
+    // Reopen the details — the fresh note is linked.
+    await page.getByRole("button", { name: /Big Plan/ }).click();
+    await expect(page.getByText("first step")).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+
+    // Navigating away flushes the debounced doc write (onBeforeUnmount), so a
+    // reload right after must still find everything in the localStorage kv.
+    await page.getByRole("link", { name: "Settings" }).first().click();
     await page.reload();
     await page.getByRole("link", { name: "Mind", exact: true }).first().click();
-    await page.getByRole("button", { name: "Dump" }).click();
-    await expect(page.getByText("remember the milk")).toBeVisible();
+    await page.getByRole("button", { name: "Topics" }).click();
+    await page.getByRole("button", { name: /Big Plan/ }).click();
+    await expect(page.getByText("first step")).toBeVisible();
   });
 });

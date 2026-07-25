@@ -1,31 +1,43 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import EnigmaMindView from "../../src/views/EnigmaMindView.vue";
-import MindDumpPanel from "../../src/components/mind/MindDumpPanel.vue";
 import MindInspector from "../../src/components/mind/MindInspector.vue";
+import MindNodeEditModal from "../../src/components/mind/MindNodeEditModal.vue";
+import MindTopicsPanel from "../../src/components/mind/MindTopicsPanel.vue";
 import { getMind, resetMind } from "../../src/components/mind/useMind";
 import { i18n } from "../../src/i18n";
 
 // Mounts the real view/panels against the real mind singleton — the wiring
-// between pills, panels and the orchestrator is exactly what a refactor is
-// most likely to silently break.
+// between pills, panels, modals and the orchestrator is exactly what a
+// refactor is most likely to silently break.
+//
+// OyaModal teleports to <body>, so modal assertions/query clicks go through
+// document.*, and beforeEach clears the body.
 
 function mountView() {
   return mount(EnigmaMindView, { global: { plugins: [i18n] } });
 }
 
-function mountDump() {
-  return mount(MindDumpPanel, {
-    props: { mind: getMind() },
-    global: { plugins: [i18n] },
-  });
+function bodyByTestId(id: string): HTMLElement {
+  const el = document.body.querySelector(`[data-testid='${id}']`);
+  if (!el) throw new Error(`missing [data-testid=${id}] in body`);
+  return el as HTMLElement;
+}
+
+function clickInBody(id: string) {
+  bodyByTestId(id).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function typeInBody(id: string, value: string) {
+  const input = bodyByTestId(id) as HTMLInputElement | HTMLTextAreaElement;
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 beforeEach(() => {
   localStorage.clear();
   resetMind();
   i18n.global.locale.value = "en";
-  // OyaModal teleports into <body>; drop leftovers between tests.
   document.body.innerHTML = "";
 });
 
@@ -37,13 +49,13 @@ describe("EnigmaMindView", () => {
     expect(w.find("[data-testid='mind-canvas']").exists()).toBe(true);
   });
 
-  it("switches to the Dump sub-tab and back", async () => {
+  it("switches to the Topics sub-tab and back", async () => {
     const w = mountView();
     await flushPromises();
-    const pills = w.findAll("button").filter((b) => ["Map", "Dump"].includes(b.text()));
+    const pills = w.findAll("button").filter((b) => ["Map", "Topics"].includes(b.text()));
     await pills[1].trigger("click");
     expect(w.find("[data-testid='mind-canvas']").exists()).toBe(false);
-    expect(w.find("textarea").exists()).toBe(true);
+    expect(w.text()).toContain("No topics yet");
     await pills[0].trigger("click");
     expect(w.find("[data-testid='mind-canvas']").exists()).toBe(true);
   });
@@ -54,52 +66,6 @@ describe("EnigmaMindView", () => {
     getMind().loadFailed.value = true;
     await w.vm.$nextTick();
     expect(w.text()).toContain("will NOT be saved");
-  });
-});
-
-describe("MindDumpPanel", () => {
-  it("captures a draft and lists it newest-first", async () => {
-    const w = mountDump();
-    await getMind().load();
-    await w.find("textarea").setValue("first thought");
-    await w.findAll("button").find((b) => b.text().includes("Capture"))!.trigger("click");
-    await w.find("textarea").setValue("second thought");
-    await w.findAll("button").find((b) => b.text().includes("Capture"))!.trigger("click");
-
-    const cards = w.text();
-    expect(cards.indexOf("second thought")).toBeLessThan(cards.indexOf("first thought"));
-    expect(getMind().dump.value.entries).toHaveLength(2);
-  });
-
-  it("links an entry to a topic through the picker and removes it from the list", async () => {
-    const mind = getMind();
-    await mind.load();
-    const topic = mind.addNode("topic", "Ideas", "", 0, 0)!;
-    const entry = mind.addDumpEntry("A thought\nwith body")!;
-
-    const w = mountDump();
-    await w.findAll("button").find((b) => b.text().includes("Link to topic"))!.trigger("click");
-    await w.vm.$nextTick();
-    // The picker is teleported to <body>, outside the wrapper's subtree.
-    const topicBtn = [...document.body.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Ideas")!;
-    topicBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await w.vm.$nextTick();
-
-    expect(mind.dump.value.entries).toHaveLength(0);
-    expect(mind.nodes.value.map((n) => n.title)).toContain("A thought");
-    expect(mind.edges.value[0]).toMatchObject({ source: topic.id });
-    expect(w.text()).not.toContain("A thought");
-    void entry;
-  });
-
-  it("explains itself when no topics exist yet", async () => {
-    const mind = getMind();
-    await mind.load();
-    mind.addDumpEntry("loose thought");
-    const w = mountDump();
-    await w.findAll("button").find((b) => b.text().includes("Link to topic"))!.trigger("click");
-    await w.vm.$nextTick();
-    expect(document.body.textContent).toContain("No topic nodes yet");
   });
 });
 
@@ -138,10 +104,7 @@ describe("import flow", () => {
     await pickFile(w, JSON.stringify(file));
 
     expect(document.body.textContent).toContain("replaced with 1 nodes and 0 links");
-    const confirmBtn = [...document.body.querySelectorAll("button")].find((b) =>
-      b.getAttribute("data-testid") === "mind-import-confirm",
-    )!;
-    confirmBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickInBody("mind-import-confirm");
     await flushPromises();
 
     expect(mind.nodes.value.map((n) => n.title)).toEqual(["Imported"]);
@@ -168,6 +131,142 @@ describe("import flow", () => {
   });
 });
 
+describe("MindNodeEditModal", () => {
+  function mountModal() {
+    return mount(MindNodeEditModal, {
+      props: { mind: getMind() },
+      global: { plugins: [i18n] },
+    });
+  }
+
+  it("seeds drafts, saves everything as ONE undo step", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "before", "<div>old</div>", 0, 0)!;
+    const w = mountModal();
+
+    mind.editNodeId.value = n.id;
+    await w.vm.$nextTick();
+    expect((bodyByTestId("mind-edit-title") as HTMLInputElement).value).toBe("before");
+
+    typeInBody("mind-edit-title", "after");
+    clickInBody("mind-edit-kind-topic");
+    await w.vm.$nextTick();
+    document.body.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await w.vm.$nextTick();
+
+    expect(mind.editNodeId.value).toBeNull();
+    expect(mind.nodes.value[0]).toMatchObject({ title: "after", kind: "topic", content: "<div>old</div>" });
+    mind.undo(); // one step unwinds the whole modal commit
+    expect(mind.nodes.value[0]).toMatchObject({ title: "before", kind: "note" });
+  });
+
+  it("discard drops every draft on the floor", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "untouched", "", 0, 0)!;
+    const w = mountModal();
+
+    mind.editNodeId.value = n.id;
+    await w.vm.$nextTick();
+    typeInBody("mind-edit-title", "scribbles");
+    clickInBody("mind-edit-discard");
+    await w.vm.$nextTick();
+
+    expect(mind.editNodeId.value).toBeNull();
+    expect(mind.nodes.value[0]).toMatchObject({ title: "untouched", kind: "note", content: "" });
+  });
+
+  it("plain-text mode saves escaped HTML", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "n", "", 0, 0)!;
+    const w = mountModal();
+
+    mind.editNodeId.value = n.id;
+    await w.vm.$nextTick();
+    clickInBody("mind-edit-mode-plain");
+    await w.vm.$nextTick();
+    typeInBody("mind-edit-plain", "line <one>\nline & two");
+    document.body.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await w.vm.$nextTick();
+
+    expect(mind.nodes.value[0].content).toBe("line &lt;one&gt;<br>line &amp; two");
+  });
+
+  it("closes itself when the node vanishes underneath it", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "doomed", "", 0, 0)!;
+    const w = mountModal();
+
+    mind.editNodeId.value = n.id;
+    await w.vm.$nextTick();
+    mind.deleteNode(n.id);
+    await w.vm.$nextTick();
+    expect(mind.editNodeId.value).toBeNull();
+  });
+});
+
+describe("MindTopicsPanel", () => {
+  function mountTopics() {
+    return mount(MindTopicsPanel, {
+      props: { mind: getMind() },
+      global: { plugins: [i18n] },
+    });
+  }
+
+  it("lists topics with their link counts", async () => {
+    const mind = getMind();
+    await mind.load();
+    const t1 = mind.addNode("topic", "Alpha", "", 0, 0)!;
+    mind.addNode("topic", "Beta", "", 0, 100);
+    const n = mind.addNode("note", "note", "", 100, 0)!;
+    mind.addEdge(n.id, t1.id);
+
+    const w = mountTopics();
+    expect(w.text()).toContain("Alpha");
+    expect(w.text()).toContain("Beta");
+    expect(w.text()).toContain("1 linked");
+    expect(w.text()).toContain("0 linked");
+  });
+
+  it("opens details with linked nodes in either direction and a no-description hint", async () => {
+    const mind = getMind();
+    await mind.load();
+    const topic = mind.addNode("topic", "Hub", "", 0, 0)!;
+    const inbound = mind.addNode("note", "points at hub", "", 100, 0)!;
+    const outbound = mind.addNode("note", "hub points here", "", 200, 0)!;
+    mind.addEdge(inbound.id, topic.id);
+    mind.addEdge(topic.id, outbound.id);
+
+    const w = mountTopics();
+    await w.findAll("button").find((b) => b.text().includes("Hub"))!.trigger("click");
+    await w.vm.$nextTick();
+
+    expect(document.body.textContent).toContain("points at hub");
+    expect(document.body.textContent).toContain("hub points here");
+    expect(document.body.textContent).toContain("No description.");
+  });
+
+  it("add note creates a note→topic link and opens the shared edit modal", async () => {
+    const mind = getMind();
+    await mind.load();
+    const topic = mind.addNode("topic", "Hub", "", 0, 0)!;
+
+    const w = mountTopics();
+    await w.findAll("button").find((b) => b.text().includes("Hub"))!.trigger("click");
+    await w.vm.$nextTick();
+    clickInBody("mind-topic-add-note");
+    await w.vm.$nextTick();
+
+    expect(mind.nodes.value).toHaveLength(2);
+    const note = mind.nodes.value.find((n) => n.kind === "note")!;
+    expect(mind.edges.value[0]).toMatchObject({ source: note.id, target: topic.id });
+    expect(mind.editNodeId.value).toBe(note.id);
+  });
+});
+
 describe("MindInspector", () => {
   function mountInspector() {
     return mount(MindInspector, {
@@ -176,7 +275,7 @@ describe("MindInspector", () => {
     });
   }
 
-  it("shows the empty state until something is selected", async () => {
+  it("shows the empty state, then a selection summary with the Edit door", async () => {
     const mind = getMind();
     await mind.load();
     const w = mountInspector();
@@ -185,32 +284,9 @@ describe("MindInspector", () => {
     const n = mind.addNode("note", "Idea", "", 0, 0)!;
     mind.select({ kind: "node", id: n.id });
     await w.vm.$nextTick();
-    expect((w.find("[data-testid='mind-title-input']").element as HTMLInputElement).value).toBe("Idea");
-  });
-
-  it("writes title edits through, but never an empty title", async () => {
-    const mind = getMind();
-    await mind.load();
-    const n = mind.addNode("note", "Keep", "", 0, 0)!;
-    mind.select({ kind: "node", id: n.id });
-    const w = mountInspector();
-
-    await w.find("[data-testid='mind-title-input']").setValue("Renamed");
-    expect(mind.nodes.value[0].title).toBe("Renamed");
-
-    await w.find("[data-testid='mind-title-input']").setValue("   ");
-    expect(mind.nodes.value[0].title).toBe("Renamed");
-  });
-
-  it("toggles the node kind", async () => {
-    const mind = getMind();
-    await mind.load();
-    const n = mind.addNode("note", "Hub", "", 0, 0)!;
-    mind.select({ kind: "node", id: n.id });
-    const w = mountInspector();
-
-    await w.find("[data-testid='mind-kind-topic']").trigger("click");
-    expect(mind.nodes.value[0].kind).toBe("topic");
+    expect(w.text()).toContain("Idea");
+    await w.find("[data-testid='mind-open-edit']").trigger("click");
+    expect(mind.editNodeId.value).toBe(n.id);
   });
 
   it("edits, swaps and deletes an edge", async () => {

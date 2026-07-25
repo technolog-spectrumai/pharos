@@ -86,11 +86,15 @@ function setLocked(locked: boolean) {
 
 const handles = ref<{ sx: number; sy: number; tx: number; ty: number } | null>(null);
 const chip = ref<{ x: number; y: number; label: string; nodeId: string } | null>(null);
+/** ✎ on the selected node's top-left corner — the per-node door into the edit
+ *  modal (cytoscape nodes are canvas pixels; a DOM button per node is this). */
+const editChip = ref<{ x: number; y: number; nodeId: string } | null>(null);
 
 function updateOverlays() {
   if (!cy || gesture.value.kind !== "idle" || props.tool !== "select") {
     handles.value = null;
     chip.value = null;
+    editChip.value = null;
     return;
   }
   const selEdge = props.mind.selectedEdge.value;
@@ -111,23 +115,30 @@ function updateOverlays() {
   if (selNode) {
     const ele = cy.getElementById(selNode.id);
     const hasOutgoing = props.mind.edges.value.some((e) => e.source === selNode.id);
-    if (ele.length !== 0 && (selNode.collapsed || hasOutgoing)) {
+    if (ele.length !== 0) {
       const bb = ele.renderedBoundingBox();
-      const nodes = props.mind.doc.value.nodes;
-      const edges = props.mind.doc.value.edges;
-      const hidden = computeHiddenNodes(nodes, edges);
-      const count = hiddenCounts(nodes, edges, hidden).get(selNode.id) ?? 0;
-      chip.value = {
-        x: bb.x2,
-        y: bb.y1,
-        label: selNode.collapsed ? `⊕ ${count}` : "⊖",
-        nodeId: selNode.id,
-      };
+      editChip.value = { x: bb.x1, y: bb.y1, nodeId: selNode.id };
+      if (selNode.collapsed || hasOutgoing) {
+        const nodes = props.mind.doc.value.nodes;
+        const edges = props.mind.doc.value.edges;
+        const hidden = computeHiddenNodes(nodes, edges);
+        const count = hiddenCounts(nodes, edges, hidden).get(selNode.id) ?? 0;
+        chip.value = {
+          x: bb.x2,
+          y: bb.y1,
+          label: selNode.collapsed ? `⊕ ${count}` : "⊖",
+          nodeId: selNode.id,
+        };
+      } else {
+        chip.value = null;
+      }
     } else {
       chip.value = null;
+      editChip.value = null;
     }
   } else {
     chip.value = null;
+    editChip.value = null;
   }
 }
 
@@ -259,7 +270,8 @@ async function createNodeAt(kind: "note" | "topic", pos: { x: number; y: number 
   // The diff watcher adds the element on this tick's flush; select after it.
   await Promise.resolve();
   cy?.getElementById(node.id).select();
-  props.mind.focusTitleRequest.value++;
+  // Straight into the edit modal — a fresh node exists to be named.
+  props.mind.editNodeId.value = node.id;
 }
 
 // ── event wiring ─────────────────────────────────────────────────────────────
@@ -640,6 +652,19 @@ watch(
         @click="props.mind.selectedEdge.value && beginReconnect(props.mind.selectedEdge.value.id, 'target')"
       />
     </template>
+
+    <!-- edit chip on the selected node -->
+    <button
+      v-if="editChip"
+      type="button"
+      data-testid="mind-edit-chip"
+      :style="{ left: editChip.x + 'px', top: editChip.y + 'px' }"
+      :title="$t('mind.editNode')"
+      class="absolute z-10 -translate-y-full rounded-full border border-accent-2 bg-primary-bg-light px-2 py-0.5 text-xs font-bold transition hover:opacity-70 dark:border-accent-1 dark:bg-primary-bg-dark"
+      @click="props.mind.editNodeId.value = editChip.nodeId"
+    >
+      <font-awesome-icon icon="pen" />
+    </button>
 
     <!-- collapse chip on the selected node -->
     <button

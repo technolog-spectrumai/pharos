@@ -122,8 +122,6 @@ export interface BuildConfig {
   mind_max_edges: number;
   mind_max_title_len: number;
   mind_max_content_len: number;
-  mind_max_dump_entries: number;
-  mind_max_dump_entry_len: number;
   /** false = this build has no device linking: devlink_* commands error with
    *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
   devices_allow_linking: boolean;
@@ -171,8 +169,6 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   mind_max_edges: 1000,
   mind_max_title_len: 200,
   mind_max_content_len: 20000,
-  mind_max_dump_entries: 200,
-  mind_max_dump_entry_len: 4000,
   devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,

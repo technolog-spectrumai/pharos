@@ -1,9 +1,9 @@
 // Mind map — pure data model (no Vue/Tauri/DOM imports).
 //
-// One local directed graph of ideas plus a "mind dump" capture inbox. Both are
-// this device's only: persisted in the encrypted kv store, never shared with a
-// peer and never synced to a linked device. There is no conflict resolution
-// because there is nothing to resolve — one user, one map.
+// One local directed graph of ideas — this device's only: persisted in the
+// encrypted kv store, never shared with a peer and never synced to a linked
+// device. There is no conflict resolution because there is nothing to resolve
+// — one user, one map.
 //
 // Nodes carry a title (the canvas label) and free-text content; edges carry only
 // a label. Edges are directed (source → target): direction is what gives
@@ -53,27 +53,6 @@ export function emptyMindDoc(): MindDoc {
   return { v: 1, nodes: [], edges: [] };
 }
 
-// ── dump ──────────────────────────────────────────────────────────────────────
-// The dump is an inbox, not an archive: entries are captured fast and leave the
-// list when they are linked to a topic (they become nodes). Chronological order
-// is append order; the UI renders newest first.
-
-export interface MindDumpEntry {
-  id: string;
-  text: string;
-  /** Epoch ms at capture. Display only — ordering is array order. */
-  createdAt: number;
-}
-
-export interface MindDump {
-  v: 1;
-  entries: MindDumpEntry[];
-}
-
-export function emptyMindDump(): MindDump {
-  return { v: 1, entries: [] };
-}
-
 // ── caps ──────────────────────────────────────────────────────────────────────
 
 /** Caps from the build config, passed in as data so the model stays pure. */
@@ -83,8 +62,6 @@ export interface MindCaps {
   /** Caps node titles AND edge labels — labels are title-like text. */
   maxTitleLen: number;
   maxContentLen: number;
-  maxDumpEntries: number;
-  maxDumpEntryLen: number;
 }
 
 /** Position quantum: integers. Model space is roughly pixels, so sub-pixel
@@ -203,27 +180,6 @@ export function validateMindDoc(x: unknown, caps: MindCaps): MindDoc | null {
   return doc;
 }
 
-export function validateMindDump(x: unknown, caps: MindCaps): MindDump | null {
-  if (!x || typeof x !== "object") return null;
-  const o = x as Record<string, unknown>;
-  if (!Array.isArray(o.entries)) return null;
-  const dump = emptyMindDump();
-  const ids = new Set<string>();
-  for (const e of o.entries) {
-    if (dump.entries.length >= caps.maxDumpEntries) break;
-    if (!e || typeof e !== "object") continue;
-    const oe = e as Record<string, unknown>;
-    const id = str(oe.id, 64);
-    const text = typeof oe.text === "string" && oe.text.length > 0 ? oe.text.slice(0, caps.maxDumpEntryLen) : null;
-    const createdAt =
-      typeof oe.createdAt === "number" && Number.isFinite(oe.createdAt) && oe.createdAt >= 0 ? oe.createdAt : null;
-    if (!id || !text || createdAt === null || ids.has(id)) continue;
-    ids.add(id);
-    dump.entries.push({ id, text, createdAt });
-  }
-  return dump;
-}
-
 // ── export / import ───────────────────────────────────────────────────────────
 // Self-describing interchange file: a `format` discriminator so foreign JSON is
 // refused before any field is read, a `version` so a future schema can migrate,
@@ -263,35 +219,33 @@ export function parseImportFile(x: unknown, caps: MindCaps): MindDoc | null {
   return validateMindDoc({ nodes: o.nodes, edges: o.edges }, caps);
 }
 
-// ── dump → node ───────────────────────────────────────────────────────────────
+// ── plain ⇄ rich conversion (the edit modal's plain-text mode) ────────────────
 
-/** Escape plain text into minimal HTML for a Trix-backed content field: entities
- *  escaped, newlines become <br>. Node content is HTML (see MindNode.content);
- *  feeding raw captured text into it unescaped would let a jotted "<b>" turn
- *  into formatting — or worse survive a round-trip as markup. */
+/** Escape plain text into minimal HTML for the Trix-backed content field:
+ *  entities escaped, newlines become <br>. Node content is HTML (see
+ *  MindNode.content); feeding raw typed text into it unescaped would let a
+ *  jotted "<b>" turn into formatting — or worse survive a round-trip as
+ *  markup. */
 export function plainTextToHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
 }
 
-/** How a dump entry becomes a node: first non-empty line (trimmed) is the title,
- *  everything after that line (trimmed) is the content — still PLAIN text here;
- *  the orchestrator runs it through plainTextToHtml. Both honour the caps, so
- *  the conversion can never construct a node the validator would reject. */
-export function splitDumpEntry(text: string, caps: MindCaps): { title: string; content: string } {
-  const lines = text.split("\n");
-  let titleIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim().length > 0) {
-      titleIdx = i;
-      break;
-    }
-  }
-  if (titleIdx === -1) return { title: "", content: "" };
-  const title = lines[titleIdx].trim().slice(0, caps.maxTitleLen);
-  const content = lines
-    .slice(titleIdx + 1)
-    .join("\n")
-    .trim()
-    .slice(0, caps.maxContentLen);
-  return { title, content };
+/** Trix HTML → plain text, for the edit modal's plain mode. Blocks and <br>
+ *  become newlines, tags drop, the basic entities decode (&amp; last, so a
+ *  literal "&amp;lt;" comes out as "&lt;" and not "<"). Lossy by design —
+ *  flipping rich → plain is the user choosing to shed formatting. */
+export function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p|li|h[1-6]|blockquote|pre|ul|ol)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
+

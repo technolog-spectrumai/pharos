@@ -112,3 +112,12 @@ body {
 .mind-trix-wrap trix-toolbar .trix-button-group--file-tools {
   display: none;
 }
+/* Read-only rendering (Topics details): no toolbar, no edit chrome. */
+.mind-trix-readonly trix-toolbar {
+  display: none;
+}
+.mind-trix-readonly trix-editor {
+  border: none;
+  padding: 0;
+  min-height: 0;
+}

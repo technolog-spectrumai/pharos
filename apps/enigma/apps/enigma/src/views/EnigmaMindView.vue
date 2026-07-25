@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Mind tab: a local-only mind map (cytoscape canvas) plus a "dump" capture
-// inbox whose entries convert into nodes under a topic. Nothing here is shared:
-// the kv namespace `mind` is absent from every sync allow-list by design.
+// Mind tab: a local-only mind map (cytoscape canvas) plus a Topics browser
+// over the map's topic hubs. Nothing here is shared: the kv namespace `mind`
+// is absent from every sync allow-list by design.
 //
 // The map lives in the module singleton from useMind, not in this view: the
 // router unmounts views on navigation, so view-local state would drop the graph
@@ -9,8 +9,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { OyaButton, OyaIconButton, OyaModal } from "rakotis";
-import MindDumpPanel from "../components/mind/MindDumpPanel.vue";
 import MindMapPanel from "../components/mind/MindMapPanel.vue";
+import MindNodeEditModal from "../components/mind/MindNodeEditModal.vue";
+import MindTopicsPanel from "../components/mind/MindTopicsPanel.vue";
 import { exportMindJson, readMindImportFile } from "../components/mind/mindExport";
 import { parseImportFile, type MindDoc } from "../components/mind/mindModel";
 import { getMind } from "../components/mind/useMind";
@@ -20,7 +21,7 @@ defineProps<{ darkMode?: boolean }>();
 const { t } = useI18n();
 const mind = getMind();
 
-type MindTab = "map" | "dump";
+type MindTab = "map" | "topics";
 const activeTab = ref<MindTab>("map");
 
 const nodeCount = computed(() => mind.nodes.value.length);
@@ -93,8 +94,12 @@ async function confirmImport() {
 // ── keyboard shortcuts ──────────────────────────────────────────────────────
 // Canvas-mode keys (Escape/F) live in MindGraph, which owns the gesture state.
 // The guard also skips Trix's contenteditable surface — `isContentEditable`
-// covers <trix-editor>, which is neither INPUT nor TEXTAREA.
+// covers <trix-editor>, which is neither INPUT nor TEXTAREA — and everything
+// holds fire while the edit modal is up (its drafts own the keyboard then).
+// Selection-scoped keys only act on the Map sub-tab: a selection made on the
+// canvas must not be silently deletable from the Topics list.
 function onKey(e: KeyboardEvent) {
+  if (mind.editNodeId.value) return;
   const target = e.target as HTMLElement | null;
   if (target && (/^(INPUT|TEXTAREA)$/.test(target.tagName) || target.isContentEditable)) return;
 
@@ -106,6 +111,8 @@ function onKey(e: KeyboardEvent) {
   } else if (mod && e.key.toLowerCase() === "y") {
     e.preventDefault();
     mind.redo();
+  } else if (activeTab.value !== "map") {
+    return;
   } else if ((e.key === "Delete" || e.key === "Backspace") && mind.selected.value) {
     e.preventDefault();
     const sel = mind.selected.value;
@@ -116,7 +123,7 @@ function onKey(e: KeyboardEvent) {
     mind.toggleCollapsed(mind.selectedNode.value.id);
   } else if (e.key === "F2" && mind.selectedNode.value) {
     e.preventDefault();
-    mind.focusTitleRequest.value++;
+    mind.editNodeId.value = mind.selectedNode.value.id;
   }
 }
 
@@ -177,29 +184,29 @@ onBeforeUnmount(() => {
       </button>
       <button
         type="button"
-        :class="activeTab === 'dump'
+        :class="activeTab === 'topics'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
         class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
-        @click="activeTab = 'dump'"
+        @click="activeTab = 'topics'"
       >
-        <font-awesome-icon icon="lightbulb" />{{ $t('mind.dumpTab') }}
+        <font-awesome-icon icon="circle-nodes" />{{ $t('mind.topicsTab') }}
       </button>
     </div>
 
     <p v-if="mind.loadFailed.value" class="text-xs text-warn-dark">
       {{ $t('mind.loadFailed') }}
     </p>
-    <p v-if="mind.dumpLoadFailed.value" class="text-xs text-warn-dark">
-      {{ $t('mind.dumpLoadFailed') }}
-    </p>
     <p v-if="error" class="text-xs text-warn-dark">{{ error }}</p>
     <p v-else-if="notice === 'exported'" class="text-xs opacity-60">{{ $t('mind.exportDone') }}</p>
 
     <div class="flex min-h-0 flex-1 flex-col">
       <MindMapPanel v-if="activeTab === 'map'" :mind="mind" :dark-mode="darkMode" />
-      <MindDumpPanel v-else :mind="mind" :dark-mode="darkMode" />
+      <MindTopicsPanel v-else :mind="mind" :dark-mode="darkMode" />
     </div>
+
+    <!-- The shared node editor — reachable from both sub-tabs -->
+    <MindNodeEditModal :mind="mind" :dark-mode="darkMode" />
 
     <!-- Import confirm: REPLACE semantics, undoable, validated counts shown -->
     <OyaModal :open="pendingImport !== null" @close="pendingImport = null">

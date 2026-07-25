@@ -136,15 +136,16 @@ details):
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
   vaults only.
-- `calls` / `contacts` / `calendar` / `peers` / `kanban` / `sketch` / `maps` —
-  feature kill switches (`enabled: false` builds without the tab, redirects the route, and
-  never instantiates the composable — so the feature's sync handlers and, for
-  calls/contacts, its ALPN are absent from the binary). `calls` additionally
-  makes every `vox_*` command error `CALLS_DISABLED`. These are what the product
-  editions are made of — see [pland.md](pland.md). `peers` additionally withholds
-  the `enigma/plink/0` ALPN and makes every `peer_*` command error
-  `PEERS_DISABLED` (see peer.md). `kanban` and `sketch` carry
-  caps alongside their switch; `maps` has no other knobs, because the app has no
+- `calls` / `contacts` / `calendar` / `peers` / `kanban` / `sketch` / `maps` /
+  `mind` — feature kill switches (`enabled: false` builds without the tab,
+  redirects the route, and never instantiates the composable — so the feature's
+  sync handlers and, for calls/contacts, its ALPN are absent from the binary).
+  `calls` additionally makes every `vox_*` command error `CALLS_DISABLED`. These
+  are what the product editions are made of — see [pland.md](pland.md). `peers`
+  additionally withholds the `enigma/plink/0` ALPN and makes every `peer_*`
+  command error `PEERS_DISABLED` (see peer.md). `kanban`, `sketch` and `mind`
+  carry caps alongside their switch (mind's are node/edge/text-length/dump
+  bounds — see mind.md); `maps` has no other knobs, because the app has no
   tile-fetch path at all — region packages are produced by the standalone
   `tools/map_packager` and imported from the device (see map.md Part II).
 - `devices.allow_linking` — `false` builds without device linking: no

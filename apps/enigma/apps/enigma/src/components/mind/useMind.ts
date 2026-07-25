@@ -1,4 +1,4 @@
-// Mind orchestrator — one local mind map + its dump inbox.
+// Mind orchestrator — one local mind map.
 //
 // Not tied to a chat room and not shared with anyone: the map is this device's,
 // persisted in the encrypted kv store. It is deliberately absent from
@@ -22,16 +22,11 @@ import { getBuildConfig, kvGet, kvPut } from "rakotis";
 import { nanoid } from "nanoid";
 import {
   emptyMindDoc,
-  emptyMindDump,
-  plainTextToHtml,
   roundPos,
-  splitDumpEntry,
+  scrubContentHtml,
   validateMindDoc,
-  validateMindDump,
   type MindCaps,
   type MindDoc,
-  type MindDump,
-  type MindDumpEntry,
   type MindEdge,
   type MindNode,
   type MindNodeKind,
@@ -43,10 +38,6 @@ const KV_SCOPE = "default";
  *  Not in DEVLINK_SYNC_KV and not a PEER_SCOPE_KV namespace, so the map stays
  *  device-local by construction. */
 const KV_KEY = "";
-/** The dump inbox lives under its own key: a quick capture must not rewrite the
- *  whole graph JSON (every kvPut is an fsync), and a graph autosave must not
- *  re-serialize the dump. */
-const KV_KEY_DUMP = "dump";
 
 const PERSIST_DEBOUNCE_MS = 800;
 /** Bounded so a long session can't grow the history without limit. */
@@ -72,12 +63,9 @@ export function useMind() {
     maxEdges: cfg.mind_max_edges,
     maxTitleLen: cfg.mind_max_title_len,
     maxContentLen: cfg.mind_max_content_len,
-    maxDumpEntries: cfg.mind_max_dump_entries,
-    maxDumpEntryLen: cfg.mind_max_dump_entry_len,
   };
 
   const doc = ref<MindDoc>(emptyMindDoc());
-  const dump = ref<MindDump>(emptyMindDump());
   const selected = ref<MindSelection | null>(null);
   /** Bumped whenever the document is replaced wholesale (undo/redo/load/import).
    *  The canvas rebuilds its cytoscape elements on this and patches imperatively
@@ -92,14 +80,6 @@ export function useMind() {
   /** Doc storage could not be read, so graph persistence is disabled to avoid
    *  overwriting a map we never managed to see. Surfaced in the UI. */
   const loadFailed = ref(false);
-  /** The dump key has been read. Deliberately NOT `ready`, which guards the DOC
-   *  key and says nothing about this one: if the dump read failed while the doc
-   *  read succeeded, gating on `ready` would let the very first capture write an
-   *  empty dump over the user's real one. */
-  const dumpReady = ref(false);
-  /** Dump storage could not be read. Surfaced too — dump entries are user data,
-   *  and silently not saving them would be its own kind of loss. */
-  const dumpLoadFailed = ref(false);
 
   const nodes = computed(() => doc.value.nodes);
   const edges = computed(() => doc.value.edges);
@@ -112,15 +92,17 @@ export function useMind() {
   );
   const mapFull = computed(() => doc.value.nodes.length >= caps.maxNodes);
   const edgesFull = computed(() => doc.value.edges.length >= caps.maxEdges);
-  const dumpFull = computed(() => dump.value.entries.length >= caps.maxDumpEntries);
 
   // ── UI request seams ───────────────────────────────────────────────────────
   // Cross-component nudges that are not document state: the view/inspector bumps
   // them, the component that owns the DOM reacts. Kept here because the singleton
   // is the only thing both sides can see.
 
-  /** Bumped after node creation so the inspector focuses the title input. */
-  const focusTitleRequest = ref(0);
+  /** Non-null = the node edit modal is open for this node. Set by the canvas
+   *  ✎ chip, the inspector's Edit button, F2, and node creation; cleared by
+   *  the modal's Save/Discard. Doubles as the "modal open" flag the view's
+   *  keyboard handler checks before destructive shortcuts. */
+  const editNodeId = ref<string | null>(null);
   /** Set by the inspector's "change source/target" buttons; the canvas enters
    *  its reconnect state and clears it. */
   const reconnectRequest = ref<{ edgeId: string; end: "source" | "target" } | null>(null);
@@ -149,15 +131,6 @@ export function useMind() {
     await kvPut(KV_NS, KV_SCOPE, KV_KEY, JSON.stringify(doc.value)).catch(() => {});
   }
 
-  /** Written on its own, gated on its own key's read. Not debounced: a capture,
-   *  a delete or a link is one deliberate click, not a stream of them like
-   *  dragging — and a jotted thought should hit disk before the app closes.
-   *  Which is also why flushPersist() needs no dump branch. */
-  async function persistDump() {
-    if (!dumpReady.value) return;
-    await kvPut(KV_NS, KV_SCOPE, KV_KEY_DUMP, JSON.stringify(dump.value)).catch(() => {});
-  }
-
   /** Persist the graph now — before unmount or export. */
   async function flushPersist() {
     if (persistTimer) {
@@ -169,11 +142,11 @@ export function useMind() {
 
   /** Load the saved map. Safe to call repeatedly; only the first load applies.
    *
-   *  The two keys are read and recovered INDEPENDENTLY, and each one separates
-   *  storage failure from content corruption because they call for opposite
-   *  responses: unreadable STORAGE means we must not write (we would be
-   *  overwriting something we failed to see), while readable-but-corrupt CONTENT
-   *  means there is nothing left to protect and starting fresh is right. */
+   *  Storage read and content parse are handled separately because they call
+   *  for opposite responses: unreadable STORAGE means we must not write (we
+   *  would be overwriting something we failed to see), while
+   *  readable-but-corrupt CONTENT means there is nothing left to protect and
+   *  starting fresh is right. */
   async function load() {
     if (loading.value) return;
     loading.value = true;
@@ -199,25 +172,6 @@ export function useMind() {
       loadFailed.value = true;
     }
 
-    let rawDump: string | null = null;
-    let dumpStorageOk = true;
-    try {
-      rawDump = await kvGet(KV_NS, KV_SCOPE, KV_KEY_DUMP);
-    } catch {
-      dumpStorageOk = false;
-    }
-    if (dumpStorageOk) {
-      try {
-        const parsed = rawDump ? validateMindDump(JSON.parse(rawDump), caps) : null;
-        if (parsed) dump.value = parsed;
-      } catch {
-        dump.value = emptyMindDump();
-      }
-      dumpReady.value = true;
-    } else {
-      dumpLoadFailed.value = true;
-    }
-
     revision.value++;
   }
 
@@ -226,11 +180,9 @@ export function useMind() {
     loading.value = false;
     ready.value = false;
     loadFailed.value = false;
-    dumpReady.value = false;
-    dumpLoadFailed.value = false;
     doc.value = emptyMindDoc();
-    dump.value = emptyMindDump();
     selected.value = null;
+    editNodeId.value = null;
     viewport = null;
     undoStack.value = [];
     redoStack.value = [];
@@ -241,19 +193,10 @@ export function useMind() {
   // Whole-document snapshots. With one user and immutable-by-convention node and
   // edge objects this is both simpler and harder to get wrong than inverse
   // operations — and the map is small enough (capped) that copies are cheap.
-  //
-  // The dump rides in the snapshot because link-to-topic removes an entry AND
-  // mutates the graph in one action: if undo restored only the graph half, it
-  // would delete the created node while the entry stayed gone — silent loss.
 
   interface DocState {
     nodes: MindNode[];
     edges: MindEdge[];
-    /** A REFERENCE, not a copy: dump mutations always replace the whole array
-     *  (never splice it), so the captured array is immutable — and comparing the
-     *  reference in applyState is what lets undo skip the dump fsync when the
-     *  dump didn't move. */
-    dumpEntries: MindDumpEntry[];
   }
 
   const undoStack = ref<DocState[]>([]);
@@ -266,7 +209,6 @@ export function useMind() {
     return {
       nodes: doc.value.nodes.slice(),
       edges: doc.value.edges.slice(),
-      dumpEntries: dump.value.entries,
     };
   }
 
@@ -291,12 +233,8 @@ export function useMind() {
   function applyState(next: DocState) {
     doc.value.nodes = next.nodes;
     doc.value.edges = next.edges;
-    const dumpChanged = dump.value.entries !== next.dumpEntries;
-    dump.value.entries = next.dumpEntries;
     fixSelection();
     schedulePersist();
-    // Only touch the dump key when it actually moved — see KV_KEY_DUMP.
-    if (dumpChanged) void persistDump();
     revision.value++;
   }
 
@@ -383,6 +321,21 @@ export function useMind() {
     if (!n || n.kind === kind) return;
     snapshot();
     replaceNode({ ...n, kind });
+  }
+
+  /** The edit modal's Save: title, kind and content land in ONE undo step
+   *  (the modal buffers drafts; nothing touches the doc until submit). Content
+   *  arrives as Trix HTML — plain-mode drafts are converted by the modal — and
+   *  is scrubbed here so no path into the doc skips it. Empty titles keep the
+   *  old title (the validator would drop an untitled node on the next load). */
+  function commitNodeEdit(id: string, patch: { title: string; kind: MindNodeKind; content: string }) {
+    const n = nodeById(id);
+    if (!n) return;
+    const title = patch.title.trim().slice(0, caps.maxTitleLen) || n.title;
+    const content = scrubContentHtml(patch.content).slice(0, caps.maxContentLen);
+    if (title === n.title && content === n.content && patch.kind === n.kind) return;
+    snapshot();
+    replaceNode({ ...n, title, kind: patch.kind, content });
   }
 
   function toggleCollapsed(id: string) {
@@ -511,56 +464,33 @@ export function useMind() {
     schedulePersist();
   }
 
-  // ── dump ───────────────────────────────────────────────────────────────────
+  // ── topics ─────────────────────────────────────────────────────────────────
 
-  function addDumpEntry(text: string): MindDumpEntry | null {
-    const t = text.trim();
-    if (!t || dumpFull.value) return null;
-    snapshot();
-    const entry: MindDumpEntry = { id: nanoid(), text: t.slice(0, caps.maxDumpEntryLen), createdAt: Date.now() };
-    dump.value.entries = [...dump.value.entries, entry];
-    void persistDump();
-    return entry;
-  }
-
-  function deleteDumpEntry(id: string) {
-    if (!dump.value.entries.some((e) => e.id === id)) return;
-    snapshot();
-    dump.value.entries = dump.value.entries.filter((e) => e.id !== id);
-    void persistDump();
-  }
-
-  /** The inbox's exit: the entry becomes a note node wired under the chosen
-   *  topic (topic → note, so collapsing the topic tucks its captures away) and
-   *  leaves the dump — all ONE undo step, so Ctrl+Z restores the entry and
-   *  removes the node together. */
-  function linkDumpEntryToTopic(entryId: string, topicId: string, pos?: { x: number; y: number }): MindNode | null {
-    const entry = dump.value.entries.find((e) => e.id === entryId);
+  /** The Topics tab's "add note": a fresh note wired to the topic in ONE undo
+   *  step. Edge direction is note → topic (the design decision for
+   *  topic-attached notes; the caller opens the edit modal on the result).
+   *  Fanned out beside the topic, spaced by how many notes already point at
+   *  it. */
+  function addNoteToTopic(topicId: string, title: string): MindNode | null {
     const topic = nodeById(topicId);
-    if (!entry || !topic || topic.kind !== "topic") return null;
+    if (!topic || topic.kind !== "topic") return null;
     if (mapFull.value || edgesFull.value) return null;
-    const { title, content } = splitDumpEntry(entry.text, caps);
-    if (!title) return null;
-    // Fan captures out below-right of the topic, spaced by how many it already has.
-    const k = doc.value.edges.filter((e) => e.source === topicId).length;
-    const at = pos ?? { x: topic.x + 240, y: topic.y - 30 + 70 * k };
+    const t = title.trim().slice(0, caps.maxTitleLen);
+    if (!t) return null;
+    const k = doc.value.edges.filter((e) => e.target === topicId).length;
     snapshot();
     const node: MindNode = {
       id: nanoid(),
       kind: "note",
-      title,
-      // Node content is Trix HTML; captured text is plain and must arrive as
-      // escaped prose, not accidental markup.
-      content: plainTextToHtml(content).slice(0, caps.maxContentLen),
-      x: roundPos(at.x),
-      y: roundPos(at.y),
+      title: t,
+      content: "",
+      x: roundPos(topic.x + 240),
+      y: roundPos(topic.y - 30 + 70 * k),
       collapsed: false,
     };
     doc.value.nodes = [...doc.value.nodes, node];
-    doc.value.edges = [...doc.value.edges, { id: nanoid(), source: topicId, target: node.id, label: "" }];
-    dump.value.entries = dump.value.entries.filter((e) => e.id !== entryId);
+    doc.value.edges = [...doc.value.edges, { id: nanoid(), source: node.id, target: topicId, label: "" }];
     schedulePersist();
-    void persistDump();
     return node;
   }
 
@@ -574,6 +504,7 @@ export function useMind() {
     doc.value.nodes = next.nodes;
     doc.value.edges = next.edges;
     selected.value = null;
+    editNodeId.value = null;
     viewport = null;
     revision.value++;
     await flushPersist();
@@ -582,17 +513,14 @@ export function useMind() {
   return {
     // state
     doc,
-    dump,
     nodes,
     edges,
     topicNodes,
     revision,
     ready,
     loadFailed,
-    dumpLoadFailed,
     mapFull,
     edgesFull,
-    dumpFull,
     // caps
     caps,
     // selection
@@ -601,7 +529,7 @@ export function useMind() {
     selectedEdge,
     select,
     // UI seams
-    focusTitleRequest,
+    editNodeId,
     reconnectRequest,
     getViewport: () => viewport,
     setViewport: (v: MindViewport | null) => {
@@ -611,6 +539,7 @@ export function useMind() {
     addNode,
     updateNodeFields,
     setNodeKind,
+    commitNodeEdit,
     toggleCollapsed,
     deleteNode,
     addEdge,
@@ -622,10 +551,8 @@ export function useMind() {
     moveNode,
     endNodeDrag,
     applyLayout,
-    // dump
-    addDumpEntry,
-    deleteDumpEntry,
-    linkDumpEntryToTopic,
+    // topics
+    addNoteToTopic,
     // import
     replaceDoc,
     // history

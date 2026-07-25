@@ -79,8 +79,6 @@ mind:
   max_edges: 1000
   max_title_len: 200
   max_content_len: 20000
-  max_dump_entries: 200
-  max_dump_entry_len: 4000
 
 devices:
   allow_linking: true
