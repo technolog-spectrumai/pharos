@@ -8,6 +8,7 @@ import {
   parseImportFile,
   plainTextToHtml,
   roundPos,
+  scrubContentHtml,
   splitDumpEntry,
   toExportFile,
   validateMindDoc,
@@ -261,6 +262,37 @@ describe("export / import round-trip", () => {
     const back = parseImportFile(file, CAPS);
     expect(back?.nodes.map((n) => n.id)).toEqual(["a"]);
     expect(back?.edges).toEqual([]);
+  });
+});
+
+describe("scrubContentHtml", () => {
+  it("removes fetchable elements — a remote img must never reach a parser", () => {
+    expect(scrubContentHtml('<div>hi<img src="https://evil.example/pixel.png">there</div>')).toBe(
+      "<div>hithere</div>",
+    );
+    expect(scrubContentHtml('<figure data-trix-attachment="{}"><img src="blob:x"></figure><div>keep</div>')).toBe(
+      "<div>keep</div>",
+    );
+    expect(scrubContentHtml('<iframe src="https://x"></iframe><script>1</script>ok')).toBe("ok");
+  });
+
+  it("drops non-http(s)/mailto hrefs, keeps safe ones", () => {
+    expect(scrubContentHtml('<a href="javascript:alert(1)">x</a>')).toBe("<a>x</a>");
+    expect(scrubContentHtml('<a href="https://example.com">x</a>')).toBe('<a href="https://example.com">x</a>');
+    expect(scrubContentHtml('<a href="mailto:a@b.c">x</a>')).toBe('<a href="mailto:a@b.c">x</a>');
+  });
+
+  it("leaves ordinary trix markup alone", () => {
+    const html = "<div>plain <strong>bold</strong><br><em>em</em></div><ul><li>x</li></ul>";
+    expect(scrubContentHtml(html)).toBe(html);
+  });
+
+  it("runs at validation, so imports cannot smuggle a fetch", () => {
+    const v = validateMindNode(
+      { ...node(), content: 'before<img src="https://tracker.example/x.gif">after' },
+      CAPS,
+    );
+    expect(v?.content).toBe("beforeafter");
   });
 });
 

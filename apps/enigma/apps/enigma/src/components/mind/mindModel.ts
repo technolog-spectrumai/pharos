@@ -112,6 +112,23 @@ function coord(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= MIND_COORD_LIMIT ? v : null;
 }
 
+/** Strip anything from content HTML that could touch the network or execute.
+ *  The app ships with no webview CSP, so a `<img src="https://…">` inside a
+ *  hand-edited import (or smuggled past the editor) would be FETCHED the
+ *  moment Trix parses it — an IP/tracking leak in an app that promises
+ *  offline. Attachments (<figure>) and images are removed outright — the
+ *  editor refuses them anyway — and href values are allowlisted to
+ *  http(s)/mailto so a javascript: link can't ride along. Defense in depth,
+ *  not a full sanitizer: content is only ever rendered through Trix's own
+ *  parser, never v-html. */
+export function scrubContentHtml(html: string): string {
+  return html
+    .replace(/<(figure|script|style|iframe|object|video|audio|picture)\b[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(img|picture|source|video|audio|iframe|object|embed|script|link|meta)\b[^>]*>/gi, "")
+    .replace(/<\/(picture|video|audio|iframe|object|script)>/gi, "")
+    .replace(/\s(href|src)\s*=\s*("(?!https?:|mailto:)[^"]*"|'(?!https?:|mailto:)[^']*')/gi, "");
+}
+
 /** Overlong titles are SLICED, not dropped: the length cap is a storage bound,
  *  and deleting a node because its title grew past it would be data loss. An
  *  empty/missing title still drops the node — there is nothing to show. */
@@ -129,7 +146,7 @@ export function validateMindNode(x: unknown, caps: MindCaps): MindNode | null {
     id,
     kind: o.kind === "topic" ? "topic" : "note",
     title,
-    content: typeof o.content === "string" ? o.content.slice(0, caps.maxContentLen) : "",
+    content: typeof o.content === "string" ? scrubContentHtml(o.content).slice(0, caps.maxContentLen) : "",
     x: x0,
     y: y0,
     collapsed: !!o.collapsed,
