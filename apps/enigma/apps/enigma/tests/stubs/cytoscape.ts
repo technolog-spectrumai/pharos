@@ -232,8 +232,8 @@ class StubCore {
   edges(selector?: string) {
     return this.collect((el) => el.isEdge(), selector);
   }
-  elements() {
-    return new StubCollection(this, [...this.els.values()]);
+  elements(selector?: string) {
+    return this.collect(() => true, selector);
   }
   $(selector?: string) {
     return this.collect(() => true, selector);
