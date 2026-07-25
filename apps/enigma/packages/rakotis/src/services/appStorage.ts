@@ -112,6 +112,18 @@ export interface BuildConfig {
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
   maps_enabled: boolean;
+  /** false = this build has no Mind tab: /mind redirects. The mind map and its
+   *  dump inbox are local-only by construction: ns `mind` is deliberately
+   *  absent from DEVLINK_SYNC_KV and PEER_SCOPE_KV. */
+  mind_enabled: boolean;
+  /** Mind caps enforced in the composable + validators (memory / render cost).
+   *  max_title_len also caps edge labels. */
+  mind_max_nodes: number;
+  mind_max_edges: number;
+  mind_max_title_len: number;
+  mind_max_content_len: number;
+  mind_max_dump_entries: number;
+  mind_max_dump_entry_len: number;
   /** false = this build has no device linking: devlink_* commands error with
    *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
   devices_allow_linking: boolean;
@@ -154,6 +166,13 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   sketch_max_shapes_per_board: 1000,
   sketch_max_text_len: 200,
   maps_enabled: true,
+  mind_enabled: true,
+  mind_max_nodes: 500,
+  mind_max_edges: 1000,
+  mind_max_title_len: 200,
+  mind_max_content_len: 4000,
+  mind_max_dump_entries: 200,
+  mind_max_dump_entry_len: 4000,
   devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,

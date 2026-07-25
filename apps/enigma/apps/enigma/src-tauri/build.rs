@@ -31,6 +31,7 @@ struct RawConfig {
     kanban: KanbanSection,
     sketch: SketchSection,
     maps: MapsSection,
+    mind: MindSection,
     devices: DevicesSection,
     features: FeaturesSection,
     settings: SettingsSection,
@@ -121,6 +122,18 @@ struct SketchSection {
 #[serde(deny_unknown_fields)]
 struct MapsSection {
     enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MindSection {
+    enabled: bool,
+    max_nodes: u32,
+    max_edges: u32,
+    max_title_len: u32,
+    max_content_len: u32,
+    max_dump_entries: u32,
+    max_dump_entry_len: u32,
 }
 
 #[derive(Deserialize)]
@@ -299,6 +312,21 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         }
     }
 
+    // mind.
+    let mn = &cfg.mind;
+    for (path, v) in [
+        ("mind.max_nodes", mn.max_nodes),
+        ("mind.max_edges", mn.max_edges),
+        ("mind.max_title_len", mn.max_title_len),
+        ("mind.max_content_len", mn.max_content_len),
+        ("mind.max_dump_entries", mn.max_dump_entries),
+        ("mind.max_dump_entry_len", mn.max_dump_entry_len),
+    ] {
+        if v == 0 {
+            err(path, format!("{v} must be > 0"));
+        }
+    }
+
     // network.
     let net = &cfg.network;
     if net.onion_port == 0 {
@@ -443,6 +471,16 @@ pub mod maps {{
     pub const ENABLED: bool = {maps_enabled};
 }}
 
+pub mod mind {{
+    pub const ENABLED: bool = {mind_enabled};
+    pub const MAX_NODES: u32 = {mind_max_nodes};
+    pub const MAX_EDGES: u32 = {mind_max_edges};
+    pub const MAX_TITLE_LEN: u32 = {mind_max_title};
+    pub const MAX_CONTENT_LEN: u32 = {mind_max_content};
+    pub const MAX_DUMP_ENTRIES: u32 = {mind_max_dump_entries};
+    pub const MAX_DUMP_ENTRY_LEN: u32 = {mind_max_dump_entry};
+}}
+
 pub mod devices {{
     pub const ALLOW_LINKING: bool = {devices_allow_linking};
 }}
@@ -549,6 +587,13 @@ const _: () = assert!(
         sketch_max_shapes = cfg.sketch.max_shapes_per_board,
         sketch_max_text = cfg.sketch.max_text_len,
         maps_enabled = cfg.maps.enabled,
+        mind_enabled = cfg.mind.enabled,
+        mind_max_nodes = cfg.mind.max_nodes,
+        mind_max_edges = cfg.mind.max_edges,
+        mind_max_title = cfg.mind.max_title_len,
+        mind_max_content = cfg.mind.max_content_len,
+        mind_max_dump_entries = cfg.mind.max_dump_entries,
+        mind_max_dump_entry = cfg.mind.max_dump_entry_len,
         devices_allow_linking = cfg.devices.allow_linking,
     );
     o

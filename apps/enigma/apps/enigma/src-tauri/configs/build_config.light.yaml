@@ -9,7 +9,7 @@
 # IN : P2P MLS chat, QR pairing, Tor, DHT room codes, file transfer, local
 #      locked files + notes, vault / panic code / idle lock / airplane mode.
 # OUT: contacts, voice calls, device linking, calendar, board, sketch, maps,
-#      Enigma Cloud.
+#      mind, Enigma Cloud.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -72,6 +72,16 @@ sketch:
 
 maps:
   enabled: false                  # Pro only
+
+mind:
+  enabled: false                  # Pro only
+  # Inert while enabled: false, but still required + validated by build.rs.
+  max_nodes: 500
+  max_edges: 1000
+  max_title_len: 200
+  max_content_len: 4000
+  max_dump_entries: 200
+  max_dump_entry_len: 4000
 
 devices:
   allow_linking: false            # Plus and up — Light is single-device

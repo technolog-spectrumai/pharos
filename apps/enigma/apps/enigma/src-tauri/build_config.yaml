@@ -95,6 +95,20 @@ maps:
   # standalone tools/map_packager and imported from the device (map.md Part II).
   enabled: true
 
+mind:
+  # false = this build has no Mind tab: /mind redirects. The mind map and its
+  # dump inbox are local and standalone — never shared with a peer and never
+  # synced to a linked device (ns `mind` is absent from every sync allow-list).
+  enabled: true
+  # Caps enforced in the composable + validators (memory / render cost).
+  # max_title_len also caps edge labels — labels are title-like text.
+  max_nodes: 500
+  max_edges: 1000
+  max_title_len: 200
+  max_content_len: 4000
+  max_dump_entries: 200
+  max_dump_entry_len: 4000
+
 devices:
   # false = this build has no device linking: every devlink_* command fails
   # fast with DEVLINK_DISABLED and the Settings→Devices tab is hidden. Linking

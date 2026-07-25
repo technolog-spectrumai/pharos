@@ -8,7 +8,7 @@
 #
 # = Light, PLUS: contacts (DHT presence, nickname directory, direct room
 #   invites), 1:1 voice calls, and multi-device linking.
-# OUT: calendar, board, sketch, maps, Enigma Cloud (all Pro).
+# OUT: calendar, board, sketch, maps, mind, Enigma Cloud (all Pro).
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -71,6 +71,16 @@ sketch:
 
 maps:
   enabled: false                  # Pro only
+
+mind:
+  enabled: false                  # Pro only
+  # Inert while enabled: false, but still required + validated by build.rs.
+  max_nodes: 500
+  max_edges: 1000
+  max_title_len: 200
+  max_content_len: 4000
+  max_dump_entries: 200
+  max_dump_entry_len: 4000
 
 devices:
   allow_linking: true
