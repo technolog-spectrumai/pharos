@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import EnigmaMindView from "../../src/views/EnigmaMindView.vue";
 import MindDumpPanel from "../../src/components/mind/MindDumpPanel.vue";
+import MindInspector from "../../src/components/mind/MindInspector.vue";
 import { getMind, resetMind } from "../../src/components/mind/useMind";
 import { i18n } from "../../src/i18n";
 
@@ -99,5 +100,97 @@ describe("MindDumpPanel", () => {
     await w.findAll("button").find((b) => b.text().includes("Link to topic"))!.trigger("click");
     await w.vm.$nextTick();
     expect(document.body.textContent).toContain("No topic nodes yet");
+  });
+});
+
+describe("MindInspector", () => {
+  function mountInspector() {
+    return mount(MindInspector, {
+      props: { mind: getMind() },
+      global: { plugins: [i18n] },
+    });
+  }
+
+  it("shows the empty state until something is selected", async () => {
+    const mind = getMind();
+    await mind.load();
+    const w = mountInspector();
+    expect(w.text()).toContain("Select a node or a link");
+
+    const n = mind.addNode("note", "Idea", "", 0, 0)!;
+    mind.select({ kind: "node", id: n.id });
+    await w.vm.$nextTick();
+    expect((w.find("[data-testid='mind-title-input']").element as HTMLInputElement).value).toBe("Idea");
+  });
+
+  it("writes title edits through, but never an empty title", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "Keep", "", 0, 0)!;
+    mind.select({ kind: "node", id: n.id });
+    const w = mountInspector();
+
+    await w.find("[data-testid='mind-title-input']").setValue("Renamed");
+    expect(mind.nodes.value[0].title).toBe("Renamed");
+
+    await w.find("[data-testid='mind-title-input']").setValue("   ");
+    expect(mind.nodes.value[0].title).toBe("Renamed");
+  });
+
+  it("toggles the node kind", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "Hub", "", 0, 0)!;
+    mind.select({ kind: "node", id: n.id });
+    const w = mountInspector();
+
+    await w.find("[data-testid='mind-kind-topic']").trigger("click");
+    expect(mind.nodes.value[0].kind).toBe("topic");
+  });
+
+  it("edits, swaps and deletes an edge", async () => {
+    const mind = getMind();
+    await mind.load();
+    const a = mind.addNode("note", "A", "", 0, 0)!;
+    const b = mind.addNode("note", "B", "", 100, 0)!;
+    const e = mind.addEdge(a.id, b.id, "old")!;
+    mind.select({ kind: "edge", id: e.id });
+    const w = mountInspector();
+
+    expect(w.text()).toContain("A → B");
+    await w.find("[data-testid='mind-label-input']").setValue("relates to");
+    expect(mind.edges.value[0].label).toBe("relates to");
+
+    await w.find("[data-testid='mind-swap-edge']").trigger("click");
+    expect(mind.edges.value[0].source).toBe(b.id);
+
+    await w.find("[data-testid='mind-delete-edge']").trigger("click");
+    expect(mind.edges.value).toHaveLength(0);
+    expect(mind.selected.value).toBeNull();
+  });
+
+  it("the change-endpoint buttons post a reconnect request for the canvas", async () => {
+    const mind = getMind();
+    await mind.load();
+    const a = mind.addNode("note", "A", "", 0, 0)!;
+    const b = mind.addNode("note", "B", "", 100, 0)!;
+    const e = mind.addEdge(a.id, b.id)!;
+    mind.select({ kind: "edge", id: e.id });
+    const w = mountInspector();
+
+    await w.findAll("button").find((btn) => btn.text().includes("Move end"))!.trigger("click");
+    expect(mind.reconnectRequest.value).toEqual({ edgeId: e.id, end: "target" });
+  });
+
+  it("deleting the node from the panel clears it", async () => {
+    const mind = getMind();
+    await mind.load();
+    const n = mind.addNode("note", "Doomed", "", 0, 0)!;
+    mind.select({ kind: "node", id: n.id });
+    const w = mountInspector();
+
+    await w.find("[data-testid='mind-delete-node']").trigger("click");
+    expect(mind.nodes.value).toHaveLength(0);
+    expect(w.text()).toContain("Select a node or a link");
   });
 });
