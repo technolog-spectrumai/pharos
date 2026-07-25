@@ -182,7 +182,7 @@ describe("sync allow-list", () => {
     expect(isSyncableKv("chat:log", "room-1", "index")).toBe(false);
     // The mind map is local-only by design: never device-synced.
     expect(isSyncableKv("mind", "default", "")).toBe(false);
-    expect(isSyncableKv("mind", "default", "dump")).toBe(false);
+    expect(isSyncableKv("mind", "default", "anything")).toBe(false);
   });
 });
 

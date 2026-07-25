@@ -112,9 +112,9 @@ export interface BuildConfig {
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
   maps_enabled: boolean;
-  /** false = this build has no Mind tab: /mind redirects. The mind map and its
-   *  dump inbox are local-only by construction: ns `mind` is deliberately
-   *  absent from DEVLINK_SYNC_KV and PEER_SCOPE_KV. */
+  /** false = this build has no Mind tab: /mind redirects. The mind map is
+   *  local-only by construction: ns `mind` is deliberately absent from
+   *  DEVLINK_SYNC_KV and PEER_SCOPE_KV. */
   mind_enabled: boolean;
   /** Mind caps enforced in the composable + validators (memory / render cost).
    *  max_title_len also caps edge labels. */
