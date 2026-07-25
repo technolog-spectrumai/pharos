@@ -103,6 +103,71 @@ describe("MindDumpPanel", () => {
   });
 });
 
+describe("import flow", () => {
+  /** jsdom file inputs are read-only; stuff the FileList in by hand. jsdom's
+   *  FileReader fires onload from a macrotask, so flushPromises alone returns
+   *  too early — wait a tick loop out. */
+  async function pickFile(w: ReturnType<typeof mountView>, contents: string) {
+    const input = w.find("input[type='file']");
+    const file = new File([contents], "mind.json", { type: "application/json" });
+    Object.defineProperty(input.element, "files", { value: [file], configurable: true });
+    await input.trigger("change");
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+      await flushPromises();
+    }
+  }
+
+  it("validates, confirms with real counts, then replaces the doc", async () => {
+    const w = mountView();
+    await flushPromises();
+    const mind = getMind();
+    mind.addNode("note", "old", "", 0, 0);
+
+    const file = {
+      format: "enigma-mind",
+      version: 1,
+      exportedAt: "x",
+      metadata: { nodeCount: 999, edgeCount: 999 }, // lies — the modal must not repeat them
+      nodes: [
+        { id: "a", kind: "topic", title: "Imported", content: "", x: 0, y: 0, collapsed: false },
+        { junk: true },
+      ],
+      edges: [],
+    };
+    await pickFile(w, JSON.stringify(file));
+
+    expect(document.body.textContent).toContain("replaced with 1 nodes and 0 links");
+    const confirmBtn = [...document.body.querySelectorAll("button")].find((b) =>
+      b.getAttribute("data-testid") === "mind-import-confirm",
+    )!;
+    confirmBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushPromises();
+
+    expect(mind.nodes.value.map((n) => n.title)).toEqual(["Imported"]);
+    mind.undo();
+    expect(mind.nodes.value.map((n) => n.title)).toEqual(["old"]);
+  });
+
+  it("refuses foreign JSON without touching the map", async () => {
+    const w = mountView();
+    await flushPromises();
+    const mind = getMind();
+    mind.addNode("note", "keep", "", 0, 0);
+
+    await pickFile(w, JSON.stringify({ some: "other file" }));
+    expect(w.text()).toContain("Not a valid Enigma mind map file");
+    expect(mind.nodes.value.map((n) => n.title)).toEqual(["keep"]);
+  });
+
+  it("reports unparseable files", async () => {
+    const w = mountView();
+    await flushPromises();
+    await pickFile(w, "{nope");
+    expect(w.text()).toContain("Not a valid Enigma mind map file");
+  });
+});
+
 describe("MindInspector", () => {
   function mountInspector() {
     return mount(MindInspector, {
