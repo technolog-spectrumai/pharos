@@ -202,8 +202,9 @@ fn blob_path(app: &AppHandle, blake3_hex: &str) -> Result<PathBuf, String> {
     Ok(maps_dir(app)?.join(format!("{blake3_hex}.pmtiles")))
 }
 
-/// BLAKE3 + byte size of a file, streamed in 1 MiB chunks.
-fn blake3_file(path: &Path) -> Result<(String, u64), String> {
+/// BLAKE3 + byte size of a file, streamed in 1 MiB chunks. Shared with
+/// file_sync.rs (the Files→Devices per-file sync uses the same hashing).
+pub(crate) fn blake3_file(path: &Path) -> Result<(String, u64), String> {
     let mut file = std::fs::File::open(path).map_err(|e| format!("open failed: {e}"))?;
     let mut hasher = blake3::Hasher::new();
     let mut buf = vec![0u8; 1 << 20];

@@ -13,6 +13,10 @@ use zeroize::Zeroize;
 mod cloud;
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
+// Files→Devices per-file sync: the disk half of receiving (sanitized paths,
+// hash verification, the <profile>/synced/ landing folder). Bytes ride
+// file_xfer; the list + signaling live in the frontend (fsync.md).
+mod file_sync;
 // 1:1 voice calls over iroh QUIC (restored from limbo/ 2026-07), accepting
 // VOX_ALPN on the main p2p endpoint.
 mod vox;
@@ -1374,6 +1378,10 @@ pub fn run() {
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,
+            file_sync::filesync_hash,
+            file_sync::filesync_recv_path,
+            file_sync::filesync_import,
+            file_sync::filesync_dir,
             device_link::devlink_pair_begin,
             device_link::devlink_pair_confirm,
             device_link::devlink_pair_cancel,
