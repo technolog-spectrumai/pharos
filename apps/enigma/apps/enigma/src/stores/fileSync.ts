@@ -23,6 +23,8 @@ import { nanoid } from "nanoid";
 import {
   invoke,
   isTauri,
+  kvGet,
+  kvPut,
   getMaxFileSizeMb,
   liveFileEntries,
   validateDlinkFilePullReq,
@@ -108,7 +110,6 @@ export const useFileSyncStore = defineStore("fileSync", () => {
   // ── local records (device-local kv) ─────────────────────────────────────────
 
   async function loadLocalRecords(): Promise<void> {
-    const { kvGet } = await import("rakotis");
     try {
       const raw = await kvGet(LS_NS, LS_SCOPE, LS_KEY_LOCAL);
       const parsed = raw ? (JSON.parse(raw) as Record<string, LocalFileRecord>) : {};
@@ -122,7 +123,6 @@ export const useFileSyncStore = defineStore("fileSync", () => {
   }
 
   async function saveLocalRecords(): Promise<void> {
-    const { kvPut } = await import("rakotis");
     await kvPut(LS_NS, LS_SCOPE, LS_KEY_LOCAL, JSON.stringify(Object.fromEntries(localRecords))).catch(() => {});
   }
 
