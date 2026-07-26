@@ -12,8 +12,10 @@ import layersFn from "protomaps-themes-base";
 import {
   isTauri,
   invoke,
+  buildLocationShare,
   buildPinShare,
   buildRouteShare,
+  MAP_LOC_TTL_MS,
   OyaButton,
   OyaCard,
   OyaEmptyState,
@@ -26,6 +28,7 @@ import {
 import { policy } from "../../config/app";
 import { useChatStore } from "../../stores/chat";
 import { useMapStore } from "../../stores/map";
+import SharedSharesCard from "./SharedSharesCard.vue";
 import { sharedItemName, type SharedItem } from "./sharedLayerModel";
 import { useSharedMapLayer } from "./useSharedMapLayer";
 
@@ -60,11 +63,20 @@ function pushDiag(msg: string) {
 }
 
 // Placement / drawing state machine (explicit user actions only).
-type Mode = "idle" | "add-pin" | "draw-route";
+type Mode = "idle" | "add-pin" | "draw-route" | "share-loc";
 const mode = ref<Mode>("idle");
 const draftPoints = ref<[number, number][]>([]); // [lat, lng]
 const nameModal = ref<null | { kind: "pin" | "route"; lat?: number; lng?: number }>(null);
 const nameInput = ref("");
+
+// Sharing a location: the user taps a spot, confirms, and only then does
+// anything leave the device. Nothing is ever stored locally by this flow.
+const locModal = ref<null | { lat: number; lng: number }>(null);
+const locLabel = ref("");
+const locNote = ref("");
+const locBusy = ref(false);
+/** Shows the tapped point while the modal is open, so the tap visibly landed. */
+let pendingLocMarker: maplibregl.Marker | null = null;
 
 // A share opened from a chat card — previewed until the user saves/dismisses.
 // Regions never land here (their cards download instead of focusing).
@@ -454,6 +466,7 @@ onBeforeUnmount(() => {
   pinMarkers.clear();
   for (const entry of sharedMarkers.values()) entry.marker.remove();
   sharedMarkers.clear();
+  pendingLocMarker?.remove();
   focusMarker?.remove();
   map?.remove();
   map = null;
@@ -494,6 +507,45 @@ function onMapClick(e: maplibregl.MapMouseEvent) {
     mode.value = "idle";
   } else if (mode.value === "draw-route") {
     draftPoints.value = [...draftPoints.value, [e.lngLat.lat, e.lngLat.lng]];
+  } else if (mode.value === "share-loc") {
+    openLocModal(e.lngLat.lat, e.lngLat.lng);
+  }
+}
+
+function openLocModal(lat: number, lng: number) {
+  mode.value = "idle";
+  locLabel.value = "";
+  locNote.value = "";
+  locModal.value = { lat, lng };
+  pendingLocMarker?.remove();
+  if (map) {
+    pendingLocMarker = new maplibregl.Marker({ color: SHARED_LOC_COLOR })
+      .setLngLat([lng, lat])
+      .addTo(map);
+  }
+}
+
+function closeLocModal() {
+  locModal.value = null;
+  pendingLocMarker?.remove();
+  pendingLocMarker = null;
+}
+
+/** Push the tapped point to the room. This is the ONLY thing that shares a
+ *  location, and it takes a deliberate press — the app never reads a device
+ *  position and never sends anything on its own. */
+async function shareLocation() {
+  const at = locModal.value;
+  if (!at || locBusy.value) return;
+  locBusy.value = true;
+  try {
+    await chatStore.p2p.sendMapShare(
+      buildLocationShare(at.lat, at.lng, { label: locLabel.value, note: locNote.value }),
+    );
+    chatStore.p2p.postSystemNotice(t("map.locSharedNotice"));
+    closeLocModal();
+  } finally {
+    locBusy.value = false;
   }
 }
 
@@ -614,6 +666,13 @@ function focusShared(item: SharedItem) {
   map.flyTo({ center: [pt.lng, pt.lat], zoom: Math.max(map.getZoom(), 13) });
 }
 
+/** Sidebar row → select it AND fly there (an out-of-coverage row flies to blank
+ *  canvas on purpose: it shows the user where their maps stop). */
+function onSharedRowFocus(item: SharedItem) {
+  selectedShared.value = item.covered ? item : null;
+  focusShared(item);
+}
+
 /** Adopt a shared item as your own pin/route. It becomes ordinary local map
  *  data (device-local — map:* never syncs), and an adopted location stops
  *  expiring: the user chose to keep it. */
@@ -708,6 +767,16 @@ function dismissFocus() {
           <OyaButton v-if="mode !== 'draw-route'" variant="secondary" @click="startRoute">
             <font-awesome-icon icon="route" /> {{ $t('map.drawRoute') }}
           </OyaButton>
+          <OyaButton
+            v-if="mode !== 'draw-route'"
+            :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
+            :disabled="!canShare"
+            :title="canShare ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
+            data-testid="share-loc-button"
+            @click="mode = mode === 'share-loc' ? 'idle' : 'share-loc'"
+          >
+            <font-awesome-icon icon="location-crosshairs" /> {{ $t('map.shareLoc') }}
+          </OyaButton>
           <template v-else>
             <OyaButton variant="primary" :disabled="draftPoints.length < 2" @click="finishRoute">
               {{ $t('map.finishRoute', { n: draftPoints.length }) }}
@@ -723,7 +792,9 @@ function dismissFocus() {
           v-if="mode !== 'idle'"
           class="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-lg bg-primary-bg-light/90 px-3 py-1.5 text-xs shadow dark:bg-primary-bg-dark/90"
         >
-          {{ mode === 'add-pin' ? $t('map.clickToPlace') : $t('map.clickToExtend') }}
+          {{ mode === 'add-pin' ? $t('map.clickToPlace')
+            : mode === 'share-loc' ? $t('map.clickToShareLoc')
+            : $t('map.clickToExtend') }}
         </p>
 
         <!-- Shared-layer toggle: what room members shared, on your map. -->
@@ -731,7 +802,8 @@ function dismissFocus() {
           v-if="layer.all.value.length"
           type="button"
           data-testid="shared-layer-toggle"
-          class="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-accent-2 bg-primary-bg-light/90 px-3 py-1 text-xs font-semibold transition hover:opacity-80 dark:border-accent-1 dark:bg-primary-bg-dark/90"
+          class="absolute right-3 z-10 flex items-center gap-2 rounded-full border border-accent-2 bg-primary-bg-light/90 px-3 py-1 text-xs font-semibold transition hover:opacity-80 dark:border-accent-1 dark:bg-primary-bg-dark/90"
+          :class="store.activeRegion ? 'top-12' : 'top-3'"
           :title="$t('map.sharedLayerToggle')"
           @click="store.toggleSharedLayer()"
         >
@@ -788,6 +860,15 @@ function dismissFocus() {
 
       <!-- Pins / routes sidebar -->
       <div class="flex w-full flex-col gap-3 overflow-y-auto lg:w-80">
+        <!-- What the room shared — above your own pins: it's the volatile part. -->
+        <SharedSharesCard
+          :on-map="layer.onMap.value"
+          :outside="layer.outside.value"
+          :visible="store.sharedLayerVisible"
+          @focus="onSharedRowFocus"
+          @save="saveShared"
+          @toggle="store.toggleSharedLayer()"
+        />
         <OyaCard>
           <h3 class="mb-2 text-sm font-bold"><font-awesome-icon icon="location-dot" /> {{ $t('map.pinsTitle') }}</h3>
           <p v-if="store.pins.length === 0" class="text-xs opacity-60">{{ $t('map.noPins') }}</p>
@@ -847,6 +928,41 @@ function dismissFocus() {
           </ul>
         </OyaCard>
       </div>
+
+      <!-- Share a location: explicit, one-shot, and it says how long peers see it. -->
+      <OyaModal :open="locModal !== null" @close="closeLocModal">
+        <form
+          class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
+          @submit.prevent="shareLocation"
+        >
+          <p class="flex items-center gap-2 text-lg font-bold">
+            <font-awesome-icon icon="location-crosshairs" />
+            {{ $t('map.shareLocTitle') }}
+          </p>
+          <p v-if="locModal" class="text-xs opacity-60">
+            {{ $t('map.locCoords', { lat: locModal.lat.toFixed(5), lng: locModal.lng.toFixed(5) }) }}
+          </p>
+          <label class="block text-xs font-semibold uppercase tracking-wide opacity-70">
+            {{ $t('map.locLabelLabel') }}
+            <OyaTextField v-model="locLabel" :maxlength="120" data-testid="loc-label" class="mt-1" />
+          </label>
+          <label class="block text-xs font-semibold uppercase tracking-wide opacity-70">
+            {{ $t('map.locNoteLabel') }}
+            <OyaTextField v-model="locNote" :maxlength="500" class="mt-1" />
+          </label>
+          <p class="text-xs opacity-60">
+            {{ $t('map.locTtlNotice', { hours: Math.round(MAP_LOC_TTL_MS / 3600000) }) }}
+          </p>
+          <div class="flex justify-end gap-2 pt-1">
+            <OyaButton variant="secondary" type="button" @click="closeLocModal">
+              {{ $t('common.cancel') }}
+            </OyaButton>
+            <OyaButton type="submit" :disabled="locBusy" data-testid="loc-share-submit">
+              <font-awesome-icon icon="share-nodes" /> {{ $t('map.shareAction') }}
+            </OyaButton>
+          </div>
+        </form>
+      </OyaModal>
 
       <!-- Name prompt for a new pin / finished route -->
       <OyaModal :open="nameModal !== null" @close="nameModal = null">
