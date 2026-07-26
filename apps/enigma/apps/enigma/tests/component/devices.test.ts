@@ -2,13 +2,16 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { i18n } from "../../src/i18n";
-import DevicesPanel from "../../src/components/devices/DevicesPanel.vue";
+import DevicesTab from "../../src/components/devices/DevicesTab.vue";
+import PairingPanel from "../../src/components/devices/PairingPanel.vue";
+import FileSyncPanel from "../../src/components/devices/FileSyncPanel.vue";
 import type { DeviceRegistry } from "rakotis";
 
-// DevicesPanel in the jsdom shell: no Tauri runtime, so pairing invokes reject
-// (the panel shows its degraded/error state) — what we pin here is the pure UI:
-// registry rendering + this-device marker, unlink delegation, the not-linked
-// empty state, and the offline disabled-with-reason gate.
+// Files → Devices in the jsdom shell: no Tauri runtime, so pairing invokes
+// reject (the panel shows its degraded/error state) and file sync shows its
+// desktop-only banner. What we pin here is the pure UI: the always-visible
+// device list with its this-device marker and online dots, unlink delegation,
+// the not-linked empty state, the pairing gates, and the file-list controls.
 //
 // The fake deviceSync uses plain `{ value }` holders (vi.hoisted runs before
 // imports, so vue's ref() is unavailable); every test sets state BEFORE mount,
@@ -23,8 +26,16 @@ const { fakeSync } = vi.hoisted(() => {
       link: holder<{ myDeviceId: string } | null>(null),
       lastSyncAt: holder(0),
       devConnected: holder(false),
+      devOnline: holder(false),
+      onlineLeafIds: holder<string[]>([]),
+      fileEntries: holder<Record<string, unknown>[]>([]),
       refresh: async () => {},
       start: async () => {},
+      onDevlinkFile: () => () => {},
+      sendDevlinkFile: async () => {},
+      upsertFileEntry: async () => true,
+      tombstoneFileEntry: async () => {},
+      recordFileCopy: async () => {},
       unlinkCalls: [] as string[],
       unlinkDevice(deviceId: string) {
         fakeSync.unlinkCalls.push(deviceId);
@@ -53,6 +64,9 @@ beforeEach(() => {
   fakeSync.linked.value = false;
   fakeSync.registry.value = null;
   fakeSync.link.value = null;
+  fakeSync.devOnline.value = false;
+  fakeSync.onlineLeafIds.value = [];
+  fakeSync.fileEntries.value = [];
   fakeSync.unlinkCalls.length = 0;
   pinia = createPinia();
   setActivePinia(pinia);
@@ -60,36 +74,61 @@ beforeEach(() => {
 
 const GLOBAL = () => ({ plugins: [i18n, pinia], stubs: { teleport: true } });
 
-describe("DevicesPanel", () => {
-  it("shows the empty state and the pairing CTA when not linked", async () => {
-    const wrapper = mount(DevicesPanel, { props: { darkMode: false }, global: GLOBAL() });
+function linkTwoDevices() {
+  fakeSync.linked.value = true;
+  fakeSync.registry.value = REGISTRY;
+  fakeSync.link.value = { myDeviceId: "primary" };
+}
+
+describe("DevicesTab — the device list header", () => {
+  it("shows the not-linked state and opens on the Files sub-tab", async () => {
+    const wrapper = mount(DevicesTab, { global: GLOBAL() });
     await flushPromises();
-    expect(wrapper.text()).toContain("No linked devices yet");
-    expect(wrapper.text()).toContain("Show pairing QR");
-    expect(wrapper.text()).toContain("This is the new device");
+    expect(wrapper.find("[data-testid='devices-not-linked']").exists()).toBe(true);
+    // Files sub-tab is the default: its add-file control is on screen.
+    expect(wrapper.find("[data-testid='fsync-add']").exists()).toBe(true);
   });
 
-  it("renders the registry with a this-device marker and unlink on the others", async () => {
-    fakeSync.linked.value = true;
-    fakeSync.registry.value = REGISTRY;
-    fakeSync.link.value = { myDeviceId: "primary" };
-    const wrapper = mount(DevicesPanel, { props: { darkMode: false }, global: GLOBAL() });
+  it("lists devices with this-device marker, online dots, and unlink on others", async () => {
+    linkTwoDevices();
+    fakeSync.onlineLeafIds.value = ["alice#dev-abcd2345"];
+    const wrapper = mount(DevicesTab, { global: GLOBAL() });
     await flushPromises();
 
     expect(wrapper.text()).toContain("Desktop");
     expect(wrapper.text()).toContain("Phone");
     expect(wrapper.text()).toContain("this device");
-    expect(wrapper.text()).toContain("alice#dev-abcd2345");
-    const unlinkButtons = wrapper.findAll("button").filter((b) => b.text() === "Unlink");
-    expect(unlinkButtons).toHaveLength(1); // never on this device's own row
+    // The phone's leaf is in the room ⇒ its row reads as connected.
+    expect(wrapper.text()).toContain("connected");
 
-    await unlinkButtons[0].trigger("click");
+    const unlink = wrapper.find("[data-testid='devices-unlink-abcd2345']");
+    expect(unlink.exists()).toBe(true);
+    expect(wrapper.find("[data-testid='devices-unlink-primary']").exists()).toBe(false);
+    await unlink.trigger("click");
     expect(fakeSync.unlinkCalls).toEqual(["abcd2345"]);
+  });
+
+  it("switches to the Pairing sub-tab", async () => {
+    const wrapper = mount(DevicesTab, { global: GLOBAL() });
+    await flushPromises();
+    const pairingPill = wrapper.findAll("button").find((b) => b.text() === "Pairing")!;
+    await pairingPill.trigger("click");
+    expect(wrapper.text()).toContain("Show pairing QR");
+    expect(wrapper.find("[data-testid='fsync-add']").exists()).toBe(false);
+  });
+});
+
+describe("PairingPanel", () => {
+  it("offers both pairing flows", async () => {
+    const wrapper = mount(PairingPanel, { global: GLOBAL() });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Show pairing QR");
+    expect(wrapper.text()).toContain("This is the new device");
   });
 
   it("disables pairing with a reason in airplane mode", async () => {
     localStorage.setItem("enigma:offline", "on");
-    const wrapper = mount(DevicesPanel, { props: { darkMode: false }, global: GLOBAL() });
+    const wrapper = mount(PairingPanel, { global: GLOBAL() });
     await flushPromises();
     expect(wrapper.text()).toContain("Offline — all network connections are blocked.");
     const showQr = wrapper.findAll("button").find((b) => b.text().includes("Show pairing QR"))!;
@@ -97,13 +136,61 @@ describe("DevicesPanel", () => {
   });
 
   it("surfaces a pairing-join failure as an error (no Tauri runtime here)", async () => {
-    const wrapper = mount(DevicesPanel, { props: { darkMode: false }, global: GLOBAL() });
+    const wrapper = mount(PairingPanel, { global: GLOBAL() });
     await flushPromises();
-    const ticketInput = wrapper.findAll("input").find((el) => (el.element as HTMLInputElement).type === "text" && el.classes().includes("font-mono"))!;
+    const ticketInput = wrapper
+      .findAll("input")
+      .find((el) => (el.element as HTMLInputElement).type === "text" && el.classes().includes("font-mono"))!;
     await ticketInput.setValue("lqaa-fake-ticket");
     const linkBtn = wrapper.findAll("button").find((b) => b.text() === "Link")!;
     await linkBtn.trigger("click");
     await flushPromises();
     expect(wrapper.text().length).toBeGreaterThan(0); // error line rendered, not a crash
+  });
+});
+
+describe("FileSyncPanel", () => {
+  it("explains itself when nothing is linked and shows the empty list", async () => {
+    const wrapper = mount(FileSyncPanel, { global: GLOBAL() });
+    await flushPromises();
+    // Browser shell has no Tauri: the desktop-only reason wins.
+    expect(wrapper.find("[data-testid='fsync-blocked']").text()).toContain("desktop or mobile app");
+    expect(wrapper.text()).toContain("No files yet");
+  });
+
+  it("renders entries with select-all, and Push/Pull are disabled without a live peer", async () => {
+    linkTwoDevices();
+    fakeSync.fileEntries.value = [
+      { id: "e1", name: "notes.txt", addedBy: "primary", addedAt: 1, updatedAt: 1, copies: {} },
+      { id: "e2", name: "budget.ods", addedBy: "primary", addedAt: 1, updatedAt: 1, copies: {} },
+    ];
+    const wrapper = mount(FileSyncPanel, { global: GLOBAL() });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("notes.txt");
+    expect(wrapper.text()).toContain("budget.ods");
+    expect(wrapper.find("[data-testid='fsync-push']").attributes("disabled")).toBeDefined();
+    expect(wrapper.find("[data-testid='fsync-pull']").attributes("disabled")).toBeDefined();
+
+    // Select all ticks every row.
+    await wrapper.find("[data-testid='fsync-select-all']").trigger("change");
+    expect((wrapper.find("[data-testid='fsync-check-e1']").element as HTMLInputElement).checked).toBe(true);
+    expect((wrapper.find("[data-testid='fsync-check-e2']").element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.text()).toContain("(2/2)");
+
+    // …and unticks them again.
+    await wrapper.find("[data-testid='fsync-select-all']").trigger("change");
+    expect(wrapper.text()).toContain("(0/2)");
+  });
+
+  it("toggles a single row", async () => {
+    linkTwoDevices();
+    fakeSync.fileEntries.value = [
+      { id: "e1", name: "notes.txt", addedBy: "primary", addedAt: 1, updatedAt: 1, copies: {} },
+    ];
+    const wrapper = mount(FileSyncPanel, { global: GLOBAL() });
+    await flushPromises();
+    await wrapper.find("[data-testid='fsync-check-e1']").trigger("change");
+    expect(wrapper.text()).toContain("(1/1)");
   });
 });

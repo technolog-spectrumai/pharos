@@ -1,5 +1,7 @@
 <script setup lang="ts">
-// Settings → Devices: linked-device registry + the two pairing flows.
+// Files → Devices → Pairing: the two pairing flows (extracted verbatim from
+// the old Settings → Devices panel; the linked-device list it used to carry
+// now lives in DevicesTab's header card).
 //   • "Link a new device" (primary): mint the QR (devlink_pair_begin), show it
 //     with an expiry countdown, and confirm the incoming request by fingerprint.
 //   • "This is the new device" (secondary): scan or paste the pairing ticket,
@@ -17,11 +19,9 @@ import {
 import { useDevicesStore } from "../../stores/devices";
 import QrScannerModal from "../chat/QrScannerModal.vue";
 
-defineProps<{ darkMode: boolean }>();
 const { t } = useI18n({ useScope: "global" });
 const store = useDevicesStore();
 const {
-  linked, devices, myDeviceId, lastSyncAt, devConnected,
   pairing, pairTicket, pairExpiresAt, pairRequest,
   joining, joinPhase, joinProgress, error,
 } = storeToRefs(store);
@@ -54,10 +54,6 @@ const manualTicket = ref("");
 const deviceLabel = ref("");
 const deviceKind = ref<"desktop" | "mobile">("desktop");
 
-function fmtWhen(ts: number): string {
-  return ts ? new Date(ts).toLocaleString() : "—";
-}
-
 function shortNode(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-8)}` : id;
 }
@@ -82,55 +78,6 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-4">
-    <!-- Linked devices -->
-    <OyaCard :padded="true" class="space-y-3">
-      <div>
-        <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
-          {{ t('devices.listTitle') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ t('devices.listHint') }}</p>
-      </div>
-
-      <p v-if="!linked" class="text-sm opacity-70">{{ t('devices.notLinked') }}</p>
-
-      <ul v-else class="space-y-2">
-        <li
-          v-for="d in devices"
-          :key="d.deviceId"
-          class="flex items-center justify-between gap-3 rounded-lg border border-accent-2 px-3 py-2 dark:border-accent-1"
-        >
-          <div class="min-w-0">
-            <p class="truncate text-sm font-semibold">
-              <font-awesome-icon :icon="d.kind === 'mobile' ? 'mobile-screen' : 'desktop'" class="mr-2 opacity-70" />
-              {{ d.label || d.deviceId }}
-              <span
-                v-if="d.deviceId === myDeviceId"
-                class="ml-2 text-xs font-semibold uppercase text-accent-light dark:text-accent-dark"
-              >{{ t('devices.thisDevice') }}</span>
-            </p>
-            <p class="truncate text-xs opacity-60">
-              {{ d.leafId }} · {{ t('devices.added') }} {{ fmtWhen(d.addedAt) }}
-            </p>
-          </div>
-          <OyaButton
-            v-if="d.deviceId !== myDeviceId"
-            variant="secondary"
-            @click="store.unlinkDevice(d.deviceId)"
-          >
-            {{ t('devices.unlink') }}
-          </OyaButton>
-        </li>
-      </ul>
-
-      <p v-if="linked" class="text-xs opacity-60">
-        {{ t('devices.syncStatus') }}:
-        <span :class="devConnected ? 'text-green-500' : 'opacity-80'">
-          {{ devConnected ? t('devices.syncOnline') : t('devices.syncOffline') }}
-        </span>
-        <template v-if="lastSyncAt"> · {{ t('devices.lastSync') }} {{ fmtWhen(lastSyncAt) }}</template>
-      </p>
-    </OyaCard>
-
     <!-- Link a new device (primary side) -->
     <OyaCard :padded="true" class="space-y-3">
       <div>

@@ -3,7 +3,6 @@ import { computed, ref, watch, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
-import DevicesPanel from "../components/devices/DevicesPanel.vue";
 import { useChatStore } from "../stores/chat";
 import { useCloudStore } from "../stores/cloud";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
@@ -69,7 +68,6 @@ defineProps<{ darkMode: boolean }>();
 const buildCfg = getBuildConfig();
 const cloudAllowed = buildCfg.cloud_allow_connections;
 const hostedRelaysAllowed = buildCfg.p2p_allow_hosted_relays;
-const devicesAllowed = buildCfg.devices_allow_linking;
 
 const router = useRouter();
 const route = useRoute();
@@ -80,11 +78,10 @@ const { t, locale } = useI18n({ useScope: "global" });
 // directly (nav links use that); otherwise we open on the settings controls. The
 // Lock tab gathers everything that guards the vault (auto-lock, passphrase, panic
 // code); Data is purely about the offline profile data again.
-type ConfigTab = "profile" | "settings" | "connections" | "devices" | "lock" | "data";
+type ConfigTab = "profile" | "settings" | "connections" | "lock" | "data";
 const tabFromQuery = (q: unknown): ConfigTab =>
   q === "profile" ? "profile"
   : q === "connections" ? "connections"
-  : q === "devices" && devicesAllowed ? "devices"
   : q === "lock" ? "lock"
   : q === "data" ? "data"
   : "settings";
@@ -566,17 +563,6 @@ async function clearSelectedOfflineData() {
         <font-awesome-icon icon="circle-nodes" />{{ $t('nav.connections') }}
       </button>
       <button
-        v-if="devicesAllowed"
-        type="button"
-        :class="activeTab === 'devices'
-          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-          : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
-        @click="activeTab = 'devices'"
-      >
-        <font-awesome-icon icon="mobile-screen" />{{ $t('nav.devices') }}
-      </button>
-      <button
         type="button"
         :class="activeTab === 'lock'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
@@ -600,9 +586,6 @@ async function clearSelectedOfflineData() {
 
     <!-- Profile tab — the user profile, embedded -->
     <EnigmaProfileView v-if="activeTab === 'profile'" :dark-mode="darkMode" embedded />
-
-    <!-- Devices tab — linked devices (pairing + registry) -->
-    <DevicesPanel v-if="activeTab === 'devices'" :dark-mode="darkMode" />
 
     <!-- Settings tab -->
     <template v-if="activeTab === 'settings'">

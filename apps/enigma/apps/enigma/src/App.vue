@@ -6,6 +6,7 @@ import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { useCloudStore } from "./stores/cloud";
+import { useFileSyncStore } from "./stores/fileSync";
 import { useMapStore } from "./stores/map";
 import { usePeersStore } from "./stores/peers";
 import PeerRequestModal from "./components/peers/PeerRequestModal.vue";
@@ -33,6 +34,7 @@ const userStore = useUserStore();
 const chatStore = useChatStore();
 const cloudStore = useCloudStore();
 const mapStore = useMapStore();
+const fileSyncStore = useFileSyncStore();
 const { displayName, avatarDataUrl } = storeToRefs(userStore);
 
 // ── Encryption-at-rest gate ──────────────────────────────────────────────────
@@ -51,6 +53,9 @@ async function runLoaders() {
   await userStore.loadOfflineProfile();
   // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
   void chatStore.init();
+  // Device file sync listens app-wide: a push from the user's other device must
+  // land even while they are on another tab.
+  void fileSyncStore.init();
   gateMode.value = "ready";
   // Auto-lock starts only once we're past the gate (the setting lives in the
   // encrypted kv, so it can't be read any earlier anyway).
@@ -74,6 +79,12 @@ function isBusy(): boolean {
   if (cloudStore.transfers.size > 0) return true;
   for (const rx of mapStore.receives.values()) {
     if (rx.state === "transferring" || rx.state === "importing") return true;
+  }
+  // Device file sync: an outgoing batch, or any row still moving bytes (a push
+  // from the other device lands without the user touching anything).
+  if (fileSyncStore.batchActive) return true;
+  for (const item of fileSyncStore.items.values()) {
+    if (item.status === "working") return true;
   }
   return false;
 }

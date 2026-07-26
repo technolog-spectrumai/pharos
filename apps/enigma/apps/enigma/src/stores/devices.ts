@@ -48,6 +48,8 @@ export const useDevicesStore = defineStore("devices", () => {
   const myDeviceId = computed(() => chatStore.deviceSync?.link.value?.myDeviceId ?? null);
   const lastSyncAt = computed(() => chatStore.deviceSync?.lastSyncAt.value ?? 0);
   const devConnected = computed(() => chatStore.deviceSync?.devConnected.value ?? false);
+  /** Leaves currently in the devlink room — the per-row online dot. */
+  const onlineLeafIds = computed<string[]>(() => chatStore.deviceSync?.onlineLeafIds.value ?? []);
 
   // Pairing (primary side)
   const pairing = ref(false);
@@ -164,7 +166,7 @@ export const useDevicesStore = defineStore("devices", () => {
   }
 
   return {
-    enabled, linked, registry, devices, myDeviceId, lastSyncAt, devConnected,
+    enabled, linked, registry, devices, myDeviceId, lastSyncAt, devConnected, onlineLeafIds,
     pairing, pairTicket, pairExpiresAt, pairRequest,
     joining, joinPhase, joinProgress, error,
     startPairing, confirmPairing, cancelPairing, joinPairing, unlinkDevice, refresh,
