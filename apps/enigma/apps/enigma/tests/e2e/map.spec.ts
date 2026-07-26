@@ -141,3 +141,20 @@ test.describe("The map never asks the device for a position", () => {
     expect(calls).toEqual([]);
   });
 });
+
+// Beacon (server location shares) in the browser shell. beaconAvailable
+// requires the Tauri runtime, so the card and every publish control must be
+// absent here — the honest-absence twin of the desktop-only map state. The
+// geolocation trap above already covers beacon by construction: publishing is
+// tap-only and never touches navigator.geolocation.
+test.describe("Beacon in the browser shell", () => {
+  test("no beacon card or publish controls without the desktop runtime", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "Map", exact: true }).first().click();
+    await expect(page.getByText("Maps require the desktop or mobile app").first()).toBeVisible();
+    await expect(page.getByTestId("beacon-card")).toHaveCount(0);
+    await expect(page.getByTestId("beacon-pin-button")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByTestId("beacon-card")).toHaveCount(0);
+  });
+});
