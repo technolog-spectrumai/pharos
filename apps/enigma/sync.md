@@ -123,9 +123,10 @@
 - **D9 — Naming:** module `device_link.rs`, commands `devlink_*`, events
   `devlink://*`, kv ns `devices` + `chat:log`, inner prefix `dlink_`, i18n ns
   `devices`.
-- **D10 — UI:** new `devices` ConfigTab (flag-gated) hosting `DevicesPanel`:
-  linked-device list + unlink, pairing QR flow with countdown + confirm modal,
-  join flow (scan via `QrScannerModal` / paste), sync status line.
+- **D10 — UI:** the pairing surface (list/pair/join/confirm). **Superseded
+  2026-07-26:** it moved out of Settings into Files → Devices, split into
+  `DevicesTab` (the always-visible device list) + `PairingPanel`, alongside the
+  per-file push/pull sync — see fsync.md. Settings has no Devices tab any more.
 
 ## 1. Scope
 
@@ -195,7 +196,7 @@ shutdown hooked at profile-switch / airplane-on / Tor-on beside file_xfer).
 | File | Change |
 | --- | --- |
 | `views/EnigmaConfigView.vue` | `devices` ConfigTab (flag-gated button + body) |
-| `components/devices/DevicesPanel.vue` | new — list/pair/join/confirm UI |
+| `components/devices/DevicesPanel.vue` | new — list/pair/join/confirm UI (split into DevicesTab + PairingPanel by fsync.md, 2026-07-26) |
 | `stores/devices.ts` | new — pairing state machine over `devlink_*` + events |
 | `stores/chat.ts` | instantiates `useDeviceSync` (flag-gated), starts it in `init`, adopts identity in `syncRuntimeIdentity` |
 | `i18n/en.ts` + `pl.ts` | `nav.devices` + `devices.*` (parity enforced) |
@@ -212,7 +213,7 @@ shutdown hooked at profile-switch / airplane-on / Tor-on beside file_xfer).
   regression**), useDeviceSync (12 — proof round-trip,
   MAC finalize, hello push/pull, history merge, kv merges, registry
   accept/reject, self-revocation, unlink 2-dev/N-dev, revocation enforcement).
-- enigma: DevicesPanel component (4), i18n parity, all prior suites.
+- enigma: DevicesPanel component (4; now devices.test.ts over DevicesTab/PairingPanel/FileSyncPanel), i18n parity, all prior suites.
 - Playwright: devices.spec.ts (2, browser-honest degraded states).
 
 ## 8. Manual verification (open — needs two machines/instances)
@@ -232,7 +233,11 @@ leaf id after pairing.
   contact) on device A while device B still holds it means B re-shares it — and
   its `chat:log` history — back to A on the next sync. Deleting on *every*
   device, or unlinking, is the only way to be rid of it. A tombstone layer is
-  the natural follow-up if this bites.
+  the natural follow-up if this bites. **Partly taken up 2026-07-26:** the
+  Files→Devices allowed-files list (ns `filesync`) does carry sticky removal
+  tombstones — its UX promises that removing a file removes it on both devices,
+  which a union merge cannot deliver. It is scoped to that one list and does not
+  change the rooms/contacts model (fsync.md §1).
 - **Catch-up uses per-device receive timestamps.** Each device stamps a message
   at *its* receive time, so `dlink_hello`'s `latestTs` comparison can be off by
   the inter-device delivery skew: a straggler may re-send (harmless — deduped

@@ -572,10 +572,18 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
 - **Calls** (`EnigmaCallsView` / `VoxPanel`) — 1:1 voice calls: by ticket/QR, by
   room member (signaled over the chat's MLS seam), or by DHT nickname / saved
   contact; live spectrum equalizer; incoming-call nav dot.
-- **Files** (`EnigmaFilesView`) — three sub-tabs: **P2P** (offer/accept transfers
+- **Files** (`EnigmaFilesView`) — four sub-tabs: **P2P** (offer/accept transfers
   with progress, max-size guard), **Cloud** (the user's own Enigma Cloud server —
   login/register, browse buckets/directories, upload/download/move/delete; hidden
-  in cloud-disabled builds), **Local** (passphrase-lock files in place, ENIGLOCK).
+  in cloud-disabled builds), **Local** (passphrase-lock files in place, ENIGLOCK),
+  **Devices** (`DevicesTab` — the user's OWN linked devices, never a room peer):
+  an always-visible list of linked devices (kind, this-device badge, per-device
+  online dot, last sync, unlink) over two sub-sub-tabs — **Files**, a shared list
+  of allowed files with checkboxes, Select all and explicit **Push**/**Pull**
+  buttons (nothing transfers by itself; identical copies are skipped by hash;
+  received files land in `<profile>/synced/`), and **Pairing** (the QR pairing +
+  join flows, moved here from Settings). Compile-time gated
+  (`devices.allow_linking`); see fsync.md and sync.md.
 - **Contacts** (`EnigmaContactsView`) — saved peers with DHT presence ("recently
   online"), find-by-nickname, invite-to-room, call buttons ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 - **Calendar** (`EnigmaCalendarView`) — room-scoped meetings + scheduling polls over
@@ -844,6 +852,15 @@ Settings → "Clear all data".
   (`map:routes`) are sealed kv like everything else — coordinates never persist
   outside the vault. The region *blobs* are the documented plaintext exception
   (see §8 at-rest posture).
+- **Device file sync (fsync.md):** the shared allowed-files list (ns `filesync`,
+  key `""`) and this device's paths/hashes for it (key `local`) are sealed kv.
+  The list replicates between linked devices over the devlink room's own
+  `dlink_files` message — deliberately NOT through DEVLINK_SYNC_KV — and the
+  per-device `local` key never leaves the device (a path leaks directory
+  layout). The synced FILES themselves land in `<profile_dir>/synced/` as
+  ordinary plaintext: they are the user's own files, arriving over file_xfer and
+  BLAKE3-verified on the way in (the same documented exception as map blobs and
+  exported sketches — see §8).
 - **Mind data:** the mind-map document (ns `mind`, key `""`) is sealed kv,
   device-local by construction (absent from `DEVLINK_SYNC_KV` and
   `PEER_SCOPE_KV`; pinned by negative tests). Node content
@@ -994,7 +1011,7 @@ instead of hardcoding.
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |
 | Mind kill switch + caps | `build_config.yaml` `mind.enabled`, `mind.max_nodes` 500, `max_edges` 1000, `max_title_len` 200 (also edge labels), `max_content_len` 20000 (Trix HTML) | Compile-time: `false` builds without the Mind tab (`/mind` redirects). Caps enforced in `useMind` (creation refused at capacity) and `mindModel` validators (load/import truncate). No Rust surface — the feature is pure frontend over sealed kv |
-| Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Settings→Devices tab and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
+| Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Files→Devices tab (pairing AND per-file sync) and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
 | Devlink pairing window / resync cadence | kv `p2p:settings` / `devlink_pair_window_secs`, `devlink_resync_secs` | Window bounds how long a pairing QR's one-time secret stays redeemable (default 600 s, 60–3600; read Rust-side in `device_link.rs`); resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list. Pairing dials use `connect_timeout_secs` like every other connect deadline |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
