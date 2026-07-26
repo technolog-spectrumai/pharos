@@ -129,7 +129,9 @@ listed. The checked-in defaults reproduce stock behavior exactly.
 What it owns (see the file's comments and [technology.md](technology.md) §15 for
 details):
 
-- `cloud.allow_connections` — `false` builds a binary with no Enigma Cloud at all.
+- `cloud.allow_connections` — `false` builds a binary with no Enigma Cloud at
+  all. Beacon (server location shares on the Maps tab, beacon.md) has no switch
+  of its own: it exists exactly when this **and** `maps.enabled` are both true.
 - `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/Mainline-DHT
   discovery; direct QUIC (tickets) and Tor keep working.
 - `crypto` — declared algorithms are **compile-asserted** against the vendored

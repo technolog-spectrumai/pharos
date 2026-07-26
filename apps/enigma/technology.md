@@ -116,6 +116,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Voice calls (Vox) | 1:1 real-time voice over iroh QUIC datagrams (ALPN `enigma/vox/0` on the main endpoint); G.711 μ-law audio, per-call MLS-keyed ChaCha20-Poly1305, rustfft equalizer |
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
 | Enigma Cloud (optional) | HTTP client (`cloud.rs`) to the user's own self-hosted faros server (telegraph auth + vault file storage), direct TLS (WebPKI) or via Tor; can be compiled out via build config |
+| Beacon (optional) | `beacon.rs` riding the cloud.rs transport + session: expiring location shares (pin/zone/route, mandatory TTL) on the same faros server, rendered on the Maps tab; present only when cloud **and** maps are both in the build |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [build.md](build.md)) |
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
@@ -210,6 +211,7 @@ runtime check (in a plain browser there is no backend — chat is inert by desig
   `mls_*` (crypto), `app_*` (profiles/runtime/airplane/use-Tor/build-config),
   `vault_*` (encrypted-store lifecycle), `kv_*` (sealed kv), `dht_*` (discovery),
   `file_*` (P2P transfer), `vox_*` (calls), `cloud_*` (Enigma Cloud),
+  `beacon_*` (server location shares on the cloud transport),
   `invite_*` (direct room invites), `audio_*` (recording), `fs_*` (local file IO),
   `local_*` (per-file locking), `tor_*`.
 - **Events (`listen`):** `realtime://message` `{room, payload}` and
@@ -480,7 +482,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
 | Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
-| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. Nothing is ever shared automatically or in the background. |
+| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. The optional **Beacon** layer follows the same rule: it publishes only a tapped point / drawn shape, only on an explicit Publish press, only to the **user's own** faros server, always with a **mandatory expiry** (15 min / 1 h / 6 h presets) after which the server deletes it; fetched beacon data is volatile (never persisted at rest) and refresh is manual + on-open, never polled. Nothing is ever shared automatically or in the background. |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
@@ -596,6 +598,12 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   import/export region files, private pins + hand-drawn routes (sealed kv), and
   room sharing — pins/routes as compact MLS chat cards ("Open in Maps" is always an
   explicit action), region files over the P2P file-transfer path (never MLS).
+  Builds with Enigma Cloud also get the **Beacon** sidebar card + map layer
+  (`beacon.rs`, `stores/beacon.ts`, `BeaconCard`/`BeaconPublishModal`): expiring
+  location shares (one live pin per user, zones, routes — teal, distinct from
+  local pins and room shares) on the user's own faros server, published from map
+  taps with a mandatory TTL, fetched on open / explicit refresh, plus a
+  "Near here" viewport query (`/beacon/near`, distance-sorted).
   One region can be **activated** (Regions → Activate): served first for tiles
   (others still fill), badged in the list + a chip on the canvas, the view opens
   spread to it, and the choice persists sealed per profile (device-local).
@@ -1118,6 +1126,11 @@ recording; offline profiles and the airplane switch.
   imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
   manifest verified), P2P region sharing over file_xfer, pins/routes as MLS chat
   cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
+- **Beacon** (`beacon.rs` on the cloud.rs transport, rakotis `beaconModel`,
+  `stores/beacon.ts`): expiring server-side location shares (live pin / zones /
+  routes with mandatory TTL) on the user's own faros host, rendered as a Maps-tab
+  layer; gated by cloud + maps build flags together (no own switch), volatile
+  only, tap-published (see beacon.md).
 - **Multi-device (linked devices)** (`device_link.rs` + rakotis `useDeviceSync`,
   plan + decisions in [sync.md](sync.md)): QR pairing streams an E2EE one-shot
   bundle (rooms/tickets, contacts, calendar, settings subset, personas, chat
