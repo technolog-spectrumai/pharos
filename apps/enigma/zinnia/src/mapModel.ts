@@ -17,6 +17,18 @@ export const MAP_ROUTE_MAX_POINTS = 2000;
 export const MAP_MIN_ZOOM = 0;
 export const MAP_MAX_ZOOM = 22;
 
+/** How long a shared location keeps rendering on the map. "Where I am" goes
+ *  stale, so the marker disappears — the chat card stays as a permanent record.
+ *  Expiry is a RENDER decision only; see validateLocationShare. */
+export const MAP_LOC_TTL_MS = 6 * 60 * 60 * 1000;
+/** A peer's clock may be ahead of ours. Inside this window a future `at` is
+ *  treated as live (fail open — a "meet me here" should show); beyond it the
+ *  share is ignored, so a wildly wrong clock can't pin a marker forever. */
+export const MAP_LOC_MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
+/** Sanity ceiling for `at` (year 2100). Deliberately a CONSTANT, not `now` —
+ *  see validateLocationShare. */
+const MAP_LOC_AT_CEILING = 4102444800000;
+
 // ── Core types ────────────────────────────────────────────────────────────────
 
 /** [west, south, east, north] in degrees. Antimeridian-crossing boxes are
@@ -86,6 +98,25 @@ export interface MapRouteShare {
   points: [number, number][];
 }
 
+/** A place the user tapped and deliberately pushed to a room ("I'm here", "meet
+ *  me here"). Its own type rather than a pin with a timestamp: an older build's
+ *  validatePinShare ignores unknown keys, so reusing map_pin would render an
+ *  EPHEMERAL location as a permanent pin. Old builds must drop this — and do,
+ *  via the receive ternary's null fallthrough. */
+export interface MapLocationShare {
+  type: "map_loc";
+  v: typeof MAP_SHARE_VERSION;
+  lat: number;
+  lng: number;
+  /** Unix ms on the SENDER's clock when the point was shared. On the wire (not
+   *  derived from the message timestamp, which is receive time): sender,
+   *  receiver and a linked-device replay would otherwise each age it
+   *  differently. Drives expiry. */
+  at: number;
+  label?: string;
+  note?: string;
+}
+
 export interface MapRegionShare {
   type: "map_region";
   v: typeof MAP_SHARE_VERSION;
@@ -120,12 +151,48 @@ export function buildRouteShare(route: MapRoute): MapRouteShare {
   return share;
 }
 
+export function buildLocationShare(
+  lat: number,
+  lng: number,
+  opts: { at?: number; label?: string; note?: string } = {},
+): MapLocationShare {
+  const share: MapLocationShare = {
+    type: "map_loc",
+    v: MAP_SHARE_VERSION,
+    lat,
+    lng,
+    at: opts.at ?? Date.now(),
+  };
+  const label = opts.label?.trim();
+  if (label) share.label = label.slice(0, MAP_NAME_MAX_LEN);
+  if (opts.note) share.note = opts.note.slice(0, MAP_NOTE_MAX_LEN);
+  return share;
+}
+
 export function buildRegionShare(
   manifest: MapRegionManifest,
   offerId: string,
   addr: string,
 ): MapRegionShare {
   return { type: "map_region", v: MAP_SHARE_VERSION, manifest, offerId, addr };
+}
+
+// ── Location expiry (render-time only) ────────────────────────────────────────
+
+/** Age of a shared location, clamped at 0 for a future `at` (clock skew). */
+export function locationAgeMs(share: MapLocationShare, now: number): number {
+  return Math.max(0, now - share.at);
+}
+
+/** Should this location still be drawn? Past the TTL it is stale; further ahead
+ *  than MAP_LOC_MAX_FUTURE_SKEW_MS it is a broken clock and also ignored. */
+export function isLocationLive(
+  share: MapLocationShare,
+  now: number,
+  ttlMs: number = MAP_LOC_TTL_MS,
+): boolean {
+  if (share.at - now > MAP_LOC_MAX_FUTURE_SKEW_MS) return false;
+  return locationAgeMs(share, now) <= ttlMs;
 }
 
 // ── Validation (defensive narrowing — wire objects are untrusted) ─────────────
@@ -226,6 +293,30 @@ export function validateRouteShare(x: unknown): MapRouteShare | null {
   return share;
 }
 
+/** Narrow an untrusted location share.
+ *
+ *  TIME-INDEPENDENT BY DESIGN: `at` is only checked against a fixed ceiling,
+ *  never against `now`. chatLog re-validates every stored message on every
+ *  load, and validatePersistedMessage keeps a message while dropping an invalid
+ *  `map` field — so a time-dependent validator would turn an expired card into
+ *  an empty bubble on the next restart. Expiry belongs to the renderer
+ *  (isLocationLive), which is also what keeps the card as a permanent record. */
+export function validateLocationShare(x: unknown): MapLocationShare | null {
+  if (!isRecord(x)) return null;
+  if (x.type !== "map_loc" || x.v !== MAP_SHARE_VERSION) return null;
+  if (!isValidLat(x.lat) || !isValidLng(x.lng)) return null;
+  const { at } = x;
+  if (!isFinite_(at) || !Number.isInteger(at) || at <= 0 || at > MAP_LOC_AT_CEILING) return null;
+  const share: MapLocationShare = {
+    type: "map_loc", v: MAP_SHARE_VERSION, lat: x.lat, lng: x.lng, at,
+  };
+  if (isValidName(x.label)) share.label = clampName(x.label);
+  if (typeof x.note === "string" && x.note.length > 0) {
+    share.note = x.note.slice(0, MAP_NOTE_MAX_LEN);
+  }
+  return share;
+}
+
 export function validateRegionShare(x: unknown): MapRegionShare | null {
   if (!isRecord(x)) return null;
   if (x.type !== "map_region" || x.v !== MAP_SHARE_VERSION) return null;
@@ -235,6 +326,49 @@ export function validateRegionShare(x: unknown): MapRegionShare | null {
   if (typeof offerId !== "string" || offerId.length === 0 || offerId.length > 128) return null;
   if (typeof addr !== "string" || addr.length === 0 || addr.length > 2048) return null;
   return { type: "map_region", v: MAP_SHARE_VERSION, manifest, offerId, addr };
+}
+
+// ── Coverage (which shared items can actually be drawn) ──────────────────────
+// A share is only worth putting on the canvas if some IMPORTED region covers
+// it — otherwise the marker floats over blank space. The predicate is per
+// region on purpose: the union bbox from map_source_info would report the empty
+// gap between two disjoint regions (say Poznań + Berlin) as covered, which is
+// exactly the tempting shortcut to avoid.
+//
+// bbox only, never the zoom band: map_get_tile checks min/maxZoom per tile
+// request, and a point inside a bbox is reachable at some zoom in that band —
+// gating here would make a pin blink out as the user zooms in.
+//
+// Antimeridian needs no special case: isValidBbox demands west < east (and the
+// Rust manifest validator rejects the same), so no stored region can cross the
+// seam. The honest consequence is that a share at 179.9° will not match a
+// region ending at -179.9°; such downloads are split into two regions.
+
+/** Inclusive on all four edges. */
+export function pointInBbox(bbox: MapBbox, lat: number, lng: number): boolean {
+  const [west, south, east, north] = bbox;
+  return lng >= west && lng <= east && lat >= south && lat <= north;
+}
+
+export function regionCovers(manifest: MapRegionManifest, lat: number, lng: number): boolean {
+  return pointInBbox(manifest.bbox, lat, lng);
+}
+
+export function coveredByAny(
+  regions: readonly MapRegionManifest[],
+  lat: number,
+  lng: number,
+): boolean {
+  return regions.some((r) => regionCovers(r, lat, lng));
+}
+
+/** A route counts as covered when ANY waypoint is: a line crossing an imported
+ *  region should draw the part that has a basemap under it. */
+export function routeCovered(
+  regions: readonly MapRegionManifest[],
+  points: readonly [number, number][],
+): boolean {
+  return points.some(([lat, lng]) => coveredByAny(regions, lat, lng));
 }
 
 // ── Tile math (Web Mercator / XYZ) ────────────────────────────────────────────

@@ -4,13 +4,22 @@ import {
   MAP_NOTE_MAX_LEN,
   MAP_ROUTE_MAX_POINTS,
   MAP_SHARE_VERSION,
+  MAP_LOC_TTL_MS,
   bboxTileCount,
   bboxTileRange,
+  buildLocationShare,
   buildPinShare,
   buildRegionShare,
   buildRouteShare,
+  coveredByAny,
+  isLocationLive,
   isValidBbox,
+  locationAgeMs,
   lonLatToTile,
+  pointInBbox,
+  regionCovers,
+  routeCovered,
+  validateLocationShare,
   validateManifest,
   validatePinShare,
   validateRegionShare,
@@ -196,5 +205,132 @@ describe("mapModel — tile math", () => {
   it("isValidBbox accepts the fixture and rejects reversed boxes", () => {
     expect(isValidBbox(BBOX)).toBe(true);
     expect(isValidBbox([17.1, 52.3, 16.8, 52.5])).toBe(false);
+  });
+});
+
+// ── Location shares ───────────────────────────────────────────────────────────
+// A shared location is deliberately its own wire type: it EXPIRES on the map,
+// and an older build must drop it rather than render it as a permanent pin.
+
+const NOW = 1_800_000_000_000;
+
+describe("location share", () => {
+  it("builds and re-validates losslessly", () => {
+    const share = buildLocationShare(52.4, 16.9, { at: NOW, label: "Gate B", note: "by the kiosk" });
+    expect(share).toEqual({
+      type: "map_loc", v: MAP_SHARE_VERSION, lat: 52.4, lng: 16.9, at: NOW,
+      label: "Gate B", note: "by the kiosk",
+    });
+    expect(validateLocationShare(JSON.parse(JSON.stringify(share)))).toEqual(share);
+  });
+
+  it("label and note are optional and clamped", () => {
+    const bare = buildLocationShare(0, 0, { at: NOW });
+    expect(bare.label).toBeUndefined();
+    expect(bare.note).toBeUndefined();
+    // A blank label is not a label.
+    expect(buildLocationShare(0, 0, { at: NOW, label: "   " }).label).toBeUndefined();
+    const long = buildLocationShare(0, 0, {
+      at: NOW, label: "x".repeat(500), note: "y".repeat(2000),
+    });
+    expect(long.label).toHaveLength(MAP_NAME_MAX_LEN);
+    expect(long.note).toHaveLength(MAP_NOTE_MAX_LEN);
+  });
+
+  it("rejects a missing or hostile `at`", () => {
+    const base = { type: "map_loc", v: 1, lat: 1, lng: 2 };
+    expect(validateLocationShare(base)).toBeNull();
+    expect(validateLocationShare({ ...base, at: "now" })).toBeNull();
+    expect(validateLocationShare({ ...base, at: Number.NaN })).toBeNull();
+    expect(validateLocationShare({ ...base, at: 0 })).toBeNull();
+    expect(validateLocationShare({ ...base, at: -NOW })).toBeNull();
+    expect(validateLocationShare({ ...base, at: 1.5 })).toBeNull();
+    expect(validateLocationShare({ ...base, at: 1e18 })).toBeNull(); // past the year-2100 ceiling
+  });
+
+  it("rejects the wrong type, version, or coordinates", () => {
+    const ok = { type: "map_loc", v: 1, lat: 1, lng: 2, at: NOW };
+    expect(validateLocationShare({ ...ok, type: "map_location" })).toBeNull();
+    expect(validateLocationShare({ ...ok, type: "map_pin" })).toBeNull();
+    expect(validateLocationShare({ ...ok, v: 2 })).toBeNull();
+    expect(validateLocationShare({ ...ok, lat: 91 })).toBeNull();
+    expect(validateLocationShare({ ...ok, lng: 181 })).toBeNull();
+    for (const junk of [null, 42, "x", [], {}]) expect(validateLocationShare(junk)).toBeNull();
+  });
+
+  it("validation is TIME-INDEPENDENT — an expired share still validates on reload", () => {
+    // chatLog re-validates every stored message on every load; a time-dependent
+    // validator would drop the payload and leave an empty bubble.
+    const ancient = buildLocationShare(52.4, 16.9, { at: 1 });
+    expect(validateLocationShare(ancient)).toEqual(ancient);
+    // ...and is live/dead purely as a render decision:
+    expect(isLocationLive(ancient, NOW)).toBe(false);
+  });
+
+  it("isLocationLive honours the TTL boundaries", () => {
+    const at = (offset: number) => buildLocationShare(0, 0, { at: NOW - offset });
+    expect(isLocationLive(at(0), NOW)).toBe(true);
+    expect(isLocationLive(at(MAP_LOC_TTL_MS), NOW)).toBe(true); // inclusive
+    expect(isLocationLive(at(MAP_LOC_TTL_MS + 1), NOW)).toBe(false);
+    expect(isLocationLive(at(0), NOW, 1000)).toBe(true);
+    expect(isLocationLive(at(2000), NOW, 1000)).toBe(false);
+  });
+
+  it("tolerates a mildly fast peer clock but ignores a broken one", () => {
+    const oneHourAhead = buildLocationShare(0, 0, { at: NOW + 60 * 60 * 1000 });
+    expect(isLocationLive(oneHourAhead, NOW)).toBe(true); // fails open
+    expect(locationAgeMs(oneHourAhead, NOW)).toBe(0); // never negative
+    const twoDaysAhead = buildLocationShare(0, 0, { at: NOW + 48 * 60 * 60 * 1000 });
+    expect(isLocationLive(twoDaysAhead, NOW)).toBe(false);
+  });
+});
+
+// ── Coverage ──────────────────────────────────────────────────────────────────
+
+describe("coverage predicates", () => {
+  const POZNAN = manifest({ id: "pz", bbox: [16.8, 52.3, 17.1, 52.5] });
+  const BERLIN = manifest({ id: "be", bbox: [13.0, 52.3, 13.6, 52.6] });
+
+  it("point inside, and inclusive on every edge", () => {
+    expect(pointInBbox(BBOX, 52.4, 16.9)).toBe(true);
+    expect(pointInBbox(BBOX, 52.3, 16.8)).toBe(true); // south-west corner
+    expect(pointInBbox(BBOX, 52.5, 17.1)).toBe(true); // north-east corner
+    expect(pointInBbox(BBOX, 52.4, 16.8)).toBe(true); // west edge
+    expect(pointInBbox(BBOX, 52.5, 16.9)).toBe(true); // north edge
+  });
+
+  it("point just outside each edge", () => {
+    expect(pointInBbox(BBOX, 52.4, 16.79)).toBe(false);
+    expect(pointInBbox(BBOX, 52.4, 17.11)).toBe(false);
+    expect(pointInBbox(BBOX, 52.29, 16.9)).toBe(false);
+    expect(pointInBbox(BBOX, 52.51, 16.9)).toBe(false);
+  });
+
+  it("regionCovers / coveredByAny across several regions", () => {
+    expect(regionCovers(POZNAN, 52.4, 16.9)).toBe(true);
+    expect(regionCovers(BERLIN, 52.4, 16.9)).toBe(false);
+    expect(coveredByAny([POZNAN, BERLIN], 52.45, 13.3)).toBe(true);
+    expect(coveredByAny([], 52.4, 16.9)).toBe(false); // nothing imported
+  });
+
+  it("the gap between two disjoint regions is NOT covered (the union-bbox trap)", () => {
+    // map_source_info's union bbox would call this covered; per-region is right.
+    expect(coveredByAny([POZNAN, BERLIN], 52.4, 15.0)).toBe(false);
+  });
+
+  it("antimeridian: no stored region can cross the seam, so no wraparound match", () => {
+    expect(isValidBbox([170, -10, -170, 10])).toBe(false); // rejected at the source
+    const farEast = manifest({ bbox: [179.0, -1, 180, 1] });
+    expect(regionCovers(farEast, 0, 179.9)).toBe(true);
+    expect(regionCovers(farEast, 0, -179.9)).toBe(false); // documented consequence
+  });
+
+  it("routeCovered needs only one waypoint inside", () => {
+    const inside: [number, number][] = [[52.4, 16.9], [52.45, 16.95]];
+    const crossing: [number, number][] = [[0, 0], [52.4, 16.9]];
+    const outside: [number, number][] = [[0, 0], [1, 1]];
+    expect(routeCovered([POZNAN], inside)).toBe(true);
+    expect(routeCovered([POZNAN], crossing)).toBe(true);
+    expect(routeCovered([POZNAN], outside)).toBe(false);
   });
 });
