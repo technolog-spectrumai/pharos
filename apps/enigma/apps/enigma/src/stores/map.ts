@@ -67,6 +67,9 @@ export const useMapStore = defineStore("map", () => {
   const pendingFocus = ref<MapShare | null>(null);
   /** Latest storage/import error (MAPS_STORAGE_LIMIT etc.), shown in Regions. */
   const lastError = ref<string | null>(null);
+  /** Draw what room members shared? A view preference, not persisted — the
+   *  items themselves live in the chat log, never in map:* kv. */
+  const sharedLayerVisible = ref(true);
   /** Active (priority) region id, or null — restored from the sealed setting
    *  on reload. Rust reads the same key for tile ordering; removing the
    *  region clears it Rust-side. */
@@ -270,6 +273,10 @@ export const useMapStore = defineStore("map", () => {
 
   /** Hand a chat-card share to the Maps view (called on explicit user action —
    *  nothing ever opens automatically). */
+  function toggleSharedLayer(): void {
+    sharedLayerVisible.value = !sharedLayerVisible.value;
+  }
+
   function focusShare(share: MapShare): void {
     pendingFocus.value = share;
   }
@@ -284,6 +291,7 @@ export const useMapStore = defineStore("map", () => {
     mapsEnabled,
     regions, pins, routes, usedBytes, limitBytes, receives,
     pendingFocus, lastError, activeRegionId, activeRegion, loaded,
+    sharedLayerVisible, toggleSharedLayer,
     reload, setActiveRegion,
     addPin, savePin, deletePin, addRoute, deleteRoute,
     removeRegion, importRegion, exportRegion,
