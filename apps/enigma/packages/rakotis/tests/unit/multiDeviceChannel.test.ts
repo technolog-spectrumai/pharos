@@ -258,3 +258,44 @@ describe("timeline persistence", () => {
     });
   });
 });
+
+describe("map_loc routing (the inverse regression: it must NOT become control traffic)", () => {
+  // The failure mode guarded here is someone adding `map_` to the sync-prefix
+  // gate "for consistency": that gate returns before the mute check, no handler
+  // owns `map_`, and every card would silently vanish. These assert positively
+  // that a real frame becomes a timeline card.
+  it("renders a real map_loc frame as a card, not a raw-JSON bubble", async () => {
+    const ch = await readyChannel("alice", "room-loc", {});
+    const share = { type: "map_loc", v: 1, lat: 52.4, lng: 16.9, at: 1_800_000_000_000, label: "Gate B" };
+    await dispatch("room-loc", {
+      type: "mls_app", ciphertext: b64(JSON.stringify(share)),
+      device_id: "bob", sender_name: "Bob",
+    });
+    const last = ch.messages.value.at(-1)!;
+    expect(last.type).toBe("map_loc");
+    expect(last.map).toEqual(share);
+    // Never the raw-JSON fallback:
+    expect(last.content).toBe("");
+  });
+
+  it("drops an invalid map_loc entirely (no empty bubble)", async () => {
+    const ch = await readyChannel("alice", "room-loc-bad", {});
+    const before = ch.messages.value.length;
+    await dispatch("room-loc-bad", {
+      type: "mls_app",
+      ciphertext: b64(JSON.stringify({ type: "map_loc", v: 1, lat: 52.4, lng: 16.9 })), // no `at`
+      device_id: "bob", sender_name: "Bob",
+    });
+    expect(ch.messages.value.length).toBe(before);
+  });
+
+  it("drops an unknown map_* kind — forward compatibility", async () => {
+    const ch = await readyChannel("alice", "room-loc-wat", {});
+    const before = ch.messages.value.length;
+    await dispatch("room-loc-wat", {
+      type: "mls_app", ciphertext: b64(JSON.stringify({ type: "map_wat", v: 1 })),
+      device_id: "bob", sender_name: "Bob",
+    });
+    expect(ch.messages.value.length).toBe(before);
+  });
+});

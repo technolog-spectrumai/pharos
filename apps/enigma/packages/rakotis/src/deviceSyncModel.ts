@@ -9,9 +9,11 @@
 // name and all key material are minted in Rust (blake3/HMAC live there and in
 // WebCrypto); this module only carries them.
 
-import type { MapPinShare, MapRouteShare, MapRegionShare } from "./mapModel";
+import type {
+  MapLocationShare, MapPinShare, MapRouteShare, MapRegionShare,
+} from "./mapModel";
 import {
-  validatePinShare, validateRouteShare, validateRegionShare,
+  validateLocationShare, validatePinShare, validateRouteShare, validateRegionShare,
 } from "./mapModel";
 
 // ── Caps (shared by send + receive validation) ────────────────────────────────
@@ -212,15 +214,17 @@ export type PersistedMessageType =
   | "voice_message"
   | "map_pin"
   | "map_route"
+  | "map_loc"
   | "map_region";
 
 const PERSISTED_TYPES: readonly string[] = [
   "chat_message", "mls_app", "image_message", "voice_message",
-  "map_pin", "map_route", "map_region",
+  "map_pin", "map_route", "map_loc", "map_region",
 ];
 
 /** A validated map share on a persisted card (re-narrowed on every receive). */
-export type PersistedMapShare = MapPinShare | MapRouteShare | MapRegionShare;
+export type PersistedMapShare =
+  | MapPinShare | MapRouteShare | MapLocationShare | MapRegionShare;
 
 /** One stored timeline message. `self`/initials/avatar are NOT stored — they
  *  are presentation, recomputed from the viewer's identity on load. System
@@ -248,6 +252,7 @@ function validateMapShareByType(x: unknown): PersistedMapShare | null {
   if (!isRecord(x)) return null;
   if (x.type === "map_pin") return validatePinShare(x);
   if (x.type === "map_route") return validateRouteShare(x);
+  if (x.type === "map_loc") return validateLocationShare(x);
   if (x.type === "map_region") return validateRegionShare(x);
   return null;
 }
