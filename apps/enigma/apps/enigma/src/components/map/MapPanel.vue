@@ -15,20 +15,28 @@ import {
   buildLocationShare,
   buildPinShare,
   buildRouteShare,
+  isBeaconLive,
   MAP_LOC_TTL_MS,
   OyaButton,
   OyaCard,
   OyaEmptyState,
   OyaModal,
   OyaTextField,
+  type BeaconPin,
+  type BeaconRoute,
+  type BeaconZone,
   type MapPin,
   type MapRoute,
   type MapShare,
 } from "rakotis";
 import { policy } from "../../config/app";
+import { useBeaconStore } from "../../stores/beacon";
 import { useChatStore } from "../../stores/chat";
+import { useCloudStore } from "../../stores/cloud";
 import { useMapStore } from "../../stores/map";
+import BeaconCard from "./BeaconCard.vue";
 import PinEditModal from "./PinEditModal.vue";
+import { BEACON_COLOR } from "./pinColors";
 import SharedSharesCard from "./SharedSharesCard.vue";
 import { sharedItemName, type SharedItem } from "./sharedLayerModel";
 import { useSharedMapLayer } from "./useSharedMapLayer";
@@ -38,6 +46,8 @@ const props = defineProps<{ darkMode?: boolean }>();
 const { t } = useI18n({ useScope: "global" });
 const store = useMapStore();
 const chatStore = useChatStore();
+const beaconStore = useBeaconStore();
+const cloudStore = useCloudStore();
 
 const container = ref<HTMLDivElement | null>(null);
 /** True once unmount begins — boot must not touch the DOM past this point. */
@@ -157,6 +167,27 @@ function addOverlayLayers() {
       "line-dasharray": [2, 2],
     },
   });
+  // Beacon (server) zones/routes render under the draft so drawing stays on top.
+  map.addSource("beacon-zones", { type: "geojson", data: beaconZonesGeoJson() });
+  map.addLayer({
+    id: "beacon-zones-fill",
+    type: "fill",
+    source: "beacon-zones",
+    paint: { "fill-color": BEACON_COLOR, "fill-opacity": 0.15 },
+  });
+  map.addLayer({
+    id: "beacon-zones-line",
+    type: "line",
+    source: "beacon-zones",
+    paint: { "line-color": BEACON_COLOR, "line-width": 2, "line-dasharray": [3, 2] },
+  });
+  map.addSource("beacon-routes", { type: "geojson", data: beaconRoutesGeoJson() });
+  map.addLayer({
+    id: "beacon-routes-line",
+    type: "line",
+    source: "beacon-routes",
+    paint: { "line-color": BEACON_COLOR, "line-width": 3, "line-dasharray": [4, 2] },
+  });
   map.addSource("draft-route", { type: "geojson", data: draftGeoJson(draftPoints.value) });
   map.addLayer({
     id: "draft-route-line",
@@ -181,6 +212,35 @@ const SHARED_LOC_COLOR = "#ea580c";
 const layer = useSharedMapLayer();
 /** The shared item whose detail banner is open. */
 const selectedShared = ref<SharedItem | null>(null);
+
+// ── beacon (server shares) ───────────────────────────────────────────────────
+/** Server pins are DOM markers like local pins; zones/routes are GeoJSON
+ *  layers. Everything culls on expiry at render time (isBeaconLive). */
+const beaconMarkers = new Map<number, { marker: maplibregl.Marker; sig: string }>();
+type SelectedBeacon =
+  | { kind: "pin"; pin: BeaconPin }
+  | { kind: "zone"; zone: BeaconZone }
+  | { kind: "route"; route: BeaconRoute };
+const selectedBeacon = ref<SelectedBeacon | null>(null);
+/** Minute tick so expiry culling/countdowns advance without data changes. */
+const beaconNow = ref(Date.now());
+let beaconTick: number | undefined;
+
+const liveBeaconPins = computed(() =>
+  beaconStore.layerVisible
+    ? beaconStore.pins.filter((p) => isBeaconLive(p.expiresAt, beaconNow.value))
+    : [],
+);
+const liveBeaconZones = computed(() =>
+  beaconStore.layerVisible
+    ? beaconStore.zones.filter((z) => isBeaconLive(z.expiresAt, beaconNow.value))
+    : [],
+);
+const liveBeaconRoutes = computed(() =>
+  beaconStore.layerVisible
+    ? beaconStore.routes.filter((r) => isBeaconLive(r.expiresAt, beaconNow.value))
+    : [],
+);
 
 // ── tile protocol (registered once per app lifetime) ─────────────────────────
 let protocolRegistered = false;
@@ -349,6 +409,94 @@ function refreshRoutes() {
   src?.setData(routesGeoJson());
 }
 
+// ── beacon overlays ──────────────────────────────────────────────────────────
+function beaconZonesGeoJson(): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: liveBeaconZones.value.map((z) => ({
+      type: "Feature",
+      properties: { id: z.id },
+      geometry: {
+        type: "Polygon",
+        // The model stores the open ring; GeoJSON wants it closed again.
+        coordinates: [[...z.ring, z.ring[0]!].map(([lat, lng]) => [lng, lat])],
+      },
+    })),
+  };
+}
+
+function beaconRoutesGeoJson(): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: liveBeaconRoutes.value.map((r) => ({
+      type: "Feature",
+      properties: { id: r.id },
+      geometry: {
+        type: "LineString",
+        coordinates: r.points.map(([lat, lng]) => [lng, lat]),
+      },
+    })),
+  };
+}
+
+/** A server pin badge: the publisher's initial on the beacon accent, so server
+ *  shares never read as local pins or room shares. */
+function beaconMarkerEl(pin: BeaconPin): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className =
+    "flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] " +
+    "font-bold text-white shadow transition hover:scale-110";
+  el.style.backgroundColor = BEACON_COLOR;
+  const label = pin.user === cloudStore.username ? t("map.beaconYou") : pin.user;
+  el.textContent = label.slice(0, 1).toUpperCase();
+  el.title = `${label}${pin.comment ? ` · ${pin.comment}` : ""}`;
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    selectedBeacon.value = { kind: "pin", pin };
+  });
+  return el;
+}
+
+function refreshBeaconPins() {
+  if (!map) return;
+  const seen = new Set<number>();
+  for (const pin of liveBeaconPins.value) {
+    seen.add(pin.id);
+    const sig = `${pin.lat}|${pin.lng}|${pin.user}|${pin.comment}`;
+    const existing = beaconMarkers.get(pin.id);
+    if (existing && existing.sig === sig) continue;
+    existing?.marker.remove();
+    const marker = new maplibregl.Marker({ element: beaconMarkerEl(pin) })
+      .setLngLat([pin.lng, pin.lat])
+      .addTo(map);
+    beaconMarkers.set(pin.id, { marker, sig });
+  }
+  for (const [id, entry] of beaconMarkers) {
+    if (!seen.has(id)) {
+      entry.marker.remove();
+      beaconMarkers.delete(id);
+    }
+  }
+}
+
+function refreshBeaconShapes() {
+  const zones = map?.getSource("beacon-zones") as maplibregl.GeoJSONSource | undefined;
+  zones?.setData(beaconZonesGeoJson());
+  const routes = map?.getSource("beacon-routes") as maplibregl.GeoJSONSource | undefined;
+  routes?.setData(beaconRoutesGeoJson());
+  // A selected share that expired or was deleted must not keep its banner.
+  const sel = selectedBeacon.value;
+  if (!sel) return;
+  const still =
+    sel.kind === "pin"
+      ? liveBeaconPins.value.some((p) => p.id === sel.pin.id)
+      : sel.kind === "zone"
+        ? liveBeaconZones.value.some((z) => z.id === sel.zone.id)
+        : liveBeaconRoutes.value.some((r) => r.id === sel.route.id);
+  if (!still) selectedBeacon.value = null;
+}
+
 function refreshDraft() {
   const src = map?.getSource("draft-route") as maplibregl.GeoJSONSource | undefined;
   src?.setData(draftGeoJson(draftPoints.value));
@@ -431,6 +579,7 @@ onMounted(async () => {
       addOverlayLayers();
       refreshPins();
       refreshShared();
+      refreshBeaconPins();
       ready.value = true;
 
       // GL ground truth for bug reports: which device actually renders, is the
@@ -458,6 +607,24 @@ onMounted(async () => {
     });
 
     map.on("click", onMapClick);
+    // Tapping a beacon zone/route opens its banner (only outside placement
+    // modes — a placement click must never double as a selection).
+    map.on("click", "beacon-zones-fill", (e) => {
+      if (mode.value !== "idle") return;
+      const id = e.features?.[0]?.properties?.id as number | undefined;
+      const zone = liveBeaconZones.value.find((z) => z.id === id);
+      if (zone) selectedBeacon.value = { kind: "zone", zone };
+    });
+    map.on("click", "beacon-routes-line", (e) => {
+      if (mode.value !== "idle") return;
+      const id = e.features?.[0]?.properties?.id as number | undefined;
+      const route = liveBeaconRoutes.value.find((r) => r.id === id);
+      if (route) selectedBeacon.value = { kind: "route", route };
+    });
+
+    beaconTick = window.setInterval(() => {
+      beaconNow.value = Date.now();
+    }, 60_000);
   } catch (e) {
     console.error("[map] startup failed:", e);
     pushDiag(`startup failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -466,10 +633,13 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true;
+  if (beaconTick !== undefined) window.clearInterval(beaconTick);
   for (const entry of pinMarkers.values()) entry.marker.remove();
   pinMarkers.clear();
   for (const entry of sharedMarkers.values()) entry.marker.remove();
   sharedMarkers.clear();
+  for (const entry of beaconMarkers.values()) entry.marker.remove();
+  beaconMarkers.clear();
   pendingLocMarker?.remove();
   focusMarker?.remove();
   map?.remove();
@@ -488,6 +658,7 @@ watch(flavor, (next) => {
     refreshRoutes();
     refreshDraft();
     refreshSharedRoutes();
+    refreshBeaconShapes();
   });
 });
 
@@ -502,6 +673,8 @@ watch(() => store.pins, refreshPins, { deep: true });
 watch(() => store.routes, refreshRoutes, { deep: true });
 watch(draftPoints, refreshDraft, { deep: true });
 watch(() => store.pendingFocus, applyPendingFocus);
+watch(liveBeaconPins, refreshBeaconPins);
+watch([liveBeaconZones, liveBeaconRoutes], refreshBeaconShapes);
 
 // ── interactions ─────────────────────────────────────────────────────────────
 function onMapClick(e: maplibregl.MapMouseEvent) {
@@ -680,6 +853,73 @@ function focusShared(item: SharedItem) {
   }
   const pt = item.share as { lat: number; lng: number };
   map.flyTo({ center: [pt.lng, pt.lat], zoom: Math.max(map.getZoom(), 13) });
+}
+
+// ── beacon focus / banner ────────────────────────────────────────────────────
+function focusBeaconPin(pin: BeaconPin) {
+  selectedBeacon.value = { kind: "pin", pin };
+  map?.flyTo({ center: [pin.lng, pin.lat], zoom: Math.max(map.getZoom(), 13) });
+}
+
+function fitLatLngBounds(points: readonly [number, number][]) {
+  if (!map || points.length === 0) return;
+  const lats = points.map((p) => p[0]);
+  const lngs = points.map((p) => p[1]);
+  map.fitBounds(
+    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+    { padding: 60, maxZoom: 15 },
+  );
+}
+
+function focusBeaconZone(zone: BeaconZone) {
+  selectedBeacon.value = { kind: "zone", zone };
+  fitLatLngBounds(zone.ring);
+}
+
+function focusBeaconRoute(route: BeaconRoute) {
+  selectedBeacon.value = { kind: "route", route };
+  fitLatLngBounds(route.points);
+}
+
+const selectedBeaconName = computed(() => {
+  const sel = selectedBeacon.value;
+  if (!sel) return "";
+  if (sel.kind === "pin") {
+    return sel.pin.user === cloudStore.username ? t("map.beaconYou") : sel.pin.user;
+  }
+  const named = sel.kind === "zone" ? sel.zone : sel.route;
+  return named.name || t(sel.kind === "zone" ? "map.beaconZonesGroup" : "map.beaconRoutesGroup");
+});
+
+const selectedBeaconShare = computed(() => {
+  const sel = selectedBeacon.value;
+  if (!sel) return null;
+  return sel.kind === "pin" ? sel.pin : sel.kind === "zone" ? sel.zone : sel.route;
+});
+
+const selectedBeaconOwn = computed(() => {
+  const share = selectedBeaconShare.value;
+  return !!share && share.user === cloudStore.username;
+});
+
+function beaconLeftText(expiresAt: number): string {
+  const minutes = Math.round(Math.max(0, expiresAt - beaconNow.value) / 60_000);
+  if (minutes <= 0) return t("map.beaconExpired");
+  if (minutes < 60) return t("map.beaconLeftMinutes", { n: Math.max(1, minutes) });
+  return t("map.beaconLeftHours", { n: Math.round(minutes / 60) });
+}
+
+/** Delete the banner's share from the server (own shares only — the button is
+ *  hidden otherwise; a raced 404 just closes the banner). */
+async function deleteSelectedBeacon() {
+  const sel = selectedBeacon.value;
+  if (!sel) return;
+  try {
+    if (sel.kind === "pin") await beaconStore.deletePin();
+    else if (sel.kind === "zone") await beaconStore.deleteZone(sel.zone.id);
+    else await beaconStore.deleteRoute(sel.route.id);
+  } catch { /* stale row disappears on the next refresh */ }
+  selectedBeacon.value = null;
 }
 
 /** Sidebar row → select it AND fly there (an out-of-coverage row flies to blank
@@ -862,6 +1102,45 @@ function dismissFocus() {
           </div>
         </div>
 
+        <!-- Detail for the beacon (server) share the user tapped. -->
+        <div
+          v-if="selectedBeacon && selectedBeaconShare"
+          data-testid="beacon-detail"
+          class="absolute bottom-3 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 flex-col gap-2 rounded-lg border border-accent-2 bg-primary-bg-light/95 px-3 py-2 text-sm shadow dark:border-accent-1 dark:bg-primary-bg-dark/95"
+        >
+          <p class="flex items-center gap-2">
+            <font-awesome-icon
+              :icon="selectedBeacon.kind === 'route' ? 'route'
+                : selectedBeacon.kind === 'zone' ? 'object-group' : 'location-dot'"
+              :style="{ color: BEACON_COLOR }"
+            />
+            <span class="truncate font-semibold">{{ selectedBeaconName }}</span>
+            <span v-if="selectedBeacon.kind !== 'pin'" class="shrink-0 text-xs opacity-60">
+              {{ selectedBeaconOwn ? $t('map.beaconYou')
+                : $t('map.sharedFrom', { name: selectedBeaconShare.user }) }}
+            </span>
+            <span class="shrink-0 text-xs opacity-50">
+              {{ beaconLeftText(selectedBeaconShare.expiresAt) }}
+            </span>
+          </p>
+          <p v-if="selectedBeaconShare.comment" class="text-xs opacity-70">
+            {{ selectedBeaconShare.comment }}
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <OyaButton
+              v-if="selectedBeaconOwn"
+              variant="secondary"
+              data-testid="beacon-detail-delete"
+              @click="deleteSelectedBeacon"
+            >
+              <font-awesome-icon icon="trash" /> {{ $t('map.beaconDeleteShare') }}
+            </OyaButton>
+            <OyaButton variant="secondary" @click="selectedBeacon = null">
+              {{ $t('common.close') }}
+            </OyaButton>
+          </div>
+        </div>
+
         <!-- Received-share preview banner: nothing is saved until the user says so. -->
         <div
           v-if="focus"
@@ -884,6 +1163,13 @@ function dismissFocus() {
           @focus="onSharedRowFocus"
           @save="saveShared"
           @toggle="store.toggleSharedLayer()"
+        />
+        <!-- Server shares (beacon) — only in builds with cloud + maps. -->
+        <BeaconCard
+          v-if="beaconStore.beaconAvailable"
+          @focus-pin="focusBeaconPin"
+          @focus-zone="focusBeaconZone"
+          @focus-route="focusBeaconRoute"
         />
         <OyaCard>
           <h3 class="mb-2 text-sm font-bold"><font-awesome-icon icon="location-dot" /> {{ $t('map.pinsTitle') }}</h3>
