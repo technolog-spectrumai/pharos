@@ -28,6 +28,14 @@ impl Dek {
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// Rebuild a DEK from raw bytes. Used by protasius to re-seal its panic-code
+    /// sidecar during a normal session: the panic slot's DEK is stashed (wrapped
+    /// under the real DEK) at arm time, then unwrapped here to seal without needing
+    /// the panic passphrase. Additive only — no algorithm or format change.
+    pub fn from_bytes(bytes: [u8; 32]) -> Dek {
+        Dek(bytes)
+    }
 }
 
 /// Errors are intentionally coarse so nothing about *why* a decrypt failed leaks
