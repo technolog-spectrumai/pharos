@@ -13,6 +13,7 @@ export * from "./services/moderation";
 export * from "./services/mapData";
 export * from "./mapModel";
 export * from "./deviceSyncModel";
+export * from "./fileSyncModel";
 export * from "./services/chatLog";
 export { useDeviceSync, registryMac, kpProof } from "./useDeviceSync";
 export type { DeviceSync } from "./useDeviceSync";
