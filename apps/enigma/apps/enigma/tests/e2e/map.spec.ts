@@ -103,3 +103,41 @@ test.describe("Offline basemap assets", () => {
     }
   });
 });
+
+// The app promises "no geolocation, no tracking" (technology.md §10, map.md).
+// Location SHARING deliberately does not change that: the user taps a point,
+// the app never asks the device where it is. This makes the promise executable
+// rather than a sentence in a doc — a stray navigator.geolocation call, from
+// this feature or any future one, fails the suite.
+test.describe("The map never asks the device for a position", () => {
+  test("navigator.geolocation is never called anywhere in the app", async ({ page }) => {
+    await page.addInitScript(() => {
+      const flag = { called: [] as string[] };
+      (window as unknown as { __geoCalls: typeof flag }).__geoCalls = flag;
+      const trap = (name: string) => () => {
+        flag.called.push(name);
+        throw new Error(`navigator.geolocation.${name} must never be called`);
+      };
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: {
+          getCurrentPosition: trap("getCurrentPosition"),
+          watchPosition: trap("watchPosition"),
+          clearWatch: trap("clearWatch"),
+        },
+      });
+    });
+
+    await page.goto("/");
+    await page.getByRole("link", { name: "Map" }).first().click();
+    await expect(page.getByRole("heading", { name: "Map" })).toBeVisible();
+    // Walk the tabs too — region handling must stay just as quiet.
+    await page.getByRole("button", { name: "Regions" }).click();
+    await page.getByRole("button", { name: "Map", exact: true }).click();
+
+    const calls = await page.evaluate(
+      () => (window as unknown as { __geoCalls: { called: string[] } }).__geoCalls.called,
+    );
+    expect(calls).toEqual([]);
+  });
+});

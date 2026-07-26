@@ -228,3 +228,54 @@ describe("RegionsPanel — activate toggle (Tauri stub)", () => {
     });
   });
 });
+
+describe("MapShareCard — shared location", () => {
+  function locMessage(at: number, over: Record<string, unknown> = {}): Message {
+    return makeMessage({
+      type: "map_loc", v: 1, lat: 52.4, lng: 16.9, at, ...over,
+    } as Message["map"]);
+  }
+
+  it("renders the label, note and a relative age, and opens in Maps on demand", async () => {
+    const w = mount(MapShareCard, {
+      props: { message: locMessage(Date.now() - 10 * 60_000, { label: "Gate B", note: "by the kiosk" }) },
+      global: GLOBAL(),
+    });
+    await flushPromises();
+
+    expect(w.text()).toContain("Gate B");
+    expect(w.text()).toContain("by the kiosk");
+    expect(w.text()).toContain("10 min ago");
+    // Nothing happens until the button is pressed (map.md's rule for cards).
+    expect(routerPush).not.toHaveBeenCalled();
+    await w.findAll("button").find((b) => b.text().includes("Open in Maps"))!.trigger("click");
+    expect(useMapStore().pendingFocus).toMatchObject({ type: "map_loc", lat: 52.4 });
+    expect(routerPush).toHaveBeenCalledWith("/map");
+  });
+
+  it("falls back to a generic name and says when it stopped showing on the map", async () => {
+    const w = mount(MapShareCard, {
+      props: { message: locMessage(Date.now() - 7 * 60 * 60 * 1000) },
+      global: GLOBAL(),
+    });
+    await flushPromises();
+
+    expect(w.text()).toContain("Shared location");
+    expect(w.text()).toContain("No longer shown on the map");
+    // The card itself survives — it is the record of what was shared.
+    expect(w.findAll("button").some((b) => b.text().includes("Open in Maps"))).toBe(true);
+  });
+
+  it("shows a pin's colour swatch", async () => {
+    const w = mount(MapShareCard, {
+      props: {
+        message: makeMessage({
+          type: "map_pin", v: 1, name: "Spot", lat: 52.4, lng: 16.9, color: "#7c3aed",
+        } as Message["map"]),
+      },
+      global: GLOBAL(),
+    });
+    await flushPromises();
+    expect(w.html()).toContain("rgb(124, 58, 237)");
+  });
+});
