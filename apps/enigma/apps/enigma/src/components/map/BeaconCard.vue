@@ -21,6 +21,8 @@ const emit = defineEmits<{
   (e: "focus-pin", pin: BeaconPin): void;
   (e: "focus-zone", zone: BeaconZone): void;
   (e: "focus-route", route: BeaconRoute): void;
+  /** Ask the map panel for a /beacon/near query around the visible viewport. */
+  (e: "near"): void;
 }>();
 
 const { t } = useI18n({ useScope: "global" });
@@ -42,6 +44,10 @@ onUnmounted(() => {
 });
 
 const livePins = computed(() => beacon.pins.filter((p) => isBeaconLive(p.expiresAt, now.value)));
+/** Near mode replaces the pins group with the distance-sorted server answer. */
+const liveNearPins = computed(() =>
+  (beacon.nearPins ?? []).filter((p) => isBeaconLive(p.expiresAt, now.value)),
+);
 const liveZones = computed(() => beacon.zones.filter((z) => isBeaconLive(z.expiresAt, now.value)));
 const liveRoutes = computed(() => beacon.routes.filter((r) => isBeaconLive(r.expiresAt, now.value)));
 const empty = computed(
@@ -58,6 +64,13 @@ function leftText(expiresAt: number): string {
 
 function owner(user: string): string {
   return user === cloud.username ? t("map.beaconYou") : user;
+}
+
+function distanceText(distanceM: number | undefined): string {
+  if (distanceM === undefined) return "";
+  return distanceM < 1000
+    ? t("map.beaconDistanceM", { n: Math.round(distanceM) })
+    : t("map.beaconDistanceKm", { n: (distanceM / 1000).toFixed(1) });
 }
 
 function isMine(user: string): boolean {
@@ -118,9 +131,53 @@ async function retractPin() {
 
     <template v-else>
       <p v-if="beacon.error" class="mb-2 text-xs text-warn-dark">{{ beacon.error }}</p>
-      <p v-if="empty && !beacon.error" class="text-xs opacity-60">{{ $t('map.beaconEmpty') }}</p>
+      <p v-if="empty && !beacon.error && !beacon.nearPins" class="text-xs opacity-60">
+        {{ $t('map.beaconEmpty') }}
+      </p>
 
-      <div v-if="livePins.length" class="mb-2">
+      <div class="mb-2 flex flex-wrap gap-2">
+        <button
+          v-if="!beacon.nearPins"
+          type="button"
+          class="rounded-full border border-accent-2 px-2 py-0.5 text-xs font-semibold transition hover:opacity-80 dark:border-accent-1"
+          data-testid="beacon-near"
+          @click="emit('near')"
+        >
+          <font-awesome-icon icon="bullseye" /> {{ $t('map.beaconNearHere') }}
+        </button>
+        <template v-else>
+          <span class="py-0.5 text-xs opacity-70">
+            {{ $t('map.beaconNearShowing', { n: liveNearPins.length }) }}
+          </span>
+          <button
+            type="button"
+            class="rounded-full border border-accent-2 px-2 py-0.5 text-xs font-semibold transition hover:opacity-80 dark:border-accent-1"
+            data-testid="beacon-clear-near"
+            @click="beacon.clearNear()"
+          >
+            {{ $t('map.beaconClearNear') }}
+          </button>
+        </template>
+      </div>
+
+      <div v-if="beacon.nearPins" class="mb-2" data-testid="beacon-near-list">
+        <ul class="space-y-1">
+          <li v-for="pin in liveNearPins" :key="pin.id" class="flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              class="flex min-w-0 flex-1 items-center gap-2 text-left hover:opacity-70"
+              @click="emit('focus-pin', pin)"
+            >
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="{ backgroundColor: BEACON_COLOR }" />
+              <span class="min-w-0 truncate">{{ owner(pin.user) }}</span>
+              <span v-if="pin.comment" class="min-w-0 truncate text-xs opacity-60">{{ pin.comment }}</span>
+            </button>
+            <span class="shrink-0 text-xs font-semibold opacity-70">{{ distanceText(pin.distanceM) }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div v-if="!beacon.nearPins && livePins.length" class="mb-2">
         <p class="mb-1 text-xs font-semibold uppercase tracking-wide opacity-70">
           {{ $t('map.beaconPinsGroup') }}
         </p>

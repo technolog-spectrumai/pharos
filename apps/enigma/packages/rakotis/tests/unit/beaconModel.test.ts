@@ -4,6 +4,7 @@ import {
   BEACON_COMMENT_MAX_LEN,
   BEACON_TTL_PRESETS,
   beaconTtlLeftMs,
+  haversineMeters,
   isBeaconLive,
   parseBeaconAll,
   parseBeaconNear,
@@ -204,5 +205,17 @@ describe("expiry helpers", () => {
 
   it("presets are the 15m/1h/6h ladder", () => {
     expect(BEACON_TTL_PRESETS).toEqual([900, 3600, 21600]);
+  });
+});
+
+describe("haversineMeters", () => {
+  it("matches known geography (Warsaw→Kraków ≈ 252 km)", () => {
+    const d = haversineMeters(52.2297, 21.0122, 50.0647, 19.945);
+    expect(d).toBeGreaterThan(250_000);
+    expect(d).toBeLessThan(254_000);
+  });
+
+  it("is zero for identical points", () => {
+    expect(haversineMeters(52.0, 21.0, 52.0, 21.0)).toBe(0);
   });
 });

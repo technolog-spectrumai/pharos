@@ -15,6 +15,7 @@ import {
   buildLocationShare,
   buildPinShare,
   buildRouteShare,
+  haversineMeters,
   isBeaconLive,
   MAP_LOC_TTL_MS,
   OyaButton,
@@ -983,6 +984,22 @@ function beaconLeftText(expiresAt: number): string {
   return t("map.beaconLeftHours", { n: Math.round(minutes / 60) });
 }
 
+/** "Near here": ask the server for pins around the visible map center, radius
+ *  = distance to the viewport's NE corner (min 1 km — a fully zoomed-in view
+ *  should still find the neighbourhood). The server caps oversized radii. */
+async function beaconNearHere() {
+  if (!map) return;
+  const center = map.getCenter();
+  const bounds = map.getBounds();
+  const radius = Math.max(
+    1000,
+    haversineMeters(center.lat, center.lng, bounds.getNorth(), bounds.getEast()),
+  );
+  try {
+    await beaconStore.near(center.lat, center.lng, radius);
+  } catch { /* surfaced via beaconStore.error on the card */ }
+}
+
 /** Delete the banner's share from the server (own shares only — the button is
  *  hidden otherwise; a raced 404 just closes the banner). */
 async function deleteSelectedBeacon() {
@@ -1278,6 +1295,7 @@ function dismissFocus() {
           @focus-pin="focusBeaconPin"
           @focus-zone="focusBeaconZone"
           @focus-route="focusBeaconRoute"
+          @near="beaconNearHere"
         />
         <OyaCard>
           <h3 class="mb-2 text-sm font-bold"><font-awesome-icon icon="location-dot" /> {{ $t('map.pinsTitle') }}</h3>

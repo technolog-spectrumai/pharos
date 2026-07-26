@@ -599,6 +599,11 @@ export default {
     beaconTtlHours: "{n} h",
     beaconTtlNotice: "Każdy zalogowany na Twoim serwerze widzi to do wygaśnięcia; potem wpis jest tam usuwany.",
     beaconPublishAction: "Opublikuj",
+    beaconNearHere: "W pobliżu",
+    beaconNearShowing: "{n} w pobliżu — wg odległości",
+    beaconClearNear: "Pokaż wszystkie",
+    beaconDistanceM: "{n} m",
+    beaconDistanceKm: "{n} km",
   },
   contacts: {
     title: "Kontakty",

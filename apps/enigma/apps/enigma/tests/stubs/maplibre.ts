@@ -11,6 +11,7 @@ class StubMap {
   getBounds() {
     return { getWest: () => 0, getSouth: () => 0, getEast: () => 1, getNorth: () => 1 };
   }
+  getCenter() { return { lat: 0.5, lng: 0.5 }; }
   getZoom() { return 2; }
   flyTo() {}
   fitBounds() {}

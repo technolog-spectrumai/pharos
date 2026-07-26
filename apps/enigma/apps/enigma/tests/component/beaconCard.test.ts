@@ -114,6 +114,40 @@ describe("BeaconCard", () => {
     expect(wrapper.emitted("focus-pin")).toHaveLength(1);
   });
 
+  it("near mode replaces the pins list with distance-sorted results and clears", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "cloud_status") return { logged_in: true, username: "alice" };
+      if (cmd === "beacon_all") {
+        return { pins: [wirePin(1, "alice")], zones: [], routes: [] };
+      }
+      if (cmd === "beacon_near") {
+        return {
+          pins: [
+            { ...wirePin(2, "bob"), distance_m: 350 },
+            { ...wirePin(3, "carol"), distance_m: 4200 },
+          ],
+        };
+      }
+      if (cmd === "cloud_list") return { files: [], buckets: [] };
+      return undefined;
+    });
+    const wrapper = mount(BeaconCard, { global: GLOBAL() });
+    await flushPromises();
+    // "Near here" only emits — the map panel owns the viewport geometry.
+    await wrapper.find('[data-testid="beacon-near"]').trigger("click");
+    expect(wrapper.emitted("near")).toHaveLength(1);
+    // Simulate the panel's answer landing in the store.
+    const beacon = useBeaconStore();
+    await beacon.near(52.23, 21.01, 25_000);
+    await flushPromises();
+    const list = wrapper.find('[data-testid="beacon-near-list"]');
+    expect(list.exists()).toBe(true);
+    expect(list.text()).toContain("350 m");
+    expect(list.text()).toContain("4.2 km");
+    await wrapper.find('[data-testid="beacon-clear-near"]').trigger("click");
+    expect(wrapper.find('[data-testid="beacon-near-list"]').exists()).toBe(false);
+  });
+
   it("toggles the layer flag and refreshes on the refresh button", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === "cloud_status") return { logged_in: true, username: "alice" };

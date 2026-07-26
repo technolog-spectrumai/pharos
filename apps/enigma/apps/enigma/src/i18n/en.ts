@@ -599,6 +599,11 @@ export default {
     beaconTtlHours: "{n} h",
     beaconTtlNotice: "Everyone logged in to your server sees this until it expires; then it is deleted there.",
     beaconPublishAction: "Publish",
+    beaconNearHere: "Near here",
+    beaconNearShowing: "{n} nearby — sorted by distance",
+    beaconClearNear: "Show all",
+    beaconDistanceM: "{n} m",
+    beaconDistanceKm: "{n} km",
   },
   contacts: {
     title: "Contacts",

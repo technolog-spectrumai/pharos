@@ -80,6 +80,20 @@ export function beaconTtlLeftMs(expiresAt: number, now: number): number {
   return Math.max(0, expiresAt - now);
 }
 
+/** Great-circle distance in metres between two [lat, lng] points (mean Earth
+ *  radius; matches the server's /beacon/near math within ±0.5%). Used to turn
+ *  the visible viewport into a search radius. */
+export function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const phi1 = rad(aLat);
+  const phi2 = rad(bLat);
+  const dPhi = rad(bLat - aLat);
+  const dLam = rad(bLng - aLng);
+  const a =
+    Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLam / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(a));
+}
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 function isRecord(x: unknown): x is Record<string, unknown> {
