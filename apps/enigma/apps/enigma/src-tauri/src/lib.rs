@@ -1333,6 +1333,7 @@ pub fn run() {
             vault::vault_set_panic_code,
             vault::vault_clear_panic_code,
             vault::vault_has_panic_code,
+            vault::panic_targets_resync,
             vault::vault_wipe,
             app_clear_profile_state,
             app_get_offline_profile,

@@ -139,12 +139,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <div>
-        <h1 class="text-xl font-bold">{{ $t('mind.title') }}</h1>
-        <p class="text-sm opacity-60">{{ $t('mind.subtitle') }}</p>
-      </div>
+  <div class="flex h-full w-full flex-1 flex-col gap-3 overflow-hidden">
+    <div class="flex flex-wrap items-center justify-end gap-2">
       <div class="flex items-center gap-2">
         <p class="text-xs opacity-50">{{ $t('mind.nodeCount', { n: nodeCount, e: edgeCount }) }}</p>
         <OyaIconButton

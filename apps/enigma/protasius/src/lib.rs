@@ -85,6 +85,18 @@ const SLOT_COUNT: usize = 2;
 /// on-disk vault.json stays identical either way.
 const PANIC_NS: &str = "vault";
 const PANIC_KEY: &str = "panic_set";
+/// Internal key (ns `vault`) holding the panic slot's DEK, sealed under the REAL
+/// DEK. Stashed when the panic code is armed so a normal (real-passphrase) session
+/// can re-seal the panic-targets sidecar without ever knowing the panic code. The
+/// reverse (real DEK under the panic code) is never stored — the panic code must
+/// never open real data.
+const PANIC_DEK_KEY: &str = "panic_dek";
+/// AAD binding the panic-targets sidecar ciphertext to its purpose.
+const PANIC_TARGETS_AAD: &[u8] = b"protasius:panic-targets:v1";
+/// Filename of the panic-targets sidecar, beside `vault.json`. Always present
+/// (filler when the knob is off / no panic armed) so it never reveals whether a
+/// panic code — or the delete-on-panic knob — is set. See `write_panic_targets`.
+const PANIC_TARGETS_FILE: &str = "panic_targets.dat";
 
 /// Byte-copyable legacy sources to fold into the encrypted store on first setup
 /// (and to sweep on later unlocks if a crash left them behind). MLS `.bin` blobs
@@ -198,6 +210,9 @@ impl Protasius {
         };
         self.write_vault_file(&file)?; // durable commit point — the vault now exists
         self.file = Some(file);
+        // Lay down a filler panic-targets sidecar so it exists from the very first
+        // run — its presence must never correlate with a panic code or the knob.
+        let _ = self.write_filler_sidecar();
         // Best-effort: the vault is created + unlocked regardless. A migration that
         // errors mid-way is idempotent and completes on the next unlock's sweep, so
         // don't strand a just-created vault by returning Err here.
@@ -262,13 +277,20 @@ impl Protasius {
         if gervasius::unlock(&real, panic).is_ok() {
             return Err(ProtasiusError::PanicSameAsPassphrase);
         }
-        let (panic_header, _throwaway) =
+        let (panic_header, panic_dek) =
             gervasius::create_vault_with_params(panic, real.kdf.clone())?;
         file.slots[SLOT_PANIC] = panic_header;
         self.write_vault_file(&file)?;
         self.file = Some(file);
         self.dek = Some(dek); // `current` verified above ⇒ stay/become unlocked
-        self.put(PANIC_NS, PANIC_KEY, b"1")
+        // Stash the panic DEK wrapped under the real DEK, so a normal session can
+        // re-seal the panic-targets sidecar without the panic code (see
+        // `write_panic_targets`). Never the reverse.
+        self.put(PANIC_NS, PANIC_DEK_KEY, panic_dek.as_bytes())?;
+        self.put(PANIC_NS, PANIC_KEY, b"1")?;
+        // Delete-on-panic starts off for a freshly armed code ⇒ filler sidecar.
+        let _ = self.write_filler_sidecar();
+        Ok(())
     }
 
     /// Disarm the panic code: verify `current`, overwrite slot 1 with fresh filler.
@@ -280,13 +302,89 @@ impl Protasius {
         self.write_vault_file(&file)?;
         self.file = Some(file);
         self.dek = Some(dek);
-        self.delete(PANIC_NS, PANIC_KEY)
+        let _ = self.delete(PANIC_NS, PANIC_DEK_KEY);
+        self.delete(PANIC_NS, PANIC_KEY)?;
+        // No panic code ⇒ nothing to seal, but keep a filler present (no tell).
+        let _ = self.write_filler_sidecar();
+        Ok(())
     }
 
     /// Whether a panic code is armed. Requires unlock — the answer lives inside the
     /// encrypted store precisely so that `vault.json` gives nothing away.
     pub fn has_panic_passphrase(&self) -> Result<bool, ProtasiusError> {
         Ok(self.get(PANIC_NS, PANIC_KEY)?.is_some())
+    }
+
+    // ── panic-targets sidecar (delete-marked-files-on-panic) ────────────────────
+    //
+    // The panic path never has the real DEK, so the list of files to destroy can't
+    // live in the encrypted store. Instead it's sealed under the PANIC slot's DEK
+    // into `panic_targets.dat` beside `vault.json`. A normal session (this method)
+    // re-seals it via the stashed `vault/panic_dek`; the panic path reads it back by
+    // re-deriving that DEK from the panic passphrase (`read_panic_targets`).
+
+    /// (Re)write the panic-targets sidecar. Seals `targets` under the panic DEK when
+    /// the caller's knob is `enabled`, a panic code is armed, and there is anything
+    /// to write; otherwise lays down indistinguishable filler. ALWAYS writes a file
+    /// (never removes) so its presence leaks nothing. Requires unlock.
+    ///
+    /// A panic code armed before this feature existed has no stashed `panic_dek`; it
+    /// falls back to filler until the code is re-armed (documented, not an error).
+    pub fn write_panic_targets(&self, targets: &[String], enabled: bool) -> Result<(), ProtasiusError> {
+        self.dek()?;
+        let sealed = if enabled && !targets.is_empty() {
+            self.seal_targets(targets)?
+        } else {
+            None
+        };
+        match sealed {
+            Some(bytes) => self.write_sidecar(&bytes),
+            None => self.write_filler_sidecar(),
+        }
+    }
+
+    /// Read the panic-targets back at panic time — works while LOCKED. Re-derives the
+    /// panic DEK from `panic_pass` (which just proved the panic slot) and opens the
+    /// sidecar. Filler, a wrong code, a missing file, or any parse error all yield an
+    /// empty list — the caller treats "no targets" as "delete nothing".
+    pub fn read_panic_targets(&self, panic_pass: &str) -> Vec<String> {
+        let Some(file) = self.file.as_ref() else { return Vec::new() };
+        let Some(panic_slot) = file.slots.get(SLOT_PANIC) else { return Vec::new() };
+        let Ok(dek) = gervasius::unlock(panic_slot, panic_pass) else { return Vec::new() };
+        let Ok(bytes) = std::fs::read(panic_targets_path(&self.profile_dir)) else { return Vec::new() };
+        match gervasius::open(&dek, PANIC_TARGETS_AAD, &bytes) {
+            Ok(pt) => serde_json::from_slice::<Vec<String>>(&pt).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Seal the target list under the stashed panic DEK. `Ok(None)` when no panic DEK
+    /// is stashed (no code armed, or armed pre-feature) — the caller writes filler.
+    fn seal_targets(&self, targets: &[String]) -> Result<Option<Vec<u8>>, ProtasiusError> {
+        let Some(raw) = self.get(PANIC_NS, PANIC_DEK_KEY)? else { return Ok(None) };
+        let Ok(arr) = <[u8; 32]>::try_from(raw.as_slice()) else { return Ok(None) };
+        let dek = Dek::from_bytes(arr);
+        let plaintext = serde_json::to_vec(targets)?;
+        Ok(Some(gervasius::seal(&dek, PANIC_TARGETS_AAD, &plaintext)?))
+    }
+
+    fn write_sidecar(&self, bytes: &[u8]) -> Result<(), ProtasiusError> {
+        let path = panic_targets_path(&self.profile_dir);
+        let tmp = path.with_extension("dat.tmp");
+        std::fs::write(&tmp, bytes).map_err(io_err)?;
+        std::fs::rename(&tmp, &path).map_err(io_err)?; // atomic replace
+        Ok(())
+    }
+
+    /// Random-length random bytes, shaped like a real sealed sidecar (nonce+ct+tag),
+    /// so filler and a genuine target list are indistinguishable on disk.
+    fn write_filler_sidecar(&self) -> Result<(), ProtasiusError> {
+        let mut len = [0u8; 1];
+        OsRng.fill_bytes(&mut len);
+        // 24 (nonce) + 16 (tag) + a plausible 16..=143-byte "payload".
+        let mut buf = vec![0u8; 24 + 16 + 16 + (len[0] % 128) as usize];
+        OsRng.fill_bytes(&mut buf);
+        self.write_sidecar(&buf)
     }
 
     /// Destroy everything for this profile (forgot-passphrase flow): drop keys,
@@ -305,6 +403,7 @@ impl Protasius {
         }
         self.persist()?;
         let _ = std::fs::remove_file(vault_path(&self.profile_dir));
+        let _ = std::fs::remove_file(panic_targets_path(&self.profile_dir));
         Ok(())
     }
 
@@ -460,6 +559,10 @@ impl Protasius {
 
 fn vault_path(profile_dir: &Path) -> PathBuf {
     profile_dir.join("vault.json")
+}
+
+fn panic_targets_path(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(PANIC_TARGETS_FILE)
 }
 
 /// A slot that opens for nobody, shaped exactly like a real one: random salt and a
@@ -823,6 +926,86 @@ mod tests {
         // Store still usable: set up fresh.
         p.setup("pw2", &MigrationPlan::default()).unwrap();
         assert!(p.get("profile", "state").unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // ── panic-targets sidecar ───────────────────────────────────────────────────
+
+    /// The sidecar exists from first run (before any panic code) and reads back as
+    /// "no targets" — filler decrypts to nothing.
+    #[test]
+    fn panic_targets_sidecar_present_and_empty_on_setup() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("pw", &MigrationPlan::default()).unwrap();
+        assert!(panic_targets_path(&dir).exists());
+        // No panic code armed ⇒ nothing readable regardless of the guess.
+        assert!(p.read_panic_targets("pw").is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Armed panic code + enabled knob: the list round-trips under the panic code,
+    /// and only under it.
+    #[test]
+    fn panic_targets_roundtrip_under_panic_code() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+        p.set_panic_passphrase("real", "burn").unwrap();
+
+        let targets = vec!["/home/u/secret.pdf".to_string(), "/home/u/taxes.zip".to_string()];
+        p.write_panic_targets(&targets, true).unwrap();
+
+        assert_eq!(p.read_panic_targets("burn"), targets);
+        // The real passphrase (or any wrong guess) never opens the sidecar.
+        assert!(p.read_panic_targets("real").is_empty());
+        assert!(p.read_panic_targets("nope").is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Knob off ⇒ filler even with a panic code armed; nothing readable.
+    #[test]
+    fn panic_targets_disabled_writes_filler() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+        p.set_panic_passphrase("real", "burn").unwrap();
+        p.write_panic_targets(&["/home/u/secret.pdf".to_string()], false).unwrap();
+        assert!(p.read_panic_targets("burn").is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Disarming the panic code drops the stashed panic DEK, so a sidecar written
+    /// while it was armed no longer decrypts — even under the old code.
+    #[test]
+    fn clearing_panic_code_orphans_the_sidecar() {
+        let dir = temp_dir();
+        let mut p = Protasius::open(dir.clone()).unwrap();
+        p.setup("real", &MigrationPlan::default()).unwrap();
+        p.set_panic_passphrase("real", "burn").unwrap();
+        p.write_panic_targets(&["/home/u/secret.pdf".to_string()], true).unwrap();
+        assert!(!p.read_panic_targets("burn").is_empty());
+
+        p.clear_panic_passphrase("real").unwrap();
+        // Slot 1 is filler again ⇒ "burn" no longer proves it ⇒ empty.
+        assert!(p.read_panic_targets("burn").is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The targets survive being read while the store is LOCKED (the real panic
+    /// path): re-open, don't unlock, read straight off the panic code.
+    #[test]
+    fn panic_targets_readable_while_locked() {
+        let dir = temp_dir();
+        {
+            let mut p = Protasius::open(dir.clone()).unwrap();
+            p.setup("real", &MigrationPlan::default()).unwrap();
+            p.set_panic_passphrase("real", "burn").unwrap();
+            p.write_panic_targets(&["/home/u/secret.pdf".to_string()], true).unwrap();
+        }
+        let p = Protasius::open(dir.clone()).unwrap();
+        assert!(!p.status().unlocked);
+        assert_eq!(p.read_panic_targets("burn"), vec!["/home/u/secret.pdf".to_string()]);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

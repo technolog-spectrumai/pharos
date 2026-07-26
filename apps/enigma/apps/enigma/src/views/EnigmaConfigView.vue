@@ -50,6 +50,8 @@ import {
   vaultSetPanicCode,
   vaultClearPanicCode,
   vaultHasPanicCode,
+  getDeleteFilesOnPanic,
+  setDeleteFilesOnPanic,
   cleanTorKeystore,
   getCloudServerUrl,
   CLOUD_SERVER_URL_DEFAULT,
@@ -349,8 +351,25 @@ const panicError = ref("");
 const panicBusy = ref(false);
 const panicDone = ref("");
 
+// Delete-marked-files-on-panic knob (only meaningful when a panic code is armed).
+const deleteFilesOnPanic = ref(false);
+const deleteFilesBusy = ref(false);
+
 async function loadPanicState() {
   try { panicArmed.value = await vaultHasPanicCode(); } catch { panicArmed.value = false; }
+  try { deleteFilesOnPanic.value = await getDeleteFilesOnPanic(); } catch { deleteFilesOnPanic.value = false; }
+}
+
+async function toggleDeleteFilesOnPanic() {
+  if (deleteFilesBusy.value) return;
+  deleteFilesBusy.value = true;
+  const next = !deleteFilesOnPanic.value;
+  try {
+    await setDeleteFilesOnPanic(next);
+    deleteFilesOnPanic.value = next;
+  } finally {
+    deleteFilesBusy.value = false;
+  }
 }
 
 function openPanic() {
@@ -1098,6 +1117,39 @@ async function clearSelectedOfflineData() {
         <font-awesome-icon icon="triangle-exclamation" />
         {{ panicArmed ? $t('config.panicCodeChange') : $t('config.panicCodeSet') }}
       </OyaButton>
+
+      <!-- Delete-marked-files-on-panic knob. Inert (and greyed) without a panic
+           code, since there'd be nothing to trigger the deletion. -->
+      <div class="flex items-center gap-3 border-t pt-4" :class="darkMode ? 'border-accent-1/40' : 'border-accent-2/40'">
+        <font-awesome-icon
+          icon="trash"
+          :class="deleteFilesOnPanic && panicArmed ? 'text-warn-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.deleteFilesOnPanic') }}</p>
+          <p class="text-xs opacity-60">
+            {{ panicArmed ? $t('config.deleteFilesOnPanicHint') : $t('config.deleteFilesOnPanicNeedsPanic') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="deleteFilesOnPanic"
+          :disabled="!panicArmed || deleteFilesBusy"
+          :class="[
+            deleteFilesOnPanic ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2',
+            !panicArmed ? 'cursor-not-allowed opacity-50' : '',
+          ]"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleDeleteFilesOnPanic"
+        >
+          <span
+            :class="deleteFilesOnPanic ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
     </OyaCard>
     </template>
 

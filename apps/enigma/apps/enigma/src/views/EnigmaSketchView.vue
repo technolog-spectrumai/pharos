@@ -162,12 +162,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <div>
-        <h1 class="text-xl font-bold">{{ $t('sketch.title') }}</h1>
-        <p class="text-sm opacity-60">{{ $t('sketch.subtitle') }}</p>
-      </div>
+  <div class="flex h-full w-full flex-1 flex-col gap-3">
+    <div class="flex flex-wrap items-center justify-end gap-2">
       <p class="text-xs opacity-50">{{ $t('sketch.shapeCount', { n: shapeCount }) }}</p>
     </div>
 

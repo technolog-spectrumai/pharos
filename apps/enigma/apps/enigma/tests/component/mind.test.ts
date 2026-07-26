@@ -42,10 +42,15 @@ beforeEach(() => {
 });
 
 describe("EnigmaMindView", () => {
-  it("renders the header and starts on the Map sub-tab", async () => {
+  it("renders the sub-tab bar and starts on the Map sub-tab", async () => {
     const w = mountView();
     await flushPromises();
-    expect(w.text()).toContain("Mind");
+    // The big "Mind" title was dropped when Board/Sketch/Mind moved under the
+    // Notes tab (the Notes pill already labels it); the Map/Topics sub-tab bar and
+    // the canvas are what confirm the view mounted on its Map sub-tab.
+    const pills = w.findAll("button").map((b) => b.text());
+    expect(pills).toContain("Map");
+    expect(pills).toContain("Topics");
     expect(w.find("[data-testid='mind-canvas']").exists()).toBe(true);
   });
 

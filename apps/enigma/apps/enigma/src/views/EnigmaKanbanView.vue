@@ -91,12 +91,8 @@ watch(
 </script>
 
 <template>
-  <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <div>
-        <h1 class="text-xl font-bold">{{ $t('kanban.title') }}</h1>
-        <p class="text-sm opacity-60">{{ $t('kanban.subtitle') }}</p>
-      </div>
+  <div class="flex h-full w-full flex-1 flex-col gap-3">
+    <div class="flex flex-wrap items-center justify-end gap-2">
       <span
         v-if="kanban.amCaptain.value && currentRoomSlug"
         class="inline-flex items-center gap-2 rounded-lg border border-accent-2 px-2.5 py-1.5 text-xs font-bold opacity-70 dark:border-accent-1"

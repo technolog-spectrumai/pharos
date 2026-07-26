@@ -4,12 +4,10 @@ import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
 import EnigmaCallsView from "../views/EnigmaCallsView.vue";
 import EnigmaCalendarView from "../views/EnigmaCalendarView.vue";
-import EnigmaKanbanView from "../views/EnigmaKanbanView.vue";
+import EnigmaNotesView from "../views/EnigmaNotesView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 import EnigmaMapView from "../views/EnigmaMapView.vue";
-import EnigmaMindView from "../views/EnigmaMindView.vue";
-import EnigmaSketchView from "../views/EnigmaSketchView.vue";
 
 // Enigma is a serverless P2P chat: one chat surface, P2P file transfer,
 // meeting scheduling (calendar), contacts (peer discovery), and settings.
@@ -35,36 +33,30 @@ const router = createRouter({
       name: "calendar",
       beforeEnter: () => getBuildConfig().calendar_enabled || "/chat",
     },
-    // Group Kanban board — gated by the compile-time build flag. `beforeEnter`
-    // runs at navigation time (after initBuildConfig resolved), so it reads the
-    // real flag; a flag-off build redirects to chat. (A top-level `if` in this
-    // table would run at module-eval time, before initBuildConfig — too early.)
+    // Notes — one tab hosting the Board (kanban), Sketch, and Mind workspaces as
+    // sub-tabs (EnigmaNotesView). `beforeEnter` runs at navigation time (after
+    // initBuildConfig resolved), so it reads the real flags; when all three are
+    // off the whole tab redirects to chat. (A top-level `if` in this table would
+    // run at module-eval time, before initBuildConfig — too early.)
     {
-      path: "/board",
-      component: EnigmaKanbanView,
-      name: "board",
-      beforeEnter: () => getBuildConfig().kanban_enabled || "/chat",
+      path: "/notes",
+      component: EnigmaNotesView,
+      name: "notes",
+      beforeEnter: () => {
+        const c = getBuildConfig();
+        return c.kanban_enabled || c.sketch_enabled || c.mind_enabled || "/chat";
+      },
     },
-    // Maps (MapLibre + PMTiles) — same compile-time gate pattern as the board.
+    // Legacy per-feature paths now open the matching Notes sub-tab.
+    { path: "/board", redirect: "/notes?tab=board" },
+    { path: "/sketch", redirect: "/notes?tab=sketch" },
+    { path: "/mind", redirect: "/notes?tab=mind" },
+    // Maps (MapLibre + PMTiles) — same compile-time gate pattern as Notes.
     {
       path: "/map",
       component: EnigmaMapView,
       name: "map",
       beforeEnter: () => getBuildConfig().maps_enabled || "/chat",
-    },
-    // Shared sketch board — same compile-time gate pattern as the board.
-    {
-      path: "/sketch",
-      component: EnigmaSketchView,
-      name: "sketch",
-      beforeEnter: () => getBuildConfig().sketch_enabled || "/chat",
-    },
-    // Mind map — local-only, same compile-time gate pattern.
-    {
-      path: "/mind",
-      component: EnigmaMindView,
-      name: "mind",
-      beforeEnter: () => getBuildConfig().mind_enabled || "/chat",
     },
     {
       path: "/contacts",

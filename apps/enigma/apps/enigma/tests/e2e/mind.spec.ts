@@ -8,9 +8,11 @@ test.describe("Mind tab — happy path (browser shell)", () => {
   test("creates a topic on the canvas, adds a note via Topics, persists across reload", async ({ page }) => {
     await page.goto("/");
 
-    // Nav → Mind (compile-time gated; default build ships it).
-    await page.getByRole("link", { name: "Mind", exact: true }).first().click();
-    await expect(page.getByRole("heading", { name: "Mind" })).toBeVisible();
+    // Nav → Notes → Mind sub-tab (compile-time gated; default build ships it).
+    // Board/Sketch/Mind live under one Notes tab now; the mind-canvas probe below
+    // confirms we're on the Mind sub-tab (there's no longer a "Mind" page heading).
+    await page.getByRole("link", { name: "Notes", exact: true }).first().click();
+    await page.getByRole("button", { name: "Mind", exact: true }).click();
 
     // The anti-blank-canvas probe: cytoscape silently renders nothing into a
     // 0-height div (the MapLibre lesson from map.spec.ts, cheap insurance here).
@@ -45,7 +47,8 @@ test.describe("Mind tab — happy path (browser shell)", () => {
     // reload right after must still find everything in the localStorage kv.
     await page.getByRole("link", { name: "Settings" }).first().click();
     await page.reload();
-    await page.getByRole("link", { name: "Mind", exact: true }).first().click();
+    await page.getByRole("link", { name: "Notes", exact: true }).first().click();
+    await page.getByRole("button", { name: "Mind", exact: true }).click();
     await page.getByRole("button", { name: "Topics" }).click();
     await page.getByRole("button", { name: /Big Plan/ }).click();
     await expect(page.getByText("first step")).toBeVisible();

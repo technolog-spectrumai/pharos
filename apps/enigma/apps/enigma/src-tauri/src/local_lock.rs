@@ -157,22 +157,22 @@ pub fn local_rotate_file(
     Ok(LockedFileInfo { name: file_name(&path), size: plain.len() as u64 })
 }
 
+/// Whether the file at `path` currently begins with the ENIGLOCK magic. Infallible
+/// (a missing/short/unreadable file is simply "not locked") so callers on a
+/// best-effort path — like the panic wipe deleting marked files — can use it
+/// without threading errors. Shared with the `local_is_locked` command.
+pub fn is_locked_path(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else { return false };
+    let mut buf = [0u8; 8];
+    matches!(f.read_exact(&mut buf), Ok(())) && &buf == MAGIC
+}
+
 /// Cheap magic sniff so the UI can reconcile its record with disk reality
 /// (e.g. a file the user unlocked or deleted outside the app).
 #[tauri::command]
 pub fn local_is_locked(path: String) -> Result<bool, String> {
-    use std::io::Read;
-    let mut f = match std::fs::File::open(&path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(e.to_string()),
-    };
-    let mut buf = [0u8; 8];
-    match f.read_exact(&mut buf) {
-        Ok(()) => Ok(&buf == MAGIC),
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
-        Err(e) => Err(e.to_string()),
-    }
+    Ok(is_locked_path(std::path::Path::new(&path)))
 }
 
 /// Editor size cap: keeps the editor responsive and bounds decrypt cost.

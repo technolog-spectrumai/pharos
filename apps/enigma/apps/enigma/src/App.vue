@@ -180,15 +180,17 @@ const contactsEnabled = chatStore.contactsEnabled;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.
 const meetings = chatStore.meetings;
 const calendarEnabled = chatStore.calendarEnabled;
-// Board tab (compile-time gated): remote board changes awaiting a look.
+// Notes tab hosts Board (kanban), Sketch, and Mind as sub-tabs. The kanban ref
+// still drives the attention dot — remote board changes awaiting a look — which
+// now lifts to the Notes tab. Each sub-feature keeps its own compile-time gate;
+// the Notes tab shows whenever any of the three is enabled.
 const kanban = chatStore.kanban;
 const kanbanEnabled = chatStore.kanbanEnabled;
-// Sketch tab (compile-time gated) — a standalone local drawing board.
 const sketchEnabled = getBuildConfig().sketch_enabled;
+const mindEnabled = getBuildConfig().mind_enabled;
+const notesEnabled = kanbanEnabled || sketchEnabled || mindEnabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
-// Mind tab (compile-time gated) — a local-only mind map + topics browser.
-const mindEnabled = getBuildConfig().mind_enabled;
 // Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
 // a request lands on the main endpoint whatever tab is open, and the answer
 // window is short, so it can't wait behind a route.
@@ -305,26 +307,18 @@ onBeforeUnmount(() => {
               :title="$t('calendar.attentionTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="kanbanEnabled" to="/board" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.board')">
-            <font-awesome-icon icon="table-columns" />
-            {{ $t('nav.board') }}
+          <RouterLink v-if="notesEnabled" to="/notes" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.notes')">
+            <font-awesome-icon icon="note-sticky" />
+            {{ $t('nav.notes') }}
             <span
               v-if="(kanban?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
               :title="$t('kanban.attentionTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="sketchEnabled" to="/sketch" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.sketch')">
-            <font-awesome-icon icon="pencil" />
-            {{ $t('nav.sketch') }}
-          </RouterLink>
           <RouterLink v-if="mapsEnabled" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
             <font-awesome-icon icon="map" />
             {{ $t('nav.map') }}
-          </RouterLink>
-          <RouterLink v-if="mindEnabled" to="/mind" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.mind')">
-            <font-awesome-icon icon="diagram-project" />
-            {{ $t('nav.mind') }}
           </RouterLink>
           <RouterLink v-if="contactsEnabled" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
@@ -410,25 +404,17 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink v-if="kanbanEnabled" to="/board" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="table-columns" class="w-4 text-center" />
-            {{ $t('nav.board') }}
+          <RouterLink v-if="notesEnabled" to="/notes" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="note-sticky" class="w-4 text-center" />
+            {{ $t('nav.notes') }}
             <span
               v-if="(kanban?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink v-if="sketchEnabled" to="/sketch" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="pencil" class="w-4 text-center" />
-            {{ $t('nav.sketch') }}
-          </RouterLink>
           <RouterLink v-if="mapsEnabled" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="map" class="w-4 text-center" />
             {{ $t('nav.map') }}
-          </RouterLink>
-          <RouterLink v-if="mindEnabled" to="/mind" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="diagram-project" class="w-4 text-center" />
-            {{ $t('nav.mind') }}
           </RouterLink>
           <RouterLink v-if="contactsEnabled" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />
