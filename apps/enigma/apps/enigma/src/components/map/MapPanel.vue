@@ -28,6 +28,7 @@ import {
 import { policy } from "../../config/app";
 import { useChatStore } from "../../stores/chat";
 import { useMapStore } from "../../stores/map";
+import PinEditModal from "./PinEditModal.vue";
 import SharedSharesCard from "./SharedSharesCard.vue";
 import { sharedItemName, type SharedItem } from "./sharedLayerModel";
 import { useSharedMapLayer } from "./useSharedMapLayer";
@@ -66,8 +67,11 @@ function pushDiag(msg: string) {
 type Mode = "idle" | "add-pin" | "draw-route" | "share-loc";
 const mode = ref<Mode>("idle");
 const draftPoints = ref<[number, number][]>([]); // [lat, lng]
-const nameModal = ref<null | { kind: "pin" | "route"; lat?: number; lng?: number }>(null);
+const nameModal = ref<null | { kind: "route" }>(null);
 const nameInput = ref("");
+
+// The pin editor: creating (a tapped point) or editing (an existing pin).
+const pinModal = ref<null | { lat: number; lng: number; pin: MapPin | null }>(null);
 
 // Sharing a location: the user taps a spot, confirms, and only then does
 // anything leave the device. Nothing is ever stored locally by this flow.
@@ -502,8 +506,7 @@ watch(() => store.pendingFocus, applyPendingFocus);
 // ── interactions ─────────────────────────────────────────────────────────────
 function onMapClick(e: maplibregl.MapMouseEvent) {
   if (mode.value === "add-pin") {
-    nameModal.value = { kind: "pin", lat: e.lngLat.lat, lng: e.lngLat.lng };
-    nameInput.value = "";
+    pinModal.value = { lat: e.lngLat.lat, lng: e.lngLat.lng, pin: null };
     mode.value = "idle";
   } else if (mode.value === "draw-route") {
     draftPoints.value = [...draftPoints.value, [e.lngLat.lat, e.lngLat.lng]];
@@ -569,17 +572,30 @@ function cancelDraw() {
 }
 
 async function confirmName() {
-  const modal = nameModal.value;
   const name = nameInput.value.trim();
-  if (!modal || !name) return;
-  if (modal.kind === "pin" && modal.lat !== undefined && modal.lng !== undefined) {
-    await store.addPin(name, modal.lat, modal.lng);
-  } else if (modal.kind === "route") {
-    await store.addRoute(name, draftPoints.value);
-    draftPoints.value = [];
-    mode.value = "idle";
-  }
+  if (!nameModal.value || !name) return;
+  await store.addRoute(name, draftPoints.value);
+  draftPoints.value = [];
+  mode.value = "idle";
   nameModal.value = null;
+}
+
+/** Create or update a pin from the editor. */
+async function submitPin(fields: { name: string; note: string; color: string }) {
+  const modal = pinModal.value;
+  if (!modal) return;
+  if (modal.pin) {
+    // Pass "" through deliberately: upsertPin merges by id, so an emptied note
+    // must overwrite the old one rather than be treated as "unchanged".
+    await store.savePin({ ...modal.pin, name: fields.name, note: fields.note, color: fields.color });
+  } else {
+    await store.addPin(fields.name, modal.lat, modal.lng, fields.note, fields.color);
+  }
+  pinModal.value = null;
+}
+
+function editPin(pin: MapPin) {
+  pinModal.value = { lat: pin.lat, lng: pin.lng, pin };
 }
 
 function showPin(pin: MapPin) {
@@ -874,8 +890,21 @@ function dismissFocus() {
           <p v-if="store.pins.length === 0" class="text-xs opacity-60">{{ $t('map.noPins') }}</p>
           <ul class="space-y-1">
             <li v-for="pin in store.pins" :key="pin.id" class="flex items-center gap-2 text-sm">
-              <button type="button" class="min-w-0 flex-1 truncate text-left hover:opacity-70" @click="showPin(pin)">
-                {{ pin.name }}
+              <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left hover:opacity-70" @click="showPin(pin)">
+                <span
+                  class="h-2.5 w-2.5 shrink-0 rounded-full"
+                  :style="{ backgroundColor: pin.color ?? '#2563eb' }"
+                />
+                <span class="min-w-0 truncate">{{ pin.name }}</span>
+              </button>
+              <button
+                type="button"
+                class="opacity-60 transition hover:opacity-100"
+                :title="$t('map.editPin')"
+                :data-testid="`pin-edit-${pin.id}`"
+                @click="editPin(pin)"
+              >
+                <font-awesome-icon icon="pen" />
               </button>
               <button
                 type="button"
@@ -964,15 +993,21 @@ function dismissFocus() {
         </form>
       </OyaModal>
 
-      <!-- Name prompt for a new pin / finished route -->
+      <!-- Pin editor: name, note and colour, for a new or an existing pin. -->
+      <PinEditModal
+        :open="pinModal !== null"
+        :pin="pinModal?.pin ?? null"
+        @submit="submitPin"
+        @close="pinModal = null"
+      />
+
+      <!-- Name prompt for a finished route -->
       <OyaModal :open="nameModal !== null" @close="nameModal = null">
         <form
           class="w-full max-w-md space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
           @submit.prevent="confirmName"
         >
-          <h3 class="text-lg font-bold">
-            {{ nameModal?.kind === 'pin' ? $t('map.namePinTitle') : $t('map.nameRouteTitle') }}
-          </h3>
+          <h3 class="text-lg font-bold">{{ $t('map.nameRouteTitle') }}</h3>
           <OyaTextField v-model="nameInput" :placeholder="$t('map.nameLabel')" :maxlength="120" @enter="confirmName" />
           <div class="flex justify-end gap-2">
             <OyaButton variant="secondary" type="button" @click="nameModal = null">{{ $t('common.cancel') }}</OyaButton>
