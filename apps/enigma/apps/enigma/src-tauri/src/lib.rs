@@ -15,6 +15,11 @@ mod cloud;
 // mandatory TTL), rendered on the Maps tab. Rides cloud.rs transport + session;
 // enabled only when both cloud.allow_connections and maps.enabled are on.
 mod beacon;
+// Aster — cloud rendezvous (rdv.md): the user's own faros server as an optional
+// peer directory (publish my relay URL, resolve peers by NodeId/username).
+// Rides cloud.rs transport + session; opt-in toggle, default off; enabled only
+// when cloud.allow_connections and p2p.allow_hosted_relays are both on.
+mod aster;
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
 // Files→Devices per-file sync: the disk half of receiving (sanitized paths,
@@ -1418,6 +1423,7 @@ pub fn run() {
             cloud::cloud_mkdir,
             cloud::cloud_rmdir,
             cloud::cloud_move,
+            aster::aster_resolve,
             beacon::beacon_all,
             beacon::beacon_near,
             beacon::beacon_publish_pin,

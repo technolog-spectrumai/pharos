@@ -53,6 +53,11 @@ pub struct Node {
     /// round no-ops unless the opt-in toggle is on and a nickname is set, so
     /// renames/toggles apply without a rebind). Aborted in `shutdown`.
     nick_publisher: Option<tauri::async_runtime::JoinHandle<()>>,
+    /// Cloud-rendezvous publisher (aster, rdv.md) — spawned whenever the build
+    /// allows it; each round no-ops unless the opt-in toggle is on AND a cloud
+    /// session exists, so the Settings switch applies live without a rebind.
+    /// Aborted in `shutdown`.
+    rdv_publisher: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 struct RoomHandle {
@@ -205,6 +210,14 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         // from the endpoint by `into_address_lookup`.
         builder = builder.address_lookup(DhtAddressLookup::builder());
     }
+    if crate::aster::build_allowed() {
+        // Cloud rendezvous (aster, rdv.md): resolve NodeIds via the user's own
+        // faros server. Stacked unconditionally when the build allows it — the
+        // lookup self-gates on the opt-in toggle (returns no stream when off),
+        // so the Settings switch applies live and an unconfigured server costs
+        // nothing. Relay-only addresses, like the DHT path.
+        builder = builder.address_lookup(crate::aster::AsterLookup::new(app.clone()));
+    }
     let endpoint = builder.bind().await.map_err(|e| anyhow!("iroh bind failed: {e}"))?;
     // Rendezvous/presence node. A bind failure here is non-fatal — chat still
     // works via ticket + n0; `dht_status` then reports unreachable.
@@ -212,6 +225,10 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     let nick_publisher = dht.as_ref().map(|handle| {
         crate::p2p_dht::spawn_nick_publisher(app.clone(), handle.clone_dht(), endpoint.id())
     });
+    // Keeps the user's faros directory entry fresh while the opt-in toggle is
+    // on (self-gating loop — see aster.rs); dies with the node in `shutdown`.
+    let rdv_publisher = crate::aster::build_allowed()
+        .then(|| crate::aster::spawn_publisher(app.clone(), endpoint.clone()));
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
     let gossip = Gossip::builder()
@@ -266,6 +283,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         rooms: HashMap::new(),
         dht,
         nick_publisher,
+        rdv_publisher,
     });
     Ok(())
 }
@@ -520,6 +538,9 @@ pub async fn shutdown(app: &AppHandle, state: &P2pState) {
     let mut guard = state.0.lock().await;
     if let Some(mut node) = guard.take() {
         if let Some(publisher) = &node.nick_publisher {
+            publisher.abort();
+        }
+        if let Some(publisher) = &node.rdv_publisher {
             publisher.abort();
         }
         let rooms: Vec<String> = node.rooms.keys().cloned().collect();

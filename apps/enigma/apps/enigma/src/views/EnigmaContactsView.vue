@@ -35,6 +35,7 @@ import {
   type NickClaim,
 } from "rakotis";
 import { useChatStore } from "../stores/chat";
+import { useCloudStore } from "../stores/cloud";
 import { usePeersStore } from "../stores/peers";
 import PeerLinksPanel from "../components/peers/PeerLinksPanel.vue";
 import PeerRequestForm from "../components/peers/PeerRequestForm.vue";
@@ -84,6 +85,7 @@ let presenceTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(async () => {
   contacts.value = await listContacts();
   dhtOn.value = await getDhtDiscovery();
+  if (rdvAllowed) void cloudStore.init(); // mirror the login state for server search
   nickPublish.value = await getDhtNickPublish();
   nickname.value = await getDhtNickname();
   void loadMyNodeId();
@@ -170,6 +172,38 @@ function openAddFromClaim(claim: NickClaim) {
   openAdd();
   addNodeId.value = claim.node_id;
   addName.value = claim.name;
+}
+
+// ── Find on my server (cloud rendezvous, rdv.md) — resolve a faros username to
+// its registered NodeIds. Optional: only when the build has cloud + hosted
+// relays AND the user is logged in to their server. Same input, same result
+// shape, same prefill-the-add-modal flow as the DHT search.
+const cloudStore = useCloudStore();
+const rdvCfg = getBuildConfig();
+const rdvAllowed = rdvCfg.cloud_allow_connections && rdvCfg.p2p_allow_hosted_relays;
+const serverResults = ref<NickClaim[]>([]);
+const serverSearching = ref(false);
+const serverSearched = ref(false);
+const serverError = ref("");
+async function findOnServer() {
+  const username = searchNick.value.trim();
+  if (!username || serverSearching.value || !cloudStore.loggedIn) return;
+  serverSearching.value = true;
+  serverSearched.value = false;
+  serverError.value = "";
+  try {
+    const ids = await invoke<string[]>("aster_resolve", {
+      serverUrl: cloudStore.serverUrl,
+      username,
+    });
+    // ts = now: the server only returns addresses fresher than its TTL.
+    serverResults.value = ids.map((node_id) => ({ node_id, name: username, ts: Date.now() }));
+    serverSearched.value = true;
+  } catch (e) {
+    serverError.value = typeof e === "string" ? e : ((e as Error).message ?? "");
+  } finally {
+    serverSearching.value = false;
+  }
 }
 
 // ── Add contact ────────────────────────────────────────────────────────────────
@@ -451,7 +485,7 @@ async function acceptIncoming() {
           type="text"
           :maxlength="DHT_NICKNAME_MAX_LEN"
           :placeholder="$t('contacts.findPlaceholder')"
-          :disabled="!dhtOn"
+          :disabled="!dhtOn && !(rdvAllowed && cloudStore.loggedIn)"
           class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-3 py-1.5 text-sm disabled:opacity-50"
           @keyup.enter="findPeople"
         />
@@ -496,6 +530,52 @@ async function acceptIncoming() {
           </button>
         </li>
       </ul>
+
+      <!-- Same search box, second directory: the user's own faros server
+           (cloud rendezvous). Shown only when the build allows it; disabled
+           with the reason when not logged in — never hidden. -->
+      <template v-if="rdvAllowed">
+        <div class="flex items-center gap-2 border-t border-current/10 pt-3">
+          <OyaButton
+            :dark-mode="darkMode"
+            variant="secondary"
+            data-testid="rdv-find"
+            :class="{ 'pointer-events-none opacity-50': !cloudStore.loggedIn || serverSearching || !searchNick.trim() }"
+            :title="cloudStore.loggedIn ? $t('contacts.rdvFindHint') : $t('contacts.rdvNeedsLogin')"
+            @click="findOnServer"
+          >
+            <font-awesome-icon :icon="serverSearching ? 'spinner' : 'address-book'" :spin="serverSearching" />
+            {{ $t('contacts.rdvFind') }}
+          </OyaButton>
+          <span v-if="!cloudStore.loggedIn" class="text-xs opacity-60">{{ $t('contacts.rdvNeedsLogin') }}</span>
+        </div>
+        <p v-if="serverError" class="text-xs text-warn-dark">{{ serverError }}</p>
+        <p v-else-if="serverSearched && serverResults.length === 0" class="py-1 text-center text-sm opacity-60">
+          {{ $t('contacts.noResults') }}
+        </p>
+        <ul v-else-if="serverResults.length" class="divide-y divide-current/10" data-testid="rdv-results">
+          <li v-for="claim in serverResults" :key="claim.node_id" class="flex items-center gap-3 py-3">
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold">
+                {{ claim.name }}
+                <span class="ml-1 rounded-full border border-current/20 px-1.5 text-[10px] uppercase opacity-60">{{ $t('contacts.rdvBadge') }}</span>
+              </p>
+              <p class="truncate font-mono text-[11px] opacity-50">{{ claim.node_id }}</p>
+            </div>
+            <span v-if="contactIds.has(claim.node_id)" class="shrink-0 text-xs text-success-dark">
+              <font-awesome-icon icon="check" /> {{ $t('contacts.addedBadge') }}
+            </span>
+            <button
+              v-else-if="claim.node_id !== myNodeId"
+              type="button"
+              class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-semibold transition hover:opacity-80"
+              @click="openAddFromClaim(claim)"
+            >
+              <font-awesome-icon icon="plus" /> {{ $t('contacts.useCode') }}
+            </button>
+          </li>
+        </ul>
+      </template>
     </OyaCard>
 
     <!-- Saved contacts -->

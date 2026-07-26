@@ -22,6 +22,8 @@ import {
   getConnectTimeoutSecs,
   setConnectTimeoutSecs,
   getDhtDiscovery,
+  getRdvPublish,
+  setRdvPublish,
   setDhtDiscovery,
   applyDhtDiscovery,
   getDhtStatus,
@@ -204,6 +206,16 @@ async function saveDhtPresencePoll() {
   dhtPresencePollSecs.value = await setDhtPresencePollSecs(Number(dhtPresencePollSecs.value));
   dhtPresencePollSaved.value = true;
   setTimeout(() => { dhtPresencePollSaved.value = false; }, 1500);
+}
+
+// ── Cloud rendezvous (rdv.md): my own faros server as an optional peer
+// directory. Opt-in, default off; the Rust publisher/lookup self-gate on the
+// kv key every round, so the flip applies live with no rebind.
+const rdvAllowed = cloudAllowed && hostedRelaysAllowed;
+const rdvPublish = ref(false);
+async function toggleRdvPublish() {
+  rdvPublish.value = !rdvPublish.value;
+  await setRdvPublish(rdvPublish.value);
 }
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
@@ -430,6 +442,7 @@ onMounted(async () => {
   mapStorageLimitMb.value = await getMapStorageLimitMb();
   fileKeyRotationDays.value = await getFileKeyRotationDays();
   dhtDiscovery.value = await getDhtDiscovery();
+  rdvPublish.value = await getRdvPublish();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
   cloudServerUrl.value = await getCloudServerUrl();
@@ -1001,6 +1014,58 @@ async function clearSelectedOfflineData() {
             <span class="text-xs opacity-60">s</span>
             <span v-if="dhtPresencePollSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
           </div>
+        </div>
+      </template>
+    </OyaCard>
+
+    <!-- Cloud rendezvous (rdv.md) — publish my relay address to MY OWN faros
+         server so peers there can find me by NodeId/username. Optional by
+         contract: default off, and everything degrades to the ticket flow.
+         Needs both cloud + hosted relays in the build. -->
+    <OyaCard v-if="rdvAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.rdvSection') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.rdvHint') }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <font-awesome-icon
+          icon="address-book"
+          :class="rdvPublish ? 'text-accent-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.rdvPublish') }}</p>
+          <p class="text-xs opacity-60">
+            {{ rdvPublish ? $t('config.rdvOnHint') : $t('config.rdvOffHint') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="rdvPublish"
+          :aria-label="$t('config.rdvPublish')"
+          data-testid="rdv-toggle"
+          :class="rdvPublish ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleRdvPublish"
+        >
+          <span
+            :class="rdvPublish ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+      <template v-if="rdvPublish">
+        <div class="flex items-center gap-2 text-xs">
+          <span
+            :class="cloudStore.loggedIn ? 'bg-success-dark' : 'bg-warn-dark'"
+            class="inline-block h-2 w-2 shrink-0 rounded-full"
+          />
+          <span class="min-w-0 flex-1 opacity-70">
+            {{ cloudStore.loggedIn ? $t('config.rdvActive') : $t('config.rdvNeedsLogin') }}
+          </span>
         </div>
       </template>
     </OyaCard>
