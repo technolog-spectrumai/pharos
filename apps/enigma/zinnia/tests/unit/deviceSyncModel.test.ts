@@ -145,6 +145,19 @@ describe("persisted messages", () => {
     expect(validatePersistedMessage(msg("m1", 1, { map: bad as never }))?.map).toBeUndefined();
   });
 
+  it("persists a shared location, however old — expiry is a render decision", () => {
+    const loc = { type: "map_loc", v: 1, lat: 52.4, lng: 16.9, at: 1, label: "Gate B" };
+    const stored = validatePersistedMessage({ ...msg("m1", 1), type: "map_loc", map: loc as never });
+    // The type survives the PERSISTED_TYPES gate…
+    expect(stored?.type).toBe("map_loc");
+    // …and an ancient `at` still validates, so a reload never yields an empty
+    // bubble (a time-dependent validator would drop the payload here).
+    expect(stored?.map).toEqual(loc);
+
+    const bad = { type: "map_loc", v: 1, lat: 52.4, lng: 16.9 }; // no `at`
+    expect(validatePersistedMessage(msg("m2", 1, { map: bad as never }))?.map).toBeUndefined();
+  });
+
   it("mergeMessages dedupes by id, orders by ts, caps from the tail", () => {
     const local = [msg("a", 100), msg("b", 200)];
     const remote = [msg("b", 999, { content: "remote-b" }), msg("c", 150)];

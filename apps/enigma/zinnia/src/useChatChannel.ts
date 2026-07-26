@@ -19,8 +19,8 @@ import {
   type MuteMap,
 } from "./services/moderation";
 import {
-  validatePinShare, validateRouteShare, validateRegionShare,
-  type MapPinShare, type MapRouteShare, type MapRegionShare,
+  validateLocationShare, validatePinShare, validateRouteShare, validateRegionShare,
+  type MapLocationShare, type MapPinShare, type MapRouteShare, type MapRegionShare,
 } from "./mapModel";
 import { sameUser, userPartOf, type PersistedMessage } from "./deviceSyncModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
@@ -28,7 +28,7 @@ import { getChatHistoryCapMsgs } from "./services/appStorage";
 import { nanoid } from "nanoid";
 
 /** A validated map share riding a chat-timeline card (mapModel wire shapes). */
-export type MapShare = MapPinShare | MapRouteShare | MapRegionShare;
+export type MapShare = MapPinShare | MapRouteShare | MapLocationShare | MapRegionShare;
 
 /** A locally-known P2P room: topic id, display name, join ticket, and the peer
  *  NodeIds seen in it (the address book for ticketless reconnects). */
@@ -98,6 +98,7 @@ export interface Message {
     | "voice_message"
     | "map_pin"
     | "map_route"
+    | "map_loc"
     | "map_region"
     | "system_error"
     | "system_info";
@@ -365,9 +366,13 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   // board columns/cards — consumed by `useKanban`) and `dlink_*` (linked-device
   // registry/kv/history sync — consumed by `useDeviceSync` on its HEADLESS
   // devlink channel only). Each handler ignores the prefixes it does not own.
-  // `map_*` is deliberately NOT routed here: map
-  // shares are human content rendered as timeline cards (handled inline after
-  // the mute check), not control traffic.
+  // `map_*` (map_pin / map_route / map_loc / map_region) is deliberately NOT
+  // routed here: map shares are human content rendered as timeline cards
+  // (handled inline after the mute check), not control traffic. Adding the
+  // prefix "for consistency" would make this gate `return` before the mute
+  // check and swallow every card — no handler owns `map_`, so nothing would
+  // ever render. The routing tests in multiDeviceChannel.test.ts assert a real
+  // map_loc frame becomes a card and turn red the moment that happens.
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
@@ -1022,9 +1027,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             // dropped silently, never rendered as a raw-JSON bubble. Deliberately
             // NOT a sync family: cards are human content, so they sit after the
             // mute check above (control traffic they are not).
+            //
+            // `map_loc` (a shared location) rides here too and MUST NOT be given
+            // its own prefix in the gate above — see that comment. Its expiry is
+            // a render decision; the validator is time-independent so a stale
+            // card still reloads intact.
             const share =
               inner.type === "map_pin" ? validatePinShare(inner)
               : inner.type === "map_route" ? validateRouteShare(inner)
+              : inner.type === "map_loc" ? validateLocationShare(inner)
               : inner.type === "map_region" ? validateRegionShare(inner)
               : null;
             if (share) {
