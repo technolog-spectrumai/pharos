@@ -231,7 +231,7 @@ fn multipart_content_length(preamble: &[u8], file_size: u64, epilogue: &[u8]) ->
 // ── policy / settings / session helpers ───────────────────────────────────────
 
 /// Airplane mode gate — every networked cloud command runs this first.
-fn ensure_online(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn ensure_online(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<crate::AppConfigState>();
     let cfg = crate::active_config(&state)?;
     if crate::is_offline(&crate::load_profile_state(app, &cfg)) {
@@ -428,7 +428,7 @@ fn status_err(status: u16, body: &Value) -> String {
     }
 }
 
-fn expect_2xx(status: u16, body: &Value) -> Result<(), String> {
+pub(crate) fn expect_2xx(status: u16, body: &Value) -> Result<(), String> {
     if (200..300).contains(&status) {
         Ok(())
     } else {
@@ -440,7 +440,7 @@ fn expect_2xx(status: u16, body: &Value) -> Result<(), String> {
 /// logout, me, list, delete, mkdir, rmdir, move). Reuses tor::send_http over
 /// whichever stream `connect` picked. Returns (status, parsed body — Null when
 /// empty or not JSON).
-async fn request_json(
+pub(crate) async fn request_json(
     app: &AppHandle,
     server_url: &str,
     method: &str,

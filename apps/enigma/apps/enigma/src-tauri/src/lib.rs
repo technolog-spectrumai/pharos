@@ -11,6 +11,10 @@ use zeroize::Zeroize;
 // "Enigma Cloud" — HTTP client for the user's self-hosted faros server (telegraph
 // auth + vault file storage), over direct TCP/TLS or Tor per host + profile policy.
 mod cloud;
+// Beacon — expiring location shares on the faros server (pins/zones/routes with
+// mandatory TTL), rendered on the Maps tab. Rides cloud.rs transport + session;
+// enabled only when both cloud.allow_connections and maps.enabled are on.
+mod beacon;
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
 // Files→Devices per-file sync: the disk half of receiving (sanitized paths,
@@ -1414,6 +1418,14 @@ pub fn run() {
             cloud::cloud_mkdir,
             cloud::cloud_rmdir,
             cloud::cloud_move,
+            beacon::beacon_all,
+            beacon::beacon_near,
+            beacon::beacon_publish_pin,
+            beacon::beacon_delete_pin,
+            beacon::beacon_publish_zone,
+            beacon::beacon_publish_route,
+            beacon::beacon_delete_zone,
+            beacon::beacon_delete_route,
             fs_local::fs_write_text_file,
             fs_local::fs_write_base64_file,
             local_lock::local_lock_file,
