@@ -728,6 +728,35 @@ export async function vaultHasPanicCode(): Promise<boolean> {
   return false;
 }
 
+// ── Delete-marked-files-on-panic knob ─────────────────────────────────────────
+// When ON, a panic (typing the panic code at the gate) also deletes every file in
+// the Files → Local locked-files index from disk. The path list can't live in the
+// encrypted store (the panic path has no key for it), so Rust keeps it in a sidecar
+// sealed under the panic code and re-seals it whenever the list or this knob
+// changes — hence the `resyncPanicTargets()` calls below. Device-local (never
+// synced to other devices), default off.
+
+const KEY_DELETE_FILES_ON_PANIC = "delete_files_on_panic";
+
+export async function getDeleteFilesOnPanic(): Promise<boolean> {
+  try {
+    return (await kvGet("p2p:settings", "default", KEY_DELETE_FILES_ON_PANIC)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export async function setDeleteFilesOnPanic(on: boolean): Promise<void> {
+  await kvPut("p2p:settings", "default", KEY_DELETE_FILES_ON_PANIC, on ? "1" : "0").catch(() => {});
+  await resyncPanicTargets();
+}
+
+/** Ask Rust to re-seal the panic-targets sidecar from the current knob + index.
+ *  Tauri-only; a no-op in the browser (there is no panic path there). */
+export async function resyncPanicTargets(): Promise<void> {
+  if (isTauri()) await invoke("panic_targets_resync").catch(() => {});
+}
+
 // ── Passphrase-protected local files ("lock a file") ──────────────────────────
 // Encrypt a user-chosen file in place with a per-file passphrase (reuses the
 // gervasius at-rest primitives in Rust; see src-tauri/src/local_lock.rs). The
@@ -808,12 +837,16 @@ export async function addLockedFile(rec: LockedFileRecord): Promise<void> {
   const list = (await getLockedFiles()).filter((r) => r.path !== rec.path);
   list.push(rec);
   await saveLockedFiles(list);
+  // Keep the panic-targets sidecar current (no-op unless the knob + a panic code
+  // are both armed).
+  await resyncPanicTargets();
 }
 
 /** Forget a locked-file record (does not touch the file on disk). */
 export async function removeLockedFile(path: string): Promise<void> {
   const list = (await getLockedFiles()).filter((r) => r.path !== path);
   await saveLockedFiles(list);
+  await resyncPanicTargets();
 }
 
 // ── Local notes (editing local text files) ────────────────────────────────────
