@@ -548,3 +548,107 @@ resolution; RegionsPanel Activate toggle (emit `show-map`) + badge;
 EnigmaMapView `:key` remount = GL tile-cache invalidation; MapPanel fits the
 active bbox on load (before chat-card focus) + shows a name chip. Four i18n
 keys en+pl. NOT in the device-link sync allow-list (pinned by test).
+
+---
+
+# Part IV — Location sharing + the shared layer (implemented 2026-07-26)
+
+Branch `map_share_layer`. Three things: a **shared location** you push by hand,
+**colour/note on pins** (the model always had them; nothing could set them), and
+a **shared layer** so what a room shares actually appears on the map instead of
+being a one-shot preview behind a chat button.
+
+## Decisions (Q&A)
+
+- **D14 — location comes from a TAP, never from the device.** No geolocation
+  plugin, no permission, no Android manifest change. The user taps the spot,
+  fills an optional label/note, and presses Share. So §10's *"No geolocation, no
+  tracking"* and the line above at :340-342 (*"the map never calls
+  `navigator.geolocation`"*) stay **literally true** — and are now enforced by
+  an e2e test that traps `navigator.geolocation.*` and asserts it is never
+  called. The honest framing, which the UI repeats: a shared location is *a
+  point the user chose*, which may or may not be where they are.
+- **D15 — a shared location EXPIRES on the map after `MAP_LOC_TTL_MS` (6 h).**
+  "Where I am" goes stale; the marker disappears, the chat card stays as a
+  permanent record and says it is no longer shown. Pins and routes never expire.
+- **D16 — received shares render in a SEPARATE layer** (violet pins/routes,
+  orange locations, sender initial in the badge), never mixed into the user's
+  own pins. Per-item **Save to my pins** adopts one as ordinary local map data;
+  a layer toggle hides the lot.
+- **D17 — the layer follows the ACTIVE ROOM**, because that is what the timeline
+  it is derived from holds.
+- **D18 — out-of-coverage shares are listed, not drawn.** A marker over blank
+  canvas looks broken, so the sidebar counts them ("N outside your maps") and
+  lets the user read, focus and save them anyway.
+
+## As built
+
+**Wire.** New inner type `map_loc` (`MapLocationShare {lat, lng, at, label?,
+note?}`) beside the existing three. `at` is on the wire, not derived from the
+message timestamp (which is *receive* time) — otherwise sender, receiver and a
+linked-device replay each age the same share differently.
+
+`validateLocationShare` is **time-independent by design**: it checks `at`
+against a fixed year-2100 ceiling and never against `now`. `chatLog` re-validates
+every stored message on every load and `validatePersistedMessage` keeps a message
+while dropping an invalid `map` — so a time-dependent validator would turn an
+expired card into an empty bubble on the next restart. Expiry is a *render*
+decision (`isLocationLive`), which is also what makes D15's "card stays" work.
+
+**`map_` still is NOT in the sync-prefix gate** (see the top of this file, and
+now a comment at the gate itself naming `map_loc`). Three regression tests
+dispatch a real `map_loc` frame through the actual handler and assert it becomes
+a card — so the "consistency fix" that would swallow every share turns red.
+
+**The shared layer is derived, not stored.** `sharedLayerModel.ts` projects the
+open room's timeline (`chat.p2p.messages`, already room-scoped: cleared and
+restored from the sealed `chat:log` on every room entry) into `SharedItem[]`,
+dropping expired locations and flagging coverage. `useSharedMapLayer` adds a
+60 s tick so a location vanishes at its TTL without a reload. **No new storage:**
+a shadow store would duplicate shared coordinates outside the sealed log's
+lifecycle and re-implement room scoping, expiry and replication. Capped at
+`SHARED_LAYER_MAX_ITEMS` (200, newest win).
+
+**Coverage** (`pointInBbox` / `regionCovers` / `coveredByAny` / `routeCovered`,
+pure, in mapModel): bbox only — `map_get_tile` checks the zoom band per tile, so
+gating on zoom would make a pin blink out on zoom-in. Deliberately **per
+region, never `map_source_info`'s union bbox**, which would report the empty gap
+between two disjoint regions as covered. Antimeridian needs no case: `isValidBbox`
+(and Rust) reject `west > east`, so no stored region crosses the seam.
+
+**Rendering.** Shared pins/locations are DOM markers with a custom element
+(sender initial, click → detail banner with Focus / Save to my pins); shared
+routes are a second dashed GeoJSON layer between own routes and the draft. Both
+survive a theme `setStyle` via the existing re-add path. `refreshPins` gained a
+signature check — a marker's colour lives in its SVG, so an edited colour needs
+a new marker (it silently kept the old paint before).
+
+**"Open in Maps" still exists** and is unified by reference: `applyPendingFocus`
+looks for an item already on the layer (`item.share === share`, both being the
+same `message.map` object) and, if found, just selects and flies — otherwise it
+falls back to the old green preview + Save banner, which is what still serves
+expired, uncovered and layer-off shares.
+
+**Pins.** `addPin(name, lat, lng, note?, color?)` / `addRoute(name, points,
+color?)` (colour guarded by `isHexColor`), a `PinEditModal` for create *and*
+edit, a fixed `MAP_PIN_COLORS` palette (the kanban convention — a colour travels
+in a share payload, so a per-device sketch-style palette would be meaningless),
+and a colour swatch in the sidebar rows and the chat card.
+
+**No Rust changes.** Coverage runs frontend-side over the manifests the store
+already holds; `tile_in_bbox` stays private.
+
+## Accepted limitations
+
+- **Clock skew.** `at` is the sender's clock. A mildly-future `at` fails *open*
+  (visible); past `MAP_LOC_MAX_FUTURE_SKEW_MS` (24 h) the share is ignored, so a
+  broken clock cannot pin a marker forever. There is no NTP here to do better.
+- **Timeline cap.** `chat_history_cap_msgs` (default 500) prunes old cards, so a
+  share from far enough back leaves the layer on the next restart. The mitigation
+  is Save to my pins — deliberately not a shadow store.
+- **Replication asymmetry.** Cards replicate to linked devices via `chat:log`
+  (already true for pins/routes), but each device has its own imported regions —
+  so the same share can be drawn on the laptop and merely listed on the phone.
+  Correct, and the sidebar explains it.
+- **`map:*` stays device-local** (absent from `DEVLINK_SYNC_KV`, pinned on both
+  sides), so "Save to my pins" does not propagate to your other devices.

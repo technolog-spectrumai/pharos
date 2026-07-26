@@ -480,6 +480,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
 | Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
+| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. Nothing is ever shared automatically or in the background. |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
@@ -598,10 +599,20 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   One region can be **activated** (Regions → Activate): served first for tiles
   (others still fill), badged in the list + a chip on the canvas, the view opens
   spread to it, and the choice persists sealed per profile (device-local).
+  Room members' shares also render as a distinct **shared layer** (violet
+  pins/routes, orange locations, sender initial on the badge) wherever an
+  imported region covers them; anything outside coverage is listed in the
+  sidebar rather than drawn over blank canvas. A **shared location** is pushed
+  by hand — the user taps a point, adds an optional label, and presses Share —
+  and stops being drawn after 6 h, though its chat card remains. Per-item "Save
+  to my pins" adopts a share as ordinary local map data.
   Compile-time gated (`maps.enabled`). The basemap follows the app theme (a
   night-styled map in dark mode) by swapping the bundled protomaps flavour —
-  no tile server is involved. No geolocation, no tracking, no directions
-  engine.
+  no tile server is involved. **No geolocation, no tracking, no directions
+  engine** — location sharing changes none of that: the app never calls
+  `navigator.geolocation` and never asks the device where it is (an e2e test
+  traps the API and fails if anything ever does); a shared location is a point
+  the user chose, which may or may not be where they are.
 - **Mind** (`EnigmaMindView` / `MindMapPanel`, `MindTopicsPanel`) — a private
   mind map, strictly this device's: sealed kv (ns `mind`), deliberately absent
   from the device-link and peer-sync allow-lists (negative pinning tests), and
@@ -861,6 +872,11 @@ Settings → "Clear all data".
   ordinary plaintext: they are the user's own files, arriving over file_xfer and
   BLAKE3-verified on the way in (the same documented exception as map blobs and
   exported sketches — see §8).
+- **Map shares add NO at-rest surface.** What a room shared lives only in the
+  already-sealed `chat:log` (as the map card it arrived as); the shared map
+  layer is derived from that timeline at render time, never stored again. The
+  `map:*` namespaces grow only when the user explicitly saves a pin/route, and
+  a shared LOCATION is never written there at all unless adopted.
 - **Mind data:** the mind-map document (ns `mind`, key `""`) is sealed kv,
   device-local by construction (absent from `DEVLINK_SYNC_KV` and
   `PEER_SCOPE_KV`; pinned by negative tests). Node content
