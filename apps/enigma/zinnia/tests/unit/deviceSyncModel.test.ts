@@ -183,6 +183,11 @@ describe("sync allow-list", () => {
     // The mind map is local-only by design: never device-synced.
     expect(isSyncableKv("mind", "default", "")).toBe(false);
     expect(isSyncableKv("mind", "default", "anything")).toBe(false);
+    // The allowed-files list replicates via dlink_files (semantic merge), and
+    // per-device local paths must NEVER leave the device — neither key may
+    // ever ride the automatic kv rail.
+    expect(isSyncableKv("filesync", "default", "")).toBe(false);
+    expect(isSyncableKv("filesync", "default", "local")).toBe(false);
   });
 });
 
