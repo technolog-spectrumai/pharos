@@ -5,6 +5,7 @@
 // actions over the MLS seam. Style assets (glyphs/sprites) are bundled under
 // public/map/ — the map itself never fetches from a CDN.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import layersFn from "protomaps-themes-base";
@@ -28,6 +29,7 @@ import { useMapStore } from "../../stores/map";
 
 const props = defineProps<{ darkMode?: boolean }>();
 
+const { t } = useI18n({ useScope: "global" });
 const store = useMapStore();
 const chatStore = useChatStore();
 
@@ -441,7 +443,7 @@ function applyPendingFocus() {
   focus.value = share;
   focusMarker?.remove();
   focusMarker = null;
-  if (share.type === "map_pin") {
+  if (share.type === "map_pin" || share.type === "map_loc") {
     focusMarker = new maplibregl.Marker({ color: "#16a34a" })
       .setLngLat([share.lng, share.lat])
       .addTo(map);
@@ -457,14 +459,28 @@ function applyPendingFocus() {
   }
 }
 
+const focusIcon = computed(() =>
+  focus.value?.type === "map_route" ? "route"
+  : focus.value?.type === "map_loc" ? "location-crosshairs"
+  : "location-dot",
+);
+
+const focusName = computed(() => {
+  const f = focus.value;
+  if (!f) return "";
+  return f.type === "map_loc" ? f.label || t("map.locCardDefault") : f.name;
+});
+
 async function saveFocus() {
   const share = focus.value;
   if (!share) return;
   if (share.type === "map_pin") {
-    const pin = await store.addPin(share.name, share.lat, share.lng, share.note);
-    if (share.color) await store.savePin({ ...pin, color: share.color });
+    await store.addPin(share.name, share.lat, share.lng, share.note, share.color);
+  } else if (share.type === "map_loc") {
+    // Adopting a location makes it an ordinary pin — no expiry from here on.
+    await store.addPin(share.label || t("map.locSavedName"), share.lat, share.lng, share.note);
   } else if (share.type === "map_route") {
-    await store.addRoute(share.name, share.points);
+    await store.addRoute(share.name, share.points, share.color);
   }
   dismissFocus();
 }
@@ -557,8 +573,8 @@ function dismissFocus() {
           v-if="focus"
           class="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-accent-2 bg-primary-bg-light/95 px-3 py-2 text-sm shadow dark:border-accent-1 dark:bg-primary-bg-dark/95"
         >
-          <font-awesome-icon :icon="focus.type === 'map_pin' ? 'location-dot' : 'route'" />
-          <span class="max-w-[14rem] truncate font-semibold">{{ focus.name }}</span>
+          <font-awesome-icon :icon="focusIcon" />
+          <span class="max-w-[14rem] truncate font-semibold">{{ focusName }}</span>
           <OyaButton variant="primary" @click="saveFocus">{{ $t('map.saveShared') }}</OyaButton>
           <OyaButton variant="secondary" @click="dismissFocus">{{ $t('common.close') }}</OyaButton>
         </div>

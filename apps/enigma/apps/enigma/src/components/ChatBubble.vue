@@ -44,11 +44,17 @@ defineProps<{ message: Message }>();
         controls
         class="mt-2 w-full max-w-xs rounded"
       />
-      <!-- Map shares (pin / route / region offer) — open/download only on user action. -->
+      <!-- Map shares (pin / route / location / region offer) — open/download
+           only on user action. -->
       <MapShareCard
-        v-else-if="(message.type === 'map_pin' || message.type === 'map_route' || message.type === 'map_region') && message.map"
+        v-else-if="message.type.startsWith('map_') && message.map"
         :message="message"
       />
+      <!-- A map-typed card whose payload failed re-validation on load: say so
+           instead of rendering an empty bubble (map shares carry no content). -->
+      <p v-else-if="message.type.startsWith('map_')" class="mt-1 text-xs italic opacity-50">
+        {{ $t('map.shareUnavailable') }}
+      </p>
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}
       </p>

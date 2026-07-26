@@ -1,27 +1,56 @@
 <script setup lang="ts">
-// Chat card for a received/sent map share (pin / route / region). Nothing
-// opens or downloads automatically: pins/routes open in Maps only on the
-// button press; regions transfer only after Download (then get BLAKE3 +
-// manifest-verified in Rust before anything is registered).
-import { computed, onMounted, ref } from "vue";
+// Chat card for a received/sent map share (pin / route / location / region).
+// Nothing opens or downloads automatically: pins/routes/locations open in Maps
+// only on the button press; regions transfer only after Download (then get
+// BLAKE3 + manifest-verified in Rust before anything is registered).
+//
+// A location card outlives its marker: past MAP_LOC_TTL_MS the map stops
+// drawing it, but the card stays as a permanent record of what was shared and
+// when — so it says so rather than pretending to still be current.
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { getUseTor, isTauri, type Message } from "rakotis";
+import { useI18n } from "vue-i18n";
+import {
+  MAP_LOC_TTL_MS, getUseTor, isLocationLive, isTauri, locationAgeMs, type Message,
+} from "rakotis";
 import { useMapStore } from "../../stores/map";
 
 const props = defineProps<{ message: Message }>();
 
 const router = useRouter();
+const { t } = useI18n({ useScope: "global" });
 const store = useMapStore();
 const torMode = ref(false);
+// Re-render the relative age (and the expiry flip) without a reload.
+const now = ref(Date.now());
+let tick: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
+  tick = setInterval(() => { now.value = Date.now(); }, 60_000);
   if (isTauri()) torMode.value = await getUseTor();
+});
+onUnmounted(() => {
+  if (tick) clearInterval(tick);
 });
 
 const share = computed(() => props.message.map ?? null);
 
 const receive = computed(() =>
   share.value?.type === "map_region" ? store.receives.get(share.value.offerId) ?? null : null,
+);
+
+/** Coarse "shared N ago" — minutes, then hours. Deliberately not a clock time:
+ *  the card is about recency, and the sender's clock is not ours. */
+const sharedAgo = computed(() => {
+  if (share.value?.type !== "map_loc") return "";
+  const mins = Math.floor(locationAgeMs(share.value, now.value) / 60_000);
+  if (mins < 1) return t("map.locJustNow");
+  if (mins < 60) return t("map.locAgoMinutes", { n: mins });
+  return t("map.locAgoHours", { n: Math.floor(mins / 60) });
+});
+
+const locExpired = computed(
+  () => share.value?.type === "map_loc" && !isLocationLive(share.value, now.value),
 );
 
 function human(bytes: number): string {
@@ -47,12 +76,37 @@ async function download() {
     <template v-if="share.type === 'map_pin' || share.type === 'map_route'">
       <p class="flex items-center gap-2 text-sm font-semibold">
         <font-awesome-icon :icon="share.type === 'map_pin' ? 'location-dot' : 'route'" />
+        <span
+          v-if="share.color"
+          class="inline-block h-3 w-3 shrink-0 rounded-full border border-current/30"
+          :style="{ backgroundColor: share.color }"
+        />
         {{ share.name }}
       </p>
       <p v-if="share.type === 'map_route'" class="text-xs opacity-60">
         {{ $t('map.pointCount', { n: share.points.length }) }}
       </p>
       <p v-if="share.type === 'map_pin' && share.note" class="text-xs opacity-70">{{ share.note }}</p>
+      <button
+        type="button"
+        class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-70"
+        @click="openInMaps"
+      >
+        <font-awesome-icon icon="map" /> {{ $t('map.openInMaps') }}
+      </button>
+    </template>
+
+    <!-- Shared location (expires on the map, never on the card) -->
+    <template v-else-if="share.type === 'map_loc'">
+      <p class="flex items-center gap-2 text-sm font-semibold">
+        <font-awesome-icon icon="location-crosshairs" />
+        {{ share.label || $t('map.locCardDefault') }}
+      </p>
+      <p v-if="share.note" class="text-xs opacity-70">{{ share.note }}</p>
+      <p class="text-xs opacity-60">{{ sharedAgo }}</p>
+      <p v-if="locExpired" class="text-xs opacity-50">
+        {{ $t('map.locExpired', { hours: Math.round(MAP_LOC_TTL_MS / 3600000) }) }}
+      </p>
       <button
         type="button"
         class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-70"

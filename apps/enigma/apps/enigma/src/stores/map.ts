@@ -20,6 +20,7 @@ import { nanoid } from "nanoid";
 import {
   isTauri,
   invoke,
+  isHexColor,
   getBuildConfig,
   getMapActiveRegion,
   setMapActiveRegion,
@@ -153,9 +154,14 @@ export const useMapStore = defineStore("map", () => {
   }
 
   // ── pins / routes (private, sealed at rest — never shared implicitly) ───────
-  async function addPin(name: string, lat: number, lng: number, note?: string): Promise<MapPin> {
+  async function addPin(
+    name: string, lat: number, lng: number, note?: string, color?: string,
+  ): Promise<MapPin> {
     const pin: MapPin = { id: nanoid(), name, lat, lng, createdAt: Date.now() };
     if (note) pin.note = note;
+    // Guarded rather than trusted: a colour arrives from a share payload as
+    // often as from the picker.
+    if (color && isHexColor(color)) pin.color = color;
     pins.value = await upsertPin(pin);
     return pin;
   }
@@ -168,8 +174,11 @@ export const useMapStore = defineStore("map", () => {
     pins.value = await removePin(id);
   }
 
-  async function addRoute(name: string, points: [number, number][]): Promise<MapRoute> {
+  async function addRoute(
+    name: string, points: [number, number][], color?: string,
+  ): Promise<MapRoute> {
     const route: MapRoute = { id: nanoid(), name, points, createdAt: Date.now() };
+    if (color && isHexColor(color)) route.color = color;
     routes.value = await upsertRoute(route);
     return route;
   }
