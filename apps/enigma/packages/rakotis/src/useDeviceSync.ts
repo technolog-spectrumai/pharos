@@ -36,12 +36,24 @@ import {
   validateSyncedContact, validateSyncedRoomEntry,
   type DeviceLinkInfo, type DeviceRegistry, type DlinkHello,
 } from "./deviceSyncModel";
+import {
+  FILESYNC_MAX_ENTRIES, FILESYNC_VERSION,
+  liveFileEntries, mergeFileLists, trimFileEntries,
+  validateDlinkFiles, validateFileEntryList,
+  type FileCopyInfo, type SyncedFileEntry,
+} from "./fileSyncModel";
 
 const NS = "devices";
 const SCOPE = "default";
 const KEY_REGISTRY = "";
 const KEY_LINK = "link";
 const KEY_REVS = "revs";
+/** The shared allowed-files list (Files → Devices). Its own ns so unlink can
+ *  clear it wholesale; NOT in DEVLINK_SYNC_KV — it replicates via dlink_files
+ *  with a semantic merge, never via the automatic kv rail. Pinned by negative
+ *  tests on both allow-lists. */
+const FILESYNC_NS = "filesync";
+const FILESYNC_KEY = "";
 
 const SETTINGS_KEYS = DEVLINK_SYNC_KV
   .filter((e) => e.ns === "p2p:settings")
@@ -124,6 +136,12 @@ export function useDeviceSync(main: ChatChannel) {
 
   const devOnline = computed(() => dev.isConnected.value && dev.mlsStatus.value === "ready");
 
+  /** Every leaf currently in the devlink room's roster — the per-device online
+   *  dot (the roster groups one user's leaves into a single participant). */
+  const onlineLeafIds = computed(() =>
+    dev.participants.value.flatMap((p) => p.leafIds ?? (p.id ? [p.id] : [])),
+  );
+
   let tick: ReturnType<typeof setInterval> | null = null;
   let started = false;
 
@@ -198,6 +216,104 @@ export function useDeviceSync(main: ChatChannel) {
     await kvPut(NS, SCOPE, KEY_REGISTRY, JSON.stringify(full)).catch(() => {});
     registry.value = full;
     return full;
+  }
+
+  // ── shared allowed-files list (Files → Devices push/pull) ───────────────────
+  // List CONVERGENCE lives here (sibling of contacts/rooms merging); the
+  // transfers themselves live in the app's fileSync store, reached through the
+  // onDevlinkFile/sendDevlinkFile passthrough below. File bytes never touch
+  // this channel — only offer coordinates and hash claims do.
+
+  const fileEntries = ref<SyncedFileEntry[]>([]);
+
+  async function loadFileEntries(): Promise<SyncedFileEntry[]> {
+    try {
+      const raw = await kvGet(FILESYNC_NS, SCOPE, FILESYNC_KEY);
+      return (raw ? validateFileEntryList(JSON.parse(raw)) : null) ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function saveFileEntries(entries: SyncedFileEntry[]): Promise<void> {
+    const trimmed = trimFileEntries(entries);
+    fileEntries.value = trimmed;
+    await kvPut(FILESYNC_NS, SCOPE, FILESYNC_KEY, JSON.stringify(trimmed)).catch(() => {});
+  }
+
+  /** Broadcast the full list. Rides every hello (pushMergeableKv) and every
+   *  local mutation; the receiver merges without re-broadcasting (anti
+   *  ping-pong — the peer converges on its own next hello, contacts-style). */
+  async function sendFileList(): Promise<void> {
+    if (!devOnline.value || !fileEntries.value.length) return;
+    await dev
+      .sendSync("dlink_files", { v: FILESYNC_VERSION, entries: fileEntries.value })
+      .catch(() => {});
+  }
+
+  async function onFiles(payload: Record<string, unknown>): Promise<void> {
+    if (!linked.value) return;
+    const frame = validateDlinkFiles(payload);
+    if (!frame) return;
+    const { merged, changed } = mergeFileLists(fileEntries.value, frame.entries);
+    if (changed) {
+      await saveFileEntries(merged);
+      lastSyncAt.value = Date.now();
+    }
+  }
+
+  /** Add or replace one entry (the add path refuses past the live cap). */
+  async function upsertFileEntry(entry: SyncedFileEntry): Promise<boolean> {
+    const current = fileEntries.value;
+    const exists = current.some((e) => e.id === entry.id);
+    if (!exists && liveFileEntries(current).length >= FILESYNC_MAX_ENTRIES) return false;
+    const next = exists ? current.map((e) => (e.id === entry.id ? entry : e)) : [...current, entry];
+    await saveFileEntries(next);
+    void sendFileList();
+    return true;
+  }
+
+  /** Remove = tombstone (sticky; propagates so the peer can't resurrect it).
+   *  Bytes on disk are never touched. */
+  async function tombstoneFileEntry(id: string): Promise<void> {
+    const now = Date.now();
+    const next = fileEntries.value.map((e) =>
+      e.id === id && e.removedAt === undefined ? { ...e, removedAt: now, updatedAt: now } : e,
+    );
+    await saveFileEntries(next);
+    void sendFileList();
+  }
+
+  /** Record THIS device's copy claim (hash/size) on an entry — the only slot
+   *  this device ever writes, which is what keeps the merge conflict-free.
+   *  Doubles as the post-transfer state announcement via the broadcast. */
+  async function recordFileCopy(entryId: string, copy: FileCopyInfo): Promise<void> {
+    const me = link.value?.myDeviceId;
+    if (!me) return;
+    const next = fileEntries.value.map((e) =>
+      e.id === entryId
+        ? { ...e, copies: { ...e.copies, [me]: copy }, updatedAt: Math.max(e.updatedAt, copy.updatedAt) }
+        : e,
+    );
+    await saveFileEntries(next);
+    void sendFileList();
+  }
+
+  // Transfer messages (dlink_file_*) pass through to the app store — a plain
+  // handler set, not the channel itself: the seam stays this module's.
+  type DevlinkFileHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
+  const fileHandlers = new Set<DevlinkFileHandler>();
+
+  function onDevlinkFile(fn: DevlinkFileHandler): () => void {
+    fileHandlers.add(fn);
+    return () => {
+      fileHandlers.delete(fn);
+    };
+  }
+
+  async function sendDevlinkFile(type: string, payload: Record<string, unknown>): Promise<void> {
+    if (!devOnline.value) throw new Error("device channel offline");
+    await dev.sendSync(type, payload);
   }
 
   // ── hidden-room lifecycle ───────────────────────────────────────────────────
@@ -296,6 +412,9 @@ export function useDeviceSync(main: ChatChannel) {
         .sendSync("dlink_kv", { v: DEVLINK_VERSION, ns: e.ns, scope: e.scope, k: e.k, val: rec.val, mtime: rec.mtime })
         .catch(() => {});
     }
+    // The allowed-files list converges the same way the semantic kv does: a
+    // full idempotent broadcast on every hello.
+    await sendFileList();
   }
 
   // ── inbound handlers ────────────────────────────────────────────────────────
@@ -421,12 +540,16 @@ export function useDeviceSync(main: ChatChannel) {
     lastSyncAt.value = Date.now();
   }
 
-  dev.onSync((type, payload) => {
+  dev.onSync((type, payload, sender) => {
     if (type === "dlink_hello") void onHello(payload);
     else if (type === "dlink_registry") void onRegistry(payload);
     else if (type === "dlink_kv") void onKv(payload);
     else if (type === "dlink_history_req") void onHistoryReq(payload);
     else if (type === "dlink_history") void onHistory(payload);
+    else if (type === "dlink_files") void onFiles(payload);
+    // Transfer traffic passes through to the app's fileSync store. NOTE:
+    // "dlink_files" above does NOT match this prefix (no trailing underscore).
+    else if (type.startsWith("dlink_file_")) fileHandlers.forEach((h) => h(type, payload, sender));
     // dlink_rekey / dlink_room_admit_req are reserved wire types (validators in
     // deviceSyncModel), not used in v1: revocation cuts access via MLS removal +
     // the registry tombstone rather than key rotation (see sync.md).
@@ -443,6 +566,10 @@ export function useDeviceSync(main: ChatChannel) {
     await kvDelete(NS, SCOPE, KEY_LINK).catch(() => {});
     await kvDelete(NS, SCOPE, KEY_REGISTRY).catch(() => {});
     await kvClearNamespace(NS, SCOPE).catch(() => {});
+    // The shared file list is meaningless without a link; the bytes in
+    // <profile>/synced/ stay — removal never deletes files.
+    await kvClearNamespace(FILESYNC_NS, SCOPE).catch(() => {});
+    fileEntries.value = [];
     link.value = null;
     registry.value = null;
     linked.value = false;
@@ -507,6 +634,7 @@ export function useDeviceSync(main: ChatChannel) {
     link.value = info;
     registry.value = info ? await loadRegistry(info) : null;
     linked.value = !!info && !!registry.value;
+    fileEntries.value = linked.value ? await loadFileEntries() : [];
   }
 
   async function start(): Promise<void> {
@@ -545,11 +673,14 @@ export function useDeviceSync(main: ChatChannel) {
 
   return {
     linked, registry, link, lastSyncAt, syncing,
-    devStatus: dev.mlsStatus, devConnected: dev.isConnected,
+    devStatus: dev.mlsStatus, devConnected: dev.isConnected, devOnline, onlineLeafIds,
     start, stop, refresh, unlinkDevice, teardownLink, enforceRevocations,
     sendHello,
+    // allowed-files list (Files → Devices)
+    fileEntries, sendFileList, upsertFileEntry, tombstoneFileEntry, recordFileCopy,
+    onDevlinkFile, sendDevlinkFile,
     // exposed for tests
-    _internal: { onHello, onKv, onHistory, onRegistry, buildHello, dev },
+    _internal: { onHello, onKv, onHistory, onRegistry, onFiles, buildHello, dev },
   };
 }
 

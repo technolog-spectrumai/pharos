@@ -26,6 +26,7 @@ vi.mock("../../src/useChatChannel", async () => {
         mlsStatus: vref("ready"),
         isConnected: vref(false),
         currentRoom: vref<{ slug: string } | null>(null),
+        participants: vref<{ id?: string; leafIds?: string[] }[]>([]),
         joinByNode: vi.fn(async () => {}),
         sendSync: vi.fn(async () => {}),
         onSync: vi.fn((h: (t: string, p: Record<string, unknown>, s: string) => void) => {
@@ -293,5 +294,93 @@ describe("kpProof determinism", () => {
     expect(a).toBe(await kpProof(LINK_KEY, "kp"));
     const other = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
     expect(a).not.toBe(await kpProof(other, "kp"));
+  });
+});
+
+describe("allowed-files list (Files → Devices)", () => {
+  const HASH_A = "a".repeat(64);
+
+  function entry(id: string, over: Record<string, unknown> = {}) {
+    return { id, name: `${id}.txt`, addedBy: "primary", addedAt: 1, updatedAt: 1, copies: {}, ...over };
+  }
+
+  async function startedSync() {
+    await seedLink();
+    const sync = useDeviceSync(fakeMain());
+    await sync.start();
+    (fake.dev as { isConnected: { value: boolean } }).isConnected.value = true; // devOnline
+    return sync;
+  }
+
+  it("broadcasts the list when a peer hello arrives (rides pushMergeableKv)", async () => {
+    const sync = await startedSync();
+    await sync.upsertFileEntry(entry("e1"));
+    vi.clearAllMocks();
+
+    fake.syncHandlers[0]("dlink_hello", { type: "dlink_hello", v: 1, registryRev: 1, rooms: [], settingsMtime: {} }, "alice#dev-abcd2345");
+    await new Promise((r) => setTimeout(r, 0));
+
+    const sends = devSyncSends("dlink_files");
+    expect(sends).toHaveLength(1);
+    expect((sends[0][1] as { entries: unknown[] }).entries).toHaveLength(1);
+  });
+
+  it("merges an incoming dlink_files, persists, and does NOT re-broadcast", async () => {
+    const sync = await startedSync();
+    vi.clearAllMocks();
+
+    fake.syncHandlers[0]("dlink_files", { type: "dlink_files", v: 1, entries: [entry("remote-1")] }, "alice#dev-abcd2345");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(sync.fileEntries.value.map((e) => e.id)).toEqual(["remote-1"]);
+    expect(JSON.parse(localStorage.getItem("enigma:db:filesync:default:") ?? "[]")).toHaveLength(1);
+    expect(devSyncSends("dlink_files")).toHaveLength(0);
+  });
+
+  it("forwards dlink_file_* to registered handlers — but never dlink_files", async () => {
+    const sync = await startedSync();
+    const seen: Array<[string, string]> = [];
+    sync.onDevlinkFile((type, _payload, sender) => seen.push([type, sender]));
+
+    fake.syncHandlers[0]("dlink_file_push", { type: "dlink_file_push", v: 1, items: [] }, "alice#dev-abcd2345");
+    fake.syncHandlers[0]("dlink_files", { type: "dlink_files", v: 1, entries: [] }, "alice#dev-abcd2345");
+
+    expect(seen).toEqual([["dlink_file_push", "alice#dev-abcd2345"]]);
+  });
+
+  it("upsert refuses past the live cap; tombstone propagates and sticks", async () => {
+    const sync = await startedSync();
+    const full = Array.from({ length: 200 }, (_, i) => entry(`e${i}`));
+    localStorage.setItem("enigma:db:filesync:default:", JSON.stringify(full));
+    await sync.refresh();
+
+    expect(await sync.upsertFileEntry(entry("one-too-many"))).toBe(false);
+    // Replacing an existing entry is still allowed at the cap.
+    expect(await sync.upsertFileEntry(entry("e0", { updatedAt: 9 }))).toBe(true);
+
+    await sync.tombstoneFileEntry("e1");
+    const e1 = sync.fileEntries.value.find((e) => e.id === "e1")!;
+    expect(e1.removedAt).toBeGreaterThan(0);
+    expect(devSyncSends("dlink_files").length).toBeGreaterThan(0);
+  });
+
+  it("recordFileCopy writes only this device's slot", async () => {
+    const sync = await startedSync();
+    await sync.upsertFileEntry(entry("e1", { copies: { phone: { hash: HASH_A, size: 5, updatedAt: 3 } } }));
+    await sync.recordFileCopy("e1", { hash: HASH_A, size: 7, updatedAt: 10 });
+
+    const e = sync.fileEntries.value[0];
+    expect(e.copies.primary).toEqual({ hash: HASH_A, size: 7, updatedAt: 10 });
+    expect(e.copies.phone.size).toBe(5);
+  });
+
+  it("teardownLink clears the filesync namespace", async () => {
+    const sync = await startedSync();
+    await sync.upsertFileEntry(entry("e1"));
+    expect(localStorage.getItem("enigma:db:filesync:default:")).not.toBeNull();
+
+    await sync.teardownLink();
+    expect(sync.fileEntries.value).toEqual([]);
+    expect(localStorage.getItem("enigma:db:filesync:default:")).toBeNull();
   });
 });

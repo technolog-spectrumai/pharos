@@ -1181,6 +1181,10 @@ mod tests {
                 ("p2p:settings", "default", "dht_room_publish_secs"),
             ]
         );
+        // The Files→Devices allowed-files list (ns `filesync`) replicates via
+        // its own dlink_files semantic merge, NEVER via this automatic rail —
+        // its absence here is a design promise, not an oversight.
+        assert!(!SYNC_KV.iter().any(|(ns, _, _)| *ns == "filesync"));
     }
 
     #[test]
