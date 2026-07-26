@@ -35,6 +35,7 @@ import { useChatStore } from "../../stores/chat";
 import { useCloudStore } from "../../stores/cloud";
 import { useMapStore } from "../../stores/map";
 import BeaconCard from "./BeaconCard.vue";
+import BeaconPublishModal from "./BeaconPublishModal.vue";
 import PinEditModal from "./PinEditModal.vue";
 import { BEACON_COLOR } from "./pinColors";
 import SharedSharesCard from "./SharedSharesCard.vue";
@@ -74,7 +75,8 @@ function pushDiag(msg: string) {
 }
 
 // Placement / drawing state machine (explicit user actions only).
-type Mode = "idle" | "add-pin" | "draw-route" | "share-loc";
+type Mode = "idle" | "add-pin" | "draw-route" | "share-loc"
+  | "beacon-pin" | "beacon-zone" | "beacon-route";
 const mode = ref<Mode>("idle");
 const draftPoints = ref<[number, number][]>([]); // [lat, lng]
 const nameModal = ref<null | { kind: "route" }>(null);
@@ -241,6 +243,16 @@ const liveBeaconRoutes = computed(() =>
     ? beaconStore.routes.filter((r) => isBeaconLive(r.expiresAt, beaconNow.value))
     : [],
 );
+
+/** Publish flow: tapped point (pin) or the current draft (zone/route). */
+const beaconModal = ref<null | { kind: "pin" | "zone" | "route"; lat?: number; lng?: number }>(null);
+const beaconModalRef = ref<InstanceType<typeof BeaconPublishModal> | null>(null);
+/** Shows the tapped point while the pin modal is open (locModal pattern). */
+let pendingBeaconMarker: maplibregl.Marker | null = null;
+const beaconDrafting = computed(
+  () => mode.value === "beacon-zone" || mode.value === "beacon-route",
+);
+const canPublishBeacon = computed(() => beaconStore.beaconAvailable && cloudStore.loggedIn);
 
 // ── tile protocol (registered once per app lifetime) ─────────────────────────
 let protocolRegistered = false;
@@ -634,6 +646,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   disposed = true;
   if (beaconTick !== undefined) window.clearInterval(beaconTick);
+  pendingBeaconMarker?.remove();
   for (const entry of pinMarkers.values()) entry.marker.remove();
   pinMarkers.clear();
   for (const entry of sharedMarkers.values()) entry.marker.remove();
@@ -681,10 +694,12 @@ function onMapClick(e: maplibregl.MapMouseEvent) {
   if (mode.value === "add-pin") {
     pinModal.value = { lat: e.lngLat.lat, lng: e.lngLat.lng, pin: null };
     mode.value = "idle";
-  } else if (mode.value === "draw-route") {
+  } else if (mode.value === "draw-route" || beaconDrafting.value) {
     draftPoints.value = [...draftPoints.value, [e.lngLat.lat, e.lngLat.lng]];
   } else if (mode.value === "share-loc") {
     openLocModal(e.lngLat.lat, e.lngLat.lng);
+  } else if (mode.value === "beacon-pin") {
+    openBeaconPinModal(e.lngLat.lat, e.lngLat.lng);
   }
 }
 
@@ -728,6 +743,65 @@ async function shareLocation() {
 function startRoute() {
   mode.value = "draw-route";
   draftPoints.value = [];
+}
+
+// ── beacon publish flows (explicit action only — a tap, then a submit) ───────
+function openBeaconPinModal(lat: number, lng: number) {
+  mode.value = "idle";
+  beaconModal.value = { kind: "pin", lat, lng };
+  pendingBeaconMarker?.remove();
+  if (map) {
+    pendingBeaconMarker = new maplibregl.Marker({ color: BEACON_COLOR })
+      .setLngLat([lng, lat])
+      .addTo(map);
+  }
+}
+
+function startBeaconDraft(kind: "zone" | "route") {
+  mode.value = kind === "zone" ? "beacon-zone" : "beacon-route";
+  draftPoints.value = [];
+}
+
+const beaconDraftMinPoints = computed(() => (mode.value === "beacon-zone" ? 3 : 2));
+
+function finishBeaconDraft() {
+  if (draftPoints.value.length < beaconDraftMinPoints.value) {
+    cancelDraw();
+    return;
+  }
+  beaconModal.value = { kind: mode.value === "beacon-zone" ? "zone" : "route" };
+}
+
+function closeBeaconModal() {
+  const kind = beaconModal.value?.kind;
+  beaconModal.value = null;
+  pendingBeaconMarker?.remove();
+  pendingBeaconMarker = null;
+  // A cancelled zone/route publish keeps its draft (route-name modal pattern);
+  // a cancelled pin tap just ends the flow.
+  if (kind === "pin") mode.value = "idle";
+}
+
+async function submitBeaconPublish(fields: { name: string; comment: string; ttlSeconds: number }) {
+  const modal = beaconModal.value;
+  if (!modal) return;
+  try {
+    if (modal.kind === "pin") {
+      await beaconStore.publishPin(modal.lat!, modal.lng!, fields.ttlSeconds, fields.comment);
+    } else if (modal.kind === "zone") {
+      await beaconStore.publishZone(fields.name, draftPoints.value, fields.ttlSeconds, fields.comment);
+    } else {
+      await beaconStore.publishRoute(fields.name, draftPoints.value, fields.ttlSeconds, fields.comment);
+    }
+  } catch (e) {
+    beaconModalRef.value?.showError(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  beaconModal.value = null;
+  pendingBeaconMarker?.remove();
+  pendingBeaconMarker = null;
+  draftPoints.value = [];
+  mode.value = "idle";
 }
 
 function finishRoute() {
@@ -1014,32 +1088,63 @@ function dismissFocus() {
 
         <!-- Toolbar -->
         <div class="absolute left-3 top-3 z-10 flex flex-col gap-2">
-          <OyaButton
-            :variant="mode === 'add-pin' ? 'primary' : 'secondary'"
-            @click="mode = mode === 'add-pin' ? 'idle' : 'add-pin'"
-          >
-            <font-awesome-icon icon="location-dot" /> {{ $t('map.addPin') }}
-          </OyaButton>
-          <OyaButton v-if="mode !== 'draw-route'" variant="secondary" @click="startRoute">
-            <font-awesome-icon icon="route" /> {{ $t('map.drawRoute') }}
-          </OyaButton>
-          <OyaButton
-            v-if="mode !== 'draw-route'"
-            :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
-            :disabled="!canShare"
-            :title="canShare ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
-            data-testid="share-loc-button"
-            @click="mode = mode === 'share-loc' ? 'idle' : 'share-loc'"
-          >
-            <font-awesome-icon icon="location-crosshairs" /> {{ $t('map.shareLoc') }}
-          </OyaButton>
-          <template v-else>
-            <OyaButton variant="primary" :disabled="draftPoints.length < 2" @click="finishRoute">
+          <template v-if="beaconDrafting">
+            <OyaButton
+              variant="primary"
+              :disabled="draftPoints.length < beaconDraftMinPoints"
+              data-testid="beacon-finish"
+              @click="finishBeaconDraft"
+            >
               {{ $t('map.finishRoute', { n: draftPoints.length }) }}
             </OyaButton>
             <OyaButton variant="secondary" @click="cancelDraw">
               {{ $t('common.cancel') }}
             </OyaButton>
+          </template>
+          <template v-else>
+            <OyaButton
+              :variant="mode === 'add-pin' ? 'primary' : 'secondary'"
+              @click="mode = mode === 'add-pin' ? 'idle' : 'add-pin'"
+            >
+              <font-awesome-icon icon="location-dot" /> {{ $t('map.addPin') }}
+            </OyaButton>
+            <OyaButton v-if="mode !== 'draw-route'" variant="secondary" @click="startRoute">
+              <font-awesome-icon icon="route" /> {{ $t('map.drawRoute') }}
+            </OyaButton>
+            <OyaButton
+              v-if="mode !== 'draw-route'"
+              :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
+              :disabled="!canShare"
+              :title="canShare ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
+              data-testid="share-loc-button"
+              @click="mode = mode === 'share-loc' ? 'idle' : 'share-loc'"
+            >
+              <font-awesome-icon icon="location-crosshairs" /> {{ $t('map.shareLoc') }}
+            </OyaButton>
+            <template v-if="mode !== 'draw-route' && canPublishBeacon">
+              <OyaButton
+                :variant="mode === 'beacon-pin' ? 'primary' : 'secondary'"
+                :title="$t('map.beaconClickToPlace')"
+                data-testid="beacon-pin-button"
+                @click="mode = mode === 'beacon-pin' ? 'idle' : 'beacon-pin'"
+              >
+                <font-awesome-icon icon="bullseye" /> {{ $t('map.beaconPublishPin') }}
+              </OyaButton>
+              <OyaButton variant="secondary" data-testid="beacon-zone-button" @click="startBeaconDraft('zone')">
+                <font-awesome-icon icon="object-group" /> {{ $t('map.beaconPublishZone') }}
+              </OyaButton>
+              <OyaButton variant="secondary" data-testid="beacon-route-button" @click="startBeaconDraft('route')">
+                <font-awesome-icon icon="route" /> {{ $t('map.beaconPublishRoute') }}
+              </OyaButton>
+            </template>
+            <template v-if="mode === 'draw-route'">
+              <OyaButton variant="primary" :disabled="draftPoints.length < 2" @click="finishRoute">
+                {{ $t('map.finishRoute', { n: draftPoints.length }) }}
+              </OyaButton>
+              <OyaButton variant="secondary" @click="cancelDraw">
+                {{ $t('common.cancel') }}
+              </OyaButton>
+            </template>
           </template>
         </div>
 
@@ -1050,6 +1155,9 @@ function dismissFocus() {
         >
           {{ mode === 'add-pin' ? $t('map.clickToPlace')
             : mode === 'share-loc' ? $t('map.clickToShareLoc')
+            : mode === 'beacon-pin' ? $t('map.beaconClickToPlace')
+            : mode === 'beacon-zone' ? $t('map.beaconClickToZone')
+            : mode === 'beacon-route' ? $t('map.beaconClickToRoute')
             : $t('map.clickToExtend') }}
         </p>
 
@@ -1285,6 +1393,16 @@ function dismissFocus() {
         :pin="pinModal?.pin ?? null"
         @submit="submitPin"
         @close="pinModal = null"
+      />
+
+      <!-- Publish to the server: mandatory TTL, optional comment/name. -->
+      <BeaconPublishModal
+        ref="beaconModalRef"
+        :open="beaconModal !== null"
+        :kind="beaconModal?.kind ?? 'pin'"
+        :point-count="beaconModal && beaconModal.kind !== 'pin' ? draftPoints.length : undefined"
+        @submit="submitBeaconPublish"
+        @close="closeBeaconModal"
       />
 
       <!-- Name prompt for a finished route -->

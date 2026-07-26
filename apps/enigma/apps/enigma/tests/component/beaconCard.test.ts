@@ -90,8 +90,10 @@ describe("BeaconCard", () => {
     expect(text).toContain("bob");
     expect(text).toContain("camp");
     expect(text).toContain("expires in 6 h");
-    // bob's zone must not offer MY delete button.
-    expect(wrapper.findAll('[title="Remove from server"]')).toHaveLength(0);
+    // Exactly one delete affordance: retracting MY own pin. Bob's pin and
+    // bob's zone must not offer one.
+    expect(wrapper.findAll('[title="Remove from server"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="beacon-retract-pin"]').exists()).toBe(true);
   });
 
   it("offers delete only for my own zones and emits focus on row click", async () => {
@@ -105,7 +107,9 @@ describe("BeaconCard", () => {
     });
     const wrapper = mount(BeaconCard, { global: GLOBAL() });
     await flushPromises();
-    expect(wrapper.findAll('[title="Remove from server"]')).toHaveLength(1);
+    // Both of bob's own shares are deletable: his pin (retract) and his zone.
+    expect(wrapper.findAll('[title="Remove from server"]')).toHaveLength(2);
+    expect(wrapper.find('[data-testid="beacon-retract-pin"]').exists()).toBe(true);
     await wrapper.find('[data-testid="beacon-card"] ul li button').trigger("click");
     expect(wrapper.emitted("focus-pin")).toHaveLength(1);
   });

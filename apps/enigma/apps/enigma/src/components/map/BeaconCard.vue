@@ -75,6 +75,12 @@ async function removeRoute(id: number) {
     await beacon.deleteRoute(id);
   } catch { /* ignore — row simply stays until the next refresh */ }
 }
+
+async function retractPin() {
+  try {
+    await beacon.deletePin();
+  } catch { /* idempotent server-side; the row clears on the next refresh */ }
+}
 </script>
 
 <template>
@@ -130,6 +136,16 @@ async function removeRoute(id: number) {
               <span v-if="pin.comment" class="min-w-0 truncate text-xs opacity-60">{{ pin.comment }}</span>
             </button>
             <span class="shrink-0 text-xs opacity-50">{{ leftText(pin.expiresAt) }}</span>
+            <button
+              v-if="isMine(pin.user)"
+              type="button"
+              class="opacity-60 transition hover:opacity-100"
+              :title="$t('map.beaconDeleteShare')"
+              data-testid="beacon-retract-pin"
+              @click="retractPin()"
+            >
+              <font-awesome-icon icon="trash" />
+            </button>
           </li>
         </ul>
       </div>
