@@ -26,6 +26,8 @@ import {
 import { policy } from "../../config/app";
 import { useChatStore } from "../../stores/chat";
 import { useMapStore } from "../../stores/map";
+import { sharedItemName, type SharedItem } from "./sharedLayerModel";
+import { useSharedMapLayer } from "./useSharedMapLayer";
 
 const props = defineProps<{ darkMode?: boolean }>();
 
@@ -125,6 +127,20 @@ function addOverlayLayers() {
     source: "user-routes",
     paint: { "line-color": "#dc2626", "line-width": 3, "line-opacity": 0.85 },
   });
+  // Shared routes sit between own routes and the in-progress draft, so the
+  // draft always stays on top.
+  map.addSource("shared-routes", { type: "geojson", data: sharedRoutesGeoJson() });
+  map.addLayer({
+    id: "shared-routes-line",
+    type: "line",
+    source: "shared-routes",
+    paint: {
+      "line-color": ["coalesce", ["get", "color"], SHARED_COLOR],
+      "line-width": 3,
+      "line-opacity": 0.9,
+      "line-dasharray": [2, 2],
+    },
+  });
   map.addSource("draft-route", { type: "geojson", data: draftGeoJson(draftPoints.value) });
   map.addLayer({
     id: "draft-route-line",
@@ -133,8 +149,22 @@ function addOverlayLayers() {
     paint: { "line-color": "#f59e0b", "line-width": 3, "line-dasharray": [2, 1] },
   });
 }
-const pinMarkers = new Map<string, maplibregl.Marker>();
+/** Own pins. The signature guards against the repaint bug: a marker's colour
+ *  is baked in at construction, so an edited colour needs a NEW marker. */
+const pinMarkers = new Map<string, { marker: maplibregl.Marker; sig: string }>();
+/** What room members shared, keyed by message id (stable across reloads). */
+const sharedMarkers = new Map<string, { marker: maplibregl.Marker; sig: string }>();
 let focusMarker: maplibregl.Marker | null = null;
+
+// Shared items are drawn in their own colours so "mine" and "theirs" never
+// blur together: own pin #2563eb, own route #dc2626, draft #f59e0b, focus
+// preview #16a34a.
+const SHARED_COLOR = "#7c3aed";
+const SHARED_LOC_COLOR = "#ea580c";
+
+const layer = useSharedMapLayer();
+/** The shared item whose detail banner is open. */
+const selectedShared = ref<SharedItem | null>(null);
 
 // ── tile protocol (registered once per app lifetime) ─────────────────────────
 let protocolRegistered = false;
@@ -200,26 +230,102 @@ function draftGeoJson(points: [number, number][]): GeoJSON.FeatureCollection {
   };
 }
 
+function sharedRoutesGeoJson(): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: layer.onMap.value
+      .filter((i) => i.kind === "route")
+      .map((i) => {
+        const share = i.share as { points: [number, number][]; color?: string };
+        return {
+          type: "Feature" as const,
+          properties: { key: i.key, color: share.color ?? null },
+          geometry: {
+            type: "LineString" as const,
+            coordinates: share.points.map(([lat, lng]) => [lng, lat]),
+          },
+        };
+      }),
+  };
+}
+
 function refreshPins() {
   if (!map) return;
   const seen = new Set<string>();
   for (const pin of store.pins) {
     seen.add(pin.id);
-    if (!pinMarkers.has(pin.id)) {
-      const marker = new maplibregl.Marker({ color: pin.color ?? "#2563eb" })
-        .setLngLat([pin.lng, pin.lat])
-        .addTo(map);
-      pinMarkers.set(pin.id, marker);
-    } else {
-      pinMarkers.get(pin.id)!.setLngLat([pin.lng, pin.lat]);
-    }
+    const color = pin.color ?? "#2563eb";
+    const sig = `${pin.lat}|${pin.lng}|${color}`;
+    const existing = pinMarkers.get(pin.id);
+    if (existing && existing.sig === sig) continue;
+    // A colour lives in the marker's SVG, so a recolour means a new marker —
+    // setLngLat alone would silently keep the old paint.
+    existing?.marker.remove();
+    const marker = new maplibregl.Marker({ color })
+      .setLngLat([pin.lng, pin.lat])
+      .addTo(map);
+    pinMarkers.set(pin.id, { marker, sig });
   }
-  for (const [id, marker] of pinMarkers) {
+  for (const [id, entry] of pinMarkers) {
     if (!seen.has(id)) {
-      marker.remove();
+      entry.marker.remove();
       pinMarkers.delete(id);
     }
   }
+}
+
+/** A shared pin/location badge: the sender's initial in a ring, so ownership is
+ *  readable at a glance without a label layer (which would need sprite work in
+ *  both theme flavours). The click handler is attached BEFORE the element goes
+ *  to MapLibre, so we never read it back off the marker. */
+function sharedMarkerEl(item: SharedItem): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className =
+    "flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] " +
+    "font-bold text-white shadow transition hover:scale-110";
+  el.style.backgroundColor = item.kind === "loc" ? SHARED_LOC_COLOR : SHARED_COLOR;
+  el.textContent = (item.self ? t("map.sharedYou") : item.sender).slice(0, 1).toUpperCase();
+  el.title = `${item.self ? t("map.sharedYou") : item.sender} · ${sharedItemName(item, t("map.locCardDefault"))}`;
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    selectedShared.value = item;
+  });
+  return el;
+}
+
+function refreshShared() {
+  if (!map) return;
+  const seen = new Set<string>();
+  for (const item of layer.onMap.value) {
+    if (item.kind === "route") continue; // drawn by the line layer
+    const share = item.share as { lat: number; lng: number };
+    seen.add(item.key);
+    const sig = `${share.lat}|${share.lng}|${item.kind}|${item.sender}`;
+    const existing = sharedMarkers.get(item.key);
+    if (existing && existing.sig === sig) continue;
+    existing?.marker.remove();
+    const marker = new maplibregl.Marker({ element: sharedMarkerEl(item) })
+      .setLngLat([share.lng, share.lat])
+      .addTo(map);
+    sharedMarkers.set(item.key, { marker, sig });
+  }
+  for (const [key, entry] of sharedMarkers) {
+    if (!seen.has(key)) {
+      entry.marker.remove();
+      sharedMarkers.delete(key);
+    }
+  }
+  refreshSharedRoutes();
+  // A selected item that just expired or left coverage must not keep its banner.
+  if (selectedShared.value && !layer.onMap.value.some((i) => i.key === selectedShared.value!.key)) {
+    selectedShared.value = null;
+  }
+}
+
+function refreshSharedRoutes() {
+  const src = map?.getSource("shared-routes") as maplibregl.GeoJSONSource | undefined;
+  src?.setData(sharedRoutesGeoJson());
 }
 
 function refreshRoutes() {
@@ -308,6 +414,7 @@ onMounted(async () => {
       if (!map) return;
       addOverlayLayers();
       refreshPins();
+      refreshShared();
       ready.value = true;
 
       // GL ground truth for bug reports: which device actually renders, is the
@@ -343,8 +450,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true;
-  for (const marker of pinMarkers.values()) marker.remove();
+  for (const entry of pinMarkers.values()) entry.marker.remove();
   pinMarkers.clear();
+  for (const entry of sharedMarkers.values()) entry.marker.remove();
+  sharedMarkers.clear();
   focusMarker?.remove();
   map?.remove();
   map = null;
@@ -361,9 +470,17 @@ watch(flavor, (next) => {
     addOverlayLayers();
     refreshRoutes();
     refreshDraft();
+    refreshSharedRoutes();
   });
 });
 
+watch(() => layer.onMap.value, refreshShared, { deep: true });
+watch(
+  () => layer.roomSlug.value,
+  () => {
+    selectedShared.value = null;
+  },
+);
 watch(() => store.pins, refreshPins, { deep: true });
 watch(() => store.routes, refreshRoutes, { deep: true });
 watch(draftPoints, refreshDraft, { deep: true });
@@ -440,6 +557,15 @@ function applyPendingFocus() {
   if (!ready.value || !map) return;
   const share = store.consumeFocus();
   if (!share || share.type === "map_region") return;
+  // Already on the shared layer? Then it needs no preview marker and no Save
+  // banner — select it and fly. `share` is the SAME object the layer holds
+  // (both come from message.map), so identity is enough.
+  const onLayer = layer.all.value.find((i) => i.share === share);
+  if (onLayer && onLayer.covered && store.sharedLayerVisible) {
+    selectedShared.value = onLayer;
+    focusShared(onLayer);
+    return;
+  }
   focus.value = share;
   focusMarker?.remove();
   focusMarker = null;
@@ -470,6 +596,38 @@ const focusName = computed(() => {
   if (!f) return "";
   return f.type === "map_loc" ? f.label || t("map.locCardDefault") : f.name;
 });
+
+/** Fly to a shared item (a point, or the bounds of a shared route). */
+function focusShared(item: SharedItem) {
+  if (!map) return;
+  if (item.kind === "route") {
+    const pts = (item.share as { points: [number, number][] }).points;
+    const lats = pts.map((pt) => pt[0]);
+    const lngs = pts.map((pt) => pt[1]);
+    map.fitBounds(
+      [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+      { padding: 60, maxZoom: 15 },
+    );
+    return;
+  }
+  const pt = item.share as { lat: number; lng: number };
+  map.flyTo({ center: [pt.lng, pt.lat], zoom: Math.max(map.getZoom(), 13) });
+}
+
+/** Adopt a shared item as your own pin/route. It becomes ordinary local map
+ *  data (device-local — map:* never syncs), and an adopted location stops
+ *  expiring: the user chose to keep it. */
+async function saveShared(item: SharedItem) {
+  const share = item.share;
+  if (share.type === "map_pin") {
+    await store.addPin(share.name, share.lat, share.lng, share.note, share.color);
+  } else if (share.type === "map_loc") {
+    await store.addPin(share.label || t("map.locSavedName"), share.lat, share.lng, share.note);
+  } else {
+    await store.addRoute(share.name, share.points, share.color);
+  }
+  selectedShared.value = null;
+}
 
 async function saveFocus() {
   const share = focus.value;
@@ -567,6 +725,54 @@ function dismissFocus() {
         >
           {{ mode === 'add-pin' ? $t('map.clickToPlace') : $t('map.clickToExtend') }}
         </p>
+
+        <!-- Shared-layer toggle: what room members shared, on your map. -->
+        <button
+          v-if="layer.all.value.length"
+          type="button"
+          data-testid="shared-layer-toggle"
+          class="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-accent-2 bg-primary-bg-light/90 px-3 py-1 text-xs font-semibold transition hover:opacity-80 dark:border-accent-1 dark:bg-primary-bg-dark/90"
+          :title="$t('map.sharedLayerToggle')"
+          @click="store.toggleSharedLayer()"
+        >
+          <font-awesome-icon :icon="store.sharedLayerVisible ? 'layer-group' : 'eye-slash'" />
+          {{ layer.onMap.value.length }}
+        </button>
+
+        <!-- Detail for the shared item the user tapped. -->
+        <div
+          v-if="selectedShared"
+          data-testid="shared-detail"
+          class="absolute bottom-3 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 flex-col gap-2 rounded-lg border border-accent-2 bg-primary-bg-light/95 px-3 py-2 text-sm shadow dark:border-accent-1 dark:bg-primary-bg-dark/95"
+        >
+          <p class="flex items-center gap-2">
+            <font-awesome-icon
+              :icon="selectedShared.kind === 'route' ? 'route'
+                : selectedShared.kind === 'loc' ? 'location-crosshairs' : 'location-dot'"
+            />
+            <span class="truncate font-semibold">
+              {{ sharedItemName(selectedShared, $t('map.locCardDefault')) }}
+            </span>
+            <span class="shrink-0 text-xs opacity-60">
+              {{ selectedShared.self ? $t('map.sharedYou')
+                : $t('map.sharedFrom', { name: selectedShared.sender }) }}
+            </span>
+          </p>
+          <p v-if="'note' in selectedShared.share && selectedShared.share.note" class="text-xs opacity-70">
+            {{ selectedShared.share.note }}
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <OyaButton variant="secondary" @click="focusShared(selectedShared)">
+              <font-awesome-icon icon="location-dot" /> {{ $t('map.openInMaps') }}
+            </OyaButton>
+            <OyaButton variant="primary" data-testid="shared-save" @click="saveShared(selectedShared)">
+              {{ $t('map.saveToMyPins') }}
+            </OyaButton>
+            <OyaButton variant="secondary" @click="selectedShared = null">
+              {{ $t('common.close') }}
+            </OyaButton>
+          </div>
+        </div>
 
         <!-- Received-share preview banner: nothing is saved until the user says so. -->
         <div
