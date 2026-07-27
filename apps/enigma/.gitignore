@@ -12,6 +12,17 @@ Cargo.lock
 # The app crate's own Cargo.lock (apps/enigma/src-tauri) stays ignored.
 !cryptorotor/Cargo.lock
 
+# Enigma Builder (tools/enigma_builder) local output — the generated `custom`
+# edition config. light/plus/pro stay checked in; this one never is.
+apps/enigma/src-tauri/configs/build_config.custom.yaml
+
+# Python tooling venvs (tools/enigma_builder, tools/map_packager)
+tools/*/venv/
+tools/*/.venv/
+tools/*/__pycache__/
+tools/*/**/__pycache__/
+tools/*/.pytest_cache/
+
 # Test artifacts
 test-results/
 playwright-report/

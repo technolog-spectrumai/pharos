@@ -1,0 +1,180 @@
+"""The single source of truth for the config being edited.
+
+Holds one nested dict shaped exactly like ``build_config.yaml`` and emits
+``changed`` whenever any leaf moves. Every tab reads and writes through here,
+so the YAML preview, the validation banner and the Build tab can never show
+three different versions of the same config.
+
+Preset values are read from the checked-in edition files at runtime, never
+hardcoded: the ``# Plus and up`` comments in ``build_config.light.yaml`` are
+already stale relative to ``build_config.plus.yaml``, so the files are the only
+trustworthy source.
+"""
+
+from __future__ import annotations
+
+import copy
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+import yaml
+from PyQt6.QtCore import QObject, pyqtSignal
+
+import paths
+import yaml_gen
+from validation import (
+    FEATURE_GATES,
+    RUNTIME_DEFAULTS,
+    Issue,
+    get_path,
+    set_path,
+    validate_config,
+)
+
+# What a preset defines. Deliberately excludes crypto / settings / network:
+# those are byte-identical across all three editions (a Light peer has to share
+# rooms with a Pro peer), so applying a preset must not silently undo the
+# user's expert edits. Identity is excluded for the same reason.
+PRESET_PATHS: tuple[str, ...] = tuple(path for path, _ in FEATURE_GATES) + RUNTIME_DEFAULTS
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
+    """Parse a build config. Returns {} for a missing or unreadable file."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def merge_known(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Overlay only the leaves ``base`` already defines.
+
+    Keeps a stale ``build_config.custom.yaml`` loadable after a schema change:
+    unknown keys are dropped and new keys keep their canonical value, so the
+    next generation emits a config build.rs will accept.
+    """
+    merged = copy.deepcopy(base)
+    for path in yaml_gen.leaf_paths(base):
+        value = get_path(overlay, path)
+        if value is not None and type(value) is type(get_path(base, path)):
+            set_path(merged, path, value)
+    return merged
+
+
+class ConfigModel(QObject):
+    changed = pyqtSignal()
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.canonical = load_yaml(paths.CANONICAL_YAML)
+        self._presets: dict[str, dict[str, Any]] = {}
+        self._depth = 0
+        self._dirty = False
+
+        stored = load_yaml(paths.CUSTOM_YAML)
+        self.resumed_from_custom = bool(stored)
+        self._cfg = merge_known(self.canonical, stored) if stored else copy.deepcopy(self.canonical)
+
+    # ----- reading --------------------------------------------------------
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """The live config. Treat as read-only; write through ``set``."""
+        return self._cfg
+
+    def get(self, path: str) -> Any:
+        return get_path(self._cfg, path)
+
+    def canonical_get(self, path: str) -> Any:
+        return get_path(self.canonical, path)
+
+    def preset(self, edition: str) -> dict[str, Any]:
+        if edition not in self._presets:
+            self._presets[edition] = load_yaml(paths.preset_yaml(edition))
+        return self._presets[edition]
+
+    # ----- writing --------------------------------------------------------
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Coalesce many writes into one ``changed`` emission."""
+        self._depth += 1
+        try:
+            yield
+        finally:
+            self._depth -= 1
+            if self._depth == 0 and self._dirty:
+                self._dirty = False
+                self.changed.emit()
+
+    def set(self, path: str, value: Any) -> None:
+        if get_path(self._cfg, path) == value:
+            return
+        set_path(self._cfg, path, value)
+        if self._depth:
+            self._dirty = True
+        else:
+            self.changed.emit()
+
+    def reset_to_canonical(self, *prefixes: str) -> None:
+        """Restore every leaf under ``prefixes`` to the canonical config."""
+        with self.batch():
+            for path in yaml_gen.leaf_paths(self.canonical):
+                if any(path == p or path.startswith(f"{p}.") for p in prefixes):
+                    self.set(path, get_path(self.canonical, path))
+
+    # ----- presets --------------------------------------------------------
+
+    def apply_preset(self, edition: str) -> bool:
+        """Copy an edition's feature gates and runtime defaults into the form.
+
+        Returns False when the edition file could not be read, so the caller
+        can say so rather than silently doing nothing.
+        """
+        source = self.preset(edition)
+        if not source:
+            return False
+        with self.batch():
+            for path in PRESET_PATHS:
+                value = get_path(source, path)
+                if value is not None:
+                    self.set(path, value)
+        return True
+
+    def detect_preset(self) -> str | None:
+        """Which edition the current gates match, or None for a custom mix."""
+        for edition in paths.PRESETS:
+            source = self.preset(edition)
+            if not source:
+                continue
+            if all(
+                get_path(source, path) == get_path(self._cfg, path)
+                for path in PRESET_PATHS
+            ):
+                return edition
+        return None
+
+    def provenance(self) -> str:
+        edition = self.detect_preset()
+        return f"{edition} (unmodified gates)" if edition else "custom selection"
+
+    # ----- output ---------------------------------------------------------
+
+    def validate(self, tauri_conf: dict[str, Any] | None = None) -> list[Issue]:
+        return validate_config(self._cfg, tauri_conf, self.canonical)
+
+    def render(self) -> str:
+        return yaml_gen.render(self._cfg, self.provenance())
+
+    def write_custom_yaml(self) -> Path:
+        """Write ``configs/build_config.custom.yaml``. Returns the path."""
+        text = self.render()
+        paths.CUSTOM_YAML.parent.mkdir(parents=True, exist_ok=True)
+        paths.CUSTOM_YAML.write_text(text, encoding="utf-8")
+        return paths.CUSTOM_YAML
