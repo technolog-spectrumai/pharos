@@ -156,6 +156,132 @@ pub async fn aster_resolve(
     Ok(parse_node_ids(&body))
 }
 
+// ── sealed room invites (the QR replacement for Tor rooms) ───────────────────
+
+/// Our stable gossip identity — the key invites are sealed to/from. Derived
+/// from the vault, so it exists even in Tor-exclusive mode where iroh is down.
+fn identity(app: &AppHandle) -> Result<iroh::SecretKey, String> {
+    crate::p2p_iroh::load_or_create_secret(app, KIND_GOSSIP).map_err(|e| e.to_string())
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Make sure this device is addressable in the directory. Registration needs
+/// only the NodeId, so unlike relay publishing it works with iroh torn down
+/// (Tor-exclusive mode) — which is exactly when server invites matter most.
+#[tauri::command]
+pub async fn rdv_register(app: AppHandle, server_url: String) -> Result<String, String> {
+    if !build_allowed() {
+        return Err(ASTER_DISABLED.to_string());
+    }
+    crate::cloud::ensure_online(&app)?;
+    let node_id = identity(&app)?.public().to_string();
+    register_device(&app, &server_url, &node_id).await?;
+    Ok(node_id)
+}
+
+/// Seal a room ticket to `to_node_id` and leave it in the recipient's mailbox.
+/// The server stores ciphertext: brokering an invite never grants it the room.
+#[tauri::command]
+pub async fn rdv_invite_send(
+    app: AppHandle,
+    server_url: String,
+    to_node_id: String,
+    room_name: String,
+    ticket: String,
+    ttl_seconds: Option<u64>,
+) -> Result<(), String> {
+    if !build_allowed() {
+        return Err(ASTER_DISABLED.to_string());
+    }
+    crate::cloud::ensure_online(&app)?;
+    let me = identity(&app)?;
+    let recipient: iroh::PublicKey = to_node_id
+        .parse()
+        .map_err(|_| "invalid recipient node id".to_string())?;
+    let ttl = ttl_seconds.unwrap_or(24 * 3600).clamp(60, 7 * 24 * 3600);
+    let payload = crate::invite_seal::InvitePayload {
+        v: 1,
+        room_name,
+        ticket,
+    };
+    let blob = crate::invite_seal::seal_invite(&me, &recipient, &payload, now_unix() + ttl)
+        .map_err(|e| e.to_string())?;
+
+    let body = json!({ "to_node_id": to_node_id, "blob": blob, "ttl_seconds": ttl });
+    let (status, resp) =
+        crate::cloud::request_json(&app, &server_url, "POST", "/aster/invite", true, Some(body))
+            .await?;
+    crate::cloud::expect_2xx(status, &resp)
+}
+
+/// One collected invite, already verified and decrypted locally.
+#[derive(serde::Serialize)]
+pub struct OpenInvite {
+    pub id: i64,
+    pub from_node_id: String,
+    pub room_name: String,
+    pub ticket: String,
+    pub expires_at: u64,
+}
+
+/// Collect invites for this device. Anything that fails to verify or decrypt
+/// is dropped silently — a mailbox entry is untrusted input.
+#[tauri::command]
+pub async fn rdv_invite_fetch(
+    app: AppHandle,
+    server_url: String,
+) -> Result<Vec<OpenInvite>, String> {
+    if !build_allowed() {
+        return Err(ASTER_DISABLED.to_string());
+    }
+    crate::cloud::ensure_online(&app)?;
+    let me = identity(&app)?;
+    let (status, body) =
+        crate::cloud::request_json(&app, &server_url, "GET", "/aster/invites", true, None).await?;
+    crate::cloud::expect_2xx(status, &body)?;
+
+    let now = now_unix();
+    let mut out = Vec::new();
+    for item in body.get("invites").and_then(Value::as_array).cloned().unwrap_or_default() {
+        let (Some(id), Some(blob)) = (
+            item.get("id").and_then(Value::as_i64),
+            item.get("blob").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        match crate::invite_seal::open_invite(&me, blob, now) {
+            Ok(opened) => out.push(OpenInvite {
+                id,
+                from_node_id: opened.from.to_string(),
+                room_name: opened.payload.room_name,
+                ticket: opened.payload.ticket,
+                expires_at: opened.exp,
+            }),
+            Err(_) => continue,
+        }
+    }
+    Ok(out)
+}
+
+/// Acknowledge a collected invite (one-shot: the server drops the row).
+#[tauri::command]
+pub async fn rdv_invite_ack(app: AppHandle, server_url: String, id: i64) -> Result<(), String> {
+    if !build_allowed() {
+        return Err(ASTER_DISABLED.to_string());
+    }
+    crate::cloud::ensure_online(&app)?;
+    let path = format!("/aster/invite/{id}/delete");
+    let (status, resp) =
+        crate::cloud::request_json(&app, &server_url, "POST", &path, true, None).await?;
+    crate::cloud::expect_2xx(status, &resp)
+}
+
 // ── background relay publisher ────────────────────────────────────────────────
 
 /// Keep the directory fresh while (and only while) the opt-in toggle is on.

@@ -58,6 +58,41 @@ Traffic never touches the server; it only swaps addresses.
 | Contacts server search | `apps/enigma/src/views/EnigmaContactsView.vue` |
 | Tests | `aster.rs` inline (4), `tests/unit/rdv.test.ts` |
 
+## Sealed room invites — the QR replacement for Tor rooms
+
+The direct contact invite rides iroh (`enigma/invite/0`) and is hard-blocked in
+Tor mode, so a Tor room could previously only be shared by hand-carrying a QR.
+Invites now travel through the same faros mailbox, sealed.
+
+- **D8 — the ticket is a bearer credential, so it is sealed.** MLS admission is
+  automatic today (no approval UI — `useChatChannel.ts` handlePeerKeyPackage;
+  the repo notes this in technology.md §12), and a Tor ticket never rotates
+  because `create_room` is idempotent. A plaintext invite on a server would
+  therefore hand that server the room. `invite_seal.rs` HPKE-seals the ticket
+  to the recipient's NodeId (Ed25519→X25519, DHKEM-X25519/HKDF-SHA256/
+  ChaCha20Poly1305 — the openmls primitive already vendored) and **signs the
+  envelope**, because HPKE base mode is anonymous and the direct invite gets
+  sender authenticity free from QUIC. `info` domain-separates the context; the
+  AAD binds recipient ‖ sender ‖ expiry, so an invite cannot be re-addressed
+  or have its expiry stretched. faros stores opaque bytes.
+- **D9 — expiry twice**: server TTL (default 24 h, clamped) *and* `exp` inside
+  the AAD, since the underlying ticket has no expiry of its own. One-shot:
+  acknowledged after collection.
+- **D10 — explicit join.** Collected invites appear as a card in Contacts with
+  the sender named from your saved contacts (raw NodeId if unknown); joining
+  is a press and calls the existing `joinByTicket`. Nothing about the Tor
+  transport changed.
+- **D11 — registration is transport-independent.** `rdv_register` publishes
+  only the NodeId (derived from the vault key), so a Tor-exclusive profile —
+  where iroh and the relay publisher are down — is still addressable. That is
+  exactly when server invites matter.
+
+**Honest limitation:** when you invite someone resolved *by username*, their
+NodeId comes from the directory, so an actively malicious server could
+substitute its own key and read that one invite. Invites to **saved contacts**
+(NodeId verified out-of-band when you added them) are safe even then. The UI
+therefore addresses invites by saved contact.
+
 ## Accepted limitations
 
 - Gossip endpoint only (`kind = "gossip"`); vox keeps its own discovery paths.

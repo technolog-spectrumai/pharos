@@ -20,6 +20,9 @@ mod beacon;
 // Rides cloud.rs transport + session; opt-in toggle, default off; enabled only
 // when cloud.allow_connections and p2p.allow_hosted_relays are both on.
 mod aster;
+// Sealed room-invite envelopes (HPKE to a peer NodeId, signed) — the crypto
+// behind the faros invite rendezvous. No transport, pure functions.
+mod invite_seal;
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
 // Files→Devices per-file sync: the disk half of receiving (sanitized paths,
@@ -1424,6 +1427,10 @@ pub fn run() {
             cloud::cloud_rmdir,
             cloud::cloud_move,
             aster::aster_resolve,
+            aster::rdv_register,
+            aster::rdv_invite_send,
+            aster::rdv_invite_fetch,
+            aster::rdv_invite_ack,
             beacon::beacon_all,
             beacon::beacon_near,
             beacon::beacon_publish_pin,

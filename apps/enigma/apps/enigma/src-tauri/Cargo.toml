@@ -82,6 +82,12 @@ data-encoding = "2"
 iroh = { version = "0.98", features = ["address-lookup-pkarr-dht"] }
 iroh-gossip = "0.98"
 n0-future = "0.3"   # BoxStream type for the AddressLookup impl (matches iroh 0.98)
+# Sealed room invites (invite_seal.rs): HPKE single-shot + the ed25519→x25519
+# conversion for addressing a peer by their NodeId. All three are already in
+# Cargo.lock via openmls/tor-llcrypto — no new compilation.
+curve25519-dalek = "4"
+openmls_traits = "0.4"
+openmls_rust_crypto = "0.4"
 # Direct BEP44 access to the Mainline DHT for the room-rendezvous records
 # (p2p_dht.rs). Same crate/version iroh's DHT feature resolves — no dup tree.
 mainline = { version = "6", features = ["async"] }
