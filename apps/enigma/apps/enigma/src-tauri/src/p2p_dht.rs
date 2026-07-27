@@ -37,19 +37,37 @@ use futures_lite::StreamExt;
 use iroh::EndpointId;
 use mainline::{async_dht::AsyncDht, Dht, MutableItem, SigningKey};
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 // ── settings (kv `p2p:settings`, user-set in the Settings tab — never hardcode) ─
 
 const SETTINGS_NS: &str = "p2p:settings";
 const SETTINGS_SCOPE: &str = "default";
 
-/// The opt-in toggle. Build-time relay/discovery kill switch first, then the
-/// user's setting; locked vault / missing key ⇒ the build-config default.
-/// Single choke point: gates DhtHandle, DhtAddressLookup, the nick publisher,
-/// dht_status and ticketless joins.
+/// True in Tor-exclusive mode, where iroh (and therefore every DHT function)
+/// is torn down. Mirrors cloud.rs's gate of the same name.
+fn tor_exclusive(app: &AppHandle) -> bool {
+    let state = app.state::<crate::AppConfigState>();
+    match crate::active_config(&state) {
+        Ok(cfg) => crate::is_use_tor(&crate::load_profile_state(app, &cfg)),
+        Err(_) => false,
+    }
+}
+
+/// The opt-in toggle. Build-time relay/discovery kill switch first, then Tor
+/// mode, then the user's setting; locked vault / missing key ⇒ the
+/// build-config default. Single choke point: gates DhtHandle,
+/// DhtAddressLookup, the nick publisher, dht_status and ticketless joins.
+///
+/// Tor mode returns false unconditionally: the DHT rides the iroh endpoint,
+/// which Tor-exclusive mode shuts down, and a pkarr record would publish a
+/// relay address this profile is deliberately not using. The server-side
+/// directory (aster / cloud rendezvous) is the discovery path over Tor.
 pub fn discovery_enabled(app: &AppHandle) -> bool {
     if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        return false;
+    }
+    if tor_exclusive(app) {
         return false;
     }
     match crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_discovery") {
@@ -94,9 +112,13 @@ pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
 }
 
 /// Opt-in "findable by nickname" toggle (Contacts tab). Missing key ⇒ the
-/// build-config default; inert in a build without hosted relays.
+/// build-config default; inert in a build without hosted relays, and in Tor
+/// mode (nothing to announce — see `discovery_enabled`).
 pub fn nick_publish_enabled(app: &AppHandle) -> bool {
     if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        return false;
+    }
+    if tor_exclusive(app) {
         return false;
     }
     match crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_nick_publish") {

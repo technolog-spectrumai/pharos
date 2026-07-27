@@ -139,6 +139,7 @@ export default {
     dhtDiscoveryOnHint:
       "Wł. — Twój węzeł publikuje swój rekord adresowy w DHT (tylko adres przekaźnika), a do pokoi można dołączać kodem.",
     dhtDiscoveryOffHint: "Wył. — wykrywanie używa tylko wbudowanej usługi n0 i biletów QR.",
+    dhtTorBlocked: "Niedostępne w trybie Tor — wyszukiwanie osób odbywa się przez Twój serwer (Rendezvous w chmurze powyżej).",
     dhtStatusChecking: "Sprawdzanie DHT… (świeży węzeł potrzebuje kilku sekund na start)",
     dhtStatusOk: "DHT osiągalne",
     dhtStatusUnreachable: "DHT nieosiągalne — powrót do n0 / biletów",

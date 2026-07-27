@@ -139,6 +139,7 @@ export default {
     dhtDiscoveryOnHint:
       "On — your node publishes its address record to the DHT (relay address only) and rooms are joinable by code.",
     dhtDiscoveryOffHint: "Off — discovery uses the built-in n0 service and QR tickets only.",
+    dhtTorBlocked: "Unavailable in Tor mode — peer discovery goes through your own server (Cloud rendezvous above).",
     dhtStatusChecking: "Checking DHT… (a fresh node needs a few seconds to bootstrap)",
     dhtStatusOk: "DHT reachable",
     dhtStatusUnreachable: "DHT unreachable — falling back to n0 / tickets",

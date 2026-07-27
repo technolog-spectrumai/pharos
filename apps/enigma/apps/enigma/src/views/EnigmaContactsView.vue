@@ -22,6 +22,7 @@ import {
   dhtPresence,
   dhtFindNick,
   getDhtDiscovery,
+  getUseTor,
   getDhtPresencePollSecs,
   getDhtNickPublish,
   setDhtNickPublish,
@@ -67,10 +68,15 @@ async function loadMyNodeId() {
 // ── Contact list + presence ────────────────────────────────────────────────────
 const contacts = ref<ContactEntry[]>([]);
 const dhtOn = ref(false);
+// Tor mode tears down iroh, and with it every DHT function (Rust gates it at
+// the source in p2p_dht). Over Tor the server directory below is the discovery
+// path, so the DHT surfaces disable with the reason rather than lying.
+const useTor = ref(false);
+const dhtUsable = computed(() => dhtOn.value && !useTor.value);
 const online = ref<Record<string, boolean>>({});
 
 async function refreshPresence() {
-  if (!dhtOn.value || contacts.value.length === 0) return;
+  if (!dhtUsable.value || contacts.value.length === 0) return;
   const seen = await dhtPresence(contacts.value.map((c) => c.nodeId));
   const now = Date.now();
   const map: Record<string, boolean> = {};
@@ -85,6 +91,7 @@ let presenceTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(async () => {
   contacts.value = await listContacts();
   dhtOn.value = await getDhtDiscovery();
+  useTor.value = await getUseTor();
   if (rdvAllowed) {
     await cloudStore.init(); // mirror the login state for server search + invites
     void refreshServerInvites();
@@ -98,7 +105,7 @@ onMounted(async () => {
   nickname.value = await getDhtNickname();
   void loadMyNodeId();
   await chatStore.p2p.loadP2pRooms();
-  if (dhtOn.value) {
+  if (dhtUsable.value) {
     void refreshPresence();
     // Frontend-driven poll: suspends with the webview (battery-safe on Android).
     presenceTimer = setInterval(refreshPresence, 1000 * (await getDhtPresencePollSecs()));
@@ -125,7 +132,7 @@ async function saveNickname() {
 }
 
 async function publishNick() {
-  if (publishState.value === "publishing") return;
+  if (publishState.value === "publishing" || !dhtUsable.value) return;
   await saveNickname();
   if (!nickname.value) return;
   // Publishing implies staying findable: the background announcer keeps the
@@ -144,6 +151,7 @@ async function publishNick() {
 }
 
 async function toggleNickPublish() {
+  if (!dhtUsable.value) return;
   nickPublish.value = !nickPublish.value;
   if (nickPublish.value) {
     // Turning findability ON = publish now, with feedback.
@@ -163,7 +171,7 @@ const searched = ref(false); // a search completed → "no results" is meaningfu
 const searchResults = ref<NickClaim[]>([]);
 async function findPeople() {
   const nick = searchNick.value.trim();
-  if (!nick || searching.value || !dhtOn.value) return;
+  if (!nick || searching.value || !dhtUsable.value) return;
   searching.value = true;
   searched.value = false;
   try {
@@ -530,7 +538,7 @@ async function acceptIncoming() {
       </OyaButton>
 
       <!-- Findable by nickname: an opt-in claim on the DHT directory -->
-      <div class="space-y-3 border-t border-current/10 pt-4">
+      <div v-if="!useTor" class="space-y-3 border-t border-current/10 pt-4">
         <div class="flex items-center gap-3">
           <font-awesome-icon
             icon="magnifying-glass"
@@ -561,7 +569,7 @@ async function acceptIncoming() {
             />
           </button>
         </div>
-        <div v-if="dhtOn" class="flex items-center gap-2">
+        <div v-if="dhtUsable" class="flex items-center gap-2">
           <input
             v-model="nickname"
             type="text"
@@ -604,7 +612,7 @@ async function acceptIncoming() {
           {{ $t('contacts.findPeople') }}
         </p>
         <p class="mt-1 text-sm opacity-65">
-          {{ dhtOn ? $t('contacts.findHint') : $t('contacts.findNeedsDht') }}
+          {{ dhtUsable ? $t('contacts.findHint') : $t('contacts.findNeedsDht') }}
         </p>
       </div>
       <div class="flex gap-2">
@@ -613,14 +621,15 @@ async function acceptIncoming() {
           type="text"
           :maxlength="DHT_NICKNAME_MAX_LEN"
           :placeholder="$t('contacts.findPlaceholder')"
-          :disabled="!dhtOn && !(rdvAllowed && cloudStore.loggedIn)"
+          :disabled="!dhtUsable && !(rdvAllowed && cloudStore.loggedIn)"
           class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-3 py-1.5 text-sm disabled:opacity-50"
           @keyup.enter="findPeople"
         />
         <OyaButton
+          v-if="dhtUsable"
           :dark-mode="darkMode"
           variant="secondary"
-          :class="{ 'pointer-events-none opacity-50': !dhtOn || searching || !searchNick.trim() }"
+          :class="{ 'pointer-events-none opacity-50': searching || !searchNick.trim() }"
           @click="findPeople"
         >
           <font-awesome-icon :icon="searching ? 'spinner' : 'magnifying-glass'" :spin="searching" />
@@ -714,7 +723,7 @@ async function acceptIncoming() {
             {{ $t('contacts.saved') }}
           </p>
           <p class="mt-1 text-sm opacity-65">
-            {{ dhtOn ? $t('contacts.presenceHint') : $t('contacts.presenceOff') }}
+            {{ dhtUsable ? $t('contacts.presenceHint') : $t('contacts.presenceOff') }}
           </p>
         </div>
         <OyaButton :dark-mode="darkMode" variant="secondary" @click="openAdd">
@@ -730,7 +739,7 @@ async function acceptIncoming() {
         <li v-for="c in contacts" :key="c.nodeId" class="flex items-center gap-3 py-3">
           <!-- Presence dot: ~1 h granularity, only meaningful with DHT on -->
           <span
-            v-if="dhtOn"
+            v-if="dhtUsable"
             :class="online[c.nodeId] ? 'bg-success-dark' : 'bg-current opacity-20'"
             class="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
             :title="online[c.nodeId] ? $t('contacts.recentlyOnline') : $t('contacts.notSeenRecently')"

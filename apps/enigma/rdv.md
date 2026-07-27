@@ -93,6 +93,30 @@ substitute its own key and read that one invite. Invites to **saved contacts**
 (NodeId verified out-of-band when you added them) are safe even then. The UI
 therefore addresses invites by saved contact.
 
+## Two discovery modes
+
+Discovery now follows the transport, because the DHT rides iroh and Tor mode
+tears iroh down:
+
+| | **Non-Tor** | **Tor** |
+|---|---|---|
+| Find people | DHT nickname search + presence | "Look up on my server" (aster) |
+| Be findable | DHT nickname claim | device registered on your faros |
+| Invite to a room | direct P2P invite over iroh | sealed invite via your faros |
+
+- **D12 — the DHT is gated at the source in Tor mode.** `discovery_enabled`
+  and `nick_publish_enabled` (p2p_dht.rs) return false when the profile is
+  Tor-exclusive, so DhtHandle, DhtAddressLookup, the nick publisher,
+  `dht_status` and ticketless joins are all inert regardless of the stored
+  toggle. Previously they were *implicitly* dead (no iroh node) while the UI
+  still offered them — a nickname claim would have published a relay address
+  this profile deliberately isn't using.
+- **D13 — hide in Contacts, explain in Settings.** Contacts drops the dead
+  surfaces entirely (nickname card, DHT search button, presence dots and its
+  polling); the Settings toggle stays visible but disabled with the reason,
+  because that is where a user goes looking for it. Both halves stay opt-in:
+  with no faros configured, Tor mode simply has no directory, as before.
+
 ## Accepted limitations
 
 - Gossip endpoint only (`kind = "gossip"`); vox keeps its own discovery paths.

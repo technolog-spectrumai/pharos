@@ -738,6 +738,13 @@ presence clears its dead flag; if lowest, captaincy hands back. The ★ badge
 *(Condensed as-built reference; engine in `p2p_dht.rs`, endpoint wiring in
 `p2p_iroh.rs`, contacts in rakotis `services/contacts.ts`.)*
 
+**Not in Tor mode.** The DHT rides the iroh endpoint, which Tor-exclusive mode
+shuts down, so `discovery_enabled` / `nick_publish_enabled` return false there
+regardless of the toggle — and a nickname claim would otherwise publish a relay
+address the profile is deliberately not using. Over Tor the peer directory is
+the user's own faros server (Cloud rendezvous, rdv.md): its Contacts surfaces
+are hidden and the Settings toggle disables with the reason.
+
 **What it is.** An opt-in (default off; inert in no-hosted-relays builds), fully
 community-run discovery path over the **BitTorrent Mainline DHT** (~10M nodes, no
 infrastructure of ours or n0's): ticketless room join by a shareable **room code**,

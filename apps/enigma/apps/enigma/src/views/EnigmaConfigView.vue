@@ -58,6 +58,7 @@ import {
   getCloudServerUrl,
   CLOUD_SERVER_URL_DEFAULT,
   getBuildConfig,
+  invoke,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
@@ -216,6 +217,11 @@ const rdvPublish = ref(false);
 async function toggleRdvPublish() {
   rdvPublish.value = !rdvPublish.value;
   await setRdvPublish(rdvPublish.value);
+  // Register this device right away so peers can find it (and seal invites to
+  // it) — registration needs only the NodeId, so it works in Tor mode too.
+  if (rdvPublish.value && cloudStore.loggedIn) {
+    await invoke("rdv_register", { serverUrl: cloudStore.serverUrl }).catch(() => {});
+  }
 }
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
@@ -912,7 +918,10 @@ async function clearSelectedOfflineData() {
     <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (technology.md §12). Opt-in;
          on → rooms get a ticketless join code and Contacts presence works.
          Absent in a build with p2p.allow_hosted_relays: false (Rust reports the
-         DHT disabled regardless of the kv toggle). -->
+         DHT disabled regardless of the kv toggle), and inert in Tor mode: the
+         DHT rides the iroh endpoint, which Tor-exclusive mode shuts down — the
+         server directory (Cloud rendezvous, above) takes over there. Disabled
+         with the reason rather than hidden. -->
     <OyaCard v-if="hostedRelaysAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
@@ -929,7 +938,8 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.dhtDiscovery') }}</p>
           <p class="text-xs opacity-60">
-            {{ dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
+            {{ useTor ? $t('config.dhtTorBlocked')
+              : dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
           </p>
         </div>
         <button
@@ -937,7 +947,11 @@ async function clearSelectedOfflineData() {
           role="switch"
           :aria-checked="dhtDiscovery"
           :aria-label="$t('config.dhtDiscovery')"
-          :class="dhtDiscovery ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          :disabled="useTor"
+          :class="[
+            dhtDiscovery ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2',
+            useTor ? 'cursor-not-allowed opacity-40' : '',
+          ]"
           class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
           @click="toggleDhtDiscovery"
         >
@@ -948,7 +962,7 @@ async function clearSelectedOfflineData() {
         </button>
       </div>
 
-      <template v-if="dhtDiscovery">
+      <template v-if="dhtDiscovery && !useTor">
         <!-- Status: has our Kademlia node a live routing table + manual probe -->
         <div class="flex items-center gap-2 text-xs">
           <span
