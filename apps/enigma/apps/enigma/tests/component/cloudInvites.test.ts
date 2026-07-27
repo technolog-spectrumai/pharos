@@ -64,6 +64,11 @@ let broadcastReport: Report[] = [];
 /** cloud_status is authoritative over the store (the panel calls cloud.init()),
  *  so the signed-in state has to be set here, not only on the store. */
 let statusLoggedIn = true;
+/** Airplane mode + force-Tor both come back through invoke under fake Tauri
+ *  (getOffline → app_get_offline; forceTor → cloud_status, which is
+ *  authoritative over the store — see the note above). */
+let statusOffline = false;
+let statusForceTor = false;
 
 beforeEach(() => {
   localStorage.clear();
@@ -74,6 +79,8 @@ beforeEach(() => {
   fakeP2p.createResult = "ticket-new";
   broadcastReport = [{ username: "alice", outcome: "ok", devices: 1, delivered: 1, error: "" }];
   statusLoggedIn = true;
+  statusOffline = false;
+  statusForceTor = false;
   pinia = createPinia();
   setActivePinia(pinia);
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
@@ -85,9 +92,11 @@ beforeEach(() => {
           logged_in: statusLoggedIn,
           username: statusLoggedIn ? "me" : null,
           enabled: true,
-          force_tor: false,
-          transport: "loopback",
+          force_tor: statusForceTor,
+          transport: statusForceTor ? "onion" : "loopback",
         };
+      case "app_get_offline":
+        return statusOffline;
       case "rdv_register":
         return "mynode";
       case "rdv_invite_fetch":
@@ -294,5 +303,179 @@ describe("CloudInvitesPanel", () => {
     await flushPromises();
     expect(invokeMock).toHaveBeenCalledWith("rdv_register", expect.anything());
     expect(invokeMock).toHaveBeenCalledWith("rdv_invite_fetch", expect.anything());
+  });
+});
+
+// ── "the cloud is offline" ────────────────────────────────────────────────────
+// Four independent reasons the panel can be unusable. The point of these is not
+// that a press fails — it already did — but that the panel SAYS SO BEFORE the
+// press, and that the way back is never itself blocked.
+describe("CloudInvitesPanel — unusable cloud", () => {
+  /** Airplane mode has no event, so the panel re-reads it on mount. */
+  function airplaneOn() {
+    statusOffline = true;
+  }
+
+  it("airplane mode states the reason instead of the sign-in hint", async () => {
+    airplaneOn();
+    const wrapper = await mountReady();
+    const card = wrapper.find('[data-testid="invites-blocked-notice"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("airplane mode");
+    // Signing in is itself a cloud request, so the login hint would be useless
+    // advice here — the airplane reason has to outrank it.
+    expect(wrapper.text()).not.toContain("Sign in above");
+  });
+
+  it("airplane mode disables both submits", async () => {
+    airplaneOn();
+    fakeP2p.p2pRooms.value = [{ room: "r1", name: "planning", ticket: "t1", peers: [] }];
+    const wrapper = await mountReady();
+    await addRecipient(wrapper, "alice");
+    expect(wrapper.find('[data-testid="invite-create-submit"]').classes()).toContain(
+      "pointer-events-none",
+    );
+    expect(wrapper.find('[data-testid="invite-existing-submit"]').classes()).toContain(
+      "pointer-events-none",
+    );
+  });
+
+  it("airplane mode while signed out shows the airplane reason, not the login one", async () => {
+    airplaneOn();
+    statusLoggedIn = false;
+    const cloud = useCloudStore();
+    cloud.enabled = true;
+    cloud.loggedIn = false;
+    cloud.serverUrl = "https://localhost:8443";
+    const wrapper = mount(CloudInvitesPanel, { global: GLOBAL() });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="invites-blocked-card"]').text()).toContain("airplane mode");
+  });
+
+  it("a server that does not answer disables the submits and says why", async () => {
+    const wrapper = await mountReady();
+    await addRecipient(wrapper, "alice");
+    // A chip resolved while the server was up; now it goes away.
+    useCloudStore().classify("unreachable: connect to h:443 failed: refused");
+    await flushPromises();
+
+    const notice = wrapper.find('[data-testid="invites-blocked-notice"]');
+    expect(notice.exists()).toBe(true);
+    expect(notice.text()).toContain("Couldn't reach your server");
+    expect(wrapper.find('[data-testid="invite-create-submit"]').classes()).toContain(
+      "pointer-events-none",
+    );
+  });
+
+  it("an unreachable server cannot create an orphan room", async () => {
+    const wrapper = await mountReady();
+    await addRecipient(wrapper, "alice");
+    useCloudStore().classify("unreachable: connect to h:443 failed: refused");
+    await flushPromises();
+
+    await wrapper.find('[data-testid="invite-create-name"]').setValue("planning");
+    await wrapper.find('[data-testid="invite-create-submit"]').trigger("click");
+    await flushPromises();
+
+    // The old failure mode: the room was created locally, the broadcast then
+    // "succeeded" with all-error rows, and the user kept a room nobody got.
+    expect(fakeP2p.calls).toEqual([]);
+    expect(invokeMock).not.toHaveBeenCalledWith("rdv_invite_broadcast", expect.anything());
+  });
+
+  it("Enter in the room-name field is gated too, not just the button", async () => {
+    const wrapper = await mountReady();
+    await addRecipient(wrapper, "alice");
+    useCloudStore().classify("unreachable: connect to h:443 timed out after 60s");
+    await flushPromises();
+
+    const name = wrapper.find('[data-testid="invite-create-name"]');
+    await name.setValue("planning");
+    await name.trigger("keyup.enter");
+    await flushPromises();
+
+    expect(fakeP2p.calls).toEqual([]);
+  });
+
+  it("the retry stays live — an unreachable verdict is one press from undone", async () => {
+    const wrapper = await mountReady();
+    useCloudStore().classify("unreachable: connect to h:443 failed: refused");
+    await flushPromises();
+
+    const retry = wrapper.find('[data-testid="invites-retry"]');
+    expect(retry.exists()).toBe(true);
+    // The one control `blocked` must never gate: a cold arti bootstrap can
+    // exceed the timeout on a healthy server (cloud.md), so a false verdict
+    // must always be recoverable without restarting the app.
+    expect(retry.classes()).not.toContain("pointer-events-none");
+  });
+
+  it("retrying re-attempts and recovers when the server comes back", async () => {
+    const wrapper = await mountReady();
+    const cloud = useCloudStore();
+    cloud.classify("unreachable: connect to h:443 failed: refused");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="invites-retry"]').trigger("click");
+    await flushPromises();
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith("rdv_register", expect.anything());
+    expect(cloud.reachable).toBe(true);
+    expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(false);
+  });
+
+  it("the inbox says it could not ask, rather than 'no invites waiting'", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "cloud_status") {
+        return { logged_in: true, username: "me", enabled: true, force_tor: false, transport: "loopback" };
+      }
+      if (cmd === "rdv_invite_fetch") throw "unreachable: connect to h:443 failed: refused";
+      if (cmd === "rdv_register") return "mynode";
+      return undefined;
+    });
+    const wrapper = await mountReady();
+
+    expect(wrapper.find('[data-testid="invites-inbox-error"]').exists()).toBe(true);
+    // "No invites waiting" would read as "nobody invited you" — a different fact.
+    expect(wrapper.find('[data-testid="server-invites"]').text()).not.toContain("No invites waiting");
+  });
+
+  it("a failed inbox fetch is itself enough to gate the submits", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "cloud_status") {
+        return { logged_in: true, username: "me", enabled: true, force_tor: false, transport: "loopback" };
+      }
+      if (cmd === "rdv_invite_fetch") throw "unreachable: connect to h:443 failed: refused";
+      if (cmd === "rdv_register") return "mynode";
+      return undefined;
+    });
+    const wrapper = await mountReady();
+
+    // No extra request was needed to learn this: the mount fetch already ran.
+    expect(useCloudStore().reachable).toBe(false);
+    expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(true);
+  });
+
+  it("Tor gets its own wording — a slow first request is expected there", async () => {
+    statusForceTor = true;
+    const cloud = useCloudStore();
+    cloud.enabled = true;
+    cloud.loggedIn = true;
+    cloud.serverUrl = "https://x.onion";
+    const wrapper = mount(CloudInvitesPanel, { global: GLOBAL() });
+    await flushPromises();
+    cloud.classify("unreachable: connect to x.onion:443 timed out after 60s");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="invites-blocked-notice"]').text()).toContain("Over Tor");
+  });
+
+  it("a healthy cloud shows no blocked notice at all", async () => {
+    const wrapper = await mountReady();
+    expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="invites-inbox-error"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="leave-invite"]').exists()).toBe(true);
   });
 });
