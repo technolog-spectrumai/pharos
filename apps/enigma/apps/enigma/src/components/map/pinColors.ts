@@ -1,7 +1,7 @@
 // Pin/route colours offered in the map editor.
 //
-// A fixed categorical list owned by the feature (the kanban convention), NOT
-// the sketch model of user-reassignable slots: a colour here travels inside a
+// A fixed categorical list owned by the feature, NOT a set of user-reassignable
+// slots: a colour here travels inside a
 // share payload, so it must mean the same thing on the peer's map as on yours —
 // a per-device palette would make that meaningless.
 //

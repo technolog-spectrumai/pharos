@@ -8,7 +8,7 @@
 #
 # = Light, PLUS: contacts (DHT presence, nickname directory, direct room
 #   invites), 1:1 voice calls, and multi-device linking.
-# OUT: calendar, board, sketch, maps, mind, Enigma Cloud (all Pro).
+# OUT: calendar, maps, Enigma Cloud (all Pro).
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -55,30 +55,8 @@ peers:
   # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
   enabled: false                  # Pro only
 
-kanban:
-  enabled: false                  # Pro only
-  # Inert while enabled: false, but still required + validated by build.rs.
-  allow_reorder: true
-  default_columns: ["To Do", "In Progress", "Done"]
-  max_cards_per_board: 500
-  max_card_title_len: 200
-  max_card_description_len: 4000
-
-sketch:
-  enabled: false                  # Pro only
-  max_shapes_per_board: 1000
-  max_text_len: 200
-
 maps:
   enabled: false                  # Pro only
-
-mind:
-  enabled: false                  # Pro only
-  # Inert while enabled: false, but still required + validated by build.rs.
-  max_nodes: 500
-  max_edges: 1000
-  max_title_len: 200
-  max_content_len: 20000
 
 devices:
   allow_linking: true

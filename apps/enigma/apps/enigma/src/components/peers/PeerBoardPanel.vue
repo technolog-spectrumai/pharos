@@ -22,12 +22,12 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   OyaButton, OyaCard, OyaModal, OyaTextArea, OyaTextField,
   PEER_BOARD_CARDS_MAX, PEER_BOARD_COLUMNS_MAX, PEER_TEXT_MAX_LEN, PEER_TITLE_MAX_LEN,
-  bumpClock, emptyPeerBoard, getBuildConfig, livePeerCards, mergePeerBoards,
+  bumpClock, emptyPeerBoard, livePeerCards, mergePeerBoards,
   type PeerBoard, type PeerBoardCard, type PeerBoardColumn, type PeerGrant,
 } from "rakotis";
 import { useChatStore } from "../../stores/chat";
 import { usePeersStore } from "../../stores/peers";
-import { keyBetween, last, seedKeys } from "../kanban/kanbanModel";
+import { keyBetween, last, seedKeys, PEER_BOARD_DEFAULT_COLUMNS } from "./boardKeys";
 
 const props = defineProps<{ grant: PeerGrant; darkMode: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -66,8 +66,7 @@ const canEdit = computed(() => !!me.value && !!board.value);
 // ── load / poll ───────────────────────────────────────────────────────────────
 
 function seededBoard(): PeerBoard {
-  // Same default columns as the room board — one board convention in the app.
-  const titles = getBuildConfig().kanban_default_columns;
+  const titles = PEER_BOARD_DEFAULT_COLUMNS;
   return emptyPeerBoard(me.value, titles, seedKeys(titles.length));
 }
 
@@ -147,7 +146,7 @@ const columns = computed<PeerBoardColumn[]>(() =>
 );
 
 /** Card order: key then id — the exact comparator `mergePeerBoards` applies, so
- *  the list does not reshuffle the moment a remote frame merges. (kanbanModel's
+ *  the list does not reshuffle the moment a remote frame merges. (the group board's
  *  `compareCards` is deliberately NOT reused: it tiebreaks on `author`, which is
  *  an MLS device id there and a human display name here.) */
 function compareBoardCards(a: PeerBoardCard, b: PeerBoardCard): number {

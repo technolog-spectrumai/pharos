@@ -66,46 +66,12 @@ peers:
   # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
   enabled: true
 
-kanban:
-  # false = this build has no Kanban board: no Board tab, /board redirects, and
-  # stores/chat.ts never instantiates the sync composable. Default true ships the
-  # feature; flip to false to produce a Kanban-free binary.
-  enabled: true
-  # Within-column drag-to-reorder. false = promote/demote across columns only.
-  allow_reorder: true
-  # Seed columns a captain gets when first creating a board in a room.
-  default_columns: ["To Do", "In Progress", "Done"]
-  # Caps (wire-size + abuse safety); build.rs asserts each is > 0.
-  max_cards_per_board: 500
-  max_card_title_len: 200
-  max_card_description_len: 4000
-
-sketch:
-  # false = this build has no sketch board: no Sketch tab and /sketch redirects.
-  # The board is local and standalone — nothing is shared with room members.
-  enabled: true
-  # Caps enforced in the composable + validators (memory / render cost).
-  max_shapes_per_board: 1000
-  max_text_len: 200
-
 maps:
   # false = this build has no Maps: no Map tab, /map redirects, and every map_*
   # command fails fast with MAPS_DISABLED. Default true ships the feature.
   # The app NEVER fetches tiles itself — region packages are produced by the
   # standalone tools/map_packager and imported from the device (map.md Part II).
   enabled: true
-
-mind:
-  # false = this build has no Mind tab: /mind redirects. The mind map and its
-  # dump inbox are local and standalone — never shared with a peer and never
-  # synced to a linked device (ns `mind` is absent from every sync allow-list).
-  enabled: true
-  # Caps enforced in the composable + validators (memory / render cost).
-  # max_title_len also caps edge labels — labels are title-like text.
-  max_nodes: 500
-  max_edges: 1000
-  max_title_len: 200
-  max_content_len: 20000
 
 devices:
   # false = this build has no device linking: every devlink_* command fails

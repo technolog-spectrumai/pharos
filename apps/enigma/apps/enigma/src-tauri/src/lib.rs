@@ -47,7 +47,6 @@ mod vault;
 // Outbound Arti client plumbing, reused by the peer-hosted onion transport in
 // p2p_tor.rs (see the TODO(onion-p2p) note at the top of tor.rs).
 mod tor;
-mod fs_local;
 mod local_lock;
 // Maps: PMTiles tile serving from imported region blobs, region import/export,
 // P2P region sharing via file_xfer. The app never fetches tiles — packages
@@ -456,21 +455,7 @@ pub struct BuildConfigSummary {
     pub contacts_enabled: bool,
     pub calendar_enabled: bool,
     pub peers_enabled: bool,
-    pub kanban_enabled: bool,
-    pub kanban_allow_reorder: bool,
-    pub kanban_default_columns: Vec<&'static str>,
-    pub kanban_max_cards_per_board: u32,
-    pub kanban_max_card_title_len: u32,
-    pub kanban_max_card_description_len: u32,
-    pub sketch_enabled: bool,
-    pub sketch_max_shapes_per_board: u32,
-    pub sketch_max_text_len: u32,
     pub maps_enabled: bool,
-    pub mind_enabled: bool,
-    pub mind_max_nodes: u32,
-    pub mind_max_edges: u32,
-    pub mind_max_title_len: u32,
-    pub mind_max_content_len: u32,
     pub devices_allow_linking: bool,
     pub use_tor_default: bool,
     pub stable_onion_default: bool,
@@ -491,8 +476,8 @@ pub struct BuildConfigSummary {
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
     use build_config::{
-        app, calendar, calls, cloud, contacts, devices, features, kanban, maps, mind, p2p, peers,
-        settings as s, sketch,
+        app, calendar, calls, cloud, contacts, devices, features, maps, p2p, peers,
+        settings as s,
     };
     BuildConfigSummary {
         app_name: app::NAME,
@@ -504,21 +489,7 @@ fn app_get_build_config() -> BuildConfigSummary {
         contacts_enabled: contacts::ENABLED,
         calendar_enabled: calendar::ENABLED,
         peers_enabled: peers::ENABLED,
-        kanban_enabled: kanban::ENABLED,
-        kanban_allow_reorder: kanban::ALLOW_REORDER,
-        kanban_default_columns: kanban::DEFAULT_COLUMNS.to_vec(),
-        kanban_max_cards_per_board: kanban::MAX_CARDS_PER_BOARD,
-        kanban_max_card_title_len: kanban::MAX_CARD_TITLE_LEN,
-        kanban_max_card_description_len: kanban::MAX_CARD_DESCRIPTION_LEN,
-        sketch_enabled: sketch::ENABLED,
-        sketch_max_shapes_per_board: sketch::MAX_SHAPES_PER_BOARD,
-        sketch_max_text_len: sketch::MAX_TEXT_LEN,
         maps_enabled: maps::ENABLED,
-        mind_enabled: mind::ENABLED,
-        mind_max_nodes: mind::MAX_NODES,
-        mind_max_edges: mind::MAX_EDGES,
-        mind_max_title_len: mind::MAX_TITLE_LEN,
-        mind_max_content_len: mind::MAX_CONTENT_LEN,
         devices_allow_linking: devices::ALLOW_LINKING,
         use_tor_default: features::USE_TOR_DEFAULT,
         stable_onion_default: features::STABLE_ONION_DEFAULT,
@@ -1442,8 +1413,6 @@ pub fn run() {
             beacon::beacon_publish_route,
             beacon::beacon_delete_zone,
             beacon::beacon_delete_route,
-            fs_local::fs_write_text_file,
-            fs_local::fs_write_base64_file,
             local_lock::local_lock_file,
             local_lock::local_unlock_file,
             local_lock::local_rotate_file,

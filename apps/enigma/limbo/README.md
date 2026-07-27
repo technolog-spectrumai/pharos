@@ -7,6 +7,26 @@ outside every `src-tauri` crate.
 
 Parked here, restorable later:
 
+- **The Notes tab and its three workspaces** (2026-07-27) — parked together for
+  lack of maintenance capacity, not because anything was wrong with them:
+  - `frontend/kanban/` — the **group Kanban board**, one per room, columns owned
+    by the captain and cards reconciled last-write-wins over the MLS sync seam.
+  - `frontend/sketch/` — the **Sketch board**, a standalone local SVG/PNG editor
+    (its earlier realtime-collab engine is parked separately, below).
+  - `frontend/mind/` — the **Mind map**, a device-local cytoscape graph with a
+    Trix rich-text node editor and a Topics browser, plus its design doc
+    `mind.md`.
+  - `frontend/notes-shell/` — `EnigmaNotesView.vue`, the sub-tab shell that
+    hosted the three. Nothing left to host once they went.
+  - `rust/` — `fs_local.rs`, the two disk-write commands the Sketch and Mind
+    export paths used. The **only** Rust these features ever had.
+
+  Each directory carries a `NOTES.md` with its design and a step-by-step restore
+  checklist, plus the exact i18n blocks (`i18n/*.ts.snippet`) that were lifted
+  out of `en.ts`/`pl.ts`. Their build-config sections, feature flags, routes, nav
+  entries and npm dependencies (`cytoscape`, `trix`) were removed from the app —
+  the checklists say precisely what to put back.
+
 - **Sketch realtime collaboration** (2026-07) — `frontend/sketch-collab/`. The Sketch
   board shipped as a shared per-room whiteboard (LWW-element-set CRDT + hybrid logical
   clock, live stroke streaming, snapshots for late joiners, all over the MLS `onSync`/

@@ -191,9 +191,10 @@ describe("sync allow-list", () => {
     expect(isSyncableKv("map:regions", "default", "")).toBe(false);
     expect(isSyncableKv("cloud:auth", "https://x", "token")).toBe(false);
     expect(isSyncableKv("devices", "default", "link")).toBe(false);
+    // The allow-list is closed: an unlisted namespace never syncs.
     expect(isSyncableKv("kanban", "default", "room-1")).toBe(false);
     expect(isSyncableKv("chat:log", "room-1", "index")).toBe(false);
-    // The mind map is local-only by design: never device-synced.
+    // Same for any other unlisted namespace.
     expect(isSyncableKv("mind", "default", "")).toBe(false);
     expect(isSyncableKv("mind", "default", "anything")).toBe(false);
     // The allowed-files list replicates via dlink_files (semantic merge), and

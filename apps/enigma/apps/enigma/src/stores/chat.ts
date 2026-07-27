@@ -15,7 +15,6 @@ import { useFileShare } from "../components/chat/useFileShare";
 import { useVoxCall } from "../components/vox/useVoxCall";
 import { useRoomInvites } from "../components/contacts/useRoomInvites";
 import { useMeetings } from "../components/calendar/useMeetings";
-import { useKanban } from "../components/kanban/useKanban";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
@@ -29,7 +28,8 @@ function createChatStore() {
   // must be caught wherever the user is, and room-peer call offers ride this
   // channel's MLS group (onSync/sendSync seam) like file offers.
   // Gated by the compile-time build flag (pland.md: Plus and up) — the same
-  // pattern as kanban below. A flag-off build never instantiates the composable,
+  // pattern as the other gated composables. A flag-off build never instantiates
+  // it,
   // so it registers no sync handler at all: a call offer from a higher-edition
   // peer is an unhandled sync type and is dropped, not merely hidden.
   const callsEnabled = getBuildConfig().calls_enabled;
@@ -42,13 +42,6 @@ function createChatStore() {
   // land (Calendar nav dot) and the reminder tick runs regardless of the view.
   const calendarEnabled = getBuildConfig().calendar_enabled;
   const meetings = calendarEnabled ? useMeetings(p2p) : null;
-  // Group Kanban board — one per room, rides the same seam; app-lifetime so
-  // remote column/card changes land (Board nav dot) regardless of the view. Gated
-  // by the compile-time build flag: a flag-off build never instantiates it, so no
-  // sync handler / watchers register at all (getBuildConfig is final by now —
-  // initBuildConfig is awaited in main.ts before the app mounts / this runs).
-  const kanbanEnabled = getBuildConfig().kanban_enabled;
-  const kanban = kanbanEnabled ? useKanban(p2p) : null;
   // Linked-device sync — owns the hidden devlink channel (headless second
   // useChatChannel instance) for registry/kv/history convergence with the
   // user's other devices. Flag-off builds never instantiate it.
@@ -99,10 +92,8 @@ function createChatStore() {
   }
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     await p2p.applyRuntimeProfile(runtime);
-    // The profile switch swapped the kv data dir — re-read the meeting list and
-    // the open room's board.
+    // The profile switch swapped the kv data dir — re-read the meeting list.
     if (meetings) await meetings.reload();
-    if (kanban) await kanban.reload();
     if (deviceSync) {
       deviceSync.stop();
       await deviceSync.start();
@@ -120,7 +111,7 @@ function createChatStore() {
 
   return {
     p2p, fileShare, vox, callsEnabled, invites, contactsEnabled,
-    meetings, calendarEnabled, kanban, kanbanEnabled,
+    meetings, calendarEnabled,
     deviceSync, devicesEnabled, peerSync, peersEnabled, setPeerSources, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };

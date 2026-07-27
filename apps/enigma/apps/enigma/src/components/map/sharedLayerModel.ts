@@ -9,7 +9,7 @@
 //
 // Lives app-side rather than in rakotis because it needs the timeline's
 // `Message` shape (rakotis' mapModel cannot import useChatChannel — that would
-// be a cycle), matching the mindModel/kanbanModel convention.
+// be a cycle) — the pure-model convention used across the app.
 
 import {
   coveredByAny,

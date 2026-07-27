@@ -324,7 +324,7 @@ export function validatePeerCard(x: unknown): PeerCard | null {
 export interface PeerBoardColumn {
   id: string;
   title: string;
-  /** Fractional index, same scheme as the room board (kanbanModel.keyBetween). */
+  /** Fractional index (LexoRank-lite) — see peers/boardKeys.ts `keyBetween`. */
   key: string;
 }
 

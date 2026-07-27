@@ -4,7 +4,6 @@ import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
 import EnigmaCallsView from "../views/EnigmaCallsView.vue";
 import EnigmaCalendarView from "../views/EnigmaCalendarView.vue";
-import EnigmaNotesView from "../views/EnigmaNotesView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 import EnigmaMapView from "../views/EnigmaMapView.vue";
@@ -34,25 +33,8 @@ const router = createRouter({
       name: "calendar",
       beforeEnter: () => getBuildConfig().calendar_enabled || "/chat",
     },
-    // Notes — one tab hosting the Board (kanban), Sketch, and Mind workspaces as
-    // sub-tabs (EnigmaNotesView). `beforeEnter` runs at navigation time (after
-    // initBuildConfig resolved), so it reads the real flags; when all three are
-    // off the whole tab redirects to chat. (A top-level `if` in this table would
-    // run at module-eval time, before initBuildConfig — too early.)
-    {
-      path: "/notes",
-      component: EnigmaNotesView,
-      name: "notes",
-      beforeEnter: () => {
-        const c = getBuildConfig();
-        return c.kanban_enabled || c.sketch_enabled || c.mind_enabled || "/chat";
-      },
-    },
-    // Legacy per-feature paths now open the matching Notes sub-tab.
-    { path: "/board", redirect: "/notes?tab=board" },
-    { path: "/sketch", redirect: "/notes?tab=sketch" },
-    { path: "/mind", redirect: "/notes?tab=mind" },
-    // Maps (MapLibre + PMTiles) — same compile-time gate pattern as Notes.
+    // Maps (MapLibre + PMTiles) — compile-time gate, same beforeEnter pattern
+    // as the tabs above (a top-level `if` would run before initBuildConfig).
     {
       path: "/map",
       component: EnigmaMapView,

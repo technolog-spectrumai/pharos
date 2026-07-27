@@ -6,9 +6,8 @@
 # pland.md; the per-key semantics are documented in ../build_config.yaml, which
 # stays the annotated reference copy.
 #
-# = Plus, PLUS: calendar (meetings + polls), Kanban board, sketch board, maps,
-#   the Mind map, and the Enigma Cloud client for the user's OWN self-hosted
-#   server.
+# = Plus, PLUS: calendar (meetings + polls), maps, and the Enigma Cloud client
+#   for the user's OWN self-hosted server.
 #
 # Pro is the only edition shipping cloud.allow_connections: true — its users are
 # the ones who deliberately stood up their own infrastructure. The client still
@@ -59,28 +58,8 @@ peers:
   # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
   enabled: true
 
-kanban:
-  enabled: true
-  allow_reorder: true
-  default_columns: ["To Do", "In Progress", "Done"]
-  max_cards_per_board: 500
-  max_card_title_len: 200
-  max_card_description_len: 4000
-
-sketch:
-  enabled: true
-  max_shapes_per_board: 1000
-  max_text_len: 200
-
 maps:
   enabled: true
-
-mind:
-  enabled: true
-  max_nodes: 500
-  max_edges: 1000
-  max_title_len: 200
-  max_content_len: 20000
 
 devices:
   allow_linking: true

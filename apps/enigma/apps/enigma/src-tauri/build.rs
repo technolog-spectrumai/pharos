@@ -28,10 +28,7 @@ struct RawConfig {
     contacts: ContactsSection,
     calendar: CalendarSection,
     peers: PeersSection,
-    kanban: KanbanSection,
-    sketch: SketchSection,
     maps: MapsSection,
-    mind: MindSection,
     devices: DevicesSection,
     features: FeaturesSection,
     settings: SettingsSection,
@@ -101,37 +98,8 @@ struct PeersSection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct KanbanSection {
-    enabled: bool,
-    allow_reorder: bool,
-    default_columns: Vec<String>,
-    max_cards_per_board: u32,
-    max_card_title_len: u32,
-    max_card_description_len: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SketchSection {
-    enabled: bool,
-    max_shapes_per_board: u32,
-    max_text_len: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct MapsSection {
     enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MindSection {
-    enabled: bool,
-    max_nodes: u32,
-    max_edges: u32,
-    max_title_len: u32,
-    max_content_len: u32,
 }
 
 #[derive(Deserialize)]
@@ -281,48 +249,6 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         }
     }
 
-    // kanban.
-    let kb = &cfg.kanban;
-    if kb.default_columns.is_empty() {
-        err("kanban.default_columns", "must list at least one column".into());
-    }
-    if kb.default_columns.iter().any(|c| c.trim().is_empty()) {
-        err("kanban.default_columns", "column names must not be empty".into());
-    }
-    for (path, v) in [
-        ("kanban.max_cards_per_board", kb.max_cards_per_board),
-        ("kanban.max_card_title_len", kb.max_card_title_len),
-        ("kanban.max_card_description_len", kb.max_card_description_len),
-    ] {
-        if v == 0 {
-            err(path, format!("{v} must be > 0"));
-        }
-    }
-
-    // sketch.
-    let sk = &cfg.sketch;
-    for (path, v) in [
-        ("sketch.max_shapes_per_board", sk.max_shapes_per_board),
-        ("sketch.max_text_len", sk.max_text_len),
-    ] {
-        if v == 0 {
-            err(path, format!("{v} must be > 0"));
-        }
-    }
-
-    // mind.
-    let mn = &cfg.mind;
-    for (path, v) in [
-        ("mind.max_nodes", mn.max_nodes),
-        ("mind.max_edges", mn.max_edges),
-        ("mind.max_title_len", mn.max_title_len),
-        ("mind.max_content_len", mn.max_content_len),
-    ] {
-        if v == 0 {
-            err(path, format!("{v} must be > 0"));
-        }
-    }
-
     // network.
     let net = &cfg.network;
     if net.onion_port == 0 {
@@ -448,31 +374,8 @@ pub mod peers {{
     pub const ENABLED: bool = {peers_enabled};
 }}
 
-pub mod kanban {{
-    pub const ENABLED: bool = {kanban_enabled};
-    pub const ALLOW_REORDER: bool = {kanban_allow_reorder};
-    pub const DEFAULT_COLUMNS: &[&str] = &[{kanban_default_columns}];
-    pub const MAX_CARDS_PER_BOARD: u32 = {kanban_max_cards};
-    pub const MAX_CARD_TITLE_LEN: u32 = {kanban_max_title};
-    pub const MAX_CARD_DESCRIPTION_LEN: u32 = {kanban_max_desc};
-}}
-
-pub mod sketch {{
-    pub const ENABLED: bool = {sketch_enabled};
-    pub const MAX_SHAPES_PER_BOARD: u32 = {sketch_max_shapes};
-    pub const MAX_TEXT_LEN: u32 = {sketch_max_text};
-}}
-
 pub mod maps {{
     pub const ENABLED: bool = {maps_enabled};
-}}
-
-pub mod mind {{
-    pub const ENABLED: bool = {mind_enabled};
-    pub const MAX_NODES: u32 = {mind_max_nodes};
-    pub const MAX_EDGES: u32 = {mind_max_edges};
-    pub const MAX_TITLE_LEN: u32 = {mind_max_title};
-    pub const MAX_CONTENT_LEN: u32 = {mind_max_content};
 }}
 
 pub mod devices {{
@@ -565,27 +468,7 @@ const _: () = assert!(
         contacts_enabled = cfg.contacts.enabled,
         calendar_enabled = cfg.calendar.enabled,
         peers_enabled = cfg.peers.enabled,
-        kanban_enabled = cfg.kanban.enabled,
-        kanban_allow_reorder = cfg.kanban.allow_reorder,
-        kanban_default_columns = cfg
-            .kanban
-            .default_columns
-            .iter()
-            .map(|c| rust_str(c))
-            .collect::<Vec<_>>()
-            .join(", "),
-        kanban_max_cards = cfg.kanban.max_cards_per_board,
-        kanban_max_title = cfg.kanban.max_card_title_len,
-        kanban_max_desc = cfg.kanban.max_card_description_len,
-        sketch_enabled = cfg.sketch.enabled,
-        sketch_max_shapes = cfg.sketch.max_shapes_per_board,
-        sketch_max_text = cfg.sketch.max_text_len,
         maps_enabled = cfg.maps.enabled,
-        mind_enabled = cfg.mind.enabled,
-        mind_max_nodes = cfg.mind.max_nodes,
-        mind_max_edges = cfg.mind.max_edges,
-        mind_max_title = cfg.mind.max_title_len,
-        mind_max_content = cfg.mind.max_content_len,
         devices_allow_linking = cfg.devices.allow_linking,
     );
     o

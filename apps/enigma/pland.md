@@ -30,8 +30,8 @@ DHT room codes · P2P file transfer · per-file local locking + the notes editor
 the encrypted-at-rest vault (passphrase gate, panic code, idle auto-lock,
 airplane mode) · profile + settings + i18n.
 
-**Out:** Contacts, voice calls, calendar, board, sketch, maps, mind, Enigma Cloud,
-multi-device linking.
+**Out:** Contacts, voice calls, calendar, maps, Enigma Cloud, multi-device
+linking.
 
 **Who it's for:** the user who wants one thing to work and to be able to explain
 what the app does in a sentence. Also the smallest binary and the smallest
@@ -47,7 +47,7 @@ invites with Accept/Decline) · **1:1 voice calls** (`vox`, riding the room's ML
 group) · **multi-device linking** (the user's own devices converge over pure
 P2P — no third party).
 
-**Out:** calendar, board, sketch, maps, mind, Enigma Cloud.
+**Out:** calendar, maps, Enigma Cloud.
 
 **Who it's for:** the everyday user. Device linking lands here rather than in
 Light because "my phone and my laptop" is a Plus-shaped expectation, and because
@@ -59,9 +59,9 @@ Everything. Plus, extended with the shared-workspace features and the optional
 self-hosted server client.
 
 **Adds:** **Peer sync** (scoped, revocable person-to-person links — see
-[peer.md](peer.md)) · **Calendar** (meetings + scheduling polls) · **Kanban board** ·
-**Sketch board** · **Maps** (offline region packages) · **Enigma Cloud** (client
-for the user's *own* self-hosted server).
+[peer.md](peer.md)) · **Calendar** (meetings + scheduling polls) · **Maps**
+(offline region packages) · **Enigma Cloud** (client for the user's *own*
+self-hosted server).
 
 **Who it's for:** teams and organisations running Enigma as their working
 surface, and the only edition where `cloud.allow_connections` defaults to true —
@@ -83,12 +83,15 @@ the one edition whose users have deliberately stood up their own infrastructure.
 | **Voice calls** | ❌ | ✅ | ✅ | `calls.enabled` |
 | Multi-device linking | ❌ | ✅ | ✅ | `devices.allow_linking` |
 | **Calendar** (meetings + polls) | ❌ | ❌ | ✅ | `calendar.enabled` |
-| **Kanban board** | ❌ | ❌ | ✅ | `kanban.enabled` |
-| **Sketch board** | ❌ | ❌ | ✅ | `sketch.enabled` |
-| **Mind map** (graph + topics browser) | ❌ | ❌ | ✅ | `mind.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
 | **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
 | **Enigma Cloud** | ❌ | ❌ | ✅ | `cloud.allow_connections` |
+
+The Kanban board, Sketch board and Mind map were Pro features until 2026-07-27,
+when they were **parked** (no maintenance capacity) — code, tests and docs kept
+under `limbo/frontend/{kanban,sketch,mind}/` with restore checklists. Their
+build-config sections and flags are gone with them; restoring a feature re-adds
+its section, so the matrix would gain its row back.
 
 DHT nuance: the DHT toggle covers three things — ticketless room joins by short
 room code (chat-level, in every edition), plus peer presence and the nickname
@@ -155,8 +158,8 @@ calendar}::ENABLED`.
 
 ## 5. How each new gate behaves
 
-The three new flags follow the established `kanban`/`sketch`/`maps` precedent
-exactly — nothing novel, three layers each:
+The three new flags follow the established `maps` precedent exactly — nothing
+novel, three layers each:
 
 | Layer | `calls.enabled: false` | `contacts.enabled: false` | `calendar.enabled: false` |
 |---|---|---|---|

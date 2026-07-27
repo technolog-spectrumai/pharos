@@ -91,37 +91,10 @@ export interface BuildConfig {
    *  registered, usePeerSync is never instantiated, and every peer_* command
    *  errors with PEERS_DISABLED. (peer.md; pland.md — Pro only.) */
   peers_enabled: boolean;
-  /** false = this build has no Kanban board: no Board tab, /board redirects,
-   *  and stores/chat.ts never instantiates the sync composable. */
-  kanban_enabled: boolean;
-  /** false = promote/demote across columns only (no within-column drag-reorder). */
-  kanban_allow_reorder: boolean;
-  /** Columns a captain gets when first creating a board in a room. */
-  kanban_default_columns: string[];
-  /** Board/card caps enforced in the composable + card form (wire-size safety). */
-  kanban_max_cards_per_board: number;
-  kanban_max_card_title_len: number;
-  kanban_max_card_description_len: number;
-  /** false = this build has no sketch board: no Sketch tab and /sketch redirects.
-   *  The board is local and standalone — nothing is shared with room members. */
-  sketch_enabled: boolean;
-  /** Board caps enforced in the composable + validators (memory / render cost). */
-  sketch_max_shapes_per_board: number;
-  sketch_max_text_len: number;
   /** false = this build has no Maps: no Map tab, /map redirects, map_* commands
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
   maps_enabled: boolean;
-  /** false = this build has no Mind tab: /mind redirects. The mind map is
-   *  local-only by construction: ns `mind` is deliberately absent from
-   *  DEVLINK_SYNC_KV and PEER_SCOPE_KV. */
-  mind_enabled: boolean;
-  /** Mind caps enforced in the composable + validators (memory / render cost).
-   *  max_title_len also caps edge labels. */
-  mind_max_nodes: number;
-  mind_max_edges: number;
-  mind_max_title_len: number;
-  mind_max_content_len: number;
   /** false = this build has no device linking: devlink_* commands error with
    *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
   devices_allow_linking: boolean;
@@ -154,21 +127,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   contacts_enabled: true,
   calendar_enabled: true,
   peers_enabled: true,
-  kanban_enabled: true,
-  kanban_allow_reorder: true,
-  kanban_default_columns: ["To Do", "In Progress", "Done"],
-  kanban_max_cards_per_board: 500,
-  kanban_max_card_title_len: 200,
-  kanban_max_card_description_len: 4000,
-  sketch_enabled: true,
-  sketch_max_shapes_per_board: 1000,
-  sketch_max_text_len: 200,
   maps_enabled: true,
-  mind_enabled: true,
-  mind_max_nodes: 500,
-  mind_max_edges: 1000,
-  mind_max_title_len: 200,
-  mind_max_content_len: 20000,
   devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,
@@ -971,22 +930,6 @@ export async function addNoteRecent(rec: NoteRecentRecord): Promise<void> {
 /** Drop a note from the recents list (does not touch the file on disk). */
 export async function removeNoteRecent(path: string): Promise<void> {
   await saveNoteRecents((await getNoteRecents()).filter((r) => r.path !== path));
-}
-
-/** Write a UTF-8 text file to a path the user picked in the native save dialog
- *  (`fs_local::fs_write_text_file`). Plain export path — unlike `writeLocalNote`
- *  it carries no locked-file or notes-recents semantics. Tauri-only. */
-export async function writeTextFileToDisk(path: string, contents: string): Promise<void> {
-  if (!isTauri()) throw new Error("Saving to disk is only available in the desktop app.");
-  await invoke("fs_write_text_file", { path, contents });
-}
-
-/** Write binary content, supplied as base64, to a user-chosen path
- *  (`fs_local::fs_write_base64_file`). Base64 because the callers are canvas data
- *  URLs, which already carry their payload that way. Tauri-only. */
-export async function writeBase64FileToDisk(path: string, b64: string): Promise<void> {
-  if (!isTauri()) throw new Error("Saving to disk is only available in the desktop app.");
-  await invoke("fs_write_base64_file", { path, b64 });
 }
 
 // ── Local-file key-rotation reminder interval ─────────────────────────────────

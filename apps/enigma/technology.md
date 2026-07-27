@@ -190,11 +190,9 @@ compile-time `build_config.yaml` codegen ([build.md](build.md)).
 `qrcode` (generate ticket/NodeId QR), `html5-qrcode` (scan), `nanoid` (message ids),
 `maplibre-gl` 5 (Map tab canvas; WebGL), `protomaps-themes-base` 4 (basemap style
 layers as code — glyphs/sprites are bundled under `public/map/`, so styling makes
-no CDN contact), `ace-builds` (Files → Local notes editor, bundled offline — §13),
-`cytoscape` 3.30 (Mind tab graph canvas, core only — no layout/interaction
-plugins), `trix` 2 (Mind node notes rich-text editor; bundled JS + CSS, every
-toolbar icon an inline `data:` SVG — no CDN, no fetches), and the in-repo
-`rakotis` workspace package.
+no CDN contact), `ace-builds` (Files → Local notes editor, bundled offline — §13), and the
+in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
+map when it was parked — see `limbo/`.)
 
 **Dormant / carried from the earlier multi-app codebase (declared but unused by this
 app):** `leaflet` (+ `@types`). Dead weight worth pruning.
@@ -622,24 +620,12 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   `navigator.geolocation` and never asks the device where it is (an e2e test
   traps the API and fails if anything ever does); a shared location is a point
   the user chose, which may or may not be where they are.
-- **Mind** (`EnigmaMindView` / `MindMapPanel`, `MindTopicsPanel`) — a private
-  mind map, strictly this device's: sealed kv (ns `mind`), deliberately absent
-  from the device-link and peer-sync allow-lists (negative pinning tests), and
-  no `mind_*` wire messages exist. One directed graph on a cytoscape canvas:
-  note nodes and hexagonal **topic** hubs, labeled directed edges with
-  two-click connect + a rubber-band ghost, endpoint **reconnect** handles on
-  the selected edge, and collapse-a-branch (double-tap / Space / ⊖ chip;
-  hidden = unreachable except through a collapsed frontier, so cross-linked
-  topics never punch holes in each other). All node text lives in ONE edit
-  modal (`MindNodeEditModal`, opened from the ✎ chip / inspector / F2 / node
-  creation): title, kind, and content as Trix rich text or plain text,
-  buffered drafts, Save = one undo step, Discard = nothing happened. The
-  Topics sub-tab browses topic hubs — a read-only details modal (description
-  through read-only Trix, linked nodes either direction) with "add note",
-  which creates a note wired note → topic and hands it to the editor.
-  Autosaved (debounced), whole-doc undo/redo, breadthfirst auto-arrange, JSON
-  export/import (validated, replace-after-confirm, one Undo restores).
-  Compile-time gated (`mind.enabled`).
+- **Parked (2026-07-27)** — the **Board** (group Kanban), **Sketch board** and
+  **Mind map** were the three sub-tabs of a Notes tab that no longer exists. No
+  maintenance capacity; the code, tests, i18n and design docs are kept under
+  `limbo/frontend/{kanban,sketch,mind}/`, each with a restore checklist, and
+  their build-config sections were removed with them. Nothing in the shipped
+  app references them.
 - **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; "My identity" NodeId QR;
   connection timeout; max file size; meeting reminder; DHT discovery + cadences +
@@ -887,47 +873,12 @@ Settings → "Clear all data".
   layout). The synced FILES themselves land in `<profile_dir>/synced/` as
   ordinary plaintext: they are the user's own files, arriving over file_xfer and
   BLAKE3-verified on the way in (the same documented exception as map blobs and
-  exported sketches — see §8).
+  exported files — see §8).
 - **Map shares add NO at-rest surface.** What a room shared lives only in the
   already-sealed `chat:log` (as the map card it arrived as); the shared map
   layer is derived from that timeline at render time, never stored again. The
   `map:*` namespaces grow only when the user explicitly saves a pin/route, and
   a shared LOCATION is never written there at all unless adopted.
-- **Mind data:** the mind-map document (ns `mind`, key `""`) is sealed kv,
-  device-local by construction (absent from `DEVLINK_SYNC_KV` and
-  `PEER_SCOPE_KV`; pinned by negative tests). Node content
-  is Trix HTML treated as an opaque capped string, scrubbed at validation
-  (`scrubContentHtml`): images/attachments/scripts stripped and hrefs allowlisted
-  to http(s)/mailto, because the webview has no CSP and a smuggled
-  `<img src="https://…">` would otherwise fetch — the editor additionally blocks
-  attachments and scrubs rich pastes before Trix parses them. Content is only
-  ever rendered through Trix's parser, never `v-html`.
-
-Notes: the first profile to run setup inherited the previously-global kvstore and
-iroh key; other profiles start fresh (accepted pre-release). Values decrypted for
-the webview cross into JS and can't be zeroized there — accepted.
-
----
-
-## 14. Conventions (naming & palette)
-
-### Naming
-
-Two naming schemes coexist by design — know which applies:
-
-| Scheme | Used for | Examples |
-| --- | --- | --- |
-| **Functional-descriptive** | the app, its lib, and API surface | `enigma`, `enigma_lib`, `rotor-core`/`rotor-py`/`rotor-wasm`, commands `vault_*`/`kv_*`/`mls_*` |
-| **Thematic codename** | reusable libraries & subsystems | `cryptorotor` (crypto workspace), `gervasius` + `protasius` (at-rest crypto pair), `rakotis` (UI/chat package), `Oya*` (UI primitives) |
-
-`gervasius` & `protasius` are a deliberate paired hagiography (at-rest **primitives**
-vs the **store** built on them). Don't "normalise" the codenames away.
-
-**Rust crates.** Directory + `[lib]` name = `snake_case`; Cargo `[package].name` =
-`kebab-case`. So `cryptorotor/rotor_core/` → package `rotor-core`. The Tauri app is
-bin `enigma` + lib `enigma_lib` (the `_lib` suffix avoids a Windows bin/lib clash).
-
-**Vue components.**
 - Reusable primitives live in `packages/rakotis/src/components/primitives/` with the
   **`Oya`** prefix, PascalCase (`OyaButton`, `OyaModal`, `OyaTextField` … zero exceptions).
 - App components are PascalCase, **no** prefix, grouped by feature folder
@@ -953,9 +904,9 @@ single event multiplexes all rooms, the payload carries the room id), plus
 `devlink://request|paired|progress|done|error`.
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
-Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `kanban`,
-`map`, `contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `cloud`,
-`local`, `devices`. Interpolation uses single-brace named
+Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `map`,
+`contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `cloud`, `local`,
+`devices`. Interpolation uses single-brace named
 tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
@@ -1042,7 +993,6 @@ instead of hardcoding.
 | Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |
-| Mind kill switch + caps | `build_config.yaml` `mind.enabled`, `mind.max_nodes` 500, `max_edges` 1000, `max_title_len` 200 (also edge labels), `max_content_len` 20000 (Trix HTML) | Compile-time: `false` builds without the Mind tab (`/mind` redirects). Caps enforced in `useMind` (creation refused at capacity) and `mindModel` validators (load/import truncate). No Rust surface — the feature is pure frontend over sealed kv |
 | Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Files→Devices tab (pairing AND per-file sync) and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
 | Devlink pairing window / resync cadence | kv `p2p:settings` / `devlink_pair_window_secs`, `devlink_resync_secs` | Window bounds how long a pairing QR's one-time secret stays redeemable (default 600 s, 60–3600; read Rust-side in `device_link.rs`); resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list. Pairing dials use `connect_timeout_secs` like every other connect deadline |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |

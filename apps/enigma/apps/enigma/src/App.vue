@@ -180,15 +180,6 @@ const contactsEnabled = chatStore.contactsEnabled;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.
 const meetings = chatStore.meetings;
 const calendarEnabled = chatStore.calendarEnabled;
-// Notes tab hosts Board (kanban), Sketch, and Mind as sub-tabs. The kanban ref
-// still drives the attention dot — remote board changes awaiting a look — which
-// now lifts to the Notes tab. Each sub-feature keeps its own compile-time gate;
-// the Notes tab shows whenever any of the three is enabled.
-const kanban = chatStore.kanban;
-const kanbanEnabled = chatStore.kanbanEnabled;
-const sketchEnabled = getBuildConfig().sketch_enabled;
-const mindEnabled = getBuildConfig().mind_enabled;
-const notesEnabled = kanbanEnabled || sketchEnabled || mindEnabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
 // Cloud tab (compile-time gated) — the tab is always visible in a cloud-capable
@@ -311,15 +302,6 @@ onBeforeUnmount(() => {
               :title="$t('calendar.attentionTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="notesEnabled" to="/notes" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.notes')">
-            <font-awesome-icon icon="note-sticky" />
-            {{ $t('nav.notes') }}
-            <span
-              v-if="(kanban?.attentionCount.value ?? 0) > 0"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('kanban.attentionTitle')"
-            />
-          </RouterLink>
           <RouterLink v-if="mapsEnabled" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
             <font-awesome-icon icon="map" />
             {{ $t('nav.map') }}
@@ -409,14 +391,6 @@ onBeforeUnmount(() => {
             {{ $t('nav.calendar') }}
             <span
               v-if="(meetings?.attentionCount.value ?? 0) > 0"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
-          </RouterLink>
-          <RouterLink v-if="notesEnabled" to="/notes" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="note-sticky" class="w-4 text-center" />
-            {{ $t('nav.notes') }}
-            <span
-              v-if="(kanban?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>

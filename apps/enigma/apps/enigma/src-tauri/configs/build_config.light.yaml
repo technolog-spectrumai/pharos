@@ -8,8 +8,7 @@
 #
 # IN : P2P MLS chat, QR pairing, Tor, DHT room codes, file transfer, local
 #      locked files + notes, vault / panic code / idle lock / airplane mode.
-# OUT: contacts, voice calls, device linking, calendar, board, sketch, maps,
-#      mind, Enigma Cloud.
+# OUT: contacts, voice calls, device linking, calendar, maps, Enigma Cloud.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -56,30 +55,8 @@ peers:
   # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
   enabled: false                  # Pro only
 
-kanban:
-  enabled: false                  # Pro only
-  # Inert while enabled: false, but still required + validated by build.rs.
-  allow_reorder: true
-  default_columns: ["To Do", "In Progress", "Done"]
-  max_cards_per_board: 500
-  max_card_title_len: 200
-  max_card_description_len: 4000
-
-sketch:
-  enabled: false                  # Pro only
-  max_shapes_per_board: 1000
-  max_text_len: 200
-
 maps:
   enabled: false                  # Pro only
-
-mind:
-  enabled: false                  # Pro only
-  # Inert while enabled: false, but still required + validated by build.rs.
-  max_nodes: 500
-  max_edges: 1000
-  max_title_len: 200
-  max_content_len: 20000
 
 devices:
   allow_linking: false            # Plus and up — Light is single-device
