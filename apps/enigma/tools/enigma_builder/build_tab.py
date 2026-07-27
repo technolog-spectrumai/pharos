@@ -16,6 +16,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -28,6 +29,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import appdata
+import bundles
 import icons as icons_mod
 import identity as identity_mod
 import paths
@@ -50,6 +53,7 @@ class Step:
     #: Runs on this step's success, before the next step starts. Returns a log
     #: line, or None for nothing to say.
     after: Callable[[], str | None] | None = None
+
 
 GIB = 1024**3
 # build.md:419 — the release link step is where a full target/ runs out of
@@ -129,7 +133,7 @@ class BuildTab(QWidget):
         # the later controls exist; the handler stays inert until then.
         self._ready = False
         self._blocking_errors = 0
-        self._identity_written = False
+        self._conf_snapshot = ""
         self._started_at = 0.0
         self._on_idle = None
         self._steps: list[Step] = []
@@ -147,6 +151,7 @@ class BuildTab(QWidget):
         layout.addWidget(self._build_options_card())
         layout.addWidget(self._build_environment_card())
         layout.addWidget(self._build_disk_card())
+        layout.addWidget(self._build_appdata_card())
         layout.addWidget(self._build_artifacts_card())
         layout.addStretch()
 
@@ -254,12 +259,27 @@ class BuildTab(QWidget):
         layout.addLayout(platform_row)
         layout.addWidget(
             widgets.hint(
-                "Desktop produces .deb / .AppImage / .rpm. Android produces an "
-                "APK (plus an AAB on release) — release outputs are unsigned "
-                "and need your own keystore.",
+                "Desktop produces a package per distribution chosen below. "
+                "Android produces an APK (plus an AAB on release) — release "
+                "outputs are unsigned and need your own keystore.",
                 "gateHint",
             )
         )
+
+        layout.addWidget(widgets.separator())
+        layout.addWidget(widgets.section_title("Target distribution"))
+        distro_row = QHBoxLayout()
+        self.distro_boxes: dict[str, QCheckBox] = {}
+        for key in bundles.KEYS:
+            box = QCheckBox(bundles.label(key))
+            box.setChecked(key in bundles.DEFAULT)
+            box.toggled.connect(self._options_changed)
+            self.distro_boxes[key] = box
+            distro_row.addWidget(box)
+        distro_row.addStretch()
+        layout.addLayout(distro_row)
+        self.distro_hint = widgets.hint("", "gateHint")
+        layout.addWidget(self.distro_hint)
 
         self.type_group = QButtonGroup(self)
         type_row = QHBoxLayout()
@@ -359,6 +379,37 @@ class BuildTab(QWidget):
         layout.addLayout(button_row)
         return frame
 
+    def _build_appdata_card(self) -> QWidget:
+        frame, layout = widgets.card()
+        header = QHBoxLayout()
+        header.addWidget(widgets.section_title("Local app data"))
+        header.addStretch()
+        self.appdata_badge = widgets.badge("", True)
+        header.addWidget(self.appdata_badge)
+        layout.addLayout(header)
+
+        self.appdata_label = widgets.hint("")
+        layout.addWidget(self.appdata_label)
+        layout.addWidget(
+            widgets.hint(
+                "The vault lives outside the build, under the bundle "
+                "identifier, so a rebuild keeps the previous passphrase, rooms "
+                "and files. Clear it to get a genuine first run.",
+                "gateHint",
+            )
+        )
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.appdata_combo = QComboBox()
+        self.appdata_combo.setMinimumWidth(320)
+        self.clear_data_button = QPushButton("Clear app data…")
+        self.clear_data_button.clicked.connect(self._clear_app_data)
+        row.addWidget(self.appdata_combo, 1)
+        row.addWidget(self.clear_data_button)
+        layout.addLayout(row)
+        return frame
+
     def _build_artifacts_card(self) -> QWidget:
         frame, layout = widgets.card()
         layout.addWidget(widgets.section_title("Artifacts"))
@@ -393,6 +444,10 @@ class BuildTab(QWidget):
             return "all"
         chosen = [abi for abi, box in self.abi_boxes.items() if box.isChecked()]
         return ",".join(chosen) if chosen else "aarch64"
+
+    @property
+    def distros(self) -> list[str]:
+        return [k for k, box in self.distro_boxes.items() if box.isChecked()]
 
     @property
     def collect(self) -> bool:
@@ -434,11 +489,29 @@ class BuildTab(QWidget):
     def _options_changed(self) -> None:
         if not self._ready:
             return
+        if not self._blocking_errors:
+            self.start_button.setEnabled(not self.is_busy() and self._targets_chosen())
         android = self.platform in ("android", "both")
+        desktop = self.platform in ("desktop", "both")
         for box in self.abi_boxes.values():
             box.setEnabled(android and not self.abi_all.isChecked())
         self.abi_all.setEnabled(android)
         self.environment_card.setVisible(android)
+        for box in self.distro_boxes.values():
+            box.setEnabled(desktop)
+
+        distro_notes = []
+        if desktop and not self.distros:
+            distro_notes.append(
+                "Choose at least one distribution — otherwise the desktop build "
+                "produces no package."
+            )
+        elif desktop:
+            warning = bundles.cross_build_warning(self.distros)
+            if warning:
+                distro_notes.append("⚠ " + warning)
+        self.distro_hint.setText(" ".join(distro_notes))
+        self.distro_hint.setVisible(bool(distro_notes))
 
         for widget in (self.output_edit, self.output_browse, self.output_reset):
             widget.setEnabled(self.collect)
@@ -542,6 +615,7 @@ class BuildTab(QWidget):
             self.issue_label.set_messages([])
             self.start_button.setEnabled(False)
             self.clean_button.setEnabled(False)
+            self._refresh_appdata()
             return
         self.clean_button.setEnabled(not self.is_busy())
 
@@ -576,8 +650,15 @@ class BuildTab(QWidget):
 
         self._refresh_environment()
         self._refresh_disk()
+        self._refresh_appdata()
         self._options_changed()
-        self.start_button.setEnabled(not blocking and not self.is_busy())
+        self.start_button.setEnabled(
+            not blocking and not self.is_busy() and self._targets_chosen()
+        )
+
+    def _targets_chosen(self) -> bool:
+        """A desktop build with no distribution ticked would produce nothing."""
+        return self.platform == "android" or bool(self.distros)
 
     def _refresh_environment(self) -> None:
         while self.env_layout.count():
@@ -611,6 +692,93 @@ class BuildTab(QWidget):
             )
         self.disk_badge.style().unpolish(self.disk_badge)
         self.disk_badge.style().polish(self.disk_badge)
+
+    # ----- local app data -------------------------------------------------
+
+    def _identifier(self) -> str:
+        """The identifier the built app will store its data under."""
+        return str(self.identity_tab.pending_identity().identifier or "")
+
+    def _refresh_appdata(self) -> None:
+        identifier = self._identifier()
+        found = appdata.targets(identifier)
+
+        previous = self.appdata_combo.currentData()
+        self.appdata_combo.blockSignals(True)
+        self.appdata_combo.clear()
+        for target in found:
+            self.appdata_combo.addItem(
+                f"{target.label} — {appdata.human_size(target.size)}", target
+            )
+        if previous is not None:
+            for index in range(self.appdata_combo.count()):
+                if self.appdata_combo.itemData(index).key == previous.key:
+                    self.appdata_combo.setCurrentIndex(index)
+                    break
+        self.appdata_combo.blockSignals(False)
+
+        has_any = bool(found)
+        self.appdata_combo.setEnabled(has_any and not self.is_busy())
+        self.clear_data_button.setEnabled(has_any and not self.is_busy())
+
+        vault = appdata.has_vault(identifier, "default")
+        self.appdata_badge.setText("vault present" if vault else "clean")
+        self.appdata_badge.setObjectName("warningBadge" if vault else "successBadge")
+        self.appdata_badge.style().unpolish(self.appdata_badge)
+        self.appdata_badge.style().polish(self.appdata_badge)
+        self.appdata_label.setText(appdata.summary(identifier))
+
+    def _clear_app_data(self) -> None:
+        target = self.appdata_combo.currentData()
+        if target is None:
+            return
+
+        contents = (
+            "the vault, rooms, chat history, transferred files and map regions"
+            if target.has_vault
+            else "cached state for the app"
+        )
+        answer = QMessageBox.warning(
+            self,
+            paths.APP_NAME,
+            f"Clear local app data so the next launch starts fresh?\n\n"
+            f"{target.path}\n"
+            f"{appdata.human_size(target.size)} — {contents}\n\n"
+            f"This is MOVED ASIDE, not deleted: it is renamed with a "
+            f"“.cleared-<timestamp>” suffix beside itself, so the app starts "
+            f"with passphrase setup and you can still get the data back. "
+            f"Delete that folder yourself once you are sure.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            aside = appdata.remove(self._identifier(), target.path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(
+                self, paths.APP_NAME, f"Could not clear the app data:\n{exc}"
+            )
+            self._refresh_appdata()
+            return
+
+        self.log.append_line(
+            f"# cleared app data ({appdata.human_size(target.size)}): "
+            f"{target.path} → {aside}"
+        )
+        self.log.append_line(
+            f"# recover with: mv {aside} {target.path}  ·  "
+            f"delete for good with: rm -rf {aside}"
+        )
+        QMessageBox.information(
+            self,
+            paths.APP_NAME,
+            f"The next launch will start with passphrase setup.\n\n"
+            f"Your old data is still on disk at:\n{aside}\n\n"
+            f"Restore it with:\n  mv {aside} {target.path}",
+        )
+        self._refresh_appdata()
 
     # ----- running --------------------------------------------------------
 
@@ -647,7 +815,12 @@ class BuildTab(QWidget):
         if icon_source is not None and not self._confirm_icon(icon_source):
             return
 
-        if not self._apply_identity():
+        # Cleared here, before anything writes: the steps below log what they
+        # change to disk, and clearing afterwards would erase exactly the lines
+        # that say the working tree was touched.
+        self.log.clear()
+
+        if not self._apply_conf():
             return
 
         try:
@@ -658,7 +831,6 @@ class BuildTab(QWidget):
             )
             return
 
-        self.log.clear()
         self.log.append_line(f"# config: {self.model.provenance()}")
         self.log.append_line(f"# wrote {written}")
         self.log.append_line(
@@ -791,52 +963,83 @@ class BuildTab(QWidget):
         self.worker.finished.connect(self._thread_finished)
         self.worker.start()
 
-    def _apply_identity(self) -> bool:
-        """Write the pending identity to tauri.conf.json. False = user backed out."""
+    def _apply_conf(self) -> bool:
+        """Write the build's identity and target distributions to tauri.conf.json.
+
+        Both edits land in one file, so the original text is snapshotted whole
+        and restored verbatim afterwards — no field-by-field undo that could
+        drift. Returns False if the user backed out.
+        """
+        self._conf_snapshot = ""
+        original = identity_mod.read_conf_text()
+        conf = identity_mod.read_conf()
+        if not conf:
+            QMessageBox.critical(
+                self, paths.APP_NAME, f"Cannot read {paths.TAURI_CONF}"
+            )
+            return False
+
         pending = self.identity_tab.pending_identity()
-        current = identity_mod.disk_identity()
-        self._identity_written = False
-        if pending == current:
+        identity_mod.apply_identity(conf, pending)
+        if self.platform in ("desktop", "both"):
+            bundles.apply_to_config(conf, self.distros)
+
+        updated = identity_mod.render_conf(conf)
+        if updated == original:
             return True
 
-        diff = identity_mod.conf_pending_diff(current, pending)
+        changes = identity_mod.conf_pending_diff(
+            identity_mod.Identity.from_conf(identity_mod.read_conf()), pending
+        )
+        before = bundles.read_from_config(identity_mod.read_conf())
+        if self.platform in ("desktop", "both") and before != self.distros:
+            changes.append(
+                "bundle.targets: "
+                f"{bundles.to_config_value(before)} → "
+                f"{bundles.to_config_value(self.distros)}"
+            )
+
         answer = QMessageBox.question(
             self,
             paths.APP_NAME,
-            "This build changes the app identity, so tauri.conf.json will be "
-            "modified in your working tree:\n\n"
-            + "\n".join(f"  {line}" for line in diff)
-            + "\n\nThe Builder never commits anything. Continue?",
+            "This build modifies tauri.conf.json in your working tree:\n\n"
+            + "\n".join(f"  {line}" for line in changes)
+            + "\n\nIt is restored when the build finishes. The Builder never "
+            "commits anything. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if answer == QMessageBox.StandardButton.No:
             return False
+
         try:
-            self._identity_written = identity_mod.write_identity(pending)
+            identity_mod.write_conf_text(updated)
         except OSError as exc:
             QMessageBox.critical(
                 self, paths.APP_NAME, f"Cannot write tauri.conf.json:\n{exc}"
             )
             return False
-        self.log.append_line(f"# tauri.conf.json updated: {'; '.join(diff)}")
+
+        self._conf_snapshot = original
+        self.log.append_line(f"# tauri.conf.json: {'; '.join(changes)}")
         return True
 
-    def _restore_identity(self) -> None:
-        if not self._identity_written:
+    def _restore_conf(self) -> None:
+        if not self._conf_snapshot:
             return
         if not self.identity_tab.restore_after_build.isChecked():
             self.log.append_line(
                 "# tauri.conf.json left modified (restore-after-build is off)"
             )
+            self._conf_snapshot = ""
             return
         try:
-            identity_mod.write_identity(self.identity_tab.repo_identity)
+            identity_mod.write_conf_text(self._conf_snapshot)
         except OSError as exc:
             self.log.append_line(f"# could not restore tauri.conf.json: {exc}")
             return
-        self._identity_written = False
-        self.log.append_line("# tauri.conf.json restored to the committed identity")
+        self._conf_snapshot = ""
+        self.log.append_line("# tauri.conf.json restored")
         self.identity_tab.refresh()
 
     def _set_running(self, running: bool) -> None:
@@ -849,6 +1052,10 @@ class BuildTab(QWidget):
             self.progress.setValue(0)
         self.start_button.setEnabled(not running and not self._blocking_errors)
         self.clean_button.setEnabled(not running)
+        # Deleting the vault out from under a running build would be a bad
+        # surprise; otherwise this is available whether or not you ever build.
+        self.clear_data_button.setEnabled(not running)
+        self.appdata_combo.setEnabled(not running)
         self.cancel_button.setEnabled(running)
 
     def _job_finished(self) -> None:
@@ -903,7 +1110,7 @@ class BuildTab(QWidget):
         failure, cancelled = self._failure, self._cancelled
         self._failure, self._cancelled = "", False
 
-        self._restore_identity()
+        self._restore_conf()
         self._restore_icons()
 
         if cancelled:
@@ -993,7 +1200,11 @@ class BuildTab(QWidget):
 
         # SHA256SUMS is deliberately absent: we regenerate it for whatever
         # actually lands in the output folder.
-        patterns = ("*.deb", "*.AppImage", "*.rpm", "*.apk", "*.aab")
+        patterns: list[str] = []
+        if self.platform in ("desktop", "both"):
+            patterns += bundles.globs(self.distros)
+        if self.platform in ("android", "both"):
+            patterns += ["*.apk", "*.aab"]
         for directory in directories:
             if not directory.is_dir():
                 continue

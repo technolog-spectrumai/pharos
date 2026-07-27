@@ -53,6 +53,18 @@ class Identity:
         }
 
 
+def read_conf_text() -> str:
+    """The file verbatim, for an exact restore after the build."""
+    try:
+        return paths.TAURI_CONF.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def write_conf_text(text: str) -> None:
+    paths.TAURI_CONF.write_text(text, encoding="utf-8")
+
+
 def read_conf() -> dict[str, Any]:
     """Parse tauri.conf.json; {} if it is missing or not valid JSON."""
     try:
@@ -63,6 +75,12 @@ def read_conf() -> dict[str, Any]:
 
 def render_conf(conf: dict[str, Any]) -> str:
     return json.dumps(conf, indent=2, ensure_ascii=False) + "\n"
+
+
+def apply_identity(conf: dict[str, Any], identity: "Identity") -> dict[str, Any]:
+    """Return ``conf`` with the three identity fields set."""
+    conf.update(identity.as_conf_fields())
+    return conf
 
 
 def write_identity(identity: Identity) -> bool:

@@ -43,7 +43,7 @@ Three things, and nothing else:
 | Path | When |
 |---|---|
 | `apps/enigma/src-tauri/configs/build_config.custom.yaml` | every build (gitignored) |
-| `apps/enigma/src-tauri/tauri.conf.json` | only if you change the app identity |
+| `apps/enigma/src-tauri/tauri.conf.json` | if you change the app identity or narrow the target distribution |
 | `apps/enigma/src-tauri/icons/**` and the Android launcher | only if you change the app icon |
 | your chosen **output folder** | after a successful build, if collecting is on |
 
@@ -86,9 +86,9 @@ regenerates. The custom YAML is builder-owned output; regenerate it from the GUI
 - **Expert** — settings clamps and network tuning behind a toggle, with the
   crypto declarations shown read-only. `max_frame_bytes` is flagged: peers in
   one room must agree on it.
-- **Build** — the repository being driven, target and build type, Android ABIs,
-  the output folder, the Android toolchain check, free-disk warning, log, and
-  the artifact list.
+- **Build** — the repository being driven, target platform and distribution,
+  build type, Android ABIs, the output folder, the Android toolchain check,
+  free-disk warning, log, and the artifact list.
 
 Validation mirrors `build.rs` rule for rule — same paths, same wording — so an
 error here reads the same as the one cargo would print. A blocking error
@@ -117,6 +117,62 @@ Cancel signals the whole process group, then escalates to SIGKILL after ten
 seconds: the scripts spawn npm, cargo, tauri and gradle, and terminating only
 bash would leave a multi-gigabyte compile running unattended. A gradle daemon
 that has already detached survives, harmlessly.
+
+## Target distribution
+
+Two choices, both ticked by default: **Ubuntu / Debian (.deb)** and
+**Fedora / RHEL (.rpm)**. The selection is written to `bundle.targets` in
+tauri.conf.json for the duration of the build, because both `build_desktop.sh`
+and `deploy/build.sh` call a bare `npx tauri build` — editing the config reaches
+every path without changing either script. The file is restored afterwards, the
+same as the app identity.
+
+**This picks a package format, not a build environment.** Tauri packages what
+the host just compiled, so an `.rpm` produced on Ubuntu links against Ubuntu's
+glibc and webkit2gtk and will very likely refuse to run on Fedora. The Builder
+detects the host from `/etc/os-release` and says so, rather than letting the
+label imply a cross build:
+
+> ⚠ You are building on Ubuntu 24.04.4 LTS. The Fedora / RHEL package will be
+> linked against this system's glibc and webkit2gtk, so it is unlikely to run on
+> a real target. For a package that works, run the build inside a container or
+> VM of that distribution.
+
+Untick everything and **Start build** is disabled — a desktop build with no
+format selected produces nothing. Artifact discovery follows the selection too,
+so a Fedora-only build never reports a leftover `.deb` as its output.
+
+## Why a new build knows your old passphrase
+
+It is not the build. Enigma stores everything under Tauri's `app_data_dir()` —
+on Linux `~/.local/share/<identifier>/profiles/<profile>/` — keyed on the bundle
+identifier, not on anything inside the binary. A new build looks in the same
+place, finds `vault.json`, and protasius reports the vault as already set up, so
+the app opens the unlock gate instead of first-run passphrase setup. That is
+what you want when a real user upgrades, and not what you want when testing.
+
+The **Local app data** card on the Build tab says which it will be on the next
+launch, and **Clear app data…** gives you a genuine first run. It works whether
+or not you ever build.
+
+Clearing **moves the directory aside** rather than deleting it: the target is
+renamed to `<name>.cleared-<timestamp>` beside itself. The app looks for an
+exact path, so a rename is enough to force first-run setup, and nothing is
+destroyed if the wrong profile was selected. The dialog and the log both print
+how to undo it:
+
+```bash
+mv ~/.local/share/com.spectrumaipl.enigma.cleared-20260727-204512 \
+   ~/.local/share/com.spectrumaipl.enigma      # restore
+rm -rf ~/.local/share/com.spectrumaipl.enigma.cleared-*   # delete for good
+```
+
+Two details worth knowing. The tool checks **both** `$XDG_DATA_HOME/<identifier>`
+and `~/.local/share/<identifier>`, because a Builder launched from a sandboxed
+editor (VS Code's snap) sees the editor's `XDG_DATA_HOME` and would otherwise
+look straight past the app's real data. And every deletion is guarded: the path
+must resolve to somewhere inside one of those roots, so a blank or path-like
+identifier clears nothing.
 
 ## The app icon
 
@@ -168,7 +224,20 @@ drives real subprocesses to prove cancellation reaches grandchildren;
 `test_paths_and_output.py` covers repo resolution, the standalone first run
 with no checkout at all, and the artifact copy; `test_icons.py` builds real
 PNGs with nothing but `zlib` and proves the icon snapshot restores every
-tracked file it touched.
+tracked file it touched; `test_bundles.py` pins the distribution mapping and
+the cross-build warning.
+
+Several of these drive code paths that legitimately write into the checkout, so
+an autouse fixture in `conftest.py` snapshots `tauri.conf.json` and both icon
+trees around **every** test and puts them back. QSettings is redirected into a
+temp directory for the same reason. Running the suite must never show up in
+`git status`.
+
+A second autouse fixture redirects **`HOME` and `XDG_DATA_HOME`** into a temp
+directory for every test. Overriding `XDG_DATA_HOME` alone is not enough,
+precisely because `appdata` also checks `~/.local/share` — and a test that
+redirected only the one variable once selected, and deleted, a real 320 MB
+app-data directory. No test can reach real user data by any route now.
 
 ## Repo changes this tool required
 
