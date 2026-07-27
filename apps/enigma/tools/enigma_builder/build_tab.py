@@ -7,7 +7,9 @@ import os
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -26,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import icons as icons_mod
 import identity as identity_mod
 import paths
 import widgets
@@ -34,6 +37,19 @@ from config_model import ConfigModel
 from identity_tab import IdentityTab
 from validation import errors as error_issues
 from validation import warnings as warning_issues
+
+
+@dataclass
+class Step:
+    """One command in a build. Steps run in order and stop at the first failure."""
+
+    command: list[str]
+    cwd: Path
+    label: str
+    env: dict[str, str] = field(default_factory=dict)
+    #: Runs on this step's success, before the next step starts. Returns a log
+    #: line, or None for nothing to say.
+    after: Callable[[], str | None] | None = None
 
 GIB = 1024**3
 # build.md:419 — the release link step is where a full target/ runs out of
@@ -116,6 +132,12 @@ class BuildTab(QWidget):
         self._identity_written = False
         self._started_at = 0.0
         self._on_idle = None
+        self._steps: list[Step] = []
+        self._step_index = 0
+        self._step_ok = False
+        self._failure = ""
+        self._cancelled = False
+        self._icon_snapshot: dict[Path, bytes] = {}
 
         outer = widgets.page_layout(self)
         layout = widgets.scroll_page(outer)
@@ -621,6 +643,10 @@ class BuildTab(QWidget):
             if answer == QMessageBox.StandardButton.No:
                 return
 
+        icon_source = self.identity_tab.pending_icon()
+        if icon_source is not None and not self._confirm_icon(icon_source):
+            return
+
         if not self._apply_identity():
             return
 
@@ -632,7 +658,6 @@ class BuildTab(QWidget):
             )
             return
 
-        command = self.command()
         self.log.clear()
         self.log.append_line(f"# config: {self.model.provenance()}")
         self.log.append_line(f"# wrote {written}")
@@ -640,14 +665,75 @@ class BuildTab(QWidget):
             "# switching editions makes cargo rebuild the crate from scratch "
             "(build.rs reruns on ENIGMA_EDITION)"
         )
-        self.log.append_line(
-            "$ ENIGMA_EDITION=custom " + subprocess.list2cmdline(command)
-        )
 
         env = os.environ.copy()
         env["ENIGMA_EDITION"] = paths.CUSTOM_EDITION
+
+        steps: list[Step] = []
+        if icon_source is not None:
+            self._icon_snapshot = icons_mod.snapshot()
+            self.log.append_line(
+                f"# icon: {icon_source} → {len(self._icon_snapshot)} generated "
+                f"file(s) will be replaced and restored afterwards"
+            )
+            self.log.append_line(f"# if this run dies mid-way: {icons_mod.recovery_hint()}")
+            steps.append(
+                Step(
+                    command=icons_mod.icon_command(icon_source),
+                    cwd=paths.APP_DIR,
+                    label="Generating icons",
+                    env=os.environ.copy(),
+                    after=self._sync_android_icons,
+                )
+            )
+
+        steps.append(
+            Step(
+                command=self.command(),
+                cwd=paths.REPO_ROOT,
+                label="Building",
+                env=env,
+            )
+        )
+
         self._started_at = time.time()
-        self._run(command, env, label="Building")
+        self._run_queue(steps)
+
+    def _confirm_icon(self, source: Path) -> bool:
+        errors, _warnings = icons_mod.validate_source(source)
+        if errors:
+            QMessageBox.critical(
+                self,
+                paths.APP_NAME,
+                "That icon cannot be used:\n\n" + "\n".join(f"• {e}" for e in errors),
+            )
+            return False
+        answer = QMessageBox.question(
+            self,
+            paths.APP_NAME,
+            "This build regenerates the app icons, which rewrites the tracked "
+            "files under src-tauri/icons and the Android launcher in "
+            "src-tauri/gen.\n\nThey are restored when the build finishes "
+            "(unless you turned that off on the Identity tab). Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _sync_android_icons(self) -> str | None:
+        """Copy the freshly generated mipmaps into the Gradle project.
+
+        `tauri icon` only writes icons/android/; the generated project keeps
+        its own copy from `android init` and would otherwise ship the old
+        launcher.
+        """
+        copied = icons_mod.sync_android_icons()
+        if not copied:
+            return (
+                "# no src-tauri/gen/android yet — its launcher icons will be "
+                "taken from icons/android at `tauri android init`"
+            )
+        return f"# copied {copied} launcher icon file(s) into src-tauri/gen/android"
 
     def _clean_target(self) -> None:
         if self.is_busy():
@@ -662,14 +748,40 @@ class BuildTab(QWidget):
         )
         if answer == QMessageBox.StandardButton.No:
             return
-        command = ["cargo", "clean", "--manifest-path", str(paths.CARGO_TOML)]
-        self.log.append_line("$ " + subprocess.list2cmdline(command))
         self._started_at = time.time()
-        self._run(command, os.environ.copy(), label="Cleaning")
+        self._run_queue(
+            [
+                Step(
+                    command=["cargo", "clean", "--manifest-path", str(paths.CARGO_TOML)],
+                    cwd=paths.REPO_ROOT,
+                    label="Cleaning",
+                    env=os.environ.copy(),
+                )
+            ]
+        )
 
-    def _run(self, command: list[str], env: dict[str, str], label: str) -> None:
+    def _run_queue(self, steps: list[Step]) -> None:
+        self._steps = steps
+        self._step_index = 0
+        self._step_ok = False
+        self._set_running(True)
+        self._run_step()
+
+    def _run_step(self) -> None:
+        step = self._steps[self._step_index]
+        if len(self._steps) > 1:
+            self.log.append_line(
+                f"# step {self._step_index + 1}/{len(self._steps)}: {step.label}"
+            )
+        prefix = (
+            "ENIGMA_EDITION=custom "
+            if step.env.get("ENIGMA_EDITION") == paths.CUSTOM_EDITION
+            else ""
+        )
+        self.log.append_line("$ " + prefix + subprocess.list2cmdline(step.command))
+
         self.worker = BuildWorker(
-            command=command, cwd=paths.REPO_ROOT, env=env, label=label
+            command=step.command, cwd=step.cwd, env=step.env, label=step.label
         )
         self.worker.status_changed.connect(self.status_label.setText)
         self.worker.log_message.connect(self.log.append_line)
@@ -677,7 +789,6 @@ class BuildTab(QWidget):
         self.worker.job_failed.connect(self._job_failed)
         self.worker.job_cancelled.connect(self._job_cancelled)
         self.worker.finished.connect(self._thread_finished)
-        self._set_running(True)
         self.worker.start()
 
     def _apply_identity(self) -> bool:
@@ -741,29 +852,82 @@ class BuildTab(QWidget):
         self.cancel_button.setEnabled(running)
 
     def _job_finished(self) -> None:
-        self.status_label.setText("Complete")
-        self._restore_identity()
-        self._show_artifacts()
+        step = self._steps[self._step_index]
+        if step.after is not None:
+            try:
+                note = step.after()
+            except Exception as exc:  # a post-step must not strand the queue
+                self._failure = f"{step.label}: {type(exc).__name__}: {exc}"
+                self.status_label.setText("Failed")
+                return
+            if note:
+                self.log.append_line(note)
+        self._step_ok = True
 
     def _job_failed(self, message: str) -> None:
+        self._failure = message
         self.status_label.setText("Failed")
-        self._restore_identity()
-        QMessageBox.critical(self, "Build failed", message)
 
     def _job_cancelled(self) -> None:
+        self._cancelled = True
         self.status_label.setText("Cancelled")
         self.log.append_line("Build cancelled.")
-        self._restore_identity()
 
     def _thread_finished(self) -> None:
-        self._set_running(False)
         if self.worker:
             self.worker.deleteLater()
             self.worker = None
+
+        more = self._step_index + 1 < len(self._steps)
+        if self._step_ok and not self._failure and not self._cancelled and more:
+            self._step_index += 1
+            self._step_ok = False
+            self._run_step()
+            return
+
+        self._set_running(False)
+        self._finish_run()
+
         self.refresh()
         if self._on_idle is not None:
             callback, self._on_idle = self._on_idle, None
             callback()
+
+    def _finish_run(self) -> None:
+        """Undo what the run changed on disk, then report the result.
+
+        Runs on every ending — success, failure and cancellation — because a
+        half-finished icon regeneration leaves the working tree dirty just as
+        surely as a successful one.
+        """
+        failure, cancelled = self._failure, self._cancelled
+        self._failure, self._cancelled = "", False
+
+        self._restore_identity()
+        self._restore_icons()
+
+        if cancelled:
+            return
+        if failure:
+            QMessageBox.critical(self, "Build failed", failure)
+            return
+
+        self.status_label.setText("Complete")
+        self._show_artifacts()
+
+    def _restore_icons(self) -> None:
+        if not self._icon_snapshot:
+            return
+        if not self.identity_tab.restore_after_build.isChecked():
+            self.log.append_line(
+                "# generated icons left in place (restore-after-build is off) — "
+                f"undo with: {icons_mod.recovery_hint()}"
+            )
+            self._icon_snapshot = {}
+            return
+        restored = icons_mod.restore(self._icon_snapshot)
+        self._icon_snapshot = {}
+        self.log.append_line(f"# restored {restored} icon file(s) to the committed set")
 
     # ----- artifacts ------------------------------------------------------
 

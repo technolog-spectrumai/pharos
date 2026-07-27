@@ -8,14 +8,30 @@ tauri.conf.json at build time, so trying out a name never dirties the tree.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QLineEdit, QWidget
+from pathlib import Path
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+import icons as icons_mod
 import identity as identity_mod
 import paths
 import widgets
 from config_model import ConfigModel
 from identity import Identity
 from validation import Issue, issues_for
+
+PREVIEW_SIDE = 96
 
 
 class IdentityTab(QWidget):
@@ -32,6 +48,7 @@ class IdentityTab(QWidget):
         layout = widgets.scroll_page(outer)
 
         layout.addWidget(self._build_form_card())
+        layout.addWidget(self._build_icon_card())
         layout.addWidget(self._build_status_card())
         layout.addStretch()
 
@@ -73,6 +90,65 @@ class IdentityTab(QWidget):
         form.addRow("", self.form_error)
         return frame
 
+    def _build_icon_card(self) -> QWidget:
+        frame, layout = widgets.card()
+        layout.addWidget(widgets.section_title("App icon"))
+        layout.addWidget(
+            widgets.hint(
+                "One square source image, from which Tauri generates every "
+                "size: the .deb / .AppImage / .rpm icon and the Android "
+                "launcher. Leave it empty to keep the icons already in the "
+                "repo."
+            )
+        )
+
+        row = QHBoxLayout()
+        row.setSpacing(16)
+
+        preview_column = QVBoxLayout()
+        preview_column.setSpacing(4)
+        self.icon_preview = QLabel()
+        self.icon_preview.setFixedSize(PREVIEW_SIDE, PREVIEW_SIDE)
+        self.icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_caption = widgets.hint("", "gateHint")
+        self.icon_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_column.addWidget(self.icon_preview)
+        preview_column.addWidget(self.icon_caption)
+        preview_column.addStretch()
+        row.addLayout(preview_column)
+
+        controls = QVBoxLayout()
+        controls.setSpacing(8)
+        picker = QHBoxLayout()
+        picker.setSpacing(8)
+        self.icon_edit = QLineEdit()
+        self.icon_edit.setPlaceholderText("Keep the icons already in the repo")
+        self.icon_edit.setClearButtonEnabled(True)
+        self.icon_edit.textChanged.connect(self._icon_changed)
+        icon_browse = QPushButton("Choose image…")
+        icon_browse.clicked.connect(self._browse_icon)
+        picker.addWidget(self.icon_edit, 1)
+        picker.addWidget(icon_browse)
+        controls.addLayout(picker)
+
+        controls.addWidget(
+            widgets.hint(
+                f"Square PNG or SVG, at least {icons_mod.MIN_SIDE}px — "
+                f"{icons_mod.RECOMMENDED_SIDE}px recommended. Transparency is "
+                "preserved.",
+                "gateHint",
+            )
+        )
+        self.icon_error = widgets.ErrorLabel()
+        controls.addWidget(self.icon_error)
+        self.icon_note = widgets.hint("", "gateHint")
+        controls.addWidget(self.icon_note)
+        controls.addStretch()
+        row.addLayout(controls, 1)
+
+        layout.addLayout(row)
+        return frame
+
     def _build_status_card(self) -> QWidget:
         frame, layout = widgets.card()
 
@@ -95,12 +171,16 @@ class IdentityTab(QWidget):
         restore_row.addStretch()
         layout.addLayout(restore_row)
 
-        self.restore_after_build = QCheckBox("Restore identity after every build")
+        self.restore_after_build = QCheckBox(
+            "Restore identity and icons after every build"
+        )
         self.restore_after_build.setChecked(True)
         layout.addWidget(self.restore_after_build)
         layout.addWidget(
             widgets.hint(
-                "Puts the committed values back once the build finishes, so "
+                "Puts the committed values back once the build finishes — this "
+                "file and, if the icon was replaced, everything under "
+                "src-tauri/icons and the Android launcher. So "
                 "`ENIGMA_EDITION=pro ./build_desktop.sh` keeps working straight "
                 "afterwards. The Builder never commits anything.",
                 "gateHint",
@@ -113,6 +193,74 @@ class IdentityTab(QWidget):
         return frame
 
     # ----- behavior -------------------------------------------------------
+
+    # ----- icon -----------------------------------------------------------
+
+    def pending_icon(self) -> Path | None:
+        """The source image this build should regenerate icons from, if any."""
+        text = self.icon_edit.text().strip()
+        return Path(text).expanduser() if text else None
+
+    def _browse_icon(self) -> None:
+        start = self.icon_edit.text().strip() or str(Path.home())
+        chosen, _filter = QFileDialog.getOpenFileName(
+            self, "Choose an app icon", start, "Images (*.png *.svg)"
+        )
+        if chosen:
+            self.icon_edit.setText(chosen)
+
+    def _icon_changed(self) -> None:
+        self._refresh_icon()
+
+    def _refresh_icon(self) -> None:
+        source = self.pending_icon()
+
+        if source is None:
+            existing = icons_mod.preview_icon()
+            self._set_preview(existing)
+            self.icon_caption.setText("current" if existing else "no icon found")
+            self.icon_error.set_messages([])
+            self.icon_note.setText("")
+            self.icon_note.hide()
+            return
+
+        errors, warnings_ = icons_mod.validate_source(source)
+        self.icon_error.set_messages(errors)
+        self._set_preview(None if errors else source)
+        self.icon_caption.setText("new" if not errors else "unusable")
+
+        notes = list(warnings_)
+        if not errors:
+            notes.append(
+                "Applied at build time, then the generated files are restored "
+                "— nothing is written until you press Start build."
+            )
+            if not paths.ANDROID_GEN.is_dir():
+                notes.append(
+                    "No Android project yet, so only the desktop icons change "
+                    "for now."
+                )
+        self.icon_note.setText(" ".join(notes))
+        self.icon_note.setVisible(bool(notes))
+
+    def _set_preview(self, path: Path | None) -> None:
+        if path is None or not path.is_file():
+            self.icon_preview.clear()
+            self.icon_preview.setText("—")
+            return
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            self.icon_preview.clear()
+            self.icon_preview.setText("—")
+            return
+        self.icon_preview.setPixmap(
+            pixmap.scaled(
+                PREVIEW_SIDE,
+                PREVIEW_SIDE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
 
     def reload_repo_identity(self) -> None:
         """Re-read the committed identity — at startup and on a repo change.
@@ -157,6 +305,7 @@ class IdentityTab(QWidget):
         finally:
             self._syncing = False
         self._refresh_status()
+        self._refresh_icon()
 
     def _refresh_status(self) -> None:
         on_disk = identity_mod.disk_identity()

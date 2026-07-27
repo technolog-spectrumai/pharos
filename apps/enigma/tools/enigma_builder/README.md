@@ -44,6 +44,7 @@ Three things, and nothing else:
 |---|---|
 | `apps/enigma/src-tauri/configs/build_config.custom.yaml` | every build (gitignored) |
 | `apps/enigma/src-tauri/tauri.conf.json` | only if you change the app identity |
+| `apps/enigma/src-tauri/icons/**` and the Android launcher | only if you change the app icon |
 | your chosen **output folder** | after a successful build, if collecting is on |
 
 **It never runs git.** If a build changes the identity, the Builder says so
@@ -79,9 +80,9 @@ regenerates. The custom YAML is builder-owned output; regenerate it from the GUI
 - **Features** — Light / Plus / Pro presets, the nine build gates, the four
   runtime defaults, and a live preview of the YAML that will be written. The
   Custom chip is an indicator: change any gate and it lights up on its own.
-- **Identity** — product name, bundle identifier, version, plus the current
-  state of `tauri.conf.json` and a restore button if a previous run left it
-  modified.
+- **Identity** — product name, bundle identifier, version and the app icon,
+  plus the current state of `tauri.conf.json` and a restore button if a
+  previous run left it modified.
 - **Expert** — settings clamps and network tuning behind a toggle, with the
   crypto declarations shown read-only. `max_frame_bytes` is flagged: peers in
   one room must agree on it.
@@ -117,6 +118,31 @@ seconds: the scripts spawn npm, cargo, tauri and gradle, and terminating only
 bash would leave a multi-gigabyte compile running unattended. A gradle daemon
 that has already detached survives, harmlessly.
 
+## The app icon
+
+Choose one square PNG or SVG (≥512px, 1024 recommended) on the Identity tab and
+the build gains a first step: `npx tauri icon <source>`, run from `apps/enigma`,
+which regenerates every desktop size plus an `icons/android/` mipmap tree.
+
+That is not sufficient on its own. `tauri android init` copies those mipmaps
+into `gen/android/app/src/main/res/` once, and the two trees drift apart from
+then on — they already differ in this checkout. So the icon step is followed by
+a mirror of `icons/android/` into the generated project; without it the APK
+would keep shipping the old launcher.
+
+Both trees are tracked in git, about 90 files. The Builder snapshots them in
+memory before generating and restores them byte-for-byte when the run
+ends — on success, failure *and* cancellation — unless you clear "Restore
+identity and icons after every build". If the tool is killed between the two,
+recover with:
+
+```bash
+git checkout -- apps/enigma/src-tauri/icons \
+                apps/enigma/src-tauri/gen/android/app/src/main/res
+```
+
+The log prints that command before touching anything.
+
 ## Things that are not flags
 
 - **Always compiled**: local locked files, the panic code / vault, chat, file
@@ -140,7 +166,9 @@ fails here loudly instead of failing a build half an hour in;
 settings and network are identical across editions; `test_build_worker.py`
 drives real subprocesses to prove cancellation reaches grandchildren;
 `test_paths_and_output.py` covers repo resolution, the standalone first run
-with no checkout at all, and the artifact copy.
+with no checkout at all, and the artifact copy; `test_icons.py` builds real
+PNGs with nothing but `zlib` and proves the icon snapshot restores every
+tracked file it touched.
 
 ## Repo changes this tool required
 
