@@ -55,8 +55,8 @@ const torMode = ref(false);
 // connect timeout on a healthy server (cloud.md) — so it disables too, but only
 // ever alongside a live Retry, which is the one control it must never gate.
 const blockedReason = computed(() =>
-  !cloud.enabled ? t("cloud.cloudOffHint")
-  : cloud.offline ? t("cloud.blockedOffline")
+  cloud.offline ? t("cloud.blockedOffline")
+  : !cloud.enabled ? t("cloud.cloudOffHint")
   : !cloud.loggedIn ? t("cloud.needsLogin")
   : "");
 /** Nothing behind the controls at all ⇒ swap the panel for a card (cloud.md D8). */
@@ -73,12 +73,16 @@ const retrying = ref(false);
 async function retryConnection() {
   if (retrying.value) return;
   retrying.value = true;
-  // Optimistic: show "trying", not "frozen". registerAndFetch re-sets it if the
-  // server is still down, and clears it for real on success.
-  cloud.clearUnreachable();
+  // Deliberately does NOT clear `reachable` up front. Doing so would unblock
+  // both submits for the whole connect timeout while nothing is yet known —
+  // long enough to mint the orphan room this gate exists to prevent. The
+  // verdict changes only when a real call answers, inside registerAndFetch.
+  inboxError.value = false;
   try {
     await cloud.syncOffline();
     await registerAndFetch();
+    // Chips added while blocked are all `error`, and sending needs one `ok`.
+    if (!blocked.value) picker.retryErrored();
   } finally {
     retrying.value = false;
   }
@@ -143,6 +147,10 @@ const picker = useRecipientPicker({
   // when we already know the call cannot land.
   canResolve: () => cloud.enabled && cloud.loggedIn && !blocked.value,
   blockedReason: () => (unreachable.value ? unreachableReason.value : blockedReason.value),
+  onResolveError: (msg: string) => {
+    cloud.classify(msg);
+    return blocked.value;
+  },
 });
 
 /** Every saved room we can actually seal: a ticket is the whole payload, and
@@ -257,7 +265,7 @@ async function registerAndFetch() {
     // the panel still shows what it has. cloud.call has already classified a
     // transport failure into cloud.reachable, which is what gates the controls.
   }
-  void refreshServerInvites();
+  await refreshServerInvites();
 }
 
 onMounted(async () => {
@@ -295,7 +303,7 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
           {{ cloud.offline ? blockedReason : unreachableReason }}
         </p>
         <OyaButton
-          v-if="unreachable"
+          v-if="unreachable && !cloud.offline"
           :dark-mode="darkMode"
           variant="secondary"
           data-testid="invites-retry"

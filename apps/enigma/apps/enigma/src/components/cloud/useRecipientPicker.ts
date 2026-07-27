@@ -37,6 +37,7 @@ export interface RecipientPicker {
   add: (username: string) => void;
   remove: (username: string) => void;
   retry: (username: string) => void;
+  retryErrored: () => void;
   clear: () => void;
   keepOnly: (usernames: string[]) => void;
 }
@@ -54,6 +55,12 @@ export function useRecipientPicker(opts: {
    *  owns the wording — the reason differs (switched off / airplane / signed
    *  out / server unreachable) and only the caller knows which applies. */
   blockedReason?: () => string;
+  /** Feed a failed lookup back to the caller's error classifier. This is the
+   *  one networked control the user actually drives, so its failures are the
+   *  freshest signal there is — without this hook the picker would learn the
+   *  server is down and tell nobody. Returning true means the caller rendered a
+   *  proper reason, so the chip shows that instead of the raw machine string. */
+  onResolveError?: (message: string) => boolean;
   max?: number;
 }): RecipientPicker {
   const max = opts.max ?? DEFAULT_MAX;
@@ -97,7 +104,12 @@ export function useRecipientPicker(opts: {
       const live = find(username);
       if (!live) return;
       live.state = "error";
-      live.error = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
+      const message = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
+      // This is the one networked control the user actually drives, so its
+      // failures are the freshest reachability signal there is — hand it to the
+      // caller's classifier rather than dropping it into a tooltip.
+      const handled = opts.onResolveError?.(message) ?? false;
+      live.error = handled ? (opts.blockedReason?.() ?? message) : message;
     }
   }
 
@@ -134,6 +146,15 @@ export function useRecipientPicker(opts: {
     queueResolve(username);
   }
 
+  /** Re-resolve every chip that failed. Chips added while the cloud was
+   *  unusable are all `error`, and `canSend` needs at least one `ok` — without
+   *  this the user would have to press Retry on each chip individually after
+   *  the connection came back. */
+  function retryErrored(): void {
+    if (!opts.canResolve()) return;
+    for (const r of recipients.value) if (r.state === "error") queueResolve(r.username);
+  }
+
   function clear(): void {
     recipients.value = [];
     draft.value = "";
@@ -148,6 +169,6 @@ export function useRecipientPicker(opts: {
 
   return {
     draft, recipients, ready, busy, canSend, atMax, max,
-    commitDraft, add, remove, retry, clear, keepOnly,
+    commitDraft, add, remove, retry, retryErrored, clear, keepOnly,
   };
 }

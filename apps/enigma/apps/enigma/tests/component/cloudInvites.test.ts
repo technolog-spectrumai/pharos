@@ -93,7 +93,7 @@ beforeEach(() => {
           username: statusLoggedIn ? "me" : null,
           enabled: true,
           force_tor: statusForceTor,
-          transport: statusForceTor ? "onion" : "loopback",
+          transport: "loopback",
         };
       case "app_get_offline":
         return statusOffline;
@@ -327,11 +327,28 @@ describe("CloudInvitesPanel — unusable cloud", () => {
     expect(wrapper.text()).not.toContain("Sign in above");
   });
 
-  it("airplane mode disables both submits", async () => {
-    airplaneOn();
+  it("airplane mode disables both submits even with a resolved recipient", async () => {
     fakeP2p.p2pRooms.value = [{ room: "r1", name: "planning", ticket: "t1", peers: [] }];
     const wrapper = await mountReady();
+    // Resolve while healthy, so `canSend` is genuinely true — otherwise the
+    // dim class would come from the empty picker and prove nothing.
     await addRecipient(wrapper, "alice");
+    // Satisfy EVERY other term of the dim condition, so `blocked` is the only
+    // thing that can still disable these — otherwise the empty room name alone
+    // would dim the button and the assertion would prove nothing.
+    await wrapper.find('[data-testid="invite-create-name"]').setValue("planning");
+    await wrapper.find('[data-testid="invite-room-select"]').setValue("r1");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="invite-create-submit"]').classes()).not.toContain(
+      "pointer-events-none",
+    );
+    expect(wrapper.find('[data-testid="invite-existing-submit"]').classes()).not.toContain(
+      "pointer-events-none",
+    );
+
+    useCloudStore().offline = true;
+    await flushPromises();
+
     expect(wrapper.find('[data-testid="invite-create-submit"]').classes()).toContain(
       "pointer-events-none",
     );
@@ -408,6 +425,45 @@ describe("CloudInvitesPanel — unusable cloud", () => {
     // exceed the timeout on a healthy server (cloud.md), so a false verdict
     // must always be recoverable without restarting the app.
     expect(retry.classes()).not.toContain("pointer-events-none");
+    invokeMock.mockClear();
+    await retry.trigger("click");
+    await flushPromises();
+    expect(invokeMock).toHaveBeenCalledWith("rdv_register", expect.anything());
+  });
+
+  it("the panel stays blocked WHILE retrying — no window to mint an orphan room", async () => {
+    fakeP2p.p2pRooms.value = [{ room: "r1", name: "planning", ticket: "t1", peers: [] }];
+    const wrapper = await mountReady();
+    await addRecipient(wrapper, "alice");
+    const cloud = useCloudStore();
+    cloud.classify("unreachable: connect to h:443 failed: refused");
+    await flushPromises();
+
+    // Hold rdv_register open so the retry is genuinely in flight.
+    let release!: (v: string) => void;
+    invokeMock.mockImplementationOnce(() => new Promise<string>((r) => { release = r; }));
+    void wrapper.find('[data-testid="invites-retry"]').trigger("click");
+    await flushPromises();
+
+    // Mid-retry the verdict is still "unreachable": clearing it optimistically
+    // would re-enable Create & invite for the whole connect timeout.
+    expect(cloud.reachable).toBe(false);
+    expect(wrapper.find('[data-testid="invite-create-submit"]').classes()).toContain(
+      "pointer-events-none",
+    );
+    release("mynode");
+    await flushPromises();
+  });
+
+  it("in airplane mode the retry is not offered — reconnecting cannot help", async () => {
+    const wrapper = await mountReady();
+    const cloud = useCloudStore();
+    cloud.classify("unreachable: connect to h:443 failed: refused");
+    cloud.offline = true;
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="invites-retry"]').exists()).toBe(false);
   });
 
   it("retrying re-attempts and recovers when the server comes back", async () => {
@@ -417,10 +473,12 @@ describe("CloudInvitesPanel — unusable cloud", () => {
     await flushPromises();
     expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(true);
 
+    invokeMock.mockClear();
     await wrapper.find('[data-testid="invites-retry"]').trigger("click");
     await flushPromises();
     await flushPromises();
 
+    // It must actually re-attempt, not merely forget the verdict.
     expect(invokeMock).toHaveBeenCalledWith("rdv_register", expect.anything());
     expect(cloud.reachable).toBe(true);
     expect(wrapper.find('[data-testid="invites-blocked-notice"]').exists()).toBe(false);

@@ -14,12 +14,13 @@ import { useRecipientPicker } from "../../src/components/cloud/useRecipientPicke
 
 const MY_ID = "mynode";
 
-function picker(canResolve = true) {
+function picker(canResolve = true, extra: Record<string, unknown> = {}) {
   return useRecipientPicker({
     serverUrl: () => "https://localhost:8443",
     myNodeId: () => MY_ID,
     canResolve: () => canResolve,
     max: 3,
+    ...extra,
   });
 }
 
@@ -149,5 +150,64 @@ describe("useRecipientPicker", () => {
     await settle(p);
     expect(p.recipients.value[0]!.state).toBe("error");
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+// The picker is the one networked control the user actually drives, so its
+// failures are the freshest reachability signal in the app. Before this hook it
+// swallowed them into a tooltip and told nobody.
+describe("resolve failures feed the caller's classifier", () => {
+  it("hands the raw message to onResolveError", async () => {
+    const seen: string[] = [];
+    invokeMock.mockRejectedValueOnce("unreachable: connect to h:443 failed: refused");
+    const p = picker(true, { onResolveError: (m: string) => { seen.push(m); return false; } });
+
+    p.add("alice");
+    await settle(p);
+
+    expect(seen).toEqual(["unreachable: connect to h:443 failed: refused"]);
+  });
+
+  it("shows the caller's reason instead of a raw socket string once handled", async () => {
+    invokeMock.mockRejectedValueOnce("unreachable: connect to h:443 failed: refused");
+    const p = picker(true, {
+      onResolveError: () => true,
+      blockedReason: () => "Couldn't reach your server.",
+    });
+
+    p.add("alice");
+    await settle(p);
+
+    expect(p.recipients.value[0].error).toBe("Couldn't reach your server.");
+  });
+
+  it("keeps the raw message when the caller does not own a surface for it", async () => {
+    invokeMock.mockRejectedValueOnce("server error (HTTP 500)");
+    const p = picker(true, { onResolveError: () => false });
+
+    p.add("alice");
+    await settle(p);
+
+    expect(p.recipients.value[0].error).toBe("server error (HTTP 500)");
+  });
+
+  it("retryErrored revives every failed chip at once after a recovery", async () => {
+    invokeMock.mockRejectedValue("unreachable: down");
+    const p = picker(true);
+    p.add("alice");
+    p.add("bob");
+    await settle(p);
+    expect(p.recipients.value.every((r) => r.state === "error")).toBe(true);
+    expect(p.canSend.value).toBe(false);
+
+    // Without this the user would have to press Retry on every chip before a
+    // single invite could be sent again.
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(["peer1"]);
+    p.retryErrored();
+    await settle(p);
+
+    expect(p.recipients.value.every((r) => r.state === "ok")).toBe(true);
+    expect(p.canSend.value).toBe(true);
   });
 });

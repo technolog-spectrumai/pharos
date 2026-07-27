@@ -76,7 +76,8 @@ describe("classify — what each machine prefix does", () => {
     cloud.enabled = true;
     cloud.loggedIn = true;
 
-    expect(cloud.classify(UNREACHABLE_TCP)).toBe(true);
+    // false = "no dedicated surface owns this", so the caller still shows it.
+    expect(cloud.classify(UNREACHABLE_TCP)).toBe(false);
     expect(cloud.reachable).toBe(false);
     // A dead socket says nothing about the switch or the session.
     expect(cloud.enabled).toBe(true);
@@ -87,7 +88,7 @@ describe("classify — what each machine prefix does", () => {
     for (const msg of [UNREACHABLE_TCP, UNREACHABLE_TIMEOUT, "unreachable: TLS handshake to h failed: x"]) {
       setActivePinia(createPinia());
       const cloud = useCloudStore();
-      expect(cloud.classify(msg)).toBe(true);
+      cloud.classify(msg);
       expect(cloud.reachable).toBe(false);
     }
   });
@@ -241,10 +242,58 @@ describe("reachability is only ever learned from real requests", () => {
   it("a knob toggle does not prove the server is up either", async () => {
     fakeTauri();
     const cloud = useCloudStore();
-    invokeMock.mockResolvedValue(undefined);
+    // A VALID cloud_status, so reachable staying null is the knob being
+    // network-free — not reinit crashing on an undefined response.
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "cloud_status"
+        ? { logged_in: false, username: null, enabled: true, force_tor: false, transport: "clearnet" }
+        : undefined,
+    );
 
+    await cloud.init();
     await cloud.setEnabled(true);
 
+    expect(cloud.enabled).toBe(true);
+    expect(cloud.reachable).toBeNull();
+  });
+
+  it("starting a transfer does not prove the server is up — Rust spawns and returns", async () => {
+    fakeTauri();
+    const cloud = useCloudStore();
+    cloud.enabled = true;
+    cloud.loggedIn = true;
+    // cloud_upload/cloud_download hand back a transfer id the moment the task
+    // is spawned; the real connect happens inside it. Treating that as an
+    // answer would clear a live unreachable verdict and re-enable the invite
+    // submits for the whole connect timeout.
+    cloud.reachable = false;
+
+    invokeMock.mockResolvedValueOnce({ transfer_id: "t1", name: "f", size: 1 });
+    await cloud.call("cloud_upload", {});
+    expect(cloud.reachable).toBe(false);
+
+    invokeMock.mockResolvedValueOnce({ transfer_id: "t2" });
+    await cloud.call("cloud_download", {});
+    expect(cloud.reachable).toBe(false);
+  });
+
+  it("logging out does not prove the server is up — Rust discards its own error", async () => {
+    fakeTauri();
+    const cloud = useCloudStore();
+    cloud.reachable = false;
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await cloud.call("cloud_logout", {});
+
+    expect(cloud.reachable).toBe(false);
+  });
+
+  it("a failed transfer does not blame the server either — it may be the media host", async () => {
+    // A download follows a 302 to the media/CDN host, so a dead stream can mean
+    // that host is down while the API server answered the redirect correctly.
+    fakeTauri();
+    const cloud = useCloudStore();
+    await cloud.init();
     expect(cloud.reachable).toBeNull();
   });
 });

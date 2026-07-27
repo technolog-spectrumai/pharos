@@ -156,18 +156,31 @@ export const useCloudStore = defineStore("cloud", () => {
    *  the likeliest unclassified cause and the local truth beats string-matching
    *  across the language boundary.
    *
-   *  Returns true when the message was a known machine prefix, i.e. the UI has
-   *  a proper reason to render and must NOT also surface the raw string. */
+   *  Returns true only for the two conditions that own a dedicated surface (the
+   *  knob-off state and the logged-out card). `unreachable` returns FALSE on
+   *  purpose: the invites panel has a notice for it, but the Files browser does
+   *  not — it renders `cloud.error` and nothing else, so swallowing here would
+   *  make a dead server look like an empty bucket. */
   function classify(msg: string): boolean {
     if (knobRefused(msg)) return true;
     if (sessionExpired(msg)) return true;
     if (msg.startsWith("unreachable")) {
       reachable.value = false;
-      return true;
+      return false;
     }
     void syncOffline();
     return false;
   }
+
+  /** Commands that resolve BEFORE the server has answered, so their success
+   *  proves nothing about reachability:
+   *   - cloud_upload / cloud_download return a transfer id the moment Rust
+   *     spawns the task; the real connect happens inside it and is reported
+   *     later on the `cloud://error` event.
+   *   - cloud_logout discards its own request error and always returns Ok.
+   *  ADD ANY NEW spawn-and-return or best-effort command here, or it will
+   *  silently vouch for a server it never reached. */
+  const PROVES_NOTHING = new Set(["cloud_upload", "cloud_download", "cloud_logout"]);
 
   /** THE way to issue a networked cloud/beacon/aster command: one place learns
    *  whether the server is answering. Rethrows, so callers keep their own
@@ -176,7 +189,7 @@ export const useCloudStore = defineStore("cloud", () => {
   async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     try {
       const out = await invoke<T>(cmd, args);
-      reachable.value = true; // an answer at all proves the server is there
+      if (!PROVES_NOTHING.has(cmd)) reachable.value = true;
       return out;
     } catch (e) {
       classify(asMessage(e));
@@ -242,9 +255,10 @@ export const useCloudStore = defineStore("cloud", () => {
         dropSoon(e.payload.transferId, ERROR_LINGER_MS);
         return;
       }
-      // A stream dying mid-transfer is as good a reachability signal as a failed
-      // request. Mark it, then fall through — the row still shows what happened.
-      if (msg.startsWith("unreachable")) reachable.value = false;
+      // Deliberately does NOT touch `reachable`: a download follows a 302 to the
+      // MEDIA host, so a failure here can mean that host is down while the API
+      // server answered the redirect perfectly. Transfers neither prove nor
+      // disprove that your server is reachable.
       const t = transfers.get(e.payload.transferId);
       if (t) t.error = msg;
       else error.value = msg;
