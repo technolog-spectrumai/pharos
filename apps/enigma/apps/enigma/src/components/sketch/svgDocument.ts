@@ -25,10 +25,12 @@ import {
   BOARD_W,
   DEFAULT_CAPS,
   HINT_BG,
+  HINT_BGIMG,
   HINT_KIND,
   HINT_PTS,
   MAX_BOARD_W,
   shapeToSvg,
+  validateBackgroundImage,
   validateShape,
   type Shape,
   type SketchCaps,
@@ -50,6 +52,8 @@ export interface SvgDocument {
   height: number;
   /** Our own background rect, when the file has one. */
   background: string | null;
+  /** Our own background image (an inline raster data URL), when the file has one. */
+  backgroundImage: string | null;
 }
 
 /** Why a file was refused. The caller turns this into a message + the XML offer. */
@@ -281,6 +285,7 @@ export function parseSvgDocument(
   const prologue: Element[] = [];
   const nodes: SvgNode[] = [];
   let background: string | null = null;
+  let backgroundImage: string | null = null;
   let opaqueCount = 0;
 
   for (const el of Array.from(root.children)) {
@@ -294,6 +299,11 @@ export function parseSvgDocument(
       background = str(el, "fill");
       continue;
     }
+    if (tag === "image" && el.hasAttribute(HINT_BGIMG)) {
+      // Re-validated on the way in: this string goes back into an href.
+      backgroundImage = validateBackgroundImage(str(el, "href"));
+      continue;
+    }
     const shape = toShape(el, caps, measure);
     if (shape) {
       nodes.push({ kind: "shape", shape });
@@ -303,7 +313,11 @@ export function parseSvgDocument(
     }
   }
 
-  return { ok: true, doc: { rootAttrs, prologue, nodes, width, height, background }, opaqueCount };
+  return {
+    ok: true,
+    doc: { rootAttrs, prologue, nodes, width, height, background, backgroundImage },
+    opaqueCount,
+  };
 }
 
 /** Board size: the viewBox wins, then width/height, then the classic board.
@@ -341,10 +355,15 @@ export function serializeSvgDocument(doc: SvgDocument): string {
   const bg = doc.background
     ? `  <rect ${HINT_BG}="1" width="${doc.width}" height="${doc.height}" fill="${escapeAttr(doc.background)}"/>`
     : "";
+  // Embedded, never linked — a remote href would make an "offline" file phone home.
+  const bgImg = validateBackgroundImage(doc.backgroundImage)
+    ? `  <image ${HINT_BGIMG}="1" href="${escapeAttr(doc.backgroundImage!)}" x="0" y="0" ` +
+      `width="${doc.width}" height="${doc.height}" preserveAspectRatio="xMidYMid slice"/>`
+    : "";
   const body = doc.nodes.map((node) =>
     "  " + (node.kind === "shape" ? shapeToSvg(node.shape) : serializeElement(node.el)),
   );
-  const lines = [head, bg, ...body].filter((l) => l !== "");
+  const lines = [head, bg, bgImg, ...body].filter((l) => l !== "");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg ${attrs}>\n${lines.join("\n")}\n</svg>`;
 }
 
@@ -370,6 +389,7 @@ export function emptySvgDocument(width = BOARD_W, height = BOARD_H): SvgDocument
     width,
     height,
     background: null,
+    backgroundImage: null,
   };
 }
 

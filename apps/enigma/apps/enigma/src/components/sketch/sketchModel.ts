@@ -761,6 +761,7 @@ export function rotAttr(s: Shape): string {
 export const HINT_KIND = "data-en-kind";
 export const HINT_PTS = "data-en-pts";
 export const HINT_BG = "data-en-bg";
+export const HINT_BGIMG = "data-en-bgimg";
 
 /** One shape as an SVG fragment. */
 export function shapeToSvg(s: Shape): string {
@@ -823,7 +824,7 @@ export function toSvg(
   // any window that is not 16:9.
   const img = validateBackgroundImage(opts.image);
   const bgImage = img
-    ? `  <image href="${esc(img)}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice"/>\n`
+    ? `  <image ${HINT_BGIMG}="1" href="${esc(img)}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice"/>\n`
     : "";
   const body = doc.shapes.map(shapeToSvg).join("\n  ");
   // width/height are required, not decorative: an SVG with no intrinsic size

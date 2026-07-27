@@ -211,6 +211,18 @@ describe("untrusted input is refused, not sanitised", () => {
     expect(res).toMatchObject({ ok: false, reason: "not-svg" });
   });
 
+  it("round-trips a background image as an embedded raster, never a link", () => {
+    const doc = emptySvgDocument();
+    doc.backgroundImage = "data:image/png;base64,iVBORw0KGgo=";
+    const out = serializeSvgDocument(doc);
+    expect(out).toContain("data-en-bgimg");
+    const back = parse(out).doc;
+    expect(back.backgroundImage).toBe(doc.backgroundImage);
+    // It is a document property, not one of the editable shapes.
+    expect(shapesOf(back)).toHaveLength(0);
+    expect(serializeSvgDocument(back)).toBe(out);
+  });
+
   it("accepts an INLINE raster image — that is our own background format", () => {
     const res = parseSvgDocument(
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">` +

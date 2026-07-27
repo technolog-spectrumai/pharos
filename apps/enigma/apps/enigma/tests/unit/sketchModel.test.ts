@@ -548,7 +548,7 @@ describe("background image", () => {
 
   it("embeds the image in the SVG so the export stays self-contained", () => {
     const svg = toSvg(emptyDoc(), { image: PNG });
-    expect(svg).toContain(`<image href="${PNG}"`);
+    expect(svg).toContain(`<image data-en-bgimg="1" href="${PNG}"`);
     expect(svg).toContain(`width="1920" height="1080"`);
   });
 

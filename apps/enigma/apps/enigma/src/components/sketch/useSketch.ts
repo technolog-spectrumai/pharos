@@ -1,28 +1,28 @@
-// Sketch orchestrator — one standalone local drawing board.
+// Sketch orchestrator — the editing state for ONE open .svg file.
 //
-// Not tied to a chat room and not shared with anyone: the board is this device's,
-// persisted in the encrypted kv store and exported as SVG or PNG. (It was once a
-// per-room collaborative surface; that engine is parked in
-// `limbo/frontend/sketch-collab/` — see its NOTES.md.)
+// This was a module-level singleton over one board stored in the kv store. It is
+// now a FACTORY: the editor opens N files by path, and each gets its own
+// document, undo history and selection, created on open and dropped on close.
+// Persistence moved out entirely — Files → Local owns save (an explicit press,
+// through the same sealed `local_note_write` the notes editor uses), so there is
+// no debounce, no autosave and no kv document key any more.
 //
-// Persistence is debounced because **every kvPut is an fsync** (`kv_put` →
-// protasius `put_enc` → `persist`), and drawing mutates state on every pointer
-// release. `flushPersist()` forces a write before unmount and before export.
+// What it still holds beside the shapes is the ENVELOPE: the root attributes,
+// the prologue and every opaque node of the file it was opened from, so saving
+// rewrites only our own shapes and leaves the rest of a foreign SVG untouched.
 //
-// The board is a module-level singleton (`getSketch()`), not view state: the router
-// uses createMemoryHistory and unmounts views on navigation, so a per-view ref would
-// drop the drawing and its undo history every time the user visits another tab. It
-// is deliberately NOT a Pinia store — `stores/chat.ts` documents the reason, namely
-// that Pinia's reactive() deep-unwraps inner refs, and the canvas/toolbar components
-// take the whole orchestrator as a prop and read `.value` directly.
+// The palette is the one thing that stays in the kv store: seven colour slots are
+// a device-wide tool preference, not part of any document.
+//
+// Deliberately NOT a Pinia store — `stores/chat.ts` documents the reason, namely
+// that Pinia's reactive() deep-unwraps inner refs, and the canvas/toolbar
+// components take the whole orchestrator as a prop and read `.value` directly.
 
 import { computed, ref } from "vue";
-import { getBuildConfig, kvDelete, kvGet, kvPut } from "rakotis";
+import { kvGet, kvPut } from "rakotis";
 import {
-  BOARD_W,
-  boardWidth,
+  DEFAULT_CAPS,
   DEFAULT_SLOT_COLORS,
-  emptyDoc,
   hitTest,
   MIN_POINT_DIST,
   normalizeSlots,
@@ -36,7 +36,6 @@ import {
   shapePivot,
   translateShape,
   validateBackgroundImage,
-  validateDoc,
   type ArrowShape,
   type EllipseShape,
   type PathShape,
@@ -47,24 +46,21 @@ import {
   type TextShape,
   type TriangleShape,
 } from "./sketchModel";
+import {
+  emptySvgDocument,
+  serializeSvgDocument,
+  shapesOf,
+  withShapes,
+  type SvgDocument,
+} from "./svgDocument";
 
 const KV_NS = "sketch";
 const KV_SCOPE = "default";
-/** Single board ⇒ the empty-key convention used by `contacts` / `p2p:rooms`.
- *  Not in DEVLINK_SYNC_KV, so the board stays device-local by construction. */
-const KV_KEY = "";
-/** The background image lives under its own key. Drawing rewrites the shape
- *  document constantly (and every kvPut is an fsync), so a megabyte of base64
- *  riding along on each autosave would be paid over and over for nothing — the
- *  image only changes when the user picks one. */
-const KV_KEY_IMAGE = "background";
-/** The seven colour slots, also on their own key. The palette is a tool preference
- *  that outlives any one board, so it must not ride the debounced document save
- *  (a swap would then be lost if the app closed inside the debounce window) and
- *  must not be inside the document (clearing the board would reset it). */
+/** The seven colour slots. A tool preference that outlives any one document, so
+ *  it lives here rather than in the file — clearing a drawing must not reset it,
+ *  and it must not be written into somebody else's .svg. */
 const KV_KEY_PALETTE = "palette";
 
-const PERSIST_DEBOUNCE_MS = 800;
 /** Bounded so a long session can't grow the history without limit. */
 const UNDO_LIMIT = 100;
 /** Eraser drag is sampled along the segment so a fast flick can't skip shapes. */
@@ -80,27 +76,21 @@ interface LiveStroke {
   opacity: number;
 }
 
-export function useSketch() {
-  const cfg = getBuildConfig();
-  const caps: SketchCaps = {
-    maxShapes: cfg.sketch_max_shapes_per_board,
-    maxTextLen: cfg.sketch_max_text_len,
-  };
+/** One editing session over one file. `source` is the parsed document the file
+ *  was opened from — its root attributes, prologue and opaque nodes ride along
+ *  untouched so `toText()` can put them back exactly where they were. */
+export function useSketch(source: SvgDocument = emptySvgDocument()) {
+  const caps: SketchCaps = DEFAULT_CAPS;
 
-  const doc = ref<SketchDoc>(emptyDoc());
+  /** The envelope. Only `nodes` is replaced on save; everything else is verbatim. */
+  const envelope = ref<SvgDocument>(source);
+  const doc = ref<SketchDoc>({ v: 1, shapes: shapesOf(source), background: source.background });
   /** Board-cropped data URL, or null. Kept beside the document, not inside it. */
   const backgroundImage = ref<string | null>(null);
   const selfLive = ref<LiveStroke | null>(null);
   const selectedId = ref<string | null>(null);
   const boardFull = ref(false);
-  /** A load has been started (dedupes concurrent load() calls). */
-  const loading = ref(false);
-  /** A load has FINISHED. Persisting before this would write the initial empty
-   *  document over the user's saved board — see persist(). */
-  const ready = ref(false);
-  /** Storage could not be read, so persistence is disabled to avoid overwriting a
-   *  board we never managed to see. Surfaced in the UI. */
-  const loadFailed = ref(false);
+
   /** The palette key has been read. Deliberately NOT `ready`, which guards the
    *  DOCUMENT key and says nothing about this one: if the palette read failed while
    *  the document read succeeded, gating on `ready` would let the very first swap
@@ -123,16 +113,13 @@ export function useSketch() {
   /** The seven assignable colours behind both the stroke row and the fill row. */
   const slots = ref<string[]>([...DEFAULT_SLOT_COLORS]);
 
-  /** Live board width in board units — the board is elastic horizontally so it
-   *  fills its container (see BOARD_H/boardWidthFor in sketchModel).
-   *
-   *  It lives here, rather than inside the canvas that measures it, because the
-   *  EXPORT buttons live in the view and an export has to match what is on screen.
-   *  Deriving it from the window, it is never persisted: a board opened on another
-   *  window size simply gets that window's width. */
-  const boardW = ref<number>(BOARD_W);
-  function setBoardWidth(w: number) {
-    boardW.value = boardWidth(w);
+  /** Board size comes from the FILE's own viewBox, not from the container. The
+   *  old board was one elastic sheet that filled the window; a document has
+   *  intrinsic dimensions that must survive a round trip. */
+  const boardW = computed(() => envelope.value.width);
+  const boardH = computed(() => envelope.value.height);
+  function setBoardWidth(_w: number) {
+    /* kept for the canvas's ResizeObserver call site; geometry is the file's now */
   }
 
   /** Assign a colour to one slot.
@@ -177,135 +164,53 @@ export function useSketch() {
 
   // ── persistence ────────────────────────────────────────────────────────────
 
-  let persistTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function schedulePersist() {
-    if (persistTimer) clearTimeout(persistTimer);
-    persistTimer = setTimeout(() => {
-      persistTimer = null;
-      void persist();
-    }, PERSIST_DEBOUNCE_MS);
-  }
-
-  async function persist() {
-    // Never write before the load has come back. `load()` awaits an IPC read, and
-    // the view fires it without awaiting; a flush in that window (tab switch, or
-    // an export) would otherwise save the initial empty document over a board the
-    // user has not even seen yet, and the in-flight load would then repopulate
-    // memory only — so the loss stays invisible until the next restart.
-    if (!ready.value) return;
-    await kvPut(KV_NS, KV_SCOPE, KV_KEY, JSON.stringify(doc.value)).catch(() => {});
-  }
-
-  /** Written on its own, only from setBackgroundImage / undo-redo of one. */
-  async function persistImage() {
-    if (!ready.value) return;
-    const v = backgroundImage.value;
-    await (v
-      ? kvPut(KV_NS, KV_SCOPE, KV_KEY_IMAGE, v)
-      : kvDelete(KV_NS, KV_SCOPE, KV_KEY_IMAGE)
-    ).catch(() => {});
-  }
-
-  /** Written on its own, from setSlot only. Not debounced: a swap is one deliberate
-   *  click in the picker, not a stream of them like drawing, so there is nothing to
-   *  coalesce — which is also why flushPersist() needs no palette branch. */
+  /** Written on its own, from setSlot only. Not debounced: a swap is one
+   *  deliberate click in the picker, not a stream of them like drawing. */
   async function persistPalette() {
     if (!paletteReady.value) return;
     await kvPut(KV_NS, KV_SCOPE, KV_KEY_PALETTE, JSON.stringify(slots.value)).catch(() => {});
   }
 
-  /** Persist now — before unmount or export. */
-  async function flushPersist() {
-    if (persistTimer) {
-      clearTimeout(persistTimer);
-      persistTimer = null;
-    }
-    await persist();
-  }
-
-  /** Load the saved board. Safe to call repeatedly; only the first load applies.
+  /** Read the saved palette. The document itself arrives through the factory
+   *  argument, already parsed — the only thing left to load is this preference.
    *
-   *  The two keys are read and recovered INDEPENDENTLY. Sharing one try (or one
-   *  Promise.all) means a failure in either discards the other — and a failure
-   *  reading the image would open the persist gate over an empty document, so the
-   *  next flush would destroy a drawing that was never even unreadable. */
-  async function load() {
-    if (loading.value) return;
-    loading.value = true;
-
-    // Storage read and content parse are handled separately, because they call for
-    // opposite responses: unreadable STORAGE means we must not write (we would be
-    // overwriting something we failed to see), while readable-but-corrupt CONTENT
-    // means there is nothing left to protect and starting fresh is right.
+   *  Storage failure and parse failure get opposite treatment, as before: a
+   *  palette we could not READ must not be written over, while one we read but
+   *  could not PARSE has nothing left to protect, so defaults are safe and the
+   *  next swap repairs the record. */
+  async function loadPalette() {
     let raw: string | null = null;
     let storageOk = true;
     try {
-      raw = await kvGet(KV_NS, KV_SCOPE, KV_KEY);
+      raw = await kvGet(KV_NS, KV_SCOPE, KV_KEY_PALETTE);
     } catch {
       storageOk = false;
     }
-
-    if (storageOk) {
-      try {
-        const parsed = raw ? validateDoc(JSON.parse(raw), caps) : null;
-        if (parsed) doc.value = parsed;
-      } catch {
-        doc.value = emptyDoc();
-      }
-      ready.value = true;
-    } else {
-      // Refuse to persist for the rest of the session rather than clobber the
-      // board, and say so — silently not saving would be its own kind of loss.
-      loadFailed.value = true;
-    }
-
+    if (!storageOk) return;
     try {
-      // Validated because this string goes straight into an SVG href and the DOM.
-      backgroundImage.value = validateBackgroundImage(await kvGet(KV_NS, KV_SCOPE, KV_KEY_IMAGE));
+      slots.value = normalizeSlots(raw ? JSON.parse(raw) : null);
     } catch {
-      backgroundImage.value = null;
+      slots.value = [...DEFAULT_SLOT_COLORS];
     }
-
-    // Third key, and it splits storage from content for the same reason the document
-    // does above — the two call for opposite responses. A palette we could not READ
-    // must not be written over. A palette we read but could not PARSE has nothing
-    // left to protect, so the defaults are safe to write and the next swap repairs
-    // the record. Folding the parse back into the read would make one bad byte
-    // disable palette saving permanently: load() is one-shot and nothing else ever
-    // rewrites this key, so the corrupt value would outlive every restart.
-    let rawPalette: string | null = null;
-    let paletteStorageOk = true;
-    try {
-      rawPalette = await kvGet(KV_NS, KV_SCOPE, KV_KEY_PALETTE);
-    } catch {
-      paletteStorageOk = false;
-    }
-
-    if (paletteStorageOk) {
-      try {
-        slots.value = normalizeSlots(rawPalette ? JSON.parse(rawPalette) : null);
-      } catch {
-        slots.value = [...DEFAULT_SLOT_COLORS];
-      }
-      paletteReady.value = true;
-    }
+    paletteReady.value = true;
   }
 
-  /** Re-read the board from scratch (profile switch). */
-  async function reload() {
-    loading.value = false;
-    ready.value = false;
-    loadFailed.value = false;
-    paletteReady.value = false;
-    doc.value = emptyDoc();
-    backgroundImage.value = null;
-    slots.value = [...DEFAULT_SLOT_COLORS];
-    selectedId.value = null;
-    undoStack.value = [];
-    redoStack.value = [];
-    await load();
+  /** The file to write back: our shapes re-rendered into the envelope this
+   *  document was opened from, so opaque nodes, <defs> and the root attributes
+   *  come back byte-for-byte and only our own elements are regenerated. */
+  function toText(): string {
+    return serializeSvgDocument({
+      ...withShapes(envelope.value, doc.value.shapes),
+      background: doc.value.background,
+      backgroundImage: backgroundImage.value,
+    });
   }
+
+  /** How many elements of the opened file this editor cannot represent. Shown so
+   *  the user knows the drawing has parts they can see but not select. */
+  const opaqueCount = computed(
+    () => envelope.value.nodes.filter((n) => n.kind === "opaque").length,
+  );
 
   // ── undo / redo ────────────────────────────────────────────────────────────
   // Whole-document snapshots. With one user and an immutable-by-convention shape
@@ -349,16 +254,14 @@ export function useSketch() {
       selectedId.value = null;
     }
     boardFull.value = next.length >= caps.maxShapes;
-    schedulePersist();
   }
 
   function applyState(next: DocState) {
     doc.value.background = next.background;
-    const imageChanged = backgroundImage.value !== next.image;
     backgroundImage.value = next.image;
     applyShapes(next.shapes);
-    // Only touch the image key when it actually moved — see KV_KEY_IMAGE.
-    if (imageChanged) void persistImage();
+    // The image rides in the document now (it is serialized into the file on
+    // save), so undoing one needs no separate write.
   }
 
   function undo() {
@@ -636,7 +539,6 @@ export function useSketch() {
     if (doc.value.background === color) return;
     snapshot();
     doc.value.background = color;
-    schedulePersist();
   }
 
   /** Set or clear the board background image. Expects an already board-cropped,
@@ -646,7 +548,6 @@ export function useSketch() {
     if (backgroundImage.value === next) return;
     snapshot();
     backgroundImage.value = next;
-    void persistImage();
   }
 
   function clearBoard() {
@@ -662,7 +563,9 @@ export function useSketch() {
     shapes,
     selfLive,
     boardFull,
-    loadFailed,
+    envelope,
+    opaqueCount,
+    boardH,
     // tool settings
     currentColor,
     currentWidth,
@@ -712,27 +615,17 @@ export function useSketch() {
     undo,
     redo,
     // lifecycle
-    load,
-    reload,
-    flushPersist,
+    loadPalette,
+    toText,
   };
 }
 
 export type Sketch = ReturnType<typeof useSketch>;
 
-// Lazy module singleton: created on first use (so nothing touches the kv store at
-// import time) and shared by every view, which is what keeps the drawing and its
-// undo history alive across tab navigation.
-let instance: Sketch | null = null;
-
-export function getSketch(): Sketch {
-  if (!instance) instance = useSketch();
-  return instance;
-}
-
-/** Test seam — drops the singleton so a fresh one is built next call. */
-export function resetSketch(): void {
-  instance = null;
+/** One instance per open file — created on open, dropped on close. There is no
+ *  singleton any more: two editors would otherwise share one undo history. */
+export function createSketch(source?: SvgDocument): Sketch {
+  return useSketch(source);
 }
 
 /** Re-exported for the rotate handle so the canvas doesn't reach into the model. */
