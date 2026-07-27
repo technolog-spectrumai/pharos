@@ -174,7 +174,7 @@ describe("rotation", () => {
     doc.shapes.push(shape({ kind: "arrow", x1: 0, y1: 0, x2: 100, y2: 0, rot: 30 }));
     const svg = toSvg(doc);
     // One group carries both the opacity and the transform for shaft + head.
-    expect(svg).toMatch(/<g opacity="1" transform="rotate\(30 50 0\)">[\s\S]*<line[\s\S]*<polygon[\s\S]*<\/g>/);
+    expect(svg).toMatch(/<g data-en-kind="arrow" opacity="1" transform="rotate\(30 50 0\)">[\s\S]*<line[\s\S]*<polygon[\s\S]*<\/g>/);
   });
 
   it("survives a round trip through validation", () => {
@@ -240,7 +240,7 @@ describe("rotation regressions", () => {
     doc.shapes.push(shape({ kind: "arrow", x1: 0, y1: 0, x2: 100, y2: 0, opacity: 0.5 }));
     const svg = toSvg(doc);
     // Opacity belongs on the wrapping group, exactly once.
-    expect(svg).toContain('<g opacity="0.5"');
+    expect(svg).toContain(`<g data-en-kind="arrow" opacity="0.5"`);
     expect(svg.match(/opacity="0\.5"/g)).toHaveLength(1);
     expect(svg).not.toMatch(/<line[^>]*opacity=/);
     expect(svg).not.toMatch(/<polygon[^>]*opacity=/);
@@ -481,7 +481,7 @@ describe("background", () => {
     const doc = emptyDoc();
     doc.background = "#111827";
     const svg = toSvg(doc);
-    expect(svg).toContain('<rect width="1920" height="1080" fill="#111827"/>');
+    expect(svg).toContain('<rect data-en-bg="1" width="1920" height="1080" fill="#111827"/>');
   });
 
   it("draws the background beneath the shapes", () => {
@@ -796,7 +796,7 @@ describe("elastic board width", () => {
     expect(wide).toContain('viewBox="0 0 2296 1080"');
     expect(wide).toContain('width="2296" height="1080"');
     // The background must cover the WHOLE elastic board, not just the classic part.
-    expect(wide).toContain('<rect width="2296" height="1080" fill="#ffffff"/>');
+    expect(wide).toContain('<rect data-en-bg="1" width="2296" height="1080" fill="#ffffff"/>');
 
     const bare = toSvg(doc);
     expect(bare).toContain('viewBox="0 0 1920 1080"');

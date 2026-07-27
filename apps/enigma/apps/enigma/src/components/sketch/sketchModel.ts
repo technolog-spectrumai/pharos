@@ -282,11 +282,20 @@ export function validateBackgroundImage(x: unknown): string | null {
   return BG_IMAGE_RE.test(x) ? x : null;
 }
 
-/** Caps from build config; the model takes them as data so it stays pure. */
+/** Caps on an untrusted document. The model takes them as data so it stays pure.
+ *
+ *  These used to come from a Pro-only `sketch:` build-config section. The editor
+ *  now lives inside Files → Local, which ships in EVERY edition, so gating it
+ *  would be incoherent — they are plain constants and `DEFAULT_CAPS` is what
+ *  every caller passes. They still matter: an opened .svg is untrusted input. */
 export interface SketchCaps {
   maxShapes: number;
   maxTextLen: number;
 }
+
+export const MAX_SHAPES = 1000;
+export const MAX_TEXT_LEN = 200;
+export const DEFAULT_CAPS: SketchCaps = { maxShapes: MAX_SHAPES, maxTextLen: MAX_TEXT_LEN };
 
 // ── geometry ──────────────────────────────────────────────────────────────────
 
@@ -740,6 +749,19 @@ export function rotAttr(s: Shape): string {
   return ` transform="rotate(${s.rot} ${cx} ${cy})"`;
 }
 
+/** Round-trip hints. `toSvg` is otherwise NOT invertible: `pathD` smooths the
+ *  samples into a quadratic `d` that cannot be inverted, and a `triangle` looks
+ *  exactly like any other 3-point `<polygon>` coming back. Re-parsing without
+ *  these would drift a little more on every open/save cycle.
+ *
+ *  They are plain `data-*` attributes — valid SVG that every other renderer
+ *  ignores — so a file we wrote still opens correctly in Inkscape or a browser.
+ *  Shapes NOT listed here (`rect`, `ellipse`, `text`) need no hint: every field
+ *  is already recoverable from their standard attributes. */
+export const HINT_KIND = "data-en-kind";
+export const HINT_PTS = "data-en-pts";
+export const HINT_BG = "data-en-bg";
+
 /** One shape as an SVG fragment. */
 export function shapeToSvg(s: Shape): string {
   const fill = canFill(s.kind) && s.fill ? esc(s.fill) : "none";
@@ -747,19 +769,19 @@ export function shapeToSvg(s: Shape): string {
   const rot = rotAttr(s);
   switch (s.kind) {
     case "path":
-      return `<path d="${pathD(s.pts)}" fill="none" ${common} stroke-linecap="round" stroke-linejoin="round"${rot}/>`;
+      return `<path d="${pathD(s.pts)}" ${HINT_PTS}="${s.pts.join(" ")}" fill="none" ${common} stroke-linecap="round" stroke-linejoin="round"${rot}/>`;
     case "rect":
       return `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" fill="${fill}" ${common}${rot}/>`;
     case "ellipse":
       return `<ellipse cx="${s.cx}" cy="${s.cy}" rx="${s.rx}" ry="${s.ry}" fill="${fill}" ${common}${rot}/>`;
     case "triangle":
-      return `<polygon points="${polyPoints(trianglePoints(s))}" fill="${fill}" ${common} stroke-linejoin="round"${rot}/>`;
+      return `<polygon points="${polyPoints(trianglePoints(s))}" ${HINT_KIND}="triangle" fill="${fill}" ${common} stroke-linejoin="round"${rot}/>`;
     case "arrow":
       // One group carries both the transform and the opacity, so the shaft and the
       // head turn together AND composite once — putting opacity on each child would
       // darken their overlap, which is not what the board shows.
       return (
-        `<g opacity="${s.opacity}"${rot}>` +
+        `<g ${HINT_KIND}="arrow" opacity="${s.opacity}"${rot}>` +
         `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" stroke="${esc(s.color)}" stroke-width="${s.sw}" stroke-linecap="round"/>` +
         `<polygon points="${polyPoints(arrowHead(s))}" fill="${esc(s.color)}"/>` +
         `</g>`
@@ -776,15 +798,24 @@ export function shapeToSvg(s: Shape): string {
  *  Tailwind classes — and export has to work regardless of what is on screen. */
 export function toSvg(
   doc: SketchDoc,
-  opts: { background?: string | null; image?: string | null; width?: number | null } = {},
+  opts: {
+    background?: string | null;
+    image?: string | null;
+    width?: number | null;
+    /** Board height. Defaults to BOARD_H — a file-backed document passes its own. */
+    height?: number | null;
+  } = {},
 ): string {
   // Defaults to the 16:9 board, so a caller that does not know the live width
   // (a test, a headless export) gets exactly what this function always produced.
   const w = boardWidth(opts.width);
+  const h = opts.height && opts.height > 0 ? opts.height : BOARD_H;
   const bg = opts.background !== undefined ? opts.background : doc.background;
   // Transparent means NO background rect at all — an empty or white-filled rect
   // would defeat the point by making the export opaque.
-  const bgRect = bg ? `  <rect width="${w}" height="${BOARD_H}" fill="${esc(bg)}"/>\n` : "";
+  // The hint separates OUR background from a user-drawn full-bleed rect, which
+  // would otherwise be indistinguishable on the way back in.
+  const bgRect = bg ? `  <rect ${HINT_BG}="1" width="${w}" height="${h}" fill="${esc(bg)}"/>\n` : "";
   // The image is embedded, not linked, so the .svg stays portable. It is cropped to
   // the DEFAULT board at import, so on an elastic board it no longer matches the
   // rect's aspect — `slice` scales it to cover and crops the overflow, which keeps
@@ -792,13 +823,13 @@ export function toSvg(
   // any window that is not 16:9.
   const img = validateBackgroundImage(opts.image);
   const bgImage = img
-    ? `  <image href="${esc(img)}" x="0" y="0" width="${w}" height="${BOARD_H}" preserveAspectRatio="xMidYMid slice"/>\n`
+    ? `  <image href="${esc(img)}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice"/>\n`
     : "";
   const body = doc.shapes.map(shapeToSvg).join("\n  ");
   // width/height are required, not decorative: an SVG with no intrinsic size
   // renders at 0x0 when loaded as an image in WebKit.
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${BOARD_H}" viewBox="0 0 ${w} ${BOARD_H}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
 ${bgRect}${bgImage}  ${body}
 </svg>`;
 }
