@@ -20,8 +20,6 @@ const emit = defineEmits<{
   "update:tool": [Tool];
   "update:textSize": [number];
   clear: [];
-  exportSvg: [];
-  exportPng: [];
   chooseImage: [];
 }>();
 
@@ -377,20 +375,6 @@ const rotation = computed({
         @click="sketch.deleteSelected()"
       />
       <OyaIconButton size="sm" icon="broom" :label="$t('sketch.clear')" @click="emit('clear')" />
-      <OyaIconButton
-        size="sm"
-        icon="download"
-        :label="$t('sketch.exportSvg')"
-        :disabled="busy"
-        @click="emit('exportSvg')"
-      />
-      <OyaIconButton
-        size="sm"
-        icon="image"
-        :label="$t('sketch.exportPng')"
-        :disabled="busy"
-        @click="emit('exportPng')"
-      />
     </div>
   </div>
 </template>

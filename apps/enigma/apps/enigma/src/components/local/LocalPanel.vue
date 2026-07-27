@@ -38,6 +38,9 @@ import LocalPassphraseModal from "./LocalPassphraseModal.vue";
 // it loads on demand. Still fully offline — the chunk ships in the app bundle.
 import type NoteEditorComponent from "./NoteEditor.vue";
 const NoteEditor = defineAsyncComponent(() => import("./NoteEditor.vue"));
+/** Same treatment as ACE: the drawing engine is its own chunk, loaded only when
+ *  a .svg is actually opened. */
+const SvgEditor = defineAsyncComponent(() => import("./SvgEditor.vue"));
 
 defineProps<{ darkMode?: boolean }>();
 
@@ -219,6 +222,10 @@ async function confirmForget() {
 // being clobbered), and it's dropped when the editor closes.
 
 interface OpenNote {
+  /** Which editor renders this file. Derived from the extension on open; the
+   *  rest of this record is deliberately type-agnostic, so the save path,
+   *  the passphrase handling and the recents list are shared by both. */
+  kind: "text" | "svg";
   /** null until a new note has been saved somewhere. */
   path: string | null;
   name: string;
@@ -233,6 +240,9 @@ interface OpenNote {
 const view = ref<"list" | "editor">("list");
 const note = ref<OpenNote | null>(null);
 const editorRef = ref<InstanceType<typeof NoteEditorComponent> | null>(null);
+/** Set when a .svg refused the visual editor and the user picked "open as XML" —
+ *  it forces the text editor for that one open, without renaming the file. */
+const forceText = ref(false);
 const editorDirty = ref(false);
 const noteBusy = ref(false);
 const noteError = ref("");
@@ -249,6 +259,7 @@ function errText(e: unknown): string {
 
 function enterEditor(path: string, read: LocalNoteContent, passphrase: string | null) {
   note.value = {
+    kind: editorKindFor(read.name),
     path,
     name: read.name,
     locked: read.locked,
@@ -269,8 +280,15 @@ function enterEditor(path: string, read: LocalNoteContent, passphrase: string | 
 }
 
 /** Open a file in the editor, prompting for its passphrase first if it's locked. */
+/** Files the visual editor claims. Everything else opens in ACE, which already
+ *  syntax-highlights .svg as XML. */
+function editorKindFor(name: string): "text" | "svg" {
+  return /\.svg$/i.test(name) ? "svg" : "text";
+}
+
 async function openPath(path: string) {
   error.value = "";
+  forceText.value = false;
   try {
     if (await isLocalFileLocked(path)) {
       askPassphrase("open", baseName(path), async (pass) => {
@@ -291,8 +309,32 @@ async function openFilePicker() {
   await openPath(path);
 }
 
+function newDrawing() {
+  note.value = {
+    kind: "svg",
+    path: null,
+    name: "untitled.svg",
+    locked: false,
+    passphrase: null,
+    pendingEncrypt: false,
+    // Empty: SvgEditor seeds a blank document rather than parsing nothing.
+    content: "",
+  };
+  editorDirty.value = false;
+  noteError.value = "";
+  forceText.value = false;
+  view.value = "editor";
+}
+
+/** Fall back to the text editor for a drawing the visual one refused. The file
+ *  is untouched — this only changes which component renders this open. */
+function openCurrentAsXml() {
+  forceText.value = true;
+}
+
 function newNote() {
   note.value = {
+    kind: "text",
     path: null,
     name: "untitled.txt",
     locked: false,
@@ -476,6 +518,24 @@ function pct(tr: { transferred: number; total: number }): number {
       <p class="text-sm opacity-60">{{ $t('local.desktopOnly') }}</p>
     </div>
 
+    <template v-else-if="view === 'editor' && note && note.kind === 'svg' && !forceText">
+      <SvgEditor
+        ref="editorRef"
+        :path="note.path"
+        :name="note.name"
+        :content="note.content"
+        :locked="note.locked"
+        :dark-mode="darkMode"
+        :busy="noteBusy"
+        :error="noteError"
+        @save="saveNote"
+        @back="backToList"
+        @encrypt="encryptNote"
+        @open-as-xml="openCurrentAsXml"
+        @update:dirty="editorDirty = $event"
+      />
+    </template>
+
     <template v-else-if="view === 'editor' && note">
       <NoteEditor
         ref="editorRef"
@@ -508,6 +568,13 @@ function pct(tr: { transferred: number; total: number }): number {
           @click="newNote"
         >
           <font-awesome-icon icon="plus" /> {{ $t('local.newNote') }}
+        </button>
+        <button
+          class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-xs font-bold transition hover:opacity-80 dark:border-accent-1"
+          data-testid="new-drawing"
+          @click="newDrawing"
+        >
+          <font-awesome-icon icon="pencil" /> {{ $t('sketch.newDrawing') }}
         </button>
         <button
           class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"

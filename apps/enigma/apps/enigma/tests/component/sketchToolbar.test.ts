@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import SketchToolbar from "../../src/components/sketch/SketchToolbar.vue";
-import { getSketch, resetSketch } from "../../src/components/sketch/useSketch";
+import { createSketch, type Sketch } from "../../src/components/sketch/useSketch";
 import { COLOR_NAME_KEYS, DEFAULT_SLOT_COLORS, PICKER_COLORS } from "../../src/components/sketch/sketchModel";
 import { i18n } from "../../src/i18n";
 
+// One sketch per test, from the factory — the singleton is gone now that the
+// editor opens N files, so each test builds its own instead of resetting a
+// shared one.
+//
 // The colour row does two different things depending on a mode flag, and the whole
 // design rests on the editing branch being a TOOL preference — never a document
 // edit. These mount the real toolbar against the real sketch singleton to pin the
@@ -32,14 +36,16 @@ function panel(w: ReturnType<typeof mountToolbar>) {
 
 function mountToolbar() {
   return mount(SketchToolbar, {
-    props: { sketch: getSketch(), tool: "draw" as const, textSize: 24 },
+    props: { sketch, tool: "draw" as const, textSize: 24 },
     global: { plugins: [i18n] },
   });
 }
 
+let sketch: Sketch;
+
 beforeEach(() => {
   localStorage.clear();
-  resetSketch();
+  sketch = createSketch();
   i18n.global.locale.value = "en";
 });
 
@@ -48,13 +54,13 @@ describe("SketchToolbar palette slots", () => {
     const w = mountToolbar();
     await slotButtons(w)[1].trigger("click");
 
-    expect(getSketch().currentColor.value).toBe(DEFAULT_SLOT_COLORS[1]);
+    expect(sketch.currentColor.value).toBe(DEFAULT_SLOT_COLORS[1]);
     expect(panel(w).exists()).toBe(false);
   });
 
   it("opens the picker instead of drawing when edit mode is on", async () => {
     const w = mountToolbar();
-    const before = getSketch().currentColor.value;
+    const before = sketch.currentColor.value;
 
     await w.find("button[aria-pressed]").trigger("click");
     await slotButtons(w)[0].trigger("click");
@@ -62,7 +68,7 @@ describe("SketchToolbar palette slots", () => {
     expect(panel(w).exists()).toBe(true);
     expect(panel(w).findAll("button")).toHaveLength(PICKER_COLORS.length);
     // The click that opened the picker must NOT also have set the drawing colour.
-    expect(getSketch().currentColor.value).toBe(before);
+    expect(sketch.currentColor.value).toBe(before);
   });
 
   it("assigns the picked colour to that slot and closes", async () => {
@@ -73,8 +79,8 @@ describe("SketchToolbar palette slots", () => {
     const target = PICKER_COLORS[PICKER_COLORS.length - 1]; // navy — not a default
     await panel(w).findAll("button")[PICKER_COLORS.length - 1].trigger("click");
 
-    expect(getSketch().slots.value[0]).toBe(target);
-    expect(getSketch().slots.value.slice(1)).toEqual([...DEFAULT_SLOT_COLORS].slice(1));
+    expect(sketch.slots.value[0]).toBe(target);
+    expect(sketch.slots.value.slice(1)).toEqual([...DEFAULT_SLOT_COLORS].slice(1));
     expect(panel(w).exists()).toBe(false);
     // Edit mode stays on so several slots can be reassigned in one visit.
     expect(w.find("button[aria-pressed='true']").exists()).toBe(true);
@@ -83,7 +89,6 @@ describe("SketchToolbar palette slots", () => {
   it("never touches the drawing or the undo stack", async () => {
     // The single most important guard in the feature: a palette edit that pushed an
     // undo entry would make Ctrl-Z revert a preference instead of the last shape.
-    const sketch = getSketch();
     sketch.addRect(0, 0, 10, 10);
     const shapesBefore = JSON.stringify(sketch.doc.value.shapes);
     const undoBefore = sketch.canUndo.value;
@@ -124,8 +129,7 @@ describe("SketchToolbar palette slots", () => {
 // to localStorage under jsdom (isTauri() is false), so this needs no mocking.
 describe("palette state and persistence", () => {
   it("rejects an out-of-range or non-integer slot index", async () => {
-    const sketch = getSketch();
-    await sketch.load();
+    await sketch.loadPalette();
     const before = [...sketch.slots.value];
 
     for (const i of [-1, 7, 99, 1.5, Number.NaN]) sketch.setSlot(i, "#1e40af");
@@ -133,46 +137,44 @@ describe("palette state and persistence", () => {
   });
 
   it("rejects a colour that is not offered", async () => {
-    const sketch = getSketch();
-    await sketch.load();
+    await sketch.loadPalette();
     sketch.setSlot(0, "#123456");
     expect(sketch.slots.value[0]).toBe(DEFAULT_SLOT_COLORS[0]);
   });
 
   it("round-trips the palette through storage", async () => {
-    const sketch = getSketch();
-    await sketch.load();
+    await sketch.loadPalette();
     sketch.setSlot(0, "#1e40af");
     await Promise.resolve();
-
-    resetSketch();
-    const fresh = getSketch();
-    await fresh.load();
+    const fresh = createSketch();
+    await fresh.loadPalette();
     expect(fresh.slots.value[0]).toBe("#1e40af");
   });
 
-  it("resets to defaults on reload", async () => {
-    const sketch = getSketch();
-    await sketch.load();
+  it("a second editor starts from the defaults until it reads the palette", async () => {
+    await sketch.loadPalette();
     sketch.setSlot(0, "#1e40af");
-    await sketch.reload();
-    // reload() re-reads, so the persisted value comes back — the point is that the
-    // ref was reset in between rather than carrying the old profile's palette.
-    expect(sketch.slots.value).toHaveLength(DEFAULT_SLOT_COLORS.length);
+
+    // Opening another drawing builds a new instance. It must not inherit the
+    // first one's refs — it starts at the defaults and only the stored palette
+    // (read explicitly) brings the user's choice back.
+    const second = createSketch();
+    expect(second.slots.value).toEqual([...DEFAULT_SLOT_COLORS]);
+    await second.loadPalette();
+    expect(second.slots.value[0]).toBe("#1e40af");
+    expect(second.slots.value).toHaveLength(DEFAULT_SLOT_COLORS.length);
   });
 
   describe("the active colour follows its slot", () => {
     it("moves when the old colour has left the row", async () => {
-      const sketch = getSketch();
-      await sketch.load();
+      await sketch.loadPalette();
       sketch.currentColor.value = DEFAULT_SLOT_COLORS[0];
       sketch.setSlot(0, "#1e40af");
       expect(sketch.currentColor.value).toBe("#1e40af");
     });
 
     it("stays put when another slot still holds it", async () => {
-      const sketch = getSketch();
-      await sketch.load();
+      await sketch.loadPalette();
       sketch.setSlot(1, DEFAULT_SLOT_COLORS[0]); // duplicate the colour into slot 1
       sketch.currentColor.value = DEFAULT_SLOT_COLORS[0];
       sketch.setSlot(0, "#1e40af");
@@ -181,8 +183,7 @@ describe("palette state and persistence", () => {
 
     it("does not yank an off-palette colour when an unrelated slot changes", async () => {
       // The case that rules out the "is currentColor still on the row?" shortcut.
-      const sketch = getSketch();
-      await sketch.load();
+      await sketch.loadPalette();
       sketch.currentColor.value = "#abcdef"; // never on the row
       sketch.setSlot(3, "#1e40af");
       expect(sketch.currentColor.value).toBe("#abcdef");
@@ -217,25 +218,20 @@ describe("a corrupt stored palette", () => {
 
   it("starts fresh and repairs the record on the next swap", async () => {
     localStorage.setItem(KEY, '["#ef4444","#10b98'); // truncated JSON
-
-    const sketch = getSketch();
-    await sketch.load();
+    await sketch.loadPalette();
     expect(sketch.slots.value).toEqual([...DEFAULT_SLOT_COLORS]);
 
     sketch.setSlot(0, "#1e40af");
     await Promise.resolve();
     expect(localStorage.getItem(KEY)).not.toBe('["#ef4444","#10b98');
-
-    resetSketch();
-    const fresh = getSketch();
-    await fresh.load();
+    const fresh = createSketch();
+    await fresh.loadPalette();
     expect(fresh.slots.value[0]).toBe("#1e40af");
   });
 
   it("still recovers when the record parses but is the wrong shape", async () => {
     localStorage.setItem(KEY, '{"nope":1}');
-    const sketch = getSketch();
-    await sketch.load();
+    await sketch.loadPalette();
     expect(sketch.slots.value).toEqual([...DEFAULT_SLOT_COLORS]);
 
     sketch.setSlot(0, "#1e40af");

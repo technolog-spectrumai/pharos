@@ -26,7 +26,7 @@ The minimum viable secure messenger. Everything needed to pair with someone and
 talk to them safely, and nothing else.
 
 **In:** P2P MLS chat with QR/ticket pairing and persistent rooms · Tor
-transport · P2P file transfer · per-file local locking + the notes editor ·
+transport · P2P file transfer · per-file local locking + the notes and SVG editors ·
 the encrypted-at-rest vault (passphrase gate, panic code, idle auto-lock,
 airplane mode) · profile + settings + i18n.
 
@@ -80,7 +80,7 @@ control (the Mainline DHT), which is the other reason discovery lives here.
 | Tor onion transport | ✅ | ✅ | ✅ | — |
 | Hosted relays + pkarr discovery | ✅ | ✅ | ✅ | `p2p.allow_hosted_relays` |
 | P2P file transfer | ✅ | ✅ | ✅ | — |
-| Local locked files + notes editor | ✅ | ✅ | ✅ | — |
+| Local locked files + notes and SVG editors | ✅ | ✅ | ✅ | — |
 | Vault, panic code, idle lock, airplane mode | ✅ | ✅ | ✅ | — |
 | **Vox** (1:1 voice calls) | ❌ | ✅ | ✅ | `calls.enabled` |
 | **DHT discovery** (room codes, nick directory, presence) | ❌ | ❌ | ✅ | `dht.enabled` |

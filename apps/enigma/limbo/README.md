@@ -11,8 +11,11 @@ Parked here, restorable later:
   lack of maintenance capacity, not because anything was wrong with them:
   - `frontend/kanban/` — the **group Kanban board**, one per room, columns owned
     by the captain and cards reconciled last-write-wins over the MLS sync seam.
-  - `frontend/sketch/` — the **Sketch board**, a standalone local SVG/PNG editor
-    (its earlier realtime-collab engine is parked separately, below).
+  - `frontend/sketch/` — **mostly restored on 2026-07-27** as the Files → Local
+    SVG editor (see "Restored so far"). What is still parked here is the export
+    half (`components/sketchExport.ts`, PNG rasterization + save-to-disk, which
+    needs the parked `rust/fs_local.rs`) and `views/EnigmaSketchView.vue`, the
+    standalone-tab shell the editor no longer uses.
   - `frontend/mind/` — the **Mind map**, a device-local cytoscape graph with a
     Trix rich-text node editor and a Topics browser, plus its design doc
     `mind.md`.
@@ -52,6 +55,22 @@ UI as its own route/view + nav entry (`router/index.ts` + `App.vue`) + the store
 wiring in `stores/chat.ts`.
 
 **Restored so far:**
+
+- **Sketch, as an SVG editor** (2026-07-27) — the drawing engine came back as an
+  editor for local `.svg` files inside **Files → Local**, beside the ACE notes
+  editor, rather than as the standalone free-form board it was.
+  `components/{sketchModel,useSketch,SketchCanvas,SketchToolbar}` went to
+  `apps/enigma/src/components/sketch/`, joined by a new `svgDocument.ts` that
+  parses a real SVG into editable shapes plus **opaque** nodes re-emitted
+  verbatim, and `apps/enigma/src/components/local/SvgEditor.vue` which clones
+  `NoteEditor`'s interface so the sealed save path is shared unchanged (no Rust
+  change was needed — an SVG is UTF-8 text). Notable differences from the park:
+  `useSketch` is a per-file **factory** rather than a module singleton, the board
+  takes its geometry from the file's `viewBox` instead of the viewport, the kv
+  document keys are gone (Files → Local owns saving; only the palette is still
+  stored), `toSvg` now writes `data-en-*` round-trip hints, and files containing
+  active content are **refused** with an offer to open them in the XML editor.
+  `sketchExport.ts` and the old tab shell stayed parked.
 
 - **File transfer** (2026-07) — `file_xfer.rs`, `FilePanel.vue`, `useFileShare.ts`
   went back as `apps/enigma/src-tauri/src/file_xfer.rs` +

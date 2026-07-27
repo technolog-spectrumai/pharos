@@ -1,3 +1,36 @@
+# Sketch — what is left after the 2026-07-27 restore
+
+> **Most of this park is gone.** On 2026-07-27 the drawing engine came back as
+> the **SVG editor for local files** in Files → Local — see `limbo/README.md`
+> under "Restored so far", and `apps/enigma/src/components/sketch/`.
+>
+> Restored: `sketchModel.ts`, `useSketch.ts`, `SketchCanvas.vue`,
+> `SketchToolbar.vue`, both test files, and the `sketch.*` i18n namespace.
+>
+> **Still parked here:**
+> * `components/sketchExport.ts` — SVG/PNG **export to an arbitrary path**. The
+>   editor writes the open file through `writeLocalNote` instead, so this is only
+>   needed to bring back "Export as PNG…". It imports `writeBase64FileToDisk` /
+>   `writeTextFileToDisk`, whose Rust is still parked at `limbo/rust/fs_local.rs`
+>   — and `limbo/rust/NOTES.md` recommends `@tauri-apps/plugin-fs` over restoring
+>   it. Its canvas rasterizer and the WebKit pitfalls it documents are the
+>   valuable part.
+> * `views/EnigmaSketchView.vue` — the standalone-tab shell (route, export
+>   runner, text modal, keyboard shortcuts). The editor has its own equivalents
+>   in `components/local/SvgEditor.vue`; this is only useful if Sketch ever wants
+>   its own tab again.
+> * `i18n/*.ts.snippet` — kept as the record of what was pasted back. The live
+>   catalogue drops `title`/`subtitle` (a tab had them, an editor does not) and
+>   adds the refusal/opaque-notice keys.
+>
+> The rest of this file is the ORIGINAL park notes, left intact because its
+> design rationale (board space, rotation-as-angle, validation of untrusted
+> documents, palette invariants, background handling) still describes the code
+> that came back. Where it says "the board" read "the open document", and note
+> that the kv document keys and the module singleton are gone.
+
+---
+
 # Sketch board (parked 2026-07-27)
 
 A standalone **local** drawing board: freehand strokes, boxed shapes, arrows and

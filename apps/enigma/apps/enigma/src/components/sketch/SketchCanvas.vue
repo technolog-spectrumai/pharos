@@ -5,7 +5,9 @@
 // when one shape changes, and because the export format IS SVG — display and export
 // therefore share one representation.
 //
-// Everything is in board units. The board is BOARD_H tall and ELASTIC in width: the
+// Everything is in board units. The board's size is the OPEN FILE's viewBox — it
+// used to be a fixed-height elastic sheet sized to the window, but a document has
+// intrinsic dimensions that have to survive a round trip. The
 // viewBox aspect is kept equal to the element's so the board fills its container
 // edge to edge rather than letterboxing a fixed 16:9 sheet inside it, and `toBoard`
 // undoes that mapping for pointer events. Rotation is applied as an
@@ -14,8 +16,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   arrowHead,
-  BOARD_H,
-  boardWidthFor,
   canFill,
   pathD,
   quant,
@@ -67,9 +67,9 @@ function toBoard(e: PointerEvent): { x: number; y: number } {
   // scale = height/BOARD_H, because the two can disagree for a frame after a resize
   // (boardW updates on the observer callback, the rect is read on the next pointer
   // event) and by a sub-pixel rounding of the width.
-  const scale = Math.min(r.width / boardW.value, r.height / BOARD_H);
+  const scale = Math.min(r.width / boardW.value, r.height / boardH.value);
   const offX = (r.width - boardW.value * scale) / 2;
-  const offY = (r.height - BOARD_H * scale) / 2;
+  const offY = (r.height - boardH.value * scale) / 2;
   return {
     x: quant((e.clientX - r.left - offX) / scale),
     y: quant((e.clientY - r.top - offY) / scale),
@@ -82,15 +82,17 @@ function toBoard(e: PointerEvent): { x: number; y: number } {
 // and an export must match what is on screen.
 
 const boardW = computed(() => sketch.value.boardW.value);
+const boardH = computed(() => sketch.value.boardH.value);
 
-/** Re-measure and republish the width. A ResizeObserver rather than a window
- *  `resize` listener: the container also changes height when the toolbar wraps to a
- *  second row, which fires no window event, and it must fire once on attach so the
- *  first real frame is already the right width. */
+/** Re-measure the element rect that maps pointer coordinates into board space.
+ *  A ResizeObserver rather than a window `resize` listener: the container also
+ *  changes height when the toolbar wraps to a second row, which fires no window
+ *  event, and it must fire once on attach so the first pointer event is right.
+ *
+ *  It no longer republishes a board WIDTH — the board is the file's viewBox now,
+ *  so a resize changes only how the drawing is scaled into the viewport. */
 function remeasure() {
   refreshRect();
-  const r = rectCache;
-  if (r) sketch.value.setBoardWidth(boardWidthFor(r.width, r.height));
 }
 
 let ro: ResizeObserver | null = null;
@@ -368,7 +370,7 @@ const boardSurfaceClass = computed(() =>
   <div class="relative min-h-0 w-full flex-1">
     <svg
       ref="svgEl"
-      :viewBox="`0 0 ${boardW} ${BOARD_H}`"
+      :viewBox="`0 0 ${boardW} ${boardH}`"
       preserveAspectRatio="xMidYMid meet"
       class="block h-full w-full touch-none select-none rounded-xl"
       :class="[cursorClass, boardSurfaceClass]"
@@ -386,7 +388,7 @@ const boardSurfaceClass = computed(() =>
       <rect
         v-if="sketch.doc.value.background"
         :width="boardW"
-        :height="BOARD_H"
+        :height="boardH"
         :fill="sketch.doc.value.background"
       />
 
@@ -399,7 +401,7 @@ const boardSurfaceClass = computed(() =>
         x="0"
         y="0"
         :width="boardW"
-        :height="BOARD_H"
+        :height="boardH"
         preserveAspectRatio="xMidYMid slice"
       />
 
