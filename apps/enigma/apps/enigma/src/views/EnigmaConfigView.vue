@@ -388,7 +388,7 @@ onMounted(async () => {
   dhtDiscovery.value = await getDhtDiscovery();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
-  // Hydrate the cloud store (enabled knob + login state) for the rdv card.
+  // Hydrate the cloud store (enabled knob + login state) for CloudEnableCard.
   void cloudStore.init();
   idleLockMins.value = await getIdleLockMins();
   void refreshDhtStatus();

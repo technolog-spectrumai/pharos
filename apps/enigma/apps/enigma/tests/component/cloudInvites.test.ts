@@ -205,6 +205,47 @@ describe("CloudInvitesPanel", () => {
     }
   });
 
+  it("retries only people who received nothing — a partial delivery is left alone", async () => {
+    // faros' two 429s are different animals: `full` is THEIR mailbox (the rest
+    // of the list still went out) and only `quota` is our own budget. Neither
+    // may drag a `partial` into the retry — one of their devices already holds
+    // a working invite, and the report carries counts, not NodeIds.
+    broadcastReport = [
+      { username: "alice", outcome: "partial", devices: 2, delivered: 1, error: "" },
+      { username: "bob", outcome: "full", devices: 1, delivered: 0, error: "box full" },
+      { username: "carol", outcome: "ok", devices: 1, delivered: 1, error: "" },
+    ];
+    const wrapper = await mountReady();
+    for (const n of ["alice", "bob", "carol"]) await addRecipient(wrapper, n);
+    await wrapper.find('[data-testid="invite-create-name"]').setValue("planning");
+    await wrapper.find('[data-testid="invite-create-submit"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="invite-results"]').text()).toContain("invite box is full");
+
+    await wrapper.find('[data-testid="invite-retry-failed"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="recipient-chip-bob"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="recipient-chip-alice"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="recipient-chip-carol"]').exists()).toBe(false);
+  });
+
+  it("says the room still exists even when the whole broadcast fails", async () => {
+    const wrapper = await mountReady();
+    await addRecipient(wrapper, "alice");
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "rdv_invite_broadcast") throw "server unreachable";
+      if (cmd === "aster_resolve") return ["peer1"];
+      return undefined;
+    });
+    await wrapper.find('[data-testid="invite-create-name"]').setValue("planning");
+    await wrapper.find('[data-testid="invite-create-submit"]').trigger("click");
+    await flushPromises();
+    // No results block to hide behind — the reassurance must still render.
+    expect(wrapper.find('[data-testid="invite-results"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="invite-room-created"]').text()).toContain("planning");
+    expect(wrapper.text()).toContain("server unreachable");
+  });
+
   it("opens an existing room before broadcasting, and offers direct rooms too", async () => {
     fakeP2p.p2pRooms.value = [
       { room: "r-tor", name: "onion room", ticket: "t-tor", tor: true },

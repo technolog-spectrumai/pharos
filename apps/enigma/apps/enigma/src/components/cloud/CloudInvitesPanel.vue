@@ -106,7 +106,7 @@ const invitableRooms = computed<P2pRoomEntry[]>(() =>
 
 interface InviteReport {
   username: string;
-  outcome: "ok" | "partial" | "unknown" | "self_only" | "quota" | "skipped" | "error";
+  outcome: "ok" | "partial" | "unknown" | "self_only" | "quota" | "full" | "skipped" | "error";
   devices: number;
   delivered: number;
   error: string;
@@ -120,8 +120,12 @@ const results = ref<InviteReport[]>([]);
 const createdRoomName = ref("");
 
 const okCount = computed(() => results.value.filter((r) => r.outcome === "ok").length);
+/** Retry targets: only people where NOTHING landed. A `partial` already has a
+ *  working invite on at least one device — re-sending would post a second copy
+ *  to the device that succeeded (the report carries counts, not which NodeIds),
+ *  burning two mailbox slots to fix nothing. */
 const failedUsernames = computed(() =>
-  results.value.filter((r) => r.outcome !== "ok").map((r) => r.username),
+  results.value.filter((r) => r.delivered === 0 && r.outcome !== "ok").map((r) => r.username),
 );
 
 const OUTCOME_KEY: Record<InviteReport["outcome"], string> = {
@@ -130,6 +134,7 @@ const OUTCOME_KEY: Record<InviteReport["outcome"], string> = {
   unknown: "cloud.outcomeUnknown",
   self_only: "cloud.outcomeSelfOnly",
   quota: "cloud.outcomeQuota",
+  full: "cloud.outcomeFull",
   skipped: "cloud.outcomeSkipped",
   error: "cloud.outcomeError",
 };
@@ -186,8 +191,8 @@ async function inviteToExisting() {
   }
 }
 
-/** Re-send only to the people the server did not accept, so nobody who already
- *  has an invite gets a second one. */
+/** Re-send only to the people who received nothing at all — see
+ *  `failedUsernames` for why a partial delivery is deliberately left alone. */
 function retryFailed() {
   picker.keepOnly(failedUsernames.value);
   results.value = [];
@@ -346,6 +351,12 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
         </div>
 
         <p v-if="sendError" class="text-sm text-warn-dark">{{ sendError }}</p>
+        <!-- Outside the results block on purpose: when the broadcast itself
+             fails there are no results, and "the room still exists" is exactly
+             what the user needs to read on that screen. -->
+        <p v-if="createdRoomName" class="text-xs opacity-60" data-testid="invite-room-created">
+          {{ $t('cloud.inviteRoomCreated', { room: createdRoomName }) }}
+        </p>
 
         <!-- Results -->
         <div v-if="results.length" class="space-y-2 border-t border-current/10 pt-3" data-testid="invite-results">
@@ -355,9 +366,6 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
               : okCount === 0
                 ? $t('cloud.inviteNoneSent')
                 : $t('cloud.inviteSomeSent', { ok: okCount, total: results.length }) }}
-          </p>
-          <p v-if="createdRoomName" class="text-xs opacity-60">
-            {{ $t('cloud.inviteRoomCreated', { room: createdRoomName }) }}
           </p>
           <div
             v-for="r in results"

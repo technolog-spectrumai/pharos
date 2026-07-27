@@ -1,7 +1,7 @@
 # Cloud — one tab, one switch, an audited wire (cloud.md)
 
 Status: **IMPLEMENTED 2026-07-27** — all gates green
-(rakotis 249 vitest · enigma 572 vitest · cargo 139 · Playwright 19 ·
+(rakotis 249 vitest · enigma 574 vitest · cargo 140 · Playwright 19 ·
 vue-tsc + vite builds clean). Server contract: the faros repo's
 `for_enigma.md`. Branch `relay`.
 
@@ -156,7 +156,7 @@ user-pressed or beacon-card-open, all via `cloud::request_json`.
 | `rdv_register` | `POST /aster/device` | Invites panel mount + sign-in; Contacts mount — mailbox addressing (NodeId only, no address) |
 | `aster_resolve` | `GET /aster/resolve?user&kind` | Contacts "find on my server"; each recipient chip in the Invites picker |
 | `rdv_invite_send` | `POST /aster/invite` (HPKE-sealed blob — server stores ciphertext it cannot open) | the NodeId-addressed path (verified saved contact) |
-| `rdv_invite_broadcast` | 1 × `GET /aster/resolve` **and** 1 × `POST /aster/invite` per recipient DEVICE, sequential | Create-&-invite / Leave-invite press; stops at the first 429 and reports the rest as skipped |
+| `rdv_invite_broadcast` | 1 × `GET /aster/resolve` **and** 1 × `POST /aster/invite` per recipient DEVICE, sequential | Create-&-invite / Leave-invite press; stops only on the SENDER-quota 429 (see limitations) |
 | `rdv_invite_fetch` | `GET /aster/invites` | Invites panel mount / sign-in / refresh press |
 | `rdv_invite_ack` | `POST /aster/invite/{id}/delete` | accept/dismiss press |
 
@@ -230,12 +230,21 @@ table above.
 - Invite blobs ≤ 8 KiB (checked before the POST so an oversized ticket is
   explained, not answered with a bare 413), TTL 24 h (the server's own cap, so
   the UI offers no TTL picker and cannot misreport expiry).
-- **The 50-pending invite cap is per SENDER across every recipient** and clears
-  only when someone accepts or an invite expires — and one person can have
-  several devices. There is no endpoint to read your outstanding count, so a
-  fan-out can only discover the cap by hitting it: the first 429 stops the run
-  and the remaining people are reported as `skipped`, with a retry that
-  re-sends to the failures only. The picker caps a single fan-out at 20 people.
+- **faros answers 429 for two unrelated caps and checks the recipient one
+  first**: "Recipient's invite box is full" (that one device already holds 50
+  invites *from anybody*) and "Too many pending invites" (our own 50 outstanding
+  to anyone). Only the second may stop a fan-out — conflating them would let one
+  inactive person on the list abort delivery to everyone else, permanently,
+  because the retry would hit them first again. We read the body to tell them
+  apart and assume the recipient cap when the message is unrecognizable, since
+  that guess costs a refused request while the other costs the whole run. Both
+  clear only on accept or expiry, and there is no endpoint to read your
+  outstanding count, so the sender cap can only be discovered by hitting it. The
+  picker caps a single fan-out at 20 people.
+- **Retry re-sends only where nothing landed.** A `partial` recipient already
+  holds a working invite on one device, and the report carries counts rather
+  than NodeIds, so retrying them would post a duplicate to the device that
+  already succeeded — burning two mailbox slots to fix nothing.
 - A recipient must have opened Enigma with Cloud on at least once, or there is
   no device to seal to — indistinguishable from a wrong username, because faros
   answers both with an empty list.

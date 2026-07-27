@@ -890,6 +890,7 @@ export default {
     outcomePartial: "Reached {delivered} of their {devices} devices.",
     outcomeUnknown: "No such user on this server, or they have never opened Enigma with Cloud on.",
     outcomeSelfOnly: "That's you — you're already in the room.",
+    outcomeFull: "Their invite box is full (50 unclaimed invites). The others on your list were still sent.",
     outcomeQuota: "Your server is holding too many unclaimed invites (50 at most). Try again once earlier invites are accepted or expire.",
     outcomeSkipped: "Not sent — the server stopped accepting invites partway through.",
     outcomeError: "Couldn't leave this invite: {error}",

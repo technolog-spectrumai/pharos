@@ -155,12 +155,29 @@ pub async fn rdv_register(app: AppHandle, server_url: String) -> Result<String, 
     Ok(node_id)
 }
 
-/// Why one mailbox drop failed. `Quota` is separated because faros returns 429
-/// for the per-SENDER cap (50 unacknowledged invites to anyone), which poisons
-/// the rest of a fan-out — the caller stops instead of hammering the server.
+/// Why one mailbox drop failed. faros answers 429 for TWO unrelated caps and
+/// checks the recipient one first, so they must not be conflated:
+///   * `SenderQuota` — "Too many pending invites": OUR 50 unacknowledged
+///     invites to anyone. It poisons the rest of a fan-out, so the caller stops.
+///   * `RecipientFull` — "Recipient's invite box is full": that one device
+///     already holds 50 invites from anybody. It says nothing about our budget,
+///     so the fan-out must carry on to the next person.
 enum PostErr {
-    Quota(String),
+    SenderQuota(String),
+    RecipientFull(String),
     Other(String),
+}
+
+/// Which 429 faros meant. The status alone cannot say, so we read the body's
+/// message — and when it is unrecognizable we assume the RECIPIENT cap, because
+/// guessing "sender" would abort a fan-out that could still deliver to everyone
+/// else, while guessing "recipient" costs at worst a few refused requests.
+fn quota_err(message: String) -> PostErr {
+    if message.to_lowercase().contains("too many pending") {
+        PostErr::SenderQuota(message)
+    } else {
+        PostErr::RecipientFull(message)
+    }
 }
 
 /// Seal `payload` to ONE device and leave it in that device's mailbox — the
@@ -192,7 +209,7 @@ async fn post_sealed(
     if ok_status(status) {
         Ok(())
     } else if status == 429 {
-        Err(PostErr::Quota(crate::cloud::status_err(status, &resp)))
+        Err(quota_err(crate::cloud::status_err(status, &resp)))
     } else {
         Err(PostErr::Other(crate::cloud::status_err(status, &resp)))
     }
@@ -227,7 +244,7 @@ pub async fn rdv_invite_send(
     post_sealed(&app, &server_url, &me, &to_node_id, &payload, now_unix() + ttl, ttl)
         .await
         .map_err(|e| match e {
-            PostErr::Quota(m) | PostErr::Other(m) => m,
+            PostErr::SenderQuota(m) | PostErr::RecipientFull(m) | PostErr::Other(m) => m,
         })
 }
 
@@ -247,9 +264,13 @@ pub enum InviteOutcome {
     Unknown,
     /// The only device behind that username is this one.
     SelfOnly,
-    /// The server refused on quota (429) — its mailbox budget is full.
+    /// OUR outstanding-invite budget is full (429, sender cap) — this one and
+    /// everything after it was refused.
     Quota,
-    /// Not attempted: an earlier 429 stopped the fan-out.
+    /// THEIR mailbox is full (429, recipient cap). Nothing to do with our
+    /// budget, so the rest of the fan-out carried on.
+    Full,
+    /// Not attempted: the sender-quota 429 stopped the fan-out.
     Skipped,
     /// Anything else (unknown device, oversized blob, transport, 5xx).
     Error,
@@ -287,10 +308,13 @@ fn dedup_usernames(raw: &[String]) -> Vec<String> {
 }
 
 /// Delivery counts → outcome. Pure, so the fan-out's decision table is testable
-/// without a server.
-fn classify(delivered: u32, targets: u32, stopped: bool) -> InviteOutcome {
+/// without a server. `stopped` is the SENDER-quota flag; `full` means every
+/// failure for this person was their own mailbox being full.
+fn classify(delivered: u32, targets: u32, stopped: bool, full: bool) -> InviteOutcome {
     if delivered == 0 && stopped {
         InviteOutcome::Quota
+    } else if delivered == 0 && full {
+        InviteOutcome::Full
     } else if delivered == targets {
         InviteOutcome::Ok
     } else if delivered > 0 {
@@ -378,18 +402,27 @@ pub async fn rdv_invite_broadcast(
         }
 
         let (mut delivered, mut last_err) = (0u32, String::new());
+        let mut boxes_full = 0u32;
         for id in &targets {
             match post_sealed(&app, &server_url, &me, id, &payload, exp, ttl).await {
                 Ok(()) => delivered += 1,
-                Err(PostErr::Quota(m)) => {
+                // OUR budget is gone: nothing after this can land either.
+                Err(PostErr::SenderQuota(m)) => {
                     stopped = true;
                     last_err = m;
                     break;
                 }
+                // THEIR box is full — a per-device fact. Keep going: their other
+                // devices and everyone else on the list are unaffected.
+                Err(PostErr::RecipientFull(m)) => {
+                    boxes_full += 1;
+                    last_err = m;
+                }
                 Err(PostErr::Other(m)) => last_err = m,
             }
         }
-        let outcome = classify(delivered, targets.len() as u32, stopped);
+        let all_full = boxes_full > 0 && boxes_full == targets.len() as u32;
+        let outcome = classify(delivered, targets.len() as u32, stopped, all_full);
         out.push(report(username, outcome, targets.len() as u32, delivered, last_err));
     }
     Ok(out)
@@ -499,14 +532,37 @@ mod tests {
 
     #[test]
     fn classify_covers_every_delivery_shape() {
-        assert_eq!(classify(2, 2, false), InviteOutcome::Ok);
-        assert_eq!(classify(1, 2, false), InviteOutcome::Partial);
-        assert_eq!(classify(0, 2, false), InviteOutcome::Error);
-        // A 429 with nothing delivered is quota, not a generic error…
-        assert_eq!(classify(0, 2, true), InviteOutcome::Quota);
-        // …but a partial delivery that then hit the cap still reads as partial.
-        assert_eq!(classify(1, 2, true), InviteOutcome::Partial);
-        assert_eq!(classify(2, 2, true), InviteOutcome::Ok);
+        assert_eq!(classify(2, 2, false, false), InviteOutcome::Ok);
+        assert_eq!(classify(1, 2, false, false), InviteOutcome::Partial);
+        assert_eq!(classify(0, 2, false, false), InviteOutcome::Error);
+        // Our own budget ran out — distinct from a generic failure…
+        assert_eq!(classify(0, 2, true, false), InviteOutcome::Quota);
+        // …and distinct again from every one of THEIR boxes being full.
+        assert_eq!(classify(0, 2, false, true), InviteOutcome::Full);
+        // A partial delivery still reads as partial whatever ended it.
+        assert_eq!(classify(1, 2, true, false), InviteOutcome::Partial);
+        assert_eq!(classify(1, 2, false, true), InviteOutcome::Partial);
+        assert_eq!(classify(2, 2, true, false), InviteOutcome::Ok);
+    }
+
+    #[test]
+    fn the_two_faros_429s_are_told_apart() {
+        // faros checks the RECIPIENT cap first and both answer 429, so only the
+        // body distinguishes them — and only the sender cap may stop a fan-out.
+        assert!(matches!(
+            quota_err("HTTP 429: Too many pending invites.".to_string()),
+            PostErr::SenderQuota(_)
+        ));
+        assert!(matches!(
+            quota_err("HTTP 429: Recipient's invite box is full.".to_string()),
+            PostErr::RecipientFull(_)
+        ));
+        // Unrecognizable ⇒ assume the recipient cap: guessing "sender" would
+        // abort a fan-out that could still reach everyone else.
+        assert!(matches!(
+            quota_err("HTTP 429".to_string()),
+            PostErr::RecipientFull(_)
+        ));
     }
 
     #[test]

@@ -195,11 +195,12 @@ function openAddFromClaim(claim: NickClaim) {
 // relays AND the user is logged in to their server. Same input, same result
 // shape, same prefill-the-add-modal flow as the DHT search.
 const cloudStore = useCloudStore();
-const rdvCfg = getBuildConfig();
-// Build-time half (does the edition have the cloud client + hosted relays at
-// all) — used for the "this lives in the Cloud tab" pointer, which must render
-// even while the runtime knob is off.
-const rdvBuildAllowed = rdvCfg.cloud_allow_connections && rdvCfg.p2p_allow_hosted_relays;
+// Build-time half (does the edition have the cloud client at all) — used for
+// the "this lives in the Cloud tab" pointer, which must render even while the
+// runtime knob is off. Mirrors aster::build_allowed(): hosted relays are
+// irrelevant now that the directory only maps username → NodeId and carries
+// sealed invites, never an address (rdv.md D2).
+const rdvBuildAllowed = getBuildConfig().cloud_allow_connections;
 // Full gate: also requires the Cloud tab's runtime master switch (cloud.md) —
 // with it off, Rust refuses aster calls, so the search hides rather than lies.
 const rdvAllowed = computed(() => rdvBuildAllowed && cloudStore.enabled);

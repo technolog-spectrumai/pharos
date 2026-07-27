@@ -890,6 +890,7 @@ export default {
     outcomePartial: "Dotarło do {delivered} z {devices} urządzeń.",
     outcomeUnknown: "Nie ma takiego użytkownika na tym serwerze albo nigdy nie uruchomił Enigmy z Chmurą.",
     outcomeSelfOnly: "To Ty — jesteś już w pokoju.",
+    outcomeFull: "Ich skrzynka zaproszeń jest pełna (50 nieodebranych). Pozostałe osoby z listy i tak dostały zaproszenie.",
     outcomeQuota: "Twój serwer trzyma zbyt wiele nieodebranych zaproszeń (maksymalnie 50). Spróbuj ponownie, gdy wcześniejsze zostaną przyjęte lub wygasną.",
     outcomeSkipped: "Nie wysłano — serwer przestał przyjmować zaproszenia w trakcie.",
     outcomeError: "Nie udało się zostawić tego zaproszenia: {error}",

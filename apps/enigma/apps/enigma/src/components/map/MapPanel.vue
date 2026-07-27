@@ -100,19 +100,24 @@ let pendingLocMarker: maplibregl.Marker | null = null;
 // Regions never land here (their cards download instead of focusing).
 const focus = ref<Exclude<MapShare, { type: "map_region" }> | null>(null);
 
-/** Tor-exclusive mode drops location sharing entirely (cloud.md): hiding your
- *  network location while broadcasting a geographic one is incoherent. Sending
- *  is what is blocked — locations peers already shared still render, because
- *  receiving leaks nothing and dropping them would silently lose data. */
+/** Tor-exclusive mode drops LOCATION sharing (cloud.md D9): hiding your network
+ *  location while broadcasting a geographic one is incoherent. Sending is what
+ *  is blocked — locations peers already shared still render, because receiving
+ *  leaks nothing and dropping them would silently lose data. */
 const torMode = ref(false);
 
+/** Can this room take a share at all — used by the pin and route share buttons,
+ *  which push a SAVED map object over the encrypted seam and reveal nothing
+ *  about where the sender is. Deliberately NOT Tor-gated. */
 const canShare = computed(
   () =>
-    !torMode.value &&
     chatStore.p2p.currentRoom.value !== null &&
     chatStore.p2p.isConnected.value &&
     chatStore.p2p.mlsStatus.value === "ready",
 );
+
+/** Sharing "where I am" specifically — the one thing Tor mode withdraws. */
+const canShareLoc = computed(() => canShare.value && !torMode.value);
 
 let map: maplibregl.Map | null = null;
 /** Source maxzoom resolved at boot — kept so a theme switch can rebuild the
@@ -1143,8 +1148,8 @@ function dismissFocus() {
             <OyaButton
               v-if="mode !== 'draw-route' && !torMode"
               :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
-              :disabled="!canShare"
-              :title="canShare ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
+              :disabled="!canShareLoc"
+              :title="canShareLoc ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
               data-testid="share-loc-button"
               @click="mode = mode === 'share-loc' ? 'idle' : 'share-loc'"
             >

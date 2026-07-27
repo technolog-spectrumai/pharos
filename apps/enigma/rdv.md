@@ -1,7 +1,7 @@
 # Cloud rendezvous v1 — your faros server as an optional peer directory (rdv.md)
 
 Status: **IMPLEMENTED 2026-07-26**, address publishing **WITHDRAWN 2026-07-27**
-— gates at last run: rakotis 249 vitest · enigma 572 vitest · cargo 139 ·
+— gates at last run: rakotis 249 vitest · enigma 574 vitest · cargo 140 ·
 Playwright 19 · vue-tsc + vite builds clean. Server side: faros `toto.aster`
 (see the faros repo's `for_enigma.md` → "Rendezvous").
 
@@ -15,10 +15,11 @@ last periodic server traffic in the app.
 
 ## Decision log
 
-- **D1 — Optional by contract.** No server URL / logged out / toggle off /
-  offline / non-aster server ⇒ byte-identical behavior to today; every failure
-  degrades silently to the manual ticket flow. The publisher swallows all
-  errors; the lookup returns no stream when gated.
+- **D1 — Optional by contract.** No server URL / cloud switched off / logged
+  out / offline / non-aster server ⇒ byte-identical behavior to a build without
+  cloud; every failure degrades silently to the manual ticket flow. (Until
+  2026-07-27 this clause also covered a publish toggle and a lookup — both are
+  gone, see D3/D4.)
 - **D2 — Same server, same session (beacon's D1).** `aster.rs` rides
   cloud.rs's `request_json`/`ensure_cloud_ready`/`expect_2xx`, the `cloud:auth`
   bearer token and the `.onion`-via-arti routing. No second login, no new
@@ -86,10 +87,11 @@ Invites now travel through the same faros mailbox, sealed.
 - **D9 — expiry twice**: server TTL (default 24 h, clamped) *and* `exp` inside
   the AAD, since the underlying ticket has no expiry of its own. One-shot:
   acknowledged after collection.
-- **D10 — explicit join.** Collected invites appear as a card in Contacts with
-  the sender named from your saved contacts (raw NodeId if unknown); joining
-  is a press and calls the existing `joinByTicket`. Nothing about the Tor
-  transport changed.
+- **D10 — explicit join.** Collected invites appear in the **Cloud tab →
+  Invites** ("Waiting for you"), with the sender named from your saved contacts
+  (raw NodeId if unknown); joining is a press and calls the existing
+  `joinByTicket`. Nothing about the Tor transport changed. (They lived in
+  Contacts until the Cloud tab was built, cloud.md D1.)
 - **D11 — registration is transport-independent.** `rdv_register` publishes
   only the NodeId (derived from the vault key), so a Tor-exclusive profile —
   where iroh and the relay publisher are down — is still addressable. That is
@@ -144,7 +146,9 @@ tears iroh down:
 
 ## Manual verification (run2.sh + local faros)
 
-Both instances: Cloud tab → Connection → set the server URL → log in.
+Both instances: **Settings → Connections** → *Use my Cloud server* on (confirm
+the risk modal — it is mandatory, cloud.md D4), then Cloud tab → Connection →
+set the server URL → log in.
 faros `/aster/devices/` lists both devices (NodeId only — the address column
 stays empty now). Contacts → type the other account's username → "Search my
 server" → Add. Then Cloud → Invites → type the other username → "Create &
