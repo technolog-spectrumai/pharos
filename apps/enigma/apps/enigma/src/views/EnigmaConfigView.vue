@@ -67,7 +67,8 @@ defineProps<{ darkMode: boolean }>();
 // sections exist at all; the clamps drive the number inputs' min/max.
 const buildCfg = getBuildConfig();
 const cloudAllowed = buildCfg.cloud_allow_connections;
-const hostedRelaysAllowed = buildCfg.p2p_allow_hosted_relays;
+// The DHT needs both: its own edition gate, and the hosted discovery it rides on.
+const dhtAllowed = buildCfg.p2p_allow_hosted_relays && buildCfg.dht_enabled;
 
 const router = useRouter();
 const route = useRoute();
@@ -385,13 +386,15 @@ onMounted(async () => {
   maxFileSizeMb.value = await getMaxFileSizeMb();
   mapStorageLimitMb.value = await getMapStorageLimitMb();
   fileKeyRotationDays.value = await getFileKeyRotationDays();
-  dhtDiscovery.value = await getDhtDiscovery();
-  dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
-  dhtPresencePollSecs.value = await getDhtPresencePollSecs();
+  if (dhtAllowed) {
+    dhtDiscovery.value = await getDhtDiscovery();
+    dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
+    dhtPresencePollSecs.value = await getDhtPresencePollSecs();
+  }
   // Hydrate the cloud store (enabled knob + login state) for CloudEnableCard.
   void cloudStore.init();
   idleLockMins.value = await getIdleLockMins();
-  void refreshDhtStatus();
+  if (dhtAllowed) void refreshDhtStatus();
   await loadOfflineData();
   void loadPanicState();
 });
@@ -796,12 +799,14 @@ async function clearSelectedOfflineData() {
 
     <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (technology.md §12). Opt-in;
          on → rooms get a ticketless join code and Contacts presence works.
-         Absent in a build with p2p.allow_hosted_relays: false (Rust reports the
-         DHT disabled regardless of the kv toggle), and HIDDEN in Tor mode: the
+         Absent in a build without dht.enabled (Pro only — pland.md) or without
+         p2p.allow_hosted_relays, in both cases because Rust reports the DHT
+         disabled regardless of the kv toggle. Also HIDDEN in Tor mode: the
          DHT rides the iroh endpoint, which Tor-exclusive mode shuts down, so
          there is nothing here to decide — the server directory (Cloud
-         rendezvous) is the discovery path there. -->
-    <OyaCard v-if="hostedRelaysAllowed && !useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
+         rendezvous) is the discovery path there. Every other DHT surface in the
+         app points at THIS card, so they all hide on the same condition. -->
+    <OyaCard v-if="dhtAllowed && !useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('config.dhtDiscovery') }}

@@ -132,8 +132,18 @@ details):
 - `cloud.allow_connections` — `false` builds a binary with no Enigma Cloud at
   all. Beacon (server location shares on the Maps tab, beacon.md) has no switch
   of its own: it exists exactly when this **and** `maps.enabled` are both true.
-- `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/Mainline-DHT
-  discovery; direct QUIC (tickets) and Tor keep working.
+- `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/DNS discovery
+  (and, transitively, the DHT — it rides the same endpoint); direct QUIC
+  (tickets) and Tor keep working, but reconnecting to a bare NodeId does not.
+  `true` in every shipped edition for that reason.
+- `dht.enabled` — `false` removes the **Mainline DHT only**: no ticketless
+  join-by-room-code, no nickname directory, no presence. `discovery_enabled` /
+  `nick_publish_enabled` return false ahead of the user's setting (so a profile
+  carrying `dht_discovery: "on"` from a DHT-capable build reads as off without
+  the key being rewritten), `dht_presence` / `dht_publish_nick` /
+  `dht_find_nick` / `dht_apply` error `DHT_DISABLED`, and the whole DHT UI is
+  hidden rather than disabled. Requires `p2p.allow_hosted_relays` — build.rs
+  rejects the combination. Pro only.
 - `crypto` — declared algorithms are **compile-asserted** against the vendored
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
@@ -171,8 +181,8 @@ an environment variable that `build.rs` reads:
 
 ```bash
 ENIGMA_EDITION=light ./build_desktop.sh      # basic encrypted chat only
-ENIGMA_EDITION=plus  ./run_dev.sh            # + contacts, voice calls, device linking
-ENIGMA_EDITION=pro   npm run build:android   # + calendar, maps, peers, cloud
+ENIGMA_EDITION=plus  ./run_dev.sh            # + voice calls (Vox), nothing else
+ENIGMA_EDITION=pro   npm run build:android   # + DHT, contacts, device linking, calendar, maps, peers, cloud
 ./build_desktop.sh                           # unset → build_config.yaml (everything on)
 ```
 

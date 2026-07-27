@@ -6,9 +6,10 @@
 # pland.md; the per-key semantics are documented in ../build_config.yaml, which
 # stays the annotated reference copy.
 #
-# IN : P2P MLS chat, QR pairing, Tor, DHT room codes, file transfer, local
-#      locked files + notes, vault / panic code / idle lock / airplane mode.
-# OUT: contacts, voice calls, device linking, calendar, maps, Enigma Cloud.
+# IN : P2P MLS chat, QR/ticket pairing, Tor, file transfer, local locked files
+#      + notes, vault / panic code / idle lock / airplane mode.
+# OUT: the DHT (so no join-by-room-code, nickname directory or presence),
+#      contacts, voice calls, device linking, calendar, maps, Enigma Cloud.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -28,7 +29,12 @@ cloud:
   allow_connections: false        # Pro-only feature
 
 p2p:
+  # Stays true in every edition: n0 relay fallback + pkarr discovery are what
+  # make NAT-to-NAT pairing and reconnect-to-a-saved-NodeId work at all.
   allow_hosted_relays: true
+
+dht:
+  enabled: false                  # Pro only — pairing here is QR/ticket only
 
 crypto:
   mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
@@ -62,6 +68,9 @@ devices:
   allow_linking: false            # Plus and up — Light is single-device
 
 features:
+  # Runtime DEFAULTS for a new profile, not gates. The two dht_* seeds are
+  # unreachable here anyway — `dht.enabled: false` above short-circuits ahead of
+  # them — and are kept only because every edition declares the same key set.
   use_tor: false
   stable_onion: false
   dht_discovery: false

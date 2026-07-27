@@ -60,7 +60,7 @@ Design principles:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  apps/enigma/src  (Vue 3 UI: Chat · Calls · Files · Contacts ·    │
+│  apps/enigma/src  (Vue 3 UI: Chat · Vox · Files · Contacts ·       │
 │                    Calendar · Settings; QR create/scan; unlock gate)│
 ├──────────────────────────────────────────────────────────────────┤
 │  packages/rakotis (TS)                                             │
@@ -335,7 +335,7 @@ There is no WebSocket and no HTTP data path for chat.
 
 ### Voice calls (Vox) — real-time media over the same endpoint
 
-1:1 voice calls (`vox.rs`, Calls tab) reuse the **main iroh endpoint**: a second ALPN
+1:1 voice calls (`vox.rs`, Vox tab) reuse the **main iroh endpoint**: a second ALPN
 (`enigma/vox/0`) is registered on the same router as gossip and invites, so a callee is
 call-reachable at the very NodeId their contacts/nickname already resolve to (no
 separate identity, no directory). Three ways to place a call, all ending in one dial:
@@ -571,9 +571,10 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   captain moderates from the participants panel (`ModerateMemberModal`: timed mute
   with presets/custom duration, kick + ban with unban in room info) — see
   [§11](#11-tor-onion-transport--captain-election).
-- **Calls** (`EnigmaCallsView` / `VoxPanel`) — 1:1 voice calls: by ticket/QR, by
-  room member (signaled over the chat's MLS seam), or by DHT nickname / saved
-  contact; live spectrum equalizer; incoming-call nav dot.
+- **Vox** (`EnigmaVoxView` / `VoxPanel`, route `/vox`) — 1:1 voice calls: by
+  ticket/QR, by room member (signaled over the chat's MLS seam), or by DHT
+  nickname / saved contact where the build has the DHT and Contacts; live
+  spectrum equalizer; incoming-call nav dot.
 - **Files** (`EnigmaFilesView`) — four sub-tabs: **P2P** (offer/accept transfers
   with progress, max-size guard), **Cloud** (the user's own Enigma Cloud server —
   login/register, browse buckets/directories, upload/download/move/delete; hidden
@@ -731,7 +732,18 @@ address the profile is deliberately not using. Over Tor the peer directory is
 the user's own faros server (Cloud rendezvous, rdv.md): its Contacts surfaces
 are hidden and the Settings toggle disables with the reason.
 
-**What it is.** An opt-in (default off; inert in no-hosted-relays builds), fully
+**Pro only.** `dht.enabled: false` (Light and Plus — pland.md) short-circuits
+`discovery_enabled` / `nick_publish_enabled` **ahead of the kv read**, so a
+profile carrying `dht_discovery: "on"` from a Pro build reads as off without
+the key being rewritten. `dht_presence` / `dht_publish_nick` / `dht_find_nick` /
+`dht_apply` fail fast with `DHT_DISABLED`; `dht_status` and `dht_room_code` stay
+silent (each has a total "nothing here" value already). rakotis mirrors the gate
+in `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus`, so the whole UI goes
+inert at once, and every DHT surface is hidden rather than disabled — their
+off-state copy points at a Settings card such a build does not have.
+
+**What it is.** An opt-in (default off; absent in non-Pro builds and inert in
+no-hosted-relays ones), fully
 community-run discovery path over the **BitTorrent Mainline DHT** (~10M nodes, no
 infrastructure of ours or n0's): ticketless room join by a shareable **room code**,
 plus the **Contacts** tab (saved peers, presence, nickname search). iroh 0.98's
@@ -989,7 +1001,8 @@ instead of hardcoding.
 | Cloud / hosted-relay allow flags | `build_config.yaml` `cloud.allow_connections`, `p2p.allow_hosted_relays` | Compile-time kill switches: cloud gates all `cloud_*` commands (`CLOUD_DISABLED`) + hides the Cloud UI; relays flips iroh to `RelayMode::Disabled` and forces DHT discovery off |
 | Feature defaults (tor/stable/dht) | `build_config.yaml` `features:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable) |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
-| DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
+| DHT kill switch | `build_config.yaml` `dht.enabled` | Compile-time, **Pro only**: `false` removes the Mainline DHT alone (no join-by-room-code, nickname directory or presence) while leaving n0 relays + pkarr intact. Checked ahead of the kv read on both sides, so a stored `"on"` reads as off without being rewritten; `dht_presence`/`dht_publish_nick`/`dht_find_nick`/`dht_apply` error `DHT_DISABLED`; the UI is hidden, not disabled. Requires `p2p.allow_hosted_relays` — build.rs rejects the pair |
+| DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); absent when `dht.enabled: false`, inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
 | Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |

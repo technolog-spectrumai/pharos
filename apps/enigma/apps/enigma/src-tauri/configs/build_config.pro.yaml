@@ -33,6 +33,12 @@ cloud:
 p2p:
   allow_hosted_relays: true
 
+dht:
+  # The only edition with the Mainline DHT: join-by-room-code, the nickname
+  # directory and presence. Still OPT-IN per profile (features.dht_discovery
+  # below stays false) — the build gate only decides whether it can be offered.
+  enabled: true
+
 crypto:
   mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
   at_rest_aead: xchacha20-poly1305

@@ -2,7 +2,7 @@ export default {
   nav: {
     chat: "Czat",
     files: "Pliki",
-    calls: "Rozmowy",
+    calls: "Vox",
     calendar: "Kalendarz",
     map: "Mapa",
     contacts: "Kontakty",

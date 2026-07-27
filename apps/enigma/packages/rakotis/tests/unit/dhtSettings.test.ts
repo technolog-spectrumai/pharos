@@ -16,6 +16,9 @@ import {
   DHT_PRESENCE_POLL_DEFAULT_SECS,
   DHT_PRESENCE_POLL_MIN_SECS,
   DHT_PRESENCE_POLL_MAX_SECS,
+  getDhtNickPublish,
+  setDhtNickPublish,
+  initBuildConfig,
 } from "../../src/services/appStorage";
 
 // DHT settings live in the kv (`p2p:settings`) that the Rust side reads
@@ -38,6 +41,32 @@ describe("DHT discovery toggle", () => {
   it("apply + status degrade gracefully without the Tauri runtime", async () => {
     await expect(applyDhtDiscovery()).resolves.toBeUndefined();
     expect(await getDhtStatus()).toEqual({ enabled: false, running: false, bootstrapped: false });
+  });
+});
+
+// The build gate is checked BEFORE the kv read, mirroring the order in Rust's
+// p2p_dht::discovery_enabled. That order is what makes a profile carrying
+// `dht_discovery: "on"` from a Pro build read as OFF in a Light/Plus binary —
+// without the stored choice being destroyed. (pland.md — dht.enabled is Pro.)
+describe("DHT build gate (dht.enabled: false)", () => {
+  it("reads OFF despite a stored 'on', and does not discard the setting", async () => {
+    await setDhtDiscovery(true);
+    await setDhtNickPublish(true);
+    expect(await getDhtDiscovery()).toBe(true); // baseline: this build has the DHT
+
+    await initBuildConfig({ dht_enabled: false });
+    expect(await getDhtDiscovery()).toBe(false);
+    expect(await getDhtNickPublish()).toBe(false);
+    expect(await getDhtStatus()).toEqual({ enabled: false, running: false, bootstrapped: false });
+
+    // Reopening the same profile with a DHT-capable build restores the choice:
+    // the gate never rewrote the kv.
+    await initBuildConfig({ dht_enabled: true });
+    expect(await getDhtDiscovery()).toBe(true);
+    expect(await getDhtNickPublish()).toBe(true);
+
+    await setDhtDiscovery(false);
+    await setDhtNickPublish(false);
   });
 });
 

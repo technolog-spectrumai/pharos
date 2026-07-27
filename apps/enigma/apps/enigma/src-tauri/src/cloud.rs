@@ -88,6 +88,19 @@ pub(crate) const CLOUD_DISABLED: &str = "Enigma Cloud is disabled in this build.
 pub(crate) const CLOUD_OFF: &str =
     "cloud_off: Enigma Cloud is switched off (enable it in the Cloud tab).";
 
+/// Prefix on EVERY transport failure leaving `connect()` — Tor bootstrap/connect,
+/// TCP connect, TLS handshake, or the deadline. Machine-classifiable beside
+/// `cloud_off:` and `unauthorized:`, so the store can mirror "the server did not
+/// answer" and the Cloud panels can say so instead of rendering a raw socket
+/// error. Applied at the single exit, so any transport added inside `connect()`
+/// later inherits it; the CLOUD_OFF early return sits ABOVE that exit and keeps
+/// its own prefix (a doubled `unreachable: cloud_off: …` would break knobRefused).
+///
+/// NOT proof the server is down: a cold arti bootstrap can exceed the connect
+/// timeout on a perfectly healthy server (see cloud.md, "First force-Tor
+/// request"), which is why the UI always pairs this with a live retry.
+pub(crate) const UNREACHABLE: &str = "unreachable";
+
 /// Build-time gate: the whole faros client is off when the build config says so
 /// (`ensure_cloud_ready` adds the runtime knob and airplane mode on top).
 fn ensure_cloud_enabled() -> Result<(), String> {
@@ -487,7 +500,7 @@ async fn connect(app: &AppHandle, host: &str, port: u16, tls: bool) -> Result<Bo
     let verify = matches!(class, HostClass::Clearnet);
     // rustls ServerName accepts DNS names and IP literals (no brackets).
     let tls_host = host.trim_start_matches('[').trim_end_matches(']').to_string();
-    tokio::time::timeout(Duration::from_secs(secs), async move {
+    let established = tokio::time::timeout(Duration::from_secs(secs), async move {
         // Establish the raw byte stream (Tor circuit or direct TCP), then TLS-wrap.
         let raw: BoxedStream = if via_tor {
             let tor_state = app.state::<tor::TorState>();
@@ -509,8 +522,17 @@ async fn connect(app: &AppHandle, host: &str, port: u16, tls: bool) -> Result<Bo
             Ok(Box::new(tor::tls_wrap(raw, &tls_host).await?))
         }
     })
-    .await
-    .map_err(|_| format!("connect to {host}:{port} timed out after {secs}s"))?
+    .await;
+    // One exit for every transport failure: the INNER Result carries the Tor /
+    // TCP / TLS errors, the OUTER Err is the deadline. Both leave here tagged
+    // UNREACHABLE so the frontend can classify them. Note the `?`-and-append
+    // shape does not work: `?` unwraps only the outer Elapsed, which would tag
+    // timeouts alone and let a connection-refused through untagged.
+    match established {
+        Ok(inner) => inner,
+        Err(_) => Err(format!("connect to {host}:{port} timed out after {secs}s")),
+    }
+    .map_err(|e| format!("{UNREACHABLE}: {e}"))
 }
 
 // ── HTTP mechanics ────────────────────────────────────────────────────────────
@@ -1330,6 +1352,42 @@ mod tests {
         // prefix, exactly like the "unauthorized" convention.
         assert!(CLOUD_OFF.starts_with("cloud_off"));
         assert!(!CLOUD_OFF.starts_with("unauthorized"));
+    }
+
+    #[test]
+    fn unreachable_tags_transport_failures_without_colliding() {
+        // What connect()'s single exit produces, for each of its four sources.
+        let tagged = |cause: &str| format!("{UNREACHABLE}: {cause}");
+        for cause in [
+            "connect to h:443 failed: Connection refused (os error 111)",
+            "connect to h:443 timed out after 60s",
+            "TLS handshake to h failed: bad certificate",
+            "tor: bootstrap failed",
+        ] {
+            let msg = tagged(cause);
+            // Prefix-matchable by the store, and the human cause survives.
+            assert!(msg.starts_with(UNREACHABLE));
+            assert!(msg.ends_with(cause));
+            // Exactly one tag — a doubled prefix would mean connect() tagged twice.
+            assert_eq!(msg.matches(UNREACHABLE).count(), 1);
+            // Must not be mistaken for either sibling convention.
+            assert!(!msg.starts_with("unauthorized"));
+            assert!(!msg.starts_with("cloud_off"));
+        }
+        // Neither sibling token is a prefix of this one, or vice versa, so
+        // startsWith classification on the frontend stays unambiguous.
+        assert!(!UNREACHABLE.starts_with("unauthorized"));
+        assert!(!"unauthorized".starts_with(UNREACHABLE));
+        assert!(!CLOUD_OFF.starts_with(UNREACHABLE));
+    }
+
+    #[test]
+    fn cloud_off_is_never_tagged_unreachable() {
+        // The knob refusal returns BEFORE the tagging exit; if it ever slipped
+        // inside, the store's knobRefused prefix match would silently stop
+        // working and the user would see a raw machine string.
+        assert!(!CLOUD_OFF.starts_with(UNREACHABLE));
+        assert!(!CLOUD_OFF.contains(UNREACHABLE));
     }
 
     #[test]

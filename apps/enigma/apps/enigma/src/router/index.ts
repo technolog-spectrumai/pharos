@@ -2,7 +2,7 @@ import { createRouter, createMemoryHistory } from "vue-router";
 import { getBuildConfig } from "rakotis";
 import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
-import EnigmaCallsView from "../views/EnigmaCallsView.vue";
+import EnigmaVoxView from "../views/EnigmaVoxView.vue";
 import EnigmaCalendarView from "../views/EnigmaCalendarView.vue";
 import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
@@ -19,12 +19,13 @@ const router = createRouter({
     { path: "/", redirect: "/chat" },
     { path: "/chat", component: EnigmaChatView, name: "chat" },
     { path: "/files", component: EnigmaFilesView, name: "files" },
-    // Voice calls / calendar / contacts — build-gated editions (pland.md), same
-    // `beforeEnter` pattern as the board below.
+    // Vox (voice calls) / calendar / contacts — build-gated editions (pland.md),
+    // same `beforeEnter` pattern as the board below. The tab is called Vox; the
+    // build flag stays `calls_enabled`, matching build_config.yaml's section.
     {
-      path: "/calls",
-      component: EnigmaCallsView,
-      name: "calls",
+      path: "/vox",
+      component: EnigmaVoxView,
+      name: "vox",
       beforeEnter: () => getBuildConfig().calls_enabled || "/chat",
     },
     {

@@ -52,6 +52,11 @@ const invites = chatStore.invites!;
 // the store is never touched and nothing below renders.
 const peersEnabled = getBuildConfig().peers_enabled;
 const peers = peersEnabled ? usePeersStore() : null;
+// The DHT is its own build gate (Pro only — pland.md). When it is off there is
+// no Settings→Connections DHT card, so the surfaces below HIDE rather than
+// showing an "enable DHT discovery in Settings" hint that points nowhere.
+const dhtAllowed =
+  getBuildConfig().p2p_allow_hosted_relays && getBuildConfig().dht_enabled;
 
 // ── My code (this device's stable NodeId — what a contact saves about ME) ─────
 const myNodeId = ref("");
@@ -326,11 +331,11 @@ function openInviteFor(contact: ContactEntry) {
 // so the ring button is hidden and this is a no-op in a calls-off edition.
 const callsEnabled = chatStore.callsEnabled;
 
-// Ring a saved contact by their stable NodeId and jump to the Calls tab.
+// Ring a saved contact by their stable NodeId and jump to the Vox tab.
 async function callContact(contact: ContactEntry) {
   if (!chatStore.vox) return;
   await chatStore.vox.callNode(contact.nodeId, contact.name);
-  void router.push("/calls");
+  void router.push("/vox");
 }
 
 function closeInvite() {
@@ -433,7 +438,7 @@ async function acceptIncoming() {
       </OyaButton>
 
       <!-- Findable by nickname: an opt-in claim on the DHT directory -->
-      <div v-if="!useTor" class="space-y-3 border-t border-current/10 pt-4">
+      <div v-if="dhtAllowed && !useTor" class="space-y-3 border-t border-current/10 pt-4">
         <div class="flex items-center gap-3">
           <font-awesome-icon
             icon="magnifying-glass"
@@ -500,14 +505,18 @@ async function acceptIncoming() {
       </div>
     </OyaCard>
 
-    <!-- Find people — nickname search on the DHT directory -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+    <!-- Find people — two directories behind one search box: the DHT nickname
+         directory and the user's own faros server. Each has its own build gate,
+         so the card is here only if at least one of them can actually search. -->
+    <OyaCard v-if="dhtAllowed || rdvBuildAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('contacts.findPeople') }}
         </p>
+        <!-- "turn the DHT on" only when there is a toggle to turn on; a build
+             without the DHT describes the server directory instead. -->
         <p class="mt-1 text-sm opacity-65">
-          {{ dhtUsable ? $t('contacts.findHint') : $t('contacts.findNeedsDht') }}
+          {{ dhtUsable ? $t('contacts.findHint') : dhtAllowed ? $t('contacts.findNeedsDht') : $t('contacts.rdvFindHint') }}
         </p>
       </div>
       <div class="flex gap-2">
@@ -619,7 +628,9 @@ async function acceptIncoming() {
           <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
             {{ $t('contacts.saved') }}
           </p>
-          <p class="mt-1 text-sm opacity-65">
+          <!-- No hint at all without the DHT: presenceOff tells the user to
+               enable a Settings toggle this build does not have. -->
+          <p v-if="dhtAllowed" class="mt-1 text-sm opacity-65">
             {{ dhtUsable ? $t('contacts.presenceHint') : $t('contacts.presenceOff') }}
           </p>
         </div>

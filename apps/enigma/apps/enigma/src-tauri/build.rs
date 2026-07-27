@@ -23,6 +23,7 @@ struct RawConfig {
     app: AppSection,
     cloud: CloudSection,
     p2p: P2pSection,
+    dht: DhtSection,
     crypto: CryptoSection,
     calls: CallsSection,
     contacts: ContactsSection,
@@ -53,6 +54,12 @@ struct CloudSection {
 #[serde(deny_unknown_fields)]
 struct P2pSection {
     allow_hosted_relays: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DhtSection {
+    enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -249,6 +256,18 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         }
     }
 
+    // dht: the Mainline rendezvous rides the iroh endpoint's hosted discovery
+    // (p2p_dht::discovery_enabled checks ALLOW_HOSTED_RELAYS first), so the
+    // combination below would be silently inert rather than merely off.
+    if cfg.dht.enabled && !cfg.p2p.allow_hosted_relays {
+        err(
+            "dht.enabled",
+            "true requires p2p.allow_hosted_relays: true — the DHT rides the iroh \
+             endpoint's hosted discovery and is inert without it"
+                .into(),
+        );
+    }
+
     // network.
     let net = &cfg.network;
     if net.onion_port == 0 {
@@ -300,6 +319,10 @@ pub mod cloud {{
 
 pub mod p2p {{
     pub const ALLOW_HOSTED_RELAYS: bool = {allow_relays};
+}}
+
+pub mod dht {{
+    pub const ENABLED: bool = {dht_enabled};
 }}
 
 pub mod crypto {{
@@ -421,6 +444,7 @@ const _: () = assert!(
         version = rust_str(&cfg.app.version),
         allow_cloud = cfg.cloud.allow_connections,
         allow_relays = cfg.p2p.allow_hosted_relays,
+        dht_enabled = cfg.dht.enabled,
         mls = rust_str(&cfg.crypto.mls_ciphersuite),
         aead = rust_str(&cfg.crypto.at_rest_aead),
         kdf_alg = rust_str(&cfg.crypto.kdf.algorithm),

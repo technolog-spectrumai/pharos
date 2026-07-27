@@ -44,6 +44,22 @@ use tauri::{AppHandle, Manager};
 const SETTINGS_NS: &str = "p2p:settings";
 const SETTINGS_SCOPE: &str = "default";
 
+/// Returned by the `dht_*` commands that would otherwise do real work in a
+/// build with `dht.enabled: false` (Pro-only — pland.md). Mirrors MAPS_DISABLED
+/// / PEERS_DISABLED. `dht_status` and `dht_room_code` deliberately do NOT use
+/// it: both already have a total "nothing here" value in their own return type.
+pub(crate) const DHT_DISABLED: &str = "DHT discovery is disabled in this build.";
+
+/// Fail-fast guard for those commands. Checked before the offline/Tor gates so
+/// a DHT-less build never reaches `ensure_started` — which would bind the whole
+/// iroh endpoint and open a relay connection for a call that cannot succeed.
+pub(crate) fn ensure_enabled() -> Result<(), String> {
+    if !crate::build_config::dht::ENABLED {
+        return Err(DHT_DISABLED.to_string());
+    }
+    Ok(())
+}
+
 /// True in Tor-exclusive mode, where iroh (and therefore every DHT function)
 /// is torn down. Mirrors cloud.rs's gate of the same name.
 fn tor_exclusive(app: &AppHandle) -> bool {
@@ -54,16 +70,23 @@ fn tor_exclusive(app: &AppHandle) -> bool {
     }
 }
 
-/// The opt-in toggle. Build-time relay/discovery kill switch first, then Tor
-/// mode, then the user's setting; locked vault / missing key ⇒ the
+/// The opt-in toggle. Edition gate first, then the relay/discovery kill switch,
+/// then Tor mode, then the user's setting; locked vault / missing key ⇒ the
 /// build-config default. Single choke point: gates DhtHandle,
 /// DhtAddressLookup, the nick publisher, dht_status and ticketless joins.
+///
+/// The build gate sits ABOVE the kv read on purpose: a profile carrying
+/// `dht_discovery: "on"` from a Pro build must read as off here, without the
+/// key being rewritten (the same profile reopened by Pro keeps the choice).
 ///
 /// Tor mode returns false unconditionally: the DHT rides the iroh endpoint,
 /// which Tor-exclusive mode shuts down, and a pkarr record would publish a
 /// relay address this profile is deliberately not using. The server-side
 /// directory (aster / cloud rendezvous) is the discovery path over Tor.
 pub fn discovery_enabled(app: &AppHandle) -> bool {
+    if !crate::build_config::dht::ENABLED {
+        return false;
+    }
     if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
         return false;
     }
@@ -112,9 +135,16 @@ pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
 }
 
 /// Opt-in "findable by nickname" toggle (Contacts tab). Missing key ⇒ the
-/// build-config default; inert in a build without hosted relays, and in Tor
-/// mode (nothing to announce — see `discovery_enabled`).
+/// build-config default; inert in a build without the DHT or without hosted
+/// relays, and in Tor mode (nothing to announce — see `discovery_enabled`).
+///
+/// Redundant with `discovery_enabled` in practice — the publisher it guards can
+/// only be spawned when that returned true — but kept honest so the function
+/// answers its own question when read in isolation.
 pub fn nick_publish_enabled(app: &AppHandle) -> bool {
+    if !crate::build_config::dht::ENABLED {
+        return false;
+    }
     if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
         return false;
     }

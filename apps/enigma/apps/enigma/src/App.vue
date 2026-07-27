@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
-          <RouterLink v-if="callsEnabled" to="/calls" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
+          <RouterLink v-if="callsEnabled" to="/vox" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
             <font-awesome-icon icon="phone" />
             {{ $t('nav.calls') }}
             <span
@@ -378,7 +378,7 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink v-if="callsEnabled" to="/calls" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="callsEnabled" to="/vox" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="phone" class="w-4 text-center" />
             {{ $t('nav.calls') }}
             <span

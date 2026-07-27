@@ -19,10 +19,25 @@ cloud:
 
 p2p:
   # false = iroh runs with RelayMode::Disabled (no n0-hosted relays) and all
-  # hosted discovery is off: pkarr/DNS publishing and Mainline-DHT rendezvous /
-  # presence / nickname (the Settings DHT toggles become inert). Direct QUIC
-  # (ticket/QR bootstrap) and the Tor onion transport keep working.
+  # hosted discovery is off: pkarr/DNS publishing AND the Mainline DHT (which
+  # rides the same endpoint, so `dht.enabled` below cannot rescue it). Direct
+  # QUIC (ticket/QR bootstrap) and the Tor onion transport keep working, but
+  # reconnecting to a bare NodeId does not — nothing is left to resolve it.
   allow_hosted_relays: true
+
+dht:
+  # false = the Mainline DHT is compiled out of reach: no rendezvous publishing,
+  # no ticketless join-by-room-code, no nickname directory, no presence. The
+  # Settings→Connections DHT card is hidden, the Contacts nickname/find-people
+  # surfaces go with it, and dht_presence / dht_publish_nick / dht_find_nick /
+  # dht_apply fail fast with DHT_DISABLED. Pro only (pland.md).
+  #
+  # Requires p2p.allow_hosted_relays — build.rs rejects the combination, since
+  # the rendezvous rides the iroh endpoint's hosted discovery.
+  #
+  # Note this is the BUILD gate. `features.dht_discovery` below is a different
+  # thing: the per-profile runtime default, which stays opt-in even in Pro.
+  enabled: true
 
 crypto:
   # Declarations, ASSERTED at compile time against the vendored crates

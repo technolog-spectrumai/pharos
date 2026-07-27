@@ -1,14 +1,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# ENIGMA PLUS — "chat with people, not just rooms".
+# ENIGMA PLUS — "chat, and talk".
 #
 # Selected with `ENIGMA_EDITION=plus` (build.rs reads this file instead of
 # ../build_config.yaml). Product rationale + the full feature matrix live in
 # pland.md; the per-key semantics are documented in ../build_config.yaml, which
 # stays the annotated reference copy.
 #
-# = Light, PLUS: contacts (DHT presence, nickname directory, direct room
-#   invites), 1:1 voice calls, and multi-device linking.
-# OUT: calendar, maps, Enigma Cloud (all Pro).
+# = Light, PLUS exactly one thing: 1:1 voice calls (the Vox tab). Reachability
+#   is the same as Light's — QR/ticket, then reconnect by saved NodeId over n0
+#   discovery — so a call starts from a ticket or from a room member.
+# OUT: the DHT (no join-by-room-code, nickname directory or presence, hence no
+#      call-by-nickname), contacts, device linking, calendar, maps, Cloud.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -28,7 +30,12 @@ cloud:
   allow_connections: false        # Pro-only feature
 
 p2p:
+  # Stays true in every edition: n0 relay fallback + pkarr discovery are what
+  # make NAT-to-NAT pairing and reconnect-to-a-saved-NodeId work at all.
   allow_hosted_relays: true
+
+dht:
+  enabled: false                  # Pro only — pairing here is QR/ticket only
 
 crypto:
   mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
@@ -43,7 +50,11 @@ calls:
   enabled: true
 
 contacts:
-  enabled: true
+  # false = no Contacts tab and the `enigma/invite/0` ALPN is not registered, so
+  # a direct room invite from a Pro peer is refused at negotiation. Most of what
+  # Contacts offered (presence, the nickname directory) needs the DHT anyway,
+  # which this edition does not have.
+  enabled: false                  # Pro only
 
 calendar:
   enabled: false                  # Pro only
@@ -59,12 +70,12 @@ maps:
   enabled: false                  # Pro only
 
 devices:
-  allow_linking: true
+  allow_linking: false            # Pro only
 
 features:
-  # Contacts presence + the nickname directory ride the Mainline DHT, so Plus is
-  # the first edition where the DHT toggle buys the user more than room codes.
-  # It stays OPT-IN regardless: nothing is published until the user flips it.
+  # Runtime DEFAULTS for a new profile, not gates. The two dht_* seeds are
+  # unreachable here anyway — `dht.enabled: false` above short-circuits ahead of
+  # them — and are kept only because every edition declares the same key set.
   use_tor: false
   stable_onion: false
   dht_discovery: false

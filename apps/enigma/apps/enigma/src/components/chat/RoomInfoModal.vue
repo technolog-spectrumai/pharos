@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { OyaModal, OyaQrCode, OyaCopyField, RULES_MAX_CHARS } from "rakotis";
+import { OyaModal, OyaQrCode, OyaCopyField, RULES_MAX_CHARS, getBuildConfig } from "rakotis";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 
 const props = defineProps<{ open: boolean; controller: P2pRoomsController; channel: ChatChannel }>();
 const emit = defineEmits<{ "update:open": [boolean] }>();
+
+// Unlike the create modal, this reads a PERSISTED code — which can be non-empty
+// on a room saved by a DHT-capable build (or replicated from one), so a
+// DHT-less build would otherwise offer a code nobody here can serve.
+const dhtAllowed = getBuildConfig().p2p_allow_hosted_relays && getBuildConfig().dht_enabled;
 
 const room = computed(() => props.controller.infoRoom.value);
 
@@ -137,7 +142,7 @@ function close() {
       <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
       <OyaCopyField :value="room.ticket" mono :copy-label="$t('chat.copy')" />
       <!-- Ticketless-join room code (DHT rendezvous) — present when minted -->
-      <template v-if="room.code">
+      <template v-if="dhtAllowed && room.code">
         <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareCode") }}</p>
         <OyaCopyField :value="room.code" mono :copy-label="$t('chat.copy')" />
       </template>

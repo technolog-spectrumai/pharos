@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaButton } from "rakotis";
+import { OyaButton, getBuildConfig } from "rakotis";
 import { useChatStore } from "../../stores/chat";
 
 defineProps<{ darkMode: boolean }>();
 
 const { t } = useI18n();
 const chat = useChatStore();
-// Non-null: this panel is only reachable through the build-gated /calls route
+// Non-null: this panel is only reachable through the build-gated /vox route
 // (pland.md), so it never renders in a calls-off edition.
 const vox = chat.vox!;
+// Calling by nickname resolves through the DHT directory, which is its own
+// build gate (Pro only). Read here rather than in useVoxCall: the composable's
+// unit test replaces the whole rakotis module. Plus keeps the ticket/QR and
+// call-a-room-member flows, which need no directory.
+const dhtAllowed = getBuildConfig().p2p_allow_hosted_relays && getBuildConfig().dht_enabled;
 const p2p = chat.p2p;
 const {
   available,
@@ -294,8 +299,8 @@ const cardClass = computed(() =>
         </ul>
       </div>
 
-      <!-- Call by nickname (DHT directory) -->
-      <div :class="cardClass">
+      <!-- Call by nickname (DHT directory) — absent without the DHT -->
+      <div v-if="dhtAllowed" :class="cardClass">
         <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
         <p class="text-sm opacity-80">{{ t("vox.callContactHint") }}</p>
         <input

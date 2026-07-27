@@ -75,13 +75,20 @@ export interface BuildConfig {
   cloud_allow_connections: boolean;
   /** false = no n0 relay / pkarr / Mainline DHT; DHT toggles are inert. */
   p2p_allow_hosted_relays: boolean;
-  /** false = this build has no 1:1 voice calls: no Calls tab, /calls redirects,
+  /** false = this build has no Mainline DHT: no ticketless join-by-room-code,
+   *  no nickname directory, no presence. getDhtDiscovery/getDhtNickPublish read
+   *  false regardless of the stored setting, the Settings→Connections DHT card
+   *  and the Contacts nickname/find surfaces are hidden, and dht_presence /
+   *  dht_publish_nick / dht_find_nick / dht_apply error with DHT_DISABLED.
+   *  Pairing falls back to QR/ticket. (pland.md — Pro only.) */
+  dht_enabled: boolean;
+  /** false = this build has no 1:1 voice calls: no Vox tab, /vox redirects,
    *  useVoxCall is never instantiated, the vox ALPN is not accepted, and every
    *  vox_* command errors with CALLS_DISABLED. (pland.md — Plus and up.) */
   calls_enabled: boolean;
   /** false = this build has no Contacts: no Contacts tab, /contacts redirects,
    *  useRoomInvites is never instantiated and the invite ALPN is not accepted.
-   *  DHT room codes are unaffected. (pland.md — Plus and up.) */
+   *  (pland.md — Pro only.) */
   contacts_enabled: boolean;
   /** false = this build has no Calendar: no Calendar tab, /calendar redirects,
    *  useMeetings is never instantiated (no meetings, polls or reminder tick).
@@ -123,6 +130,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   app_version: "0.1.0",
   cloud_allow_connections: true,
   p2p_allow_hosted_relays: true,
+  dht_enabled: true,
   calls_enabled: true,
   contacts_enabled: true,
   calendar_enabled: true,
@@ -535,6 +543,11 @@ export async function setMapActiveRegion(id: string): Promise<void> {
 // join code, and Contacts presence works. Rust reads the same kv keys directly.
 
 export async function getDhtDiscovery(): Promise<boolean> {
+  // Build gate FIRST, exactly as Rust's p2p_dht::discovery_enabled orders it:
+  // a profile carrying "on" from a DHT-capable build must read as off here too.
+  // The key is deliberately NOT rewritten — reopening the same profile with a
+  // Pro build restores the user's choice.
+  if (!getBuildConfig().dht_enabled) return false;
   try {
     return (await kvGet("p2p:settings", "default", "dht_discovery")) === "on";
   } catch {
@@ -565,6 +578,7 @@ export interface DhtStatus {
  *  a few seconds to bootstrap, so callers should retry before declaring the
  *  DHT unreachable. */
 export async function getDhtStatus(): Promise<DhtStatus> {
+  if (!getBuildConfig().dht_enabled) return { enabled: false, running: false, bootstrapped: false };
   if (isTauri()) {
     try {
       return await invoke<DhtStatus>("dht_status");
@@ -588,6 +602,8 @@ export function clampDhtNickname(nick: string): string {
 }
 
 export async function getDhtNickPublish(): Promise<boolean> {
+  // Build gate first — mirrors Rust's p2p_dht::nick_publish_enabled.
+  if (!getBuildConfig().dht_enabled) return false;
   try {
     return (await kvGet("p2p:settings", "default", "dht_nick_publish")) === "on";
   } catch {

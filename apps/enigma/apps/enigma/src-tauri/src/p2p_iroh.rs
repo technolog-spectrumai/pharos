@@ -147,6 +147,16 @@ pub fn code_is_dht(s: &str) -> bool {
     }
 }
 
+/// The room NAME inside a code, without touching the DHT. Lets a build with
+/// `dht.enabled: false` still REOPEN a room that was saved by code (the entry's
+/// stored credential is the code itself — see useChatChannel's join path): the
+/// topic is `blake3(name)`, which the code already carries, so only the
+/// rendezvous is missing and persisted NodeIds can take over. Returns None for
+/// anything that is not a well-formed code.
+pub fn room_name_from_code(code: &str) -> Option<String> {
+    RoomCode::decode(code).ok().map(|c| c.name)
+}
+
 fn topic_for(name: &str) -> TopicId {
     TopicId::from_bytes(*blake3::hash(name.as_bytes()).as_bytes())
 }
@@ -456,6 +466,11 @@ pub async fn join_room_by_code(
     state: &P2pState,
     code: String,
 ) -> Result<(String, String)> {
+    // Before ensure_started: binding the endpoint for a join that cannot
+    // succeed would open a relay connection for nothing.
+    if !crate::build_config::dht::ENABLED {
+        return Err(anyhow!(crate::p2p_dht::DHT_DISABLED));
+    }
     ensure_started(app, state).await?;
     let RoomCode { name, secret } =
         RoomCode::decode(&code).map_err(|e| anyhow!("invalid room code: {e}"))?;

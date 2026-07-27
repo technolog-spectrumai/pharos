@@ -132,6 +132,26 @@ describe("chat store — serverless P2P bootstrap", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("a Plus edition instantiates vox and nothing else", async () => {
+    // pland.md: Plus is Light + Vox, full stop — Contacts, device linking and
+    // the DHT are all Pro. This pins the shape of that middle tier, which is
+    // otherwise only expressed in a YAML no test reads.
+    const store = await freshStore({
+      calls_enabled: true,
+      contacts_enabled: false,
+      calendar_enabled: false,
+      devices_allow_linking: false,
+      dht_enabled: false,
+    });
+
+    expect(store.callsEnabled).toBe(true);
+    expect(store.vox).toBeDefined();
+    expect(store.invites).toBeNull();
+    expect(store.meetings).toBeNull();
+    // fileShare + vox only.
+    expect(p2pStub.onSync).toHaveBeenCalledTimes(2);
+  });
+
   it("identity fan-out delegates to the channel", async () => {
     const store = await freshStore();
 

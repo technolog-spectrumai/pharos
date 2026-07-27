@@ -24,6 +24,7 @@ import {
   setCloudEnabled as persistCloudEnabled,
   getCloudForceTor,
   setCloudForceTor as persistCloudForceTor,
+  getOffline,
 } from "rakotis";
 
 /** Predicted transport for the configured server (from cloud_status). */
@@ -86,6 +87,15 @@ export const useCloudStore = defineStore("cloud", () => {
   const enabled = ref(false);
   const forceTor = ref(false);
   const transport = ref<CloudTransport | null>(null);
+  // Airplane mode MIRROR, not a subscription: Rust emits no event when the
+  // switch flips (lib.rs app_set_offline just persists + tears transports down),
+  // so this is refreshed at press-shaped moments — reinit, panel mount, retry.
+  // Rust's ensure_online stays the real gate; worst case is one stale press.
+  const offline = ref(false);
+  // Did the server answer our last attempt? null = never tried, so a fresh app
+  // never shows a warning it has not earned. Set ONLY from real network calls
+  // (never from cloud_status, which is a local kv read) — see `call` below.
+  const reachable = ref<boolean | null>(null);
 
   // A build with cloud.allow_connections: false behaves like the browser here:
   // every action no-ops locally (the UI is hidden anyway) and Rust rejects any
@@ -121,6 +131,57 @@ export const useCloudStore = defineStore("cloud", () => {
     if (!msg.startsWith("cloud_off")) return false;
     enabled.value = false;
     return true;
+  }
+
+  /** Re-read the airplane switch. Cheap (a local command), and it follows a
+   *  press every time it is called, so it does not reintroduce background
+   *  traffic (cloud.md D6). */
+  async function syncOffline(): Promise<void> {
+    offline.value = await getOffline().catch(() => false);
+  }
+
+  /** The server answered, or the user is explicitly re-attempting. */
+  function clearUnreachable(): void {
+    reachable.value = null;
+  }
+
+  /** Machine-classify a failed cloud command. Order matters.
+   *
+   *  `cloud_off` and airplane mode mean NO BYTE LEFT THE MACHINE, so they say
+   *  nothing about the server — they must not touch `reachable`. An
+   *  `unauthorized` likewise does not prove reachability: Rust produces
+   *  "unauthorized: not logged in" as a preflight with no network at all
+   *  (cloud.rs), and telling the two apart would mean sniffing the tail text.
+   *  Anything we cannot classify re-reads the airplane switch, because that is
+   *  the likeliest unclassified cause and the local truth beats string-matching
+   *  across the language boundary.
+   *
+   *  Returns true when the message was a known machine prefix, i.e. the UI has
+   *  a proper reason to render and must NOT also surface the raw string. */
+  function classify(msg: string): boolean {
+    if (knobRefused(msg)) return true;
+    if (sessionExpired(msg)) return true;
+    if (msg.startsWith("unreachable")) {
+      reachable.value = false;
+      return true;
+    }
+    void syncOffline();
+    return false;
+  }
+
+  /** THE way to issue a networked cloud/beacon/aster command: one place learns
+   *  whether the server is answering. Rethrows, so callers keep their own
+   *  handling. Deliberately NOT for `cloud_status` — that is a local kv read
+   *  and would falsely "prove" the server is up on every knob toggle. */
+  async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    try {
+      const out = await invoke<T>(cmd, args);
+      reachable.value = true; // an answer at all proves the server is there
+      return out;
+    } catch (e) {
+      classify(asMessage(e));
+      throw e;
+    }
   }
 
   function upsertFile(f: CloudFile) {
@@ -181,6 +242,9 @@ export const useCloudStore = defineStore("cloud", () => {
         dropSoon(e.payload.transferId, ERROR_LINGER_MS);
         return;
       }
+      // A stream dying mid-transfer is as good a reachability signal as a failed
+      // request. Mark it, then fall through — the row still shows what happened.
+      if (msg.startsWith("unreachable")) reachable.value = false;
       const t = transfers.get(e.payload.transferId);
       if (t) t.error = msg;
       else error.value = msg;
@@ -210,6 +274,7 @@ export const useCloudStore = defineStore("cloud", () => {
       // kv hydration works in browser/vitest too (localStorage kv fallback).
       enabled.value = await getCloudEnabled();
       forceTor.value = await getCloudForceTor();
+      await syncOffline();
       if (!cloudAvailable) {
         clearLocal();
         return;
@@ -290,7 +355,7 @@ export const useCloudStore = defineStore("cloud", () => {
     if (!isTauri()) throw new Error("Enigma Cloud is desktop-only.");
     if (!cloudAvailable) throw new Error("Enigma Cloud is disabled in this build.");
     if (!enabled.value) throw new Error("Enigma Cloud is switched off.");
-    const res = await invoke<{ username: string }>("cloud_login", {
+    const res = await call<{ username: string }>("cloud_login", {
       serverUrl: serverUrl.value,
       username: user,
       password,
@@ -306,7 +371,7 @@ export const useCloudStore = defineStore("cloud", () => {
   async function logout(): Promise<void> {
     if (isTauri()) {
       try {
-        await invoke("cloud_logout", { serverUrl: serverUrl.value });
+        await call("cloud_logout", { serverUrl: serverUrl.value });
       } catch {
         /* token + username are cleared server-side/kv-side anyway */
       }
@@ -320,7 +385,7 @@ export const useCloudStore = defineStore("cloud", () => {
     if (!cloudAvailable || !enabled.value || !loggedIn.value) return;
     loading.value = true;
     try {
-      const res = await invoke<{ files: CloudFile[]; buckets: CloudBucket[] }>("cloud_list", {
+      const res = await call<{ files: CloudFile[]; buckets: CloudBucket[] }>("cloud_list", {
         serverUrl: serverUrl.value,
       });
       files.value = res.files ?? [];
@@ -328,7 +393,7 @@ export const useCloudStore = defineStore("cloud", () => {
       error.value = null;
     } catch (e) {
       const msg = asMessage(e);
-      if (!sessionExpired(msg) && !knobRefused(msg)) error.value = msg;
+      if (!classify(msg)) error.value = msg;
     } finally {
       loading.value = false;
     }
@@ -341,8 +406,7 @@ export const useCloudStore = defineStore("cloud", () => {
       return await fn();
     } catch (e) {
       const msg = asMessage(e);
-      sessionExpired(msg);
-      knobRefused(msg);
+      classify(msg);
       throw new Error(msg);
     }
   }
@@ -374,7 +438,7 @@ export const useCloudStore = defineStore("cloud", () => {
       });
     } catch (e) {
       const msg = asMessage(e);
-      if (!sessionExpired(msg) && !knobRefused(msg)) error.value = msg;
+      if (!classify(msg)) error.value = msg;
     }
   }
 
@@ -398,7 +462,7 @@ export const useCloudStore = defineStore("cloud", () => {
       });
     } catch (e) {
       const msg = asMessage(e);
-      if (!sessionExpired(msg) && !knobRefused(msg)) error.value = msg;
+      if (!classify(msg)) error.value = msg;
     }
   }
 
@@ -476,6 +540,12 @@ export const useCloudStore = defineStore("cloud", () => {
     enabled,
     forceTor,
     transport,
+    offline,
+    reachable,
+    syncOffline,
+    clearUnreachable,
+    classify,
+    call,
     init,
     setServerUrl,
     setEnabled,

@@ -115,9 +115,26 @@ pub async fn realtime_join_room(
     }
     let (room, name, onion) = if p2p_iroh::code_is_dht(&ticket) {
         // DHT room code (ticketless join) — same field, routed by its tag byte.
-        let (room, name) =
-            p2p_iroh::join_room_by_code(&app, &p2p, ticket).await.map_err(|e| e.to_string())?;
-        (room, name, String::new())
+        if crate::build_config::dht::ENABLED {
+            let (room, name) =
+                p2p_iroh::join_room_by_code(&app, &p2p, ticket).await.map_err(|e| e.to_string())?;
+            (room, name, String::new())
+        } else {
+            // A room joined by code stores the CODE as its credential, so a
+            // DHT-less build reopening that room lands here — and erroring
+            // would strand the room (chat auto-reopens the most recent one on
+            // boot). The code carries the name, the topic is blake3(name), and
+            // the persisted NodeIds resolve through n0 discovery, so reconnect
+            // by node instead. With no persisted peers this subscribes without
+            // connecting, which is what the ordinary stale-reconnect path does.
+            let name = p2p_iroh::room_name_from_code(&ticket)
+                .ok_or_else(|| "invalid room code".to_string())?;
+            let room =
+                p2p_iroh::join_room_by_node(&app, &p2p, name.clone(), peer_node_ids.unwrap_or_default())
+                    .await
+                    .map_err(|e| e.to_string())?;
+            (room, name, String::new())
+        }
     } else if p2p_tor::ticket_is_tor(&ticket) {
         p2p_tor::join_room(&app, &tor, ticket, peer_node_ids.unwrap_or_default())
             .await
@@ -274,6 +291,7 @@ pub async fn dht_presence(
     p2p: State<'_, P2pState>,
     node_ids: Vec<String>,
 ) -> Result<serde_json::Value, String> {
+    crate::p2p_dht::ensure_enabled()?;
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
@@ -297,6 +315,7 @@ pub async fn dht_publish_nick(
     config: State<'_, AppConfigState>,
     p2p: State<'_, P2pState>,
 ) -> Result<(), String> {
+    crate::p2p_dht::ensure_enabled()?;
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
@@ -315,6 +334,7 @@ pub async fn dht_find_nick(
     p2p: State<'_, P2pState>,
     nick: String,
 ) -> Result<serde_json::Value, String> {
+    crate::p2p_dht::ensure_enabled()?;
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
@@ -353,8 +373,12 @@ pub async fn dht_room_code(
 /// Apply a flipped DHT toggle: tear the iroh node down (same pattern as the
 /// airplane-mode switch); the next realtime command lazily re-binds with the
 /// new setting and rooms re-join through the reconnect machinery.
+///
+/// Guarded even though it touches no DHT code: it is a "drop every open room"
+/// button, and a build without the DHT must not expose that under a DHT name.
 #[tauri::command]
 pub async fn dht_apply(app: AppHandle, p2p: State<'_, P2pState>) -> Result<(), String> {
+    crate::p2p_dht::ensure_enabled()?;
     p2p_iroh::shutdown(&app, &p2p).await;
     Ok(())
 }

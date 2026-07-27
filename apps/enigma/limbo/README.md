@@ -55,8 +55,9 @@ wiring in `stores/chat.ts`.
   NodeId their contacts/nickname resolve to, and the removed `aster.rs` dependency is
   gone. `rustfft` was re-added to Cargo.toml (chacha20poly1305 was already back).
   Frontend went to `apps/enigma/src/components/vox/{VoxPanel.vue,useVoxCall.ts}`
-  (feature-folder convention), surfaced as a dedicated **Calls tab**
-  (`EnigmaCallsView.vue`, route `/calls`) with an incoming-call nav dot. Three call
+  (feature-folder convention), surfaced as a dedicated **Vox tab**
+  (`EnigmaVoxView.vue`, route `/vox` — named "Calls" until 2026-07-27) with an
+  incoming-call nav dot. Three call
   flows: QR/ticket, call a room member (offer over the MLS `onSync`/`sendSync` seam,
   `vox_*` family), and call by DHT nickname / saved contact (`dht_find_nick` /
   Contacts phone button). Gated on airplane + Tor-exclusive mode with a `shutdown`

@@ -19,8 +19,14 @@ for the rework record.
   hosts + relays). Backend in `src-tauri/src/p2p_tor.rs`; see
   [technology.md](../../technology.md) §11.
 
-Voice calls (Vox) and P2P file transfer are parked in
-[limbo/](../../limbo/README.md).
+- **Vox (1:1 voice calls)** — `/vox`, riding the main iroh endpoint on its own
+  ALPN; start from a ticket/QR, a room member, or (where the build has the DHT)
+  a nickname. Backend in `src-tauri/src/vox.rs`.
+- **P2P file transfer** — offer/accept with progress, on the Files tab.
+
+Which of these a given binary actually contains is decided at **compile time**
+by the edition config — see [pland.md](../../pland.md). The Kanban, Sketch and
+Mind workspaces are parked in [limbo/](../../limbo/README.md).
 
 ## Shared code
 

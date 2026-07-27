@@ -451,6 +451,7 @@ pub struct BuildConfigSummary {
     pub app_version: &'static str,
     pub cloud_allow_connections: bool,
     pub p2p_allow_hosted_relays: bool,
+    pub dht_enabled: bool,
     pub calls_enabled: bool,
     pub contacts_enabled: bool,
     pub calendar_enabled: bool,
@@ -476,7 +477,7 @@ pub struct BuildConfigSummary {
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
     use build_config::{
-        app, calendar, calls, cloud, contacts, devices, features, maps, p2p, peers,
+        app, calendar, calls, cloud, contacts, devices, dht, features, maps, p2p, peers,
         settings as s,
     };
     BuildConfigSummary {
@@ -485,6 +486,7 @@ fn app_get_build_config() -> BuildConfigSummary {
         app_version: app::VERSION,
         cloud_allow_connections: cloud::ALLOW_CONNECTIONS,
         p2p_allow_hosted_relays: p2p::ALLOW_HOSTED_RELAYS,
+        dht_enabled: dht::ENABLED,
         calls_enabled: calls::ENABLED,
         contacts_enabled: contacts::ENABLED,
         calendar_enabled: calendar::ENABLED,
