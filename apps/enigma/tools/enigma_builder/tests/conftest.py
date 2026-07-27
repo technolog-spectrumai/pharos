@@ -22,15 +22,38 @@ import paths  # noqa: E402  (path must be set up first)
 
 
 @pytest.fixture(scope="session")
-def app():
-    """One QApplication for the session — QThread needs one to run at all."""
+def app(tmp_path_factory):
+    """One QApplication for the session — QThread needs one to run at all.
+
+    QSettings is redirected into a temp directory first: the window persists
+    the theme, the repo root and the output folder, and a test run must not
+    leave those on the developer's real settings.
+    """
+    from PyQt6.QtCore import QSettings
     from PyQt6.QtWidgets import QApplication
+
+    settings_dir = tmp_path_factory.mktemp("qsettings")
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(
+        QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(settings_dir)
+    )
 
     instance = QApplication.instance() or QApplication([])
     instance.setApplicationName(paths.APP_NAME)
     instance.setOrganizationName(paths.ORG_NAME)
     instance.setStyle("Fusion")
     return instance
+
+
+@pytest.fixture
+def window(app):
+    from window import MainWindow
+
+    win = MainWindow()
+    # The expert toggle shows a one-time modal, which would block a headless run.
+    win.expert_tab._warned = True
+    yield win
+    win.close()
 
 
 @pytest.fixture(scope="session")

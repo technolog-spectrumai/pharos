@@ -72,14 +72,37 @@ class ConfigModel(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self.canonical = load_yaml(paths.CANONICAL_YAML)
-        self._presets: dict[str, dict[str, Any]] = {}
         self._depth = 0
         self._dirty = False
+        self.canonical: dict[str, Any] = {}
+        self._presets: dict[str, dict[str, Any]] = {}
+        self._cfg: dict[str, Any] = {}
+        self.resumed_from_custom = False
+        self.reload()
+
+    def reload(self) -> None:
+        """Re-read the configs from the current repo root.
+
+        Called at construction and again whenever the user repoints the tool at
+        a different checkout — the model is rebuilt in place so the tabs keep
+        their widgets and simply refresh.
+        """
+        self.canonical = load_yaml(paths.CANONICAL_YAML)
+        self._presets = {}
 
         stored = load_yaml(paths.CUSTOM_YAML)
         self.resumed_from_custom = bool(stored)
-        self._cfg = merge_known(self.canonical, stored) if stored else copy.deepcopy(self.canonical)
+        self._cfg = (
+            merge_known(self.canonical, stored)
+            if stored
+            else copy.deepcopy(self.canonical)
+        )
+        self.changed.emit()
+
+    @property
+    def ready(self) -> bool:
+        """False when no canonical config could be read — no repo, or a broken one."""
+        return bool(self.canonical)
 
     # ----- reading --------------------------------------------------------
 

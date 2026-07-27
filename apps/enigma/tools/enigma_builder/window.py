@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from string import Template
 
+from pathlib import Path
+
 from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtGui import QCloseEvent, QFont
 from PyQt6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -42,13 +45,18 @@ from validation import errors as error_issues
 
 TAB_TITLES = ("Features", "Identity", "Expert", "Build")
 
+SETTINGS_REPO_KEY = "repo/root"
+SETTINGS_OUTPUT_KEY = "build/output_dir"
+
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, repo_override: Path | None = None) -> None:
         super().__init__()
         self.settings = QSettings()
         saved = self.settings.value(SETTINGS_THEME_KEY, "")
         self.theme = saved if saved in THEMES else detect_system_theme()
+
+        self._restore_repo_root(repo_override)
 
         self.model = ConfigModel(self)
         self._seed_identity_from_conf()
@@ -61,8 +69,74 @@ class MainWindow(QMainWindow):
         self._apply_theme(self.theme)
         self.theme_button.clicked.connect(self._toggle_theme)
         self.model.changed.connect(self._on_model_changed)
+        self.build_tab.repo_root_changed.connect(self.set_repo_root)
+        self.build_tab.output_dir_changed.connect(
+            lambda path: self.settings.setValue(SETTINGS_OUTPUT_KEY, path)
+        )
+        self.build_tab.set_output_dir(
+            str(self.settings.value(SETTINGS_OUTPUT_KEY, "") or "")
+            or str(paths.default_output_dir())
+        )
+        self._on_model_changed()
+
+        if paths.have_repo():
+            self._report_missing_files()
+        else:
+            self._prompt_for_repo()
+
+    # ----- repository ------------------------------------------------------
+
+    def _restore_repo_root(self, override: Path | None) -> None:
+        """Choose the checkout: --repo, then the remembered one, then detection.
+
+        A standalone binary has no repo anywhere near it, so the saved choice
+        is the only thing that makes the second launch as good as the first.
+        """
+        if override is not None:
+            paths.set_repo_root(override)
+            return
+        saved = str(self.settings.value(SETTINGS_REPO_KEY, "") or "")
+        if saved and paths.is_repo(Path(saved)):
+            paths.set_repo_root(Path(saved))
+
+    def set_repo_root(self, root: Path) -> None:
+        """Repoint the tool at another checkout and rebuild all tab state."""
+        paths.set_repo_root(root)
+        self.settings.setValue(SETTINGS_REPO_KEY, str(paths.REPO_ROOT))
+
+        self.model.reload()
+        self._seed_identity_from_conf()
+        self.identity_tab.reload_repo_identity()
+        # An output folder inside the old checkout would silently keep
+        # collecting there, so fall back to the new repo's default.
+        stored = str(self.settings.value(SETTINGS_OUTPUT_KEY, "") or "")
+        if not stored or not Path(stored).is_absolute():
+            self.build_tab.set_output_dir(str(paths.default_output_dir()))
         self._on_model_changed()
         self._report_missing_files()
+
+    def _prompt_for_repo(self) -> None:
+        """First run of a standalone binary: ask where the checkout is."""
+        QMessageBox.information(
+            self,
+            paths.APP_NAME,
+            "No Enigma checkout was found next to this program.\n\nChoose the "
+            "repository you want to configure and build — the folder "
+            f"containing {paths.MARKER.parts[0]}/.",
+        )
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose an Enigma checkout", str(Path.home())
+        )
+        if chosen and paths.is_repo(Path(chosen)):
+            self.set_repo_root(Path(chosen))
+        elif chosen:
+            QMessageBox.warning(
+                self,
+                paths.APP_NAME,
+                f"{chosen}\n\nis not an Enigma checkout — expected to find\n"
+                f"{paths.MARKER} inside it.\n\nYou can set the path on the "
+                "Build tab at any time.",
+            )
 
     def _seed_identity_from_conf(self) -> None:
         """tauri.conf.json is authoritative, so the form starts from it.
@@ -142,6 +216,15 @@ class MainWindow(QMainWindow):
     # ----- shared refresh -------------------------------------------------
 
     def _on_model_changed(self) -> None:
+        if not self.model.ready:
+            # No readable config: the Build tab explains why and the other tabs
+            # have nothing to show, so skip validation rather than flooding
+            # every field with "missing".
+            for index, title in enumerate(TAB_TITLES):
+                self.tabs.setTabText(index, title)
+            self.build_tab.refresh()
+            return
+
         pending = self.identity_tab.pending_identity().as_conf_fields()
         issues = self.model.validate(pending)
 

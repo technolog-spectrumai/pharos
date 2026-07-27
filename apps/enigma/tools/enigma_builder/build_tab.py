@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -96,6 +99,11 @@ def free_bytes(path: Path) -> int | None:
 
 
 class BuildTab(QWidget):
+    #: Emitted when the user picks a different Enigma checkout to build.
+    repo_root_changed = pyqtSignal(object)
+    #: Emitted when the output folder changes, so the window can persist it.
+    output_dir_changed = pyqtSignal(str)
+
     def __init__(self, model: ConfigModel, identity_tab: IdentityTab) -> None:
         super().__init__()
         self.model = model
@@ -112,6 +120,7 @@ class BuildTab(QWidget):
         outer = widgets.page_layout(self)
         layout = widgets.scroll_page(outer)
 
+        layout.addWidget(self._build_repo_card())
         layout.addWidget(self._build_summary_card())
         layout.addWidget(self._build_options_card())
         layout.addWidget(self._build_environment_card())
@@ -145,6 +154,38 @@ class BuildTab(QWidget):
         self.refresh()
 
     # ----- construction ---------------------------------------------------
+
+    def _build_repo_card(self) -> QWidget:
+        frame, layout = widgets.card()
+        header = QHBoxLayout()
+        header.addWidget(widgets.section_title("Enigma repository"))
+        header.addStretch()
+        self.repo_badge = widgets.badge("", True)
+        header.addWidget(self.repo_badge)
+        layout.addLayout(header)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        self.repo_edit = QLineEdit()
+        self.repo_edit.setPlaceholderText("Path to an Enigma checkout…")
+        self.repo_edit.setClearButtonEnabled(True)
+        self.repo_edit.editingFinished.connect(self._repo_typed)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse_repo)
+        row.addWidget(self.repo_edit, 1)
+        row.addWidget(browse)
+        layout.addLayout(row)
+
+        layout.addWidget(
+            widgets.hint(
+                "The checkout this tool configures and builds. Found "
+                "automatically when the Builder sits inside a repo; set it "
+                "yourself when running the standalone binary.",
+                "gateHint",
+            )
+        )
+        return frame
 
     def _build_summary_card(self) -> QWidget:
         frame, layout = widgets.card()
@@ -229,11 +270,29 @@ class BuildTab(QWidget):
         layout.addWidget(self.abi_all)
 
         layout.addWidget(widgets.separator())
+        layout.addWidget(widgets.section_title("Output folder"))
         self.collect_box = QCheckBox(
-            "Collect artifacts into apps/enigma/deploy/dist (with SHA256SUMS)"
+            "Copy the finished artifacts here (with SHA256SUMS)"
         )
+        self.collect_box.setChecked(True)
         self.collect_box.toggled.connect(self._options_changed)
         layout.addWidget(self.collect_box)
+
+        output_row = QHBoxLayout()
+        output_row.setContentsMargins(0, 0, 0, 0)
+        output_row.setSpacing(8)
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("Where to put the built files…")
+        self.output_edit.setClearButtonEnabled(True)
+        self.output_edit.textChanged.connect(self._output_edited)
+        self.output_browse = QPushButton("Browse…")
+        self.output_browse.clicked.connect(self._browse_output)
+        self.output_reset = widgets.link_button("default", self._reset_output)
+        output_row.addWidget(self.output_edit, 1)
+        output_row.addWidget(self.output_browse)
+        output_row.addWidget(self.output_reset)
+        layout.addLayout(output_row)
+
         self.collect_hint = widgets.hint("", "gateHint")
         layout.addWidget(self.collect_hint)
 
@@ -317,9 +376,19 @@ class BuildTab(QWidget):
     def collect(self) -> bool:
         return self.collect_box.isChecked()
 
+    @property
+    def output_dir(self) -> Path:
+        text = self.output_edit.text().strip()
+        return Path(text).expanduser() if text else paths.default_output_dir()
+
     def command(self) -> list[str]:
-        """The exact command for the current options."""
-        if self.collect or self.platform == "both":
+        """The exact command for the current options.
+
+        Copying to the output folder is done afterwards, in Python, so the
+        choice of folder never changes which script runs. Only `both` needs
+        deploy/build.sh, because that script is what sequences the two legs.
+        """
+        if self.platform == "both":
             return [
                 "bash",
                 str(paths.DEPLOY_BUILD_SH),
@@ -349,23 +418,20 @@ class BuildTab(QWidget):
         self.abi_all.setEnabled(android)
         self.environment_card.setVisible(android)
 
-        # `both` only exists in deploy/build.sh, which always collects.
-        if self.platform == "both":
-            self.collect_box.blockSignals(True)
-            self.collect_box.setChecked(True)
-            self.collect_box.blockSignals(False)
-            self.collect_box.setEnabled(False)
-        else:
-            self.collect_box.setEnabled(True)
+        for widget in (self.output_edit, self.output_browse, self.output_reset):
+            widget.setEnabled(self.collect)
 
         notes = []
-        if self.collect and self.platform != "android" and self.build_type == "debug":
+        if self.platform == "both" and self.build_type == "debug":
             notes.append(
-                "deploy/build.sh always builds the desktop leg as release — "
-                "the debug choice applies to Android only."
+                "deploy/build.sh sequences both legs but always builds the "
+                "desktop bundle as release — the debug choice applies to "
+                "Android only."
             )
-        if self.platform == "both":
-            notes.append("Both targets are sequenced by deploy/build.sh, which collects.")
+        if self.collect and self.output_dir.resolve() == paths.DEPLOY_DIST.resolve():
+            notes.append(
+                "Default folder: apps/enigma/deploy/dist (already gitignored)."
+            )
         self.collect_hint.setText(" ".join(notes))
         self.collect_hint.setVisible(bool(notes))
 
@@ -376,9 +442,87 @@ class BuildTab(QWidget):
             )
         )
 
+    # ----- repository and output folder -----------------------------------
+
+    def _browse_repo(self) -> None:
+        start = str(paths.REPO_ROOT if paths.have_repo() else Path.home())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose an Enigma checkout", start
+        )
+        if chosen:
+            self.set_repo_path(Path(chosen))
+
+    def _repo_typed(self) -> None:
+        text = self.repo_edit.text().strip()
+        if text and Path(text).expanduser() != paths.REPO_ROOT:
+            self.set_repo_path(Path(text).expanduser())
+
+    def set_repo_path(self, root: Path) -> None:
+        """Repoint the whole tool at ``root``, if it really is a checkout."""
+        root = root.expanduser()
+        if not paths.is_repo(root):
+            QMessageBox.warning(
+                self,
+                paths.APP_NAME,
+                f"{root}\n\nis not an Enigma checkout — expected to find\n"
+                f"{paths.MARKER} inside it.",
+            )
+            self.refresh_repo()
+            return
+        self.repo_root_changed.emit(root)
+
+    def refresh_repo(self) -> None:
+        """Sync the repository row and badge with whatever paths now resolve to."""
+        found = paths.have_repo()
+        text = str(paths.REPO_ROOT) if found else ""
+        if self.repo_edit.text() != text:
+            self.repo_edit.blockSignals(True)
+            self.repo_edit.setText(text)
+            self.repo_edit.blockSignals(False)
+        self.repo_badge.setText("found" if found else "not set")
+        self.repo_badge.setObjectName("successBadge" if found else "warningBadge")
+        self.repo_badge.style().unpolish(self.repo_badge)
+        self.repo_badge.style().polish(self.repo_badge)
+
+    def _browse_output(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose an output folder", str(self.output_dir)
+        )
+        if chosen:
+            self.output_edit.setText(chosen)
+
+    def _reset_output(self) -> None:
+        self.output_edit.setText(str(paths.default_output_dir()))
+
+    def _output_edited(self) -> None:
+        self.output_dir_changed.emit(self.output_edit.text().strip())
+        self._options_changed()
+
+    def set_output_dir(self, path: str) -> None:
+        if self.output_edit.text() != path:
+            self.output_edit.blockSignals(True)
+            self.output_edit.setText(path)
+            self.output_edit.blockSignals(False)
+        self._options_changed()
+
     # ----- refresh --------------------------------------------------------
 
     def refresh(self) -> None:
+        self.refresh_repo()
+        if not self.model.ready:
+            self.config_badge.setText("no repository")
+            self.config_badge.setObjectName("warningBadge")
+            self.config_badge.style().unpolish(self.config_badge)
+            self.config_badge.style().polish(self.config_badge)
+            self.summary_label.setText(
+                "Point the Builder at an Enigma checkout above to get started."
+            )
+            self.issue_label.set_messages([])
+            self.start_button.setEnabled(False)
+            self.clean_button.setEnabled(False)
+            return
+        self.clean_button.setEnabled(not self.is_busy())
+
         issues = self.model.validate(self.identity_tab.pending_identity().as_conf_fields())
         blocking = error_issues(issues)
         warned = warning_issues(issues)
@@ -623,18 +767,69 @@ class BuildTab(QWidget):
 
     # ----- artifacts ------------------------------------------------------
 
+    def _copy_artifacts(self, found: list[Path]) -> list[Path]:
+        """Copy the build's output into the chosen folder, with SHA256SUMS.
+
+        Done here rather than by deploy/build.sh so that the folder choice is
+        independent of which script ran. Android files get the app prefix the
+        deploy script would have given them — Tauri's `app-universal-*.apk`
+        names are otherwise indistinguishable between builds.
+        """
+        dest = self.output_dir
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.log.append_line(f"# cannot create {dest}: {exc}")
+            return found
+
+        copied: list[Path] = []
+        for path in found:
+            name = path.name
+            if path.suffix.lower() in (".apk", ".aab") and name.startswith("app-"):
+                name = f"{paths.APP_SLUG}-{name[len('app-'):]}"
+            target = dest / name
+            try:
+                if path.resolve() == target.resolve():
+                    copied.append(target)
+                    continue
+                shutil.copy2(path, target)
+            except OSError as exc:
+                self.log.append_line(f"# could not copy {path.name}: {exc}")
+                continue
+            copied.append(target)
+
+        if not copied:
+            return found
+
+        try:
+            lines = []
+            for path in sorted(copied):
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                lines.append(f"{digest}  {path.name}")
+            (dest / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError as exc:
+            self.log.append_line(f"# could not write SHA256SUMS: {exc}")
+
+        self.log.append_line(f"# copied {len(copied)} artifact(s) to {dest}")
+        return copied
+
     def _show_artifacts(self) -> None:
         found: list[Path] = []
         directories: list[Path] = []
 
-        if self.collect:
+        if self.platform == "both":
+            # deploy/build.sh has already gathered both legs here under
+            # self-identifying names; scanning the sources too would find every
+            # file twice, once under Tauri's generic `app-*` name.
             directories.append(paths.DEPLOY_DIST)
-        if self.platform in ("desktop", "both"):
+        elif self.platform == "desktop":
             directories.append(paths.TARGET_DIR / self.build_type / "bundle")
-        if self.platform in ("android", "both"):
+        else:
             directories.append(paths.ANDROID_OUTPUTS)
 
-        patterns = ("*.deb", "*.AppImage", "*.rpm", "*.apk", "*.aab", "SHA256SUMS")
+        # SHA256SUMS is deliberately absent: we regenerate it for whatever
+        # actually lands in the output folder.
+        patterns = ("*.deb", "*.AppImage", "*.rpm", "*.apk", "*.aab")
         for directory in directories:
             if not directory.is_dir():
                 continue
@@ -652,6 +847,9 @@ class BuildTab(QWidget):
             self.open_button.setEnabled(False)
             return
 
+        found = sorted({p.resolve() for p in found})
+        if self.collect:
+            found = self._copy_artifacts(found)
         found.sort()
         lines = [
             f"{path.name}  ({path.stat().st_size / (1024 * 1024):.1f} MB)\n"

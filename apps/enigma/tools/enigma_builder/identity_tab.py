@@ -24,10 +24,9 @@ class IdentityTab(QWidget):
         self.model = model
         self._syncing = False
 
-        # The launch-time snapshot is the fallback when git cannot tell us what
-        # HEAD holds (no git, or a checkout that is not a repo).
         self.launch_identity = identity_mod.disk_identity()
-        self.repo_identity = identity_mod.head_identity() or self.launch_identity
+        self.repo_identity = self.launch_identity
+        self.reload_repo_identity()
 
         outer = widgets.page_layout(self)
         layout = widgets.scroll_page(outer)
@@ -114,6 +113,15 @@ class IdentityTab(QWidget):
         return frame
 
     # ----- behavior -------------------------------------------------------
+
+    def reload_repo_identity(self) -> None:
+        """Re-read the committed identity — at startup and on a repo change.
+
+        The launch-time snapshot is the fallback when git cannot tell us what
+        HEAD holds (no git, or a checkout that is not a repo).
+        """
+        self.launch_identity = identity_mod.disk_identity()
+        self.repo_identity = identity_mod.head_identity() or self.launch_identity
 
     def _set(self, field: str, text: str) -> None:
         if self._syncing:

@@ -10,14 +10,41 @@ python -m venv venv && venv/bin/pip install -r requirements.txt
 venv/bin/python main.py
 ```
 
+## Standalone
+
+`bash package.sh` produces `dist/enigma-builder`: one ~73 MB file with Python
+and Qt inside it, needing neither on the machine that runs it. Copy it anywhere.
+
+It does not have to live in the repo. The checkout is *resolved* rather than
+assumed — `--repo`, then the remembered choice, then `$ENIGMA_REPO`, then a
+search upwards from the program and from the working directory. On a first run
+that finds nothing, it asks; after that it remembers. You can also change it any
+time from the **Repository** row on the Build tab.
+
+```bash
+./enigma-builder                       # asks on first run, remembers after
+./enigma-builder --repo ~/src/enigma   # explicit, for this run only
+ENIGMA_REPO=~/src/enigma ./enigma-builder
+./enigma-builder --check               # print what it resolved, then exit
+```
+
+`--check` is the thing to run when a build behaves oddly: it prints which
+checkout is in use, where that came from, whether every required file is
+present, and the default output folder. It exits non-zero if the repo is
+missing or incomplete.
+
+PyInstaller does not cross-compile — run `package.sh` on the platform you want a
+binary for.
+
 ## What it writes
 
-Two files, and nothing else:
+Three things, and nothing else:
 
-| File | When |
+| Path | When |
 |---|---|
 | `apps/enigma/src-tauri/configs/build_config.custom.yaml` | every build (gitignored) |
 | `apps/enigma/src-tauri/tauri.conf.json` | only if you change the app identity |
+| your chosen **output folder** | after a successful build, if collecting is on |
 
 **It never runs git.** If a build changes the identity, the Builder says so
 first, and restores the committed values afterwards unless you turn that off on
@@ -58,8 +85,9 @@ regenerates. The custom YAML is builder-owned output; regenerate it from the GUI
 - **Expert** — settings clamps and network tuning behind a toggle, with the
   crypto declarations shown read-only. `max_frame_bytes` is flagged: peers in
   one room must agree on it.
-- **Build** — target and build type, Android ABIs, artifact collection, the
-  Android toolchain check, free-disk warning, log, and the artifact list.
+- **Build** — the repository being driven, target and build type, Android ABIs,
+  the output folder, the Android toolchain check, free-disk warning, log, and
+  the artifact list.
 
 Validation mirrors `build.rs` rule for rule — same paths, same wording — so an
 error here reads the same as the one cargo would print. A blocking error
@@ -71,10 +99,18 @@ disables **Start build** and marks the owning tab with ⚠.
 |---|---|
 | Desktop | `bash build_desktop.sh [--debug]` |
 | Android | `bash scripts/build_android.sh enigma <debug\|release> <abis>` |
-| Collect / Both | `bash apps/enigma/deploy/build.sh <desktop\|android\|both> <debug\|release> <abis>` |
+| Both | `bash apps/enigma/deploy/build.sh both <debug\|release> <abis>` |
 
-`deploy/build.sh` always builds the desktop leg as release — the debug choice
-applies to Android only, and the GUI says so when the combination is selected.
+Only **Both** needs `deploy/build.sh`, because that script is what sequences the
+two legs — and it always builds the desktop bundle as release, so the debug
+choice applies to Android only. The GUI says so when you pick that combination.
+
+Collecting into the **output folder** is a copy step performed afterwards in
+Python, with a freshly generated `SHA256SUMS`. Doing it here rather than letting
+`deploy/build.sh` do it means the folder you choose never changes which script
+runs, and it works identically for all three targets. Android files pick up the
+`enigma-` prefix on the way, because Tauri's `app-universal-*.apk` names are
+otherwise indistinguishable between builds.
 
 Cancel signals the whole process group, then escalates to SIGKILL after ten
 seconds: the scripts spawn npm, cargo, tauri and gradle, and terminating only
@@ -102,7 +138,9 @@ generated key set against `build_config.yaml`, so a schema change in `build.rs`
 fails here loudly instead of failing a build half an hour in;
 `test_presets.py` pins the edition matrix and the invariant that crypto,
 settings and network are identical across editions; `test_build_worker.py`
-drives real subprocesses to prove cancellation reaches grandchildren.
+drives real subprocesses to prove cancellation reaches grandchildren;
+`test_paths_and_output.py` covers repo resolution, the standalone first run
+with no checkout at all, and the artifact copy.
 
 ## Repo changes this tool required
 

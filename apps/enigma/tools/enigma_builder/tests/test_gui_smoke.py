@@ -10,34 +10,12 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 import paths  # noqa: E402
 from theme import THEMES  # noqa: E402
 from validation import errors  # noqa: E402
-from window import TAB_TITLES, MainWindow  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def app():
-    instance = QApplication.instance() or QApplication([])
-    instance.setApplicationName(paths.APP_NAME)
-    instance.setOrganizationName(paths.ORG_NAME)
-    instance.setStyle("Fusion")
-    return instance
-
-
-@pytest.fixture
-def window(app):
-    win = MainWindow()
-    # The expert toggle shows a one-time modal, which would block a headless run.
-    win.expert_tab._warned = True
-    yield win
-    win.close()
+from window import TAB_TITLES  # noqa: E402
 
 
 def test_window_has_the_four_tabs(window):
@@ -135,12 +113,45 @@ def test_build_commands_match_the_repo_scripts(window):
     assert tab.command()[-1] == "all"
 
 
-def test_both_target_forces_the_collecting_script(window):
+def test_both_target_uses_the_sequencing_script(window):
+    """Only `both` needs deploy/build.sh — it is what runs the two legs."""
     tab = window.build_tab
     tab.platform_buttons["both"].setChecked(True)
-    assert tab.collect_box.isChecked()
-    assert not tab.collect_box.isEnabled()
     assert tab.command()[:3] == ["bash", str(paths.DEPLOY_BUILD_SH), "both"]
+
+
+def test_output_folder_does_not_change_the_command(window, tmp_path):
+    """Collecting is a copy step in Python, so it must not switch scripts."""
+    tab = window.build_tab
+    tab.platform_buttons["desktop"].setChecked(True)
+    tab.release_button.setChecked(True)
+    tab.collect_box.setChecked(True)
+    tab.output_edit.setText(str(tmp_path))
+    assert tab.command() == ["bash", str(paths.BUILD_DESKTOP_SH)]
+    assert tab.output_dir == tmp_path
+
+
+def test_output_folder_defaults_to_deploy_dist(window):
+    window.build_tab._reset_output()
+    assert window.build_tab.output_dir == paths.DEPLOY_DIST
+
+
+def test_clearing_the_output_field_falls_back_to_the_default(window):
+    window.build_tab.output_edit.setText("")
+    assert window.build_tab.output_dir == paths.DEPLOY_DIST
+
+
+def test_output_controls_follow_the_collect_checkbox(window):
+    tab = window.build_tab
+    tab.collect_box.setChecked(False)
+    assert not tab.output_edit.isEnabled()
+    tab.collect_box.setChecked(True)
+    assert tab.output_edit.isEnabled()
+
+
+def test_repository_row_shows_the_resolved_checkout(window):
+    assert window.build_tab.repo_edit.text() == str(paths.REPO_ROOT)
+    assert window.build_tab.repo_badge.text() == "found"
 
 
 def test_nothing_is_running_on_a_fresh_window(window):
