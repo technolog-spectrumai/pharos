@@ -948,6 +948,18 @@ export async function removeNoteRecent(path: string): Promise<void> {
   await saveNoteRecents((await getNoteRecents()).filter((r) => r.path !== path));
 }
 
+/** Write binary content, supplied as base64, to a path the user picked in the
+ *  native save dialog (`fs_local::fs_write_base64_file`). Base64 because the
+ *  caller is a canvas data URL, which already carries its payload that way.
+ *
+ *  This is the ONLY unsealed write path in the app, and it exists for one thing:
+ *  exporting a rasterized PNG, which `writeLocalNote` cannot carry (it is UTF-8
+ *  text). The drawing itself always saves through the sealed path. Tauri-only. */
+export async function writeBase64FileToDisk(path: string, b64: string): Promise<void> {
+  if (!isTauri()) throw new Error("Saving to disk is only available in the desktop app.");
+  await invoke("fs_write_base64_file", { path, b64 });
+}
+
 // ── Local-file key-rotation reminder interval ─────────────────────────────────
 // How many days a locked file's key may age before the Local tab flags it
 // "rotation due". 0 = off. This is a REMINDER only — rotation always needs the
