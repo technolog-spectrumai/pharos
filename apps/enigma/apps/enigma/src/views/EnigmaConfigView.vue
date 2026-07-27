@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from "vue";
-import { useRouter, useRoute } from "vue-router";
+import { useRouter, useRoute, RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
+import CloudEnableCard from "../components/cloud/CloudEnableCard.vue";
 import { useCloudStore } from "../stores/cloud";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
@@ -814,11 +815,11 @@ async function clearSelectedOfflineData() {
     <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (technology.md §12). Opt-in;
          on → rooms get a ticketless join code and Contacts presence works.
          Absent in a build with p2p.allow_hosted_relays: false (Rust reports the
-         DHT disabled regardless of the kv toggle), and inert in Tor mode: the
-         DHT rides the iroh endpoint, which Tor-exclusive mode shuts down — the
-         server directory (Cloud rendezvous, above) takes over there. Disabled
-         with the reason rather than hidden. -->
-    <OyaCard v-if="hostedRelaysAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
+         DHT disabled regardless of the kv toggle), and HIDDEN in Tor mode: the
+         DHT rides the iroh endpoint, which Tor-exclusive mode shuts down, so
+         there is nothing here to decide — the server directory (Cloud
+         rendezvous) is the discovery path there. -->
+    <OyaCard v-if="hostedRelaysAllowed && !useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('config.dhtDiscovery') }}
@@ -834,8 +835,7 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.dhtDiscovery') }}</p>
           <p class="text-xs opacity-60">
-            {{ useTor ? $t('config.dhtTorBlocked')
-              : dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
+            {{ dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
           </p>
         </div>
         <button
@@ -843,11 +843,7 @@ async function clearSelectedOfflineData() {
           role="switch"
           :aria-checked="dhtDiscovery"
           :aria-label="$t('config.dhtDiscovery')"
-          :disabled="useTor"
-          :class="[
-            dhtDiscovery ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2',
-            useTor ? 'cursor-not-allowed opacity-40' : '',
-          ]"
+          :class="dhtDiscovery ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
           class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
           @click="toggleDhtDiscovery"
         >
@@ -858,7 +854,7 @@ async function clearSelectedOfflineData() {
         </button>
       </div>
 
-      <template v-if="dhtDiscovery && !useTor">
+      <template v-if="dhtDiscovery">
         <!-- Status: has our Kademlia node a live routing table + manual probe -->
         <div class="flex items-center gap-2 text-xs">
           <span
@@ -928,11 +924,36 @@ async function clearSelectedOfflineData() {
       </template>
     </OyaCard>
 
+    <!-- Enigma Cloud master switch (cloud.md D2/D4) — the one control that
+         decides whether this app may talk to a server at all. Lives here with
+         the other network toggles; the server address, sign-in and connection
+         route live in the Cloud tab. Rust enforces the same kv flag on every
+         cloud/beacon/aster request, so off really means zero bytes. -->
+    <template v-if="cloudAllowed">
+      <CloudEnableCard :dark-mode="darkMode" />
+      <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
+        <p class="text-sm opacity-70">{{ $t('config.cloudTabPointer') }}</p>
+        <RouterLink
+          to="/cloud?tab=connection"
+          class="inline-flex items-center gap-2 text-sm font-semibold text-accent-light transition hover:opacity-70 dark:text-accent-dark"
+          data-testid="config-cloud-link"
+        >
+          <font-awesome-icon icon="cloud" />
+          {{ $t('nav.cloud') }}
+          <font-awesome-icon icon="chevron-right" class="text-xs opacity-60" />
+        </RouterLink>
+      </OyaCard>
+    </template>
+
     <!-- Cloud rendezvous (rdv.md) — publish my relay address to MY OWN faros
          server so peers there can find me by NodeId/username. Optional by
          contract: default off, and everything degrades to the ticket flow.
-         Needs both cloud + hosted relays in the build. -->
-    <OyaCard v-if="rdvAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
+         Needs both cloud + hosted relays in the build, and is HIDDEN in Tor
+         mode: what it publishes is the iroh relay address, and Tor-exclusive
+         mode shuts iroh down — there would be nothing to publish. (Being
+         reachable for sealed invites is separate and still works: the Cloud
+         tab registers this device's NodeId, no address involved.) -->
+    <OyaCard v-if="rdvAllowed && !useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('config.rdvSection') }}

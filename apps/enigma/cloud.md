@@ -1,7 +1,7 @@
 # Cloud — one tab, one switch, an audited wire (cloud.md)
 
 Status: **IMPLEMENTED 2026-07-27** — all gates green
-(rakotis 249 vitest · enigma 553 vitest · cargo 134 · Playwright 19 ·
+(rakotis 249 vitest · enigma 557 vitest · cargo 134 · Playwright 19 ·
 vue-tsc + vite builds clean). Server contract: the faros repo's
 `for_enigma.md`. Branch `relay`.
 
@@ -15,12 +15,14 @@ through exactly what the server will see first.
 
 ## Decision log
 
-- **D1 — One home.** The top-level Cloud tab hosts three sub-tabs (Notes pill
-  pattern, `EnigmaNotesView.vue`): **Files**, **Invites**, and **Connection** —
-  the settings half, holding the master switch, server URL, login, transport
-  badge and route-through-Tor. With the switch off, Connection is the *only*
-  pill (Files and Invites would be dead ends) and shows just the switch plus
-  the explanation; a stale Files selection falls back to it automatically. The
+- **D1 — One home for the workspace, Settings for the switch.** The top-level
+  Cloud tab hosts three sub-tabs (Notes pill pattern, `EnigmaNotesView.vue`):
+  **Files**, **Invites**, and **Connection** (server URL, login, transport
+  badge, route-through-Tor). The master switch itself sits in **Settings →
+  Connections**, beside the other network toggles — one switch, one place. With
+  it off, Connection is the *only* pill (Files and Invites would be dead ends)
+  and shows the explanation plus a link to Settings; a stale Files selection
+  falls back to it automatically. The
   Files tab lost its Cloud sub-tab, Settings lost the server-URL card, and
   Contacts keeps only a pointer (`contacts.torRoomsViaCloud` →
   `/cloud?tab=invites`). Contacts' *find-people* server search stays put — it
@@ -44,12 +46,14 @@ through exactly what the server will see first.
   transfer (which must not keep exposing the IP) takes the onion/loopback ones
   with it as restartable collateral; switching it off lets running transfers
   finish.
-- **D4 — Conscious enable.** The knob (in Connection) is the only thing the tab
-  shows when off, plus an explanation + warn banner. Turning it ON opens a danger-style
-  confirm modal (Kanban delete-confirm pattern) listing the metadata the
-  server sees and the per-transport risks; the kv flag is written only after
-  the confirm press (`tests/component/cloudView.test.ts` proves no early
-  write). Turning it OFF is instant — no ceremony to *stop* talking.
+- **D4 — Conscious enable.** `CloudEnableCard` (Settings → Connections) states
+  what the switch turns on and the metadata price before it is touched.
+  Turning it ON opens a danger-style confirm modal (Kanban delete-confirm
+  pattern) listing the metadata the server sees and the per-transport risks;
+  the kv flag is written only after the confirm press
+  (`tests/component/cloudEnableCard.test.ts` proves no early write). Turning it
+  OFF is instant — no ceremony to *stop* talking. A failed flip (locked vault)
+  shows inline instead of escalating to the global fatal overlay.
 - **D5 — No in-app registration.** `cloud_register` deleted (Rust + store +
   modal). Accounts are created in a browser on the server's `/sso/` page; the
   login modal and setup card say so (`cloud.registerExternalHint`). Plain
@@ -61,6 +65,14 @@ through exactly what the server will see first.
 - **D7 — Dev editions.** `run_dev.sh` and `run2.sh` default
   `ENIGMA_EDITION="${ENIGMA_EDITION:-pro}"` so dev builds are cloud-capable;
   shipped/CI defaults unchanged ([build.md](build.md)).
+- **D8 — Tor mode hides what it disables.** In Tor-exclusive mode the DHT card
+  and the *Publish my address to my server* (rdv) card are **hidden**, not
+  disabled-with-a-reason: both publish an iroh relay address, and Tor mode
+  shuts iroh down, so there is no decision left to present. (Reachability for
+  sealed invites is unaffected — that registers a NodeId, no address.) This
+  deliberately departs from the house "disable with the reason" style, which
+  fits controls that are *temporarily* inert, not ones with nothing behind
+  them.
 
 ## As-built map
 
@@ -71,14 +83,15 @@ through exactly what the server will see first.
 | Beacon gating (2-funnel swap covers all 8 commands) | `apps/enigma/src-tauri/src/beacon.rs` |
 | Command registry (− `cloud_register`, + `cloud_set_enabled`, + `cloud_set_force_tor`) | `apps/enigma/src-tauri/src/lib.rs` |
 | kv accessors (`getCloudEnabled`, `getCloudForceTor`, …) | `packages/rakotis/src/services/appStorage.ts` |
-| Cloud tab shell (pills, knob, confirm modal) | `apps/enigma/src/views/EnigmaCloudView.vue` |
+| Cloud tab shell (pills, off-state pointer) | `apps/enigma/src/views/EnigmaCloudView.vue` |
+| Master switch + conscious-enable confirm (Settings → Connections) | `apps/enigma/src/components/cloud/CloudEnableCard.vue` |
 | Connection sub-tab card (server URL, login, badge, force-Tor) | `apps/enigma/src/components/cloud/CloudSetupCard.vue` |
 | Files browser (moved unchanged) | `apps/enigma/src/components/cloud/CloudPanel.vue` |
 | Invites panel (extracted from Contacts) | `apps/enigma/src/components/cloud/CloudInvitesPanel.vue` |
 | Login modal (register mode stripped) | `apps/enigma/src/components/cloud/CloudLoginModal.vue` |
 | Store (`enabled` / `forceTor` / `transport`, setter side effects) | `apps/enigma/src/stores/cloud.ts` |
 | Route + nav | `apps/enigma/src/router/index.ts`, `apps/enigma/src/App.vue` |
-| Tests | `tests/unit/cloudStore.test.ts`, `tests/component/cloudView.test.ts`, updated `beaconStore`/`beaconCard` tests, `tests/e2e/smoke.spec.ts` |
+| Tests | `tests/unit/cloudStore.test.ts`, `tests/component/{cloudEnableCard,cloudView}.test.ts`, updated `beaconStore`/`beaconCard` tests, `tests/e2e/smoke.spec.ts` |
 
 ## Communication audit — every byte Enigma can send to the server
 
@@ -192,10 +205,11 @@ table above.
 1. Bring up a local faros; create two accounts **in a browser** at
    `https://localhost:8443/sso/` (no in-app registration any more).
 2. `./run2.sh` (now Pro by default — first run recompiles Rust).
-3. Both instances: **Cloud** tab → it opens on **Connection**, the only pill →
-   knob **on** → the confirm modal lists the metadata + transport risks →
-   confirm (you stay on Connection, now with the Files and Invites pills
-   beside it) → set the server URL → **Log in**.
+3. Both instances: **Cloud** tab shows only **Connection**, explaining itself
+   and linking to Settings → **Settings → Connections** → *Use my Cloud server*
+   **on** → the confirm modal lists the metadata + transport risks → confirm →
+   back to **Cloud**, now with Files and Invites pills → set the server URL on
+   Connection → **Log in**.
 4. Badge reads **Local** (loopback). On a clearnet URL it reads Clearnet with
    the warn banner; flip **Route through Tor** → badge **Tor**, and the faros
    access log shows a Tor-exit IP, not the LAN one.
@@ -203,7 +217,11 @@ table above.
 6. Alice → Invites → pick Bob → pick a Tor room → invite sent; Bob → Invites →
    refresh → accept → lands in the room. Contacts' invite modal now points at
    the Cloud tab for Tor rooms.
-7. Knob **off** on Alice mid-upload (Connection sub-tab) → the transfer aborts,
-   the Files and Invites pills disappear, the server access log goes silent
-   (the 150 s publisher included), and the Beacon card, Contacts search and
-   Local-tab upload button all show/hide their cloud-off state.
+7. Switch **off** on Alice mid-upload (Settings → Connections) → the transfer
+   aborts, the Cloud tab's Files and Invites pills disappear, the server access
+   log goes silent (the 150 s publisher included), and the Beacon card,
+   Contacts search and Local-tab upload button all show/hide their cloud-off
+   state.
+8. Turn **Route over Tor** on (Settings → Connections) → the DHT card and the
+   *Publish my address to my server* card disappear (D8); turn it off → both
+   return.
