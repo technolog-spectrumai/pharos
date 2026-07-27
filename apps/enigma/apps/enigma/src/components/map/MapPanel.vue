@@ -17,6 +17,7 @@ import {
   buildRouteShare,
   haversineMeters,
   isBeaconLive,
+  getUseTor,
   MAP_LOC_TTL_MS,
   OyaButton,
   OyaCard,
@@ -99,8 +100,15 @@ let pendingLocMarker: maplibregl.Marker | null = null;
 // Regions never land here (their cards download instead of focusing).
 const focus = ref<Exclude<MapShare, { type: "map_region" }> | null>(null);
 
+/** Tor-exclusive mode drops location sharing entirely (cloud.md): hiding your
+ *  network location while broadcasting a geographic one is incoherent. Sending
+ *  is what is blocked — locations peers already shared still render, because
+ *  receiving leaks nothing and dropping them would silently lose data. */
+const torMode = ref(false);
+
 const canShare = computed(
   () =>
+    !torMode.value &&
     chatStore.p2p.currentRoom.value !== null &&
     chatStore.p2p.isConnected.value &&
     chatStore.p2p.mlsStatus.value === "ready",
@@ -521,6 +529,8 @@ function refreshDraft() {
 onMounted(async () => {
   if (!tauri) return;               // honest desktop-only state renders instead
   trace("boot: mounted (tauri)");
+  torMode.value = await getUseTor().catch(() => false);
+  beaconStore.torBlocked = torMode.value;
   webglOk.value = webglAvailable();
   trace(`boot: webgl=${webglOk.value}`);
   if (!webglOk.value) return;       // honest no-WebGL state renders instead
@@ -1131,7 +1141,7 @@ function dismissFocus() {
               <font-awesome-icon icon="route" /> {{ $t('map.drawRoute') }}
             </OyaButton>
             <OyaButton
-              v-if="mode !== 'draw-route'"
+              v-if="mode !== 'draw-route' && !torMode"
               :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
               :disabled="!canShare"
               :title="canShare ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"

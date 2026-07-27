@@ -587,21 +587,6 @@ export async function setDhtDiscovery(on: boolean): Promise<void> {
   await kvPut("p2p:settings", "default", "dht_discovery", on ? "on" : "off").catch(() => {});
 }
 
-/** Cloud rendezvous (rdv.md): publish my relay address to MY OWN faros server
- *  and resolve peers through it. Opt-in, default off; the Rust publisher and
- *  lookup self-gate on this key every round, so no rebind is needed. */
-export async function getRdvPublish(): Promise<boolean> {
-  try {
-    return (await kvGet("p2p:settings", "default", "rdv_publish")) === "on";
-  } catch {
-    return false;
-  }
-}
-
-export async function setRdvPublish(on: boolean): Promise<void> {
-  await kvPut("p2p:settings", "default", "rdv_publish", on ? "on" : "off").catch(() => {});
-}
-
 /** Apply a flipped DHT toggle: tears the iroh node down in Rust; the next room
  *  command lazily re-binds with the new setting. */
 export async function applyDhtDiscovery(): Promise<void> {

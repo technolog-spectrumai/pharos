@@ -103,6 +103,19 @@ describe("beacon store — refresh", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
+  it("is unavailable in Tor mode — no location leaves, and none is fetched", async () => {
+    // Tor mode drops location sharing entirely (cloud.md). The Maps views set
+    // this flag from getUseTor before the first fetch; here we set it directly.
+    loggedInCloud();
+    invokeMock.mockResolvedValue({ pins: [], zones: [], routes: [] });
+    const store = useBeaconStore();
+    store.torBlocked = true;
+    expect(store.beaconAvailable).toBe(false);
+    await store.refresh();
+    await store.publishPin(52.2, 21.0, 3600, "");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
   it("flips the cloud store logged-out on an unauthorized error", async () => {
     const cloud = loggedInCloud();
     invokeMock.mockRejectedValue("unauthorized: session expired (HTTP 401)");

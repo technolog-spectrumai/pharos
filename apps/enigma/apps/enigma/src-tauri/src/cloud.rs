@@ -151,7 +151,7 @@ fn classify_host(host: &str) -> HostClass {
 
 /// A stored knob value is on only for the exact string "on" — anything else
 /// (absent key, locked vault, "off", stray casing) fails closed. Mirrors the
-/// `rdv_publish` convention in aster.rs.
+/// `dht_discovery` convention in p2p_dht.rs.
 fn flag_on(value: Option<&str>) -> bool {
     matches!(value, Some("on"))
 }
@@ -356,6 +356,9 @@ pub struct CloudState {
 /// at all, so a later `shutdown()` can't emit a spurious cancel for it.
 fn register_transfer(app: &AppHandle, id: &str, handle: tauri::async_runtime::JoinHandle<()>) {
     // Tauri's JoinHandle is a wrapper enum; only the tokio variant can answer.
+    // The catch-all is unreachable on this target but keeps the match total on
+    // targets where the enum carries a second (wasm) variant.
+    #[allow(unreachable_patterns)]
     let finished = match &handle {
         tauri::async_runtime::JoinHandle::Tokio(h) => h.is_finished(),
         _ => false,
@@ -515,7 +518,7 @@ async fn connect(app: &AppHandle, host: &str, port: u16, tls: bool) -> Result<Bo
 /// Map an HTTP error status to the command error convention: 401 ⇒ a message
 /// starting with "unauthorized" (frontend flips to logged-out on that prefix);
 /// otherwise prefer the server's JSON `error` field.
-fn status_err(status: u16, body: &Value) -> String {
+pub(crate) fn status_err(status: u16, body: &Value) -> String {
     let server_msg = body
         .get("error")
         .and_then(|v| v.as_str())

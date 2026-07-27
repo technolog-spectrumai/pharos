@@ -117,7 +117,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
 | Enigma Cloud (optional) | HTTP client (`cloud.rs`) to the user's own self-hosted faros server (telegraph auth + vault file storage), direct TLS (WebPKI) or via Tor; can be compiled out via build config |
 | Beacon (optional) | `beacon.rs` riding the cloud.rs transport + session: expiring location shares (pin/zone/route, mandatory TTL) on the same faros server, rendered on the Maps tab; present only when cloud **and** maps are both in the build |
-| Cloud rendezvous (optional) | `aster.rs` riding the cloud.rs transport + session: publish my iroh relay URL (never an IP) to my own faros server and resolve peers by NodeId/username — a third stacked `AddressLookup` beside n0/DHT; opt-in, default off; present only when cloud **and** hosted relays are both in the build (rdv.md) |
+| Cloud directory + invite mailbox (optional) | `aster.rs` riding the cloud.rs transport + session: register this device's NodeId, resolve peers by faros username, and exchange HPKE-sealed room invites through a server mailbox. **No address is published or looked up** — the relay publisher and the stacked `AddressLookup` were withdrawn 2026-07-27, leaving no periodic server traffic. Present when the cloud client is in the build (rdv.md, cloud.md) |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [build.md](build.md)) |
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
@@ -1139,11 +1139,13 @@ recording; offline profiles and the airplane switch.
   routes with mandatory TTL) on the user's own faros host, rendered as a Maps-tab
   layer; gated by cloud + maps build flags together (no own switch), volatile
   only, tap-published (see beacon.md).
-- **Cloud rendezvous** (`aster.rs`, rdv.md): the pre-rework aster directory
-  revived on the Enigma Cloud substrate — opt-in publish of the relay URL to
-  the user's own faros server, NodeId lookups racing n0/DHT, username search
-  in Contacts. Optional by contract; serverless behavior is byte-identical
-  when unused.
+- **Cloud directory + invite mailbox** (`aster.rs`, rdv.md, cloud.md): the
+  aster directory on the Enigma Cloud substrate — username → NodeId lookups
+  (Contacts search and the Cloud tab's invite picker) plus HPKE-sealed room
+  invites left in a server mailbox. Address publishing and the stacked
+  `AddressLookup` were removed on 2026-07-27, so the server never learns where
+  a device can be reached and nothing runs on a timer. Optional by contract;
+  serverless behavior is byte-identical when unused.
 - **Multi-device (linked devices)** (`device_link.rs` + rakotis `useDeviceSync`,
   plan + decisions in [sync.md](sync.md)): QR pairing streams an E2EE one-shot
   bundle (rooms/tickets, contacts, calendar, settings subset, personas, chat

@@ -236,6 +236,33 @@ mod tests {
     }
 
     #[test]
+    fn one_payload_reseals_to_many_recipients() {
+        // The invite fan-out (aster::rdv_invite_broadcast) builds the payload
+        // once and borrows it per recipient. That is only sound because HPKE
+        // mints a fresh ephemeral per call — so the blobs must differ, and each
+        // must open for its own key only.
+        let alice = SecretKey::generate();
+        let them: Vec<SecretKey> = (0..3).map(|_| SecretKey::generate()).collect();
+        let p = payload();
+        let blobs: Vec<String> = them
+            .iter()
+            .map(|r| seal_invite(&alice, &r.public(), &p, 2_000).unwrap())
+            .collect();
+
+        assert_eq!(blobs.iter().collect::<std::collections::HashSet<_>>().len(), 3);
+        for (i, recipient) in them.iter().enumerate() {
+            let opened = open_invite(recipient, &blobs[i], 1_000).expect("own blob opens");
+            assert_eq!(opened.payload.ticket, p.ticket);
+            assert_eq!(opened.from, alice.public());
+            for (j, blob) in blobs.iter().enumerate() {
+                if i != j {
+                    assert!(open_invite(recipient, blob, 1_000).is_err(), "cross-open {i}/{j}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn expired_invites_are_refused() {
         let (alice, bob) = keys();
         let blob = seal_invite(&alice, &bob.public(), &payload(), 1_000).unwrap();

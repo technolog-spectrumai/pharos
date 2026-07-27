@@ -10,7 +10,7 @@
 // Any "unauthorized…" error means the shared cloud session died: Rust already
 // cleared the kv token, so we flip the cloud store to logged-out too.
 
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import {
   isTauri,
@@ -44,8 +44,19 @@ export const useBeaconStore = defineStore("beacon", () => {
 
   // Beacon needs the cloud client AND the Maps tab; a build without either has
   // no beacon (Rust rejects direct invokes with BEACON_DISABLED regardless).
-  const beaconAvailable =
+  const buildAllowsBeacon =
     isTauri() && getBuildConfig().cloud_allow_connections && getBuildConfig().maps_enabled;
+
+  /** Tor-exclusive mode drops location sharing entirely (cloud.md): hiding the
+   *  network location while handing the server a geographic one is incoherent,
+   *  so nothing is published AND nothing is fetched.
+   *
+   *  Written by the Maps views (which already read `getUseTor`) rather than
+   *  fetched here — a store that fires a command on construction races its own
+   *  first request through the lazy invoke bridge. Flipping Tor mode re-mounts
+   *  the Maps tab, so one write per mount is enough. */
+  const torBlocked = ref(false);
+  const beaconAvailable = computed(() => buildAllowsBeacon && !torBlocked.value);
 
   function asMessage(e: unknown): string {
     if (typeof e === "string") return e;
@@ -72,7 +83,7 @@ export const useBeaconStore = defineStore("beacon", () => {
 
   // Also behind the Cloud tab's runtime master switch (cloud.md): with the
   // knob off, Rust refuses beacon calls — the UI must not even try.
-  const active = () => beaconAvailable && cloud.enabled && cloud.loggedIn;
+  const active = () => beaconAvailable.value && cloud.enabled && cloud.loggedIn;
 
   /** Fetch everything (GET /beacon/all). Best-effort: errors land in `error`. */
   async function refresh(): Promise<void> {
@@ -221,6 +232,7 @@ export const useBeaconStore = defineStore("beacon", () => {
 
   return {
     beaconAvailable,
+    torBlocked,
     pins,
     zones,
     routes,

@@ -16,9 +16,10 @@ mod cloud;
 // enabled only when both cloud.allow_connections and maps.enabled are on.
 mod beacon;
 // Aster — cloud rendezvous (rdv.md): the user's own faros server as an optional
-// peer directory (publish my relay URL, resolve peers by NodeId/username).
-// Rides cloud.rs transport + session; opt-in toggle, default off; enabled only
-// when cloud.allow_connections and p2p.allow_hosted_relays are both on.
+// NAME and MAILBOX directory — register this device's NodeId, resolve peers by
+// faros username, and exchange HPKE-sealed room invites. No address is ever
+// published or looked up. Rides cloud.rs transport + session; enabled when
+// cloud.allow_connections is on.
 mod aster;
 // Sealed room-invite envelopes (HPKE to a peer NodeId, signed) — the crypto
 // behind the faros invite rendezvous. No transport, pure functions.
@@ -1430,6 +1431,7 @@ pub fn run() {
             aster::aster_resolve,
             aster::rdv_register,
             aster::rdv_invite_send,
+            aster::rdv_invite_broadcast,
             aster::rdv_invite_fetch,
             aster::rdv_invite_ack,
             beacon::beacon_all,

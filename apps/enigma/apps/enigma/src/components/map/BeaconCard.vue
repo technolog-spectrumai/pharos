@@ -7,7 +7,9 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   beaconTtlLeftMs,
+  getUseTor,
   isBeaconLive,
+  isTauri,
   OyaCard,
   type BeaconPin,
   type BeaconRoute,
@@ -35,6 +37,9 @@ let tick: number | undefined;
 
 onMounted(async () => {
   tick = window.setInterval(() => (now.value = Date.now()), 60_000);
+  // Tor mode drops location sharing entirely (cloud.md) — settle that BEFORE
+  // the first fetch, or a Tor profile would still ask the server once.
+  if (isTauri()) beacon.torBlocked = await getUseTor().catch(() => false);
   await cloud.init();
   void beacon.refresh();
 });

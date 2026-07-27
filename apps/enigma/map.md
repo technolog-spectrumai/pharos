@@ -640,6 +640,16 @@ already holds; `tile_in_bbox` stays private.
 
 ## Accepted limitations
 
+- **Tor mode has no location sharing at all** (2026-07-27, cloud.md D9): the
+  *Share this spot* button and the whole Beacon surface are hidden, and
+  `/beacon/all` is never fetched. Hiding your network location while
+  broadcasting a geographic one is incoherent. Only SENDING is blocked —
+  locations a peer already shared still render, because receiving leaks
+  nothing and dropping them would silently lose data a peer sent. The flag is
+  written into `stores/beacon.ts` by the Maps views (which already read
+  `getUseTor`) rather than fetched in the store, so nothing races the store's
+  own first request.
+
 - **Clock skew.** `at` is the sender's clock. A mildly-future `at` fails *open*
   (visible); past `MAP_LOC_MAX_FUTURE_SKEW_MS` (24 h) the share is ignored, so a
   broken clock cannot pin a marker forever. There is no NTP here to do better.

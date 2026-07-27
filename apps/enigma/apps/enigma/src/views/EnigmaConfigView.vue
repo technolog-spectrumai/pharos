@@ -22,8 +22,6 @@ import {
   getConnectTimeoutSecs,
   setConnectTimeoutSecs,
   getDhtDiscovery,
-  getRdvPublish,
-  setRdvPublish,
   setDhtDiscovery,
   applyDhtDiscovery,
   getDhtStatus,
@@ -56,7 +54,6 @@ import {
   setDeleteFilesOnPanic,
   cleanTorKeystore,
   getBuildConfig,
-  invoke,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
@@ -175,23 +172,9 @@ async function saveDhtPresencePoll() {
   setTimeout(() => { dhtPresencePollSaved.value = false; }, 1500);
 }
 
-// ── Cloud rendezvous (rdv.md): my own faros server as an optional peer
-// directory. Opt-in, default off; the Rust publisher/lookup self-gate on the
-// kv key every round, so the flip applies live with no rebind. Also behind the
-// Cloud tab's runtime master switch — with cloud off the card hides (Rust
-// refuses aster calls anyway).
+// The Cloud master switch card (CloudEnableCard) reads this store but does not
+// hydrate it — this view's onMounted does.
 const cloudStore = useCloudStore();
-const rdvAllowed = computed(() => cloudAllowed && hostedRelaysAllowed && cloudStore.enabled);
-const rdvPublish = ref(false);
-async function toggleRdvPublish() {
-  rdvPublish.value = !rdvPublish.value;
-  await setRdvPublish(rdvPublish.value);
-  // Register this device right away so peers can find it (and seal invites to
-  // it) — registration needs only the NodeId, so it works in Tor mode too.
-  if (rdvPublish.value && cloudStore.loggedIn) {
-    await invoke("rdv_register", { serverUrl: cloudStore.serverUrl }).catch(() => {});
-  }
-}
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
 const connectTimeoutSecs = ref(60);
@@ -403,7 +386,6 @@ onMounted(async () => {
   mapStorageLimitMb.value = await getMapStorageLimitMb();
   fileKeyRotationDays.value = await getFileKeyRotationDays();
   dhtDiscovery.value = await getDhtDiscovery();
-  rdvPublish.value = await getRdvPublish();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
   // Hydrate the cloud store (enabled knob + login state) for the rdv card.
@@ -944,62 +926,6 @@ async function clearSelectedOfflineData() {
         </RouterLink>
       </OyaCard>
     </template>
-
-    <!-- Cloud rendezvous (rdv.md) — publish my relay address to MY OWN faros
-         server so peers there can find me by NodeId/username. Optional by
-         contract: default off, and everything degrades to the ticket flow.
-         Needs both cloud + hosted relays in the build, and is HIDDEN in Tor
-         mode: what it publishes is the iroh relay address, and Tor-exclusive
-         mode shuts iroh down — there would be nothing to publish. (Being
-         reachable for sealed invites is separate and still works: the Cloud
-         tab registers this device's NodeId, no address involved.) -->
-    <OyaCard v-if="rdvAllowed && !useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.rdvSection') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.rdvHint') }}</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon
-          icon="address-book"
-          :class="rdvPublish ? 'text-accent-dark' : 'opacity-60'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.rdvPublish') }}</p>
-          <p class="text-xs opacity-60">
-            {{ rdvPublish ? $t('config.rdvOnHint') : $t('config.rdvOffHint') }}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="rdvPublish"
-          :aria-label="$t('config.rdvPublish')"
-          data-testid="rdv-toggle"
-          :class="rdvPublish ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleRdvPublish"
-        >
-          <span
-            :class="rdvPublish ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
-      </div>
-      <template v-if="rdvPublish">
-        <div class="flex items-center gap-2 text-xs">
-          <span
-            :class="cloudStore.loggedIn ? 'bg-success-dark' : 'bg-warn-dark'"
-            class="inline-block h-2 w-2 shrink-0 rounded-full"
-          />
-          <span class="min-w-0 flex-1 opacity-70">
-            {{ cloudStore.loggedIn ? $t('config.rdvActive') : $t('config.rdvNeedsLogin') }}
-          </span>
-        </div>
-      </template>
-    </OyaCard>
 
     <!-- Connection timeout — room create/join give up (and the join modal auto-closes
          after connecting) once this many seconds elapse. Applies to Tor AND iroh. -->

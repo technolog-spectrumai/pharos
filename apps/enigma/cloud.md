@@ -1,7 +1,7 @@
 # Cloud — one tab, one switch, an audited wire (cloud.md)
 
 Status: **IMPLEMENTED 2026-07-27** — all gates green
-(rakotis 249 vitest · enigma 557 vitest · cargo 134 · Playwright 19 ·
+(rakotis 249 vitest · enigma 572 vitest · cargo 139 · Playwright 19 ·
 vue-tsc + vite builds clean). Server contract: the faros repo's
 `for_enigma.md`. Branch `relay`.
 
@@ -59,27 +59,50 @@ through exactly what the server will see first.
   login modal and setup card say so (`cloud.registerExternalHint`). Plain
   password login stays: `POST /telegraph/api/login/`, token (a Django session
   key) into the encrypted kv `cloud:auth/<normalized-url>/`.
-- **D6 — No relay surface in the tab.** The aster relay-address publishing
-  (`rdv_publish`) stays in Settings → Connections; the tab is files + invites
-  + control only. The rdv card now hides while the master switch is off.
+- **D6 — Address publishing DELETED (2026-07-27).** The relay publisher, the
+  stacked `AsterLookup` and the `rdv_publish` toggle are gone from Rust and the
+  UI (rdv.md D3/D4/D5). The server is a name-and-mailbox directory now: it maps
+  a username to NodeIds and holds sealed invites, and never learns where a
+  device can be reached. **This removed the app's only non-user-initiated
+  server traffic** — every byte below now follows a press.
 - **D7 — Dev editions.** `run_dev.sh` and `run2.sh` default
   `ENIGMA_EDITION="${ENIGMA_EDITION:-pro}"` so dev builds are cloud-capable;
   shipped/CI defaults unchanged ([build.md](build.md)).
 - **D8 — Tor mode hides what it disables.** In Tor-exclusive mode the DHT card
-  and the *Publish my address to my server* (rdv) card are **hidden**, not
-  disabled-with-a-reason: both publish an iroh relay address, and Tor mode
-  shuts iroh down, so there is no decision left to present. (Reachability for
-  sealed invites is unaffected — that registers a NodeId, no address.) This
-  deliberately departs from the house "disable with the reason" style, which
-  fits controls that are *temporarily* inert, not ones with nothing behind
-  them.
+  is **hidden**, not disabled-with-a-reason: it publishes an iroh relay address
+  and Tor mode shuts iroh down, so there is no decision left to present.
+  (Reachability for sealed invites is unaffected — that registers a NodeId, no
+  address.) This deliberately departs from the house "disable with the reason"
+  style, which fits controls that are *temporarily* inert, not ones with
+  nothing behind them. The rdv card that used to share this gate is now deleted
+  outright (D6).
+- **D9 — Tor mode drops location sharing entirely.** Both kinds: the map's
+  share-a-spot button (in-room, over the encrypted seam) and the whole Beacon
+  surface (published to the server, visible to everyone logged into it). Hiding
+  your network location while broadcasting a geographic one is incoherent, so
+  in Tor mode nothing is published AND `/beacon/all` is never fetched.
+  **Sending** is what is blocked — locations a peer already shared still
+  render, because receiving leaks nothing and dropping them would silently lose
+  data a peer sent.
+- **D10 — Invites are addressed by faros username (2026-07-27).** The Invites
+  sub-tab picks people by typing their cloud username, validated one at a time
+  against `/aster/resolve`; **Create & invite** mints the room (Tor channel in
+  Tor mode, direct iroh room otherwise) and leaves one HPKE-sealed copy of the
+  ticket per recipient DEVICE. Picking at least one person is mandatory in both
+  the UI and `rdv_invite_broadcast` — there is no "open to all". Two things the
+  UI states rather than hides: the picked list decides who *receives* a copy,
+  not who may join (MLS auto-admits any ticket holder), and a username→NodeId
+  mapping comes from the server, so a dishonest one could read a single invite
+  (rdv.md's flagged weakness; inviting a verified saved contact is not exposed
+  to it). faros has no user-listing endpoint an ordinary account can call, so a
+  browsable picker is impossible without server work — hence typed usernames.
 
 ## As-built map
 
 | Piece | File |
 |---|---|
 | Master gate, force_tor routing, transport label, setters, shutdown | `apps/enigma/src-tauri/src/cloud.rs` |
-| rdv/aster gating (5 commands, 150 s publisher, AsterLookup) | `apps/enigma/src-tauri/src/aster.rs` |
+| Directory + invite mailbox + fan-out (`rdv_invite_broadcast`) | `apps/enigma/src-tauri/src/aster.rs` |
 | Beacon gating (2-funnel swap covers all 8 commands) | `apps/enigma/src-tauri/src/beacon.rs` |
 | Command registry (− `cloud_register`, + `cloud_set_enabled`, + `cloud_set_force_tor`) | `apps/enigma/src-tauri/src/lib.rs` |
 | kv accessors (`getCloudEnabled`, `getCloudForceTor`, …) | `packages/rakotis/src/services/appStorage.ts` |
@@ -87,7 +110,9 @@ through exactly what the server will see first.
 | Master switch + conscious-enable confirm (Settings → Connections) | `apps/enigma/src/components/cloud/CloudEnableCard.vue` |
 | Connection sub-tab card (server URL, login, badge, force-Tor) | `apps/enigma/src/components/cloud/CloudSetupCard.vue` |
 | Files browser (moved unchanged) | `apps/enigma/src/components/cloud/CloudPanel.vue` |
-| Invites panel (extracted from Contacts) | `apps/enigma/src/components/cloud/CloudInvitesPanel.vue` |
+| Invites panel (username picker + create-room) | `apps/enigma/src/components/cloud/CloudInvitesPanel.vue` |
+| Recipient chips (typed usernames, resolved one at a time) | `apps/enigma/src/components/cloud/{CloudRecipientPicker.vue,useRecipientPicker.ts}` |
+| Tor drops location sharing | `apps/enigma/src/stores/beacon.ts` (`torBlocked`), `components/map/{MapPanel,BeaconCard}.vue` |
 | Login modal (register mode stripped) | `apps/enigma/src/components/cloud/CloudLoginModal.vue` |
 | Store (`enabled` / `forceTor` / `transport`, setter side effects) | `apps/enigma/src/stores/cloud.ts` |
 | Route + nav | `apps/enigma/src/router/index.ts`, `apps/enigma/src/App.vue` |
@@ -97,7 +122,9 @@ through exactly what the server will see first.
 
 Gate algebra: **edition flag ∧ master switch ∧ airplane-mode-off ∧ session ∧
 per-feature gate**. With the master switch off, none of the rows below can
-fire — enforced twice (per command AND inside `connect()`).
+fire — enforced twice (per command AND inside `connect()`). Since 2026-07-27
+**every row is user-initiated**: the 150 s relay publisher was the only timer
+and it is gone (D6).
 
 ### Session & files (`cloud.rs`)
 
@@ -115,24 +142,27 @@ fire — enforced twice (per command AND inside `connect()`).
 | `cloud_mkdir` / `cloud_rmdir` | `POST /vault/api/directories/` / `DELETE …/{id}/` | folder actions |
 | ~~`cloud_register`~~ | ~~`POST /sso/api/register/`~~ | **REMOVED** (D5) |
 
-### Location shares (`beacon.rs` — extra gate: `maps.enabled`)
+### Location shares (`beacon.rs` — extra gates: `maps.enabled`, and NOT Tor mode, D9)
 
 `beacon_all` `GET /beacon/all` · `beacon_near` `GET /beacon/near?lat&lon&radius_m` ·
 `POST /beacon/pin` · `POST /beacon/pin/delete` · `POST /beacon/zone` ·
 `POST /beacon/route` · `POST /beacon/{zone,route}/{id}/delete` — all
 user-pressed or beacon-card-open, all via `cloud::request_json`.
 
-### Rendezvous & invites (`aster.rs` — extra gate: `p2p.allow_hosted_relays`)
+### Directory & invites (`aster.rs` — gate: the master switch; build gate is now `cloud.allow_connections` alone)
 
 | Path | Wire | Trigger |
 |---|---|---|
-| `rdv_register` | `POST /aster/device` | Invites panel mount; Contacts mount; rdv toggle on — mailbox addressing (NodeId only) |
-| `spawn_publisher` | `POST /aster/device` + `POST /aster/addr` | **background loop, 150 s** — the one non-user-initiated path; requires opt-in kv `rdv_publish` AND the master switch (`rdv_enabled` composes both), self-gates every round |
-| `AsterLookup::resolve` | `GET /aster/addr/{endpoint_id}` | on peer dial (stacked iroh `AddressLookup`) — gated by `rdv_enabled`, backstopped by the `connect()` guard |
-| `aster_resolve` | `GET /aster/resolve?user&kind` | Contacts "find on my server" button |
-| `rdv_invite_send` | `POST /aster/invite` (HPKE-sealed blob — server stores ciphertext it cannot open) | Leave-an-invite press |
-| `rdv_invite_fetch` | `GET /aster/invites` | Invites panel mount / refresh press |
+| `rdv_register` | `POST /aster/device` | Invites panel mount + sign-in; Contacts mount — mailbox addressing (NodeId only, no address) |
+| `aster_resolve` | `GET /aster/resolve?user&kind` | Contacts "find on my server"; each recipient chip in the Invites picker |
+| `rdv_invite_send` | `POST /aster/invite` (HPKE-sealed blob — server stores ciphertext it cannot open) | the NodeId-addressed path (verified saved contact) |
+| `rdv_invite_broadcast` | 1 × `GET /aster/resolve` **and** 1 × `POST /aster/invite` per recipient DEVICE, sequential | Create-&-invite / Leave-invite press; stops at the first 429 and reports the rest as skipped |
+| `rdv_invite_fetch` | `GET /aster/invites` | Invites panel mount / sign-in / refresh press |
 | `rdv_invite_ack` | `POST /aster/invite/{id}/delete` | accept/dismiss press |
+
+*(Deleted 2026-07-27: `spawn_publisher`'s 150 s `POST /aster/addr` loop and
+`AsterLookup`'s `GET /aster/addr/{id}` on peer dial. **There is no longer any
+non-user-initiated path in this table** — every row is a press or a mount.)*
 
 ### Transport policy (per server host class)
 
@@ -150,6 +180,8 @@ Tor is only the in-process arti client (`tor.rs`).
 
 - iroh **n0-hosted relays + pkarr/DNS discovery** — when
   `p2p.allow_hosted_relays` (third-party infrastructure, not the user's server).
+  This flag no longer gates anything in `aster.rs`: it governs third-party
+  infrastructure, while the directory only ever talks to the user's own server.
 - BitTorrent **Mainline DHT** bootstrap + announces — opt-in `dht_discovery`.
 - **Tor directory authorities/guards** — inherent to arti whenever any
   onion/Tor path is active.
@@ -195,33 +227,45 @@ table above.
   API to make a file public** — "publish" means upload to your private vault.
 - Sessions are Django session keys (~2 weeks, no refresh); a silent 401 flips
   the UI logged-out via the `"unauthorized"` prefix convention.
-- Invite blobs ≤ 8 KiB, TTL clamped 60 s–24 h, ≤ 50 pending each way (server
-  caps).
+- Invite blobs ≤ 8 KiB (checked before the POST so an oversized ticket is
+  explained, not answered with a bare 413), TTL 24 h (the server's own cap, so
+  the UI offers no TTL picker and cannot misreport expiry).
+- **The 50-pending invite cap is per SENDER across every recipient** and clears
+  only when someone accepts or an invite expires — and one person can have
+  several devices. There is no endpoint to read your outstanding count, so a
+  fan-out can only discover the cap by hitting it: the first 429 stops the run
+  and the remaining people are reported as `skipped`, with a retry that
+  re-sends to the failures only. The picker caps a single fan-out at 20 people.
+- A recipient must have opened Enigma with Cloud on at least once, or there is
+  no device to seal to — indistinguishable from a wrong username, because faros
+  answers both with an empty list.
 - The Cloud tab is desktop-only in practice (`isTauri()` gates the store), like
   the old Files → Cloud sub-tab.
 
 ## Manual verification (run2.sh + a local faros)
 
-1. Bring up a local faros; create two accounts **in a browser** at
+1. Local faros up; create two accounts **in a browser** at
    `https://localhost:8443/sso/` (no in-app registration any more).
-2. `./run2.sh` (now Pro by default — first run recompiles Rust).
-3. Both instances: **Cloud** tab shows only **Connection**, explaining itself
-   and linking to Settings → **Settings → Connections** → *Use my Cloud server*
-   **on** → the confirm modal lists the metadata + transport risks → confirm →
-   back to **Cloud**, now with Files and Invites pills → set the server URL on
-   Connection → **Log in**.
+2. `./run2.sh` (Pro by default — first run recompiles Rust).
+3. Both instances: **Settings → Connections** → *Use my Cloud server* **on** →
+   the confirm modal lists the metadata + transport risks → confirm. Then
+   **Cloud → Connection** → set the server URL → **Log in**.
 4. Badge reads **Local** (loopback). On a clearnet URL it reads Clearnet with
    the warn banner; flip **Route through Tor** → badge **Tor**, and the faros
    access log shows a Tor-exit IP, not the LAN one.
 5. Files: upload / download / move / delete from the Files sub-tab.
-6. Alice → Invites → pick Bob → pick a Tor room → invite sent; Bob → Invites →
-   refresh → accept → lands in the room. Contacts' invite modal now points at
-   the Cloud tab for Tor rooms.
-7. Switch **off** on Alice mid-upload (Settings → Connections) → the transfer
-   aborts, the Cloud tab's Files and Invites pills disappear, the server access
-   log goes silent (the 150 s publisher included), and the Beacon card,
-   Contacts search and Local-tab upload button all show/hide their cloud-off
-   state.
-8. Turn **Route over Tor** on (Settings → Connections) → the DHT card and the
-   *Publish my address to my server* card disappear (D8); turn it off → both
-   return.
+6. **Invites**: alice types bob's username → the chip resolves and shows his
+   device count; a typo shows *not found* and cannot be sent. Name a room →
+   **Create & invite** → bob's Invites tab → refresh → Accept → both are in the
+   room. Repeat with an existing room via the second submit. Try a mixed list
+   (one good, one unknown) and confirm the per-person results plus
+   *Retry the ones that failed* keeping only the failures.
+7. Switch **off** on alice mid-upload (Settings → Connections) → the transfer
+   aborts, the Cloud tab's Files and Invites pills disappear, and the server
+   access log goes silent — with the publisher gone it now stays silent
+   indefinitely, not just between refreshes.
+8. Turn **Route over Tor** on → the DHT card disappears from Settings, and the
+   Map tab offers neither *Share this spot* nor the Beacon card (D9). Turn it
+   off → both return.
+9. faros `/aster/devices/` still lists both devices, with the address column
+   empty — registration publishes a NodeId and nothing else.
