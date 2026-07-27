@@ -96,6 +96,52 @@ through exactly what the server will see first.
   (rdv.md's flagged weakness; inviting a verified saved contact is not exposed
   to it). faros has no user-listing endpoint an ordinary account can call, so a
   browsable picker is impossible without server work — hence typed usernames.
+- **D11 — Invites say why they are unavailable, before the press (2026-07-27).**
+  Four independent reasons the Invites panel can be unusable, and the UI now
+  states each one up front instead of failing after a click:
+  - **Machine-classifiable transport failures.** `cloud::connect()` tags every
+    transport error — Tor bootstrap/connect, TCP connect, TLS handshake, and the
+    deadline — with an `unreachable:` prefix, joining the existing `cloud_off:`
+    and `unauthorized:` conventions. It is applied at the single exit, so any
+    transport added inside `connect()` later inherits it; the `CLOUD_OFF` early
+    return sits above that exit and keeps its own prefix (a doubled
+    `unreachable: cloud_off: …` would silently break `knobRefused`). Note the
+    inner/outer shape: `?` unwraps only the timeout, so the tag goes on a `match`
+    covering both arms.
+  - **A store-side funnel.** `cloud.call()` wraps a networked command: a resolved
+    invoke sets `reachable = true`, a rejection goes through `classify()`, which
+    owns all three prefixes. `cloud_status` deliberately stays on the raw invoke
+    — it is a local kv read and would otherwise "prove" the server is up on every
+    knob toggle. `unauthorized` does **not** set `reachable = true` either,
+    because Rust emits `unauthorized: not logged in` as a network-free preflight.
+  - **No new traffic.** Reachability is learned only from calls the user already
+    causes — the panel's mount already ran `rdv_register` + `rdv_invite_fetch`
+    and threw both answers away. **D6 stands: no probe, no poll, no health
+    endpoint.** (`GET /api/health/` remains deliberately unwired.)
+  - **Airplane mode is a mirror, not a subscription.** Rust emits no event when
+    the switch flips, so `cloud.syncOffline()` re-reads it at press-shaped
+    moments (reinit, tab mount, retry). Entering the tab remounts the panel
+    (`v-if`/`v-else-if` sub-panels), which bounds staleness in practice.
+  - **Precedence: knob → airplane → login → unreachable.** Airplane outranks
+    logged-out on purpose — signing in is itself a cloud request, so "sign in
+    above" would point at a control that cannot work. The reason shown must be
+    the one whose removal actually unblocks the user.
+  - **Disable, with the escape hatch always live.** Per D8, a *temporarily* inert
+    control is disabled with the reason rather than hidden. Unreachable disables
+    the submits too — leaving **Create & invite** live is exactly what produced
+    an orphan room (the room is minted before the broadcast, which then
+    "succeeds" with all-error rows). Because a cold arti bootstrap can exceed the
+    connect timeout on a healthy server, the Retry button is never gated by
+    `blocked`, clears the verdict optimistically, and the wording branches for
+    Tor. Do not raise the connect timeout to compensate — it is the user's shared
+    Settings value.
+  - **The inbox stopped lying**: a failed fetch says so instead of rendering
+    "No invites waiting", which read as "nobody invited you".
+  - **Considered and declined**: an `offline:` prefix on `OFFLINE_BLOCKED`. It
+    buys nothing here (airplane is knowable locally, ahead of the press) and has
+    ~20 call sites across non-cloud surfaces that render the raw string, plus a
+    duplicate const in `realtime.rs` versus `file_xfer.rs`. De-duplicate that
+    first if it is ever revisited.
 
 ## As-built map
 
@@ -116,7 +162,7 @@ through exactly what the server will see first.
 | Login modal (register mode stripped) | `apps/enigma/src/components/cloud/CloudLoginModal.vue` |
 | Store (`enabled` / `forceTor` / `transport`, setter side effects) | `apps/enigma/src/stores/cloud.ts` |
 | Route + nav | `apps/enigma/src/router/index.ts`, `apps/enigma/src/App.vue` |
-| Tests | `tests/unit/cloudStore.test.ts`, `tests/component/{cloudEnableCard,cloudView}.test.ts`, updated `beaconStore`/`beaconCard` tests, `tests/e2e/smoke.spec.ts` |
+| Tests | `tests/unit/{cloudStore,cloudClassify}.test.ts`, `tests/component/{cloudEnableCard,cloudView,cloudInvites}.test.ts`, updated `beaconStore`/`beaconCard` tests, `tests/e2e/smoke.spec.ts` |
 
 ## Communication audit — every byte Enigma can send to the server
 
@@ -124,7 +170,8 @@ Gate algebra: **edition flag ∧ master switch ∧ airplane-mode-off ∧ session
 per-feature gate**. With the master switch off, none of the rows below can
 fire — enforced twice (per command AND inside `connect()`). Since 2026-07-27
 **every row is user-initiated**: the 150 s relay publisher was the only timer
-and it is gone (D6).
+and it is gone (D6). Reachability detection (D11) added no row — it reads the
+answer to requests already listed below.
 
 ### Session & files (`cloud.rs`)
 
