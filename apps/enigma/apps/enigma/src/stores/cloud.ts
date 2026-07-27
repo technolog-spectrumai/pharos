@@ -281,6 +281,9 @@ export const useCloudStore = defineStore("cloud", () => {
       }
       // Authoritative: Rust reads the same kv plus the profile's Tor-exclusive
       // flag, and predicts the transport for the badge. Local-only, knob-exempt.
+      // Stays on the raw invoke ON PURPOSE — routing it through `call` would
+      // "prove" the server is reachable on every knob toggle without a single
+      // byte having left the machine.
       const st = await invoke<{
         logged_in: boolean;
         username: string | null;
@@ -419,7 +422,7 @@ export const useCloudStore = defineStore("cloud", () => {
     if (!cloudAvailable || !enabled.value) return;
     await ensureListeners();
     try {
-      const res = await invoke<{ transfer_id: string; name: string; size: number }>(
+      const res = await call<{ transfer_id: string; name: string; size: number }>(
         "cloud_upload",
         {
           serverUrl: serverUrl.value,
@@ -446,7 +449,7 @@ export const useCloudStore = defineStore("cloud", () => {
     if (!cloudAvailable || !enabled.value) return;
     await ensureListeners();
     try {
-      const res = await invoke<{ transfer_id: string }>("cloud_download", {
+      const res = await call<{ transfer_id: string }>("cloud_download", {
         serverUrl: serverUrl.value,
         key,
         dest,
@@ -470,7 +473,7 @@ export const useCloudStore = defineStore("cloud", () => {
   async function remove(key: string): Promise<void> {
     if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
-      await invoke("cloud_delete", { serverUrl: serverUrl.value, key });
+      await call("cloud_delete", { serverUrl: serverUrl.value, key });
       files.value = files.value.filter((f) => f.key !== key);
     });
   }
@@ -481,7 +484,7 @@ export const useCloudStore = defineStore("cloud", () => {
   ): Promise<void> {
     if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
-      const dir = await invoke<{
+      const dir = await call<{
         id: number;
         name: string;
         parent_id: number | null;
@@ -507,7 +510,7 @@ export const useCloudStore = defineStore("cloud", () => {
   async function move(key: string, directoryId: number | null): Promise<void> {
     if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
-      const f = await invoke<CloudFile>("cloud_move", {
+      const f = await call<CloudFile>("cloud_move", {
         serverUrl: serverUrl.value,
         key,
         directoryId,
@@ -519,7 +522,7 @@ export const useCloudStore = defineStore("cloud", () => {
   async function rmdir(id: number): Promise<void> {
     if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
-      await invoke("cloud_rmdir", { serverUrl: serverUrl.value, directoryId: id });
+      await call("cloud_rmdir", { serverUrl: serverUrl.value, directoryId: id });
       for (const b of buckets.value) {
         const i = b.directories.findIndex((d) => d.id === id);
         if (i >= 0) b.directories.splice(i, 1);
