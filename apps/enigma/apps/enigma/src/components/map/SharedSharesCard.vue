@@ -26,7 +26,7 @@ const outsideOpen = ref(false);
 const total = computed(() => props.onMap.length + props.outside.length);
 
 function icon(item: SharedItem): string {
-  return item.kind === "route" ? "route" : item.kind === "loc" ? "location-crosshairs" : "location-dot";
+  return item.kind === "loc" ? "location-crosshairs" : "location-dot";
 }
 
 function who(item: SharedItem): string {
@@ -35,7 +35,6 @@ function who(item: SharedItem): string {
 
 function coords(item: SharedItem): string {
   const s = item.share;
-  if (s.type === "map_route") return t("map.pointCount", { n: s.points.length });
   return t("map.locCoords", { lat: s.lat.toFixed(4), lng: s.lng.toFixed(4) });
 }
 </script>

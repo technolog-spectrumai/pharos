@@ -14,11 +14,9 @@
 import {
   coveredByAny,
   isLocationLive,
-  routeCovered,
   type MapLocationShare,
   type MapPinShare,
   type MapRegionManifest,
-  type MapRouteShare,
   type MapShare,
 } from "rakotis";
 
@@ -27,7 +25,7 @@ import {
  *  derivation below is unaffected. */
 export const SHARED_LAYER_MAX_ITEMS = 200;
 
-export type SharedKind = "pin" | "route" | "loc";
+export type SharedKind = "pin" | "loc";
 
 /** The structural subset of `Message` this module needs — so tests build plain
  *  objects and never construct a chat channel. */
@@ -49,7 +47,7 @@ export interface SharedItem {
   at: number;
   /** THE SAME OBJECT as `message.map` — reference identity is what lets the
    *  "Open in Maps" handoff find an item already on the layer. */
-  share: MapPinShare | MapRouteShare | MapLocationShare;
+  share: MapPinShare | MapLocationShare;
   /** Some imported region covers it, so it can actually be drawn. */
   covered: boolean;
 }
@@ -64,13 +62,12 @@ export interface DeriveOpts {
  *  union for everything below. */
 function isOverlayShare(
   share: MapShare,
-): share is MapPinShare | MapRouteShare | MapLocationShare {
+): share is MapPinShare | MapLocationShare {
   return share.type !== "map_region";
 }
 
-function kindOf(share: MapPinShare | MapRouteShare | MapLocationShare): SharedKind {
+function kindOf(share: MapPinShare | MapLocationShare): SharedKind {
   if (share.type === "map_pin") return "pin";
-  if (share.type === "map_route") return "route";
   return "loc";
 }
 
@@ -90,10 +87,7 @@ export function deriveSharedLayer(
 
     if (share.type === "map_loc" && !isLocationLive(share, opts.now, opts.ttlMs)) continue;
 
-    const covered =
-      share.type === "map_route"
-        ? routeCovered(opts.regions, share.points)
-        : coveredByAny(opts.regions, share.lat, share.lng);
+    const covered = coveredByAny(opts.regions, share.lat, share.lng);
 
     seen.add(msg.id);
     out.push({

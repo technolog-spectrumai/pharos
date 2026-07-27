@@ -70,15 +70,6 @@ describe("MapShareCard", () => {
     expect(routerPush).toHaveBeenCalledWith("/map");
   });
 
-  it("renders a route card with its point count", () => {
-    const message = makeMessage({
-      type: "map_route", v: 1, name: "Loop", points: [[52.4, 16.9], [52.5, 17.0]],
-    });
-    const wrapper = mount(MapShareCard, { props: { message }, global: GLOBAL() });
-    expect(wrapper.text()).toContain("Loop");
-    expect(wrapper.text()).toContain("2 points");
-  });
-
   it("renders a region offer with size/zoom and no download button on own shares", () => {
     const manifest = {
       id: "r1", name: "Poznań", bbox: [16.8, 52.3, 17.1, 52.5] as [number, number, number, number],

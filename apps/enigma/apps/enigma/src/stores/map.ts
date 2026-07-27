@@ -1,9 +1,9 @@
-// Maps — imported offline PMTiles regions, private pins/routes, and share
+// Maps — imported offline PMTiles regions, private pins, and share
 // handoff, bridged through the `map_*` Tauri commands (src-tauri/src/maps.rs).
 // The app never downloads tiles (map.md Part II): region packages come from
 // the standalone tools/map_packager and enter via import / P2P share only.
 // Desktop-only for anything touching tiles/blobs: every invoke is gated by
-// isTauri(); pins/routes ride the kv layer (rakotis mapData) and therefore
+// isTauri(); pins ride the kv layer (rakotis mapData) and therefore
 // degrade to localStorage in the browser like every other feature.
 //
 // Wire conventions (mirroring cloud.ts):
@@ -25,15 +25,11 @@ import {
   getMapActiveRegion,
   setMapActiveRegion,
   listPins,
-  listRoutes,
   upsertPin,
-  upsertRoute,
   removePin,
-  removeRoute,
   type MapPin,
   type MapRegionManifest,
   type MapRegionShare,
-  type MapRoute,
   type MapShare,
 } from "rakotis";
 
@@ -58,7 +54,6 @@ export const useMapStore = defineStore("map", () => {
 
   const regions = ref<MapRegionManifest[]>([]);
   const pins = ref<MapPin[]>([]);
-  const routes = ref<MapRoute[]>([]);
   const usedBytes = ref(0);
   const limitBytes = ref(0);
   /** Incoming P2P region transfers by offerId (fed by file://* events). */
@@ -128,9 +123,8 @@ export const useMapStore = defineStore("map", () => {
     }
     try {
       pins.value = await listPins();
-      routes.value = await listRoutes();
     } catch (e) {
-      console.error("[map] pins/routes load failed:", e);
+      console.error("[map] pins load failed:", e);
     }
     if (isTauri()) {
       try {
@@ -156,7 +150,7 @@ export const useMapStore = defineStore("map", () => {
     loaded.value = true;
   }
 
-  // ── pins / routes (private, sealed at rest — never shared implicitly) ───────
+  // ── pins (private, sealed at rest — never shared implicitly) ───────
   async function addPin(
     name: string, lat: number, lng: number, note?: string, color?: string,
   ): Promise<MapPin> {
@@ -175,19 +169,6 @@ export const useMapStore = defineStore("map", () => {
 
   async function deletePin(id: string): Promise<void> {
     pins.value = await removePin(id);
-  }
-
-  async function addRoute(
-    name: string, points: [number, number][], color?: string,
-  ): Promise<MapRoute> {
-    const route: MapRoute = { id: nanoid(), name, points, createdAt: Date.now() };
-    if (color && isHexColor(color)) route.color = color;
-    routes.value = await upsertRoute(route);
-    return route;
-  }
-
-  async function deleteRoute(id: string): Promise<void> {
-    routes.value = await removeRoute(id);
   }
 
   // ── regions ─────────────────────────────────────────────────────────────────
@@ -289,11 +270,11 @@ export const useMapStore = defineStore("map", () => {
 
   return {
     mapsEnabled,
-    regions, pins, routes, usedBytes, limitBytes, receives,
+    regions, pins, usedBytes, limitBytes, receives,
     pendingFocus, lastError, activeRegionId, activeRegion, loaded,
     sharedLayerVisible, toggleSharedLayer,
     reload, setActiveRegion,
-    addPin, savePin, deletePin, addRoute, deleteRoute,
+    addPin, savePin, deletePin,
     removeRegion, importRegion, exportRegion,
     offerRegion, acceptRegionShare,
     focusShare, consumeFocus,

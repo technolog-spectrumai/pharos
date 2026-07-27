@@ -27,6 +27,16 @@ Parked here, restorable later:
   entries and npm dependencies (`cytoscape`, `trix`) were removed from the app —
   the checklists say precisely what to put back.
 
+- **Map routes** (2026-07-27) — `frontend/map-routes/`. The Map tab shipped with
+  hand-drawn **routes** (click waypoints → Finish → name it) alongside pins:
+  private polylines in the sealed `map:routes` kv, a Routes sidebar card, and
+  room sharing as `map_route` chat cards. The tab was cut back to **pins only**.
+  Parked as snippets rather than whole files — route code was interleaved with
+  pin/location/beacon code, so almost nothing could move wholesale. **There was
+  never any route code in Rust.** Beacon's zone/route publishing is a separate
+  feature and kept the shared draft-polyline engine, so restoring is purely
+  additive — see `frontend/map-routes/NOTES.md` for the two fix-ups to reverse.
+
 - **Sketch realtime collaboration** (2026-07) — `frontend/sketch-collab/`. The Sketch
   board shipped as a shared per-room whiteboard (LWW-element-set CRDT + hybrid logical
   clock, live stroke streaming, snapshots for late joiners, all over the MLS `onSync`/

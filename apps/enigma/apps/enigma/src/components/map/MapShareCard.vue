@@ -73,7 +73,7 @@ async function download() {
 <template>
   <div v-if="share" class="mt-1 space-y-2">
     <!-- Pin / route -->
-    <template v-if="share.type === 'map_pin' || share.type === 'map_route'">
+    <template v-if="share.type === 'map_pin'">
       <p class="flex items-center gap-2 text-sm font-semibold">
         <font-awesome-icon :icon="share.type === 'map_pin' ? 'location-dot' : 'route'" />
         <span
@@ -82,9 +82,6 @@ async function download() {
           :style="{ backgroundColor: share.color }"
         />
         {{ share.name }}
-      </p>
-      <p v-if="share.type === 'map_route'" class="text-xs opacity-60">
-        {{ $t('map.pointCount', { n: share.points.length }) }}
       </p>
       <p v-if="share.type === 'map_pin' && share.note" class="text-xs opacity-70">{{ share.note }}</p>
       <button

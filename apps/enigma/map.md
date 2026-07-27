@@ -46,7 +46,7 @@ file is the thing to copy, not reinvent.
 **In:** Maps tab (MapLibre GL), remote `.pmtiles` over HTTP range requests,
 downloaded/imported local PMTiles regions (progress, cancel, errors, size,
 storage limit), P2P region sharing over the existing iroh file-transfer path
-(BLAKE3-verified, content-addressed, deduped), pin + route sharing as compact
+(BLAKE3-verified, content-addressed, deduped), pin sharing as compact
 versioned MLS payloads rendered as chat cards, encrypted-at-rest persistence,
 i18n (en+pl), unit tests, one e2e happy path, technology.md + build.md updates.
 
@@ -96,7 +96,7 @@ deletes the manifest and garbage-collects the blob when unreferenced.
 **Blobs stay plaintext on disk** — deliberate: they contain only public map
 data, filenames are hashes (no coordinates anywhere outside the vault), and
 random-access range reads are incompatible with gervasius whole-blob sealing.
-The *sensitive* facts (which bbox you have, your pins/routes) live only sealed
+The *sensitive* facts (which bbox you have, your pins) live only sealed
 in protasius. Documented as an accepted posture note in technology.md §8/§13.
 
 **D5 — Region extraction in Rust with the `pmtiles` crate.**
@@ -114,7 +114,7 @@ before any dependent code is written.
 
 **D6 — Pin/route shares are chat-timeline cards, not a synced collection.**
 One-shot shares, exactly like `image_message`/`voice_message` today: new inner
-MLS types `map_pin` / `map_route` / `map_region` handled in
+MLS types `map_pin` / `map_loc` / `map_region` handled in
 `useChatChannel.handleMessage` beside image/voice, becoming `Message` entries
 rendered by `ChatBubble.vue` as cards. No CRDT/rev-sync of a shared pin set
 (that's the meetings/kanban pattern — heavier and not required). Cards do
@@ -140,8 +140,18 @@ note) — never hidden, never fail-on-click.
 **D8 — Naming (technology.md §14).** View `EnigmaMapView`, folder
 `apps/enigma/src/components/map/`, route `/map`, nav key `nav.map`, i18n
 namespace `map`, command family `map_*`, events `map://progress|done|error`
-(camelCase payload keys), kv namespaces `map:regions` / `map:pins` /
-`map:routes`. Icon: `faMap` (already registered in main.ts).
+(camelCase payload keys), kv namespaces `map:regions` / `map:pins`. Icon: `faMap` (already registered in main.ts).
+
+**D6b — Hand-drawn routes were removed (2026-07-27).** The Map tab is pins
+only. The whole route half — the `map:routes` kv namespace, `MapRoute` /
+`MapRouteShare` and their validators, the draw-a-polyline UI, the Routes sidebar
+card and the `map_route` chat card — is parked under
+`limbo/frontend/map-routes/` with a restore checklist. Nothing in Rust changed
+(there was never any route code there), and **beacon** zone/route publishing is
+untouched: it drives the same draft-polyline engine, which stayed. Removing the
+`map_route` receive arm is wire-safe by construction — an incoming route from an
+older peer validates to `null` and is dropped, the behaviour the forward-
+compatibility test already pins.
 
 **D9 — Offline style assets are bundled, not fetched.** MapLibre needs a style
 + glyphs (+ sprites) — normally CDN-loaded, which would be a silent clearnet
@@ -182,7 +192,6 @@ check (Rust re-verifies independently; it never trusts the frontend).
 |---|---|---|
 | `map:regions` / `default` / `""` | `MapRegionManifest[]` JSON | pattern: `p2p:rooms` single-key array; Rust reads via `vault::kv_get_raw` for tile resolution, TS via `localDb.kvGet` |
 | `map:pins` / `default` / `""` | `MapPin[]` JSON | |
-| `map:routes` / `default` / `""` | `MapRoute[]` JSON | |
 | `p2p:settings` / `default` / `map_remote_tiles` | `"true"/"false"` | default off |
 | `p2p:settings` / `default` / `map_source_url` | string | seeded from build config default |
 | `p2p:settings` / `default` / `map_storage_limit_mb` | number | clamp-on-read (pattern: `setting_secs`) |
@@ -190,8 +199,6 @@ check (Rust re-verifies independently; it never trusts the frontend).
 ```ts
 export interface MapPin  { id: string; name: string; lat: number; lng: number;
                            color?: string; note?: string; createdAt: number }
-export interface MapRoute{ id: string; name: string; color?: string;
-                           points: [number, number][]; createdAt: number }
 ```
 
 Coordinates exist **only** here (sealed), in MLS ciphertext (shares), and in
@@ -222,17 +229,15 @@ touched**. All three handled directly in `handleMessage` (like
 ```jsonc
 { "type": "map_pin",    "v": 1, "name": "…", "lat": 52.4, "lng": 16.9,
   "color": "#…?", "note": "…?" }
-{ "type": "map_route",  "v": 1, "name": "…", "points": [[lat,lng], …] }
 { "type": "map_region", "v": 1, "manifest": { …MapRegionManifest… },
   "offerId": "uuid", "addr": "base32…" }
 ```
 
 Validation caps (both send and receive, in `mapModel.ts`): name ≤ 120,
-note ≤ 500, `lat ∈ [-90,90]`, `lng ∈ [-180,180]`, route points 2..=2000,
 unknown `v` → drop. Worst-case route ≈ 60 KB ≪ frame cap. Unknown/invalid
 frames are dropped without a bubble (defensive-narrowing house style).
 
-Receive → `Message { type: "map_pin" | "map_route" | "map_region",
+Receive → `Message { type: "map_pin" | "map_loc" | "map_region",
 map: <validated payload> }` (union + optional field extension in
 `useChatChannel.ts`). The `map_` prefix is also added to the sync-family gate
 at `useChatChannel.ts:838` for forward-compat, though cards don't need onSync.
@@ -295,13 +300,13 @@ settings:
 ## 6. rakotis additions (reusable, pure — requirement 9)
 
 - **`src/mapModel.ts`** (new, no Vue/Tauri imports — pattern `meetingModel.ts`):
-  `MapRegionManifest` / `MapPin` / `MapRoute` types, `validateManifest`,
-  `validatePinShare` / `validateRouteShare` / `validateRegionShare`, payload
+  `MapRegionManifest` / `MapPin` types, `validateManifest`,
+  `validatePinShare` / `validateLocationShare` / `validateRegionShare`, payload
   builders (`buildPinShare(pin)` etc.), tile math
   (`bboxTileCount(bbox,minZ,maxZ)`, `lonLatToTile`), and caps as exported
   consts. Barrel-exported from `src/index.ts`.
 - **`src/useChatChannel.ts`**: extend `Message` union with
-  `map_pin | map_route | map_region` + optional `map` field; three
+  `map_pin | map_loc | map_region` + optional `map` field; three
   `handleMessage` branches (validate → push Message); add `map_` to the
   sync-prefix gate. *(Only rakotis file with behavioral change; crypto bridge
   untouched.)*
@@ -310,7 +315,7 @@ settings:
   build config) over `p2p:settings` kv — exact `meeting_reminder_mins`
   pattern.
 - **`src/services/mapData.ts`** (new): kv-backed CRUD for `map:pins` /
-  `map:routes` / `map:regions` read-side (single-key JSON array pattern) —
+  `map:regions` read-side (single-key JSON array pattern) —
   Tauri-agnostic via `localDb`, hence testable and reusable.
 - **Tests**: `tests/unit/mapModel.test.ts`, `tests/unit/mapData.test.ts`.
 
@@ -325,11 +330,11 @@ unused — flag for separate cleanup).
 | File | Change |
 |---|---|
 | `src/views/EnigmaMapView.vue` (new) | shell (pattern `EnigmaFilesView`): sub-tabs `map` / `regions` via local `ref`; browser-mode honest-degraded state; WebGL feature-detect with honest fallback message |
-| `src/components/map/MapPanel.vue` (new) | MapLibre init, `addProtocol("enigma-map")` → `invoke("map_get_tile")` (ArrayBuffer), style from protomaps-themes-base + local glyphs/sprites; pin add (long-press/click), route draw (click-to-add waypoints, double-click to finish), select → popup with Rename / Delete / **Share to room** (enabled only when a room is joined and MLS is `ready`); pending-share focus overlay + "Save" |
+| `src/components/map/MapPanel.vue` (new) | MapLibre init, `addProtocol("enigma-map")` → `invoke("map_get_tile")` (ArrayBuffer), style from protomaps-themes-base + local glyphs/sprites; pin add (long-press/click), pin placement, select → popup with Rename / Delete / **Share to room** (enabled only when a room is joined and MLS is `ready`); pending-share focus overlay + "Save" |
 | `src/components/map/RegionsPanel.vue` (new) | region list (name, size, zoom span), **Download visible region** (zoom-range picker + estimate + limit check before confirm), per-task progress bar + Cancel, Remove, Share to room, Import…/Export… (dialog plugin), storage usage bar |
 | `src/components/map/MapShareCard.vue` (new) | chat card for the three kinds; pin/route: summary + **Open in Maps** (router push + handoff — never auto-opens); region: manifest summary + Download (drives `file_download` → `map_region_import`, progress via `file://progress` filtered by offerId) / Dismiss |
 | `src/components/ChatBubble.vue` | three `v-else-if` branches → `MapShareCard` |
-| `src/stores/map.ts` (new, Pinia — pattern `cloud.ts`) | regions/pins/routes state over rakotis `mapData` + `map_*` invokes; download-task map fed by `map://*` events; `pendingFocus` handoff from chat cards; `reload()` on profile switch (wire beside existing reloads in `stores/chat.ts`) |
+| `src/stores/map.ts` (new, Pinia — pattern `cloud.ts`) | regions/pins state over rakotis `mapData` + `map_*` invokes; download-task map fed by `map://*` events; `pendingFocus` handoff from chat cards; `reload()` on profile switch (wire beside existing reloads in `stores/chat.ts`) |
 | `src/router/index.ts` | `/map` route, `beforeEnter: () => getBuildConfig().maps_enabled \|\| "/chat"` |
 | `src/App.vue` | desktop + mobile `RouterLink` (`v-if="mapsEnabled"`, icon `map`) |
 | `src/i18n/en.ts` + `pl.ts` | `nav.map`, full `map:` namespace, `config.map*` strings — identical key trees (enforced by `i18n.test.ts`) |
@@ -417,7 +422,7 @@ press (requirement 8).
   in-app message + build.md troubleshooting entry. Not a blocker for any
   non-map feature.
 - **Tor mode blocks region P2P sharing** (existing `TOR_BLOCKED` in file_xfer;
-  a direct QUIC dial would leak IP). Pins/routes/tiles still work over Tor.
+  a direct QUIC dial would leak IP). Pins/tiles still work over Tor.
   Controls disabled with an explicit reason (D7 resolved); accepted.
 - **Region blobs are plaintext on disk** (D4 rationale) — public map data,
   hash-named, association sealed in the vault. Accepted + documented.
@@ -570,8 +575,8 @@ being a one-shot preview behind a chat button.
   point the user chose*, which may or may not be where they are.
 - **D15 — a shared location EXPIRES on the map after `MAP_LOC_TTL_MS` (6 h).**
   "Where I am" goes stale; the marker disappears, the chat card stays as a
-  permanent record and says it is no longer shown. Pins and routes never expire.
-- **D16 — received shares render in a SEPARATE layer** (violet pins/routes,
+  permanent record and says it is no longer shown. Pins never expire.
+- **D16 — received shares render in a SEPARATE layer** (violet pins,
   orange locations, sender initial in the badge), never mixed into the user's
   own pins. Per-item **Save to my pins** adopts one as ordinary local map data;
   a layer toggle hides the lot.
@@ -609,7 +614,7 @@ a shadow store would duplicate shared coordinates outside the sealed log's
 lifecycle and re-implement room scoping, expiry and replication. Capped at
 `SHARED_LAYER_MAX_ITEMS` (200, newest win).
 
-**Coverage** (`pointInBbox` / `regionCovers` / `coveredByAny` / `routeCovered`,
+**Coverage** (`pointInBbox` / `regionCovers` / `coveredByAny`,
 pure, in mapModel): bbox only — `map_get_tile` checks the zoom band per tile, so
 gating on zoom would make a pin blink out on zoom-in. Deliberately **per
 region, never `map_source_info`'s union bbox**, which would report the empty gap
@@ -657,7 +662,7 @@ already holds; `tile_in_bbox` stays private.
   share from far enough back leaves the layer on the next restart. The mitigation
   is Save to my pins — deliberately not a shadow store.
 - **Replication asymmetry.** Cards replicate to linked devices via `chat:log`
-  (already true for pins/routes), but each device has its own imported regions —
+  (already true for pins), but each device has its own imported regions —
   so the same share can be drawn on the laptop and merely listed on the phone.
   Correct, and the sidebar explains it.
 - **`map:*` stays device-local** (absent from `DEVLINK_SYNC_KV`, pinned on both

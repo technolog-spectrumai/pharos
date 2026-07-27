@@ -491,7 +491,7 @@ location). The plaintext exceptions are: the vault header `vault.json` (salt +
 wrapped DEK — useless without the passphrase); map-region blobs
 (`profiles/<p>/maps/<blake3>.pmtiles` — public map data, immutable and
 content-addressed, so filenames carry no coordinates; which area they cover, plus
-all pins/routes, lives only in sealed kv — accepted because whole-blob sealing
+all pins, live only in sealed kv — accepted because whole-blob sealing
 is incompatible with the random-access reads the map needs); and — only while the app is unlocked
 *and* "keep onion stable" is on — arti's materialized onion keystore, which is sealed
 back into the vault and wiped on lock/exit (a crash can leave it until the next
@@ -873,8 +873,8 @@ Settings → "Clear all data".
   modes and themes are static imports and its six syntax workers are registered with
   `ace.config.setModuleUrl` against bundler-emitted asset URLs (`aceSetup.ts`), so it
   never falls back to fetching them from a CDN.
-- **Maps data:** region manifests (`map:regions`), pins (`map:pins`) and routes
-  (`map:routes`) are sealed kv like everything else — coordinates never persist
+- **Maps data:** region manifests (`map:regions`) and pins (`map:pins`) are
+  sealed kv like everything else — coordinates never persist
   outside the vault. The region *blobs* are the documented plaintext exception
   (see §8 at-rest posture).
 - **Device file sync (fsync.md):** the shared allowed-files list (ns `filesync`,
@@ -889,7 +889,7 @@ Settings → "Clear all data".
 - **Map shares add NO at-rest surface.** What a room shared lives only in the
   already-sealed `chat:log` (as the map card it arrived as); the shared map
   layer is derived from that timeline at render time, never stored again. The
-  `map:*` namespaces grow only when the user explicitly saves a pin/route, and
+  `map:*` namespaces grow only when the user explicitly saves a pin, and
   a shared LOCATION is never written there at all unless adopted.
 - Reusable primitives live in `packages/rakotis/src/components/primitives/` with the
   **`Oya`** prefix, PascalCase (`OyaButton`, `OyaModal`, `OyaTextField` … zero exceptions).

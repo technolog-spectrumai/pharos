@@ -28,27 +28,23 @@ function msg(id: string, share: MapShare, over: Partial<TimelineLike> = {}): Tim
 
 const PIN: MapShare = { type: "map_pin", v: 1, name: "Spot", lat: 52.4, lng: 16.9 };
 const FAR_PIN: MapShare = { type: "map_pin", v: 1, name: "Far", lat: 0, lng: 0 };
-const ROUTE: MapShare = {
-  type: "map_route", v: 1, name: "Walk", points: [[52.4, 16.9], [52.45, 16.95]],
-};
 
 function derive(msgs: TimelineLike[], regions = [POZNAN]) {
   return deriveSharedLayer(msgs, { now: NOW, regions });
 }
 
 describe("what lands on the layer", () => {
-  it("keeps pins, routes and live locations; ignores everything else", () => {
+  it("keeps pins and live locations; ignores everything else", () => {
     const region: MapShare = {
       type: "map_region", v: 1, manifest: POZNAN, offerId: "o1", addr: "b32",
     };
     const items = derive([
       msg("a", PIN),
-      msg("b", ROUTE),
       msg("c", buildLocationShare(52.4, 16.9, { at: NOW })),
       msg("d", region), // a download card, not an overlay
       { id: "e", user: "Bob", self: false }, // a plain text message
     ]);
-    expect(items.map((i) => [i.key, i.kind])).toEqual([["a", "pin"], ["b", "route"], ["c", "loc"]]);
+    expect(items.map((i) => [i.key, i.kind])).toEqual([["a", "pin"], ["c", "loc"]]);
   });
 
   it("carries sender, self and the message id as the diff key", () => {
@@ -82,8 +78,8 @@ describe("expiry", () => {
     expect(custom).toHaveLength(0);
   });
 
-  it("never expires pins or routes, however old the card", () => {
-    const items = deriveSharedLayer([msg("a", PIN), msg("b", ROUTE)], {
+  it("never expires pins, however old the card", () => {
+    const items = deriveSharedLayer([msg("a", PIN), msg("b", PIN)], {
       now: NOW + 10 * 365 * 24 * 60 * 60 * 1000,
       regions: [POZNAN],
     });
@@ -97,15 +93,9 @@ describe("coverage", () => {
     expect(items.map((i) => [i.key, i.covered])).toEqual([["in", true], ["out", false]]);
   });
 
-  it("a route counts as covered when any waypoint is", () => {
-    const crossing: MapShare = {
-      type: "map_route", v: 1, name: "Long", points: [[0, 0], [52.4, 16.9]],
-    };
-    expect(derive([msg("r", crossing)])[0].covered).toBe(true);
-  });
 
   it("nothing is covered with no regions imported — items still listed", () => {
-    const items = derive([msg("a", PIN), msg("b", ROUTE)], []);
+    const items = derive([msg("a", PIN), msg("b", PIN)], []);
     expect(items).toHaveLength(2);
     expect(items.every((i) => !i.covered)).toBe(true);
   });

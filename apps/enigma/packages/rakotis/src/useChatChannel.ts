@@ -19,8 +19,8 @@ import {
   type MuteMap,
 } from "./services/moderation";
 import {
-  validateLocationShare, validatePinShare, validateRouteShare, validateRegionShare,
-  type MapLocationShare, type MapPinShare, type MapRouteShare, type MapRegionShare,
+  validateLocationShare, validatePinShare, validateRegionShare,
+  type MapLocationShare, type MapPinShare, type MapRegionShare,
 } from "./mapModel";
 import { sameUser, userPartOf, type PersistedMessage } from "./deviceSyncModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
@@ -28,7 +28,7 @@ import { getChatHistoryCapMsgs } from "./services/appStorage";
 import { nanoid } from "nanoid";
 
 /** A validated map share riding a chat-timeline card (mapModel wire shapes). */
-export type MapShare = MapPinShare | MapRouteShare | MapLocationShare | MapRegionShare;
+export type MapShare = MapPinShare | MapLocationShare | MapRegionShare;
 
 /** A locally-known P2P room: topic id, display name, join ticket, and the peer
  *  NodeIds seen in it (the address book for ticketless reconnects). */
@@ -97,7 +97,6 @@ export interface Message {
     | "image_message"
     | "voice_message"
     | "map_pin"
-    | "map_route"
     | "map_loc"
     | "map_region"
     | "system_error"
@@ -108,7 +107,7 @@ export interface Message {
   content: string;
   image_data?: string;
   audio_data?: string;
-  /** Validated map share payload (map_pin / map_route / map_region cards). */
+  /** Validated map share payload (map_pin / map_loc / map_region cards). */
   map?: MapShare;
   participant_type: "human" | "system";
   self: boolean;
@@ -365,7 +364,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   // cancel signaling — consumed by `useVoxCall`) and `dlink_*` (linked-device
   // registry/kv/history sync — consumed by `useDeviceSync` on its HEADLESS
   // devlink channel only). Each handler ignores the prefixes it does not own.
-  // `map_*` (map_pin / map_route / map_loc / map_region) is deliberately NOT
+  // `map_*` (map_pin / map_loc / map_region) is deliberately NOT
   // routed here: map shares are human content rendered as timeline cards
   // (handled inline after the mute check), not control traffic. Adding the
   // prefix "for consistency" would make this gate `return` before the mute
@@ -1033,8 +1032,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             // card still reloads intact.
             const share =
               inner.type === "map_pin" ? validatePinShare(inner)
-              : inner.type === "map_route" ? validateRouteShare(inner)
-              : inner.type === "map_loc" ? validateLocationShare(inner)
+                      : inner.type === "map_loc" ? validateLocationShare(inner)
               : inner.type === "map_region" ? validateRegionShare(inner)
               : null;
             if (share) {

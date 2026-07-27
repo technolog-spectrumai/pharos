@@ -12,8 +12,6 @@
 export const MAP_SHARE_VERSION = 1;
 export const MAP_NAME_MAX_LEN = 120;
 export const MAP_NOTE_MAX_LEN = 500;
-export const MAP_ROUTE_MIN_POINTS = 2;
-export const MAP_ROUTE_MAX_POINTS = 2000;
 export const MAP_MIN_ZOOM = 0;
 export const MAP_MAX_ZOOM = 22;
 
@@ -67,17 +65,6 @@ export interface MapPin {
   createdAt: number;
 }
 
-/** A user-drawn polyline of waypoints — never the output of a routing engine. */
-export interface MapRoute {
-  id: string;
-  name: string;
-  color?: string;
-  /** [lat, lng] waypoints, MAP_ROUTE_MIN_POINTS..=MAP_ROUTE_MAX_POINTS. */
-  points: [number, number][];
-  /** Unix ms. */
-  createdAt: number;
-}
-
 // ── Share payloads (MLS inner types — compact, versioned) ─────────────────────
 
 export interface MapPinShare {
@@ -88,14 +75,6 @@ export interface MapPinShare {
   lng: number;
   color?: string;
   note?: string;
-}
-
-export interface MapRouteShare {
-  type: "map_route";
-  v: typeof MAP_SHARE_VERSION;
-  name: string;
-  color?: string;
-  points: [number, number][];
 }
 
 /** A place the user tapped and deliberately pushed to a room ("I'm here", "meet
@@ -137,17 +116,6 @@ export function buildPinShare(pin: MapPin): MapPinShare {
   };
   if (pin.color && isHexColor(pin.color)) share.color = pin.color;
   if (pin.note) share.note = pin.note.slice(0, MAP_NOTE_MAX_LEN);
-  return share;
-}
-
-export function buildRouteShare(route: MapRoute): MapRouteShare {
-  const share: MapRouteShare = {
-    type: "map_route",
-    v: MAP_SHARE_VERSION,
-    name: clampName(route.name),
-    points: route.points.slice(0, MAP_ROUTE_MAX_POINTS),
-  };
-  if (route.color && isHexColor(route.color)) share.color = route.color;
   return share;
 }
 
@@ -273,26 +241,6 @@ export function validatePinShare(x: unknown): MapPinShare | null {
   return share;
 }
 
-export function validateRouteShare(x: unknown): MapRouteShare | null {
-  if (!isRecord(x)) return null;
-  if (x.type !== "map_route" || x.v !== MAP_SHARE_VERSION) return null;
-  if (!isValidName(x.name)) return null;
-  const pts = x.points;
-  if (!Array.isArray(pts) || pts.length < MAP_ROUTE_MIN_POINTS || pts.length > MAP_ROUTE_MAX_POINTS) {
-    return null;
-  }
-  const points: [number, number][] = [];
-  for (const p of pts) {
-    if (!Array.isArray(p) || p.length !== 2 || !isValidLat(p[0]) || !isValidLng(p[1])) return null;
-    points.push([p[0], p[1]]);
-  }
-  const share: MapRouteShare = {
-    type: "map_route", v: MAP_SHARE_VERSION, name: clampName(x.name), points,
-  };
-  if (isHexColor(x.color)) share.color = x.color;
-  return share;
-}
-
 /** Narrow an untrusted location share.
  *
  *  TIME-INDEPENDENT BY DESIGN: `at` is only checked against a fixed ceiling,
@@ -362,14 +310,6 @@ export function coveredByAny(
   return regions.some((r) => regionCovers(r, lat, lng));
 }
 
-/** A route counts as covered when ANY waypoint is: a line crossing an imported
- *  region should draw the part that has a basemap under it. */
-export function routeCovered(
-  regions: readonly MapRegionManifest[],
-  points: readonly [number, number][],
-): boolean {
-  return points.some(([lat, lng]) => coveredByAny(regions, lat, lng));
-}
 
 // ── Tile math (Web Mercator / XYZ) ────────────────────────────────────────────
 
