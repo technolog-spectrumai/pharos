@@ -71,6 +71,9 @@ function landOnConnectionIfSignedOut() {
 
 onMounted(async () => {
   await cloud.init();
+  // Airplane mode has no event to subscribe to, so every entry to the tab
+  // re-reads it. Entering the tab is a press, so this stays D6-clean.
+  await cloud.syncOffline();
   landOnConnectionIfSignedOut();
 });
 </script>

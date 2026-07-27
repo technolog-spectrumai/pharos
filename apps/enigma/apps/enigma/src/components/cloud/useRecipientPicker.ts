@@ -50,6 +50,10 @@ export function useRecipientPicker(opts: {
   serverUrl: () => string;
   myNodeId: () => string;
   canResolve: () => boolean;
+  /** Why `canResolve` is false right now, for the chip's tooltip. The caller
+   *  owns the wording — the reason differs (switched off / airplane / signed
+   *  out / server unreachable) and only the caller knows which applies. */
+  blockedReason?: () => string;
   max?: number;
 }): RecipientPicker {
   const max = opts.max ?? DEFAULT_MAX;
@@ -105,7 +109,7 @@ export function useRecipientPicker(opts: {
       const entry = find(name);
       if (entry) {
         entry.state = "error";
-        entry.error = "not signed in";
+        entry.error = opts.blockedReason?.() ?? "";
       }
       return;
     }

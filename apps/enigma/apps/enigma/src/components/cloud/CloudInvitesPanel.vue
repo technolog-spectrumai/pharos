@@ -25,7 +25,6 @@ import {
   listContacts,
   getUseTor,
   isTauri,
-  invoke,
   type ContactEntry,
   type P2pRoomEntry,
 } from "rakotis";
@@ -45,6 +44,46 @@ const contacts = ref<ContactEntry[]>([]);
 const myNodeId = ref("");
 const torMode = ref(false);
 
+// ── Can the cloud be used at all? ─────────────────────────────────────────────
+// Four independent reasons, one line shown, most-fundamental first. Airplane
+// ranks ABOVE logged-out on purpose: signing in is itself a cloud request, so
+// "sign in above" would point at a control that cannot possibly work. The
+// reason shown must be the one whose removal actually unblocks the next step.
+//
+// Facts we hold locally (knob, airplane, session) DISABLE. Unreachable is an
+// inference from one failed attempt — a cold arti bootstrap can exceed the
+// connect timeout on a healthy server (cloud.md) — so it disables too, but only
+// ever alongside a live Retry, which is the one control it must never gate.
+const blockedReason = computed(() =>
+  !cloud.enabled ? t("cloud.cloudOffHint")
+  : cloud.offline ? t("cloud.blockedOffline")
+  : !cloud.loggedIn ? t("cloud.needsLogin")
+  : "");
+/** Nothing behind the controls at all ⇒ swap the panel for a card (cloud.md D8). */
+const showBlockedCard = computed(() => !cloud.enabled || !cloud.loggedIn);
+/** Temporarily inert ⇒ keep the panel, disable with the reason (house style). */
+const unreachable = computed(() => !showBlockedCard.value && cloud.reachable === false);
+const blocked = computed(() => cloud.offline || unreachable.value);
+const unreachableReason = computed(() =>
+  cloud.forceTor || torMode.value || cloud.transport === "onion"
+    ? t("cloud.unreachableTor")
+    : t("cloud.unreachable"));
+/** The escape hatch. Never disabled by `blocked` — that is the whole point. */
+const retrying = ref(false);
+async function retryConnection() {
+  if (retrying.value) return;
+  retrying.value = true;
+  // Optimistic: show "trying", not "frozen". registerAndFetch re-sets it if the
+  // server is still down, and clears it for real on success.
+  cloud.clearUnreachable();
+  try {
+    await cloud.syncOffline();
+    await registerAndFetch();
+  } finally {
+    retrying.value = false;
+  }
+}
+
 // ── Pending invites (collected, verified and decrypted locally) ───────────────
 interface ServerInvite {
   id: number;
@@ -55,6 +94,8 @@ interface ServerInvite {
 }
 const serverInvites = ref<ServerInvite[]>([]);
 const serverInvitesBusy = ref(false);
+/** The last fetch failed, so "no invites waiting" would be a lie. */
+const inboxError = ref(false);
 
 /** Name a sender by their saved contact, else show the raw NodeId — an invite
  *  from an unknown key should look unknown. */
@@ -66,11 +107,14 @@ async function refreshServerInvites() {
   if (!cloud.enabled || !cloud.loggedIn || serverInvitesBusy.value) return;
   serverInvitesBusy.value = true;
   try {
-    serverInvites.value = await invoke<ServerInvite[]>("rdv_invite_fetch", {
+    serverInvites.value = await cloud.call<ServerInvite[]>("rdv_invite_fetch", {
       serverUrl: cloud.serverUrl,
     });
+    inboxError.value = false;
   } catch {
-    /* no server / logged out / offline — the ticket path is unaffected */
+    // The ticket path is unaffected, but the list must not claim "no invites
+    // waiting" when we simply could not ask — that reads as "nobody invited you".
+    inboxError.value = true;
   } finally {
     serverInvitesBusy.value = false;
   }
@@ -85,7 +129,7 @@ async function acceptServerInvite(inv: ServerInvite) {
 async function dismissServerInvite(inv: ServerInvite) {
   serverInvites.value = serverInvites.value.filter((i) => i.id !== inv.id);
   try {
-    await invoke("rdv_invite_ack", { serverUrl: cloud.serverUrl, id: inv.id });
+    await cloud.call("rdv_invite_ack", { serverUrl: cloud.serverUrl, id: inv.id });
   } catch {
     /* it expires on the server anyway */
   }
@@ -95,7 +139,10 @@ async function dismissServerInvite(inv: ServerInvite) {
 const picker = useRecipientPicker({
   serverUrl: () => cloud.serverUrl,
   myNodeId: () => myNodeId.value,
-  canResolve: () => cloud.enabled && cloud.loggedIn,
+  // Same gate as the submits: no point asking the server to validate a name
+  // when we already know the call cannot land.
+  canResolve: () => cloud.enabled && cloud.loggedIn && !blocked.value,
+  blockedReason: () => (unreachable.value ? unreachableReason.value : blockedReason.value),
 });
 
 /** Every saved room we can actually seal: a ticket is the whole payload, and
@@ -141,7 +188,7 @@ const OUTCOME_KEY: Record<InviteReport["outcome"], string> = {
 
 async function fanOut(roomName: string, ticket: string) {
   try {
-    results.value = await invoke<InviteReport[]>("rdv_invite_broadcast", {
+    results.value = await cloud.call<InviteReport[]>("rdv_invite_broadcast", {
       serverUrl: cloud.serverUrl,
       usernames: picker.ready.value.map((r) => r.username),
       roomName,
@@ -155,7 +202,7 @@ async function fanOut(roomName: string, ticket: string) {
 
 async function createAndInvite() {
   const name = newRoomName.value.trim();
-  if (!name || !picker.canSend.value || busy.value) return;
+  if (!name || !picker.canSend.value || busy.value || blocked.value) return;
   busy.value = true;
   results.value = [];
   sendError.value = "";
@@ -178,7 +225,7 @@ async function createAndInvite() {
 
 async function inviteToExisting() {
   const room = invitableRooms.value.find((r) => r.room === pickedRoom.value);
-  if (!room?.ticket || !picker.canSend.value || busy.value) return;
+  if (!room?.ticket || !picker.canSend.value || busy.value || blocked.value) return;
   busy.value = true;
   results.value = [];
   sendError.value = "";
@@ -204,9 +251,11 @@ async function registerAndFetch() {
   try {
     // Registration is what makes this device addressable; it also hands back
     // our NodeId, which works with iroh torn down (unlike ensureNode()).
-    myNodeId.value = await invoke<string>("rdv_register", { serverUrl: cloud.serverUrl });
+    myNodeId.value = await cloud.call<string>("rdv_register", { serverUrl: cloud.serverUrl });
   } catch {
-    /* not an aster server — the panel still shows what it has */
+    // Swallowed on purpose: a plain 404 just means "not an aster server", and
+    // the panel still shows what it has. cloud.call has already classified a
+    // transport failure into cloud.reachable, which is what gates the controls.
   }
   void refreshServerInvites();
 }
@@ -216,6 +265,7 @@ onMounted(async () => {
   await chatStore.p2p.loadP2pRooms();
   if (isTauri()) torMode.value = await getUseTor();
   await cloud.init();
+  await cloud.syncOffline();
   void registerAndFetch();
 });
 
@@ -226,11 +276,37 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-    <OyaCard v-if="!cloud.loggedIn" :dark-mode="darkMode" :padded="true">
-      <p class="text-sm opacity-70">{{ $t('cloud.needsLogin') }}</p>
+    <OyaCard v-if="showBlockedCard" :dark-mode="darkMode" :padded="true">
+      <p class="text-sm opacity-70" data-testid="invites-blocked-card">{{ blockedReason }}</p>
     </OyaCard>
 
     <template v-else>
+      <!-- Temporarily inert: keep the panel, state the reason, and always leave
+           a way back. Retry is deliberately NOT gated by `blocked` — an
+           unreachable verdict is an inference, so it must be one press to undo. -->
+      <OyaCard
+        v-if="blocked"
+        :dark-mode="darkMode"
+        :padded="true"
+        class="flex flex-wrap items-center gap-3"
+        data-testid="invites-blocked-notice"
+      >
+        <p class="min-w-0 flex-1 text-sm font-semibold text-amber-500">
+          {{ cloud.offline ? blockedReason : unreachableReason }}
+        </p>
+        <OyaButton
+          v-if="unreachable"
+          :dark-mode="darkMode"
+          variant="secondary"
+          data-testid="invites-retry"
+          :class="{ 'pointer-events-none opacity-50': retrying }"
+          @click="retryConnection"
+        >
+          <font-awesome-icon :icon="retrying ? 'spinner' : 'rotate-right'" :spin="retrying" />
+          {{ $t('cloud.retryConnection') }}
+        </OyaButton>
+      </OyaCard>
+
       <!-- Waiting for you -->
       <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3" data-testid="server-invites">
         <div class="flex items-center gap-2">
@@ -247,7 +323,10 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
             <font-awesome-icon :icon="serverInvitesBusy ? 'spinner' : 'rotate-right'" :spin="serverInvitesBusy" />
           </button>
         </div>
-        <p v-if="serverInvites.length === 0" class="text-sm opacity-60">{{ $t('cloud.noInvites') }}</p>
+        <p v-if="inboxError" class="text-sm text-warn-dark" data-testid="invites-inbox-error">
+          {{ $t('cloud.inboxUnreachable') }}
+        </p>
+        <p v-else-if="serverInvites.length === 0" class="text-sm opacity-60">{{ $t('cloud.noInvites') }}</p>
         <div v-for="inv in serverInvites" :key="inv.id" class="space-y-2 border-t border-current/10 pt-3 first:border-0 first:pt-0">
           <p class="text-sm">
             {{ $t('contacts.incomingBody', { name: inviteSenderName(inv.from_node_id), room: inv.room_name }) }}
@@ -290,7 +369,7 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
             />
             <OyaButton
               :dark-mode="darkMode"
-              :class="{ 'pointer-events-none opacity-50': !picker.canSend.value || !newRoomName.trim() || busy }"
+              :class="{ 'pointer-events-none opacity-50': !picker.canSend.value || !newRoomName.trim() || busy || blocked }"
               data-testid="invite-create-submit"
               @click="createAndInvite"
             >
@@ -322,7 +401,7 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
             <OyaButton
               :dark-mode="darkMode"
               variant="secondary"
-              :class="{ 'pointer-events-none opacity-50': !picker.canSend.value || !pickedRoom || busy }"
+              :class="{ 'pointer-events-none opacity-50': !picker.canSend.value || !pickedRoom || busy || blocked }"
               data-testid="invite-existing-submit"
               @click="inviteToExisting"
             >
