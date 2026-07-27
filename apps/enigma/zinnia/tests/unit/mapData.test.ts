@@ -2,11 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   listPins,
   listRegionManifests,
-  listRoutes,
   removePin,
-  removeRoute,
   upsertPin,
-  upsertRoute,
 } from "../../src/services/mapData";
 import type { MapPin, MapRoute } from "../../src/mapModel";
 
@@ -16,9 +13,6 @@ beforeEach(() => localStorage.clear());
 
 const pin = (id: string, name = "Pin"): MapPin => ({
   id, name, lat: 52.4, lng: 16.9, createdAt: 1,
-});
-const route = (id: string): MapRoute => ({
-  id, name: "Route", points: [[52.4, 16.9], [52.5, 17.0]], createdAt: 1,
 });
 
 describe("mapData — pins", () => {
@@ -42,16 +36,6 @@ describe("mapData — pins", () => {
     await upsertPin(pin("b"));
     await removePin("a");
     expect((await listPins()).map((p) => p.id)).toEqual(["b"]);
-  });
-});
-
-describe("mapData — routes", () => {
-  it("full CRUD round-trip", async () => {
-    await upsertRoute(route("r1"));
-    await upsertRoute(route("r2"));
-    expect((await listRoutes()).map((r) => r.id)).toEqual(["r2", "r1"]);
-    await removeRoute("r2");
-    expect((await listRoutes()).map((r) => r.id)).toEqual(["r1"]);
   });
 });
 

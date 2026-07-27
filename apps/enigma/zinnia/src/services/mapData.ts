@@ -1,20 +1,19 @@
-// Map data — per-profile pins, routes, and region manifests in the encrypted
+// Map data — per-profile pins and region manifests in the encrypted
 // kv store (same single-JSON-array-per-key pattern as `contacts` / `p2p:rooms`;
 // the kv API has no key enumeration by design).
 //
 // Coordinates persist ONLY here (sealed at rest by protasius) — never in
 // filenames, logs, or plaintext files. Region manifests are WRITTEN by the
 // Rust map_* commands (download/import/remove own the blob lifecycle); this
-// module only reads them. Pins and routes are owned here.
+// module only reads them. Pins are owned here.
 
 import { kvGet, kvPut } from "./localDb";
-import type { MapPin, MapRegionManifest, MapRoute } from "../mapModel";
+import type { MapPin, MapRegionManifest } from "../mapModel";
 import { validateManifest } from "../mapModel";
 
 const SCOPE = "default";
 const KEY = "";
 const NS_PINS = "map:pins";
-const NS_ROUTES = "map:routes";
 const NS_REGIONS = "map:regions";
 
 async function readList<T>(ns: string): Promise<T[]> {
@@ -53,27 +52,6 @@ export async function removePin(id: string): Promise<MapPin[]> {
   return pins;
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-
-export async function listRoutes(): Promise<MapRoute[]> {
-  return readList<MapRoute>(NS_ROUTES);
-}
-
-/** Add or update (by id); new routes go to the top. Returns the new list. */
-export async function upsertRoute(route: MapRoute): Promise<MapRoute[]> {
-  const routes = await listRoutes();
-  const i = routes.findIndex((r) => r.id === route.id);
-  if (i === -1) routes.unshift(route);
-  else routes[i] = { ...routes[i], ...route };
-  await persist(NS_ROUTES, routes);
-  return routes;
-}
-
-export async function removeRoute(id: string): Promise<MapRoute[]> {
-  const routes = (await listRoutes()).filter((r) => r.id !== id);
-  await persist(NS_ROUTES, routes);
-  return routes;
-}
 
 // ── Region manifests (read-only mirror of what the Rust side maintains) ───────
 

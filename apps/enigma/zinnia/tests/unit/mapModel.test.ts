@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   MAP_NAME_MAX_LEN,
   MAP_NOTE_MAX_LEN,
-  MAP_ROUTE_MAX_POINTS,
   MAP_SHARE_VERSION,
   MAP_LOC_TTL_MS,
   bboxTileCount,
@@ -10,7 +9,6 @@ import {
   buildLocationShare,
   buildPinShare,
   buildRegionShare,
-  buildRouteShare,
   coveredByAny,
   isLocationLive,
   isValidBbox,
@@ -18,16 +16,13 @@ import {
   lonLatToTile,
   pointInBbox,
   regionCovers,
-  routeCovered,
   validateLocationShare,
   validateManifest,
   validatePinShare,
   validateRegionShare,
-  validateRouteShare,
   type MapBbox,
   type MapPin,
   type MapRegionManifest,
-  type MapRoute,
 } from "../../src/mapModel";
 
 const BBOX: MapBbox = [16.8, 52.3, 17.1, 52.5]; // Poznań-ish
@@ -129,28 +124,6 @@ describe("mapModel — pin share", () => {
   it("rejects wrong type/version", () => {
     expect(validatePinShare({ type: "map_route", v: 1, name: "x", lat: 1, lng: 2 })).toBeNull();
     expect(validatePinShare({ type: "map_pin", v: 2, name: "x", lat: 1, lng: 2 })).toBeNull();
-  });
-});
-
-describe("mapModel — route share", () => {
-  const route: MapRoute = {
-    id: "r1", name: "Loop", points: [[52.4, 16.9], [52.41, 16.91], [52.42, 16.92]], createdAt: 1,
-  };
-
-  it("build → validate roundtrip", () => {
-    const share = buildRouteShare(route);
-    expect(validateRouteShare(share)).toEqual(share);
-  });
-
-  it("rejects too few / too many / malformed points", () => {
-    const base = { type: "map_route", v: 1, name: "x" };
-    expect(validateRouteShare({ ...base, points: [[1, 2]] })).toBeNull();
-    expect(
-      validateRouteShare({ ...base, points: Array(MAP_ROUTE_MAX_POINTS + 1).fill([1, 2]) }),
-    ).toBeNull();
-    expect(validateRouteShare({ ...base, points: [[1, 2], [91, 0]] })).toBeNull();
-    expect(validateRouteShare({ ...base, points: [[1, 2], [3]] })).toBeNull();
-    expect(validateRouteShare({ ...base, points: "nope" })).toBeNull();
   });
 });
 
@@ -325,12 +298,4 @@ describe("coverage predicates", () => {
     expect(regionCovers(farEast, 0, -179.9)).toBe(false); // documented consequence
   });
 
-  it("routeCovered needs only one waypoint inside", () => {
-    const inside: [number, number][] = [[52.4, 16.9], [52.45, 16.95]];
-    const crossing: [number, number][] = [[0, 0], [52.4, 16.9]];
-    const outside: [number, number][] = [[0, 0], [1, 1]];
-    expect(routeCovered([POZNAN], inside)).toBe(true);
-    expect(routeCovered([POZNAN], crossing)).toBe(true);
-    expect(routeCovered([POZNAN], outside)).toBe(false);
-  });
 });
