@@ -1,5 +1,11 @@
-//! Local-disk file I/O for "save as…" flows (currently the Sketch board's SVG and
-//! PNG export).
+//! Local-disk file I/O for "save as…" flows (currently the SVG editor's PNG
+//! export, Files → Local).
+//!
+//! Only the BINARY writer lives here. The drawing itself is saved through
+//! `local_note_write`, which is sealed and atomic; this is for the one thing
+//! that path cannot carry — a rasterized PNG. The text writer that used to sit
+//! beside it stayed parked (`limbo/rust/fs_local.rs`) rather than being
+//! registered unused.
 //!
 //! "Save to disk" pairs a native dialog (tauri-plugin-dialog) with these tiny
 //! std::fs helpers so the chosen path is actually written. The plain browser build
@@ -7,11 +13,6 @@
 //! desktop/mobile webview where direct disk access is the reliable path.
 
 use data_encoding::BASE64;
-
-#[tauri::command]
-pub fn fs_write_text_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(&path, contents).map_err(|e| e.to_string())
-}
 
 /// Write binary content supplied as base64.
 ///
@@ -58,11 +59,4 @@ mod tests {
         assert!(!path.exists(), "a rejected write must not leave a file behind");
     }
 
-    #[test]
-    fn round_trips_text() {
-        let path = tmp_path("txt");
-        fs_write_text_file(path.to_string_lossy().into(), "<svg/>".into()).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "<svg/>");
-        let _ = std::fs::remove_file(&path);
-    }
 }

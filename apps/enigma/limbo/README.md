@@ -11,18 +11,19 @@ Parked here, restorable later:
   lack of maintenance capacity, not because anything was wrong with them:
   - `frontend/kanban/` — the **group Kanban board**, one per room, columns owned
     by the captain and cards reconciled last-write-wins over the MLS sync seam.
-  - `frontend/sketch/` — **mostly restored on 2026-07-27** as the Files → Local
-    SVG editor (see "Restored so far"). What is still parked here is the export
-    half (`components/sketchExport.ts`, PNG rasterization + save-to-disk, which
-    needs the parked `rust/fs_local.rs`) and `views/EnigmaSketchView.vue`, the
-    standalone-tab shell the editor no longer uses.
+  - `frontend/sketch/` — **restored on 2026-07-27** as the Files → Local SVG
+    editor (see "Restored so far"). All that is still parked here is
+    `views/EnigmaSketchView.vue`, the standalone-tab shell the editor no longer
+    uses.
   - `frontend/mind/` — the **Mind map**, a device-local cytoscape graph with a
     Trix rich-text node editor and a Topics browser, plus its design doc
     `mind.md`.
   - `frontend/notes-shell/` — `EnigmaNotesView.vue`, the sub-tab shell that
     hosted the three. Nothing left to host once they went.
-  - `rust/` — `fs_local.rs`, the two disk-write commands the Sketch and Mind
-    export paths used. The **only** Rust these features ever had.
+  - `rust/` — `fs_local.rs`, whose BASE64 command came back with PNG export on
+    2026-07-27. What is still parked is `fs_write_text_file`: nothing calls it
+    (the SVG itself saves through the sealed `local_note_write`), and leaving an
+    unused command registered would widen the IPC surface for nothing.
 
   Each directory carries a `NOTES.md` with its design and a step-by-step restore
   checklist, plus the exact i18n blocks (`i18n/*.ts.snippet`) that were lifted
@@ -70,7 +71,10 @@ wiring in `stores/chat.ts`.
   document keys are gone (Files → Local owns saving; only the palette is still
   stored), `toSvg` now writes `data-en-*` round-trip hints, and files containing
   active content are **refused** with an offer to open them in the XML editor.
-  `sketchExport.ts` and the old tab shell stayed parked.
+  **PNG export came with it**: `sketchExport.ts` and the base64 half of
+  `fs_local.rs` are back, so a drawing can be rasterized to a path the user picks
+  in the native dialog. That is the app's only unsealed write, and it is the one
+  thing the sealed text path cannot carry. The old tab shell stayed parked.
 
 - **File transfer** (2026-07) — `file_xfer.rs`, `FilePanel.vue`, `useFileShare.ts`
   went back as `apps/enigma/src-tauri/src/file_xfer.rs` +

@@ -190,7 +190,7 @@ compile-time `build_config.yaml` codegen ([build.md](build.md)).
 `qrcode` (generate ticket/NodeId QR), `html5-qrcode` (scan), `nanoid` (message ids),
 `maplibre-gl` 5 (Map tab canvas; WebGL), `protomaps-themes-base` 4 (basemap style
 layers as code — glyphs/sprites are bundled under `public/map/`, so styling makes
-no CDN contact), `ace-builds` (Files → Local notes editor, bundled offline — §13; the SVG editor beside it adds no dependency at all), and the
+no CDN contact), `ace-builds` (Files → Local notes editor, bundled offline — §13; the SVG editor beside it adds no dependency at all — it renders and rasterizes from its own model), and the
 in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
 map when it was parked — see `limbo/`.)
 

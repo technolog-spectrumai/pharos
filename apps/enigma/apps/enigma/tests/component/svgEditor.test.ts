@@ -12,7 +12,13 @@ import { i18n } from "../../src/i18n";
 //   * a file it cannot open says WHY and offers the editor that can;
 //   * parts it cannot edit are announced rather than left looking broken.
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
+const invokeMock = vi.fn(async () => null);
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invokeMock(...(a as [])) }));
+const exportPngMock = vi.fn(async () => true);
+vi.mock("../../src/components/sketch/sketchExport", () => ({
+  exportPng: (...a: unknown[]) => exportPngMock(...(a as [])),
+  backgroundImageFromFile: vi.fn(async () => "data:image/png;base64,AAA"),
+}));
 
 (i18n.global.locale as unknown as { value: string }).value = "en";
 
@@ -30,6 +36,8 @@ function mountEditor(content: string, over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   localStorage.clear();
+  exportPngMock.mockClear();
+  exportPngMock.mockResolvedValue(true);
 });
 
 describe("the NoteEditor interface, cloned", () => {
@@ -131,5 +139,53 @@ describe("parts it cannot edit", () => {
     const w = mountEditor(OK_SVG);
     await flushPromises();
     expect(w.find('[data-testid="svg-opaque-notice"]').exists()).toBe(false);
+  });
+});
+
+describe("PNG export", () => {
+  it("rasterizes at the DOCUMENT's dimensions, not a fixed board", async () => {
+    const w = mountEditor(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480"><rect x="1" y="1" width="2" height="2"/></svg>`,
+    );
+    await flushPromises();
+    await w.find('[data-testid="svg-export-png"]').trigger("click");
+    await flushPromises();
+
+    expect(exportPngMock).toHaveBeenCalledTimes(1);
+    const args = exportPngMock.mock.calls[0] as unknown[];
+    expect(args[3]).toBe(640); // width
+    expect(args[4]).toBe(480); // height
+  });
+
+  it("names the PNG after the drawing, not 'untitled'", async () => {
+    const w = mountEditor(OK_SVG, { name: "floorplan.svg" });
+    await flushPromises();
+    await w.find('[data-testid="svg-export-png"]').trigger("click");
+    await flushPromises();
+    expect((exportPngMock.mock.calls[0] as unknown[])[1]).toBe("floorplan.png");
+  });
+
+  it("exporting never touches the drawing or marks it unsaved", async () => {
+    const w = mountEditor(OK_SVG);
+    await flushPromises();
+    await w.find('[data-testid="svg-export-png"]').trigger("click");
+    await flushPromises();
+    expect((w.vm as unknown as { isDirty: () => boolean }).isDirty()).toBe(false);
+    expect(w.emitted("save")).toBeUndefined();
+  });
+
+  it("surfaces an export failure instead of silently doing nothing", async () => {
+    exportPngMock.mockRejectedValueOnce(new Error("disk full"));
+    const w = mountEditor(OK_SVG);
+    await flushPromises();
+    await w.find('[data-testid="svg-export-png"]').trigger("click");
+    await flushPromises();
+    expect(w.text()).toContain("disk full");
+  });
+
+  it("has no export button on a file it refused to open", async () => {
+    const w = mountEditor(`<svg xmlns="http://www.w3.org/2000/svg"><script>x</script></svg>`);
+    await flushPromises();
+    expect(w.find('[data-testid="svg-export-png"]').exists()).toBe(false);
   });
 });

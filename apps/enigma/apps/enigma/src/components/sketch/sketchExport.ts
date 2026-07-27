@@ -1,7 +1,7 @@
 // Sketch export and image import — everything that needs a canvas, the DOM, or
 // Tauri. Kept out of sketchModel.ts so that stays a pure, testable module.
 
-import { writeBase64FileToDisk, writeTextFileToDisk } from "rakotis";
+import { writeBase64FileToDisk } from "rakotis";
 import {
   arrowHead,
   BOARD_H,
@@ -11,7 +11,6 @@ import {
   pathD,
   shapePivot,
   SVG_FONT_STACK,
-  toSvg,
   trianglePoints,
   validateBackgroundImage,
   type SketchDoc,
@@ -114,33 +113,15 @@ function stripDataUrl(dataUrl: string): string {
   return comma === -1 ? dataUrl : dataUrl.slice(comma + 1);
 }
 
-/** Save the board as an .svg. Returns false if the user cancelled the dialog. */
-export async function exportSvg(
-  doc: SketchDoc,
-  defaultName: string,
-  image?: string | null,
-  width?: number | null,
-): Promise<boolean> {
-  const svg = toSvg(doc, { image, width });
-  if (!isTauri()) {
-    browserDownload(new Blob([svg], { type: "image/svg+xml" }), defaultName);
-    return true;
-  }
-  const { save } = await import("@tauri-apps/plugin-dialog");
-  const path = await save({ defaultPath: defaultName, filters: [{ name: "SVG", extensions: ["svg"] }] });
-  if (!path) return false;
-  await writeTextFileToDisk(path, svg);
-  return true;
-}
-
 /** Save the board as a .png. Returns false if the user cancelled the dialog. */
 export async function exportPng(
   doc: SketchDoc,
   defaultName: string,
   image?: string | null,
   width?: number | null,
+  height?: number | null,
 ): Promise<boolean> {
-  const dataUrl = await rasterize(doc, image, 1, width);
+  const dataUrl = await rasterize(doc, image, 1, width, height);
   if (!isTauri()) {
     const bin = atob(stripDataUrl(dataUrl));
     const bytes = new Uint8Array(bin.length);
@@ -189,13 +170,15 @@ export async function rasterize(
   image?: string | null,
   scale = 1,
   width?: number | null,
+  height?: number | null,
 ): Promise<string> {
-  // Defaults to the 16:9 board so a caller with no live width gets exactly what
-  // this function always produced.
+  // The open FILE's dimensions. The old board was a fixed-1080-tall sheet sized
+  // to the window; a document carries its own viewBox, so both axes come in.
   const boardW = boardWidth(width);
+  const boardH = height && height > 0 ? height : BOARD_H;
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(boardW * scale);
-  canvas.height = Math.round(BOARD_H * scale);
+  canvas.height = Math.round(boardH * scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas is unavailable.");
 
@@ -205,7 +188,7 @@ export async function rasterize(
   // its background rect in the same case.
   if (doc.background) {
     ctx.fillStyle = doc.background;
-    ctx.fillRect(0, 0, boardW, BOARD_H);
+    ctx.fillRect(0, 0, boardW, boardH);
   }
   // Cropped to the DEFAULT board at import, so on an elastic board its aspect no
   // longer matches the rect. Cover-crop it here — the same thing the SVG's
@@ -215,11 +198,11 @@ export async function rasterize(
   if (bgImage) {
     const img = await loadImage(bgImage);
     const iw = img.naturalWidth || boardW;
-    const ih = img.naturalHeight || BOARD_H;
-    const cover = Math.max(boardW / iw, BOARD_H / ih);
+    const ih = img.naturalHeight || boardH;
+    const cover = Math.max(boardW / iw, boardH / ih);
     const dw = iw * cover;
     const dh = ih * cover;
-    ctx.drawImage(img, (boardW - dw) / 2, (BOARD_H - dh) / 2, dw, dh);
+    ctx.drawImage(img, (boardW - dw) / 2, (boardH - dh) / 2, dw, dh);
   }
   ctx.lineCap = "round";
   ctx.lineJoin = "round";

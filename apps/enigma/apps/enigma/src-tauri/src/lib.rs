@@ -47,6 +47,7 @@ mod vault;
 // Outbound Arti client plumbing, reused by the peer-hosted onion transport in
 // p2p_tor.rs (see the TODO(onion-p2p) note at the top of tor.rs).
 mod tor;
+mod fs_local;
 mod local_lock;
 // Maps: PMTiles tile serving from imported region blobs, region import/export,
 // P2P region sharing via file_xfer. The app never fetches tiles — packages
@@ -1415,6 +1416,7 @@ pub fn run() {
             beacon::beacon_publish_route,
             beacon::beacon_delete_zone,
             beacon::beacon_delete_route,
+            fs_local::fs_write_base64_file,
             local_lock::local_lock_file,
             local_lock::local_unlock_file,
             local_lock::local_rotate_file,

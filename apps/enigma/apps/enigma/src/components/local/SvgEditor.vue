@@ -22,6 +22,7 @@ import {
   type MeasureText,
 } from "../sketch/svgDocument";
 import { SVG_FONT_STACK } from "../sketch/sketchModel";
+import { backgroundImageFromFile, exportPng } from "../sketch/sketchExport";
 
 const props = defineProps<{
   /** null while the drawing has never been saved (awaiting Save As). */
@@ -131,6 +132,69 @@ watch(
 
 const tool = ref<Tool>("draw");
 const textSize = ref(24);
+
+// ── background image + PNG export ───────────────────────────────────────────
+// These are the two things that reach outside the document: an image is read
+// from a File (bytes, not a path — works in the browser too), and a PNG is
+// written to a path the user picks. Both are explicit presses.
+const imageInput = ref<HTMLInputElement | null>(null);
+const exportBusy = ref(false);
+const notice = ref("");
+
+const IMAGE_ERROR_KEYS: Record<string, string> = {
+  "not-an-image": "sketch.imageNotAnImage",
+  unreadable: "sketch.imageUnreadable",
+};
+
+function chooseImage() {
+  imageInput.value?.click();
+}
+
+async function onImagePicked(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  // Clear immediately so re-picking the SAME file still fires a change event.
+  input.value = "";
+  if (!file || !sketch.value) return;
+  localError.value = "";
+  try {
+    sketch.value.setBackgroundImage(await backgroundImageFromFile(file));
+  } catch (err) {
+    const code = (err as Error)?.message ?? "";
+    localError.value = t(IMAGE_ERROR_KEYS[code] ?? "sketch.imageFailed");
+  }
+}
+
+/** Rasterize and save a copy. The drawing itself is unaffected — this is the one
+ *  path in the editor that writes UNSEALED bytes, and only ever to a path the
+ *  user picked in the native dialog. */
+async function runExportPng() {
+  const s = sketch.value;
+  if (!s || exportBusy.value) return;
+  exportBusy.value = true;
+  localError.value = "";
+  notice.value = "";
+  try {
+    const stem = props.name.replace(/\.svg$/i, "") || "drawing";
+    const ok = await exportPng(
+      s.doc.value,
+      `${stem}.png`,
+      s.backgroundImage.value,
+      s.boardW.value,
+      s.boardH.value,
+    );
+    if (ok) notice.value = t("sketch.exportDone");
+  } catch (err) {
+    localError.value = (err as Error)?.message ?? String(err);
+  } finally {
+    exportBusy.value = false;
+  }
+}
+
+/** Editor-local problems (image import, export). The `error` PROP stays the
+ *  parent's channel for save/crypto failures — mixing them would let a stale
+ *  export message survive a failed save. */
+const localError = ref("");
 
 function isDark(): boolean {
   return props.darkMode ?? document.documentElement.classList.contains("dark");
@@ -271,7 +335,24 @@ defineExpose({
         @update:tool="tool = $event"
         @update:text-size="textSize = $event"
         @clear="sketch.clearBoard()"
+        @choose-image="chooseImage"
       />
+
+      <div class="flex items-center gap-2 border-b border-current/10 px-3 py-1.5">
+        <button
+          class="shrink-0 rounded-lg border border-accent-2 px-2.5 py-1 text-xs font-semibold transition hover:opacity-80 disabled:opacity-40 dark:border-accent-1"
+          :disabled="exportBusy"
+          data-testid="svg-export-png"
+          @click="runExportPng"
+        >
+          <font-awesome-icon :icon="exportBusy ? 'spinner' : 'image'" :spin="exportBusy" />
+          {{ $t('sketch.exportPng') }}
+        </button>
+        <p v-if="notice" class="text-xs opacity-60">{{ notice }}</p>
+        <p v-if="localError" class="min-w-0 flex-1 truncate text-xs text-warn-dark">{{ localError }}</p>
+      </div>
+
+      <input ref="imageInput" type="file" accept="image/*" class="hidden" @change="onImagePicked" />
 
       <!-- Parts of the file this editor cannot represent are still drawn, just
            not selectable — say so rather than letting them look like a bug. -->
