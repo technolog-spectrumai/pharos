@@ -2,7 +2,6 @@
 import { ref } from "vue";
 import { getBuildConfig } from "rakotis";
 import FilePanel from "../components/chat/FilePanel.vue";
-import CloudPanel from "../components/cloud/CloudPanel.vue";
 import DevicesTab from "../components/devices/DevicesTab.vue";
 import LocalPanel from "../components/local/LocalPanel.vue";
 
@@ -10,23 +9,21 @@ import LocalPanel from "../components/local/LocalPanel.vue";
 // segmented pill borders (mirroring EnigmaConfigView's tab pill).
 defineProps<{ darkMode?: boolean }>();
 
-// A build with cloud.allow_connections: false has no Enigma Cloud at all —
-// no tab, and the Rust side rejects every cloud_* command anyway.
-const cloudAllowed = getBuildConfig().cloud_allow_connections;
 // A build without device linking has no Devices tab at all (the pairing UI and
 // the per-file sync both ride the devlink machinery).
 const devicesAllowed = getBuildConfig().devices_allow_linking;
 
-// P2P (direct peer transfer) vs Cloud (the user's own Enigma Cloud server) vs
-// Local (passphrase-protected files encrypted on this device) vs Devices (the
-// user's OWN linked devices: per-file push/pull + pairing — never a friend).
-type FilesTab = "p2p" | "cloud" | "local" | "devices";
+// P2P (direct peer transfer) vs Local (passphrase-protected files encrypted on
+// this device) vs Devices (the user's OWN linked devices: per-file push/pull +
+// pairing — never a friend). Server-stored files moved to the top-level Cloud
+// tab (cloud.md) together with the rest of the server surface.
+type FilesTab = "p2p" | "local" | "devices";
 const activeTab = ref<FilesTab>("p2p");
 </script>
 
 <template>
   <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
-    <!-- P2P / Cloud tabs -->
+    <!-- Sub-tab pills -->
     <div
       :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
       class="flex gap-1 rounded-xl border p-1 text-sm font-semibold"
@@ -40,17 +37,6 @@ const activeTab = ref<FilesTab>("p2p");
         @click="activeTab = 'p2p'"
       >
         <font-awesome-icon icon="circle-nodes" />{{ $t('files.p2pTab') }}
-      </button>
-      <button
-        v-if="cloudAllowed"
-        type="button"
-        :class="activeTab === 'cloud'
-          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-          : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
-        @click="activeTab = 'cloud'"
-      >
-        <font-awesome-icon icon="cloud" />{{ $t('files.cloudTab') }}
       </button>
       <button
         type="button"
@@ -79,8 +65,6 @@ const activeTab = ref<FilesTab>("p2p");
          decline incoming offers, watch transfer progress. -->
     <div class="min-h-0 flex-1">
       <FilePanel v-if="activeTab === 'p2p'" />
-      <!-- Enigma Cloud: files stored on the user's own server. -->
-      <CloudPanel v-else-if="activeTab === 'cloud' && cloudAllowed" />
       <!-- Devices: the user's own linked devices — per-file push/pull + pairing. -->
       <DevicesTab v-else-if="activeTab === 'devices' && devicesAllowed" :dark-mode="darkMode" />
       <!-- Local: passphrase-protected files encrypted on this device, and the notes

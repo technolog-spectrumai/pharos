@@ -92,12 +92,12 @@ onMounted(async () => {
   contacts.value = await listContacts();
   dhtOn.value = await getDhtDiscovery();
   useTor.value = await getUseTor();
-  if (rdvAllowed) {
-    await cloudStore.init(); // mirror the login state for server search + invites
-    void refreshServerInvites();
+  if (rdvBuildAllowed) {
+    await cloudStore.init(); // mirror the knob + login state for server search
     // Make this device addressable so peers can seal invites to it — works
-    // even in Tor mode, where iroh (and the relay publisher) are down.
-    if (cloudStore.loggedIn) {
+    // even in Tor mode, where iroh (and the relay publisher) are down. The
+    // invite mailbox UI itself lives in the Cloud tab (cloud.md).
+    if (rdvAllowed.value && cloudStore.loggedIn) {
       void invoke("rdv_register", { serverUrl: cloudStore.serverUrl }).catch(() => {});
     }
   }
@@ -196,7 +196,13 @@ function openAddFromClaim(claim: NickClaim) {
 // shape, same prefill-the-add-modal flow as the DHT search.
 const cloudStore = useCloudStore();
 const rdvCfg = getBuildConfig();
-const rdvAllowed = rdvCfg.cloud_allow_connections && rdvCfg.p2p_allow_hosted_relays;
+// Build-time half (does the edition have the cloud client + hosted relays at
+// all) — used for the "this lives in the Cloud tab" pointer, which must render
+// even while the runtime knob is off.
+const rdvBuildAllowed = rdvCfg.cloud_allow_connections && rdvCfg.p2p_allow_hosted_relays;
+// Full gate: also requires the Cloud tab's runtime master switch (cloud.md) —
+// with it off, Rust refuses aster calls, so the search hides rather than lies.
+const rdvAllowed = computed(() => rdvBuildAllowed && cloudStore.enabled);
 const serverResults = ref<NickClaim[]>([]);
 const serverSearching = ref(false);
 const serverSearched = ref(false);
@@ -329,88 +335,14 @@ async function callContact(contact: ContactEntry) {
 function closeInvite() {
   inviteOpen.value = false;
   invites.resetOutgoing();
-  serverInviteState.value = "idle";
 }
 
-// ── Server invites (rdv.md) — the QR replacement for TOR rooms ────────────────
-// The direct invite above rides iroh and is blocked in Tor mode, so a Tor room
-// could only be shared by hand-carrying a QR. Here the ticket is SEALED to the
-// recipient's NodeId and left in their mailbox on our own faros server: the
-// server brokers ciphertext it cannot open. Sending still opens the room first
-// (a live member must exist for MLS admission), exactly like the direct path.
+// Tor rooms can't ride the direct P2P invite (different transport). Their
+// sealed server-mailbox flow moved to the Cloud tab (cloud.md) — kept here only
+// to render the pointer and the honest empty state in the invite modal.
 const torRooms = computed<P2pRoomEntry[]>(() =>
   chatStore.p2p.p2pRooms.value.filter((r) => r.tor),
 );
-const serverInviteState = ref<"idle" | "sending" | "sent" | "error">("idle");
-const serverInviteError = ref("");
-
-async function sendServerInvite(room: P2pRoomEntry) {
-  const target = inviteTarget.value;
-  if (!target || serverInviteState.value === "sending") return;
-  serverInviteState.value = "sending";
-  serverInviteError.value = "";
-  try {
-    await chatStore.p2p.openP2pRoom(room);
-    const ticket = room.ticket ?? "";
-    if (!ticket) throw new Error("This room has no shareable ticket yet.");
-    await invoke("rdv_invite_send", {
-      serverUrl: cloudStore.serverUrl,
-      toNodeId: target.nodeId,
-      roomName: room.name,
-      ticket,
-    });
-    serverInviteState.value = "sent";
-  } catch (e) {
-    serverInviteState.value = "error";
-    serverInviteError.value = typeof e === "string" ? e : ((e as Error).message ?? "");
-  }
-}
-
-// ── Pending server invites (collected, verified and decrypted locally) ────────
-interface ServerInvite {
-  id: number;
-  from_node_id: string;
-  room_name: string;
-  ticket: string;
-  expires_at: number;
-}
-const serverInvites = ref<ServerInvite[]>([]);
-const serverInvitesBusy = ref(false);
-
-/** Name a sender by their saved contact, else show the raw NodeId — an invite
- *  from an unknown key should look unknown. */
-function inviteSenderName(nodeId: string): string {
-  return contacts.value.find((c) => c.nodeId === nodeId)?.name ?? nodeId.slice(0, 12) + "…";
-}
-
-async function refreshServerInvites() {
-  if (!rdvAllowed || !cloudStore.loggedIn || serverInvitesBusy.value) return;
-  serverInvitesBusy.value = true;
-  try {
-    serverInvites.value = await invoke<ServerInvite[]>("rdv_invite_fetch", {
-      serverUrl: cloudStore.serverUrl,
-    });
-  } catch {
-    /* no server / logged out / offline — the ticket path is unaffected */
-  } finally {
-    serverInvitesBusy.value = false;
-  }
-}
-
-async function acceptServerInvite(inv: ServerInvite) {
-  await chatStore.p2p.joinByTicket(inv.ticket);
-  await dismissServerInvite(inv);
-  void router.push("/chat");
-}
-
-async function dismissServerInvite(inv: ServerInvite) {
-  serverInvites.value = serverInvites.value.filter((i) => i.id !== inv.id);
-  try {
-    await invoke("rdv_invite_ack", { serverUrl: cloudStore.serverUrl, id: inv.id });
-  } catch {
-    /* it expires on the server anyway */
-  }
-}
 
 async function pickInviteRoom(room: P2pRoomEntry) {
   const target = inviteTarget.value;
@@ -461,46 +393,8 @@ async function acceptIncoming() {
       <p class="mt-2 text-sm opacity-70">{{ $t('contacts.subtitle') }}</p>
     </header>
 
-    <!-- Incoming invite — file-share-style: nothing happens until Accept -->
-    <!-- Sealed invites collected from my server (rdv.md). Verified + decrypted
-         locally before they get here; joining stays an explicit press. -->
-    <OyaCard
-      v-if="rdvAllowed && serverInvites.length"
-      :dark-mode="darkMode"
-      :padded="true"
-      class="space-y-3"
-      data-testid="server-invites"
-    >
-      <div class="flex items-center gap-2">
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide">
-          {{ $t('contacts.serverInvites') }}
-        </p>
-        <button
-          type="button"
-          class="opacity-60 transition hover:opacity-100"
-          :title="$t('contacts.serverInvitesRefresh')"
-          data-testid="server-invites-refresh"
-          @click="refreshServerInvites"
-        >
-          <font-awesome-icon :icon="serverInvitesBusy ? 'spinner' : 'rotate-right'" :spin="serverInvitesBusy" />
-        </button>
-      </div>
-      <div v-for="inv in serverInvites" :key="inv.id" class="space-y-2 border-t border-current/10 pt-3 first:border-0 first:pt-0">
-        <p class="text-sm">
-          {{ $t('contacts.incomingBody', { name: inviteSenderName(inv.from_node_id), room: inv.room_name }) }}
-        </p>
-        <p class="truncate font-mono text-[11px] opacity-50">{{ inv.from_node_id }}</p>
-        <div class="flex gap-2">
-          <OyaButton :dark-mode="darkMode" class="flex-1 justify-center" :data-testid="`server-invite-accept-${inv.id}`" @click="acceptServerInvite(inv)">
-            <font-awesome-icon icon="check" />{{ $t('contacts.accept') }}
-          </OyaButton>
-          <OyaButton :dark-mode="darkMode" variant="secondary" class="flex-1 justify-center" @click="dismissServerInvite(inv)">
-            {{ $t('contacts.decline') }}
-          </OyaButton>
-        </div>
-      </div>
-    </OyaCard>
-
+    <!-- Incoming invite — file-share-style: nothing happens until Accept.
+         (Sealed server-mailbox invites moved to the Cloud tab — cloud.md.) -->
     <OyaCard v-if="invites.incoming.value" :dark-mode="darkMode" :padded="true" class="space-y-3">
       <p class="flex items-center gap-2 text-sm font-semibold">
         <span class="h-2 w-2 animate-pulse rounded-full bg-warn-dark" />
@@ -669,8 +563,10 @@ async function acceptIncoming() {
       </ul>
 
       <!-- Same search box, second directory: the user's own faros server
-           (cloud rendezvous). Shown only when the build allows it; disabled
-           with the reason when not logged in — never hidden. -->
+           (cloud rendezvous). Hidden while the Cloud master switch is off
+           (Rust refuses the call anyway — hide rather than lie, cloud.md);
+           with the switch on it stays visible and merely disables with the
+           reason when not logged in. -->
       <template v-if="rdvAllowed">
         <div class="flex items-center gap-2 border-t border-current/10 pt-3">
           <OyaButton
@@ -897,40 +793,21 @@ async function acceptIncoming() {
             </li>
           </ul>
 
-          <!-- Tor rooms: the direct P2P invite can't carry them, so offer the
-               sealed server mailbox instead (rdv.md). -->
-          <template v-if="rdvAllowed && torRooms.length">
-            <p class="border-t border-current/10 pt-3 text-xs font-semibold uppercase tracking-wide opacity-70">
-              {{ $t('contacts.inviteViaServer') }}
+          <!-- Tor rooms: the direct P2P invite can't carry them — their sealed
+               server-mailbox flow lives in the Cloud tab (cloud.md). -->
+          <template v-if="rdvBuildAllowed && torRooms.length">
+            <p class="border-t border-current/10 pt-3 text-xs opacity-60" data-testid="tor-rooms-pointer">
+              {{ $t('contacts.torRoomsViaCloud') }}
             </p>
-            <p v-if="!cloudStore.loggedIn" class="text-xs opacity-60" data-testid="server-invite-needs-login">
-              {{ $t('contacts.rdvNeedsLogin') }}
-            </p>
-            <template v-else-if="serverInviteState === 'idle'">
-              <p class="text-xs opacity-60">{{ $t('contacts.inviteViaServerHint') }}</p>
-              <ul class="divide-y divide-current/10">
-                <li v-for="room in torRooms" :key="room.room">
-                  <button
-                    type="button"
-                    class="flex w-full items-center gap-2 py-2.5 text-left text-sm transition hover:opacity-70"
-                    :data-testid="`server-invite-${room.room}`"
-                    @click="sendServerInvite(room)"
-                  >
-                    <font-awesome-icon icon="shield-halved" class="opacity-60" />
-                    <span class="min-w-0 flex-1 truncate">{{ room.name }}</span>
-                    <font-awesome-icon icon="chevron-right" class="text-xs opacity-40" />
-                  </button>
-                </li>
-              </ul>
-            </template>
-            <p v-else-if="serverInviteState === 'sending'" class="flex items-center gap-2 text-sm opacity-70">
-              <font-awesome-icon icon="spinner" spin /> {{ $t('contacts.inviteSending') }}
-            </p>
-            <p v-else-if="serverInviteState === 'sent'" class="flex items-center gap-2 text-sm font-semibold text-success-dark">
-              <font-awesome-icon icon="check" />
-              {{ $t('contacts.inviteLeftOnServer', { name: inviteTarget?.name ?? '' }) }}
-            </p>
-            <p v-else class="text-sm text-warn-dark">{{ serverInviteError }}</p>
+            <RouterLink
+              to="/cloud?tab=invites"
+              class="inline-flex items-center gap-2 text-sm font-semibold text-accent-light transition hover:opacity-70 dark:text-accent-dark"
+              @click="closeInvite"
+            >
+              <font-awesome-icon icon="cloud" />
+              {{ $t('nav.cloud') }}
+              <font-awesome-icon icon="chevron-right" class="text-xs opacity-60" />
+            </RouterLink>
           </template>
         </template>
 

@@ -421,6 +421,39 @@ export async function setCloudServerUrl(url: string): Promise<string> {
   return v;
 }
 
+/** The Cloud tab's runtime master switch. Default OFF: with it off, Rust reads
+ *  the same key and refuses every cloud/beacon/aster request — zero bytes to
+ *  the server app-wide. In Tauri the sanctioned WRITE path is the
+ *  `cloud_set_enabled` command (it also aborts in-flight transfers on off);
+ *  the setter here is the browser/vitest fallback. */
+export async function getCloudEnabled(): Promise<boolean> {
+  try {
+    return (await kvGet("cloud:settings", "default", "enabled")) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export async function setCloudEnabled(on: boolean): Promise<void> {
+  await kvPut("cloud:settings", "default", "enabled", on ? "on" : "off").catch(() => {});
+}
+
+/** The Cloud tab's "route through Tor" knob: clearnet server hosts ride the
+ *  embedded Tor client (`.onion` always does, loopback never does). In Tauri
+ *  write via the `cloud_set_force_tor` command (it aborts in-flight direct
+ *  transfers on switch-on); the setter here is the browser/vitest fallback. */
+export async function getCloudForceTor(): Promise<boolean> {
+  try {
+    return (await kvGet("cloud:settings", "default", "force_tor")) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export async function setCloudForceTor(on: boolean): Promise<void> {
+  await kvPut("cloud:settings", "default", "force_tor", on ? "on" : "off").catch(() => {});
+}
+
 // ── Max file-transfer size (0 = unlimited) ────────────────────────────────────
 // A local guard on P2P file sharing, enforced by `useFileShare` on both sides:
 // offering a larger file is blocked, and an incoming offer over the limit is

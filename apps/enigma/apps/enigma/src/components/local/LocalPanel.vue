@@ -569,7 +569,9 @@ function pct(tr: { transferred: number; total: number }): number {
             :disabled="onDisk[f.path] === false"
             @click="askRotate(f)"
           />
+          <!-- Only offered while the Cloud master switch is on (cloud.md). -->
           <OyaIconButton
+            v-if="cloud.enabled"
             size="sm"
             icon="cloud-arrow-up"
             :label="$t('local.uploadToCloud')"

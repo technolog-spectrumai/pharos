@@ -253,7 +253,9 @@ let pendingBeaconMarker: maplibregl.Marker | null = null;
 const beaconDrafting = computed(
   () => mode.value === "beacon-zone" || mode.value === "beacon-route",
 );
-const canPublishBeacon = computed(() => beaconStore.beaconAvailable && cloudStore.loggedIn);
+const canPublishBeacon = computed(
+  () => beaconStore.beaconAvailable && cloudStore.enabled && cloudStore.loggedIn,
+);
 
 // ── tile protocol (registered once per app lifetime) ─────────────────────────
 let protocolRegistered = false;

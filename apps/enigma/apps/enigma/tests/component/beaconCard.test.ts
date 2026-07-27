@@ -58,9 +58,23 @@ function wireZone(id: number, user: string) {
 }
 
 describe("BeaconCard", () => {
+  it("shows the Cloud-off hint (not the login hint) while the master switch is off", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "cloud_status")
+        return { logged_in: true, username: "alice", enabled: false, force_tor: false, transport: "loopback" };
+      return undefined;
+    });
+    const wrapper = mount(BeaconCard, { global: GLOBAL() });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="beacon-cloud-off-hint"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="beacon-login-hint"]').exists()).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalledWith("beacon_all", expect.anything());
+  });
+
   it("shows the login hint when the cloud session is logged out", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "cloud_status") return { logged_in: false, username: null };
+      if (cmd === "cloud_status")
+        return { logged_in: false, username: null, enabled: true, force_tor: false, transport: "loopback" };
       return undefined;
     });
     const wrapper = mount(BeaconCard, { global: GLOBAL() });
@@ -71,7 +85,8 @@ describe("BeaconCard", () => {
 
   it("fetches on mount when logged in and renders grouped shares with expiry", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "cloud_status") return { logged_in: true, username: "alice" };
+      if (cmd === "cloud_status")
+        return { logged_in: true, username: "alice", enabled: true, force_tor: false, transport: "loopback" };
       if (cmd === "beacon_all") {
         return {
           pins: [wirePin(1, "alice", "market"), wirePin(2, "bob")],
@@ -98,7 +113,8 @@ describe("BeaconCard", () => {
 
   it("offers delete only for my own zones and emits focus on row click", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "cloud_status") return { logged_in: true, username: "bob" };
+      if (cmd === "cloud_status")
+        return { logged_in: true, username: "bob", enabled: true, force_tor: false, transport: "loopback" };
       if (cmd === "beacon_all") {
         return { pins: [wirePin(2, "bob")], zones: [wireZone(7, "bob")], routes: [] };
       }
@@ -116,7 +132,8 @@ describe("BeaconCard", () => {
 
   it("near mode replaces the pins list with distance-sorted results and clears", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "cloud_status") return { logged_in: true, username: "alice" };
+      if (cmd === "cloud_status")
+        return { logged_in: true, username: "alice", enabled: true, force_tor: false, transport: "loopback" };
       if (cmd === "beacon_all") {
         return { pins: [wirePin(1, "alice")], zones: [], routes: [] };
       }
@@ -150,7 +167,8 @@ describe("BeaconCard", () => {
 
   it("toggles the layer flag and refreshes on the refresh button", async () => {
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "cloud_status") return { logged_in: true, username: "alice" };
+      if (cmd === "cloud_status")
+        return { logged_in: true, username: "alice", enabled: true, force_tor: false, transport: "loopback" };
       if (cmd === "beacon_all") return { pins: [], zones: [], routes: [] };
       if (cmd === "cloud_list") return { files: [], buckets: [] };
       return undefined;

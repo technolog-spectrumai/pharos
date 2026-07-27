@@ -102,7 +102,7 @@ async function retractPin() {
       <h3 class="min-w-0 flex-1 truncate text-sm font-bold">
         <font-awesome-icon icon="layer-group" /> {{ $t('map.beaconTitle') }}
       </h3>
-      <template v-if="cloud.loggedIn">
+      <template v-if="cloud.enabled && cloud.loggedIn">
         <button
           type="button"
           class="opacity-60 transition hover:opacity-100"
@@ -125,7 +125,11 @@ async function retractPin() {
       </template>
     </div>
 
-    <p v-if="!cloud.loggedIn" class="text-xs opacity-60" data-testid="beacon-login-hint">
+    <!-- Knob off ⇒ point at the Cloud tab; knob on but logged out ⇒ login hint. -->
+    <p v-if="!cloud.enabled" class="text-xs opacity-60" data-testid="beacon-cloud-off-hint">
+      {{ $t('cloud.cloudOffHint') }}
+    </p>
+    <p v-else-if="!cloud.loggedIn" class="text-xs opacity-60" data-testid="beacon-login-hint">
       {{ $t('map.beaconLoginHint') }}
     </p>
 

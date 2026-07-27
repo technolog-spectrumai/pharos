@@ -17,6 +17,10 @@ await initBuildConfig({
     min: 0,
     max: 100 * 1024,
   },
+  // The Cloud tab tests rely on a cloud-capable build (rakotis' fallback is
+  // already true for both — seeded here so the contract is explicit).
+  cloud_allow_connections: true,
+  p2p_allow_hosted_relays: true,
 });
 
 // FontAwesome is registered globally in main.ts; stub it everywhere so component

@@ -191,6 +191,10 @@ const mindEnabled = getBuildConfig().mind_enabled;
 const notesEnabled = kanbanEnabled || sketchEnabled || mindEnabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
+// Cloud tab (compile-time gated) — the tab is always visible in a cloud-capable
+// build; the runtime master switch INSIDE it gates the content and, in Rust,
+// every request. cloud.md.
+const cloudTabEnabled = getBuildConfig().cloud_allow_connections;
 // Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
 // a request lands on the main endpoint whatever tab is open, and the answer
 // window is short, so it can't wait behind a route.
@@ -334,6 +338,10 @@ onBeforeUnmount(() => {
               :title="$t('peers.incomingTitle')"
             />
           </RouterLink>
+          <RouterLink v-if="cloudTabEnabled" to="/cloud" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.cloud')">
+            <font-awesome-icon icon="cloud" />
+            {{ $t('nav.cloud') }}
+          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -427,6 +435,10 @@ onBeforeUnmount(() => {
               v-if="peers?.incoming"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
+          </RouterLink>
+          <RouterLink v-if="cloudTabEnabled" to="/cloud" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="cloud" class="w-4 text-center" />
+            {{ $t('nav.cloud') }}
           </RouterLink>
           <RouterLink
             to="/config"

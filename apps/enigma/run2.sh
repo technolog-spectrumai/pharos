@@ -18,6 +18,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 
+# Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
+# switch still defaults OFF). Both launch() subshells inherit the export.
+# Override: ENIGMA_EDITION=light ./run2.sh   (first run after a switch = full
+# Rust rebuild, see build.md).
+export ENIGMA_EDITION="${ENIGMA_EDITION:-pro}"
+
 PROFILE_A="${1:-alice}"
 PROFILE_B="${2:-bob}"
 VITE_PORT=1420

@@ -48,9 +48,11 @@ pub(crate) fn build_allowed() -> bool {
 }
 
 /// The user's opt-in toggle (kv `p2p:settings`, beside the DHT toggles).
-/// Default OFF — publishing to the server is a deliberate choice.
+/// Default OFF — publishing to the server is a deliberate choice. Also requires
+/// the Cloud tab's runtime master switch: with cloud off, both the publisher
+/// loop and the aster address lookup must generate zero server traffic.
 pub(crate) fn rdv_enabled(app: &AppHandle) -> bool {
-    if !build_allowed() {
+    if !build_allowed() || !crate::cloud::runtime_enabled(app) {
         return false;
     }
     matches!(
@@ -144,7 +146,7 @@ pub async fn aster_resolve(
     if !build_allowed() {
         return Err(ASTER_DISABLED.to_string());
     }
-    crate::cloud::ensure_online(&app)?;
+    crate::cloud::ensure_cloud_ready(&app)?;
     let path = format!(
         "/aster/resolve?user={}&kind={}",
         encode_component(&username),
@@ -179,7 +181,7 @@ pub async fn rdv_register(app: AppHandle, server_url: String) -> Result<String, 
     if !build_allowed() {
         return Err(ASTER_DISABLED.to_string());
     }
-    crate::cloud::ensure_online(&app)?;
+    crate::cloud::ensure_cloud_ready(&app)?;
     let node_id = identity(&app)?.public().to_string();
     register_device(&app, &server_url, &node_id).await?;
     Ok(node_id)
@@ -199,7 +201,7 @@ pub async fn rdv_invite_send(
     if !build_allowed() {
         return Err(ASTER_DISABLED.to_string());
     }
-    crate::cloud::ensure_online(&app)?;
+    crate::cloud::ensure_cloud_ready(&app)?;
     let me = identity(&app)?;
     let recipient: iroh::PublicKey = to_node_id
         .parse()
@@ -240,7 +242,7 @@ pub async fn rdv_invite_fetch(
     if !build_allowed() {
         return Err(ASTER_DISABLED.to_string());
     }
-    crate::cloud::ensure_online(&app)?;
+    crate::cloud::ensure_cloud_ready(&app)?;
     let me = identity(&app)?;
     let (status, body) =
         crate::cloud::request_json(&app, &server_url, "GET", "/aster/invites", true, None).await?;
@@ -275,7 +277,7 @@ pub async fn rdv_invite_ack(app: AppHandle, server_url: String, id: i64) -> Resu
     if !build_allowed() {
         return Err(ASTER_DISABLED.to_string());
     }
-    crate::cloud::ensure_online(&app)?;
+    crate::cloud::ensure_cloud_ready(&app)?;
     let path = format!("/aster/invite/{id}/delete");
     let (status, resp) =
         crate::cloud::request_json(&app, &server_url, "POST", &path, true, None).await?;

@@ -109,7 +109,7 @@ fn share_body(geometry: Value, ttl_seconds: u32, comment: &str, name: Option<&st
 
 async fn get_json(app: &AppHandle, server_url: &str, path: &str) -> Result<Value, String> {
     ensure_beacon_enabled()?;
-    cloud::ensure_online(app)?;
+    cloud::ensure_cloud_ready(app)?;
     let (status, body) = cloud::request_json(app, server_url, "GET", path, true, None).await?;
     cloud::expect_2xx(status, &body)?;
     Ok(body)
@@ -122,7 +122,7 @@ async fn post_json(
     body: Option<Value>,
 ) -> Result<Value, String> {
     ensure_beacon_enabled()?;
-    cloud::ensure_online(app)?;
+    cloud::ensure_cloud_ready(app)?;
     let (status, resp) = cloud::request_json(app, server_url, "POST", path, true, body).await?;
     cloud::expect_2xx(status, &resp)?;
     Ok(resp)

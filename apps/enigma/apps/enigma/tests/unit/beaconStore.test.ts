@@ -61,6 +61,8 @@ function loggedInCloud() {
   cloud.loggedIn = true;
   cloud.username = "alice";
   cloud.serverUrl = "https://localhost:8443";
+  // The runtime master switch (Cloud tab knob) — beacon is inert without it.
+  cloud.enabled = true;
   return cloud;
 }
 
@@ -88,6 +90,14 @@ describe("beacon store — refresh", () => {
   });
 
   it("no-ops when the cloud session is logged out", async () => {
+    const store = useBeaconStore();
+    await store.refresh();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("no-ops while the Cloud master switch is off, even when logged in", async () => {
+    const cloud = loggedInCloud();
+    cloud.enabled = false;
     const store = useBeaconStore();
     await store.refresh();
     expect(invokeMock).not.toHaveBeenCalled();

@@ -18,6 +18,16 @@ test.describe("Enigma shell (serverless P2P)", () => {
     await expect(page.getByRole("button", { name: "Create", exact: true })).toBeVisible();
   });
 
+  test("Cloud tab starts switched off: only the knob and explanation render", async ({ page }) => {
+    // Browser-fallback build is cloud-capable, but the runtime master switch
+    // defaults OFF — no login form, no file browser, nothing server-shaped.
+    await page.goto("/");
+    await page.getByRole("link", { name: "Cloud" }).first().click();
+    await expect(page.getByTestId("cloud-knob")).toBeVisible();
+    await expect(page.getByTestId("cloud-off-card")).toBeVisible();
+    await expect(page.getByPlaceholder("Username")).toHaveCount(0);
+  });
+
   test("switches the UI to Polish via the language picker", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: "Settings" }).first().click();

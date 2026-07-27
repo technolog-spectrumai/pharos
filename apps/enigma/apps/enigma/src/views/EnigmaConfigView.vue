@@ -3,7 +3,6 @@ import { computed, ref, watch, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
-import { useChatStore } from "../stores/chat";
 import { useCloudStore } from "../stores/cloud";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
@@ -55,8 +54,6 @@ import {
   getDeleteFilesOnPanic,
   setDeleteFilesOnPanic,
   cleanTorKeystore,
-  getCloudServerUrl,
-  CLOUD_SERVER_URL_DEFAULT,
   getBuildConfig,
   invoke,
   type AppRuntimeConfig,
@@ -76,7 +73,6 @@ const hostedRelaysAllowed = buildCfg.p2p_allow_hosted_relays;
 
 const router = useRouter();
 const route = useRoute();
-const chatStore = useChatStore();
 const { t, locale } = useI18n({ useScope: "global" });
 
 // Profile + Data live inside Settings as tabs. `?tab=profile`/`?tab=data` open them
@@ -98,37 +94,6 @@ watch(() => route.query.tab, (tab) => { activeTab.value = tabFromQuery(tab); });
 function changeLanguage(value: string) {
   // Serverless: the choice is local-only (persisted by the i18n framework).
   setLocale(value as Locale, true);
-}
-
-// ── My identity (iroh NodeId) ────────────────────────────────────────────────
-// The stable NodeId is this device's durable P2P handle: peers who paired once
-// (via a room QR) reconnect to it through n0 discovery even after IP changes.
-const nodeId = ref("");
-const nodeQr = ref("");
-const nodeIdCopied = ref(false);
-const nodeIdLoading = ref(false);
-
-async function loadNodeId() {
-  nodeIdLoading.value = true;
-  try {
-    nodeId.value = (await chatStore.p2p.ensureNode()) ?? "";
-    if (nodeId.value) {
-      try {
-        const { toDataURL } = await import("qrcode");
-        nodeQr.value = await toDataURL(nodeId.value, { errorCorrectionLevel: "L", margin: 1, width: 220 });
-      } catch { nodeQr.value = ""; }
-    }
-  } finally {
-    nodeIdLoading.value = false;
-  }
-}
-
-async function copyNodeId() {
-  try {
-    await navigator.clipboard.writeText(nodeId.value);
-    nodeIdCopied.value = true;
-    setTimeout(() => (nodeIdCopied.value = false), 1500);
-  } catch { /* clipboard unavailable */ }
 }
 
 // ── Offline / airplane mode (online / offline) ───────────────────────────────
@@ -211,8 +176,11 @@ async function saveDhtPresencePoll() {
 
 // ── Cloud rendezvous (rdv.md): my own faros server as an optional peer
 // directory. Opt-in, default off; the Rust publisher/lookup self-gate on the
-// kv key every round, so the flip applies live with no rebind.
-const rdvAllowed = cloudAllowed && hostedRelaysAllowed;
+// kv key every round, so the flip applies live with no rebind. Also behind the
+// Cloud tab's runtime master switch — with cloud off the card hides (Rust
+// refuses aster calls anyway).
+const cloudStore = useCloudStore();
+const rdvAllowed = computed(() => cloudAllowed && hostedRelaysAllowed && cloudStore.enabled);
 const rdvPublish = ref(false);
 async function toggleRdvPublish() {
   rdvPublish.value = !rdvPublish.value;
@@ -282,20 +250,6 @@ async function saveFileKeyRotation() {
   fileKeyRotationDays.value = await setFileKeyRotationDays(Number(fileKeyRotationDays.value));
   fileKeyRotationSaved.value = true;
   setTimeout(() => { fileKeyRotationSaved.value = false; }, 1500);
-}
-
-// ── Enigma Cloud server URL ────────────────────────────────────────────────────
-// Saved through the cloud store so the login state re-checks for the new server
-// immediately (the token kv namespace is scoped by the normalized URL).
-const cloudStore = useCloudStore();
-const cloudServerUrl = ref("");
-const cloudServerSaved = ref(false);
-async function saveCloudServer() {
-  // setServerUrl persists the normalized URL (trim, no trailing slash; empty →
-  // default) and re-runs the local session check for that server.
-  cloudServerUrl.value = await cloudStore.setServerUrl(cloudServerUrl.value);
-  cloudServerSaved.value = true;
-  setTimeout(() => { cloudServerSaved.value = false; }, 1500);
 }
 
 // ── Reset passphrase modal ───────────────────────────────────────────────────
@@ -451,12 +405,12 @@ onMounted(async () => {
   rdvPublish.value = await getRdvPublish();
   dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
   dhtPresencePollSecs.value = await getDhtPresencePollSecs();
-  cloudServerUrl.value = await getCloudServerUrl();
+  // Hydrate the cloud store (enabled knob + login state) for the rdv card.
+  void cloudStore.init();
   idleLockMins.value = await getIdleLockMins();
   void refreshDhtStatus();
   await loadOfflineData();
   void loadPanicState();
-  void loadNodeId();
 });
 
 // ── Offline data ─────────────────────────────────────────────────────────────
@@ -653,38 +607,8 @@ async function clearSelectedOfflineData() {
       </div>
     </OyaCard>
 
-    <!-- My identity card — this device's stable P2P NodeId -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p
-          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-          class="text-xs font-semibold uppercase tracking-wide"
-        >
-          {{ $t('config.myIdentity') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.myIdentityHint') }}</p>
-      </div>
-
-      <div v-if="nodeId" class="space-y-3">
-        <img v-if="nodeQr" :src="nodeQr" alt="Node ID QR code" class="mx-auto h-44 w-44 rounded-lg bg-white p-2" />
-        <div class="flex gap-2">
-          <input
-            :value="nodeId" readonly
-            class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-2 py-1.5 font-mono text-[11px]"
-          />
-          <button
-            class="shrink-0 rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-80"
-            @click="copyNodeId"
-          >
-            {{ nodeIdCopied ? "✓" : $t('chat.copy') }}
-          </button>
-        </div>
-      </div>
-      <p v-else-if="nodeIdLoading" class="text-sm opacity-60">…</p>
-      <OyaButton v-else :dark-mode="darkMode" variant="secondary" @click="loadNodeId">
-        <font-awesome-icon icon="circle-nodes" />{{ $t('config.showNodeId') }}
-      </OyaButton>
-    </OyaCard>
+    <!-- This device's NodeId lives on the Contacts tab ("My code"), where the
+         QR is actually used — it was a duplicate here. -->
 
     <!-- Max file-transfer size — local guard on P2P file sharing (both directions);
          0 disables the limit. Enforced by useFileShare, not the backend. -->
@@ -811,36 +735,8 @@ async function clearSelectedOfflineData() {
       </div>
     </OyaCard>
 
-    <!-- Enigma Cloud server — where the Files tab's Cloud panel stores files.
-         Saving re-checks the login state for the new server. Absent entirely in
-         a build with cloud.allow_connections: false. -->
-    <OyaCard v-if="cloudAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.cloudServer') }}
-        </p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="cloud" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.cloudServer') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.cloudServerHint') }}</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <input
-          v-model="cloudServerUrl"
-          type="text"
-          :placeholder="CLOUD_SERVER_URL_DEFAULT"
-          class="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm"
-          :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-          @change="saveCloudServer"
-          @keyup.enter="saveCloudServer"
-        />
-        <span v-if="cloudServerSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-      </div>
-      <p class="text-xs opacity-50">{{ $t('config.cloudServerDefault', { url: CLOUD_SERVER_URL_DEFAULT }) }}</p>
-    </OyaCard>
+    <!-- The Enigma Cloud server card moved to the top-level Cloud tab (cloud.md)
+         — the single home for everything server-related. -->
     </template>
 
     <!-- Data tab — offline mode + local data profiles -->

@@ -181,6 +181,11 @@ than falling back, and `build.rs` declares `rerun-if-env-changed=ENIGMA_EDITION`
 so switching editions always regenerates rather than reusing a cached binary
 (the Rust crate does recompile — expect a full rebuild when you switch).
 
+The dev launchers `run_dev.sh` and `run2.sh` now default to
+`ENIGMA_EDITION=pro` (cloud-capable, so the Cloud tab is exercisable — see
+[cloud.md](cloud.md)); shipped/CI defaults are unchanged, and an explicit
+`ENIGMA_EDITION=…` in the environment still wins.
+
 Editions differ **only** in feature gates; `crypto`, `network` and `settings` are
 identical across all three, deliberately — `network.max_frame_bytes` is
 wire-interop sensitive and a Light peer must be able to share a room with a Pro

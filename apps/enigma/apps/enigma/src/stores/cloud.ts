@@ -20,7 +20,14 @@ import {
   getBuildConfig,
   getCloudServerUrl,
   setCloudServerUrl as persistCloudServerUrl,
+  getCloudEnabled,
+  setCloudEnabled as persistCloudEnabled,
+  getCloudForceTor,
+  setCloudForceTor as persistCloudForceTor,
 } from "rakotis";
+
+/** Predicted transport for the configured server (from cloud_status). */
+export type CloudTransport = "onion" | "tor" | "clearnet" | "loopback";
 
 // fileDict — passthrough of the server's Vault API JSON.
 export interface CloudFile {
@@ -74,6 +81,11 @@ export const useCloudStore = defineStore("cloud", () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const transfers = reactive(new Map<string, CloudTransfer>());
+  // Runtime master switch (Cloud tab knob). Rust enforces the same kv flag on
+  // every command AND inside connect() — these refs just keep the UI honest.
+  const enabled = ref(false);
+  const forceTor = ref(false);
+  const transport = ref<CloudTransport | null>(null);
 
   // A build with cloud.allow_connections: false behaves like the browser here:
   // every action no-ops locally (the UI is hidden anyway) and Rust rejects any
@@ -98,6 +110,16 @@ export const useCloudStore = defineStore("cloud", () => {
   function sessionExpired(msg: string): boolean {
     if (!msg.startsWith("unauthorized")) return false;
     clearLocal();
+    return true;
+  }
+
+  /** "cloud_off…" ⇒ Rust's master switch refused the call while our mirror
+   *  still said enabled (e.g. the vault locked, so the kv read fails closed):
+   *  sync the knob mirror off — the tab falls back to its off state instead of
+   *  surfacing the raw machine-prefixed string. Returns true if so. */
+  function knobRefused(msg: string): boolean {
+    if (!msg.startsWith("cloud_off")) return false;
+    enabled.value = false;
     return true;
   }
 
@@ -155,6 +177,10 @@ export const useCloudStore = defineStore("cloud", () => {
         error.value = msg;
         return;
       }
+      if (knobRefused(msg)) {
+        dropSoon(e.payload.transferId, ERROR_LINGER_MS);
+        return;
+      }
       const t = transfers.get(e.payload.transferId);
       if (t) t.error = msg;
       else error.value = msg;
@@ -181,21 +207,72 @@ export const useCloudStore = defineStore("cloud", () => {
     checking.value = true;
     try {
       serverUrl.value = await getCloudServerUrl();
+      // kv hydration works in browser/vitest too (localStorage kv fallback).
+      enabled.value = await getCloudEnabled();
+      forceTor.value = await getCloudForceTor();
       if (!cloudAvailable) {
         clearLocal();
         return;
       }
-      const st = await invoke<{ logged_in: boolean; username: string | null }>("cloud_status", {
-        serverUrl: serverUrl.value,
-      });
+      // Authoritative: Rust reads the same kv plus the profile's Tor-exclusive
+      // flag, and predicts the transport for the badge. Local-only, knob-exempt.
+      const st = await invoke<{
+        logged_in: boolean;
+        username: string | null;
+        enabled: boolean;
+        force_tor: boolean;
+        transport: CloudTransport;
+      }>("cloud_status", { serverUrl: serverUrl.value });
       loggedIn.value = st.logged_in;
       username.value = st.username ?? "";
-      if (loggedIn.value) void ensureListeners();
+      enabled.value = st.enabled;
+      forceTor.value = st.force_tor;
+      transport.value = st.transport;
+      if (loggedIn.value && enabled.value) void ensureListeners();
     } catch (e) {
       error.value = asMessage(e);
     } finally {
       checking.value = false;
     }
+  }
+
+  /** Flip the master switch. The conscious-enable confirm modal lives in the
+   *  Cloud tab view — by the time this runs, the user already said yes. */
+  async function setEnabled(on: boolean): Promise<void> {
+    if (isTauri()) {
+      // The command persists the kv flag and, on off, aborts in-flight transfers.
+      await invoke("cloud_set_enabled", { enabled: on });
+    } else {
+      await persistCloudEnabled(on);
+    }
+    enabled.value = on;
+    error.value = null;
+    if (on) {
+      initStarted = true;
+      await reinit();
+    } else {
+      // Keep the kv session (disable ≠ logout) but drop everything volatile —
+      // an empty transfers map also releases App.vue's idle-lock hold.
+      files.value = [];
+      buckets.value = [];
+      transfers.clear();
+    }
+  }
+
+  /** Flip "route through Tor" (clearnet hosts only — .onion always rides Tor,
+   *  loopback never does). Refreshes the transport badge. */
+  async function setForceTor(on: boolean): Promise<void> {
+    if (isTauri()) {
+      // On switch-on the command aborts ALL in-flight transfers (no route
+      // filter — a direct one must not keep exposing the IP; the rest are
+      // collateral and can be restarted).
+      await invoke("cloud_set_force_tor", { on });
+    } else {
+      await persistCloudForceTor(on);
+    }
+    forceTor.value = on;
+    initStarted = true;
+    await reinit();
   }
 
   /** Persist a new server URL (normalized by rakotis) and re-check the login
@@ -212,22 +289,8 @@ export const useCloudStore = defineStore("cloud", () => {
   async function login(user: string, password: string): Promise<void> {
     if (!isTauri()) throw new Error("Enigma Cloud is desktop-only.");
     if (!cloudAvailable) throw new Error("Enigma Cloud is disabled in this build.");
+    if (!enabled.value) throw new Error("Enigma Cloud is switched off.");
     const res = await invoke<{ username: string }>("cloud_login", {
-      serverUrl: serverUrl.value,
-      username: user,
-      password,
-    });
-    loggedIn.value = true;
-    username.value = res.username;
-    error.value = null;
-    void ensureListeners();
-    await refresh();
-  }
-
-  async function register(user: string, password: string): Promise<void> {
-    if (!isTauri()) throw new Error("Enigma Cloud is desktop-only.");
-    if (!cloudAvailable) throw new Error("Enigma Cloud is disabled in this build.");
-    const res = await invoke<{ username: string }>("cloud_register", {
       serverUrl: serverUrl.value,
       username: user,
       password,
@@ -254,7 +317,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   // ── listing ───────────────────────────────────────────────────────────────────
   async function refresh(): Promise<void> {
-    if (!cloudAvailable || !loggedIn.value) return;
+    if (!cloudAvailable || !enabled.value || !loggedIn.value) return;
     loading.value = true;
     try {
       const res = await invoke<{ files: CloudFile[]; buckets: CloudBucket[] }>("cloud_list", {
@@ -265,7 +328,7 @@ export const useCloudStore = defineStore("cloud", () => {
       error.value = null;
     } catch (e) {
       const msg = asMessage(e);
-      if (!sessionExpired(msg)) error.value = msg;
+      if (!sessionExpired(msg) && !knobRefused(msg)) error.value = msg;
     } finally {
       loading.value = false;
     }
@@ -279,6 +342,7 @@ export const useCloudStore = defineStore("cloud", () => {
     } catch (e) {
       const msg = asMessage(e);
       sessionExpired(msg);
+      knobRefused(msg);
       throw new Error(msg);
     }
   }
@@ -288,7 +352,7 @@ export const useCloudStore = defineStore("cloud", () => {
     path: string,
     opts: { bucketSlug?: string; directoryId?: number } = {},
   ): Promise<void> {
-    if (!cloudAvailable) return;
+    if (!cloudAvailable || !enabled.value) return;
     await ensureListeners();
     try {
       const res = await invoke<{ transfer_id: string; name: string; size: number }>(
@@ -310,12 +374,12 @@ export const useCloudStore = defineStore("cloud", () => {
       });
     } catch (e) {
       const msg = asMessage(e);
-      if (!sessionExpired(msg)) error.value = msg;
+      if (!sessionExpired(msg) && !knobRefused(msg)) error.value = msg;
     }
   }
 
   async function download(key: string, dest: string): Promise<void> {
-    if (!cloudAvailable) return;
+    if (!cloudAvailable || !enabled.value) return;
     await ensureListeners();
     try {
       const res = await invoke<{ transfer_id: string }>("cloud_download", {
@@ -334,13 +398,13 @@ export const useCloudStore = defineStore("cloud", () => {
       });
     } catch (e) {
       const msg = asMessage(e);
-      if (!sessionExpired(msg)) error.value = msg;
+      if (!sessionExpired(msg) && !knobRefused(msg)) error.value = msg;
     }
   }
 
   // ── files & directories ───────────────────────────────────────────────────────
   async function remove(key: string): Promise<void> {
-    if (!cloudAvailable) return;
+    if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
       await invoke("cloud_delete", { serverUrl: serverUrl.value, key });
       files.value = files.value.filter((f) => f.key !== key);
@@ -351,7 +415,7 @@ export const useCloudStore = defineStore("cloud", () => {
     name: string,
     opts: { bucketSlug?: string; parentId?: number } = {},
   ): Promise<void> {
-    if (!cloudAvailable) return;
+    if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
       const dir = await invoke<{
         id: number;
@@ -377,7 +441,7 @@ export const useCloudStore = defineStore("cloud", () => {
 
   /** null directoryId = move to the bucket root (the command sends JSON null). */
   async function move(key: string, directoryId: number | null): Promise<void> {
-    if (!cloudAvailable) return;
+    if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
       const f = await invoke<CloudFile>("cloud_move", {
         serverUrl: serverUrl.value,
@@ -389,7 +453,7 @@ export const useCloudStore = defineStore("cloud", () => {
   }
 
   async function rmdir(id: number): Promise<void> {
-    if (!cloudAvailable) return;
+    if (!cloudAvailable || !enabled.value) return;
     return guarded(async () => {
       await invoke("cloud_rmdir", { serverUrl: serverUrl.value, directoryId: id });
       for (const b of buckets.value) {
@@ -409,10 +473,14 @@ export const useCloudStore = defineStore("cloud", () => {
     loading,
     error,
     transfers,
+    enabled,
+    forceTor,
+    transport,
     init,
     setServerUrl,
+    setEnabled,
+    setForceTor,
     login,
-    register,
     logout,
     refresh,
     upload,

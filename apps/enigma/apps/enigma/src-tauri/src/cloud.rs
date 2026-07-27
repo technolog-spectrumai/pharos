@@ -1,9 +1,17 @@
 // "Enigma Cloud" — HTTP client for the user's self-hosted faros server: telegraph
-// session auth (login / register / logout / me) and vault file storage (list,
-// streaming upload/download, delete, directories, move). The frontend drives the
-// `cloud_*` commands; transfers return immediately and stream in background tasks,
-// reporting via `cloud://progress` / `cloud://done` / `cloud://error` (mirroring
-// file_xfer.rs's `file://…` events).
+// session auth (login / logout / me) and vault file storage (list, streaming
+// upload/download, delete, directories, move). Registration is deliberately NOT
+// offered here — accounts are created in a browser on the server's /sso/ page.
+// The frontend drives the `cloud_*` commands; transfers return immediately and
+// stream in background tasks, reporting via `cloud://progress` / `cloud://done` /
+// `cloud://error` (mirroring file_xfer.rs's `file://…` events).
+//
+// Master switch: every byte to the server is additionally gated by the RUNTIME
+// knob kv `cloud:settings/default/enabled` (Cloud tab; default off/absent ⇒ off,
+// fail closed). It is checked per command (`ensure_cloud_ready`) AND at the top of
+// `connect()` — the single choke point every cloud/beacon/aster request funnels
+// through — so a forgotten call-site gate cannot leak traffic. Flipping it off
+// aborts in-flight transfers via `shutdown`.
 //
 // Transport rules (see `connect`):
 //   * `.onion` hosts ALWAYS go through the embedded Tor client (tor.rs) — that is
@@ -11,9 +19,11 @@
 //   * Loopback hosts (localhost, 127.0.0.0/8, ::1) ALWAYS use a direct TCP
 //     connection: Tor cannot reach the client's own loopback, and a local
 //     connection leaks nothing — allowed even in Tor-exclusive mode.
-//   * Any other clearnet host connects directly, EXCEPT in Tor-exclusive mode
-//     (Settings → Tor), where it is routed through arti (which can exit to
-//     clearnet) so the server never sees the user's IP.
+//   * Any other clearnet host connects directly, EXCEPT when the profile is in
+//     Tor-exclusive mode (Settings → Tor) OR the Cloud-tab "route through Tor"
+//     knob (kv `cloud:settings/default/force_tor`) is on — then it is routed
+//     through arti (which can exit to clearnet) so the server never sees the
+//     user's IP.
 // Airplane mode blocks every networked cloud command with the same message as
 // file_xfer. The connect deadline is the user's Settings-tab value
 // (`p2p:settings/connect_timeout_secs`), never a hardcoded literal.
@@ -58,6 +68,10 @@ use crate::vault;
 
 /// Encrypted kv namespace holding the session per server (keys: token, username).
 const NS_AUTH: &str = "cloud:auth";
+/// Encrypted kv namespace of the Cloud-tab runtime knobs (keys: enabled,
+/// force_tor) — same ns/scope the frontend's server_url setting lives in.
+const NS_SETTINGS: &str = "cloud:settings";
+const SETTINGS_SCOPE: &str = "default";
 /// Streaming chunk size for both directions (same rationale as file_xfer::CHUNK).
 const CHUNK: usize = crate::build_config::network::TRANSFER_CHUNK_BYTES;
 /// Redirect-follow cap for the download 302 → media URL hop.
@@ -66,8 +80,16 @@ const MAX_REDIRECTS: usize = crate::build_config::network::MAX_REDIRECTS;
 /// Returned by every cloud command in a build with cloud.allow_connections: false.
 pub(crate) const CLOUD_DISABLED: &str = "Enigma Cloud is disabled in this build.";
 
+/// Runtime switch off — distinct from CLOUD_DISABLED (wrong build) so the
+/// frontend can offer "turn it on" instead of hiding the UI. Prefix-matched by
+/// the store (`knobRefused` in stores/cloud.ts, beside the "unauthorized"
+/// convention): on this prefix it syncs its `enabled` mirror off, so the tab
+/// falls back to the knob-off state instead of showing the raw string.
+pub(crate) const CLOUD_OFF: &str =
+    "cloud_off: Enigma Cloud is switched off (enable it in the Cloud tab).";
+
 /// Build-time gate: the whole faros client is off when the build config says so
-/// (the airplane-mode check in `ensure_online` stays the runtime gate).
+/// (`ensure_cloud_ready` adds the runtime knob and airplane mode on top).
 fn ensure_cloud_enabled() -> Result<(), String> {
     if !crate::build_config::cloud::ALLOW_CONNECTIONS {
         return Err(CLOUD_DISABLED.to_string());
@@ -125,6 +147,36 @@ fn classify_host(host: &str) -> HostClass {
         }
     }
     HostClass::Clearnet
+}
+
+/// A stored knob value is on only for the exact string "on" — anything else
+/// (absent key, locked vault, "off", stray casing) fails closed. Mirrors the
+/// `rdv_publish` convention in aster.rs.
+fn flag_on(value: Option<&str>) -> bool {
+    matches!(value, Some("on"))
+}
+
+/// Routing policy: `tor_route` = Tor-exclusive profile OR the force_tor knob.
+/// Onion always rides arti; loopback never does (arti cannot reach it, and a
+/// local connection leaks nothing); clearnet follows `tor_route`.
+fn route_via_tor(class: HostClass, tor_route: bool) -> bool {
+    match class {
+        HostClass::Onion => true,
+        HostClass::Loopback => false,
+        HostClass::Clearnet => tor_route,
+    }
+}
+
+/// Wire value for the Cloud tab's transport badge. "loopback" is deliberately
+/// its own label — calling a local dev server "clearnet" would show the wrong
+/// warning, calling it "tor" would be a lie.
+fn transport_label(class: HostClass, tor_route: bool) -> &'static str {
+    match class {
+        HostClass::Onion => "onion",
+        HostClass::Loopback => "loopback",
+        HostClass::Clearnet if tor_route => "tor",
+        HostClass::Clearnet => "clearnet",
+    }
 }
 
 /// Resolve a redirect `Location` for the download loop. `cur_*` describe the hop
@@ -240,13 +292,35 @@ pub(crate) fn ensure_online(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// True when this profile is in Tor-exclusive mode (clearnet must route via arti).
+/// True when this profile is in Tor-exclusive mode (clearnet must route via
+/// arti). The Cloud-tab force_tor knob composes with this by OR in `connect`.
 fn tor_exclusive(app: &AppHandle) -> bool {
     let state = app.state::<crate::AppConfigState>();
     match crate::active_config(&state) {
         Ok(cfg) => crate::is_use_tor(&crate::load_profile_state(app, &cfg)),
         Err(_) => false,
     }
+}
+
+/// The Cloud tab's runtime master switch (kv `cloud:settings/default/enabled`).
+/// Missing key or locked vault reads as OFF — fail closed.
+pub(crate) fn runtime_enabled(app: &AppHandle) -> bool {
+    flag_on(vault::kv_get_raw(app, NS_SETTINGS, SETTINGS_SCOPE, "enabled").as_deref())
+}
+
+/// The Cloud tab's "route through Tor" knob (kv `cloud:settings/default/force_tor`).
+fn force_tor(app: &AppHandle) -> bool {
+    flag_on(vault::kv_get_raw(app, NS_SETTINGS, SETTINGS_SCOPE, "force_tor").as_deref())
+}
+
+/// Composite gate every networked cloud/beacon/aster command runs before any
+/// I/O: build flag → runtime master switch → airplane mode.
+pub(crate) fn ensure_cloud_ready(app: &AppHandle) -> Result<(), String> {
+    ensure_cloud_enabled()?;
+    if !runtime_enabled(app) {
+        return Err(CLOUD_OFF.to_string());
+    }
+    ensure_online(app)
 }
 
 fn stored_token(app: &AppHandle, scope: &str) -> Option<String> {
@@ -274,9 +348,31 @@ pub struct CloudState {
     transfers: Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>,
 }
 
+/// Insert a spawned transfer, then re-check the master switch: a knob flip can
+/// land in the window between `spawn` and this insert, in which case its
+/// `shutdown()` drained a map that did not yet contain this handle — abort it
+/// now so "off means zero bytes" survives the race. A task that already
+/// finished (its `finish_transfer` ran before this insert) is not registered
+/// at all, so a later `shutdown()` can't emit a spurious cancel for it.
 fn register_transfer(app: &AppHandle, id: &str, handle: tauri::async_runtime::JoinHandle<()>) {
+    // Tauri's JoinHandle is a wrapper enum; only the tokio variant can answer.
+    let finished = match &handle {
+        tauri::async_runtime::JoinHandle::Tokio(h) => h.is_finished(),
+        _ => false,
+    };
+    if finished {
+        return;
+    }
     if let Ok(mut map) = app.state::<CloudState>().transfers.lock() {
         map.insert(id.to_string(), handle);
+    }
+    if !runtime_enabled(app) {
+        if let Ok(mut map) = app.state::<CloudState>().transfers.lock() {
+            if let Some(handle) = map.remove(id) {
+                handle.abort();
+                emit_error(app, id, CANCELLED_BY_POLICY);
+            }
+        }
     }
 }
 
@@ -287,8 +383,12 @@ fn finish_transfer(app: &AppHandle, id: &str) {
     }
 }
 
-/// Abort every in-flight transfer and notify the UI. Called from lib.rs when
-/// airplane mode or Tor-exclusive mode turns on.
+/// Accurate for every caller of `shutdown`: airplane mode, Tor-exclusive mode,
+/// the Cloud master switch turning off, force_tor turning on, vault lock.
+const CANCELLED_BY_POLICY: &str = "transfer cancelled (network policy changed)";
+
+/// Abort every in-flight transfer and notify the UI. Called when airplane mode,
+/// Tor-exclusive mode or force_tor turns on, or the Cloud master switch turns off.
 pub async fn shutdown(app: &AppHandle) {
     let handles: Vec<(String, tauri::async_runtime::JoinHandle<()>)> = {
         match app.state::<CloudState>().transfers.lock() {
@@ -298,7 +398,7 @@ pub async fn shutdown(app: &AppHandle) {
     };
     for (id, handle) in handles {
         handle.abort();
-        emit_error(app, &id, "transfer cancelled (network disabled)");
+        emit_error(app, &id, CANCELLED_BY_POLICY);
     }
 }
 
@@ -370,14 +470,16 @@ where
 /// whole establishment (TCP/Tor connect + TLS handshake) in the user-configured
 /// connect timeout. Clearnet HTTPS is cert-verified; loopback/onion accept any cert.
 async fn connect(app: &AppHandle, host: &str, port: u16, tls: bool) -> Result<BoxedStream, String> {
+    // Invariant enforcer: with the master switch off, no cloud byte leaves the
+    // app even if a caller forgot its own gate — every cloud/beacon/aster
+    // request (including download redirect hops) funnels through here.
+    if !runtime_enabled(app) {
+        return Err(CLOUD_OFF.to_string());
+    }
     // Same Settings-tab value the P2P layer uses — one clamp/default governs it.
     let secs = crate::p2p_dht::connect_timeout_secs(app);
     let class = classify_host(host);
-    let via_tor = match class {
-        HostClass::Onion => true,
-        HostClass::Loopback => false,
-        HostClass::Clearnet => tor_exclusive(app),
-    };
+    let via_tor = route_via_tor(class, tor_exclusive(app) || force_tor(app));
     // Verify real CA certs for clearnet; loopback/onion are self-signed by design.
     let verify = matches!(class, HostClass::Clearnet);
     // rustls ServerName accepts DNS names and IP literals (no brackets).
@@ -839,6 +941,12 @@ async fn run_download(
 pub struct CloudStatus {
     logged_in: bool,
     username: Option<String>,
+    /// Runtime master switch (Cloud tab knob).
+    enabled: bool,
+    /// "Route through Tor" knob.
+    force_tor: bool,
+    /// Predicted transport for `server_url`: "onion" | "tor" | "clearnet" | "loopback".
+    transport: String,
 }
 
 #[derive(Serialize)]
@@ -858,14 +966,56 @@ pub struct DownloadStarted {
     transfer_id: String,
 }
 
-/// Local-only login state (kv): no network touched.
+/// Local-only login/knob state (kv + profile flags): no network touched, and
+/// deliberately NOT gated on the runtime knob — the Cloud tab renders from this
+/// while the switch is off.
 #[tauri::command]
 pub fn cloud_status(app: AppHandle, server_url: String) -> Result<CloudStatus, String> {
     ensure_cloud_enabled()?;
     let scope = normalize_scope(&server_url);
     let logged_in = stored_token(&app, &scope).is_some();
     let username = vault::kv_get_raw(&app, NS_AUTH, &scope, "username");
-    Ok(CloudStatus { logged_in, username })
+    let force_tor = force_tor(&app);
+    let tor_route = tor_exclusive(&app) || force_tor;
+    // Unparseable URL ⇒ "clearnet": the worst-case warning is the safe default.
+    let transport = match host_port(&server_url) {
+        Ok((host, _)) => transport_label(classify_host(&host), tor_route),
+        Err(_) => "clearnet",
+    }
+    .to_string();
+    Ok(CloudStatus {
+        logged_in,
+        username,
+        enabled: runtime_enabled(&app),
+        force_tor,
+        transport,
+    })
+}
+
+/// Flip the runtime master switch. Turning it OFF aborts in-flight transfers —
+/// "off" must mean zero bytes, not "finish what you started" (same rationale as
+/// the airplane/Tor-mode teardown in lib.rs).
+#[tauri::command]
+pub async fn cloud_set_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    ensure_cloud_enabled()?;
+    vault::kv_put_raw(&app, NS_SETTINGS, SETTINGS_SCOPE, "enabled", if enabled { "on" } else { "off" })?;
+    if !enabled {
+        shutdown(&app).await;
+    }
+    Ok(())
+}
+
+/// Flip the "route through Tor" knob. Turning it ON aborts in-flight transfers —
+/// a live direct clearnet transfer must not outlive the switch (it would keep
+/// exposing the user's IP). Turning it OFF lets Tor-routed transfers finish.
+#[tauri::command]
+pub async fn cloud_set_force_tor(app: AppHandle, on: bool) -> Result<(), String> {
+    ensure_cloud_enabled()?;
+    vault::kv_put_raw(&app, NS_SETTINGS, SETTINGS_SCOPE, "force_tor", if on { "on" } else { "off" })?;
+    if on {
+        shutdown(&app).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -875,8 +1025,7 @@ pub async fn cloud_login(
     username: String,
     password: String,
 ) -> Result<CloudUser, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let body = json!({ "username": username, "password": password });
     let (status, value) =
         request_json(&app, &server_url, "POST", "/telegraph/api/login/", false, Some(body)).await?;
@@ -890,41 +1039,13 @@ pub async fn cloud_login(
     Ok(CloudUser { username })
 }
 
-#[tauri::command]
-pub async fn cloud_register(
-    app: AppHandle,
-    server_url: String,
-    username: String,
-    password: String,
-) -> Result<CloudUser, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
-    let body = json!({ "username": username, "password": password });
-    let (status, value) = request_json(
-        &app,
-        &server_url,
-        "POST",
-        "/sso/api/register/",
-        false,
-        Some(body),
-    )
-    .await?;
-    expect_2xx(status, &value)?;
-    let token = value
-        .get("token")
-        .and_then(|t| t.as_str())
-        .filter(|t| !t.is_empty())
-        .ok_or_else(|| "malformed register response (no token)".to_string())?;
-    store_session(&app, &normalize_scope(&server_url), token, &username)?;
-    Ok(CloudUser { username })
-}
-
-/// Best-effort server logout; ALWAYS clears the local session.
+/// Best-effort server logout; ALWAYS clears the local session (works with the
+/// runtime knob off — disabling cloud must not trap a stale session).
 #[tauri::command]
 pub async fn cloud_logout(app: AppHandle, server_url: String) -> Result<(), String> {
     ensure_cloud_enabled()?;
     let scope = normalize_scope(&server_url);
-    if stored_token(&app, &scope).is_some() && ensure_online(&app).is_ok() {
+    if stored_token(&app, &scope).is_some() && ensure_cloud_ready(&app).is_ok() {
         let _ = request_json(&app, &server_url, "POST", "/telegraph/api/logout/", true, None).await;
     }
     clear_session(&app, &scope);
@@ -935,8 +1056,7 @@ pub async fn cloud_logout(app: AppHandle, server_url: String) -> Result<(), Stri
 /// frontend's "unauthorized" handling lands in a consistent logged-out state.
 #[tauri::command]
 pub async fn cloud_me(app: AppHandle, server_url: String) -> Result<CloudUser, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let (status, value) = request_json(&app, &server_url, "GET", "/telegraph/api/me/", true, None).await?;
     if status == 401 {
         clear_session(&app, &normalize_scope(&server_url));
@@ -954,8 +1074,7 @@ pub async fn cloud_me(app: AppHandle, server_url: String) -> Result<CloudUser, S
 /// Files + buckets in one call (two GETs, passthrough of the server JSON).
 #[tauri::command]
 pub async fn cloud_list(app: AppHandle, server_url: String) -> Result<Value, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let (status, files) = request_json(&app, &server_url, "GET", "/vault/api/files/", true, None).await?;
     expect_2xx(status, &files)?;
     let (status, buckets) =
@@ -977,8 +1096,7 @@ pub async fn cloud_upload(
     bucket_slug: Option<String>,
     directory_id: Option<i64>,
 ) -> Result<UploadStarted, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let scope = normalize_scope(&server_url);
     if stored_token(&app, &scope).is_none() {
         return Err("unauthorized: not logged in".to_string());
@@ -1030,8 +1148,7 @@ pub async fn cloud_download(
     key: String,
     dest: String,
 ) -> Result<DownloadStarted, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let scope = normalize_scope(&server_url);
     if stored_token(&app, &scope).is_none() {
         return Err("unauthorized: not logged in".to_string());
@@ -1054,8 +1171,7 @@ pub async fn cloud_download(
 
 #[tauri::command]
 pub async fn cloud_delete(app: AppHandle, server_url: String, key: String) -> Result<(), String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let (status, value) = request_json(
         &app,
         &server_url,
@@ -1078,8 +1194,7 @@ pub async fn cloud_mkdir(
     name: String,
     parent_id: Option<i64>,
 ) -> Result<Value, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let mut body = serde_json::Map::new();
     body.insert("name".to_string(), json!(name));
     if let Some(slug) = bucket_slug {
@@ -1103,8 +1218,7 @@ pub async fn cloud_mkdir(
 
 #[tauri::command]
 pub async fn cloud_rmdir(app: AppHandle, server_url: String, directory_id: i64) -> Result<(), String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     let (status, value) = request_json(
         &app,
         &server_url,
@@ -1126,8 +1240,7 @@ pub async fn cloud_move(
     key: String,
     directory_id: Option<i64>,
 ) -> Result<Value, String> {
-    ensure_cloud_enabled()?;
-    ensure_online(&app)?;
+    ensure_cloud_ready(&app)?;
     // Option<i64> serializes to null/number — exactly the contract's PATCH body.
     let body = json!({ "directory_id": directory_id });
     let (status, value) = request_json(
@@ -1171,6 +1284,49 @@ mod tests {
         assert_eq!(normalize_scope(" https://localhost:8443/ "), "https://localhost:8443");
         assert_eq!(normalize_scope("https://x.onion///"), "https://x.onion");
         assert_eq!(normalize_scope("http://h:9000"), "http://h:9000");
+    }
+
+    #[test]
+    fn route_via_tor_policy() {
+        // Onion always rides arti, even with no tor_route request.
+        assert!(route_via_tor(HostClass::Onion, false));
+        assert!(route_via_tor(HostClass::Onion, true));
+        // Loopback never does, even in Tor-exclusive/force_tor mode.
+        assert!(!route_via_tor(HostClass::Loopback, true));
+        assert!(!route_via_tor(HostClass::Loopback, false));
+        // Clearnet follows the request.
+        assert!(route_via_tor(HostClass::Clearnet, true));
+        assert!(!route_via_tor(HostClass::Clearnet, false));
+    }
+
+    #[test]
+    fn transport_labels() {
+        assert_eq!(transport_label(HostClass::Onion, false), "onion");
+        assert_eq!(transport_label(HostClass::Onion, true), "onion");
+        // Loopback is never labeled "tor" — the traffic stays on the machine.
+        assert_eq!(transport_label(HostClass::Loopback, true), "loopback");
+        assert_eq!(transport_label(HostClass::Loopback, false), "loopback");
+        assert_eq!(transport_label(HostClass::Clearnet, true), "tor");
+        assert_eq!(transport_label(HostClass::Clearnet, false), "clearnet");
+    }
+
+    #[test]
+    fn knob_flag_fails_closed() {
+        assert!(flag_on(Some("on")));
+        // Absent key, explicit off, and stray casing all read as OFF.
+        assert!(!flag_on(None));
+        assert!(!flag_on(Some("off")));
+        assert!(!flag_on(Some("ON")));
+        assert!(!flag_on(Some("true")));
+        assert!(!flag_on(Some("")));
+    }
+
+    #[test]
+    fn cloud_off_is_prefix_matchable() {
+        // The frontend distinguishes the runtime switch from a session loss by
+        // prefix, exactly like the "unauthorized" convention.
+        assert!(CLOUD_OFF.starts_with("cloud_off"));
+        assert!(!CLOUD_OFF.starts_with("unauthorized"));
     }
 
     #[test]

@@ -70,7 +70,9 @@ export const useBeaconStore = defineStore("beacon", () => {
     nearCenter.value = null;
   }
 
-  const active = () => beaconAvailable && cloud.loggedIn;
+  // Also behind the Cloud tab's runtime master switch (cloud.md): with the
+  // knob off, Rust refuses beacon calls — the UI must not even try.
+  const active = () => beaconAvailable && cloud.enabled && cloud.loggedIn;
 
   /** Fetch everything (GET /beacon/all). Best-effort: errors land in `error`. */
   async function refresh(): Promise<void> {
