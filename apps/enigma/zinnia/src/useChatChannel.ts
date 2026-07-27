@@ -362,8 +362,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   // (full-data pull), `file_*` (P2P file transfer offer/accept signaling —
   // consumed by `useFileShare` in the app), `meeting_*` (meeting invite/RSVP
   // signaling — consumed by `useMeetings`), `vox_*` (voice-call offer/decline/
-  // cancel signaling — consumed by `useVoxCall`), `kanban_*` (group Kanban
-  // board columns/cards — consumed by `useKanban`) and `dlink_*` (linked-device
+  // cancel signaling — consumed by `useVoxCall`) and `dlink_*` (linked-device
   // registry/kv/history sync — consumed by `useDeviceSync` on its HEADLESS
   // devlink channel only). Each handler ignores the prefixes it does not own.
   // `map_*` (map_pin / map_route / map_loc / map_region) is deliberately NOT
@@ -1002,7 +1001,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             }
             return;
           }
-          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("kanban_") || inner.type.startsWith("dlink_") || inner.type.startsWith("plink_"))) {
+          if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("dlink_") || inner.type.startsWith("plink_"))) {
             // `dlink_*` is the linked-device sync family (useDeviceSync) and
             // `plink_*` the peer-link family (usePeerSync). Each is only ever
             // produced/consumed on its own headless channel; on a normal room

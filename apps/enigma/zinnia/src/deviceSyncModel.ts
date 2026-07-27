@@ -298,10 +298,10 @@ export function mergeMessages(
 // Rust pairing bundle mirrors this list (device_link.rs SYNC_KV) — a pinning
 // test on each side keeps them from drifting. Everything else is deliberately
 // device-local: connect_timeout_secs (per-device network conditions), all
-// map:* / map settings (locked decision), cloud:*, keys/*, mls/*, dht secrets,
-// kanban (its room seam already converges), mind (the mind map is this
-// device's only — a design promise, not an oversight), and the devlink
-// pacing knobs.
+// map:* / map settings (locked decision), cloud:*, keys/*, mls/*, dht secrets
+// and the devlink pacing knobs. The allow-list is closed, so a namespace that
+// simply is not listed here never syncs — which is how the parked board/mind
+// namespaces behaved and how any future feature starts out.
 
 export interface SyncKvKey {
   ns: string;
