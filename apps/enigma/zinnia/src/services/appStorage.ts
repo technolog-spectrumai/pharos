@@ -275,6 +275,26 @@ export async function setIdleLockMins(mins: number): Promise<number> {
   return v;
 }
 
+// ── Lock-on-hide knob ────────────────────────────────────────────────────────
+// When ON, minimizing/hiding the window locks the vault after a short grace
+// (hardcoded in src/idleLock.ts — the grace is mechanics, not policy). Default
+// off. Device-local like idle_lock_mins above: deliberately NOT in
+// DEVLINK_SYNC_KV.
+
+const KEY_LOCK_ON_HIDE = "lock_on_hide";
+
+export async function getLockOnHide(): Promise<boolean> {
+  try {
+    return (await kvGet("p2p:settings", "default", KEY_LOCK_ON_HIDE)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export async function setLockOnHide(on: boolean): Promise<void> {
+  await kvPut("p2p:settings", "default", KEY_LOCK_ON_HIDE, on ? "1" : "0").catch(() => {});
+}
+
 // ── Device-link resync interval (linked-device catch-up cadence) ───────────────
 // How often paired devices exchange dlink_hello and reconcile state/history
 // while both are online. Stored in the encrypted kv store; device-local (each
@@ -702,6 +722,12 @@ export async function vaultUnlock(passphrase: string): Promise<void> {
 
 export async function vaultLock(): Promise<void> {
   if (isTauri()) await invoke("vault_lock");
+}
+
+/** Throttled activity heartbeat for the Rust-side lock watchdog (vault.rs): lets
+ *  Rust re-lock on its own if this webview dies or freezes. Browser: no-op. */
+export async function vaultTouch(): Promise<void> {
+  if (isTauri()) await invoke("vault_touch").catch(() => {});
 }
 
 export async function vaultChangePassphrase(current: string, next: string): Promise<void> {
