@@ -84,6 +84,37 @@ APP_PROFILE=bob   CHAT_USER=bob   ./run_dev.sh
 ./run2.sh
 ```
 
+### Starting over (`--reset`) — new passphrase, clean cache
+
+There is no "forgot my passphrase" flow: the passphrase wraps the store's DEK,
+so a fresh one means a fresh store. Both launchers take a flag for it:
+
+```bash
+./run_dev.sh --reset              # reset profile "default", then run
+APP_PROFILE=alice ./run_dev.sh --reset
+./run2.sh --reset                 # reset BOTH profiles (alice + bob), then run
+./run2.sh --reset carol dave      # flags mix with the positional names, any order
+ENIGMA_RESET=1 ./run_dev.sh       # env equivalent (ENIGMA_RESET=purge for --purge)
+```
+
+The next start is a **first run**, so the app asks you to set a new passphrase.
+
+| | |
+|---|---|
+| **What it clears** | `profiles/<profile>/` (protasius store, `vault.json`, `profile_state.json`, `tor/`) and the global webview caches (`WebKitCache`, `CacheStorage`, `storage`, …) |
+| **What it keeps** | `iroh_gossip.key` and the legacy `kvstore/` at the app-data root — those are **global**, shared by every profile, so wiping them while resetting one would silently change the others' identity too |
+| **Default is archive** | the profile dir is renamed to `<profile>.reset-<UTC stamp>`, not deleted — a dev vault holds a real identity (iroh key, MLS state, room history) and a mistyped profile name should not be unrecoverable |
+| **`--purge`** | deletes instead, and asks you to type `purge` to confirm (`-y` skips the prompt). Use it when the archives pile up |
+
+The work is done by `scripts/reset_profile.sh`, which both launchers call before
+they start anything (the app holds the store open while it runs). You can call
+it directly: `scripts/reset_profile.sh [--purge] [-y] <profile>…`. It reads the
+bundle identifier from `tauri.conf.json` rather than hardcoding the data
+directory, and refuses a profile name containing a path separator.
+
+To wipe *everything* Enigma owns, including the global bits, use the app's own
+panic code (Settings → Lock) instead — that is the audited path.
+
 ### Pairing quick-start
 
 1. **A**: Chat → *New chat* → name it → **Create**. A QR code appears (gold ★ host

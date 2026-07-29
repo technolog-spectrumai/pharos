@@ -3,6 +3,15 @@
 # can exercise a P2P chat between two identities on one machine.
 #
 #   ./run2.sh [profile-a] [profile-b]        # defaults: alice bob
+#   ./run2.sh --reset                        # wipe BOTH profiles first, then run
+#   ./run2.sh --purge alice bob              # …deleting instead of archiving
+#
+# --reset makes the next start a FIRST RUN for both instances, so each asks you
+# to set a new passphrase — which is also the quickest way back to a clean
+# two-party pairing test. It archives each profile directory aside and clears
+# the webview caches (see scripts/reset_profile.sh); --purge deletes instead and
+# asks for confirmation (-y skips the prompt). Env equivalent:
+# ENIGMA_RESET=1|purge.
 #
 # Each instance gets its own APP_PROFILE / CHAT_USER, so they keep separate data
 # dirs and identity namespaces (no cross-instance identity reuse). Both instances
@@ -24,9 +33,39 @@ APP_DIR="$SCRIPT_DIR/apps/enigma"
 # Rust rebuild, see build.md).
 export ENIGMA_EDITION="${ENIGMA_EDITION:-pro}"
 
-PROFILE_A="${1:-alice}"
-PROFILE_B="${2:-bob}"
+# Flags may appear anywhere; the positional leftovers stay profile-a / profile-b
+# so the documented `./run2.sh carol dave` form is unchanged.
+RESET="${ENIGMA_RESET:-0}"
+RESET_ARGS=()
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reset) [ "$RESET" = "purge" ] || RESET=1 ;;
+    --purge) RESET=purge ;;
+    -y | --yes) RESET_ARGS+=(-y) ;;
+    -h | --help)
+      sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'
+      exit 0
+      ;;
+    -*)
+      echo "[run2] unknown option: $1" >&2
+      exit 2
+      ;;
+    *) POSITIONAL+=("$1") ;;
+  esac
+  shift
+done
+
+PROFILE_A="${POSITIONAL[0]:-alice}"
+PROFILE_B="${POSITIONAL[1]:-bob}"
 VITE_PORT=1420
+
+# Reset BEFORE launching either instance — and in one call, so the two profiles
+# share a timestamp and the global webview caches are cleared exactly once.
+if [ "$RESET" != "0" ]; then
+  if [ "$RESET" = "purge" ]; then RESET_ARGS+=(--purge); fi
+  "$SCRIPT_DIR/scripts/reset_profile.sh" "${RESET_ARGS[@]}" "$PROFILE_A" "$PROFILE_B"
+fi
 
 # Kill every process in this script's process group on exit, so no orphan vite /
 # cargo / app process survives a Ctrl-C.
