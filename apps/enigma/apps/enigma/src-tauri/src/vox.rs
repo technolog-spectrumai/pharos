@@ -1079,6 +1079,16 @@ pub async fn vox_set_mute(app: AppHandle, vox: State<'_, VoxState>, muted: bool)
 
 /// Tear down any live/pending call (airplane / Tor toggle / profile switch). The
 /// main endpoint itself is owned and closed by p2p_iroh.
+/// Whether a call is live or ringing — the lock watchdog (vault.rs) treats this
+/// as presence so its fallback never hangs up a call the user is actually on.
+pub fn in_call(app: &AppHandle) -> bool {
+    use tauri::Manager;
+    let shared = app.state::<VoxState>().0.lock().unwrap().clone();
+    shared
+        .map(|s| s.pending.lock().unwrap().is_some() || s.conn.lock().unwrap().is_some())
+        .unwrap_or(false)
+}
+
 pub async fn shutdown(app: &AppHandle, vox: &VoxState) {
     let shared = vox.0.lock().unwrap().clone();
     if let Some(shared) = shared {

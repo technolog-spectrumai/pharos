@@ -1276,6 +1276,8 @@ pub fn run() {
         // Device-pairing session (ephemeral endpoint + one-time secret).
         .manage(device_link::DevLinkState::default())
         .manage(peer_link::PeerLinkState::default())
+        // Last-heartbeat timestamp for the Rust-side lock watchdog (vault.rs).
+        .manage(vault::ActivityState::default())
         .setup(|app| {
             // Open the active profile's encrypted store (protasius). All app data
             // persists through it; it starts locked until the passphrase gate unlocks it.
@@ -1283,6 +1285,11 @@ pub fn run() {
             let dir = profile_dir(app.handle(), &cfg);
             let store = vault::open(dir).expect("open protasius store");
             app.manage(vault::ProtasiusState(std::sync::Mutex::new(store)));
+
+            // Rust-side auto-lock fallback: re-locks the vault if the webview's
+            // idle watcher can't (killed / frozen / backgrounded). Parks itself
+            // while locked, so one task for the app's whole life is enough.
+            tauri::async_runtime::spawn(vault::lock_watchdog(app.handle().clone()));
 
             #[cfg(target_os = "linux")]
             {
@@ -1316,6 +1323,7 @@ pub fn run() {
             vault::vault_setup,
             vault::vault_unlock,
             vault::vault_lock,
+            vault::vault_touch,
             vault::vault_change_passphrase,
             vault::vault_set_panic_code,
             vault::vault_clear_panic_code,

@@ -10,10 +10,12 @@
 // destroys every profile on the device and silently opens a fresh empty one
 // (`panic_wipe` below).
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use protasius::{MigrationPlan, Protasius, ProtasiusError, UnlockOutcome, VaultStatus};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{active_config, profile_dir, AppConfig, AppConfigState, Sessions};
 
@@ -232,45 +234,155 @@ fn panic_wipe(
     Ok(())
 }
 
-/// Lock a LIVE session (Settings → "Lock now", and the idle auto-lock in
-/// `src/idleLock.ts`). Every data op goes through the vault, so a transport left
-/// running against a locked store would just error on each persist — tear the
-/// whole session down first, in the same order as a profile switch. In
-/// particular `p2p_tor::shutdown` seals the stable-onion keystore INTO the vault,
-/// so it has to run while the DEK is still in memory.
+/// Lock a LIVE session (Settings → "Lock now", the idle auto-lock in
+/// `src/idleLock.ts`, and the Rust-side `lock_watchdog` below). Every data op
+/// goes through the vault, so a transport left running against a locked store
+/// would just error on each persist — tear the whole session down first, in the
+/// same order as a profile switch. In particular `p2p_tor::shutdown` seals the
+/// stable-onion keystore INTO the vault, so it has to run while the DEK is still
+/// in memory.
 ///
 /// The frontend reloads the webview afterwards, which is what actually drops the
 /// decrypted values from JS memory; this side drops the DEK and the in-memory MLS
-/// sessions.
-// Every parameter past `passphrase` is Tauri-injected managed state, not a call
-// site's burden — same shape as `app_set_active_profile`.
-#[allow(clippy::too_many_arguments)]
-#[tauri::command]
-pub async fn vault_lock(
-    app: AppHandle,
-    vault: State<'_, ProtasiusState>,
-    sessions: State<'_, Sessions>,
-    p2p: State<'_, crate::p2p_iroh::P2pState>,
-    tor: State<'_, crate::p2p_tor::TorP2pState>,
-    file: State<'_, crate::file_xfer::FileXferState>,
-    vox: State<'_, crate::vox::VoxState>,
-    devlink: State<'_, crate::device_link::DevLinkState>,
-) -> Result<(), String> {
-    crate::vox::shutdown(&app, &vox).await;
-    crate::p2p_iroh::shutdown(&app, &p2p).await;
-    crate::p2p_tor::shutdown(&app, &tor).await;
+/// sessions. Every shutdown helper is `Option::take`-based, so a concurrent
+/// second lock (JS and watchdog racing after a suspend wake) is harmless.
+pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
+    let vox = app.state::<crate::vox::VoxState>();
+    let p2p = app.state::<crate::p2p_iroh::P2pState>();
+    let tor = app.state::<crate::p2p_tor::TorP2pState>();
+    let file = app.state::<crate::file_xfer::FileXferState>();
+    let devlink = app.state::<crate::device_link::DevLinkState>();
+
+    crate::vox::shutdown(app, &vox).await;
+    crate::p2p_iroh::shutdown(app, &p2p).await;
+    crate::p2p_tor::shutdown(app, &tor).await;
     crate::file_xfer::shutdown(&file).await;
     crate::device_link::shutdown(&devlink).await;
-    crate::cloud::shutdown(&app).await;
+    crate::cloud::shutdown(app).await;
     // Cached mmap readers point into the profile's maps dir — drop them so the
     // locked session holds no open handles into it.
-    crate::maps::reset_readers(&app).await;
+    crate::maps::reset_readers(app).await;
 
-    if let Ok(mut s) = sessions.lock() {
+    if let Ok(mut s) = app.state::<Sessions>().lock() {
         s.clear(); // in-memory MLS material
     }
-    vault.0.lock().map_err(|e| e.to_string())?.lock();
+    store(app)?.0.lock().map_err(|e| e.to_string())?.lock();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn vault_lock(app: AppHandle) -> Result<(), String> {
+    lock_inner(&app).await
+}
+
+// ── Rust-side lock watchdog ─────────────────────────────────────────────────────
+// Defense in depth behind `src/idleLock.ts`: the JS watcher is the normal path
+// (clean lock + webview reload), but it lives in the webview — killed, frozen, or
+// backgrounded (Android) it never fires, and the DEK would stay live forever.
+// The watchdog re-locks from Rust when the heartbeat goes quiet.
+
+/// Managed state: wall-clock millis (UNIX epoch) of the last sign of webview
+/// life — user activity or a busy-hold — fed by the `vault_touch` heartbeat.
+/// Starts at "now", not zero: an unlock inside the watchdog's first tick must
+/// see a fresh baseline, not an instantly-expired one.
+pub struct ActivityState(pub AtomicU64);
+
+impl Default for ActivityState {
+    fn default() -> Self {
+        Self(AtomicU64::new(now_ms()))
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Throttled heartbeat from the JS idle watcher: fired on user activity and while
+/// a call/transfer holds its countdown, so Rust's deadline trails JS's.
+#[tauri::command]
+pub fn vault_touch(activity: State<ActivityState>) {
+    activity.0.store(now_ms(), Ordering::Relaxed);
+}
+
+/// The auto-lock setting, read fresh at use like every Settings value
+/// (technology.md §15) — a Settings edit reaches the watchdog within one tick.
+fn idle_lock_mins(app: &AppHandle) -> u64 {
+    use crate::build_config::settings as s;
+    kv_get_raw(app, "p2p:settings", "default", "idle_lock_mins")
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.clamp(s::IDLE_LOCK_MIN_MINS, s::IDLE_LOCK_MAX_MINS))
+        .unwrap_or(s::IDLE_LOCK_DEFAULT_MINS)
+}
+
+/// How far the Rust deadline trails the JS one: the 30 s heartbeat throttle can
+/// swallow that much trailing activity, the JS tick lags up to 10 s, and the
+/// webview needs the head start to win with its clean lock + reload.
+const WATCHDOG_MARGIN_SECS: u64 = 90;
+const WATCHDOG_TICK_SECS: u64 = 10;
+
+/// Due when `last` sits at least `mins*60s + margin` behind `now`. Saturating:
+/// a backwards clock jump restarts the countdown, never fires it.
+fn watchdog_due(now_ms: u64, last_ms: u64, mins: u64) -> bool {
+    now_ms.saturating_sub(last_ms) >= mins * 60_000 + WATCHDOG_MARGIN_SECS * 1_000
+}
+
+/// Spawned once at setup and never cancelled. While the vault is locked or
+/// auto-lock is off it just refreshes the baseline ("parks") — which is the whole
+/// lifecycle story: JS lock, watchdog lock, profile switch, panic wipe, and
+/// re-unlock all reduce to the tick seeing the right state. Wall-clock comparison
+/// per tick mirrors the JS watcher: a machine suspended past its deadline locks
+/// on the first tick after wake.
+pub async fn lock_watchdog(app: AppHandle) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(WATCHDOG_TICK_SECS)).await;
+        let activity = app.state::<ActivityState>();
+        let unlocked = app
+            .try_state::<ProtasiusState>()
+            .and_then(|st| st.0.lock().ok().map(|p| p.status().unlocked))
+            .unwrap_or(false);
+        if !unlocked || idle_lock_mins(&app) == 0 {
+            activity.0.store(now_ms(), Ordering::Relaxed);
+            continue;
+        }
+        // A minimized webview may throttle its timers hard enough to starve the
+        // heartbeat mid-call or mid-transfer, and the fallback must never hang up
+        // a call the user is actually on — treat the Rust-visible busy states as
+        // presence. (The JS heartbeat stays the primary signal; states only the
+        // frontend can see are its job to report.)
+        if crate::vox::in_call(&app) || crate::cloud::transfers_active(&app) {
+            activity.0.store(now_ms(), Ordering::Relaxed);
+            continue;
+        }
+        if !watchdog_due(now_ms(), activity.0.load(Ordering::Relaxed), idle_lock_mins(&app)) {
+            continue;
+        }
+        let _ = lock_inner(&app).await;
+        // A live webview reloads onto the gate; a dead one has nobody listening.
+        let _ = app.emit("vault://locked", serde_json::json!({}));
+        // The next tick sees a locked vault and parks — at most one fire per unlock.
+    }
+}
+
+#[cfg(test)]
+mod watchdog_tests {
+    use super::{watchdog_due, WATCHDOG_MARGIN_SECS};
+
+    #[test]
+    fn due_only_past_deadline_plus_margin() {
+        let mins = 15u64;
+        let deadline = mins * 60_000 + WATCHDOG_MARGIN_SECS * 1_000;
+        assert!(!watchdog_due(deadline - 1, 0, mins));
+        assert!(watchdog_due(deadline, 0, mins));
+    }
+
+    #[test]
+    fn backwards_clock_jump_never_fires() {
+        // `last` stamped "in the future" (clock set back) — countdown restarts.
+        assert!(!watchdog_due(1_000, 5_000_000, 15));
+    }
 }
 
 #[tauri::command]

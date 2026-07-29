@@ -7,7 +7,7 @@ import CloudEnableCard from "../components/cloud/CloudEnableCard.vue";
 import { useCloudStore } from "../stores/cloud";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
-import { applyIdleLockMins } from "../idleLock";
+import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -47,6 +47,8 @@ import {
   vaultLock,
   getIdleLockMins,
   setIdleLockMins,
+  getLockOnHide,
+  setLockOnHide,
   vaultSetPanicCode,
   vaultClearPanicCode,
   vaultHasPanicCode,
@@ -284,6 +286,24 @@ async function saveIdleLock() {
   setTimeout(() => { idleLockSaved.value = false; }, 1500);
 }
 
+// Lock-on-hide knob: minimize/hide the window → short grace → lock. Pushed live
+// to the running watcher in App.vue (applyLockOnHide), same as the minutes above.
+const lockOnHide = ref(false);
+const lockOnHideBusy = ref(false);
+
+async function toggleLockOnHide() {
+  if (lockOnHideBusy.value) return;
+  lockOnHideBusy.value = true;
+  const next = !lockOnHide.value;
+  try {
+    await setLockOnHide(next);
+    lockOnHide.value = next;
+    applyLockOnHide(next);
+  } finally {
+    lockOnHideBusy.value = false;
+  }
+}
+
 /** "Lock now" — the same path the idle timer takes: Rust tears the session down,
  *  then the reload drops every decrypted value from the webview's memory. */
 async function lockNow() {
@@ -394,6 +414,7 @@ onMounted(async () => {
   // Hydrate the cloud store (enabled knob + login state) for CloudEnableCard.
   void cloudStore.init();
   idleLockMins.value = await getIdleLockMins();
+  lockOnHide.value = await getLockOnHide();
   if (dhtAllowed) void refreshDhtStatus();
   await loadOfflineData();
   void loadPanicState();
@@ -1005,6 +1026,34 @@ async function clearSelectedOfflineData() {
           <span v-if="idleLockSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
       </div>
+
+      <!-- Lock-on-hide knob — minimize/hide the window → short grace → lock -->
+      <div class="flex items-center gap-3 border-t pt-4" :class="darkMode ? 'border-accent-1/40' : 'border-accent-2/40'">
+        <font-awesome-icon
+          icon="eye-slash"
+          :class="lockOnHide ? 'text-warn-dark' : 'opacity-60'"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.lockOnHide') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.lockOnHideHint') }}</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="lockOnHide"
+          :disabled="lockOnHideBusy"
+          :class="lockOnHide ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+          @click="toggleLockOnHide"
+        >
+          <span
+            :class="lockOnHide ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
+        </button>
+      </div>
+
       <OyaButton
         :dark-mode="darkMode"
         variant="secondary"

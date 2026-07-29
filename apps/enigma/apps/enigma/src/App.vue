@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, shallowRef, watch, onMounted, onBeforeUnmount } from "vue";
 import { RouterView, RouterLink, useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
@@ -10,12 +10,13 @@ import { useFileSyncStore } from "./stores/fileSync";
 import { useMapStore } from "./stores/map";
 import { usePeersStore } from "./stores/peers";
 import PeerRequestModal from "./components/peers/PeerRequestModal.vue";
+import IdleLockWarning from "./components/IdleLockWarning.vue";
 import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
-import { useIdleLock, type IdleLockHandle } from "./idleLock";
+import { useIdleLock, useHideLock, type IdleLockHandle, type HideLockHandle } from "./idleLock";
 import {
-  OyaButton, OyaTextField, getBuildConfig, getIdleLockMins, isTauri,
-  vaultStatus, vaultSetup, vaultUnlock, vaultLock,
+  OyaButton, OyaTextField, getBuildConfig, getIdleLockMins, getLockOnHide, isTauri,
+  vaultStatus, vaultSetup, vaultUnlock, vaultLock, vaultTouch,
 } from "rakotis";
 
 const darkMode = ref(true);
@@ -60,14 +61,20 @@ async function runLoaders() {
   // Auto-lock starts only once we're past the gate (the setting lives in the
   // encrypted kv, so it can't be read any earlier anyway).
   void startIdleLock();
+  void startHideLock();
 }
 
 // ── Auto-lock ────────────────────────────────────────────────────────────────
 // After the configured idle time the vault re-locks: Rust tears the session down
 // (vault_lock) and we reload, which is what clears every decrypted value out of
 // the webview's memory. Unsent drafts are lost — the security trade the feature
-// exists to make.
-let idleLock: IdleLockHandle | null = null;
+// exists to make. A ref (not a plain let) so the warning toast can bind to it.
+const idleLock = shallowRef<IdleLockHandle | null>(null);
+let hideLock: HideLockHandle | null = null;
+// Shows the pre-lock countdown toast. Not suppressed while the window is hidden:
+// the toast is invisible along with the window, and if the user restores it
+// mid-warning that countdown is exactly the information they need.
+const lockWarn = ref(false);
 
 /** Background work that should hold the countdown off: nothing here involves the
  *  keyboard, but the user is still mid-task and locking would abort it. Outbound
@@ -94,19 +101,44 @@ async function startIdleLock() {
   // a watcher there would just reload the dev server page on a timer.
   if (!isTauri()) return;
   const mins = await getIdleLockMins();
-  idleLock?.stop();
-  idleLock = useIdleLock({
+  idleLock.value?.stop();
+  idleLock.value = useIdleLock({
     timeoutMs: mins * 60_000,
     isBusy,
+    onWarn: () => {
+      lockWarn.value = true;
+    },
+    // Sign-of-life for the Rust watchdog (vault.rs), so it can re-lock on its
+    // own if this webview dies with the vault open.
+    onHeartbeat: () => {
+      void vaultTouch();
+    },
     onLock: () => {
+      lockWarn.value = false;
+      void lockNow();
+    },
+  });
+}
+
+async function startHideLock() {
+  if (!isTauri()) return;
+  const on = await getLockOnHide();
+  hideLock?.stop();
+  hideLock = useHideLock({
+    enabled: on,
+    isBusy,
+    onLock: () => {
+      lockWarn.value = false;
       void lockNow();
     },
   });
 }
 
 async function lockNow() {
-  idleLock?.stop();
-  idleLock = null;
+  idleLock.value?.stop();
+  idleLock.value = null;
+  hideLock?.stop();
+  hideLock = null;
   try {
     await vaultLock();
   } finally {
@@ -146,7 +178,17 @@ async function doUnlock() {
   }
 }
 
+// The Rust watchdog locked the vault (this webview was too frozen to do it
+// itself) — reload onto the gate the moment we're running again.
+let unlistenLocked: (() => void) | null = null;
+
 onMounted(async () => {
+  if (isTauri()) {
+    const { listen } = await import("@tauri-apps/api/event");
+    unlistenLocked = await listen("vault://locked", () => {
+      window.location.reload();
+    });
+  }
   try {
     const s = await vaultStatus();
     if (!s.exists) gateMode.value = "setup";
@@ -198,8 +240,12 @@ watch(() => route.path, () => {
 });
 
 onBeforeUnmount(() => {
-  idleLock?.stop();
-  idleLock = null;
+  idleLock.value?.stop();
+  idleLock.value = null;
+  hideLock?.stop();
+  hideLock = null;
+  unlistenLocked?.();
+  unlistenLocked = null;
 });
 </script>
 
@@ -450,6 +496,14 @@ onBeforeUnmount(() => {
 
     <!-- Incoming peer-link request: caught anywhere in the app -->
     <PeerRequestModal v-if="peersEnabled" :dark-mode="darkMode" />
+
+    <!-- Pre-lock countdown: any activity dismisses it (the window-level activity
+         listeners fire first and clear the watcher's warned flag) -->
+    <IdleLockWarning
+      v-if="lockWarn && idleLock"
+      :handle="idleLock"
+      @close="lockWarn = false"
+    />
     </template>
   </div>
 </template>

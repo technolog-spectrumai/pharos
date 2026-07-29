@@ -392,6 +392,16 @@ fn register_transfer(app: &AppHandle, id: &str, handle: tauri::async_runtime::Jo
     }
 }
 
+/// Whether any transfer task is in flight — the lock watchdog (vault.rs) treats
+/// this as presence so its fallback never cuts a transfer the user is waiting on.
+pub fn transfers_active(app: &AppHandle) -> bool {
+    app.state::<CloudState>()
+        .transfers
+        .lock()
+        .map(|m| !m.is_empty())
+        .unwrap_or(false)
+}
+
 /// A transfer task removes its own handle when it finishes (success or error).
 fn finish_transfer(app: &AppHandle, id: &str) {
     if let Ok(mut map) = app.state::<CloudState>().transfers.lock() {
