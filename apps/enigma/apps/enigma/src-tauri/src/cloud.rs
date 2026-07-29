@@ -101,6 +101,41 @@ pub(crate) const CLOUD_OFF: &str =
 /// request"), which is why the UI always pairs this with a live retry.
 pub(crate) const UNREACHABLE: &str = "unreachable";
 
+/// Prefix meaning "this server does not have this app at all", as opposed to
+/// "that object is not yours". Joins `cloud_off:`, `unauthorized:` and
+/// `unreachable:` as a machine-classifiable verdict; the store turns it into a
+/// capability=false for the active connection.
+///
+/// Only ever emitted for a 404 on a feature's ROOT (see `is_missing_app`), which
+/// is how a vault-only server like zenobia answers `/aster/*` and `/beacon/*`.
+/// It is learned from a request the user already made — no probe, no poll
+/// (cloud.md D6). All four prefixes must stay pairwise non-prefixing, since the
+/// frontend classifies them with `startsWith`.
+pub(crate) const NO_FEATURE: &str = "no_feature";
+
+/// Is this 404 "the whole URL prefix is unmounted" rather than "no such row"?
+///
+/// Django answers an unrouted prefix with an HTML 404, which `request_json`
+/// parses to `Value::Null`; every real API 404 in the toto stack carries
+/// `{"error": "..."}`. That difference is the only reliable signal available —
+/// there is no capability header — and it is what lets an UNPATCHED server
+/// (one whose `/api/apps/` does not list aster/beacon yet) still be classified
+/// correctly.
+pub(crate) fn is_missing_app(status: u16, body: &Value) -> bool {
+    status == 404 && body.get("error").is_none()
+}
+
+/// Tag a root-level 404 as a missing app; otherwise fall through to the normal
+/// status handling. Callers must only use this on endpoints that address NO
+/// object — a 404 from `/aster/invite/{id}/delete` means someone else's invite,
+/// and mis-tagging it would hide the whole feature over one stale row.
+pub(crate) fn expect_2xx_or_missing(status: u16, body: &Value, feature: &str) -> Result<(), String> {
+    if is_missing_app(status, body) {
+        return Err(format!("{NO_FEATURE}: {feature}"));
+    }
+    expect_2xx(status, body)
+}
+
 /// Build-time gate: the whole faros client is off when the build config says so
 /// (`ensure_cloud_ready` adds the runtime knob and airplane mode on top).
 fn ensure_cloud_enabled() -> Result<(), String> {
@@ -1106,6 +1141,29 @@ pub async fn cloud_me(app: AppHandle, server_url: String) -> Result<CloudUser, S
     Ok(CloudUser { username })
 }
 
+/// Capability descriptor: which apps this server actually installs
+/// (`GET /api/apps/` → `{"apps": {…}}`, passthrough of the inner object).
+///
+/// UNAUTHENTICATED on purpose — the endpoint needs no session, so a connection's
+/// features can be learned before signing in, and it can never 401-clear a
+/// session as a side effect.
+///
+/// The error contract is load-bearing: the frontend routes this through its
+/// `call()` funnel and does NOT list it in PROVES_NOTHING, which is only sound
+/// because every failure path below returns Err — a "best effort, return
+/// defaults" version would silently vouch for a server that never answered.
+/// A server that answers without naming a feature leaves it UNKNOWN (the
+/// frontend then assumes it is present), so this is an enhancement over the
+/// 404-learning path, never a dependency.
+#[tauri::command]
+pub async fn cloud_apps(app: AppHandle, server_url: String) -> Result<Value, String> {
+    ensure_cloud_ready(&app)?;
+    let (status, value) =
+        request_json(&app, &server_url, "GET", "/api/apps/", false, None).await?;
+    expect_2xx(status, &value)?;
+    Ok(value.get("apps").cloned().unwrap_or(Value::Null))
+}
+
 /// Files + buckets in one call (two GETs, passthrough of the server JSON).
 #[tauri::command]
 pub async fn cloud_list(app: AppHandle, server_url: String) -> Result<Value, String> {
@@ -1389,6 +1447,56 @@ mod tests {
         assert!(!UNREACHABLE.starts_with("unauthorized"));
         assert!(!"unauthorized".starts_with(UNREACHABLE));
         assert!(!CLOUD_OFF.starts_with(UNREACHABLE));
+    }
+
+    #[test]
+    fn machine_prefixes_are_pairwise_disjoint() {
+        // The frontend classifies with startsWith, so a near-miss fails
+        // silently. Every prefix must be un-confusable with every other, and
+        // CLOUD_OFF (the one full sentence) must not contain any of them.
+        let prefixes = ["cloud_off", "unauthorized", UNREACHABLE, NO_FEATURE];
+        for (i, a) in prefixes.iter().enumerate() {
+            for (j, b) in prefixes.iter().enumerate() {
+                if i != j {
+                    assert!(!a.starts_with(b), "{a:?} starts with {b:?}");
+                }
+            }
+        }
+        for p in prefixes.iter().filter(|p| **p != "cloud_off") {
+            assert!(!CLOUD_OFF.contains(*p), "CLOUD_OFF leaks the {p:?} prefix");
+        }
+    }
+
+    #[test]
+    fn missing_app_is_an_html_404_only() {
+        // Django answers an UNMOUNTED prefix with HTML, which request_json
+        // parses to Null — that is the whole discriminator.
+        assert!(is_missing_app(404, &Value::Null));
+        assert!(is_missing_app(404, &json!({})));
+        // A real API 404 always carries the server's own message, and must NOT
+        // demote the capability: "that row is not yours" is not "no such app".
+        assert!(!is_missing_app(404, &json!({ "error": "File not found." })));
+        assert!(!is_missing_app(404, &json!({ "error": "Unknown device." })));
+        // Nothing else is ever a missing app.
+        assert!(!is_missing_app(200, &Value::Null));
+        assert!(!is_missing_app(401, &Value::Null));
+        assert!(!is_missing_app(500, &Value::Null));
+    }
+
+    #[test]
+    fn expect_2xx_or_missing_tags_only_the_root_404() {
+        let tagged = expect_2xx_or_missing(404, &Value::Null, "aster").unwrap_err();
+        assert!(tagged.starts_with(NO_FEATURE));
+        assert!(tagged.ends_with("aster"));
+        // A 404 with a server message falls through to the normal handling.
+        let normal = expect_2xx_or_missing(404, &json!({ "error": "Not found." }), "aster")
+            .unwrap_err();
+        assert_eq!(normal, "Not found.");
+        assert!(!normal.starts_with(NO_FEATURE));
+        // 401 keeps its own convention — a dead session is not a missing app.
+        let unauth = expect_2xx_or_missing(401, &Value::Null, "beacon").unwrap_err();
+        assert!(unauth.starts_with("unauthorized"));
+        assert!(expect_2xx_or_missing(200, &Value::Null, "beacon").is_ok());
     }
 
     #[test]

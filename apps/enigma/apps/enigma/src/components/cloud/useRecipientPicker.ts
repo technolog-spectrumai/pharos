@@ -23,12 +23,20 @@ export interface Recipient {
   nodeIds: string[];
   /** Backend message when state === "error". */
   error: string;
+  /** Which saved connection this name was validated against. A username is
+   *  server-relative — alice@faros and alice@zenobia are different people — and
+   *  a room ticket is a BEARER credential that MLS auto-admits, so sealing one
+   *  to a chip resolved on another server would hand the room to a stranger.
+   *  `ready` therefore refuses any chip whose connection is no longer active. */
+  connectionId: string;
 }
 
 export interface RecipientPicker {
   draft: Ref<string>;
   recipients: Ref<Recipient[]>;
   ready: ComputedRef<Recipient[]>;
+  /** Chips validated against a connection that is no longer active. */
+  stale: ComputedRef<Recipient[]>;
   busy: ComputedRef<boolean>;
   canSend: ComputedRef<boolean>;
   atMax: ComputedRef<boolean>;
@@ -51,6 +59,10 @@ export function useRecipientPicker(opts: {
   serverUrl: () => string;
   myNodeId: () => string;
   canResolve: () => boolean;
+  /** The active saved connection. Chips are stamped with it and stop counting
+   *  as sendable if it changes — see `Recipient.connectionId`. Optional so the
+   *  hook still works standalone in unit tests. */
+  connectionId?: () => string;
   /** Why `canResolve` is false right now, for the chip's tooltip. The caller
    *  owns the wording — the reason differs (switched off / airplane / signed
    *  out / server unreachable) and only the caller knows which applies. */
@@ -67,7 +79,15 @@ export function useRecipientPicker(opts: {
   const draft = ref("");
   const recipients = ref<Recipient[]>([]);
 
-  const ready = computed(() => recipients.value.filter((r) => r.state === "ok"));
+  const conn = () => opts.connectionId?.() ?? "";
+  /** The hard guarantee: a chip validated against another connection can never
+   *  be sent, even if a caller forgets to clear the picker on a switch. */
+  const ready = computed(() =>
+    recipients.value.filter((r) => r.state === "ok" && r.connectionId === conn()),
+  );
+  /** Chips left over from a different connection — the panel shows a notice and
+   *  offers to re-check them rather than silently dropping what was typed. */
+  const stale = computed(() => recipients.value.filter((r) => r.connectionId !== conn()));
   const busy = computed(() => recipients.value.some((r) => r.state === "resolving"));
   const canSend = computed(() => ready.value.length > 0 && !busy.value);
   const atMax = computed(() => recipients.value.length >= max);
@@ -89,6 +109,10 @@ export function useRecipientPicker(opts: {
     if (!entry) return;
     entry.state = "resolving";
     entry.error = "";
+    // Which connection this answer will describe. If the user switches while it
+    // is in flight, the result is about a different server and must not be
+    // credited to the new one.
+    const at = conn();
     try {
       const ids = await invoke<string[]>("aster_resolve", {
         serverUrl: opts.serverUrl(),
@@ -96,13 +120,16 @@ export function useRecipientPicker(opts: {
       });
       // The chip may have been removed while the request was in flight.
       const live = find(username);
-      if (!live) return;
+      if (!live || conn() !== at) return;
       const others = (ids ?? []).filter((id) => id !== opts.myNodeId());
       live.nodeIds = others;
       live.state = (ids ?? []).length === 0 ? "unknown" : others.length === 0 ? "self" : "ok";
+      // A successful re-check re-homes the chip to the connection it was
+      // validated against, so Retry is the way back from `stale`.
+      live.connectionId = at;
     } catch (e) {
       const live = find(username);
-      if (!live) return;
+      if (!live || conn() !== at) return;
       live.state = "error";
       const message = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
       // This is the one networked control the user actually drives, so its
@@ -116,7 +143,13 @@ export function useRecipientPicker(opts: {
   function add(username: string): void {
     const name = username.trim();
     if (!name || find(name) || atMax.value) return;
-    recipients.value.push({ username: name, state: "resolving", nodeIds: [], error: "" });
+    recipients.value.push({
+      username: name,
+      state: "resolving",
+      nodeIds: [],
+      error: "",
+      connectionId: conn(),
+    });
     if (!opts.canResolve()) {
       const entry = find(name);
       if (entry) {
@@ -146,13 +179,16 @@ export function useRecipientPicker(opts: {
     queueResolve(username);
   }
 
-  /** Re-resolve every chip that failed. Chips added while the cloud was
-   *  unusable are all `error`, and `canSend` needs at least one `ok` — without
-   *  this the user would have to press Retry on each chip individually after
-   *  the connection came back. */
+  /** Re-resolve every chip that failed OR was validated against another
+   *  connection. Chips added while the cloud was unusable are all `error`, and
+   *  `canSend` needs at least one `ok` — without this the user would have to
+   *  press Retry on each chip individually after the connection came back. */
   function retryErrored(): void {
     if (!opts.canResolve()) return;
-    for (const r of recipients.value) if (r.state === "error") queueResolve(r.username);
+    const current = conn();
+    for (const r of recipients.value) {
+      if (r.state === "error" || r.connectionId !== current) queueResolve(r.username);
+    }
   }
 
   function clear(): void {
@@ -168,7 +204,7 @@ export function useRecipientPicker(opts: {
   }
 
   return {
-    draft, recipients, ready, busy, canSend, atMax, max,
+    draft, recipients, ready, stale, busy, canSend, atMax, max,
     commitDraft, add, remove, retry, retryErrored, clear, keepOnly,
   };
 }

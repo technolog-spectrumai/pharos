@@ -33,10 +33,15 @@ const TAB_META: Record<CloudTab, { icon: string; label: string }> = {
 };
 
 // With the switch off, Connection is the whole tab: Files and Invites have
-// nothing behind them and their pills would be dead ends.
-const visibleTabs = computed<readonly CloudTab[]>(() =>
-  cloud.enabled ? ORDER : (["connection"] as const),
-);
+// nothing behind them and their pills would be dead ends. Same reasoning for a
+// server that does not install `toto.aster` (a vault-only host like zenobia):
+// there is no invite mailbox to show and no setting that would create one, so
+// the pill is hidden rather than disabled (cloud.md D8). The fix — pick another
+// connection — lives on the Connection sub-tab, which says so.
+const visibleTabs = computed<readonly CloudTab[]>(() => {
+  if (!cloud.enabled) return ["connection"] as const;
+  return cloud.hasAster ? ORDER : (["files", "connection"] as const);
+});
 
 function tabFromQuery(q: unknown): CloudTab {
   return typeof q === "string" && (ORDER as readonly string[]).includes(q)
@@ -57,10 +62,13 @@ function selectTab(tab: CloudTab) {
   tabPinned = true;
 }
 
-/** What actually renders — a stale Files/Invites selection can't survive the
- *  switch going off, since those sub-tabs no longer exist. */
+/** What actually renders. Derived from `visibleTabs` rather than re-checking
+ *  the master switch: any reason a pill disappears (switch off, or the server
+ *  having no invite mailbox) must also drop a selection that pointed at it —
+ *  including a pinned `?tab=invites` deep link, which would otherwise render a
+ *  panel with no pill highlighted on a server that cannot serve it. */
 const effectiveTab = computed<CloudTab>(() =>
-  cloud.enabled ? activeTab.value : "connection",
+  visibleTabs.value.includes(activeTab.value) ? activeTab.value : visibleTabs.value[0],
 );
 
 /** Without a session, Files and Invites have nothing to show and no way to get

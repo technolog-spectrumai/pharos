@@ -1,13 +1,13 @@
 # Cloud — one tab, one switch, an audited wire (cloud.md)
 
-Status: **IMPLEMENTED 2026-07-27** — all gates green
-(rakotis 249 vitest · enigma 574 vitest · cargo 140 · Playwright 19 ·
-vue-tsc + vite builds clean). Server contract: the faros repo's
-`for_enigma.md`. Branch `relay`.
+Status: **IMPLEMENTED 2026-07-27**, extended with **named connections +
+capability detection 2026-07-29** (D12/D13). Server contract: the faros repo's
+`for_enigma.md`.
 
 The Cloud tab is the **single home for everything that can talk to the user's
-own faros server**: file storage (moved from Files → Cloud), sealed room
-invites (moved from Contacts), server URL + login (moved from Settings), a
+own toto server** — faros or zenobia, one at a time: file storage (moved from
+Files → Cloud), sealed room invites (moved from Contacts), the saved
+connections and login (moved from Settings), a
 live transport badge, and — above all — the **runtime master switch**. The
 guiding rule: *every Enigma → cloud connection is explicit and conscious*.
 Off by default, off means **zero bytes**, and turning it on walks the user
@@ -142,6 +142,102 @@ through exactly what the server will see first.
     ~20 call sites across non-cloud surfaces that render the raw string, plus a
     duplicate const in `realtime.rs` versus `file_xfer.rs`. De-duplicate that
     first if it is ever revisited.
+- **D12 — Named connections, one active (2026-07-29).** Several saved servers
+  (name + address), **exactly one active**, each keeping its own sign-in. This
+  cost almost nothing structurally because two things were already true: every
+  Rust command takes `server_url` as a parameter, and `cloud:auth` is already
+  scoped by the normalized URL — tokens for N servers coexisted all along, with
+  nothing to enumerate them. So the feature is mostly *how `cloud.serverUrl` is
+  derived*, and every consumer that reads it from the store (beacon ×9,
+  Contacts, the invites panel, the picker, LocalPanel) follows a switch for
+  free.
+  - **The registry is frontend-owned**, exactly as `server_url` was. Rust never
+    parses it: it would only be holding an opaque id it cannot use, and "which
+    connection is active" is UI state, not a security boundary — the real gates
+    (`runtime_enabled`, `ensure_cloud_ready`, the `connect()` re-check) are
+    untouched, so D2 stands verbatim.
+  - **One JSON blob under one fixed key**, `cloud:settings/default/servers`,
+    plus `active_server`. Not one scope per connection — there is no kv
+    key-listing primitive, *and* kv KEYS are stored in plaintext (protasius
+    `enc_kv` seals only the value), so per-connection scopes would write every
+    server address and every user-chosen name to disk in the clear. **Rule: no
+    user-controlled string may ever become a kv `ns` or `scope`.**
+  - `server_url` is **kept as a mirror** of the active entry rather than
+    retired, written by a single private helper, so `getCloudServerUrl()` and
+    any reader missed in the sweep cannot drift from the registry.
+  - **A switch does NOT abort in-flight transfers.** `cloud_set_force_tor(true)`
+    aborts for a *privacy* reason — the route of a live stream changes under it,
+    and a direct transfer must stop exposing the IP. A switch changes neither
+    route nor policy: the bytes still go to the server the user chose when they
+    pressed Upload, and the newly selected server sees nothing. Killing a 2 GB
+    upload because the user glanced at another server is hostile, and it is not
+    what "off means zero bytes" is about. Contamination is handled by *ownership*
+    (below), not by destroying work. Deleting a connection *does* abort its
+    transfers — that one is a policy change the user asked for.
+  - **Cross-connection contamination is the real hazard, not the registry.**
+    Server-side ids are sequential integers, so directory 7 exists on both
+    servers: acting on a row left over from the previous connection deletes a
+    real, unrelated folder. Three guards, all in `stores/cloud.ts`:
+    `dataConnectionId` (every command carrying a server-side id refuses a
+    listing that another connection produced), `transferOwner` (`cloud://done` /
+    `cloud://error` are routed by owner — otherwise server A's 201 fileDict
+    lands in B's listing, and an `unauthorized` from A logs the user out of B),
+    and `switchSeq` (every async completion drops its writes if the active
+    connection moved, so a slow `cloud_status` or `login` cannot write the wrong
+    server's session into the UI). The recipient picker stamps chips with the
+    connection they were validated against — a username is server-relative, and
+    a room ticket is a bearer credential MLS auto-admits, so sealing one to a
+    chip resolved elsewhere would hand the room to a stranger.
+  - **Normalization is FROZEN.** Stripping default ports would collapse
+    `https://localhost:443` and `https://localhost` (the same socket, different
+    kv scopes) — but it would also make every stored `cloud:auth/<old-form>/`
+    token unreadable, a silent logout for everyone and unrecoverable since
+    nothing can enumerate scopes; and any drift between `normalize_scope` (Rust)
+    and `normalizeCloudServerUrl` (TS) is invisible in review while producing a
+    permanent "unauthorized: not logged in" with the token sitting right there.
+    Handled at the *input* instead: duplicate normalized URLs are refused, and
+    `sameCloudServer` (display-only, never a storage key) warns about the
+    same-server-different-spelling pair.
+  - **`force_tor` stays global.** Only one connection is active, so the knob
+    already reads as "route the current connection through Tor"; it is inert for
+    onion and loopback either way.
+- **D13 — Capabilities: ask once, assume present otherwise (2026-07-29).**
+  zenobia (and any vault-only toto host) installs neither `toto.aster` nor
+  `toto.beacon`, so sealed invites and Beacon 404 there while file storage and
+  auth are byte-identical to faros. Two sources, in that order of authority:
+  - `GET /api/apps/` via the new `cloud_apps`. `_FEATURE_APPS` in toto-base now
+    reports `aster`/`beacon` too (2 lines, applied to `toto_libs` and both
+    vendored trees — **not** a re-vendor: faros is on v1.8, portal on v1.16).
+  - **Key-absent is UNKNOWN, not false.** A patched server answers
+    `"aster": false` *as a boolean*; an unpatched one omits the key entirely, so
+    the two are distinguishable and the server change is an **enhancement, never
+    a dependency** — every unpatched faros keeps behaving exactly as today.
+    Only an explicit `false` hides anything.
+  - The fallback is the rule `for_enigma.md` already prescribed: a 404 on a
+    feature's ROOT means the app is absent. The discriminator is that Django
+    answers an unmounted prefix with **HTML** (⇒ `Value::Null`) while every real
+    API 404 carries `{"error": …}` — verified against a live zenobia. Tagged
+    `no_feature:` at five endpoints that address *no object*; deliberately NOT
+    at `rdv_invite_ack` or the beacon deletes, where a 404 means someone else's
+    row and demoting the capability over one stale id would hide the whole card.
+  - **Caps are not persisted.** A cached `false` would hide a feature on a
+    since-upgraded server with no discoverable way back; being briefly
+    optimistic costs one honest 404. Session-lifetime, per connection,
+    refreshed on every login.
+  - **Triggers are narrow, for D6.** A successful login, a switch to a
+    connection that already has a session, and a re-check press — never
+    `init`/`reinit`/knob toggles/app start. `reinit()` runs from six `onMounted`
+    sites (including the Local files and Contacts tabs), so wiring it there
+    would put a request behind opening an unrelated tab. There is a named
+    regression test for exactly this.
+  - Surfaces follow D8: the Invites pill is **hidden** (nothing behind it, and
+    the fix — pick another connection — lives on the Connection sub-tab, which
+    says so), `effectiveTab` now derives from `visibleTabs` so a pinned
+    `?tab=invites` cannot render a pill-less panel, `beaconAvailable` gains one
+    AND term, and Contacts' `rdvAllowed` gains the same. Precedence in the
+    invites panel becomes **knob → airplane → no-aster → login → unreachable**:
+    "sign in above" would point at a control that cannot help on a server with
+    no mailbox.
 
 ## As-built map
 
@@ -154,7 +250,10 @@ through exactly what the server will see first.
 | kv accessors (`getCloudEnabled`, `getCloudForceTor`, …) | `packages/rakotis/src/services/appStorage.ts` |
 | Cloud tab shell (pills, off-state pointer) | `apps/enigma/src/views/EnigmaCloudView.vue` |
 | Master switch + conscious-enable confirm (Settings → Connections) | `apps/enigma/src/components/cloud/CloudEnableCard.vue` |
-| Connection sub-tab card (server URL, login, badge, force-Tor) | `apps/enigma/src/components/cloud/CloudSetupCard.vue` |
+| Connection sub-tab card (active connection, login, badge, force-Tor) | `apps/enigma/src/components/cloud/CloudSetupCard.vue` |
+| Saved-connections list, switch / add / edit / remove (D12) | `apps/enigma/src/components/cloud/{CloudConnectionList,CloudConnectionModal}.vue` |
+| Connection registry + frozen normalizer + `sameCloudServer` | `packages/rakotis/src/services/appStorage.ts` |
+| Capability descriptor + the `no_feature:` fallback (D13) | `apps/enigma/src-tauri/src/cloud.rs` (`cloud_apps`, `is_missing_app`, `expect_2xx_or_missing`), `aster.rs`, `beacon.rs` |
 | Files browser (moved unchanged) | `apps/enigma/src/components/cloud/CloudPanel.vue` |
 | Invites panel (username picker + create-room) | `apps/enigma/src/components/cloud/CloudInvitesPanel.vue` |
 | Recipient chips (typed usernames, resolved one at a time) | `apps/enigma/src/components/cloud/{CloudRecipientPicker.vue,useRecipientPicker.ts}` |
@@ -182,6 +281,7 @@ answer to requests already listed below.
 | `cloud_login` | `POST /telegraph/api/login/` | Login button (plain password, sent once, never stored) |
 | `cloud_logout` | `POST /telegraph/api/logout/` (best-effort; local clear always) | Logout button |
 | `cloud_me` | `GET /telegraph/api/me/` | session validation |
+| `cloud_apps` | `GET /api/apps/` (no auth) | **exactly three presses** (D13): a successful login, a switch to a connection that already has a session, the re-check button. Never a mount, a knob or app start |
 | `cloud_list` | `GET /vault/api/files/` + `GET /vault/api/buckets/` | Refresh (two requests) |
 | `cloud_upload` | `POST /vault/api/files/upload/` (streamed multipart) | Upload button (also Local tab's upload-to-cloud) |
 | `cloud_download` | `GET /vault/api/files/{key}/download/` → 302 → media URL | Download button |
@@ -247,6 +347,31 @@ table above.
 
 ## Accepted limitations
 
+- **kv KEYS are plaintext at rest.** `protasius::enc_kv` seals only the value;
+  `ns\0scope\0key` goes to disk verbatim. So `cloud:auth/<url>/token` already
+  puts the server address in the clear, and anyone with the profile directory
+  but not the passphrase can read the list of servers you have signed in to.
+  This is why the connection registry is one blob under a fixed key (D12) rather
+  than a scope per connection — names and URLs stay inside an encrypted value.
+  Hashing the `cloud:auth` scope would close the remaining leak but would
+  detonate every stored session; not attempted.
+- **One account per server address.** The session is keyed by the normalized
+  URL, so two connections pointing at the same address share one sign-in — the
+  registry refuses that outright. Two *different* spellings of the same server
+  (`https://h` vs `https://h:443`) are two independent sessions to one account;
+  the add/edit form warns, because normalization is frozen (D12).
+- **The registry assumes a single writer.** Two windows editing the connection
+  list would clobber each other's blob. Enigma is single-window and only the
+  Connection sub-tab writes it.
+- **A switch leaves transfers running** (D12, deliberate). Their rows stay
+  visible, labelled with the owning connection, and keep holding the idle lock
+  off — correct, but note `connect()`'s timeout covers establishment only, so a
+  hung stream to a dead server can pin the vault unlocked. Pre-existing.
+- **Removing a connection is the only revocation.** A bearer-only
+  `POST /api/logout/` calls Django's `logout(request)`, which flushes the
+  *cookie* session; bearer auth never populates `request.session`, so the token
+  survives server-side until it expires (~2 weeks). The confirm dialog says so
+  rather than implying the session ends.
 - **`kv_get` passthrough**: the frontend *can* read the `cloud:auth` bearer
   token (`vault.rs::kv_get` has no namespace allowlist), contradicting the
   cloud.rs header's intent — pre-existing flaw, documented here, out of scope.
@@ -325,3 +450,43 @@ table above.
    off → both return.
 9. faros `/aster/devices/` still lists both devices, with the address column
    empty — registration publishes a NodeId and nothing else.
+
+## Manual verification — named connections (D12/D13)
+
+**Port clash first.** Both stacks publish host **8081** (faros
+`127.0.0.1:8081:80`, zenobia `8081:80`), so they cannot run together as shipped
+— and testing a switch needs both live. That port is only nginx's HTTP→HTTPS
+redirect, which Enigma never uses: remap one (`nginx.http_port` in
+`zenobia/deploy/configs/zenobia_data_local.yaml` or
+`faros/deploy/configs/faros_onion_tls.yaml`) and redeploy.
+
+1. faros on `https://localhost:8443`, zenobia on `https://localhost:443`.
+   Account on faros via `/sso/`; zenobia hard-disables self-signup
+   (`SSO_OPEN_REGISTRATION=False`, non-overridable), so provision there with
+   `manage.py createsuperuser`.
+2. Cloud → Connection: the seeded entry is your old `server_url`. Rename it
+   *faros*, **Add connection** → *zenobia*. Sign in to each; switching back and
+   forth keeps both sessions, no password re-typed.
+3. Files on faros: upload / download / mkdir / move / delete. Switch to zenobia
+   — the list empties and refills with zenobia's files, nothing from faros
+   survives. Repeat there.
+4. **Stale-id guard**: with a faros folder listed, switch to zenobia and press
+   Delete on the row still on screen → refused ("that list belongs to another
+   connection"), and zenobia's folder of the same id is untouched. This is the
+   one that would otherwise destroy data — directory ids are sequential, so id 7
+   exists on both.
+5. **Switch mid-upload** → the transfer *keeps running* against faros, its row
+   is labelled *faros*, and nothing appears in zenobia's listing when it lands.
+6. **Capabilities**: with zenobia active the Invites pill is gone and the Map
+   offers no Beacon card; a pinned `?tab=invites` falls back to Files. Switch to
+   faros → both return. Check both paths: before the server patch is deployed
+   the demotion comes from the 404 (zenobia answers `/aster/*` and `/beacon/*`
+   with an **HTML** 404 — verified), after it from
+   `curl -k https://localhost:443/api/apps/` reporting
+   `"aster": false, "beacon": false` while `:8443` reports both `true`.
+7. **Quota**: force a zenobia 402/429 on upload — the server's own message shows
+   on the row *and* in the persistent error slot (it outlives the 6 s row), the
+   session survives, and nothing reads as "unreachable".
+8. **Delete** zenobia while signed in → the confirm states the non-revocation
+   truth, `cloud_logout` runs *before* the entry is dropped, and a neighbour
+   activates. Removing the last connection is refused.

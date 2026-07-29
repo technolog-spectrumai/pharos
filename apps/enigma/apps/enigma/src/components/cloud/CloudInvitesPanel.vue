@@ -54,13 +54,19 @@ const torMode = ref(false);
 // inference from one failed attempt — a cold arti bootstrap can exceed the
 // connect timeout on a healthy server (cloud.md) — so it disables too, but only
 // ever alongside a live Retry, which is the one control it must never gate.
+// "No aster" outranks "signed out": on a server without an invite mailbox,
+// "sign in above" points at a control that cannot possibly help, and the only
+// thing that unblocks the user is picking another connection — so that is what
+// the message says.
 const blockedReason = computed(() =>
   cloud.offline ? t("cloud.blockedOffline")
   : !cloud.enabled ? t("cloud.cloudOffHint")
+  : !cloud.hasAster ? t("cloud.noAsterHere")
   : !cloud.loggedIn ? t("cloud.needsLogin")
   : "");
-/** Nothing behind the controls at all ⇒ swap the panel for a card (cloud.md D8). */
-const showBlockedCard = computed(() => !cloud.enabled || !cloud.loggedIn);
+/** Nothing behind the controls at all ⇒ swap the panel for a card (cloud.md D8).
+ *  Reached by a pinned `?tab=invites` even though the pill is hidden. */
+const showBlockedCard = computed(() => !cloud.enabled || !cloud.hasAster || !cloud.loggedIn);
 /** Temporarily inert ⇒ keep the panel, disable with the reason (house style). */
 const unreachable = computed(() => !showBlockedCard.value && cloud.reachable === false);
 const blocked = computed(() => cloud.offline || unreachable.value);
@@ -115,10 +121,14 @@ async function refreshServerInvites() {
       serverUrl: cloud.serverUrl,
     });
     inboxError.value = false;
-  } catch {
-    // The ticket path is unaffected, but the list must not claim "no invites
-    // waiting" when we simply could not ask — that reads as "nobody invited you".
-    inboxError.value = true;
+  } catch (e) {
+    const msg = typeof e === "string" ? e : ((e as Error)?.message ?? "");
+    // "no_feature: aster" means the server ANSWERED and simply has no mailbox —
+    // `cloud.hasAster` is now false and the blocked card takes over, so showing
+    // "couldn't reach your inbox" here would be the same lie D11 removed.
+    // Anything else: the list must not claim "no invites waiting" when we
+    // simply could not ask — that reads as "nobody invited you".
+    inboxError.value = !msg.startsWith("no_feature");
   } finally {
     serverInvitesBusy.value = false;
   }
@@ -142,6 +152,9 @@ async function dismissServerInvite(inv: ServerInvite) {
 // ── Leave an invite: pick usernames → create a room, or use an existing one ───
 const picker = useRecipientPicker({
   serverUrl: () => cloud.serverUrl,
+  // Usernames are server-relative, so a chip resolved on one connection must
+  // not count as sendable on another (a room ticket is a bearer credential).
+  connectionId: () => cloud.activeId,
   myNodeId: () => myNodeId.value,
   // Same gate as the submits: no point asking the server to validate a name
   // when we already know the call cannot land.
@@ -361,6 +374,25 @@ watch(() => cloud.loggedIn, (on) => { if (on) void registerAndFetch(); });
         </div>
 
         <CloudRecipientPicker :picker="picker" :dark-mode="darkMode" />
+        <!-- Names are server-relative: alice@faros and alice@zenobia are
+             different people, and a ticket is a bearer credential MLS
+             auto-admits. Chips checked elsewhere stop counting as sendable, so
+             say why instead of letting Create-&-invite look inexplicably dead. -->
+        <p
+          v-if="picker.stale.value.length"
+          class="rounded-lg border border-warn-dark/30 bg-warn-dark/10 px-3 py-2 text-xs text-warn-dark"
+          data-testid="invites-stale-recipients"
+        >
+          {{ $t('cloud.staleRecipients') }}
+          <button
+            type="button"
+            class="ml-1 font-semibold underline"
+            data-testid="invites-recheck-recipients"
+            @click="picker.retryErrored()"
+          >
+            {{ $t('cloud.retry') }}
+          </button>
+        </p>
 
         <!-- New room -->
         <div class="space-y-2 border-t border-current/10 pt-3">

@@ -1403,6 +1403,7 @@ pub fn run() {
             cloud::cloud_login,
             cloud::cloud_logout,
             cloud::cloud_me,
+            cloud::cloud_apps,
             cloud::cloud_list,
             cloud::cloud_upload,
             cloud::cloud_download,

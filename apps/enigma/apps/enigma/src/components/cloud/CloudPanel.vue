@@ -33,8 +33,13 @@ const showLogin = ref(false);
 const currentBucketSlug = ref<string | null>(null);
 const currentDirId = ref<number | null>(null);
 
+// Reset on a session change OR a connection change. Watching `loggedIn` alone
+// missed the case that matters most here: switching between two connections
+// that are BOTH signed in never flips it, so the breadcrumb would keep the
+// previous server's directory id — and "New folder" would post it as a parent
+// on the new server, where that id is a real but unrelated directory.
 watch(
-  () => cloud.loggedIn,
+  () => [cloud.loggedIn, cloud.activeId] as const,
   () => {
     currentBucketSlug.value = null;
     currentDirId.value = null;

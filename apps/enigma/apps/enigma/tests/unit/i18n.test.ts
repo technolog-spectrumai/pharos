@@ -102,3 +102,25 @@ describe("catalog", () => {
     expect(i18n.global.t("chat.join")).toBe("Dołącz");
   });
 });
+
+describe("locale key parity", () => {
+  // `fallbackLocale: "en"` means a key missing from pl.ts silently renders the
+  // English string, so an omission is invisible until a Polish speaker hits it.
+  // This walks both trees and reports the exact paths that differ.
+  function paths(obj: unknown, prefix = ""): string[] {
+    if (obj === null || typeof obj !== "object") return [prefix];
+    return Object.entries(obj as Record<string, unknown>).flatMap(([k, v]) =>
+      paths(v, prefix ? `${prefix}.${k}` : k),
+    );
+  }
+
+  it("en and pl define exactly the same keys", async () => {
+    const en = (await import("../../src/i18n/en")).default;
+    const pl = (await import("../../src/i18n/pl")).default;
+    const inEn = new Set(paths(en));
+    const inPl = new Set(paths(pl));
+    const missingFromPl = [...inEn].filter((k) => !inPl.has(k)).sort();
+    const missingFromEn = [...inPl].filter((k) => !inEn.has(k)).sort();
+    expect({ missingFromPl, missingFromEn }).toEqual({ missingFromPl: [], missingFromEn: [] });
+  });
+});

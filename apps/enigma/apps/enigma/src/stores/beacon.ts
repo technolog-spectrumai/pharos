@@ -56,7 +56,13 @@ export const useBeaconStore = defineStore("beacon", () => {
    *  first request through the lazy invoke bridge. Flipping Tor mode re-mounts
    *  the Maps tab, so one write per mount is enough. */
   const torBlocked = ref(false);
-  const beaconAvailable = computed(() => buildAllowsBeacon && !torBlocked.value);
+  // A server without `toto.beacon` (any non-GIS build, and every vault-only host
+  // such as zenobia) 404s the whole prefix — there is nothing behind the card
+  // and no setting that would create it, so it is hidden, like the Tor case.
+  // The two terms are independent: neither subsumes the other.
+  const beaconAvailable = computed(
+    () => buildAllowsBeacon && !torBlocked.value && cloud.hasBeacon,
+  );
 
   function asMessage(e: unknown): string {
     if (typeof e === "string") return e;

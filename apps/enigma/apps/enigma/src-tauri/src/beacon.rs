@@ -107,11 +107,18 @@ fn share_body(geometry: Value, ttl_seconds: u32, comment: &str, name: Option<&st
 
 // ── HTTP plumbing (gates first, then cloud's request path) ───────────────────
 
+/// Reads address no object, so a bare 404 here means the whole `/beacon/`
+/// prefix is unmounted — a server built without `toto.beacon` (any non-GIS
+/// build, and every vault-only host such as zenobia). `for_enigma.md` specifies
+/// exactly this: treat 404 on `GET /beacon/all` as "server has no beacon".
+/// Writes deliberately keep plain `expect_2xx`: `/beacon/zone/{id}/delete`
+/// answers 404 for someone ELSE's share, and demoting the capability over one
+/// stale row would hide the whole card.
 async fn get_json(app: &AppHandle, server_url: &str, path: &str) -> Result<Value, String> {
     ensure_beacon_enabled()?;
     cloud::ensure_cloud_ready(app)?;
     let (status, body) = cloud::request_json(app, server_url, "GET", path, true, None).await?;
-    cloud::expect_2xx(status, &body)?;
+    cloud::expect_2xx_or_missing(status, &body, "beacon")?;
     Ok(body)
 }
 

@@ -3,29 +3,21 @@
 // tab is the single home for everything server-related), login state, the live
 // transport badge, and the "route through Tor" knob. Only rendered when the
 // master switch is on (EnigmaCloudView gates it).
-import { onMounted, ref, computed } from "vue";
-import { OyaCard, OyaIconButton, CLOUD_SERVER_URL_DEFAULT, getCloudServerUrl } from "rakotis";
+import { ref, computed } from "vue";
+import { OyaCard, OyaIconButton } from "rakotis";
 import { useCloudStore } from "../../stores/cloud";
 import CloudLoginModal from "./CloudLoginModal.vue";
+import CloudConnectionList from "./CloudConnectionList.vue";
 
 defineProps<{ darkMode?: boolean }>();
 
 const cloud = useCloudStore();
 const showLogin = ref(false);
 
-// ── Server URL (EnigmaConfigView's old card, verbatim behavior) ───────────────
-const cloudServerUrl = ref("");
-const cloudServerSaved = ref(false);
-async function saveCloudServer() {
-  // setServerUrl persists the normalized URL (trim, no trailing slash; empty →
-  // default) and re-runs the local session check for that server.
-  cloudServerUrl.value = await cloud.setServerUrl(cloudServerUrl.value);
-  cloudServerSaved.value = true;
-  setTimeout(() => { cloudServerSaved.value = false; }, 1500);
-}
-onMounted(async () => {
-  cloudServerUrl.value = await getCloudServerUrl();
-});
+// The single server-URL input moved into CloudConnectionList: the address is now
+// a property of a named connection rather than a global setting. Everything
+// below still applies to whichever connection is active, and says so.
+const activeName = computed(() => cloud.activeServer?.name ?? "");
 
 async function doLogout() {
   await cloud.logout();
@@ -64,29 +56,20 @@ async function toggleForceTor() {
 </script>
 
 <template>
-  <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-    <!-- Server URL -->
+  <div class="space-y-4">
+    <!-- Saved connections: pick one, add, edit, remove. -->
+    <CloudConnectionList :dark-mode="darkMode" />
+
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+    <!-- Everything below belongs to the ACTIVE connection — named, so there is
+         never a doubt which server Log in targets. -->
     <div class="flex items-center gap-3">
       <font-awesome-icon icon="server" class="shrink-0 opacity-60" />
       <div class="min-w-0 flex-1">
-        <p class="text-sm font-semibold">{{ $t('cloud.serverUrl') }}</p>
-        <p class="text-xs opacity-60">{{ $t('cloud.serverUrlHint') }}</p>
+        <p class="truncate text-sm font-semibold" data-testid="cloud-active-name">{{ activeName }}</p>
+        <p class="truncate text-xs opacity-60" data-testid="cloud-server-url">{{ cloud.serverUrl }}</p>
       </div>
     </div>
-    <div class="flex items-center gap-2">
-      <input
-        v-model="cloudServerUrl"
-        type="text"
-        :placeholder="CLOUD_SERVER_URL_DEFAULT"
-        class="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm"
-        :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-        data-testid="cloud-server-url"
-        @change="saveCloudServer"
-        @keyup.enter="saveCloudServer"
-      />
-      <span v-if="cloudServerSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-    </div>
-    <p class="text-xs opacity-50">{{ $t('cloud.serverUrlDefault', { url: CLOUD_SERVER_URL_DEFAULT }) }}</p>
 
     <!-- Login state -->
     <div class="flex items-center gap-2 border-t border-current/10 pt-3">
@@ -171,5 +154,6 @@ async function toggleForceTor() {
     </div>
 
     <CloudLoginModal v-model:open="showLogin" />
-  </OyaCard>
+    </OyaCard>
+  </div>
 </template>

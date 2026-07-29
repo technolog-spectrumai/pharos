@@ -105,3 +105,49 @@ describe("EnigmaCloudView", () => {
     expect(wrapper.find("cloud-panel-stub").exists()).toBe(false);
   });
 });
+
+describe("EnigmaCloudView — server capabilities", () => {
+  // A server without `toto.aster` (zenobia, and any vault-only toto host) has no
+  // invite mailbox and no setting that would create one, so the pill is hidden
+  // rather than disabled (cloud.md D8). Capabilities are optimistic until
+  // learned, so an unpatched server keeps behaving exactly as before.
+  const VAULT_ONLY = { vault: true, aster: false, beacon: false };
+
+  it("shows the Invites pill while capabilities are unknown", async () => {
+    const cloud = useCloudStore();
+    await cloud.setEnabled(true);
+    const wrapper = mount(EnigmaCloudView, { global: GLOBAL() });
+    await flushPromises();
+    expect(cloud.caps).toBeNull();
+    expect(wrapper.find('[data-testid="cloud-tab-invites"]').exists()).toBe(true);
+  });
+
+  it("hides the Invites pill once the server says it has no aster", async () => {
+    const cloud = useCloudStore();
+    await cloud.setEnabled(true);
+    const wrapper = mount(EnigmaCloudView, { global: GLOBAL() });
+    await flushPromises();
+    cloud.caps = VAULT_ONLY;
+    await flushPromises();
+    expect(wrapper.find('[data-testid="cloud-tab-invites"]').exists()).toBe(false);
+    // Files and Connection remain — only the dead end went.
+    expect(wrapper.find('[data-testid="cloud-tab-files"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-tab-connection"]').exists()).toBe(true);
+  });
+
+  it("a pinned Invites selection falls back instead of rendering a pill-less panel", async () => {
+    const cloud = useCloudStore();
+    await cloud.setEnabled(true);
+    routeQuery.tab = "invites";
+    const wrapper = mount(EnigmaCloudView, { global: GLOBAL() });
+    await flushPromises();
+    expect(wrapper.find("cloud-invites-panel-stub").exists()).toBe(true);
+    // The server turns out to have no invite mailbox: the pinned selection must
+    // not survive, or the panel renders with no pill highlighted.
+    cloud.caps = VAULT_ONLY;
+    await flushPromises();
+    expect(wrapper.find('[data-testid="cloud-tab-invites"]').exists()).toBe(false);
+    expect(wrapper.find("cloud-invites-panel-stub").exists()).toBe(false);
+    expect(wrapper.find("cloud-panel-stub").exists()).toBe(true);
+  });
+});

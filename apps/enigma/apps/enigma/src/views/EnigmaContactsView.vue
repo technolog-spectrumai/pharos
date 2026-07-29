@@ -208,7 +208,10 @@ const cloudStore = useCloudStore();
 const rdvBuildAllowed = getBuildConfig().cloud_allow_connections;
 // Full gate: also requires the Cloud tab's runtime master switch (cloud.md) —
 // with it off, Rust refuses aster calls, so the search hides rather than lies.
-const rdvAllowed = computed(() => rdvBuildAllowed && cloudStore.enabled);
+// `hasAster` is optimistic until learned, so a server that has the directory
+// keeps behaving exactly as before; a vault-only one hides the control instead
+// of answering a search with a bare "server error (HTTP 404)".
+const rdvAllowed = computed(() => rdvBuildAllowed && cloudStore.enabled && cloudStore.hasAster);
 const serverResults = ref<NickClaim[]>([]);
 const serverSearching = ref(false);
 const serverSearched = ref(false);
@@ -220,7 +223,11 @@ async function findOnServer() {
   serverSearched.value = false;
   serverError.value = "";
   try {
-    const ids = await invoke<string[]>("aster_resolve", {
+    // Through the store's funnel, not a raw invoke: this is the one networked
+    // control here that the user drives, so it is where a "no_feature: aster"
+    // (or a reachability verdict) is actually observable — a raw invoke would
+    // learn the server has no directory and tell nobody.
+    const ids = await cloudStore.call<string[]>("aster_resolve", {
       serverUrl: cloudStore.serverUrl,
       username,
     });

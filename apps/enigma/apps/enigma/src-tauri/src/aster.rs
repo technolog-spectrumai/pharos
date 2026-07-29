@@ -70,10 +70,14 @@ async fn register_device(
     node_id: &str,
 ) -> Result<(), String> {
     let body = json!({ "node_id": node_id, "kind": KIND_GOSSIP });
-    let (status, _) =
+    let (status, resp) =
         crate::cloud::request_json(app, server, "POST", "/aster/device", true, Some(body)).await?;
     if ok_status(status) {
         Ok(())
+    } else if crate::cloud::is_missing_app(status, &resp) {
+        // The whole `/aster/` prefix is unmounted — a vault-only server has no
+        // device directory at all, which is a capability answer, not a failure.
+        Err(format!("{}: aster", crate::cloud::NO_FEATURE))
     } else {
         Err(format!("aster device register failed: {status}"))
     }
@@ -107,7 +111,9 @@ async fn resolve_user(
     );
     let (status, body) =
         crate::cloud::request_json(app, server_url, "GET", &path, true, None).await?;
-    crate::cloud::expect_2xx(status, &body)?;
+    // Addresses no object: a bare 404 means this server has no directory at all.
+    // (An unknown username is a 200 with an empty list, never a 404.)
+    crate::cloud::expect_2xx_or_missing(status, &body, "aster")?;
     Ok(parse_node_ids(&body))
 }
 
@@ -452,7 +458,10 @@ pub async fn rdv_invite_fetch(
     let me = identity(&app)?;
     let (status, body) =
         crate::cloud::request_json(&app, &server_url, "GET", "/aster/invites", true, None).await?;
-    crate::cloud::expect_2xx(status, &body)?;
+    // The inbox addresses no object, so a bare 404 is "no invite mailbox on this
+    // server" — which the panel must say plainly instead of "couldn't reach your
+    // inbox", a lie when the server answered perfectly.
+    crate::cloud::expect_2xx_or_missing(status, &body, "aster")?;
 
     let now = now_unix();
     let mut out = Vec::new();

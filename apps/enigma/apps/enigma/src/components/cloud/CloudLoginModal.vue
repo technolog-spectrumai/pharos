@@ -19,6 +19,9 @@ const username = ref("");
 const password = ref("");
 const busy = ref(false);
 const error = ref("");
+/** Which connection the form was opened for. With several saved servers the
+ *  password must not follow a switch made while the modal was open. */
+const openedFor = ref("");
 
 // Fresh form every time the modal opens.
 watch(
@@ -29,6 +32,7 @@ watch(
     password.value = "";
     busy.value = false;
     error.value = "";
+    openedFor.value = cloud.activeId;
   },
 );
 
@@ -43,6 +47,12 @@ async function submit() {
   const user = username.value.trim();
   if (!user || !password.value) {
     error.value = t("cloud.credentialsRequired");
+    return;
+  }
+  // The active connection moved under the open form — sending now would post
+  // one server's credentials to another.
+  if (openedFor.value && openedFor.value !== cloud.activeId) {
+    error.value = t("cloud.loginConnectionChanged");
     return;
   }
   busy.value = true;
@@ -63,6 +73,11 @@ async function submit() {
       <p class="flex items-center gap-2 text-lg font-bold">
         <font-awesome-icon icon="cloud" />
         {{ $t('cloud.loginTitle') }}
+      </p>
+      <!-- Which server these credentials go to. With several saved connections
+           a bare username/password form gives the user no way to tell. -->
+      <p class="truncate text-xs opacity-60" data-testid="cloud-login-target">
+        {{ cloud.activeServer?.name }} · {{ cloud.serverUrl }}
       </p>
       <OyaTextField
         v-model="username"

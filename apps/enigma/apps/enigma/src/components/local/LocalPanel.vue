@@ -183,10 +183,16 @@ async function onRotated(res: LockedFileResult) {
 // ── upload to Cloud (ciphertext uploaded as-is) ──────────────────────────────────
 const showLogin = ref(false);
 const pendingUpload = ref<string | null>(null);
+const pendingUploadConn = ref("");
 
 async function uploadToCloud(rec: LockedFileRecord) {
   if (!cloud.loggedIn) {
     pendingUpload.value = rec.path; // resume after login
+    // Which connection the user was looking at when they asked. `loggedIn`
+    // also flips true when a DIFFERENT connection is switched to, so without
+    // this the queued locked file would be uploaded to a server the user never
+    // picked for it.
+    pendingUploadConn.value = cloud.activeId;
     showLogin.value = true;
     return;
   }
@@ -197,11 +203,15 @@ async function uploadToCloud(rec: LockedFileRecord) {
 watch(
   () => cloud.loggedIn,
   (v) => {
-    if (v && pendingUpload.value) {
-      const p = pendingUpload.value;
-      pendingUpload.value = null;
-      void cloud.upload(p);
-    }
+    if (!v || !pendingUpload.value) return;
+    const p = pendingUpload.value;
+    const conn = pendingUploadConn.value;
+    pendingUpload.value = null;
+    pendingUploadConn.value = "";
+    // A switch, not a sign-in on the connection that was asked for: drop it
+    // rather than send the file somewhere else.
+    if (conn !== cloud.activeId) return;
+    void cloud.upload(p);
   },
 );
 
