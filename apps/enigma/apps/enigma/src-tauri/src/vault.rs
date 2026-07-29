@@ -349,10 +349,15 @@ pub async fn lock_watchdog(app: AppHandle) {
         }
         // A minimized webview may throttle its timers hard enough to starve the
         // heartbeat mid-call or mid-transfer, and the fallback must never hang up
-        // a call the user is actually on — treat the Rust-visible busy states as
-        // presence. (The JS heartbeat stays the primary signal; states only the
-        // frontend can see are its job to report.)
-        if crate::vox::in_call(&app) || crate::cloud::transfers_active(&app) {
+        // a call or cut a transfer the user is waiting on — treat every busy state
+        // Rust can see as presence, mirroring App.vue's `isBusy`. (The JS
+        // heartbeat stays the primary signal; states only the frontend can see —
+        // an offer still awaiting accept, a queued sync batch — are its job to
+        // report.) `file_xfer` covers chat files, map regions and device sync.
+        if crate::vox::in_call(&app)
+            || crate::cloud::transfers_active(&app)
+            || crate::file_xfer::transfers_active()
+        {
             activity.0.store(now_ms(), Ordering::Relaxed);
             continue;
         }

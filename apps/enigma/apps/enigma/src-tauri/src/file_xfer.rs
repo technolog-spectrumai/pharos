@@ -72,6 +72,34 @@ fn check_network_policy(app: &AppHandle, config: &State<'_, AppConfigState>) -> 
 #[derive(Default)]
 pub struct FileXferState(pub Mutex<Option<FileNode>>);
 
+/// Transfers currently moving bytes, in either direction. The lock watchdog
+/// (vault.rs) reads this as presence: a frozen webview sends no heartbeats, and
+/// the fallback must not cut a transfer that is still running. Chat files, map
+/// regions and Files → Devices sync all ride this path, so counting it here
+/// covers every one of them.
+static ACTIVE_TRANSFERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts a transfer for as long as it lives — Drop runs however it ends
+/// (finished, errored, or aborted when `shutdown` closes the endpoint).
+struct TransferGuard;
+
+impl TransferGuard {
+    fn new() -> Self {
+        ACTIVE_TRANSFERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for TransferGuard {
+    fn drop(&mut self) {
+        ACTIVE_TRANSFERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+pub fn transfers_active() -> bool {
+    ACTIVE_TRANSFERS.load(std::sync::atomic::Ordering::Relaxed) > 0
+}
+
 pub struct FileNode {
     endpoint: Endpoint,
     _router: Router,
@@ -252,6 +280,7 @@ impl ProtocolHandler for FileProtocol {
 
 impl FileShared {
     async fn serve(self, conn: Connection) -> Result<()> {
+        let _active = TransferGuard::new();
         let (mut send, mut recv) = conn.accept_bi().await?;
         let req: Request = read_frame(&mut recv).await?;
 
@@ -300,6 +329,7 @@ async fn download(
     offer_id: String,
     dest: String,
 ) -> Result<()> {
+    let _active = TransferGuard::new();
     let conn = endpoint.connect(addr, FILE_ALPN).await?;
     let (mut send, mut recv) = conn.open_bi().await?;
     write_frame(&mut send, &Request { offer_id: offer_id.clone() }).await?;

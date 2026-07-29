@@ -174,11 +174,27 @@ export function useIdleLock(opts: IdleWatcherOptions): IdleLockHandle {
   }
 
   let timer: ReturnType<typeof setInterval> | null = null;
+  let period = 0;
   const startTimer = (timeoutMs: number) => {
     if (timer !== null) clearInterval(timer);
     timer = null;
+    period = 0;
     if (timeoutMs <= 0) return;
-    timer = setInterval(() => watcher.tick(), Math.max(1_000, Math.min(MAX_TICK_MS, timeoutMs / 4)));
+    // Inside the warning window, tick every second instead: the countdown is on
+    // screen, so a coarse tick would freeze it on its last number for seconds
+    // and land the lock itself that far past the user's deadline.
+    const base = Math.max(1_000, Math.min(MAX_TICK_MS, timeoutMs / 4));
+    const run = () => {
+      watcher.tick();
+      const want = watcher.warned ? Math.min(1_000, base) : base;
+      if (want !== period) {
+        period = want;
+        if (timer !== null) clearInterval(timer);
+        timer = setInterval(run, want);
+      }
+    };
+    period = base;
+    timer = setInterval(run, base);
   };
   startTimer(opts.timeoutMs);
 
@@ -313,6 +329,11 @@ export function useHideLock(opts: {
     }
   };
   document.addEventListener("visibilitychange", onVisibility);
+  // Sample the current state too: nothing fires an event for a window that is
+  // ALREADY hidden when the watcher starts (minimize during the unlock's key
+  // derivation, say), and without this it would stay unhidden until the next
+  // hide — the exposure the setting exists to prevent.
+  onVisibility();
 
   const handle: HideLockHandle = {
     setEnabled(on: boolean) {

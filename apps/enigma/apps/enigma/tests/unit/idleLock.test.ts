@@ -1,5 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
-import { createIdleWatcher, createHideWatcher } from "../../src/idleLock";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  createIdleWatcher,
+  createHideWatcher,
+  useIdleLock,
+  useHideLock,
+} from "../../src/idleLock";
 
 // The watcher is deliberately clock-injected and tick-driven: it compares wall
 // clock timestamps rather than trusting a timer to fire, so a suspended machine
@@ -365,5 +370,64 @@ describe("idleLock — createHideWatcher", () => {
       h.watcher.tick();
     }
     expect(h.onLock).not.toHaveBeenCalled();
+  });
+});
+
+// ── DOM layer ────────────────────────────────────────────────────────────────
+// The two layers above are pure; these cover what only the DOM wiring can get
+// wrong — the timers' cadence and reading the document's starting visibility.
+
+describe("idleLock — DOM layer", () => {
+  const stops: Array<() => void> = [];
+  let hidden = false;
+
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    get: () => hidden,
+  });
+
+  afterEach(() => {
+    while (stops.length) stops.pop()!();
+    hidden = false;
+    vi.useRealTimers();
+  });
+
+  it("tightens the tick inside the warning window so the lock lands on time", () => {
+    vi.useFakeTimers();
+    const onLock = vi.fn();
+    // Base tick is 10s and the deadline is not a multiple of it: a coarse tick
+    // would only notice at 70s, five seconds past the user's 65s.
+    const handle = useIdleLock({ timeoutMs: 65_000, onLock, onWarn: vi.fn() });
+    stops.push(() => handle.stop());
+
+    vi.advanceTimersByTime(64_500);
+    expect(onLock).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1_000);
+    expect(onLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks a window that was already hidden when the watcher started", () => {
+    vi.useFakeTimers();
+    hidden = true; // minimized during the unlock's key derivation
+    const onLock = vi.fn();
+    const handle = useHideLock({ enabled: true, onLock });
+    stops.push(() => handle.stop());
+
+    vi.advanceTimersByTime(29_000);
+    expect(onLock).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(6_000); // past the 30s grace, on the 5s tick
+    expect(onLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a visible window never starts the hide grace", () => {
+    vi.useFakeTimers();
+    const onLock = vi.fn();
+    const handle = useHideLock({ enabled: true, onLock });
+    stops.push(() => handle.stop());
+
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(onLock).not.toHaveBeenCalled();
   });
 });

@@ -913,7 +913,7 @@ export default {
     tooShort: "Hasło musi mieć co najmniej {n} znaków.",
     mismatch: "Hasła nie są zgodne.",
     lockSoonTitle: "Zaraz nastąpi blokada",
-    lockSoonBody: "Blokada za {s} s — porusz myszą lub naciśnij klawisz, aby pozostać odblokowanym.",
+    lockSoonBody: "Blokada za {s} s — porusz myszą lub naciśnij klawisz, aby jej zapobiec.",
     lockSoonStay: "Nie blokuj",
     resetTitle: "Zmień hasło",
     reset: "Zmień hasło",
