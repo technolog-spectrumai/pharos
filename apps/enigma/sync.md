@@ -289,3 +289,4 @@ Modified: `apps/enigma/src-tauri/{build_config.yaml, build.rs, src/lib.rs}`,
 `apps/enigma/src/{views/EnigmaConfigView.vue, stores/chat.ts, main.ts, i18n/en.ts, i18n/pl.ts}`,
 `apps/enigma/src/components/calendar/PollFormModal.vue` (drive-by fix),
 `technology.md` (§14/§15/§16), `build.md`.
+
