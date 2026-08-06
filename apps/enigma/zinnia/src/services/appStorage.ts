@@ -124,6 +124,10 @@ export interface BuildConfig {
   idle_lock_mins: SettingClamp;
   /** Peer sync: seconds between a live link's hello + diff pull. */
   peer_resync_secs: SettingClamp;
+  /** P2P/cloud transfer chunk, KiB — the "file chunk size" setting's bounds. */
+  file_chunk_kib: SettingClamp;
+  /** Seed for the per-chunk integrity check toggle on a new profile. */
+  file_integrity_default: boolean;
 }
 
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
@@ -155,6 +159,8 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
   peer_resync_secs: { default: 300, min: 30, max: 3600 },
+  file_chunk_kib: { default: 256, min: 16, max: 4096 },
+  file_integrity_default: true,
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -1248,6 +1254,41 @@ export async function keyringChangePassphrase(old: string, next: string): Promis
 export async function keyringRotate(old: string, next: string): Promise<KeyringFileOutcome[]> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
   return invoke<KeyringFileOutcome[]>("keyring_rotate", { old, new: next });
+}
+
+// ── File transfer: chunk size + integrity check ───────────────────────────────
+// Both are DEVICE-LOCAL tuning knobs, deliberately absent from DEVLINK_SYNC_KV
+// (the connect-timeout / idle-lock category). The sending device's values
+// govern a transfer; the receiver learns the chunk size from the wire header.
+
+function clampFileChunkKib(v: number): number {
+  const c = getBuildConfig().file_chunk_kib;
+  if (!Number.isFinite(v)) return c.default;
+  return Math.min(c.max, Math.max(c.min, Math.round(v)));
+}
+
+export async function getFileChunkKib(): Promise<number> {
+  const raw = await kvGet("p2p:settings", "default", "file_chunk_kib");
+  if (raw === null || raw === "") return getBuildConfig().file_chunk_kib.default;
+  return clampFileChunkKib(Number(raw));
+}
+
+export async function setFileChunkKib(kib: number): Promise<number> {
+  const v = clampFileChunkKib(kib);
+  await kvPut("p2p:settings", "default", "file_chunk_kib", String(v)).catch(() => {});
+  return v;
+}
+
+/** Per-chunk hash-chain verification. Either side enabling it enforces it. */
+export async function getFileIntegrity(): Promise<boolean> {
+  const raw = await kvGet("p2p:settings", "default", "file_integrity");
+  if (raw === "on") return true;
+  if (raw === "off") return false;
+  return getBuildConfig().file_integrity_default;
+}
+
+export async function setFileIntegrity(on: boolean): Promise<void> {
+  await kvPut("p2p:settings", "default", "file_integrity", on ? "on" : "off").catch(() => {});
 }
 
 // ── Local notes (editing local text files) ────────────────────────────────────
