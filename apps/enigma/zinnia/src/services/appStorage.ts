@@ -1015,6 +1015,44 @@ export async function vaultChangePassphrase(current: string, next: string): Prom
   if (isTauri()) await invoke("vault_change_passphrase", { current, new: next });
 }
 
+/** PIN unlock status. Safe while the vault is LOCKED — the gate calls it to
+ *  decide whether to draw a keypad or the passphrase field. */
+export interface PinStatus {
+  enrolled: boolean;
+  digits: number;
+  attemptsLeft: number;
+}
+
+export async function vaultPinStatus(): Promise<PinStatus> {
+  if (!isTauri()) return { enrolled: false, digits: 6, attemptsLeft: 5 };
+  return invoke<PinStatus>("vault_pin_status");
+}
+
+/** Enrol a PIN for THIS session. Needs the passphrase: the PIN seals a copy of
+ *  it, so knowledge must be proven first. A panic PIN may be enrolled with it,
+ *  and must differ from the PIN in at least two digits. */
+export async function vaultPinEnroll(
+  passphrase: string,
+  pin: string,
+  panicPin?: string,
+  panicCode?: string,
+): Promise<void> {
+  if (!isTauri()) throw new Error("PIN unlock is only available in the desktop app.");
+  await invoke("vault_pin_enroll", { passphrase, pin, panicPin, panicCode });
+}
+
+/** Re-open the session with the PIN. Exhausting the attempts drops the PIN and
+ *  the passphrase is required again — nothing is wiped. */
+export async function vaultPinUnlock(pin: string): Promise<void> {
+  if (!isTauri()) throw new Error("PIN unlock is only available in the desktop app.");
+  await invoke("vault_pin_unlock", { pin });
+}
+
+export async function vaultPinClear(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("vault_pin_clear");
+}
+
 export async function vaultWipe(): Promise<void> {
   if (isTauri()) await invoke("vault_wipe");
 }
