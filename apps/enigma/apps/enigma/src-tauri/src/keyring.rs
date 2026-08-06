@@ -129,6 +129,12 @@ struct RingEntry {
     /// serialized into the sealed payload.
     #[serde(rename = "dekHex")]
     dek_hex: String,
+    /// Present only inside a rotation window: the pre-rotation DEK, kept until
+    /// the file on disk is confirmed re-sealed. Lets a crash mid-rotate strand
+    /// nothing — whichever DEK the file was actually sealed with still opens
+    /// it (see `entry_open`). Dropped by the final rewrite.
+    #[serde(rename = "oldDekHex", default, skip_serializing_if = "Option::is_none")]
+    old_dek_hex: Option<String>,
     /// Original path (without `.enigr`).
     path: String,
     name: String,
@@ -372,6 +378,7 @@ fn lock_at(ring: &Path, passphrase: &str, paths: &[String]) -> Result<Vec<Keyrin
             entry_id.clone(),
             RingEntry {
                 dek_hex: data_encoding::HEXLOWER.encode(&random_bytes32()),
+                old_dek_hex: None,
                 path: path.clone(),
                 name: file_name(path),
                 size: plain.len() as u64,
@@ -432,9 +439,7 @@ fn unlock_at(
             let (entry_id, sealed) = parse_file_frame(&bytes)?;
             let entry =
                 table.entries.get(&entry_id).ok_or_else(|| "no ring entry for this file".to_string())?;
-            let file_dek = dek_from_hex(&entry.dek_hex)?;
-            let plain = open(&file_dek, FILE_AAD, sealed)
-                .map_err(|_| "corrupt file (or a key from a different ring)".to_string())?;
+            let plain = entry_open(entry, sealed)?;
             // Restore next to the locked file (the user may have moved it);
             // fall back to the recorded original path.
             let dest = path
@@ -496,6 +501,116 @@ fn entries_at(ring: &Path, passphrase: &str) -> Result<Vec<KeyringEntryInfo>, St
 /// Re-wrap the ring key under `new` (gervasius `rewrap`: fresh salt, same
 /// key), leaving the sealed entry table byte-identical — every locked file
 /// stays openable and no file is re-encrypted.
+/// Open a sealed file payload with the entry's DEK, falling back to the
+/// rotation-window DEK when one is present (the file may not have been
+/// re-sealed yet when the rotate was interrupted).
+fn entry_open(entry: &RingEntry, sealed: &[u8]) -> Result<Vec<u8>, String> {
+    let dek = dek_from_hex(&entry.dek_hex)?;
+    if let Ok(plain) = open(&dek, FILE_AAD, sealed) {
+        return Ok(plain);
+    }
+    if let Some(old_hex) = &entry.old_dek_hex {
+        let old_dek = dek_from_hex(old_hex)?;
+        if let Ok(plain) = open(&old_dek, FILE_AAD, sealed) {
+            return Ok(plain);
+        }
+    }
+    Err("corrupt file (or a key from a different ring)".to_string())
+}
+
+/// Full rotation: fresh ring key material under the NEW passphrase and a fresh
+/// DEK for every locked file, which is re-sealed on disk. Crash-safe by
+/// carrying both DEKs through the window:
+///   1. the ring is rewritten first — new passphrase, new DEKs, old DEKs kept
+///      as `old_dek_hex` fallbacks (files on disk still carry the old seal);
+///   2. each present file is unsealed (fallback-aware) and re-sealed in place
+///      under its new DEK;
+///   3. the fallbacks are dropped in one final rewrite.
+/// An interruption anywhere leaves every file openable: the ring knows both
+/// keys until the file's re-seal is confirmed. Files missing from disk keep
+/// their old DEK verbatim (re-sealing bytes we cannot read is impossible) and
+/// report "missing".
+fn rotate_at(ring: &Path, old: &str, new: &str) -> Result<Vec<KeyringFileOutcome>, String> {
+    let (_, _, table) = read_ring(ring, old)?; // verifies the old passphrase
+
+    // Fresh vault: new salt, new KDF run, new ring DEK — under the new passphrase.
+    let (vault, ring_dek) =
+        create_vault_with_params(new, crate::kdf_params()).map_err(crypto_err)?;
+    let header = RingHeader { vault, entry_count: table.entries.len() as u32 };
+
+    // Phase 1: new DEKs for every entry whose file is on disk, old DEK kept as
+    // the fallback. Persisted BEFORE any file changes.
+    let mut next = RingTable::default();
+    let mut missing: Vec<String> = Vec::new();
+    for (id, entry) in &table.entries {
+        let locked = locked_path_for(&entry.path);
+        let on_disk = Path::new(&locked).is_file();
+        let mut rotated = entry.clone();
+        if on_disk {
+            rotated.old_dek_hex = Some(rotated.dek_hex.clone());
+            rotated.dek_hex = data_encoding::HEXLOWER.encode(&random_bytes32());
+        } else {
+            missing.push(entry.path.clone());
+        }
+        next.entries.insert(id.clone(), rotated);
+    }
+    write_ring(ring, &header, &ring_dek, &next)?;
+
+    // Phase 2: re-seal each present file under its new DEK.
+    let mut outcomes: Vec<KeyringFileOutcome> = missing
+        .iter()
+        .map(|path| KeyringFileOutcome {
+            path: path.clone(),
+            status: "missing".into(),
+            new_path: None,
+            error: None,
+        })
+        .collect();
+    let ids: Vec<String> = next.entries.keys().cloned().collect();
+    for id in ids {
+        let entry = next.entries[&id].clone();
+        let Some(old_hex) = entry.old_dek_hex.clone() else { continue };
+        let locked = locked_path_for(&entry.path);
+        let result = (|| -> Result<(), String> {
+            let bytes = std::fs::read(&locked).map_err(|e| e.to_string())?;
+            let (frame_id, sealed) = parse_file_frame(&bytes)?;
+            if frame_id != id {
+                return Err("file belongs to a different ring entry".to_string());
+            }
+            let old_dek = dek_from_hex(&old_hex)?;
+            let plain = open(&old_dek, FILE_AAD, sealed)
+                .map_err(|_| "corrupt file (or a key from a different ring)".to_string())?;
+            let new_dek = dek_from_hex(&entry.dek_hex)?;
+            let resealed = seal(&new_dek, FILE_AAD, &plain).map_err(crypto_err)?;
+            write_fsync_rename(Path::new(&locked), &build_file_frame(&id, &resealed)?)
+        })();
+        match result {
+            Ok(()) => {
+                // Re-seal confirmed on disk — the fallback has done its job.
+                next.entries.get_mut(&id).unwrap().old_dek_hex = None;
+                outcomes.push(KeyringFileOutcome {
+                    path: entry.path.clone(),
+                    status: "rotated".into(),
+                    new_path: Some(locked),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                // The file was never re-sealed: keep the OLD DEK as primary so
+                // the entry matches what is actually on disk, no fallback left.
+                let slot = next.entries.get_mut(&id).unwrap();
+                slot.dek_hex = old_hex;
+                slot.old_dek_hex = None;
+                outcomes.push(failed(&entry.path, e));
+            }
+        }
+    }
+
+    // Phase 3: drop the fallbacks (and any failure reverts) in one rewrite.
+    write_ring(ring, &header, &ring_dek, &next)?;
+    Ok(outcomes)
+}
+
 fn change_passphrase_at(ring: &Path, old: &str, new: &str) -> Result<(), String> {
     let bytes = std::fs::read(ring).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => "no key ring exists yet".to_string(),
@@ -572,9 +687,93 @@ pub fn keyring_change_passphrase(app: AppHandle, old: String, new: String) -> Re
     change_passphrase_at(&ring_path(&app)?, &old, &new)
 }
 
+/// Rotate the whole ring: new passphrase, new ring key material, and a fresh
+/// DEK for every locked file (re-sealed on disk). `keyring_change_passphrase`
+/// only re-wraps; this one assumes the old keys may be burnt.
+#[tauri::command]
+pub fn keyring_rotate(
+    app: AppHandle,
+    old: String,
+    new: String,
+) -> Result<Vec<KeyringFileOutcome>, String> {
+    ensure_keyring_enabled()?;
+    rotate_at(&ring_path(&app)?, &old, &new)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotate_rekeys_files_and_passphrase() {
+        let dir = tmp_dir("rotate");
+        let ring = dir.join(RING_FILE);
+        init_at(&ring, "old-pass").unwrap();
+
+        let a = dir.join("a.txt");
+        std::fs::write(&a, b"alpha").unwrap();
+        let outcomes = lock_at(&ring, "old-pass", &[a.display().to_string()]).unwrap();
+        assert_eq!(outcomes[0].status, "locked");
+        let locked = outcomes[0].new_path.clone().unwrap();
+        let sealed_before = std::fs::read(&locked).unwrap();
+
+        let rotated = rotate_at(&ring, "old-pass", "new-pass").unwrap();
+        assert_eq!(rotated.len(), 1);
+        assert_eq!(rotated[0].status, "rotated");
+
+        // The bytes on disk changed (new DEK), the old passphrase is dead, and
+        // the new one opens the file back to its plaintext.
+        assert_ne!(std::fs::read(&locked).unwrap(), sealed_before);
+        assert!(read_ring(&ring, "old-pass").is_err());
+        let unlocked = unlock_at(&ring, "new-pass", &[locked]).unwrap();
+        assert_eq!(unlocked[0].status, "unlocked");
+        assert_eq!(std::fs::read(&a).unwrap(), b"alpha");
+
+        // No rotation-window fallbacks survive.
+        let (_, _, table) = read_ring(&ring, "new-pass").unwrap();
+        assert!(table.entries.values().all(|e| e.old_dek_hex.is_none()));
+    }
+
+    #[test]
+    fn rotate_keeps_a_missing_files_old_dek() {
+        let dir = tmp_dir("rotate_missing");
+        let ring = dir.join(RING_FILE);
+        init_at(&ring, "p1").unwrap();
+
+        let a = dir.join("gone.txt");
+        std::fs::write(&a, b"data").unwrap();
+        let outcomes = lock_at(&ring, "p1", &[a.display().to_string()]).unwrap();
+        let locked = outcomes[0].new_path.clone().unwrap();
+        // Simulate the user moving the sealed file away before rotating.
+        let stash = dir.join("stash.enigr");
+        std::fs::rename(&locked, &stash).unwrap();
+
+        let rotated = rotate_at(&ring, "p1", "p2").unwrap();
+        assert_eq!(rotated[0].status, "missing");
+
+        // The entry kept its old DEK, so putting the file back still works.
+        std::fs::rename(&stash, &locked).unwrap();
+        let unlocked = unlock_at(&ring, "p2", &[locked]).unwrap();
+        assert_eq!(unlocked[0].status, "unlocked");
+    }
+
+    #[test]
+    fn entry_open_falls_back_to_the_rotation_window_dek() {
+        // A file still sealed with the OLD dek while the entry already carries
+        // the new one — exactly the crash-mid-rotate state.
+        let old_dek_bytes = random_bytes32();
+        let old_dek = dek_from_hex(&data_encoding::HEXLOWER.encode(&old_dek_bytes)).unwrap();
+        let sealed = seal(&old_dek, FILE_AAD, b"payload").unwrap();
+        let entry = RingEntry {
+            dek_hex: data_encoding::HEXLOWER.encode(&random_bytes32()),
+            old_dek_hex: Some(data_encoding::HEXLOWER.encode(&old_dek_bytes)),
+            path: "/x/f.txt".into(),
+            name: "f.txt".into(),
+            size: 7,
+            locked_at: 0,
+        };
+        assert_eq!(entry_open(&entry, &sealed).unwrap(), b"payload");
+    }
 
     /// A fresh per-test directory under the OS temp dir (same idiom as
     /// local_lock's tmp_path, but a whole dir since the ring + files interact).

@@ -1239,6 +1239,15 @@ export async function keyringChangePassphrase(old: string, next: string): Promis
   await invoke("keyring_change_passphrase", { old, new: next });
 }
 
+/** Full rotation: new passphrase AND fresh key material for the ring and every
+ *  locked file (each is re-sealed on disk; per-file outcomes come back). Use
+ *  over keyringChangePassphrase when the old keys may be compromised, not
+ *  merely the old passphrase disliked. Tauri-only. */
+export async function keyringRotate(old: string, next: string): Promise<KeyringFileOutcome[]> {
+  if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
+  return invoke<KeyringFileOutcome[]>("keyring_rotate", { old, new: next });
+}
+
 // ── Local notes (editing local text files) ────────────────────────────────────
 // The editor opens plain files directly and locked ones after a passphrase prompt;
 // a locked file is decrypted in memory only and re-sealed on save, so its plaintext

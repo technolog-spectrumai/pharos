@@ -1392,6 +1392,7 @@ pub fn run() {
             keyring::keyring_unlock_all,
             keyring::keyring_entries,
             keyring::keyring_change_passphrase,
+            keyring::keyring_rotate,
             device_link::devlink_pair_begin,
             device_link::devlink_pair_confirm,
             device_link::devlink_pair_cancel,

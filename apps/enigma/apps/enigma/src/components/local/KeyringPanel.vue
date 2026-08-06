@@ -13,7 +13,7 @@ import { useI18n } from "vue-i18n";
 import {
   OyaButton, OyaCard, OyaEmptyState, isTauri,
   getKeyringStatus, keyringChangePassphrase, keyringEntries, keyringInit,
-  keyringLock, keyringUnlock, keyringUnlockAll,
+  keyringLock, keyringRotate, keyringUnlock, keyringUnlockAll,
   type KeyringEntry, type KeyringFileOutcome,
 } from "rakotis";
 
@@ -41,6 +41,8 @@ const OUTCOME_KEYS: Record<string, string> = {
   locked: "keys.outcomeLocked",
   unlocked: "keys.outcomeUnlocked",
   "already-locked": "keys.outcomeAlreadyLocked",
+  rotated: "keys.outcomeRotated",
+  missing: "keys.fileMissing",
   failed: "keys.outcomeFailed",
 };
 
@@ -148,6 +150,26 @@ async function changePassphrase(): Promise<void> {
     passphrase.value = changeNew.value;
     changeNew.value = "";
     changing.value = false;
+  } catch (e) {
+    fail(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** Rotate: new passphrase AND fresh keys, every locked file re-sealed. The
+ *  outcomes list shows what happened per file. */
+async function rotateRing(): Promise<void> {
+  error.value = "";
+  notice.value = "";
+  busy.value = true;
+  try {
+    outcomes.value = await keyringRotate(passphrase.value, changeNew.value);
+    notice.value = t("keys.rotated");
+    passphrase.value = changeNew.value;
+    changeNew.value = "";
+    changing.value = false;
+    await listEntries();
   } catch (e) {
     fail(e);
   } finally {
@@ -291,8 +313,19 @@ onMounted(refreshStatus);
           <OyaButton :disabled="!canAct || !changeNew" data-testid="keys-change" @click="changePassphrase()">
             {{ t('keys.change') }}
           </OyaButton>
+          <OyaButton
+            variant="secondary"
+            :disabled="!canAct || !changeNew"
+            data-testid="keys-rotate"
+            :title="t('keys.rotateHint')"
+            @click="rotateRing()"
+          >
+            <font-awesome-icon icon="rotate-right" />{{ t('keys.rotate') }}
+          </OyaButton>
         </div>
-        <p v-if="changing" class="mt-1 text-xs opacity-50">{{ t('keys.changeCurrent') }}: ↑ {{ t('keys.passphrase') }}</p>
+        <p v-if="changing" class="mt-1 text-xs opacity-50">
+          {{ t('keys.changeCurrent') }}: ↑ {{ t('keys.passphrase') }} · {{ t('keys.rotateHint') }}
+        </p>
       </div>
     </template>
   </OyaCard>
