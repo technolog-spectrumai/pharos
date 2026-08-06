@@ -27,29 +27,31 @@ const activeTab = ref<FilesTab>("p2p");
 <template>
   <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
     <!-- Sub-tab pills -->
+    <!-- Four pills must fit a phone: labels drop below `sm` (icons carry the
+         meaning), rows never wrap, and overflow scrolls instead of clipping. -->
     <div
       :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-      class="flex gap-1 rounded-xl border p-1 text-sm font-semibold"
+      class="flex gap-1 overflow-x-auto rounded-xl border p-1 text-sm font-semibold"
     >
       <button
         type="button"
         :class="activeTab === 'p2p'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        class="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
         @click="activeTab = 'p2p'"
       >
-        <font-awesome-icon icon="circle-nodes" />{{ $t('files.p2pTab') }}
+        <font-awesome-icon icon="circle-nodes" /><span class="hidden sm:inline">{{ $t('files.p2pTab') }}</span>
       </button>
       <button
         type="button"
         :class="activeTab === 'local'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        class="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
         @click="activeTab = 'local'"
       >
-        <font-awesome-icon icon="lock" />{{ $t('files.localTab') }}
+        <font-awesome-icon icon="lock" /><span class="hidden sm:inline">{{ $t('files.localTab') }}</span>
       </button>
       <button
         v-if="devicesAllowed"
@@ -57,10 +59,10 @@ const activeTab = ref<FilesTab>("p2p");
         :class="activeTab === 'devices'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        class="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
         @click="activeTab = 'devices'"
       >
-        <font-awesome-icon icon="mobile-screen" />{{ $t('files.devicesTab') }}
+        <font-awesome-icon icon="mobile-screen" /><span class="hidden sm:inline">{{ $t('files.devicesTab') }}</span>
       </button>
       <button
         v-if="keyringAllowed"
@@ -68,11 +70,11 @@ const activeTab = ref<FilesTab>("p2p");
         :class="activeTab === 'keys'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        class="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
         data-testid="files-tab-keys"
         @click="activeTab = 'keys'"
       >
-        <font-awesome-icon icon="key" />{{ $t('keys.tab') }}
+        <font-awesome-icon icon="key" /><span class="hidden sm:inline">{{ $t('keys.tab') }}</span>
       </button>
     </div>
 
