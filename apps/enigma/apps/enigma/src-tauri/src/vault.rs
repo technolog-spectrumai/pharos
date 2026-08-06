@@ -56,8 +56,11 @@ struct PinBox {
     failures: u8,
 }
 
+/// The field is private on purpose: `PinBox` holds the sealed passphrase, so
+/// every path that can reach it lives in this module (the `vault_pin_*`
+/// commands and `pin_forget`). Elsewhere this is an opaque managed state.
 #[derive(Default)]
-pub struct PinState(pub Mutex<Option<PinBox>>);
+pub struct PinState(Mutex<Option<PinBox>>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
