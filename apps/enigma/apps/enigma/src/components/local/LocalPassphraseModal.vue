@@ -16,7 +16,15 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { OyaModal, OyaTextField, OyaButton } from "rakotis";
-import { lockLocalFile, unlockLocalFile, rotateLocalFile, type LockedFileResult } from "rakotis";
+import {
+  keyringLock, keyringUnlock,
+  lockLocalFile, unlockLocalFile, rotateLocalFile, type LockedFileResult,
+} from "rakotis";
+
+/** What the ring flows add on top of the per-file result: which method locked
+ *  the file, and where it now lives (keyring renames to `.enigr`, unlock
+ *  restores the original name — unlike ENIGLOCK's seal-in-place). */
+export type LockOutcome = LockedFileResult & { ring?: boolean; newPath?: string };
 
 const props = defineProps<{
   open: boolean;
@@ -26,11 +34,20 @@ const props = defineProps<{
   minLen: number;
   /** Required by the "open" and "encrypt" modes; ignored by the others. */
   action?: (passphrase: string) => Promise<void>;
+  /** Lock mode: offer the key ring as an alternative to a fresh passphrase
+   *  (only when the build has the ring AND one exists). */
+  keyringOffered?: boolean;
+  /** Unlock mode: the file IS ring-locked — no method choice, the ring's one
+   *  passphrase is the only thing that opens it. */
+  ringForced?: boolean;
+  /** Plaintext size for the record, when the caller knows it (ring outcomes
+   *  don't carry one). */
+  fileSize?: number;
 }>();
 const emit = defineEmits<{
   "update:open": [boolean];
-  locked: [LockedFileResult];
-  unlocked: [LockedFileResult];
+  locked: [LockOutcome];
+  unlocked: [LockOutcome];
   rotated: [LockedFileResult];
 }>();
 
@@ -44,6 +61,11 @@ const newPass = ref("");
 const confirm = ref("");
 const busy = ref(false);
 const error = ref("");
+/** Lock-mode method: a fresh per-file passphrase, or the ring's one. */
+const method = ref<"pass" | "ring">("pass");
+const usingRing = computed(
+  () => props.ringForced || (props.mode === "lock" && !!props.keyringOffered && method.value === "ring"),
+);
 
 // Fresh form every time the modal opens.
 watch(
@@ -55,6 +77,7 @@ watch(
     confirm.value = "";
     busy.value = false;
     error.value = "";
+    method.value = props.ringForced ? "ring" : "pass";
   },
 );
 
@@ -95,9 +118,10 @@ const primaryLabelKey = computed(() => PRIMARY_LABEL_KEYS[props.mode]);
 // for rotate only when actually changing it.
 const showConfirm = computed(
   () =>
-    props.mode === "lock" ||
-    props.mode === "encrypt" ||
-    (props.mode === "rotate" && newPass.value.trim() !== ""),
+    !usingRing.value &&
+    (props.mode === "lock" ||
+      props.mode === "encrypt" ||
+      (props.mode === "rotate" && newPass.value.trim() !== "")),
 );
 
 function close() {
@@ -119,7 +143,7 @@ async function submit() {
     error.value = t("local.passphraseRequired");
     return;
   }
-  if (props.mode === "lock" || props.mode === "encrypt") {
+  if ((props.mode === "lock" && !usingRing.value) || props.mode === "encrypt") {
     const bad = newPassInvalid(passphrase.value);
     if (bad) {
       error.value = bad;
@@ -137,8 +161,31 @@ async function submit() {
     if (props.mode === "open" || props.mode === "encrypt") {
       // The parent decides what to do with the passphrase (read, save, or seal).
       await props.action?.(passphrase.value);
+    } else if (props.mode === "lock" && usingRing.value) {
+      // Verifies the ring passphrase, mints a DEK, seals the file as .enigr.
+      const [outcome] = await keyringLock(passphrase.value, [props.path]);
+      if (outcome?.status !== "locked") {
+        throw new Error(outcome?.error || t(`keys.outcome${outcome?.status === "already-locked" ? "AlreadyLocked" : "Failed"}`));
+      }
+      emit("locked", {
+        name: (outcome.newPath ?? props.path).split(/[\\/]/).pop() ?? props.name,
+        size: props.fileSize ?? 0,
+        ring: true,
+        newPath: outcome.newPath,
+      });
     } else if (props.mode === "lock") {
       emit("locked", await lockLocalFile(props.path, passphrase.value));
+    } else if (props.mode === "unlock" && usingRing.value) {
+      const [outcome] = await keyringUnlock(passphrase.value, [props.path]);
+      if (outcome?.status !== "unlocked") {
+        throw new Error(outcome?.error || t("keys.outcomeFailed"));
+      }
+      emit("unlocked", {
+        name: (outcome.newPath ?? props.path).split(/[\\/]/).pop() ?? props.name,
+        size: props.fileSize ?? 0,
+        ring: true,
+        newPath: outcome.newPath,
+      });
     } else if (props.mode === "unlock") {
       emit("unlocked", await unlockLocalFile(props.path, passphrase.value));
     } else {
@@ -163,11 +210,35 @@ async function submit() {
         {{ $t(titleKey) }}
       </p>
       <p class="truncate text-sm opacity-70">{{ name }}</p>
-      <p v-if="hintKey" class="text-xs opacity-60">{{ $t(hintKey) }}</p>
+      <p v-if="hintKey && !usingRing" class="text-xs opacity-60">{{ $t(hintKey) }}</p>
+
+      <!-- Lock method: a fresh passphrase for this one file, or the ring's. -->
+      <div v-if="mode === 'lock' && keyringOffered" class="flex gap-1 rounded-lg border border-current/15 p-1 text-xs font-semibold">
+        <button
+          type="button"
+          class="flex-1 rounded-md px-2 py-1.5 transition"
+          :class="method === 'pass' ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark' : 'opacity-60 hover:opacity-100'"
+          data-testid="lock-method-pass"
+          @click="method = 'pass'"
+        >
+          <font-awesome-icon icon="lock" /> {{ $t('local.methodPassphrase') }}
+        </button>
+        <button
+          type="button"
+          class="flex-1 rounded-md px-2 py-1.5 transition"
+          :class="method === 'ring' ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark' : 'opacity-60 hover:opacity-100'"
+          data-testid="lock-method-ring"
+          @click="method = 'ring'"
+        >
+          <font-awesome-icon icon="key" /> {{ $t('local.methodKeyring') }}
+        </button>
+      </div>
+      <p v-if="usingRing" class="text-xs opacity-60">{{ $t('local.ringLockHint') }}</p>
+
       <OyaTextField
         v-model="passphrase"
         type="password"
-        :placeholder="mode === 'rotate' ? $t('local.currentPassphrase') : $t('local.passphrase')"
+        :placeholder="usingRing ? $t('local.ringPassphrase') : (mode === 'rotate' ? $t('local.currentPassphrase') : $t('local.passphrase'))"
         :disabled="busy"
         @enter="submit"
       />

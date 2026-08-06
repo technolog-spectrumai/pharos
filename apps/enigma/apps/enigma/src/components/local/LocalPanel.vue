@@ -24,6 +24,8 @@ import {
   getNoteRecents,
   addNoteRecent,
   removeNoteRecent,
+  getBuildConfig,
+  getKeyringStatus,
   type LockedFileRecord,
   type LockedFileResult,
   type LocalNoteContent,
@@ -33,7 +35,7 @@ import {
 import { policy } from "../../config/app";
 import { useCloudStore } from "../../stores/cloud";
 import CloudLoginModal from "../cloud/CloudLoginModal.vue";
-import LocalPassphraseModal from "./LocalPassphraseModal.vue";
+import LocalPassphraseModal, { type LockOutcome } from "./LocalPassphraseModal.vue";
 // ACE is heavy (~1.4 MB of source) and only needed once a file is actually opened, so
 // it loads on demand. Still fully offline — the chunk ships in the app bundle.
 import type NoteEditorComponent from "./NoteEditor.vue";
@@ -71,7 +73,15 @@ async function refresh() {
     const [checks, stats] = await Promise.all([
       Promise.all(
         files.value.map(
-          async (r) => [r.path, await isLocalFileLocked(r.path).catch(() => true)] as const,
+          async (r) =>
+            [
+              r.path,
+              // ENIGLOCK magic for per-file locks; ring files (.enigr) carry a
+              // different magic, so mere existence is the right check there.
+              r.ring
+                ? await statLocalNote(r.path).then((s) => s.exists).catch(() => true)
+                : await isLocalFileLocked(r.path).catch(() => true),
+            ] as const,
         ),
       ),
       Promise.all(
@@ -107,6 +117,11 @@ function isDue(rec: LockedFileRecord): boolean {
 onMounted(async () => {
   await cloud.init(); // idempotent; makes upload work even if Cloud tab wasn't opened
   await refresh();
+  if (getBuildConfig().keyring_enabled) {
+    ringAvailable.value = await getKeyringStatus()
+      .then((s) => s.exists)
+      .catch(() => false);
+  }
 });
 
 // ── passphrase modal (lock / unlock / rotate / open / encrypt) ──────────────────
@@ -114,6 +129,16 @@ const showModal = ref(false);
 const modalMode = ref<"lock" | "unlock" | "rotate" | "open" | "encrypt">("lock");
 const modalPath = ref("");
 const modalName = ref("");
+/** Unlock of a ring-locked record: the ring passphrase is the only key. */
+const modalRing = ref(false);
+/** Plaintext size handed to the modal when the caller knows it (ring outcomes
+ *  don't measure). */
+const modalSize = ref(0);
+/** Key ring exists in this build AND on this profile — offers the lock-method
+ *  chooser. Checked once per mount; creating the ring happens in Files → Keys. */
+const ringAvailable = ref(false);
+/** The one New-file modal: fresh text, fresh drawing, or open from disk. */
+const showNewFile = ref(false);
 // What the "open"/"encrypt" modes do on submit; those flows depend on editor state,
 // so the modal defers to us. Rejecting keeps the modal open with the message inline.
 const modalAction = ref<((passphrase: string) => Promise<void>) | undefined>(undefined);
@@ -138,6 +163,10 @@ async function pickAndLock() {
   modalPath.value = path;
   modalName.value = path.split(/[\\/]/).pop() || path;
   modalAction.value = undefined;
+  modalRing.value = false;
+  modalSize.value = await statLocalNote(path)
+    .then((s) => s.size)
+    .catch(() => 0);
   showModal.value = true;
 }
 
@@ -148,6 +177,8 @@ function askLockRecent(rec: NoteRecentRecord) {
   modalPath.value = rec.path;
   modalName.value = rec.name;
   modalAction.value = undefined;
+  modalRing.value = false;
+  modalSize.value = rec.size;
   showModal.value = true;
 }
 
@@ -156,6 +187,9 @@ function askUnlock(rec: LockedFileRecord) {
   modalPath.value = rec.path;
   modalName.value = rec.name;
   modalAction.value = undefined;
+  // A ring-locked file only opens with the ring's passphrase — no choice shown.
+  modalRing.value = !!rec.ring;
+  modalSize.value = rec.size;
   showModal.value = true;
 }
 
@@ -167,8 +201,15 @@ function askRotate(rec: LockedFileRecord) {
   showModal.value = true;
 }
 
-async function onLocked(res: LockedFileResult) {
-  await addLockedFile({ path: modalPath.value, name: res.name, size: res.size, lockedAt: Date.now() });
+async function onLocked(res: LockOutcome) {
+  await addLockedFile({
+    // The ring renames to `.enigr`; ENIGLOCK seals in place.
+    path: res.newPath ?? modalPath.value,
+    name: res.name,
+    size: res.size,
+    lockedAt: Date.now(),
+    ...(res.ring ? { ring: true } : {}),
+  });
   await refresh();
 }
 
@@ -579,22 +620,10 @@ function pct(tr: { transferred: number; total: number }): number {
         <p class="min-w-0 flex-1 text-xs opacity-60">{{ $t('local.hint') }}</p>
         <button
           class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-xs font-bold transition hover:opacity-80 dark:border-accent-1"
-          @click="openFilePicker"
+          data-testid="new-file"
+          @click="showNewFile = true"
         >
-          <font-awesome-icon icon="file" /> {{ $t('local.openFile') }}
-        </button>
-        <button
-          class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-xs font-bold transition hover:opacity-80 dark:border-accent-1"
-          @click="newNote"
-        >
-          <font-awesome-icon icon="plus" /> {{ $t('local.newNote') }}
-        </button>
-        <button
-          class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-xs font-bold transition hover:opacity-80 dark:border-accent-1"
-          data-testid="new-drawing"
-          @click="newDrawing"
-        >
-          <font-awesome-icon icon="pencil" /> {{ $t('sketch.newDrawing') }}
+          <font-awesome-icon icon="plus" /> {{ $t('local.newFile') }}
         </button>
         <button
           class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
@@ -616,9 +645,13 @@ function pct(tr: { transferred: number; total: number }): number {
           class="flex items-center gap-3 rounded-lg border border-accent-2 px-3 py-2 dark:border-accent-1"
         >
           <font-awesome-icon
-            :icon="onDisk[f.path] === false ? 'triangle-exclamation' : 'lock'"
+            :icon="onDisk[f.path] === false ? 'triangle-exclamation' : f.ring ? 'key' : 'lock'"
             class="shrink-0"
-            :class="onDisk[f.path] === false ? 'text-warn-dark' : 'opacity-50'"
+            :class="onDisk[f.path] === false
+              ? 'text-warn-dark'
+              : f.ring
+                ? 'text-accent-light dark:text-accent-dark'
+                : 'opacity-50'"
           />
           <div class="min-w-0 flex-1">
             <p class="flex items-center gap-2">
@@ -635,7 +668,10 @@ function pct(tr: { transferred: number; total: number }): number {
               <template v-if="onDisk[f.path] === false"> · {{ $t('local.notOnDisk') }}</template>
             </p>
           </div>
+          <!-- Ring files: the editor can't open ENIGRLK and per-file rotation
+               doesn't apply (the ring rotates via its change-passphrase). -->
           <OyaIconButton
+            v-if="!f.ring"
             size="sm"
             icon="pencil"
             :label="$t('local.edit')"
@@ -650,6 +686,7 @@ function pct(tr: { transferred: number; total: number }): number {
             @click="askUnlock(f)"
           />
           <OyaIconButton
+            v-if="!f.ring"
             size="sm"
             icon="rotate-right"
             :label="$t('local.rotate')"
@@ -756,6 +793,41 @@ function pct(tr: { transferred: number; total: number }): number {
       </div>
     </template>
 
+    <!-- New file: fresh text, fresh drawing, or an existing file from disk. -->
+    <OyaModal :open="showNewFile" @close="showNewFile = false">
+      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+        <p class="flex items-center gap-2 text-lg font-bold">
+          <font-awesome-icon icon="plus" />
+          {{ $t('local.newFile') }}
+        </p>
+        <p class="text-xs opacity-60">{{ $t('local.newFileHint') }}</p>
+        <button
+          class="flex w-full items-center gap-3 rounded-lg border border-accent-2 px-4 py-3 text-sm font-semibold transition hover:opacity-80 dark:border-accent-1"
+          data-testid="new-file-text"
+          @click="showNewFile = false; newNote()"
+        >
+          <font-awesome-icon icon="file" class="text-accent-light dark:text-accent-dark" />
+          {{ $t('local.newNote') }}
+        </button>
+        <button
+          class="flex w-full items-center gap-3 rounded-lg border border-accent-2 px-4 py-3 text-sm font-semibold transition hover:opacity-80 dark:border-accent-1"
+          data-testid="new-file-svg"
+          @click="showNewFile = false; newDrawing()"
+        >
+          <font-awesome-icon icon="pencil" class="text-accent-light dark:text-accent-dark" />
+          {{ $t('sketch.newDrawing') }}
+        </button>
+        <button
+          class="flex w-full items-center gap-3 rounded-lg border border-accent-2 px-4 py-3 text-sm font-semibold transition hover:opacity-80 dark:border-accent-1"
+          data-testid="new-file-open"
+          @click="showNewFile = false; openFilePicker()"
+        >
+          <font-awesome-icon icon="folder-open" class="text-accent-light dark:text-accent-dark" />
+          {{ $t('local.openFile') }}
+        </button>
+      </div>
+    </OyaModal>
+
     <!-- Passphrase (lock / unlock / rotate / open / encrypt) -->
     <LocalPassphraseModal
       v-model:open="showModal"
@@ -764,6 +836,9 @@ function pct(tr: { transferred: number; total: number }): number {
       :name="modalName"
       :min-len="policy.passphraseMinLen"
       :action="modalAction"
+      :keyring-offered="ringAvailable"
+      :ring-forced="modalRing"
+      :file-size="modalSize"
       @locked="onLocked"
       @unlocked="onUnlocked"
       @rotated="onRotated"
