@@ -107,6 +107,7 @@ def test_clamp_ordering(cfg):
         ("devlink_resync_secs", 10),
         ("chat_history_cap_msgs", 10),
         ("peer_resync_secs", 10),
+        ("file_chunk_kib", 16),
     ],
 )
 def test_settings_floors(cfg, key, floor):
@@ -151,20 +152,20 @@ def test_gates_must_be_boolean(cfg):
 )
 def test_max_frame_bytes_range(cfg, value, valid):
     cfg["network"]["max_frame_bytes"] = value
-    cfg["network"]["transfer_chunk_bytes"] = 4096
+    # A 4 MiB chunk ceiling must still fit the smallest legal frame (1 MiB),
+    # so shrink it here or the cross-check would mask the range assertion.
+    cfg["settings"]["file_chunk_kib"] = {"default": 256, "min": 16, "max": 512}
     assert ("network.max_frame_bytes" in paths_with_errors(cfg)) is not valid
 
 
-def test_transfer_chunk_tracks_max_frame(cfg):
-    cfg["network"]["max_frame_bytes"] = 1024 * 1024
-    cfg["network"]["transfer_chunk_bytes"] = 2 * 1024 * 1024
-    assert "network.transfer_chunk_bytes" in paths_with_errors(cfg)
+def test_chunk_ceiling_must_fit_a_frame(cfg):
+    """A chunk rides as one wire frame — its max cannot exceed max_frame_bytes."""
+    cfg["network"]["max_frame_bytes"] = 1024 * 1024  # 1 MiB
+    cfg["settings"]["file_chunk_kib"] = {"default": 256, "min": 16, "max": 2048}  # 2 MiB
+    assert "settings.file_chunk_kib" in paths_with_errors(cfg)
 
-    cfg["network"]["transfer_chunk_bytes"] = 4_095
-    assert "network.transfer_chunk_bytes" in paths_with_errors(cfg)
-
-    cfg["network"]["transfer_chunk_bytes"] = 4_096
-    assert "network.transfer_chunk_bytes" not in paths_with_errors(cfg)
+    cfg["settings"]["file_chunk_kib"] = {"default": 256, "min": 16, "max": 1024}  # exactly 1 MiB
+    assert "settings.file_chunk_kib" not in paths_with_errors(cfg)
 
 
 @pytest.mark.parametrize(

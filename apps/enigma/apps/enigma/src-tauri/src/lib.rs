@@ -475,6 +475,8 @@ pub struct BuildConfigSummary {
     pub chat_history_cap_msgs: SettingClamp,
     pub idle_lock_mins: SettingClamp,
     pub peer_resync_secs: SettingClamp,
+    pub file_chunk_kib: SettingClamp,
+    pub file_integrity_default: bool,
 }
 
 /// Fetched once by the frontend at boot (rakotis `initBuildConfig`).
@@ -502,6 +504,7 @@ fn app_get_build_config() -> BuildConfigSummary {
         stable_onion_default: features::STABLE_ONION_DEFAULT,
         dht_discovery_default: features::DHT_DISCOVERY_DEFAULT,
         dht_nick_publish_default: features::DHT_NICK_PUBLISH_DEFAULT,
+        file_integrity_default: features::FILE_INTEGRITY_DEFAULT,
         connect_timeout_secs: SettingClamp {
             default: s::CONNECT_TIMEOUT_DEFAULT_SECS,
             min: s::CONNECT_TIMEOUT_MIN_SECS,
@@ -546,6 +549,11 @@ fn app_get_build_config() -> BuildConfigSummary {
             default: s::PEER_RESYNC_DEFAULT_SECS,
             min: s::PEER_RESYNC_MIN_SECS,
             max: s::PEER_RESYNC_MAX_SECS,
+        },
+        file_chunk_kib: SettingClamp {
+            default: s::FILE_CHUNK_DEFAULT_KIB,
+            min: s::FILE_CHUNK_MIN_KIB,
+            max: s::FILE_CHUNK_MAX_KIB,
         },
     }
 }

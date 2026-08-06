@@ -41,19 +41,12 @@ NETWORK_FIELDS: tuple[tuple[str, int, int, str], ...] = (
         "Virtual onion port. Rides inside each ticket, so it affects new "
         "tickets only.",
     ),
-    (
-        "transfer_chunk_bytes",
-        4096,
-        256 * MIB,
-        "file_xfer and cloud streaming granularity. Must not exceed "
-        "max_frame_bytes.",
-    ),
     ("max_redirects", 1, 20, "Cloud download redirect-follow cap."),
     ("tor_write_timeout_secs", 1, 600, ""),
     ("tor_handshake_timeout_secs", 1, 600, ""),
 )
 
-BYTE_FIELDS = {"max_frame_bytes", "transfer_chunk_bytes"}
+BYTE_FIELDS = {"max_frame_bytes"}
 
 
 def _human_bytes(value: int) -> str:

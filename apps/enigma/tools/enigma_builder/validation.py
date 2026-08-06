@@ -40,6 +40,8 @@ SETTINGS_FLOORS: dict[str, int] = {
     "chat_history_cap_msgs": 10,
     "idle_lock_mins": 0,
     "peer_resync_secs": 10,
+    # Below 16 KiB the per-chunk MLS overhead dominates the payload.
+    "file_chunk_kib": 16,
 }
 
 # YAML gate path -> tauri.conf.json key, for the equality assert.
@@ -68,6 +70,7 @@ RUNTIME_DEFAULTS = (
     "features.stable_onion",
     "features.dht_discovery",
     "features.dht_nick_publish",
+    "features.file_integrity",
 )
 
 
@@ -277,16 +280,13 @@ def _validate_network(
             Issue("network.max_frame_bytes", f"{max_frame} outside 1 MiB ..= 256 MiB")
         )
 
-    chunk = _as_int(get_path(cfg, "network.transfer_chunk_bytes"))
-    if chunk is None:
-        issues.append(
-            Issue("network.transfer_chunk_bytes", "missing or not a whole number")
-        )
-    elif max_frame is not None and not 4_096 <= chunk <= max_frame:
+    # The user-tunable chunk ceiling must fit a single wire frame.
+    chunk_max = _as_int(get_path(cfg, "settings.file_chunk_kib.max"))
+    if chunk_max is not None and max_frame is not None and chunk_max * 1024 > max_frame:
         issues.append(
             Issue(
-                "network.transfer_chunk_bytes",
-                f"{chunk} outside 4096 ..= max_frame_bytes ({max_frame})",
+                "settings.file_chunk_kib",
+                f"max {chunk_max} KiB exceeds max_frame_bytes ({max_frame})",
             )
         )
 

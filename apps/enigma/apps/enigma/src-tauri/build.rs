@@ -129,6 +129,7 @@ struct FeaturesSection {
     stable_onion: bool,
     dht_discovery: bool,
     dht_nick_publish: bool,
+    file_integrity: bool,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +144,7 @@ struct SettingsSection {
     chat_history_cap_msgs: Clamp,
     idle_lock_mins: Clamp,
     peer_resync_secs: Clamp,
+    file_chunk_kib: Clamp,
 }
 
 #[derive(Deserialize)]
@@ -158,7 +160,6 @@ struct Clamp {
 struct NetworkSection {
     max_frame_bytes: u64,
     onion_port: u16,
-    transfer_chunk_bytes: u64,
     max_redirects: u64,
     tor_write_timeout_secs: u64,
     tor_handshake_timeout_secs: u64,
@@ -253,6 +254,8 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         // floor 0: auto-lock off is a legitimate configuration.
         ("settings.idle_lock_mins", &cfg.settings.idle_lock_mins, 0u64),
         ("settings.peer_resync_secs", &cfg.settings.peer_resync_secs, 10u64),
+        // floor 16 KiB: below that the per-chunk MLS overhead dominates.
+        ("settings.file_chunk_kib", &cfg.settings.file_chunk_kib, 16u64),
     ];
     for (path, c, floor) in clamps {
         if !(c.min <= c.default && c.default <= c.max) {
@@ -283,10 +286,14 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
     if !((1u64 << 20)..=(256u64 << 20)).contains(&net.max_frame_bytes) {
         err("network.max_frame_bytes", format!("{} outside 1 MiB ..= 256 MiB", net.max_frame_bytes));
     }
-    if !(4_096..=net.max_frame_bytes).contains(&net.transfer_chunk_bytes) {
+    // The user-tunable chunk ceiling must fit a single wire frame.
+    if cfg.settings.file_chunk_kib.max * 1024 > net.max_frame_bytes {
         err(
-            "network.transfer_chunk_bytes",
-            format!("{} outside 4096 ..= max_frame_bytes ({})", net.transfer_chunk_bytes, net.max_frame_bytes),
+            "settings.file_chunk_kib",
+            format!(
+                "max {} KiB exceeds network.max_frame_bytes ({})",
+                cfg.settings.file_chunk_kib.max, net.max_frame_bytes
+            ),
         );
     }
     if !(1..=20).contains(&net.max_redirects) {
@@ -347,6 +354,7 @@ pub mod features {{
     pub const STABLE_ONION_DEFAULT: bool = {stable_onion};
     pub const DHT_DISCOVERY_DEFAULT: bool = {dht_discovery};
     pub const DHT_NICK_PUBLISH_DEFAULT: bool = {dht_nick};
+    pub const FILE_INTEGRITY_DEFAULT: bool = {file_integrity};
 }}
 
 pub mod settings {{
@@ -377,12 +385,14 @@ pub mod settings {{
     pub const PEER_RESYNC_DEFAULT_SECS: u64 = {pr_def};
     pub const PEER_RESYNC_MIN_SECS: u64 = {pr_min};
     pub const PEER_RESYNC_MAX_SECS: u64 = {pr_max};
+    pub const FILE_CHUNK_DEFAULT_KIB: u64 = {fc_def};
+    pub const FILE_CHUNK_MIN_KIB: u64 = {fc_min};
+    pub const FILE_CHUNK_MAX_KIB: u64 = {fc_max};
 }}
 
 pub mod network {{
     pub const MAX_FRAME_BYTES: usize = {max_frame};
     pub const ONION_PORT: u16 = {onion_port};
-    pub const TRANSFER_CHUNK_BYTES: usize = {chunk};
     pub const MAX_REDIRECTS: usize = {redirects};
     pub const TOR_WRITE_TIMEOUT_SECS: u64 = {tor_write};
     pub const TOR_HANDSHAKE_TIMEOUT_SECS: u64 = {tor_hs};
@@ -466,6 +476,7 @@ const _: () = assert!(
         stable_onion = cfg.features.stable_onion,
         dht_discovery = cfg.features.dht_discovery,
         dht_nick = cfg.features.dht_nick_publish,
+        file_integrity = cfg.features.file_integrity,
         ct_def = cfg.settings.connect_timeout_secs.default,
         ct_min = cfg.settings.connect_timeout_secs.min,
         ct_max = cfg.settings.connect_timeout_secs.max,
@@ -493,9 +504,11 @@ const _: () = assert!(
         pr_def = cfg.settings.peer_resync_secs.default,
         pr_min = cfg.settings.peer_resync_secs.min,
         pr_max = cfg.settings.peer_resync_secs.max,
+        fc_def = cfg.settings.file_chunk_kib.default,
+        fc_min = cfg.settings.file_chunk_kib.min,
+        fc_max = cfg.settings.file_chunk_kib.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
-        chunk = cfg.network.transfer_chunk_bytes,
         redirects = cfg.network.max_redirects,
         tor_write = cfg.network.tor_write_timeout_secs,
         tor_hs = cfg.network.tor_handshake_timeout_secs,

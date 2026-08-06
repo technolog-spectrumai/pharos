@@ -83,6 +83,7 @@ features:
   stable_onion: false
   dht_discovery: false
   dht_nick_publish: false
+  file_integrity: true
 
 settings:
   connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
@@ -95,11 +96,11 @@ settings:
   idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
   # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
   peer_resync_secs:         { default: 300, min: 30, max: 3600 }
+  file_chunk_kib:           { default: 256, min: 16, max: 4096 }
 
 network:
   max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition
   onion_port: 9999
-  transfer_chunk_bytes: 65536    # 64 KiB
   max_redirects: 5
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30

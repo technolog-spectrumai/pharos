@@ -27,7 +27,6 @@ CLAMP_FIELDS = ("default", "min", "max")
 NETWORK_KEYS = (
     "max_frame_bytes",
     "onion_port",
-    "transfer_chunk_bytes",
     "max_redirects",
     "tor_write_timeout_secs",
     "tor_handshake_timeout_secs",
@@ -196,6 +195,7 @@ features:
   stable_onion: $features_stable_onion
   dht_discovery: $features_dht_discovery
   dht_nick_publish: $features_dht_nick_publish
+  file_integrity: $features_file_integrity
 
 settings:
   # Defaults + clamp bounds for the user-tunable settings. The encrypted KV
@@ -212,7 +212,6 @@ network:
   # joiners always use the ticket's value; changing it affects new tickets only.
   onion_port: $network_onion_port
   # Local-only tuning (no wire impact).
-  transfer_chunk_bytes: $network_transfer_chunk_bytes
   max_redirects: $network_max_redirects
   tor_write_timeout_secs: $network_tor_write_timeout_secs
   tor_handshake_timeout_secs: $network_tor_handshake_timeout_secs

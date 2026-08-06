@@ -72,8 +72,10 @@ const NS_AUTH: &str = "cloud:auth";
 /// force_tor) — same ns/scope the frontend's server_url setting lives in.
 const NS_SETTINGS: &str = "cloud:settings";
 const SETTINGS_SCOPE: &str = "default";
-/// Streaming chunk size for both directions (same rationale as file_xfer::CHUNK).
-const CHUNK: usize = crate::build_config::network::TRANSFER_CHUNK_BYTES;
+/// Streaming granularity for both directions follows the user's "file chunk
+/// size" setting — one knob for every transfer path (file_xfer::file_chunk_bytes).
+// Streaming granularity follows the user's "file chunk size" setting
+// (crate::file_xfer::file_chunk_bytes) — one knob for every transfer path.
 /// Redirect-follow cap for the download 302 → media URL hop.
 const MAX_REDIRECTS: usize = crate::build_config::network::MAX_REDIRECTS;
 
@@ -749,7 +751,7 @@ impl MultipartBody {
             preamble: Bytes::from(preamble),
             epilogue: Bytes::from(epilogue),
             file,
-            buf: vec![0u8; CHUNK],
+            buf: vec![0u8; crate::file_xfer::file_chunk_bytes(&app)],
             file_size,
             file_sent: 0,
             remaining,

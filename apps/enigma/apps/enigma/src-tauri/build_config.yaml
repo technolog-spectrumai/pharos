@@ -112,6 +112,9 @@ features:
   stable_onion: false
   dht_discovery: false
   dht_nick_publish: false
+  # Verify chunked P2P transfers with a per-chunk hash chain (Settings toggle
+  # default). Off = trust the transport; either SIDE turning it on enforces it.
+  file_integrity: true
 
 settings:
   # Defaults + clamp bounds for the user-tunable settings. The encrypted KV
@@ -134,6 +137,9 @@ settings:
   idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
   # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
   peer_resync_secs:         { default: 300, min: 30, max: 3600 }
+  # P2P/cloud transfer chunk, KiB ("file chunk size" in Settings). Each chunk
+  # rides as one MLS message; max must fit network.max_frame_bytes.
+  file_chunk_kib:           { default: 256, min: 16, max: 4096 }
 
 network:
   # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the
@@ -145,7 +151,6 @@ network:
   # joiners always use the ticket's value; changing it affects new tickets only.
   onion_port: 9999
   # Local-only tuning (no wire impact).
-  transfer_chunk_bytes: 65536    # file_xfer + cloud streaming granularity, 64 KiB
   max_redirects: 5               # cloud download redirect-follow cap
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30
