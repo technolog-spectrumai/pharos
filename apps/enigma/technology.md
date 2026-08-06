@@ -359,6 +359,32 @@ iroh-only, so `vox_*` commands are **blocked offline and in Tor-exclusive mode**
 direct QUIC call would leak the IP outside Tor), and a `vox::shutdown` hangs up any
 live call when airplane/Tor is toggled or the profile is switched.
 
+### File transfer — chunked, MLS-sealed, chain-verified
+
+`file_xfer.rs` binds its own ephemeral iroh endpoint on ALPN `enigma/file/1` (v1 =
+MLS chunks; a v0 peer simply cannot negotiate it, so a version skew fails to connect
+rather than misreading the stream). One bi-stream carries everything:
+
+| Frame | Direction | Contents |
+|---|---|---|
+| `Request` | downloader → host | `offer_id`, MLS KeyPackage, `want_integrity` |
+| `Header` | host → downloader | name/size/mime, MLS Welcome, `chunk_size`, `chunk_count`, `integrity` |
+| data ×N | host → downloader | MLS ciphertext of `0x00 ‖ seq ‖ chunk` |
+| trailer | host → downloader | MLS ciphertext of `0x01 ‖ chunk_count ‖ root` |
+
+The frame kind lives *inside* the ciphertext so it is authenticated. Progress
+(`file://progress`) is throttled to whole-percent ticks — all the UI renders.
+Integrity is a Settings toggle and composes fail-closed: the host enables the chain
+if **either** side asked, and a downloader that requires it but receives
+`integrity: false` aborts rather than accept unverified bytes. Any verification
+failure deletes the partial file.
+
+**Authentication is unchanged and possession-based**: the host does not authenticate
+the dialer, so anyone holding `{addr, offer_id}` can complete the handshake. Those
+stay secret because each feature relays them inside its own MLS-encrypted signalling
+(chat `file_offer`, the Maps region card, devlink `dlink_file_push`). The MLS layer
+here buys confidentiality of the bytes, not peer identity.
+
 ---
 
 ## 6. Is it truly P2P? (intermittent nodes)
@@ -444,6 +470,16 @@ below) / `export_state` + `import_state` (serializable session).
   data-URL inside an encrypted `image_message`.
 - **Voice notes** → native cpal capture → hound WAV → encrypted `voice_message`.
 - **Presence, leave, and control messages** → encrypted inner JSON over the same group.
+- **P2P file transfers** → a *separate*, ephemeral per-transfer MLS group (a 2-member
+  `RotorSession` keyed by the `offer_id`, handshake in-stream: the downloader's
+  KeyPackage rides the Request, the host's Welcome the Header). The file is split into
+  chunks of the user's **file chunk size** (Settings, default 256 KiB) and each chunk is
+  sealed with `encrypt_app` — literally a chat message per chunk — so the bytes are
+  MLS-protected, not merely QUIC-protected. Optional per-chunk **BLAKE3 hash chain**
+  (`h_i = BLAKE3(h_{i-1} ‖ seq ‖ chunk)`, seeded from the offer id, root in a trailer
+  frame) lets the receiver detect a dropped, reordered or altered chunk; a size and
+  chunk-count check runs regardless. Applies to all three transfer features (chat
+  share, Maps regions, Files→Devices) — they share `file_xfer.rs`.
 - **Voice-call media** → a *separate*, ephemeral per-call MLS group (a 2-member
   `RotorSession` keyed by the `call_id`) whose **RFC 9420 exporter secret**
   (`export_secret`) derives two directional 256-bit keys → two **ChaCha20-Poly1305**
@@ -981,7 +1017,7 @@ invalid file = build error — see [build.md](build.md)). Owns: the cloud/hosted
 allow flags, crypto declarations (compile-asserted against rotor_core/gervasius) +
 Argon2id costs for new vaults, feature defaults for new profiles, defaults **and
 clamp bounds** of the kv-backed settings, and network constants (frame cap, onion
-port, chunk size, timeouts). The frontend fetches the relevant subset once at boot
+port, timeouts). The frontend fetches the relevant subset once at boot
 via `app_get_build_config` (rakotis `initBuildConfig`/`getBuildConfig`; `main.ts`
 seeds the browser-mode fallback from `config/app.ts`). `tauri.conf.json` stays
 authoritative for productName/identifier/version — `build.rs` asserts the YAML
@@ -1014,7 +1050,9 @@ instead of hardcoding.
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests. `build_config.yaml` `app:` must mirror it — `build.rs` fails the build on drift |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
-| P2P frame cap / onion port / chunk sizes / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
+| P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
+| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs file_xfer **and** cloud streaming. The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
+| Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
 | Window size, bundle targets | `tauri.conf.json` | — |
 | Two-profile dev instances | `APP_PROFILE` / `CHAT_USER` env | Defaulted in `run_dev.sh`; **`lib.rs` owns the `"default"` fallback** |
