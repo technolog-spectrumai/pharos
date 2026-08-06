@@ -56,6 +56,7 @@ SCALAR_PATHS = (
     "features.stable_onion",
     "features.dht_discovery",
     "features.dht_nick_publish",
+    "features.file_integrity",
     *(f"network.{key}" for key in NETWORK_KEYS),
     *(
         f"settings.{key}.{field}"
