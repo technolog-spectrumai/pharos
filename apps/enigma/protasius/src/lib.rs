@@ -248,6 +248,18 @@ impl Protasius {
         }
     }
 
+    /// Is this the real passphrase? Read-only and side-effect free — nothing is
+    /// unlocked, written or re-wrapped. Used by PIN enrolment, which must prove
+    /// the user knows the passphrase before sealing a copy of it under a PIN.
+    ///
+    /// Deliberately checks the REAL slot only: a panic code must not be
+    /// enrollable as a PIN secret, and answering "yes" for it would also leak
+    /// that one is armed.
+    pub fn verify_passphrase(&self, passphrase: &str) -> Result<bool, ProtasiusError> {
+        let (_, real) = self.real_slot()?;
+        Ok(gervasius::unlock(&real, passphrase).is_ok())
+    }
+
     /// Drop the in-memory DEK (zeroized). The store stays open but data ops error.
     pub fn lock(&mut self) {
         self.dek = None;

@@ -15,12 +15,114 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use protasius::{MigrationPlan, Protasius, ProtasiusError, UnlockOutcome, VaultStatus};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{active_config, profile_dir, AppConfig, AppConfigState, Sessions};
 
 /// Managed state: the active profile's encrypted store.
 pub struct ProtasiusState(pub Mutex<Protasius>);
+
+// ── PIN unlock (convenience layer, MEMORY ONLY) ────────────────────────────────
+// The PIN never protects data at rest. At enrolment we prove the user knows the
+// passphrase, then seal a copy of it under a PIN-derived key and keep that blob
+// in PROCESS MEMORY. An idle lock zeroizes the DEK as always but leaves the blob,
+// so the PIN can re-open the session; a restart takes the blob with it and the
+// passphrase is required again. Nothing PIN-derived ever reaches disk, so
+// vault.json is unchanged and a 6-digit secret adds no offline attack surface.
+//
+// Caveat worth knowing (technology.md §7): someone who dumps the RAM of an
+// idle-locked process could brute-force this blob. That is strictly weaker than
+// scraping an UNLOCKED process, which is already total compromise.
+
+/// Wrong PINs tolerated before the blob is dropped and the passphrase is
+/// required. Meaningful precisely because the state is in memory: an attacker
+/// cannot copy it aside and retry, and the fallback costs the user one
+/// passphrase entry rather than any data.
+const PIN_MAX_FAILURES: u8 = 5;
+
+/// AAD ties the sealed passphrase to this use, so the blob is meaningless if it
+/// ever turned up anywhere else.
+const PIN_AAD: &[u8] = b"enigma/vault/pin/v1";
+
+struct PinBox {
+    /// Envelope wrapping a random key under the PIN (gervasius vault header).
+    header: gervasius::VaultHeader,
+    /// The vault passphrase, sealed under that key.
+    sealed: Vec<u8>,
+    /// Panic code sealed under the PANIC pin, when one was enrolled.
+    panic: Option<(gervasius::VaultHeader, Vec<u8>)>,
+    digits: u8,
+    failures: u8,
+}
+
+#[derive(Default)]
+pub struct PinState(pub Mutex<Option<PinBox>>);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinStatus {
+    pub enrolled: bool,
+    pub digits: u32,
+    pub attempts_left: u32,
+}
+
+fn ensure_pin_enabled() -> Result<(), String> {
+    if !crate::build_config::lock::PIN_UNLOCK {
+        return Err("PIN unlock is disabled in this build.".to_string());
+    }
+    Ok(())
+}
+
+/// Digits only, and exactly as many as the build's clamp allows.
+fn valid_pin(pin: &str) -> Result<(), String> {
+    use crate::build_config::settings as s;
+    let len = pin.chars().count() as u64;
+    if !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Err("a PIN must be digits only".to_string());
+    }
+    if !(s::PIN_DIGITS_MIN..=s::PIN_DIGITS_MAX).contains(&len) {
+        return Err(format!(
+            "a PIN must be {}..={} digits",
+            s::PIN_DIGITS_MIN,
+            s::PIN_DIGITS_MAX
+        ));
+    }
+    Ok(())
+}
+
+/// How many positions two equal-length PINs differ in. A single mistyped digit
+/// must never land on the panic PIN — with six digits that is a realistic slip,
+/// and the consequence is an irreversible wipe of every profile.
+fn pin_distance(a: &str, b: &str) -> usize {
+    if a.chars().count() != b.chars().count() {
+        return usize::MAX;
+    }
+    a.chars().zip(b.chars()).filter(|(x, y)| x != y).count()
+}
+
+/// Seal `secret` under `pin`, returning the envelope. Costs one Argon2id
+/// derivation at the build's configured params — the same cost as an unlock.
+fn seal_under_pin(pin: &str, secret: &str) -> Result<(gervasius::VaultHeader, Vec<u8>), String> {
+    let (header, key) =
+        gervasius::create_vault_with_params(pin, crate::kdf_params()).map_err(|e| e.to_string())?;
+    let sealed = gervasius::seal(&key, PIN_AAD, secret.as_bytes()).map_err(|e| e.to_string())?;
+    Ok((header, sealed))
+}
+
+fn open_with_pin(header: &gervasius::VaultHeader, sealed: &[u8], pin: &str) -> Option<String> {
+    let key = gervasius::unlock(header, pin).ok()?;
+    let plain = gervasius::open(&key, PIN_AAD, sealed).ok()?;
+    String::from_utf8(plain).ok()
+}
+
+/// Forget the PIN. Called on profile switch and after a panic wipe — anywhere
+/// the sealed passphrase would no longer belong to the live profile.
+pub fn pin_forget(app: &AppHandle) {
+    if let Ok(mut guard) = app.state::<PinState>().0.lock() {
+        *guard = None;
+    }
+}
 
 fn e(err: ProtasiusError) -> String {
     err.to_string()
@@ -154,6 +256,132 @@ pub fn vault_unlock(
     Ok(())
 }
 
+// ── PIN commands ───────────────────────────────────────────────────────────────
+
+/// Safe to call while locked — that is the whole point: the gate asks this to
+/// decide whether to draw a keypad or the passphrase field.
+#[tauri::command]
+pub fn vault_pin_status(pin: State<PinState>) -> Result<PinStatus, String> {
+    let guard = pin.0.lock().map_err(|e| e.to_string())?;
+    Ok(match guard.as_ref() {
+        Some(b) => PinStatus {
+            enrolled: true,
+            digits: b.digits as u32,
+            attempts_left: (PIN_MAX_FAILURES - b.failures) as u32,
+        },
+        None => PinStatus {
+            enrolled: false,
+            digits: crate::build_config::settings::PIN_DIGITS_DEFAULT as u32,
+            attempts_left: PIN_MAX_FAILURES as u32,
+        },
+    })
+}
+
+/// Enrol a PIN for this session. Requires the real passphrase — the PIN seals a
+/// copy of it, so proving knowledge first is what stops an attacker at an
+/// already-unlocked machine from minting themselves a 6-digit key.
+#[tauri::command]
+pub fn vault_pin_enroll(
+    vault: State<ProtasiusState>,
+    pin_state: State<PinState>,
+    passphrase: String,
+    pin: String,
+    panic_pin: Option<String>,
+    panic_code: Option<String>,
+) -> Result<(), String> {
+    ensure_pin_enabled()?;
+    valid_pin(&pin)?;
+    if !vault.0.lock().map_err(|e| e.to_string())?.verify_passphrase(&passphrase).map_err(e)? {
+        return Err(ProtasiusError::WrongPassphrase.to_string());
+    }
+
+    let panic = match (panic_pin.as_deref(), panic_code.as_deref()) {
+        (Some(pp), Some(code)) => {
+            valid_pin(pp)?;
+            // A single mistyped digit must not trigger an irreversible wipe.
+            if pin_distance(&pin, pp) < 2 {
+                return Err("the panic PIN must differ from your PIN in at least two digits"
+                    .to_string());
+            }
+            Some(seal_under_pin(pp, code)?)
+        }
+        _ => None,
+    };
+
+    let (header, sealed) = seal_under_pin(&pin, &passphrase)?;
+    *pin_state.0.lock().map_err(|e| e.to_string())? = Some(PinBox {
+        header,
+        sealed,
+        panic,
+        digits: pin.chars().count() as u8,
+        failures: 0,
+    });
+    Ok(())
+}
+
+/// Re-open the session with the PIN. Wrong PINs are counted; exhausting them
+/// drops the blob so the gate falls back to the passphrase — no wipe, no
+/// lockout, nothing lost but one passphrase entry.
+///
+/// Like `vault_unlock`, the panic path returns `Ok(())` indistinguishably.
+#[tauri::command]
+pub fn vault_pin_unlock(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    vault: State<ProtasiusState>,
+    sessions: State<Sessions>,
+    pin_state: State<PinState>,
+    pin: String,
+) -> Result<(), String> {
+    ensure_pin_enabled()?;
+    let cfg = active_config(&config)?;
+
+    // Pull the secret out under the lock, then release it before unlocking.
+    let secret = {
+        let mut guard = pin_state.0.lock().map_err(|e| e.to_string())?;
+        let Some(b) = guard.as_mut() else {
+            return Err(ProtasiusError::WrongPassphrase.to_string());
+        };
+        let found = open_with_pin(&b.header, &b.sealed, &pin).or_else(|| {
+            b.panic.as_ref().and_then(|(h, s)| open_with_pin(h, s, &pin))
+        });
+        match found {
+            Some(secret) => {
+                b.failures = 0;
+                secret
+            }
+            None => {
+                b.failures += 1;
+                if b.failures >= PIN_MAX_FAILURES {
+                    *guard = None; // fall back to the passphrase
+                }
+                // Same error whether the PIN was wrong or the blob just expired.
+                return Err(ProtasiusError::WrongPassphrase.to_string());
+            }
+        }
+    };
+
+    // The recovered secret is the passphrase (or the panic code) — hand it to
+    // the ordinary path so the panic branch behaves exactly as it always does.
+    let outcome = {
+        let mut p = vault.0.lock().map_err(|e| e.to_string())?;
+        p.unlock(&secret).map_err(e)?
+    };
+    if outcome == UnlockOutcome::Panic {
+        return panic_wipe(&app, &cfg, &vault, &sessions, &secret);
+    }
+    crate::migrate_mls(&app, &cfg);
+    resync_panic_targets(&app);
+    Ok(())
+}
+
+/// Forget the PIN; the passphrase is required from now on.
+#[tauri::command]
+pub fn vault_pin_clear(app: AppHandle) -> Result<(), String> {
+    pin_forget(&app);
+    Ok(())
+}
+
 /// Duress wipe: erase every profile on this device, then start a fresh vault keyed
 /// by the panic code itself so the app opens clean.
 ///
@@ -180,6 +408,8 @@ fn panic_wipe(
     sessions: &State<Sessions>,
     panic_pass: &str,
 ) -> Result<(), String> {
+    // Whatever opened this session must not survive it.
+    pin_forget(app);
     if let Ok(mut s) = sessions.lock() {
         s.clear();
     }
@@ -486,6 +716,7 @@ pub fn vault_has_panic_code(vault: State<ProtasiusState>) -> Result<bool, String
 
 #[tauri::command]
 pub fn vault_wipe(
+    app: AppHandle,
     vault: State<ProtasiusState>,
     sessions: State<Sessions>,
 ) -> Result<(), String> {
@@ -493,6 +724,8 @@ pub fn vault_wipe(
     if let Ok(mut s) = sessions.lock() {
         s.clear();
     }
+    // The sealed passphrase would outlive the vault it opens.
+    pin_forget(&app);
     Ok(())
 }
 
@@ -543,4 +776,106 @@ pub async fn tor_clean_keystore(
 ) -> Result<(), String> {
     crate::p2p_tor::clean_keystore(&app, &tor).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod pin_tests {
+    use super::*;
+
+    // The PIN layer is deliberately pure crypto over in-memory state, so it is
+    // testable without a Tauri AppHandle. What these pin down is the security
+    // contract: a PIN opens only with the right digits, a wrong one is counted,
+    // exhausting the count drops the secret entirely, and a panic PIN cannot sit
+    // one keystroke away from the real one.
+
+    #[test]
+    fn a_sealed_secret_opens_only_with_its_pin() {
+        let (header, sealed) = seal_under_pin("481920", "correct horse battery").unwrap();
+        assert_eq!(
+            open_with_pin(&header, &sealed, "481920").as_deref(),
+            Some("correct horse battery"),
+        );
+        for wrong in ["481921", "481930", "000000", "48192", "4819200"] {
+            assert!(open_with_pin(&header, &sealed, wrong).is_none(), "{wrong} must not open");
+        }
+    }
+
+    #[test]
+    fn the_sealed_blob_does_not_contain_the_secret() {
+        let (_h, sealed) = seal_under_pin("123456", "my passphrase").unwrap();
+        assert!(
+            !sealed.windows(13).any(|w| w == b"my passphrase"),
+            "the passphrase must not appear in the ciphertext",
+        );
+    }
+
+    #[test]
+    fn pin_validation_enforces_digits_and_the_build_clamp() {
+        use crate::build_config::settings as s;
+        let ok = "0".repeat(s::PIN_DIGITS_DEFAULT as usize);
+        assert!(valid_pin(&ok).is_ok());
+
+        assert!(valid_pin("12a456").is_err(), "letters rejected");
+        assert!(valid_pin("12 456").is_err(), "spaces rejected");
+        assert!(valid_pin("").is_err());
+        assert!(valid_pin(&"0".repeat(s::PIN_DIGITS_MIN as usize - 1)).is_err());
+        assert!(valid_pin(&"0".repeat(s::PIN_DIGITS_MAX as usize + 1)).is_err());
+        // The clamp bounds themselves are legal.
+        assert!(valid_pin(&"0".repeat(s::PIN_DIGITS_MIN as usize)).is_ok());
+        assert!(valid_pin(&"0".repeat(s::PIN_DIGITS_MAX as usize)).is_ok());
+    }
+
+    #[test]
+    fn panic_pin_must_differ_in_two_digits() {
+        // The accident this rule exists to prevent: one slipped keystroke
+        // wiping every profile on the device.
+        assert_eq!(pin_distance("481920", "481921"), 1);
+        assert_eq!(pin_distance("481920", "481920"), 0);
+        assert_eq!(pin_distance("481920", "481931"), 2);
+        assert_eq!(pin_distance("481920", "999999"), 5); // the 9s line up
+        assert_eq!(pin_distance("111111", "222222"), 6);
+        // Different lengths are never "close".
+        assert_eq!(pin_distance("481920", "48192"), usize::MAX);
+    }
+
+    #[test]
+    fn failures_accumulate_and_then_drop_the_secret() {
+        // Mirrors what vault_pin_unlock does to the box, without needing an app.
+        let (header, sealed) = seal_under_pin("111111", "pass").unwrap();
+        let mut b = PinBox { header, sealed, panic: None, digits: 6, failures: 0 };
+
+        for expected in 1..PIN_MAX_FAILURES {
+            assert!(open_with_pin(&b.header, &b.sealed, "222222").is_none());
+            b.failures += 1;
+            assert_eq!(b.failures, expected);
+            // Still enrolled, and the right PIN still works and clears the count.
+            assert!(open_with_pin(&b.header, &b.sealed, "111111").is_some());
+        }
+        b.failures = PIN_MAX_FAILURES;
+        assert!(b.failures >= PIN_MAX_FAILURES, "the caller drops the box at this point");
+    }
+
+    #[test]
+    fn a_panic_pin_opens_the_panic_secret_not_the_real_one() {
+        let real = seal_under_pin("481920", "real-passphrase").unwrap();
+        let panic = seal_under_pin("735514", "panic-code").unwrap();
+        // Each opens only its own secret — the unlock path tries real first,
+        // then panic, and hands whichever it got to the ordinary vault unlock.
+        assert_eq!(open_with_pin(&real.0, &real.1, "481920").as_deref(), Some("real-passphrase"));
+        assert!(open_with_pin(&real.0, &real.1, "735514").is_none());
+        assert_eq!(open_with_pin(&panic.0, &panic.1, "735514").as_deref(), Some("panic-code"));
+        assert!(open_with_pin(&panic.0, &panic.1, "481920").is_none());
+    }
+
+    #[test]
+    fn every_enrolment_uses_a_fresh_envelope() {
+        // Two enrolments of the SAME pin+secret must not produce equal bytes,
+        // or a blob would be replayable across sessions.
+        let a = seal_under_pin("481920", "same").unwrap();
+        let b = seal_under_pin("481920", "same").unwrap();
+        assert_ne!(a.1, b.1);
+        assert!(open_with_pin(&b.0, &b.1, "481920").is_some());
+        // …and one envelope's key does not open the other's ciphertext.
+        assert!(open_with_pin(&a.0, &b.1, "481920").is_none());
+    }
 }

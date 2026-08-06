@@ -607,6 +607,9 @@ async fn app_set_active_profile(
     // Drop cached map readers: the maps dir is per-profile, so open mmap
     // readers would point into the OLD profile after the swap.
     maps::reset_readers(&app).await;
+    // The sealed passphrase belongs to the OLD profile's vault — a PIN must
+    // never carry across a switch.
+    vault::pin_forget(&app);
 
     {
         let mut guard = config.lock().map_err(|e| e.to_string())?;
@@ -1305,6 +1308,7 @@ pub fn run() {
             let dir = profile_dir(app.handle(), &cfg);
             let store = vault::open(dir).expect("open protasius store");
             app.manage(vault::ProtasiusState(std::sync::Mutex::new(store)));
+            app.manage(vault::PinState::default());
 
             // Rust-side auto-lock fallback: re-locks the vault if the webview's
             // idle watcher can't (killed / frozen / backgrounded). Parks itself
@@ -1350,6 +1354,10 @@ pub fn run() {
             vault::vault_has_panic_code,
             vault::panic_targets_resync,
             vault::vault_wipe,
+            vault::vault_pin_status,
+            vault::vault_pin_enroll,
+            vault::vault_pin_unlock,
+            vault::vault_pin_clear,
             app_clear_profile_state,
             app_get_offline_profile,
             app_set_offline_profile,
