@@ -141,6 +141,16 @@ async function pickAndLock() {
   showModal.value = true;
 }
 
+/** Lock a plain file straight from its recents row — same modal flow as the
+ *  toolbar's picker, minus having to re-find the file in a dialog. */
+function askLockRecent(rec: NoteRecentRecord) {
+  modalMode.value = "lock";
+  modalPath.value = rec.path;
+  modalName.value = rec.name;
+  modalAction.value = undefined;
+  showModal.value = true;
+}
+
 function askUnlock(rec: LockedFileRecord) {
   modalMode.value = "unlock";
   modalPath.value = rec.path;
@@ -702,6 +712,15 @@ function pct(tr: { transferred: number; total: number }): number {
               :label="$t('local.edit')"
               :disabled="recentStat[r.path]?.exists === false"
               @click="openPath(r.path)"
+            />
+            <!-- Plain files only: a locked one is already in the list above. -->
+            <OyaIconButton
+              v-if="recentStat[r.path]?.exists !== false && !(recentStat[r.path]?.locked ?? r.locked)"
+              size="sm"
+              icon="lock"
+              :label="$t('local.lockFile')"
+              data-testid="recent-lock"
+              @click="askLockRecent(r)"
             />
             <OyaIconButton
               size="sm"

@@ -3,6 +3,60 @@
 **Status: IMPLEMENTED 2026-07-26** (branch `device_files`) — rakotis 208 vitest ·
 enigma 502 vitest · cargo 112 · Playwright 16 · vue-tsc + vite build clean.
 
+**Tree redesign 2026-08-06** (§0 below) — rakotis 278 · enigma 657 · cargo 153 ·
+enigma_builder 226 · vue-tsc + vite build clean.
+
+## 0. The tree redesign (2026-08-06) — decisions D9–D15
+
+The flat allowed-files list became a **file tree** (the toto-vault flat-DFS
+pattern: `{id, pid, depth}` rows, `FileTree.vue` + `treeBuilder.ts`), and the
+model moved from "picker paths anywhere" to **the enigma folder is the bucket**.
+
+- **D9 — the enigma folder.** `~/Enigma` (default profile; `~/Enigma-<profile>`
+  otherwise — two dev instances on one machine must not collide) is created on
+  demand (`filesync_root`) and is both the scan root and the import landing
+  folder (new imports no longer land in `<profile_dir>/synced/`; old absolute
+  paths in the local record stay valid). `filesync_scan` walks it (no symlinks,
+  no dotfiles, depth ≤ 16, 2 000 files, then `truncated`). Legacy entries at
+  picker paths get a one-shot **copy-in** via `filesync_migrate` (sources are
+  never deleted); the picker's Add file now copies into the root first.
+- **D10 — `dir` on the wire.** `SyncedFileEntry.dir` = POSIX-relative directory
+  inside the folder ("" = root; the name stays separate). Validation demotes a
+  bad dir to root rather than rejecting the entry; merge treats it
+  immutable-after-add with local-wins, because a down-level device's validator
+  REBUILDS entries without unknown fields and its echo must not strip it.
+  Directories are derived from file dirs — empty dirs never replicate and cost
+  no cap. `dlink_file_push` items carry `dir` so imports land in the matching
+  subfolder (per-segment sanitization Rust-side).
+- **D11 — receiver consent.** An unsolicited `dlink_file_push` no longer
+  downloads: it parks as a session-only pending offer (cap 8, oldest drops) in
+  `useDeviceSync` until the user Accepts (replays the frame through the store's
+  existing download path) or Declines (`dlink_file_result` status `"declined"`,
+  new). A push carrying `reqId` answers our own pull — that press was the
+  consent — and passes straight through. Down-level compat: an old receiver
+  still auto-accepts (it never parks), an old sender shows a declined row as
+  dropped-frame silence; our sender coerces unknown statuses to `failed`.
+- **D12 — markers.** Per file, relative to each sibling: **missing** (listed,
+  no bytes on that side), **excess / only here** (bytes on one side only),
+  **changed** (both hold it, BLAKE3 differs — the hashes were already in
+  `copies`), **not shared** (in my folder, not on the list).
+- **D13 — changed ⇒ pull-only.** A hash-diverged file never enters a push
+  batch (`pushSelected` filters it; the panel disables Push and says why).
+  Divergence is resolved by pulling the version you want, on the device that
+  wants it.
+- **D14 — share is explicit.** A file dropped into the folder shows in MY tree
+  immediately but replicates nothing until its per-row **Share** action puts it
+  on the list. Three consents total: share the name → push (sender) → accept
+  (receiver).
+- **D15 — buckets.** My bucket: the scan plus ghost rows for listed files
+  absent here. One names-only bucket per linked sibling (labels from the
+  registry), markers per D12 — their paths never leave their device.
+
+The **key ring** (Files → Keys, `keyring.enabled` gate, Pro-only default) is a
+separate feature that shipped alongside: one passphrase, many files, sealed
+per-file DEKs wrapped under a ring KEK in `<profile_dir>/keyring.enig`,
+device-local by design (never in `DEVLINK_SYNC_KV`) — see `keyring.rs`.
+
 Per-file **Push/Pull** between the user's **own** linked devices, plus the new
 home for everything device-related: Settings → Devices is gone; Files → Devices
 took its place.

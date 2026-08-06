@@ -8,10 +8,17 @@
 // Bytes ride file_xfer verbatim (the Maps precedent): the sender creates an
 // offer and announces its coordinates over the devlink room; the receiver
 // downloads to a feature-owned tmp path and hands off to filesync_import,
-// which BLAKE3-verifies before anything lands in <profile>/synced/. The
-// devlink room is the trust boundary — its admission demands a link-key HMAC
-// and refuses revoked devices — so incoming pushes are auto-accepted without a
-// prompt. A room peer can never reach this code.
+// which BLAKE3-verifies before anything lands under the enigma folder. The
+// devlink room is the trust boundary (link-key HMAC admission, revoked devices
+// refused) — but landing bytes still takes explicit consent: an unsolicited
+// push parks as a pending offer in useDeviceSync until the user accepts it
+// here. Only a push answering our own pull request (reqId) lands directly —
+// that pull press was the consent. A room peer can never reach this code.
+//
+// The tree view runs off two sources joined here: the SCAN (what is actually
+// inside the enigma folder on disk) and the shared LIST (what the devices
+// agreed to mirror). A scanned file not on the list is "not shared" until the
+// user shares it; a listed file with no local bytes is "missing here".
 //
 // Wire conventions (mirroring map.ts):
 //   invoke args    → camelCase   file_* results → snake_case (offer_id, …)
@@ -65,6 +72,24 @@ const LS_KEY_LOCAL = "local";
  *  the row failed. Generous: the peer may be mid-download of an earlier file. */
 const OFFER_TTL_MS = 120_000;
 
+interface ScannedFile {
+  dir: string;
+  name: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** A row in either bucket, ready for treeBuilder (id doubles as the selection
+ *  key — shared entries use the entry id, unshared scans use "s:<path>"). */
+export interface BucketFile {
+  id: string;
+  dir: string;
+  name: string;
+  size?: number;
+  marker?: "missing" | "excess" | "changed" | "notShared";
+  selectable?: boolean;
+}
+
 interface OfferCreatedWire {
   offer_id: string;
   addr: string;
@@ -86,9 +111,14 @@ export const useFileSyncStore = defineStore("fileSync", () => {
 
   /** offerId → entryId for transfers WE are receiving (the filter that keeps
    *  useFileShare's and the map store's offers out of our handlers). */
-  const incoming = reactive(new Map<string, { entryId: string; name: string; hash: string; reqId?: string }>());
+  const incoming = reactive(new Map<string, { entryId: string; name: string; hash: string; dir?: string; reqId?: string }>());
   /** offerId → entryId for offers WE created, so file://done marks them sent. */
   const outgoing = reactive(new Map<string, string>());
+
+  /** The enigma folder (created on demand Rust-side) and its last scan. */
+  const root = ref("");
+  const scanFiles = ref<ScannedFile[]>([]);
+  const scanTruncated = ref(false);
 
   const deviceSync = computed(() => chat.deviceSync);
   const linked = computed(() => !!deviceSync.value?.linked.value);
@@ -231,26 +261,37 @@ export const useFileSyncStore = defineStore("fileSync", () => {
 
   // ── adding / removing entries ───────────────────────────────────────────────
 
-  /** Pick a local file and put it on the shared list. Only local files can be
-   *  added (no remote browsing) — the peer mirrors the entry and can pull it. */
-  async function addFile(): Promise<void> {
+  /** Re-read the enigma folder. The tree is only as fresh as the last scan —
+   *  called on tab open and after anything that touches the folder. */
+  async function refresh(): Promise<void> {
+    if (!isTauri()) return;
+    try {
+      const scan = await invoke<{ root: string; truncated: boolean; files: ScannedFile[] }>("filesync_scan");
+      root.value = scan.root;
+      scanTruncated.value = scan.truncated;
+      scanFiles.value = scan.files;
+    } catch (e) {
+      lastError.value = (e as Error)?.message ?? String(e);
+    }
+  }
+
+  /** Put a file that already lives in the enigma folder on the shared list —
+   *  the explicit step that makes its NAME visible to the other devices. */
+  async function shareFile(dir: string, name: string): Promise<void> {
     lastError.value = null;
-    if (!isTauri() || !deviceSync.value) return;
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({ multiple: false, directory: false });
-    const path = typeof picked === "string" ? picked : null;
-    if (!path) return;
-    // Device-local dedupe: the same path twice is a slip, not two entries.
+    if (!isTauri() || !deviceSync.value || !root.value) return;
+    const path = dir ? `${root.value}/${dir}/${name}` : `${root.value}/${name}`;
+    // Same path twice is a slip, not two entries.
     for (const [entryId, rec] of localRecords) {
       if (rec.path === path && entries.value.some((e) => e.id === entryId)) return;
     }
     try {
       const { hash, size } = await invoke<{ hash: string; size: number }>("filesync_hash", { path });
       const now = Date.now();
-      const name = path.split(/[\\/]/).pop() || "file";
       const entry: SyncedFileEntry = {
         id: nanoid(),
         name: name.slice(0, 120),
+        ...(dir ? { dir } : {}),
         addedBy: myDeviceId.value,
         addedAt: now,
         updatedAt: now,
@@ -262,6 +303,73 @@ export const useFileSyncStore = defineStore("fileSync", () => {
       }
       localRecords.set(entry.id, { path, hash, size, verifiedAt: now });
       await saveLocalRecords();
+    } catch (e) {
+      lastError.value = (e as Error)?.message ?? String(e);
+    }
+  }
+
+  /** Pick any local file: it is COPIED into the enigma folder root (the tree
+   *  shows what the folder holds — no more entries at scattered paths), then
+   *  shared. */
+  async function addFile(): Promise<void> {
+    lastError.value = null;
+    if (!isTauri() || !deviceSync.value) return;
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ multiple: false, directory: false });
+    const path = typeof picked === "string" ? picked : null;
+    if (!path) return;
+    const name = (path.split(/[\\/]/).pop() || "file").slice(0, 120);
+    try {
+      const [copied] = await invoke<Array<{ entryId: string; status: string; newPath?: string | null }>>(
+        "filesync_migrate",
+        { items: [{ entryId: "pick", srcPath: path, dir: "", name }] },
+      );
+      if (copied?.status !== "migrated" || !copied.newPath) {
+        lastError.value = copied?.status ?? "failed";
+        return;
+      }
+      await refresh();
+      // The copy may have been renamed to avoid a collision.
+      const landed = copied.newPath.split(/[\\/]/).pop() || name;
+      await shareFile("", landed);
+    } catch (e) {
+      lastError.value = (e as Error)?.message ?? String(e);
+    }
+  }
+
+  /** Entries whose bytes still sit OUTSIDE the enigma folder (added before it
+   *  existed). The migrate card offers to copy them in. */
+  const legacyEntries = computed(() =>
+    entries.value.filter((e) => {
+      const rec = localRecords.get(e.id);
+      return !!rec && !!root.value && !rec.path.startsWith(root.value + "/");
+    }),
+  );
+
+  /** Copy every legacy entry's file into the enigma folder (sources stay). */
+  async function migrateLegacy(): Promise<void> {
+    if (!isTauri() || !legacyEntries.value.length) return;
+    lastError.value = null;
+    const items = legacyEntries.value.map((e) => ({
+      entryId: e.id,
+      srcPath: localRecords.get(e.id)!.path,
+      dir: e.dir ?? "",
+      name: e.name,
+    }));
+    try {
+      const results = await invoke<Array<{ entryId: string; status: string; newPath?: string | null }>>(
+        "filesync_migrate",
+        { items },
+      );
+      const now = Date.now();
+      for (const r of results) {
+        const rec = localRecords.get(r.entryId);
+        if (r.status === "migrated" && r.newPath && rec) {
+          localRecords.set(r.entryId, { ...rec, path: r.newPath, verifiedAt: now });
+        }
+      }
+      await saveLocalRecords();
+      await refresh();
     } catch (e) {
       lastError.value = (e as Error)?.message ?? String(e);
     }
@@ -304,7 +412,13 @@ export const useFileSyncStore = defineStore("fileSync", () => {
     items.clear();
     lastError.value = null;
     const maxMb = await getMaxFileSizeMb();
-    const picked = entries.value.filter((e) => selection.has(e.id));
+    // Changed files are PULL-ONLY: hashes differ between devices, and pushing
+    // would overwrite the other side's edits from here. Each device resolves a
+    // divergence by pulling the version it wants — so they never enter a push
+    // batch, however they got selected.
+    const picked = entries.value.filter(
+      (e) => selection.has(e.id) && entryState(e) !== "differs",
+    );
     const announce: DlinkFilePushItem[] = [];
 
     for (const entry of picked) {
@@ -346,6 +460,7 @@ export const useFileSyncStore = defineStore("fileSync", () => {
           offerId: offer.offer_id,
           addr: offer.addr,
           name: entry.name,
+          ...(entry.dir ? { dir: entry.dir } : {}),
           size,
           hash,
         });
@@ -435,7 +550,15 @@ export const useFileSyncStore = defineStore("fileSync", () => {
         const { hash, size } = await invoke<{ hash: string; size: number }>("filesync_hash", { path: rec.path });
         const offer = await invoke<OfferCreatedWire>("file_offer_create", { path: rec.path });
         outgoing.set(offer.offer_id, entryId);
-        announce.push({ entryId, offerId: offer.offer_id, addr: offer.addr, name: entry.name, size, hash });
+        announce.push({
+          entryId,
+          offerId: offer.offer_id,
+          addr: offer.addr,
+          name: entry.name,
+          ...(entry.dir ? { dir: entry.dir } : {}),
+          size,
+          hash,
+        });
         scheduleOfferGc(offer.offer_id, entryId);
       } catch {
         await reply(entryId, "missing", req.reqId);
@@ -450,8 +573,9 @@ export const useFileSyncStore = defineStore("fileSync", () => {
 
   // ── receiving ───────────────────────────────────────────────────────────────
 
-  /** Auto-accept: the frame already passed devlink admission, so the sender is
-   *  one of the user's own non-revoked devices. */
+  /** Runs only for consented frames: useDeviceSync parks unsolicited pushes
+   *  until the user accepts (which replays them here); reqId pushes answer our
+   *  own pull. Devlink admission already vouched for the sender either way. */
   async function onPush(payload: Record<string, unknown>): Promise<void> {
     if (!linked.value || !isTauri()) return;
     const frame = validateDlinkFilePush(payload);
@@ -485,6 +609,7 @@ export const useFileSyncStore = defineStore("fileSync", () => {
           entryId: item.entryId,
           name: item.name,
           hash: item.hash,
+          dir: item.dir,
           reqId: frame.reqId,
         });
         items.set(item.entryId, { status: "working", transferred: 0, total: item.size });
@@ -505,7 +630,7 @@ export const useFileSyncStore = defineStore("fileSync", () => {
     try {
       const imported = await invoke<{ path: string; name: string; hash: string; size: number }>(
         "filesync_import",
-        { offerId, name: rx.name, expectedHash: rx.hash, priorPath: prior ?? null },
+        { offerId, name: rx.name, expectedHash: rx.hash, priorPath: prior ?? null, dir: rx.dir ?? null },
       );
       localRecords.set(rx.entryId, {
         path: imported.path,
@@ -552,12 +677,105 @@ export const useFileSyncStore = defineStore("fileSync", () => {
     return localRecords.get(entryId);
   }
 
+  // ── tree buckets ────────────────────────────────────────────────────────────
+  // Two sources joined by absolute path: the scan says what the folder holds,
+  // the shared list says what the devices agreed to mirror. Marker names line
+  // up with FileTree.vue; the panel maps them to the fsync.state* strings.
+
+  /** Absolute path a scanned file resolves to (the join key with records). */
+  function scanPath(f: ScannedFile): string {
+    return f.dir ? `${root.value}/${f.dir}/${f.name}` : `${root.value}/${f.name}`;
+  }
+
+  /** This device's bucket: everything in the folder, plus ghost rows for
+   *  listed files that have no bytes here yet (pullable). */
+  const myBucket = computed<BucketFile[]>(() => {
+    const byPath = new Map<string, SyncedFileEntry>();
+    for (const e of entries.value) {
+      const rec = localRecords.get(e.id);
+      if (rec) byPath.set(rec.path, e);
+    }
+    const seen = new Set<string>();
+    const rows: BucketFile[] = [];
+    for (const f of scanFiles.value) {
+      const entry = byPath.get(scanPath(f));
+      if (!entry) {
+        rows.push({ id: `s:${f.dir}/${f.name}`, dir: f.dir, name: f.name, size: f.size, marker: "notShared" });
+        continue;
+      }
+      seen.add(entry.id);
+      const state = entryState(entry);
+      rows.push({
+        id: entry.id,
+        dir: f.dir,
+        name: f.name,
+        size: f.size,
+        marker: state === "differs" ? "changed" : state === "local-only" ? "excess" : undefined,
+        selectable: true,
+      });
+    }
+    // Listed but not on this disk (or bytes outside the folder): ghost rows.
+    for (const e of entries.value) {
+      if (seen.has(e.id)) continue;
+      const rec = localRecords.get(e.id);
+      if (rec && !rec.path.startsWith(root.value + "/")) continue; // legacy card handles these
+      rows.push({ id: e.id, dir: e.dir ?? "", name: e.name, marker: "missing", selectable: true });
+    }
+    return rows;
+  });
+
+  /** One names-only bucket per linked sibling, markers relative to US. */
+  const siblingBuckets = computed(() => {
+    const reg = deviceSync.value?.registry.value;
+    return siblingIds.value.map((sibId) => {
+      const files: BucketFile[] = [];
+      for (const e of entries.value) {
+        const theirs = e.copies[sibId];
+        const mine = localRecords.get(e.id);
+        if (theirs) {
+          files.push({
+            id: `${sibId}:${e.id}`,
+            dir: e.dir ?? "",
+            name: e.name,
+            marker: !mine ? "excess" : mine.hash !== theirs.hash ? "changed" : undefined,
+          });
+        } else if (mine) {
+          // We hold it, they don't — missing over there.
+          files.push({ id: `${sibId}:${e.id}`, dir: e.dir ?? "", name: e.name, marker: "missing" });
+        }
+      }
+      const dev = reg?.devices.find((d) => d.deviceId === sibId);
+      return { deviceId: sibId, label: dev?.label ?? sibId, files };
+    });
+  });
+
+  // ── incoming-push consent (pass-through to useDeviceSync's queue) ──────────
+
+  // Optional-chained twice: component tests hand in slim deviceSync fakes.
+  const pendingPushOffers = computed(() => deviceSync.value?.pendingPushOffers?.value ?? []);
+  function acceptPushOffer(offerId: string): void {
+    deviceSync.value?.acceptPushOffer(offerId);
+  }
+  async function declinePushOffer(offerId: string): Promise<void> {
+    await deviceSync.value?.declinePushOffer(offerId);
+  }
+
+  /** True when a selected entry is hash-diverged — the panel shows the
+   *  pull-only hint and pushSelected refuses those rows. */
+  const selectionHasChanged = computed(() =>
+    entries.value.some((e) => selection.has(e.id) && entryState(e) === "differs"),
+  );
+
   return {
     // state
     entries, localRecords, selection, items, batchDir, batchActive, lastError,
     linked, online, canTransfer, allSelected, siblingIds,
+    root, scanFiles, scanTruncated, legacyEntries, myBucket, siblingBuckets,
+    pendingPushOffers, selectionHasChanged,
     // actions
-    init, addFile, removeEntry, openFolder, toggle, selectAll, pushSelected, pullSelected,
+    init, refresh, addFile, shareFile, migrateLegacy, removeEntry, openFolder,
+    toggle, selectAll, pushSelected, pullSelected,
+    acceptPushOffer, declinePushOffer,
     entryState, localRecord,
     // exposed for tests
     _internal: { onPush, onPullReq, onResult, finishReceive, loadLocalRecords },

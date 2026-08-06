@@ -1,4 +1,4 @@
-"""Features tab: presets, the nine build gates, and the runtime defaults."""
+"""Features tab: presets, the ten build gates, and the runtime defaults."""
 
 from __future__ import annotations
 
@@ -58,6 +58,11 @@ GATE_HINTS: dict[str, tuple[str, str]] = {
         "Maps",
         "The Map tab and every map_* command. Regions come from "
         "tools/map_packager — the app never fetches tiles itself.",
+    ),
+    "keyring.enabled": (
+        "Keyring",
+        "One passphrase locking MANY local files (keyring_* commands). "
+        "Per-file locking is always in — this gates only the shared ring.",
     ),
     "devices.allow_linking": (
         "Device linking",

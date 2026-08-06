@@ -116,6 +116,16 @@ beforeEach(() => {
     if (cmd === "filesync_recv_path") return `/tmp/recv-${args.offerId}.part`;
     if (cmd === "filesync_import") return { path: "/synced/f.txt", name: "f.txt", hash: HASH_A, size: 10 };
     if (cmd === "filesync_dir") return "/synced";
+    if (cmd === "filesync_root") return { path: "/enigma" };
+    if (cmd === "filesync_scan") return { root: "/enigma", truncated: false, files: [] };
+    if (cmd === "filesync_migrate") {
+      const items = args.items as Array<{ entryId: string; srcPath: string; name: string }>;
+      return items.map((it) => ({
+        entryId: it.entryId,
+        status: "migrated",
+        newPath: `/enigma/${it.name}`,
+      }));
+    }
     return undefined;
   });
 });
@@ -128,7 +138,7 @@ async function seededStore(records: Record<string, unknown> = {}) {
 }
 
 describe("adding entries", () => {
-  it("hashes the picked file, shares the entry, and records the local path", async () => {
+  it("copies the picked file into the enigma folder, shares it, records the new path", async () => {
     openMock.mockResolvedValue("/home/a/report.pdf");
     const store = await seededStore();
     await store.addFile();
@@ -137,7 +147,8 @@ describe("adding entries", () => {
     expect(fakeSync.entries[0]).toMatchObject({ name: "report.pdf", addedBy: "primary" });
     expect((fakeSync.entries[0].copies as Record<string, { hash: string }>).primary.hash).toBe(HASH_A);
     const id = fakeSync.entries[0].id as string;
-    expect(store.localRecord(id)?.path).toBe("/home/a/report.pdf");
+    // The record points at the COPY inside the folder, not the picker source.
+    expect(store.localRecord(id)?.path).toBe("/enigma/report.pdf");
   });
 
   it("refuses a duplicate path and a cancelled picker", async () => {
@@ -165,23 +176,27 @@ describe("adding entries", () => {
 });
 
 describe("push", () => {
-  it("skips entries the sibling already has, offers the rest, announces once", async () => {
+  it("skips identical, refuses changed (pull-only), announces the rest once", async () => {
     fakeSync.entries = [
       entry("same", { copies: { phone: { hash: HASH_A, size: 10, updatedAt: 5 } } }),
-      entry("differs", { copies: { phone: { hash: HASH_B, size: 10, updatedAt: 5 } } }),
+      // Hash-diverged from the sibling: PULL-ONLY, never enters a push batch.
+      entry("changed", { copies: { phone: { hash: HASH_B, size: 10, updatedAt: 5 } } }),
+      entry("fresh"), // no sibling copy at all — the pushable one
     ];
     const store = await seededStore({
       same: { path: "/a/same.txt", hash: HASH_A, size: 10, verifiedAt: 1 },
-      differs: { path: "/a/differs.txt", hash: HASH_A, size: 10, verifiedAt: 1 },
+      changed: { path: "/a/changed.txt", hash: HASH_A, size: 10, verifiedAt: 1 },
+      fresh: { path: "/a/fresh.txt", hash: HASH_A, size: 10, verifiedAt: 1 },
     });
     store.selectAll(true);
     await store.pushSelected();
 
     expect(store.items.get("same")?.status).toBe("skipped");
+    expect(store.items.get("changed")).toBeUndefined(); // untouched, not failed
     const pushes = sentOf("dlink_file_push");
     expect(pushes).toHaveLength(1);
     const announced = (pushes[0].items as Array<{ entryId: string }>).map((i) => i.entryId);
-    expect(announced).toEqual(["differs"]);
+    expect(announced).toEqual(["fresh"]);
   });
 
   it("marks a vanished file missing without offering it", async () => {
@@ -257,6 +272,7 @@ describe("receiving a push", () => {
     expect(invokeMock).toHaveBeenCalledWith("filesync_import", {
       offerId: "o1",
       name: "f.txt",
+      dir: null,
       expectedHash: HASH_A,
       priorPath: null,
     });

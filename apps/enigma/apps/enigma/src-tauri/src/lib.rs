@@ -49,6 +49,8 @@ mod vault;
 mod tor;
 mod fs_local;
 mod local_lock;
+// Key ring: one passphrase locking many local files (keyring.enabled gate).
+mod keyring;
 // Maps: PMTiles tile serving from imported region blobs, region import/export,
 // P2P region sharing via file_xfer. The app never fetches tiles — packages
 // come from the standalone tools/map_packager (map.md Part II).
@@ -459,6 +461,7 @@ pub struct BuildConfigSummary {
     pub peers_enabled: bool,
     pub maps_enabled: bool,
     pub devices_allow_linking: bool,
+    pub keyring_enabled: bool,
     pub use_tor_default: bool,
     pub stable_onion_default: bool,
     pub dht_discovery_default: bool,
@@ -478,8 +481,8 @@ pub struct BuildConfigSummary {
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
     use build_config::{
-        app, calendar, calls, cloud, contacts, devices, dht, features, maps, p2p, peers,
-        settings as s,
+        app, calendar, calls, cloud, contacts, devices, dht, features, keyring, maps, p2p,
+        peers, settings as s,
     };
     BuildConfigSummary {
         app_name: app::NAME,
@@ -494,6 +497,7 @@ fn app_get_build_config() -> BuildConfigSummary {
         peers_enabled: peers::ENABLED,
         maps_enabled: maps::ENABLED,
         devices_allow_linking: devices::ALLOW_LINKING,
+        keyring_enabled: keyring::ENABLED,
         use_tor_default: features::USE_TOR_DEFAULT,
         stable_onion_default: features::STABLE_ONION_DEFAULT,
         dht_discovery_default: features::DHT_DISCOVERY_DEFAULT,
@@ -1378,6 +1382,16 @@ pub fn run() {
             file_sync::filesync_recv_path,
             file_sync::filesync_import,
             file_sync::filesync_dir,
+            file_sync::filesync_root,
+            file_sync::filesync_scan,
+            file_sync::filesync_migrate,
+            keyring::keyring_status,
+            keyring::keyring_init,
+            keyring::keyring_lock,
+            keyring::keyring_unlock,
+            keyring::keyring_unlock_all,
+            keyring::keyring_entries,
+            keyring::keyring_change_passphrase,
             device_link::devlink_pair_begin,
             device_link::devlink_pair_confirm,
             device_link::devlink_pair_cancel,

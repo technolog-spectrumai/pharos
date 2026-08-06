@@ -30,6 +30,7 @@ struct RawConfig {
     calendar: CalendarSection,
     peers: PeersSection,
     maps: MapsSection,
+    keyring: KeyringSection,
     devices: DevicesSection,
     features: FeaturesSection,
     settings: SettingsSection,
@@ -106,6 +107,12 @@ struct PeersSection {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MapsSection {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyringSection {
     enabled: bool,
 }
 
@@ -401,6 +408,10 @@ pub mod maps {{
     pub const ENABLED: bool = {maps_enabled};
 }}
 
+pub mod keyring {{
+    pub const ENABLED: bool = {keyring_enabled};
+}}
+
 pub mod devices {{
     pub const ALLOW_LINKING: bool = {devices_allow_linking};
 }}
@@ -493,6 +504,7 @@ const _: () = assert!(
         calendar_enabled = cfg.calendar.enabled,
         peers_enabled = cfg.peers.enabled,
         maps_enabled = cfg.maps.enabled,
+        keyring_enabled = cfg.keyring.enabled,
         devices_allow_linking = cfg.devices.allow_linking,
     );
     o

@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { getBuildConfig } from "rakotis";
 import FilePanel from "../components/chat/FilePanel.vue";
 import DevicesTab from "../components/devices/DevicesTab.vue";
+import KeyringPanel from "../components/local/KeyringPanel.vue";
 import LocalPanel from "../components/local/LocalPanel.vue";
 
 // darkMode is class-based (`.dark` on <html>); the prop also drives the
@@ -12,12 +13,14 @@ defineProps<{ darkMode?: boolean }>();
 // A build without device linking has no Devices tab at all (the pairing UI and
 // the per-file sync both ride the devlink machinery).
 const devicesAllowed = getBuildConfig().devices_allow_linking;
+// Same rule for the key ring: keyring.enabled off = no Keys tab, no dormant UI.
+const keyringAllowed = getBuildConfig().keyring_enabled;
 
 // P2P (direct peer transfer) vs Local (passphrase-protected files encrypted on
 // this device) vs Devices (the user's OWN linked devices: per-file push/pull +
 // pairing — never a friend). Server-stored files moved to the top-level Cloud
 // tab (cloud.md) together with the rest of the server surface.
-type FilesTab = "p2p" | "local" | "devices";
+type FilesTab = "p2p" | "local" | "devices" | "keys";
 const activeTab = ref<FilesTab>("p2p");
 </script>
 
@@ -59,6 +62,18 @@ const activeTab = ref<FilesTab>("p2p");
       >
         <font-awesome-icon icon="mobile-screen" />{{ $t('files.devicesTab') }}
       </button>
+      <button
+        v-if="keyringAllowed"
+        type="button"
+        :class="activeTab === 'keys'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        data-testid="files-tab-keys"
+        @click="activeTab = 'keys'"
+      >
+        <font-awesome-icon icon="key" />{{ $t('keys.tab') }}
+      </button>
     </div>
 
     <!-- P2P file transfer: offer a file to a peer of the active room, accept or
@@ -67,6 +82,8 @@ const activeTab = ref<FilesTab>("p2p");
       <FilePanel v-if="activeTab === 'p2p'" />
       <!-- Devices: the user's own linked devices — per-file push/pull + pairing. -->
       <DevicesTab v-else-if="activeTab === 'devices' && devicesAllowed" :dark-mode="darkMode" />
+      <!-- Keys: the key ring — one passphrase, many locked files (device-local). -->
+      <KeyringPanel v-else-if="activeTab === 'keys' && keyringAllowed" :dark-mode="darkMode" />
       <!-- Local: passphrase-protected files encrypted on this device, and the notes
            editor for reading and editing local text files. -->
       <LocalPanel v-else :dark-mode="darkMode" />

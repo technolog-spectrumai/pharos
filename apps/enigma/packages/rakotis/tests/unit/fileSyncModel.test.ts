@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  FILESYNC_DIR_MAX_SEGMENTS,
   FILESYNC_MAX_ENTRIES,
   FILESYNC_MAX_WIRE_ENTRIES,
   FILESYNC_TRIM_AT,
+  entryTreePath,
   liveFileEntries,
   mergeFileLists,
+  normalizeDirPath,
   trimFileEntries,
   validateDlinkFilePullReq,
   validateDlinkFilePush,
@@ -55,6 +58,32 @@ describe("validateSyncedFileEntry", () => {
     expect(validateFileEntryList([entry("a"), { junk: true }])).toBeNull();
     expect(validateFileEntryList(new Array(FILESYNC_MAX_WIRE_ENTRIES + 1).fill(entry("a")))).toBeNull();
     expect(validateFileEntryList([entry("a"), entry("b")])?.map((e) => e.id)).toEqual(["a", "b"]);
+  });
+
+  it("keeps a valid dir and demotes a bad one to root instead of rejecting", () => {
+    expect(validateSyncedFileEntry(entry("e1", { dir: "docs/work" }))?.dir).toBe("docs/work");
+    // Demotions — the entry survives, the dir does not:
+    for (const dir of ["../up", "/abs", "a//b", ".hidden", "a/./b", "x".repeat(600), 42 as unknown as string]) {
+      const validated = validateSyncedFileEntry(entry("e1", { dir }));
+      expect(validated).not.toBeNull();
+      expect(validated?.dir).toBeUndefined();
+    }
+  });
+});
+
+describe("normalizeDirPath / entryTreePath", () => {
+  it("normalizes to root for traversal, absolute and over-cap paths", () => {
+    expect(normalizeDirPath("docs")).toBe("docs");
+    expect(normalizeDirPath("")).toBe("");
+    expect(normalizeDirPath(undefined)).toBe("");
+    expect(normalizeDirPath("a/".repeat(FILESYNC_DIR_MAX_SEGMENTS) + "b")).toBe("");
+    expect(normalizeDirPath("back\\slash")).toBe("");
+    expect(normalizeDirPath("colon:name")).toBe("");
+  });
+
+  it("entryTreePath joins dir and name", () => {
+    expect(entryTreePath(entry("e1"))).toBe("e1.txt");
+    expect(entryTreePath(entry("e1", { dir: "docs/work" }))).toBe("docs/work/e1.txt");
   });
 });
 

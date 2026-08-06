@@ -69,6 +69,9 @@ peers:
 maps:
   enabled: false                  # Pro only
 
+keyring:
+  enabled: false                  # Pro only
+
 devices:
   allow_linking: false            # Pro only
 

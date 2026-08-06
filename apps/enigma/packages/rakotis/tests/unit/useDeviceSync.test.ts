@@ -342,10 +342,93 @@ describe("allowed-files list (Files → Devices)", () => {
     const seen: Array<[string, string]> = [];
     sync.onDevlinkFile((type, _payload, sender) => seen.push([type, sender]));
 
-    fake.syncHandlers[0]("dlink_file_push", { type: "dlink_file_push", v: 1, items: [] }, "alice#dev-abcd2345");
+    // Since the consent queue, only reqId pushes (answers to our own pull)
+    // pass straight through; unsolicited pushes park as offers instead.
+    fake.syncHandlers[0]("dlink_file_push", { type: "dlink_file_push", v: 1, reqId: "r1", items: [pushItem("e1")] }, "alice#dev-abcd2345");
     fake.syncHandlers[0]("dlink_files", { type: "dlink_files", v: 1, entries: [] }, "alice#dev-abcd2345");
 
     expect(seen).toEqual([["dlink_file_push", "alice#dev-abcd2345"]]);
+  });
+
+  const pushItem = (entryId: string, dir?: string) => ({
+    entryId,
+    offerId: "of-1234",
+    addr: "addr-blob",
+    name: `${entryId}.txt`,
+    size: 10,
+    hash: "a".repeat(64),
+    ...(dir ? { dir } : {}),
+  });
+
+  const unsolicitedPush = (ids: string[]) =>
+    ({ type: "dlink_file_push", v: 1, items: ids.map((id) => pushItem(id)) });
+
+  it("parks an unsolicited push as a pending offer instead of downloading", async () => {
+    const sync = await startedSync();
+    const seen: string[] = [];
+    sync.onDevlinkFile((type) => seen.push(type));
+
+    fake.syncHandlers[0]("dlink_file_push", unsolicitedPush(["e1", "e2"]), "alice#dev-abcd2345");
+
+    expect(seen).toEqual([]);
+    expect(sync.pendingPushOffers.value).toHaveLength(1);
+    const offer = sync.pendingPushOffers.value[0];
+    expect(offer.items.map((i) => i.entryId)).toEqual(["e1", "e2"]);
+    expect(offer.fromLabel).toBeTruthy();
+  });
+
+  it("accepting an offer replays the original frame through the handlers", async () => {
+    const sync = await startedSync();
+    const seen: Array<Record<string, unknown>> = [];
+    sync.onDevlinkFile((_type, payload) => seen.push(payload));
+
+    fake.syncHandlers[0]("dlink_file_push", unsolicitedPush(["e1"]), "alice#dev-abcd2345");
+    sync.acceptPushOffer(sync.pendingPushOffers.value[0].offerId);
+
+    expect(seen).toHaveLength(1);
+    expect((seen[0].items as Array<{ entryId: string }>)[0].entryId).toBe("e1");
+    expect(sync.pendingPushOffers.value).toHaveLength(0);
+  });
+
+  it("declining an offer answers 'declined' per item and never downloads", async () => {
+    const sync = await startedSync();
+    const seen: string[] = [];
+    sync.onDevlinkFile((type) => seen.push(type));
+    vi.clearAllMocks();
+
+    fake.syncHandlers[0]("dlink_file_push", unsolicitedPush(["e1", "e2"]), "alice#dev-abcd2345");
+    await sync.declinePushOffer(sync.pendingPushOffers.value[0].offerId);
+
+    expect(seen).toEqual([]);
+    expect(sync.pendingPushOffers.value).toHaveLength(0);
+    const results = devSyncSends("dlink_file_result");
+    expect(results.map(([, p]) => (p as { entryId: string; status: string }).entryId)).toEqual(["e1", "e2"]);
+    expect(results.every(([, p]) => (p as { status: string }).status === "declined")).toBe(true);
+  });
+
+  it("caps parked offers at 8, dropping the oldest", async () => {
+    const sync = await startedSync();
+    for (let i = 0; i < 10; i++) {
+      fake.syncHandlers[0]("dlink_file_push", unsolicitedPush([`e${i}`]), "alice#dev-abcd2345");
+    }
+    const parked = sync.pendingPushOffers.value;
+    expect(parked).toHaveLength(8);
+    expect(parked[0].items[0].entryId).toBe("e2");
+  });
+
+  it("an unknown result status reaches handlers coerced to 'failed'", async () => {
+    const sync = await startedSync();
+    const seen: Array<Record<string, unknown>> = [];
+    sync.onDevlinkFile((_type, payload) => seen.push(payload));
+
+    fake.syncHandlers[0](
+      "dlink_file_result",
+      { type: "dlink_file_result", v: 1, entryId: "e1", status: "quarantined" },
+      "alice#dev-abcd2345",
+    );
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].status).toBe("failed");
   });
 
   it("upsert refuses past the live cap; tombstone propagates and sticks", async () => {

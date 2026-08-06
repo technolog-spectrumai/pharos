@@ -67,6 +67,9 @@ peers:
 maps:
   enabled: true
 
+keyring:
+  enabled: true
+
 devices:
   allow_linking: true
 
