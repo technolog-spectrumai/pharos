@@ -1,14 +1,34 @@
-// Direct 1:1 peer-to-peer file transfer over iroh (QUIC), end-to-end encrypted by
-// iroh's TLS 1.3 transport (peers authenticated by node id). Mirrors the parked Vox
-// call backend (limbo/rust/vox.rs): a dedicated iroh node accepts a custom ALPN
-// (`enigma/file/0`); the file owner (host) registers a file and shares its
-// `EndpointAddr` + a one-time `offer_id` out of band — the frontend relays them as
-// an MLS-encrypted `file_offer` chat message. The recipient `endpoint.connect()`s,
-// opens one bi-stream, requests the offer, and streams the bytes straight to disk.
+// Direct 1:1 peer-to-peer file transfer over iroh (QUIC). A dedicated iroh node
+// accepts a custom ALPN (`enigma/file/1`); the file owner (host) registers a file
+// and shares its `EndpointAddr` + a one-time `offer_id` out of band — the frontend
+// relays them as an MLS-encrypted `file_offer` chat message. The recipient
+// `endpoint.connect()`s and opens one bi-stream.
 //
-// Both sides stream in fixed chunks (never buffering the whole file in memory), so
+// THE BYTES THEMSELVES ARE MLS-ENCRYPTED (protocol v1). Before any data moves the
+// two sides run an MLS handshake in-stream — the downloader is the caller (sends a
+// KeyPackage in the Request), the host is the callee (creates the 2-member group
+// and returns the Welcome in the Header), copying Vox verbatim (vox.rs mls_callee /
+// mls_caller_start / mls_caller_join). The session is per-transfer, in-memory
+// (MemoryStorage), and dropped with the connection — nothing to persist or clean up.
+// Every chunk is then sealed with `encrypt_app`, exactly like a chat message, so the
+// payload is protected by MLS and not merely by the QUIC transport.
+//
+// INTEGRITY. Each chunk extends a BLAKE3 hash chain (h_i = BLAKE3(h_{i-1} || seq ||
+// chunk)); the host sends the root in a trailer frame and the receiver, having
+// recomputed the chain as it wrote, refuses the file on any mismatch — which also
+// catches a dropped chunk or a truncated stream (a real gap before: the old code
+// never compared the received byte count to the announced size). The check is a
+// user setting; either side enabling it turns it on for the transfer.
+//
+// Both sides stream in chunks (never buffering the whole file in memory), so
 // arbitrarily large files transfer with bounded memory. Progress is reported via
-// `file://progress`; completion/failure via `file://done` / `file://error`.
+// `file://progress` — throttled to whole-percent ticks, since that is all the UI
+// renders; completion/failure via `file://done` / `file://error`.
+//
+// AUTHENTICATION is unchanged and possession-based: the host does not authenticate
+// the dialer, so anyone holding {addr, offer_id} can complete the handshake. Those
+// stay secret because each feature relays them inside its own MLS-encrypted
+// signalling. The MLS layer here buys confidentiality of the bytes, not peer auth.
 //
 // The endpoint is deliberately ephemeral (no `load_or_create_secret`): the offer
 // addr is relayed fresh per offer, so no reconnect-by-NodeId is ever needed, and an
@@ -33,12 +53,33 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+use rotor_core::RotorSession;
+
 use crate::{active_config, load_profile_state, AppConfigState};
 
-const FILE_ALPN: &[u8] = b"enigma/file/0";
-/// Streaming chunk size for both directions. Large enough to keep QUIC busy, small
-/// enough that memory stays bounded regardless of file size.
-const CHUNK: usize = crate::build_config::network::TRANSFER_CHUNK_BYTES;
+// v1: chunks are MLS ciphertext. A v0 peer cannot negotiate this ALPN, so a
+// version skew fails to connect instead of misreading the stream.
+const FILE_ALPN: &[u8] = b"enigma/file/1";
+/// The user's "file chunk size" setting, bytes. Re-read per transfer (the
+/// connect-timeout discipline: Settings edits apply live, never a baked
+/// literal). The HOST's value governs a transfer.
+pub(crate) fn file_chunk_bytes(app: &AppHandle) -> usize {
+    use crate::build_config::settings as s;
+    let kib = crate::vault::kv_get_raw(app, "p2p:settings", "default", "file_chunk_kib")
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.clamp(s::FILE_CHUNK_MIN_KIB, s::FILE_CHUNK_MAX_KIB))
+        .unwrap_or(s::FILE_CHUNK_DEFAULT_KIB);
+    (kib as usize) * 1024
+}
+
+/// The user's integrity-check toggle (Settings), default from the build config.
+pub(crate) fn file_integrity_enabled(app: &AppHandle) -> bool {
+    match crate::vault::kv_get_raw(app, "p2p:settings", "default", "file_integrity").as_deref() {
+        Some("on") => true,
+        Some("off") => false,
+        _ => crate::build_config::features::FILE_INTEGRITY_DEFAULT,
+    }
+}
 
 // Shared with cloud.rs so every networked feature reports airplane mode identically.
 pub(crate) const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
@@ -128,6 +169,12 @@ struct OfferedFile {
 #[derive(Serialize, Deserialize)]
 struct Request {
     offer_id: String,
+    /// Downloader's MLS KeyPackage, base64 (the caller role).
+    key_package: String,
+    /// This side wants the hash chain. The host ORs it with its own setting, so
+    /// either party can insist; a downloader that asked and does not get one
+    /// aborts rather than accept unverified bytes.
+    want_integrity: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -135,6 +182,216 @@ struct Header {
     name: String,
     size: u64,
     mime: String,
+    /// MLS Welcome for the 2-member group, base64.
+    welcome: String,
+    /// The host's chunk size governs this transfer; echoed so the receiver can
+    /// size its read buffer and know what the chain covers.
+    chunk_size: u32,
+    chunk_count: u64,
+    integrity: bool,
+}
+
+/// Plaintext discriminator, INSIDE the MLS ciphertext so it is authenticated.
+const KIND_CHUNK: u8 = 0;
+const KIND_TRAILER: u8 = 1;
+
+/// Domain-separated chain seed — binds the chain to this offer so a chunk
+/// cannot be replayed into a different transfer.
+fn chain_seed(offer_id: &str) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"enigma/file/chain/v1");
+    h.update(offer_id.as_bytes());
+    *h.finalize().as_bytes()
+}
+
+/// h_i = BLAKE3(h_{i-1} || seq || chunk)
+fn chain_step(prev: &[u8; 32], seq: u64, chunk: &[u8]) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(prev);
+    h.update(&seq.to_be_bytes());
+    h.update(chunk);
+    *h.finalize().as_bytes()
+}
+
+fn b64(bytes: &[u8]) -> String {
+    data_encoding::BASE64.encode(bytes)
+}
+
+fn unb64(s: &str) -> Result<Vec<u8>> {
+    Ok(data_encoding::BASE64.decode(s.as_bytes())?)
+}
+
+/// Host side: form the 2-member group from the downloader's KeyPackage and
+/// return the base64 Welcome (vox.rs::mls_callee, verbatim shape).
+fn mls_host(offer_id: &str, kp_b64: &str) -> Result<(RotorSession, String)> {
+    let kp = unb64(kp_b64)?;
+    let mut session = RotorSession::new(offer_id.to_string(), "host".to_string())
+        .map_err(|e| anyhow!("mls new: {e}"))?;
+    session.create_group().map_err(|e| anyhow!("mls create_group: {e}"))?;
+    let (welcome, _commit) = session.add_member(&kp).map_err(|e| anyhow!("mls add_member: {e}"))?;
+    Ok((session, b64(&welcome)))
+}
+
+/// Downloader side: fresh session + our KeyPackage; the session is kept so we
+/// can join from the Welcome the host returns.
+fn mls_downloader_start(offer_id: &str) -> Result<(RotorSession, String)> {
+    let mut session = RotorSession::new(offer_id.to_string(), "peer".to_string())
+        .map_err(|e| anyhow!("mls new: {e}"))?;
+    let kp = session.key_package().map_err(|e| anyhow!("mls key_package: {e}"))?;
+    Ok((session, b64(&kp)))
+}
+
+/// Length-prefixed raw frame (the payload is MLS ciphertext, not JSON).
+async fn write_blob(send: &mut SendStream, body: &[u8]) -> Result<()> {
+    send.write_all(&(body.len() as u32).to_le_bytes()).await?;
+    send.write_all(body).await?;
+    Ok(())
+}
+
+async fn read_blob(recv: &mut RecvStream, max: usize) -> Result<Vec<u8>> {
+    let mut len = [0u8; 4];
+    recv.read_exact(&mut len).await?;
+    let n = u32::from_le_bytes(len) as usize;
+    if n > max {
+        return Err(anyhow!("data frame too large ({n} > {max})"));
+    }
+    let mut body = vec![0u8; n];
+    recv.read_exact(&mut body).await?;
+    Ok(body)
+}
+
+/// Ceiling for a data frame: the biggest chunk this build allows plus room for
+/// MLS framing (openmls PrivateMessage overhead is well under 1 KiB).
+fn max_data_frame() -> usize {
+    (crate::build_config::settings::FILE_CHUNK_MAX_KIB as usize) * 1024 + 8 * 1024
+}
+
+/// Fill `buf` unless EOF. `AsyncRead::read` may return a short read at any time;
+/// a short chunk mid-file would desynchronise the receiver's chain, so the
+/// sender packs full chunks and only the last one is short.
+async fn read_full(file: &mut tokio::fs::File, buf: &mut [u8]) -> Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        let n = file.read(&mut buf[filled..]).await?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    Ok(filled)
+}
+
+/// Emits at most once per whole percent — all the UI renders (FilePanel rounds
+/// to an integer), so a per-chunk firehose was wasted work on large files.
+struct PercentTicker {
+    last: i64,
+}
+
+impl PercentTicker {
+    fn new() -> Self {
+        Self { last: -1 }
+    }
+
+    /// `Some(())` when this byte count crosses into a new percent.
+    fn tick(&mut self, done: u64, total: u64) -> Option<()> {
+        let pct = if total == 0 { 100 } else { (done * 100 / total) as i64 };
+        if pct != self.last {
+            self.last = pct;
+            return Some(());
+        }
+        None
+    }
+}
+
+/// Receive, decrypt and verify every chunk. Split out of `download` so a
+/// failure anywhere has one place to clean up the partial file.
+async fn receive_chunks(
+    app: &AppHandle,
+    session: &mut RotorSession,
+    recv: &mut RecvStream,
+    offer_id: &str,
+    header: &Header,
+    dest: &str,
+) -> Result<()> {
+    let mut file = tokio::fs::File::create(dest).await?;
+    let mut got: u64 = 0;
+    let mut expect_seq: u64 = 0;
+    let mut chain = chain_seed(offer_id);
+    let mut trailer: Option<(u64, [u8; 32])> = None;
+    let mut ticks = PercentTicker::new();
+    let cap = max_data_frame();
+
+    loop {
+        let sealed = match read_blob(recv, cap).await {
+            Ok(b) => b,
+            // Clean end of stream — the size/chain checks below decide whether
+            // that was a complete transfer or a truncated one.
+            Err(_) => break,
+        };
+        let plain = session
+            .process_message(&sealed)
+            .map_err(|e| anyhow!("mls decrypt: {e}"))?
+            .ok_or_else(|| anyhow!("mls: not an application message"))?;
+
+        match plain.first().copied() {
+            Some(KIND_CHUNK) => {
+                if plain.len() < 9 {
+                    return Err(anyhow!("short chunk frame"));
+                }
+                let seq = u64::from_be_bytes(plain[1..9].try_into().unwrap());
+                if seq != expect_seq {
+                    return Err(anyhow!("chunk out of order: expected {expect_seq}, got {seq}"));
+                }
+                let body = &plain[9..];
+                if header.integrity {
+                    chain = chain_step(&chain, seq, body);
+                }
+                file.write_all(body).await?;
+                got += body.len() as u64;
+                expect_seq += 1;
+                if let Some(()) = ticks.tick(got, header.size) {
+                    emit_progress(app, offer_id, "recv", got, header.size);
+                }
+            }
+            Some(KIND_TRAILER) => {
+                if plain.len() < 41 {
+                    return Err(anyhow!("short trailer frame"));
+                }
+                let count = u64::from_be_bytes(plain[1..9].try_into().unwrap());
+                let mut root = [0u8; 32];
+                root.copy_from_slice(&plain[9..41]);
+                trailer = Some((count, root));
+                break;
+            }
+            _ => return Err(anyhow!("unknown frame kind")),
+        }
+    }
+    file.flush().await?;
+    emit_progress(app, offer_id, "recv", got, header.size);
+
+    // Truncation check — this exists for every transfer, chain or not. The old
+    // protocol had none: a stream that closed early looked like success.
+    if got != header.size {
+        return Err(anyhow!("incomplete transfer: got {got} of {} bytes", header.size));
+    }
+    if expect_seq != header.chunk_count {
+        return Err(anyhow!(
+            "missing chunks: got {expect_seq} of {} announced",
+            header.chunk_count
+        ));
+    }
+    if header.integrity {
+        let Some((count, root)) = trailer else {
+            return Err(anyhow!("integrity manifest missing — transfer was cut short"));
+        };
+        if count != expect_seq {
+            return Err(anyhow!("manifest counts {count} chunks, received {expect_seq}"));
+        }
+        if root != chain {
+            return Err(anyhow!("integrity check failed — the file was altered in transit"));
+        }
+    }
+    Ok(())
 }
 
 fn frame_bytes<T: Serialize>(val: &T) -> Vec<u8> {
@@ -154,6 +411,8 @@ async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
     let mut len = [0u8; 4];
     recv.read_exact(&mut len).await?;
     let n = u32::from_le_bytes(len) as usize;
+    // Control frames only (Request/Header). A KeyPackage is ~1 KiB and a
+    // Welcome ~2 KiB, so 64 KiB stays generous; chunk frames use read_blob.
     if n > 64 * 1024 {
         return Err(anyhow!("control frame too large"));
     }
@@ -292,23 +551,66 @@ impl FileShared {
             return Err(anyhow!("unknown offer {}", req.offer_id));
         };
 
+        // MLS handshake: we are the callee — group of two, Welcome goes back in
+        // the header so the downloader can join before the first chunk.
+        let (mut session, welcome) = mls_host(&req.offer_id, &req.key_package)?;
+
+        let chunk_size = file_chunk_bytes(&self.app);
+        let integrity = file_integrity_enabled(&self.app) || req.want_integrity;
+        let chunk_count = offer.size.div_ceil(chunk_size as u64);
+
         write_frame(
             &mut send,
-            &Header { name: offer.name.clone(), size: offer.size, mime: offer.mime.clone() },
+            &Header {
+                name: offer.name.clone(),
+                size: offer.size,
+                mime: offer.mime.clone(),
+                welcome,
+                chunk_size: chunk_size as u32,
+                chunk_count,
+                integrity,
+            },
         )
         .await?;
 
         let mut file = tokio::fs::File::open(&offer.path).await?;
-        let mut buf = vec![0u8; CHUNK];
+        let mut buf = vec![0u8; chunk_size];
         let mut sent: u64 = 0;
+        let mut seq: u64 = 0;
+        let mut chain = chain_seed(&req.offer_id);
+        let mut ticks = PercentTicker::new();
         loop {
-            let n = file.read(&mut buf).await?;
+            // read() may return a short read; fill the chunk so the receiver's
+            // sizes (and therefore the chain) match what the header promised.
+            let n = read_full(&mut file, &mut buf).await?;
             if n == 0 {
                 break;
             }
-            send.write_all(&buf[..n]).await?;
+            if integrity {
+                chain = chain_step(&chain, seq, &buf[..n]);
+            }
+            let mut plain = Vec::with_capacity(n + 9);
+            plain.push(KIND_CHUNK);
+            plain.extend_from_slice(&seq.to_be_bytes());
+            plain.extend_from_slice(&buf[..n]);
+            let sealed = session.encrypt_app(&plain).map_err(|e| anyhow!("mls encrypt: {e}"))?;
+            write_blob(&mut send, &sealed).await?;
+
             sent += n as u64;
-            emit_progress(&self.app, &req.offer_id, "send", sent, offer.size);
+            seq += 1;
+            if let Some(()) = ticks.tick(sent, offer.size) {
+                emit_progress(&self.app, &req.offer_id, "send", sent, offer.size);
+            }
+        }
+        emit_progress(&self.app, &req.offer_id, "send", sent, offer.size);
+
+        if integrity {
+            let mut plain = Vec::with_capacity(41);
+            plain.push(KIND_TRAILER);
+            plain.extend_from_slice(&seq.to_be_bytes());
+            plain.extend_from_slice(&chain);
+            let sealed = session.encrypt_app(&plain).map_err(|e| anyhow!("mls encrypt: {e}"))?;
+            write_blob(&mut send, &sealed).await?;
         }
         let _ = send.finish();
 
@@ -332,21 +634,33 @@ async fn download(
     let _active = TransferGuard::new();
     let conn = endpoint.connect(addr, FILE_ALPN).await?;
     let (mut send, mut recv) = conn.open_bi().await?;
-    write_frame(&mut send, &Request { offer_id: offer_id.clone() }).await?;
+
+    // We are the MLS caller: our KeyPackage rides the request, and we join from
+    // the Welcome in the header before the first chunk arrives.
+    let (mut session, key_package) = mls_downloader_start(&offer_id)?;
+    let want_integrity = file_integrity_enabled(&app);
+    write_frame(
+        &mut send,
+        &Request { offer_id: offer_id.clone(), key_package, want_integrity },
+    )
+    .await?;
 
     let header: Header = read_frame(&mut recv).await?;
-    let mut file = tokio::fs::File::create(&dest).await?;
-    let mut buf = vec![0u8; CHUNK];
-    let mut got: u64 = 0;
-    while let Some(n) = recv.read(&mut buf).await? {
-        if n == 0 {
-            break;
-        }
-        file.write_all(&buf[..n]).await?;
-        got += n as u64;
-        emit_progress(&app, &offer_id, "recv", got, header.size);
+    if want_integrity && !header.integrity {
+        return Err(anyhow!(
+            "the sender did not provide an integrity manifest (verification is on for this device)"
+        ));
     }
-    file.flush().await?;
+    session
+        .join_from_welcome(&unb64(&header.welcome)?)
+        .map_err(|e| anyhow!("mls join: {e}"))?;
+
+    // Anything that fails from here must not leave a half-written file behind.
+    let outcome = receive_chunks(&app, &mut session, &mut recv, &offer_id, &header, &dest).await;
+    if outcome.is_err() {
+        let _ = tokio::fs::remove_file(&dest).await;
+    }
+    outcome?;
 
     // Ack so the host knows we received everything, then close.
     let _ = send.write_all(&[1u8]).await;
@@ -446,5 +760,116 @@ mod tests {
         assert_eq!(mime_from_ext("photo.PNG"), "image/png");
         assert_eq!(mime_from_ext("archive.zip"), "application/zip");
         assert_eq!(mime_from_ext("noext"), "application/octet-stream");
+    }
+
+    /// The chain is what turns "the bytes arrived" into "the RIGHT bytes
+    /// arrived, all of them, in order".
+    #[test]
+    fn chain_is_order_and_content_sensitive() {
+        let seed = chain_seed("offer-1");
+        let a = chain_step(&seed, 0, b"alpha");
+        let ab = chain_step(&a, 1, b"beta");
+
+        // Same chunks, swapped order -> different root.
+        let b = chain_step(&seed, 0, b"beta");
+        let ba = chain_step(&b, 1, b"alpha");
+        assert_ne!(ab, ba);
+
+        // One flipped byte -> different root.
+        let a2 = chain_step(&seed, 0, b"alpha");
+        let ab2 = chain_step(&a2, 1, b"betb");
+        assert_ne!(ab, ab2);
+
+        // A dropped middle chunk -> different root.
+        let dropped = chain_step(&seed, 0, b"alpha");
+        assert_ne!(ab, dropped);
+    }
+
+    #[test]
+    fn chain_is_bound_to_the_offer() {
+        // A chunk replayed into another transfer cannot reproduce its root.
+        let one = chain_step(&chain_seed("offer-1"), 0, b"payload");
+        let two = chain_step(&chain_seed("offer-2"), 0, b"payload");
+        assert_ne!(one, two);
+    }
+
+    #[test]
+    fn chain_is_deterministic() {
+        let a = chain_step(&chain_seed("x"), 7, b"same");
+        let b = chain_step(&chain_seed("x"), 7, b"same");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn percent_ticker_fires_once_per_whole_percent() {
+        let mut t = PercentTicker::new();
+        let total = 10_000u64;
+        // Byte-at-a-time over a 10 KB file: 101 ticks (0% through 100%).
+        let fired = (0..=total).filter(|done| t.tick(*done, total).is_some()).count();
+        assert_eq!(fired, 101);
+    }
+
+    #[test]
+    fn percent_ticker_handles_a_tiny_and_an_empty_file() {
+        // One chunk covering the whole file: 100% once.
+        let mut t = PercentTicker::new();
+        assert!(t.tick(12, 12).is_some());
+        assert!(t.tick(12, 12).is_none());
+
+        // Zero-length file: reports complete rather than dividing by zero.
+        let mut t = PercentTicker::new();
+        assert!(t.tick(0, 0).is_some());
+    }
+
+    /// The MLS handshake both sides run in-stream, and a chunk round-trip
+    /// through it — the same primitives Vox uses.
+    #[test]
+    fn mls_handshake_round_trips_a_chunk() {
+        let (mut peer, kp) = mls_downloader_start("offer-1").unwrap();
+        let (mut host, welcome) = mls_host("offer-1", &kp).unwrap();
+        peer.join_from_welcome(&unb64(&welcome).unwrap()).unwrap();
+
+        let mut plain = vec![KIND_CHUNK];
+        plain.extend_from_slice(&7u64.to_be_bytes());
+        plain.extend_from_slice(b"chunk payload");
+
+        let sealed = host.encrypt_app(&plain).unwrap();
+        assert_ne!(sealed, plain, "the payload must not travel in the clear");
+
+        let opened = peer.process_message(&sealed).unwrap().expect("application message");
+        assert_eq!(opened, plain);
+        assert_eq!(opened[0], KIND_CHUNK);
+        assert_eq!(u64::from_be_bytes(opened[1..9].try_into().unwrap()), 7);
+        assert_eq!(&opened[9..], b"chunk payload");
+    }
+
+    #[test]
+    fn a_foreign_session_cannot_open_our_chunks() {
+        let (_peer, kp) = mls_downloader_start("offer-1").unwrap();
+        let (mut host, _welcome) = mls_host("offer-1", &kp).unwrap();
+        let sealed = host.encrypt_app(b"secret").unwrap();
+
+        // A session that never joined the group.
+        let (mut outsider, kp2) = mls_downloader_start("offer-1").unwrap();
+        let (_other_host, welcome2) = mls_host("offer-1", &kp2).unwrap();
+        outsider.join_from_welcome(&unb64(&welcome2).unwrap()).unwrap();
+        assert!(outsider.process_message(&sealed).is_err());
+    }
+
+    #[test]
+    fn data_frame_cap_admits_the_largest_legal_chunk() {
+        let biggest = (crate::build_config::settings::FILE_CHUNK_MAX_KIB as usize) * 1024;
+        assert!(max_data_frame() > biggest, "MLS overhead needs headroom above the chunk");
+        // …and stays within one wire frame.
+        assert!(biggest <= crate::build_config::network::MAX_FRAME_BYTES);
+    }
+
+    #[test]
+    fn chunk_count_matches_what_the_sender_will_emit() {
+        // The header promises a count the receiver checks; div_ceil must agree
+        // with "loop until read_full returns 0".
+        for (size, chunk, want) in [(0u64, 256u64, 0u64), (1, 256, 1), (256, 256, 1), (257, 256, 2)] {
+            assert_eq!(size.div_ceil(chunk), want, "size {size} chunk {chunk}");
+        }
     }
 }
