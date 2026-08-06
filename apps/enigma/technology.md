@@ -492,6 +492,21 @@ below) / `export_state` + `import_state` (serializable session).
   10 ms μ-law datagram is `[counter‖ciphertext]`. If the MLS handshake over the call's
   bi-stream fails for any reason, the call **falls back to transport-only** (QUIC TLS,
   peers authenticated by NodeId) and the UI shows a downgraded-encryption badge.
+- **PIN unlock (`lock.pin_unlock`)** → a **convenience layer, never an at-rest
+  secret**. At enrolment the passphrase is proven (`Protasius::verify_passphrase`,
+  read-only) and a copy of it is sealed under a PIN-derived key held in **process
+  memory only** (`vault.rs`, `PinState`). An idle lock zeroizes the DEK as always
+  but keeps that blob, so the PIN re-opens the session; a restart, profile switch
+  or wipe takes it with it and the passphrase is required again. Nothing
+  PIN-derived reaches disk, so `vault.json` is unchanged and a short PIN adds
+  **no offline attack surface** — which matters, because 6 digits is ~20 bits and
+  the whole keyspace would fall in minutes against a copied vault. Five wrong
+  PINs drop the blob and fall back to the passphrase (no wipe: the counter is
+  meaningful *because* it is in memory, where an attacker cannot copy it aside).
+  A panic PIN may be enrolled alongside and must differ in **≥ 2 digits**, so one
+  mistyped key cannot trigger the device wipe. *Caveat:* a RAM dump of an
+  idle-locked process could brute-force the blob — strictly weaker than scraping
+  an unlocked process, which is already total compromise.
 - **Everything at rest** → Argon2id + XChaCha20-Poly1305 via gervasius/protasius
   ([§13](#13-encryption-at-rest-gervasius--protasius)); user-chosen files can
   additionally be locked in place with a per-file passphrase (`local_lock.rs`,
@@ -1057,6 +1072,7 @@ instead of hardcoding.
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
 | Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs file_xfer **and** cloud streaming. The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
+| PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
 | Window size, bundle targets | `tauri.conf.json` | — |

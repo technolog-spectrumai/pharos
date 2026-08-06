@@ -88,6 +88,7 @@ control (the Mainline DHT), which is the other reason discovery lives here.
 | Multi-device linking | ❌ | ❌ | ✅ | `devices.allow_linking` |
 | **Calendar** (meetings + polls) | ❌ | ❌ | ✅ | `calendar.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
+| **PIN unlock** (keypad re-unlock after idle lock) | ❌ | ❌ | ✅ | `lock.pin_unlock` |
 | **Key ring** (one passphrase, many locked files) | ❌ | ❌ | ✅ | `keyring.enabled` |
 | **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
 | **Enigma Cloud** | ❌ | ❌ | ✅ | `cloud.allow_connections` |

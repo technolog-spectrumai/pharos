@@ -277,7 +277,10 @@ function openResetPass() {
 }
 async function submitResetPass() {
   resetError.value = "";
-  if (resetNew.value.length < 8) { resetError.value = t("vault.tooShort", { n: 8 }); return; }
+  if (resetNew.value.length < policy.passphraseMinLen) {
+    resetError.value = t("vault.tooShort", { n: policy.passphraseMinLen });
+    return;
+  }
   if (resetNew.value !== resetConfirm.value) { resetError.value = t("vault.mismatch"); return; }
   resetBusy.value = true;
   try {
