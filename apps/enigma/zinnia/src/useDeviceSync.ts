@@ -22,6 +22,7 @@
 // catch-up + registry/kv convergence while both devices are online together.
 
 import { ref, computed, watch } from "vue";
+import { nanoid } from "nanoid";
 import { useChatChannel, type ChatChannel } from "./useChatChannel";
 import { kvGet, kvPut, kvDelete, kvClearNamespace } from "./services/localDb";
 import { getDevlinkResyncSecs, getChatHistoryCapMsgs } from "./services/appStorage";
@@ -37,9 +38,10 @@ import {
   type DeviceLinkInfo, type DeviceRegistry, type DlinkHello,
 } from "./deviceSyncModel";
 import {
-  FILESYNC_MAX_ENTRIES, FILESYNC_VERSION,
+  FILESYNC_MAX_ENTRIES, FILESYNC_VERSION, FILE_STATUSES,
   liveFileEntries, mergeFileLists, trimFileEntries,
-  validateDlinkFiles, validateFileEntryList,
+  validateDlinkFilePush, validateDlinkFiles, validateFileEntryList,
+  type DlinkFilePushItem, type DlinkFileStatus,
   type FileCopyInfo, type SyncedFileEntry,
 } from "./fileSyncModel";
 
@@ -63,6 +65,26 @@ const SEMANTIC_KEYS = DEVLINK_SYNC_KV.filter((e) => e.ns === "contacts" || e.ns 
 // LWW-by-value namespaces (meetings + polls): a recorded mtime that bumps only
 // when the LOCAL value changes — never send-time (that would always win).
 const LWW_KEYS = DEVLINK_SYNC_KV.filter((e) => e.ns === "meetings");
+
+/** An unsolicited incoming push, parked until the user consents (Files tree
+ *  redesign). Session-only BY DESIGN — never persisted: the sender's file_xfer
+ *  offers die with its session anyway, so a restored offer could only point at
+ *  dead coordinates. */
+export interface PendingPushOffer {
+  /** Local consent-queue id (nanoid) — NOT a file_xfer offer id. */
+  offerId: string;
+  /** Sending device, resolved from the registry (leafId fallback). */
+  fromDeviceId: string;
+  fromLabel: string;
+  /** Present only in theory: reqId pushes answer our own pull and bypass the
+   *  queue entirely (the pull press was the consent). */
+  reqId?: string;
+  items: DlinkFilePushItem[];
+  receivedAt: number;
+}
+
+/** Oldest pending push offers drop past this many. */
+const PUSH_OFFER_CAP = 8;
 
 /** Locally recorded per-key sync clocks (never leaves the device). */
 interface SyncRevs {
@@ -316,6 +338,82 @@ export function useDeviceSync(main: ChatChannel) {
     await dev.sendSync(type, payload);
   }
 
+  // ── incoming push consent ───────────────────────────────────────────────────
+  // An unsolicited dlink_file_push is an OFFER now, not a download: it parks
+  // here until the user accepts (which replays the frame through the
+  // registered dlink_file_ handlers — the store's existing download path, dir
+  // riding each item into filesync_import) or declines (dlink_file_result
+  // "declined" per item). A push carrying reqId answers OUR OWN pull request —
+  // that press was the consent — and passes straight through unchanged.
+
+  const pendingOffersInner = ref<PendingPushOffer[]>([]);
+  /** Read-only view for the UI (mutate only via accept/decline). */
+  const pendingPushOffers = computed(() => pendingOffersInner.value);
+  /** offerId → the validated frame acceptPushOffer replays, and its sender. */
+  const offerFrames = new Map<string, { payload: Record<string, unknown>; sender: string }>();
+
+  function onFilePush(payload: Record<string, unknown>, sender: string): void {
+    if (!linked.value) return;
+    const frame = validateDlinkFilePush(payload);
+    if (!frame) return;
+    if (frame.reqId !== undefined) {
+      // Answer to our own dlink_file_pull_req — consent already given.
+      fileHandlers.forEach((h) => h("dlink_file_push", { ...frame }, sender));
+      return;
+    }
+    if (!frame.items.length) return;
+    const from = registry.value?.devices.find((d) => d.leafId === sender);
+    const offer: PendingPushOffer = {
+      offerId: nanoid(),
+      fromDeviceId: from?.deviceId ?? sender,
+      fromLabel: from?.label ?? sender,
+      items: frame.items,
+      receivedAt: Date.now(),
+    };
+    offerFrames.set(offer.offerId, { payload: { ...frame }, sender });
+    const next = [...pendingOffersInner.value, offer];
+    while (next.length > PUSH_OFFER_CAP) offerFrames.delete(next.shift()!.offerId);
+    pendingOffersInner.value = next;
+  }
+
+  function dropPushOffer(offerId: string): PendingPushOffer | null {
+    const offer = pendingOffersInner.value.find((o) => o.offerId === offerId) ?? null;
+    if (offer) pendingOffersInner.value = pendingOffersInner.value.filter((o) => o.offerId !== offerId);
+    return offer;
+  }
+
+  /** Consent granted: replay the parked push to the dlink_file_ handlers —
+   *  the app store downloads exactly as if it had just arrived. */
+  function acceptPushOffer(offerId: string): void {
+    const stored = offerFrames.get(offerId);
+    offerFrames.delete(offerId);
+    if (!dropPushOffer(offerId) || !stored) return;
+    fileHandlers.forEach((h) => h("dlink_file_push", stored.payload, stored.sender));
+  }
+
+  /** Consent refused: tell the sender per item (its rows leave "working") and
+   *  forget the offer. Best-effort — a vanished peer just times its offers out. */
+  async function declinePushOffer(offerId: string): Promise<void> {
+    offerFrames.delete(offerId);
+    const offer = dropPushOffer(offerId);
+    if (!offer) return;
+    for (const item of offer.items) {
+      await dev
+        .sendSync("dlink_file_result", { v: FILESYNC_VERSION, entryId: item.entryId, status: "declined" })
+        .catch(() => {});
+    }
+  }
+
+  /** Sender-side forward compat: a result status this build doesn't know (a
+   *  newer sibling) reads as a plain failure instead of vanishing — the model
+   *  validator would hard-drop the frame and strand the row on "working". */
+  function coerceResultStatus(payload: Record<string, unknown>): Record<string, unknown> {
+    const s = payload.status;
+    return typeof s === "string" && !FILE_STATUSES.includes(s as DlinkFileStatus)
+      ? { ...payload, status: "failed" }
+      : payload;
+  }
+
   // ── hidden-room lifecycle ───────────────────────────────────────────────────
 
   async function connectDevRoom(): Promise<void> {
@@ -547,8 +645,11 @@ export function useDeviceSync(main: ChatChannel) {
     else if (type === "dlink_history_req") void onHistoryReq(payload);
     else if (type === "dlink_history") void onHistory(payload);
     else if (type === "dlink_files") void onFiles(payload);
+    // Unsolicited pushes park in the consent queue; reqId pushes pass through.
+    else if (type === "dlink_file_push") onFilePush(payload, sender);
     // Transfer traffic passes through to the app's fileSync store. NOTE:
     // "dlink_files" above does NOT match this prefix (no trailing underscore).
+    else if (type === "dlink_file_result") fileHandlers.forEach((h) => h(type, coerceResultStatus(payload), sender));
     else if (type.startsWith("dlink_file_")) fileHandlers.forEach((h) => h(type, payload, sender));
     // dlink_rekey / dlink_room_admit_req are reserved wire types (validators in
     // deviceSyncModel), not used in v1: revocation cuts access via MLS removal +
@@ -570,6 +671,8 @@ export function useDeviceSync(main: ChatChannel) {
     // <profile>/synced/ stay — removal never deletes files.
     await kvClearNamespace(FILESYNC_NS, SCOPE).catch(() => {});
     fileEntries.value = [];
+    pendingOffersInner.value = [];
+    offerFrames.clear();
     link.value = null;
     registry.value = null;
     linked.value = false;
@@ -679,8 +782,10 @@ export function useDeviceSync(main: ChatChannel) {
     // allowed-files list (Files → Devices)
     fileEntries, sendFileList, upsertFileEntry, tombstoneFileEntry, recordFileCopy,
     onDevlinkFile, sendDevlinkFile,
+    // incoming-push consent queue (session-only, never persisted)
+    pendingPushOffers, acceptPushOffer, declinePushOffer,
     // exposed for tests
-    _internal: { onHello, onKv, onHistory, onRegistry, onFiles, buildHello, dev },
+    _internal: { onHello, onKv, onHistory, onRegistry, onFiles, onFilePush, buildHello, dev },
   };
 }
 

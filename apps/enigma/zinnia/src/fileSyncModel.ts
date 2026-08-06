@@ -24,6 +24,9 @@ export const FILESYNC_MAX_WIRE_ENTRIES = FILESYNC_MAX_ENTRIES * 4;
 export const FILESYNC_TRIM_AT = FILESYNC_MAX_ENTRIES * 2;
 export const FILESYNC_NAME_MAX_LEN = 120;
 export const FILESYNC_ID_MAX_LEN = 32;
+/** dir caps: per-segment length shares FILESYNC_NAME_MAX_LEN. */
+export const FILESYNC_DIR_MAX_LEN = 500;
+export const FILESYNC_DIR_MAX_SEGMENTS = 16;
 /** base32 EndpointAddr blobs (file_xfer encode_addr) stay far under this. */
 export const FILESYNC_ADDR_MAX_LEN = 2048;
 
@@ -40,6 +43,32 @@ function isNonEmptyString(x: unknown, max: number): x is string {
 }
 function isHash(x: unknown): x is string {
   return typeof x === "string" && HASH_RE.test(x);
+}
+
+/** One dir segment obeys the same character rules a name does (the shapes
+ *  Rust's sanitize_file_name would strip): no separators/colon/control bytes,
+ *  no dot-relative or hidden segments, bounded length. */
+function validDirSegment(seg: string): boolean {
+  if (seg.length === 0 || seg.length > FILESYNC_NAME_MAX_LEN) return false;
+  if (seg.startsWith(".")) return false; // covers "." and ".." and dotdirs
+  for (const ch of seg) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return false;
+    if (ch === "/" || ch === "\\" || ch === ":") return false;
+  }
+  return true;
+}
+
+/** Normalize a wire/stored dir: a valid POSIX-relative directory path comes
+ *  back verbatim, ANYTHING else (traversal, absolute, empty segments, over
+ *  the caps, non-string) demotes to "" = root. Never rejects — an old peer's
+ *  rebuilt echo or a hostile frame must not be able to veto the entry. */
+export function normalizeDirPath(x: unknown): string {
+  if (typeof x !== "string" || x === "") return "";
+  if (x.length > FILESYNC_DIR_MAX_LEN) return "";
+  const segs = x.split("/");
+  if (segs.length > FILESYNC_DIR_MAX_SEGMENTS) return "";
+  return segs.every(validDirSegment) ? x : "";
 }
 
 // ── Shared list ───────────────────────────────────────────────────────────────
@@ -60,6 +89,12 @@ export interface SyncedFileEntry {
   id: string; // nanoid, minted by the adding device
   /** Display/base name; sanitized again Rust-side before touching the disk. */
   name: string;
+  /** POSIX-relative directory INSIDE the enigma folder ("" / absent = root;
+   *  NEVER includes the file name). Immutable after add with LOCAL wins, like
+   *  name: old peers REBUILD entries from known fields, so an echoed copy from
+   *  a stripped build must never be able to erase it. Sanitized again
+   *  Rust-side before touching the disk. */
+  dir?: string;
   /** deviceId of the adding device (registry DeviceEntry.deviceId). */
   addedBy: string;
   addedAt: number;
@@ -77,6 +112,11 @@ export interface SyncedFileEntry {
 /** Entries the UI shows and transfers may reference. */
 export function liveFileEntries<T extends SyncedFileEntry>(entries: T[]): T[] {
   return entries.filter((e) => e.removedAt === undefined);
+}
+
+/** Where the entry sits in the Files tree: "dir/name", or just "name" at root. */
+export function entryTreePath(entry: Pick<SyncedFileEntry, "dir" | "name">): string {
+  return entry.dir ? `${entry.dir}/${entry.name}` : entry.name;
 }
 
 export function validateFileCopyInfo(x: unknown): FileCopyInfo | null {
@@ -102,6 +142,10 @@ export function validateSyncedFileEntry(x: unknown): SyncedFileEntry | null {
     updatedAt: x.updatedAt,
     copies: {},
   };
+  // Invalid dirs demote to root instead of rejecting the entry (Rust
+  // re-sanitizes before any disk touch anyway); "" stays absent.
+  const dir = normalizeDirPath(x.dir);
+  if (dir !== "") entry.dir = dir;
   if (x.removedAt !== undefined) {
     if (!isFinite_(x.removedAt) || x.removedAt < 0) return null;
     entry.removedAt = x.removedAt;
@@ -138,8 +182,10 @@ export function validateFileEntryList(x: unknown): SyncedFileEntry[] | null {
 
 // ── Merge ─────────────────────────────────────────────────────────────────────
 // Conflict-free by construction:
-// - union by id; name/addedBy/addedAt are immutable after add (local wins on
-//   the nanoid-improbable id collision);
+// - union by id; name/addedBy/addedAt/dir are immutable after add (local wins
+//   on the nanoid-improbable id collision). Local-wins is also what protects
+//   dir against old builds: their validator rebuilds entries without it, and
+//   their stripped echo must not erase what we hold;
 // - removedAt: earliest wins and is sticky — losing a removal would violate
 //   the "remove removes on both" promise, losing an add costs one re-add;
 // - copies: per-deviceId slot, higher updatedAt wins; since only device X
@@ -216,6 +262,9 @@ export interface DlinkFilePushItem {
   offerId: string;
   addr: string;
   name: string;
+  /** Entry dir (SyncedFileEntry.dir) so the receiver lands the file in the
+   *  matching subfolder; absent/invalid = root. */
+  dir?: string;
   size: number;
   hash: string;
 }
@@ -235,7 +284,7 @@ export interface DlinkFilePullReq {
   entryIds: string[];
 }
 
-export type DlinkFileStatus = "received" | "skipped" | "missing" | "too-large" | "failed";
+export type DlinkFileStatus = "received" | "skipped" | "missing" | "too-large" | "failed" | "declined";
 
 export interface DlinkFileResult {
   type: "dlink_file_result";
@@ -260,7 +309,10 @@ export function validateDlinkFilePushItem(x: unknown): DlinkFilePushItem | null 
   if (!isNonEmptyString(x.name, FILESYNC_NAME_MAX_LEN)) return null;
   if (!isFinite_(x.size) || x.size < 0) return null;
   if (!isHash(x.hash)) return null;
-  return { entryId: x.entryId, offerId: x.offerId, addr: x.addr, name: x.name, size: x.size, hash: x.hash };
+  const out: DlinkFilePushItem = { entryId: x.entryId, offerId: x.offerId, addr: x.addr, name: x.name, size: x.size, hash: x.hash };
+  const dir = normalizeDirPath(x.dir); // invalid → root, never rejects the item
+  if (dir !== "") out.dir = dir;
+  return out;
 }
 
 export function validateDlinkFilePush(x: unknown): DlinkFilePush | null {
@@ -294,7 +346,10 @@ export function validateDlinkFilePullReq(x: unknown): DlinkFilePullReq | null {
   return { type: "dlink_file_pull_req", v: FILESYNC_VERSION, reqId: x.reqId, entryIds: ids };
 }
 
-const FILE_STATUSES: readonly DlinkFileStatus[] = ["received", "skipped", "missing", "too-large", "failed"];
+/** Exported for the sender-side unknown-status fallback in useDeviceSync
+ *  ("declined" is new in the tree redesign — an older sender's validator
+ *  drops it, which is the graceful floor for down-level builds). */
+export const FILE_STATUSES: readonly DlinkFileStatus[] = ["received", "skipped", "missing", "too-large", "failed", "declined"];
 
 export function validateDlinkFileResult(x: unknown): DlinkFileResult | null {
   if (!isRecord(x) || x.type !== "dlink_file_result" || x.v !== FILESYNC_VERSION) return null;
