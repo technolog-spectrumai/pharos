@@ -1088,9 +1088,11 @@ export interface LockedFileRecord {
   lockedAt: number;
   /** Epoch millis of the last key rotation; absent ⇒ never rotated (use lockedAt). */
   rotatedAt?: number;
-  /** Locked via the key ring (path is the .enigr copy): unlock goes through the
-   *  ring's one passphrase, per-file rotate/edit don't apply. */
+  /** Locked via a key ring (path is the .enigr copy): unlock goes through that
+   *  ring's passphrase, per-file rotate/edit don't apply. */
   ring?: boolean;
+  /** Which ring holds the key — a profile can have several. */
+  ringId?: string;
 }
 
 const NS_LOCAL_FILES = "files:local";
@@ -1169,6 +1171,14 @@ export async function removeLockedFile(path: string): Promise<void> {
 // `keyring_enabled` (KEYRING_DISABLED); Tauri-only, like local file locking.
 
 /** Ring existence + how many files it currently covers. */
+/** One ring in the picker. Name and count are clear-text header fields, so
+ *  listing needs no passphrase — you see WHICH rings exist, not their contents. */
+export interface KeyringSummary {
+  id: string;
+  name: string;
+  entryCount: number;
+}
+
 export interface KeyringStatus {
   exists: boolean;
   /** Advisory count from the ring header (readable without the passphrase). */
@@ -1203,57 +1213,94 @@ export interface KeyringEntry {
 
 /** Ring existence + entry count (no passphrase needed). Tauri-only; a plain
  *  browser has no ring, so report "none". */
-export async function getKeyringStatus(): Promise<KeyringStatus> {
+export async function getKeyringStatus(ringId: string): Promise<KeyringStatus> {
   if (!isTauri()) return { exists: false, entryCount: 0, name: "" };
-  return invoke<KeyringStatus>("keyring_status");
+  return invoke<KeyringStatus>("keyring_status", { ringId });
 }
 
 /** Create the ring under `passphrase`. Errors if one already exists. Tauri-only. */
-export async function keyringInit(passphrase: string, name: string): Promise<void> {
+/** Every ring on this profile. */
+export async function keyringList(): Promise<KeyringSummary[]> {
+  if (!isTauri()) return [];
+  return invoke<KeyringSummary[]>("keyring_list");
+}
+
+/** Create a ring; returns its id. Each ring has its own name and passphrase. */
+export async function keyringCreate(name: string, passphrase: string): Promise<string> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  await invoke("keyring_init", { passphrase, name });
+  return invoke<string>("keyring_create", { name, passphrase });
+}
+
+export async function keyringRename(ringId: string, passphrase: string, name: string): Promise<void> {
+  if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
+  await invoke("keyring_rename", { ringId, passphrase, name });
+}
+
+/** Delete an EMPTY ring (Rust refuses while it still holds keys). */
+export async function keyringDelete(ringId: string, passphrase: string): Promise<void> {
+  if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
+  await invoke("keyring_delete", { ringId, passphrase });
 }
 
 /** Lock `paths` under the ring passphrase: each file becomes `<path>.enigr` and
  *  the original is removed. Fails closed on a wrong passphrase. Tauri-only. */
-export async function keyringLock(passphrase: string, paths: string[]): Promise<KeyringFileOutcome[]> {
+export async function keyringLock(
+  ringId: string,
+  passphrase: string,
+  paths: string[],
+): Promise<KeyringFileOutcome[]> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  return invoke<KeyringFileOutcome[]>("keyring_lock", { passphrase, paths });
+  return invoke<KeyringFileOutcome[]>("keyring_lock", { ringId, passphrase, paths });
 }
 
 /** Unlock locked `.enigr` `paths`: restores each original filename and drops its
  *  ring entry. Fails closed on a wrong passphrase. Tauri-only. */
-export async function keyringUnlock(passphrase: string, paths: string[]): Promise<KeyringFileOutcome[]> {
+export async function keyringUnlock(
+  ringId: string,
+  passphrase: string,
+  paths: string[],
+): Promise<KeyringFileOutcome[]> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  return invoke<KeyringFileOutcome[]>("keyring_unlock", { passphrase, paths });
+  return invoke<KeyringFileOutcome[]>("keyring_unlock", { ringId, passphrase, paths });
 }
 
 /** Unlock every ring entry whose locked file is still on disk. Tauri-only. */
-export async function keyringUnlockAll(passphrase: string): Promise<KeyringFileOutcome[]> {
+export async function keyringUnlockAll(
+  ringId: string,
+  passphrase: string,
+): Promise<KeyringFileOutcome[]> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  return invoke<KeyringFileOutcome[]>("keyring_unlock_all", { passphrase });
+  return invoke<KeyringFileOutcome[]>("keyring_unlock_all", { ringId, passphrase });
 }
 
 /** List the ring's entries (needs the passphrase — the table is sealed). Tauri-only. */
-export async function keyringEntries(passphrase: string): Promise<KeyringEntry[]> {
+export async function keyringEntries(ringId: string, passphrase: string): Promise<KeyringEntry[]> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  return invoke<KeyringEntry[]>("keyring_entries", { passphrase });
+  return invoke<KeyringEntry[]>("keyring_entries", { ringId, passphrase });
 }
 
 /** Change the ring passphrase (re-wraps the ring key; no file is re-encrypted).
  *  Fails closed on a wrong `old`. Tauri-only. */
-export async function keyringChangePassphrase(old: string, next: string): Promise<void> {
+export async function keyringChangePassphrase(
+  ringId: string,
+  old: string,
+  next: string,
+): Promise<void> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  await invoke("keyring_change_passphrase", { old, new: next });
+  await invoke("keyring_change_passphrase", { ringId, old, new: next });
 }
 
 /** Full rotation: new passphrase AND fresh key material for the ring and every
  *  locked file (each is re-sealed on disk; per-file outcomes come back). Use
  *  over keyringChangePassphrase when the old keys may be compromised, not
  *  merely the old passphrase disliked. Tauri-only. */
-export async function keyringRotate(old: string, next: string): Promise<KeyringFileOutcome[]> {
+export async function keyringRotate(
+  ringId: string,
+  old: string,
+  next: string,
+): Promise<KeyringFileOutcome[]> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  return invoke<KeyringFileOutcome[]>("keyring_rotate", { old, new: next });
+  return invoke<KeyringFileOutcome[]>("keyring_rotate", { ringId, old, new: next });
 }
 
 // ── File transfer: chunk size + integrity check ───────────────────────────────

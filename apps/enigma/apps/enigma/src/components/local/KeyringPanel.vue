@@ -12,18 +12,28 @@ import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   OyaButton, OyaCard, OyaEmptyState, OyaModal, isTauri,
-  getKeyringStatus, keyringChangePassphrase, keyringEntries, keyringInit,
-  keyringLock, keyringRotate, keyringUnlock, keyringUnlockAll,
-  type KeyringEntry, type KeyringFileOutcome,
+  keyringChangePassphrase, keyringCreate, keyringDelete, keyringEntries,
+  keyringList, keyringLock, keyringRename, keyringRotate, keyringUnlock,
+  keyringUnlockAll,
+  type KeyringEntry, type KeyringFileOutcome, type KeyringSummary,
 } from "rakotis";
 
 defineProps<{ darkMode?: boolean }>();
 const { t } = useI18n({ useScope: "global" });
 
-const exists = ref(false);
-const ringName = ref("");
+// A profile can hold several rings — "Work", "Personal" — each with its own
+// name, passphrase and set of locked files. Selecting one scopes everything
+// below it; the list itself needs no passphrase (names live in the clear).
+const rings = ref<KeyringSummary[]>([]);
+const ringId = ref("");
 const showCreate = ref(false);
 const createName = ref("");
+const showRename = ref(false);
+const renameName = ref("");
+
+const exists = computed(() => rings.value.length > 0);
+const ring = computed(() => rings.value.find((r) => r.id === ringId.value) ?? null);
+const ringName = computed(() => ring.value?.name ?? "");
 const entries = ref<KeyringEntry[]>([]);
 const listed = ref(false); // entries require the passphrase; empty ≠ unlisted
 const passphrase = ref("");
@@ -38,7 +48,9 @@ const selection = ref(new Set<string>());
 const changing = ref(false);
 const changeNew = ref("");
 
-const canAct = computed(() => isTauri() && !busy.value && passphrase.value.length > 0);
+const canAct = computed(
+  () => isTauri() && !busy.value && passphrase.value.length > 0 && !!ringId.value,
+);
 
 const OUTCOME_KEYS: Record<string, string> = {
   locked: "keys.outcomeLocked",
@@ -54,15 +66,28 @@ function fail(e: unknown): void {
   error.value = /passphrase|decrypt|aead|tag/i.test(message) ? t("keys.wrongPassphrase") : message;
 }
 
-async function refreshStatus(): Promise<void> {
+async function refreshRings(): Promise<void> {
   if (!isTauri()) return;
   try {
-    const status = await getKeyringStatus();
-    exists.value = status.exists;
-    ringName.value = status.name;
+    rings.value = await keyringList();
+    // Keep the selection if it survived; otherwise fall to the first ring.
+    if (!rings.value.some((r) => r.id === ringId.value)) {
+      ringId.value = rings.value[0]?.id ?? "";
+    }
   } catch {
     /* gate errors surface on action, not on mount */
   }
+}
+
+/** Switching rings drops everything scoped to the previous one. */
+function selectRing(id: string): void {
+  ringId.value = id;
+  passphrase.value = "";
+  entries.value = [];
+  listed.value = false;
+  outcomes.value = [];
+  selection.value = new Set();
+  error.value = "";
 }
 
 async function createRing(): Promise<void> {
@@ -77,9 +102,9 @@ async function createRing(): Promise<void> {
   }
   busy.value = true;
   try {
-    await keyringInit(passphrase.value, createName.value.trim());
-    exists.value = true;
-    ringName.value = createName.value.trim();
+    const id = await keyringCreate(createName.value.trim(), passphrase.value);
+    await refreshRings();
+    ringId.value = id;
     passphraseRepeat.value = "";
     createName.value = "";
     showCreate.value = false;
@@ -95,7 +120,7 @@ async function listEntries(): Promise<void> {
   error.value = "";
   busy.value = true;
   try {
-    entries.value = await keyringEntries(passphrase.value);
+    entries.value = await keyringEntries(ringId.value, passphrase.value);
     listed.value = true;
   } catch (e) {
     fail(e);
@@ -112,7 +137,7 @@ async function lockFiles(): Promise<void> {
   if (!paths.length) return;
   busy.value = true;
   try {
-    outcomes.value = await keyringLock(passphrase.value, paths);
+    outcomes.value = await keyringLock(ringId.value, passphrase.value, paths);
     await listEntries();
   } catch (e) {
     fail(e);
@@ -127,7 +152,7 @@ async function unlockSelected(): Promise<void> {
   if (!paths.length) return;
   busy.value = true;
   try {
-    outcomes.value = await keyringUnlock(passphrase.value, paths);
+    outcomes.value = await keyringUnlock(ringId.value, passphrase.value, paths);
     selection.value = new Set();
     await listEntries();
   } catch (e) {
@@ -141,7 +166,7 @@ async function unlockAll(): Promise<void> {
   error.value = "";
   busy.value = true;
   try {
-    outcomes.value = await keyringUnlockAll(passphrase.value);
+    outcomes.value = await keyringUnlockAll(ringId.value, passphrase.value);
     selection.value = new Set();
     await listEntries();
   } catch (e) {
@@ -156,7 +181,7 @@ async function changePassphrase(): Promise<void> {
   notice.value = "";
   busy.value = true;
   try {
-    await keyringChangePassphrase(passphrase.value, changeNew.value);
+    await keyringChangePassphrase(ringId.value, passphrase.value, changeNew.value);
     notice.value = t("keys.changed");
     passphrase.value = changeNew.value;
     changeNew.value = "";
@@ -175,12 +200,43 @@ async function rotateRing(): Promise<void> {
   notice.value = "";
   busy.value = true;
   try {
-    outcomes.value = await keyringRotate(passphrase.value, changeNew.value);
+    outcomes.value = await keyringRotate(ringId.value, passphrase.value, changeNew.value);
     notice.value = t("keys.rotated");
     passphrase.value = changeNew.value;
     changeNew.value = "";
     changing.value = false;
     await listEntries();
+  } catch (e) {
+    fail(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function renameRing(): Promise<void> {
+  error.value = "";
+  busy.value = true;
+  try {
+    await keyringRename(ringId.value, passphrase.value, renameName.value.trim());
+    await refreshRings();
+    showRename.value = false;
+    renameName.value = "";
+  } catch (e) {
+    fail(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** Rust refuses while the ring still holds keys — deleting then would strand
+ *  every .enigr file it owns. */
+async function deleteRing(): Promise<void> {
+  error.value = "";
+  busy.value = true;
+  try {
+    await keyringDelete(ringId.value, passphrase.value);
+    await refreshRings();
+    selectRing(rings.value[0]?.id ?? "");
   } catch (e) {
     fail(e);
   } finally {
@@ -195,7 +251,7 @@ function toggle(path: string): void {
   selection.value = next;
 }
 
-onMounted(refreshStatus);
+onMounted(refreshRings);
 </script>
 
 <template>
@@ -213,6 +269,28 @@ onMounted(refreshStatus);
     <p v-if="!isTauri()" class="text-sm font-semibold text-amber-500">{{ t('keys.desktopOnly') }}</p>
     <p v-if="error" class="text-sm font-semibold text-red-500" data-testid="keys-error">{{ error }}</p>
     <p v-if="notice" class="text-sm font-semibold text-emerald-500">{{ notice }}</p>
+
+    <!-- Ring picker: several rings can live side by side, each with its own
+         name, passphrase and files. -->
+    <div v-if="isTauri() && exists" class="flex flex-wrap items-center gap-2" data-testid="keys-rings">
+      <button
+        v-for="r in rings"
+        :key="r.id"
+        type="button"
+        class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+        :class="r.id === ringId
+          ? 'border-transparent bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
+          : 'border-accent-2 opacity-70 hover:opacity-100 dark:border-accent-1'"
+        :data-testid="`keys-ring-${r.id}`"
+        @click="selectRing(r.id)"
+      >
+        <font-awesome-icon icon="key" class="mr-1" />{{ r.name || r.id }}
+        <span class="ml-1 opacity-60">{{ r.entryCount }}</span>
+      </button>
+      <OyaButton variant="secondary" data-testid="keys-new-ring" @click="showCreate = true">
+        <font-awesome-icon icon="plus" />{{ t('keys.newRing') }}
+      </OyaButton>
+    </div>
 
     <!-- First run: creation lives in a modal (name + passphrase twice). -->
     <template v-if="isTauri() && !exists">
@@ -293,14 +371,45 @@ onMounted(refreshStatus);
 
       <!-- Change passphrase, tucked at the bottom. -->
       <div class="border-t border-accent-2/60 pt-2 dark:border-accent-1/60">
-        <button
-          type="button"
-          class="text-xs font-semibold opacity-60 hover:opacity-100"
-          data-testid="keys-change-toggle"
-          @click="changing = !changing"
-        >
-          {{ t('keys.changeTitle') }}
-        </button>
+        <div class="flex flex-wrap gap-3">
+          <button
+            type="button"
+            class="text-xs font-semibold opacity-60 hover:opacity-100"
+            data-testid="keys-change-toggle"
+            @click="changing = !changing"
+          >
+            {{ t('keys.changeTitle') }}
+          </button>
+          <button
+            type="button"
+            class="text-xs font-semibold opacity-60 hover:opacity-100"
+            data-testid="keys-rename-toggle"
+            @click="renameName = ringName; showRename = !showRename"
+          >
+            {{ t('keys.renameRing') }}
+          </button>
+          <button
+            type="button"
+            class="text-xs font-semibold text-red-500 opacity-70 hover:opacity-100"
+            :title="t('keys.deleteRingHint')"
+            data-testid="keys-delete-ring"
+            @click="deleteRing()"
+          >
+            {{ t('keys.deleteRing') }}
+          </button>
+        </div>
+        <div v-if="showRename" class="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            v-model="renameName"
+            type="text"
+            :placeholder="t('keys.name')"
+            class="min-w-48 flex-1 rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
+            data-testid="keys-rename-input"
+          />
+          <OyaButton :disabled="!canAct || !renameName" data-testid="keys-rename" @click="renameRing()">
+            {{ t('keys.rename') }}
+          </OyaButton>
+        </div>
         <div v-if="changing" class="mt-2 flex flex-wrap items-center gap-2">
           <input
             v-model="changeNew"

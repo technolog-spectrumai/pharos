@@ -63,7 +63,12 @@ const FILE_AAD: &[u8] = b"enigma:keyring:file:v1";
 /// Appended to the original filename when a file is locked.
 const LOCKED_EXT: &str = ".enigr";
 /// Ring filename inside the profile dir.
+/// Pre-multi-ring layout: one ring at `<profile>/keyring.enig`. Still read (and
+/// still writable) so an existing ring keeps working; it is listed under the id
+/// `default`. New rings live in `<profile>/keyrings/<id>.enig`.
 const RING_FILE: &str = "keyring.enig";
+const RING_DIR: &str = "keyrings";
+const DEFAULT_RING_ID: &str = "default";
 
 fn ensure_keyring_enabled() -> Result<(), String> {
     if !crate::build_config::keyring::ENABLED {
@@ -628,6 +633,18 @@ fn rotate_at(ring: &Path, old: &str, new: &str) -> Result<Vec<KeyringFileOutcome
     Ok(outcomes)
 }
 
+/// Relabel a ring in place. The name is a clear header field, so this rewrites
+/// the frame without touching the sealed table or any file.
+fn rename_at(ring: &Path, passphrase: &str, name: &str) -> Result<(), String> {
+    let (header, dek, table) = read_ring(ring, passphrase)?; // verifies the passphrase
+    let header = RingHeader {
+        vault: header.vault,
+        entry_count: header.entry_count,
+        name: sanitize_ring_name(name),
+    };
+    write_ring(ring, &header, &dek, &table)
+}
+
 fn change_passphrase_at(ring: &Path, old: &str, new: &str) -> Result<(), String> {
     let bytes = std::fs::read(ring).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => "no key ring exists yet".to_string(),
@@ -642,66 +659,189 @@ fn change_passphrase_at(ring: &Path, old: &str, new: &str) -> Result<(), String>
 
 // ── Tauri commands (registered in lib.rs by hand) ─────────────────────────────
 
-fn ring_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn profile_root(app: &AppHandle) -> Result<PathBuf, String> {
     let state = app.state::<crate::AppConfigState>();
     let cfg = crate::active_config(&state)?;
-    Ok(crate::profile_dir(app, &cfg).join(RING_FILE))
+    Ok(crate::profile_dir(app, &cfg))
+}
+
+/// Ring ids are minted here (hex), never user input — so they cannot escape the
+/// rings directory. `default` maps to the legacy single-ring file.
+fn valid_ring_id(id: &str) -> bool {
+    id == DEFAULT_RING_ID
+        || (!id.is_empty()
+            && id.len() <= 64
+            && id.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
+fn ring_path(app: &AppHandle, ring_id: &str) -> Result<PathBuf, String> {
+    if !valid_ring_id(ring_id) {
+        return Err("invalid key ring id".to_string());
+    }
+    let root = profile_root(app)?;
+    if ring_id == DEFAULT_RING_ID {
+        return Ok(root.join(RING_FILE));
+    }
+    Ok(root.join(RING_DIR).join(format!("{ring_id}.enig")))
+}
+
+/// One ring as the picker sees it. `name` and `entry_count` live in the clear
+/// in the ring header, so listing needs no passphrase — you can see WHICH rings
+/// exist without being able to open any of them.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyringSummary {
+    pub id: String,
+    pub name: String,
+    pub entry_count: u32,
+}
+
+fn summarize(id: &str, path: &Path) -> Option<KeyringSummary> {
+    let status = status_at(path).ok()?;
+    status.exists.then(|| KeyringSummary {
+        id: id.to_string(),
+        name: status.name,
+        entry_count: status.entry_count,
+    })
+}
+
+/// Every ring on this profile, newest layout plus the legacy single ring.
+/// Needs no passphrase: names and counts are clear-text header fields, so the
+/// picker can show WHICH rings exist without opening any.
+#[tauri::command]
+pub fn keyring_list(app: AppHandle) -> Result<Vec<KeyringSummary>, String> {
+    ensure_keyring_enabled()?;
+    let root = profile_root(&app)?;
+    let mut rings = Vec::new();
+    if let Some(s) = summarize(DEFAULT_RING_ID, &root.join(RING_FILE)) {
+        rings.push(s);
+    }
+    if let Ok(dir) = std::fs::read_dir(root.join(RING_DIR)) {
+        for entry in dir.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("enig") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            if !valid_ring_id(id) || id == DEFAULT_RING_ID {
+                continue;
+            }
+            if let Some(s) = summarize(id, &path) {
+                rings.push(s);
+            }
+        }
+    }
+    rings.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(rings)
+}
+
+/// Create a new ring and return its id. Each ring has its own name, its own
+/// passphrase and its own set of locked files.
+#[tauri::command]
+pub fn keyring_create(app: AppHandle, name: String, passphrase: String) -> Result<String, String> {
+    ensure_keyring_enabled()?;
+    let root = profile_root(&app)?;
+    // First ring on a profile that never had one keeps the legacy path, so the
+    // common single-ring case stays exactly where it always was.
+    let legacy = root.join(RING_FILE);
+    let (id, path) = if !legacy.exists() {
+        (DEFAULT_RING_ID.to_string(), legacy)
+    } else {
+        let id = new_entry_id();
+        let dir = root.join(RING_DIR);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("{id}.enig"));
+        (id, path)
+    };
+    init_at(&path, &passphrase, &name)?;
+    Ok(id)
+}
+
+/// Rename a ring. The passphrase is required so only a holder can relabel it.
+#[tauri::command]
+pub fn keyring_rename(
+    app: AppHandle,
+    ring_id: String,
+    passphrase: String,
+    name: String,
+) -> Result<(), String> {
+    ensure_keyring_enabled()?;
+    rename_at(&ring_path(&app, &ring_id)?, &passphrase, &name)
+}
+
+/// Delete a ring. Refuses while it still holds keys — deleting then would make
+/// every `.enigr` file it owns permanently unopenable.
+#[tauri::command]
+pub fn keyring_delete(app: AppHandle, ring_id: String, passphrase: String) -> Result<(), String> {
+    ensure_keyring_enabled()?;
+    let path = ring_path(&app, &ring_id)?;
+    let (_, _, table) = read_ring(&path, &passphrase)?;
+    if !table.entries.is_empty() {
+        return Err(format!(
+            "this ring still holds {} locked file(s) — unlock them first",
+            table.entries.len()
+        ));
+    }
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn keyring_status(app: AppHandle) -> Result<KeyringStatus, String> {
+pub fn keyring_status(app: AppHandle, ring_id: String) -> Result<KeyringStatus, String> {
     ensure_keyring_enabled()?;
-    status_at(&ring_path(&app)?)
-}
-
-#[tauri::command]
-pub fn keyring_init(app: AppHandle, passphrase: String, name: String) -> Result<(), String> {
-    ensure_keyring_enabled()?;
-    init_at(&ring_path(&app)?, &passphrase, &name)
+    status_at(&ring_path(&app, &ring_id)?)
 }
 
 #[tauri::command]
 pub fn keyring_lock(
     app: AppHandle,
+    ring_id: String,
     passphrase: String,
     paths: Vec<String>,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
     ensure_keyring_enabled()?;
-    lock_at(&ring_path(&app)?, &passphrase, &paths)
+    lock_at(&ring_path(&app, &ring_id)?, &passphrase, &paths)
 }
 
 #[tauri::command]
 pub fn keyring_unlock(
     app: AppHandle,
+    ring_id: String,
     passphrase: String,
     paths: Vec<String>,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
     ensure_keyring_enabled()?;
-    unlock_at(&ring_path(&app)?, &passphrase, &paths)
+    unlock_at(&ring_path(&app, &ring_id)?, &passphrase, &paths)
 }
 
 #[tauri::command]
 pub fn keyring_unlock_all(
     app: AppHandle,
+    ring_id: String,
     passphrase: String,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
     ensure_keyring_enabled()?;
-    unlock_all_at(&ring_path(&app)?, &passphrase)
+    unlock_all_at(&ring_path(&app, &ring_id)?, &passphrase)
 }
 
 #[tauri::command]
 pub fn keyring_entries(
     app: AppHandle,
+    ring_id: String,
     passphrase: String,
 ) -> Result<Vec<KeyringEntryInfo>, String> {
     ensure_keyring_enabled()?;
-    entries_at(&ring_path(&app)?, &passphrase)
+    entries_at(&ring_path(&app, &ring_id)?, &passphrase)
 }
 
 #[tauri::command]
-pub fn keyring_change_passphrase(app: AppHandle, old: String, new: String) -> Result<(), String> {
+pub fn keyring_change_passphrase(
+    app: AppHandle,
+    ring_id: String,
+    old: String,
+    new: String,
+) -> Result<(), String> {
     ensure_keyring_enabled()?;
-    change_passphrase_at(&ring_path(&app)?, &old, &new)
+    change_passphrase_at(&ring_path(&app, &ring_id)?, &old, &new)
 }
 
 /// Rotate the whole ring: new passphrase, new ring key material, and a fresh
@@ -710,11 +850,12 @@ pub fn keyring_change_passphrase(app: AppHandle, old: String, new: String) -> Re
 #[tauri::command]
 pub fn keyring_rotate(
     app: AppHandle,
+    ring_id: String,
     old: String,
     new: String,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
     ensure_keyring_enabled()?;
-    rotate_at(&ring_path(&app)?, &old, &new)
+    rotate_at(&ring_path(&app, &ring_id)?, &old, &new)
 }
 
 #[cfg(test)]
@@ -772,6 +913,41 @@ mod tests {
         std::fs::rename(&stash, &locked).unwrap();
         let unlocked = unlock_at(&ring, "p2", &[locked]).unwrap();
         assert_eq!(unlocked[0].status, "unlocked");
+    }
+
+    #[test]
+    fn rename_relabels_without_touching_the_keys() {
+        let dir = tmp_dir("rename");
+        let ring = dir.join(RING_FILE);
+        init_at(&ring, "pw", "Old name").unwrap();
+        let a = write_plain(&dir, "a.txt", b"payload");
+        let locked = lock_at(&ring, "pw", &[a.clone()]).unwrap()[0].new_path.clone().unwrap();
+
+        rename_at(&ring, "pw", "  New name  ").unwrap();
+        assert_eq!(status_at(&ring).unwrap().name, "New name");
+        // The passphrase and every key still work.
+        assert_eq!(unlock_at(&ring, "pw", &[locked]).unwrap()[0].status, "unlocked");
+        assert_eq!(std::fs::read(&a).unwrap(), b"payload");
+    }
+
+    #[test]
+    fn rename_needs_the_right_passphrase() {
+        let dir = tmp_dir("rename_wrong");
+        let ring = dir.join(RING_FILE);
+        init_at(&ring, "right", "Name").unwrap();
+        assert!(rename_at(&ring, "wrong", "Hijacked").is_err());
+        assert_eq!(status_at(&ring).unwrap().name, "Name");
+    }
+
+    #[test]
+    fn ring_ids_cannot_escape_the_rings_directory() {
+        // Ids are minted internally; the guard is what keeps a crafted id from
+        // pointing ring_path at an arbitrary file.
+        assert!(valid_ring_id("default"));
+        assert!(valid_ring_id("a1b2c3"));
+        for bad in ["../secrets", "a/b", "", "with.dot", "with-dash", "sp ace", &"x".repeat(65)] {
+            assert!(!valid_ring_id(bad), "{bad} should be rejected");
+        }
     }
 
     #[test]

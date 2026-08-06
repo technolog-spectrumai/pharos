@@ -25,7 +25,8 @@ import {
   addNoteRecent,
   removeNoteRecent,
   getBuildConfig,
-  getKeyringStatus,
+  keyringList,
+  type KeyringSummary,
   type LockedFileRecord,
   type LockedFileResult,
   type LocalNoteContent,
@@ -118,9 +119,7 @@ onMounted(async () => {
   await cloud.init(); // idempotent; makes upload work even if Cloud tab wasn't opened
   await refresh();
   if (getBuildConfig().keyring_enabled) {
-    ringAvailable.value = await getKeyringStatus()
-      .then((s) => s.exists)
-      .catch(() => false);
+    availableRings.value = await keyringList().catch(() => []);
   }
 });
 
@@ -131,12 +130,14 @@ const modalPath = ref("");
 const modalName = ref("");
 /** Unlock of a ring-locked record: the ring passphrase is the only key. */
 const modalRing = ref(false);
+/** Unlock: the ring that holds this file's key (from its record). */
+const modalRingId = ref("");
 /** Plaintext size handed to the modal when the caller knows it (ring outcomes
  *  don't measure). */
 const modalSize = ref(0);
 /** Key ring exists in this build AND on this profile — offers the lock-method
  *  chooser. Checked once per mount; creating the ring happens in Files → Keys. */
-const ringAvailable = ref(false);
+const availableRings = ref<KeyringSummary[]>([]);
 /** The one New-file modal: fresh text, fresh drawing, or open from disk. */
 const showNewFile = ref(false);
 const newFileName = ref("");
@@ -190,6 +191,7 @@ function askUnlock(rec: LockedFileRecord) {
   modalAction.value = undefined;
   // A ring-locked file only opens with the ring's passphrase — no choice shown.
   modalRing.value = !!rec.ring;
+  modalRingId.value = rec.ringId ?? "";
   modalSize.value = rec.size;
   showModal.value = true;
 }
@@ -209,7 +211,7 @@ async function onLocked(res: LockOutcome) {
     name: res.name,
     size: res.size,
     lockedAt: Date.now(),
-    ...(res.ring ? { ring: true } : {}),
+    ...(res.ring ? { ring: true, ringId: res.ringId } : {}),
   });
   await refresh();
 }
@@ -851,8 +853,9 @@ function pct(tr: { transferred: number; total: number }): number {
       :name="modalName"
       :min-len="policy.passphraseMinLen"
       :action="modalAction"
-      :keyring-offered="ringAvailable"
+      :rings="availableRings"
       :ring-forced="modalRing"
+      :ring-id="modalRingId"
       :file-size="modalSize"
       @locked="onLocked"
       @unlocked="onUnlocked"

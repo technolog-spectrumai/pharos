@@ -121,13 +121,49 @@ describe("LocalPassphraseModal — lock method chooser", () => {
     });
   }
 
-  it("offers Passphrase vs Key ring only when the ring is available", async () => {
-    const without = await mountModal({});
+  const RING = { id: "default", name: "Personal", entryCount: 0 };
+  const RING_B = { id: "ab12", name: "Work", entryCount: 3 };
+
+  it("offers Passphrase vs Key ring only when a ring exists", async () => {
+    const without = await mountModal({ rings: [] });
     expect(without.find("[data-testid='lock-method-ring']").exists()).toBe(false);
 
-    const withRing = await mountModal({ keyringOffered: true });
+    const withRing = await mountModal({ rings: [RING] });
     expect(withRing.find("[data-testid='lock-method-pass']").exists()).toBe(true);
     expect(withRing.find("[data-testid='lock-method-ring']").exists()).toBe(true);
+  });
+
+  it("asks which ring only when there is more than one", async () => {
+    const one = await mountModal({ rings: [RING] });
+    await one.find("[data-testid='lock-method-ring']").trigger("click");
+    expect(one.find("[data-testid='lock-ring-select']").exists()).toBe(false);
+
+    const two = await mountModal({ rings: [RING, RING_B] });
+    await two.find("[data-testid='lock-method-ring']").trigger("click");
+    const select = two.find("[data-testid='lock-ring-select']");
+    expect(select.exists()).toBe(true);
+    expect(select.findAll("option").map((o) => o.text())).toEqual(["Personal", "Work"]);
+  });
+
+  it("locks into the ring the user picked", async () => {
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "keyring_lock"
+        ? [{ path: "/home/a/f.txt", status: "locked", newPath: "/home/a/f.txt.enigr" }]
+        : undefined,
+    );
+    const wrapper = await mountModal({ rings: [RING, RING_B] });
+    await wrapper.find("[data-testid='lock-method-ring']").trigger("click");
+    await wrapper.find("[data-testid='lock-ring-select']").setValue("ab12");
+    await wrapper.find("input[type='password']").setValue("ring-pass");
+    const buttons = wrapper.findAll("button");
+    await buttons[buttons.length - 1].trigger("click");
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "keyring_lock",
+      expect.objectContaining({ ringId: "ab12" }),
+    );
+    expect(wrapper.emitted("locked")![0][0]).toMatchObject({ ringId: "ab12" });
   });
 
   it("ring method swaps to the single ring-passphrase field and calls keyring_lock", async () => {
@@ -136,7 +172,7 @@ describe("LocalPassphraseModal — lock method chooser", () => {
         return [{ path: "/home/a/f.txt", status: "locked", newPath: "/home/a/f.txt.enigr" }];
       return undefined;
     });
-    const wrapper = await mountModal({ keyringOffered: true, fileSize: 42 });
+    const wrapper = await mountModal({ rings: [RING], fileSize: 42 });
     await wrapper.find("[data-testid='lock-method-ring']").trigger("click");
 
     // One field, no confirm — the ring passphrase already exists.
@@ -148,7 +184,11 @@ describe("LocalPassphraseModal — lock method chooser", () => {
     await buttons[buttons.length - 1].trigger("click");
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith("keyring_lock", { passphrase: "ring-pass", paths: ["/home/a/f.txt"] });
+    expect(invokeMock).toHaveBeenCalledWith("keyring_lock", {
+      ringId: "default",
+      passphrase: "ring-pass",
+      paths: ["/home/a/f.txt"],
+    });
     const locked = wrapper.emitted("locked");
     expect(locked).toHaveLength(1);
     expect(locked![0][0]).toMatchObject({ ring: true, newPath: "/home/a/f.txt.enigr", size: 42, name: "f.txt.enigr" });
@@ -160,7 +200,12 @@ describe("LocalPassphraseModal — lock method chooser", () => {
         return [{ path: "/home/a/f.txt.enigr", status: "unlocked", newPath: "/home/a/f.txt" }];
       return undefined;
     });
-    const wrapper = await mountModal({ mode: "unlock", path: "/home/a/f.txt.enigr", ringForced: true });
+    const wrapper = await mountModal({
+      mode: "unlock",
+      path: "/home/a/f.txt.enigr",
+      ringForced: true,
+      ringId: "ab12",
+    });
     expect(wrapper.find("[data-testid='lock-method-pass']").exists()).toBe(false);
 
     await wrapper.find("input[type='password']").setValue("ring-pass");
@@ -168,7 +213,11 @@ describe("LocalPassphraseModal — lock method chooser", () => {
     await buttons[buttons.length - 1].trigger("click");
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith("keyring_unlock", { passphrase: "ring-pass", paths: ["/home/a/f.txt.enigr"] });
+    expect(invokeMock).toHaveBeenCalledWith("keyring_unlock", {
+      ringId: "ab12",
+      passphrase: "ring-pass",
+      paths: ["/home/a/f.txt.enigr"],
+    });
     expect(wrapper.emitted("unlocked")![0][0]).toMatchObject({ ring: true, newPath: "/home/a/f.txt" });
   });
 });
