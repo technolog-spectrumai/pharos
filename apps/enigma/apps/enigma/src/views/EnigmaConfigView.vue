@@ -52,6 +52,9 @@ import {
   getLockOnHide,
   setLockOnHide,
   vaultSetPanicCode,
+  vaultPinEnroll,
+  vaultPinStatus,
+  vaultPinClear,
   vaultClearPanicCode,
   vaultHasPanicCode,
   getDeleteFilesOnPanic,
@@ -351,6 +354,11 @@ const deleteFilesBusy = ref(false);
 
 async function loadPanicState() {
   try { panicArmed.value = await vaultHasPanicCode(); } catch { panicArmed.value = false; }
+  // A PIN only ever exists for the CURRENT process, so this reflects whether
+  // one was enrolled since launch.
+  if (pinAllowed) {
+    pinEnrolled.value = (await vaultPinStatus().catch(() => null))?.enrolled ?? false;
+  }
   try { deleteFilesOnPanic.value = await getDeleteFilesOnPanic(); } catch { deleteFilesOnPanic.value = false; }
 }
 
@@ -373,6 +381,47 @@ function openPanic() {
   panicError.value = "";
   panicDone.value = "";
   showPanic.value = true;
+}
+
+// ── PIN unlock ────────────────────────────────────────────────────────────────
+const pinAllowed = buildCfg.pin_unlock;
+const pinDigits = buildCfg.pin_digits.default;
+const pinEnrolled = ref(false);
+const showPinModal = ref(false);
+const pinPassphrase = ref("");
+const pinValue = ref("");
+const pinPanic = ref("");
+const pinPanicCode = ref("");
+const pinError = ref("");
+
+function openPinSetup() {
+  pinPassphrase.value = "";
+  pinValue.value = "";
+  pinPanic.value = "";
+  pinPanicCode.value = "";
+  pinError.value = "";
+  showPinModal.value = true;
+}
+
+async function submitPin() {
+  pinError.value = "";
+  try {
+    await vaultPinEnroll(
+      pinPassphrase.value,
+      pinValue.value,
+      pinPanic.value || undefined,
+      pinPanicCode.value || undefined,
+    );
+    pinEnrolled.value = true;
+    showPinModal.value = false;
+  } catch (e) {
+    pinError.value = (e as Error)?.message ?? String(e);
+  }
+}
+
+async function removePin() {
+  await vaultPinClear();
+  pinEnrolled.value = false;
 }
 
 async function submitPanic() {
@@ -1142,6 +1191,33 @@ async function clearSelectedOfflineData() {
       </OyaButton>
     </OyaCard>
 
+    <!-- PIN unlock — convenience re-unlock after an idle lock (this session only) -->
+    <OyaCard v-if="pinAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4" data-testid="pin-card">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.pinUnlock') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.pinUnlockHint') }}</p>
+      </div>
+      <p class="text-sm font-semibold" :class="pinEnrolled ? 'text-success-dark' : 'opacity-70'">
+        {{ pinEnrolled ? $t('config.pinOn') : $t('config.pinOff') }}
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <OyaButton :dark-mode="darkMode" variant="secondary" data-testid="pin-setup" @click="openPinSetup">
+          <font-awesome-icon icon="lock" />{{ pinEnrolled ? $t('config.pinChange') : $t('config.pinSet') }}
+        </OyaButton>
+        <OyaButton
+          v-if="pinEnrolled"
+          :dark-mode="darkMode"
+          variant="secondary"
+          data-testid="pin-remove"
+          @click="removePin"
+        >
+          {{ $t('config.pinRemove') }}
+        </OyaButton>
+      </div>
+    </OyaCard>
+
     <!-- Panic code — duress passphrase that wipes this device at the unlock gate -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
@@ -1412,6 +1488,35 @@ async function clearSelectedOfflineData() {
     </OyaModal>
 
     <!-- Panic-code modal -->
+    <!-- PIN setup modal: the passphrase proves knowledge before it is sealed. -->
+    <OyaModal :open="showPinModal" @close="showPinModal = false">
+      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+        <p class="flex items-center gap-2 text-lg font-bold">
+          <font-awesome-icon icon="lock" />{{ $t('config.pinSet') }}
+        </p>
+        <p class="text-xs opacity-60">{{ $t('config.pinModalHint', { n: pinDigits }) }}</p>
+        <OyaTextField v-model="pinPassphrase" type="password" :placeholder="$t('vault.enterPass')" />
+        <OyaTextField v-model="pinValue" type="password" :placeholder="$t('config.pinField')" data-testid="pin-input" />
+        <OyaTextField v-model="pinPanic" type="password" :placeholder="$t('config.pinPanicField')" />
+        <OyaTextField
+          v-if="pinPanic"
+          v-model="pinPanicCode"
+          type="password"
+          :placeholder="$t('config.pinPanicCodeField')"
+        />
+        <p class="text-xs opacity-60">{{ $t('config.pinPanicHint') }}</p>
+        <p v-if="pinError" class="text-sm text-warn-dark" data-testid="pin-error">{{ pinError }}</p>
+        <div class="flex justify-end gap-2">
+          <OyaButton :dark-mode="darkMode" variant="secondary" @click="showPinModal = false">
+            {{ $t('common.cancel') }}
+          </OyaButton>
+          <OyaButton :dark-mode="darkMode" data-testid="pin-submit" @click="submitPin">
+            {{ $t('config.pinSet') }}
+          </OyaButton>
+        </div>
+      </div>
+    </OyaModal>
+
     <OyaModal v-model:open="showPanic" @close="showPanic = false">
       <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="text-lg font-bold">{{ $t('vault.panicTitle') }}</p>

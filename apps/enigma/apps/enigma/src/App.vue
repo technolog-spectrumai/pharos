@@ -11,12 +11,14 @@ import { useMapStore } from "./stores/map";
 import { usePeersStore } from "./stores/peers";
 import PeerRequestModal from "./components/peers/PeerRequestModal.vue";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
+import PinPad from "./components/PinPad.vue";
 import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, useHideLock, type IdleLockHandle, type HideLockHandle } from "./idleLock";
 import {
   OyaButton, OyaTextField, getBuildConfig, getIdleLockMins, getLockOnHide, isTauri,
   vaultStatus, vaultSetup, vaultUnlock, vaultLock, vaultTouch,
+  vaultPinStatus, vaultPinUnlock,
 } from "rakotis";
 
 const darkMode = ref(true);
@@ -41,13 +43,16 @@ const { displayName, avatarDataUrl } = storeToRefs(userStore);
 // ── Encryption-at-rest gate ──────────────────────────────────────────────────
 // Nothing loads until the vault is unlocked (or set up on first run). The three
 // data loaders only run from `runLoaders`, behind this gate.
-type GateMode = "loading" | "setup" | "unlock" | "ready";
+// "pin" is offered only after an IN-SESSION lock: the Rust side holds the
+// sealed passphrase in memory, so a restart lands on "unlock" as before.
+type GateMode = "loading" | "setup" | "unlock" | "pin" | "ready";
 const gateMode = ref<GateMode>("loading");
 const passphrase = ref("");
 const confirmPass = ref("");
 const gateError = ref("");
 const gateBusy = ref(false);
 const MIN_LEN = policy.passphraseMinLen;
+const pinDigits = ref(getBuildConfig().pin_digits.default);
 
 async function runLoaders() {
   await chatStore.syncRuntimeIdentity();
@@ -164,6 +169,27 @@ async function doSetup() {
   }
 }
 
+/** PIN attempt. A failure clears the pad and, once the attempts run out, Rust
+ *  drops the PIN entirely — so we re-check status and fall back to the
+ *  passphrase rather than leaving the user at a keypad that can never work. */
+async function doPinUnlock(pin: string) {
+  gateError.value = "";
+  gateBusy.value = true;
+  try {
+    await vaultPinUnlock(pin);
+    await runLoaders();
+  } catch (_e) {
+    gateError.value = t("vault.wrongPin");
+    const status = await vaultPinStatus().catch(() => null);
+    if (!status?.enrolled) {
+      gateMode.value = "unlock";
+      gateError.value = t("vault.pinExhausted");
+    }
+  } finally {
+    gateBusy.value = false;
+  }
+}
+
 async function doUnlock() {
   gateError.value = "";
   gateBusy.value = true;
@@ -192,8 +218,17 @@ onMounted(async () => {
   try {
     const s = await vaultStatus();
     if (!s.exists) gateMode.value = "setup";
-    else if (!s.unlocked) gateMode.value = "unlock";
-    else await runLoaders();
+    else if (!s.unlocked) {
+      // A PIN exists only if this process enrolled one earlier, so its presence
+      // is exactly the "locked within the same session" signal.
+      const pin = getBuildConfig().pin_unlock ? await vaultPinStatus().catch(() => null) : null;
+      if (pin?.enrolled) {
+        pinDigits.value = pin.digits;
+        gateMode.value = "pin";
+      } else {
+        gateMode.value = "unlock";
+      }
+    } else await runLoaders();
   } catch (e) {
     gateMode.value = "unlock";
     gateError.value = (e as Error).message || String(e);
@@ -263,11 +298,34 @@ onBeforeUnmount(() => {
           <img :src="barIcon" :alt="brand.name" class="mx-auto h-14 w-14 rounded-xl object-contain" />
           <h1 class="text-2xl font-bold">{{ brand.name }}</h1>
           <p v-if="gateMode !== 'loading'" class="text-sm opacity-70">
-            {{ gateMode === 'setup' ? $t('vault.setupHint') : $t('vault.unlockHint') }}
+            {{ gateMode === 'setup'
+              ? $t('vault.setupHint')
+              : gateMode === 'pin'
+                ? $t('vault.pinHint')
+                : $t('vault.unlockHint') }}
           </p>
         </div>
 
         <p v-if="gateMode === 'loading'" class="text-center opacity-60">…</p>
+
+        <!-- PIN keypad: in-session re-unlock. The passphrase escape is always
+             one click away, and is where an exhausted PIN lands. -->
+        <div v-else-if="gateMode === 'pin'" class="space-y-5">
+          <PinPad
+            :digits="pinDigits"
+            :busy="gateBusy"
+            :error="gateError"
+            @submit="doPinUnlock"
+          />
+          <button
+            type="button"
+            class="mx-auto block text-xs font-semibold opacity-60 hover:opacity-100"
+            data-testid="gate-use-passphrase"
+            @click="gateMode = 'unlock'; gateError = ''"
+          >
+            {{ $t('vault.usePassphrase') }}
+          </button>
+        </div>
 
         <form
           v-else
