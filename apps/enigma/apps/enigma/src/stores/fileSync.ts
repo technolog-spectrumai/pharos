@@ -217,7 +217,8 @@ export const useFileSyncStore = defineStore("fileSync", () => {
     await ensureListeners();
     if (unsubscribeDevlink || !deviceSync.value) return;
     unsubscribeDevlink = deviceSync.value.onDevlinkFile((type, payload) => {
-      if (type === "dlink_file_push") void onPush(payload);
+      if (type === "dlink_file_bind") void onBind(payload);
+      else if (type === "dlink_file_push") void onPush(payload);
       else if (type === "dlink_file_pull_req") void onPullReq(payload);
       else if (type === "dlink_file_result") onResult(payload);
     });
@@ -573,11 +574,26 @@ export const useFileSyncStore = defineStore("fileSync", () => {
 
   // ── receiving ───────────────────────────────────────────────────────────────
 
+  /** A sibling is about to pull one of our offers and has published the MLS
+   *  KeyPackage it will present. Authorize exactly that one — file_xfer refuses
+   *  any other connection for this offer. */
+  async function onBind(payload: Record<string, unknown>): Promise<void> {
+    if (!linked.value || !isTauri()) return;
+    const offerId = payload.offerId;
+    const kpHash = payload.kpHash;
+    if (typeof offerId !== "string" || typeof kpHash !== "string") return;
+    // Only ever for offers WE created — an unknown id is a no-op.
+    if (!outgoing.has(offerId)) return;
+    await invoke("file_authorize", { offerId, kpHash }).catch(() => {});
+  }
+
   /** Runs only for consented frames: useDeviceSync parks unsolicited pushes
    *  until the user accepts (which replays them here); reqId pushes answer our
    *  own pull. Devlink admission already vouched for the sender either way. */
   async function onPush(payload: Record<string, unknown>): Promise<void> {
     if (!linked.value || !isTauri()) return;
+    const ds = deviceSync.value;
+    if (!ds) return;
     const frame = validateDlinkFilePush(payload);
     if (!frame) return;
     const maxMb = await getMaxFileSizeMb();
@@ -613,6 +629,12 @@ export const useFileSyncStore = defineStore("fileSync", () => {
           reqId: frame.reqId,
         });
         items.set(item.entryId, { status: "working", transferred: 0, total: item.size });
+        // Bind the transfer to this device: the sibling authorizes exactly this
+        // KeyPackage, so the offer coordinates alone are no longer a bearer token.
+        const kpHash = await invoke<string>("file_prepare", { offerId: item.offerId });
+        await ds
+          .sendDevlinkFile("dlink_file_bind", { v: FILESYNC_VERSION, offerId: item.offerId, kpHash })
+          .catch(() => {});
         await invoke("file_download", { addr: item.addr, offerId: item.offerId, dest });
       } catch (e) {
         incoming.delete(item.offerId);

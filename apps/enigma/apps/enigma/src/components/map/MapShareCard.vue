@@ -10,14 +10,17 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import { invoke } from "@tauri-apps/api/core";
 import {
   MAP_LOC_TTL_MS, getUseTor, isLocationLive, isTauri, locationAgeMs, type Message,
 } from "rakotis";
 import { useMapStore } from "../../stores/map";
+import { useChatStore } from "../../stores/chat";
 
 const props = defineProps<{ message: Message }>();
 
 const router = useRouter();
+const chatStore = useChatStore();
 const { t } = useI18n({ useScope: "global" });
 const store = useMapStore();
 const torMode = ref(false);
@@ -66,6 +69,15 @@ function openInMaps() {
 
 async function download() {
   if (share.value?.type !== "map_region") return;
+  // Bind the transfer to this device: mint the KeyPackage and publish its hash
+  // over the room's MLS channel, so the sharer authorizes only us. Without it
+  // the host refuses the connection.
+  try {
+    const kpHash = await invoke<string>("file_prepare", { offerId: share.value.offerId });
+    await chatStore.p2p.sendSync("map_region_bind", { offerId: share.value.offerId, kpHash });
+  } catch {
+    /* fall through — acceptRegionShare surfaces the refusal */
+  }
   await store.acceptRegionShare(share.value).catch(() => {});
 }
 </script>

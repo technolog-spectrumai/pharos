@@ -4,7 +4,8 @@
 // over the file_xfer QUIC path). The app never downloads tiles itself.
 // Storage is bounded by the Settings limit; every budget rejection surfaces
 // under the usage bar.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import {
   isTauri,
   getUseTor,
@@ -59,11 +60,25 @@ function human(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+let unbind: (() => void) | null = null;
+
 onMounted(async () => {
   if (!tauri) return;
   await store.reload();
   torMode.value = await getUseTor();
+  // A peer that wants a region we shared publishes its transfer KeyPackage
+  // hash here; authorize exactly that one (file_xfer refuses anything else).
+  unbind = chatStore.p2p.onSync(async (type: string, payload: Record<string, unknown>) => {
+    if (type !== "map_region_bind") return;
+    const offerId = payload.offerId as string | undefined;
+    const kpHash = payload.kpHash as string | undefined;
+    if (offerId && kpHash) {
+      await invoke("file_authorize", { offerId, kpHash }).catch(() => {});
+    }
+  });
 });
+
+onUnmounted(() => unbind?.());
 
 async function share(region: MapRegionManifest) {
   shareBusy.value = region.id;

@@ -42,6 +42,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
@@ -141,11 +142,21 @@ pub fn transfers_active() -> bool {
     ACTIVE_TRANSFERS.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
+/// Sessions minted by `file_prepare`, awaiting their `file_download`. Global
+/// rather than on FileNode because an airplane/Tor toggle can rebind the node
+/// between the two calls.
+static PREPARED: std::sync::OnceLock<Prepared> = std::sync::OnceLock::new();
+
+fn prepared() -> &'static Prepared {
+    PREPARED.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+}
+
 pub struct FileNode {
     endpoint: Endpoint,
     _router: Router,
     /// Files we are currently hosting, keyed by `offer_id`.
     offers: Arc<Mutex<HashMap<String, OfferedFile>>>,
+    expectations: Expectations,
 }
 
 /// Everything the inbound protocol handler needs, behind `Arc`s so it can be cloned
@@ -154,6 +165,7 @@ pub struct FileNode {
 struct FileShared {
     app: AppHandle,
     offers: Arc<Mutex<HashMap<String, OfferedFile>>>,
+    expectations: Expectations,
 }
 
 #[derive(Clone)]
@@ -165,6 +177,20 @@ struct OfferedFile {
 }
 
 // ── wire frames (length-prefixed JSON over the bi-stream) ─────────────────────
+
+/// Downloader sessions minted by `file_prepare`, awaiting their `file_download`.
+/// Keyed by offer_id; consumed by the download or dropped on cancel.
+type Prepared = Arc<Mutex<HashMap<String, (RotorSession, String)>>>;
+
+/// Host-side: offer_id → the KeyPackage hash the intended peer committed to
+/// over its feature's own MLS signalling. A connection whose KeyPackage hashes
+/// to anything else is refused.
+type Expectations = Arc<Mutex<HashMap<String, String>>>;
+
+/// How long `serve` waits for the expectation to arrive. The downloader sends
+/// its bind message and dials immediately, so the QUIC connect can beat the
+/// signalling — this absorbs that race rather than failing the transfer.
+const EXPECT_WAIT: Duration = Duration::from_secs(20);
 
 #[derive(Serialize, Deserialize)]
 struct Request {
@@ -239,6 +265,28 @@ fn mls_downloader_start(offer_id: &str) -> Result<(RotorSession, String)> {
         .map_err(|e| anyhow!("mls new: {e}"))?;
     let kp = session.key_package().map_err(|e| anyhow!("mls key_package: {e}"))?;
     Ok((session, b64(&kp)))
+}
+
+/// BLAKE3 of the base64 KeyPackage, hex — what the downloader publishes over
+/// signalling and the host compares against.
+fn kp_hash(key_package_b64: &str) -> String {
+    blake3::hash(key_package_b64.as_bytes()).to_hex().to_string()
+}
+
+/// Poll for the authorization to land. The bind message and the QUIC dial race
+/// each other, so a brief wait is the difference between "not authorized" and
+/// "authorization is still in flight".
+async fn wait_for_expectation(expectations: &Expectations, offer_id: &str) -> Option<String> {
+    let deadline = tokio::time::Instant::now() + EXPECT_WAIT;
+    loop {
+        if let Some(hash) = expectations.lock().await.get(offer_id).cloned() {
+            return Some(hash);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// Length-prefixed raw frame (the payload is MLS ciphertext, not JSON).
@@ -496,11 +544,13 @@ async fn ensure_started(app: &AppHandle, state: &FileXferState) -> Result<()> {
         .await
         .map_err(|e| anyhow!("file iroh bind failed: {e}"))?;
     let offers = Arc::new(Mutex::new(HashMap::new()));
-    let shared = FileShared { app: app.clone(), offers: offers.clone() };
+    let expectations: Expectations = Arc::new(Mutex::new(HashMap::new()));
+    let shared =
+        FileShared { app: app.clone(), offers: offers.clone(), expectations: expectations.clone() };
     let router = Router::builder(endpoint.clone())
         .accept(FILE_ALPN, FileProtocol { shared })
         .spawn();
-    *guard = Some(FileNode { endpoint, _router: router, offers });
+    *guard = Some(FileNode { endpoint, _router: router, offers, expectations });
     Ok(())
 }
 
@@ -550,6 +600,18 @@ impl FileShared {
         let Some(offer) = offer else {
             return Err(anyhow!("unknown offer {}", req.offer_id));
         };
+
+        // Authenticate the downloader BEFORE any file metadata leaves: the
+        // intended peer committed to this exact KeyPackage over the feature's
+        // own MLS signalling, so only the holder of its private key can be on
+        // the other end. Possession of {addr, offer_id} is no longer enough.
+        let expected = wait_for_expectation(&self.expectations, &req.offer_id).await;
+        let Some(expected) = expected else {
+            return Err(anyhow!("no peer was authorized for offer {}", req.offer_id));
+        };
+        if kp_hash(&req.key_package) != expected {
+            return Err(anyhow!("KeyPackage does not match the authorized peer"));
+        }
 
         // MLS handshake: we are the callee — group of two, Welcome goes back in
         // the header so the downloader can join before the first chunk.
@@ -635,9 +697,14 @@ async fn download(
     let conn = endpoint.connect(addr, FILE_ALPN).await?;
     let (mut send, mut recv) = conn.open_bi().await?;
 
-    // We are the MLS caller: our KeyPackage rides the request, and we join from
-    // the Welcome in the header before the first chunk arrives.
-    let (mut session, key_package) = mls_downloader_start(&offer_id)?;
+    // We are the MLS caller. The session was minted by `file_prepare` and its
+    // KeyPackage hash already published to the host over signalling — reusing it
+    // here is what ties this connection to that authorization.
+    let (mut session, key_package) = {
+        let mut map = prepared().lock().await;
+        map.remove(&offer_id)
+            .ok_or_else(|| anyhow!("call file_prepare before downloading"))?
+    };
     let want_integrity = file_integrity_enabled(&app);
     write_frame(
         &mut send,
@@ -719,12 +786,42 @@ pub async fn file_offer_cancel(state: State<'_, FileXferState>, offer_id: String
     let guard = state.0.lock().await;
     if let Some(node) = guard.as_ref() {
         node.offers.lock().await.remove(&offer_id);
+        // The authorization dies with the offer — a re-offer must be re-authorized.
+        node.expectations.lock().await.remove(&offer_id);
     }
     Ok(())
 }
 
-/// Downloader: connect to the host and stream the offered file to `dest`. Returns once
-/// the transfer has started; progress arrives via `file://progress`.
+/// Mint this device's transfer KeyPackage and return its hash. The caller
+/// publishes the hash to the host over its feature's own MLS signalling (chat
+/// `file_accept`, the Maps bind card, devlink `dlink_file_bind`); the host then
+/// accepts only a connection presenting that KeyPackage. Must be called before
+/// `file_download`.
+#[tauri::command]
+pub async fn file_prepare(offer_id: String) -> Result<String, String> {
+    let (session, key_package) =
+        mls_downloader_start(&offer_id).map_err(|e| e.to_string())?;
+    let hash = kp_hash(&key_package);
+    prepared().lock().await.insert(offer_id, (session, key_package));
+    Ok(hash)
+}
+
+/// Host side: authorize exactly one peer for an offer, by the KeyPackage hash it
+/// published over signalling. Until this lands, `serve` refuses the connection.
+#[tauri::command]
+pub async fn file_authorize(
+    state: State<'_, FileXferState>,
+    offer_id: String,
+    kp_hash: String,
+) -> Result<(), String> {
+    let guard = state.0.lock().await;
+    let node = guard.as_ref().ok_or("file not started")?;
+    node.expectations.lock().await.insert(offer_id, kp_hash);
+    Ok(())
+}
+
+/// Downloader: connect to the host and stream the offered file to `dest`. Returns
+/// once the transfer has started; progress arrives via `file://progress`.
 #[tauri::command]
 pub async fn file_download(
     app: AppHandle,
@@ -854,6 +951,46 @@ mod tests {
         let (_other_host, welcome2) = mls_host("offer-1", &kp2).unwrap();
         outsider.join_from_welcome(&unb64(&welcome2).unwrap()).unwrap();
         assert!(outsider.process_message(&sealed).is_err());
+    }
+
+    #[test]
+    fn kp_hash_is_stable_and_discriminating() {
+        // The downloader publishes this over signalling and the host compares
+        // it byte-for-byte — it must be deterministic and collision-free in
+        // practice, or authorization is theatre.
+        let (_s, kp_a) = mls_downloader_start("offer-1").unwrap();
+        let (_s2, kp_b) = mls_downloader_start("offer-1").unwrap();
+        assert_eq!(kp_hash(&kp_a), kp_hash(&kp_a));
+        assert_ne!(kp_hash(&kp_a), kp_hash(&kp_b), "distinct KeyPackages must not collide");
+        assert_eq!(kp_hash(&kp_a).len(), 64, "blake3 hex");
+    }
+
+    #[tokio::test]
+    async fn an_unauthorized_offer_is_refused_after_the_wait() {
+        // No authorization ever arrives -> serve refuses rather than serving
+        // whoever holds the offer coordinates.
+        let expectations: Expectations = Arc::new(Mutex::new(HashMap::new()));
+        tokio::time::pause();
+        let waiter = tokio::spawn({
+            let e = expectations.clone();
+            async move { wait_for_expectation(&e, "offer-1").await }
+        });
+        tokio::time::advance(EXPECT_WAIT + Duration::from_secs(1)).await;
+        assert_eq!(waiter.await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn an_authorization_arriving_late_still_wins_the_race() {
+        // The bind message and the QUIC dial race; serve waits rather than
+        // failing a transfer that was in fact authorized.
+        let expectations: Expectations = Arc::new(Mutex::new(HashMap::new()));
+        let waiter = tokio::spawn({
+            let e = expectations.clone();
+            async move { wait_for_expectation(&e, "offer-1").await }
+        });
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        expectations.lock().await.insert("offer-1".into(), "abc".into());
+        assert_eq!(waiter.await.unwrap(), Some("abc".to_string()));
     }
 
     #[test]

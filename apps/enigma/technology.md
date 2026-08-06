@@ -379,11 +379,16 @@ if **either** side asked, and a downloader that requires it but receives
 `integrity: false` aborts rather than accept unverified bytes. Any verification
 failure deletes the partial file.
 
-**Authentication is unchanged and possession-based**: the host does not authenticate
-the dialer, so anyone holding `{addr, offer_id}` can complete the handshake. Those
-stay secret because each feature relays them inside its own MLS-encrypted signalling
-(chat `file_offer`, the Maps region card, devlink `dlink_file_push`). The MLS layer
-here buys confidentiality of the bytes, not peer identity.
+**The transfer is bound to one peer.** Before dialling, the downloader calls
+`file_prepare`, which mints its transfer KeyPackage and returns a BLAKE3 hash of it;
+that hash travels back to the host over the feature's own MLS-encrypted signalling —
+chat `file_accept`, the Maps `map_region_bind` card, devlink `dlink_file_bind` — and
+the host records it with `file_authorize`. `serve` then accepts only a connection
+presenting that exact KeyPackage, waiting up to 20 s for the authorization to land
+(the bind message and the QUIC dial race each other). Possession of
+`{addr, offer_id}` is therefore no longer sufficient: only the peer that replied over
+the authenticated channel, and holds the matching private key, can complete the
+handshake. Cancelling an offer drops its authorization with it.
 
 ---
 

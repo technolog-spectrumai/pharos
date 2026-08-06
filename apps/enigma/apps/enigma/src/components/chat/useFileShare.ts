@@ -157,7 +157,11 @@ export function useFileShare(channel: ChatChannel) {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const dest = await save({ defaultPath: fileName.value || undefined });
       if (!dest) return; // user cancelled the save dialog — stay on the offer
-      await channel.sendSync("file_accept", { offerId: incomingOfferId });
+      // Mint this transfer's MLS KeyPackage and publish its hash in the accept.
+      // The host authorizes exactly that KeyPackage, so possession of
+      // {addr, offerId} alone no longer gets anyone the file.
+      const kpHash = await _invoke<string>("file_prepare", { offerId: incomingOfferId });
+      await channel.sendSync("file_accept", { offerId: incomingOfferId, kpHash });
       direction.value = "recv";
       progress.value = 0;
       state.value = "transferring";
@@ -215,12 +219,19 @@ export function useFileShare(channel: ChatChannel) {
         state.value = "incoming";
         break;
       }
-      case "file_accept":
+      case "file_accept": {
         // Host side: the peer accepted; the inbound QUIC connection + progress events
         // take it from here. Reflect the state change immediately.
         if (offerId !== myOfferId) return;
+        // Authorize that peer's KeyPackage — `serve` waits for this and refuses
+        // any connection presenting a different one.
+        const kpHash = payload.kpHash as string | undefined;
+        if (kpHash) {
+          void _invoke("file_authorize", { offerId: myOfferId, kpHash }).catch(() => {});
+        }
         if (state.value === "offering") state.value = "transferring";
         break;
+      }
       case "file_decline":
         if (offerId !== myOfferId) return;
         void _invoke("file_offer_cancel", { offerId: myOfferId }).catch(() => {});

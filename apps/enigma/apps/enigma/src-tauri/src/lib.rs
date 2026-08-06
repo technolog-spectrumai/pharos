@@ -1386,6 +1386,8 @@ pub fn run() {
             file_xfer::file_offer_create,
             file_xfer::file_offer_cancel,
             file_xfer::file_download,
+            file_xfer::file_prepare,
+            file_xfer::file_authorize,
             file_sync::filesync_hash,
             file_sync::filesync_recv_path,
             file_sync::filesync_import,
