@@ -139,6 +139,7 @@ const modalSize = ref(0);
 const ringAvailable = ref(false);
 /** The one New-file modal: fresh text, fresh drawing, or open from disk. */
 const showNewFile = ref(false);
+const newFileName = ref("");
 // What the "open"/"encrypt" modes do on submit; those flows depend on editor state,
 // so the modal defers to us. Rejecting keeps the modal open with the message inline.
 const modalAction = ref<((passphrase: string) => Promise<void>) | undefined>(undefined);
@@ -370,11 +371,18 @@ async function openFilePicker() {
   await openPath(path);
 }
 
-function newDrawing() {
+/** "shopping" → "shopping.txt" / "shopping.svg"; a typed extension is kept. */
+function fileNameFor(typed: string, ext: "txt" | "svg"): string {
+  const name = typed.trim().replace(/[\\/:]/g, "");
+  if (!name) return `untitled.${ext}`;
+  return /\.[A-Za-z0-9]{1,8}$/.test(name) ? name : `${name}.${ext}`;
+}
+
+function newDrawing(typedName = "") {
   note.value = {
     kind: "svg",
     path: null,
-    name: "untitled.svg",
+    name: fileNameFor(typedName, "svg"),
     locked: false,
     passphrase: null,
     pendingEncrypt: false,
@@ -393,11 +401,11 @@ function openCurrentAsXml() {
   forceText.value = true;
 }
 
-function newNote() {
+function newNote(typedName = "") {
   note.value = {
     kind: "text",
     path: null,
-    name: "untitled.txt",
+    name: fileNameFor(typedName, "txt"),
     locked: false,
     passphrase: null,
     pendingEncrypt: false,
@@ -621,7 +629,7 @@ function pct(tr: { transferred: number; total: number }): number {
         <button
           class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-xs font-bold transition hover:opacity-80 dark:border-accent-1"
           data-testid="new-file"
-          @click="showNewFile = true"
+          @click="newFileName = ''; showNewFile = true"
         >
           <font-awesome-icon icon="plus" /> {{ $t('local.newFile') }}
         </button>
@@ -801,10 +809,17 @@ function pct(tr: { transferred: number; total: number }): number {
           {{ $t('local.newFile') }}
         </p>
         <p class="text-xs opacity-60">{{ $t('local.newFileHint') }}</p>
+        <input
+          v-model="newFileName"
+          type="text"
+          :placeholder="$t('local.fileName')"
+          class="w-full rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
+          data-testid="new-file-name"
+        />
         <button
           class="flex w-full items-center gap-3 rounded-lg border border-accent-2 px-4 py-3 text-sm font-semibold transition hover:opacity-80 dark:border-accent-1"
           data-testid="new-file-text"
-          @click="showNewFile = false; newNote()"
+          @click="showNewFile = false; newNote(newFileName)"
         >
           <font-awesome-icon icon="file" class="text-accent-light dark:text-accent-dark" />
           {{ $t('local.newNote') }}
@@ -812,7 +827,7 @@ function pct(tr: { transferred: number; total: number }): number {
         <button
           class="flex w-full items-center gap-3 rounded-lg border border-accent-2 px-4 py-3 text-sm font-semibold transition hover:opacity-80 dark:border-accent-1"
           data-testid="new-file-svg"
-          @click="showNewFile = false; newDrawing()"
+          @click="showNewFile = false; newDrawing(newFileName)"
         >
           <font-awesome-icon icon="pencil" class="text-accent-light dark:text-accent-dark" />
           {{ $t('sketch.newDrawing') }}
