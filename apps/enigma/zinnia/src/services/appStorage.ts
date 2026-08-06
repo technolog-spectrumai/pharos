@@ -1082,6 +1082,9 @@ export interface LockedFileRecord {
   lockedAt: number;
   /** Epoch millis of the last key rotation; absent ⇒ never rotated (use lockedAt). */
   rotatedAt?: number;
+  /** Locked via the key ring (path is the .enigr copy): unlock goes through the
+   *  ring's one passphrase, per-file rotate/edit don't apply. */
+  ring?: boolean;
 }
 
 const NS_LOCAL_FILES = "files:local";
