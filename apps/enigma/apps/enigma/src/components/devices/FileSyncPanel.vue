@@ -7,18 +7,22 @@
 //
 // The list itself is shared (it replicates over the devlink room), but each
 // device's local path is its own business and never leaves the device.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaButton, OyaCard, OyaEmptyState, isTauri, getOffline, getUseTor } from "rakotis";
+import { OyaButton, OyaCard, OyaEmptyState, isTauri } from "rakotis";
+import { useNetworkStore } from "../../stores/network";
 import { useFileSyncStore } from "../../stores/fileSync";
 import type { SyncedFileEntry } from "rakotis";
 
 const { t } = useI18n({ useScope: "global" });
 const store = useFileSyncStore();
 
-// Disabled-with-reason, never hidden (the pairing panel's convention).
-const offline = ref(false);
-const torMode = ref(false);
+// Disabled-with-reason, never hidden (the pairing panel's convention). Live
+// from the shared store, so flipping "Connect via Tor" in Settings disables
+// Push/Pull here without a remount.
+const network = useNetworkStore();
+const offline = computed(() => network.offline);
+const torMode = computed(() => network.useTor);
 
 const blockedReason = computed(() => {
   if (!isTauri()) return t("fsync.desktopOnly");
@@ -69,8 +73,7 @@ const OUTCOME_KEYS: Record<string, string> = {
 };
 
 onMounted(async () => {
-  offline.value = await getOffline().catch(() => false);
-  torMode.value = await getUseTor().catch(() => false);
+  await network.refresh();
   await store.init();
 });
 </script>

@@ -143,6 +143,12 @@ function fmtSize(bytes: number): string {
         <font-awesome-icon icon="file-arrow-up" class="text-3xl text-accent-light dark:text-accent-dark" />
         <p class="max-w-xs text-sm opacity-70">{{ $t('fileShare.choosePeer') }}</p>
 
+        <p
+          v-if="!canSend"
+          data-testid="fileshare-blocked"
+          class="max-w-xs rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-500"
+        >{{ $t(network.blockedReasonKey) }}</p>
+
         <div class="w-full max-w-xs space-y-2">
           <div
             v-for="p in peers" :key="p.id ?? p.name"
@@ -154,7 +160,8 @@ function fmtSize(bytes: number): string {
             </div>
             <span class="min-w-0 flex-1 truncate text-sm font-semibold">{{ p.name }}</span>
             <button
-              class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
+              class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-accent-dark dark:text-primary-bg-dark"
+              :disabled="!canSend"
               @click="file.offer({ id: String(p.id ?? p.name), name: p.name })"
             ><font-awesome-icon icon="file-arrow-up" /> {{ $t('fileShare.send') }}</button>
           </div>

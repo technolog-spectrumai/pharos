@@ -142,6 +142,27 @@ Untick everything and **Start build** is disabled — a desktop build with no
 format selected produces nothing. Artifact discovery follows the selection too,
 so a Fedora-only build never reports a leftover `.deb` as its output.
 
+## Test run
+
+The **Test run** card on the Build tab launches the binary the build produced
+(`src-tauri/target/<type>/enigma`) with `ENIGMA_EDITION=custom`, the chosen
+`APP_PROFILE`/`CHAT_USER`, `RUST_LOG=info` and `RUST_BACKTRACE=1`, streaming the
+app's own output into the log pane. The app runs until you close its window;
+Cancel stops it (whole process group, SIGKILL after ten seconds).
+
+The launch environment is **scrubbed, not inherited** (`runenv.py`): a Builder
+started from VS Code's snap carries `/snap/core20` library paths that make the
+GTK app die at exec (`symbol lookup error: __libc_pthread_init` — observed),
+and the frozen Builder adds PyInstaller's own `LD_LIBRARY_PATH`. Snap and
+bundle entries are filtered out; a sandboxed `XDG_DATA_HOME` is dropped so the
+app reads its real data.
+
+**Reset profile…** (and the "Reset it first" checkbox for a one-click
+fresh-run) delegates to the repo's own `scripts/reset_profile.sh` rather than
+reimplementing it — the same script behind `run_dev.sh --reset`. It archives
+the profile aside as `<name>.reset-<stamp>` (recoverable by renaming back) and
+clears the global webview caches, which per-profile deletion alone would miss.
+
 ## Why a new build knows your old passphrase
 
 It is not the build. Enigma stores everything under Tauri's `app_data_dir()` —
@@ -151,28 +172,20 @@ place, finds `vault.json`, and protasius reports the vault as already set up, so
 the app opens the unlock gate instead of first-run passphrase setup. That is
 what you want when a real user upgrades, and not what you want when testing.
 
-The **Local app data** card on the Build tab says which it will be on the next
-launch, and **Clear app data…** gives you a genuine first run. It works whether
-or not you ever build.
-
-Clearing **moves the directory aside** rather than deleting it: the target is
-renamed to `<name>.cleared-<timestamp>` beside itself. The app looks for an
-exact path, so a rename is enough to force first-run setup, and nothing is
-destroyed if the wrong profile was selected. The dialog and the log both print
-how to undo it:
+The Test run card's badge says which it will be on the next launch
+("vault present" / "first run"), and **Reset profile…** gives you a genuine
+first run — see above; it archives aside as `<name>.reset-<stamp>`, so:
 
 ```bash
-mv ~/.local/share/com.spectrumaipl.enigma.cleared-20260727-204512 \
-   ~/.local/share/com.spectrumaipl.enigma      # restore
-rm -rf ~/.local/share/com.spectrumaipl.enigma.cleared-*   # delete for good
+mv .../profiles/default.reset-20260727-204512 .../profiles/default  # restore
 ```
 
 Two details worth knowing. The tool checks **both** `$XDG_DATA_HOME/<identifier>`
-and `~/.local/share/<identifier>`, because a Builder launched from a sandboxed
-editor (VS Code's snap) sees the editor's `XDG_DATA_HOME` and would otherwise
-look straight past the app's real data. And every deletion is guarded: the path
-must resolve to somewhere inside one of those roots, so a blank or path-like
-identifier clears nothing.
+and `~/.local/share/<identifier>` when reporting state, because a Builder
+launched from a sandboxed editor (VS Code's snap) sees the editor's
+`XDG_DATA_HOME` and would otherwise look straight past the app's real data. And
+the reset never takes a path from the GUI — only a profile *name*, which
+`scripts/reset_profile.sh` validates itself before touching anything.
 
 ## The app icon
 

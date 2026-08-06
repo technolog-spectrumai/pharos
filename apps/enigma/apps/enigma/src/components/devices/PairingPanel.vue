@@ -14,10 +14,10 @@ import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import {
   OyaButton, OyaCard, OyaCopyField, OyaModal, OyaQrCode, OyaTextField,
-  getOffline, getUseTor,
 } from "rakotis";
 import { useDevicesStore } from "../../stores/devices";
 import QrScannerModal from "../chat/QrScannerModal.vue";
+import { useNetworkStore } from "../../stores/network";
 
 const { t } = useI18n({ useScope: "global" });
 const store = useDevicesStore();
@@ -27,8 +27,11 @@ const {
 } = storeToRefs(store);
 
 // ── network-policy state (disabled-with-reason, never hidden) ─────────────────
-const offline = ref(false);
-const torMode = ref(false);
+// Live from the shared store: flipping the Settings toggles disables the
+// pairing controls here at the same moment, not at the next remount.
+const network = useNetworkStore();
+const offline = computed(() => network.offline);
+const torMode = computed(() => network.useTor);
 const blocked = computed(() => offline.value || torMode.value);
 const blockedReason = computed(() =>
   offline.value ? t("devices.blockedOffline") : torMode.value ? t("devices.blockedTor") : "");
@@ -67,8 +70,7 @@ async function join(ticket: string) {
 
 onMounted(async () => {
   tick = setInterval(() => { now.value = Date.now(); }, 1000);
-  offline.value = await getOffline().catch(() => false);
-  torMode.value = await getUseTor().catch(() => false);
+  await network.refresh();
   await store.refresh();
 });
 onUnmounted(() => {

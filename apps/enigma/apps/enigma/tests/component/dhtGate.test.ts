@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
 import { ref } from "vue";
 import { initBuildConfig, getDhtDiscovery, setDhtDiscovery } from "rakotis";
 
@@ -80,9 +81,12 @@ function mountRoomInfo() {
         roomRules: ref(""),
       } as any,
     },
-    global: { plugins: [i18n] },
+    global: { plugins: [i18n, pinia] },
   });
 }
+
+let pinia: ReturnType<typeof createPinia>;
+beforeEach(() => { pinia = createPinia(); setActivePinia(pinia); });
 
 describe("a build without the DHT has no DHT surface", () => {
   it("rakotis reads the toggle as off whatever the kv says", async () => {
@@ -91,7 +95,7 @@ describe("a build without the DHT has no DHT surface", () => {
   });
 
   it("Vox drops call-by-nickname but keeps the ticket and room-member flows", () => {
-    const wrapper = mount(VoxPanel, { props: { darkMode: true }, global: { plugins: [i18n] } });
+    const wrapper = mount(VoxPanel, { props: { darkMode: true }, global: { plugins: [i18n, pinia] } });
     const text = wrapper.text();
     expect(text).not.toContain("Call by nickname");
     // The instruction that cannot be followed. This one assertion covers every
@@ -120,7 +124,7 @@ describe("the same surfaces are present when the build HAS the DHT", () => {
     await initBuildConfig({ dht_enabled: true });
     document.body.innerHTML = "";
     try {
-      const vox = mount(VoxPanel, { props: { darkMode: true }, global: { plugins: [i18n] } });
+      const vox = mount(VoxPanel, { props: { darkMode: true }, global: { plugins: [i18n, pinia] } });
       expect(vox.text()).toContain("Call by nickname");
 
       mountRoomInfo();

@@ -20,6 +20,7 @@
 import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 import { nanoid } from "nanoid";
+import { useNetworkStore } from "./network";
 import {
   invoke,
   isTauri,
@@ -92,10 +93,16 @@ export const useFileSyncStore = defineStore("fileSync", () => {
   const deviceSync = computed(() => chat.deviceSync);
   const linked = computed(() => !!deviceSync.value?.linked.value);
   const online = computed(() => !!deviceSync.value?.devOnline.value);
+  // Transfers ride file_xfer, which is iroh-only: Tor/airplane mode block them
+  // in Rust (check_network_policy), so the buttons must not pretend otherwise.
+  const network = useNetworkStore();
   const entries = computed<SyncedFileEntry[]>(() =>
     liveFileEntries(deviceSync.value?.fileEntries.value ?? []),
   );
-  const canTransfer = computed(() => linked.value && online.value && !batchActive.value && isTauri());
+  const canTransfer = computed(
+    () =>
+      linked.value && online.value && !batchActive.value && isTauri() && network.canDeviceSync,
+  );
   const myDeviceId = computed(() => deviceSync.value?.link.value?.myDeviceId ?? "");
 
   /** Devices other than us that are still active in the registry. */

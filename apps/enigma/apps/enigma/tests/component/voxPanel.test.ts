@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
 import { ref } from "vue";
 
 // VoxPanel reads the chat store's `vox` controller + `p2p` channel. Stub the store
@@ -41,7 +42,10 @@ import { i18n } from "../../src/i18n";
 (i18n.global.locale as any).value = "en";
 
 describe("VoxPanel", () => {
+  let pinia: ReturnType<typeof createPinia>;
   beforeEach(() => {
+    pinia = createPinia();
+    setActivePinia(pinia);
     voxStub.available.value = false;
     voxStub.phase.value = "idle";
   });
@@ -49,7 +53,7 @@ describe("VoxPanel", () => {
   it("shows the desktop-only notice when Vox is unavailable (browser)", () => {
     const wrapper = mount(VoxPanel, {
       props: { darkMode: true },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, pinia] },
     });
     expect(wrapper.text()).toContain("Voice calls are available");
   });
@@ -60,7 +64,7 @@ describe("VoxPanel", () => {
     voxStub.incomingName.value = "Bob";
     const wrapper = mount(VoxPanel, {
       props: { darkMode: true },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, pinia] },
     });
     expect(wrapper.text()).toContain("Bob is calling");
   });

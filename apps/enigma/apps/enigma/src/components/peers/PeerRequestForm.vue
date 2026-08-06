@@ -10,7 +10,8 @@
 
 import { computed, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
-import { OyaButton, PEER_SCOPES, getOffline, getUseTor, type PeerScope } from "rakotis";
+import { OyaButton, PEER_SCOPES, type PeerScope } from "rakotis";
+import { useNetworkStore } from "../../stores/network";
 import { usePeersStore } from "../../stores/peers";
 import { scopeDescKey, scopeLabelKey, toggleScope } from "./peerScopes";
 
@@ -26,8 +27,9 @@ const localError = ref("");
 // The handshake is a direct QUIC dial, so airplane and Tor-exclusive mode block
 // it outright (the file_xfer/device_link precedent): disable with the reason,
 // never hide the control.
-const offline = ref(false);
-const torMode = ref(false);
+const network = useNetworkStore();
+const offline = computed(() => network.offline);
+const torMode = computed(() => network.useTor);
 const blocked = computed(() => offline.value || torMode.value);
 const blockedReason = computed(() => (offline.value ? "peers.blockedOffline" : "peers.blockedTor"));
 
@@ -49,8 +51,7 @@ async function send() {
 onMounted(async () => {
   peers.resetOutgoing();
   void peers.init();
-  offline.value = await getOffline().catch(() => false);
-  torMode.value = await getUseTor().catch(() => false);
+  await network.refresh();
 });
 </script>
 
