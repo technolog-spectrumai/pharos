@@ -9,6 +9,11 @@ import {
   clampMeetingReminderMins,
   MEETING_REMINDER_DEFAULT_MINS,
   MEETING_REMINDER_MAX_MINS,
+  getFileChunkKib,
+  setFileChunkKib,
+  getFileIntegrity,
+  setFileIntegrity,
+  getBuildConfig,
   vaultSetPanicCode,
   vaultClearPanicCode,
   vaultHasPanicCode,
@@ -116,5 +121,60 @@ describe("appStorage — panic code", () => {
 
     invokeMock.mockResolvedValue(false);
     expect(await vaultHasPanicCode()).toBe(false);
+  });
+});
+
+// Transfer chunking and the integrity toggle: both DEVICE-LOCAL settings whose
+// clamp/default come from the build config, not from callers.
+describe("appStorage — file chunk size", () => {
+  it("falls back to the build-config default when nothing is stored", async () => {
+    expect(await getFileChunkKib()).toBe(getBuildConfig().file_chunk_kib.default);
+  });
+
+  it("clamps a stored value into the build-config bounds", async () => {
+    const clamp = getBuildConfig().file_chunk_kib;
+
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "1" : null));
+    expect(await getFileChunkKib()).toBe(clamp.min);
+
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "kv_get" ? String(clamp.max * 10) : null,
+    );
+    expect(await getFileChunkKib()).toBe(clamp.max);
+  });
+
+  it("set persists the clamped value; garbage falls back to the default", async () => {
+    const clamp = getBuildConfig().file_chunk_kib;
+    expect(await setFileChunkKib(clamp.max * 99)).toBe(clamp.max);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "kv_put",
+      expect.objectContaining({ k: "file_chunk_kib", v: String(clamp.max) }),
+    );
+    expect(await setFileChunkKib(Number.NaN)).toBe(clamp.default);
+  });
+});
+
+describe("appStorage — transfer integrity toggle", () => {
+  it("defaults to the build config when unset", async () => {
+    expect(await getFileIntegrity()).toBe(getBuildConfig().file_integrity_default);
+  });
+
+  it("round-trips on and off as explicit strings", async () => {
+    await setFileIntegrity(false);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "kv_put",
+      expect.objectContaining({ k: "file_integrity", v: "off" }),
+    );
+
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "off" : null));
+    expect(await getFileIntegrity()).toBe(false);
+
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "on" : null));
+    expect(await getFileIntegrity()).toBe(true);
+  });
+
+  it("an unrecognised stored value falls back to the default rather than off", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "maybe" : null));
+    expect(await getFileIntegrity()).toBe(getBuildConfig().file_integrity_default);
   });
 });

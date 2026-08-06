@@ -31,6 +31,10 @@ import {
   DHT_PRESENCE_POLL_MAX_SECS,
   getMaxFileSizeMb,
   setMaxFileSizeMb,
+  getFileChunkKib,
+  setFileChunkKib,
+  getFileIntegrity,
+  setFileIntegrity,
   getMapStorageLimitMb,
   setMapStorageLimitMb,
   getFileKeyRotationDays,
@@ -206,6 +210,21 @@ async function saveMeetingReminder() {
 // ── Max file-transfer size (0 = unlimited) ─────────────────────────────────────
 const maxFileSizeMb = ref(0);
 const maxFileSizeSaved = ref(false);
+const fileChunkKib = ref(buildCfg.file_chunk_kib.default);
+const fileChunkSaved = ref(false);
+const fileIntegrity = ref(buildCfg.file_integrity_default);
+
+async function saveFileChunk() {
+  fileChunkKib.value = await setFileChunkKib(Number(fileChunkKib.value));
+  fileChunkSaved.value = true;
+  setTimeout(() => (fileChunkSaved.value = false), 1500);
+}
+
+async function toggleFileIntegrity() {
+  fileIntegrity.value = !fileIntegrity.value;
+  await setFileIntegrity(fileIntegrity.value);
+}
+
 async function saveMaxFileSize() {
   // setMaxFileSizeMb clamps to [min, max] and returns the stored value; the
   // build-config default is the fallback for garbage input.
@@ -401,6 +420,8 @@ onMounted(async () => {
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   meetingReminderMins.value = await getMeetingReminderMins();
   maxFileSizeMb.value = await getMaxFileSizeMb();
+  fileChunkKib.value = await getFileChunkKib();
+  fileIntegrity.value = await getFileIntegrity();
   mapStorageLimitMb.value = await getMapStorageLimitMb();
   fileKeyRotationDays.value = await getFileKeyRotationDays();
   if (dhtAllowed) {
@@ -642,6 +663,53 @@ async function clearSelectedOfflineData() {
           <span class="text-xs opacity-60">MB</span>
           <span v-if="maxFileSizeSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
         </div>
+      </div>
+
+      <!-- Transfer chunking: each chunk is one MLS message on the wire. -->
+      <div class="flex items-center gap-3 border-t border-current/10 pt-4">
+        <font-awesome-icon icon="layer-group" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.fileChunkSize') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.fileChunkSizeHint') }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            v-model.number="fileChunkKib"
+            type="number"
+            :min="buildCfg.file_chunk_kib.min"
+            :max="buildCfg.file_chunk_kib.max"
+            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
+            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
+            data-testid="file-chunk-input"
+            @change="saveFileChunk"
+            @keyup.enter="saveFileChunk"
+          />
+          <span class="text-xs opacity-60">KiB</span>
+          <span v-if="fileChunkSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <font-awesome-icon icon="shield-halved" class="shrink-0 opacity-60" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t('config.fileIntegrity') }}</p>
+          <p class="text-xs opacity-60">{{ $t('config.fileIntegrityHint') }}</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="fileIntegrity"
+          :aria-label="$t('config.fileIntegrity')"
+          class="relative h-6 w-11 shrink-0 rounded-full transition"
+          :class="fileIntegrity ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
+          data-testid="file-integrity-toggle"
+          @click="toggleFileIntegrity"
+        >
+          <span
+            class="absolute top-1 h-4 w-4 rounded-full bg-white transition-transform"
+            :class="fileIntegrity ? 'translate-x-6' : 'translate-x-1'"
+          />
+        </button>
       </div>
     </OyaCard>
 
