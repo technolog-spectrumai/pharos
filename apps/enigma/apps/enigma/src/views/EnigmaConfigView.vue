@@ -700,13 +700,13 @@ async function clearSelectedOfflineData() {
           role="switch"
           :aria-checked="fileIntegrity"
           :aria-label="$t('config.fileIntegrity')"
-          class="relative h-6 w-11 shrink-0 rounded-full transition"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
           :class="fileIntegrity ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
           data-testid="file-integrity-toggle"
           @click="toggleFileIntegrity"
         >
           <span
-            class="absolute top-1 h-4 w-4 rounded-full bg-white transition-transform"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
             :class="fileIntegrity ? 'translate-x-6' : 'translate-x-1'"
           />
         </button>
