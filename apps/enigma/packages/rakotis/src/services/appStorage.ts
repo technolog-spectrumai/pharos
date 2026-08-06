@@ -1167,6 +1167,8 @@ export interface KeyringStatus {
   exists: boolean;
   /** Advisory count from the ring header (readable without the passphrase). */
   entryCount: number;
+  /** User-chosen ring label ("" for rings created before names existed). */
+  name: string;
 }
 
 /** One per-file outcome of a keyring lock/unlock. */
@@ -1196,14 +1198,14 @@ export interface KeyringEntry {
 /** Ring existence + entry count (no passphrase needed). Tauri-only; a plain
  *  browser has no ring, so report "none". */
 export async function getKeyringStatus(): Promise<KeyringStatus> {
-  if (!isTauri()) return { exists: false, entryCount: 0 };
+  if (!isTauri()) return { exists: false, entryCount: 0, name: "" };
   return invoke<KeyringStatus>("keyring_status");
 }
 
 /** Create the ring under `passphrase`. Errors if one already exists. Tauri-only. */
-export async function keyringInit(passphrase: string): Promise<void> {
+export async function keyringInit(passphrase: string, name: string): Promise<void> {
   if (!isTauri()) throw new Error("The key ring is only available in the desktop app.");
-  await invoke("keyring_init", { passphrase });
+  await invoke("keyring_init", { passphrase, name });
 }
 
 /** Lock `paths` under the ring passphrase: each file becomes `<path>.enigr` and

@@ -11,7 +11,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  OyaButton, OyaCard, OyaEmptyState, isTauri,
+  OyaButton, OyaCard, OyaEmptyState, OyaModal, isTauri,
   getKeyringStatus, keyringChangePassphrase, keyringEntries, keyringInit,
   keyringLock, keyringRotate, keyringUnlock, keyringUnlockAll,
   type KeyringEntry, type KeyringFileOutcome,
@@ -21,6 +21,9 @@ defineProps<{ darkMode?: boolean }>();
 const { t } = useI18n({ useScope: "global" });
 
 const exists = ref(false);
+const ringName = ref("");
+const showCreate = ref(false);
+const createName = ref("");
 const entries = ref<KeyringEntry[]>([]);
 const listed = ref(false); // entries require the passphrase; empty ≠ unlisted
 const passphrase = ref("");
@@ -56,6 +59,7 @@ async function refreshStatus(): Promise<void> {
   try {
     const status = await getKeyringStatus();
     exists.value = status.exists;
+    ringName.value = status.name;
   } catch {
     /* gate errors surface on action, not on mount */
   }
@@ -63,15 +67,22 @@ async function refreshStatus(): Promise<void> {
 
 async function createRing(): Promise<void> {
   error.value = "";
+  if (!createName.value.trim()) {
+    error.value = t("keys.nameRequired");
+    return;
+  }
   if (passphrase.value !== passphraseRepeat.value) {
     error.value = t("keys.passphraseMismatch");
     return;
   }
   busy.value = true;
   try {
-    await keyringInit(passphrase.value);
+    await keyringInit(passphrase.value, createName.value.trim());
     exists.value = true;
+    ringName.value = createName.value.trim();
     passphraseRepeat.value = "";
+    createName.value = "";
+    showCreate.value = false;
     await listEntries();
   } catch (e) {
     fail(e);
@@ -192,6 +203,9 @@ onMounted(refreshStatus);
     <div>
       <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
         <font-awesome-icon icon="key" class="mr-1" />{{ t('keys.title') }}
+        <span v-if="ringName" class="normal-case tracking-normal opacity-70" data-testid="keys-name">
+          · {{ ringName }}
+        </span>
       </p>
       <p class="mt-1 text-sm opacity-65">{{ t('keys.hint') }}</p>
     </div>
@@ -200,29 +214,14 @@ onMounted(refreshStatus);
     <p v-if="error" class="text-sm font-semibold text-red-500" data-testid="keys-error">{{ error }}</p>
     <p v-if="notice" class="text-sm font-semibold text-emerald-500">{{ notice }}</p>
 
-    <!-- First run: create the ring. -->
+    <!-- First run: creation lives in a modal (name + passphrase twice). -->
     <template v-if="isTauri() && !exists">
-      <p class="text-sm font-semibold">{{ t('keys.createTitle') }}</p>
       <p class="text-xs opacity-65">{{ t('keys.createHint') }}</p>
-      <input
-        v-model="passphrase"
-        type="password"
-        :placeholder="t('keys.passphrase')"
-        class="w-full rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
-        data-testid="keys-pass"
-      />
-      <input
-        v-model="passphraseRepeat"
-        type="password"
-        :placeholder="t('keys.passphraseRepeat')"
-        class="w-full rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
-        data-testid="keys-pass-repeat"
-        @keyup.enter="createRing()"
-      />
-      <OyaButton :disabled="!canAct" data-testid="keys-create" @click="createRing()">
-        {{ t('keys.create') }}
+      <OyaButton data-testid="keys-create-open" @click="showCreate = true">
+        <font-awesome-icon icon="key" />{{ t('keys.createTitle') }}
       </OyaButton>
     </template>
+
 
     <!-- Ring exists: passphrase field + actions. -->
     <template v-else-if="isTauri()">
@@ -328,5 +327,44 @@ onMounted(refreshStatus);
         </p>
       </div>
     </template>
+    <OyaModal :open="showCreate" @close="busy || (showCreate = false)">
+      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+        <p class="flex items-center gap-2 text-lg font-bold">
+          <font-awesome-icon icon="key" />{{ t('keys.createTitle') }}
+        </p>
+        <p class="text-xs opacity-60">{{ t('keys.createHint') }}</p>
+        <input
+          v-model="createName"
+          type="text"
+          :placeholder="t('keys.name')"
+          class="w-full rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
+          data-testid="keys-create-name"
+        />
+        <input
+          v-model="passphrase"
+          type="password"
+          :placeholder="t('keys.passphrase')"
+          class="w-full rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
+          data-testid="keys-pass"
+        />
+        <input
+          v-model="passphraseRepeat"
+          type="password"
+          :placeholder="t('keys.passphraseRepeat')"
+          class="w-full rounded-lg border border-accent-2 bg-transparent px-3 py-2 text-sm dark:border-accent-1"
+          data-testid="keys-pass-repeat"
+          @keyup.enter="createRing()"
+        />
+        <p v-if="error && showCreate" class="text-sm text-warn-dark">{{ error }}</p>
+        <div class="flex justify-end gap-2">
+          <OyaButton variant="secondary" :disabled="busy" @click="showCreate = false">
+            {{ t('common.cancel') }}
+          </OyaButton>
+          <OyaButton :disabled="!canAct" data-testid="keys-create" @click="createRing()">
+            {{ t('keys.create') }}
+          </OyaButton>
+        </div>
+      </div>
+    </OyaModal>
   </OyaCard>
 </template>

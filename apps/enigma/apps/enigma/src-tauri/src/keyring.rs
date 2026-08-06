@@ -79,6 +79,8 @@ fn ensure_keyring_enabled() -> Result<(), String> {
 pub struct KeyringStatus {
     pub exists: bool,
     pub entry_count: u32,
+    /// The ring's user-chosen label ("" for rings created before names).
+    pub name: String,
 }
 
 /// One per-file outcome of a lock/unlock. `status` is `"locked"`,
@@ -121,6 +123,10 @@ struct RingHeader {
     #[serde(flatten)]
     vault: VaultHeader,
     entry_count: u32,
+    /// User-chosen ring label. Plaintext like `entry_count` — it names the
+    /// ring, never its contents. Defaulted so pre-name rings keep loading.
+    #[serde(default)]
+    name: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -251,6 +257,7 @@ fn write_ring(ring: &Path, header: &RingHeader, dek: &Dek, table: &RingTable) ->
     let header = RingHeader {
         vault: header.vault.clone(),
         entry_count: table.entries.len() as u32,
+        name: header.name.clone(),
     };
     write_fsync_rename(ring, &build_ring_frame(&header, &sealed)?)
 }
@@ -314,21 +321,30 @@ fn status_at(ring: &Path) -> Result<KeyringStatus, String> {
     let bytes = match std::fs::read(ring) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(KeyringStatus { exists: false, entry_count: 0 })
+            return Ok(KeyringStatus { exists: false, entry_count: 0, name: String::new() })
         }
         Err(e) => return Err(e.to_string()),
     };
     let (header, _) = parse_ring_frame(&bytes)?;
-    Ok(KeyringStatus { exists: true, entry_count: header.entry_count })
+    Ok(KeyringStatus { exists: true, entry_count: header.entry_count, name: header.name })
 }
 
-fn init_at(ring: &Path, passphrase: &str) -> Result<(), String> {
+/// Ring names are labels, not paths: trimmed, control chars out, bounded.
+fn sanitize_ring_name(name: &str) -> String {
+    name.trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(60)
+        .collect()
+}
+
+fn init_at(ring: &Path, passphrase: &str, name: &str) -> Result<(), String> {
     if ring.exists() {
         return Err("a key ring already exists".to_string());
     }
     let (vault, dek) =
         create_vault_with_params(passphrase, crate::kdf_params()).map_err(crypto_err)?;
-    let header = RingHeader { vault, entry_count: 0 };
+    let header = RingHeader { vault, entry_count: 0, name: sanitize_ring_name(name) };
     write_ring(ring, &header, &dek, &RingTable::default())
 }
 
@@ -531,12 +547,13 @@ fn entry_open(entry: &RingEntry, sealed: &[u8]) -> Result<Vec<u8>, String> {
 /// their old DEK verbatim (re-sealing bytes we cannot read is impossible) and
 /// report "missing".
 fn rotate_at(ring: &Path, old: &str, new: &str) -> Result<Vec<KeyringFileOutcome>, String> {
-    let (_, _, table) = read_ring(ring, old)?; // verifies the old passphrase
+    let (old_header, _, table) = read_ring(ring, old)?; // verifies the old passphrase
 
     // Fresh vault: new salt, new KDF run, new ring DEK — under the new passphrase.
     let (vault, ring_dek) =
         create_vault_with_params(new, crate::kdf_params()).map_err(crypto_err)?;
-    let header = RingHeader { vault, entry_count: table.entries.len() as u32 };
+    let header =
+        RingHeader { vault, entry_count: table.entries.len() as u32, name: old_header.name };
 
     // Phase 1: new DEKs for every entry whose file is on disk, old DEK kept as
     // the fallback. Persisted BEFORE any file changes.
@@ -619,7 +636,7 @@ fn change_passphrase_at(ring: &Path, old: &str, new: &str) -> Result<(), String>
     let (header, sealed) = parse_ring_frame(&bytes)?;
     let dek = unlock(&header.vault, old).map_err(crypto_err)?;
     let vault = rewrap(&header.vault, &dek, new).map_err(crypto_err)?;
-    let header = RingHeader { vault, entry_count: header.entry_count };
+    let header = RingHeader { vault, entry_count: header.entry_count, name: header.name };
     write_fsync_rename(ring, &build_ring_frame(&header, sealed)?)
 }
 
@@ -638,9 +655,9 @@ pub fn keyring_status(app: AppHandle) -> Result<KeyringStatus, String> {
 }
 
 #[tauri::command]
-pub fn keyring_init(app: AppHandle, passphrase: String) -> Result<(), String> {
+pub fn keyring_init(app: AppHandle, passphrase: String, name: String) -> Result<(), String> {
     ensure_keyring_enabled()?;
-    init_at(&ring_path(&app)?, &passphrase)
+    init_at(&ring_path(&app)?, &passphrase, &name)
 }
 
 #[tauri::command]
@@ -708,7 +725,7 @@ mod tests {
     fn rotate_rekeys_files_and_passphrase() {
         let dir = tmp_dir("rotate");
         let ring = dir.join(RING_FILE);
-        init_at(&ring, "old-pass").unwrap();
+        init_at(&ring, "old-pass", "Main").unwrap();
 
         let a = dir.join("a.txt");
         std::fs::write(&a, b"alpha").unwrap();
@@ -738,7 +755,7 @@ mod tests {
     fn rotate_keeps_a_missing_files_old_dek() {
         let dir = tmp_dir("rotate_missing");
         let ring = dir.join(RING_FILE);
-        init_at(&ring, "p1").unwrap();
+        init_at(&ring, "p1", "Main").unwrap();
 
         let a = dir.join("gone.txt");
         std::fs::write(&a, b"data").unwrap();
@@ -755,6 +772,21 @@ mod tests {
         std::fs::rename(&stash, &locked).unwrap();
         let unlocked = unlock_at(&ring, "p2", &[locked]).unwrap();
         assert_eq!(unlocked[0].status, "unlocked");
+    }
+
+    #[test]
+    fn ring_name_survives_rotate_and_passphrase_change() {
+        let dir = tmp_dir("named");
+        let ring = dir.join(RING_FILE);
+        init_at(&ring, "p1", "  Personal\u{7}  ").unwrap();
+        // Sanitized: trimmed, control chars dropped.
+        assert_eq!(status_at(&ring).unwrap().name, "Personal");
+
+        change_passphrase_at(&ring, "p1", "p2").unwrap();
+        assert_eq!(status_at(&ring).unwrap().name, "Personal");
+
+        rotate_at(&ring, "p2", "p3").unwrap();
+        assert_eq!(status_at(&ring).unwrap().name, "Personal");
     }
 
     #[test]
@@ -798,7 +830,7 @@ mod tests {
         let b = write_plain(&dir, "b.bin", &[0u8, 1, 2, 3, 255]);
 
         assert!(!status_at(&ring).unwrap().exists);
-        init_at(&ring, "one-pass-many-files").unwrap();
+        init_at(&ring, "one-pass-many-files", "Main").unwrap();
         let st = status_at(&ring).unwrap();
         assert!(st.exists);
         assert_eq!(st.entry_count, 0);
@@ -835,7 +867,7 @@ mod tests {
         let dir = tmp_dir("wrongpass");
         let ring = dir.join(RING_FILE);
         let f = write_plain(&dir, "s.txt", b"secret");
-        init_at(&ring, "right").unwrap();
+        init_at(&ring, "right", "Main").unwrap();
 
         // Wrong passphrase on lock: nothing on disk changes.
         let err = lock_at(&ring, "wrong", &[f.clone()]).unwrap_err();
@@ -852,7 +884,7 @@ mod tests {
         assert!(!Path::new(&f).exists());
 
         // Double init is refused.
-        let err = init_at(&ring, "whatever").unwrap_err();
+        let err = init_at(&ring, "whatever", "Main").unwrap_err();
         assert!(err.contains("already exists"), "got: {err}");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -864,7 +896,7 @@ mod tests {
         let ring = dir.join(RING_FILE);
         let real = write_plain(&dir, "real.txt", b"real data");
         let missing = dir.join("missing.txt").to_string_lossy().into_owned();
-        init_at(&ring, "pw").unwrap();
+        init_at(&ring, "pw", "Main").unwrap();
 
         let outcomes = lock_at(&ring, "pw", &[real.clone(), missing.clone()]).unwrap();
         let by_path = |p: &str| outcomes.iter().find(|o| o.path == p).unwrap();
@@ -887,7 +919,7 @@ mod tests {
         let dir = tmp_dir("changepass");
         let ring = dir.join(RING_FILE);
         let f = write_plain(&dir, "keep.txt", b"keep me openable");
-        init_at(&ring, "old-pass").unwrap();
+        init_at(&ring, "old-pass", "Main").unwrap();
         lock_at(&ring, "old-pass", &[f.clone()]).unwrap();
 
         change_passphrase_at(&ring, "old-pass", "new-pass").unwrap();
