@@ -31,6 +31,7 @@ struct RawConfig {
     peers: PeersSection,
     maps: MapsSection,
     keyring: KeyringSection,
+    lock: LockSection,
     devices: DevicesSection,
     features: FeaturesSection,
     settings: SettingsSection,
@@ -124,6 +125,12 @@ struct DevicesSection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct LockSection {
+    pin_unlock: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FeaturesSection {
     use_tor: bool,
     stable_onion: bool,
@@ -145,6 +152,7 @@ struct SettingsSection {
     idle_lock_mins: Clamp,
     peer_resync_secs: Clamp,
     file_chunk_kib: Clamp,
+    pin_digits: Clamp,
 }
 
 #[derive(Deserialize)]
@@ -256,6 +264,9 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         ("settings.peer_resync_secs", &cfg.settings.peer_resync_secs, 10u64),
         // floor 16 KiB: below that the per-chunk MLS overhead dominates.
         ("settings.file_chunk_kib", &cfg.settings.file_chunk_kib, 16u64),
+        // floor 4 digits: the PIN only re-opens an already-unlocked session, but
+        // fewer than four would be guessable by hand at the keypad.
+        ("settings.pin_digits", &cfg.settings.pin_digits, 4u64),
     ];
     for (path, c, floor) in clamps {
         if !(c.min <= c.default && c.default <= c.max) {
@@ -388,6 +399,9 @@ pub mod settings {{
     pub const FILE_CHUNK_DEFAULT_KIB: u64 = {fc_def};
     pub const FILE_CHUNK_MIN_KIB: u64 = {fc_min};
     pub const FILE_CHUNK_MAX_KIB: u64 = {fc_max};
+    pub const PIN_DIGITS_DEFAULT: u64 = {pd_def};
+    pub const PIN_DIGITS_MIN: u64 = {pd_min};
+    pub const PIN_DIGITS_MAX: u64 = {pd_max};
 }}
 
 pub mod network {{
@@ -416,6 +430,10 @@ pub mod peers {{
 
 pub mod maps {{
     pub const ENABLED: bool = {maps_enabled};
+}}
+
+pub mod lock {{
+    pub const PIN_UNLOCK: bool = {pin_unlock};
 }}
 
 pub mod keyring {{
@@ -507,6 +525,9 @@ const _: () = assert!(
         fc_def = cfg.settings.file_chunk_kib.default,
         fc_min = cfg.settings.file_chunk_kib.min,
         fc_max = cfg.settings.file_chunk_kib.max,
+        pd_def = cfg.settings.pin_digits.default,
+        pd_min = cfg.settings.pin_digits.min,
+        pd_max = cfg.settings.pin_digits.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
         redirects = cfg.network.max_redirects,
@@ -518,6 +539,7 @@ const _: () = assert!(
         peers_enabled = cfg.peers.enabled,
         maps_enabled = cfg.maps.enabled,
         keyring_enabled = cfg.keyring.enabled,
+        pin_unlock = cfg.lock.pin_unlock,
         devices_allow_linking = cfg.devices.allow_linking,
     );
     o

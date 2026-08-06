@@ -462,6 +462,7 @@ pub struct BuildConfigSummary {
     pub maps_enabled: bool,
     pub devices_allow_linking: bool,
     pub keyring_enabled: bool,
+    pub pin_unlock: bool,
     pub use_tor_default: bool,
     pub stable_onion_default: bool,
     pub dht_discovery_default: bool,
@@ -476,6 +477,7 @@ pub struct BuildConfigSummary {
     pub idle_lock_mins: SettingClamp,
     pub peer_resync_secs: SettingClamp,
     pub file_chunk_kib: SettingClamp,
+    pub pin_digits: SettingClamp,
     pub file_integrity_default: bool,
 }
 
@@ -483,8 +485,8 @@ pub struct BuildConfigSummary {
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
     use build_config::{
-        app, calendar, calls, cloud, contacts, devices, dht, features, keyring, maps, p2p,
-        peers, settings as s,
+        app, calendar, calls, cloud, contacts, devices, dht, features, keyring, lock, maps,
+        p2p, peers, settings as s,
     };
     BuildConfigSummary {
         app_name: app::NAME,
@@ -500,6 +502,7 @@ fn app_get_build_config() -> BuildConfigSummary {
         maps_enabled: maps::ENABLED,
         devices_allow_linking: devices::ALLOW_LINKING,
         keyring_enabled: keyring::ENABLED,
+        pin_unlock: lock::PIN_UNLOCK,
         use_tor_default: features::USE_TOR_DEFAULT,
         stable_onion_default: features::STABLE_ONION_DEFAULT,
         dht_discovery_default: features::DHT_DISCOVERY_DEFAULT,
@@ -554,6 +557,11 @@ fn app_get_build_config() -> BuildConfigSummary {
             default: s::FILE_CHUNK_DEFAULT_KIB,
             min: s::FILE_CHUNK_MIN_KIB,
             max: s::FILE_CHUNK_MAX_KIB,
+        },
+        pin_digits: SettingClamp {
+            default: s::PIN_DIGITS_DEFAULT,
+            min: s::PIN_DIGITS_MIN,
+            max: s::PIN_DIGITS_MAX,
         },
     }
 }

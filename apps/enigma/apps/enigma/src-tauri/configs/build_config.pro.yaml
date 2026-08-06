@@ -67,6 +67,9 @@ peers:
 maps:
   enabled: true
 
+lock:
+  pin_unlock: true
+
 keyring:
   enabled: true
 
@@ -92,6 +95,7 @@ settings:
   # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
   peer_resync_secs:         { default: 300, min: 30, max: 3600 }
   file_chunk_kib:           { default: 256, min: 16, max: 4096 }
+  pin_digits:               { default: 6, min: 4, max: 12 }
 
 network:
   max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition

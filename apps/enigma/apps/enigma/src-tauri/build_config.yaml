@@ -88,6 +88,15 @@ maps:
   # standalone tools/map_packager and imported from the device (map.md Part II).
   enabled: true
 
+# PIN unlock: after an idle lock, re-open the vault with a short PIN on an
+# on-screen keypad instead of retyping the passphrase. CONVENIENCE ONLY — the
+# PIN is memory-resident, so a restart still demands the passphrase and nothing
+# PIN-derived ever reaches disk (technology.md §7).
+lock:
+  # false = no PIN surface at all: no keypad, no Settings card, and the
+  # vault_pin_* commands fail with PIN_UNLOCK_DISABLED.
+  pin_unlock: true
+
 keyring:
   # false = this build has no key ring (one passphrase locking MANY local
   # files): every keyring_* command fails fast with KEYRING_DISABLED. The ring
@@ -140,6 +149,9 @@ settings:
   # P2P/cloud transfer chunk, KiB ("file chunk size" in Settings). Each chunk
   # rides as one MLS message; max must fit network.max_frame_bytes.
   file_chunk_kib:           { default: 256, min: 16, max: 4096 }
+  # Digits in the unlock PIN. Each extra digit is ~3.3 bits; the PIN guards an
+  # in-session re-unlock only, never data at rest.
+  pin_digits:               { default: 6, min: 4, max: 12 }
 
 network:
   # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the

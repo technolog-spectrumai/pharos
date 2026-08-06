@@ -51,6 +51,7 @@ SCALAR_PATHS = (
     "peers.enabled",
     "maps.enabled",
     "keyring.enabled",
+    "lock.pin_unlock",
     "devices.allow_linking",
     "features.use_tor",
     "features.stable_onion",
@@ -176,6 +177,9 @@ maps:
   # MAPS_DISABLED. The app NEVER fetches tiles itself — region packages come
   # from tools/map_packager and are imported from the device.
   enabled: $maps_enabled
+
+lock:
+  pin_unlock: $lock_pin_unlock
 
 keyring:
   # false = no key ring (one passphrase locking MANY local files): every

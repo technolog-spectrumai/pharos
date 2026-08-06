@@ -64,6 +64,11 @@ GATE_HINTS: dict[str, tuple[str, str]] = {
         "One passphrase locking MANY local files (keyring_* commands). "
         "Per-file locking is always in — this gates only the shared ring.",
     ),
+    "lock.pin_unlock": (
+        "PIN unlock",
+        "Re-open the vault with a short PIN on a keypad after an idle lock. "
+        "Convenience only — the passphrase is still required after a restart.",
+    ),
     "devices.allow_linking": (
         "Device linking",
         "Linking your own devices, and with it Files→Devices file sync.",

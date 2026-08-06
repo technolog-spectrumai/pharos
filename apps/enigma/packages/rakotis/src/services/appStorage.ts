@@ -106,6 +106,9 @@ export interface BuildConfig {
    *  files): keyring_* commands error with KEYRING_DISABLED and the UI hides
    *  the key-ring surface. Per-file locking (local_lock) is always in. */
   keyring_enabled: boolean;
+  /** PIN unlock: a short in-session re-unlock after an idle lock. The passphrase
+   *  still opens the vault at cold start — the PIN never protects data at rest. */
+  pin_unlock: boolean;
   /** false = this build has no device linking: devlink_* commands error with
    *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
   devices_allow_linking: boolean;
@@ -126,6 +129,8 @@ export interface BuildConfig {
   peer_resync_secs: SettingClamp;
   /** P2P/cloud transfer chunk, KiB — the "file chunk size" setting's bounds. */
   file_chunk_kib: SettingClamp;
+  /** Digits in the unlock PIN. */
+  pin_digits: SettingClamp;
   /** Seed for the per-chunk integrity check toggle on a new profile. */
   file_integrity_default: boolean;
 }
@@ -145,6 +150,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   peers_enabled: true,
   maps_enabled: true,
   keyring_enabled: true,
+  pin_unlock: true,
   devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,
@@ -160,6 +166,7 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   idle_lock_mins: { default: 15, min: 0, max: 120 },
   peer_resync_secs: { default: 300, min: 30, max: 3600 },
   file_chunk_kib: { default: 256, min: 16, max: 4096 },
+  pin_digits: { default: 6, min: 4, max: 12 },
   file_integrity_default: true,
 };
 

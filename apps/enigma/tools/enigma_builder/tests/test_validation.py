@@ -108,6 +108,7 @@ def test_clamp_ordering(cfg):
         ("chat_history_cap_msgs", 10),
         ("peer_resync_secs", 10),
         ("file_chunk_kib", 16),
+        ("pin_digits", 4),
     ],
 )
 def test_settings_floors(cfg, key, floor):

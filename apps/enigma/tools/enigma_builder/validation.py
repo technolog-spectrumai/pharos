@@ -42,6 +42,8 @@ SETTINGS_FLOORS: dict[str, int] = {
     "peer_resync_secs": 10,
     # Below 16 KiB the per-chunk MLS overhead dominates the payload.
     "file_chunk_kib": 16,
+    # Fewer than four digits would be guessable by hand at the keypad.
+    "pin_digits": 4,
 }
 
 # YAML gate path -> tauri.conf.json key, for the equality assert.
@@ -62,6 +64,7 @@ FEATURE_GATES = (
     ("peers.enabled", "Peer sync"),
     ("maps.enabled", "Maps"),
     ("keyring.enabled", "Keyring"),
+    ("lock.pin_unlock", "PIN unlock"),
     ("devices.allow_linking", "Device linking"),
 )
 
