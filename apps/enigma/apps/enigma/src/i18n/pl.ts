@@ -103,6 +103,11 @@ export default {
     polish: "Polski",
     hint: "Twój wybór jest zapisywany lokalnie na tym urządzeniu.",
   },
+  network: {
+    blockedOffline: "Niedostępne w trybie samolotowym.",
+    blockedTor:
+      "Niedostępne w trybie Tor — ta funkcja wymaga bezpośredniego połączenia, które ujawniłoby Twój adres IP.",
+  },
   config: {
     studio: "Oya Studio",
     title: "Konfiguracja",

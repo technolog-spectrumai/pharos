@@ -5,6 +5,8 @@ import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
 import CloudEnableCard from "../components/cloud/CloudEnableCard.vue";
 import { useCloudStore } from "../stores/cloud";
+import { useNetworkStore } from "../stores/network";
+import { storeToRefs } from "pinia";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
@@ -12,11 +14,7 @@ import {
   clearOfflineProfile,
   getProfileState,
   getRuntimeConfig,
-  getOffline,
   setActiveProfile,
-  setOffline,
-  getUseTor,
-  setUseTor,
   getStableOnion,
   setStableOnion,
   getConnectTimeoutSecs,
@@ -97,20 +95,20 @@ function changeLanguage(value: string) {
   setLocale(value as Locale, true);
 }
 
-// ── Offline / airplane mode (online / offline) ───────────────────────────────
-const offline = ref(false);
+// ── Offline / airplane mode + Use Tor ────────────────────────────────────────
+// Both live in the shared network store so that flipping them here immediately
+// disables/enables the gated buttons (calls, file transfer, device & peer
+// sync) on every open panel — not just after their next remount.
+const network = useNetworkStore();
+const { offline, useTor } = storeToRefs(network);
 async function toggleOffline() {
-  offline.value = !offline.value;
-  await setOffline(offline.value);
+  await network.setOffline(!offline.value);
 }
 
-// ── Use Tor (peer-hosted onion transport) ────────────────────────────────────
 // Exclusive with iroh: toggling tears down the other transport in Rust, so the
 // shown NodeId (iroh) / onion refreshes on the next room command.
-const useTor = ref(false);
 async function toggleUseTor() {
-  useTor.value = !useTor.value;
-  await setUseTor(useTor.value);
+  await network.setUseTor(!useTor.value);
 }
 
 // ── Keep onion stable (encrypted-at-rest HS key) ─────────────────────────────
@@ -398,8 +396,7 @@ async function removePanic() {
 
 onMounted(async () => {
   await loadRuntimeConfig();
-  offline.value = await getOffline();
-  useTor.value = await getUseTor();
+  await network.refresh();
   stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   meetingReminderMins.value = await getMeetingReminderMins();

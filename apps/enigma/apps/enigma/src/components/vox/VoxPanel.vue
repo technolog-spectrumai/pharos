@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { OyaButton, getBuildConfig } from "rakotis";
 import { useChatStore } from "../../stores/chat";
+import { useNetworkStore } from "../../stores/network";
 
 defineProps<{ darkMode: boolean }>();
 
 const { t } = useI18n();
 const chat = useChatStore();
+
+// ── network policy: calls are iroh-only, so Tor mode (and airplane mode) turn
+// every call-STARTING control off — visible but disabled, with the reason shown
+// (vox.rs rejects the commands anyway; this says so before the click).
+// Hangup/decline/mute stay live: ending a call must always work.
+const network = useNetworkStore();
+const canCall = computed(() => network.canCall);
+onMounted(() => { void network.refresh(); });
 // Non-null: this panel is only reachable through the build-gated /vox route
 // (pland.md), so it never renders in a calls-off edition.
 const vox = chat.vox!;
@@ -280,6 +289,11 @@ const cardClass = computed(() =>
 
     <!-- Idle: start or join -->
     <div v-else class="flex w-full max-w-md flex-col gap-6">
+      <p
+        v-if="!canCall"
+        data-testid="vox-blocked"
+        class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-sm font-semibold text-amber-500"
+      >{{ t(network.blockedReasonKey) }}</p>
       <!-- Call a member of the current room -->
       <div :class="cardClass">
         <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
@@ -292,7 +306,7 @@ const cardClass = computed(() =>
             class="flex items-center justify-between gap-2 rounded-lg border border-current/10 px-3 py-2"
           >
             <span class="truncate text-sm">{{ peer.name || peer.id }}</span>
-            <OyaButton variant="primary" @click="vox.callPeer({ id: peer.id, name: peer.name })">
+            <OyaButton variant="primary" :disabled="!canCall" @click="vox.callPeer({ id: peer.id, name: peer.name })">
               <font-awesome-icon icon="phone" /> {{ t("vox.callPeer") }}
             </OyaButton>
           </li>
@@ -309,7 +323,7 @@ const cardClass = computed(() =>
           class="w-full rounded-lg border border-current/15 bg-transparent p-2 text-sm"
           @keydown.enter="callByNick"
         />
-        <OyaButton variant="primary" @click="callByNick">
+        <OyaButton variant="primary" :disabled="!canCall" @click="callByNick">
           <font-awesome-icon icon="phone" /> {{ t("vox.callContact") }}
         </OyaButton>
         <!-- Disambiguation: nickname claims are unauthenticated, so show fingerprints. -->
@@ -325,7 +339,7 @@ const cardClass = computed(() =>
                 <span class="block truncate text-sm">{{ claim.name || "?" }}</span>
                 <span class="block truncate font-mono text-[10px] opacity-60">{{ fingerprint(claim.node_id) }}</span>
               </span>
-              <OyaButton variant="secondary" @click="vox.callNode(claim.node_id, claim.name)">
+              <OyaButton variant="secondary" :disabled="!canCall" @click="vox.callNode(claim.node_id, claim.name)">
                 <font-awesome-icon icon="phone" /> {{ t("vox.callPeer") }}
               </OyaButton>
             </li>
@@ -337,7 +351,7 @@ const cardClass = computed(() =>
       <div :class="cardClass">
         <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
         <p class="text-sm opacity-80">{{ t("vox.startHint") }}</p>
-        <OyaButton variant="primary" @click="vox.createCall()">
+        <OyaButton variant="primary" :disabled="!canCall" @click="vox.createCall()">
           <font-awesome-icon icon="phone" /> {{ t("vox.startCall") }}
         </OyaButton>
       </div>
@@ -351,13 +365,13 @@ const cardClass = computed(() =>
           class="w-full resize-none rounded-lg border border-current/15 bg-transparent p-2 text-xs"
         />
         <div class="flex flex-wrap items-center justify-center gap-2">
-          <OyaButton variant="primary" @click="joinPasted">
+          <OyaButton variant="primary" :disabled="!canCall" @click="joinPasted">
             <font-awesome-icon icon="phone" /> {{ t("vox.join") }}
           </OyaButton>
-          <OyaButton variant="secondary" @click="scanning ? stopScan() : startScan()">
+          <OyaButton variant="secondary" :disabled="!canCall" @click="scanning ? stopScan() : startScan()">
             <font-awesome-icon icon="camera" /> {{ scanning ? t("vox.stopScan") : t("chat.scanQr") }}
           </OyaButton>
-          <OyaButton variant="secondary" @click="fileInput?.click()">
+          <OyaButton variant="secondary" :disabled="!canCall" @click="fileInput?.click()">
             <font-awesome-icon icon="upload" /> {{ t("chat.uploadQr") }}
           </OyaButton>
           <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="scanFile" />

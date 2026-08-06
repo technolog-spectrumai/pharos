@@ -7,22 +7,25 @@ tauri.conf.json — not on anything inside the build. So a new binary finds the
 previous ``profiles/<name>/vault.json``, protasius reports the vault as already
 set up, and the app opens the unlock gate instead of first-run passphrase setup.
 
-Clearing that directory is the only way to get a true first run, and it destroys
-real user data — vault, rooms, chat history, transferred files, map regions. Every
-path here is therefore derived, guarded, and measured before anything is removed.
+Resetting that directory is the only way to get a true first run. This module
+*locates and measures* it for the GUI; the reset itself is delegated to the
+repo's own ``scripts/reset_profile.sh`` (see :func:`reset_command`) so the
+Builder, ``run_dev.sh --reset`` and ``run2.sh --reset`` cannot drift apart.
 """
 
 from __future__ import annotations
 
 import os
-import shutil
-import time
 from dataclasses import dataclass
 from pathlib import Path
+
+import paths
 
 #: Everything the app writes lives under this, per profile.
 PROFILES_SUBDIR = "profiles"
 VAULT_FILE = "vault.json"
+#: What scripts/reset_profile.sh renames an archived profile to.
+ARCHIVE_MARKER = ".reset-"
 
 
 def data_homes() -> list[Path]:
@@ -92,9 +95,9 @@ def dir_size(path: Path) -> int:
 
 @dataclass(frozen=True)
 class Target:
-    """Something the user can clear, with enough detail to decide."""
+    """Something the user can reset, with enough detail to decide."""
 
-    key: str          # "" for the whole root, otherwise the profile name
+    key: str          # the absolute path, so a selection survives a refresh
     label: str
     path: Path
     size: int
@@ -126,10 +129,10 @@ def profile_names(identifier: str, root: Path | None = None) -> list[str]:
             names.update(
                 p.name
                 for p in directory.iterdir()
-                # Skip what a previous clear moved aside — it is not a profile
-                # the app will ever load, and offering to clear it again reads
-                # as though the first clear had not worked.
-                if p.is_dir() and ".cleared-" not in p.name
+                # Skip what a previous reset archived — it is not a profile the
+                # app will ever load, and offering to reset it again reads as
+                # though the first reset had not worked.
+                if p.is_dir() and ARCHIVE_MARKER not in p.name
             )
     return sorted(names)
 
@@ -202,63 +205,37 @@ def is_safe_to_remove(identifier: str, path: Path) -> bool:
     return False
 
 
-def remove(identifier: str, path: Path) -> Path:
-    """Move ``path`` aside so the app starts fresh. Returns the new location.
+def reset_command(profiles: list[str], purge: bool = False) -> list[str]:
+    """The repo's own reset, rather than a second implementation of it.
 
-    Deliberately a rename rather than an ``rmtree``: the app looks for its data
-    at an exact path, so moving it is enough to force a genuine first run, and
-    it leaves the vault, chat history and files recoverable if the button was
-    pressed on the wrong profile. The rename is within the same parent, so it
-    is atomic and cannot fail part-way across a device boundary.
+    ``scripts/reset_profile.sh`` already archives ``profiles/<name>`` aside as
+    ``<name>.reset-<stamp>``, refuses unsafe profile names, reads the identifier
+    out of tauri.conf.json, and — the part worth not reimplementing — also drops
+    the **global** webview caches, which are shared by every profile and are the
+    usual reason a rebuilt dev binary misbehaves.
 
-    The caller is expected to tell the user where it went; nothing here deletes
-    anything permanently.
+    Keeping one implementation means `run_dev.sh --reset`, `run2.sh --reset` and
+    this button cannot drift apart.
     """
-    if not is_safe_to_remove(identifier, path):
-        raise ValueError(f"refusing to touch {path} — outside the app data root")
-    if not path.is_dir():
-        raise FileNotFoundError(f"{path} does not exist")
-
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    aside = path.with_name(f"{path.name}.cleared-{stamp}")
-    counter = 1
-    while aside.exists():
-        counter += 1
-        aside = path.with_name(f"{path.name}.cleared-{stamp}-{counter}")
-
-    path.rename(aside)
-    return aside
+    command = ["bash", str(paths.RESET_PROFILE_SH)]
+    if purge:
+        command += ["--purge", "-y"]
+    return command + profiles
 
 
-def purge(identifier: str, path: Path) -> None:
-    """Permanently delete a directory previously moved aside by :func:`remove`."""
-    if not is_safe_to_remove(identifier, path):
-        raise ValueError(f"refusing to delete {path} — outside the app data root")
-    if ".cleared-" not in path.name:
-        raise ValueError(f"refusing to delete {path} — not a cleared-aside directory")
-    shutil.rmtree(path, ignore_errors=False)
-
-
-def cleared_aside(identifier: str) -> list[Path]:
-    """Directories a previous clear moved aside, oldest first."""
+def archived(identifier: str) -> list[Path]:
+    """Profile directories a previous reset archived aside, oldest first."""
     found: list[Path] = []
-    for home in data_homes():
-        if not home.is_dir():
+    for root in existing_roots(identifier):
+        profiles = root / PROFILES_SUBDIR
+        if not profiles.is_dir():
             continue
         try:
             found.extend(
-                p
-                for p in home.iterdir()
-                if p.is_dir() and p.name.startswith(f"{identifier}.cleared-")
+                p for p in profiles.iterdir() if p.is_dir() and ARCHIVE_MARKER in p.name
             )
         except OSError:
             continue
-        for root in existing_roots(identifier):
-            profiles = root / PROFILES_SUBDIR
-            if profiles.is_dir():
-                found.extend(
-                    p for p in profiles.iterdir() if p.is_dir() and ".cleared-" in p.name
-                )
     return sorted(set(found))
 
 

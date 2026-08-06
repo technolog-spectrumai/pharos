@@ -33,6 +33,7 @@ import appdata
 import bundles
 import icons as icons_mod
 import identity as identity_mod
+import runenv
 import paths
 import widgets
 from build_worker import BuildWorker
@@ -382,7 +383,7 @@ class BuildTab(QWidget):
     def _build_appdata_card(self) -> QWidget:
         frame, layout = widgets.card()
         header = QHBoxLayout()
-        header.addWidget(widgets.section_title("Local app data"))
+        header.addWidget(widgets.section_title("Test run"))
         header.addStretch()
         self.appdata_badge = widgets.badge("", True)
         header.addWidget(self.appdata_badge)
@@ -392,21 +393,36 @@ class BuildTab(QWidget):
         layout.addWidget(self.appdata_label)
         layout.addWidget(
             widgets.hint(
-                "The vault lives outside the build, under the bundle "
-                "identifier, so a rebuild keeps the previous passphrase, rooms "
-                "and files. Clear it to get a genuine first run.",
+                "Launches the binary you just built, with the custom edition "
+                "and the profile below, streaming its output to the log. The "
+                "vault lives outside the build under the bundle identifier, so "
+                "a rebuild keeps the previous passphrase — reset the profile to "
+                "get a genuine first run.",
                 "gateHint",
             )
         )
 
+        profile_row = QHBoxLayout()
+        profile_row.setSpacing(8)
+        profile_row.addWidget(QLabel("Profile"))
+        self.profile_combo = QComboBox()
+        self.profile_combo.setEditable(True)
+        self.profile_combo.setMinimumWidth(200)
+        self.profile_combo.currentTextChanged.connect(lambda _t: self._refresh_appdata())
+        profile_row.addWidget(self.profile_combo, 1)
+        self.reset_first_box = QCheckBox("Reset it first (first-run setup)")
+        profile_row.addWidget(self.reset_first_box)
+        layout.addLayout(profile_row)
+
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.appdata_combo = QComboBox()
-        self.appdata_combo.setMinimumWidth(320)
-        self.clear_data_button = QPushButton("Clear app data…")
-        self.clear_data_button.clicked.connect(self._clear_app_data)
-        row.addWidget(self.appdata_combo, 1)
-        row.addWidget(self.clear_data_button)
+        row.addStretch()
+        self.reset_button = QPushButton("Reset profile…")
+        self.reset_button.clicked.connect(self._reset_profile)
+        self.run_button = QPushButton("Test run")
+        self.run_button.clicked.connect(self._test_run)
+        row.addWidget(self.reset_button)
+        row.addWidget(self.run_button)
         layout.addLayout(row)
         return frame
 
@@ -699,86 +715,138 @@ class BuildTab(QWidget):
         """The identifier the built app will store its data under."""
         return str(self.identity_tab.pending_identity().identifier or "")
 
+    @property
+    def profile(self) -> str:
+        return self.profile_combo.currentText().strip() or "default"
+
     def _refresh_appdata(self) -> None:
         identifier = self._identifier()
-        found = appdata.targets(identifier)
+        names = appdata.profile_names(identifier)
+        if "default" not in names:
+            names.insert(0, "default")
 
-        previous = self.appdata_combo.currentData()
-        self.appdata_combo.blockSignals(True)
-        self.appdata_combo.clear()
-        for target in found:
-            self.appdata_combo.addItem(
-                f"{target.label} — {appdata.human_size(target.size)}", target
-            )
-        if previous is not None:
-            for index in range(self.appdata_combo.count()):
-                if self.appdata_combo.itemData(index).key == previous.key:
-                    self.appdata_combo.setCurrentIndex(index)
-                    break
-        self.appdata_combo.blockSignals(False)
+        current = self.profile_combo.currentText()
+        self.profile_combo.blockSignals(True)
+        self.profile_combo.clear()
+        self.profile_combo.addItems(names)
+        self.profile_combo.setCurrentText(current or "default")
+        self.profile_combo.blockSignals(False)
 
-        has_any = bool(found)
-        self.appdata_combo.setEnabled(has_any and not self.is_busy())
-        self.clear_data_button.setEnabled(has_any and not self.is_busy())
-
-        vault = appdata.has_vault(identifier, "default")
-        self.appdata_badge.setText("vault present" if vault else "clean")
+        vault = appdata.has_vault(identifier, self.profile)
+        self.appdata_badge.setText("vault present" if vault else "first run")
         self.appdata_badge.setObjectName("warningBadge" if vault else "successBadge")
         self.appdata_badge.style().unpolish(self.appdata_badge)
         self.appdata_badge.style().polish(self.appdata_badge)
-        self.appdata_label.setText(appdata.summary(identifier))
 
-    def _clear_app_data(self) -> None:
-        target = self.appdata_combo.currentData()
-        if target is None:
+        binary = paths.app_binary(self.build_type)
+        if binary.is_file():
+            self.appdata_label.setText(
+                f"{appdata.summary(identifier, self.profile)}\n"
+                f"Will launch {binary}"
+            )
+        else:
+            self.appdata_label.setText(
+                f"{appdata.summary(identifier, self.profile)}\n"
+                f"No {self.build_type} binary yet — build first, or switch the "
+                f"build type above."
+            )
+
+        idle = not self.is_busy()
+        self.run_button.setEnabled(idle and binary.is_file())
+        self.reset_button.setEnabled(idle and paths.RESET_PROFILE_SH.is_file())
+        self.profile_combo.setEnabled(idle)
+        self.reset_first_box.setEnabled(idle)
+
+    def _reset_steps(self, purge: bool = False) -> list[Step]:
+        return [
+            Step(
+                command=appdata.reset_command([self.profile], purge=purge),
+                cwd=paths.REPO_ROOT,
+                label="Resetting profile",
+                env=os.environ.copy(),
+            )
+        ]
+
+    def _reset_profile(self) -> None:
+        if self.is_busy():
             return
+        identifier = self._identifier()
+        target = appdata.data_root(identifier)
+        vault = appdata.has_vault(identifier, self.profile)
 
-        contents = (
-            "the vault, rooms, chat history, transferred files and map regions"
-            if target.has_vault
-            else "cached state for the app"
-        )
         answer = QMessageBox.warning(
             self,
             paths.APP_NAME,
-            f"Clear local app data so the next launch starts fresh?\n\n"
-            f"{target.path}\n"
-            f"{appdata.human_size(target.size)} — {contents}\n\n"
-            f"This is MOVED ASIDE, not deleted: it is renamed with a "
-            f"“.cleared-<timestamp>” suffix beside itself, so the app starts "
-            f"with passphrase setup and you can still get the data back. "
-            f"Delete that folder yourself once you are sure.",
+            f"Reset profile “{self.profile}” so the next launch asks to set a "
+            f"new passphrase?\n\n"
+            f"{target}/profiles/{self.profile}\n\n"
+            + (
+                "This profile has a vault: its identity, rooms and message "
+                "history go with it.\n\n"
+                if vault
+                else "Nothing is stored for this profile yet.\n\n"
+            )
+            + "It is ARCHIVED, not deleted — scripts/reset_profile.sh renames it "
+            "aside as “.reset-<timestamp>”, so you can move it back. The global "
+            "webview caches are cleared too.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            aside = appdata.remove(self._identifier(), target.path)
-        except (OSError, ValueError) as exc:
-            QMessageBox.critical(
-                self, paths.APP_NAME, f"Could not clear the app data:\n{exc}"
+        self.log.clear()
+        self._started_at = time.time()
+        self._run_queue(self._reset_steps())
+
+    def _test_run(self) -> None:
+        """Launch the built binary so you can see whether it actually works."""
+        if self.is_busy():
+            return
+        binary = paths.app_binary(self.build_type)
+        if not binary.is_file():
+            QMessageBox.warning(
+                self,
+                paths.APP_NAME,
+                f"No {self.build_type} binary at\n{binary}\n\nBuild it first.",
             )
-            self._refresh_appdata()
             return
 
+        # Scrubbed, not inherited: a Builder launched from a snap-packaged
+        # editor (or the frozen Builder itself) carries library paths that make
+        # the GTK app die at exec — see runenv.py.
+        env = runenv.clean_env()
+        env["ENIGMA_EDITION"] = paths.CUSTOM_EDITION
+        # Mirrors run_dev.sh: lib.rs reads both, and CHAT_USER defaults to the
+        # profile name there too.
+        env["APP_PROFILE"] = self.profile
+        env["CHAT_USER"] = self.profile
+        # Tauri/webkit are quiet by default; a test run is exactly when you want
+        # the backend's own logging to show up in the pane.
+        env.setdefault("RUST_LOG", "info")
+        env["RUST_BACKTRACE"] = "1"
+
+        steps: list[Step] = []
+        if self.reset_first_box.isChecked():
+            steps += self._reset_steps()
+        steps.append(
+            Step(
+                command=[str(binary)],
+                cwd=paths.REPO_ROOT,
+                label="Running",
+                env=env,
+            )
+        )
+
+        self.log.clear()
         self.log.append_line(
-            f"# cleared app data ({appdata.human_size(target.size)}): "
-            f"{target.path} → {aside}"
+            f"# test run: profile “{self.profile}”, {self.build_type} binary"
         )
         self.log.append_line(
-            f"# recover with: mv {aside} {target.path}  ·  "
-            f"delete for good with: rm -rf {aside}"
+            "# the app keeps running until you close its window; Cancel stops it"
         )
-        QMessageBox.information(
-            self,
-            paths.APP_NAME,
-            f"The next launch will start with passphrase setup.\n\n"
-            f"Your old data is still on disk at:\n{aside}\n\n"
-            f"Restore it with:\n  mv {aside} {target.path}",
-        )
-        self._refresh_appdata()
+        self._started_at = time.time()
+        self._run_queue(steps)
 
     # ----- running --------------------------------------------------------
 
@@ -1054,8 +1122,10 @@ class BuildTab(QWidget):
         self.clean_button.setEnabled(not running)
         # Deleting the vault out from under a running build would be a bad
         # surprise; otherwise this is available whether or not you ever build.
-        self.clear_data_button.setEnabled(not running)
-        self.appdata_combo.setEnabled(not running)
+        self.reset_button.setEnabled(not running)
+        self.run_button.setEnabled(not running)
+        self.profile_combo.setEnabled(not running)
+        self.reset_first_box.setEnabled(not running)
         self.cancel_button.setEnabled(running)
 
     def _job_finished(self) -> None:

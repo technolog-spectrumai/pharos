@@ -79,7 +79,7 @@ def set_repo_root(root: Path | None) -> Path | None:
     global REPO_ROOT, APP_DIR, SRC_TAURI, CANONICAL_YAML, CONFIGS_DIR
     global CUSTOM_YAML, TAURI_CONF, BUILD_RS, CARGO_TOML, TARGET_DIR
     global ANDROID_GEN, ANDROID_OUTPUTS, BUILD_DESKTOP_SH, BUILD_ANDROID_SH
-    global DEPLOY_BUILD_SH, DEPLOY_DIST
+    global RESET_PROFILE_SH, DEPLOY_BUILD_SH, DEPLOY_DIST
 
     REPO_ROOT = Path(root).resolve() if root is not None else Path("/nonexistent")
 
@@ -99,6 +99,7 @@ def set_repo_root(root: Path | None) -> Path | None:
 
     BUILD_DESKTOP_SH = REPO_ROOT / "build_desktop.sh"
     BUILD_ANDROID_SH = REPO_ROOT / "scripts" / "build_android.sh"
+    RESET_PROFILE_SH = REPO_ROOT / "scripts" / "reset_profile.sh"
     DEPLOY_BUILD_SH = APP_DIR / "deploy" / "build.sh"
     DEPLOY_DIST = APP_DIR / "deploy" / "dist"
 
@@ -117,6 +118,11 @@ def preset_yaml(edition: str) -> Path:
 def default_output_dir() -> Path:
     """Where built artifacts are collected unless the user picks elsewhere."""
     return DEPLOY_DIST
+
+
+def app_binary(build_type: str) -> Path:
+    """The executable cargo produces, for launching a test run."""
+    return TARGET_DIR / build_type / APP_SLUG
 
 
 def missing_repo_files() -> list[Path]:

@@ -1,7 +1,8 @@
-"""Locating and clearing the built app's local data.
+"""Locating the built app's local data, and the reset the Builder delegates.
 
-This is the only destructive thing the Builder does to something outside the
-repo, so the guard on what may be deleted gets more attention than the rest.
+The reset itself is scripts/reset_profile.sh; the Builder only builds the
+command line and decides what to show. The safety property tested here is that
+the tool can never *construct* a path outside the app's own data roots.
 """
 
 from __future__ import annotations
@@ -118,95 +119,84 @@ def test_summary_explains_why_the_old_passphrase_works(fake_home):
     assert "already exists" in text and "existing passphrase" in text
 
 
-def test_summary_after_clearing_promises_setup(fake_home):
-    appdata.remove("com.example.app", fake_home)  # moved aside
+def test_summary_after_reset_promises_setup(fake_home):
+    import shutil
+
+    shutil.rmtree(fake_home)
     assert "passphrase setup" in appdata.summary("com.example.app", "default")
 
 
-# ----- the delete guard ----------------------------------------------------
+# ----- delegation to scripts/reset_profile.sh -------------------------------
 
 
-def test_a_profile_inside_the_root_may_be_cleared(fake_home):
-    target = fake_home / "profiles" / "alice"
-    assert appdata.is_safe_to_remove("com.example.app", target)
-    aside = appdata.remove("com.example.app", target)
-    assert not target.exists()
-    assert (fake_home / "profiles" / "default").exists()
-    # Moved aside, not destroyed.
-    assert aside.is_dir()
-    assert (aside / "vault.json").is_file()
-    assert ".cleared-" in aside.name
+def test_reset_command_calls_the_repo_script():
+    import paths
+
+    command = appdata.reset_command(["default"])
+    assert command == ["bash", str(paths.RESET_PROFILE_SH), "default"]
 
 
-def test_the_root_itself_may_be_cleared(fake_home):
-    assert appdata.is_safe_to_remove("com.example.app", fake_home)
-    aside = appdata.remove("com.example.app", fake_home)
-    assert not fake_home.exists()
-    assert (aside / "profiles" / "default" / "vault.json").is_file()
+def test_reset_command_purge_needs_no_prompt():
+    command = appdata.reset_command(["alice", "bob"], purge=True)
+    assert command[2:4] == ["--purge", "-y"]
+    assert command[-2:] == ["alice", "bob"]
 
 
-def test_clearing_is_reversible_by_renaming_back(fake_home):
-    aside = appdata.remove("com.example.app", fake_home)
-    assert not appdata.has_vault("com.example.app", "default")
-    aside.rename(fake_home)
-    assert appdata.has_vault("com.example.app", "default")
+def test_the_reset_script_exists_and_archives_not_deletes():
+    """The Builder's promise ("archived, not deleted") is the script's contract."""
+    import paths
+
+    text = paths.RESET_PROFILE_SH.read_text()
+    assert ".reset-" in text          # the archive suffix appdata looks for
+    assert "reject_unsafe" in text    # unsafe profile names are refused there
 
 
-def test_a_cleared_directory_is_not_offered_as_a_profile(fake_home):
-    appdata.remove("com.example.app", fake_home / "profiles" / "alice")
+def test_archived_lists_what_a_reset_left_behind(fake_home):
+    (fake_home / "profiles" / "alice").rename(
+        fake_home / "profiles" / "alice.reset-20260101-000000"
+    )
+    found = appdata.archived("com.example.app")
+    assert [p.name for p in found] == ["alice.reset-20260101-000000"]
+
+
+def test_an_archived_profile_is_not_offered_as_a_profile(fake_home):
+    (fake_home / "profiles" / "alice").rename(
+        fake_home / "profiles" / "alice.reset-20260101-000000"
+    )
     assert appdata.profile_names("com.example.app") == ["default"]
-    assert [t.key for t in appdata.targets("com.example.app")] == [
-        str(fake_home),
-        str(fake_home / "profiles" / "default"),
-    ]
 
 
-def test_two_clears_in_the_same_second_do_not_collide(fake_home):
-    first = appdata.remove("com.example.app", fake_home / "profiles" / "alice")
-    (fake_home / "profiles" / "alice").mkdir()
-    second = appdata.remove("com.example.app", fake_home / "profiles" / "alice")
-    assert first != second
-    assert first.is_dir() and second.is_dir()
-
-
-def test_purge_only_touches_cleared_directories(fake_home):
-    aside = appdata.remove("com.example.app", fake_home / "profiles" / "alice")
-    with pytest.raises(ValueError, match="not a cleared-aside"):
-        appdata.purge("com.example.app", fake_home / "profiles" / "default")
-    appdata.purge("com.example.app", aside)
-    assert not aside.exists()
+# ----- the path guard -------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "victim",
-    [
-        Path.home(),
-        Path("/"),
-        Path("/etc"),
-        Path.home() / ".ssh",
-    ],
+    [Path("/"), Path("/etc")],
 )
 def test_paths_outside_the_root_are_refused(fake_home, victim):
     assert not appdata.is_safe_to_remove("com.example.app", victim)
-    with pytest.raises(ValueError, match="refusing to touch"):
-        appdata.remove("com.example.app", victim)
+
+
+def test_home_and_ssh_are_refused(fake_home):
+    assert not appdata.is_safe_to_remove("com.example.app", Path.home())
+    assert not appdata.is_safe_to_remove("com.example.app", Path.home() / ".ssh")
+
+
+def test_a_profile_inside_the_root_is_allowed(fake_home):
+    assert appdata.is_safe_to_remove(
+        "com.example.app", fake_home / "profiles" / "alice"
+    )
 
 
 def test_a_sibling_identifier_is_refused(fake_home, tmp_path):
-    """Clearing one build must never reach another build's data."""
+    """One build's reset must never reach another build's data."""
     other = tmp_path / "com.example.other"
     other.mkdir()
     assert not appdata.is_safe_to_remove("com.example.app", other)
-    with pytest.raises(ValueError):
-        appdata.remove("com.example.app", other)
-    assert other.exists()
 
 
 def test_an_empty_identifier_refuses_everything(fake_home):
     assert not appdata.is_safe_to_remove("", fake_home)
-    with pytest.raises(ValueError):
-        appdata.remove("", fake_home)
-    assert fake_home.exists()
 
 
 def test_a_symlink_escaping_the_root_is_refused(fake_home, tmp_path):
@@ -227,64 +217,104 @@ def test_the_card_reports_the_real_identifier(app, window):
     assert tab.appdata_label.text()
 
 
-def test_clearing_is_available_without_building(app, window):
-    """The button is a standalone utility, not a build step."""
-    tab = window.build_tab
-    assert not tab.is_busy()
-    assert tab.clear_data_button.isEnabled() == bool(appdata.targets(tab._identifier()))
+def test_profile_defaults_to_default(app, window):
+    assert window.build_tab.profile == "default"
 
 
-def test_the_button_is_disabled_while_a_build_runs(app, window):
-    tab = window.build_tab
-    tab._set_running(True)
-    try:
-        assert not tab.clear_data_button.isEnabled()
-        assert not tab.appdata_combo.isEnabled()
-    finally:
-        tab._set_running(False)
-    assert tab.clear_data_button.isEnabled() or not appdata.targets(tab._identifier())
-
-
-def test_cancelling_the_modal_deletes_nothing(app, window, monkeypatch, tmp_path):
-    from PyQt6.QtWidgets import QMessageBox
-
+def test_stored_profiles_are_offered(app, window, monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     identifier = window.identity_tab.pending_identity().identifier
-    root = tmp_path / identifier
-    (root / "profiles" / "default").mkdir(parents=True)
-    (root / "profiles" / "default" / "vault.json").write_text("{}")
+    for name in ("alice", "bob"):
+        (tmp_path / identifier / "profiles" / name).mkdir(parents=True)
 
     tab = window.build_tab
     tab._refresh_appdata()
+    names = [tab.profile_combo.itemText(i) for i in range(tab.profile_combo.count())]
+    assert names == ["alice", "bob", "default"] or names == ["default", "alice", "bob"]
+
+
+def test_test_run_needs_a_binary(app, window, monkeypatch):
+    import paths
+
+    tab = window.build_tab
+    monkeypatch.setattr(paths, "app_binary", lambda _t: Path("/nonexistent/enigma"))
+    tab._refresh_appdata()
+    assert not tab.run_button.isEnabled()
+
+
+def test_test_run_launches_the_binary_with_the_profile(app, window, monkeypatch, tmp_path):
+    import paths
+
+    binary = tmp_path / "enigma"
+    binary.write_text("#!/bin/sh\n")
+    binary.chmod(0o755)
+    monkeypatch.setattr(paths, "app_binary", lambda _t: binary)
+
+    captured: list = []
     monkeypatch.setattr(
-        QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Cancel)
+        type(window.build_tab), "_run_queue", lambda self, steps: captured.extend(steps)
     )
-    tab._clear_app_data()
-    assert root.exists()
+    tab = window.build_tab
+    tab.profile_combo.setCurrentText("tester")
+    tab._test_run()
+
+    assert [s.label for s in captured] == ["Running"]
+    step = captured[0]
+    assert step.command == [str(binary)]
+    assert step.env["APP_PROFILE"] == "tester"
+    assert step.env["CHAT_USER"] == "tester"
+    assert step.env["ENIGMA_EDITION"] == "custom"
+    assert step.env["RUST_BACKTRACE"] == "1"
 
 
-def test_confirming_the_modal_clears_the_selection(app, window, monkeypatch, tmp_path):
+def test_reset_first_prepends_the_reset_step(app, window, monkeypatch, tmp_path):
+    import paths
+
+    binary = tmp_path / "enigma"
+    binary.write_text("#!/bin/sh\n")
+    binary.chmod(0o755)
+    monkeypatch.setattr(paths, "app_binary", lambda _t: binary)
+
+    captured: list = []
+    monkeypatch.setattr(
+        type(window.build_tab), "_run_queue", lambda self, steps: captured.extend(steps)
+    )
+    tab = window.build_tab
+    tab.reset_first_box.setChecked(True)
+    tab._test_run()
+
+    assert [s.label for s in captured] == ["Resetting profile", "Running"]
+    assert captured[0].command[:2] == ["bash", str(paths.RESET_PROFILE_SH)]
+
+
+def test_reset_button_runs_the_script_after_confirmation(app, window, monkeypatch):
     from PyQt6.QtWidgets import QMessageBox
 
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    identifier = window.identity_tab.pending_identity().identifier
-    root = tmp_path / identifier
-    (root / "profiles" / "default").mkdir(parents=True)
-    (root / "profiles" / "default" / "vault.json").write_text("{}")
+    import paths
 
-    tab = window.build_tab
-    tab._refresh_appdata()
-    assert tab.appdata_badge.text() == "vault present"
-
+    captured: list = []
+    monkeypatch.setattr(
+        type(window.build_tab), "_run_queue", lambda self, steps: captured.extend(steps)
+    )
     monkeypatch.setattr(
         QMessageBox, "warning", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
     )
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
-    tab._clear_app_data()
+    window.build_tab._reset_profile()
+    assert [s.label for s in captured] == ["Resetting profile"]
+    assert captured[0].command == ["bash", str(paths.RESET_PROFILE_SH), "default"]
 
-    assert not root.exists()
-    aside = list(root.parent.glob(f"{identifier}.cleared-*"))
-    assert len(aside) == 1, "the data must be moved aside, not destroyed"
-    assert (aside[0] / "profiles" / "default" / "vault.json").is_file()
-    assert tab.appdata_badge.text() == "clean"
-    assert "cleared app data" in tab.log.toPlainText()
+
+def test_cancelling_the_reset_modal_runs_nothing(app, window, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+
+    captured: list = []
+    monkeypatch.setattr(
+        type(window.build_tab), "_run_queue", lambda self, steps: captured.extend(steps)
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Cancel),
+    )
+    window.build_tab._reset_profile()
+    assert captured == []

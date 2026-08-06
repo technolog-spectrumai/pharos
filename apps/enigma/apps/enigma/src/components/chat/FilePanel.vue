@@ -3,9 +3,10 @@
 // (EnigmaFilesView). All state lives in the chat store's `fileShare` singleton, so
 // transfers keep running while the user is on another tab; the App nav marks the
 // Files tab with a dot when an offer is waiting.
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../../stores/chat";
+import { useNetworkStore } from "../../stores/network";
 import { policy } from "../../config/app";
 
 const _isTauri = (): boolean =>
@@ -15,6 +16,12 @@ const router = useRouter();
 const chat = useChatStore();
 const p2p = chat.p2p;
 const file = chat.fileShare;
+
+// File transfer is iroh-only (file_xfer.rs errors in Tor/airplane mode) — the
+// Send buttons stay visible but disabled, with the shared reason line shown.
+const network = useNetworkStore();
+const canSend = computed(() => network.canFileTransfer);
+onMounted(() => { void network.refresh(); });
 
 // File transfer rides the p2p chat's MLS group — it needs an active, encrypted p2p room.
 const ready = computed(() => !!p2p.currentRoom.value && p2p.isEncrypted.value);

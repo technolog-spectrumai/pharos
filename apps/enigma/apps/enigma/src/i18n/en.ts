@@ -103,6 +103,11 @@ export default {
     polish: "Polski",
     hint: "Your choice is stored locally on this device.",
   },
+  network: {
+    blockedOffline: "Unavailable in airplane mode.",
+    blockedTor:
+      "Unavailable in Tor mode — this feature needs a direct connection, which would reveal your IP.",
+  },
   config: {
     studio: "Oya Studio",
     title: "Configuration",
