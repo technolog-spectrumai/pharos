@@ -20,11 +20,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 app:
-  # Must MATCH tauri.conf.json — build.rs asserts equality. Distinct per-edition
-  # product names / bundle ids need per-edition tauri.conf.json variants first
-  # (pland.md §6.1), so all three editions currently declare the same identity.
-  name: Enigma
-  identifier: com.spectrumaipl.enigma
+  # Each edition is its OWN installable app. `tauri.<edition>.conf.json` overlays
+  # productName / mainBinaryName / identifier onto tauri.conf.json (pass it with
+  # --config; build.rs applies the same overlay before asserting equality here).
+  # The distinct identifier is what gives the edition its own data directory, so
+  # a release install and a test install never share a vault. See build.md.
+  name: Enigma Pro
+  identifier: com.spectrumaipl.enigma.pro
   version: 0.1.0
 
 cloud:

@@ -54,10 +54,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 CONF="$REPO_DIR/apps/enigma/src-tauri/tauri.conf.json"
 
-# Read the bundle identifier from tauri.conf.json rather than hardcoding it —
-# build.rs already asserts every edition's YAML matches this file, so it is the
-# single source of truth for where Tauri puts app data.
-IDENTIFIER="$(sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONF" | head -1)"
+# Which app's data are we resetting? The bundle identifier IS the data directory
+# (Tauri derives app_data_dir from it), and each edition overrides it — so read
+# the active edition's overlay first and fall back to the base config. Getting
+# this wrong would reset a DIFFERENT edition's vault, which is why it is derived
+# rather than hardcoded.
+EDITION="$(printf '%s' "${ENIGMA_EDITION:-}" | tr '[:upper:]' '[:lower:]')"
+OVERLAY="$REPO_DIR/apps/enigma/src-tauri/tauri.$EDITION.conf.json"
+read_identifier() {
+  sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -1
+}
+IDENTIFIER=""
+if [ -n "$EDITION" ] && [ -f "$OVERLAY" ]; then
+  IDENTIFIER="$(read_identifier "$OVERLAY")"
+fi
+[ -n "$IDENTIFIER" ] || IDENTIFIER="$(read_identifier "$CONF")"
 if [ -z "$IDENTIFIER" ]; then
   echo "[reset] ERROR: could not read the bundle identifier from $CONF" >&2
   exit 1
@@ -69,6 +80,7 @@ case "$(uname -s)" in
   *) APP_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/$IDENTIFIER" ;;
 esac
 
+echo "[reset] edition '${EDITION:-<unset>}' → $IDENTIFIER"
 if [ ! -d "$APP_DATA" ]; then
   echo "[reset] nothing to reset — no app data at $APP_DATA"
   exit 0

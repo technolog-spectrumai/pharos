@@ -201,8 +201,10 @@ details):
   chunk sizes, Tor timeouts.
 
 `app:` must match `tauri.conf.json` (`productName`/`identifier`/`version`) —
-`tauri.conf.json` stays authoritative and `build.rs` rejects drift. The same YAML
-drives desktop and Android builds (the codegen is target-agnostic).
+`tauri.conf.json` stays authoritative and `build.rs` rejects drift. For an
+edition with a `tauri.<edition>.conf.json` overlay, the comparison is against the
+**merged** result (see *Each edition is its own installable app* below). The same
+YAML drives desktop and Android builds (the codegen is target-agnostic).
 
 ### Editions (`ENIGMA_EDITION`)
 
@@ -232,6 +234,45 @@ Editions differ **only** in feature gates; `crypto`, `network` and `settings` ar
 identical across all three, deliberately — `network.max_frame_bytes` is
 wire-interop sensitive and a Light peer must be able to share a room with a Pro
 peer. Who gets what, and why, is [pland.md](pland.md).
+
+#### Each edition is its own installable app (own data directory)
+
+Tauri derives `app_data_dir` from the **bundle identifier** alone, so two builds
+sharing an identifier share *everything*: the same `vault.json` (hence the same
+passphrase prompt), the same protasius keyspace, the same rooms and MLS state.
+That is why every edition declares its own identity, via a partial config the
+tauri CLI deep-merges over `tauri.conf.json`:
+
+| Edition | Identifier | Data directory | Binary |
+|---|---|---|---|
+| `light` | `com.spectrumaipl.enigma.light` | `…/com.spectrumaipl.enigma.light/` | `enigma-light` |
+| `plus` | `com.spectrumaipl.enigma.plus` | `…/com.spectrumaipl.enigma.plus/` | `enigma-plus` |
+| `pro` | `com.spectrumaipl.enigma.pro` | `…/com.spectrumaipl.enigma.pro/` | `enigma-pro` |
+| `custom` | whatever the Enigma Builder sets | that identifier's directory | from its `productName` |
+| unset | `com.spectrumaipl.enigma` | `…/com.spectrumaipl.enigma/` | `enigma` |
+
+So a **release install and a test install can coexist** — separate packages,
+separate desktop entries, separate vaults, separate passphrases.
+
+The overlays are `apps/enigma/src-tauri/tauri.<edition>.conf.json`, passed with
+`--config` by `run_dev.sh`, `run2.sh` and `build_desktop.sh` (all via
+[`scripts/edition_conf.sh`](scripts/edition_conf.sh)). `build.rs` applies the
+**same merge** before asserting the YAML matches — `edition_conf_overlay()`
+there and the launcher helper must stay in lockstep, or a bundle would carry one
+identity while the assertion checked another.
+
+`custom` deliberately has **no** overlay: the Enigma Builder writes
+`tauri.conf.json` directly (`tools/enigma_builder/identity.py`), so for that
+edition the base file already *is* the effective identity — set the identifier
+in the Builder's **Identity** tab to keep a custom build separate.
+
+> **Moving existing data.** Changing an identifier means the app looks in a new
+> directory; nothing is deleted. To carry a profile across:
+> ```bash
+> mv ~/.local/share/com.spectrumaipl.enigma/profiles/default \
+>    ~/.local/share/com.spectrumaipl.enigma.pro/profiles/default
+> ```
+> Or just start fresh with `./run_dev.sh --reset`.
 
 ---
 

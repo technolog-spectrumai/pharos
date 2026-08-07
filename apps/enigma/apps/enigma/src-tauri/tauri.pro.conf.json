@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Enigma Pro",
+  "mainBinaryName": "enigma-pro",
+  "identifier": "com.spectrumaipl.enigma.pro"
+}

@@ -33,6 +33,11 @@ APP_DIR="$SCRIPT_DIR/apps/enigma"
 # Rust rebuild, see build.md).
 export ENIGMA_EDITION="${ENIGMA_EDITION:-pro}"
 
+# Per-edition identity (own bundle id ⇒ own data dir). Both launch()
+# subshells inherit CONF_ARGS. See scripts/edition_conf.sh.
+. "$SCRIPT_DIR/scripts/edition_conf.sh"
+edition_conf_args CONF_ARGS
+
 # Flags may appear anywhere; the positional leftovers stay profile-a / profile-b
 # so the documented `./run2.sh carol dave` form is unchanged.
 RESET="${ENIGMA_RESET:-0}"
@@ -84,7 +89,7 @@ launch() {
   # Output is line-prefixed with the profile so the two logs stay distinguishable.
   (
     cd "$APP_DIR"
-    APP_PROFILE="$profile" CHAT_USER="$profile" npm run tauri dev
+    APP_PROFILE="$profile" CHAT_USER="$profile" npm run tauri -- dev "${CONF_ARGS[@]}"
   ) 2>&1 | sed -u "s/^/[$profile] /" &
 }
 

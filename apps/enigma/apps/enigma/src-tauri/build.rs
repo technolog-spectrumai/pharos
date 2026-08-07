@@ -184,6 +184,24 @@ const KNOWN_MLS_SUITES: &[&str] = &[
     "MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448",
 ];
 
+/// The active edition's `tauri.<edition>.conf.json`, if it has one.
+///
+/// Keep this in lockstep with what the launchers pass to `--config`
+/// (`run_dev.sh`, `run2.sh`, `build_desktop.sh`): if the two ever disagree, the
+/// bundle would carry one identity and this assertion would check another —
+/// exactly the class of drift the assertion exists to catch.
+fn edition_conf_overlay(manifest_dir: &Path) -> Option<serde_json::Value> {
+    let edition = env::var("ENIGMA_EDITION").ok()?;
+    let edition = edition.trim().to_ascii_lowercase();
+    if edition.is_empty() {
+        return None;
+    }
+    let path = manifest_dir.join(format!("tauri.{edition}.conf.json"));
+    println!("cargo:rerun-if-changed={}", path.display());
+    let text = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
     let mut err = |path: &str, msg: String| errors.push(format!("{path}: {msg}"));
 
@@ -204,7 +222,25 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         .map_err(|e| e.to_string())
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| e.to_string()))
     {
-        Ok(conf) => {
+        Ok(mut conf) => {
+            // Per-edition overlay: each shipped edition is its own installable
+            // app (own productName / binary / identifier), which is what gives
+            // it its own data directory — a release install and a test install
+            // must never open the same vault. The overlay is a partial config
+            // the tauri CLI is given with `--config`, and it deep-merges over
+            // tauri.conf.json; apply the same merge here so this assertion sees
+            // the EFFECTIVE identity rather than the base file's.
+            //
+            // `custom` deliberately has no overlay: the Enigma Builder writes
+            // tauri.conf.json itself (tools/enigma_builder/identity.py), so the
+            // base file already IS its effective identity.
+            if let Some(overlay) = edition_conf_overlay(manifest_dir) {
+                if let (Some(base), Some(over)) = (conf.as_object_mut(), overlay.as_object()) {
+                    for (k, v) in over {
+                        base.insert(k.clone(), v.clone());
+                    }
+                }
+            }
             let pairs = [
                 ("app.name", "productName", cfg.app.name.as_str()),
                 ("app.identifier", "identifier", cfg.app.identifier.as_str()),

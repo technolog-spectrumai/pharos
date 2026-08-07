@@ -10,7 +10,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR/apps/enigma"
 cd "$SCRIPT_DIR"
+
+# Per-edition identity: each edition bundles as its own app (own productName,
+# binary and bundle identifier), so two editions can be installed side by side
+# and keep separate data directories. See scripts/edition_conf.sh.
+. "$SCRIPT_DIR/scripts/edition_conf.sh"
+edition_conf_args CONF_ARGS
 
 echo "==> npm install (workspace root)"
 npm install
@@ -18,9 +25,9 @@ npm install
 echo "==> tauri build"
 cd apps/enigma
 if [[ "${1:-}" == "--debug" ]]; then
-  npx tauri build --debug
+  npx tauri build --debug "${CONF_ARGS[@]}"
 else
-  npx tauri build
+  npx tauri build "${CONF_ARGS[@]}"
 fi
 
 echo "==> Done. Bundles:"

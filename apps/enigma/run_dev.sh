@@ -50,6 +50,11 @@ if [ "$RESET" != "0" ]; then
   "$SCRIPT_DIR/scripts/reset_profile.sh" "${RESET_ARGS[@]}" "$APP_PROFILE"
 fi
 
+# Per-edition identity (own bundle id ⇒ own data dir, so a dev build and an
+# installed release never share a vault). See scripts/edition_conf.sh.
+. "$SCRIPT_DIR/scripts/edition_conf.sh"
+edition_conf_args CONF_ARGS
+
 cd "$APP_DIR"
 
-APP_PROFILE="$APP_PROFILE" CHAT_USER="$CHAT_USER" npm run tauri dev
+APP_PROFILE="$APP_PROFILE" CHAT_USER="$CHAT_USER" npm run tauri -- dev "${CONF_ARGS[@]}"
