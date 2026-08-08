@@ -35,6 +35,7 @@ import icons as icons_mod
 import identity as identity_mod
 import runenv
 import paths
+import uninstall as uninstall_mod
 import widgets
 from build_worker import BuildWorker
 from config_model import ConfigModel
@@ -143,6 +144,9 @@ class BuildTab(QWidget):
         self._failure = ""
         self._cancelled = False
         self._icon_snapshot: dict[Path, bytes] = {}
+        # (product name, result) of the last package query — dpkg/rpm are
+        # subprocesses, too heavy to re-run on every model-change refresh.
+        self._uninstall_cache: tuple[str, uninstall_mod.Installed | None] | None = None
 
         outer = widgets.page_layout(self)
         layout = widgets.scroll_page(outer)
@@ -153,6 +157,7 @@ class BuildTab(QWidget):
         layout.addWidget(self._build_environment_card())
         layout.addWidget(self._build_disk_card())
         layout.addWidget(self._build_appdata_card())
+        layout.addWidget(self._build_uninstall_card())
         layout.addWidget(self._build_artifacts_card())
         layout.addStretch()
 
@@ -426,6 +431,40 @@ class BuildTab(QWidget):
         layout.addLayout(row)
         return frame
 
+    def _build_uninstall_card(self) -> QWidget:
+        frame, layout = widgets.card()
+        header = QHBoxLayout()
+        header.addWidget(widgets.section_title("Installed package"))
+        header.addStretch()
+        self.uninstall_badge = widgets.badge("", True)
+        header.addWidget(self.uninstall_badge)
+        layout.addLayout(header)
+
+        self.uninstall_label = widgets.hint("")
+        layout.addWidget(self.uninstall_label)
+        layout.addWidget(
+            widgets.hint(
+                "Removes the app installed system-wide from a built .deb/.rpm "
+                "— pkexec asks for your password, and the output lands in the "
+                "log below. App data under ~/.local/share/<identifier> is not "
+                "touched, so a reinstall finds the old vault again; use Reset "
+                "profile… to clear that.",
+                "gateHint",
+            )
+        )
+
+        row = QHBoxLayout()
+        row.addStretch()
+        self.uninstall_button = QPushButton("Uninstall")
+        self.uninstall_button.setEnabled(False)
+        self.uninstall_button.clicked.connect(self._uninstall)
+        row.addWidget(self.uninstall_button)
+        layout.addLayout(row)
+
+        if not uninstall_mod.supported():
+            frame.hide()
+        return frame
+
     def _build_artifacts_card(self) -> QWidget:
         frame, layout = widgets.card()
         layout.addWidget(widgets.section_title("Artifacts"))
@@ -632,6 +671,7 @@ class BuildTab(QWidget):
             self.start_button.setEnabled(False)
             self.clean_button.setEnabled(False)
             self._refresh_appdata()
+            self._refresh_uninstall()
             return
         self.clean_button.setEnabled(not self.is_busy())
 
@@ -667,6 +707,7 @@ class BuildTab(QWidget):
         self._refresh_environment()
         self._refresh_disk()
         self._refresh_appdata()
+        self._refresh_uninstall()
         self._options_changed()
         self.start_button.setEnabled(
             not blocking and not self.is_busy() and self._targets_chosen()
@@ -756,6 +797,92 @@ class BuildTab(QWidget):
         self.reset_button.setEnabled(idle and paths.RESET_PROFILE_SH.is_file())
         self.profile_combo.setEnabled(idle)
         self.reset_first_box.setEnabled(idle)
+
+    # ----- installed package ----------------------------------------------
+
+    def _product_name(self) -> str:
+        return str(self.identity_tab.pending_identity().name or "")
+
+    def _installed_package(self) -> uninstall_mod.Installed | None:
+        """The dpkg/rpm answer, re-queried only when the product name changes.
+
+        refresh() runs on every model change; two subprocess queries per
+        keystroke would be felt. _finish_run drops the cache, so the state is
+        re-read after the uninstall itself (and after any other run).
+        """
+        name = self._product_name()
+        if self._uninstall_cache is None or self._uninstall_cache[0] != name:
+            self._uninstall_cache = (name, uninstall_mod.installed_package(name))
+        return self._uninstall_cache[1]
+
+    def _refresh_uninstall(self) -> None:
+        if not uninstall_mod.supported():
+            return
+        found = self._installed_package()
+        if found is None:
+            names = ", ".join(f"“{n}”" for n in uninstall_mod.candidates(self._product_name()))
+            self.uninstall_badge.setText("not installed")
+            self.uninstall_badge.setObjectName("successBadge")
+            self.uninstall_label.setText(
+                f"No installed package on this machine — asked dpkg and rpm "
+                f"about {names}."
+            )
+        else:
+            self.uninstall_badge.setText(f"{found.kind} installed")
+            self.uninstall_badge.setObjectName("warningBadge")
+            self.uninstall_label.setText(
+                f"“{found.package}” {found.version} is installed as a "
+                f".{found.kind} package."
+            )
+        self.uninstall_badge.style().unpolish(self.uninstall_badge)
+        self.uninstall_badge.style().polish(self.uninstall_badge)
+        self.uninstall_button.setEnabled(found is not None and not self.is_busy())
+
+    def _uninstall(self) -> None:
+        if self.is_busy():
+            return
+        found = self._installed_package()
+        if found is None:
+            self._refresh_uninstall()
+            return
+
+        command = uninstall_mod.remove_command(found.kind, found.package)
+        if command is None:
+            QMessageBox.warning(
+                self,
+                paths.APP_NAME,
+                "pkexec was not found, so the Builder cannot ask for the "
+                "administrator rights this needs. Remove the package "
+                "yourself:\n\n"
+                f"  {uninstall_mod.manual_hint(found.kind, found.package)}",
+            )
+            return
+
+        answer = QMessageBox.warning(
+            self,
+            paths.APP_NAME,
+            f"Uninstall “{found.package}” {found.version} (.{found.kind}) from "
+            "this machine?\n\npkexec will ask for your password. App data and "
+            "profiles under ~/.local/share are kept — reinstalling brings the "
+            "app back exactly as it was.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self.log.clear()
+        self._started_at = time.time()
+        self._run_queue(
+            [
+                Step(
+                    command=command,
+                    cwd=Path.home(),
+                    label="Uninstalling",
+                    env=os.environ.copy(),
+                )
+            ]
+        )
 
     def _reset_steps(self, purge: bool = False) -> list[Step]:
         return [
@@ -1126,6 +1253,9 @@ class BuildTab(QWidget):
         self.run_button.setEnabled(not running)
         self.profile_combo.setEnabled(not running)
         self.reset_first_box.setEnabled(not running)
+        # Re-enabled (or not) by the refresh that follows every run, which
+        # re-reads whether a package is still installed.
+        self.uninstall_button.setEnabled(False)
         self.cancel_button.setEnabled(running)
 
     def _job_finished(self) -> None:
@@ -1179,6 +1309,9 @@ class BuildTab(QWidget):
         """
         failure, cancelled = self._failure, self._cancelled
         self._failure, self._cancelled = "", False
+        # Any run can change what is installed — the uninstall did, and the
+        # user may have installed a fresh package while a build ran.
+        self._uninstall_cache = None
 
         self._restore_conf()
         self._restore_icons()

@@ -88,7 +88,8 @@ regenerates. The custom YAML is builder-owned output; regenerate it from the GUI
   one room must agree on it.
 - **Build** — the repository being driven, target platform and distribution,
   build type, Android ABIs, the output folder, the Android toolchain check,
-  free-disk warning, log, and the artifact list.
+  free-disk warning, log, the installed-package card with its Uninstall
+  button, and the artifact list.
 
 Validation mirrors `build.rs` rule for rule — same paths, same wording — so an
 error here reads the same as the one cargo would print. A blocking error
@@ -162,6 +163,22 @@ fresh-run) delegates to the repo's own `scripts/reset_profile.sh` rather than
 reimplementing it — the same script behind `run_dev.sh --reset`. It archives
 the profile aside as `<name>.reset-<stamp>` (recoverable by renaming back) and
 clears the global webview caches, which per-profile deletion alone would miss.
+
+## Uninstall
+
+Linux only. Installing a built `.deb`/`.rpm` happens outside the Builder, but
+the **Installed package** card on the Build tab knows whether one is on this
+machine and offers the one button to remove it. Detection is read-only
+(`dpkg-query` / `rpm -q`) and tries the package names Tauri could have derived
+from the product name — `productName` kebab-cased, lowercased, verbatim, and
+the `enigma` slug — so a renamed custom build is still found. The removal runs
+`pkexec apt-get remove -y` (or `dnf remove -y`; the low-level `dpkg -r` /
+`rpm -e` only as fallback), so polkit asks for the password and the Builder
+never sees it; output streams to the log and Cancel works as usual.
+
+Only the package is removed. App data under `~/.local/share/<identifier>`
+stays — a reinstall finds the old vault again, exactly like an upgrade — and
+clearing that remains **Reset profile…**'s job.
 
 ## Why a new build knows your old passphrase
 
