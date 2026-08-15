@@ -22,7 +22,7 @@ app:
   # a release install and a test install never share a vault. See build.md.
   name: Enigma Pro
   identifier: com.spectrumaipl.enigma.pro
-  version: 0.1.0
+  version: 0.1.3
 
 
 p2p:
