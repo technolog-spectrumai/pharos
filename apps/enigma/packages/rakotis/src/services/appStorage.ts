@@ -310,6 +310,39 @@ export async function setLockOnHide(on: boolean): Promise<void> {
   await kvPut("p2p:settings", "default", KEY_LOCK_ON_HIDE, on ? "1" : "0").catch(() => {});
 }
 
+// ── Hidden tabs (which tabs the app presents) ────────────────────────────────
+// The user's own pick of which main tabs appear in the navigation (Settings →
+// Tabs; the tab taxonomy itself lives in the app, apps/enigma/src/tabs.ts).
+// Device-local like idle_lock_mins and lock_on_hide above — deliberately NOT in
+// DEVLINK_SYNC_KV: a wide desktop nav bar and a phone's hamburger drawer want
+// different sets, and the build gates this composes with are per-BINARY anyway,
+// so a synced "show Map" would be meaningless on a device whose build has no Map.
+//
+// Stored as the HIDDEN list, in one JSON value (kv has no key enumeration, so a
+// multi-valued setting is read-modify-write on a single key — the locked-files
+// record below does the same). Hidden rather than visible so the default is
+// "everything the build contains", and so a tab introduced by a later version
+// shows up instead of silently staying off. Unknown ids are preserved on write
+// by the caller: they belong to a newer build opening the same profile.
+
+const KEY_HIDDEN_TABS = "hidden_tabs";
+
+/** Tab ids the user has switched off. Empty (the default) = show everything. */
+export async function getHiddenTabs(): Promise<string[]> {
+  try {
+    const raw = await kvGet("p2p:settings", "default", KEY_HIDDEN_TABS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setHiddenTabs(ids: readonly string[]): Promise<void> {
+  await kvPut("p2p:settings", "default", KEY_HIDDEN_TABS, JSON.stringify([...ids])).catch(() => {});
+}
+
 // ── Device-link resync interval (linked-device catch-up cadence) ───────────────
 // How often paired devices exchange dlink_hello and reconcile state/history
 // while both are online. Stored in the encrypted kv store; device-local (each

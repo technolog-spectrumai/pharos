@@ -14,6 +14,7 @@ import PinPad from "./components/PinPad.vue";
 import { barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, useHideLock, type IdleLockHandle, type HideLockHandle } from "./idleLock";
+import { isTabVisible, loadTabVisibility } from "./tabs";
 import {
   OyaButton, OyaTextField, getBuildConfig, getIdleLockMins, getLockOnHide, isTauri,
   vaultStatus, vaultSetup, vaultUnlock, vaultLock, vaultTouch,
@@ -53,6 +54,11 @@ const MIN_LEN = policy.passphraseMinLen;
 const pinDigits = ref(getBuildConfig().pin_digits.default);
 
 async function runLoaders() {
+  // Which tabs this user wants in the nav (src/tabs.ts). It lives in the
+  // encrypted kv, so this is the earliest point it can be read at all — awaited
+  // before `ready` so the nav's first frame is already the right one, and the
+  // router re-validates the route the app booted into off the same change.
+  await loadTabVisibility();
   await chatStore.syncRuntimeIdentity();
   await userStore.loadOfflineProfile();
   // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
@@ -243,19 +249,24 @@ watch(avatarDataUrl, (avatar) => {
   chatStore.p2p.myAvatar.value = avatar;
 }, { immediate: true });
 
+// Which nav entries exist: `isTabVisible` (src/tabs.ts) ANDs the compile-time
+// build gate with the user's Settings → Tabs choice, and is a live read of a ref
+// so ticking a checkbox re-renders both lists below. App.vue never remounts, so
+// sampling it into a const here — the way the build flags used to be — would
+// freeze the nav at whatever the profile had at unlock.
+//
+// This gates the LINKS only. The composables behind them stay wired app-wide
+// (stores/chat.ts): hiding Calendar must not stop meeting reminders, and hiding
+// Contacts must not stop the invite ALPN from being accepted.
+//
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
 // Calls / Contacts / Calendar (compile-time gated — pland.md): each is null in
 // an edition without the feature, so every consumer below is null-guarded.
 const vox = chatStore.vox;
-const callsEnabled = chatStore.callsEnabled;
 const invites = chatStore.invites;
-const contactsEnabled = chatStore.contactsEnabled;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.
 const meetings = chatStore.meetings;
-const calendarEnabled = chatStore.calendarEnabled;
-// Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
-const mapsEnabled = getBuildConfig().maps_enabled;
 // Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
 // a request lands on the main endpoint whatever tab is open, and the answer
 // window is short, so it can't wait behind a route.
@@ -368,11 +379,11 @@ onBeforeUnmount(() => {
 
         <!-- Desktop nav -->
         <nav class="hidden lg:flex items-center gap-x-4 gap-y-2 text-sm flex-wrap">
-          <RouterLink to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.chat')">
+          <RouterLink v-if="isTabVisible('chat')" to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.chat')">
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink to="/files" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.files')">
+          <RouterLink v-if="isTabVisible('files')" to="/files" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.files')">
             <font-awesome-icon icon="file-arrow-up" />
             {{ $t('nav.files') }}
             <span
@@ -381,7 +392,7 @@ onBeforeUnmount(() => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
-          <RouterLink v-if="callsEnabled" to="/vox" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
+          <RouterLink v-if="isTabVisible('vox')" to="/vox" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
             <font-awesome-icon icon="phone" />
             {{ $t('nav.calls') }}
             <span
@@ -390,7 +401,7 @@ onBeforeUnmount(() => {
               :title="$t('vox.incomingTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="calendarEnabled" to="/calendar" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calendar')">
+          <RouterLink v-if="isTabVisible('calendar')" to="/calendar" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calendar')">
             <font-awesome-icon icon="calendar" />
             {{ $t('nav.calendar') }}
             <span
@@ -399,11 +410,11 @@ onBeforeUnmount(() => {
               :title="$t('calendar.attentionTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="mapsEnabled" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
+          <RouterLink v-if="isTabVisible('map')" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
             <font-awesome-icon icon="map" />
             {{ $t('nav.map') }}
           </RouterLink>
-          <RouterLink v-if="contactsEnabled" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
+          <RouterLink v-if="isTabVisible('contacts')" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
             <span
@@ -459,11 +470,11 @@ onBeforeUnmount(() => {
           v-if="menuOpen"
           class="lg:hidden border-t divide-y divide-current/10 bg-header-bg-light border-accent-2 dark:bg-header-bg-dark dark:border-accent-1"
         >
-          <RouterLink to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="isTabVisible('chat')" to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink to="/files" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="isTabVisible('files')" to="/files" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="file-arrow-up" class="w-4 text-center" />
             {{ $t('nav.files') }}
             <span
@@ -471,7 +482,7 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink v-if="callsEnabled" to="/vox" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="isTabVisible('vox')" to="/vox" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="phone" class="w-4 text-center" />
             {{ $t('nav.calls') }}
             <span
@@ -479,7 +490,7 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink v-if="calendarEnabled" to="/calendar" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="isTabVisible('calendar')" to="/calendar" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="calendar" class="w-4 text-center" />
             {{ $t('nav.calendar') }}
             <span
@@ -487,11 +498,11 @@ onBeforeUnmount(() => {
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
           </RouterLink>
-          <RouterLink v-if="mapsEnabled" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="isTabVisible('map')" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="map" class="w-4 text-center" />
             {{ $t('nav.map') }}
           </RouterLink>
-          <RouterLink v-if="contactsEnabled" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+          <RouterLink v-if="isTabVisible('contacts')" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />
             {{ $t('nav.contacts') }}
             <span

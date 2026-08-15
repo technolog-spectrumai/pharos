@@ -8,6 +8,7 @@ import { storeToRefs } from "pinia";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
 import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
+import { availableTabs, isTabVisible, setTabVisible, type AppTabId } from "../tabs";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -97,6 +98,23 @@ watch(() => route.query.tab, (tab) => { activeTab.value = tabFromQuery(tab); });
 function changeLanguage(value: string) {
   // Serverless: the choice is local-only (persisted by the i18n framework).
   setLocale(value as Locale, true);
+}
+
+// ── Visible tabs ──────────────────────────────────────────────────────────────
+// Which main tabs this device shows. The choices are the tabs this BUILD
+// contains, so a feature the binary lacks offers no checkbox at all — there is
+// nothing behind it to switch on. Settings is not among them on purpose: it is
+// the only route back to these controls (and, via ?tab=, to the profile,
+// passphrase, PIN and panic code), so hiding it would be a one-way door. See
+// src/tabs.ts for both rules.
+//
+// No local ref and no loader here: the checkboxes read the same live module
+// state the nav renders from (loaded once at unlock in App.vue), which is what
+// keeps the ticks and the menu from ever disagreeing.
+const tabChoices = availableTabs();
+
+function toggleTabVisible(id: AppTabId) {
+  void setTabVisible(id, !isTabVisible(id));
 }
 
 // ── Offline / airplane mode + Use Tor ────────────────────────────────────────
@@ -673,6 +691,39 @@ async function clearSelectedOfflineData() {
           <option v-for="l in SUPPORTED_LOCALES" :key="l" :value="l">{{ LOCALE_NAMES[l] }}</option>
         </select>
       </div>
+    </OyaCard>
+
+    <!-- Visible tabs — a per-device UI preference (device-local, never synced:
+         a phone's drawer and a desktop nav bar want different sets). Unticking
+         removes the tab from both navs and makes its route unreachable; nothing
+         behind it is torn down, so a hidden Calendar still runs its reminders
+         and a hidden Contacts still accepts invites. Settings gets no checkbox
+         — it is the only way back here. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.tabsSection') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.tabsHint') }}</p>
+      </div>
+      <div class="space-y-2">
+        <label
+          v-for="tab in tabChoices"
+          :key="tab.id"
+          class="flex cursor-pointer items-center gap-3 text-sm"
+        >
+          <input
+            type="checkbox"
+            class="h-4 w-4 shrink-0 accent-current"
+            :checked="isTabVisible(tab.id)"
+            :data-testid="`tab-visible-${tab.id}`"
+            @change="toggleTabVisible(tab.id)"
+          />
+          <font-awesome-icon :icon="tab.icon" class="w-4 shrink-0 text-center opacity-60" />
+          <span class="min-w-0 font-semibold">{{ $t(tab.labelKey) }}</span>
+        </label>
+      </div>
+      <p class="text-xs opacity-60">{{ $t('config.tabsAlwaysSettings') }}</p>
     </OyaCard>
 
     <!-- This device's NodeId lives on the Contacts tab ("My code"), where the
