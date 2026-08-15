@@ -42,10 +42,10 @@ def test_scalar_paths_cover_every_leaf(canonical):
 
 def test_booleans_render_lowercase(cfg):
     cfg["maps"]["enabled"] = True
-    cfg["cloud"]["allow_connections"] = False
+    cfg["p2p"]["allow_hosted_relays"] = False
     text = render(cfg)
     assert "enabled: true" in text
-    assert "allow_connections: false" in text
+    assert "allow_hosted_relays: false" in text
     assert "True" not in text and "False" not in text
 
 

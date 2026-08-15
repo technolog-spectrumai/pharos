@@ -53,9 +53,8 @@ IDENTITY_KEYS = (
     ("app.version", "version", "version"),
 )
 
-# The ten build-time feature gates, as (yaml path, label).
+# The build-time feature gates, as (yaml path, label).
 FEATURE_GATES = (
-    ("cloud.allow_connections", "Cloud connections"),
     ("p2p.allow_hosted_relays", "Hosted relays"),
     ("dht.enabled", "Mainline DHT"),
     ("calls.enabled", "Voice calls"),

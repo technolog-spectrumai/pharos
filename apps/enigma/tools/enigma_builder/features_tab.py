@@ -19,11 +19,6 @@ from validation import Issue, issues_for
 # One line per gate, distilled from the comments in build_config.yaml. These
 # are what a build actually loses, not marketing copy.
 GATE_HINTS: dict[str, tuple[str, str]] = {
-    "cloud.allow_connections": (
-        "Cloud connections",
-        "Files→Cloud and every cloud_* command. Off = CLOUD_DISABLED and the "
-        "cloud-server settings section is hidden.",
-    ),
     "p2p.allow_hosted_relays": (
         "Hosted relays and discovery",
         "n0-hosted relays plus pkarr/DNS publishing. Off = direct QUIC "

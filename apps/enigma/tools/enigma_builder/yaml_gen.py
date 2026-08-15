@@ -36,7 +36,6 @@ SCALAR_PATHS = (
     "app.name",
     "app.identifier",
     "app.version",
-    "cloud.allow_connections",
     "p2p.allow_hosted_relays",
     "dht.enabled",
     "crypto.mls_ciphersuite",
@@ -118,11 +117,6 @@ app:
   name: $app_name
   identifier: $app_identifier
   version: $app_version
-
-cloud:
-  # false = every cloud_* command fails fast with CLOUD_DISABLED and the
-  # frontend hides the Files→Cloud tab and the cloud-server settings section.
-  allow_connections: $cloud_allow_connections
 
 p2p:
   # false = iroh runs with RelayMode::Disabled and all hosted discovery is off

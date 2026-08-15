@@ -242,7 +242,7 @@ class MainWindow(QMainWindow):
         """Flag the tabs holding a blocking error, so nothing hides off-screen."""
         blocking = error_issues(issues)
         owners = {
-            0: ("cloud", "p2p", "dht", "calls", "contacts", "calendar", "peers", "maps", "devices", "features"),
+            0: ("p2p", "dht", "calls", "contacts", "calendar", "peers", "maps", "devices", "features"),
             1: ("app",),
             2: ("settings", "network", "crypto"),
         }
