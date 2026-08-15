@@ -17,10 +17,9 @@ await initBuildConfig({
     min: 0,
     max: 100 * 1024,
   },
-  // The Cloud tab tests rely on a cloud-capable build, and the DHT surfaces on
-  // a DHT-capable one (rakotis' fallback is already true for all three — seeded
-  // here so the contract is explicit). dhtGate.test.ts overrides dht_enabled.
-  cloud_allow_connections: true,
+  // The DHT surfaces on a DHT-capable build (rakotis' fallback is already true
+  // for both — seeded here so the contract is explicit). dhtGate.test.ts
+  // overrides dht_enabled.
   p2p_allow_hosted_relays: true,
   dht_enabled: true,
 });

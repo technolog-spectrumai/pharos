@@ -3,14 +3,12 @@
 // place on the device (opening it normally shows garbage), and unlockable later
 // with the same passphrase. Passphrases are never stored — we only keep a record
 // of which files are locked (in the encrypted kv store) so we can list them here.
-// A locked file can be uploaded to Cloud as-is: it's already ciphertext, so the
-// server stores opaque bytes and learns nothing about the contents.
 //
 // The tab also hosts the notes editor. Opening a file swaps this panel for the
 // editor; a locked file is decrypted into memory after a passphrase prompt and
 // re-sealed on save, so its plaintext never reaches disk. The passphrase is held
 // only while that file is open and is dropped the moment the editor closes.
-import { defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from "vue";
 import { OyaModal, OyaButton, OyaIconButton } from "rakotis";
 import {
   getLockedFiles,
@@ -34,8 +32,6 @@ import {
   type NoteRecentRecord,
 } from "rakotis";
 import { policy } from "../../config/app";
-import { useCloudStore } from "../../stores/cloud";
-import CloudLoginModal from "../cloud/CloudLoginModal.vue";
 import LocalPassphraseModal, { type LockOutcome } from "./LocalPassphraseModal.vue";
 // ACE is heavy (~1.4 MB of source) and only needed once a file is actually opened, so
 // it loads on demand. Still fully offline — the chunk ships in the app bundle.
@@ -49,8 +45,6 @@ defineProps<{ darkMode?: boolean }>();
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
-
-const cloud = useCloudStore();
 
 const files = ref<LockedFileRecord[]>([]);
 // path → is the file still a locked blob on disk? (reconciles our record with reality)
@@ -116,7 +110,6 @@ function isDue(rec: LockedFileRecord): boolean {
 }
 
 onMounted(async () => {
-  await cloud.init(); // idempotent; makes upload work even if Cloud tab wasn't opened
   await refresh();
   if (getBuildConfig().keyring_enabled) {
     availableRings.value = await keyringList().catch(() => []);
@@ -233,41 +226,6 @@ async function onRotated(res: LockedFileResult) {
   });
   await refresh();
 }
-
-// ── upload to Cloud (ciphertext uploaded as-is) ──────────────────────────────────
-const showLogin = ref(false);
-const pendingUpload = ref<string | null>(null);
-const pendingUploadConn = ref("");
-
-async function uploadToCloud(rec: LockedFileRecord) {
-  if (!cloud.loggedIn) {
-    pendingUpload.value = rec.path; // resume after login
-    // Which connection the user was looking at when they asked. `loggedIn`
-    // also flips true when a DIFFERENT connection is switched to, so without
-    // this the queued locked file would be uploaded to a server the user never
-    // picked for it.
-    pendingUploadConn.value = cloud.activeId;
-    showLogin.value = true;
-    return;
-  }
-  await cloud.upload(rec.path);
-}
-
-// If the user logs in from the prompt, finish the upload they asked for.
-watch(
-  () => cloud.loggedIn,
-  (v) => {
-    if (!v || !pendingUpload.value) return;
-    const p = pendingUpload.value;
-    const conn = pendingUploadConn.value;
-    pendingUpload.value = null;
-    pendingUploadConn.value = "";
-    // A switch, not a sign-in on the connection that was asked for: drop it
-    // rather than send the file somewhere else.
-    if (conn !== cloud.activeId) return;
-    void cloud.upload(p);
-  },
-);
 
 // ── forget (remove from list; the file stays encrypted on disk) ──────────────────
 const forgetTarget = ref<LockedFileRecord | null>(null);
@@ -418,8 +376,8 @@ function newNote(typedName = "") {
   view.value = "editor";
 }
 
-/** Remember an encrypted note in the locked-file list too, so it keeps its rotate /
- *  upload actions there. Preserves the original lock time if we already knew it. */
+/** Remember an encrypted note in the locked-file list too, so it keeps its rotate
+ *  action there. Preserves the original lock time if we already knew it. */
 async function rememberLocked(path: string, res: LockedFileResult) {
   const existing = files.value.find((r) => r.path === path);
   await addLockedFile({
@@ -554,10 +512,6 @@ function fmtSize(bytes: number): string {
 function fmtDate(ms: number): string {
   const d = new Date(ms);
   return isNaN(d.getTime()) ? "" : d.toLocaleDateString();
-}
-
-function pct(tr: { transferred: number; total: number }): number {
-  return tr.total ? Math.min(100, Math.round((tr.transferred / tr.total) * 100)) : 0;
 }
 </script>
 
@@ -703,14 +657,6 @@ function pct(tr: { transferred: number; total: number }): number {
             :disabled="onDisk[f.path] === false"
             @click="askRotate(f)"
           />
-          <!-- Only offered while the Cloud master switch is on (cloud.md). -->
-          <OyaIconButton
-            v-if="cloud.enabled"
-            size="sm"
-            icon="cloud-arrow-up"
-            :label="$t('local.uploadToCloud')"
-            @click="uploadToCloud(f)"
-          />
           <OyaIconButton
             size="sm"
             icon="xmark"
@@ -778,29 +724,6 @@ function pct(tr: { transferred: number; total: number }): number {
           </div>
         </div>
       </div>
-
-      <!-- Active transfers (shared with the Cloud tab) -->
-      <div v-if="cloud.transfers.size" class="space-y-2 border-t border-current/10 p-3">
-        <div v-for="[id, tr] in cloud.transfers" :key="id" class="space-y-1">
-          <div class="flex items-center gap-2 text-xs">
-            <font-awesome-icon
-              :icon="tr.dir === 'up' ? 'arrow-up' : 'arrow-down'"
-              class="shrink-0 text-accent-light dark:text-accent-dark"
-            />
-            <span class="min-w-0 flex-1 truncate font-semibold">{{ tr.name }}</span>
-            <span class="shrink-0 opacity-50">
-              {{ fmtSize(tr.transferred) }}<template v-if="tr.total"> / {{ fmtSize(tr.total) }}</template>
-            </span>
-          </div>
-          <div class="h-2 w-full overflow-hidden rounded-full bg-sunken-light dark:bg-sunken-dark">
-            <div
-              class="h-full rounded-full bg-accent-light transition-all dark:bg-accent-dark"
-              :style="`width:${pct(tr)}%`"
-            />
-          </div>
-          <p v-if="tr.error" class="text-xs text-warn-dark">{{ tr.error }}</p>
-        </div>
-      </div>
     </template>
 
     <!-- New file: fresh text, fresh drawing, or an existing file from disk. -->
@@ -861,9 +784,6 @@ function pct(tr: { transferred: number; total: number }): number {
       @unlocked="onUnlocked"
       @rotated="onRotated"
     />
-
-    <!-- Cloud login (when uploading while logged out) -->
-    <CloudLoginModal v-model:open="showLogin" />
 
     <!-- Forget confirm -->
     <OyaModal :open="forgetTarget !== null" @close="forgetTarget = null">

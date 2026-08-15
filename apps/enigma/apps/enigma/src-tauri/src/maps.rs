@@ -706,7 +706,7 @@ pub async fn map_region_export(app: AppHandle, id: String, dest_path: String) ->
     Ok(())
 }
 
-// ── tests (pure helpers + writer/reader round-trip, like cloud.rs) ────────────
+// ── tests (pure helpers + writer/reader round-trip) ──────────────────────────
 
 #[cfg(test)]
 mod tests {

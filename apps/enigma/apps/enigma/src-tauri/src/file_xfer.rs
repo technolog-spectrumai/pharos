@@ -82,7 +82,7 @@ pub(crate) fn file_integrity_enabled(app: &AppHandle) -> bool {
     }
 }
 
-// Shared with cloud.rs so every networked feature reports airplane mode identically.
+// Every networked feature reports airplane mode with this same string.
 pub(crate) const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
 const TOR_BLOCKED: &str = "File transfer is unavailable in Tor mode.";
 
@@ -483,7 +483,6 @@ fn decode_addr(s: &str) -> Result<EndpointAddr> {
     Ok(postcard::from_bytes(&bytes)?)
 }
 
-// Also used by cloud.rs for the multipart upload's file part Content-Type.
 pub(crate) fn mime_from_ext(name: &str) -> String {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     let m = match ext.as_str() {

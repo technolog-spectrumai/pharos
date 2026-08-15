@@ -14,17 +14,6 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...a: unknown[]) => invokeMock(...(a as [string, Record<string, unknown>])),
 }));
 
-// The cloud store drags its own invoke traffic in; LocalPanel only reads
-// `enabled` and `transfers` and calls init() — stub it whole.
-vi.mock("../../src/stores/cloud", () => ({
-  useCloudStore: () => ({
-    enabled: false,
-    transfers: new Map(),
-    init: async () => {},
-    upload: async () => {},
-  }),
-}));
-
 (i18n.global.locale as unknown as { value: string }).value = "en";
 
 /** locked-state per path the local_note_stat mock reports. */

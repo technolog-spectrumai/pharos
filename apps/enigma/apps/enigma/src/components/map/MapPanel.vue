@@ -14,8 +14,6 @@ import {
   invoke,
   buildLocationShare,
   buildPinShare,
-  haversineMeters,
-  isBeaconLive,
   getUseTor,
   MAP_LOC_TTL_MS,
   OyaButton,
@@ -23,21 +21,13 @@ import {
   OyaEmptyState,
   OyaModal,
   OyaTextField,
-  type BeaconPin,
-  type BeaconRoute,
-  type BeaconZone,
   type MapPin,
   type MapShare,
 } from "rakotis";
 import { policy } from "../../config/app";
-import { useBeaconStore } from "../../stores/beacon";
 import { useChatStore } from "../../stores/chat";
-import { useCloudStore } from "../../stores/cloud";
 import { useMapStore } from "../../stores/map";
-import BeaconCard from "./BeaconCard.vue";
-import BeaconPublishModal from "./BeaconPublishModal.vue";
 import PinEditModal from "./PinEditModal.vue";
-import { BEACON_COLOR } from "./pinColors";
 import SharedSharesCard from "./SharedSharesCard.vue";
 import { sharedItemName, type SharedItem } from "./sharedLayerModel";
 import { useSharedMapLayer } from "./useSharedMapLayer";
@@ -47,8 +37,6 @@ const props = defineProps<{ darkMode?: boolean }>();
 const { t } = useI18n({ useScope: "global" });
 const store = useMapStore();
 const chatStore = useChatStore();
-const beaconStore = useBeaconStore();
-const cloudStore = useCloudStore();
 
 const container = ref<HTMLDivElement | null>(null);
 /** True once unmount begins — boot must not touch the DOM past this point. */
@@ -74,11 +62,9 @@ function pushDiag(msg: string) {
   }
 }
 
-// Placement / drawing state machine (explicit user actions only).
-type Mode = "idle" | "add-pin" | "share-loc"
-  | "beacon-pin" | "beacon-zone" | "beacon-route";
+// Placement state machine (explicit user actions only).
+type Mode = "idle" | "add-pin" | "share-loc";
 const mode = ref<Mode>("idle");
-const draftPoints = ref<[number, number][]>([]); // [lat, lng]
 
 // The pin editor: creating (a tapped point) or editing (an existing pin).
 const pinModal = ref<null | { lat: number; lng: number; pin: MapPin | null }>(null);
@@ -96,7 +82,7 @@ let pendingLocMarker: maplibregl.Marker | null = null;
 // Regions never land here (their cards download instead of focusing).
 const focus = ref<Exclude<MapShare, { type: "map_region" }> | null>(null);
 
-/** Tor-exclusive mode drops LOCATION sharing (cloud.md D9): hiding your network
+/** Tor-exclusive mode drops LOCATION sharing: hiding your network
  *  location while broadcasting a geographic one is incoherent. Sending is what
  *  is blocked — locations peers already shared still render, because receiving
  *  leaks nothing and dropping them would silently lose data. */
@@ -153,42 +139,6 @@ function buildStyle(themeFlavor: string, maxZoom: number): maplibregl.StyleSpeci
   } as maplibregl.StyleSpecification;
 }
 
-/** Map overlays live outside the theme style, so they must be re-added
- *  whenever the style is replaced (setStyle drops user sources/layers).
- *  Pin markers are DOM overlays and survive untouched. */
-function addOverlayLayers() {
-  // Guard keyed on the DRAFT source: it is the first one added below and the
-  // one that always exists, so a theme switch cannot double-add beacon layers.
-  if (!map || map.getSource("draft-route")) return;
-  // Beacon (server) zones/routes render under the draft so drawing stays on top.
-  map.addSource("beacon-zones", { type: "geojson", data: beaconZonesGeoJson() });
-  map.addLayer({
-    id: "beacon-zones-fill",
-    type: "fill",
-    source: "beacon-zones",
-    paint: { "fill-color": BEACON_COLOR, "fill-opacity": 0.15 },
-  });
-  map.addLayer({
-    id: "beacon-zones-line",
-    type: "line",
-    source: "beacon-zones",
-    paint: { "line-color": BEACON_COLOR, "line-width": 2, "line-dasharray": [3, 2] },
-  });
-  map.addSource("beacon-routes", { type: "geojson", data: beaconRoutesGeoJson() });
-  map.addLayer({
-    id: "beacon-routes-line",
-    type: "line",
-    source: "beacon-routes",
-    paint: { "line-color": BEACON_COLOR, "line-width": 3, "line-dasharray": [4, 2] },
-  });
-  map.addSource("draft-route", { type: "geojson", data: draftGeoJson(draftPoints.value) });
-  map.addLayer({
-    id: "draft-route-line",
-    type: "line",
-    source: "draft-route",
-    paint: { "line-color": "#f59e0b", "line-width": 3, "line-dasharray": [2, 1] },
-  });
-}
 /** Own pins. The signature guards against the repaint bug: a marker's colour
  *  is baked in at construction, so an edited colour needs a NEW marker. */
 const pinMarkers = new Map<string, { marker: maplibregl.Marker; sig: string }>();
@@ -197,55 +147,13 @@ const sharedMarkers = new Map<string, { marker: maplibregl.Marker; sig: string }
 let focusMarker: maplibregl.Marker | null = null;
 
 // Shared items are drawn in their own colours so "mine" and "theirs" never
-// blur together: own pin #2563eb, draft #f59e0b, focus
-// preview #16a34a.
+// blur together: own pin #2563eb, focus preview #16a34a.
 const SHARED_COLOR = "#7c3aed";
 const SHARED_LOC_COLOR = "#ea580c";
 
 const layer = useSharedMapLayer();
 /** The shared item whose detail banner is open. */
 const selectedShared = ref<SharedItem | null>(null);
-
-// ── beacon (server shares) ───────────────────────────────────────────────────
-/** Server pins are DOM markers like local pins; zones/routes are GeoJSON
- *  layers. Everything culls on expiry at render time (isBeaconLive). */
-const beaconMarkers = new Map<number, { marker: maplibregl.Marker; sig: string }>();
-type SelectedBeacon =
-  | { kind: "pin"; pin: BeaconPin }
-  | { kind: "zone"; zone: BeaconZone }
-  | { kind: "route"; route: BeaconRoute };
-const selectedBeacon = ref<SelectedBeacon | null>(null);
-/** Minute tick so expiry culling/countdowns advance without data changes. */
-const beaconNow = ref(Date.now());
-let beaconTick: number | undefined;
-
-const liveBeaconPins = computed(() =>
-  beaconStore.layerVisible
-    ? beaconStore.pins.filter((p) => isBeaconLive(p.expiresAt, beaconNow.value))
-    : [],
-);
-const liveBeaconZones = computed(() =>
-  beaconStore.layerVisible
-    ? beaconStore.zones.filter((z) => isBeaconLive(z.expiresAt, beaconNow.value))
-    : [],
-);
-const liveBeaconRoutes = computed(() =>
-  beaconStore.layerVisible
-    ? beaconStore.routes.filter((r) => isBeaconLive(r.expiresAt, beaconNow.value))
-    : [],
-);
-
-/** Publish flow: tapped point (pin) or the current draft (zone/route). */
-const beaconModal = ref<null | { kind: "pin" | "zone" | "route"; lat?: number; lng?: number }>(null);
-const beaconModalRef = ref<InstanceType<typeof BeaconPublishModal> | null>(null);
-/** Shows the tapped point while the pin modal is open (locModal pattern). */
-let pendingBeaconMarker: maplibregl.Marker | null = null;
-const beaconDrafting = computed(
-  () => mode.value === "beacon-zone" || mode.value === "beacon-route",
-);
-const canPublishBeacon = computed(
-  () => beaconStore.beaconAvailable && cloudStore.enabled && cloudStore.loggedIn,
-);
 
 // ── tile protocol (registered once per app lifetime) ─────────────────────────
 let protocolRegistered = false;
@@ -286,18 +194,6 @@ function webglAvailable(): boolean {
 }
 
 // ── overlays ─────────────────────────────────────────────────────────────────
-
-function draftGeoJson(points: [number, number][]): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: points.length < 2 ? [] : [{
-      type: "Feature",
-      properties: {},
-      geometry: { type: "LineString", coordinates: points.map(([lat, lng]) => [lng, lat]) },
-    }],
-  };
-}
-
 
 function refreshPins() {
   if (!map) return;
@@ -371,107 +267,11 @@ function refreshShared() {
   }
 }
 
-
-
-// ── beacon overlays ──────────────────────────────────────────────────────────
-function beaconZonesGeoJson(): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: liveBeaconZones.value.map((z) => ({
-      type: "Feature",
-      properties: { id: z.id },
-      geometry: {
-        type: "Polygon",
-        // The model stores the open ring; GeoJSON wants it closed again.
-        coordinates: [[...z.ring, z.ring[0]!].map(([lat, lng]) => [lng, lat])],
-      },
-    })),
-  };
-}
-
-function beaconRoutesGeoJson(): GeoJSON.FeatureCollection {
-  return {
-    type: "FeatureCollection",
-    features: liveBeaconRoutes.value.map((r) => ({
-      type: "Feature",
-      properties: { id: r.id },
-      geometry: {
-        type: "LineString",
-        coordinates: r.points.map(([lat, lng]) => [lng, lat]),
-      },
-    })),
-  };
-}
-
-/** A server pin badge: the publisher's initial on the beacon accent, so server
- *  shares never read as local pins or room shares. */
-function beaconMarkerEl(pin: BeaconPin): HTMLElement {
-  const el = document.createElement("button");
-  el.type = "button";
-  el.className =
-    "flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] " +
-    "font-bold text-white shadow transition hover:scale-110";
-  el.style.backgroundColor = BEACON_COLOR;
-  const label = pin.user === cloudStore.username ? t("map.beaconYou") : pin.user;
-  el.textContent = label.slice(0, 1).toUpperCase();
-  el.title = `${label}${pin.comment ? ` · ${pin.comment}` : ""}`;
-  el.addEventListener("click", (e) => {
-    e.stopPropagation();
-    selectedBeacon.value = { kind: "pin", pin };
-  });
-  return el;
-}
-
-function refreshBeaconPins() {
-  if (!map) return;
-  const seen = new Set<number>();
-  for (const pin of liveBeaconPins.value) {
-    seen.add(pin.id);
-    const sig = `${pin.lat}|${pin.lng}|${pin.user}|${pin.comment}`;
-    const existing = beaconMarkers.get(pin.id);
-    if (existing && existing.sig === sig) continue;
-    existing?.marker.remove();
-    const marker = new maplibregl.Marker({ element: beaconMarkerEl(pin) })
-      .setLngLat([pin.lng, pin.lat])
-      .addTo(map);
-    beaconMarkers.set(pin.id, { marker, sig });
-  }
-  for (const [id, entry] of beaconMarkers) {
-    if (!seen.has(id)) {
-      entry.marker.remove();
-      beaconMarkers.delete(id);
-    }
-  }
-}
-
-function refreshBeaconShapes() {
-  const zones = map?.getSource("beacon-zones") as maplibregl.GeoJSONSource | undefined;
-  zones?.setData(beaconZonesGeoJson());
-  const routes = map?.getSource("beacon-routes") as maplibregl.GeoJSONSource | undefined;
-  routes?.setData(beaconRoutesGeoJson());
-  // A selected share that expired or was deleted must not keep its banner.
-  const sel = selectedBeacon.value;
-  if (!sel) return;
-  const still =
-    sel.kind === "pin"
-      ? liveBeaconPins.value.some((p) => p.id === sel.pin.id)
-      : sel.kind === "zone"
-        ? liveBeaconZones.value.some((z) => z.id === sel.zone.id)
-        : liveBeaconRoutes.value.some((r) => r.id === sel.route.id);
-  if (!still) selectedBeacon.value = null;
-}
-
-function refreshDraft() {
-  const src = map?.getSource("draft-route") as maplibregl.GeoJSONSource | undefined;
-  src?.setData(draftGeoJson(draftPoints.value));
-}
-
 // ── boot ─────────────────────────────────────────────────────────────────────
 onMounted(async () => {
   if (!tauri) return;               // honest desktop-only state renders instead
   trace("boot: mounted (tauri)");
   torMode.value = await getUseTor().catch(() => false);
-  beaconStore.torBlocked = torMode.value;
   webglOk.value = webglAvailable();
   trace(`boot: webgl=${webglOk.value}`);
   if (!webglOk.value) return;       // honest no-WebGL state renders instead
@@ -542,10 +342,8 @@ onMounted(async () => {
 
     map.on("load", () => {
       if (!map) return;
-      addOverlayLayers();
       refreshPins();
       refreshShared();
-      refreshBeaconPins();
       ready.value = true;
 
       // GL ground truth for bug reports: which device actually renders, is the
@@ -573,24 +371,6 @@ onMounted(async () => {
     });
 
     map.on("click", onMapClick);
-    // Tapping a beacon zone/route opens its banner (only outside placement
-    // modes — a placement click must never double as a selection).
-    map.on("click", "beacon-zones-fill", (e) => {
-      if (mode.value !== "idle") return;
-      const id = e.features?.[0]?.properties?.id as number | undefined;
-      const zone = liveBeaconZones.value.find((z) => z.id === id);
-      if (zone) selectedBeacon.value = { kind: "zone", zone };
-    });
-    map.on("click", "beacon-routes-line", (e) => {
-      if (mode.value !== "idle") return;
-      const id = e.features?.[0]?.properties?.id as number | undefined;
-      const route = liveBeaconRoutes.value.find((r) => r.id === id);
-      if (route) selectedBeacon.value = { kind: "route", route };
-    });
-
-    beaconTick = window.setInterval(() => {
-      beaconNow.value = Date.now();
-    }, 60_000);
   } catch (e) {
     console.error("[map] startup failed:", e);
     pushDiag(`startup failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -599,32 +379,22 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true;
-  if (beaconTick !== undefined) window.clearInterval(beaconTick);
-  pendingBeaconMarker?.remove();
   for (const entry of pinMarkers.values()) entry.marker.remove();
   pinMarkers.clear();
   for (const entry of sharedMarkers.values()) entry.marker.remove();
   sharedMarkers.clear();
-  for (const entry of beaconMarkers.values()) entry.marker.remove();
-  beaconMarkers.clear();
   pendingLocMarker?.remove();
   focusMarker?.remove();
   map?.remove();
   map = null;
 });
 
-// Follow the app theme live: setStyle keeps the camera and the DOM markers,
-// but drops user sources/layers — so the overlays are re-added once the
-// new style is in place.
+// Follow the app theme live: setStyle keeps the camera, and every overlay the
+// map draws is a DOM marker, so pins and shares survive the swap untouched.
 watch(flavor, (next) => {
   if (!map || !ready.value) return;
   trace(`theme: switching basemap to ${next}`);
   map.setStyle(buildStyle(next, sourceMaxZoom));
-  map.once("styledata", () => {
-    addOverlayLayers();
-    refreshDraft();
-      refreshBeaconShapes();
-  });
 });
 
 watch(() => layer.onMap.value, refreshShared, { deep: true });
@@ -635,22 +405,15 @@ watch(
   },
 );
 watch(() => store.pins, refreshPins, { deep: true });
-watch(draftPoints, refreshDraft, { deep: true });
 watch(() => store.pendingFocus, applyPendingFocus);
-watch(liveBeaconPins, refreshBeaconPins);
-watch([liveBeaconZones, liveBeaconRoutes], refreshBeaconShapes);
 
 // ── interactions ─────────────────────────────────────────────────────────────
 function onMapClick(e: maplibregl.MapMouseEvent) {
   if (mode.value === "add-pin") {
     pinModal.value = { lat: e.lngLat.lat, lng: e.lngLat.lng, pin: null };
     mode.value = "idle";
-  } else if (beaconDrafting.value) {
-    draftPoints.value = [...draftPoints.value, [e.lngLat.lat, e.lngLat.lng]];
   } else if (mode.value === "share-loc") {
     openLocModal(e.lngLat.lat, e.lngLat.lng);
-  } else if (mode.value === "beacon-pin") {
-    openBeaconPinModal(e.lngLat.lat, e.lngLat.lng);
   }
 }
 
@@ -689,72 +452,6 @@ async function shareLocation() {
   } finally {
     locBusy.value = false;
   }
-}
-
-
-// ── beacon publish flows (explicit action only — a tap, then a submit) ───────
-function openBeaconPinModal(lat: number, lng: number) {
-  mode.value = "idle";
-  beaconModal.value = { kind: "pin", lat, lng };
-  pendingBeaconMarker?.remove();
-  if (map) {
-    pendingBeaconMarker = new maplibregl.Marker({ color: BEACON_COLOR })
-      .setLngLat([lng, lat])
-      .addTo(map);
-  }
-}
-
-function startBeaconDraft(kind: "zone" | "route") {
-  mode.value = kind === "zone" ? "beacon-zone" : "beacon-route";
-  draftPoints.value = [];
-}
-
-const beaconDraftMinPoints = computed(() => (mode.value === "beacon-zone" ? 3 : 2));
-
-function finishBeaconDraft() {
-  if (draftPoints.value.length < beaconDraftMinPoints.value) {
-    cancelDraw();
-    return;
-  }
-  beaconModal.value = { kind: mode.value === "beacon-zone" ? "zone" : "route" };
-}
-
-function closeBeaconModal() {
-  const kind = beaconModal.value?.kind;
-  beaconModal.value = null;
-  pendingBeaconMarker?.remove();
-  pendingBeaconMarker = null;
-  // A cancelled zone/route publish keeps its draft (route-name modal pattern);
-  // a cancelled pin tap just ends the flow.
-  if (kind === "pin") mode.value = "idle";
-}
-
-async function submitBeaconPublish(fields: { name: string; comment: string; ttlSeconds: number }) {
-  const modal = beaconModal.value;
-  if (!modal) return;
-  try {
-    if (modal.kind === "pin") {
-      await beaconStore.publishPin(modal.lat!, modal.lng!, fields.ttlSeconds, fields.comment);
-    } else if (modal.kind === "zone") {
-      await beaconStore.publishZone(fields.name, draftPoints.value, fields.ttlSeconds, fields.comment);
-    } else {
-      await beaconStore.publishRoute(fields.name, draftPoints.value, fields.ttlSeconds, fields.comment);
-    }
-  } catch (e) {
-    beaconModalRef.value?.showError(e instanceof Error ? e.message : String(e));
-    return;
-  }
-  beaconModal.value = null;
-  pendingBeaconMarker?.remove();
-  pendingBeaconMarker = null;
-  draftPoints.value = [];
-  mode.value = "idle";
-}
-
-
-function cancelDraw() {
-  mode.value = "idle";
-  draftPoints.value = [];
 }
 
 
@@ -826,89 +523,6 @@ function focusShared(item: SharedItem) {
   map.flyTo({ center: [pt.lng, pt.lat], zoom: Math.max(map.getZoom(), 13) });
 }
 
-// ── beacon focus / banner ────────────────────────────────────────────────────
-function focusBeaconPin(pin: BeaconPin) {
-  selectedBeacon.value = { kind: "pin", pin };
-  map?.flyTo({ center: [pin.lng, pin.lat], zoom: Math.max(map.getZoom(), 13) });
-}
-
-function fitLatLngBounds(points: readonly [number, number][]) {
-  if (!map || points.length === 0) return;
-  const lats = points.map((p) => p[0]);
-  const lngs = points.map((p) => p[1]);
-  map.fitBounds(
-    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-    { padding: 60, maxZoom: 15 },
-  );
-}
-
-function focusBeaconZone(zone: BeaconZone) {
-  selectedBeacon.value = { kind: "zone", zone };
-  fitLatLngBounds(zone.ring);
-}
-
-function focusBeaconRoute(route: BeaconRoute) {
-  selectedBeacon.value = { kind: "route", route };
-  fitLatLngBounds(route.points);
-}
-
-const selectedBeaconName = computed(() => {
-  const sel = selectedBeacon.value;
-  if (!sel) return "";
-  if (sel.kind === "pin") {
-    return sel.pin.user === cloudStore.username ? t("map.beaconYou") : sel.pin.user;
-  }
-  const named = sel.kind === "zone" ? sel.zone : sel.route;
-  return named.name || t(sel.kind === "zone" ? "map.beaconZonesGroup" : "map.beaconRoutesGroup");
-});
-
-const selectedBeaconShare = computed(() => {
-  const sel = selectedBeacon.value;
-  if (!sel) return null;
-  return sel.kind === "pin" ? sel.pin : sel.kind === "zone" ? sel.zone : sel.route;
-});
-
-const selectedBeaconOwn = computed(() => {
-  const share = selectedBeaconShare.value;
-  return !!share && share.user === cloudStore.username;
-});
-
-function beaconLeftText(expiresAt: number): string {
-  const minutes = Math.round(Math.max(0, expiresAt - beaconNow.value) / 60_000);
-  if (minutes <= 0) return t("map.beaconExpired");
-  if (minutes < 60) return t("map.beaconLeftMinutes", { n: Math.max(1, minutes) });
-  return t("map.beaconLeftHours", { n: Math.round(minutes / 60) });
-}
-
-/** "Near here": ask the server for pins around the visible map center, radius
- *  = distance to the viewport's NE corner (min 1 km — a fully zoomed-in view
- *  should still find the neighbourhood). The server caps oversized radii. */
-async function beaconNearHere() {
-  if (!map) return;
-  const center = map.getCenter();
-  const bounds = map.getBounds();
-  const radius = Math.max(
-    1000,
-    haversineMeters(center.lat, center.lng, bounds.getNorth(), bounds.getEast()),
-  );
-  try {
-    await beaconStore.near(center.lat, center.lng, radius);
-  } catch { /* surfaced via beaconStore.error on the card */ }
-}
-
-/** Delete the banner's share from the server (own shares only — the button is
- *  hidden otherwise; a raced 404 just closes the banner). */
-async function deleteSelectedBeacon() {
-  const sel = selectedBeacon.value;
-  if (!sel) return;
-  try {
-    if (sel.kind === "pin") await beaconStore.deletePin();
-    else if (sel.kind === "zone") await beaconStore.deleteZone(sel.zone.id);
-    else await beaconStore.deleteRoute(sel.route.id);
-  } catch { /* stale row disappears on the next refresh */ }
-  selectedBeacon.value = null;
-}
-
 /** Sidebar row → select it AND fly there (an out-of-coverage row flies to blank
  *  canvas on purpose: it shows the user where their maps stop). */
 function onSharedRowFocus(item: SharedItem) {
@@ -946,7 +560,6 @@ function dismissFocus() {
   focus.value = null;
   focusMarker?.remove();
   focusMarker = null;
-  if (!beaconDrafting.value) draftPoints.value = [];
 }
 </script>
 
@@ -998,53 +611,22 @@ function dismissFocus() {
 
         <!-- Toolbar -->
         <div class="absolute left-3 top-3 z-10 flex flex-col gap-2">
-          <template v-if="beaconDrafting">
-            <OyaButton
-              variant="primary"
-              :disabled="draftPoints.length < beaconDraftMinPoints"
-              data-testid="beacon-finish"
-              @click="finishBeaconDraft"
-            >
-              {{ $t('map.finishRoute', { n: draftPoints.length }) }}
-            </OyaButton>
-            <OyaButton variant="secondary" @click="cancelDraw">
-              {{ $t('common.cancel') }}
-            </OyaButton>
-          </template>
-          <template v-else>
-            <OyaButton
-              :variant="mode === 'add-pin' ? 'primary' : 'secondary'"
-              @click="mode = mode === 'add-pin' ? 'idle' : 'add-pin'"
-            >
-              <font-awesome-icon icon="location-dot" /> {{ $t('map.addPin') }}
-            </OyaButton>
-            <OyaButton
-              v-if="!torMode"
-              :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
-              :disabled="!canShareLoc"
-              :title="canShareLoc ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
-              data-testid="share-loc-button"
-              @click="mode = mode === 'share-loc' ? 'idle' : 'share-loc'"
-            >
-              <font-awesome-icon icon="location-crosshairs" /> {{ $t('map.shareLoc') }}
-            </OyaButton>
-            <template v-if="canPublishBeacon">
-              <OyaButton
-                :variant="mode === 'beacon-pin' ? 'primary' : 'secondary'"
-                :title="$t('map.beaconClickToPlace')"
-                data-testid="beacon-pin-button"
-                @click="mode = mode === 'beacon-pin' ? 'idle' : 'beacon-pin'"
-              >
-                <font-awesome-icon icon="bullseye" /> {{ $t('map.beaconPublishPin') }}
-              </OyaButton>
-              <OyaButton variant="secondary" data-testid="beacon-zone-button" @click="startBeaconDraft('zone')">
-                <font-awesome-icon icon="object-group" /> {{ $t('map.beaconPublishZone') }}
-              </OyaButton>
-              <OyaButton variant="secondary" data-testid="beacon-route-button" @click="startBeaconDraft('route')">
-                <font-awesome-icon icon="route" /> {{ $t('map.beaconPublishRoute') }}
-              </OyaButton>
-            </template>
-          </template>
+          <OyaButton
+            :variant="mode === 'add-pin' ? 'primary' : 'secondary'"
+            @click="mode = mode === 'add-pin' ? 'idle' : 'add-pin'"
+          >
+            <font-awesome-icon icon="location-dot" /> {{ $t('map.addPin') }}
+          </OyaButton>
+          <OyaButton
+            v-if="!torMode"
+            :variant="mode === 'share-loc' ? 'primary' : 'secondary'"
+            :disabled="!canShareLoc"
+            :title="canShareLoc ? $t('map.shareLocHint') : $t('map.shareNeedsRoom')"
+            data-testid="share-loc-button"
+            @click="mode = mode === 'share-loc' ? 'idle' : 'share-loc'"
+          >
+            <font-awesome-icon icon="location-crosshairs" /> {{ $t('map.shareLoc') }}
+          </OyaButton>
         </div>
 
         <!-- Hint while placing -->
@@ -1052,11 +634,7 @@ function dismissFocus() {
           v-if="mode !== 'idle'"
           class="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-lg bg-primary-bg-light/90 px-3 py-1.5 text-xs shadow dark:bg-primary-bg-dark/90"
         >
-          {{ mode === 'add-pin' ? $t('map.clickToPlace')
-            : mode === 'share-loc' ? $t('map.clickToShareLoc')
-            : mode === 'beacon-pin' ? $t('map.beaconClickToPlace')
-            : mode === 'beacon-zone' ? $t('map.beaconClickToZone')
-            : $t('map.beaconClickToRoute') }}
+          {{ mode === 'add-pin' ? $t('map.clickToPlace') : $t('map.clickToShareLoc') }}
         </p>
 
         <!-- Shared-layer toggle: what room members shared, on your map. -->
@@ -1107,45 +685,6 @@ function dismissFocus() {
           </div>
         </div>
 
-        <!-- Detail for the beacon (server) share the user tapped. -->
-        <div
-          v-if="selectedBeacon && selectedBeaconShare"
-          data-testid="beacon-detail"
-          class="absolute bottom-3 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 flex-col gap-2 rounded-lg border border-accent-2 bg-primary-bg-light/95 px-3 py-2 text-sm shadow dark:border-accent-1 dark:bg-primary-bg-dark/95"
-        >
-          <p class="flex items-center gap-2">
-            <font-awesome-icon
-              :icon="selectedBeacon.kind === 'route' ? 'route'
-                : selectedBeacon.kind === 'zone' ? 'object-group' : 'location-dot'"
-              :style="{ color: BEACON_COLOR }"
-            />
-            <span class="truncate font-semibold">{{ selectedBeaconName }}</span>
-            <span v-if="selectedBeacon.kind !== 'pin'" class="shrink-0 text-xs opacity-60">
-              {{ selectedBeaconOwn ? $t('map.beaconYou')
-                : $t('map.sharedFrom', { name: selectedBeaconShare.user }) }}
-            </span>
-            <span class="shrink-0 text-xs opacity-50">
-              {{ beaconLeftText(selectedBeaconShare.expiresAt) }}
-            </span>
-          </p>
-          <p v-if="selectedBeaconShare.comment" class="text-xs opacity-70">
-            {{ selectedBeaconShare.comment }}
-          </p>
-          <div class="flex flex-wrap gap-2">
-            <OyaButton
-              v-if="selectedBeaconOwn"
-              variant="secondary"
-              data-testid="beacon-detail-delete"
-              @click="deleteSelectedBeacon"
-            >
-              <font-awesome-icon icon="trash" /> {{ $t('map.beaconDeleteShare') }}
-            </OyaButton>
-            <OyaButton variant="secondary" @click="selectedBeacon = null">
-              {{ $t('common.close') }}
-            </OyaButton>
-          </div>
-        </div>
-
         <!-- Received-share preview banner: nothing is saved until the user says so. -->
         <div
           v-if="focus"
@@ -1168,14 +707,6 @@ function dismissFocus() {
           @focus="onSharedRowFocus"
           @save="saveShared"
           @toggle="store.toggleSharedLayer()"
-        />
-        <!-- Server shares (beacon) — only in builds with cloud + maps. -->
-        <BeaconCard
-          v-if="beaconStore.beaconAvailable"
-          @focus-pin="focusBeaconPin"
-          @focus-zone="focusBeaconZone"
-          @focus-route="focusBeaconRoute"
-          @near="beaconNearHere"
         />
         <OyaCard>
           <h3 class="mb-2 text-sm font-bold"><font-awesome-icon icon="location-dot" /> {{ $t('map.pinsTitle') }}</h3>
@@ -1263,18 +794,6 @@ function dismissFocus() {
         @submit="submitPin"
         @close="pinModal = null"
       />
-
-      <!-- Publish to the server: mandatory TTL, optional comment/name. -->
-      <BeaconPublishModal
-        ref="beaconModalRef"
-        :open="beaconModal !== null"
-        :kind="beaconModal?.kind ?? 'pin'"
-        :point-count="beaconModal && beaconModal.kind !== 'pin' ? draftPoints.length : undefined"
-        @submit="submitBeaconPublish"
-        @close="closeBeaconModal"
-      />
-
-      <!-- Name prompt for a finished route -->
     </template>
   </div>
 </template>

@@ -5,7 +5,6 @@ import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
-import { useCloudStore } from "./stores/cloud";
 import { useFileSyncStore } from "./stores/fileSync";
 import { useMapStore } from "./stores/map";
 import { usePeersStore } from "./stores/peers";
@@ -35,7 +34,6 @@ watch(darkMode, (on) => {
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
-const cloudStore = useCloudStore();
 const mapStore = useMapStore();
 const fileSyncStore = useFileSyncStore();
 const { displayName, avatarDataUrl } = storeToRefs(userStore);
@@ -88,7 +86,6 @@ const lockWarn = ref(false);
 function isBusy(): boolean {
   if (chatStore.vox && chatStore.vox.phase.value !== "idle") return true;
   if (["offering", "incoming", "transferring"].includes(chatStore.fileShare.state.value)) return true;
-  if (cloudStore.transfers.size > 0) return true;
   for (const rx of mapStore.receives.values()) {
     if (rx.state === "transferring" || rx.state === "importing") return true;
   }
@@ -259,10 +256,6 @@ const meetings = chatStore.meetings;
 const calendarEnabled = chatStore.calendarEnabled;
 // Map tab (compile-time gated) — offline PMTiles maps, pins, routes.
 const mapsEnabled = getBuildConfig().maps_enabled;
-// Cloud tab (compile-time gated) — the tab is always visible in a cloud-capable
-// build; the runtime master switch INSIDE it gates the content and, in Rust,
-// every request. cloud.md.
-const cloudTabEnabled = getBuildConfig().cloud_allow_connections;
 // Peer links (compile-time gated — peer.md P4). The accept prompt is app-wide:
 // a request lands on the main endpoint whatever tab is open, and the answer
 // window is short, so it can't wait behind a route.
@@ -424,10 +417,6 @@ onBeforeUnmount(() => {
               :title="$t('peers.incomingTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="cloudTabEnabled" to="/cloud" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.cloud')">
-            <font-awesome-icon icon="cloud" />
-            {{ $t('nav.cloud') }}
-          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -513,10 +502,6 @@ onBeforeUnmount(() => {
               v-if="peers?.incoming"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
-          </RouterLink>
-          <RouterLink v-if="cloudTabEnabled" to="/cloud" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="cloud" class="w-4 text-center" />
-            {{ $t('nav.cloud') }}
           </RouterLink>
           <RouterLink
             to="/config"

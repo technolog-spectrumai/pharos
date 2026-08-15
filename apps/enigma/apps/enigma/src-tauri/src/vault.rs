@@ -400,10 +400,9 @@ pub fn vault_pin_clear(app: AppHandle) -> Result<(), String> {
 /// is armed, in which case those marked files are deleted here too (see the
 /// panic-targets sidecar below). Also untouched: arti's consensus cache (no
 /// identity material), the webview's localStorage (in the desktop app that is the
-/// UI locale — all real data goes through `kv_*` into protasius), and anything
-/// already uploaded to Enigma Cloud (the local session token dies with the vault,
-/// but nothing is deleted remotely). Files are unlinked, not shredded: without
-/// `vault.json`'s wrapped DEK the remaining ciphertext is unopenable anyway.
+/// UI locale — all real data goes through `kv_*` into protasius). Files are
+/// unlinked, not shredded: without `vault.json`'s wrapped DEK the remaining
+/// ciphertext is unopenable anyway.
 fn panic_wipe(
     app: &AppHandle,
     cfg: &AppConfig,

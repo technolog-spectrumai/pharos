@@ -189,7 +189,6 @@ describe("sync allow-list", () => {
     expect(isSyncableKv("p2p:settings", "default", "map_storage_limit_mb")).toBe(false);
     expect(isSyncableKv("p2p:settings", "default", "map_active_region")).toBe(false);
     expect(isSyncableKv("map:regions", "default", "")).toBe(false);
-    expect(isSyncableKv("cloud:auth", "https://x", "token")).toBe(false);
     expect(isSyncableKv("devices", "default", "link")).toBe(false);
     // The allow-list is closed: an unlisted namespace never syncs.
     expect(isSyncableKv("kanban", "default", "room-1")).toBe(false);

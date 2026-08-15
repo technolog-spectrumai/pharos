@@ -36,7 +36,6 @@ import {
   type NickClaim,
 } from "rakotis";
 import { useChatStore } from "../stores/chat";
-import { useCloudStore } from "../stores/cloud";
 import { usePeersStore } from "../stores/peers";
 import PeerLinksPanel from "../components/peers/PeerLinksPanel.vue";
 import PeerRequestForm from "../components/peers/PeerRequestForm.vue";
@@ -74,8 +73,8 @@ async function loadMyNodeId() {
 const contacts = ref<ContactEntry[]>([]);
 const dhtOn = ref(false);
 // Tor mode tears down iroh, and with it every DHT function (Rust gates it at
-// the source in p2p_dht). Over Tor the server directory below is the discovery
-// path, so the DHT surfaces disable with the reason rather than lying.
+// the source in p2p_dht), so the DHT surfaces disable with the reason rather
+// than lying.
 const useTor = ref(false);
 const dhtUsable = computed(() => dhtOn.value && !useTor.value);
 const online = ref<Record<string, boolean>>({});
@@ -97,15 +96,6 @@ onMounted(async () => {
   contacts.value = await listContacts();
   dhtOn.value = await getDhtDiscovery();
   useTor.value = await getUseTor();
-  if (rdvBuildAllowed) {
-    await cloudStore.init(); // mirror the knob + login state for server search
-    // Make this device addressable so peers can seal invites to it — works
-    // even in Tor mode, where iroh (and the relay publisher) are down. The
-    // invite mailbox UI itself lives in the Cloud tab (cloud.md).
-    if (rdvAllowed.value && cloudStore.loggedIn) {
-      void invoke("rdv_register", { serverUrl: cloudStore.serverUrl }).catch(() => {});
-    }
-  }
   nickPublish.value = await getDhtNickPublish();
   nickname.value = await getDhtNickname();
   void loadMyNodeId();
@@ -193,52 +183,6 @@ function openAddFromClaim(claim: NickClaim) {
   openAdd();
   addNodeId.value = claim.node_id;
   addName.value = claim.name;
-}
-
-// ── Find on my server (cloud rendezvous, rdv.md) — resolve a faros username to
-// its registered NodeIds. Optional: only when the build has cloud + hosted
-// relays AND the user is logged in to their server. Same input, same result
-// shape, same prefill-the-add-modal flow as the DHT search.
-const cloudStore = useCloudStore();
-// Build-time half (does the edition have the cloud client at all) — used for
-// the "this lives in the Cloud tab" pointer, which must render even while the
-// runtime knob is off. Mirrors aster::build_allowed(): hosted relays are
-// irrelevant now that the directory only maps username → NodeId and carries
-// sealed invites, never an address (rdv.md D2).
-const rdvBuildAllowed = getBuildConfig().cloud_allow_connections;
-// Full gate: also requires the Cloud tab's runtime master switch (cloud.md) —
-// with it off, Rust refuses aster calls, so the search hides rather than lies.
-// `hasAster` is optimistic until learned, so a server that has the directory
-// keeps behaving exactly as before; a vault-only one hides the control instead
-// of answering a search with a bare "server error (HTTP 404)".
-const rdvAllowed = computed(() => rdvBuildAllowed && cloudStore.enabled && cloudStore.hasAster);
-const serverResults = ref<NickClaim[]>([]);
-const serverSearching = ref(false);
-const serverSearched = ref(false);
-const serverError = ref("");
-async function findOnServer() {
-  const username = searchNick.value.trim();
-  if (!username || serverSearching.value || !cloudStore.loggedIn) return;
-  serverSearching.value = true;
-  serverSearched.value = false;
-  serverError.value = "";
-  try {
-    // Through the store's funnel, not a raw invoke: this is the one networked
-    // control here that the user drives, so it is where a "no_feature: aster"
-    // (or a reachability verdict) is actually observable — a raw invoke would
-    // learn the server has no directory and tell nobody.
-    const ids = await cloudStore.call<string[]>("aster_resolve", {
-      serverUrl: cloudStore.serverUrl,
-      username,
-    });
-    // ts = now: the server only returns addresses fresher than its TTL.
-    serverResults.value = ids.map((node_id) => ({ node_id, name: username, ts: Date.now() }));
-    serverSearched.value = true;
-  } catch (e) {
-    serverError.value = typeof e === "string" ? e : ((e as Error).message ?? "");
-  } finally {
-    serverSearching.value = false;
-  }
 }
 
 // ── Add contact ────────────────────────────────────────────────────────────────
@@ -350,13 +294,6 @@ function closeInvite() {
   invites.resetOutgoing();
 }
 
-// Tor rooms can't ride the direct P2P invite (different transport). Their
-// sealed server-mailbox flow moved to the Cloud tab (cloud.md) — kept here only
-// to render the pointer and the honest empty state in the invite modal.
-const torRooms = computed<P2pRoomEntry[]>(() =>
-  chatStore.p2p.p2pRooms.value.filter((r) => r.tor),
-);
-
 async function pickInviteRoom(room: P2pRoomEntry) {
   const target = inviteTarget.value;
   if (!target) return;
@@ -406,8 +343,7 @@ async function acceptIncoming() {
       <p class="mt-2 text-sm opacity-70">{{ $t('contacts.subtitle') }}</p>
     </header>
 
-    <!-- Incoming invite — file-share-style: nothing happens until Accept.
-         (Sealed server-mailbox invites moved to the Cloud tab — cloud.md.) -->
+    <!-- Incoming invite — file-share-style: nothing happens until Accept. -->
     <OyaCard v-if="invites.incoming.value" :dark-mode="darkMode" :padded="true" class="space-y-3">
       <p class="flex items-center gap-2 text-sm font-semibold">
         <span class="h-2 w-2 animate-pulse rounded-full bg-warn-dark" />
@@ -512,18 +448,15 @@ async function acceptIncoming() {
       </div>
     </OyaCard>
 
-    <!-- Find people — two directories behind one search box: the DHT nickname
-         directory and the user's own faros server. Each has its own build gate,
-         so the card is here only if at least one of them can actually search. -->
-    <OyaCard v-if="dhtAllowed || rdvBuildAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
+    <!-- Find people — the DHT nickname directory. Its own build gate, so the
+         card is here only when that directory can actually be searched. -->
+    <OyaCard v-if="dhtAllowed" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
           {{ $t('contacts.findPeople') }}
         </p>
-        <!-- "turn the DHT on" only when there is a toggle to turn on; a build
-             without the DHT describes the server directory instead. -->
         <p class="mt-1 text-sm opacity-65">
-          {{ dhtUsable ? $t('contacts.findHint') : dhtAllowed ? $t('contacts.findNeedsDht') : $t('contacts.rdvFindHint') }}
+          {{ dhtUsable ? $t('contacts.findHint') : $t('contacts.findNeedsDht') }}
         </p>
       </div>
       <div class="flex gap-2">
@@ -532,7 +465,7 @@ async function acceptIncoming() {
           type="text"
           :maxlength="DHT_NICKNAME_MAX_LEN"
           :placeholder="$t('contacts.findPlaceholder')"
-          :disabled="!dhtUsable && !(rdvAllowed && cloudStore.loggedIn)"
+          :disabled="!dhtUsable"
           class="min-w-0 flex-1 rounded-lg border border-current/15 bg-transparent px-3 py-1.5 text-sm disabled:opacity-50"
           @keyup.enter="findPeople"
         />
@@ -578,54 +511,6 @@ async function acceptIncoming() {
           </button>
         </li>
       </ul>
-
-      <!-- Same search box, second directory: the user's own faros server
-           (cloud rendezvous). Hidden while the Cloud master switch is off
-           (Rust refuses the call anyway — hide rather than lie, cloud.md);
-           with the switch on it stays visible and merely disables with the
-           reason when not logged in. -->
-      <template v-if="rdvAllowed">
-        <div class="flex items-center gap-2 border-t border-current/10 pt-3">
-          <OyaButton
-            :dark-mode="darkMode"
-            variant="secondary"
-            data-testid="rdv-find"
-            :class="{ 'pointer-events-none opacity-50': !cloudStore.loggedIn || serverSearching || !searchNick.trim() }"
-            :title="cloudStore.loggedIn ? $t('contacts.rdvFindHint') : $t('contacts.rdvNeedsLogin')"
-            @click="findOnServer"
-          >
-            <font-awesome-icon :icon="serverSearching ? 'spinner' : 'address-book'" :spin="serverSearching" />
-            {{ $t('contacts.rdvFind') }}
-          </OyaButton>
-          <span v-if="!cloudStore.loggedIn" class="text-xs opacity-60">{{ $t('contacts.rdvNeedsLogin') }}</span>
-        </div>
-        <p v-if="serverError" class="text-xs text-warn-dark">{{ serverError }}</p>
-        <p v-else-if="serverSearched && serverResults.length === 0" class="py-1 text-center text-sm opacity-60">
-          {{ $t('contacts.noResults') }}
-        </p>
-        <ul v-else-if="serverResults.length" class="divide-y divide-current/10" data-testid="rdv-results">
-          <li v-for="claim in serverResults" :key="claim.node_id" class="flex items-center gap-3 py-3">
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold">
-                {{ claim.name }}
-                <span class="ml-1 rounded-full border border-current/20 px-1.5 text-[10px] uppercase opacity-60">{{ $t('contacts.rdvBadge') }}</span>
-              </p>
-              <p class="truncate font-mono text-[11px] opacity-50">{{ claim.node_id }}</p>
-            </div>
-            <span v-if="contactIds.has(claim.node_id)" class="shrink-0 text-xs text-success-dark">
-              <font-awesome-icon icon="check" /> {{ $t('contacts.addedBadge') }}
-            </span>
-            <button
-              v-else-if="claim.node_id !== myNodeId"
-              type="button"
-              class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs font-semibold transition hover:opacity-80"
-              @click="openAddFromClaim(claim)"
-            >
-              <font-awesome-icon icon="plus" /> {{ $t('contacts.useCode') }}
-            </button>
-          </li>
-        </ul>
-      </template>
     </OyaCard>
 
     <!-- Saved contacts -->
@@ -795,7 +680,7 @@ async function acceptIncoming() {
 
         <!-- Room picker -->
         <template v-if="invites.outgoing.value === 'idle'">
-          <p v-if="invitableRooms.length === 0 && torRooms.length === 0" class="text-sm opacity-60">
+          <p v-if="invitableRooms.length === 0" class="text-sm opacity-60">
             {{ $t('contacts.noRooms') }}
           </p>
           <ul v-else class="divide-y divide-current/10">
@@ -811,23 +696,6 @@ async function acceptIncoming() {
               </button>
             </li>
           </ul>
-
-          <!-- Tor rooms: the direct P2P invite can't carry them — their sealed
-               server-mailbox flow lives in the Cloud tab (cloud.md). -->
-          <template v-if="rdvBuildAllowed && torRooms.length">
-            <p class="border-t border-current/10 pt-3 text-xs opacity-60" data-testid="tor-rooms-pointer">
-              {{ $t('contacts.torRoomsViaCloud') }}
-            </p>
-            <RouterLink
-              to="/cloud?tab=invites"
-              class="inline-flex items-center gap-2 text-sm font-semibold text-accent-light transition hover:opacity-70 dark:text-accent-dark"
-              @click="closeInvite"
-            >
-              <font-awesome-icon icon="cloud" />
-              {{ $t('nav.cloud') }}
-              <font-awesome-icon icon="chevron-right" class="text-xs opacity-60" />
-            </RouterLink>
-          </template>
         </template>
 
         <!-- Waiting for the contact's answer -->

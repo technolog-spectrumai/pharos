@@ -18,8 +18,8 @@ const keyringAllowed = getBuildConfig().keyring_enabled;
 
 // P2P (direct peer transfer) vs Local (passphrase-protected files encrypted on
 // this device) vs Devices (the user's OWN linked devices: per-file push/pull +
-// pairing — never a friend). Server-stored files moved to the top-level Cloud
-// tab (cloud.md) together with the rest of the server surface.
+// pairing — never a friend). There is no server-backed tab: Enigma stores
+// nothing off-device.
 type FilesTab = "p2p" | "local" | "devices" | "keys";
 const activeTab = ref<FilesTab>("p2p");
 </script>

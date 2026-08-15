@@ -18,23 +18,6 @@ test.describe("Enigma shell (serverless P2P)", () => {
     await expect(page.getByRole("button", { name: "Create", exact: true })).toBeVisible();
   });
 
-  test("Cloud tab starts switched off: explanation only, switch lives in Settings", async ({ page }) => {
-    // Browser-fallback build is cloud-capable, but the runtime master switch
-    // defaults OFF — no login form, no file browser, nothing server-shaped.
-    await page.goto("/");
-    await page.getByRole("link", { name: "Cloud" }).first().click();
-    await expect(page.getByTestId("cloud-off-card")).toBeVisible();
-    await expect(page.getByTestId("cloud-settings-link")).toBeVisible();
-    await expect(page.getByTestId("cloud-knob")).toHaveCount(0);
-    await expect(page.getByPlaceholder("Username")).toHaveCount(0);
-    // The switch is in Settings → Connections, off, beside the network toggles.
-    await page.getByRole("link", { name: "Settings" }).first().click();
-    await page.getByRole("button", { name: "Connections" }).first().click();
-    const knob = page.getByTestId("cloud-knob");
-    await expect(knob).toBeVisible();
-    await expect(knob).toHaveAttribute("aria-checked", "false");
-  });
-
   test("switches the UI to Polish via the language picker", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: "Settings" }).first().click();

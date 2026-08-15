@@ -61,7 +61,7 @@ pub(crate) fn ensure_enabled() -> Result<(), String> {
 }
 
 /// True in Tor-exclusive mode, where iroh (and therefore every DHT function)
-/// is torn down. Mirrors cloud.rs's gate of the same name.
+/// is torn down.
 fn tor_exclusive(app: &AppHandle) -> bool {
     let state = app.state::<crate::AppConfigState>();
     match crate::active_config(&state) {
@@ -81,8 +81,7 @@ fn tor_exclusive(app: &AppHandle) -> bool {
 ///
 /// Tor mode returns false unconditionally: the DHT rides the iroh endpoint,
 /// which Tor-exclusive mode shuts down, and a pkarr record would publish a
-/// relay address this profile is deliberately not using. The server-side
-/// directory (aster / cloud rendezvous) is the discovery path over Tor.
+/// relay address this profile is deliberately not using.
 pub fn discovery_enabled(app: &AppHandle) -> bool {
     if !crate::build_config::dht::ENABLED {
         return false;

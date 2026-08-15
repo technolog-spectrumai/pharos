@@ -18,8 +18,3 @@ export const MAP_PIN_COLORS = [
 ] as const;
 
 export const MAP_PIN_DEFAULT_COLOR = MAP_PIN_COLORS[0];
-
-/** Beacon (server-share) accent — teal, deliberately outside MAP_PIN_COLORS
- *  and the shared-layer colours so a server share never reads as a local pin
- *  or a room share. Not offered in the editor; it never travels in a payload. */
-export const BEACON_COLOR = "#0d9488";

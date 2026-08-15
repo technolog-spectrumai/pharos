@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from "vue";
-import { useRouter, useRoute, RouterLink } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import EnigmaProfileView from "./EnigmaProfileView.vue";
-import CloudEnableCard from "../components/cloud/CloudEnableCard.vue";
-import { useCloudStore } from "../stores/cloud";
 import { useNetworkStore } from "../stores/network";
 import { storeToRefs } from "pinia";
 import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n";
@@ -73,7 +71,6 @@ defineProps<{ darkMode: boolean }>();
 // Compile-time build config (fetched at boot): allow flags decide which
 // sections exist at all; the clamps drive the number inputs' min/max.
 const buildCfg = getBuildConfig();
-const cloudAllowed = buildCfg.cloud_allow_connections;
 // The DHT needs both: its own edition gate, and the hosted discovery it rides on.
 const dhtAllowed = buildCfg.p2p_allow_hosted_relays && buildCfg.dht_enabled;
 
@@ -179,10 +176,6 @@ async function saveDhtPresencePoll() {
   dhtPresencePollSaved.value = true;
   setTimeout(() => { dhtPresencePollSaved.value = false; }, 1500);
 }
-
-// The Cloud master switch card (CloudEnableCard) reads this store but does not
-// hydrate it — this view's onMounted does.
-const cloudStore = useCloudStore();
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
 const connectTimeoutSecs = ref(60);
@@ -481,8 +474,6 @@ onMounted(async () => {
     dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
     dhtPresencePollSecs.value = await getDhtPresencePollSecs();
   }
-  // Hydrate the cloud store (enabled knob + login state) for CloudEnableCard.
-  void cloudStore.init();
   idleLockMins.value = await getIdleLockMins();
   lockOnHide.value = await getLockOnHide();
   if (dhtAllowed) void refreshDhtStatus();
@@ -858,9 +849,6 @@ async function clearSelectedOfflineData() {
         </div>
       </div>
     </OyaCard>
-
-    <!-- The Enigma Cloud server card moved to the top-level Cloud tab (cloud.md)
-         — the single home for everything server-related. -->
     </template>
 
     <!-- Data tab — offline mode + local data profiles -->
@@ -941,9 +929,8 @@ async function clearSelectedOfflineData() {
          p2p.allow_hosted_relays, in both cases because Rust reports the DHT
          disabled regardless of the kv toggle. Also HIDDEN in Tor mode: the
          DHT rides the iroh endpoint, which Tor-exclusive mode shuts down, so
-         there is nothing here to decide — the server directory (Cloud
-         rendezvous) is the discovery path there. Every other DHT surface in the
-         app points at THIS card, so they all hide on the same condition. -->
+         there is nothing here to decide. Every other DHT surface in the app
+         points at THIS card, so they all hide on the same condition. -->
     <OyaCard v-if="dhtAllowed && !useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
@@ -1048,27 +1035,6 @@ async function clearSelectedOfflineData() {
         </div>
       </template>
     </OyaCard>
-
-    <!-- Enigma Cloud master switch (cloud.md D2/D4) — the one control that
-         decides whether this app may talk to a server at all. Lives here with
-         the other network toggles; the server address, sign-in and connection
-         route live in the Cloud tab. Rust enforces the same kv flag on every
-         cloud/beacon/aster request, so off really means zero bytes. -->
-    <template v-if="cloudAllowed">
-      <CloudEnableCard :dark-mode="darkMode" />
-      <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3">
-        <p class="text-sm opacity-70">{{ $t('config.cloudTabPointer') }}</p>
-        <RouterLink
-          to="/cloud?tab=connection"
-          class="inline-flex items-center gap-2 text-sm font-semibold text-accent-light transition hover:opacity-70 dark:text-accent-dark"
-          data-testid="config-cloud-link"
-        >
-          <font-awesome-icon icon="cloud" />
-          {{ $t('nav.cloud') }}
-          <font-awesome-icon icon="chevron-right" class="text-xs opacity-60" />
-        </RouterLink>
-      </OyaCard>
-    </template>
 
     <!-- Connection timeout — room create/join give up (and the join modal auto-closes
          after connecting) once this many seconds elapse. Applies to Tor AND iroh. -->

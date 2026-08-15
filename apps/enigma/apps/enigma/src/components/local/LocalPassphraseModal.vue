@@ -11,7 +11,7 @@
 // The last two don't map to a fixed command — what "submit" does depends on the editor's
 // state — so the parent supplies it as `action`. A rejected action keeps the modal open
 // with its message inline, same as a wrong passphrase anywhere else.
-// Modeled on CloudLoginModal + the App.vue vault gate. The passphrase is never stored;
+// Modeled on the App.vue vault gate. The passphrase is never stored;
 // on success we emit the result and let the parent update its record.
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

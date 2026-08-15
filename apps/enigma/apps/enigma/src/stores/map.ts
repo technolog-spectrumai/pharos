@@ -6,7 +6,7 @@
 // isTauri(); pins ride the kv layer (rakotis mapData) and therefore
 // degrade to localStorage in the browser like every other feature.
 //
-// Wire conventions (mirroring cloud.ts):
+// Wire conventions:
 //   invoke args    → camelCase (Tauri v2 maps minZoom → min_zoom)
 //   map_* results  → camelCase (the Rust structs opt into rename_all)
 //   file_* results → snake_case (offer_id, …) — file_xfer.rs structs don't
