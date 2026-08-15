@@ -292,7 +292,6 @@ def _validate_network(
             )
         )
 
-    _check_range(issues, cfg, "network.max_redirects", 1, 20)
     _check_range(issues, cfg, "network.tor_write_timeout_secs", 1, 600)
     _check_range(issues, cfg, "network.tor_handshake_timeout_secs", 1, 600)
 

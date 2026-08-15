@@ -147,11 +147,16 @@ only. The whole route half — the `map:routes` kv namespace, `MapRoute` /
 `MapRouteShare` and their validators, the draw-a-polyline UI, the Routes sidebar
 card and the `map_route` chat card — is parked under
 `limbo/frontend/map-routes/` with a restore checklist. Nothing in Rust changed
-(there was never any route code there), and **beacon** zone/route publishing is
-untouched: it drives the same draft-polyline engine, which stayed. Removing the
-`map_route` receive arm is wire-safe by construction — an incoming route from an
-older peer validates to `null` and is dropped, the behaviour the forward-
-compatibility test already pins.
+(there was never any route code there). Removing the `map_route` receive arm is
+wire-safe by construction — an incoming route from an older peer validates to
+`null` and is dropped, the behaviour the forward-compatibility test already pins.
+
+*Addendum (2026-08).* D6b originally kept the draft-polyline engine alive because
+**beacon** zone/route publishing still drove it. Beacon was deleted with Enigma
+Cloud (technology.md §16), so nothing drives it any more and it left `MapPanel`
+with the rest of the beacon surface. The route half is therefore fully out of the
+shipped map; restoring `limbo/frontend/map-routes/` now means restoring the draw
+engine along with it.
 
 **D9 — Offline style assets are bundled, not fetched.** MapLibre needs a style
 + glyphs (+ sprites) — normally CDN-loaded, which would be a silent clearnet
@@ -480,6 +485,14 @@ Status: PLAN approved by Janek 2026-07-19. Supersedes the (never-implemented)
 and free of direct map-download APIs — a standalone tool owns all tile-server
 contact; the app only ever imports files.
 
+> **Reading Part I after this point.** Part I's remote-tile design — the
+> `RangeHttpBackend`, the download task machinery, and everything it borrowed
+> from `cloud.rs` (`connect`/`send_request`, the WebPKI/Tor transport policy,
+> `MAX_REDIRECTS`, `CLOUD_DISABLED`) — was deleted here and never shipped. Those
+> references are doubly dead as of 2026-08: `cloud.rs` itself no longer exists
+> (technology.md §16). Part I is kept as the design record that led to the pivot,
+> not as a description of any code.
+
 ## Decisions (Q&A 2026-07-19)
 
 - **D-II.1 — Remove ALL remote-fetch machinery from the app**: commands
@@ -495,9 +508,11 @@ contact; the app only ever imports files.
 - **D-II.3 — Tool UX = form, no embedded map**: source URL, optional Nominatim
   town lookup (fills the bbox), manual W/S/E/N + zoom range, live tile count,
   progress + cancel. No QtWebEngine.
-- **D-II.4 — Distribution fully manual** (USB / own Enigma Cloud via Files
-  tab / any channel); the BLAKE3-verified `map_region_import` stays the single
-  entry point. No in-app Cloud→Maps coupling.
+- **D-II.4 — Distribution fully manual** (USB / the in-app P2P region share /
+  Files→Devices sync between your own devices / any channel); the
+  BLAKE3-verified `map_region_import` stays the single entry point. The "own
+  Enigma Cloud via Files tab" channel named here in 2026-07 went with the cloud
+  client in 2026-08 (technology.md §16); the decision itself is unchanged.
 
 ## Part A — app simplification
 
@@ -645,15 +660,14 @@ already holds; `tile_in_bbox` stays private.
 
 ## Accepted limitations
 
-- **Tor mode has no location sharing at all** (2026-07-27, cloud.md D9): the
-  *Share this spot* button and the whole Beacon surface are hidden, and
-  `/beacon/all` is never fetched. Hiding your network location while
-  broadcasting a geographic one is incoherent. Only SENDING is blocked —
-  locations a peer already shared still render, because receiving leaks
-  nothing and dropping them would silently lose data a peer sent. The flag is
-  written into `stores/beacon.ts` by the Maps views (which already read
-  `getUseTor`) rather than fetched in the store, so nothing races the store's
-  own first request.
+- **Tor mode cannot SEND a location** (2026-07-27; the Beacon half of this rule
+  went with Enigma Cloud in 2026-08 — technology.md §16). `MapPanel` reads
+  `getUseTor` on mount and computes `canShareLoc = canShare && !torMode`, so the
+  *Share this spot* button is disabled while Tor is on. Hiding your network
+  location while broadcasting a geographic one is incoherent. Only SENDING is
+  blocked — locations a peer already shared still render, because receiving leaks
+  nothing and dropping them would silently lose data a peer sent. Pins, routes
+  and region sharing are unaffected: they are not statements about where you are.
 
 - **Clock skew.** `at` is the sender's clock. A mildly-future `at` fails *open*
   (visible); past `MAP_LOC_MAX_FUTURE_SKEW_MS` (24 h) the share is ignored, so a

@@ -27,7 +27,6 @@ CLAMP_FIELDS = ("default", "min", "max")
 NETWORK_KEYS = (
     "max_frame_bytes",
     "onion_port",
-    "max_redirects",
     "tor_write_timeout_secs",
     "tor_handshake_timeout_secs",
 )
@@ -211,7 +210,6 @@ network:
   # joiners always use the ticket's value; changing it affects new tickets only.
   onion_port: $network_onion_port
   # Local-only tuning (no wire impact).
-  max_redirects: $network_max_redirects
   tor_write_timeout_secs: $network_tor_write_timeout_secs
   tor_handshake_timeout_secs: $network_tor_handshake_timeout_secs
 """

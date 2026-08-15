@@ -35,11 +35,12 @@ product line and how an edition is built).
   a short **room code**, a **Contacts** tab with presence, and a nickname
   directory — all over the community-run BitTorrent Mainline DHT. §12.
 - **Beyond chat**: 1:1 **voice calls**, P2P **file transfer**, per-file
-  **local locking**, a room **calendar** (meetings + polls), and an optional
-  **Enigma Cloud** client for the user's *own* self-hosted server. §10.
+  **local locking**, a room **calendar** (meetings + polls), offline **maps**,
+  and **multi-device linking** over pure P2P. §10.
 - **Build policy is compiled in**: `build_config.yaml` bakes allow flags
-  (cloud, hosted relays), crypto declarations, and setting defaults/clamps into
-  the binary at build time. See [build.md](build.md).
+  (hosted relays, device linking), per-feature kill switches, crypto
+  declarations, and setting defaults/clamps into the binary at build time. See
+  [build.md](build.md).
 
 | Package | What it is |
 |---------|-----------|
@@ -125,7 +126,7 @@ npm run build -w enigma     # vue-tsc + vite build (frontend)
 npm test                    # all workspaces
 npm test -w rakotis         # transport bridge, storage, i18n, localDb
 npm test -w enigma          # chat store bootstrap, components, i18n
-( cd apps/enigma/src-tauri && cargo test )   # tickets, DHT, Tor, kv, cloud, …
+( cd apps/enigma/src-tauri && cargo test )   # tickets, DHT, Tor, kv, maps, …
 python apps/enigma/e2e.py   # Playwright smoke tier (no backend — there is none)
 ```
 

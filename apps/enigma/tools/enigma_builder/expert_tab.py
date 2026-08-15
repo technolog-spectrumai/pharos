@@ -41,7 +41,6 @@ NETWORK_FIELDS: tuple[tuple[str, int, int, str], ...] = (
         "Virtual onion port. Rides inside each ticket, so it affects new "
         "tickets only.",
     ),
-    ("max_redirects", 1, 20, "HTTP redirect-follow cap."),
     ("tor_write_timeout_secs", 1, 600, ""),
     ("tor_handshake_timeout_secs", 1, 600, ""),
 )

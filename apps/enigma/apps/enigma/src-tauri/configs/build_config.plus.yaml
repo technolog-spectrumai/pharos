@@ -10,7 +10,7 @@
 #   is the same as Light's — QR/ticket, then reconnect by saved NodeId over n0
 #   discovery — so a call starts from a ticket or from a room member.
 # OUT: the DHT (no join-by-room-code, nickname directory or presence, hence no
-#      call-by-nickname), contacts, device linking, calendar, maps, Cloud.
+#      call-by-nickname), contacts, device linking, calendar, maps.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -106,6 +106,5 @@ settings:
 network:
   max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition
   onion_port: 9999
-  max_redirects: 5
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30

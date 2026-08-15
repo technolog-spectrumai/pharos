@@ -31,10 +31,11 @@ Enigma is a **serverless, peer-to-peer, end-to-end-encrypted chat**, packaged as
 Design principles:
 
 - **No app server.** There is no relay WebSocket, no REST gateway, no login, no
-  server-side directory. Enigma operates no backend of its own. (This is *not* the
-  same as "no infrastructure" — see [§6](#6-is-it-truly-p2p-intermittent-nodes).
-  The optional **Enigma Cloud** feature talks to the *user's own self-hosted*
-  faros server, never to one of ours.)
+  server-side directory. Enigma speaks to no application server at all — not one of
+  ours, and since the 2026-08 removal of Enigma Cloud ([§16](#16-history-the-serverless-rework))
+  not the user's own either. The app makes no outbound HTTP request of any kind.
+  (This is *not* the same as "no infrastructure" — see
+  [§6](#6-is-it-truly-p2p-intermittent-nodes).)
 - **Rendezvous by QR code.** Two people meet when one shares a QR code carrying the
   room's *ticket*; scanning it (camera or image) or pasting it joins the room. With
   the opt-in DHT toggle ([§12](#12-dht-discovery-mainline-rendezvous--contacts)), a
@@ -53,8 +54,8 @@ Design principles:
   identity, so multiple instances can run side-by-side.
 - **Compile-time build policy.** A build config
   ([§15](#15-config--sources-of-truth), [build.md](build.md)) bakes in the allow
-  flags (cloud, hosted relays), crypto declarations, feature defaults, and setting
-  clamps — a restricted build is a *different binary*, not a runtime toggle.
+  flags (hosted relays, device linking), crypto declarations, feature defaults, and
+  setting clamps — a restricted build is a *different binary*, not a runtime toggle.
 
 ### Layered architecture
 
@@ -70,7 +71,7 @@ Design principles:
 │   • services       — appStorage (settings/build config), contacts, │
 │                      localDb (kv), i18n                            │
 ├──────────────────────────────────────────────────────────────────┤
-│  Tauri IPC  (invoke commands + realtime://* file://* cloud://* …) │
+│  Tauri IPC  (invoke commands + realtime://* file://* vox://* …)   │
 ├──────────────────────────────────────────────────────────────────┤
 │  apps/enigma/src-tauri  (Rust)                                     │
 │   • p2p_iroh.rs  — iroh-gossip transport (default)                 │
@@ -79,11 +80,11 @@ Design principles:
 │   • p2p_invite.rs — direct room invites (dedicated ALPN)           │
 │   • realtime.rs  — realtime_* gateway (gates + transport dispatch) │
 │   • vault.rs     — protasius integration (encrypted store, §13)    │
-│   • cloud.rs     — Enigma Cloud client (user's own faros server)   │
+│   • maps.rs      — offline PMTiles regions, pins, shares (§10)     │
 │   • file_xfer.rs · vox.rs — P2P file transfer · 1:1 voice calls    │
 │   • local_lock.rs — per-file passphrase locking (ENIGLOCK)         │
 │   • lib.rs       — mls_* commands, profiles, build_config, audio   │
-│   • tor.rs       — outbound Arti client (shared by cloud + p2p_tor)│
+│   • device_link.rs — linked devices (pairing, sync, file push)     │
 ├───────────────┬───────────────────┬──────────────────────────────┤
 │ cryptorotor/  │ protasius         │ iroh 0.98 + iroh-gossip 0.98  │
 │ rotor_core    │ (encrypted store) │ (QUIC P2P, n0 relay+discovery)│
@@ -115,9 +116,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Media capture | cpal (microphone + speaker) + hound (WAV) for native voice notes; cpal + rustfft for live voice calls |
 | Voice calls (Vox) | 1:1 real-time voice over iroh QUIC datagrams (ALPN `enigma/vox/0` on the main endpoint); G.711 μ-law audio, per-call MLS-keyed ChaCha20-Poly1305, rustfft equalizer |
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
-| Enigma Cloud (optional) | HTTP client (`cloud.rs`) to the user's own self-hosted faros server (telegraph auth + vault file storage), direct TLS (WebPKI) or via Tor; can be compiled out via build config |
-| Beacon (optional) | `beacon.rs` riding the cloud.rs transport + session: expiring location shares (pin/zone/route, mandatory TTL) on the same faros server, rendered on the Maps tab; present only when cloud **and** maps are both in the build |
-| Cloud directory + invite mailbox (optional) | `aster.rs` riding the cloud.rs transport + session: register this device's NodeId, resolve peers by faros username, and exchange HPKE-sealed room invites through a server mailbox. **No address is published or looked up** — the relay publisher and the stacked `AddressLookup` were withdrawn 2026-07-27, leaving no periodic server traffic. Present when the cloud client is in the build (rdv.md, cloud.md) |
+| Room invites | Peer-to-peer only (`p2p_invite.rs`, ALPN `enigma/invite/0`): a live offer/accept handshake carrying a fresh ticket + DHT room code, so both peers must be online at once. Everything else is out-of-band — the QR code, the copyable ticket string, or a DHT room code. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [build.md](build.md)) |
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
@@ -149,10 +148,8 @@ which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
 | `pmtiles` | 0.23 | PMTiles v3 read/write for the Map tab: mmap'd local region blobs (`maps.rs`; minimal features — no reqwest/S3/zstd). The app never fetches tiles — packages come from `tools/map_packager` |
 | `data-encoding` | 2 | BASE32 (no-pad) ticket/code text encoding |
 | `bytes`, `futures-lite`, `anyhow` | — | Gossip stream plumbing, error handling |
-| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor: outbound client (`tor.rs`) **and** `onion-service-service` hosting for the onion transport (`p2p_tor.rs`) |
+| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor, used **only** by the peer-hosted onion transport (`p2p_tor.rs`): `onion-service-service` to host a room's own onion, `onion-service-client` to dial the captain's. There is no outbound HTTP client — it left with Enigma Cloud ([§16](#16-history-the-serverless-rework)) |
 | `tor-hsservice`, `tor-cell`, `safelog` | 0.43 / 0.8 | Onion-service hosting types (launch/config, accept relay cell, unredacted `.onion` display) |
-| `hyper`, `hyper-util`, `http-body-util`, `tokio-rustls` | — | HTTP plumbing (outbound `tor.rs` client + `cloud.rs`) |
-| `webpki-roots` | 1 | Mozilla root bundle for direct clearnet cloud TLS verification |
 | `tokio` | 1 | Async runtime |
 | `cpal` | 0.15 | Microphone capture (native voice notes) + duplex capture/playback for voice calls (`vox.rs`) |
 | `hound` | 3 | WAV encoding of recordings |
@@ -209,15 +206,15 @@ runtime check (in a plain browser there is no backend — chat is inert by desig
 - **`invoke` (commands):** `realtime_*` (transport — dispatched to iroh or Tor),
   `mls_*` (crypto), `app_*` (profiles/runtime/airplane/use-Tor/build-config),
   `vault_*` (encrypted-store lifecycle), `kv_*` (sealed kv), `dht_*` (discovery),
-  `file_*` (P2P transfer), `vox_*` (calls), `cloud_*` (Enigma Cloud),
-  `beacon_*` (server location shares on the cloud transport),
+  `file_*` / `filesync_*` (P2P transfer, device file sync), `vox_*` (calls),
   `invite_*` (direct room invites), `audio_*` (recording), `fs_*` (local file IO),
-  `local_*` (per-file locking), `tor_*`.
+  `local_*` / `keyring_*` (per-file locking), `map_*`, `devlink_*`, `peer_*`,
+  `tor_*`.
 - **Events (`listen`):** `realtime://message` `{room, payload}` and
   `realtime://status` `{room, state, peers, peer_id?, reason?}` (both transports
   emit identical shapes, so the frontend is transport-agnostic); plus
-  `file://progress|done|error`, `cloud://progress|done|error`,
-  `invite://incoming|resolved`, and `vox://*` (call state + spectrum).
+  `file://progress|done|error`, `invite://incoming|resolved`,
+  `devlink://*`, and `vox://*` (call state + spectrum).
 
 ### Sending a text message (outbound)
 
@@ -279,8 +276,8 @@ All app state persists as **sealed values** in the per-profile protasius keyspac
 - **Profile / PII / feature switches** → ns `profile`, key `state`
   (`AppProfileState`: offline, use_tor, stable_onion, offline profiles).
 - **User settings** → kv ns `p2p:settings` (connect timeout, DHT toggles/cadences,
-  max file size, meeting reminder), ns `cloud:settings` / `cloud:auth`,
-  ns `contacts`, ns `files:local` (locked-file index), ns `dht` (room secrets).
+  max file size, meeting reminder), ns `contacts`,
+  ns `files:local` (locked-file index), ns `dht` (room secrets).
 - The only plaintext artifact is `vault.json` (the vault header: salt + wrapped
   DEK — reveals nothing without the passphrase).
 
@@ -537,7 +534,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
 | Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
-| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. The optional **Beacon** layer follows the same rule: it publishes only a tapped point / drawn shape, only on an explicit Publish press, only to the **user's own** faros server, always with a **mandatory expiry** (15 min / 1 h / 6 h presets) after which the server deletes it; fetched beacon data is volatile (never persisted at rest) and refresh is manual + on-open, never polled. Nothing is ever shared automatically or in the background. |
+| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. That share is the app's **only** location path — it goes to room members over the encrypted seam and nowhere else, since the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history-the-serverless-rework)). Nothing is ever shared automatically or in the background. |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
@@ -599,13 +596,15 @@ least-serious) so they can be addressed:
    `fs_read_text_file` / `fs_write_text_file` are invokable with **unrestricted
    absolute paths** (no scope/allowlist). → *Add a CSP, gate permission requests, and
    scope or remove the raw FS commands.*
-9. **`tor.rs` clearnet-TLS footgun.** `tor.rs` (the outbound Arti client, shared by
-   `p2p_tor.rs` and `cloud.rs`) contains an `AcceptAnyServerCert` TLS verifier (no
-   name/CA validation). It is used deliberately for `.onion` (self-authenticating)
-   and loopback cloud hosts; real clearnet cloud hosts get full WebPKI verification
-   (`webpki-roots`). The onion transport carries plaintext frames over the Tor
-   circuit — no TLS — so it doesn't touch this verifier. Keep it away from any new
-   clearnet path.
+9. ~~**`tor.rs` clearnet-TLS footgun.**~~ **Resolved by deletion** — the outbound
+   Arti HTTP client (`tor.rs`) and its `AcceptAnyServerCert` verifier (no name/CA
+   validation) went with Enigma Cloud in 2026-08
+   ([§16](#16-history-the-serverless-rework)), taking `hyper` and `webpki-roots`
+   with them. The app now makes no outbound HTTP request at all, so there is no
+   clearnet TLS surface to get wrong. The onion transport carries plaintext frames
+   over the Tor circuit — no TLS layer — and arti is reached only through
+   `p2p_tor.rs`. *If a future feature needs an HTTP client, it must not resurrect a
+   permissive verifier alongside a clearnet path.*
 10. **Minor:** `openmls_rust_crypto` is built with the `test-utils` feature in
     production; the untested orchestration core (`useChatChannel`/`crypto` have no unit
     tests); 16 MiB gossip frames are an amplification consideration.
@@ -632,10 +631,10 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   nickname / saved contact where the build has the DHT and Contacts; live
   spectrum equalizer; incoming-call nav dot.
 - **Files** (`EnigmaFilesView`) — four sub-tabs: **P2P** (offer/accept transfers
-  with progress, max-size guard), **Cloud** (the user's own Enigma Cloud server —
-  login/register, browse buckets/directories, upload/download/move/delete; hidden
-  in cloud-disabled builds), **Local** (passphrase-lock files in place, ENIGLOCK),
-  **Devices** (`DevicesTab` — the user's OWN linked devices, never a room peer):
+  with progress, max-size guard), **Local** (passphrase-lock files in place,
+  ENIGLOCK), **Keys** (`KeyringPanel` — one passphrase over many locked files,
+  gated by `keyring.enabled`), and **Devices** (`DevicesTab` — the user's OWN
+  linked devices, never a room peer):
   an always-visible list of linked devices (kind, this-device badge, per-device
   online dot, last sync, unlink) over two sub-sub-tabs — **Files**, a shared list
   of allowed files with checkboxes, Select all and explicit **Push**/**Pull**
@@ -654,12 +653,6 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   import/export region files, private pins + hand-drawn routes (sealed kv), and
   room sharing — pins/routes as compact MLS chat cards ("Open in Maps" is always an
   explicit action), region files over the P2P file-transfer path (never MLS).
-  Builds with Enigma Cloud also get the **Beacon** sidebar card + map layer
-  (`beacon.rs`, `stores/beacon.ts`, `BeaconCard`/`BeaconPublishModal`): expiring
-  location shares (one live pin per user, zones, routes — teal, distinct from
-  local pins and room shares) on the user's own faros server, published from map
-  taps with a mandatory TTL, fetched on open / explicit refresh, plus a
-  "Near here" viewport query (`/beacon/near`, distance-sorted).
   One region can be **activated** (Regions → Activate): served first for tiles
   (others still fill), badged in the list + a chip on the canvas, the view opens
   spread to it, and the choice persists sealed per profile (device-local).
@@ -686,7 +679,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
 - **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; "My identity" NodeId QR;
   connection timeout; max file size; meeting reminder; DHT discovery + cadences +
-  status probe; Enigma Cloud server URL), **Connections** (use-Tor, stable-onion),
+  status probe), **Connections** (use-Tor, stable-onion),
   **Data** (airplane mode; data profiles; reset passphrase; clear data).
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
@@ -784,9 +777,11 @@ presence clears its dead flag; if lowest, captaincy hands back. The ★ badge
 **Not in Tor mode.** The DHT rides the iroh endpoint, which Tor-exclusive mode
 shuts down, so `discovery_enabled` / `nick_publish_enabled` return false there
 regardless of the toggle — and a nickname claim would otherwise publish a relay
-address the profile is deliberately not using. Over Tor the peer directory is
-the user's own faros server (Cloud rendezvous, rdv.md): its Contacts surfaces
-are hidden and the Settings toggle disables with the reason.
+address the profile is deliberately not using. There is **no fallback directory**:
+the Contacts surfaces that depend on discovery are hidden and the Settings toggle
+disables with the reason. Over Tor, peers are reached by ticket/QR alone. (Until
+2026-08 the fallback was a lookup on the user's own faros server; that client is
+gone — [§16](#16-history-the-serverless-rework).)
 
 **Pro only.** `dht.enabled: false` (Light and Plus — pland.md) short-circuits
 `discovery_enabled` / `nick_publish_enabled` **ahead of the kv read**, so a
@@ -864,7 +859,12 @@ cost. Topic collision on `blake3(name)` is unchanged from ticket rooms.
 
 **Direct room invites** ride a dedicated ALPN (`enigma/invite/0`, `p2p_invite.rs`):
 an offer/accept handshake whose payload carries a fresh ticket + the DHT room code,
-surfaced as `invite://incoming` / `invite://resolved`.
+surfaced as `invite://incoming` / `invite://resolved`. Both peers must be **online
+at the same time** — the handshake is a live QUIC dial with nothing to hold a
+message in the meantime. Since the sealed server mailbox was deleted
+([§16](#16-history-the-serverless-rework)) there is no store-and-forward path at
+all, so inviting someone who is away means handing them a QR code, a ticket string
+or a room code out of band.
 
 ---
 
@@ -954,12 +954,13 @@ Settings → "Clear all data".
   `*Row`, `*Sidebar`, `*Drawer`, `*List`.
 - Route views are `Enigma<Domain>View` (`EnigmaChatView`, `EnigmaFilesView`,
   `EnigmaContactsView`, `EnigmaConfigView`, `EnigmaProfileView`, …). Stores are
-  lowercase domain files (`chat.ts`, `user.ts`, `cloud.ts`). Composables are
+  lowercase domain files (`chat.ts`, `user.ts`, `map.ts`). Composables are
   `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
-`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`,
-`invite_*`, `vox_*`, `cloud_*`, `local_*`, `map_*`, `devlink_*`. All registered in the single
+`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `filesync_*`,
+`dht_*`, `invite_*`, `vox_*`, `local_*`, `keyring_*`, `map_*`, `devlink_*`,
+`peer_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -967,13 +968,12 @@ Settings → "Clear all data".
 **Events.** `scheme://path` naming: `realtime://message` and `realtime://status`
 (both transports emit identical names so the frontend is transport-agnostic; a
 single event multiplexes all rooms, the payload carries the room id), plus
-`file://progress|done|error`, `cloud://progress|done|error`,
-`invite://incoming|resolved`, `vox://*`,
+`file://progress|done|error`, `invite://incoming|resolved`, `vox://*`,
 `devlink://request|paired|progress|done|error`.
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `map`,
-`contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `cloud`, `local`,
+`contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `local`,
 `devices`. Interpolation uses single-brace named
 tokens (`{n}`).
 
@@ -1033,8 +1033,10 @@ primitive).
 **Build config (compile-time):**
 [`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
 — baked into the binary by `build.rs` (codegen → `enigma_lib::build_config` consts;
-invalid file = build error — see [build.md](build.md)). Owns: the cloud/hosted-relay
-allow flags, crypto declarations (compile-asserted against rotor_core/gervasius) +
+invalid file = build error — see [build.md](build.md)). Owns: the hosted-relay and
+device-linking allow flags, the per-feature kill switches
+(`calls`/`contacts`/`calendar`/`peers`/`maps`/`dht`/`keyring`),
+crypto declarations (compile-asserted against rotor_core/gervasius) +
 Argon2id costs for new vaults, feature defaults for new profiles, defaults **and
 clamp bounds** of the kv-backed settings, and network constants (frame cap, onion
 port, timeouts). The frontend fetches the relevant subset once at boot
@@ -1054,7 +1056,7 @@ instead of hardcoding.
 | Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` (`com.spectrumaipl.enigma`) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
-| Cloud / hosted-relay allow flags | `build_config.yaml` `cloud.allow_connections`, `p2p.allow_hosted_relays` | Compile-time kill switches: cloud gates all `cloud_*` commands (`CLOUD_DISABLED`) + hides the Cloud UI; relays flips iroh to `RelayMode::Disabled` and forces DHT discovery off |
+| Hosted-relay allow flag | `build_config.yaml` `p2p.allow_hosted_relays` | Compile-time kill switch: flips iroh to `presets::Minimal` + `RelayMode::Disabled` and forces DHT discovery off, leaving direct QUIC and Tor. (`cloud.allow_connections` sat beside it until 2026-08 and no longer exists — [§16](#16-history-the-serverless-rework)) |
 | Feature defaults (tor/stable/dht) | `build_config.yaml` `features:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable) |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
 | DHT kill switch | `build_config.yaml` `dht.enabled` | Compile-time, **Pro only**: `false` removes the Mainline DHT alone (no join-by-room-code, nickname directory or presence) while leaving n0 relays + pkarr intact. Checked ahead of the kv read on both sides, so a stored `"on"` reads as off without being rewritten; `dht_presence`/`dht_publish_nick`/`dht_find_nick`/`dht_apply` error `DHT_DISABLED`; the UI is hidden, not disabled. Requires `p2p.allow_hosted_relays` — build.rs rejects the pair |
@@ -1071,7 +1073,7 @@ instead of hardcoding.
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
-| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs file_xfer **and** cloud streaming. The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
+| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions, Files→Devices). The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
 | PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
@@ -1137,8 +1139,8 @@ relay/aster tests and CI matrix entries.
 **Kept / promoted:** `p2p_iroh.rs` (room = gossip topic = `blake3(name)`; the ticket
 string *is* the QR payload); all `mls_*` commands + `RotorSession` (crypto
 unchanged); the stable-NodeId secret (relocated into `p2p_iroh.rs`); QR
-generate/scan as the primary pairing UX; `tor.rs` + arti; native voice-note
-recording; offline profiles and the airplane switch.
+generate/scan as the primary pairing UX; arti and the Tor plumbing; native
+voice-note recording; offline profiles and the airplane switch.
 
 **Shipped since the rework** (each summarized in this doc):
 - **Tor onion transport** + **captain election/failover** ([§11](#11-tor-onion-transport--captain-election)).
@@ -1146,7 +1148,6 @@ recording; offline profiles and the airplane switch.
 - **Encryption at rest** (gervasius/protasius, [§13](#13-encryption-at-rest-gervasius--protasius)) and per-file locking.
 - **Voice calls (Vox) and P2P file transfer restored** from the parked `limbo/`
   set (both now first-class tabs; `limbo/` retains the restore playbook).
-- **Enigma Cloud** (self-hosted faros client, Files → Cloud).
 - **`rotor_wasm` → toto static handoff** (2026-07-14): cryptorotor lives only in
   this repo; toto consumes a static committed copy of the wasm — no GitLab
   anywhere in toto's path. CI job `rotor:wasm` builds it as a gate. (toto's
@@ -1157,18 +1158,6 @@ recording; offline profiles and the airplane switch.
   imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
   manifest verified), P2P region sharing over file_xfer, pins/routes as MLS chat
   cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
-- **Beacon** (`beacon.rs` on the cloud.rs transport, rakotis `beaconModel`,
-  `stores/beacon.ts`): expiring server-side location shares (live pin / zones /
-  routes with mandatory TTL) on the user's own faros host, rendered as a Maps-tab
-  layer; gated by cloud + maps build flags together (no own switch), volatile
-  only, tap-published (see beacon.md).
-- **Cloud directory + invite mailbox** (`aster.rs`, rdv.md, cloud.md): the
-  aster directory on the Enigma Cloud substrate — username → NodeId lookups
-  (Contacts search and the Cloud tab's invite picker) plus HPKE-sealed room
-  invites left in a server mailbox. Address publishing and the stacked
-  `AddressLookup` were removed on 2026-07-27, so the server never learns where
-  a device can be reached and nothing runs on a timer. Optional by contract;
-  serverless behavior is byte-identical when unused.
 - **Multi-device (linked devices)** (`device_link.rs` + rakotis `useDeviceSync`,
   plan + decisions in [sync.md](sync.md)): QR pairing streams an E2EE one-shot
   bundle (rooms/tickets, contacts, calendar, settings subset, personas, chat
@@ -1176,6 +1165,50 @@ recording; offline profiles and the airplane switch.
   (`user#dev-xxxxxxxx`, grouped by user in rosters) and ongoing catch-up rides a
   hidden `devlink-…` gossip room gated by a linkKey HMAC. Chat history is now
   persisted per room (sealed `chat:log` kv) so timelines survive restarts.
+
+### Removed — Enigma Cloud (2026-08, branch `cleanup_1408`)
+
+Enigma Cloud was the client for the user's *own* self-hosted faros/toto server:
+`cloud.rs` (HTTP + telegraph auth + vault file storage), `aster.rs` (username →
+NodeId directory and the HPKE-sealed invite mailbox), `beacon.rs` (expiring
+server-side location shares on the Maps tab), `invite_seal.rs`, `tor.rs` (the
+outbound Arti HTTP client, used by nothing else), the Cloud tab and its Vue
+components, `stores/cloud.ts` / `stores/beacon.ts`, rakotis `beaconModel.ts`, the
+`cloud.allow_connections` build gate in `build.rs` and all five `build_config`
+YAMLs, and the Builder tool's Cloud checkbox — about 7,200 lines of feature code,
+≈11,400 counting its tests, i18n keys and fixtures.
+
+**What the removal buys.** Enigma Cloud was the only path by which the app spoke
+to an application server, and it carried a second architecture to do it: an HTTP
+stack (`hyper`, `tokio-rustls`, `webpki-roots`), a session and auth model, a
+server-side directory, and a permissive TLS verifier
+([§9](#9-security--privacy-considerations) item 9). All of that is gone, which
+makes §1's "no app server" literal rather than qualified — there is no
+server-speaking code left to audit, no login, and no outbound HTTP request of any
+kind. The cost is real and is listed below: offline invite delivery and server
+file storage had no P2P equivalent and were not replaced.
+
+**What it means in practice, and what was NOT touched:**
+
+- **Room invites are out-of-band only.** The QR code, the copyable ticket string
+  and the DHT room code. `p2p_invite.rs` still delivers a direct invite, but both
+  peers must be online at once — the sealed mailbox that could hold an invite for
+  an absent peer is gone, and there is no store-and-forward replacement.
+- **Contacts lost server search.** Finding someone by faros username is gone;
+  the DHT nickname directory ([§12](#12-dht-discovery-mainline-rendezvous--contacts))
+  is the only directory left, and Tor mode now has none at all.
+- **Maps lost the Beacon layer**, but not location sharing: the peer-to-peer
+  *Share this spot* card over the room's MLS seam is untouched (§8, §10, map.md
+  Part IV).
+- **Files lost the Cloud sub-tab.** File *storage* is now local, P2P transfer, or
+  device-to-device sync.
+- **The P2P stack is untouched:** iroh QUIC + gossip, MLS, the peer-hosted onion
+  transport in `p2p_tor.rs` (which never used `tor.rs`), file transfer, device
+  linking, maps and calls all work exactly as before.
+- **Third-party infrastructure still in use, deliberately:** iroh's n0 hosted
+  relays, the Mainline DHT, and Tor's directory authorities
+  ([§6](#6-is-it-truly-p2p-intermittent-nodes)). "No server" has always meant no
+  *application* server; that distinction is unchanged.
 
 ---
 

@@ -6,12 +6,7 @@
 # pland.md; the per-key semantics are documented in ../build_config.yaml, which
 # stays the annotated reference copy.
 #
-# = Plus, PLUS: calendar (meetings + polls), maps, and the Enigma Cloud client
-#   for the user's OWN self-hosted server.
-#
-# Pro is the only edition shipping cloud.allow_connections: true — its users are
-# the ones who deliberately stood up their own infrastructure. The client still
-# talks to nothing until a server is configured in Settings.
+# = Plus, PLUS: calendar (meetings + polls) and maps.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -100,6 +95,5 @@ settings:
 network:
   max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition
   onion_port: 9999
-  max_redirects: 5
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30

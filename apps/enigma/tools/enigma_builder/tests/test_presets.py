@@ -77,10 +77,10 @@ def test_editing_a_gate_lands_on_custom():
 def test_apply_preset_leaves_expert_values_alone():
     model = ConfigModel()
     model.set("settings.idle_lock_mins.default", 7)
-    model.set("network.max_redirects", 9)
+    model.set("network.onion_port", 9)
     model.apply_preset("light")
     assert model.get("settings.idle_lock_mins.default") == 7
-    assert model.get("network.max_redirects") == 9
+    assert model.get("network.onion_port") == 9
 
 
 def test_apply_preset_leaves_identity_alone():
@@ -140,5 +140,5 @@ def test_merge_known_drops_unknown_and_mistyped_keys(canonical):
 
 
 def test_merge_known_does_not_confuse_bool_and_int(canonical):
-    merged = merge_known(canonical, {"network": {"max_redirects": True}})
-    assert merged["network"]["max_redirects"] == canonical["network"]["max_redirects"]
+    merged = merge_known(canonical, {"network": {"onion_port": True}})
+    assert merged["network"]["onion_port"] == canonical["network"]["onion_port"]

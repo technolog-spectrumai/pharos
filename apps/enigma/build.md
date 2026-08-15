@@ -160,9 +160,6 @@ listed. The checked-in defaults reproduce stock behavior exactly.
 What it owns (see the file's comments and [technology.md](technology.md) §15 for
 details):
 
-- `cloud.allow_connections` — `false` builds a binary with no Enigma Cloud at
-  all. Beacon (server location shares on the Maps tab, beacon.md) has no switch
-  of its own: it exists exactly when this **and** `maps.enabled` are both true.
 - `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/DNS discovery
   (and, transitively, the DHT — it rides the same endpoint); direct QUIC
   (tickets) and Tor keep working, but reconnecting to a bare NodeId does not.
@@ -191,7 +188,9 @@ details):
   `tools/map_packager` and imported from the device (see map.md Part II).
   (The `kanban`, `sketch` and `mind` sections were removed on 2026-07-27 when
   those features were parked — `limbo/frontend/*/NOTES.md` carries the exact
-  YAML to paste back.)
+  YAML to paste back. The `cloud` section went in 2026-08 with Enigma Cloud
+  itself; unlike the parked features it was deleted outright, so there is no
+  YAML to restore — see technology.md §16.)
 - `devices.allow_linking` — `false` builds without device linking: no
   Files→Devices tab (pairing + per-file sync), every `devlink_*` command
   errors `DEVLINK_DISABLED`
@@ -215,7 +214,7 @@ an environment variable that `build.rs` reads:
 ```bash
 ENIGMA_EDITION=light ./build_desktop.sh      # basic encrypted chat only
 ENIGMA_EDITION=plus  ./run_dev.sh            # + voice calls (Vox), nothing else
-ENIGMA_EDITION=pro   npm run build:android   # + DHT, contacts, device linking, calendar, maps, peers, cloud
+ENIGMA_EDITION=pro   npm run build:android   # + DHT, contacts, device linking, calendar, maps, peers
 ./build_desktop.sh                           # unset → build_config.yaml (everything on)
 ```
 
@@ -226,8 +225,8 @@ so switching editions always regenerates rather than reusing a cached binary
 (the Rust crate does recompile — expect a full rebuild when you switch).
 
 The dev launchers `run_dev.sh` and `run2.sh` now default to
-`ENIGMA_EDITION=pro` (cloud-capable, so the Cloud tab is exercisable — see
-[cloud.md](cloud.md)); shipped/CI defaults are unchanged, and an explicit
+`ENIGMA_EDITION=pro`, the everything-on edition, so every gated surface is
+exercisable in a dev run; shipped/CI defaults are unchanged, and an explicit
 `ENIGMA_EDITION=…` in the environment still wins.
 
 Editions differ **only** in feature gates; `crypto`, `network` and `settings` are
@@ -458,7 +457,7 @@ adb logcat -s RustStdoutStderr enigma
 npm test                                   # all workspaces
 npm test -w enigma                         # vitest: chat store, components, i18n, …
 npm test -w rakotis                        # vitest: transport bridge, storage, i18n
-( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, cloud, …
+( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, maps, …
 ( cd cryptorotor/gervasius && cargo test ) # at-rest primitives
 ( cd protasius && cargo test )             # encrypted store
 python apps/enigma/e2e.py                  # Playwright smoke tier (no backend — there is none)

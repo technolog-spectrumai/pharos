@@ -30,8 +30,7 @@ transport · P2P file transfer · per-file local locking + the notes and SVG edi
 the encrypted-at-rest vault (passphrase gate, panic code, idle auto-lock,
 airplane mode) · profile + settings + i18n.
 
-**Out:** the DHT, Contacts, voice calls, calendar, maps, Enigma Cloud,
-multi-device linking.
+**Out:** the DHT, Contacts, voice calls, calendar, maps, multi-device linking.
 
 **Who it's for:** the user who wants one thing to work and to be able to explain
 what the app does in a sentence. Also the smallest binary and the smallest
@@ -43,7 +42,7 @@ Light plus exactly one thing: **1:1 voice calls** (the **Vox** tab — `vox`,
 riding the room's MLS group).
 
 **Out:** everything Light is out, minus calls. No DHT, no Contacts, no device
-linking, no calendar/maps/Cloud.
+linking, no calendar, no maps.
 
 **Who it's for:** the user who wants voice without acquiring a directory, a
 contact list, or a second device to keep in sync. Reachability is Light's:
@@ -53,22 +52,24 @@ deliberately no "call a nickname", because there is no nickname directory.
 
 ### Enigma Pro — "the collaboration suite"
 
-Everything. Plus, extended with the discovery layer, the shared-workspace
-features and the optional self-hosted server client.
+Everything. Plus, extended with the discovery layer and the shared-workspace
+features.
 
 **Adds:** **DHT discovery** (ticketless join-by-room-code, the nickname
 directory, presence) · **Contacts** (built on that: presence, nickname search,
 direct room invites with Accept/Decline) · **multi-device linking** (the user's
 own devices converge over pure P2P — no third party) · **Peer sync** (scoped,
 revocable person-to-person links — see [peer.md](peer.md)) · **Calendar**
-(meetings + scheduling polls) · **Maps** (offline region packages) ·
-**Enigma Cloud** (client for the user's *own* self-hosted server).
+(meetings + scheduling polls) · **Maps** (offline region packages).
 
 **Who it's for:** teams and organisations running Enigma as their working
-surface, and the only edition where `cloud.allow_connections` defaults to true —
-the one edition whose users have deliberately stood up their own infrastructure.
-It is also the only edition that touches a public network the user does not
-control (the Mainline DHT), which is the other reason discovery lives here.
+surface. It is the only edition that touches a public network the user does not
+control — the Mainline DHT — which is why discovery, and everything built on it,
+lives here and nowhere else. That is now the *whole* of what distinguishes Pro's
+threat model: until 2026-08 Pro was also the only edition that could talk to a
+server (Enigma Cloud, defaulting on via `cloud.allow_connections`), and that
+client has been deleted from the product entirely (technology.md §16). No
+edition speaks to an application server any more.
 
 ---
 
@@ -91,13 +92,20 @@ control (the Mainline DHT), which is the other reason discovery lives here.
 | **PIN unlock** (keypad re-unlock after idle lock) | ❌ | ❌ | ✅ | `lock.pin_unlock` |
 | **Key ring** (one passphrase, many locked files) | ❌ | ❌ | ✅ | `keyring.enabled` |
 | **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
-| **Enigma Cloud** | ❌ | ❌ | ✅ | `cloud.allow_connections` |
 
 The Kanban board, Sketch board and Mind map were Pro features until 2026-07-27,
 when they were **parked** (no maintenance capacity) — code, tests and docs kept
 under `limbo/frontend/{kanban,sketch,mind}/` with restore checklists. Their
 build-config sections and flags are gone with them; restoring a feature re-adds
 its section, so the matrix would gain its row back.
+
+**Enigma Cloud** — the client for the user's own self-hosted faros server — was a
+Pro row here (gate `cloud.allow_connections`) until 2026-08, when it was
+**deleted**, not parked: no `limbo/` copy, no flag, no YAML to restore
+(technology.md §16). It is the one feature this matrix has lost outright rather
+than gated away, and the reason no edition now contains any code that speaks to
+an application server. Its commercial slot in [price.md](price.md) needs the same
+treatment — see that document's §9.
 
 Two separate gates, easy to confuse:
 
@@ -233,7 +241,7 @@ which the code carries) and reconnects by persisted NodeIds instead.
    running beyond which tabs exist. A line in Settings → About reading the
    already-available build config would be cheap.
 5. **CI matrix.** CI builds the default config only, and `run_dev.sh` defaults
-   to `pro` — both DHT-on, cloud-on, everything-on. Nothing in routine use
+   to `pro` — both DHT-on, everything-on. Nothing in routine use
    exercises a flag-*off* build, so an edition-only regression would ship
    unnoticed; `tests/component/dhtGate.test.ts` is the only standing guard.
    CI should build all three (a config that fails validation is a build failure,

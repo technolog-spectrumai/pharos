@@ -9,7 +9,7 @@
 # IN : P2P MLS chat, QR/ticket pairing, Tor, file transfer, local locked files
 #      + notes, vault / panic code / idle lock / airplane mode.
 # OUT: the DHT (so no join-by-room-code, nickname directory or presence),
-#      contacts, voice calls, device linking, calendar, maps, Enigma Cloud.
+#      contacts, voice calls, device linking, calendar, maps.
 #
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across light/plus/pro — network.max_frame_bytes
@@ -101,6 +101,5 @@ settings:
 network:
   max_frame_bytes: 16777216      # 16 MiB — DO NOT diverge per edition
   onion_port: 9999
-  max_redirects: 5
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30

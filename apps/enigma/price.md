@@ -67,13 +67,13 @@ deliberately not a timesheet of how this repo actually came to exist. For
 valuation, licensing floors and "what would it cost you to build instead", the
 replacement basis is the right one.
 
-Day-rate sensitivity on the full 1,068-day estimate:
+Day-rate sensitivity on the full 967-day estimate:
 
 | Rate | Basis | Total build cost |
 |---|---|---|
-| $400/day | CEE contractor | **$427,000** |
-| $750/day | blended EU senior *(used below)* | **$801,000** |
-| $1,200/day | US/UK senior security engineer | **$1,282,000** |
+| $400/day | CEE contractor | **$387,000** |
+| $750/day | blended EU senior *(used below)* | **$725,000** |
+| $1,200/day | US/UK senior security engineer | **$1,160,000** |
 
 ---
 
@@ -88,18 +88,32 @@ Line counts are real, measured across `src-tauri/src`, `apps/enigma/src`,
 | **Core platform** | 11,731 | 10,874 | 4,602 | 27,207 | 495 | **$371,000** |
 | Multi-device + file sync | 3,163 | 1,228 | 1,843 | 6,234 | 115 | **$86,300** |
 | Maps | 1,426 | 4,670 | 1,210 | 7,306 | 114 | **$85,800** |
-| Enigma Cloud | 2,150 | 2,463 | 1,183 | 5,796 | 101 | **$75,600** |
 | Peer sync | 1,754 | 1,564 | 1,134 | 4,452 | 78 | **$58,200** |
 | Calendar | 0 | 2,320 | 1,540 | 3,860 | 49 | **$36,400** |
 | Vox (1:1 voice calls) | 1,271 | 818 | 302 | 2,391 | 46 | **$34,900** |
 | Contacts + presence | 664 | 1,274 | 755 | 2,693 | 42 | **$31,800** |
 | DHT discovery | 901 | 0 | 548 | 1,449 | 28 | **$21,000** |
-| **Total** | **23,060** | **25,211** | **13,117** | **61,388** | **1,068** | **$801,000** |
+| **Total** | **20,910** | **22,748** | **11,934** | **55,592** | **967** | **$725,400** |
+
+**Enigma Cloud was a ninth row here** — 2,150 sys / 2,463 app / 1,183 test =
+5,796 LOC, 101 days, **$75,600** — until the feature was deleted in 2026-08
+(technology.md §16). The row is gone rather than parked: unlike Kanban/Sketch/Mind
+(§9.5) there is no `limbo/` copy to price back in later. Its numbers are simply
+subtracted above.
+
+**Caveat on the residual.** The deletion also removed code this table counts under
+*other* modules — `tor.rs` and `invite_seal.rs`, the cloud halves of
+`appStorage.ts`, both i18n catalogues and several views (Core platform, ≈1,650
+lines), the beacon layer in `MapPanel` (Maps, ≈550) and the server-search UI
+(Contacts, ≈150). Those rows have **not** been re-measured, so they over-count by
+roughly 2,350 lines — on the order of **$30,000**, about two-thirds of it in Core
+platform and therefore inflating Light and Plus, the rest inflating Pro-only
+modules. Re-run the attribution before quoting §4 as a floor.
 
 What sits in each module:
 
 - **Core platform** — MLS chat and the whole transport stack (`p2p_iroh`,
-  `p2p_tor`, `tor`, `p2p_invite`, `invite_seal`, `realtime`, `file_xfer`), the
+  `p2p_tor`, `p2p_invite`, `realtime`, `file_xfer`), the
   encrypted-at-rest vault and panic code (`vault`, `protasius`), per-file
   locking (`local_lock`), the vendored crypto crates (`rotor_core`,
   `gervasius`), the chat/files/profile/settings UI, the notes and SVG editors,
@@ -110,13 +124,12 @@ What sits in each module:
   allow-list and drift tests on both sides.
 - **Maps** — `maps.rs`, the map UI and share layer, plus the standalone
   `tools/map_packager` region packager, which is a product in its own right.
-- **Enigma Cloud** — `cloud.rs` + `aster.rs` and the Cloud tab: the client for
-  a user's *own* self-hosted server, incl. the invite fan-out and force-Tor path.
 - **Peer sync** — scoped, revocable person-to-person links (`peer.md`).
 - **Calendar** — meetings and scheduling polls. Pure application code, but
   heavily tested (1,540 test lines against 2,320 of implementation).
 - **Vox** — 1:1 voice over the room's MLS group, incl. the audio pipeline.
-- **Contacts + presence** — nickname search, invites, and the presence beacon.
+- **Contacts + presence** — the nickname directory search, direct room invites,
+  and DHT presence.
 - **DHT discovery** — the smallest module and the one with the most leverage:
   it is what makes ticketless room codes and the nickname directory possible.
 
@@ -133,9 +146,9 @@ matters commercially — see §6.
 |---|---|---:|---:|
 | **Light** | Core platform | 27,207 | **$371,000** |
 | **Plus** | Light + Vox | 29,598 | **$406,000** |
-| **Pro** | everything | 61,388 | **$801,000** |
+| **Pro** | everything | 55,592 | **$725,400** |
 
-Note the shape: **Light is 46% of the code but carries 100% of the hard parts.**
+Note the shape: **Light is 49% of the code but carries 100% of the hard parts.**
 Everything a buyer is actually paying for in the security story — MLS, the Tor
 transport, the vault, panic code, at-rest crypto — is in the edition with the
 lowest price. Pro is where the *breadth* is, not where the *difficulty* is.
@@ -173,8 +186,10 @@ donation-funded; Wire and Element sit at $5–9/user/month but are *hosted*
 products where the price buys infrastructure Enigma's users run themselves;
 purpose-built secure-comms suites for government and NGO buyers run to hundreds
 or thousands per seat. Enigma Pro is not a messenger — it is a serverless
-collaboration suite with offline maps, calendar, device sync and a self-hosted
-server client, sold to people who deliberately want no vendor in the path. A
+collaboration suite with offline maps, calendar and device sync, sold to people
+who deliberately want no vendor in the path. Since 2026-08 it does not talk to
+any server, the user's own included, which sharpens rather than weakens that
+pitch. A
 one-off $129 individual / $199-per-seat org price undercuts every hosted
 alternative within roughly 18 months of use, which is the argument to lead with.
 
@@ -202,17 +217,21 @@ Add-ons on top of Light, perpetual, individual:
 | Contacts + presence | $20 | $31,800 | 1,590 |
 | Calendar | $20 | $36,400 | 1,820 |
 | Peer sync | $25 | $58,200 | 2,330 |
-| Enigma Cloud | $30 | $75,600 | 2,520 |
 | Maps | $35 | $85,800 | 2,450 |
 | Multi-device + file sync | $35 | $86,300 | 2,470 |
-| **Light + all eight** | **$224** | | |
-| **Pro bundle** | **$129** | | **−42%** |
+| **Light + all seven** | **$194** | | |
+| **Pro bundle** | **$129** | | **−34%** |
+
+(Enigma Cloud was an eighth add-on at $30. Deleting it took $30 off the
+à-la-carte ceiling, which narrows the Pro bundle discount from 42% to 34% — Pro
+still costs $129 and now contains one module fewer. Whether that is the right
+call is a pricing decision, not a documentation one: see §9.)
 
 The right-hand column is the check on whether these prices are proportionate:
 every module recovers its own build cost within a 1,400–2,500 sale band, so no
 module is quietly subsidising another.
 
-The 42% bundle discount is the point: à-la-carte exists to make Pro look
+The 34% bundle discount is the point: à-la-carte exists to make Pro look
 correctly priced and to serve the buyer who genuinely wants a minimal binary
 (the high-risk user in pland.md's Light pitch, who wants maps but not a
 directory). Do not promote it as the default path — every extra SKU is another
@@ -276,18 +295,18 @@ not a giveaway. It is defensible in public, which matters for this audience.
 
 ## 8. Break-even and the revenue that is not licences
 
-Against the $801,000 replacement-cost basis at $750/day:
+Against the $725,400 replacement-cost basis at $750/day:
 
 | Product | Price | Units to cover build cost |
 |---|---:|---:|
-| Pro individual, perpetual | $129 | 6,210 |
-| Pro individual, lifetime | $299 | 2,680 |
-| Pro org seat (1–9) | $199 | 4,030 |
-| Pro org seat, lifetime (1–9) | $449 | 1,785 |
-| Site licence | $29,000 | 28 |
-| Site licence, lifetime | $69,000 | 12 |
+| Pro individual, perpetual | $129 | 5,625 |
+| Pro individual, lifetime | $299 | 2,425 |
+| Pro org seat (1–9) | $199 | 3,645 |
+| Pro org seat, lifetime (1–9) | $449 | 1,615 |
+| Site licence | $29,000 | 25 |
+| Site licence, lifetime | $69,000 | 11 |
 
-Twelve lifetime site licences covering the entire build is the number worth
+Eleven lifetime site licences covering the entire build is the number worth
 remembering: **the org channel is the business, and the consumer storefront is
 the credibility that feeds it.**
 
@@ -298,7 +317,6 @@ Non-licence revenue, all of which fits the architecture rather than fighting it:
 | Custom build (chosen module set, own identity/branding, signed) | $2,500 setup + $500/rebuild |
 | Deployment + key-management workshop (org onboarding) | $4,000/engagement |
 | Priority support + guaranteed rebuilds, annual | 18% of licence value/year |
-| Self-hosted server (faros/Cloud) install and hardening | $6,000 |
 | Third-party security audit, sponsored and published | cost + 15% |
 | Map region packaging for a customer's territories | $1,500/region set |
 
@@ -321,12 +339,24 @@ now minutes of work plus signing, against a day of careful YAML editing before.
    the security story ubiquitous and price only Plus and Pro. That forfeits
    ~$371,000 of build value as a marketing spend — a real strategy, but it
    should be a decision, not a drift.
-4. **Parked features.** Kanban (1,769 lines), the Mind map (4,594) and the
+4. **Does Pro's price move now that Enigma Cloud is gone?** *(2026-08, open —
+   this is a product decision, not a documentation one.)* Pro lost a module worth
+   $75,600 of build cost, ~9% of the basis, and is still listed at $129
+   individual / $199 per seat. Three defensible answers: **hold the price** (the
+   §8 break-even actually *improves* — fewer units cover a smaller basis, and the
+   remaining modules are the ones buyers cite), **cut it** to ~$115 to keep the
+   per-module ratio honest against the now-$194 à-la-carte ceiling (§6), or
+   **hold it and say why** — the cloud client was the one feature that put a
+   server in the path, and removing it is arguably worth more to this buyer than
+   it cost. The document assumes *hold* until someone decides otherwise. Two
+   sentences elsewhere depend on the answer: §5's market paragraph and §6's
+   bundle-discount line.
+5. **Parked features.** Kanban (1,769 lines), the Mind map (4,594) and the
    collaborative Sketch board (2,433 + 396) sit in `limbo/` — about 9,200 lines,
    **≈ $98,000** of build cost already spent and currently earning nothing. They
    are not priced here because they do not ship. If Pro regains them, that
    justifies a price rise rather than being absorbed silently.
-5. **Source availability.** The pitch is "auditable". Auditable by whom, under
+6. **Source availability.** The pitch is "auditable". Auditable by whom, under
    what licence? A source-available licence with a paid commercial grant
    (BSL-style) fits this product better than a closed binary, and changes §5
    materially.

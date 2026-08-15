@@ -161,7 +161,6 @@ struct Clamp {
 struct NetworkSection {
     max_frame_bytes: u64,
     onion_port: u16,
-    max_redirects: u64,
     tor_write_timeout_secs: u64,
     tor_handshake_timeout_secs: u64,
 }
@@ -336,9 +335,6 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
             ),
         );
     }
-    if !(1..=20).contains(&net.max_redirects) {
-        err("network.max_redirects", format!("{} outside 1..=20", net.max_redirects));
-    }
     for (path, secs) in [
         ("network.tor_write_timeout_secs", net.tor_write_timeout_secs),
         ("network.tor_handshake_timeout_secs", net.tor_handshake_timeout_secs),
@@ -432,7 +428,6 @@ pub mod settings {{
 pub mod network {{
     pub const MAX_FRAME_BYTES: usize = {max_frame};
     pub const ONION_PORT: u16 = {onion_port};
-    pub const MAX_REDIRECTS: usize = {redirects};
     pub const TOR_WRITE_TIMEOUT_SECS: u64 = {tor_write};
     pub const TOR_HANDSHAKE_TIMEOUT_SECS: u64 = {tor_hs};
 }}
@@ -554,7 +549,6 @@ const _: () = assert!(
         pd_max = cfg.settings.pin_digits.max,
         max_frame = cfg.network.max_frame_bytes,
         onion_port = cfg.network.onion_port,
-        redirects = cfg.network.max_redirects,
         tor_write = cfg.network.tor_write_timeout_secs,
         tor_hs = cfg.network.tor_handshake_timeout_secs,
         calls_enabled = cfg.calls.enabled,
