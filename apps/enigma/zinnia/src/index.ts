@@ -12,7 +12,6 @@ export * from "./services/contacts";
 export * from "./services/moderation";
 export * from "./services/mapData";
 export * from "./mapModel";
-export * from "./beaconModel";
 export * from "./deviceSyncModel";
 export * from "./fileSyncModel";
 export * from "./services/chatLog";
