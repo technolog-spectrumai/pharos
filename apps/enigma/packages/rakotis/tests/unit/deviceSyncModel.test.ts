@@ -188,6 +188,10 @@ describe("sync allow-list", () => {
     expect(isSyncableKv("p2p:settings", "default", "connect_timeout_secs")).toBe(false);
     expect(isSyncableKv("p2p:settings", "default", "map_storage_limit_mb")).toBe(false);
     expect(isSyncableKv("p2p:settings", "default", "map_active_region")).toBe(false);
+    // Tab visibility is per-device UI taste, like the idle-lock knobs: a wide
+    // desktop nav and a phone drawer want different sets, and the build gates it
+    // composes with are per-binary anyway.
+    expect(isSyncableKv("p2p:settings", "default", "hidden_tabs")).toBe(false);
     expect(isSyncableKv("map:regions", "default", "")).toBe(false);
     expect(isSyncableKv("devices", "default", "link")).toBe(false);
     // The allow-list is closed: an unlisted namespace never syncs.

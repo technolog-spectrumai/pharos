@@ -6,6 +6,7 @@
 import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../../stores/chat";
+import { isTabVisible } from "../../tabs";
 import { useNetworkStore } from "../../stores/network";
 import { policy } from "../../config/app";
 
@@ -63,7 +64,10 @@ function fmtSize(bytes: number): string {
       <template v-else-if="!ready">
         <font-awesome-icon icon="circle-nodes" class="text-3xl opacity-30" />
         <p class="text-sm opacity-60">{{ $t('fileShare.needP2p') }}</p>
+        <!-- Only offered while the Chat tab exists for this user (src/tabs.ts):
+             hidden, the route guard would just bounce them back here. -->
         <button
+          v-if="isTabVisible('chat')"
           class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-80"
           @click="router.push('/chat')"
         >{{ $t('fileShare.goToChat') }}</button>

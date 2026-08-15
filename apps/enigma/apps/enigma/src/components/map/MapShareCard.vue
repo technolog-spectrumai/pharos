@@ -16,6 +16,7 @@ import {
 } from "rakotis";
 import { useMapStore } from "../../stores/map";
 import { useChatStore } from "../../stores/chat";
+import { isTabVisible } from "../../tabs";
 
 const props = defineProps<{ message: Message }>();
 
@@ -61,6 +62,9 @@ function human(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// "Open in Maps" is the one way into the Map tab from outside it, so it follows
+// the tab: in a maps-less build, or once the user has hidden Map, the button
+// goes rather than bouncing them off the route guard (src/tabs.ts).
 function openInMaps() {
   if (!share.value || share.value.type === "map_region") return;
   store.focusShare(share.value);
@@ -97,6 +101,7 @@ async function download() {
       </p>
       <p v-if="share.type === 'map_pin' && share.note" class="text-xs opacity-70">{{ share.note }}</p>
       <button
+        v-if="isTabVisible('map')"
         type="button"
         class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-70"
         @click="openInMaps"
@@ -117,6 +122,7 @@ async function download() {
         {{ $t('map.locExpired', { hours: Math.round(MAP_LOC_TTL_MS / 3600000) }) }}
       </p>
       <button
+        v-if="isTabVisible('map')"
         type="button"
         class="rounded-lg border border-current/20 px-3 py-1.5 text-xs font-semibold transition hover:opacity-70"
         @click="openInMaps"

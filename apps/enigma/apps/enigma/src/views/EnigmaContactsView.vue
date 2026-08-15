@@ -37,6 +37,7 @@ import {
 } from "rakotis";
 import { useChatStore } from "../stores/chat";
 import { usePeersStore } from "../stores/peers";
+import { isTabVisible } from "../tabs";
 import PeerLinksPanel from "../components/peers/PeerLinksPanel.vue";
 import PeerRequestForm from "../components/peers/PeerRequestForm.vue";
 
@@ -279,8 +280,10 @@ function openInviteFor(contact: ContactEntry) {
 }
 
 // Calls are their own build gate (pland.md) — Contacts can ship without them,
-// so the ring button is hidden and this is a no-op in a calls-off edition.
-const callsEnabled = chatStore.callsEnabled;
+// so the ring button is hidden and this is a no-op in a calls-off edition. The
+// button follows the Vox TAB (isTabVisible, src/tabs.ts) rather than the build
+// flag alone: ringing jumps to /vox, and a user who hid Vox would just be
+// bounced back by the route guard.
 
 // Ring a saved contact by their stable NodeId and jump to the Vox tab.
 async function callContact(contact: ContactEntry) {
@@ -562,7 +565,7 @@ async function acceptIncoming() {
             </p>
           </div>
           <button
-            v-if="callsEnabled"
+            v-if="isTabVisible('vox')"
             type="button"
             class="shrink-0 rounded-lg border border-current/20 px-2.5 py-1.5 text-xs transition hover:opacity-80"
             :title="$t('contacts.call')"
