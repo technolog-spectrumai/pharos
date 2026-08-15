@@ -107,6 +107,25 @@ Only **Both** needs `deploy/build.sh`, because that script is what sequences the
 two legs — and it always builds the desktop bundle as release, so the debug
 choice applies to Android only. The GUI says so when you pick that combination.
 
+### Only packages this build produced
+
+Ticked by default. `deploy/build.sh` collects a **Both** build with
+`find … -exec cp {} deploy/dist/`, which sweeps up *every* package sitting in
+`src-tauri/target/release/bundle` — including ones left by earlier builds and by
+older app identities — and `cp` stamps each copy with the current time, so a
+timestamp cannot tell them apart from what this build just made. A single build
+would otherwise report (and re-collect) a decade of `Enigma_*`, `EnigmaApp_*`
+and `enigma_*` packages as its own output.
+
+So the Builder digests the output directories *before* building and, afterwards,
+drops any package whose bytes are unchanged. A rebuild that produces the same
+filename with different content still counts — it is the content, not the name,
+that decides.
+
+**Nothing is ever deleted.** Old installers stay exactly where they are, to be
+archived by hand; they are only kept out of the artifact list and the output
+folder. Untick the box to go back to collecting everything the old way.
+
 Collecting into the **output folder** is a copy step performed afterwards in
 Python, with a freshly generated `SHA256SUMS`. Doing it here rather than letting
 `deploy/build.sh` do it means the folder you choose never changes which script

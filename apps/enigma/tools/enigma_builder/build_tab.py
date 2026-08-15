@@ -109,6 +109,18 @@ def detect_android_env() -> list[tuple[str, str, bool]]:
     return report
 
 
+def digest(path: Path) -> str | None:
+    """SHA256 of ``path``, or None if it cannot be read."""
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as fh:
+            for block in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
 def free_bytes(path: Path) -> int | None:
     """Free space on the filesystem holding ``path`` (or its nearest parent)."""
     probe = path
@@ -144,6 +156,9 @@ class BuildTab(QWidget):
         self._failure = ""
         self._cancelled = False
         self._icon_snapshot: dict[Path, bytes] = {}
+        # Digests of the packages already sitting in the output directories when
+        # a build starts, so a re-copied old package can be told from a new one.
+        self._artifact_snapshot: dict[Path, str] = {}
         # (product name, result) of the last package query — dpkg/rpm are
         # subprocesses, too heavy to re-run on every model-change refresh.
         self._uninstall_cache: tuple[str, uninstall_mod.Installed | None] | None = None
@@ -326,6 +341,26 @@ class BuildTab(QWidget):
         self.collect_box.toggled.connect(self._options_changed)
         layout.addWidget(self.collect_box)
 
+        self.fresh_only_box = QCheckBox(
+            "Only packages this build produced"
+        )
+        self.fresh_only_box.setChecked(True)
+        self.fresh_only_box.toggled.connect(self._options_changed)
+        layout.addWidget(self.fresh_only_box)
+        layout.addWidget(
+            widgets.hint(
+                "A “Both” build runs deploy/build.sh, which copies every package "
+                "sitting in src-tauri/target/release/bundle into deploy/dist — "
+                "including ones left from earlier builds and older app "
+                "identities — and the copy refreshes their timestamps, so they "
+                "look new. With this ticked, a package whose bytes are unchanged "
+                "from before the build is left where it is and kept out of the "
+                "artifact list. Nothing is ever deleted: old installers stay on "
+                "disk for you to archive.",
+                "gateHint",
+            )
+        )
+
         output_row = QHBoxLayout()
         output_row.setContentsMargins(0, 0, 0, 0)
         output_row.setSpacing(8)
@@ -507,6 +542,10 @@ class BuildTab(QWidget):
     @property
     def collect(self) -> bool:
         return self.collect_box.isChecked()
+
+    @property
+    def fresh_only(self) -> bool:
+        return self.fresh_only_box.isChecked()
 
     @property
     def output_dir(self) -> Path:
@@ -1063,6 +1102,16 @@ class BuildTab(QWidget):
             )
         )
 
+        # Taken before the build writes anything, and only when it will be
+        # used — digesting several 30 MB packages is not free.
+        self._artifact_snapshot = self._snapshot_artifacts() if self.fresh_only else {}
+        if self._artifact_snapshot:
+            self.log.append_line(
+                f"# {len(self._artifact_snapshot)} package(s) already in the "
+                f"output directories — they stay put and stay out of this "
+                f"build's artifact list"
+            )
+
         self._started_at = time.time()
         self._run_queue(steps)
 
@@ -1387,10 +1436,13 @@ class BuildTab(QWidget):
         self.log.append_line(f"# copied {len(copied)} artifact(s) to {dest}")
         return copied
 
-    def _show_artifacts(self) -> None:
-        found: list[Path] = []
-        directories: list[Path] = []
+    def _artifact_candidates(self) -> list[Path]:
+        """Every package file the current target could have written.
 
+        SHA256SUMS is deliberately not matched: we regenerate it for whatever
+        actually lands in the output folder.
+        """
+        directories: list[Path] = []
         if self.platform == "both":
             # deploy/build.sh has already gathered both legs here under
             # self-identifying names; scanning the sources too would find every
@@ -1401,21 +1453,56 @@ class BuildTab(QWidget):
         else:
             directories.append(paths.ANDROID_OUTPUTS)
 
-        # SHA256SUMS is deliberately absent: we regenerate it for whatever
-        # actually lands in the output folder.
         patterns: list[str] = []
         if self.platform in ("desktop", "both"):
             patterns += bundles.globs(self.distros)
         if self.platform in ("android", "both"):
             patterns += ["*.apk", "*.aab"]
+
+        found: list[Path] = []
         for directory in directories:
             if not directory.is_dir():
                 continue
             for pattern in patterns:
-                for path in directory.rglob(pattern):
-                    # gen/android keeps every previous build; only show this one.
-                    if path.is_file() and path.stat().st_mtime >= self._started_at - 1:
-                        found.append(path)
+                found += [p for p in directory.rglob(pattern) if p.is_file()]
+        return sorted({p.resolve() for p in found})
+
+    def _snapshot_artifacts(self) -> dict[Path, str]:
+        """Digest what is already in the output directories, before building.
+
+        Timestamps cannot answer "did this build produce that file?", because
+        deploy/build.sh re-copies every package it finds and `cp` stamps the
+        copy with the current time. Content can: a package the build did not
+        touch has the same bytes afterwards.
+        """
+        snapshot: dict[Path, str] = {}
+        for path in self._artifact_candidates():
+            existing = digest(path)
+            if existing is not None:
+                snapshot[path] = existing
+        return snapshot
+
+    def _show_artifacts(self) -> None:
+        found: list[Path] = []
+        carried_over: list[Path] = []
+
+        for path in self._artifact_candidates():
+            # gen/android keeps every previous build; only show this one.
+            if path.stat().st_mtime < self._started_at - 1:
+                continue
+            if self.fresh_only:
+                before = self._artifact_snapshot.get(path)
+                if before is not None and digest(path) == before:
+                    carried_over.append(path)
+                    continue
+            found.append(path)
+
+        if carried_over:
+            self.log.append_line(
+                f"# left alone: {len(carried_over)} package(s) already present "
+                f"and unchanged by this build "
+                f"({', '.join(sorted(p.name for p in carried_over))})"
+            )
 
         if not found:
             self.artifact_label.setText(
@@ -1425,7 +1512,6 @@ class BuildTab(QWidget):
             self.open_button.setEnabled(False)
             return
 
-        found = sorted({p.resolve() for p in found})
         if self.collect:
             found = self._copy_artifacts(found)
         found.sort()

@@ -91,6 +91,45 @@ def repo_files_untouched():
         icons_mod.restore(icon_files)
 
 
+@pytest.fixture(autouse=True)
+def build_artifacts_untouched():
+    """Fail loudly if a test writes into or deletes from the real deploy/dist.
+
+    Those are the user's built installers — tens of MB each, kept deliberately
+    so old releases can be archived, and NOT reproducible from the checkout
+    once gone. A test that patches ``paths.DEPLOY_DIST`` too late (the window
+    fixture rebinds every path global) would otherwise read the real folder and
+    have its own cleanup delete real packages. That happened once; this makes
+    it fail here instead of on someone's disk.
+
+    Detect rather than restore: at ~27 MB a package, snapshotting content for
+    every test would cost more than the whole suite.
+    """
+    def listing() -> dict[str, int]:
+        directory = paths.DEPLOY_DIST
+        if not directory.is_dir():
+            return {}
+        return {
+            p.name: p.stat().st_size for p in directory.iterdir() if p.is_file()
+        }
+
+    before = listing()
+    yield
+    after = listing()
+    if before != after:
+        removed = sorted(set(before) - set(after))
+        added = sorted(set(after) - set(before))
+        changed = sorted(
+            name for name in set(before) & set(after) if before[name] != after[name]
+        )
+        pytest.fail(
+            f"test touched the real {paths.DEPLOY_DIST}: "
+            f"removed={removed} added={added} resized={changed}. "
+            f"Patch paths.DEPLOY_DIST to a tmp_path, in a fixture that depends "
+            f"on `window` so set_repo_root cannot undo it."
+        )
+
+
 @pytest.fixture
 def window(app):
     from window import MainWindow
