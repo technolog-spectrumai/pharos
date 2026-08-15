@@ -29,8 +29,6 @@ app:
   identifier: com.spectrumaipl.enigma.pro
   version: 0.1.0
 
-cloud:
-  allow_connections: true
 
 p2p:
   allow_hosted_relays: true

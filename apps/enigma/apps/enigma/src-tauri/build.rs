@@ -21,7 +21,6 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 struct RawConfig {
     app: AppSection,
-    cloud: CloudSection,
     p2p: P2pSection,
     dht: DhtSection,
     crypto: CryptoSection,
@@ -44,12 +43,6 @@ struct AppSection {
     name: String,
     identifier: String,
     version: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloudSection {
-    allow_connections: bool,
 }
 
 #[derive(Deserialize)]
@@ -374,10 +367,6 @@ pub mod app {{
     pub const VERSION: &str = {version};
 }}
 
-pub mod cloud {{
-    pub const ALLOW_CONNECTIONS: bool = {allow_cloud};
-}}
-
 pub mod p2p {{
     pub const ALLOW_HOSTED_RELAYS: bool = {allow_relays};
 }}
@@ -517,7 +506,6 @@ const _: () = assert!(
         name = rust_str(&cfg.app.name),
         identifier = rust_str(&cfg.app.identifier),
         version = rust_str(&cfg.app.version),
-        allow_cloud = cfg.cloud.allow_connections,
         allow_relays = cfg.p2p.allow_hosted_relays,
         dht_enabled = cfg.dht.enabled,
         mls = rust_str(&cfg.crypto.mls_ciphersuite),

@@ -166,8 +166,8 @@ pub fn kv_get_raw(app: &AppHandle, ns: &str, scope: &str, k: &str) -> Option<Str
 }
 
 /// Write counterpart of `kv_get_raw` — lets backend code persist values into a
-/// frontend-visible kv namespace (e.g. cloud.rs storing the session under
-/// `cloud:auth` so the frontend can read the username but Rust owns the token).
+/// frontend-visible kv namespace, where the frontend may read the value but
+/// Rust owns the writes.
 pub fn kv_put_raw(app: &AppHandle, ns: &str, scope: &str, k: &str, v: &str) -> Result<(), String> {
     let st = store(app)?;
     let p = st.0.lock().map_err(|e| e.to_string())?;
@@ -491,7 +491,6 @@ pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
     crate::p2p_tor::shutdown(app, &tor).await;
     crate::file_xfer::shutdown(&file).await;
     crate::device_link::shutdown(&devlink).await;
-    crate::cloud::shutdown(app).await;
     // Cached mmap readers point into the profile's maps dir — drop them so the
     // locked session holds no open handles into it.
     crate::maps::reset_readers(app).await;
@@ -587,10 +586,7 @@ pub async fn lock_watchdog(app: AppHandle) {
         // heartbeat stays the primary signal; states only the frontend can see —
         // an offer still awaiting accept, a queued sync batch — are its job to
         // report.) `file_xfer` covers chat files, map regions and device sync.
-        if crate::vox::in_call(&app)
-            || crate::cloud::transfers_active(&app)
-            || crate::file_xfer::transfers_active()
-        {
+        if crate::vox::in_call(&app) || crate::file_xfer::transfers_active() {
             activity.0.store(now_ms(), Ordering::Relaxed);
             continue;
         }

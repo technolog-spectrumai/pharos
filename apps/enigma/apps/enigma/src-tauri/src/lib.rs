@@ -8,22 +8,6 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
-// "Enigma Cloud" — HTTP client for the user's self-hosted faros server (telegraph
-// auth + vault file storage), over direct TCP/TLS or Tor per host + profile policy.
-mod cloud;
-// Beacon — expiring location shares on the faros server (pins/zones/routes with
-// mandatory TTL), rendered on the Maps tab. Rides cloud.rs transport + session;
-// enabled only when both cloud.allow_connections and maps.enabled are on.
-mod beacon;
-// Aster — cloud rendezvous (rdv.md): the user's own faros server as an optional
-// NAME and MAILBOX directory — register this device's NodeId, resolve peers by
-// faros username, and exchange HPKE-sealed room invites. No address is ever
-// published or looked up. Rides cloud.rs transport + session; enabled when
-// cloud.allow_connections is on.
-mod aster;
-// Sealed room-invite envelopes (HPKE to a peer NodeId, signed) — the crypto
-// behind the faros invite rendezvous. No transport, pure functions.
-mod invite_seal;
 // P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod file_xfer;
 // Files→Devices per-file sync: the disk half of receiving (sanitized paths,
@@ -44,9 +28,6 @@ mod realtime;
 // Encryption-at-rest: the centralized encrypted store integration (protasius).
 // Replaces the old plaintext kv.rs + per-file persistence.
 mod vault;
-// Outbound Arti client plumbing, reused by the peer-hosted onion transport in
-// p2p_tor.rs (see the TODO(onion-p2p) note at the top of tor.rs).
-mod tor;
 mod fs_local;
 mod local_lock;
 // Key ring: one passphrase locking many local files (keyring.enabled gate).
@@ -452,7 +433,6 @@ pub struct BuildConfigSummary {
     pub app_name: &'static str,
     pub app_identifier: &'static str,
     pub app_version: &'static str,
-    pub cloud_allow_connections: bool,
     pub p2p_allow_hosted_relays: bool,
     pub dht_enabled: bool,
     pub calls_enabled: bool,
@@ -485,14 +465,13 @@ pub struct BuildConfigSummary {
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
     use build_config::{
-        app, calendar, calls, cloud, contacts, devices, dht, features, keyring, lock, maps,
+        app, calendar, calls, contacts, devices, dht, features, keyring, lock, maps,
         p2p, peers, settings as s,
     };
     BuildConfigSummary {
         app_name: app::NAME,
         app_identifier: app::IDENTIFIER,
         app_version: app::VERSION,
-        cloud_allow_connections: cloud::ALLOW_CONNECTIONS,
         p2p_allow_hosted_relays: p2p::ALLOW_HOSTED_RELAYS,
         dht_enabled: dht::ENABLED,
         calls_enabled: calls::ENABLED,
@@ -669,9 +648,6 @@ async fn app_set_offline(
         p2p_tor::shutdown(&app, &tor).await;
         file_xfer::shutdown(&file).await;
         device_link::shutdown(&devlink).await;
-        // Abort any in-flight cloud transfer too — a running upload/download would
-        // otherwise keep streaming after airplane mode is meant to block all network.
-        cloud::shutdown(&app).await;
     }
     Ok(())
 }
@@ -709,10 +685,6 @@ async fn app_set_use_tor(
         // Pairing is iroh-only too — a live session would keep a direct QUIC
         // listener up after switching to Tor-exclusive mode.
         device_link::shutdown(&devlink).await;
-        // A cloud transfer already streaming over a direct clearnet TCP connection
-        // would keep exposing the user's IP after switching to Tor-exclusive mode;
-        // abort in-flight transfers so the next one re-establishes over Tor.
-        cloud::shutdown(&app).await;
     } else {
         p2p_tor::shutdown(&app, &tor).await;
     }
@@ -1289,12 +1261,9 @@ pub fn run() {
         .manage(file_xfer::FileXferState::default())
         // 1:1 voice-call state (accepts VOX_ALPN on the main p2p endpoint).
         .manage(vox::VoxState::default())
-        // Outbound Arti client (tor.rs) + the peer-hosted onion transport (p2p_tor.rs).
-        .manage(tor::TorState::default())
+        // The peer-hosted onion transport.
         .manage(p2p_tor::TorP2pState::default())
-        // In-flight cloud transfer handles (aborted on airplane / Tor toggles).
-        .manage(cloud::CloudState::default())
-        // Map download tasks + open PMTiles readers (same abort policy as cloud).
+        // Map download tasks + open PMTiles readers (aborted on airplane / Tor toggles).
         .manage(maps::MapsState::default())
         // Device-pairing session (ephemeral endpoint + one-time secret).
         .manage(device_link::DevLinkState::default())
@@ -1441,34 +1410,6 @@ pub fn run() {
             vox::vox_decline,
             vox::vox_hangup,
             vox::vox_set_mute,
-            cloud::cloud_status,
-            cloud::cloud_set_enabled,
-            cloud::cloud_set_force_tor,
-            cloud::cloud_login,
-            cloud::cloud_logout,
-            cloud::cloud_me,
-            cloud::cloud_apps,
-            cloud::cloud_list,
-            cloud::cloud_upload,
-            cloud::cloud_download,
-            cloud::cloud_delete,
-            cloud::cloud_mkdir,
-            cloud::cloud_rmdir,
-            cloud::cloud_move,
-            aster::aster_resolve,
-            aster::rdv_register,
-            aster::rdv_invite_send,
-            aster::rdv_invite_broadcast,
-            aster::rdv_invite_fetch,
-            aster::rdv_invite_ack,
-            beacon::beacon_all,
-            beacon::beacon_near,
-            beacon::beacon_publish_pin,
-            beacon::beacon_delete_pin,
-            beacon::beacon_publish_zone,
-            beacon::beacon_publish_route,
-            beacon::beacon_delete_zone,
-            beacon::beacon_delete_route,
             fs_local::fs_write_base64_file,
             local_lock::local_lock_file,
             local_lock::local_unlock_file,

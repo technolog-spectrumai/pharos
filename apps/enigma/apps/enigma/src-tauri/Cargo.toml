@@ -62,15 +62,6 @@ tor-cell = "0.43"
 # HsId (the .onion address) is redaction-safe and has no plain Display; the
 # DisplayRedacted trait gives the full address for the QR ticket.
 safelog = "0.8"
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-# TLS over the Tor stream (https onion); ring provider avoids a C toolchain.
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
-# Mozilla root bundle for verifying real CA-signed certs on direct clearnet cloud
-# HTTPS (loopback/onion keep tor.rs's accept-any-cert). Pure Rust, no C toolchain;
-# already in the tree transitively via arti, so this adds no new compilation.
-webpki-roots = "1"
 # MSRV pin (Cargo.lock is gitignored, so this must live here): typed-index-collections
 # 3.4+ requires rustc 1.90, but arti pulls it in transitively. Hold it at 3.3.0
 # (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
@@ -81,12 +72,6 @@ data-encoding = "2"
 # (serverless discovery, opt-in via the Settings DHT toggle — technology.md §12).
 iroh = { version = "0.98", features = ["address-lookup-pkarr-dht"] }
 iroh-gossip = "0.98"
-# Sealed room invites (invite_seal.rs): HPKE single-shot + the ed25519→x25519
-# conversion for addressing a peer by their NodeId. All three are already in
-# Cargo.lock via openmls/tor-llcrypto — no new compilation.
-curve25519-dalek = "4"
-openmls_traits = "0.4"
-openmls_rust_crypto = "0.4"
 # Direct BEP44 access to the Mainline DHT for the room-rendezvous records
 # (p2p_dht.rs). Same crate/version iroh's DHT feature resolves — no dup tree.
 mainline = { version = "6", features = ["async"] }

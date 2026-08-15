@@ -27,8 +27,6 @@ app:
   identifier: com.spectrumaipl.enigma.light
   version: 0.1.0
 
-cloud:
-  allow_connections: false        # Pro-only feature
 
 p2p:
   # Stays true in every edition: n0 relay fallback + pkarr discovery are what
