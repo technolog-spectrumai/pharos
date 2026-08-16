@@ -16,7 +16,7 @@ import {
   faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
-  faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faSpinner, faTableCells,
+  faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faSquare, faTrash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
@@ -25,7 +25,7 @@ library.add(
   faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
-  faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faSpinner, faTableCells,
+  faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faSquare, faTrash, faTriangleExclamation, faXmark,
 );
 

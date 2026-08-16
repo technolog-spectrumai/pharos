@@ -72,9 +72,15 @@ const editorTabs = computed(() => APP_TABS.filter((tab) => tab.kind !== null));
               class="rounded-lg border px-2.5 py-1 text-xs border-accent-2 dark:border-accent-1">
         {{ i18n.global.locale.value === "en" ? "PL" : "EN" }}
       </button>
+      <!-- Icon, not a word: zenobia's header shows the CURRENT mode (moon while
+           dark, sun while light) and this should read the same way across the
+           two apps. The label stays for screen readers and the tooltip. -->
       <button type="button" data-testid="dark-toggle" @click="dark = !dark"
-              class="rounded-lg border px-2.5 py-1 text-xs border-accent-2 dark:border-accent-1">
-        {{ dark ? "Light" : "Dark" }}
+              :title="dark ? t('nav.themeDark') : t('nav.themeLight')"
+              :aria-label="dark ? t('nav.themeDark') : t('nav.themeLight')"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-lg border
+                     border-accent-2 transition hover:opacity-80 dark:border-accent-1">
+        <font-awesome-icon :icon="dark ? 'moon' : 'sun'" />
       </button>
     </header>
 

@@ -2,6 +2,8 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   nav: {
+    themeDark: "Tryb ciemny",
+    themeLight: "Tryb jasny",
     write: "Pisanie",
     sketch: "Rysunek",
     sheets: "Arkusze",
@@ -12,6 +14,7 @@ export default {
     empty: "Na razie pusto. Motyw, język i połączenie z platformą trafią tutaj.",
   },
   sheet: {
+    noRoom: "Arkusz nie ma tu miejsca na rysowanie.",
     notASheet: "To nie jest arkusz",
     notASheetBody: "Plik jest JSON-em, ale nie skoroszytem Univer. Otwórz go jako czysty tekst, żeby zobaczyć zawartość.",
     gridFailed: "Nie udało się uruchomić arkusza",

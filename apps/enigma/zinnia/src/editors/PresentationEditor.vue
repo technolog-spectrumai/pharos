@@ -263,16 +263,21 @@ defineExpose({
     <template v-else>
       <!-- Deck toolbar -->
       <div class="flex flex-wrap items-center gap-1 border-b border-current/10 px-3 py-1.5">
-        <OyaIconButton size="sm" icon="file-circle-plus" :label="t('deck.addSlide')"
+        <OyaIconButton size="sm" icon="file-circle-plus" :label="t('deck.addSlide')" class="oya-tip" :data-tip="t('deck.addSlide')"
                        data-testid="add-slide" @click="addSlide" />
-        <OyaIconButton size="sm" icon="trash" :label="t('deck.deleteSlide')"
+        <OyaIconButton size="sm" icon="trash" :label="t('deck.deleteSlide')" class="oya-tip" :data-tip="t('deck.deleteSlide')"
                        :disabled="deck.slides.length <= 1" @click="deleteSlide" />
-        <OyaIconButton size="sm" icon="arrow-left" :label="t('deck.moveBack')" @click="moveSlide(-1)" />
-        <OyaIconButton size="sm" icon="arrow-right" :label="t('deck.moveForward')" @click="moveSlide(1)" />
+        <OyaIconButton size="sm" icon="arrow-left" :label="t('deck.moveBack')" class="oya-tip" :data-tip="t('deck.moveBack')" @click="moveSlide(-1)" />
+        <OyaIconButton size="sm" icon="arrow-right" :label="t('deck.moveForward')" class="oya-tip" :data-tip="t('deck.moveForward')" @click="moveSlide(1)" />
         <span class="mx-1 h-4 w-px bg-current/20" />
 
         <label class="text-xs opacity-70">{{ t("deck.layout") }}</label>
-        <select class="rounded border bg-transparent px-2 py-1 text-xs border-accent-2 dark:border-accent-1"
+        <!-- Not bg-transparent: WebKitGTK paints a native select with the GTK
+             theme when no background is given, which came out light-on-light
+             (and orange) over a dark app. An explicit surface in both themes,
+             and `.oya-select option` in style.css covers the popup list, which
+             does not inherit from here. -->
+        <select class="oya-select rounded border px-2 py-1 text-xs border-accent-2 dark:border-accent-1"
                 data-testid="layout-select"
                 :value="slide?.layout" @change="setLayout(($event.target as HTMLSelectElement).value)">
           <option v-for="l in LAYOUTS" :key="l" :value="l">{{ l }}</option>
@@ -282,7 +287,7 @@ defineExpose({
         <span class="text-xs opacity-60" data-testid="slide-counter">
           {{ current + 1 }} / {{ deck.slides.length }}
         </span>
-        <OyaIconButton size="sm" icon="gear" :label="t('deck.settings')"
+        <OyaIconButton size="sm" icon="gear" :label="t('deck.settings')" class="oya-tip" :data-tip="t('deck.settings')"
                        data-testid="deck-setup" @click="setupOpen = true" />
       </div>
 
@@ -319,19 +324,19 @@ defineExpose({
                      :data-testid="`block-${block.id}`">
                   <div class="mb-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                     <span class="flex-1 font-mono text-[10px] opacity-50">{{ block.type }}</span>
-                    <OyaIconButton size="sm" icon="pencil" :label="t('deck.editBlock')"
+                    <OyaIconButton size="sm" icon="pencil" :label="t('deck.editBlock')" class="oya-tip" :data-tip="t('deck.editBlock')"
                                    :data-testid="`edit-${block.id}`" @click="editBlock(block)" />
-                    <OyaIconButton size="sm" icon="arrow-up" :label="t('deck.moveUp')"
+                    <OyaIconButton size="sm" icon="arrow-up" :label="t('deck.moveUp')" class="oya-tip" :data-tip="t('deck.moveUp')"
                                    @click="moveBlock(block.id, -1)" />
-                    <OyaIconButton size="sm" icon="arrow-down" :label="t('deck.moveDown')"
+                    <OyaIconButton size="sm" icon="arrow-down" :label="t('deck.moveDown')" class="oya-tip" :data-tip="t('deck.moveDown')"
                                    @click="moveBlock(block.id, 1)" />
                     <select v-if="slotsFor(slide.layout).length > 1"
-                            class="rounded border bg-transparent px-1 text-[10px] border-accent-2 dark:border-accent-1"
+                            class="oya-select rounded border px-1 text-[10px] border-accent-2 dark:border-accent-1"
                             :value="block.slot"
                             @change="setBlockSlot(block.id, ($event.target as HTMLSelectElement).value)">
                       <option v-for="s in slotsFor(slide.layout)" :key="s" :value="s">{{ s || "—" }}</option>
                     </select>
-                    <OyaIconButton size="sm" icon="trash" :label="t('deck.deleteBlock')"
+                    <OyaIconButton size="sm" icon="trash" :label="t('deck.deleteBlock')" class="oya-tip" :data-tip="t('deck.deleteBlock')"
                                    @click="deleteBlock(block.id)" />
                   </div>
                   <SlideBlock :block="block" trust-html />

@@ -25,3 +25,66 @@
 }
 
 html, body, #app { min-height: 100%; }
+
+/* Native <select> does not inherit the app's colours in WebKitGTK — without an
+   explicit background it is painted by the GTK theme, which is how the Layout
+   dropdown came out light-on-light over a dark app. The `option` rule matters
+   separately: the popup list is a different surface and does not inherit from
+   the closed control. */
+.oya-select {
+  background-color: var(--color-primary-bg-light);
+  color: var(--color-text-main-light);
+  /* The UA arrow is drawn by the theme too; keep it, but make the control's own
+     appearance ours. */
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 0.7rem center, right 0.45rem center;
+  background-size: 0.3rem 0.3rem, 0.3rem 0.3rem;
+  background-repeat: no-repeat;
+  padding-right: 1.4rem;
+}
+.oya-select option {
+  background-color: var(--color-primary-bg-light);
+  color: var(--color-text-main-light);
+}
+.dark .oya-select,
+.dark .oya-select option {
+  background-color: var(--color-bubble-bg-dark);
+  color: var(--color-text-main-dark);
+}
+
+/* Hover label for icon-only controls.
+   `title` alone gives the OS tooltip: a ~1s delay, unstyled, and in the desktop
+   webview it sometimes does not appear at all. A toolbar of nothing but icons
+   needs its names to arrive immediately, so the bubble is drawn here and the
+   native title is kept for screen readers and for anything outside the app. */
+.oya-tip { position: relative; }
+.oya-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.35rem;
+  font-size: 0.7rem;
+  line-height: 1.1;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease 60ms;
+  background-color: var(--color-header-bg-light, #1d2333);
+  color: var(--color-footer-text-light, #e4e7ef);
+  border: 1px solid var(--color-accent-2);
+}
+.dark .oya-tip::after {
+  background-color: var(--color-bubble-bg-dark);
+  color: var(--color-text-main-dark);
+  border-color: var(--color-accent-1);
+}
+.oya-tip:hover::after,
+.oya-tip:focus-visible::after { opacity: 1; }
+/* The last controls in a toolbar would push the bubble off the right edge. */
+.oya-tip.oya-tip-end::after { left: auto; right: 0; transform: none; }

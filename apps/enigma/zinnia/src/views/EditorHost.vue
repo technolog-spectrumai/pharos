@@ -235,9 +235,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   <div class="flex min-h-0 flex-1 flex-col">
     <!-- File bar -->
     <div class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-2">
-      <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.new')"
+      <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.new')" class="oya-tip" :data-tip="t('file.new')"
                      data-testid="file-new" @click="newFile" />
-      <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" @click="openFile" />
+      <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" class="oya-tip" :data-tip="t('file.open')" @click="openFile" />
       <div class="min-w-0 flex-1">
         <p class="flex items-center gap-1.5">
           <span class="truncate text-sm font-semibold" data-testid="file-name">{{ name }}</span>

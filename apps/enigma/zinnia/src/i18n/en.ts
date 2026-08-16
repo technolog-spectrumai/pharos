@@ -2,6 +2,8 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   nav: {
+    themeDark: "Dark mode",
+    themeLight: "Light mode",
     write: "Write",
     sketch: "Sketch",
     sheets: "Sheets",
@@ -12,6 +14,7 @@ export default {
     empty: "Nothing here yet. Theme, language and the platform connection will move here.",
   },
   sheet: {
+    noRoom: "The grid has no room to draw here.",
     notASheet: "This is not a spreadsheet",
     notASheetBody: "The file is JSON, but not a Univer workbook. Open it as plain text to see what it holds.",
     gridFailed: "The grid could not start",

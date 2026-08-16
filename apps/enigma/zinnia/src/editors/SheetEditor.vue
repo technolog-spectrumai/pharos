@@ -18,6 +18,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import OyaButton from "rakotis/components/primitives/OyaButton.vue";
 import { dumps, isSheet, loads, newWorkbook, type Workbook } from "../formats/sheet";
+import { isDark, watchDark } from "../theme";
 
 const props = defineProps<{
   path: string | null;
@@ -40,7 +41,11 @@ const notSheet = ref(false);
 const mountError = ref("");
 /** shallowRef: Univer holds its own reactive graph and Vue must not walk into
  *  it — the same reason the sketch orchestrator is held this way. */
-const api = shallowRef<{ getActiveWorkbook(): { save(): Workbook } } | null>(null);
+const api = shallowRef<{
+  getActiveWorkbook(): { save(): Workbook };
+  toggleDarkMode?(on: boolean): void;
+} | null>(null);
+let stopDarkWatch: (() => void) | null = null;
 let disposeUniver: (() => void) | null = null;
 /** The snapshot we handed Univer, kept because the grid mounts ASYNCHRONOUSLY.
  *  Until it is up there is no workbook to ask, and answering with the original
@@ -97,6 +102,16 @@ async function mountUniver() {
   baseline();
 
   try {
+    // Univer lays the grid out from the container's box the moment it is
+    // created, and a container with no width yields a negative column width —
+    // "The column width is less than 0, need to adjust page width to make it
+    // great than 0" from engine-render. A flex child measured in the same tick
+    // it was inserted has not been laid out yet, so wait for a real box first.
+    if (!(await hasSize(el))) {
+      mountError.value = t("sheet.noRoom");
+      return;
+    }
+
     const [{ createUniver, LocaleType, merge }, sheetsCore, enUS] = await Promise.all([
       import("@univerjs/presets"),
       import("@univerjs/preset-sheets-core"),
@@ -109,13 +124,24 @@ async function mountUniver() {
       locales: { [LocaleType.EN_US]: merge({}, (enUS as { default?: unknown }).default ?? enUS) },
       // Univer's own dark theme for the chrome and the grid's DEFAULT surfaces.
       // Explicit cell fills come from the snapshot and stay exactly as saved.
-      darkMode: document.documentElement.classList.contains("dark"),
+      darkMode: isDark(),
       presets: [sheetsCore.UniverSheetsCorePreset({ container: el })],
     });
 
     univerAPI.createWorkbook(snapshot as never);
     api.value = univerAPI as never;
     disposeUniver = () => univer.dispose();
+
+    // The theme is not a mount-time constant. Tabs stay alive, so a grid
+    // mounted in dark mode was still dark after the user switched to light —
+    // Univer only ever heard the value it was constructed with.
+    stopDarkWatch = watchDark((on) => {
+      try {
+        (univerAPI as { toggleDarkMode?(v: boolean): void }).toggleDarkMode?.(on);
+      } catch {
+        /* an older Univer without the facade method: leave the theme alone */
+      }
+    });
 
     // Univer has no single "changed" event we can trust across versions, so the
     // dirty flag is polled against the snapshot. Cheap next to a grid redraw,
@@ -133,6 +159,19 @@ async function mountUniver() {
 
 let poll = 0;
 
+/** Resolve once the element has a non-zero box, or give up. Bounded because a
+ *  tab the user never opens must not spin frames forever. */
+function hasSize(el: HTMLElement, tries = 60): Promise<boolean> {
+  return new Promise((resolve) => {
+    const check = (left: number) => {
+      if (el.clientWidth > 0 && el.clientHeight > 0) return resolve(true);
+      if (left <= 0) return resolve(false);
+      requestAnimationFrame(() => check(left - 1));
+    };
+    check(tries);
+  });
+}
+
 function onKey(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
     e.preventDefault();
@@ -148,6 +187,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
   if (poll) window.clearInterval(poll);
+  stopDarkWatch?.();
   try {
     disposeUniver?.();
   } catch {
