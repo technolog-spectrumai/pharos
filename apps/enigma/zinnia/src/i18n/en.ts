@@ -11,6 +11,23 @@ export default {
     settings: "Settings",
   },
   settings: {
+    colors: {
+      title: "System colours",
+      help: "The five roles documents, drawings and slides use for emphasis. Each keeps a value per theme, because a colour that reads on white rarely reads on black.",
+      role: "Role",
+      light: "Light",
+      dark: "Dark",
+      roles: {
+        accent: "Accent",
+        warning: "Warning",
+        success: "Success",
+        highlight: "Highlight",
+        mute: "Muted",
+      },
+      primaryText: "Body text",
+      primaryTextNote: "Always black on light and white on dark — not adjustable.",
+      reset: "Restore defaults",
+    },
     empty: "Nothing here yet. Theme, language and the platform connection will move here.",
   },
   sheet: {

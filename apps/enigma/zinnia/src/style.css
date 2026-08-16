@@ -24,6 +24,29 @@
   --color-accent-2: #2f3d63;
 }
 
+/* The system palette's per-mode swap.
+   ./systemColors writes BOTH values of every role as custom properties; these
+   two rules are what turn a pair into the one value a consumer should use.
+   Doing the swap here rather than in JS means the correct colour is already in
+   effect the instant `.dark` toggles — no listener, nothing to be mid-update. */
+:root {
+  --sys-accent: var(--sys-accent-light);
+  --sys-warning: var(--sys-warning-light);
+  --sys-success: var(--sys-success-light);
+  --sys-highlight: var(--sys-highlight-light);
+  --sys-mute: var(--sys-mute-light);
+  /* Body text is fixed and not user-settable — see ./systemColors. */
+  --sys-text: #000000;
+}
+.dark {
+  --sys-accent: var(--sys-accent-dark);
+  --sys-warning: var(--sys-warning-dark);
+  --sys-success: var(--sys-success-dark);
+  --sys-highlight: var(--sys-highlight-dark);
+  --sys-mute: var(--sys-mute-dark);
+  --sys-text: #ffffff;
+}
+
 html, body, #app { min-height: 100%; }
 
 /* Native <select> does not inherit the app's colours in WebKitGTK — without an

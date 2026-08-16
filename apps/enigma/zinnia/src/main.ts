@@ -7,6 +7,9 @@ import "./slide.css";
 import "./document.css";
 import App from "./App.vue";
 import { i18n } from "./i18n";
+// Imported for its side effect: publishes the system palette as custom
+// properties before the first paint.
+import "./useSystemColors";
 
 // FontAwesome. The icon set lives in ./icons so a test can import it without
 // mounting the app — see the note there on why an unregistered name is silent.

@@ -268,12 +268,13 @@
  * directions, and still means something when the PDF prints it in ink.
  * ------------------------------------------------------------------------ */
 
-.cy-ink-accent  { color: #2a6df4; }  /* blue */
-.cy-ink-success { color: #1f8a4c; }  /* green */
-.cy-ink-warn    { color: #d94a4a; }  /* --color-warn-light */
-.dark .cy-ink-accent  { color: #7aa2ff; }
-.dark .cy-ink-success { color: #4ade80; }
-.dark .cy-ink-warn    { color: #ff6b6b; }  /* lifted for dark paper */
+/* Ink colours are the SYSTEM roles, so a document's emphasis follows whatever
+   the user chose in Settings, and follows the paper: the custom property already
+   resolves per mode, which is why there are no `.dark` twins here any more.
+   Plain text is --cy-ink, fixed black/white — see systemColors.ts. */
+.cy-ink-accent { color: var(--sys-accent); }
+.cy-ink-success { color: var(--sys-success); }
+.cy-ink-warn { color: var(--sys-warning); }
 
 .cy-size-sm { font-size: 0.82em; }
 .cy-size-lg { font-size: 1.22em; }

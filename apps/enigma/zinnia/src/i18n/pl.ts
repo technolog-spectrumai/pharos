@@ -11,6 +11,23 @@ export default {
     settings: "Ustawienia",
   },
   settings: {
+    colors: {
+      title: "Kolory systemowe",
+      help: "Pięć ról używanych przez dokumenty, rysunki i slajdy do wyróżnień. Każda ma osobną wartość dla motywu jasnego i ciemnego, bo kolor czytelny na bieli rzadko jest czytelny na czerni.",
+      role: "Rola",
+      light: "Jasny",
+      dark: "Ciemny",
+      roles: {
+        accent: "Akcent",
+        warning: "Ostrzeżenie",
+        success: "Sukces",
+        highlight: "Wyróżnienie",
+        mute: "Wyciszony",
+      },
+      primaryText: "Tekst podstawowy",
+      primaryTextNote: "Zawsze czarny na jasnym i biały na ciemnym — bez zmian.",
+      reset: "Przywróć domyślne",
+    },
     empty: "Na razie pusto. Motyw, język i połączenie z platformą trafią tutaj.",
   },
   sheet: {
