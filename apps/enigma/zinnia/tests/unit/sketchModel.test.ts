@@ -35,6 +35,7 @@ import {
   type PathShape,
   type Shape,
   type SketchCaps,
+  INK_DARK, SYSTEM_COLORS_DARK, SYSTEM_COLORS_LIGHT,
 } from "../../src/sketch/sketchModel";
 
 const CAPS: SketchCaps = { maxShapes: 1000, maxTextLen: 200 };
@@ -633,7 +634,13 @@ describe("palette invariants", () => {
     expect(PALETTE_SLOTS).toBe(7);
     expect(DEFAULT_SLOT_COLORS).toHaveLength(7);
     expect(EXTRA_COLORS).toHaveLength(10);
-    expect(PICKER_COLORS).toHaveLength(17);
+    // Derived, not hardcoded: the list is defaults + extras + the semantic
+    // trios (deduplicated), and the invariant worth defending is the SHAPE,
+    // not a magic number that breaks on every palette change.
+    expect(PICKER_COLORS.length).toBe(
+      new Set([...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS,
+               ...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_DARK]).size,
+    );
   });
 
   it("never offers the same colour twice", () => {

@@ -15,7 +15,8 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 import {
   faArrowPointer, faArrowRight, faBan, faBold, faBroom, faCircle, faCircleInfo, faCode,
-  faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
+  fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
+  faHeading, faLightbulb, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
@@ -24,7 +25,8 @@ import {
 
 library.add(
   faArrowPointer, faArrowRight, faBan, faBold, faBroom, faCircle, faCircleInfo, faCode,
-  faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
+  fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
+  faHeading, faLightbulb, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,

@@ -117,6 +117,9 @@ export default {
     slot: "Miejsce na kolor {n}",
     editSlot: "Zmień kolor w miejscu {n}",
     colorNames: {
+      accent: "Akcentowy niebieski",
+      success: "Zielony (sukces)",
+      warn: "Czerwony (ostrzeżenie)",
       red: "Czerwony",
       green: "Zielony",
       blue: "Niebieski",

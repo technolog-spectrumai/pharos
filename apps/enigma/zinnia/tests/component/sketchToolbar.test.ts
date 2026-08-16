@@ -2,7 +2,20 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import SketchToolbar from "../../src/sketch/SketchToolbar.vue";
 import { createSketch, type Sketch } from "../../src/sketch/useSketch";
-import { COLOR_NAME_KEYS, DEFAULT_SLOT_COLORS, PICKER_COLORS } from "../../src/sketch/sketchModel";
+import {
+  COLOR_NAME_KEYS, DEFAULT_SLOT_COLORS, EXTRA_COLORS, INK_LIGHT,
+  PICKER_COLORS, SYSTEM_COLORS_LIGHT,
+} from "../../src/sketch/sketchModel";
+
+// What the picker OFFERS in light mode (jsdom has no .dark class) — the same
+// derivation SketchToolbar.pickerColors makes. PICKER_COLORS stays the wider
+// validation set and is deliberately longer than this.
+const OFFERED = [
+  ...SYSTEM_COLORS_LIGHT,
+  INK_LIGHT,
+  ...DEFAULT_SLOT_COLORS.filter((c) => c !== INK_LIGHT),
+  ...EXTRA_COLORS.filter((c) => !SYSTEM_COLORS_LIGHT.includes(c)),
+];
 import { i18n } from "../../src/i18n";
 
 // One sketch per test, from the factory — the singleton is gone now that the
@@ -66,7 +79,7 @@ describe("SketchToolbar palette slots", () => {
     await slotButtons(w)[0].trigger("click");
 
     expect(panel(w).exists()).toBe(true);
-    expect(panel(w).findAll("button")).toHaveLength(PICKER_COLORS.length);
+    expect(panel(w).findAll("button")).toHaveLength(OFFERED.length);
     // The click that opened the picker must NOT also have set the drawing colour.
     expect(sketch.currentColor.value).toBe(before);
   });
@@ -76,8 +89,8 @@ describe("SketchToolbar palette slots", () => {
     await w.find("button[aria-pressed]").trigger("click");
     await slotButtons(w)[0].trigger("click");
 
-    const target = PICKER_COLORS[PICKER_COLORS.length - 1]; // navy — not a default
-    await panel(w).findAll("button")[PICKER_COLORS.length - 1].trigger("click");
+    const target = OFFERED[OFFERED.length - 1]; // last extra — not a default slot
+    await panel(w).findAll("button")[OFFERED.length - 1].trigger("click");
 
     expect(sketch.slots.value[0]).toBe(target);
     expect(sketch.slots.value.slice(1)).toEqual([...DEFAULT_SLOT_COLORS].slice(1));
@@ -96,7 +109,7 @@ describe("SketchToolbar palette slots", () => {
     const w = mountToolbar();
     await w.find("button[aria-pressed]").trigger("click");
     await slotButtons(w)[0].trigger("click");
-    await panel(w).findAll("button")[PICKER_COLORS.length - 1].trigger("click");
+    await panel(w).findAll("button")[OFFERED.length - 1].trigger("click");
 
     expect(JSON.stringify(sketch.doc.value.shapes)).toBe(shapesBefore);
     expect(sketch.canUndo.value).toBe(undoBefore);

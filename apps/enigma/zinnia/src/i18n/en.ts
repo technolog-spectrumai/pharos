@@ -117,6 +117,9 @@ export default {
     slot: "Colour slot {n}",
     editSlot: "Change colour slot {n}",
     colorNames: {
+      accent: "Accent blue",
+      success: "Success green",
+      warn: "Warning red",
       red: "Red",
       green: "Green",
       blue: "Blue",

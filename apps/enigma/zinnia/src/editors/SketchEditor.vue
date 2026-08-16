@@ -19,6 +19,8 @@ import {
 } from "../sketch/svgDocument";
 import { SVG_FONT_STACK } from "../sketch/sketchModel";
 import { backgroundImageFromFile, exportPng } from "../sketch/sketchExport";
+import { INK_DARK, INK_LIGHT } from "../sketch/sketchModel";
+import { isDark } from "../theme";
 
 const props = defineProps<{
   path: string | null;
@@ -78,6 +80,10 @@ function open(text: string) {
   refusal.value = null;
   if (!text.trim()) {
     sketch.value = createSketch(emptySvgDocument());
+    // The writer's rule, applied to the pen: black ink on light paper, white
+    // on dark. Only the STARTING colour — a drawn shape stores its concrete
+    // hex, because an .svg must render the same on every viewer.
+    sketch.value.currentColor.value = isDark() ? INK_DARK : INK_LIGHT;
     void sketch.value.loadPalette();
     baseline();
     return;
@@ -89,6 +95,7 @@ function open(text: string) {
     return;
   }
   sketch.value = createSketch(res.doc);
+  sketch.value.currentColor.value = isDark() ? INK_DARK : INK_LIGHT;
   void sketch.value.loadPalette();
   baseline();
 }

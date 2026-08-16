@@ -108,13 +108,37 @@ export const EXTRA_COLORS = [
 
 /** Everything a slot may hold. The defaults stay offered alongside the extras so a
  *  slot can be put back to its original colour without a dedicated reset control. */
-export const PICKER_COLORS: readonly string[] = [...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS];
+/** The platform's three semantic inks — accent (blue), success (green),
+ *  warn (red) — in the same per-mode shades the writer's cy-ink-* classes use.
+ *  Two sets because a drawing stores CONCRETE colours: the picker offers the
+ *  shade that reads on the CURRENT paper, and the file keeps whichever was
+ *  picked. (A theme-relative colour inside an .svg would render differently on
+ *  every viewer, which is not what a drawing is.) */
+export const SYSTEM_COLORS_LIGHT: readonly string[] = ["#2a6df4", "#1f8a4c", "#d94a4a"];
+export const SYSTEM_COLORS_DARK: readonly string[] = ["#7aa2ff", "#4ade80", "#ff6b6b"];
+/** Plain ink: black on light paper, white on dark — the writer's rule. */
+export const INK_LIGHT = "#111827";
+export const INK_DARK = "#ffffff";
+
+// Deduplicated: INK_DARK is plain white, which EXTRA_COLORS already offers,
+// and the invariant that no colour appears twice is worth keeping — a doubled
+// swatch reads as a broken picker.
+export const PICKER_COLORS: readonly string[] = [...new Set([
+  ...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS,
+  ...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_DARK,
+])];
 
 /** Hex → i18n leaf key under `sketch.colorNames`. Swatches are bare colour chips
  *  with no text, so this is the only thing that makes them speakable: without it a
  *  screen reader announces the hex, and "#ef4444" reads as "number E F four four
  *  four four" rather than "red". Must cover every PICKER_COLORS entry. */
 export const COLOR_NAME_KEYS: Readonly<Record<string, string>> = {
+  "#2a6df4": "accent",
+  "#7aa2ff": "accent",
+  "#1f8a4c": "success",
+  "#4ade80": "success",
+  "#d94a4a": "warn",
+  "#ff6b6b": "warn",
   "#ef4444": "red",
   "#10b981": "green",
   "#3b82f6": "blue",

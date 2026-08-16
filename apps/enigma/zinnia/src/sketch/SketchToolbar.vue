@@ -7,8 +7,13 @@ import {
   BACKGROUND_COLORS,
   canFill,
   COLOR_NAME_KEYS,
+  DEFAULT_SLOT_COLORS,
+  EXTRA_COLORS,
+  INK_DARK,
+  INK_LIGHT,
+  SYSTEM_COLORS_DARK,
+  SYSTEM_COLORS_LIGHT,
   OPACITY_STEPS,
-  PICKER_COLORS,
   STROKE_SIZES,
   TEXT_SIZES,
 } from "./sketchModel";
@@ -97,6 +102,18 @@ watch(
 );
 
 const colorLabel = (c: string) => `sketch.colorNames.${COLOR_NAME_KEYS[c]}`;
+
+/** The picker for THIS theme: the semantic trio in the shade that reads on the
+ *  current paper, and plain ink as black-on-light / white-on-dark. The full
+ *  PICKER_COLORS list stays the validation set — a drawing made in the other
+ *  mode still round-trips — this only chooses what the palette OFFERS. */
+const pickerColors = computed(() => {
+  const dark = document.documentElement.classList.contains("dark");
+  const system = dark ? SYSTEM_COLORS_DARK : SYSTEM_COLORS_LIGHT;
+  const ink = dark ? INK_DARK : INK_LIGHT;
+  const base = DEFAULT_SLOT_COLORS.filter((c) => c !== INK_LIGHT);
+  return [...system, ink, ...base, ...EXTRA_COLORS.filter((c) => !system.includes(c))];
+});
 
 /** Unselected swatch ring. `border-black/20` alone vanishes against the dark
  *  toolbar, which turns the white and silver chips into unbordered blobs. */
@@ -188,7 +205,7 @@ const rotation = computed({
       >
         <div class="grid grid-cols-6 gap-1.5">
           <button
-            v-for="c in PICKER_COLORS"
+            v-for="c in pickerColors"
             :key="c"
             type="button"
             class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
