@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
 import {
   applyPalette,
   colorFor,
@@ -110,5 +111,25 @@ describe("the system palette", () => {
     // The sketch writes literal values into the .svg it saves, so it needs the
     // value, not a var() that would mean something else in another viewer.
     expect(colorFor(DEFAULT_PALETTE, "success", "dark")).toBe(DEFAULT_PALETTE.success.dark);
+  });
+});
+
+describe("following the theme", () => {
+  it("recomputes the mode when the theme changes", async () => {
+    // `isDark()` reads a DOM class, which a computed cannot depend on: written
+    // that way, mode caches its first answer forever and the editors keep
+    // offering the outgoing theme's shades after a toggle.
+    const { useSystemColors } = await import("../../src/useSystemColors");
+    document.documentElement.classList.remove("dark");
+    const { mode } = useSystemColors();
+    expect(mode.value).toBe("light");
+
+    document.documentElement.classList.add("dark");
+    // jsdom delivers MutationObserver callbacks on a microtask.
+    await new Promise((r) => setTimeout(r, 0));
+    await nextTick();
+    expect(mode.value).toBe("dark");
+
+    document.documentElement.classList.remove("dark");
   });
 });

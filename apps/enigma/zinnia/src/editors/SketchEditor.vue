@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import OyaButton from "rakotis/components/primitives/OyaButton.vue";
 import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import ModalPanel from "../components/ModalPanel.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import { useI18n } from "vue-i18n";
 import SketchCanvas, { type Tool } from "../sketch/SketchCanvas.vue";
@@ -300,14 +301,14 @@ defineExpose({
     </template>
 
     <OyaModal :open="textModal !== null" @close="textModal = null">
-      <div class="w-full max-w-sm space-y-3">
+      <ModalPanel>
         <p class="text-sm font-semibold">{{ t("sketch.addText") }}</p>
         <OyaTextField v-model="textInput" :placeholder="t('sketch.textPlaceholder')" @enter="confirmText" />
         <div class="flex justify-end gap-2">
           <OyaButton variant="secondary" @click="textModal = null">{{ t("common.cancel") }}</OyaButton>
           <OyaButton @click="confirmText">{{ t("common.save") }}</OyaButton>
         </div>
-      </div>
+      </ModalPanel>
     </OyaModal>
   </div>
 </template>

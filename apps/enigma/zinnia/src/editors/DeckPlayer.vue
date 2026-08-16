@@ -81,11 +81,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex flex-col bg-black">
-    <div class="flex shrink-0 items-center gap-2 px-3 py-1.5 text-xs text-white/70">
+  <!-- The backdrop is the DECK's own background, not black.
+       Reveal insets the slide by its margin, so a backdrop that differs from
+       the slide paints that inset as a frame around every slide — and a
+       white-themed deck came out framed in black. Taking the colour from the
+       theme class makes the inset invisible in both themes while leaving
+       reveal's geometry exactly as zenobia has it. -->
+  <div class="fixed inset-0 z-50 flex flex-col"
+       :class="`memo-theme-${props.deck.theme}`"
+       :style="{ background: 'var(--r-background-color)', color: 'var(--r-main-color)' }">
+    <div class="flex shrink-0 items-center gap-2 px-3 py-1.5 text-xs opacity-70">
       <span class="flex-1 truncate">{{ props.deck.title || t("deck.untitledSlide") }}</span>
       <button type="button" data-testid="player-close"
-              class="oya-tip oya-tip-end rounded border border-white/25 px-2 py-1 transition hover:bg-white/10"
+              class="oya-tip oya-tip-end rounded border border-current/25 px-2 py-1 transition hover:opacity-80"
               :data-tip="t('deck.exitPlay')" :title="t('deck.exitPlay')" @click="emit('close')">
         <font-awesome-icon icon="xmark" />
       </button>

@@ -14,7 +14,7 @@ import {
   type SystemPalette,
   type SystemRole,
 } from "./systemColors";
-import { isDark } from "./theme";
+import { isDarkRef } from "./theme";
 
 const palette = ref<SystemPalette>(loadPalette());
 
@@ -25,7 +25,7 @@ applyPalette(palette.value);
 export function useSystemColors() {
   /** The mode whose values the editors should currently OFFER. Reads the class
    *  live (see ./theme for why that is the source of truth). */
-  const mode = computed<Mode>(() => (isDark() ? "dark" : "light"));
+  const mode = computed<Mode>(() => (isDarkRef.value ? "dark" : "light"));
 
   function set(role: SystemRole, forMode: Mode, hex: string) {
     palette.value = {

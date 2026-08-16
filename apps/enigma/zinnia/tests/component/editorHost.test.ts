@@ -35,24 +35,32 @@ describe("the editor host", () => {
       for (const [other, name] of Object.entries(EDITOR_FOR)) {
         if (other !== kind) expect(w.findComponent({ name }).exists()).toBe(false);
       }
-      expect(w.find('[data-testid="file-save"]').exists()).toBe(true);
+      // The file commands live in the app menu now, so what the host owes the
+      // outside world is the command surface, not a toolbar.
+      const host = w.vm as unknown as Record<string, unknown>;
+      for (const command of ["newFile", "openFile", "saveFile", "saveAs"]) {
+        expect(typeof host[command], command).toBe("function");
+      }
     });
   }
 
-  it("shows the dirty dot when the editor reports changes", async () => {
+  it("publishes dirty when the editor reports changes", async () => {
+    // The dot is drawn by the app header now; what the host is responsible for
+    // is telling the truth about the file it owns.
     const w = mountHost("sketch");
     await flushPromises();
-    expect(w.find('[title="Unsaved changes"]').exists()).toBe(false);
+    const host = w.vm as unknown as { dirty: boolean };
+    expect(host.dirty).toBe(false);
     w.findComponent({ name: "SketchEditor" }).vm.$emit("update:dirty", true);
     await flushPromises();
-    expect(w.find('[title="Unsaved changes"]').exists()).toBe(true);
+    expect(host.dirty).toBe(true);
   });
 
   it("names a new file after its own kind", async () => {
     for (const kind of Object.keys(EDITOR_FOR) as EditorKind[]) {
       const w = mountHost(kind);
       await flushPromises();
-      const shown = w.get('[data-testid="file-name"]').text();
+      const shown = (w.vm as unknown as { name: string }).name;
       const ext = KIND_FILES[kind].extensions[0];
       expect(shown, `${kind} should default to a .${ext} name`).toMatch(new RegExp(`\\.${ext}$`));
     }

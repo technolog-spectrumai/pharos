@@ -65,7 +65,11 @@ describe("structure edits", () => {
     await flushPromises();
 
     const before = loads(vmOf(w).getContent()).slides[1];
-    await w.get('[data-testid="layout-select"]').setValue("section"); // one box
+    // The native <select> gave way to SelectMenu (WebKitGTK draws a native
+    // option list as a GTK popup that ignores the app's theme), so the layout
+    // is chosen by opening the menu and clicking an option.
+    await w.get('[data-testid="layout-select"] [data-testid="select-trigger"]').trigger("click");
+    await w.get('[data-testid="select-option-section"]').trigger("click"); // one box
     await flushPromises();
     const after = loads(vmOf(w).getContent()).slides[1];
 

@@ -16,6 +16,9 @@ import { useI18n } from "vue-i18n";
 import OyaButton from "rakotis/components/primitives/OyaButton.vue";
 import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import ModalPanel from "../components/ModalPanel.vue";
+import SelectMenu from "../components/SelectMenu.vue";
+import FormulaPreview from "../components/FormulaPreview.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import SlideBlock from "./SlideBlock.vue";
 import DeckPlayer from "./DeckPlayer.vue";
@@ -41,6 +44,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n({ useScope: "global" });
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 // ── the deck ────────────────────────────────────────────────────────────────
 // shallowRef, not ref, and the reason is load-bearing: `mutate` clones the deck
@@ -144,6 +149,97 @@ function addBlock(type: string, slot: string) {
   });
 }
 
+/** Bring an image or a drawing in from the filesystem.
+ *
+ *  These payloads are a FILE's contents, so typing them was never the right
+ *  interaction: an image block wanted a pasted data URI and an svg block a
+ *  pasted document. The deck is a single self-contained .xml, so the file is
+ *  embedded rather than referenced — a path would break the moment the deck
+ *  was moved or sent to someone. */
+const importing = ref(false);
+const importError = ref("");
+const importInput = ref<HTMLInputElement | null>(null);
+
+async function importPayload() {
+  const type = editing.value?.type;
+  if (!type || !IMPORTED_TYPES.has(type)) return;
+  importError.value = "";
+
+  if (!isTauri) {
+    importInput.value?.click(); // browser build has no dialog
+    return;
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    filters: type === "svg"
+      ? [{ name: "SVG", extensions: ["svg"] }]
+      : [{ name: t("deck.blockTypes.image"), extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
+  });
+  if (typeof picked !== "string") return;
+
+  importing.value = true;
+  try {
+    const { readFile, readTextFile } = await import("@tauri-apps/plugin-fs");
+    if (type === "svg") {
+      draftPayload.value = await readTextFile(picked);
+    } else {
+      const bytes = await readFile(picked);
+      draftPayload.value = `<img src="${toDataUri(picked, bytes)}" alt="" />`;
+    }
+  } catch (err) {
+    importError.value = (err as Error)?.message ?? String(err);
+  } finally {
+    importing.value = false;
+  }
+}
+
+/** Browser build: the same job through a hidden <input type="file">. */
+async function onImportFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  importing.value = true;
+  importError.value = "";
+  try {
+    if (editing.value?.type === "svg") {
+      draftPayload.value = await file.text();
+    } else {
+      draftPayload.value = `<img src="${await fileToDataUri(file)}" alt="" />`;
+    }
+  } catch (err) {
+    importError.value = (err as Error)?.message ?? String(err);
+  } finally {
+    importing.value = false;
+    (event.target as HTMLInputElement).value = "";
+  }
+}
+
+function fileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("unreadable"));
+    reader.readAsDataURL(file);
+  });
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  gif: "image/gif", webp: "image/webp",
+};
+
+function toDataUri(path: string, bytes: Uint8Array): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
+  // Chunked: btoa(String.fromCharCode(...bytes)) blows the argument limit on
+  // anything but a tiny image.
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
 function deleteBlock(id: string) {
   mutate((d) => {
     const s = d.slides[current.value];
@@ -173,6 +269,25 @@ function setBlockSlot(id: string, slot: string) {
 /** Payloads that ARE html fragments — these get TipTap. code keeps its
  *  characters verbatim, image/svg hold markup-as-data, formula holds LaTeX:
  *  all of those must stay raw. */
+/** A block type's icon. Icons rather than "+ heading" chips, for the same
+ *  reason the writer's toolbar went icon-only: nine words wrap onto two lines
+ *  inside a column and turn a slot into a wall of text. The name arrives on
+ *  hover instead, through the same .oya-tip bubble the rest of the app uses. */
+const BLOCK_ICONS: Record<string, string> = {
+  heading: "heading",
+  text: "align-left",
+  list: "list-ul",
+  image: "image",
+  svg: "pencil",
+  code: "code",
+  quote: "quote-left",
+  formula: "square-root-variable",
+  html: "file-code",
+};
+
+/** Types whose payload is a FILE, not something you type. */
+const IMPORTED_TYPES = new Set(["image", "svg"]);
+
 const RICH_TYPES = new Set(["text", "quote", "html"]);
 const INLINE_TYPES = new Set(["heading"]);
 
@@ -288,16 +403,12 @@ defineExpose({
         <span class="mx-1 h-4 w-px bg-current/20" />
 
         <label class="text-xs opacity-70">{{ t("deck.layout") }}</label>
-        <!-- Not bg-transparent: WebKitGTK paints a native select with the GTK
-             theme when no background is given, which came out light-on-light
-             (and orange) over a dark app. An explicit surface in both themes,
-             and `.oya-select option` in style.css covers the popup list, which
-             does not inherit from here. -->
-        <select class="oya-select rounded border px-2 py-1 text-xs border-accent-2 dark:border-accent-1"
-                data-testid="layout-select"
-                :value="slide?.layout" @change="setLayout(($event.target as HTMLSelectElement).value)">
-          <option v-for="l in LAYOUTS" :key="l" :value="l">{{ l }}</option>
-        </select>
+        <!-- Not a native <select>: WebKitGTK draws the open list as a GTK popup
+             that ignores CSS, so it stayed dark on a dark desktop whatever the
+             app's theme was. SelectMenu is ours in both states. -->
+        <SelectMenu data-testid="layout-select" :label="t('deck.layout')"
+                    :model-value="slide?.layout ?? ''" :options="LAYOUTS"
+                    @update:model-value="setLayout($event)" />
 
         <OyaIconButton size="sm" icon="play" :label="t('deck.play')" class="oya-tip"
                        :data-tip="t('deck.play')" data-testid="deck-play" @click="play" />
@@ -349,12 +460,10 @@ defineExpose({
                                    @click="moveBlock(block.id, -1)" />
                     <OyaIconButton size="sm" icon="arrow-down" :label="t('deck.moveDown')" class="oya-tip" :data-tip="t('deck.moveDown')"
                                    @click="moveBlock(block.id, 1)" />
-                    <select v-if="slotsFor(slide.layout).length > 1"
-                            class="oya-select rounded border px-1 text-[10px] border-accent-2 dark:border-accent-1"
-                            :value="block.slot"
-                            @change="setBlockSlot(block.id, ($event.target as HTMLSelectElement).value)">
-                      <option v-for="s in slotsFor(slide.layout)" :key="s" :value="s">{{ s || "—" }}</option>
-                    </select>
+                    <SelectMenu v-if="slotsFor(slide.layout).length > 1"
+                                :label="t('deck.slot')"
+                                :model-value="block.slot" :options="slotsFor(slide.layout)"
+                                @update:model-value="setBlockSlot(block.id, $event)" />
                     <OyaIconButton size="sm" icon="trash" :label="t('deck.deleteBlock')" class="oya-tip" :data-tip="t('deck.deleteBlock')"
                                    @click="deleteBlock(block.id)" />
                   </div>
@@ -363,9 +472,15 @@ defineExpose({
 
                 <div class="flex flex-wrap gap-1">
                   <button v-for="type in BLOCK_TYPES" :key="type" type="button"
-                          class="rounded border px-1.5 py-0.5 text-[10px] opacity-50 transition hover:opacity-100 border-accent-2 dark:border-accent-1"
+                          class="oya-tip inline-flex h-7 w-7 items-center justify-center rounded border
+                                 text-xs opacity-50 transition hover:opacity-100 border-accent-2 dark:border-accent-1"
+                          :data-tip="t(`deck.blockTypes.${type}`)"
+                          :title="t(`deck.blockTypes.${type}`)"
+                          :aria-label="t(`deck.blockTypes.${type}`)"
                           :data-testid="`add-${type}-${slot || 'main'}`"
-                          @click="addBlock(type, slot)">+ {{ type }}</button>
+                          @click="addBlock(type, slot)">
+                    <font-awesome-icon :icon="BLOCK_ICONS[type]" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -378,9 +493,7 @@ defineExpose({
 
     <!-- Block editor -->
     <OyaModal :open="editing !== null" @close="editing = null">
-      <div class="w-full max-w-lg space-y-3">
-        <p class="text-sm font-semibold">{{ editing?.type }}</p>
-
+      <ModalPanel wide :title="editing?.type">
         <template v-if="editing?.type === 'list'">
           <div v-for="(_, i) in draftItems" :key="i" class="flex gap-1">
             <OyaTextField v-model="draftItems[i]" />
@@ -393,6 +506,30 @@ defineExpose({
                            v-model="draftPayload" data-testid="block-rich" />
         <RichPayloadEditor v-else-if="INLINE_TYPES.has(editing?.type ?? '')"
                            v-model="draftPayload" inline data-testid="block-rich" />
+        <template v-else-if="IMPORTED_TYPES.has(editing?.type ?? '')">
+          <button type="button" data-testid="block-import"
+                  class="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition
+                         border-accent-2 hover:opacity-80 disabled:opacity-40 dark:border-accent-1"
+                  :disabled="importing" @click="importPayload()">
+            <font-awesome-icon :icon="importing ? 'spinner' : 'folder-open'" :spin="importing" />
+            {{ t("deck.importFile") }}
+          </button>
+          <p v-if="importError" class="text-xs text-warn-dark" data-testid="block-import-error">
+            {{ importError }}
+          </p>
+          <!-- Still editable: an imported payload is ordinary markup, and a
+               deck that could only ever import would refuse a hand-written
+               <img> that already worked. -->
+          <textarea v-model="draftPayload" rows="6" data-testid="block-payload"
+                    class="w-full rounded border bg-transparent p-2 font-mono text-xs border-accent-2 dark:border-accent-1" />
+          <input ref="importInput" type="file" class="hidden"
+                 :accept="editing?.type === 'svg' ? '.svg' : 'image/*'" @change="onImportFile" />
+        </template>
+        <template v-else-if="editing?.type === 'formula'">
+          <textarea v-model="draftPayload" rows="4" data-testid="block-payload"
+                    class="w-full rounded border bg-transparent p-2 font-mono text-xs border-accent-2 dark:border-accent-1" />
+          <FormulaPreview :latex="draftPayload" />
+        </template>
         <textarea v-else v-model="draftPayload" rows="8" data-testid="block-payload"
                   class="w-full rounded border bg-transparent p-2 font-mono text-xs border-accent-2 dark:border-accent-1" />
 
@@ -400,13 +537,12 @@ defineExpose({
           <OyaButton variant="secondary" @click="editing = null">{{ t("common.cancel") }}</OyaButton>
           <OyaButton data-testid="block-commit" @click="commitBlock">{{ t("common.save") }}</OyaButton>
         </div>
-      </div>
+      </ModalPanel>
     </OyaModal>
 
     <!-- Deck settings -->
     <OyaModal :open="setupOpen" @close="setupOpen = false">
-      <div class="w-full max-w-sm space-y-3">
-        <p class="text-sm font-semibold">{{ t("deck.settings") }}</p>
+      <ModalPanel :title="t('deck.settings')">
 
         <label class="block text-xs opacity-70">{{ t("deck.title") }}</label>
         <OyaTextField :model-value="deck.title" data-testid="deck-title"
@@ -431,7 +567,7 @@ defineExpose({
         <div class="flex justify-end">
           <OyaButton @click="setupOpen = false">{{ t("common.close") }}</OyaButton>
         </div>
-      </div>
+      </ModalPanel>
     </OyaModal>
   </div>
 </template>

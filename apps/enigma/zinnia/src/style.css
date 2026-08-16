@@ -111,3 +111,19 @@ html, body, #app { min-height: 100%; }
 .oya-tip:focus-visible::after { opacity: 1; }
 /* The last controls in a toolbar would push the bubble off the right edge. */
 .oya-tip.oya-tip-end::after { left: auto; right: 0; transform: none; }
+
+
+/* ProseMirror's editable surface draws the platform focus ring, and WebKitGTK
+   takes that colour from the GTK theme — on this desktop it arrives as a bright
+   orange box around the editor, which looks like an error state and belongs to
+   no palette in the app. Replaced with our own accent, not simply removed:
+   something must still show where typing goes. */
+.ProseMirror:focus,
+.ProseMirror-focused {
+  outline: none;
+}
+.rich-payload:focus-within {
+  outline: 2px solid var(--sys-accent);
+  outline-offset: -1px;
+  border-radius: 0.25rem;
+}

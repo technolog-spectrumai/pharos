@@ -11,8 +11,8 @@
 // it is why `kind` is a prop rather than sniffed from the filename.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import OyaButton from "rakotis/components/primitives/OyaButton.vue";
-import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import ModalPanel from "../components/ModalPanel.vue";
 import { useI18n } from "vue-i18n";
 import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
@@ -25,7 +25,12 @@ import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
 import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
 import { KIND_FILES, type EditorKind } from "../tabs";
 
-const props = defineProps<{ kind: EditorKind }>();
+const props = defineProps<{
+  kind: EditorKind;
+  /** Whether this tab is the one on screen. Defaults true so the host works
+   *  standalone; App always passes it. See onKey for why it matters. */
+  active?: boolean;
+}>();
 
 const { t } = useI18n({ useScope: "global" });
 
@@ -220,6 +225,11 @@ const canSave = computed(() => !busy.value && (dirty.value || path.value === nul
 
 // ── keyboard: only what is the FILE's, not the buffer's ─────────────────────
 function onKey(e: KeyboardEvent) {
+  // Every visited tab stays MOUNTED (that is the point — a half-written
+  // document must survive a tab switch), so every one of them has a live
+  // window listener. Without this gate a single Ctrl+O opens one file dialog
+  // per visited tab.
+  if (props.active === false) return;
   const target = e.target as HTMLElement | null;
   if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
@@ -227,44 +237,17 @@ function onKey(e: KeyboardEvent) {
     void openFile();
   }
 }
+/** The file commands, for the app menu. The host owns the file — which path it
+ *  came from, whether it is dirty, whether a write is in flight — so the menu
+ *  asks it rather than keeping a second copy of any of that. */
+defineExpose({ newFile, openFile, saveFile, saveAs, name, dirty, busy, canSave, notice, fileError });
+
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <!-- File bar -->
-    <div class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-2">
-      <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.new')" class="oya-tip" :data-tip="t('file.new')"
-                     data-testid="file-new" @click="newFile" />
-      <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" class="oya-tip" :data-tip="t('file.open')" @click="openFile" />
-      <div class="min-w-0 flex-1">
-        <p class="flex items-center gap-1.5">
-          <span class="truncate text-sm font-semibold" data-testid="file-name">{{ name }}</span>
-          <span v-if="dirty" class="shrink-0 opacity-60" :title="t('file.unsavedTitle')">•</span>
-        </p>
-        <p v-if="!isTauri" class="truncate text-xs opacity-50">{{ t("file.browserNote") }}</p>
-      </div>
-      <p v-if="notice" class="text-xs opacity-60">{{ notice }}</p>
-      <p v-if="fileError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="file-error">{{ fileError }}</p>
-      <button
-        class="shrink-0 rounded-lg border border-accent-2 px-2.5 py-1 text-xs font-semibold transition hover:opacity-80 disabled:opacity-40 dark:border-accent-1"
-        :disabled="busy"
-        @click="saveAs()"
-      >
-        {{ t("file.saveAs") }}
-      </button>
-      <button
-        class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
-        :class="{ 'pointer-events-none opacity-50': !canSave }"
-        data-testid="file-save"
-        @click="saveFile()"
-      >
-        <font-awesome-icon :icon="busy ? 'spinner' : 'floppy-disk'" :spin="busy" />
-        {{ t("file.save") }}
-      </button>
-    </div>
-
     <input ref="browserInput" type="file" :accept="acceptAttr" class="hidden" @change="onBrowserFile" />
 
     <!-- keyed by generation: a fresh file gets a fresh editor instance -->
@@ -343,14 +326,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     />
 
     <OyaModal :open="discardOpen" @close="answerDiscard(false)">
-      <div class="w-full max-w-sm space-y-3">
+      <ModalPanel>
         <p class="text-sm font-semibold">{{ t("file.discardTitle") }}</p>
         <p class="text-sm opacity-70">{{ t("file.discardBody") }}</p>
         <div class="flex justify-end gap-2">
           <OyaButton variant="secondary" @click="answerDiscard(false)">{{ t("common.cancel") }}</OyaButton>
           <OyaButton @click="answerDiscard(true)">{{ t("file.discardConfirm") }}</OyaButton>
         </div>
-      </div>
+      </ModalPanel>
     </OyaModal>
   </div>
 </template>

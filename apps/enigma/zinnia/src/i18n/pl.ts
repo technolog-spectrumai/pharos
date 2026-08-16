@@ -2,6 +2,7 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   nav: {
+    menu: "Menu",
     themeDark: "Tryb ciemny",
     themeLight: "Tryb jasny",
     write: "Pisanie",
@@ -37,6 +38,19 @@ export default {
     gridFailed: "Nie udało się uruchomić arkusza",
   },
   deck: {
+    slot: "Miejsce",
+    importFile: "Importuj z pliku…",
+    blockTypes: {
+      heading: "Nagłówek",
+      text: "Tekst",
+      list: "Lista",
+      image: "Obraz",
+      svg: "Rysunek",
+      code: "Kod",
+      quote: "Cytat",
+      formula: "Wzór",
+      html: "HTML",
+    },
     play: "Prezentuj",
     exitPlay: "Zakończ (Esc)",
     notADeck: "To nie jest prezentacja",
@@ -115,6 +129,9 @@ export default {
     rawView: "Ten plik otwarto jako czysty tekst, żeby niczego nie zgubić. Edycja w tym widoku jeszcze nie działa.",
   },
   common: {
+    preview: "Podgląd",
+    previewEmpty: "Nie ma jeszcze czego pokazać.",
+    previewFailed: "Nie udało się wyrenderować.",
     save: "Zapisz",
     saved: "Zapisano",
     cancel: "Anuluj",

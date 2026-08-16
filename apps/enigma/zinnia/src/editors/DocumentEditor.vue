@@ -16,6 +16,8 @@ import OyaModal from "rakotis/components/primitives/OyaModal.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import { useI18n } from "vue-i18n";
 import { TONE_ICONS } from "../icons";
+import ModalPanel from "../components/ModalPanel.vue";
+import FormulaPreview from "../components/FormulaPreview.vue";
 import { Editor, EditorContent } from "@tiptap/vue-3";
 import { cyprianExtensions, INKS } from "./cyprianSchema";
 import {
@@ -447,15 +449,15 @@ defineExpose({
     </OyaModal>
 
     <OyaModal :open="formulaOpen" @close="formulaOpen = false">
-      <div class="w-full max-w-sm space-y-3">
-        <p class="text-sm font-semibold">{{ t("doc.formula") }}</p>
+      <ModalPanel :title="t('doc.formula')">
         <OyaTextField v-model="formulaInput" mono placeholder="e^{i\pi}+1=0"
                       data-testid="formula-input" @enter="confirmFormula" />
+        <FormulaPreview :latex="formulaInput" />
         <div class="flex justify-end gap-2">
           <OyaButton variant="secondary" @click="formulaOpen = false">{{ t("common.cancel") }}</OyaButton>
           <OyaButton @click="confirmFormula">{{ t("common.save") }}</OyaButton>
         </div>
-      </div>
+      </ModalPanel>
     </OyaModal>
   </div>
 </template>

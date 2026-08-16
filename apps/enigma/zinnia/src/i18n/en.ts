@@ -2,6 +2,7 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   nav: {
+    menu: "Menu",
     themeDark: "Dark mode",
     themeLight: "Light mode",
     write: "Write",
@@ -37,6 +38,19 @@ export default {
     gridFailed: "The grid could not start",
   },
   deck: {
+    slot: "Slot",
+    importFile: "Import from file…",
+    blockTypes: {
+      heading: "Heading",
+      text: "Text",
+      list: "List",
+      image: "Image",
+      svg: "Drawing",
+      code: "Code",
+      quote: "Quote",
+      formula: "Formula",
+      html: "HTML",
+    },
     play: "Present",
     exitPlay: "Exit (Esc)",
     notADeck: "This is not a presentation",
@@ -115,6 +129,9 @@ export default {
     rawView: "This file opened as raw text so nothing gets lost. Editing it here is not supported yet.",
   },
   common: {
+    preview: "Preview",
+    previewEmpty: "Nothing to show yet.",
+    previewFailed: "Could not render this.",
     save: "Save",
     saved: "Saved",
     cancel: "Cancel",

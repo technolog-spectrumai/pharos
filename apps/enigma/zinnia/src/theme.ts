@@ -1,3 +1,5 @@
+import { readonly, ref } from "vue";
+
 // The current theme, and a way to be told when it changes.
 //
 // The `.dark` class on <html> is the single source of truth (App.vue owns it,
@@ -30,3 +32,16 @@ export function watchDark(onChange: (dark: boolean) => void): () => void {
   });
   return () => observer.disconnect();
 }
+
+/** The theme as a reactive value.
+ *
+ *  `isDark()` reads a DOM class, which a computed cannot depend on — a computed
+ *  calling it caches its first answer forever and never recomputes on a theme
+ *  change. One observer for the whole app, mirrored into a ref, so anything
+ *  that must FOLLOW the theme (rather than sample it once) has something to
+ *  track. The class stays the source of truth; this only reflects it. */
+const dark = ref(isDark());
+watchDark((on) => {
+  dark.value = on;
+});
+export const isDarkRef = readonly(dark);
