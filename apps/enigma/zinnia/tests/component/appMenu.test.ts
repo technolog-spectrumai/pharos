@@ -113,3 +113,21 @@ describe("the file menu", () => {
     expect(w.find('[title="Unsaved changes"]').exists()).toBe(true);
   });
 });
+
+describe("keyboard shortcuts across tabs", () => {
+  it("passes the on-screen flag down to the editors", async () => {
+    // The mechanism: every visited tab stays MOUNTED so a half-written document
+    // survives a switch, which also leaves every editor holding a live window
+    // keydown listener. The flag is what stops the off-screen ones answering.
+    const w = mountApp();
+    await flushPromises();
+    await w.get('[data-testid="nav-sketch"]').trigger("click");
+    await flushPromises();
+
+    const doc = w.findComponent({ name: "DocumentEditor" });
+    const sketch = w.findComponent({ name: "SketchEditor" });
+    expect(doc.exists()).toBe(true); // still alive, just not on screen
+    expect(doc.props("active")).toBe(false);
+    expect(sketch.props("active")).toBe(true);
+  });
+});

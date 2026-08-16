@@ -31,6 +31,8 @@ const props = defineProps<{
   content: string;
   busy?: boolean;
   error?: string;
+  /** Whether this editor's tab is the one on screen. */
+  active?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -242,6 +244,9 @@ onBeforeUnmount(() => {
 watch(() => props.path, () => undefined);
 
 function onKey(e: KeyboardEvent) {
+  // Every visited tab stays mounted, so every editor has a live window
+  // listener. Without this gate one Ctrl+S saves all of them at once.
+  if (props.active === false) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (!props.busy) emit("save", currentText());

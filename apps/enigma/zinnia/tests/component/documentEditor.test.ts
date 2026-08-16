@@ -205,3 +205,29 @@ describe("block operations", () => {
     expect(vm.getContent()).toContain("one");
   });
 });
+
+describe("shortcuts follow the visible tab", () => {
+  it("ignores Ctrl+S while its tab is off screen", async () => {
+    // The gate this proves: an off-screen tab is still mounted and still
+    // listening on window, so without it one Ctrl+S saved every visited tab.
+    const w = mount(DocumentEditor, {
+      props: { path: null, name: "a.xml", content: docWith("<p>x</p>"), active: false },
+      global: { plugins: [i18n], stubs: { teleport: true } },
+    });
+    await flushPromises();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true }));
+    await flushPromises();
+    expect(w.emitted("save")).toBeUndefined();
+  });
+
+  it("answers Ctrl+S while its tab IS on screen", async () => {
+    const w = mount(DocumentEditor, {
+      props: { path: null, name: "a.xml", content: docWith("<p>x</p>"), active: true },
+      global: { plugins: [i18n], stubs: { teleport: true } },
+    });
+    await flushPromises();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true }));
+    await flushPromises();
+    expect(w.emitted("save")).toBeTruthy();
+  });
+});
