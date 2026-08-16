@@ -17,6 +17,7 @@ zeroize = { version = "1", features = ["derive"] }
 # The gervazy module: the toto platform's file-vault construction
 # (Argon2id → Fernet), for content that must be portable to the server.
 fernet = "0.2"
+aes-gcm = "0.10"
 base64 = "0.22"
 
 [dev-dependencies]
