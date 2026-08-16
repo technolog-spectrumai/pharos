@@ -283,3 +283,62 @@ mod interop_artifact {
         .unwrap();
     }
 }
+
+#[cfg(test)]
+mod platform_interop {
+    //! The real loop: open what `toto.vault.strategy.TextStrategy` encrypted,
+    //! and write something for it to open back. Ignored by default because it
+    //! needs artifacts the Django side produces — see
+    //! toto/vault/tests_interop.py.
+    use super::*;
+
+    fn params() -> serde_json::Value {
+        let dir = std::env::var("INTEROP_DIR").expect("INTEROP_DIR");
+        serde_json::from_str(
+            &std::fs::read_to_string(format!("{dir}/strategy_params.json")).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    #[ignore]
+    fn opens_what_the_vault_strategy_encrypted() {
+        let dir = std::env::var("INTEROP_DIR").unwrap();
+        let p = params();
+        let path = format!("{dir}/from_strategy.bin");
+        std::fs::copy(format!("{dir}/strategy_out.bin"), &path).unwrap();
+
+        assert!(is_file_locked(path.clone()).unwrap(), "desktop must see it as locked");
+
+        let info = unlock_file(
+            path.clone(),
+            p["password"].as_str().unwrap().into(),
+            p["salt_b64"].as_str().unwrap().into(),
+            p["memory_cost"].as_u64().unwrap() as u32,
+            p["iterations"].as_u64().unwrap() as u32,
+            p["lanes"].as_u64().unwrap() as u32,
+        )
+        .expect("the platform's ciphertext must open here");
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), p["plaintext"].as_str().unwrap());
+        assert_eq!(info.size as usize, p["plaintext"].as_str().unwrap().len());
+    }
+
+    #[test]
+    #[ignore]
+    fn writes_something_the_vault_strategy_can_open() {
+        let dir = std::env::var("INTEROP_DIR").unwrap();
+        let p = params();
+        let path = format!("{dir}/desktop_out.bin");
+        std::fs::write(&path, b"from the desktop\n").unwrap();
+        lock_file(
+            path,
+            p["password"].as_str().unwrap().into(),
+            p["salt_b64"].as_str().unwrap().into(),
+            p["memory_cost"].as_u64().unwrap() as u32,
+            p["iterations"].as_u64().unwrap() as u32,
+            p["lanes"].as_u64().unwrap() as u32,
+        )
+        .unwrap();
+    }
+}
