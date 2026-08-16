@@ -1,35 +1,27 @@
-//! The gervazy construction — the toto platform's file-vault crypto, exactly.
+//! Sealed content the platform and the desktop both read.
 //!
-//! `Argon2id(password, salt, costs) → base64url → Fernet`. This is what
-//! zenobia's `UserStrongbox.derive_key` + `cryptography.fernet.Fernet` do, so
-//! a file sealed through this module decrypts on the platform and a
-//! platform-encrypted file decrypts here. gervasius came FROM gervazy
-//! originally (see lib.rs); this module closes the circle for the one place
-//! the two must produce identical bytes: files that cross between a desktop
-//! and a server.
+//! ONE construction, chosen on purpose: `Argon2id(password, salt, costs)` →
+//! **XChaCha20-Poly1305**, framed as `MAGIC(8) || VERSION(1) || nonce(24) ||
+//! ciphertext+tag`. Both sides implement exactly this — Rust through
+//! `chacha20poly1305`, Python through libsodium (PyNaCl) — and frames written
+//! by either open in the other.
 //!
-//! TWO constructions live here, because the platform has two:
+//! XChaCha20 over AES-GCM because of the nonce. 192 bits means a random nonce
+//! per seal is safe for as many messages as anyone will ever write, with no
+//! counter to keep and no state to corrupt; AES-GCM's 96-bit nonce is fine
+//! until the day something reuses one, and then it is catastrophic. It is also
+//! what this crate already used natively, so the desktop keeps one cipher for
+//! everything rather than two.
 //!
-//!   * `seal`/`open` — Argon2id → base64url → **Fernet**, which is what
-//!     `toto.vault.strategy.*` uses today. Kept because files encrypted that
-//!     way exist and must keep opening. Note what it is: AES-**128**-CBC +
-//!     HMAC-SHA256 (Fernet splits the 32-byte key in half), no AAD, and a
-//!     cleartext timestamp in every token.
-//!   * `gcm_seal`/`gcm_open` — Argon2id → **AES-256-GCM**, which is what
-//!     `toto.gervazy.crypto` uses, and what this crate was ported FROM. Real
-//!     256-bit encryption, and an AAD that binds a value to what it belongs
-//!     to — the thing Fernet cannot express, and the reason a Fernet token can
-//!     be moved between files undetected.
+//! The KDF stays gervazy's, and the salt and costs stay the SERVER'S: they
+//! live on the user's strongbox row, which is what makes the same password
+//! derive the same key on every device. They are parameters here, never
+//! constants — a file must keep opening after the server raises its defaults.
 //!
-//! The second is where file locking should end up on both sides. It is the
-//! only AEAD they can share: Python's `cryptography` ships AES-GCM and
-//! ChaCha20-Poly1305 but not XChaCha20-Poly1305, so this crate's NATIVE
-//! envelope (XChaCha20, in vault.rs) can never be the common format without
-//! adding libsodium to the server. That native envelope stays what it is and
-//! remains right for protasius, which never crosses the wire.
-//!
-//! Costs are parameters, not constants: the server owns them per user, and a
-//! file must keep opening after the server raises its defaults for new users.
+//! `legacy_fernet_open` is the one concession to history. The vault's older
+//! strategies wrote `Argon2id → base64url → Fernet` (AES-128-CBC + HMAC, no
+//! AAD, cleartext timestamp), and files encrypted that way must keep opening.
+//! Nothing writes it any more.
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::Engine;
@@ -43,9 +35,22 @@ use crate::CryptoError;
 /// Fernet bytes in storage.
 pub const FERNET_PREFIX: &[u8] = b"gAAAAA";
 
-/// Whether bytes look like a gervazy-sealed value.
+/// The current frame's marker. A local file has no `is_encrypted` column to
+/// consult, so the bytes have to say what they are.
+pub const MAGIC: &[u8; 8] = b"TOTOSEAL";
+pub const VERSION: u8 = 1;
+const NONCE_LEN: usize = 24;
+const TAG_LEN: usize = 16;
+const HEADER_LEN: usize = 8 + 1;
+
+/// Whether bytes are sealed — either the current frame or a legacy token.
 pub fn is_sealed(bytes: &[u8]) -> bool {
-    bytes.starts_with(FERNET_PREFIX)
+    is_current(bytes) || bytes.starts_with(FERNET_PREFIX)
+}
+
+/// Whether bytes are the CURRENT frame specifically.
+pub fn is_current(bytes: &[u8]) -> bool {
+    bytes.len() > HEADER_LEN && bytes.starts_with(MAGIC) && bytes[8] == VERSION
 }
 
 /// `Argon2id(password, salt) → base64url`, the platform's key shape.
@@ -75,8 +80,10 @@ fn fernet_from(key: &str) -> Result<fernet::Fernet, CryptoError> {
     fernet::Fernet::new(key).ok_or(CryptoError::BadParams)
 }
 
-/// Seal bytes as a platform-compatible Fernet token (UTF-8/ASCII text).
-pub fn seal(
+/// LEGACY, read path only — nothing should call this.
+#[deprecated(note = "Fernet is the old vault format; seal() writes XChaCha20")]
+#[allow(dead_code)]
+pub fn legacy_fernet_seal(
     password: &str,
     salt: &[u8],
     m_cost_kib: u32,
@@ -88,12 +95,11 @@ pub fn seal(
     Ok(fernet_from(&key)?.encrypt(plaintext))
 }
 
-/// Open a token. Wrong password and tampering both fail on the HMAC and both
-/// surface as `Aead` — deliberately indistinguishable, like the native AEAD.
+/// Open a legacy Fernet token, so files sealed before 8/2026 still open.
 ///
-/// No TTL: the platform sets no expiry on file tokens, and a file that stopped
+/// No TTL: the platform set no expiry on file tokens, and a file that stopped
 /// opening because it aged would be data loss with extra steps.
-pub fn open(
+pub fn legacy_fernet_open(
     password: &str,
     salt: &[u8],
     m_cost_kib: u32,
@@ -107,64 +113,11 @@ pub fn open(
         .map_err(|_| CryptoError::Aead)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SALT: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-
-    #[test]
-    fn round_trips() {
-        let token = seal("pw", &SALT, 19456, 2, 1, b"bytes").unwrap();
-        assert!(is_sealed(token.as_bytes()));
-        assert_eq!(open("pw", &SALT, 19456, 2, 1, &token).unwrap(), b"bytes");
-    }
-
-    #[test]
-    fn wrong_password_and_tampering_are_indistinguishable() {
-        let token = seal("pw", &SALT, 19456, 2, 1, b"bytes").unwrap();
-        assert_eq!(open("nope", &SALT, 19456, 2, 1, &token), Err(CryptoError::Aead));
-        let mut bad = token.into_bytes();
-        let n = bad.len() - 2;
-        bad[n] ^= 1;
-        let bad = String::from_utf8(bad).unwrap();
-        assert_eq!(open("pw", &SALT, 19456, 2, 1, &bad), Err(CryptoError::Aead));
-    }
-
-    #[test]
-    fn the_costs_are_part_of_the_key() {
-        // A cost mismatch must fail like a wrong password, not decrypt junk.
-        let token = seal("pw", &SALT, 19456, 2, 1, b"bytes").unwrap();
-        assert_eq!(open("pw", &SALT, 19456, 3, 1, &token), Err(CryptoError::Aead));
-    }
-}
-
-// ── the envelope half: AES-256-GCM, as toto.gervazy.crypto does it ─────────
-//
-// This is the construction the platform's OWN crypto layer uses — the one this
-// crate was ported from — and it is the only AEAD both sides can speak.
-// Python's `cryptography` ships AES-GCM and ChaCha20-Poly1305 but NOT
-// XChaCha20-Poly1305, so the native envelope above can never be the shared
-// format without adding libsodium to the server. AES-256-GCM can, today, on
-// both sides, with no new dependency anywhere.
-//
-// Frame: `nonce(12) || ciphertext+tag(16)`. gervazy's helpers hand back the
-// nonce separately; concatenating it is the obvious way to make one byte
-// stream out of them, and matches how this crate frames its native AEAD.
-
-use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes256Gcm, Nonce};
-
-/// 12 bytes — `AES_GCM_NONCE_SIZE` on the platform side, which validates it.
-const GCM_NONCE_LEN: usize = 12;
-const GCM_TAG_LEN: usize = 16;
-
-/// The raw 32-byte key, before gervazy's base64url wrapper.
+/// The raw 32-byte key.
 ///
-/// `derive_key` returns the base64url form because Fernet wants text;
-/// `decode_derived_key` on the platform turns it back into these bytes for
-/// AES-GCM. Deriving the raw form directly skips a round trip that can only
-/// introduce a difference.
+/// `derive_key` returns the base64url form because Fernet wanted text; the
+/// AEAD wants the bytes. Deriving them directly skips an encode/decode round
+/// trip that can only introduce a difference between the two sides.
 pub fn derive_raw_key(
     password: &str,
     salt: &[u8],
@@ -182,8 +135,12 @@ pub fn derive_raw_key(
     Ok(out)
 }
 
-/// Seal with AES-256-GCM under the platform's construction.
-pub fn gcm_seal(
+/// Seal content in the shared frame.
+///
+/// `aad` binds the ciphertext to what it belongs to — pass something stable
+/// and meaningful (the platform uses `toto:vault:file:v1`). It is NOT stored:
+/// the opener must supply the same bytes, which is the point.
+pub fn seal(
     password: &str,
     salt: &[u8],
     m_cost_kib: u32,
@@ -193,21 +150,18 @@ pub fn gcm_seal(
     plaintext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
     let key = derive_raw_key(password, salt, m_cost_kib, t_cost, p_cost)?;
-    let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| CryptoError::BadParams)?;
-    let mut nonce = [0u8; GCM_NONCE_LEN];
-    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut nonce);
-    let ct = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad })
-        .map_err(|_| CryptoError::Aead)?;
-    let mut out = Vec::with_capacity(GCM_NONCE_LEN + ct.len());
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(&ct);
+    let dek = crate::Dek::from_bytes(*<&[u8; 32]>::try_from(key.as_ref()).unwrap());
+    let sealed = crate::seal(&dek, aad, plaintext)?;
+    let mut out = Vec::with_capacity(HEADER_LEN + sealed.len());
+    out.extend_from_slice(MAGIC);
+    out.push(VERSION);
+    out.extend_from_slice(&sealed);
     Ok(out)
 }
 
-/// Open an AES-256-GCM frame. Wrong password and tampering both fail on the
-/// tag and are indistinguishable, as everywhere else in this crate.
-pub fn gcm_open(
+/// Open a frame. Wrong password and tampering both fail on the tag and are
+/// deliberately indistinguishable.
+pub fn open(
     password: &str,
     salt: &[u8],
     m_cost_kib: u32,
@@ -216,74 +170,176 @@ pub fn gcm_open(
     aad: &[u8],
     frame: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
-    if frame.len() < GCM_NONCE_LEN + GCM_TAG_LEN {
+    if !is_current(frame) || frame.len() < HEADER_LEN + NONCE_LEN + TAG_LEN {
         return Err(CryptoError::Format);
     }
     let key = derive_raw_key(password, salt, m_cost_kib, t_cost, p_cost)?;
-    let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| CryptoError::BadParams)?;
-    let (nonce, ct) = frame.split_at(GCM_NONCE_LEN);
-    cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: ct, aad })
-        .map_err(|_| CryptoError::Aead)
+    let dek = crate::Dek::from_bytes(*<&[u8; 32]>::try_from(key.as_ref()).unwrap());
+    crate::open(&dek, aad, &frame[HEADER_LEN..])
+}
+
+/// Open whatever it is: the current frame, or a legacy Fernet token.
+///
+/// One door, because every caller wants the same thing — the plaintext — and
+/// which era a file comes from is not their business. Legacy tokens carry no
+/// AAD, so the argument is ignored on that path; that is a property of the old
+/// format, not a choice made here.
+pub fn open_any(
+    password: &str,
+    salt: &[u8],
+    m_cost_kib: u32,
+    t_cost: u32,
+    p_cost: u32,
+    aad: &[u8],
+    bytes: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    if is_current(bytes) {
+        return open(password, salt, m_cost_kib, t_cost, p_cost, aad, bytes);
+    }
+    let token = std::str::from_utf8(bytes).map_err(|_| CryptoError::Format)?;
+    legacy_fernet_open(password, salt, m_cost_kib, t_cost, p_cost, token)
 }
 
 #[cfg(test)]
-mod gcm_tests {
+mod tests {
     use super::*;
-    use base64::Engine as _;
 
-    fn fx() -> serde_json::Value {
-        serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests_fixtures_gcm.json"
-            ))
-            .expect("fixture"),
-        )
-        .unwrap()
+    const SALT: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    const AAD: &[u8] = b"toto:vault:file:v1";
+
+    #[test]
+    fn round_trips_and_is_self_describing() {
+        let frame = seal("pw", &SALT, 19456, 2, 1, AAD, b"bytes").unwrap();
+        assert!(is_current(&frame), "a sealed file must announce itself");
+        assert!(is_sealed(&frame));
+        assert_eq!(open("pw", &SALT, 19456, 2, 1, AAD, &frame).unwrap(), b"bytes");
     }
 
-    /// Sealed by `toto.gervazy.crypto.aes_gcm_encrypt` — the PLATFORM's own
-    /// function — and opened here. This is the proof that one construction can
-    /// serve both sides, which is the whole reason for this module.
     #[test]
-    fn opens_what_the_platform_sealed() {
-        let f = fx();
-        let salt = base64::engine::general_purpose::STANDARD
-            .decode(f["salt_b64"].as_str().unwrap())
-            .unwrap();
-        let frame = base64::engine::general_purpose::STANDARD
-            .decode(f["frame_b64"].as_str().unwrap())
-            .unwrap();
-        let plain = gcm_open(
-            f["password"].as_str().unwrap(),
-            &salt,
-            f["memory_cost"].as_u64().unwrap() as u32,
-            f["iterations"].as_u64().unwrap() as u32,
-            f["lanes"].as_u64().unwrap() as u32,
-            f["aad"].as_str().unwrap().as_bytes(),
-            &frame,
-        )
-        .expect("platform frame must open");
-        assert_eq!(plain, f["plaintext"].as_str().unwrap().as_bytes());
+    fn plaintext_is_not_mistaken_for_a_frame() {
+        // The detector decides whether a file gets a padlock and whether an
+        // unlock is even offered, so a false positive is a file the app
+        // refuses to open for no reason.
+        for plain in [&b"hello"[..], b"", b"TOTOSEA", b"<svg xmlns=\"x\"/>"] {
+            assert!(!is_current(plain), "{plain:?}");
+            assert!(!is_sealed(plain), "{plain:?}");
+        }
+    }
+
+    #[test]
+    fn wrong_password_and_tampering_are_indistinguishable() {
+        let mut frame = seal("pw", &SALT, 19456, 2, 1, AAD, b"bytes").unwrap();
+        assert_eq!(open("nope", &SALT, 19456, 2, 1, AAD, &frame), Err(CryptoError::Aead));
+        let last = frame.len() - 1;
+        frame[last] ^= 1;
+        assert_eq!(open("pw", &SALT, 19456, 2, 1, AAD, &frame), Err(CryptoError::Aead));
     }
 
     #[test]
     fn the_aad_is_binding() {
-        // The property Fernet cannot express, and the reason the file vault's
-        // current scheme lets a token be moved between files.
-        let f = fx();
-        let salt = base64::engine::general_purpose::STANDARD
-            .decode(f["salt_b64"].as_str().unwrap())
-            .unwrap();
-        let sealed = gcm_seal("pw", &salt, 19456, 2, 1, b"file:a", b"secret").unwrap();
+        // What Fernet could not express: a frame cannot be moved to another
+        // file and still open.
+        let frame = seal("pw", &SALT, 19456, 2, 1, b"file:a", b"secret").unwrap();
+        assert_eq!(open("pw", &SALT, 19456, 2, 1, b"file:b", &frame), Err(CryptoError::Aead));
+    }
+
+    #[test]
+    fn the_costs_are_part_of_the_key() {
+        let frame = seal("pw", &SALT, 19456, 2, 1, AAD, b"bytes").unwrap();
+        assert_eq!(open("pw", &SALT, 19456, 3, 1, AAD, &frame), Err(CryptoError::Aead));
+    }
+
+    #[test]
+    fn legacy_fernet_tokens_still_open() {
+        // Files sealed before 8/2026 must keep opening; nothing writes this.
+        #[allow(deprecated)]
+        let token = legacy_fernet_seal("pw", &SALT, 19456, 2, 1, b"old bytes").unwrap();
+        assert!(is_sealed(token.as_bytes()));
+        assert!(!is_current(token.as_bytes()));
         assert_eq!(
-            gcm_open("pw", &salt, 19456, 2, 1, b"file:b", &sealed),
-            Err(CryptoError::Aead),
+            open_any("pw", &SALT, 19456, 2, 1, AAD, token.as_bytes()).unwrap(),
+            b"old bytes",
         );
-        assert_eq!(
-            gcm_open("pw", &salt, 19456, 2, 1, b"file:a", &sealed).unwrap(),
-            b"secret",
-        );
+    }
+
+    #[test]
+    fn open_any_takes_either_era() {
+        let new = seal("pw", &SALT, 19456, 2, 1, AAD, b"new").unwrap();
+        assert_eq!(open_any("pw", &SALT, 19456, 2, 1, AAD, &new).unwrap(), b"new");
+    }
+}
+
+#[cfg(test)]
+mod cross_language {
+    //! The interop, from this side. `SHARED_IN` is a frame Python sealed;
+    //! `SHARED_OUT` receives one for Python to open. Run with --ignored, and
+    //! the platform half lives in toto/gervazy/tests_sealed.py.
+    use super::*;
+
+    const AAD: &[u8] = b"toto:vault:file:v1";
+
+    fn salt() -> Vec<u8> { (0u8..16).collect() }
+
+    #[test]
+    #[ignore]
+    fn opens_a_frame_python_sealed() {
+        let frame = std::fs::read(std::env::var("SHARED_IN").unwrap()).unwrap();
+        assert!(is_current(&frame), "python wrote a frame this side does not recognise");
+        let plain = open("correct horse", &salt(), 65536, 3, 4, AAD, &frame)
+            .expect("python's frame must open here");
+        assert_eq!(plain, b"python sealed with the shared frame\n");
+    }
+
+    #[test]
+    #[ignore]
+    fn writes_a_frame_python_can_open() {
+        let frame = seal("correct horse", &salt(), 65536, 3, 4, AAD,
+                         b"rust sealed with the shared frame\n").unwrap();
+        std::fs::write(std::env::var("SHARED_OUT").unwrap(), frame).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod xchacha_interop {
+    //! Can XChaCha20-Poly1305 be the format on BOTH sides? This emits a frame
+    //! from the crate's NATIVE envelope so the Python side can try to open it
+    //! with libsodium. `cargo test --ignored emit_xchacha`.
+    use super::*;
+    use crate::Dek;
+
+    #[test]
+    #[ignore]
+    fn emit_xchacha_frame_for_python() {
+        let out = std::env::var("XCHACHA_OUT").expect("XCHACHA_OUT");
+        let salt: Vec<u8> = (0u8..16).collect();
+        let key = derive_raw_key("correct horse", &salt, 65536, 3, 4).unwrap();
+        let mut raw = [0u8; 32];
+        raw.copy_from_slice(key.as_ref());
+        let dek = Dek::from_bytes(raw);
+        // nonce(24) || ciphertext+tag — the native frame, AAD bound.
+        let sealed = crate::seal(&dek, b"toto:vault:file:v1", b"one cipher, both sides\n").unwrap();
+        std::fs::write(out, sealed).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod xchacha_from_python {
+    //! The reverse direction: a frame libsodium sealed, opened here.
+    //! `XCHACHA_IN=<file> cargo test --ignored opens_python`.
+    use super::*;
+    use crate::Dek;
+
+    #[test]
+    #[ignore]
+    fn opens_python_xchacha_frame() {
+        let path = std::env::var("XCHACHA_IN").expect("XCHACHA_IN");
+        let salt: Vec<u8> = (0u8..16).collect();
+        let key = derive_raw_key("correct horse", &salt, 65536, 3, 4).unwrap();
+        let mut raw = [0u8; 32];
+        raw.copy_from_slice(key.as_ref());
+        let dek = Dek::from_bytes(raw);
+        let frame = std::fs::read(path).unwrap();
+        let plain = crate::open(&dek, b"toto:vault:file:v1", &frame).expect("libsodium frame");
+        assert_eq!(plain, b"python sealed this\n");
     }
 }

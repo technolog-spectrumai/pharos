@@ -1,10 +1,13 @@
 //! Locking a file in place, the platform's way.
 //!
-//! This is deliberately NOT gervasius. The construction is zenobia's file
-//! vault, byte for byte — `Argon2id(password, server_salt) → base64url →
-//! Fernet` — because the requirement is that a file locked on this machine
-//! unlocks on the platform and a platform-encrypted file unlocks here. Two
-//! compatible implementations of one scheme, not two schemes.
+//! One format, shared with the platform: `Argon2id(password, server_salt)` →
+//! XChaCha20-Poly1305, framed `MAGIC(8) || VERSION(1) || nonce(24) || ct+tag`.
+//! A file locked here opens on the server and vice versa, and both directions
+//! are asserted against the other implementation rather than assumed.
+//!
+//! The construction lives in `gervasius::gervazy` — shared, not copied, so the
+//! two languages cannot drift. Files sealed before 8/2026 used Fernet; they
+//! still open (`open_any`), and nothing writes that format any more.
 //!
 //! The salt and Argon2 costs come from the caller's strongbox on the server
 //! (`GET /vault/api/strongbox/`), which is also what makes the same password
@@ -12,11 +15,10 @@
 //! constants: the server owns them, and a file must keep opening after the
 //! server raises its defaults for new users.
 //!
-//! What a locked file looks like: a Fernet token — base64url text beginning
-//! `gAAAAA`. That prefix is also the detector, exactly as the platform's own
-//! `is_encrypted` flag corresponds to Fernet bytes in storage. The password is
-//! a parameter and is never stored; a wrong password fails on the HMAC and the
-//! file is not touched.
+//! A locked file announces itself: the platform can consult an `is_encrypted`
+//! column, a file on somebody's laptop cannot, so the bytes carry the marker.
+//! The password is a parameter and is never stored; a wrong password fails on
+//! the AEAD tag before anything is written, so the file is left untouched.
 
 use std::path::Path;
 
@@ -24,6 +26,11 @@ use base64::Engine;
 use gervasius::gervazy;
 use serde::Serialize;
 
+
+/// What a file's ciphertext is bound to. Matches `sealed.VAULT_AAD` on the
+/// platform; a mismatch would make every cross-machine open fail, so the two
+/// constants are one fact written twice and must stay identical.
+const AAD: &[u8] = b"toto:vault:file:v1";
 
 /// Refuse to slurp something enormous into memory; the platform's own editable
 /// ceiling is 2 MB, and a locked binary can be bigger but not unbounded.
@@ -98,9 +105,9 @@ pub fn lock_file(
         return Err("already_locked: that file is already encrypted".into());
     }
     let salt = salt_of(&salt_b64)?;
-    let token = gervazy::seal(&password, &salt, memory_cost, iterations, lanes, &plain)
+    let frame = gervazy::seal(&password, &salt, memory_cost, iterations, lanes, AAD, &plain)
         .map_err(|e| format!("crypto: {e}"))?;
-    atomic_write(&path, token.as_bytes())?;
+    atomic_write(&path, &frame)?;
     Ok(LockedInfo { name: name_of(&path), size: plain.len() as u64 })
 }
 
@@ -119,9 +126,10 @@ pub fn unlock_file(
     if !gervazy::is_sealed(&bytes) {
         return Err("not_locked: that file is not encrypted".into());
     }
-    let token = std::str::from_utf8(&bytes).map_err(|_| "corrupt: not a valid token".to_string())?;
     let salt = salt_of(&salt_b64)?;
-    let plain = gervazy::open(&password, &salt, memory_cost, iterations, lanes, token)
+    // open_any: a file sealed before 8/2026 is a Fernet token, and it must
+    // still open. Only the write path is single-format.
+    let plain = gervazy::open_any(&password, &salt, memory_cost, iterations, lanes, AAD, &bytes)
         .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
     atomic_write(&path, &plain)?;
     Ok(LockedInfo { name: name_of(&path), size: plain.len() as u64 })
@@ -132,8 +140,10 @@ pub fn unlock_file(
 pub fn is_file_locked(path: String) -> Result<bool, String> {
     use std::io::Read;
     let Ok(mut f) = std::fs::File::open(&path) else { return Ok(false) };
-    let mut buf = [0u8; 6];
-    Ok(matches!(f.read_exact(&mut buf), Ok(())) && gervazy::is_sealed(&buf))
+    // Enough bytes for either marker: the 9-byte header, or Fernet's prefix.
+    let mut buf = [0u8; 16];
+    let read = match f.read(&mut buf) { Ok(n) => n, Err(_) => return Ok(false) };
+    Ok(gervazy::is_sealed(&buf[..read]))
 }
 
 #[cfg(test)]
@@ -192,7 +202,7 @@ mod tests {
         let path = tmp("roundtrip", b"some local bytes");
         lock_file(path.clone(), "pw".into(), salt.into(), 19456, 2, 1).unwrap();
         let locked = std::fs::read(&path).unwrap();
-        assert!(gervazy::is_sealed(&locked), "not a Fernet token");
+        assert!(gervazy::is_current(&locked), "not the shared frame");
 
         unlock_file(path.clone(), "pw".into(), salt.into(), 19456, 2, 1).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"some local bytes");
