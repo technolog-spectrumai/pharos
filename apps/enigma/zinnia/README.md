@@ -6,12 +6,13 @@ Tauri 2 desktop app.
 ## Running it
 
 ```bash
-npm install
-npm run dev          # browser, http://localhost:1430
-npx tauri dev        # desktop window
+./run_dev.sh         # desktop window, hot reload
+./run_dev.sh --web   # browser only at http://localhost:1430, no Rust
+./run_dev.sh --reset # wipe stored data (server, token, theme) first
 npm test             # vitest
-npm run build        # typecheck + production bundle
 ```
+
+Or the underlying commands: `npm run dev`, `npx tauri dev`, `npm run build`.
 
 To produce an installable desktop package:
 
