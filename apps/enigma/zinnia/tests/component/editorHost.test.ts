@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import EditorHost from "../../src/views/EditorHost.vue";
 import { i18n } from "../../src/i18n";
+import { createPinia } from "pinia";
 
 // The host owns the file; the mounted editor owns the buffer. What matters
 // here is the seam between them: dirty flows up, save asks the editor for its
 // content, and a fresh open remounts rather than reuses the editor.
 function mountHost() {
-  return mount(EditorHost, { global: { plugins: [i18n], stubs: { teleport: true } } });
+  return mount(EditorHost, { global: { plugins: [i18n, createPinia()], stubs: { teleport: true } } });
 }
 
 describe("the editor host", () => {
