@@ -1,6 +1,25 @@
 // Catalogue sections carried over from enigma with the sketch editor —
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
+  deck: {
+    notADeck: "To nie jest prezentacja",
+    addSlide: "Nowy slajd",
+    deleteSlide: "Usuń slajd",
+    moveBack: "Przesuń slajd wstecz",
+    moveForward: "Przesuń slajd dalej",
+    layout: "Układ",
+    settings: "Ustawienia prezentacji",
+    title: "Tytuł",
+    theme: "Motyw",
+    font: "Czcionka",
+    slideTitle: "Tytuł slajdu",
+    untitledSlide: "(bez tytułu)",
+    editBlock: "Edytuj",
+    deleteBlock: "Usuń blok",
+    moveUp: "W górę",
+    moveDown: "W dół",
+    item: "punkt",
+  },
   doc: {
     placeholder: "Pisz…",
     notADocument: "To nie jest dokument Cypriana",
@@ -27,6 +46,8 @@ export default {
     tone: { note: "Notatka", warn: "Ostrzeżenie", tip: "Wskazówka", quote: "Cytat" },
   },
   file: {
+    newDeck: "Nowa prezentacja",
+    untitledDeck: "bez-nazwy-prezentacja.xml",
     newDoc: "Nowy dokument",
     untitledDoc: "bez-nazwy.xml",
     newText: "Nowy tekst",

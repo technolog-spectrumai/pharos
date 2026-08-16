@@ -11,8 +11,10 @@ import { useI18n } from "vue-i18n";
 import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
+import PresentationEditor from "../editors/PresentationEditor.vue";
 import type { EditorHandle } from "../editors/types";
 import { dumps, newDocument, sniffIsDocument } from "../formats/document";
+import { dumps as dumpsDeck, newPresentation, sniffIsPresentation } from "../formats/presentation";
 
 const { t } = useI18n({ useScope: "global" });
 
@@ -42,11 +44,15 @@ const forceText = ref(false);
 
 /** Which editor renders this file. The visual editor claims .svg; everything
  *  else opens in ACE, which already highlights .svg as XML. */
-function editorKindFor(fileName: string): "sketch" | "text" | "document" {
+function editorKindFor(fileName: string): "sketch" | "text" | "document" | "deck" {
   if (/\.svg$/i.test(fileName)) return "sketch";
-  // Cyprian documents are .xml files whose root is <document>; the extension
-  // alone cannot tell them from any other XML, so the content decides.
-  if (/\.xml$/i.test(fileName) && sniffIsDocument(content.value)) return "document";
+  // Documents and decks are both .xml; the extension cannot tell them apart, so
+  // the ROOT ELEMENT decides. Sniffing beats a full parse here — the listing
+  // would otherwise decode every embedded image just to look at one tag.
+  if (/\.xml$/i.test(fileName)) {
+    if (sniffIsDocument(content.value)) return "document";
+    if (sniffIsPresentation(content.value)) return "deck";
+  }
   return "text";
 }
 const kind = computed(() => (forceText.value ? "text" : editorKindFor(name.value)));
@@ -94,6 +100,13 @@ async function newDoc() {
   // the CONTENT to tell a cyprian document from any other .xml, and an empty
   // buffer would sniff as plain text and open in the wrong editor.
   show(t("file.untitledDoc"), null, dumps(newDocument("")));
+}
+
+async function newDeck() {
+  if (!(await confirmDiscard())) return;
+  // Seeded for the same reason a new document is: the kind is sniffed from the
+  // CONTENT, and an empty buffer would open in the text editor.
+  show(t("file.untitledDeck"), null, dumpsDeck(newPresentation("")));
 }
 
 async function newText() {
@@ -170,8 +183,8 @@ async function saveAs(): Promise<boolean> {
     defaultPath: name.value,
     filters: kind.value === "sketch"
       ? [{ name: "SVG", extensions: ["svg"] }]
-      : kind.value === "document"
-        ? [{ name: "Document", extensions: ["xml"] }]
+      : kind.value === "document" || kind.value === "deck"
+        ? [{ name: "XML", extensions: ["xml"] }]
         : [{ name: "All", extensions: ["*"] }],
   });
   if (!picked) return false;
@@ -216,6 +229,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <div class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-2">
       <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.newDrawing')" @click="newDrawing" />
       <OyaIconButton size="sm" icon="file-lines" :label="t('file.newDoc')" data-testid="new-doc" @click="newDoc" />
+      <OyaIconButton size="sm" icon="file-powerpoint" :label="t('file.newDeck')" data-testid="new-deck" @click="newDeck" />
       <OyaIconButton size="sm" icon="file-pen" :label="t('file.newText')" @click="newText" />
       <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" @click="openFile" />
       <div class="min-w-0 flex-1">
@@ -266,6 +280,21 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <DocumentEditor
       v-if="kind === 'document'"
       :key="'d' + generation"
+      ref="editorRef"
+      :path="path"
+      :name="name"
+      :content="content"
+      :busy="busy"
+      :error="fileError"
+      class="min-h-0 flex-1"
+      @save="saveFile($event)"
+      @update:dirty="dirty = $event"
+      @open-as-text="openAsText"
+    />
+
+    <PresentationEditor
+      v-if="kind === 'deck'"
+      :key="'p' + generation"
       ref="editorRef"
       :path="path"
       :name="name"

@@ -13,7 +13,7 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 import {
   faArrowPointer, faArrowRight, faBan, faBold, faBroom, faCircle, faCircleInfo, faCode,
-  faFileLines, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
+  faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faSpinner,
@@ -22,7 +22,7 @@ import {
 
 library.add(
   faArrowPointer, faArrowRight, faBan, faBold, faBroom, faCircle, faCircleInfo, faCode,
-  faFileLines, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
+  faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faSpinner,
