@@ -13,6 +13,20 @@ npm test             # vitest
 npm run build        # typecheck + production bundle
 ```
 
+To produce an installable desktop package:
+
+```bash
+./build.sh           # deb + rpm, release
+./build.sh --debug   # much faster to build, slower to run
+./build.sh --frontend  # frontend only, no Rust
+```
+
+`build.sh` gates each step on the last — dependencies, types, tests, frontend,
+then Rust — so a type error surfaces in seconds rather than after the minutes
+the Rust stage costs. It also checks for `webkit2gtk`/`libsoup` up front,
+because without them the failure arrives deep inside a `-sys` crate naming a
+`.pc` file rather than the package you need to install.
+
 Ports are 1430 (dev) and 1431 (HMR), chosen so zinnia and enigma can run at the
 same time — enigma owns 1420/1421. That number appears in four files
 (`vite.config.ts`, `src-tauri/tauri.conf.json`, `scripts/tauri-dev-server.mjs`,
