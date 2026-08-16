@@ -9,7 +9,7 @@ describe("the shell", () => {
     const w = mount(App, { global: { plugins: [i18n] } });
     expect(w.text()).toContain("Zinnia");
     // The file bar proves SketchView mounted, not a placeholder.
-    expect(w.find('[data-testid="sketch-save"]').exists()).toBe(true);
+    expect(w.find('[data-testid="file-save"]').exists()).toBe(true);
   });
 
   it("toggles dark mode onto <html> and remembers it", async () => {

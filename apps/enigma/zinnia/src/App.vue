@@ -2,7 +2,7 @@
 import { ref, watch } from "vue";
 import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
-import SketchView from "./views/SketchView.vue";
+import EditorHost from "./views/EditorHost.vue";
 
 // Dark mode as a plain ref plus the `.dark` class — the class is what every
 // `dark:` utility reacts to. Persisted; the initial guess follows the OS.
@@ -37,6 +37,6 @@ function switchLocale() {
     </header>
 
     <!-- The one view so far. A router arrives with the second editor, not before. -->
-    <SketchView class="min-h-0 flex-1" />
+    <EditorHost class="min-h-0 flex-1" />
   </div>
 </template>
