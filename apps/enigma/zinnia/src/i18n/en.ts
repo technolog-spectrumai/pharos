@@ -41,6 +41,8 @@ export default {
     item: "item",
   },
   doc: {
+    viewEditor: "Editor",
+    viewSource: "Source",
     placeholder: "Write…",
     notADocument: "This is not a Cyprian document",
     pageSetup: "Page setup",

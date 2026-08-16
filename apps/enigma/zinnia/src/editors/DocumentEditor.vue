@@ -53,6 +53,26 @@ const parseError = ref("");
 // shallowRef: TipTap's Editor is a big non-reactive object; Vue must not walk it.
 const editor = shallowRef<Editor | null>(null);
 
+// ── WYSIWYG ⇄ source ────────────────────────────────────────────────────────
+// Two views of ONE body, never two documents — zenobia's cyprian rule, kept
+// verbatim: switching does not save, and returning to the editor APPLIES the
+// source through TipTap's schema (which is also what defuses hostile markup —
+// anything the schema does not know is dropped on the way in, exactly as a
+// paste would be).
+const view = ref<"wysiwyg" | "source">("wysiwyg");
+const sourceText = ref("");
+
+function setView(next: "wysiwyg" | "source") {
+  if (next === view.value) return;
+  if (next === "source") {
+    sourceText.value = editor.value?.getHTML() ?? doc.value.content;
+  } else {
+    editor.value?.commands.setContent(sourceText.value);
+    // setContent fires onUpdate, so dirt is tracked the ordinary way.
+  }
+  view.value = next;
+}
+
 let savedContent = props.content;
 const dirty = ref(false);
 
@@ -64,7 +84,9 @@ function setDirty(v: boolean) {
 
 /** The document as it would be written right now. */
 function currentText(): string {
-  const body = editor.value?.getHTML() ?? doc.value.content;
+  const body = view.value === "source"
+    ? sourceText.value
+    : editor.value?.getHTML() ?? doc.value.content;
   return dumps({ ...doc.value, content: body });
 }
 
@@ -270,6 +292,27 @@ defineExpose({
                        @click="chain()?.insertContent({ type: 'pageBreak' }).run()" />
 
         <span class="flex-1" />
+
+        <!-- Drawing-or-source, the same two-view pill sketch uses in zenobia. -->
+        <span class="inline-flex overflow-hidden rounded-lg border border-accent-2 dark:border-accent-1">
+          <button type="button" data-testid="view-wysiwyg"
+                  class="px-2.5 py-1.5 text-xs font-semibold transition"
+                  :class="view === 'wysiwyg'
+                    ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
+                    : 'opacity-55 hover:opacity-100'"
+                  @click="setView('wysiwyg')">
+            <font-awesome-icon icon="pen-nib" /> {{ t("doc.viewEditor") }}
+          </button>
+          <button type="button" data-testid="view-source"
+                  class="px-2.5 py-1.5 text-xs font-semibold transition"
+                  :class="view === 'source'
+                    ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
+                    : 'opacity-55 hover:opacity-100'"
+                  @click="setView('source')">
+            <font-awesome-icon icon="code" /> {{ t("doc.viewSource") }}
+          </button>
+        </span>
+
         <OyaIconButton size="sm" icon="gear" :label="t('doc.pageSetup')" class="oya-tip" :data-tip="t('doc.pageSetup')"
                        data-testid="doc-setup" @click="setupOpen = true" />
       </div>
@@ -286,7 +329,11 @@ defineExpose({
                     dark:border-accent-1/40 dark:shadow-black/50"
              :data-margins="doc.margins"
              :class="`cy-font-${doc.font}`">
-          <EditorContent :editor="editor" class="cy-body" data-testid="doc-body" />
+          <EditorContent v-show="view === 'wysiwyg'" :editor="editor" class="cy-body" data-testid="doc-body" />
+          <textarea v-if="view === 'source'" v-model="sourceText" data-testid="doc-source"
+                    spellcheck="false"
+                    class="min-h-[60vh] w-full resize-y bg-transparent font-mono text-xs leading-relaxed
+                           outline-none" />
         </div>
       </div>
     </template>

@@ -131,3 +131,33 @@ describe("a file that is not a document", () => {
     expect(w.text()).toContain("not a Cyprian document");
   });
 });
+
+describe("the source knob", () => {
+  it("shows the body as HTML and applies edits back through the schema", async () => {
+    const w = mountDoc(docWith("<p>seed body</p>"));
+    await flushPromises();
+    await w.get('[data-testid="view-source"]').trigger("click");
+    const src = w.get('[data-testid="doc-source"]');
+    expect((src.element as HTMLTextAreaElement).value).toContain("seed body");
+
+    // Edit the source, switch back: the change lands in the editor…
+    await src.setValue("<p>from the source pane</p><script>alert(1)</script>");
+    await w.get('[data-testid="view-wysiwyg"]').trigger("click");
+    await flushPromises();
+    const vm = w.vm as unknown as { getContent(): string };
+    expect(vm.getContent()).toContain("from the source pane");
+    // …and hostile markup does not: the schema drops what it does not know,
+    // exactly as it would on paste.
+    expect(vm.getContent()).not.toContain("<script");
+  });
+
+  it("saves what the source pane holds while it is open", async () => {
+    const w = mountDoc(docWith("<p>x</p>"));
+    await flushPromises();
+    await w.get('[data-testid="view-source"]').trigger("click");
+    await w.get('[data-testid="doc-source"]').setValue("<p>unsaved source edit</p>");
+    const vm = w.vm as unknown as { getContent(): string };
+    // Ctrl+S in source view must not save a stale WYSIWYG body.
+    expect(vm.getContent()).toContain("unsaved source edit");
+  });
+});

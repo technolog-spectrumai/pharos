@@ -41,6 +41,8 @@ export default {
     item: "punkt",
   },
   doc: {
+    viewEditor: "Edytor",
+    viewSource: "Źródło",
     placeholder: "Pisz…",
     notADocument: "To nie jest dokument Cypriana",
     pageSetup: "Ustawienia strony",
