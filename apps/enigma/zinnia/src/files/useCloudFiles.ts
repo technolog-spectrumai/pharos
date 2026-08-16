@@ -13,9 +13,9 @@ import { createClient, type ApiClient } from "../api/client";
 import { tauriFetch } from "../api/transport";
 import { ApiFailure } from "../api/errors";
 import {
-  bucketTree, createDirectory, deleteDirectory, deleteFile, FILE_LIST_CAP,
-  getContent, listFiles,
-  type VaultBucketDto, type VaultFileDto,
+  bucketTree, createDirectory, decryptFile, deleteDirectory, deleteFile,
+  encryptFile, FILE_LIST_CAP, getContent, getStrongbox, listFiles,
+  type StrongboxDto, type VaultBucketDto, type VaultFileDto,
 } from "../api/vault";
 import { buildTree, filesIn, type TreeNode } from "./cloudTree";
 import { useCloud } from "../cloud/useCloud";
@@ -107,6 +107,27 @@ export function useCloudFiles() {
     await refresh();
   }
 
+  /** The caller's KDF record, fetched once and cached for the session. Local
+   *  locking derives the SAME key the server derives, which is the whole
+   *  interop story — see src-tauri/src/lock.rs. */
+  let strongboxCache: StrongboxDto | null = null;
+  async function strongbox(): Promise<StrongboxDto> {
+    strongboxCache ??= await getStrongbox(client());
+    return strongboxCache;
+  }
+
+  /** Server-side encrypt/decrypt for VAULT files — zenobia's own engine, so
+   *  the platform can still scan and serve what it stores. */
+  async function lockCloud(file: VaultFileDto, password: string): Promise<void> {
+    const updated = await encryptFile(client(), file.key, password);
+    files.value = files.value.map((f) => (f.key === file.key ? updated : f));
+  }
+
+  async function unlockCloud(file: VaultFileDto, password: string): Promise<void> {
+    const updated = await decryptFile(client(), file.key, password);
+    files.value = files.value.map((f) => (f.key === file.key ? updated : f));
+  }
+
   function select(id: string | null) {
     selectedId.value = id;
   }
@@ -115,6 +136,7 @@ export function useCloudFiles() {
     files, buckets, nodes, selected, selectedId, visibleFiles,
     loading, error, search, atCap,
     refresh, open, remove, newFolder, removeFolder, select,
+    strongbox, lockCloud, unlockCloud,
   };
 }
 

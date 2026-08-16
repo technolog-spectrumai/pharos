@@ -43,6 +43,17 @@ webpki-roots = "0.26"
 sha2 = "0.10"
 keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
 
+# ── file locking, zenobia-compatible ────────────────────────────────────────
+# The SAME construction the platform's file vault uses — Argon2id over the
+# user's server-side salt, then Fernet — so a file locked here decrypts there
+# and vice versa. gervasius (enigma's AEAD) was considered and set aside for
+# this: it cannot be both, and interop with files that already exist won.
+# The construction lives in rakotis now, beside the native envelope — see
+# packages/rakotis/crates/gervasius/src/gervazy.rs. Shared rather than copied:
+# two implementations of a byte-compatible format is two chances to drift.
+gervasius = { path = "../packages/rakotis/crates/gervasius" }
+base64 = "0.22"
+
 [profile.dev]
 # Tauri + webkit2gtk produce enough DWARF that the GNU linker can OOM-kill the
 # build on a modest machine; unpacked debuginfo keeps it out of the link step.

@@ -120,3 +120,23 @@ export async function decryptFile(
   return client.post<VaultFileDto>(
     `/vault/api/files/${encodeURIComponent(key)}/decrypt/`, { password });
 }
+
+export interface StrongboxDto {
+  kdf: string;
+  kdf_version: number;
+  salt: string;
+  memory_cost: number;
+  iterations: number;
+  lanes: number;
+}
+
+/** The caller's own KDF record — salt and Argon2 costs.
+ *
+ *  This is what makes a locally locked file the same bytes the platform's
+ *  vault produces: both derive the Fernet key from THIS salt with THESE costs,
+ *  so the same password opens the file on either side. Created server-side on
+ *  first ask; never anyone else's.
+ */
+export async function getStrongbox(client: ApiClient): Promise<StrongboxDto> {
+  return client.get<StrongboxDto>("/vault/api/strongbox/");
+}

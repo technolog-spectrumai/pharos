@@ -15,6 +15,7 @@
 //! chosen to trust.
 
 mod cloud;
+mod lock;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +29,9 @@ pub fn run() {
             cloud::cloud_logout,
             cloud::cloud_status,
             cloud::cloud_request,
+            lock::lock_file,
+            lock::unlock_file,
+            lock::is_file_locked,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

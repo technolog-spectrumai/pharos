@@ -1,6 +1,23 @@
 // Catalogue sections carried over from enigma with the sketch editor —
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
+  lock: {
+    lockTitle: "Encrypt this file",
+    unlockTitle: "Decrypt this file",
+    lockHint: "Uses your platform password and your account's key settings, so the same password opens it here or on the server.",
+    password: "Password",
+    confirm: "Repeat the password",
+    lock: "Encrypt",
+    unlock: "Decrypt",
+    passwordRequired: "Enter the password.",
+    passwordMismatch: "Those two do not match.",
+    errors: {
+      wrong_password: "Wrong password, or the file is damaged. Nothing was changed.",
+      already_locked: "That file is already encrypted.",
+      not_locked: "That file is not encrypted.",
+      too_large: "That file is too big to encrypt.",
+    },
+  },
   nav: {
     files: "Files",
     cloud: "Cloud",

@@ -1,6 +1,23 @@
 // Catalogue sections carried over from enigma with the sketch editor —
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
+  lock: {
+    lockTitle: "Zaszyfruj ten plik",
+    unlockTitle: "Odszyfruj ten plik",
+    lockHint: "Używa Twojego hasła platformy i ustawień klucza Twojego konta, więc to samo hasło otworzy plik tutaj i na serwerze.",
+    password: "Hasło",
+    confirm: "Powtórz hasło",
+    lock: "Zaszyfruj",
+    unlock: "Odszyfruj",
+    passwordRequired: "Podaj hasło.",
+    passwordMismatch: "Te dwa nie są takie same.",
+    errors: {
+      wrong_password: "Złe hasło albo plik jest uszkodzony. Nic nie zostało zmienione.",
+      already_locked: "Ten plik jest już zaszyfrowany.",
+      not_locked: "Ten plik nie jest zaszyfrowany.",
+      too_large: "Ten plik jest za duży, by go zaszyfrować.",
+    },
+  },
   nav: {
     files: "Pliki",
     cloud: "Chmura",

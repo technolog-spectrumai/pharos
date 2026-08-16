@@ -143,6 +143,14 @@ export function useWorkspace() {
     await refresh();
   }
 
+  /** Whether a file on disk is a Fernet token — same detection the platform
+   *  uses, so a file encrypted on either side is badged on both. */
+  async function isLocked(entry: Entry): Promise<boolean> {
+    if (entry.isDirectory || !isTauri()) return false;
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<boolean>("is_file_locked", { path: entry.path });
+  }
+
   async function readText(entry: Entry): Promise<string> {
     const { readTextFile } = await import("@tauri-apps/plugin-fs");
     return readTextFile(entry.path);
@@ -150,6 +158,6 @@ export function useWorkspace() {
 
   return {
     root, relative, entries, loading, error, currentPath, crumbs,
-    pickRoot, refresh, enter, goTo, readText,
+    pickRoot, refresh, enter, goTo, readText, isLocked,
   };
 }

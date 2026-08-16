@@ -1,0 +1,9 @@
+{
+ "password": "correct horse",
+ "salt_b64": "AAECAwQFBgcICQoLDA0ODw==",
+ "memory_cost": 65536,
+ "iterations": 3,
+ "lanes": 4,
+ "plaintext": "the platform and the desktop agree\n",
+ "token": "gAAAAABqgg02d39R1UbRA0f8QLLXbZ7sihof7YjSkwBRc8488ZChi--Rff6IiI7HAUDbNZS4TzweCbsVdp-l7yKdTtU7Gy8hQZYYsFXwrODjbFxLOHHQQJ7wJeZbINROcXWC4Rx_fhy-"
+}

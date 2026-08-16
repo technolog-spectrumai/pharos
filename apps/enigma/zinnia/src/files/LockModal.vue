@@ -1,0 +1,107 @@
+<script setup lang="ts">
+// The password prompt for locking and unlocking a file.
+//
+// One modal for both panes, because from the user's side it IS one feature:
+// the same password locks a local file and a vault file, and the same password
+// opens either — the platform's file vault, reachable from the desktop. Which
+// engine does the work (zinnia's Rust locally, zenobia server-side for vault
+// files) is the caller's business, passed in as `action`.
+//
+// The password is a ref that is cleared the moment the action settles, success
+// or failure — a failed attempt must not leave it sitting in a field for the
+// next person at the keyboard.
+import { ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import ModalPanel from "../components/ModalPanel.vue";
+
+const props = defineProps<{
+  open: boolean;
+  mode: "lock" | "unlock";
+  name: string;
+  action: (password: string) => Promise<void>;
+}>();
+
+const emit = defineEmits<{ "update:open": [boolean]; done: [] }>();
+
+const { t } = useI18n({ useScope: "global" });
+
+const password = ref("");
+const confirm = ref("");
+const busy = ref(false);
+const error = ref("");
+
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return;
+    password.value = "";
+    confirm.value = "";
+    busy.value = false;
+    error.value = "";
+  },
+);
+
+async function submit() {
+  if (busy.value) return;
+  error.value = "";
+  if (!password.value) {
+    error.value = t("lock.passwordRequired");
+    return;
+  }
+  if (props.mode === "lock" && password.value !== confirm.value) {
+    error.value = t("lock.passwordMismatch");
+    return;
+  }
+  busy.value = true;
+  try {
+    await props.action(password.value);
+    emit("done");
+    emit("update:open", false);
+  } catch (err) {
+    const message = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+    const prefix = message.split(":")[0];
+    error.value = ["wrong_password", "already_locked", "not_locked", "too_large"].includes(prefix)
+      ? t(`lock.errors.${prefix}`)
+      : message;
+  } finally {
+    password.value = "";
+    confirm.value = "";
+    busy.value = false;
+  }
+}
+</script>
+
+<template>
+  <OyaModal :open="open" @close="!busy && emit('update:open', false)">
+    <ModalPanel :title="t(mode === 'lock' ? 'lock.lockTitle' : 'lock.unlockTitle')">
+      <p class="truncate text-xs opacity-60">{{ name }}</p>
+      <p v-if="mode === 'lock'" class="text-xs opacity-70">{{ t("lock.lockHint") }}</p>
+
+      <input v-model="password" type="password" autocomplete="off"
+             :placeholder="t('lock.password')" data-testid="lock-password"
+             class="w-full rounded-lg border border-accent-2 bg-transparent px-2.5 py-1.5 text-sm dark:border-accent-1"
+             @keydown.enter="submit" />
+      <input v-if="mode === 'lock'" v-model="confirm" type="password" autocomplete="off"
+             :placeholder="t('lock.confirm')" data-testid="lock-confirm"
+             class="w-full rounded-lg border border-accent-2 bg-transparent px-2.5 py-1.5 text-sm dark:border-accent-1"
+             @keydown.enter="submit" />
+
+      <p v-if="error" class="text-sm text-warn-dark" data-testid="lock-error">{{ error }}</p>
+
+      <div class="flex justify-end gap-2">
+        <button type="button" class="rounded-lg border border-accent-2 px-3 py-1.5 text-sm dark:border-accent-1"
+                :disabled="busy" @click="emit('update:open', false)">
+          {{ t("common.cancel") }}
+        </button>
+        <button type="button" data-testid="lock-submit"
+                class="rounded-lg bg-accent-light px-3 py-1.5 text-sm font-bold text-primary-bg-light
+                       transition hover:opacity-90 disabled:opacity-40 dark:bg-accent-dark dark:text-primary-bg-dark"
+                :disabled="busy || !password" @click="submit">
+          <font-awesome-icon :icon="busy ? 'spinner' : mode === 'lock' ? 'lock' : 'lock-open'" :spin="busy" />
+          {{ t(mode === "lock" ? "lock.lock" : "lock.unlock") }}
+        </button>
+      </div>
+    </ModalPanel>
+  </OyaModal>
+</template>
