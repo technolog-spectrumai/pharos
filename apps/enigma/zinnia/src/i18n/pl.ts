@@ -2,6 +2,7 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   nav: {
+    cloud: "Chmura",
     menu: "Menu",
     themeDark: "Tryb ciemny",
     themeLight: "Tryb jasny",
@@ -10,6 +11,37 @@ export default {
     sheets: "Arkusze",
     presentations: "Prezentacje",
     settings: "Ustawienia",
+  },
+  cloud: {
+    title: "Chmura",
+    help: "Zaloguj się na swój serwer platformy. Do tego czasu nic nie jest nigdzie wysyłane.",
+    address: "Adres serwera",
+    httpsOnly: "Musi zaczynać się od https:// — adres bez szyfrowania zostanie odrzucony.",
+    check: "Sprawdź",
+    username: "Nazwa użytkownika",
+    password: "Hasło",
+    signIn: "Zaloguj",
+    signOut: "Wyloguj",
+    signedInAs: "Zalogowano jako",
+    pinned: "Certyfikat przypięty",
+    memoryOnly: "Tylko na tę sesję — brak systemowego pęku kluczy",
+    untrustedTitle: "Certyfikat tego serwera nie jest zaufany",
+    untrustedBody: "Ktoś, kto przechwyci to połączenie, również mógłby przedstawić certyfikat. Sprawdź, czy poniższy odcisk zgadza się z tym na Twoim serwerze.",
+    trustIt: "Sprawdziłem — kontynuuj",
+    noRegistration: "Konta zakłada się na serwerze, nie tutaj.",
+    openServer: "Otwórz serwer w przeglądarce",
+    errors: {
+      insecure_scheme: "Adres musi zaczynać się od https://",
+      no_server: "Podaj adres serwera.",
+      bad_url: "To nie jest adres internetowy.",
+      bad_credentials: "Nazwa użytkownika i hasło nie pasują.",
+      untrusted_cert: "Certyfikat serwera został odrzucony. Sprawdź go ponownie.",
+      timeout: "Serwer nie odpowiedział na czas.",
+      unreachable: "Nie udało się połączyć z tym serwerem.",
+      desktop_only: "Logowanie wymaga aplikacji na komputer.",
+      bad_response: "Odpowiedź serwera była nieoczekiwana.",
+      unknown: "Coś poszło nie tak.",
+    },
   },
   settings: {
     colors: {

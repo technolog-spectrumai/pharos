@@ -5,6 +5,7 @@ import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
 import { APP_TABS, DEFAULT_TAB, type AppTabId } from "./tabs";
 import EditorHost from "./views/EditorHost.vue";
+import CloudView from "./views/CloudView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const { t } = useI18n({ useScope: "global" });
@@ -227,6 +228,11 @@ function isDisabled(id: string): boolean {
                   :ref="setterFor(tab.id)"
                   :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
     </template>
+
+    <!-- Non-editor tabs are not data-driven yet; two of them do not justify the
+         indirection, and each is one line here. -->
+    <CloudView v-if="visited.has('cloud')" v-show="active === 'cloud'"
+               class="min-h-0 flex-1" />
 
     <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"
                   class="min-h-0 flex-1" />

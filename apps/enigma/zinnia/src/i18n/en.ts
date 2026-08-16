@@ -2,6 +2,7 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   nav: {
+    cloud: "Cloud",
     menu: "Menu",
     themeDark: "Dark mode",
     themeLight: "Light mode",
@@ -10,6 +11,37 @@ export default {
     sheets: "Sheets",
     presentations: "Presentations",
     settings: "Settings",
+  },
+  cloud: {
+    title: "Cloud",
+    help: "Sign in to your platform server. Nothing is sent anywhere until you do.",
+    address: "Server address",
+    httpsOnly: "Must start with https:// — an unencrypted address is refused.",
+    check: "Check",
+    username: "Username",
+    password: "Password",
+    signIn: "Sign in",
+    signOut: "Sign out",
+    signedInAs: "Signed in as",
+    pinned: "Certificate pinned",
+    memoryOnly: "Only for this session — no system keyring is available",
+    untrustedTitle: "This server's certificate is not trusted",
+    untrustedBody: "Anyone able to intercept this connection could present a certificate too. Check that the fingerprint below matches the one on your server before continuing.",
+    trustIt: "I have checked it — continue",
+    noRegistration: "Accounts are created on the server, not here.",
+    openServer: "Open the server in a browser",
+    errors: {
+      insecure_scheme: "The address must start with https://",
+      no_server: "Enter the server address.",
+      bad_url: "That is not a web address.",
+      bad_credentials: "That username and password did not match.",
+      untrusted_cert: "The server's certificate was refused. Check it again.",
+      timeout: "The server did not answer in time.",
+      unreachable: "Could not reach that server.",
+      desktop_only: "Signing in needs the desktop app.",
+      bad_response: "The server's answer was not what we expected.",
+      unknown: "Something went wrong.",
+    },
   },
   settings: {
     colors: {
