@@ -12,9 +12,11 @@ import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
 import PresentationEditor from "../editors/PresentationEditor.vue";
+import SheetEditor from "../editors/SheetEditor.vue";
 import type { EditorHandle } from "../editors/types";
 import { dumps, newDocument, sniffIsDocument } from "../formats/document";
 import { dumps as dumpsDeck, newPresentation, sniffIsPresentation } from "../formats/presentation";
+import { dumps as dumpsSheet, isSheet, newWorkbook } from "../formats/sheet";
 
 const { t } = useI18n({ useScope: "global" });
 
@@ -44,7 +46,7 @@ const forceText = ref(false);
 
 /** Which editor renders this file. The visual editor claims .svg; everything
  *  else opens in ACE, which already highlights .svg as XML. */
-function editorKindFor(fileName: string): "sketch" | "text" | "document" | "deck" {
+function editorKindFor(fileName: string): "sketch" | "text" | "document" | "deck" | "sheet" {
   if (/\.svg$/i.test(fileName)) return "sketch";
   // Documents and decks are both .xml; the extension cannot tell them apart, so
   // the ROOT ELEMENT decides. Sniffing beats a full parse here — the listing
@@ -53,6 +55,10 @@ function editorKindFor(fileName: string): "sketch" | "text" | "document" | "deck
     if (sniffIsDocument(content.value)) return "document";
     if (sniffIsPresentation(content.value)) return "deck";
   }
+  // A sheet is a Univer snapshot in a .json file. Unlike the XML pair there is
+  // no root element to look at, so the sniff has to parse — cheap enough, and
+  // it is the same check primula's server makes.
+  if (/\.json$/i.test(fileName) && isSheet(content.value)) return "sheet";
   return "text";
 }
 const kind = computed(() => (forceText.value ? "text" : editorKindFor(name.value)));
@@ -107,6 +113,13 @@ async function newDeck() {
   // Seeded for the same reason a new document is: the kind is sniffed from the
   // CONTENT, and an empty buffer would open in the text editor.
   show(t("file.untitledDeck"), null, dumpsDeck(newPresentation("")));
+}
+
+async function newSheet() {
+  if (!(await confirmDiscard())) return;
+  // Seeded, like the other structured kinds: the editor is chosen from the
+  // CONTENT, so an empty buffer would open as plain text.
+  show(t("file.untitledSheet"), null, dumpsSheet(newWorkbook("New sheet")));
 }
 
 async function newText() {
@@ -185,6 +198,8 @@ async function saveAs(): Promise<boolean> {
       ? [{ name: "SVG", extensions: ["svg"] }]
       : kind.value === "document" || kind.value === "deck"
         ? [{ name: "XML", extensions: ["xml"] }]
+      : kind.value === "sheet"
+        ? [{ name: "Sheet", extensions: ["json"] }]
         : [{ name: "All", extensions: ["*"] }],
   });
   if (!picked) return false;
@@ -230,6 +245,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.newDrawing')" @click="newDrawing" />
       <OyaIconButton size="sm" icon="file-lines" :label="t('file.newDoc')" data-testid="new-doc" @click="newDoc" />
       <OyaIconButton size="sm" icon="file-powerpoint" :label="t('file.newDeck')" data-testid="new-deck" @click="newDeck" />
+      <OyaIconButton size="sm" icon="table-cells" :label="t('file.newSheet')" data-testid="new-sheet" @click="newSheet" />
       <OyaIconButton size="sm" icon="file-pen" :label="t('file.newText')" @click="newText" />
       <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" @click="openFile" />
       <div class="min-w-0 flex-1">
@@ -295,6 +311,21 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <PresentationEditor
       v-if="kind === 'deck'"
       :key="'p' + generation"
+      ref="editorRef"
+      :path="path"
+      :name="name"
+      :content="content"
+      :busy="busy"
+      :error="fileError"
+      class="min-h-0 flex-1"
+      @save="saveFile($event)"
+      @update:dirty="dirty = $event"
+      @open-as-text="openAsText"
+    />
+
+    <SheetEditor
+      v-if="kind === 'sheet'"
+      :key="'s' + generation"
       ref="editorRef"
       :path="path"
       :name="name"
