@@ -1,29 +1,52 @@
 <script setup lang="ts">
-// Tool palette, brush settings and board actions. Purely presentational — every
-// mutation goes through the sketch orchestrator the parent owns.
+// Tool palette and board settings. Purely presentational — every mutation goes
+// through the sketch orchestrator the parent owns.
+//
+// The settings are grouped behind five titled pickers — zoom, brush, pen
+// colour, fill colour, board — rather than laid out as rows of chips. Rows of
+// chips do not say what they are for: pen colour, fill colour and board colour
+// were three visually identical strips of swatches, told apart only by a
+// `title` on a container nobody hovers. A picker names itself.
+//
+// Colours are offered in BOTH shade sets, always. A drawing stores a concrete
+// hex — a theme-relative colour inside an .svg would mean something different
+// in every viewer — so the shade that reads on the other paper has to be
+// reachable, not inferred from whichever theme happens to be on now.
 import { computed, ref, watch } from "vue";
 import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
+import SketchPickerModal from "./SketchPickerModal.vue";
+import SketchPickerTrigger from "./SketchPickerTrigger.vue";
 import {
   BACKGROUND_COLORS,
   canFill,
   COLOR_NAME_KEYS,
-  DEFAULT_SLOT_COLORS,
-  EXTRA_COLORS,
-  INK_DARK,
-  INK_LIGHT,
-  SYSTEM_COLORS_DARK,
-  SYSTEM_COLORS_LIGHT,
+  DARK_INK,
+  LIGHT_INK,
   OPACITY_STEPS,
+  OTHER_COLORS,
   STROKE_SIZES,
   TEXT_SIZES,
+  ZOOM_STEPS,
 } from "./sketchModel";
+import { useSystemColors } from "../useSystemColors";
+import { SYSTEM_ROLES } from "../systemColors";
 import type { Sketch } from "./useSketch";
 import type { Tool } from "./SketchCanvas.vue";
 
-const props = defineProps<{ sketch: Sketch; tool: Tool; textSize: number; busy?: boolean; darkMode?: boolean }>();
+const props = defineProps<{
+  sketch: Sketch;
+  tool: Tool;
+  textSize: number;
+  zoom: number;
+  busy?: boolean;
+  darkMode?: boolean;
+}>();
 const emit = defineEmits<{
   "update:tool": [Tool];
   "update:textSize": [number];
+  "update:zoom": [number];
+  /** So the editor can hold its document shortcuts while a picker is up. */
+  "picker-open": [boolean];
   clear: [];
   chooseImage: [];
 }>();
@@ -58,62 +81,85 @@ function pickFill(c: string | null) {
   props.sketch.restyleSelected();
 }
 
-// ── palette editing ─────────────────────────────────────────────────────────
-// The colour row is seven assignable slots. Normally a slot click picks a drawing
-// colour; with the pencil on, it opens a picker that reassigns the slot instead.
-// Invariant: openSlot !== null implies paletteEditing.
+// ── the shade catalogue ─────────────────────────────────────────────────────
+// The semantic shades are whatever the user set in Settings, read live so a
+// palette change shows up here without a remount. Both modes' values are
+// offered side by side and labelled by which board they suit.
+const { palette } = useSystemColors();
 
+const lightShades = computed(() => [
+  ...SYSTEM_ROLES.map((role) => palette.value[role].light),
+  LIGHT_INK,
+]);
+const darkShades = computed(() => [
+  ...SYSTEM_ROLES.map((role) => palette.value[role].dark),
+  DARK_INK,
+]);
+
+/** Chip label. A colour from a loaded file, or one the user configured, has no
+ *  entry in the name map — falling through would render the literal string
+ *  "sketch.colorNames.undefined", so those are labelled by their hex. */
+function labelOf(c: string): string {
+  return COLOR_NAME_KEYS[c] ? `sketch.colorNames.${COLOR_NAME_KEYS[c]}` : "";
+}
+
+// ── pickers ─────────────────────────────────────────────────────────────────
+type PickerId = "zoom" | "brush" | "pen" | "fill" | "board";
+
+const openPicker = ref<PickerId | null>(null);
+
+// Palette editing: normally a slot click picks a drawing colour; with the
+// pencil on, a slot is ARMED and the next catalogue colour is written into it.
 const paletteEditing = ref(false);
-const openSlot = ref<number | null>(null);
+const armedSlot = ref<number | null>(null);
+
+function togglePicker(id: PickerId) {
+  openPicker.value = openPicker.value === id ? null : id;
+}
+function closePicker() {
+  openPicker.value = null;
+}
+
+/** Every exit — the Close button, Escape, the backdrop, re-clicking the
+ *  trigger — lands here, so the invariant holds on all of them:
+ *  `openPicker !== "pen"` implies the pencil is off and nothing is armed.
+ *  A pencil left pressed behind a closed modal is invisible state, and the
+ *  next colour click would silently reassign a slot instead of picking. */
+watch(openPicker, (id) => {
+  if (id !== "pen") {
+    paletteEditing.value = false;
+    armedSlot.value = null;
+  }
+  emit("picker-open", id !== null);
+});
 
 function toggleEditing() {
   paletteEditing.value = !paletteEditing.value;
-  // Closed in BOTH directions — leaving edit mode with a panel up would strand it.
-  openSlot.value = null;
+  armedSlot.value = null; // closed in BOTH directions
 }
 
-/** Deliberately does not funnel through pickColor: that also calls
- *  restyleSelected(), so reusing it here would let a palette edit restyle the
- *  selected shape. */
 function onSlotClick(i: number) {
   if (!paletteEditing.value) {
     pickColor(props.sketch.slots.value[i]);
+    closePicker();
     return;
   }
-  openSlot.value = openSlot.value === i ? null : i;
+  armedSlot.value = armedSlot.value === i ? null : i;
 }
 
-function assignSlot(c: string) {
-  const i = openSlot.value;
-  if (i === null) return;
-  props.sketch.setSlot(i, c);
-  // Edit mode stays on so several slots can be reassigned in one visit.
-  openSlot.value = null;
+/** Deliberately does not funnel a palette edit through pickColor: that also
+ *  calls restyleSelected(), so reusing it here would let editing the palette
+ *  restyle the selected shape — turning a device preference into a document
+ *  edit, complete with an undo entry. */
+function onCatalogueClick(c: string) {
+  if (paletteEditing.value && armedSlot.value !== null) {
+    props.sketch.setSlot(armedSlot.value, c);
+    armedSlot.value = null; // edit mode stays on, so several slots can be set
+    return;
+  }
+  pickColor(c);
+  closePicker();
 }
-
-// The fill row unmounts on a tool change (v-if="fillApplies"); the stroke row does
-// not, but closing on a tool switch keeps the panel from lingering over a toolbar
-// the user has visibly moved on from.
-watch(
-  () => props.tool,
-  () => {
-    openSlot.value = null;
-  },
-);
-
-const colorLabel = (c: string) => `sketch.colorNames.${COLOR_NAME_KEYS[c]}`;
-
-/** The picker for THIS theme: the semantic trio in the shade that reads on the
- *  current paper, and plain ink as black-on-light / white-on-dark. The full
- *  PICKER_COLORS list stays the validation set — a drawing made in the other
- *  mode still round-trips — this only chooses what the palette OFFERS. */
-const pickerColors = computed(() => {
-  const dark = document.documentElement.classList.contains("dark");
-  const system = dark ? SYSTEM_COLORS_DARK : SYSTEM_COLORS_LIGHT;
-  const ink = dark ? INK_DARK : INK_LIGHT;
-  const base = DEFAULT_SLOT_COLORS.filter((c) => c !== INK_LIGHT);
-  return [...system, ink, ...base, ...EXTRA_COLORS.filter((c) => !system.includes(c))];
-});
 
 /** Unselected swatch ring. `border-black/20` alone vanishes against the dark
  *  toolbar, which turns the white and silver chips into unbordered blobs. */
@@ -128,6 +174,12 @@ const fillApplies = computed(() => {
   return sel ? canFill(sel.kind) : ["rect", "ellipse", "triangle"].includes(props.tool);
 });
 
+// The fill picker's trigger disappears when fill stops applying; close it too,
+// or the modal outlives the control that opened it.
+watch(fillApplies, (ok) => {
+  if (!ok && openPicker.value === "fill") closePicker();
+});
+
 /** Degrees field. `.lazy` matters: without it every keystroke of "180" would commit
  *  1, then 18, then 180 as three separate undo entries (and clear redo three times).
  *  Committing on change/blur makes a typed angle one undoable step. */
@@ -135,11 +187,16 @@ const rotation = computed({
   get: () => props.sketch.selected.value?.rot ?? 0,
   set: (deg: number) => props.sketch.setSelectedRotation(deg),
 });
+
+function setBackgroundColor(c: string) {
+  props.sketch.setBackground(c);
+  closePicker();
+}
 </script>
 
 <template>
   <div
-    class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-accent-2 px-3 py-2 dark:border-accent-1"
+    class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-accent-2 px-3 py-2 dark:border-accent-1"
   >
     <!-- Tools -->
     <div class="flex items-center gap-1">
@@ -154,185 +211,397 @@ const rotation = computed({
       />
     </div>
 
-    <!-- Colour slots. Escape is stopped here on purpose: the view's window handler
-         only ignores INPUT/TEXTAREA, so an Escape on a focused slot button would
-         otherwise fall through and clear the shape selection. -->
-    <div class="relative" @keydown.esc.stop="openSlot = null">
-      <!-- z-50 lifts the triggers above the backdrop below. Without it the backdrop
-           swallows the first click on any other slot (and on the pencil), so
-           switching slots or leaving edit mode would silently cost two clicks. -->
-      <div class="relative z-50 flex items-center gap-1" :title="$t('sketch.color')">
-        <OyaIconButton
-          size="sm"
-          icon="pencil"
-          :label="$t('sketch.editPalette')"
-          :active="paletteEditing"
-          :aria-pressed="paletteEditing"
-          @click="toggleEditing()"
-        />
-        <!-- Keyed by INDEX, not colour: two slots may hold the same colour, and a
-             colour key would then misorder these nodes. -->
-        <button
-          v-for="(c, i) in sketch.slots.value"
-          :key="i"
-          type="button"
-          class="h-6 w-6 rounded-full border-2 transition hover:scale-110"
-          :class="[
-            paletteEditing
-              ? openSlot === i
-                ? 'border-dashed border-accent-light dark:border-accent-dark'
-                : `border-dashed ${IDLE_SWATCH}`
-              : sketch.currentColor.value === c
-                ? 'border-accent-light dark:border-accent-dark'
-                : IDLE_SWATCH,
-          ]"
-          :style="{ backgroundColor: c }"
-          :aria-label="`${$t(paletteEditing ? 'sketch.editSlot' : 'sketch.slot', { n: i + 1 })} — ${$t(colorLabel(c))}`"
-          :aria-haspopup="paletteEditing ? 'dialog' : undefined"
-          :aria-expanded="paletteEditing ? openSlot === i : undefined"
-          @click="onSlotClick(i)"
-        />
-      </div>
+    <!-- ── zoom ─────────────────────────────────────────────────────────── -->
+    <SketchPickerTrigger
+      :label="$t('sketch.zoom')"
+      :open="openPicker === 'zoom'"
+      data-testid="trigger-zoom"
+      @click="togglePicker('zoom')"
+    >
+      <font-awesome-icon icon="magnifying-glass" class="opacity-70" />
+      <span>{{ Math.round(zoom * 100) }}%</span>
+    </SketchPickerTrigger>
 
-      <!-- Outside-click via a full-screen backdrop rather than a document listener,
-           so there is no listener to leak. Same approach as EmojiPicker. -->
-      <div v-if="openSlot !== null" class="fixed inset-0 z-40" @click="openSlot = null" />
-      <div
-        v-if="openSlot !== null"
-        class="absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border p-2 shadow-xl border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark"
-        role="dialog"
-        :aria-label="$t('sketch.editSlot', { n: openSlot + 1 })"
-      >
-        <div class="grid grid-cols-6 gap-1.5">
-          <button
-            v-for="c in pickerColors"
-            :key="c"
-            type="button"
-            class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
-            :class="sketch.slots.value[openSlot] === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-            :style="{ backgroundColor: c }"
-            :aria-label="$t(colorLabel(c))"
-            :title="$t(colorLabel(c))"
-            @click="assignSlot(c)"
+    <SketchPickerModal
+      :open="openPicker === 'zoom'"
+      :title="$t('sketch.zoomTitle')"
+      @close="closePicker()"
+    >
+      <div class="grid grid-cols-4 gap-1.5" data-testid="modal-zoom">
+        <button
+          v-for="s in ZOOM_STEPS"
+          :key="s"
+          type="button"
+          class="rounded-lg border px-2 py-1.5 text-xs font-semibold transition"
+          :class="
+            zoom === s
+              ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+              : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+          "
+          :data-testid="`zoom-${s}`"
+          @click="emit('update:zoom', s); closePicker()"
+        >
+          {{ Math.round(s * 100) }}%
+        </button>
+      </div>
+    </SketchPickerModal>
+
+    <!-- ── brush ────────────────────────────────────────────────────────── -->
+    <SketchPickerTrigger
+      :label="$t('sketch.brush')"
+      :open="openPicker === 'brush'"
+      data-testid="trigger-brush"
+      @click="togglePicker('brush')"
+    >
+      <!-- The dot IS the brush: size, colour and opacity as they will draw. -->
+      <span
+        class="inline-block rounded-full"
+        :style="{
+          width: `${Math.min(sketch.currentWidth.value, 12)}px`,
+          height: `${Math.min(sketch.currentWidth.value, 12)}px`,
+          backgroundColor: sketch.currentColor.value,
+          opacity: sketch.currentOpacity.value,
+        }"
+      />
+      <span>{{ sketch.currentWidth.value }}</span>
+    </SketchPickerTrigger>
+
+    <SketchPickerModal
+      :open="openPicker === 'brush'"
+      :title="$t('sketch.brushTitle')"
+      @close="closePicker()"
+    >
+      <!-- Stays open across picks: three settings, one visit. -->
+      <div class="space-y-3" data-testid="modal-brush">
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.size") }}</p>
+          <div class="flex items-center gap-1">
+            <button
+              v-for="w in STROKE_SIZES"
+              :key="w"
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-lg border transition"
+              :class="
+                sketch.currentWidth.value === w
+                  ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+                  : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+              "
+              :aria-label="`${w}`"
+              :data-testid="`width-${w}`"
+              @click="pickWidth(w)"
+            >
+              <span class="rounded-full bg-current" :style="{ width: `${w}px`, height: `${w}px` }" />
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.opacity") }}</p>
+          <div class="flex items-center gap-1">
+            <button
+              v-for="o in OPACITY_STEPS"
+              :key="o"
+              type="button"
+              class="h-8 rounded-lg border px-2 text-[11px] font-bold transition"
+              :class="
+                sketch.currentOpacity.value === o
+                  ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+                  : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+              "
+              :data-testid="`opacity-${o}`"
+              @click="pickOpacity(o)"
+            >
+              {{ Math.round(o * 100) }}%
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.textSize") }}</p>
+          <div class="flex items-center gap-1">
+            <button
+              v-for="s in TEXT_SIZES"
+              :key="s"
+              type="button"
+              class="h-8 rounded-lg border px-2 text-xs font-bold transition"
+              :class="
+                textSize === s
+                  ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+                  : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+              "
+              :data-testid="`textsize-${s}`"
+              @click="emit('update:textSize', s)"
+            >
+              {{ s }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </SketchPickerModal>
+
+    <!-- ── pen colour ───────────────────────────────────────────────────── -->
+    <SketchPickerTrigger
+      :label="$t('sketch.color')"
+      :open="openPicker === 'pen'"
+      data-testid="trigger-pen"
+      @click="togglePicker('pen')"
+    >
+      <span
+        class="h-4 w-4 rounded-full border border-current/30"
+        :style="{ backgroundColor: sketch.currentColor.value }"
+      />
+    </SketchPickerTrigger>
+
+    <SketchPickerModal
+      :open="openPicker === 'pen'"
+      :title="$t('sketch.penColorTitle')"
+      @close="closePicker()"
+    >
+      <div class="space-y-3" data-testid="modal-pen">
+        <div>
+          <div class="mb-1 flex items-center gap-2">
+            <p class="text-xs font-semibold opacity-70">{{ $t("sketch.slotsGroup") }}</p>
+            <OyaIconButton
+              size="sm"
+              icon="pencil"
+              :label="$t('sketch.editPalette')"
+              :active="paletteEditing"
+              :aria-pressed="paletteEditing"
+              data-testid="palette-edit"
+              @click="toggleEditing()"
+            />
+          </div>
+          <!-- Keyed by INDEX, not colour: two slots may hold the same colour, and a
+               colour key would then misorder these nodes. -->
+          <div class="flex items-center gap-1.5">
+            <button
+              v-for="(c, i) in sketch.slots.value"
+              :key="i"
+              type="button"
+              class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
+              :class="[
+                paletteEditing
+                  ? armedSlot === i
+                    ? 'border-dashed border-accent-light dark:border-accent-dark'
+                    : `border-dashed ${IDLE_SWATCH}`
+                  : sketch.currentColor.value === c
+                    ? 'border-accent-light dark:border-accent-dark'
+                    : IDLE_SWATCH,
+              ]"
+              :style="{ backgroundColor: c }"
+              :data-testid="`slot-${i}`"
+              :aria-label="`${$t(paletteEditing ? 'sketch.editSlot' : 'sketch.slot', { n: i + 1 })}${labelOf(c) ? ' — ' + $t(labelOf(c)) : ''}`"
+              :aria-expanded="paletteEditing ? armedSlot === i : undefined"
+              @click="onSlotClick(i)"
+            />
+          </div>
+        </div>
+
+        <!-- Both shade sets, labelled by the board they suit. -->
+        <div v-for="group in ([
+               { key: 'light', labelKey: 'sketch.lightShades', colors: lightShades },
+               { key: 'dark', labelKey: 'sketch.darkShades', colors: darkShades },
+               { key: 'other', labelKey: 'sketch.otherColors', colors: OTHER_COLORS },
+             ] as const)"
+             :key="group.key">
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t(group.labelKey) }}</p>
+          <div class="grid grid-cols-8 gap-1.5">
+            <button
+              v-for="c in group.colors"
+              :key="`${group.key}-${c}`"
+              type="button"
+              class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
+              :class="sketch.currentColor.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: c }"
+              :data-testid="`swatch-${group.key}-${c.slice(1)}`"
+              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
+              :title="labelOf(c) ? $t(labelOf(c)) : c"
+              @click="onCatalogueClick(c)"
+            />
+          </div>
+        </div>
+      </div>
+    </SketchPickerModal>
+
+    <!-- ── fill ─────────────────────────────────────────────────────────── -->
+    <SketchPickerTrigger
+      v-if="fillApplies"
+      :label="$t('sketch.fill')"
+      :open="openPicker === 'fill'"
+      data-testid="trigger-fill"
+      @click="togglePicker('fill')"
+    >
+      <span
+        v-if="sketch.currentFill.value"
+        class="h-4 w-4 rounded border border-current/30"
+        :style="{ backgroundColor: sketch.currentFill.value }"
+      />
+      <font-awesome-icon v-else icon="ban" class="opacity-70" />
+    </SketchPickerTrigger>
+
+    <SketchPickerModal
+      :open="openPicker === 'fill'"
+      :title="$t('sketch.fillTitle')"
+      @close="closePicker()"
+    >
+      <div class="space-y-3" data-testid="modal-fill">
+        <button
+          type="button"
+          class="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs transition"
+          :class="
+            sketch.currentFill.value === null
+              ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+              : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+          "
+          data-testid="fill-none"
+          @click="pickFill(null); closePicker()"
+        >
+          <font-awesome-icon icon="ban" /> {{ $t("sketch.noFill") }}
+        </button>
+
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.slotsGroup") }}</p>
+          <div class="flex items-center gap-1.5">
+            <button
+              v-for="(c, i) in sketch.slots.value"
+              :key="i"
+              type="button"
+              class="h-7 w-7 rounded border-2 transition hover:scale-110"
+              :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: c }"
+              :data-testid="`fill-slot-${i}`"
+              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
+              @click="pickFill(c); closePicker()"
+            />
+          </div>
+        </div>
+
+        <div v-for="group in ([
+               { key: 'light', labelKey: 'sketch.lightShades', colors: lightShades },
+               { key: 'dark', labelKey: 'sketch.darkShades', colors: darkShades },
+               { key: 'other', labelKey: 'sketch.otherColors', colors: OTHER_COLORS },
+             ] as const)"
+             :key="group.key">
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t(group.labelKey) }}</p>
+          <div class="grid grid-cols-8 gap-1.5">
+            <button
+              v-for="c in group.colors"
+              :key="`${group.key}-${c}`"
+              type="button"
+              class="h-7 w-7 rounded border-2 transition hover:scale-110"
+              :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: c }"
+              :data-testid="`fill-swatch-${group.key}-${c.slice(1)}`"
+              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
+              :title="labelOf(c) ? $t(labelOf(c)) : c"
+              @click="pickFill(c); closePicker()"
+            />
+          </div>
+        </div>
+      </div>
+    </SketchPickerModal>
+
+    <!-- ── board ────────────────────────────────────────────────────────── -->
+    <SketchPickerTrigger
+      :label="$t('sketch.background')"
+      :open="openPicker === 'board'"
+      data-testid="trigger-board"
+      @click="togglePicker('board')"
+    >
+      <span
+        v-if="background"
+        class="h-4 w-4 rounded border border-current/30"
+        :style="{ backgroundColor: background }"
+      />
+      <font-awesome-icon v-else icon="ban" class="opacity-70" />
+    </SketchPickerTrigger>
+
+    <SketchPickerModal
+      :open="openPicker === 'board'"
+      :title="$t('sketch.backgroundTitle')"
+      @close="closePicker()"
+    >
+      <div class="space-y-3" data-testid="modal-board">
+        <button
+          type="button"
+          class="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs transition"
+          :class="
+            background === null
+              ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+              : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+          "
+          data-testid="board-none"
+          @click="sketch.setBackground(null); closePicker()"
+        >
+          <font-awesome-icon icon="ban" /> {{ $t("sketch.noBackground") }}
+        </button>
+
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.paperGroup") }}</p>
+          <!-- White and black. IDLE_SWATCH matters more here than anywhere else:
+               the two swatches ARE white and near-black, so a ring that vanishes
+               in one theme loses one of the only two chips in the row. -->
+          <div class="flex items-center gap-1.5">
+            <button
+              v-for="c in BACKGROUND_COLORS"
+              :key="`bg-${c}`"
+              type="button"
+              class="h-7 w-7 rounded border-2 transition hover:scale-110"
+              :class="background === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: c }"
+              :data-testid="`board-${c.slice(1)}`"
+              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
+              :title="labelOf(c) ? $t(labelOf(c)) : c"
+              @click="setBackgroundColor(c)"
+            />
+          </div>
+        </div>
+
+        <div v-for="group in ([
+               { key: 'light', labelKey: 'sketch.lightShades', colors: lightShades },
+               { key: 'dark', labelKey: 'sketch.darkShades', colors: darkShades },
+               { key: 'other', labelKey: 'sketch.otherColors', colors: OTHER_COLORS },
+             ] as const)"
+             :key="group.key">
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t(group.labelKey) }}</p>
+          <div class="grid grid-cols-8 gap-1.5">
+            <button
+              v-for="c in group.colors"
+              :key="`${group.key}-${c}`"
+              type="button"
+              class="h-7 w-7 rounded border-2 transition hover:scale-110"
+              :class="background === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: c }"
+              :data-testid="`board-swatch-${group.key}-${c.slice(1)}`"
+              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
+              :title="labelOf(c) ? $t(labelOf(c)) : c"
+              @click="setBackgroundColor(c)"
+            />
+          </div>
+        </div>
+
+        <!-- `busy` still gates this: a save in progress must not be raced by a
+             background-image import. -->
+        <div class="flex items-center gap-2 border-t border-current/10 pt-3">
+          <OyaIconButton
+            size="sm"
+            icon="file-image"
+            :label="$t('sketch.chooseImage')"
+            :disabled="busy"
+            data-testid="board-image"
+            @click="emit('chooseImage')"
+          />
+          <OyaIconButton
+            v-if="sketch.backgroundImage.value"
+            size="sm"
+            icon="xmark"
+            :label="$t('sketch.removeImage')"
+            data-testid="board-image-remove"
+            @click="sketch.setBackgroundImage(null)"
           />
         </div>
       </div>
-    </div>
-
-    <!-- Stroke width -->
-    <div class="flex items-center gap-1" :title="$t('sketch.size')">
-      <button
-        v-for="w in STROKE_SIZES"
-        :key="w"
-        type="button"
-        class="flex h-7 w-7 items-center justify-center rounded-lg border transition"
-        :class="
-          sketch.currentWidth.value === w
-            ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
-            : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
-        "
-        :aria-label="`${w}`"
-        @click="pickWidth(w)"
-      >
-        <span class="rounded-full bg-current" :style="{ width: `${w}px`, height: `${w}px` }" />
-      </button>
-    </div>
-
-    <!-- Opacity -->
-    <div class="flex items-center gap-1" :title="$t('sketch.opacity')">
-      <button
-        v-for="o in OPACITY_STEPS"
-        :key="o"
-        type="button"
-        class="h-7 rounded-lg border px-1.5 text-[10px] font-bold transition"
-        :class="
-          sketch.currentOpacity.value === o
-            ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
-            : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
-        "
-        @click="pickOpacity(o)"
-      >
-        {{ Math.round(o * 100) }}%
-      </button>
-    </div>
-
-    <!-- Fill (shapes only). Mirrors the same seven slots — reassigning one updates
-         both rows, which is what shows they are one palette. Goes inert during edit
-         mode so two identical-looking rows never do different things at once. -->
-    <div
-      v-if="fillApplies"
-      class="flex items-center gap-1"
-      :class="paletteEditing && 'pointer-events-none opacity-40'"
-      :title="$t('sketch.fill')"
-    >
-      <!-- `disabled`, not just pointer-events-none: the row has to be inert to the
-           keyboard too, or it stays tabbable and Enter still fills while it reads as
-           switched off. -->
-      <button
-        type="button"
-        class="flex h-6 w-6 items-center justify-center rounded-full border-2 text-[10px] transition hover:scale-110"
-        :class="sketch.currentFill.value === null ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-        :disabled="paletteEditing"
-        :aria-label="$t('sketch.noFill')"
-        @click="pickFill(null)"
-      >
-        <font-awesome-icon icon="ban" />
-      </button>
-      <button
-        v-for="(c, i) in sketch.slots.value"
-        :key="i"
-        type="button"
-        class="h-6 w-6 rounded border-2 transition hover:scale-110"
-        :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-        :style="{ backgroundColor: c }"
-        :disabled="paletteEditing"
-        :aria-label="$t(colorLabel(c))"
-        @click="pickFill(c)"
-      />
-    </div>
-
-    <!-- Board background -->
-    <div class="flex items-center gap-1" :title="$t('sketch.background')">
-      <font-awesome-icon icon="image" class="text-xs opacity-60" />
-      <button
-        type="button"
-        class="flex h-6 w-6 items-center justify-center rounded border-2 text-[10px] transition hover:scale-110"
-        :class="background === null ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-        :aria-label="$t('sketch.noBackground')"
-        :title="$t('sketch.noBackground')"
-        @click="sketch.setBackground(null)"
-      >
-        <font-awesome-icon icon="ban" />
-      </button>
-      <!-- White and black only. IDLE_SWATCH matters more here than anywhere else:
-           the two swatches ARE white and near-black, so a ring that vanishes in one
-           theme loses one of the only two chips in the row. -->
-      <button
-        v-for="c in BACKGROUND_COLORS"
-        :key="`bg-${c}`"
-        type="button"
-        class="h-6 w-6 rounded border-2 transition hover:scale-110"
-        :class="background === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-        :style="{ backgroundColor: c }"
-        :aria-label="$t(colorLabel(c))"
-        :title="$t(colorLabel(c))"
-        @click="sketch.setBackground(c)"
-      />
-      <OyaIconButton
-        size="sm"
-        icon="file-image"
-        :label="$t('sketch.chooseImage')"
-        :disabled="busy"
-        @click="emit('chooseImage')"
-      />
-      <OyaIconButton
-        v-if="sketch.backgroundImage.value"
-        size="sm"
-        icon="xmark"
-        :label="$t('sketch.removeImage')"
-        @click="sketch.setBackgroundImage(null)"
-      />
-    </div>
+    </SketchPickerModal>
 
     <!-- Rotation (selection only) -->
     <div v-if="sketch.selected.value" class="flex items-center gap-1.5" :title="$t('sketch.rotation')">
@@ -348,24 +617,6 @@ const rotation = computed({
         :aria-label="$t('sketch.rotation')"
       />
       <span class="text-xs opacity-60">{{ $t('sketch.degrees') }}</span>
-    </div>
-
-    <!-- Text size (text tool only) -->
-    <div v-if="tool === 'text'" class="flex items-center gap-1" :title="$t('sketch.textSize')">
-      <button
-        v-for="s in TEXT_SIZES"
-        :key="s"
-        type="button"
-        class="h-7 rounded-lg border px-2 text-xs font-bold transition"
-        :class="
-          textSize === s
-            ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
-            : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
-        "
-        @click="emit('update:textSize', s)"
-      >
-        {{ s }}
-      </button>
     </div>
 
     <!-- History + actions -->

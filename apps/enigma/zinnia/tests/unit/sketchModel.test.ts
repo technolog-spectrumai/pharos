@@ -701,9 +701,27 @@ describe("normalizeSlots", () => {
     expect(normalizeSlots({ 0: "#ef4444", length: 7 })).toEqual(def);
   });
 
-  it("rejects a colour that is not offered, including a differently-cased one", () => {
-    expect(normalizeSlots(["#123456"])[0]).toBe(DEFAULT_SLOT_COLORS[0]);
-    expect(normalizeSlots(["#EF4444"])[0]).toBe(DEFAULT_SLOT_COLORS[0]);
+  it("keeps one spelling per colour", () => {
+    // This used to assert that a differently-cased colour was REJECTED, which a
+    // whitelist gave for free. The whitelist had to go when Settings made the
+    // system roles user-defined — it would have refused the very colours the
+    // picker offers. The intent survives in a stronger form: an odd spelling is
+    // not a second colour, so it is normalised rather than dropped. Without
+    // this, "#EF4444" would sit in a slot and never highlight its own chip,
+    // since every selected-ring check is a string comparison.
+    expect(normalizeSlots(["#EF4444"])[0]).toBe("#ef4444");
+    expect(normalizeSlots(["#ABC"])[0]).toBe("#aabbcc");
+  });
+
+  it("accepts a colour outside the built-in catalogue", () => {
+    // A system role the user edited in Settings is not in PICKER_COLORS.
+    expect(normalizeSlots(["#123456"])[0]).toBe("#123456");
+  });
+
+  it("still refuses anything that is not a colour", () => {
+    for (const junk of ["red", "#12", "rgb(0,0,0)", "", 7, null]) {
+      expect(normalizeSlots([junk])[0], String(junk)).toBe(DEFAULT_SLOT_COLORS[0]);
+    }
   });
 
   it("always returns exactly PALETTE_SLOTS offered colours", () => {

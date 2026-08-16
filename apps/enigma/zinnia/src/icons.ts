@@ -12,7 +12,8 @@
 import { library } from "@fortawesome/fontawesome-svg-core";
 import type { Tone } from "./formats/document";
 import {
-  faArrowPointer, faArrowRight, faBan, faBold, faBroom, faCircle, faCircleInfo, faCode,
+  faArrowPointer, faArrowRight, faBan, faBold, faBroom, faChevronDown, faCircle, faCircleInfo, faCode,
+  faMagnifyingGlass,
   fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquarePlus, faSquareRootVariable, faTable, faUnderline,
@@ -22,7 +23,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
-  faArrowPointer, faArrowRight, faBan, faBold, faBroom, faCircle, faCircleInfo, faCode,
+  faArrowPointer, faArrowRight, faBan, faBold, faBroom, faChevronDown, faCircle, faCircleInfo, faCode,
+  faMagnifyingGlass,
   fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquarePlus, faSquareRootVariable, faTable, faUnderline,

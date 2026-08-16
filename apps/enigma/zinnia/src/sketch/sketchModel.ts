@@ -123,10 +123,26 @@ export const INK_DARK = "#ffffff";
 // Deduplicated: INK_DARK is plain white, which EXTRA_COLORS already offers,
 // and the invariant that no colour appears twice is worth keeping — a doubled
 // swatch reads as a broken picker.
+//
+// NOTE this is the FIXED part of the catalogue. Since the system roles became
+// user-settable in Settings, the semantic shades a picker offers are whatever
+// the user chose, which cannot be known here — see systemShades() in the
+// toolbar. This list stays the built-in floor and the defaults' home.
 export const PICKER_COLORS: readonly string[] = [...new Set([
   ...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS,
   ...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_DARK,
 ])];
+
+/** The plain inks, offered beside whichever system shades are configured. */
+export const LIGHT_INK = INK_LIGHT;
+export const DARK_INK = INK_DARK;
+
+/** Everything in the catalogue that is not a default system shade — the plain
+ *  colours. Derived from PICKER_COLORS rather than listed again, so the two
+ *  cannot drift. */
+export const OTHER_COLORS: readonly string[] = PICKER_COLORS.filter(
+  (c) => ![...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_LIGHT, INK_DARK].includes(c),
+);
 
 /** Hex → i18n leaf key under `sketch.colorNames`. Swatches are bare colour chips
  *  with no text, so this is the only thing that makes them speakable: without it a
@@ -169,13 +185,41 @@ export const COLOR_NAME_KEYS: Readonly<Record<string, string>> = {
  *  membership test is case-sensitive: the only writer is `setSlot`, which can only
  *  emit PICKER_COLORS values, so a differently-cased entry can only have come from
  *  a hand-edited kv record and falling back is the safe reading of it. */
+/** `#rgb` / `#rrggbb`. Since Settings lets the user define the system roles,
+ *  an assignable colour can no longer be checked against a fixed list — a
+ *  whitelist would silently refuse the very colours the picker just offered.
+ *  The guard that still matters is the one against junk reaching a persisted
+ *  palette, and a shape check does that without knowing the catalogue. */
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+export function isAssignableColor(v: unknown): v is string {
+  return typeof v === "string" && HEX.test(v);
+}
+
+/** One spelling per colour: lowercase, and shorthand expanded.
+ *
+ *  Colours are compared as STRINGS all over the picker — the selected ring is
+ *  `currentColor === c` — so "#EF4444" and "#ef4444" would be two different
+ *  colours that look identical, one of which never highlights its own chip.
+ *  The old whitelist got this for free by refusing the odd spelling outright;
+ *  that is no longer available now that a colour may be one the user defined,
+ *  so the spelling is normalised instead of rejected. */
+export function canonicalColor(v: string): string {
+  const hex = v.toLowerCase();
+  return hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+    : hex;
+}
+
 export function normalizeSlots(x: unknown): string[] {
   const arr: unknown[] = Array.isArray(x) ? x : [];
-  return DEFAULT_SLOT_COLORS.map((fallback, i) => {
-    const v = arr[i];
-    return typeof v === "string" && PICKER_COLORS.includes(v) ? v : fallback;
-  });
+  return DEFAULT_SLOT_COLORS.map((fallback, i) =>
+    isAssignableColor(arr[i]) ? canonicalColor(arr[i] as string) : fallback,
+  );
 }
+/** How close the board looks. Display only — see SketchCanvas: zoom resizes the
+ *  <svg> element, never the viewBox, so nothing about the saved file changes. */
+export const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4] as const;
 export const STROKE_SIZES = [2, 4, 8, 16] as const;
 export const TEXT_SIZES = [16, 24, 36, 56] as const;
 export const OPACITY_STEPS = [0.25, 0.5, 0.75, 1] as const;

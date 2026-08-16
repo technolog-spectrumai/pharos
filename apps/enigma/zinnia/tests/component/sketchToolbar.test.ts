@@ -3,58 +3,43 @@ import { mount } from "@vue/test-utils";
 import SketchToolbar from "../../src/sketch/SketchToolbar.vue";
 import { createSketch, type Sketch } from "../../src/sketch/useSketch";
 import {
-  COLOR_NAME_KEYS, DEFAULT_SLOT_COLORS, EXTRA_COLORS, INK_LIGHT,
-  PICKER_COLORS, SYSTEM_COLORS_LIGHT,
+  COLOR_NAME_KEYS, DEFAULT_SLOT_COLORS, OTHER_COLORS, PICKER_COLORS, ZOOM_STEPS,
 } from "../../src/sketch/sketchModel";
-
-// What the picker OFFERS in light mode (jsdom has no .dark class) — the same
-// derivation SketchToolbar.pickerColors makes. PICKER_COLORS stays the wider
-// validation set and is deliberately longer than this.
-const OFFERED = [
-  ...SYSTEM_COLORS_LIGHT,
-  INK_LIGHT,
-  ...DEFAULT_SLOT_COLORS.filter((c) => c !== INK_LIGHT),
-  ...EXTRA_COLORS.filter((c) => !SYSTEM_COLORS_LIGHT.includes(c)),
-];
+import { DEFAULT_PALETTE } from "../../src/systemColors";
 import { i18n } from "../../src/i18n";
 
-// One sketch per test, from the factory — the singleton is gone now that the
-// editor opens N files, so each test builds its own instead of resetting a
-// shared one.
+// The toolbar's settings live behind five titled pickers. The whole design rests
+// on the palette-editing branch being a TOOL preference — never a document edit —
+// so these mount the real toolbar against a real sketch to pin the wiring: the two
+// branches are one `if` apart in onSlotClick, and a copy-paste of pickColor into
+// the wrong one would silently restyle shapes.
 //
-// The colour row does two different things depending on a mode flag, and the whole
-// design rests on the editing branch being a TOOL preference — never a document
-// edit. These mount the real toolbar against the real sketch singleton to pin the
-// wiring, because the two branches are one `if` apart in onSlotClick and a
-// copy-paste of pickColor into the wrong branch would silently restyle shapes.
+// Everything is addressed by data-testid. Never by role: there are five dialogs
+// now, and a first-match `[role='dialog']` probe would silently retarget.
 
-// Rows are scoped by their `title`, not by document order — the board-background
-// row also renders colour chips, so an unscoped `[style*=background]` sweep picks
-// those up too.
-
-/** Swatch buttons in the colour row, in slot order. The pencil carries no
- *  background style, so this is exactly the seven slot chips. */
-function slotButtons(w: ReturnType<typeof mountToolbar>) {
-  return w.find("[title='Colour']").findAll("button[style*='background']");
-}
-
-/** Swatch buttons in the fill row. Excludes its "no fill" button, which is an icon. */
-function fillButtons(w: ReturnType<typeof mountToolbar>) {
-  return w.find("[title='Fill']").findAll("button[style*='background']");
-}
-
-function panel(w: ReturnType<typeof mountToolbar>) {
-  return w.find("[role='dialog']");
-}
+let sketch: Sketch;
 
 function mountToolbar() {
   return mount(SketchToolbar, {
-    props: { sketch, tool: "draw" as const, textSize: 24 },
-    global: { plugins: [i18n] },
+    props: { sketch, tool: "draw" as const, textSize: 24, zoom: 1 },
+    // The pickers teleport; without the stub their bodies render outside the
+    // wrapper and every find() below returns nothing.
+    global: { plugins: [i18n], stubs: { teleport: true } },
   });
 }
 
-let sketch: Sketch;
+type W = ReturnType<typeof mountToolbar>;
+const trigger = (w: W, id: string) => w.find(`[data-testid="trigger-${id}"]`);
+const modal = (w: W, id: string) => w.find(`[data-testid="modal-${id}"]`);
+const slotChip = (w: W, i: number) => w.find(`[data-testid="slot-${i}"]`);
+/** A catalogue chip in the pen picker, addressed by colour rather than position. */
+const swatch = (w: W, group: string, hex: string) =>
+  w.find(`[data-testid="swatch-${group}-${hex.slice(1)}"]`);
+const swatches = (w: W) => w.findAll('[data-testid^="swatch-"]');
+
+const openPen = async (w: W) => {
+  await trigger(w, "pen").trigger("click");
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -65,38 +50,61 @@ beforeEach(() => {
 describe("SketchToolbar palette slots", () => {
   it("picks a drawing colour when edit mode is off", async () => {
     const w = mountToolbar();
-    await slotButtons(w)[1].trigger("click");
+    await openPen(w);
+    await slotChip(w, 1).trigger("click");
 
     expect(sketch.currentColor.value).toBe(DEFAULT_SLOT_COLORS[1]);
-    expect(panel(w).exists()).toBe(false);
+    // Picking is done, so the picker closes — the new equivalent of the old
+    // "no dialog opened" assertion.
+    expect(modal(w, "pen").exists()).toBe(false);
   });
 
-  it("opens the picker instead of drawing when edit mode is on", async () => {
+  it("arms the slot instead of drawing when edit mode is on", async () => {
     const w = mountToolbar();
     const before = sketch.currentColor.value;
 
-    await w.find("button[aria-pressed]").trigger("click");
-    await slotButtons(w)[0].trigger("click");
+    await openPen(w);
+    await w.find('[data-testid="palette-edit"]').trigger("click");
+    await slotChip(w, 0).trigger("click");
 
-    expect(panel(w).exists()).toBe(true);
-    expect(panel(w).findAll("button")).toHaveLength(OFFERED.length);
-    // The click that opened the picker must NOT also have set the drawing colour.
+    expect(modal(w, "pen").exists()).toBe(true);
+    expect(slotChip(w, 0).attributes("aria-expanded")).toBe("true");
+    // The click that armed the slot must NOT also have set the drawing colour.
     expect(sketch.currentColor.value).toBe(before);
   });
 
-  it("assigns the picked colour to that slot and closes", async () => {
+  it("offers BOTH shade sets, from the configured system palette", async () => {
+    // The feature's core guarantee: a drawing stores a concrete hex, so the
+    // shade that reads on the OTHER board has to be reachable, not inferred
+    // from whichever theme happens to be on.
     const w = mountToolbar();
-    await w.find("button[aria-pressed]").trigger("click");
-    await slotButtons(w)[0].trigger("click");
+    await openPen(w);
 
-    const target = OFFERED[OFFERED.length - 1]; // last extra — not a default slot
-    await panel(w).findAll("button")[OFFERED.length - 1].trigger("click");
+    expect(swatch(w, "light", DEFAULT_PALETTE.accent.light).exists()).toBe(true);
+    expect(swatch(w, "dark", DEFAULT_PALETTE.accent.dark).exists()).toBe(true);
+    expect(swatch(w, "light", DEFAULT_PALETTE.warning.light).exists()).toBe(true);
+    expect(swatch(w, "dark", DEFAULT_PALETTE.warning.dark).exists()).toBe(true);
+
+    // Five roles + plain ink, per set, plus the plain colours.
+    const expected = 2 * (Object.keys(DEFAULT_PALETTE).length + 1) + OTHER_COLORS.length;
+    expect(swatches(w)).toHaveLength(expected);
+  });
+
+  it("assigns the picked colour to that slot and stays in edit mode", async () => {
+    const w = mountToolbar();
+    await openPen(w);
+    await w.find('[data-testid="palette-edit"]').trigger("click");
+    await slotChip(w, 0).trigger("click");
+
+    const target = OTHER_COLORS[OTHER_COLORS.length - 1];
+    await swatch(w, "other", target).trigger("click");
 
     expect(sketch.slots.value[0]).toBe(target);
     expect(sketch.slots.value.slice(1)).toEqual([...DEFAULT_SLOT_COLORS].slice(1));
-    expect(panel(w).exists()).toBe(false);
+    expect(slotChip(w, 0).attributes("aria-expanded")).toBe("false");
     // Edit mode stays on so several slots can be reassigned in one visit.
-    expect(w.find("button[aria-pressed='true']").exists()).toBe(true);
+    expect(modal(w, "pen").exists()).toBe(true);
+    expect(w.find('[data-testid="palette-edit"][aria-pressed="true"]').exists()).toBe(true);
   });
 
   it("never touches the drawing or the undo stack", async () => {
@@ -107,33 +115,146 @@ describe("SketchToolbar palette slots", () => {
     const undoBefore = sketch.canUndo.value;
 
     const w = mountToolbar();
-    await w.find("button[aria-pressed]").trigger("click");
-    await slotButtons(w)[0].trigger("click");
-    await panel(w).findAll("button")[OFFERED.length - 1].trigger("click");
+    await openPen(w);
+    await w.find('[data-testid="palette-edit"]').trigger("click");
+    await slotChip(w, 0).trigger("click");
+    await swatch(w, "other", OTHER_COLORS[OTHER_COLORS.length - 1]).trigger("click");
 
     expect(JSON.stringify(sketch.doc.value.shapes)).toBe(shapesBefore);
     expect(sketch.canUndo.value).toBe(undoBefore);
   });
 
-  it("leaving edit mode closes an open picker", async () => {
+  it("leaving edit mode disarms the armed slot", async () => {
     const w = mountToolbar();
-    const pencil = w.find("button[aria-pressed]");
+    await openPen(w);
+    const pencil = w.find('[data-testid="palette-edit"]');
     await pencil.trigger("click");
-    await slotButtons(w)[2].trigger("click");
-    expect(panel(w).exists()).toBe(true);
+    await slotChip(w, 2).trigger("click");
+    expect(slotChip(w, 2).attributes("aria-expanded")).toBe("true");
 
     await pencil.trigger("click");
-    expect(panel(w).exists()).toBe(false);
+    expect(slotChip(w, 2).attributes("aria-expanded")).toBeUndefined();
+    expect(modal(w, "pen").exists()).toBe(true);
   });
 
-  it("mirrors the slots into the fill row", async () => {
-    // Fill only renders for a fillable tool, hence the prop change.
+  it("closing the picker also leaves edit mode", async () => {
+    // The invariant that replaced "openSlot implies paletteEditing": a pencil
+    // left pressed behind a closed picker is invisible state, and the next
+    // colour click would reassign a slot instead of picking a colour.
+    const w = mountToolbar();
+    await openPen(w);
+    await w.find('[data-testid="palette-edit"]').trigger("click");
+    await slotChip(w, 2).trigger("click");
+
+    await w.find('[data-testid="picker-close"]').trigger("click");
+    expect(modal(w, "pen").exists()).toBe(false);
+
+    await openPen(w);
+    expect(w.find('[data-testid="palette-edit"][aria-pressed="true"]').exists()).toBe(false);
+    expect(slotChip(w, 2).attributes("aria-expanded")).toBeUndefined();
+  });
+
+  it("mirrors the slots into the fill picker", async () => {
+    // One palette behind both, shown one picker at a time.
+    const w = mountToolbar();
+    await openPen(w);
+    const penStyles = [...Array(DEFAULT_SLOT_COLORS.length)].map((_, i) =>
+      slotChip(w, i).attributes("style"),
+    );
+    await w.find('[data-testid="picker-close"]').trigger("click");
+
+    await w.setProps({ tool: "rect" });
+    await trigger(w, "fill").trigger("click");
+    const fills = w.findAll('[data-testid^="fill-slot-"]');
+
+    expect(fills).toHaveLength(DEFAULT_SLOT_COLORS.length);
+    expect(fills.map((b) => b.attributes("style"))).toEqual(penStyles);
+  });
+});
+
+describe("SketchToolbar pickers", () => {
+  it("shows the current zoom and emits the chosen step", async () => {
+    const w = mountToolbar();
+    expect(trigger(w, "zoom").text()).toContain("100%");
+
+    await trigger(w, "zoom").trigger("click");
+    await w.find('[data-testid="zoom-2"]').trigger("click");
+
+    expect(w.emitted("update:zoom")).toEqual([[2]]);
+    expect(modal(w, "zoom").exists()).toBe(false);
+
+    await w.setProps({ zoom: 2 });
+    expect(trigger(w, "zoom").text()).toContain("200%");
+  });
+
+  it("keeps the brush picker open across all three settings", async () => {
+    // Three settings, one visit — closing after each would make setting up a
+    // brush three round trips.
+    const w = mountToolbar();
+    await trigger(w, "brush").trigger("click");
+
+    await w.find('[data-testid="width-8"]').trigger("click");
+    expect(sketch.currentWidth.value).toBe(8);
+    expect(modal(w, "brush").exists()).toBe(true);
+
+    await w.find('[data-testid="opacity-0.5"]').trigger("click");
+    expect(sketch.currentOpacity.value).toBe(0.5);
+    expect(modal(w, "brush").exists()).toBe(true);
+
+    await w.find('[data-testid="textsize-36"]').trigger("click");
+    expect(w.emitted("update:textSize")).toEqual([[36]]);
+    expect(modal(w, "brush").exists()).toBe(true);
+  });
+
+  it("offers every zoom step", async () => {
+    const w = mountToolbar();
+    await trigger(w, "zoom").trigger("click");
+    for (const step of ZOOM_STEPS) {
+      expect(w.find(`[data-testid="zoom-${step}"]`).exists(), `${step}`).toBe(true);
+    }
+  });
+
+  it("sets and clears the board background", async () => {
+    const w = mountToolbar();
+    await trigger(w, "board").trigger("click");
+    await w.find('[data-testid="board-ffffff"]').trigger("click");
+    expect(sketch.doc.value.background).toBe("#ffffff");
+    expect(modal(w, "board").exists()).toBe(false);
+
+    await trigger(w, "board").trigger("click");
+    await w.find('[data-testid="board-none"]').trigger("click");
+    expect(sketch.doc.value.background).toBe(null);
+  });
+
+  it("tells the editor when a picker is up, so shortcuts can be held", async () => {
+    // A modal's buttons are not INPUT/TEXTAREA, so the editor's window-level
+    // guard does not cover them: without this signal, Delete inside a picker
+    // would delete a shape.
+    const w = mountToolbar();
+    await trigger(w, "brush").trigger("click");
+    expect(w.emitted("picker-open")?.at(-1)).toEqual([true]);
+
+    await w.find('[data-testid="picker-close"]').trigger("click");
+    expect(w.emitted("picker-open")?.at(-1)).toEqual([false]);
+  });
+
+  it("closes the fill picker when fill stops applying", async () => {
     const w = mountToolbar();
     await w.setProps({ tool: "rect" });
+    await trigger(w, "fill").trigger("click");
+    expect(modal(w, "fill").exists()).toBe(true);
 
-    const fills = fillButtons(w);
-    expect(fills).toHaveLength(DEFAULT_SLOT_COLORS.length);
-    expect(fills.map((b) => b.attributes("style"))).toEqual(slotButtons(w).map((b) => b.attributes("style")));
+    // The trigger disappears with the tool change; the picker must not outlive it.
+    await w.setProps({ tool: "draw" });
+    expect(modal(w, "fill").exists()).toBe(false);
+  });
+
+  it("only ever shows one picker at a time", async () => {
+    const w = mountToolbar();
+    await trigger(w, "brush").trigger("click");
+    await trigger(w, "pen").trigger("click");
+    expect(modal(w, "brush").exists()).toBe(false);
+    expect(modal(w, "pen").exists()).toBe(true);
   });
 });
 
@@ -149,10 +270,25 @@ describe("palette state and persistence", () => {
     expect(sketch.slots.value).toEqual(before);
   });
 
-  it("rejects a colour that is not offered", async () => {
+  it("rejects anything that is not a colour", async () => {
+    // This guard used to be a whitelist of the built-in catalogue. It stopped
+    // being right when Settings made the system roles user-defined: a whitelist
+    // would silently refuse the very colours the picker had just offered, and a
+    // slot would appear to accept a click and not change. What still has to be
+    // guarded is junk reaching a persisted palette, which is a shape check.
+    await sketch.loadPalette();
+    for (const junk of ["red", "#12", "#1234567", "rgb(0,0,0)", "", "javascript:alert(1)"]) {
+      sketch.setSlot(0, junk);
+      expect(sketch.slots.value[0], junk).toBe(DEFAULT_SLOT_COLORS[0]);
+    }
+  });
+
+  it("accepts a colour the user configured in Settings", async () => {
+    // The other half of the change above: a system shade is not in the built-in
+    // catalogue once the user edits it, and it must still be assignable.
     await sketch.loadPalette();
     sketch.setSlot(0, "#123456");
-    expect(sketch.slots.value[0]).toBe(DEFAULT_SLOT_COLORS[0]);
+    expect(sketch.slots.value[0]).toBe("#123456");
   });
 
   it("round-trips the palette through storage", async () => {

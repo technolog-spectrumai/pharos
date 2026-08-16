@@ -173,6 +173,13 @@ async function runExportPng() {
 const tool = ref<Tool>("draw");
 const textSize = ref(24);
 const textModal = ref<null | { x: number; y: number }>(null);
+/** Display only — never persisted, never in the document, never an undo entry.
+ *  If it ever needs to survive a reopen it is a device preference like the
+ *  palette, not a property of the drawing. */
+const zoom = ref(1);
+/** A modal's buttons are not INPUT/TEXTAREA, so the window shortcut guard below
+ *  does not cover them: without this, Delete inside a picker deletes a shape. */
+const pickerOpen = ref(false);
 const textInput = ref("");
 
 function requestText(x: number, y: number) {
@@ -192,7 +199,7 @@ function confirmText() {
 // ── keyboard ────────────────────────────────────────────────────────────────
 function onKey(e: KeyboardEvent) {
   const s = sketch.value;
-  if (!s || textModal.value) return;
+  if (!s || textModal.value || pickerOpen.value) return;
   const target = e.target as HTMLElement | null;
   if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
 
@@ -256,9 +263,12 @@ defineExpose({
         :sketch="sketch"
         :tool="tool"
         :text-size="textSize"
+        :zoom="zoom"
         :busy="busy"
         @update:tool="tool = $event"
         @update:text-size="textSize = $event"
+        @update:zoom="zoom = $event"
+        @picker-open="pickerOpen = $event"
         @clear="sketch.clearBoard()"
         @choose-image="chooseImage"
       />
@@ -286,7 +296,7 @@ defineExpose({
         {{ t("sketch.opaqueNotice", { n: opaqueCount }) }}
       </p>
 
-      <SketchCanvas :sketch="sketch" :tool="tool" class="min-h-0 flex-1" @request-text="requestText" />
+      <SketchCanvas :sketch="sketch" :tool="tool" :zoom="zoom" class="min-h-0 flex-1" @request-text="requestText" />
     </template>
 
     <OyaModal :open="textModal !== null" @close="textModal = null">

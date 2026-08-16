@@ -13,7 +13,7 @@
 // undoes that mapping for pointer events. Rotation is applied as an
 // SVG transform about each shape's pivot, and hit-testing inverts the same transform
 // (see distToShapeRotated), so what you can click always matches what you can see.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   arrowHead,
   canFill,
@@ -30,7 +30,19 @@ import type { Sketch } from "./useSketch";
 
 export type Tool = "select" | "draw" | "rect" | "ellipse" | "triangle" | "arrow" | "text" | "eraser";
 
-const props = defineProps<{ sketch: Sketch; tool: Tool }>();
+const props = defineProps<{ sketch: Sketch; tool: Tool; zoom?: number }>();
+
+/** Zoom is a LAYOUT size, not a viewBox change and not a CSS transform.
+ *
+ *  The svg grows to `zoom × 100%` inside a scrolling wrapper while its viewBox
+ *  stays `0 0 boardW boardH`. That keeps the one agreement toBoard() depends on
+ *  — it derives its scale from the live getBoundingClientRect(), so an enlarged
+ *  box carries the zoom through the existing arithmetic without a single line
+ *  of pointer maths changing. A shrunken viewBox would make that agreement a
+ *  hand-maintained invariant, and hit-testing drifts from paint the first time
+ *  the two disagree; a CSS transform would put overflow above and left of the
+ *  origin out of the scrollbars' reach. */
+const z = computed(() => props.zoom ?? 1);
 const emit = defineEmits<{ requestText: [x: number, y: number] }>();
 
 const svgEl = ref<SVGSVGElement | null>(null);
@@ -105,6 +117,12 @@ onMounted(() => {
 });
 
 window.addEventListener("resize", remeasure);
+
+// The ResizeObserver above already fires on a zoom — it observes the element
+// whose size just changed — but delivery is async, which leaves the hovering
+// eraser ring one frame stale. onDown refreshes per gesture anyway; this covers
+// the frame in between.
+watch(z, () => void nextTick(remeasure));
 onBeforeUnmount(() => {
   window.removeEventListener("resize", remeasure);
   ro?.disconnect();
@@ -367,12 +385,13 @@ const boardSurfaceClass = computed(() =>
 </script>
 
 <template>
-  <div class="relative min-h-0 w-full flex-1">
+  <div class="relative min-h-0 w-full flex-1 overflow-auto">
     <svg
       ref="svgEl"
       :viewBox="`0 0 ${boardW} ${boardH}`"
       preserveAspectRatio="xMidYMid meet"
-      class="block h-full w-full touch-none select-none rounded-xl"
+      :style="{ width: `${z * 100}%`, height: `${z * 100}%` }"
+      class="block touch-none select-none rounded-xl"
       :class="[cursorClass, boardSurfaceClass]"
       @pointerdown="onDown"
       @pointermove="onMove"

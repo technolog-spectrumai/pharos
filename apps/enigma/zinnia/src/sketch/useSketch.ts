@@ -28,7 +28,8 @@ import {
   normalizeSlots,
   normDeg,
   PALETTE_SLOTS,
-  PICKER_COLORS,
+  canonicalColor,
+  isAssignableColor,
   quant,
   rotatePoint,
   scaleShape,
@@ -136,7 +137,8 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     // The index needs its own guard — the colour check says nothing about it, and
     // an out-of-range write would silently lengthen the row.
     if (!Number.isInteger(i) || i < 0 || i >= PALETTE_SLOTS) return;
-    if (!PICKER_COLORS.includes(color)) return;
+    if (!isAssignableColor(color)) return;
+    color = canonicalColor(color);
     const prev = slots.value[i];
     if (prev === color) return;
     const next = slots.value.slice();
