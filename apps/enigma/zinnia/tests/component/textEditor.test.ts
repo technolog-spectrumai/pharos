@@ -34,6 +34,7 @@ describe("the text editor", () => {
 describe("host routing", () => {
   it("a refused svg can be reopened as plain text", async () => {
     const w = mount(EditorHost, {
+      props: { kind: "sketch" },
       global: { plugins: [i18n], stubs: { teleport: true } },
     });
     await flushPromises();

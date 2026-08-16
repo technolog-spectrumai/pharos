@@ -1,6 +1,16 @@
 // Catalogue sections carried over from enigma with the sketch editor —
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
+  nav: {
+    write: "Write",
+    sketch: "Sketch",
+    sheets: "Sheets",
+    presentations: "Presentations",
+    settings: "Settings",
+  },
+  settings: {
+    empty: "Nothing here yet. Theme, language and the platform connection will move here.",
+  },
   sheet: {
     notASheet: "This is not a spreadsheet",
     notASheetBody: "The file is JSON, but not a Univer workbook. Open it as plain text to see what it holds.",
@@ -51,6 +61,7 @@ export default {
     tone: { note: "Note", warn: "Warning", tip: "Tip", quote: "Quote" },
   },
   file: {
+    new: "New",
     newSheet: "New spreadsheet",
     untitledSheet: "untitled-sheet.json",
     newDeck: "New presentation",

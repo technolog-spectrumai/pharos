@@ -1,8 +1,14 @@
 <script setup lang="ts">
 // The file's owner — enigma's LocalPanel role, without the vault. Opens and
-// writes files, prompts before discarding, and mounts whichever editor claims
-// the file's extension. Editors implement the contract in ../editors/types.ts
-// and never touch disk themselves.
+// writes files, prompts before discarding, and mounts the editor. Editors
+// implement the contract in ../editors/types.ts and never touch disk.
+//
+// ONE INSTANCE PER TAB, each pinned to a `kind`. The tab decides which editor
+// this is, not the file: a Sheets tab opens sheets, and a document dropped into
+// it is refused by the editor with the plain-text offer rather than silently
+// switching the tab into something else. That is the difference between an
+// app with a Sheets tab and an app with a generic "open anything" window, and
+// it is why `kind` is a prop rather than sniffed from the filename.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import OyaButton from "rakotis/components/primitives/OyaButton.vue";
 import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
@@ -14,18 +20,47 @@ import DocumentEditor from "../editors/DocumentEditor.vue";
 import PresentationEditor from "../editors/PresentationEditor.vue";
 import SheetEditor from "../editors/SheetEditor.vue";
 import type { EditorHandle } from "../editors/types";
-import { dumps, newDocument, sniffIsDocument } from "../formats/document";
-import { dumps as dumpsDeck, newPresentation, sniffIsPresentation } from "../formats/presentation";
-import { dumps as dumpsSheet, isSheet, newWorkbook } from "../formats/sheet";
+import { dumps, newDocument } from "../formats/document";
+import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
+import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
+import { KIND_FILES, type EditorKind } from "../tabs";
+
+const props = defineProps<{ kind: EditorKind }>();
 
 const { t } = useI18n({ useScope: "global" });
 
+/** The new-file seed for this tab's kind. Structured kinds are seeded rather
+ *  than left empty because their editors parse on open — a blank buffer would
+ *  arrive as "not a document". */
+function seedFor(k: EditorKind): { name: string; text: string } {
+  const spec = KIND_FILES[k];
+  const name = t(spec.untitledKey);
+  switch (k) {
+    case "document": return { name, text: dumps(newDocument("")) };
+    case "deck":     return { name, text: dumpsDeck(newPresentation("")) };
+    case "sheet":    return { name, text: dumpsSheet(newWorkbook("New sheet")) };
+    case "sketch":   return { name, text: "" }; // the SVG editor starts from empty
+  }
+}
+
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Only used by the browser build's download fallback — a Tauri save writes the
+ *  path the dialog returned and never needs a type. */
+const MIME: Record<EditorKind, string> = {
+  sketch: "image/svg+xml",
+  document: "application/xml",
+  deck: "application/xml",
+  sheet: "application/json",
+};
 
 // ── the open file ───────────────────────────────────────────────────────────
 const path = ref<string | null>(null); // null until first Save As
-const name = ref(t("file.untitled"));
-const content = ref("");
+// Seeded from THIS TAB's kind, not a default: a Write tab that opened showing
+// `untitled.svg` with an empty buffer would hand its editor a file it refuses.
+const initial = seedFor(props.kind);
+const name = ref(initial.name);
+const content = ref(initial.text);
 /** Bumped on every open so the editor remounts with fresh state — an editor's
  *  buffer belongs to ONE file; reusing an instance across files would carry
  *  undo history and dirt from the last one. */
@@ -44,24 +79,9 @@ const editorRef = ref<EditorHandle | null>(null);
  *  text" — forces ACE for that one open, without renaming the file. */
 const forceText = ref(false);
 
-/** Which editor renders this file. The visual editor claims .svg; everything
- *  else opens in ACE, which already highlights .svg as XML. */
-function editorKindFor(fileName: string): "sketch" | "text" | "document" | "deck" | "sheet" {
-  if (/\.svg$/i.test(fileName)) return "sketch";
-  // Documents and decks are both .xml; the extension cannot tell them apart, so
-  // the ROOT ELEMENT decides. Sniffing beats a full parse here — the listing
-  // would otherwise decode every embedded image just to look at one tag.
-  if (/\.xml$/i.test(fileName)) {
-    if (sniffIsDocument(content.value)) return "document";
-    if (sniffIsPresentation(content.value)) return "deck";
-  }
-  // A sheet is a Univer snapshot in a .json file. Unlike the XML pair there is
-  // no root element to look at, so the sniff has to parse — cheap enough, and
-  // it is the same check primula's server makes.
-  if (/\.json$/i.test(fileName) && isSheet(content.value)) return "sheet";
-  return "text";
-}
-const kind = computed(() => (forceText.value ? "text" : editorKindFor(name.value)));
+/** This tab's editor, unless its editor refused the file and the user asked to
+ *  see it as plain text. */
+const kind = computed<EditorKind | "text">(() => (forceText.value ? "text" : props.kind));
 
 function openAsText() {
   forceText.value = true;
@@ -95,39 +115,28 @@ function show(fileName: string, filePath: string | null, text: string) {
   generation.value++;
 }
 
-async function newDrawing() {
+async function newFile() {
   if (!(await confirmDiscard())) return;
-  show(t("file.untitled"), null, "");
-}
-
-async function newDoc() {
-  if (!(await confirmDiscard())) return;
-  // Seeded with a real document rather than left empty: `editorKindFor` sniffs
-  // the CONTENT to tell a cyprian document from any other .xml, and an empty
-  // buffer would sniff as plain text and open in the wrong editor.
-  show(t("file.untitledDoc"), null, dumps(newDocument("")));
-}
-
-async function newDeck() {
-  if (!(await confirmDiscard())) return;
-  // Seeded for the same reason a new document is: the kind is sniffed from the
-  // CONTENT, and an empty buffer would open in the text editor.
-  show(t("file.untitledDeck"), null, dumpsDeck(newPresentation("")));
-}
-
-async function newSheet() {
-  if (!(await confirmDiscard())) return;
-  // Seeded, like the other structured kinds: the editor is chosen from the
-  // CONTENT, so an empty buffer would open as plain text.
-  show(t("file.untitledSheet"), null, dumpsSheet(newWorkbook("New sheet")));
-}
-
-async function newText() {
-  if (!(await confirmDiscard())) return;
-  show(t("file.untitledText"), null, "");
+  const seed = seedFor(props.kind);
+  show(seed.name, null, seed.text);
 }
 
 const browserInput = ref<HTMLInputElement | null>(null);
+
+/** This tab's own extensions first, then an escape hatch. A tab that offered
+ *  every type would invite opening a deck in Sheets, which the editor would
+ *  then have to refuse — better to make the common case the easy one. */
+function dialogFilters() {
+  const spec = KIND_FILES[props.kind];
+  return [
+    { name: t(spec.filterKey), extensions: spec.extensions },
+    { name: "All", extensions: ["*"] },
+  ];
+}
+
+/** `accept` for the browser build's file input, from the same source. */
+const acceptAttr = computed(() =>
+  KIND_FILES[props.kind].extensions.map((e) => `.${e}`).join(","));
 
 async function openFile() {
   if (!(await confirmDiscard())) return;
@@ -138,14 +147,7 @@ async function openFile() {
   }
   try {
     const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({
-      multiple: false,
-      filters: [
-        { name: "SVG", extensions: ["svg"] },
-        { name: "Text", extensions: ["txt", "md", "json", "yaml", "yml", "xml", "html", "css", "js", "ts", "py", "rs", "sh", "toml", "ini", "csv"] },
-        { name: "All", extensions: ["*"] },
-      ],
-    });
+    const picked = await open({ multiple: false, filters: dialogFilters() });
     if (typeof picked !== "string") return;
     const { readTextFile } = await import("@tauri-apps/plugin-fs");
     show(picked.split("/").pop() ?? picked, picked, await readTextFile(picked));
@@ -182,7 +184,7 @@ async function saveAs(): Promise<boolean> {
   const text = editorRef.value?.getContent() ?? content.value;
   if (!isTauri) {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+    a.href = URL.createObjectURL(new Blob([text], { type: MIME[props.kind] }));
     a.download = name.value;
     a.click();
     URL.revokeObjectURL(a.href);
@@ -192,16 +194,7 @@ async function saveAs(): Promise<boolean> {
     return true;
   }
   const { save } = await import("@tauri-apps/plugin-dialog");
-  const picked = await save({
-    defaultPath: name.value,
-    filters: kind.value === "sketch"
-      ? [{ name: "SVG", extensions: ["svg"] }]
-      : kind.value === "document" || kind.value === "deck"
-        ? [{ name: "XML", extensions: ["xml"] }]
-      : kind.value === "sheet"
-        ? [{ name: "Sheet", extensions: ["json"] }]
-        : [{ name: "All", extensions: ["*"] }],
-  });
+  const picked = await save({ defaultPath: name.value, filters: dialogFilters() });
   if (!picked) return false;
   path.value = picked;
   name.value = picked.split("/").pop() ?? picked;
@@ -242,11 +235,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   <div class="flex min-h-0 flex-1 flex-col">
     <!-- File bar -->
     <div class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-2">
-      <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.newDrawing')" @click="newDrawing" />
-      <OyaIconButton size="sm" icon="file-lines" :label="t('file.newDoc')" data-testid="new-doc" @click="newDoc" />
-      <OyaIconButton size="sm" icon="file-powerpoint" :label="t('file.newDeck')" data-testid="new-deck" @click="newDeck" />
-      <OyaIconButton size="sm" icon="table-cells" :label="t('file.newSheet')" data-testid="new-sheet" @click="newSheet" />
-      <OyaIconButton size="sm" icon="file-pen" :label="t('file.newText')" @click="newText" />
+      <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.new')"
+                     data-testid="file-new" @click="newFile" />
       <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" @click="openFile" />
       <div class="min-w-0 flex-1">
         <p class="flex items-center gap-1.5">
@@ -275,7 +265,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       </button>
     </div>
 
-    <input ref="browserInput" type="file" class="hidden" @change="onBrowserFile" />
+    <input ref="browserInput" type="file" :accept="acceptAttr" class="hidden" @change="onBrowserFile" />
 
     <!-- keyed by generation: a fresh file gets a fresh editor instance -->
     <SketchEditor
