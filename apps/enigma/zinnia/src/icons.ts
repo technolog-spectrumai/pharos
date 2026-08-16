@@ -12,23 +12,23 @@
 import { library } from "@fortawesome/fontawesome-svg-core";
 import type { Tone } from "./formats/document";
 import {
-  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faCircle, faCircleInfo, faCloud, faCode, faLock, faPlug,
+  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faChevronRight, faFile, faCircle, faCircleInfo, faCloud, faCode, faLock, faPlug,
   faMagnifyingGlass,
   fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquarePlus, faSquareRootVariable, faTable, faUnderline,
-  faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
+  faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFolderPlus, faFont, faHardDrive, faDownload,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faSquare, faTrash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
-  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faCircle, faCircleInfo, faCloud, faCode, faLock, faPlug,
+  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faChevronRight, faFile, faCircle, faCircleInfo, faCloud, faCode, faLock, faPlug,
   faMagnifyingGlass,
   fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquarePlus, faSquareRootVariable, faTable, faUnderline,
-  faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
+  faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFolderPlus, faFont, faHardDrive, faDownload,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faSquare, faTrash, faTriangleExclamation, faXmark,
 );
@@ -50,3 +50,8 @@ export const TONE_ICONS: Record<Tone, string> = {
   tip: "lightbulb",
   quote: "quote-left",
 };
+
+/** The folder-tree node icons. Indexed in the template, so the scanner in
+ *  tests/unit/icons.test.ts cannot see them — asserted there directly instead,
+ *  the same arrangement as TONE_ICONS. */
+export const NODE_ICONS = { bucket: "hard-drive", directory: "folder" } as const;

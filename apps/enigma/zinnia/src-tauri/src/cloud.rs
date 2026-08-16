@@ -460,6 +460,103 @@ pub async fn cloud_logout(server_url: String, fingerprint: Option<String>) -> Re
     Ok(())
 }
 
+/// The reply from an API call, handed back for the frontend's own error
+/// taxonomy to classify. The status is passed through rather than turned into
+/// a Result: a 404 and a 402 are both meaningful answers, not failures.
+#[derive(Debug, Serialize)]
+pub struct ApiReply {
+    status: u16,
+    body: String,
+}
+
+/// The only paths this proxy will carry.
+///
+/// This is NOT a general-purpose HTTP client, and the difference matters. Page
+/// script cannot read the token, but it can `invoke` — and this app renders
+/// deck HTML with no CSP, so a hostile document can reach any command. An
+/// allowlist keeps the worst case to the user's own vault rather than every
+/// endpoint on the server, and makes "what can this command touch?" answerable
+/// by reading four lines.
+const ALLOWED_PREFIXES: &[&str] = &["/api/me/", "/api/apps/", "/vault/api/"];
+
+/// Bodies bigger than this are refused before anything is sent. The vault's own
+/// editable-file ceiling is 2 MB; this leaves room for JSON overhead without
+/// letting a caller stream something unbounded through the IPC channel.
+const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+
+fn check_path(path: &str) -> Result<(), String> {
+    // Anchored, and traversal refused: `/vault/api/../../admin/` would pass a
+    // naive prefix test and reach somewhere it has no business.
+    if !path.starts_with('/') || path.contains("..") {
+        return Err("forbidden_path: that path is not allowed".into());
+    }
+    if ALLOWED_PREFIXES.iter().any(|p| path.starts_with(p)) {
+        return Ok(());
+    }
+    Err("forbidden_path: that path is not allowed".into())
+}
+
+/// Make an authenticated call on the user's behalf.
+///
+/// The token is attached here and never leaves; the caller sees only status and
+/// body. A 401 means the server has discarded the session, so it is cleared
+/// centrally — the same rule `cloud_logout` follows, so a dead session can
+/// never keep being reported as live.
+#[tauri::command]
+pub async fn cloud_request(
+    server_url: String,
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+    fingerprint: Option<String>,
+) -> Result<ApiReply, String> {
+    let scope = normalize(&server_url)?;
+    check_path(&path)?;
+
+    let verb = method.to_ascii_uppercase();
+    if !matches!(verb.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+        return Err("bad_method: that method is not allowed".into());
+    }
+
+    let (session, _) = load_session(&scope).ok_or("unauthorized: not signed in")?;
+
+    let encoded = match &body {
+        Some(value) => {
+            let text = serde_json::to_string(value).map_err(|e| format!("bad_body: {e}"))?;
+            if text.len() > MAX_BODY_BYTES {
+                return Err("too_large: that is too big to send".into());
+            }
+            Some(text)
+        }
+        None => None,
+    };
+
+    let client = client_with(PinnedVerifier::new(fingerprint))?;
+    let mut request = client
+        .request(
+            reqwest::Method::from_bytes(verb.as_bytes()).map_err(|_| "bad_method".to_string())?,
+            format!("{scope}{path}"),
+        )
+        .header("Authorization", format!("Bearer {}", session.token))
+        // Load-bearing: the platform's subscription gate keys its JSON-vs-HTML
+        // refusal on this header, so without it a 402 arrives as a web page.
+        .header("Accept", "application/json");
+
+    if let Some(text) = encoded {
+        request = request.header("Content-Type", "application/json").body(text);
+    }
+
+    let res = request.send().await.map_err(|e| classify_transport(&e))?;
+    let status = res.status().as_u16();
+    if status == 401 {
+        clear_session(&scope);
+    }
+    // Read as text, not JSON: Django answers some failures with an HTML page,
+    // and the frontend's classifier already copes with a body it cannot parse.
+    let body = res.text().await.unwrap_or_default();
+    Ok(ApiReply { status, body })
+}
+
 /// Who we are, without touching the network.
 ///
 /// Local only on purpose: this runs on every launch and every tab switch, and
@@ -589,6 +686,25 @@ mod tests {
 
         clear_session(scope);
         assert!(load_session(scope).is_none(), "sign-out must leave nothing behind");
+    }
+
+    #[test]
+    fn the_proxy_carries_only_allowlisted_paths() {
+        // The command is reachable by any page script — a hostile document
+        // cannot read the token but can still invoke. The allowlist is what
+        // keeps that to the user's own vault instead of the whole server.
+        for ok in ["/api/me/", "/api/apps/", "/vault/api/files/", "/vault/api/buckets/"] {
+            assert!(check_path(ok).is_ok(), "{ok} should be allowed");
+        }
+        for bad in [
+            "/admin/", "/sso/api/register/", "/api/login/", "/api/logout/",
+            "vault/api/files/",            // unanchored
+            "/vault/api/../../admin/",     // traversal past the prefix
+            "//evil.test/vault/api/",      // protocol-relative
+            "",
+        ] {
+            assert!(check_path(bad).is_err(), "{bad} should be refused");
+        }
     }
 
     #[test]

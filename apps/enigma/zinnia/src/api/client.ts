@@ -14,6 +14,7 @@ export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
   put<T>(path: string, body?: unknown): Promise<T>;
+  del<T>(path: string): Promise<T>;
 }
 
 /** Frozen — see the header before touching. */
@@ -70,5 +71,6 @@ export function createClient(opts: {
     get: (path) => request("GET", path),
     post: (path, body) => request("POST", path, body ?? {}),
     put: (path, body) => request("PUT", path, body),
+    del: (path) => request("DELETE", path),
   };
 }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
-import { APP_TABS, DEFAULT_TAB, type AppTabId } from "./tabs";
+import { APP_TABS, DEFAULT_TAB, type AppTabId, type EditorKind } from "./tabs";
 import EditorHost from "./views/EditorHost.vue";
 import CloudView from "./views/CloudView.vue";
+import FilesView from "./views/FilesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const { t } = useI18n({ useScope: "global" });
@@ -61,6 +62,7 @@ type Host = {
   saveAs: () => void;
   exportFile: () => void;
   exportLabelKey: string;
+  openRemote: (name: string, content: string) => void;
   name: string;
   dirty: boolean;
   busy: boolean;
@@ -105,6 +107,17 @@ const activeHost = computed<Host | null>(() => {
   void hostVersion.value; // the dependency; the registry itself is not reactive
   return hostRegistry[active.value] ?? null;
 });
+
+/** A file picked in the Files tab, routed to the editor that understands it.
+ *
+ *  The tab it belongs to has to be MOUNTED before its host exists — hosts
+ *  register through a template ref — so this shows the tab first and hands the
+ *  buffer over on the next tick. */
+async function openFromFiles(payload: { kind: EditorKind; name: string; content: string }) {
+  show(payload.kind);
+  await nextTick();
+  hostRegistry[payload.kind]?.openRemote(payload.name, payload.content);
+}
 
 const menuOpen = ref(false);
 
@@ -229,8 +242,10 @@ function isDisabled(id: string): boolean {
                   :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
     </template>
 
-    <!-- Non-editor tabs are not data-driven yet; two of them do not justify the
-         indirection, and each is one line here. -->
+    <!-- Non-editor tabs are not data-driven yet; each is one line here. -->
+    <FilesView v-if="visited.has('files')" v-show="active === 'files'"
+               class="min-h-0 flex-1" @open="openFromFiles" />
+
     <CloudView v-if="visited.has('cloud')" v-show="active === 'cloud'"
                class="min-h-0 flex-1" />
 

@@ -27,6 +27,7 @@ pub fn run() {
             cloud::cloud_login,
             cloud::cloud_logout,
             cloud::cloud_status,
+            cloud::cloud_request,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

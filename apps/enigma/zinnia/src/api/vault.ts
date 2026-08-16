@@ -41,6 +41,12 @@ export interface FileContent {
   content: string;
 }
 
+/** The server's hard cap on the file list. Not a page size — there is no
+ *  pagination behind it, so a vault with more files simply cannot reach the
+ *  older ones through this endpoint. The UI has to say so rather than show a
+ *  truncated list as if it were the whole vault. */
+export const FILE_LIST_CAP = 200;
+
 /** Owner's files, newest first, capped at 200 by the server. */
 export async function listFiles(client: ApiClient): Promise<VaultFileDto[]> {
   const res = await client.get<{ files: VaultFileDto[] }>("/vault/api/files/");
@@ -71,4 +77,22 @@ export async function createFile(
   args: { bucket_slug: string; title: string; file_type: string; directory_id?: number },
 ): Promise<VaultFileDto> {
   return client.post<VaultFileDto>("/vault/api/files/create/", args);
+}
+
+export async function deleteFile(client: ApiClient, key: string): Promise<void> {
+  await client.del(`/vault/api/files/${encodeURIComponent(key)}/`);
+}
+
+export async function createDirectory(
+  client: ApiClient,
+  args: { bucket_slug: string; name: string; parent_id?: number | null },
+): Promise<VaultDirectoryDto> {
+  return client.post<VaultDirectoryDto>("/vault/api/directories/", args);
+}
+
+/** The server refuses a directory that still holds anything (409). The UI only
+ *  offers this for one it can see is empty, but the check that counts is the
+ *  server's — a listing can be stale. */
+export async function deleteDirectory(client: ApiClient, id: number): Promise<void> {
+  await client.del(`/vault/api/directories/${id}/`);
 }

@@ -248,8 +248,18 @@ function exportFile() {
   (editorRef.value as { exportFile?: () => void } | null)?.exportFile?.();
 }
 
+/** Open a buffer that did not come from this machine's filesystem — a vault
+ *  file, today. `path` stays null on purpose: there is no local file to write
+ *  back to, so Save behaves as Save As, and zinnia never silently overwrites
+ *  the server copy (the vault's content endpoint honours no lock and checks no
+ *  hash, so a save there is a last-writer-wins clobber). */
+function openRemote(fileName: string, text: string) {
+  show(fileName, null, text);
+  dirty.value = true;
+}
+
 defineExpose({
-  newFile, openFile, saveFile, saveAs, exportFile, exportLabelKey,
+  newFile, openFile, saveFile, saveAs, exportFile, exportLabelKey, openRemote,
   name, dirty, busy, canSave, notice, fileError,
 });
 
