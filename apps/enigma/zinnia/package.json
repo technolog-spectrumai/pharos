@@ -34,6 +34,7 @@
     "@tiptap/extension-underline": "^2.27.2",
     "@tiptap/pm": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
+    "@tiptap/vue-3": "^2.27.2",
     "ace-builds": "^1.44.0",
     "katex": "^0.16.47",
     "pinia": "^3.0.4",

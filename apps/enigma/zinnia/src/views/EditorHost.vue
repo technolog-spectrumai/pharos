@@ -10,7 +10,9 @@ import OyaIconButton from "../components/OyaIconButton.vue";
 import OyaModal from "../components/OyaModal.vue";
 import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
+import DocumentEditor from "../editors/DocumentEditor.vue";
 import type { EditorHandle } from "../editors/types";
+import { dumps, newDocument, sniffIsDocument } from "../formats/document";
 
 const { t } = useI18n({ useScope: "global" });
 
@@ -40,8 +42,12 @@ const forceText = ref(false);
 
 /** Which editor renders this file. The visual editor claims .svg; everything
  *  else opens in ACE, which already highlights .svg as XML. */
-function editorKindFor(fileName: string): "sketch" | "text" {
-  return /\.svg$/i.test(fileName) ? "sketch" : "text";
+function editorKindFor(fileName: string): "sketch" | "text" | "document" {
+  if (/\.svg$/i.test(fileName)) return "sketch";
+  // Cyprian documents are .xml files whose root is <document>; the extension
+  // alone cannot tell them from any other XML, so the content decides.
+  if (/\.xml$/i.test(fileName) && sniffIsDocument(content.value)) return "document";
+  return "text";
 }
 const kind = computed(() => (forceText.value ? "text" : editorKindFor(name.value)));
 
@@ -80,6 +86,14 @@ function show(fileName: string, filePath: string | null, text: string) {
 async function newDrawing() {
   if (!(await confirmDiscard())) return;
   show(t("file.untitled"), null, "");
+}
+
+async function newDoc() {
+  if (!(await confirmDiscard())) return;
+  // Seeded with a real document rather than left empty: `editorKindFor` sniffs
+  // the CONTENT to tell a cyprian document from any other .xml, and an empty
+  // buffer would sniff as plain text and open in the wrong editor.
+  show(t("file.untitledDoc"), null, dumps(newDocument("")));
 }
 
 async function newText() {
@@ -154,7 +168,11 @@ async function saveAs(): Promise<boolean> {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const picked = await save({
     defaultPath: name.value,
-    filters: [{ name: "SVG", extensions: ["svg"] }],
+    filters: kind.value === "sketch"
+      ? [{ name: "SVG", extensions: ["svg"] }]
+      : kind.value === "document"
+        ? [{ name: "Document", extensions: ["xml"] }]
+        : [{ name: "All", extensions: ["*"] }],
   });
   if (!picked) return false;
   path.value = picked;
@@ -197,6 +215,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <!-- File bar -->
     <div class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-2">
       <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.newDrawing')" @click="newDrawing" />
+      <OyaIconButton size="sm" icon="file-lines" :label="t('file.newDoc')" data-testid="new-doc" @click="newDoc" />
       <OyaIconButton size="sm" icon="file-pen" :label="t('file.newText')" @click="newText" />
       <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" @click="openFile" />
       <div class="min-w-0 flex-1">
@@ -232,6 +251,21 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <SketchEditor
       v-if="kind === 'sketch'"
       :key="generation"
+      ref="editorRef"
+      :path="path"
+      :name="name"
+      :content="content"
+      :busy="busy"
+      :error="fileError"
+      class="min-h-0 flex-1"
+      @save="saveFile($event)"
+      @update:dirty="dirty = $event"
+      @open-as-text="openAsText"
+    />
+
+    <DocumentEditor
+      v-if="kind === 'document'"
+      :key="'d' + generation"
       ref="editorRef"
       :path="path"
       :name="name"
