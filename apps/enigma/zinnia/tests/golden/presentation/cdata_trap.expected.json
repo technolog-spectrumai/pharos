@@ -1,0 +1,28 @@
+{
+  "attrs": {},
+  "extra": [],
+  "font": "sans",
+  "slides": [
+    {
+      "attrs": {},
+      "blocks": [
+        {
+          "attrs": {},
+          "id": "b-cccc0001",
+          "items": [],
+          "payload": "<p>before ]]> after</p>",
+          "render": "",
+          "slot": "",
+          "type": "text"
+        }
+      ],
+      "extra": [],
+      "id": "s-cccc1111",
+      "layout": "title-content",
+      "title": "T"
+    }
+  ],
+  "theme": "black",
+  "title": "Trap",
+  "version": "2"
+}

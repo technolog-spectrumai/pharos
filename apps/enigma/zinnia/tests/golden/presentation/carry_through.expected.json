@@ -1,0 +1,39 @@
+{
+  "attrs": {
+    "aa-root": "also",
+    "zz-root": "keep"
+  },
+  "extra": [
+    "<deckwide a=\"2\" />"
+  ],
+  "font": "sans",
+  "slides": [
+    {
+      "attrs": {
+        "zz-slide": "keep"
+      },
+      "blocks": [
+        {
+          "attrs": {
+            "zz-block": "keep"
+          },
+          "id": "b-dddd0001",
+          "items": [],
+          "payload": "payload",
+          "render": "",
+          "slot": "c",
+          "type": "futuretype"
+        }
+      ],
+      "extra": [
+        "<weirdchild x=\"1\" />"
+      ],
+      "id": "s-dddd1111",
+      "layout": "grid",
+      "title": "T"
+    }
+  ],
+  "theme": "black",
+  "title": "Carry",
+  "version": "2"
+}

@@ -1,0 +1,28 @@
+{
+  "attrs": {},
+  "extra": [],
+  "font": "sans",
+  "slides": [
+    {
+      "attrs": {},
+      "blocks": [
+        {
+          "attrs": {},
+          "id": "b-d21372a3",
+          "items": [],
+          "payload": "",
+          "render": "",
+          "slot": "",
+          "type": "text"
+        }
+      ],
+      "extra": [],
+      "id": "s-00937a64",
+      "layout": "title-content",
+      "title": ""
+    }
+  ],
+  "theme": "black",
+  "title": "Hello",
+  "version": "2"
+}

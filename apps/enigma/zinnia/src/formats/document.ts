@@ -19,6 +19,8 @@
 // Zinnia is a client: it must not pretend its own allowlist is the authority,
 // and it must expect the server to hand back bytes it did not send verbatim.
 
+import { attrString, escAttr, escText, serializeUnknown, wrapCdata } from "./xml";
+
 export const FORMAT_VERSION = "3";
 
 export const MARGINS = ["normal", "narrow", "wide"] as const;
@@ -71,38 +73,6 @@ export function newDocument(title = ""): CyDocument {
 // Deliberately the same partial escapes Python uses: escAttr covers & < > ",
 // escText covers only & and < . Matching it exactly is what makes the golden
 // byte-comparison possible.
-
-function escAttr(text: string): string {
-  return (text || "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function escText(text: string): string {
-  return (text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
-}
-
-function wrapCdata(body: string): string {
-  // A CDATA section cannot contain "]]>"; split it across two sections so the
-  // byte sequence survives.
-  const safe = (body || "").replace(/]]>/g, "]]]]><![CDATA[>");
-  return `<![CDATA[${safe}]]>`;
-}
-
-function attrString(
-  own: Array<[string, string]>, extra: Record<string, string>,
-): string {
-  // Known attributes in declared order, then unknown ones sorted. Deterministic
-  // output is what lets the round-trip test compare strings, and what keeps a
-  // save from producing a spurious diff.
-  const parts = own
-    .filter(([, v]) => v !== "" && v !== null && v !== undefined)
-    .map(([k, v]) => ` ${k}="${escAttr(v)}"`);
-  for (const k of Object.keys(extra).sort()) {
-    parts.push(` ${k}="${escAttr(extra[k])}"`);
-  }
-  return parts.join("");
-}
 
 // ── serialise ───────────────────────────────────────────────────────────────
 
@@ -187,7 +157,7 @@ export function loads(text: string): CyDocument {
       parts.push(sectionToHtml(child));
     } else {
       // Unknown element: keep the bytes, exactly as Python does.
-      doc.extra.push(new XMLSerializer().serializeToString(child).trim());
+      doc.extra.push(serializeUnknown(child));
     }
   }
 

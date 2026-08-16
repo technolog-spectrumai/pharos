@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<presentation version="2" title="Carry" theme="black" font="sans" aa-root="also" zz-root="keep">
+  <slide id="s-dddd1111" layout="grid" zz-slide="keep">
+    <title>T</title>
+    <block id="b-dddd0001" type="futuretype" slot="c" zz-block="keep"><![CDATA[payload]]></block>
+    <weirdchild x="1" />
+  </slide>
+  <deckwide a="2" />
+</presentation>
