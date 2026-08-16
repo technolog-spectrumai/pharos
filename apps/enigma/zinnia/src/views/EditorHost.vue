@@ -3,7 +3,7 @@
 // writes files, prompts before discarding, and mounts whichever editor claims
 // the file's extension. Editors implement the contract in ../editors/types.ts
 // and never touch disk themselves.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import OyaButton from "../components/OyaButton.vue";
 import OyaIconButton from "../components/OyaIconButton.vue";
@@ -11,18 +11,8 @@ import OyaModal from "../components/OyaModal.vue";
 import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
 import type { EditorHandle } from "../editors/types";
-import { useSessionStore } from "../stores/session";
-import { putContent } from "../api/vault";
-
-const props = defineProps<{
-  /** A vault file handed in from the vault view. Consumed once. */
-  incoming?: { key: string; name: string; content: string } | null;
-}>();
-
-const emit = defineEmits<{ "incoming-consumed": [] }>();
 
 const { t } = useI18n({ useScope: "global" });
-const session = useSessionStore();
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -34,10 +24,6 @@ const content = ref("");
  *  buffer belongs to ONE file; reusing an instance across files would carry
  *  undo history and dirt from the last one. */
 const generation = ref(0);
-
-/** Set while the open file lives in the platform vault: saves PUT through the
- *  content API instead of the disk, and Save As converts it to a local file. */
-const vaultKey = ref<string | null>(null);
 
 const busy = ref(false);
 const fileError = ref("");
@@ -80,8 +66,7 @@ function answerDiscard(ok: boolean) {
 }
 
 // ── open / new ──────────────────────────────────────────────────────────────
-function show(fileName: string, filePath: string | null, text: string, opts?: { vaultKey?: string }) {
-  vaultKey.value = opts?.vaultKey ?? null;
+function show(fileName: string, filePath: string | null, text: string) {
   path.value = filePath;
   name.value = fileName;
   content.value = text;
@@ -172,7 +157,6 @@ async function saveAs(): Promise<boolean> {
     filters: [{ name: "SVG", extensions: ["svg"] }],
   });
   if (!picked) return false;
-  vaultKey.value = null; // a picked disk path makes this a local file from here on
   path.value = picked;
   name.value = picked.split("/").pop() ?? picked;
   return writeTo(picked, text);
@@ -185,8 +169,7 @@ async function saveFile(text?: string) {
   notice.value = "";
   try {
     const body = text ?? editorRef.value?.getContent() ?? content.value;
-    if (vaultKey.value !== null) await writeVault(vaultKey.value, body);
-    else if (path.value === null) await saveAs();
+    if (path.value === null) await saveAs();
     else await writeTo(path.value, body);
   } finally {
     busy.value = false;
@@ -195,31 +178,6 @@ async function saveFile(text?: string) {
 
 /** A never-saved file is always savable; an existing one only when changed. */
 const canSave = computed(() => !busy.value && (dirty.value || path.value === null));
-
-// ── vault hand-off ──────────────────────────────────────────────────────────
-watch(() => props.incoming, async (file) => {
-  if (!file) return;
-  if (!(await confirmDiscard())) { emit("incoming-consumed"); return; }
-  show(file.name, null, file.content, { vaultKey: file.key });
-  emit("incoming-consumed");
-});
-
-async function writeVault(key: string, text: string): Promise<boolean> {
-  try {
-    await putContent(session.client, key, text);
-    editorRef.value?.markSaved();
-    dirty.value = false;
-    notice.value = t("file.savedVault");
-    return true;
-  } catch (err) {
-    if (session.authFailed(err)) {
-      fileError.value = t("vault.sessionExpired");
-    } else {
-      fileError.value = `${t("file.saveFailed")} ${(err as Error)?.message ?? err}`;
-    }
-    return false;
-  }
-}
 
 // ── keyboard: only what is the FILE's, not the buffer's ─────────────────────
 function onKey(e: KeyboardEvent) {

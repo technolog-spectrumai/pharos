@@ -1,22 +1,6 @@
 // Catalogue sections carried over from enigma with the sketch editor —
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
-  nav: {
-    files: "Files",
-    vault: "Vault",
-  },
-  vault: {
-    signIn: "Sign in",
-    signOut: "Sign out",
-    server: "Server",
-    username: "Username",
-    password: "Password",
-    refresh: "Refresh",
-    empty: "No files in your vault yet.",
-    notEditable: "not editable",
-    openFailed: "Could not open the file.",
-    sessionExpired: "Your session expired — sign in again in the Vault tab.",
-  },
   file: {
     newText: "New text",
     untitledText: "untitled.txt",
@@ -26,7 +10,6 @@ export default {
     save: "Save",
     saveAs: "Save As…",
     saved: "Saved",
-    savedVault: "Saved to the vault",
     untitled: "untitled.svg",
     unsavedTitle: "Unsaved changes",
     discardTitle: "Discard unsaved changes?",

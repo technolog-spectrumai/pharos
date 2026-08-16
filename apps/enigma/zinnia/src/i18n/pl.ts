@@ -1,22 +1,6 @@
 // Catalogue sections carried over from enigma with the sketch editor —
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
-  nav: {
-    files: "Pliki",
-    vault: "Sejf",
-  },
-  vault: {
-    signIn: "Zaloguj się",
-    signOut: "Wyloguj",
-    server: "Serwer",
-    username: "Nazwa użytkownika",
-    password: "Hasło",
-    refresh: "Odśwież",
-    empty: "W sejfie nie ma jeszcze żadnych plików.",
-    notEditable: "bez edycji",
-    openFailed: "Nie udało się otworzyć pliku.",
-    sessionExpired: "Sesja wygasła — zaloguj się ponownie w zakładce Sejf.",
-  },
   file: {
     newText: "Nowy tekst",
     untitledText: "bez-nazwy.txt",
@@ -26,7 +10,6 @@ export default {
     save: "Zapisz",
     saveAs: "Zapisz jako…",
     saved: "Zapisano",
-    savedVault: "Zapisano w sejfie",
     untitled: "bez-nazwy.svg",
     unsavedTitle: "Niezapisane zmiany",
     discardTitle: "Porzucić niezapisane zmiany?",
