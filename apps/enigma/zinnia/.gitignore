@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+
+# Rust build output and the app crate's lockfile.
+**/target/
+src-tauri/gen/schemas/
+
+# Test/build artefacts
+coverage/
+test-results/
