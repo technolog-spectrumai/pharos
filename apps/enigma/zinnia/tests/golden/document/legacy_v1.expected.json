@@ -1,0 +1,12 @@
+{
+  "attrs": {},
+  "content": "<h1>First</h1><p>hello</p><ol><li>one</li><li>two</li></ol>",
+  "cover": false,
+  "extra": [],
+  "font": "serif",
+  "margins": "normal",
+  "meta": {},
+  "title": "Old",
+  "toc": true,
+  "version": "3"
+}

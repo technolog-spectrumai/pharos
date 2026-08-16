@@ -1,0 +1,15 @@
+{
+  "attrs": {},
+  "content": "<h1>Intro</h1><p>Revenue is <strong>up</strong> <span class=\"cy-ink-accent\">a lot</span>.</p><div class=\"cy-callout\" data-tone=\"warn\"><p>Careful</p></div><div class=\"cy-formula\" data-latex=\"e^{i\\pi}+1=0\"><span class=\"katex\">rendered</span></div><div class=\"cy-pagebreak\"></div><table><tr><th>R</th><td>+12%</td></tr></table>",
+  "cover": true,
+  "extra": [],
+  "font": "mono",
+  "margins": "wide",
+  "meta": {
+    "author": "A. Lovelace",
+    "dept": "R&D"
+  },
+  "title": "Q3 \"Report\" & <notes>",
+  "toc": true,
+  "version": "3"
+}

@@ -1,0 +1,17 @@
+{
+  "attrs": {
+    "aa-other": "also",
+    "zz-custom": "keep-me"
+  },
+  "content": "<p>body</p>",
+  "cover": false,
+  "extra": [
+    "<futurething a=\"1\"><inner>x</inner></futurething>"
+  ],
+  "font": "serif",
+  "margins": "normal",
+  "meta": {},
+  "title": "Carry",
+  "toc": true,
+  "version": "3"
+}
