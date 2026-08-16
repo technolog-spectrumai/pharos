@@ -15,6 +15,7 @@ import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import OyaModal from "rakotis/components/primitives/OyaModal.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import { useI18n } from "vue-i18n";
+import { TONE_ICONS } from "../icons";
 import { Editor, EditorContent } from "@tiptap/vue-3";
 import { cyprianExtensions, INKS } from "./cyprianSchema";
 import {
@@ -37,15 +38,6 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n({ useScope: "global" });
-
-/** A callout's icon. The tones are cyprian's, so this is the only place that
- *  decides what each one LOOKS like — the format still stores the name. */
-const TONE_ICONS: Record<string, string> = {
-  note: "circle-info",
-  warning: "triangle-exclamation",
-  tip: "lightbulb",
-  quote: "quote-left",
-};
 
 // ── the document ────────────────────────────────────────────────────────────
 const doc = ref<CyDocument>(newDocument());
