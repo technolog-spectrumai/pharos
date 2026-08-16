@@ -96,3 +96,27 @@ export async function createDirectory(
 export async function deleteDirectory(client: ApiClient, id: number): Promise<void> {
   await client.del(`/vault/api/directories/${id}/`);
 }
+
+/** Encrypt a vault file, server-side.
+ *
+ *  The SERVER does this one, not zinnia. A vault file that zinnia sealed
+ *  locally would be ciphertext the platform could never open, scan or preview —
+ *  so the cloud side drives zenobia's own encrypt/decrypt and the local side
+ *  uses zinnia's. Two engines, deliberately, each owning the bytes it stores.
+ *
+ *  The password is a parameter and nothing else: it is never persisted here and
+ *  the caller clears its field as soon as this returns.
+ */
+export async function encryptFile(
+  client: ApiClient, key: string, password: string,
+): Promise<VaultFileDto> {
+  return client.post<VaultFileDto>(
+    `/vault/api/files/${encodeURIComponent(key)}/encrypt/`, { password });
+}
+
+export async function decryptFile(
+  client: ApiClient, key: string, password: string,
+): Promise<VaultFileDto> {
+  return client.post<VaultFileDto>(
+    `/vault/api/files/${encodeURIComponent(key)}/decrypt/`, { password });
+}
