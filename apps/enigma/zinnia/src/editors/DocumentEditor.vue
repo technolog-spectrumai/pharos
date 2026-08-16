@@ -276,13 +276,16 @@ defineExpose({
 
       <!-- The sheet -->
       <div class="min-h-0 flex-1 overflow-y-auto bg-sunken-light px-4 py-6 dark:bg-sunken-dark">
-        <!-- Paper on a desk: the sheet must be LIGHTER than what it sits on in
-             both themes. It used to be bg-primary-bg-dark (#0a0c11) on
-             bg-sunken-dark (#141821) — paper darker than desk, both near black,
-             so the page had no visible edge at all in dark mode. -->
-        <div class="mx-auto max-w-3xl rounded border border-transparent bg-white p-10 shadow-lg
-                    dark:border-accent-1/40 dark:bg-bubble-bg-dark dark:shadow-black/40"
-             :class="`cy-font-${doc.font} cy-margins-${doc.margins}`">
+        <!-- `cy-doc` is what document.css hangs everything on: the page box, the
+             margins, the fonts and --cy-paper / --cy-ink. Paper is a token, not
+             a utility class, so the page and the exported PDF cannot drift.
+             The border and shadow are zinnia's: on a dark desk the page needs
+             an edge, and before this it was #0a0c11 paper on #141821 desk —
+             darker than what it sat on, with no visible boundary at all. -->
+        <div class="cy-doc mx-auto max-w-3xl rounded border border-black/10 p-10 shadow-lg
+                    dark:border-accent-1/40 dark:shadow-black/50"
+             :data-margins="doc.margins"
+             :class="`cy-font-${doc.font}`">
           <EditorContent :editor="editor" class="cy-body" data-testid="doc-body" />
         </div>
       </div>

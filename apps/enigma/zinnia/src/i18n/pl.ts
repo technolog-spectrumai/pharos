@@ -20,6 +20,8 @@ export default {
     gridFailed: "Nie udało się uruchomić arkusza",
   },
   deck: {
+    play: "Prezentuj",
+    exitPlay: "Zakończ (Esc)",
     notADeck: "To nie jest prezentacja",
     addSlide: "Nowy slajd",
     deleteSlide: "Usuń slajd",

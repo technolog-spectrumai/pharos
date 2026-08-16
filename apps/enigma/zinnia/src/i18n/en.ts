@@ -20,6 +20,8 @@ export default {
     gridFailed: "The grid could not start",
   },
   deck: {
+    play: "Present",
+    exitPlay: "Exit (Esc)",
     notADeck: "This is not a presentation",
     addSlide: "New slide",
     deleteSlide: "Delete slide",

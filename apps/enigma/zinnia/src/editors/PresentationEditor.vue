@@ -18,6 +18,7 @@ import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import OyaModal from "rakotis/components/primitives/OyaModal.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import SlideBlock from "./SlideBlock.vue";
+import DeckPlayer from "./DeckPlayer.vue";
 import {
   BLOCK_TYPES, FONTS, LAYOUTS, PresentationParseError, THEMES,
   columnsOf, dumps, loads, newBlock, newPresentation, newSlide,
@@ -201,6 +202,14 @@ async function commitBlock() {
   editing.value = null;
 }
 
+// ── presenting ──────────────────────────────────────────────────────────────
+const playing = ref(false);
+
+function play() {
+  if (!deck.value.slides.length) return;
+  playing.value = true;
+}
+
 // ── deck settings ───────────────────────────────────────────────────────────
 const setupOpen = ref(false);
 
@@ -283,6 +292,9 @@ defineExpose({
           <option v-for="l in LAYOUTS" :key="l" :value="l">{{ l }}</option>
         </select>
 
+        <OyaIconButton size="sm" icon="play" :label="t('deck.play')" class="oya-tip"
+                       :data-tip="t('deck.play')" data-testid="deck-play" @click="play" />
+
         <span class="flex-1" />
         <span class="text-xs opacity-60" data-testid="slide-counter">
           {{ current + 1 }} / {{ deck.slides.length }}
@@ -354,6 +366,8 @@ defineExpose({
         </div>
       </div>
     </template>
+
+    <DeckPlayer v-if="playing" :deck="deck" :start-at="current" @close="playing = false" />
 
     <!-- Block editor -->
     <OyaModal :open="editing !== null" @close="editing = null">
