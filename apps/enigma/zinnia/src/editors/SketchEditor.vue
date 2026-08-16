@@ -234,20 +234,14 @@ defineExpose({
       {{ error }}
     </p>
 
-    <!-- Refused: say what and why. The bytes stay visible read-only so nothing
-         is lost; the plain-text editor takes this over in the next step. -->
-    <div v-if="refusal" class="flex min-h-0 flex-1 flex-col gap-3 p-6">
-      <div class="flex flex-col items-center gap-2 text-center">
-        <font-awesome-icon icon="triangle-exclamation" class="text-3xl text-warn-dark" />
-        <p class="text-sm font-semibold">{{ t("sketch.refusedTitle") }}</p>
-        <p class="max-w-md text-sm opacity-70" data-testid="svg-refusal">{{ refusalMessage }}</p>
-        <p class="max-w-md text-xs opacity-50">{{ t("file.rawView") }}</p>
-      </div>
-      <textarea
-        readonly
-        class="min-h-0 flex-1 resize-none rounded-lg border border-current/20 bg-transparent p-3 font-mono text-xs"
-        :value="content"
-      ></textarea>
+    <!-- Refused: say what and why, and offer the editor that CAN open it. -->
+    <div v-if="refusal" class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+      <font-awesome-icon icon="triangle-exclamation" class="text-3xl text-warn-dark" />
+      <p class="text-sm font-semibold">{{ t("sketch.refusedTitle") }}</p>
+      <p class="max-w-md text-sm opacity-70" data-testid="svg-refusal">{{ refusalMessage }}</p>
+      <OyaButton variant="secondary" data-testid="svg-open-text" @click="emit('open-as-text')">
+        {{ t("file.openAsText") }}
+      </OyaButton>
     </div>
 
     <template v-else-if="sketch">

@@ -13,14 +13,14 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 import {
   faArrowPointer, faArrowRight, faBan, faBroom, faCircle, faCircleInfo,
-  faEraser, faFileCirclePlus, faFileImage, faFloppyDisk, faFolderOpen, faFont,
+  faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faSpinner,
   faSquare, faTrash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
   faArrowPointer, faArrowRight, faBan, faBroom, faCircle, faCircleInfo,
-  faEraser, faFileCirclePlus, faFileImage, faFloppyDisk, faFolderOpen, faFont,
+  faEraser, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faSpinner,
   faSquare, faTrash, faTriangleExclamation, faXmark,
 );

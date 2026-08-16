@@ -9,6 +9,7 @@ import OyaButton from "../components/OyaButton.vue";
 import OyaIconButton from "../components/OyaIconButton.vue";
 import OyaModal from "../components/OyaModal.vue";
 import SketchEditor from "../editors/SketchEditor.vue";
+import TextEditor from "../editors/TextEditor.vue";
 import type { EditorHandle } from "../editors/types";
 
 const { t } = useI18n({ useScope: "global" });
@@ -33,12 +34,21 @@ const dirty = ref(false);
  *  buys, and why an editor must not invent its own interface. */
 const editorRef = ref<EditorHandle | null>(null);
 
+/** Set when a .svg refused the visual editor and the user chose "open as
+ *  text" — forces ACE for that one open, without renaming the file. */
+const forceText = ref(false);
+
 /** Which editor renders this file. The visual editor claims .svg; everything
- *  else will open in the text editor once it exists. */
+ *  else opens in ACE, which already highlights .svg as XML. */
 function editorKindFor(fileName: string): "sketch" | "text" {
   return /\.svg$/i.test(fileName) ? "sketch" : "text";
 }
-const kind = computed(() => editorKindFor(name.value));
+const kind = computed(() => (forceText.value ? "text" : editorKindFor(name.value)));
+
+function openAsText() {
+  forceText.value = true;
+  generation.value++;
+}
 
 // ── discard guard ───────────────────────────────────────────────────────────
 const discardOpen = ref(false);
@@ -60,6 +70,7 @@ function show(fileName: string, filePath: string | null, text: string) {
   path.value = filePath;
   name.value = fileName;
   content.value = text;
+  forceText.value = false;
   dirty.value = false;
   fileError.value = "";
   notice.value = "";
@@ -69,6 +80,11 @@ function show(fileName: string, filePath: string | null, text: string) {
 async function newDrawing() {
   if (!(await confirmDiscard())) return;
   show(t("file.untitled"), null, "");
+}
+
+async function newText() {
+  if (!(await confirmDiscard())) return;
+  show(t("file.untitledText"), null, "");
 }
 
 const browserInput = ref<HTMLInputElement | null>(null);
@@ -84,7 +100,11 @@ async function openFile() {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const picked = await open({
       multiple: false,
-      filters: [{ name: "SVG", extensions: ["svg"] }],
+      filters: [
+        { name: "SVG", extensions: ["svg"] },
+        { name: "Text", extensions: ["txt", "md", "json", "yaml", "yml", "xml", "html", "css", "js", "ts", "py", "rs", "sh", "toml", "ini", "csv"] },
+        { name: "All", extensions: ["*"] },
+      ],
     });
     if (typeof picked !== "string") return;
     const { readTextFile } = await import("@tauri-apps/plugin-fs");
@@ -177,6 +197,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <!-- File bar -->
     <div class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-2">
       <OyaIconButton size="sm" icon="file-circle-plus" :label="t('file.newDrawing')" @click="newDrawing" />
+      <OyaIconButton size="sm" icon="file-pen" :label="t('file.newText')" @click="newText" />
       <OyaIconButton size="sm" icon="folder-open" :label="t('file.open')" @click="openFile" />
       <div class="min-w-0 flex-1">
         <p class="flex items-center gap-1.5">
@@ -205,12 +226,27 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       </button>
     </div>
 
-    <input ref="browserInput" type="file" accept=".svg,image/svg+xml" class="hidden" @change="onBrowserFile" />
+    <input ref="browserInput" type="file" class="hidden" @change="onBrowserFile" />
 
     <!-- keyed by generation: a fresh file gets a fresh editor instance -->
     <SketchEditor
       v-if="kind === 'sketch'"
       :key="generation"
+      ref="editorRef"
+      :path="path"
+      :name="name"
+      :content="content"
+      :busy="busy"
+      :error="fileError"
+      class="min-h-0 flex-1"
+      @save="saveFile($event)"
+      @update:dirty="dirty = $event"
+      @open-as-text="openAsText"
+    />
+
+    <TextEditor
+      v-if="kind === 'text'"
+      :key="'t' + generation"
       ref="editorRef"
       :path="path"
       :name="name"

@@ -2,6 +2,9 @@
 // the toolbar's keys must keep their names or its $t() calls go blank.
 export default {
   file: {
+    newText: "New text",
+    untitledText: "untitled.txt",
+    openAsText: "Open as plain text",
     newDrawing: "New",
     open: "Open…",
     save: "Save",
