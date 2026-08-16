@@ -2,22 +2,20 @@ import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import App from "../../src/App.vue";
 import { brand, dev } from "../../src/config";
+import { i18n } from "../../src/i18n";
 
 describe("the shell", () => {
-  it("mounts and names itself", () => {
-    const w = mount(App);
+  it("mounts the shell with the sketch editor inside", () => {
+    const w = mount(App, { global: { plugins: [i18n] } });
     expect(w.text()).toContain("Zinnia");
-    expect(w.text()).toContain("The scaffold runs.");
-  });
-
-  it("reports the browser runtime when there is no Tauri", () => {
-    expect(mount(App).text()).toContain("browser");
+    // The file bar proves SketchView mounted, not a placeholder.
+    expect(w.find('[data-testid="sketch-save"]').exists()).toBe(true);
   });
 
   it("toggles dark mode onto <html> and remembers it", async () => {
-    const w = mount(App);
+    const w = mount(App, { global: { plugins: [i18n] } });
     const before = document.documentElement.classList.contains("dark");
-    await w.get("button").trigger("click");
+    await w.get('[data-testid="dark-toggle"]').trigger("click");
     expect(document.documentElement.classList.contains("dark")).toBe(!before);
     expect(localStorage.getItem("zinnia:dark")).toBe(before ? "0" : "1");
   });
