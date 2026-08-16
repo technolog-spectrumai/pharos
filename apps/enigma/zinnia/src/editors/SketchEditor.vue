@@ -4,10 +4,10 @@
 // port of enigma's SvgEditor.vue — the parse refusal, the baseline rule, the
 // dirty watch, the keyboard map — with the vault half (locked/encrypt) removed.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import OyaButton from "rakotis/components/primitives/OyaButton.vue";
+import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import { useI18n } from "vue-i18n";
-import OyaButton from "../components/OyaButton.vue";
-import OyaModal from "../components/OyaModal.vue";
-import OyaTextField from "../components/OyaTextField.vue";
 import SketchCanvas, { type Tool } from "../sketch/SketchCanvas.vue";
 import SketchToolbar from "../sketch/SketchToolbar.vue";
 import { createSketch, type Sketch } from "../sketch/useSketch";

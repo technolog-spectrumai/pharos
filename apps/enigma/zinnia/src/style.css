@@ -3,6 +3,9 @@
 /* Class-based dark mode: `.dark` on <html> drives every `dark:` utility. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Scan the rakotis subtree so its components' utility classes are generated. */
+@source "../packages/rakotis/src";
+
 @theme {
   --color-primary-bg-light: #f2f3f5;
   --color-bubble-bg-light: #e8e9ec;

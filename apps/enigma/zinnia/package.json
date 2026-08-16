@@ -37,6 +37,7 @@
     "@tiptap/vue-3": "^2.27.2",
     "ace-builds": "^1.44.0",
     "katex": "^0.16.47",
+    "nanoid": "^5.1.16",
     "pinia": "^3.0.4",
     "tailwindcss": "^4.3.0",
     "vue": "^3.5.38",

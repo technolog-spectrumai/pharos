@@ -10,12 +10,12 @@
 // editor uses and for the same reason: re-serialising normalises the markup, so
 // comparing against the bytes we read marks every opened document unsaved.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import OyaButton from "rakotis/components/primitives/OyaButton.vue";
+import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
+import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import { useI18n } from "vue-i18n";
 import { Editor, EditorContent } from "@tiptap/vue-3";
-import OyaButton from "../components/OyaButton.vue";
-import OyaIconButton from "../components/OyaIconButton.vue";
-import OyaModal from "../components/OyaModal.vue";
-import OyaTextField from "../components/OyaTextField.vue";
 import { cyprianExtensions, INKS } from "./cyprianSchema";
 import {
   DocumentParseError, dumps, loads, newDocument,

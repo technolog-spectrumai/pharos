@@ -2,7 +2,7 @@
 // Tool palette, brush settings and board actions. Purely presentational — every
 // mutation goes through the sketch orchestrator the parent owns.
 import { computed, ref, watch } from "vue";
-import OyaIconButton from "../components/OyaIconButton.vue";
+import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import {
   BACKGROUND_COLORS,
   canFill,

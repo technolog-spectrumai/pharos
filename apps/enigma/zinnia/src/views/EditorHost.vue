@@ -4,10 +4,10 @@
 // the file's extension. Editors implement the contract in ../editors/types.ts
 // and never touch disk themselves.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import OyaButton from "rakotis/components/primitives/OyaButton.vue";
+import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
+import OyaModal from "rakotis/components/primitives/OyaModal.vue";
 import { useI18n } from "vue-i18n";
-import OyaButton from "../components/OyaButton.vue";
-import OyaIconButton from "../components/OyaIconButton.vue";
-import OyaModal from "../components/OyaModal.vue";
 import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
