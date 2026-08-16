@@ -161,3 +161,47 @@ describe("the source knob", () => {
     expect(vm.getContent()).toContain("unsaved source edit");
   });
 });
+
+describe("block operations", () => {
+  // TipTap opens with the cursor in the FIRST block, so every case starts there.
+  it("moves the current block down and back up", async () => {
+    const w = mountDoc(docWith("<p>one</p><p>two</p>"));
+    await flushPromises();
+    const vm = w.vm as unknown as { getContent(): string };
+    await w.get('[data-testid="blk-down"]').trigger("click");
+    expect(vm.getContent().indexOf("two")).toBeLessThan(vm.getContent().indexOf("one"));
+    await w.get('[data-testid="blk-up"]').trigger("click");
+    expect(vm.getContent().indexOf("one")).toBeLessThan(vm.getContent().indexOf("two"));
+  });
+
+  it("does nothing at the edge instead of corrupting the document", async () => {
+    const w = mountDoc(docWith("<p>one</p><p>two</p>"));
+    await flushPromises();
+    const vm = w.vm as unknown as { getContent(): string };
+    const before = vm.getContent();
+    await w.get('[data-testid="blk-up"]').trigger("click"); // first block: no-op
+    expect(vm.getContent()).toBe(before);
+  });
+
+  it("deletes the current block, and the last block clears instead", async () => {
+    const w = mountDoc(docWith("<p>one</p><p>two</p>"));
+    await flushPromises();
+    const vm = w.vm as unknown as { getContent(): string };
+    await w.get('[data-testid="blk-del"]').trigger("click");
+    expect(vm.getContent()).not.toContain("one");
+    expect(vm.getContent()).toContain("two");
+    // A document is never empty: deleting the only block leaves a blank one.
+    await w.get('[data-testid="blk-del"]').trigger("click");
+    expect(vm.getContent()).not.toContain("two");
+  });
+
+  it("adds a fresh block below the current one", async () => {
+    const w = mountDoc(docWith("<p>one</p>"));
+    await flushPromises();
+    const vm = w.vm as unknown as { getContent(): string };
+    await w.get('[data-testid="blk-add"]').trigger("click");
+    // Two paragraphs now; the original text is intact.
+    expect((vm.getContent().match(/<p/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(vm.getContent()).toContain("one");
+  });
+});

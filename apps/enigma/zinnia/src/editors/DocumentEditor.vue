@@ -53,6 +53,66 @@ const parseError = ref("");
 // shallowRef: TipTap's Editor is a big non-reactive object; Vue must not walk it.
 const editor = shallowRef<Editor | null>(null);
 
+// ── block operations ────────────────────────────────────────────────────────
+// The writer's body is ONE continuous document (cyprian's format has no block
+// list), so "sections" here are the top-level ProseMirror nodes — a paragraph,
+// a heading, a table, a callout. These commands operate on whichever one holds
+// the cursor, which is what makes them safe: nothing is addressed by index,
+// so there is no stale index to act on.
+
+/** The doc-level child under the cursor: its index and its absolute range. */
+function currentBlock() {
+  const ed = editor.value;
+  if (!ed) return null;
+  const { $from } = ed.state.selection;
+  if ($from.depth < 1) return null;
+  const index = $from.index(0);
+  const doc = ed.state.doc;
+  let from = 0;
+  for (let i = 0; i < index; i++) from += doc.child(i).nodeSize;
+  return { index, from, to: from + doc.child(index).nodeSize, doc };
+}
+
+function moveBlock(dir: -1 | 1) {
+  const ed = editor.value;
+  const cur = currentBlock();
+  if (!ed || !cur) return;
+  const target = cur.index + dir;
+  if (target < 0 || target >= cur.doc.childCount) return;
+  const node = cur.doc.child(cur.index);
+  const neighbour = cur.doc.child(target);
+  // Delete the node, then insert it on the far side of its neighbour. After
+  // the delete the neighbour sits at the removal point, so both directions
+  // resolve against `cur.from`.
+  const insertAt = dir === -1 ? cur.from - neighbour.nodeSize : cur.from + neighbour.nodeSize;
+  const tr = ed.state.tr.delete(cur.from, cur.to).insert(insertAt, node);
+  ed.view.dispatch(tr.scrollIntoView());
+  ed.commands.focus(insertAt + 1);
+}
+
+function deleteBlock() {
+  const ed = editor.value;
+  const cur = currentBlock();
+  if (!ed || !cur) return;
+  if (cur.doc.childCount <= 1) {
+    // A document is never empty; the last block clears rather than vanishes.
+    ed.commands.setContent("<p></p>");
+    return;
+  }
+  ed.view.dispatch(ed.state.tr.delete(cur.from, cur.to).scrollIntoView());
+  ed.commands.focus();
+}
+
+function addBlockBelow() {
+  const ed = editor.value;
+  const cur = currentBlock();
+  if (!ed || !cur) return;
+  const paragraph = ed.state.schema.nodes.paragraph.create();
+  ed.view.dispatch(ed.state.tr.insert(cur.to, paragraph).scrollIntoView());
+  // Land the cursor in the block that was just made.
+  ed.commands.focus(cur.to + 1);
+}
+
 // ── WYSIWYG ⇄ source ────────────────────────────────────────────────────────
 // Two views of ONE body, never two documents — zenobia's cyprian rule, kept
 // verbatim: switching does not save, and returning to the editor APPLIES the
@@ -290,6 +350,16 @@ defineExpose({
                        @click="chain()?.insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()" />
         <OyaIconButton size="sm" icon="scissors" :label="t('doc.pageBreak')" class="oya-tip" :data-tip="t('doc.pageBreak')"
                        @click="chain()?.insertContent({ type: 'pageBreak' }).run()" />
+
+        <span class="mx-1 h-4 w-px bg-current/20" />
+        <OyaIconButton size="sm" icon="square-plus" :label="t('doc.blockAdd')" class="oya-tip"
+                       :data-tip="t('doc.blockAdd')" data-testid="blk-add" @click="addBlockBelow" />
+        <OyaIconButton size="sm" icon="arrow-up" :label="t('doc.blockUp')" class="oya-tip"
+                       :data-tip="t('doc.blockUp')" data-testid="blk-up" @click="moveBlock(-1)" />
+        <OyaIconButton size="sm" icon="arrow-down" :label="t('doc.blockDown')" class="oya-tip"
+                       :data-tip="t('doc.blockDown')" data-testid="blk-down" @click="moveBlock(1)" />
+        <OyaIconButton size="sm" icon="trash" :label="t('doc.blockDelete')" class="oya-tip"
+                       :data-tip="t('doc.blockDelete')" data-testid="blk-del" @click="deleteBlock" />
 
         <span class="flex-1" />
 

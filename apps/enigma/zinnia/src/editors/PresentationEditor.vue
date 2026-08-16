@@ -19,6 +19,7 @@ import OyaModal from "rakotis/components/primitives/OyaModal.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import SlideBlock from "./SlideBlock.vue";
 import DeckPlayer from "./DeckPlayer.vue";
+import RichPayloadEditor from "./RichPayloadEditor.vue";
 import {
   BLOCK_TYPES, FONTS, LAYOUTS, PresentationParseError, THEMES,
   columnsOf, dumps, loads, newBlock, newPresentation, newSlide,
@@ -169,6 +170,12 @@ function setBlockSlot(id: string, slot: string) {
 }
 
 // ── the block being edited ──────────────────────────────────────────────────
+/** Payloads that ARE html fragments — these get TipTap. code keeps its
+ *  characters verbatim, image/svg hold markup-as-data, formula holds LaTeX:
+ *  all of those must stay raw. */
+const RICH_TYPES = new Set(["text", "quote", "html"]);
+const INLINE_TYPES = new Set(["heading"]);
+
 const editing = ref<Block | null>(null);
 const draftPayload = ref("");
 const draftItems = ref<string[]>([]);
@@ -382,6 +389,10 @@ defineExpose({
           <OyaButton variant="secondary" @click="draftItems.push('')">+ {{ t("deck.item") }}</OyaButton>
         </template>
 
+        <RichPayloadEditor v-else-if="RICH_TYPES.has(editing?.type ?? '')"
+                           v-model="draftPayload" data-testid="block-rich" />
+        <RichPayloadEditor v-else-if="INLINE_TYPES.has(editing?.type ?? '')"
+                           v-model="draftPayload" inline data-testid="block-rich" />
         <textarea v-else v-model="draftPayload" rows="8" data-testid="block-payload"
                   class="w-full rounded border bg-transparent p-2 font-mono text-xs border-accent-2 dark:border-accent-1" />
 

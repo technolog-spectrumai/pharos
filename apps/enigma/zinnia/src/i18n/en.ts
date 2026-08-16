@@ -41,6 +41,10 @@ export default {
     item: "item",
   },
   doc: {
+    blockAdd: "New block below",
+    blockUp: "Move block up",
+    blockDown: "Move block down",
+    blockDelete: "Delete block",
     viewEditor: "Editor",
     viewSource: "Source",
     placeholder: "Write…",

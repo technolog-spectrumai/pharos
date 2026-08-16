@@ -41,6 +41,10 @@ export default {
     item: "punkt",
   },
   doc: {
+    blockAdd: "Nowy blok poniżej",
+    blockUp: "Przesuń blok w górę",
+    blockDown: "Przesuń blok w dół",
+    blockDelete: "Usuń blok",
     viewEditor: "Edytor",
     viewSource: "Źródło",
     placeholder: "Pisz…",
