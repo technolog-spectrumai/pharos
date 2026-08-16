@@ -240,7 +240,18 @@ function onKey(e: KeyboardEvent) {
 /** The file commands, for the app menu. The host owns the file — which path it
  *  came from, whether it is dirty, whether a write is in flight — so the menu
  *  asks it rather than keeping a second copy of any of that. */
-defineExpose({ newFile, openFile, saveFile, saveAs, name, dirty, busy, canSave, notice, fileError });
+/** The mounted editor's optional extra command, if it offers one. */
+const exportLabelKey = computed(() =>
+  (editorRef.value as { exportLabelKey?: string } | null)?.exportLabelKey ?? "");
+
+function exportFile() {
+  (editorRef.value as { exportFile?: () => void } | null)?.exportFile?.();
+}
+
+defineExpose({
+  newFile, openFile, saveFile, saveAs, exportFile, exportLabelKey,
+  name, dirty, busy, canSave, notice, fileError,
+});
 
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));

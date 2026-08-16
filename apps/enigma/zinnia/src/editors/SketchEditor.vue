@@ -20,8 +20,6 @@ import {
 } from "../sketch/svgDocument";
 import { SVG_FONT_STACK } from "../sketch/sketchModel";
 import { backgroundImageFromFile, exportPng } from "../sketch/sketchExport";
-import { INK_DARK, INK_LIGHT } from "../sketch/sketchModel";
-import { isDark } from "../theme";
 
 const props = defineProps<{
   path: string | null;
@@ -83,11 +81,6 @@ function open(text: string) {
   refusal.value = null;
   if (!text.trim()) {
     sketch.value = createSketch(emptySvgDocument());
-    // The writer's rule, applied to the pen: black ink on light paper, white
-    // on dark. Only the STARTING colour — a drawn shape stores its concrete
-    // hex, because an .svg must render the same on every viewer.
-    sketch.value.currentColor.value = isDark() ? INK_DARK : INK_LIGHT;
-    void sketch.value.loadPalette();
     baseline();
     return;
   }
@@ -98,8 +91,6 @@ function open(text: string) {
     return;
   }
   sketch.value = createSketch(res.doc);
-  sketch.value.currentColor.value = isDark() ? INK_DARK : INK_LIGHT;
-  void sketch.value.loadPalette();
   baseline();
 }
 
@@ -245,6 +236,11 @@ defineExpose({
   isDirty(): boolean {
     return dirty.value;
   },
+  // An editor may offer ONE extra file command; the app menu shows it beside
+  // New/Open/Save. Only the sketch has one today (PNG), which is why this is an
+  // optional part of the editor contract rather than a fixed menu entry.
+  exportFile: runExportPng,
+  exportLabelKey: "sketch.exportPng",
 });
 </script>
 
@@ -279,16 +275,7 @@ defineExpose({
         @choose-image="chooseImage"
       />
 
-      <div class="flex items-center gap-2 border-b border-current/10 px-3 py-1.5">
-        <button
-          class="shrink-0 rounded-lg border border-accent-2 px-2.5 py-1 text-xs font-semibold transition hover:opacity-80 disabled:opacity-40 dark:border-accent-1"
-          :disabled="exportBusy"
-          data-testid="svg-export-png"
-          @click="runExportPng"
-        >
-          <font-awesome-icon :icon="exportBusy ? 'spinner' : 'image'" :spin="exportBusy" />
-          {{ t("sketch.exportPng") }}
-        </button>
+      <div v-if="notice || localError" class="flex items-center gap-2 border-b border-current/10 px-3 py-1.5">
         <p v-if="notice" class="text-xs opacity-60">{{ notice }}</p>
         <p v-if="localError" class="min-w-0 flex-1 truncate text-xs text-warn-dark">{{ localError }}</p>
       </div>

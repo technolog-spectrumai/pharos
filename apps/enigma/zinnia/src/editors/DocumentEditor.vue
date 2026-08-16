@@ -43,6 +43,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n({ useScope: "global" });
 
+/** The swatch fill for each ink, straight from the system palette. */
+const INK_VARS: Record<string, string> = {
+  accent: "var(--sys-accent)",
+  success: "var(--sys-success)",
+  warn: "var(--sys-warning)",
+};
+
 // ── the document ────────────────────────────────────────────────────────────
 const doc = ref<CyDocument>(newDocument());
 const parseError = ref("");
@@ -322,10 +329,13 @@ defineExpose({
                        @click="chain()?.toggleCodeBlock().run()" />
         <span class="mx-1 h-4 w-px bg-current/20" />
 
-        <!-- Colour as a class, never a style attribute — the server strips styles. -->
+        <!-- The chip is FILLED with the ink, so the button shows the colour it
+             applies rather than only naming it. What lands in the document is
+             still a CLASS, not a style attribute — the server strips styles, so
+             an inline colour would vanish on the first save. -->
         <button v-for="ink in INKS" :key="ink" type="button"
                 class="oya-tip h-5 w-5 rounded-full border border-current/30 transition hover:scale-110"
-                :class="`cy-ink-${ink}`"
+                :style="{ backgroundColor: INK_VARS[ink] }"
                 :data-tip="t(`doc.ink.${ink}`)" :title="t(`doc.ink.${ink}`)"
                 :aria-label="t(`doc.ink.${ink}`)"
                 :data-testid="`ink-${ink}`" @click="setInk(ink)" />

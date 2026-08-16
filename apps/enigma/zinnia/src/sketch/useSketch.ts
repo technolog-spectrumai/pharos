@@ -11,7 +11,6 @@
 // the prologue and every opaque node of the file it was opened from, so saving
 // rewrites only our own shapes and leaves the rest of a foreign SVG untouched.
 //
-// The palette is the one thing that stays in the kv store: seven colour slots are
 // a device-wide tool preference, not part of any document.
 //
 // Deliberately NOT a Pinia store — `stores/chat.ts` documents the reason, namely
@@ -19,17 +18,12 @@
 // components take the whole orchestrator as a prop and read `.value` directly.
 
 import { computed, ref } from "vue";
-import { loadPaletteRaw, savePaletteRaw } from "./paletteStore";
+import { DEFAULT_INK } from "./sketchPalette";
 import {
   DEFAULT_CAPS,
-  DEFAULT_SLOT_COLORS,
   hitTest,
   MIN_POINT_DIST,
-  normalizeSlots,
   normDeg,
-  PALETTE_SLOTS,
-  canonicalColor,
-  isAssignableColor,
   quant,
   rotatePoint,
   scaleShape,
@@ -91,7 +85,6 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
    *  the document read succeeded, gating on `ready` would let the very first swap
    *  write an all-defaults palette over the user's real saved one. Same reasoning
    *  as the separate try blocks in load(). */
-  const paletteReady = ref(false);
 
   const shapes = computed(() => doc.value.shapes);
   const selected = computed(() => doc.value.shapes.find((s) => s.id === selectedId.value) ?? null);
@@ -100,13 +93,15 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
 
   // ── tool settings ──────────────────────────────────────────────────────────
 
-  const currentColor = ref<string>("#111827");
+  // Plain black, and not theme-dependent: a drawing stores the literal colour
+  // it was drawn with, so the default cannot be one thing on light paper and
+  // another on dark — see sketchPalette.ts.
+  const currentColor = ref<string>(DEFAULT_INK);
   const currentWidth = ref<number>(4);
   const currentOpacity = ref<number>(1);
   /** null = outline only. Applies to rect / ellipse / triangle. */
   const currentFill = ref<string | null>(null);
   /** The seven assignable colours behind both the stroke row and the fill row. */
-  const slots = ref<string[]>([...DEFAULT_SLOT_COLORS]);
 
   /** Board size comes from the FILE's own viewBox, not from the container. The
    *  old board was one elastic sheet that filled the window; a document has
@@ -117,37 +112,6 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     /* kept for the canvas's ResizeObserver call site; geometry is the file's now */
   }
 
-  /** Assign a colour to one slot.
-   *
-   *  NOT undoable, and it must never call snapshot() or restyleSelected(): the
-   *  palette is a device preference, and those would push an undo entry, clear the
-   *  redo stack and schedule a document write — turning a palette edit into a
-   *  drawing edit. (Which is also why `currentColor` must never grow a
-   *  `watch(..., restyleSelected)`: the follow rule below would start mutating
-   *  shapes.)
-   *
-   *  The active stroke/fill FOLLOWS the slot it was pinned to, but only when the
-   *  old colour has left the row entirely — duplicates are legal, and if another
-   *  slot still shows it the highlight belongs there instead. Without this the row
-   *  can end up with nothing highlighted and no way back to the active colour.
-   *  Note the pre-check on `prev`: the tempting shortcut of testing afterwards
-   *  whether currentColor is still on the row is wrong for a currentColor that was
-   *  already off-palette, where editing ANY unrelated slot would yank it. */
-  function setSlot(i: number, color: string) {
-    // The index needs its own guard — the colour check says nothing about it, and
-    // an out-of-range write would silently lengthen the row.
-    if (!Number.isInteger(i) || i < 0 || i >= PALETTE_SLOTS) return;
-    if (!isAssignableColor(color)) return;
-    color = canonicalColor(color);
-    const prev = slots.value[i];
-    if (prev === color) return;
-    const next = slots.value.slice();
-    next[i] = color;
-    slots.value = next;
-    if (currentColor.value === prev && !next.includes(prev)) currentColor.value = color;
-    if (currentFill.value === prev && !next.includes(prev)) currentFill.value = color;
-    void persistPalette();
-  }
 
   function styleOf() {
     return {
@@ -159,37 +123,6 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
   }
 
   // ── persistence ────────────────────────────────────────────────────────────
-
-  /** Written on its own, from setSlot only. Not debounced: a swap is one
-   *  deliberate click in the picker, not a stream of them like drawing. */
-  async function persistPalette() {
-    if (!paletteReady.value) return;
-    await savePaletteRaw(JSON.stringify(slots.value)).catch(() => {});
-  }
-
-  /** Read the saved palette. The document itself arrives through the factory
-   *  argument, already parsed — the only thing left to load is this preference.
-   *
-   *  Storage failure and parse failure get opposite treatment, as before: a
-   *  palette we could not READ must not be written over, while one we read but
-   *  could not PARSE has nothing left to protect, so defaults are safe and the
-   *  next swap repairs the record. */
-  async function loadPalette() {
-    let raw: string | null = null;
-    let storageOk = true;
-    try {
-      raw = await loadPaletteRaw();
-    } catch {
-      storageOk = false;
-    }
-    if (!storageOk) return;
-    try {
-      slots.value = normalizeSlots(raw ? JSON.parse(raw) : null);
-    } catch {
-      slots.value = [...DEFAULT_SLOT_COLORS];
-    }
-    paletteReady.value = true;
-  }
 
   /** The file to write back: our shapes re-rendered into the envelope this
    *  document was opened from, so opaque nodes, <defs> and the root attributes
@@ -567,8 +500,6 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     currentWidth,
     currentOpacity,
     currentFill,
-    slots,
-    setSlot,
     boardW,
     setBoardWidth,
     // caps
@@ -611,7 +542,6 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     undo,
     redo,
     // lifecycle
-    loadPalette,
     toText,
   };
 }

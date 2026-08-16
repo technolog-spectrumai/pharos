@@ -1,28 +1,26 @@
 <script setup lang="ts">
 // Settings — the system palette.
 //
-// Five roles, two values each, because a role has to read on both papers: the
-// light column is what a document uses on white, the dark column what it uses
-// on black. Both are editable here regardless of which theme is on, so a user
-// can set up dark mode without having to switch into it and back.
+// Five roles, one colour each. Free choice: whatever is picked here is what
+// every document, drawing and slide uses AND stores, with no per-theme variant
+// and no conversion anywhere along the way. That is the whole reason the
+// defaults are mid-tone — a role has to read on white paper and on black.
 //
-// Body text is absent on purpose: it is black on light and white on dark and
-// nothing else, since it is the one colour the legibility of every document
-// depends on. The row at the bottom shows it as a fact, not a control.
+// Body text is absent on purpose: black on light and white on dark, and
+// nothing else, because it is the one colour every document's legibility rests
+// on. The row at the bottom states it rather than offering it.
 import { useI18n } from "vue-i18n";
-import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type Mode, type SystemRole } from "../systemColors";
+import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "../systemColors";
 import { useSystemColors } from "../useSystemColors";
 
 const { t } = useI18n({ useScope: "global" });
 const { palette, mode, set, reset } = useSystemColors();
 
-const MODES: Mode[] = ["light", "dark"];
-
-/** A colour input can only ever produce `#rrggbb`, but it is still the user's
- *  value arriving from outside — validate rather than trust the widget. */
-function onPick(role: SystemRole, forMode: Mode, event: Event) {
+/** A colour input can only ever produce `#rrggbb`, but it is still a value
+ *  arriving from outside — validate rather than trust the widget. */
+function onPick(role: SystemRole, event: Event) {
   const value = (event.target as HTMLInputElement).value;
-  if (isHexColor(value)) set(role, forMode, value);
+  if (isHexColor(value)) set(role, value);
 }
 </script>
 
@@ -36,30 +34,20 @@ function onPick(role: SystemRole, forMode: Mode, event: Event) {
       <p class="mt-1 text-sm opacity-70">{{ t("settings.colors.help") }}</p>
 
       <div class="mt-5 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1">
-        <div class="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 border-b
-                    border-current/10 px-4 py-2 text-xs font-semibold uppercase opacity-60">
-          <span>{{ t("settings.colors.role") }}</span>
-          <span class="text-center">{{ t("settings.colors.light") }}</span>
-          <span class="text-center">{{ t("settings.colors.dark") }}</span>
-        </div>
-
         <div v-for="role in SYSTEM_ROLES" :key="role"
-             class="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 border-b border-current/10 px-4 py-2.5 last:border-0"
+             class="flex items-center gap-3 border-b border-current/10 px-4 py-2.5 last:border-0"
              :data-testid="`role-${role}`">
-          <span class="flex items-center gap-2 text-sm">
-            <!-- The chip shows the role as it renders in the CURRENT theme, so
-                 the name is never the only clue to what was picked. -->
-            <span class="h-3.5 w-3.5 rounded-full border border-current/25"
-                  :style="{ backgroundColor: palette[role][mode] }" />
-            {{ t(`settings.colors.roles.${role}`) }}
-          </span>
-          <input v-for="m in MODES" :key="m" type="color"
-                 class="h-8 w-14 cursor-pointer rounded border border-accent-2 bg-transparent dark:border-accent-1"
-                 :value="palette[role][m]"
-                 :data-testid="`color-${role}-${m}`"
-                 :aria-label="`${t(`settings.colors.roles.${role}`)} — ${t(`settings.colors.${m}`)}`"
-                 :title="palette[role][m]"
-                 @input="onPick(role, m, $event)" />
+          <input type="color"
+                 class="h-8 w-14 shrink-0 cursor-pointer rounded border border-accent-2 bg-transparent dark:border-accent-1"
+                 :value="palette[role]"
+                 :data-testid="`color-${role}`"
+                 :aria-label="t(`settings.colors.roles.${role}`)"
+                 :title="palette[role]"
+                 @input="onPick(role, $event)" />
+          <span class="flex-1 text-sm font-semibold">{{ t(`settings.colors.roles.${role}`) }}</span>
+          <!-- The value in words, so a colour is identifiable without relying
+               on the swatch alone. -->
+          <code class="text-xs opacity-50">{{ palette[role] }}</code>
         </div>
       </div>
 

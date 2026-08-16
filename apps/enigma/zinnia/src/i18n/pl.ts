@@ -14,10 +14,8 @@ export default {
   settings: {
     colors: {
       title: "Kolory systemowe",
-      help: "Pięć ról używanych przez dokumenty, rysunki i slajdy do wyróżnień. Każda ma osobną wartość dla motywu jasnego i ciemnego, bo kolor czytelny na bieli rzadko jest czytelny na czerni.",
+      help: "Pięć kolorów używanych przez dokumenty, rysunki i slajdy do wyróżnień. Po jednej wartości — wybierz odcienie czytelne na jasnym i ciemnym tle, bo zapisujemy je w pliku dokładnie takie, jakie są.",
       role: "Rola",
-      light: "Jasny",
-      dark: "Ciemny",
       roles: {
         accent: "Akcent",
         warning: "Ostrzeżenie",
@@ -38,7 +36,6 @@ export default {
     gridFailed: "Nie udało się uruchomić arkusza",
   },
   deck: {
-    slot: "Miejsce",
     importFile: "Importuj z pliku…",
     blockTypes: {
       heading: "Nagłówek",
@@ -142,6 +139,16 @@ export default {
     search: "Szukaj…",
   },
   sketch: {
+    palette: "Kolory",
+    roleNames: {
+      black: "Czarny",
+      white: "Biały",
+      accent: "Akcent",
+      warning: "Ostrzeżenie",
+      success: "Sukces",
+      highlight: "Wyróżnienie",
+      mute: "Wyciszony",
+    },
     tools: {
       select: "Zaznacz i przesuń",
       draw: "Rysuj odręcznie",
@@ -160,14 +167,7 @@ export default {
     penColorTitle: "Wybierz kolor, którym rysujesz",
     fillTitle: "Wybierz, czym wypełnić wnętrze kształtu",
     backgroundTitle: "Wybierz kolor samej tablicy",
-    slotsGroup: "Twoje siedem kolorów",
-    lightShades: "Odcienie na jasną tablicę",
-    darkShades: "Odcienie na ciemną tablicę",
-    otherColors: "Pozostałe kolory",
     paperGroup: "Zwykły papier",
-    editPalette: "Edytuj paletę kolorów",
-    slot: "Miejsce na kolor {n}",
-    editSlot: "Zmień kolor w miejscu {n}",
     colorNames: {
       accent: "Akcentowy niebieski",
       success: "Zielony (sukces)",

@@ -58,6 +58,8 @@ type Host = {
   openFile: () => void;
   saveFile: () => void;
   saveAs: () => void;
+  exportFile: () => void;
+  exportLabelKey: string;
   name: string;
   dirty: boolean;
   busy: boolean;
@@ -112,6 +114,14 @@ const MENU_ITEMS = [
   { id: "saveAs", labelKey: "file.saveAs", icon: "file-pen", run: (h: Host) => h.saveAs() },
 ] as const;
 
+/** Shown only when the tab on screen offers one — the sketch's PNG export
+ *  today. An entry that was always present and usually inert would be worse
+ *  than one that arrives with the tab it belongs to. */
+const exportItem = computed(() => {
+  const key = activeHost.value?.exportLabelKey;
+  return key ? { labelKey: key, icon: "file-image" } : null;
+});
+
 function runCommand(item: (typeof MENU_ITEMS)[number]) {
   const host = activeHost.value;
   menuOpen.value = false;
@@ -158,6 +168,15 @@ function isDisabled(id: string): boolean {
                   @click="runCommand(item)">
             <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
             {{ t(item.labelKey) }}
+          </button>
+          <button v-if="exportItem" type="button" role="menuitem"
+                  class="flex w-full items-center gap-2.5 border-t border-current/10 px-3 py-2 text-left text-sm
+                         transition hover:bg-accent-light/10 disabled:opacity-40"
+                  data-testid="menu-export"
+                  :disabled="activeHost?.busy"
+                  @click="menuOpen = false; activeHost?.exportFile()">
+            <font-awesome-icon :icon="exportItem.icon" class="w-4 opacity-70" />
+            {{ t(exportItem.labelKey) }}
           </button>
         </div>
       </div>

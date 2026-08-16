@@ -75,50 +75,13 @@ export const MIN_POINT_DIST = 1.5;
 // (and collide on its v-for key). `palette invariants` in sketchModel.spec.ts
 // pins that.
 
-/** What a fresh install starts with, in row order: the primary hues, then a
- *  neutral ramp — annotating over a photo background needs greys that saturated
- *  hues can't provide. Purple was on the old fixed row and is still one pick away
- *  in EXTRA_COLORS; it lost its slot as the least-used of the original seven. */
-export const DEFAULT_SLOT_COLORS = [
-  "#ef4444", // red
-  "#10b981", // green
-  "#3b82f6", // blue
-  "#f59e0b", // yellow
-  "#6b7280", // grey
-  "#111827", // black
-  "#ffffff", // white
-] as const;
-
-export const PALETTE_SLOTS = DEFAULT_SLOT_COLORS.length;
-
-/** Offered in the slot picker on top of the defaults: the popular secondary
- *  colours. Hues are spread so no two read as each other at a 2px stroke. */
-export const EXTRA_COLORS = [
-  "#f97316", // orange
-  "#8b5cf6", // purple
-  "#ec4899", // pink
-  "#06b6d4", // cyan
-  "#14b8a6", // teal
-  "#d946ef", // magenta
-  "#84cc16", // lime
-  "#6366f1", // indigo
-  "#92400e", // brown
-  "#1e40af", // navy
-] as const;
-
-/** Everything a slot may hold. The defaults stay offered alongside the extras so a
- *  slot can be put back to its original colour without a dedicated reset control. */
 /** The platform's three semantic inks — accent (blue), success (green),
  *  warn (red) — in the same per-mode shades the writer's cy-ink-* classes use.
  *  Two sets because a drawing stores CONCRETE colours: the picker offers the
  *  shade that reads on the CURRENT paper, and the file keeps whichever was
  *  picked. (A theme-relative colour inside an .svg would render differently on
  *  every viewer, which is not what a drawing is.) */
-export const SYSTEM_COLORS_LIGHT: readonly string[] = ["#2a6df4", "#1f8a4c", "#d94a4a"];
-export const SYSTEM_COLORS_DARK: readonly string[] = ["#7aa2ff", "#4ade80", "#ff6b6b"];
 /** Plain ink: black on light paper, white on dark — the writer's rule. */
-export const INK_LIGHT = "#111827";
-export const INK_DARK = "#ffffff";
 
 // Deduplicated: INK_DARK is plain white, which EXTRA_COLORS already offers,
 // and the invariant that no colour appears twice is worth keeping — a doubled
@@ -128,51 +91,17 @@ export const INK_DARK = "#ffffff";
 // user-settable in Settings, the semantic shades a picker offers are whatever
 // the user chose, which cannot be known here — see systemShades() in the
 // toolbar. This list stays the built-in floor and the defaults' home.
-export const PICKER_COLORS: readonly string[] = [...new Set([
-  ...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS,
-  ...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_DARK,
-])];
 
 /** The plain inks, offered beside whichever system shades are configured. */
-export const LIGHT_INK = INK_LIGHT;
-export const DARK_INK = INK_DARK;
 
 /** Everything in the catalogue that is not a default system shade — the plain
  *  colours. Derived from PICKER_COLORS rather than listed again, so the two
  *  cannot drift. */
-export const OTHER_COLORS: readonly string[] = PICKER_COLORS.filter(
-  (c) => ![...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_LIGHT, INK_DARK].includes(c),
-);
 
 /** Hex → i18n leaf key under `sketch.colorNames`. Swatches are bare colour chips
  *  with no text, so this is the only thing that makes them speakable: without it a
  *  screen reader announces the hex, and "#ef4444" reads as "number E F four four
  *  four four" rather than "red". Must cover every PICKER_COLORS entry. */
-export const COLOR_NAME_KEYS: Readonly<Record<string, string>> = {
-  "#2a6df4": "accent",
-  "#7aa2ff": "accent",
-  "#1f8a4c": "success",
-  "#4ade80": "success",
-  "#d94a4a": "warn",
-  "#ff6b6b": "warn",
-  "#ef4444": "red",
-  "#10b981": "green",
-  "#3b82f6": "blue",
-  "#f59e0b": "yellow",
-  "#6b7280": "grey",
-  "#111827": "black",
-  "#ffffff": "white",
-  "#f97316": "orange",
-  "#8b5cf6": "purple",
-  "#ec4899": "pink",
-  "#06b6d4": "cyan",
-  "#14b8a6": "teal",
-  "#d946ef": "magenta",
-  "#84cc16": "lime",
-  "#6366f1": "indigo",
-  "#92400e": "brown",
-  "#1e40af": "navy",
-};
 
 /** Coerce a stored palette to exactly PALETTE_SLOTS pickable colours.
  *
@@ -204,19 +133,7 @@ export function isAssignableColor(v: unknown): v is string {
  *  The old whitelist got this for free by refusing the odd spelling outright;
  *  that is no longer available now that a colour may be one the user defined,
  *  so the spelling is normalised instead of rejected. */
-export function canonicalColor(v: string): string {
-  const hex = v.toLowerCase();
-  return hex.length === 4
-    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
-    : hex;
-}
 
-export function normalizeSlots(x: unknown): string[] {
-  const arr: unknown[] = Array.isArray(x) ? x : [];
-  return DEFAULT_SLOT_COLORS.map((fallback, i) =>
-    isAssignableColor(arr[i]) ? canonicalColor(arr[i] as string) : fallback,
-  );
-}
 /** How close the board looks. Display only — see SketchCanvas: zoom resizes the
  *  <svg> element, never the viewBox, so nothing about the saved file changes. */
 export const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4] as const;

@@ -6,21 +6,15 @@ import {
   BOARD_W,
   boardWidth,
   boardWidthFor,
-  COLOR_NAME_KEYS,
-  DEFAULT_SLOT_COLORS,
   distToShape,
   distToShapeRotated,
   emptyDoc,
-  EXTRA_COLORS,
   hitTest,
   MAX_BG_IMAGE_CHARS,
   MAX_BOARD_W,
   MIN_BOARD_W,
-  normalizeSlots,
   normDeg,
-  PALETTE_SLOTS,
   pathD,
-  PICKER_COLORS,
   rotatePoint,
   rotateShape,
   scaleShape,
@@ -35,7 +29,6 @@ import {
   type PathShape,
   type Shape,
   type SketchCaps,
-  INK_DARK, SYSTEM_COLORS_DARK, SYSTEM_COLORS_LIGHT,
 } from "../../src/sketch/sketchModel";
 
 const CAPS: SketchCaps = { maxShapes: 1000, maxTextLen: 200 };
@@ -629,123 +622,7 @@ describe("toSvg", () => {
 // because DEFAULT_SLOT_COLORS and EXTRA_COLORS are concatenated into
 // PICKER_COLORS: moving a colour between the two lists without deleting it from
 // the other silently duplicates it in the picker.
-describe("palette invariants", () => {
-  it("has seven slots and ten extras", () => {
-    expect(PALETTE_SLOTS).toBe(7);
-    expect(DEFAULT_SLOT_COLORS).toHaveLength(7);
-    expect(EXTRA_COLORS).toHaveLength(10);
-    // Derived, not hardcoded: the list is defaults + extras + the semantic
-    // trios (deduplicated), and the invariant worth defending is the SHAPE,
-    // not a magic number that breaks on every palette change.
-    expect(PICKER_COLORS.length).toBe(
-      new Set([...DEFAULT_SLOT_COLORS, ...EXTRA_COLORS,
-               ...SYSTEM_COLORS_LIGHT, ...SYSTEM_COLORS_DARK, INK_DARK]).size,
-    );
-  });
 
-  it("never offers the same colour twice", () => {
-    expect(new Set(PICKER_COLORS).size).toBe(PICKER_COLORS.length);
-  });
-
-  it("offers only colours validateShape would accept", () => {
-    // Same shape as COLOR_RE, lowercase — a slot colour becomes shape.color, and a
-    // value that failed validation would vanish on the next load.
-    for (const c of PICKER_COLORS) expect(c).toMatch(/^#[0-9a-f]{6}$/);
-  });
-
-  it("names every pickable colour", () => {
-    // A missing entry renders `sketch.colorNames.undefined` as the aria-label.
-    for (const c of PICKER_COLORS) expect(COLOR_NAME_KEYS[c]).toBeTruthy();
-    expect(Object.keys(COLOR_NAME_KEYS)).toHaveLength(PICKER_COLORS.length);
-  });
-
-  it("names the board backgrounds too, which share the same label helper", () => {
-    // The background row is white/black/transparent/image; the two COLOURS are
-    // labelled through COLOR_NAME_KEYS, so adding one that is not a slot colour
-    // would need an entry here as well.
-    for (const c of BACKGROUND_COLORS) expect(COLOR_NAME_KEYS[c]).toBeTruthy();
-  });
-});
-
-describe("normalizeSlots", () => {
-  it("keeps the good entries and falls back only the bad one", () => {
-    // The whole reason the function exists: a single corrupt entry must not cost
-    // the user their other six.
-    const out = normalizeSlots(["#ef4444", "#zzzzzz", "#3b82f6"]);
-    expect(out[0]).toBe("#ef4444");
-    expect(out[1]).toBe(DEFAULT_SLOT_COLORS[1]);
-    expect(out[2]).toBe("#3b82f6");
-    expect(out.slice(3)).toEqual([...DEFAULT_SLOT_COLORS].slice(3));
-  });
-
-  it("pads a short palette and truncates an over-long one", () => {
-    expect(normalizeSlots(["#8b5cf6"])).toEqual(["#8b5cf6", ...[...DEFAULT_SLOT_COLORS].slice(1)]);
-    expect(normalizeSlots(Array(20).fill("#06b6d4"))).toEqual(Array(7).fill("#06b6d4"));
-  });
-
-  it("preserves duplicates", () => {
-    // A behavioural contract, not an accident: setSlot's follow rule is written
-    // around two slots being allowed to hold the same colour.
-    const dup = ["#ef4444", "#ef4444", ...[...DEFAULT_SLOT_COLORS].slice(2)];
-    expect(normalizeSlots(dup)).toEqual(dup);
-  });
-
-  it("rejects anything that is not an array", () => {
-    const def = [...DEFAULT_SLOT_COLORS];
-    expect(normalizeSlots("#ef4444")).toEqual(def);
-    expect(normalizeSlots(42)).toEqual(def);
-    expect(normalizeSlots({})).toEqual(def);
-    expect(normalizeSlots(null)).toEqual(def);
-    expect(normalizeSlots(undefined)).toEqual(def);
-    // Array-LIKE: would pass a typeof/length check, so pin that Array.isArray gates it.
-    expect(normalizeSlots({ 0: "#ef4444", length: 7 })).toEqual(def);
-  });
-
-  it("keeps one spelling per colour", () => {
-    // This used to assert that a differently-cased colour was REJECTED, which a
-    // whitelist gave for free. The whitelist had to go when Settings made the
-    // system roles user-defined — it would have refused the very colours the
-    // picker offers. The intent survives in a stronger form: an odd spelling is
-    // not a second colour, so it is normalised rather than dropped. Without
-    // this, "#EF4444" would sit in a slot and never highlight its own chip,
-    // since every selected-ring check is a string comparison.
-    expect(normalizeSlots(["#EF4444"])[0]).toBe("#ef4444");
-    expect(normalizeSlots(["#ABC"])[0]).toBe("#aabbcc");
-  });
-
-  it("accepts a colour outside the built-in catalogue", () => {
-    // A system role the user edited in Settings is not in PICKER_COLORS.
-    expect(normalizeSlots(["#123456"])[0]).toBe("#123456");
-  });
-
-  it("still refuses anything that is not a colour", () => {
-    for (const junk of ["red", "#12", "rgb(0,0,0)", "", 7, null]) {
-      expect(normalizeSlots([junk])[0], String(junk)).toBe(DEFAULT_SLOT_COLORS[0]);
-    }
-  });
-
-  it("always returns exactly PALETTE_SLOTS offered colours", () => {
-    for (const input of [null, [], ["#ef4444"], Array(20).fill("#06b6d4"), ["x", 1, {}, null]]) {
-      const out = normalizeSlots(input);
-      expect(out).toHaveLength(PALETTE_SLOTS);
-      for (const c of out) expect(PICKER_COLORS).toContain(c);
-    }
-  });
-
-  it("returns a fresh array, never the caller's", () => {
-    // Guards a future "fast path: return x when already valid", which would hand
-    // the caller a live reference to the parsed kv array.
-    const input = [...DEFAULT_SLOT_COLORS];
-    expect(normalizeSlots(input)).not.toBe(input);
-    expect(normalizeSlots(null)).not.toBe(normalizeSlots(null));
-  });
-
-  it("does not pollute Object.prototype", () => {
-    normalizeSlots(JSON.parse('{"__proto__":{"polluted":1}}'));
-    normalizeSlots(["__proto__", "constructor"]);
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-  });
-});
 
 // The board is BOARD_H tall and elastic in width so it fills its container instead
 // of letterboxing a fixed 16:9 sheet. These pin the two things that makes safe:

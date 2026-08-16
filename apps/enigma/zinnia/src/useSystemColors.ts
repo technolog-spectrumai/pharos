@@ -23,21 +23,18 @@ const palette = ref<SystemPalette>(loadPalette());
 applyPalette(palette.value);
 
 export function useSystemColors() {
-  /** The mode whose values the editors should currently OFFER. Reads the class
-   *  live (see ./theme for why that is the source of truth). */
+  /** The theme. Still needed — plain text and the paper are mode-dependent —
+   *  but no system ROLE is: those are one value each. */
   const mode = computed<Mode>(() => (isDarkRef.value ? "dark" : "light"));
 
-  function set(role: SystemRole, forMode: Mode, hex: string) {
-    palette.value = {
-      ...palette.value,
-      [role]: { ...palette.value[role], [forMode]: hex },
-    };
+  function set(role: SystemRole, hex: string) {
+    palette.value = { ...palette.value, [role]: hex };
     applyPalette(palette.value);
     savePalette(palette.value);
   }
 
   function reset() {
-    palette.value = structuredClone(DEFAULT_PALETTE);
+    palette.value = { ...DEFAULT_PALETTE };
     applyPalette(palette.value);
     savePalette(palette.value);
   }

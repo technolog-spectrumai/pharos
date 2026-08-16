@@ -1,64 +1,44 @@
-// The five system colours, one set per theme, chosen by the user in Settings.
+// The five system colours.
 //
-// These are ROLES, not shades: `accent` means "the emphasised thing", and what
-// hex that is depends both on the user's choice and on which paper it lands on.
-// A single colour cannot serve both — #facc15 is a readable gold on a dark page
-// and nearly invisible on a white one — so every role carries a light value and
-// a dark value, and the file always stores whichever one was actually used.
+// ONE value per role, not one per theme. A role is a meaning — "the emphasised
+// thing", "the thing that went wrong" — and the colours below are chosen to
+// carry that meaning on white paper and on black alike, so nothing has to be
+// swapped, converted or re-resolved when the theme changes.
 //
-// The transport is two CSS custom properties per role rather than one, with the
-// swap done in CSS:
+// That is deliberate, and it is what makes the file formats honest: a drawing
+// stores a concrete hex and a slide stores a concrete hex, so any colour that
+// meant one thing in the editor and another in a viewer would be a lie in the
+// file. With a universal palette there is no per-theme value to disagree about.
+// Free choice lives in Settings: pick anything you like, and that one value is
+// what every document, drawing and slide will use and store.
 //
-//     :root  { --sys-accent: var(--sys-accent-light); }
-//     .dark  { --sys-accent: var(--sys-accent-dark);  }
-//
-// so this module writes the pairs once and never has to re-run on a theme
-// change. Doing it the other way — writing a single `--sys-accent` and
-// rewriting it whenever `.dark` flips — means every consumer is correct only
-// as long as this module is listening, and anything that reads a colour during
-// the flip gets the outgoing theme's value.
-//
-// Primary text is deliberately NOT here. Body text is black on light and white
-// on dark, full stop: it is the one colour whose contrast the whole document
-// depends on, and a user who sets it to something else has broken reading
-// rather than customised it. It ships as a fixed pair below and Settings never
-// offers it.
+// Primary text is the one exception, and it is NOT a stored colour — a document
+// stores a class, and the class resolves to black on light paper and white on
+// dark through CSS. That is a rendering rule, not a conversion of anything that
+// was saved, and it is fixed: Settings never offers it, because it is the one
+// colour the legibility of every document depends on.
 
 export const SYSTEM_ROLES = ["accent", "warning", "success", "highlight", "mute"] as const;
 export type SystemRole = (typeof SYSTEM_ROLES)[number];
 
 export type Mode = "light" | "dark";
-export type SystemPalette = Record<SystemRole, Record<Mode, string>>;
+export type SystemPalette = Record<SystemRole, string>;
 
-/** The Oya defaults.
+/** The defaults.
  *
- *  accent/warning/success are the platform's own values, carried across from
- *  enigma's `@theme` and the seeded "Amazing Moon" theme, so a zinnia document
- *  and a zenobia page mean the same thing by the same word.
- *
- *  The other two needed a decision, recorded here because neither was simply
- *  sitting somewhere to be copied:
- *
- *  - highlight: enigma defines one mode-independent gold (#facc15) and toto's
- *    theme fixtures carry a `caution` PAIR (#a07800 / #f0a820) that never
- *    reaches the database — `caution` is not a field on ColorMix, so the
- *    loader's field filter drops it silently. Since a role here needs a value
- *    per mode, each mode gets the oya yellow that reads on it: the darker
- *    caution on light paper, enigma's gold on dark.
- *
- *  - mute: no semantic mute token exists in any of the three trees. The nearest
- *    intents are alpha-based (`--cy-muted`, `--memo-muted-color`), which tint
- *    against whatever surface they sit on and so cannot be a hex. These are new
- *    values, picked to sit at roughly that same weight against each paper. */
+ *  These are the sketch's original drawing colours, which is not a coincidence:
+ *  that palette was already picked to be legible on any board, which is exactly
+ *  the property a single-value system role needs. Mid-tone and saturated — dark
+ *  enough to read on white, bright enough to read on black. */
 export const DEFAULT_PALETTE: SystemPalette = {
-  accent:    { light: "#2a6df4", dark: "#7aa2ff" },
-  warning:   { light: "#d94a4a", dark: "#ff6b6b" },
-  success:   { light: "#1f8a4c", dark: "#4ade80" },
-  highlight: { light: "#a07800", dark: "#facc15" },
-  mute:      { light: "#6b7280", dark: "#9aa3b2" },
+  accent: "#3b82f6",
+  warning: "#ef4444",
+  success: "#10b981",
+  highlight: "#f59e0b",
+  mute: "#6b7280",
 };
 
-/** Body text: fixed, and not offered in Settings. See the note at the top. */
+/** Body text. A CSS rule, not a stored value — see the note at the top. */
 export const PRIMARY_TEXT: Record<Mode, string> = { light: "#000000", dark: "#ffffff" };
 
 const STORAGE_KEY = "zinnia:systemColors";
@@ -73,19 +53,26 @@ export function isHexColor(value: unknown): value is string {
   return typeof value === "string" && HEX.test(value);
 }
 
-/** Merge stored values over the defaults, one role-and-mode at a time.
+/** Merge stored values over the defaults, one role at a time.
  *
- *  Per FIELD, not per palette: a stored blob from an older build is missing
- *  whichever roles were added since, and an all-or-nothing check would throw
- *  away the user's other four colours to fix the one that was absent. */
+ *  Per ROLE, not all-or-nothing: a stored blob from an older build is missing
+ *  whichever roles were added since, and discarding the whole thing to repair
+ *  one absent field would throw away colours the user had deliberately set.
+ *
+ *  Also reads the earlier `{light, dark}` shape, taking the light value. That
+ *  build shipped, so somebody's browser holds one; silently resetting their
+ *  palette because the shape changed would be the wrong way to find out. */
 export function normalizePalette(raw: unknown): SystemPalette {
-  const stored = (raw ?? {}) as Partial<Record<SystemRole, Partial<Record<Mode, unknown>>>>;
+  const stored = (raw ?? {}) as Partial<Record<SystemRole, unknown>>;
   const out = {} as SystemPalette;
   for (const role of SYSTEM_ROLES) {
-    out[role] = {
-      light: isHexColor(stored[role]?.light) ? (stored[role]!.light as string) : DEFAULT_PALETTE[role].light,
-      dark: isHexColor(stored[role]?.dark) ? (stored[role]!.dark as string) : DEFAULT_PALETTE[role].dark,
-    };
+    const value = stored[role];
+    const flat = isHexColor(value)
+      ? value
+      : isHexColor((value as { light?: unknown } | undefined)?.light)
+        ? ((value as { light: string }).light)
+        : DEFAULT_PALETTE[role];
+    out[role] = flat;
   }
   return out;
 }
@@ -109,18 +96,15 @@ export function savePalette(palette: SystemPalette): void {
   }
 }
 
-/** Publish the palette as custom properties. Both modes' values are written;
- *  the `.dark` rule in style.css decides which one each role resolves to. */
+/** Publish the palette as custom properties — one per role, no theme swap. */
 export function applyPalette(palette: SystemPalette, root: HTMLElement = document.documentElement): void {
   for (const role of SYSTEM_ROLES) {
-    root.style.setProperty(`--sys-${role}-light`, palette[role].light);
-    root.style.setProperty(`--sys-${role}-dark`, palette[role].dark);
+    root.style.setProperty(`--sys-${role}`, palette[role]);
   }
 }
 
-/** The value a role resolves to for a given mode — for consumers that need a
- *  concrete hex rather than a `var()`, such as the sketch palette, which writes
- *  literal colours into the .svg it saves. */
-export function colorFor(palette: SystemPalette, role: SystemRole, mode: Mode): string {
-  return palette[role][mode];
+/** The concrete hex for a role — for consumers that STORE a colour rather than
+ *  reference it, such as the sketch, which writes literal values into its svg. */
+export function colorFor(palette: SystemPalette, role: SystemRole): string {
+  return palette[role];
 }

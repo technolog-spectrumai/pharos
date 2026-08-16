@@ -14,10 +14,8 @@ export default {
   settings: {
     colors: {
       title: "System colours",
-      help: "The five roles documents, drawings and slides use for emphasis. Each keeps a value per theme, because a colour that reads on white rarely reads on black.",
+      help: "The five colours documents, drawings and slides use for emphasis. One value each — pick shades that read on light and dark alike, because whatever you choose is stored in the file exactly as it is.",
       role: "Role",
-      light: "Light",
-      dark: "Dark",
       roles: {
         accent: "Accent",
         warning: "Warning",
@@ -38,7 +36,6 @@ export default {
     gridFailed: "The grid could not start",
   },
   deck: {
-    slot: "Slot",
     importFile: "Import from file…",
     blockTypes: {
       heading: "Heading",
@@ -142,6 +139,16 @@ export default {
     search: "Search…",
   },
   sketch: {
+    palette: "Colours",
+    roleNames: {
+      black: "Black",
+      white: "White",
+      accent: "Accent",
+      warning: "Warning",
+      success: "Success",
+      highlight: "Highlight",
+      mute: "Muted",
+    },
     tools: {
       select: "Select and move",
       draw: "Draw freehand",
@@ -160,14 +167,7 @@ export default {
     penColorTitle: "Choose the colour you draw with",
     fillTitle: "Choose what fills the inside of a shape",
     backgroundTitle: "Choose the colour of the board itself",
-    slotsGroup: "Your seven colours",
-    lightShades: "Shades for a light board",
-    darkShades: "Shades for a dark board",
-    otherColors: "Other colours",
     paperGroup: "Plain paper",
-    editPalette: "Edit colour palette",
-    slot: "Colour slot {n}",
-    editSlot: "Change colour slot {n}",
     colorNames: {
       accent: "Accent blue",
       success: "Success green",

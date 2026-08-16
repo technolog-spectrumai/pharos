@@ -19,17 +19,12 @@ import SketchPickerTrigger from "./SketchPickerTrigger.vue";
 import {
   BACKGROUND_COLORS,
   canFill,
-  COLOR_NAME_KEYS,
-  DARK_INK,
-  LIGHT_INK,
   OPACITY_STEPS,
-  OTHER_COLORS,
   STROKE_SIZES,
   TEXT_SIZES,
   ZOOM_STEPS,
 } from "./sketchModel";
-import { useSystemColors } from "../useSystemColors";
-import { SYSTEM_ROLES } from "../systemColors";
+import { useSketchColors } from "./sketchPalette";
 import type { Sketch } from "./useSketch";
 import type { Tool } from "./SketchCanvas.vue";
 
@@ -81,37 +76,21 @@ function pickFill(c: string | null) {
   props.sketch.restyleSelected();
 }
 
-// ── the shade catalogue ─────────────────────────────────────────────────────
-// The semantic shades are whatever the user set in Settings, read live so a
-// palette change shows up here without a remount. Both modes' values are
-// offered side by side and labelled by which board they suit.
-const { palette } = useSystemColors();
+// ── the palette ─────────────────────────────────────────────────────────────
+// Exactly what Settings holds, plus black and white. One list, no theme
+// variants: see sketchPalette.ts for why a drawing cannot afford them.
+const { colors } = useSketchColors();
 
-const lightShades = computed(() => [
-  ...SYSTEM_ROLES.map((role) => palette.value[role].light),
-  LIGHT_INK,
-]);
-const darkShades = computed(() => [
-  ...SYSTEM_ROLES.map((role) => palette.value[role].dark),
-  DARK_INK,
-]);
-
-/** Chip label. A colour from a loaded file, or one the user configured, has no
- *  entry in the name map — falling through would render the literal string
- *  "sketch.colorNames.undefined", so those are labelled by their hex. */
+/** Chip label. A colour from a loaded file is not in the offered list — its
+ *  hex is the only honest name for it. */
 function labelOf(c: string): string {
-  return COLOR_NAME_KEYS[c] ? `sketch.colorNames.${COLOR_NAME_KEYS[c]}` : "";
+  return colors.value.find((o) => o.hex === c)?.nameKey ?? "";
 }
 
 // ── pickers ─────────────────────────────────────────────────────────────────
 type PickerId = "zoom" | "brush" | "pen" | "fill" | "board";
 
 const openPicker = ref<PickerId | null>(null);
-
-// Palette editing: normally a slot click picks a drawing colour; with the
-// pencil on, a slot is ARMED and the next catalogue colour is written into it.
-const paletteEditing = ref(false);
-const armedSlot = ref<number | null>(null);
 
 function togglePicker(id: PickerId) {
   openPicker.value = openPicker.value === id ? null : id;
@@ -120,43 +99,11 @@ function closePicker() {
   openPicker.value = null;
 }
 
-/** Every exit — the Close button, Escape, the backdrop, re-clicking the
- *  trigger — lands here, so the invariant holds on all of them:
- *  `openPicker !== "pen"` implies the pencil is off and nothing is armed.
- *  A pencil left pressed behind a closed modal is invisible state, and the
- *  next colour click would silently reassign a slot instead of picking. */
-watch(openPicker, (id) => {
-  if (id !== "pen") {
-    paletteEditing.value = false;
-    armedSlot.value = null;
-  }
-  emit("picker-open", id !== null);
-});
+// The editor holds shortcuts while a picker is up: a modal's buttons are not
+// INPUT/TEXTAREA, so the window-level guard does not cover them.
+watch(openPicker, (id) => emit("picker-open", id !== null));
 
-function toggleEditing() {
-  paletteEditing.value = !paletteEditing.value;
-  armedSlot.value = null; // closed in BOTH directions
-}
-
-function onSlotClick(i: number) {
-  if (!paletteEditing.value) {
-    pickColor(props.sketch.slots.value[i]);
-    closePicker();
-    return;
-  }
-  armedSlot.value = armedSlot.value === i ? null : i;
-}
-
-/** Deliberately does not funnel a palette edit through pickColor: that also
- *  calls restyleSelected(), so reusing it here would let editing the palette
- *  restyle the selected shape — turning a device preference into a document
- *  edit, complete with an undo entry. */
 function onCatalogueClick(c: string) {
-  if (paletteEditing.value && armedSlot.value !== null) {
-    props.sketch.setSlot(armedSlot.value, c);
-    armedSlot.value = null; // edit mode stays on, so several slots can be set
-    return;
-  }
   pickColor(c);
   closePicker();
 }
@@ -359,64 +306,19 @@ function setBackgroundColor(c: string) {
     >
       <div class="space-y-3" data-testid="modal-pen">
         <div>
-          <div class="mb-1 flex items-center gap-2">
-            <p class="text-xs font-semibold opacity-70">{{ $t("sketch.slotsGroup") }}</p>
-            <OyaIconButton
-              size="sm"
-              icon="pencil"
-              :label="$t('sketch.editPalette')"
-              :active="paletteEditing"
-              :aria-pressed="paletteEditing"
-              data-testid="palette-edit"
-              @click="toggleEditing()"
-            />
-          </div>
-          <!-- Keyed by INDEX, not colour: two slots may hold the same colour, and a
-               colour key would then misorder these nodes. -->
-          <div class="flex items-center gap-1.5">
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.palette") }}</p>
+          <div class="grid grid-cols-7 gap-1.5">
             <button
-              v-for="(c, i) in sketch.slots.value"
-              :key="i"
+              v-for="o in colors"
+              :key="o.role"
               type="button"
               class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
-              :class="[
-                paletteEditing
-                  ? armedSlot === i
-                    ? 'border-dashed border-accent-light dark:border-accent-dark'
-                    : `border-dashed ${IDLE_SWATCH}`
-                  : sketch.currentColor.value === c
-                    ? 'border-accent-light dark:border-accent-dark'
-                    : IDLE_SWATCH,
-              ]"
-              :style="{ backgroundColor: c }"
-              :data-testid="`slot-${i}`"
-              :aria-label="`${$t(paletteEditing ? 'sketch.editSlot' : 'sketch.slot', { n: i + 1 })}${labelOf(c) ? ' — ' + $t(labelOf(c)) : ''}`"
-              :aria-expanded="paletteEditing ? armedSlot === i : undefined"
-              @click="onSlotClick(i)"
-            />
-          </div>
-        </div>
-
-        <!-- Both shade sets, labelled by the board they suit. -->
-        <div v-for="group in ([
-               { key: 'light', labelKey: 'sketch.lightShades', colors: lightShades },
-               { key: 'dark', labelKey: 'sketch.darkShades', colors: darkShades },
-               { key: 'other', labelKey: 'sketch.otherColors', colors: OTHER_COLORS },
-             ] as const)"
-             :key="group.key">
-          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t(group.labelKey) }}</p>
-          <div class="grid grid-cols-8 gap-1.5">
-            <button
-              v-for="c in group.colors"
-              :key="`${group.key}-${c}`"
-              type="button"
-              class="h-7 w-7 rounded-full border-2 transition hover:scale-110"
-              :class="sketch.currentColor.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-              :style="{ backgroundColor: c }"
-              :data-testid="`swatch-${group.key}-${c.slice(1)}`"
-              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
-              :title="labelOf(c) ? $t(labelOf(c)) : c"
-              @click="onCatalogueClick(c)"
+              :class="sketch.currentColor.value === o.hex ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: o.hex }"
+              :data-testid="`swatch-${o.role}`"
+              :aria-label="$t(o.nameKey)"
+              :title="$t(o.nameKey)"
+              @click="onCatalogueClick(o.hex)"
             />
           </div>
         </div>
@@ -460,41 +362,19 @@ function setBackgroundColor(c: string) {
         </button>
 
         <div>
-          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.slotsGroup") }}</p>
-          <div class="flex items-center gap-1.5">
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.palette") }}</p>
+          <div class="grid grid-cols-7 gap-1.5">
             <button
-              v-for="(c, i) in sketch.slots.value"
-              :key="i"
+              v-for="o in colors"
+              :key="o.role"
               type="button"
               class="h-7 w-7 rounded border-2 transition hover:scale-110"
-              :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-              :style="{ backgroundColor: c }"
-              :data-testid="`fill-slot-${i}`"
-              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
-              @click="pickFill(c); closePicker()"
-            />
-          </div>
-        </div>
-
-        <div v-for="group in ([
-               { key: 'light', labelKey: 'sketch.lightShades', colors: lightShades },
-               { key: 'dark', labelKey: 'sketch.darkShades', colors: darkShades },
-               { key: 'other', labelKey: 'sketch.otherColors', colors: OTHER_COLORS },
-             ] as const)"
-             :key="group.key">
-          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t(group.labelKey) }}</p>
-          <div class="grid grid-cols-8 gap-1.5">
-            <button
-              v-for="c in group.colors"
-              :key="`${group.key}-${c}`"
-              type="button"
-              class="h-7 w-7 rounded border-2 transition hover:scale-110"
-              :class="sketch.currentFill.value === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-              :style="{ backgroundColor: c }"
-              :data-testid="`fill-swatch-${group.key}-${c.slice(1)}`"
-              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
-              :title="labelOf(c) ? $t(labelOf(c)) : c"
-              @click="pickFill(c); closePicker()"
+              :class="sketch.currentFill.value === o.hex ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: o.hex }"
+              :data-testid="`fill-swatch-${o.role}`"
+              :aria-label="$t(o.nameKey)"
+              :title="$t(o.nameKey)"
+              @click="pickFill(o.hex); closePicker()"
             />
           </div>
         </div>
@@ -557,25 +437,20 @@ function setBackgroundColor(c: string) {
           </div>
         </div>
 
-        <div v-for="group in ([
-               { key: 'light', labelKey: 'sketch.lightShades', colors: lightShades },
-               { key: 'dark', labelKey: 'sketch.darkShades', colors: darkShades },
-               { key: 'other', labelKey: 'sketch.otherColors', colors: OTHER_COLORS },
-             ] as const)"
-             :key="group.key">
-          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t(group.labelKey) }}</p>
-          <div class="grid grid-cols-8 gap-1.5">
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.palette") }}</p>
+          <div class="grid grid-cols-7 gap-1.5">
             <button
-              v-for="c in group.colors"
-              :key="`${group.key}-${c}`"
+              v-for="o in colors"
+              :key="o.role"
               type="button"
               class="h-7 w-7 rounded border-2 transition hover:scale-110"
-              :class="background === c ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
-              :style="{ backgroundColor: c }"
-              :data-testid="`board-swatch-${group.key}-${c.slice(1)}`"
-              :aria-label="labelOf(c) ? $t(labelOf(c)) : c"
-              :title="labelOf(c) ? $t(labelOf(c)) : c"
-              @click="setBackgroundColor(c)"
+              :class="background === o.hex ? 'border-accent-light dark:border-accent-dark' : IDLE_SWATCH"
+              :style="{ backgroundColor: o.hex }"
+              :data-testid="`board-swatch-${o.role}`"
+              :aria-label="$t(o.nameKey)"
+              :title="$t(o.nameKey)"
+              @click="setBackgroundColor(o.hex)"
             />
           </div>
         </div>

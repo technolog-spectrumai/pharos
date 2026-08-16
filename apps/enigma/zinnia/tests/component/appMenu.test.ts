@@ -131,3 +131,29 @@ describe("keyboard shortcuts across tabs", () => {
     expect(sketch.props("active")).toBe(true);
   });
 });
+
+describe("the export command", () => {
+  it("appears only for a tab that offers one", async () => {
+    // Export is per-editor: the sketch has PNG, the writer has nothing. An
+    // entry that was always there and usually inert would be worse than one
+    // that arrives with the tab it belongs to.
+    const w = mountApp();
+    await flushPromises();
+    await w.get('[data-testid="app-menu"]').trigger("click");
+    expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);
+
+    await w.get('[data-testid="app-menu"]').trigger("click"); // close
+    await w.get('[data-testid="nav-sketch"]').trigger("click");
+    await flushPromises();
+    await w.get('[data-testid="app-menu"]').trigger("click");
+    expect(w.find('[data-testid="menu-export"]').exists()).toBe(true);
+  });
+
+  it("is gone from the sketch's own toolbar", async () => {
+    const w = mountApp();
+    await flushPromises();
+    await w.get('[data-testid="nav-sketch"]').trigger("click");
+    await flushPromises();
+    expect(w.find('[data-testid="svg-export-png"]').exists()).toBe(false);
+  });
+});
