@@ -245,6 +245,7 @@ export default {
       rect: "Prostokąt",
       circle: "Okrąg",
       triangle: "Trójkąt",
+      line: "Linia",
       arrow: "Strzałka",
       text: "Tekst",
       eraser: "Gumka",

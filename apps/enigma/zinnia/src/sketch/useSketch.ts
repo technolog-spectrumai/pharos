@@ -314,6 +314,22 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     } as ArrowShape);
   }
 
+  /** A plain line: the same shape as an arrow, minus the head. Sharing the
+   *  kind is what keeps every handle, transform and hit-test working for both
+   *  without a second code path. */
+  function addLine(x1: number, y1: number, x2: number, y2: number) {
+    if (atCapacity() || Math.hypot(x2 - x1, y2 - y1) < 2) return;
+    commit({
+      ...newBase(),
+      kind: "arrow",
+      x1: quant(x1),
+      y1: quant(y1),
+      x2: quant(x2),
+      y2: quant(y2),
+      head: false,
+    } as ArrowShape);
+  }
+
   function addText(x: number, y: number, text: string, size: number, tw: number, th: number) {
     const clean = text.trim().slice(0, caps.maxTextLen);
     if (!clean || atCapacity()) return;
@@ -514,6 +530,7 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     addTriangle,
     addEllipse,
     addArrow,
+    addLine,
     addText,
     beginErase,
     eraseAlong,

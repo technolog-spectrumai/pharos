@@ -268,6 +268,7 @@ export async function rasterize(
         target.moveTo(s.x1, s.y1);
         target.lineTo(s.x2, s.y2);
         target.stroke();
+        if (s.head === false) break;   // a line has no head to fill
         const head = arrowHead(s);
         target.beginPath();
         target.moveTo(head[0][0], head[0][1]);

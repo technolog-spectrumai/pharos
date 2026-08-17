@@ -200,6 +200,16 @@ export interface ArrowShape extends ShapeBase {
   y1: number;
   x2: number;
   y2: number;
+  /** Whether to draw the head. A plain line is an arrow without one.
+   *
+   *  Optional, and absent MEANS TRUE: every arrow written before this existed
+   *  has no such field, and they were all headed. A required flag would have
+   *  made every one of those documents invalid.
+   *
+   *  This is why SVG `<line>` survives a round trip. It used to import as an
+   *  arrow and export as `<g><line/><polygon/></g>` — so a triangle drawn from
+   *  three lines came back as three arrows, permanently, in both editors. */
+  head?: boolean;
 }
 export interface TextShape extends ShapeBase {
   kind: "text";
@@ -549,6 +559,9 @@ export function distToShape(s: Shape, px: number, py: number): number {
       return Math.abs(k - 1) * Math.min(s.rx, s.ry);
     }
     case "arrow":
+      // A headless arrow is just its shaft — measuring to a head that is not
+      // drawn would let the eraser and the click test grab empty space.
+      if (s.head === false) return distToSeg(px, py, s.x1, s.y1, s.x2, s.y2);
       return Math.min(
         distToSeg(px, py, s.x1, s.y1, s.x2, s.y2),
         distToPoly(px, py, arrowHead(s)),
@@ -667,7 +680,11 @@ export function validateShape(x: unknown, caps: SketchCaps): Shape | null {
       const x2 = num(o.x2);
       const y2 = num(o.y2);
       if (x1 === null || y1 === null || x2 === null || y2 === null) return null;
-      return { ...base, kind: "arrow", x1, y1, x2, y2 };
+      // Only ever written when false: absent means headed, which keeps the
+      // shape of every document that predates the flag.
+      return o.head === false
+        ? { ...base, kind: "arrow", x1, y1, x2, y2, head: false }
+        : { ...base, kind: "arrow", x1, y1, x2, y2 };
     }
     case "text": {
       const x0 = num(o.x);
@@ -763,6 +780,17 @@ export function shapeToSvg(s: Shape): string {
     case "triangle":
       return `<polygon points="${polyPoints(trianglePoints(s))}" ${HINT_KIND}="triangle" fill="${fill}" ${common} stroke-linejoin="round"${rot}/>`;
     case "arrow":
+      // A headless arrow IS a line, and it goes out as one — no group, no
+      // hint attribute, nothing to identify it as ours. That is the point:
+      // it re-imports as a line anywhere, including in delta's editor and in
+      // whatever drew it in the first place.
+      if (s.head === false) {
+        return (
+          `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" ` +
+          `stroke="${esc(s.color)}" stroke-width="${s.sw}" ` +
+          `stroke-linecap="round" opacity="${s.opacity}"${rot}/>`
+        );
+      }
       // One group carries both the transform and the opacity, so the shaft and the
       // head turn together AND composite once — putting opacity on each child would
       // darken their overlap, which is not what the board shows.

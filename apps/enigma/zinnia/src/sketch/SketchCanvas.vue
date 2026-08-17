@@ -25,10 +25,13 @@ import {
   SVG_FONT_STACK,
   trianglePoints,
   type Shape,
+  type ArrowShape,
 } from "./sketchModel";
 import type { Sketch } from "./useSketch";
 
-export type Tool = "select" | "draw" | "rect" | "ellipse" | "triangle" | "arrow" | "text" | "eraser";
+export type Tool =
+  | "select" | "draw" | "rect" | "ellipse" | "triangle" | "line" | "arrow"
+  | "text" | "eraser";
 
 const props = defineProps<{ sketch: Sketch; tool: Tool; zoom?: number }>();
 
@@ -170,6 +173,7 @@ function onDown(e: PointerEvent) {
     case "rect":
     case "ellipse":
     case "triangle":
+    case "line":
     case "arrow":
       drag.value = { mode: "shape", start: p, cur: p };
       return;
@@ -282,6 +286,7 @@ function onUp(e: PointerEvent) {
     if (props.tool === "rect") sketch.value.addRect(start.x, start.y, w, h);
     else if (props.tool === "triangle") sketch.value.addTriangle(start.x, start.y, w, h);
     else if (props.tool === "arrow") sketch.value.addArrow(start.x, start.y, cur.x, cur.y);
+    else if (props.tool === "line") sketch.value.addLine(start.x, start.y, cur.x, cur.y);
     else if (props.tool === "ellipse") {
       sketch.value.addEllipse((start.x + cur.x) / 2, (start.y + cur.y) / 2, Math.abs(w) / 2, Math.abs(h) / 2);
     }
@@ -341,7 +346,7 @@ const previewShape = computed(() => {
 
 const previewArrowHead = computed(() => {
   const p = previewShape.value;
-  if (!p || props.tool !== "arrow") return "";
+  if (!p || props.tool !== "arrow") return "";   // "line" draws no head
   return arrowHead({
     kind: "arrow",
     x1: p.x1,
@@ -482,7 +487,8 @@ const boardSurfaceClass = computed(() =>
               :stroke-width="s.sw"
               stroke-linecap="round"
             />
-            <polygon :points="headPoints(s)" :fill="s.color" />
+            <polygon v-if="(s as ArrowShape).head !== false"
+                     :points="headPoints(s)" :fill="s.color" />
           </g>
           <text
             v-else-if="s.kind === 'text'"

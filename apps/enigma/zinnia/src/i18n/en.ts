@@ -245,6 +245,7 @@ export default {
       rect: "Rectangle",
       circle: "Circle",
       triangle: "Triangle",
+      line: "Line",
       arrow: "Arrow",
       text: "Text",
       eraser: "Eraser",

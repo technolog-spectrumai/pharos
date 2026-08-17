@@ -248,3 +248,58 @@ describe("a new drawing", () => {
     expect(serializeSvgDocument(doc)).toBe(seeded);
   });
 });
+
+describe("a plain line survives being opened and saved", () => {
+  const LINE =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">' +
+    '<line x1="10" y1="20" x2="110" y2="20" stroke="#111111" stroke-width="2"/>' +
+    "</svg>";
+
+  const reserialise = (text: string) => {
+    const { doc } = parse(text);
+    return serializeSvgDocument(withShapes(doc, shapesOf(doc)));
+  };
+
+  it("imports as an arrow with no head", () => {
+    // Sharing the arrow kind is deliberate — it reuses every handle, transform
+    // and hit-test — but the head must not come with it.
+    const shapes = shapesOf(parse(LINE).doc);
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0].kind).toBe("arrow");
+    expect((shapes[0] as { head?: boolean }).head).toBe(false);
+  });
+
+  it("does NOT grow an arrowhead when saved", () => {
+    // The bug: the exporter always emitted the head polygon, so every plain
+    // line acquired an arrowhead the first time the file was saved, and a
+    // triangle drawn from three lines came back as three arrows — permanently.
+    const out = reserialise(LINE);
+    expect(out).toContain("<line");
+    expect(out).not.toContain("<polygon");
+  });
+
+  it("goes out as a bare <line>, not as one of our groups", () => {
+    // So it re-imports as a line everywhere else too — delta's editor, or
+    // whatever drew it in the first place.
+    expect(reserialise(LINE)).not.toContain('data-en-kind="arrow"');
+  });
+
+  it("is stable over repeated open/save cycles", () => {
+    const once = reserialise(LINE);
+    expect(reserialise(once)).toBe(once);
+  });
+
+  it("leaves a real arrow alone", () => {
+    const arrowSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">' +
+      '<g data-en-kind="arrow" opacity="1">' +
+      '<line x1="0" y1="0" x2="50" y2="0" stroke="#111111" stroke-width="2"/>' +
+      '<polygon points="50,0 44,-3 44,3" fill="#111111"/>' +
+      "</g></svg>";
+    const shapes = shapesOf(parse(arrowSvg).doc);
+    expect((shapes[0] as { head?: boolean }).head).toBeUndefined();
+    const out = reserialise(arrowSvg);
+    expect(out).toContain("<polygon");
+    expect(out).toContain('data-en-kind="arrow"');
+  });
+});

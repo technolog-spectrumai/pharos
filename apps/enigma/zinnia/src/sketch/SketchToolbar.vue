@@ -52,6 +52,7 @@ const TOOLS: { id: Tool; icon: string; labelKey: string }[] = [
   { id: "rect", icon: "square", labelKey: "sketch.tools.rect" },
   { id: "ellipse", icon: "circle", labelKey: "sketch.tools.circle" },
   { id: "triangle", icon: "play", labelKey: "sketch.tools.triangle" },
+  { id: "line", icon: "minus", labelKey: "sketch.tools.line" },
   { id: "arrow", icon: "arrow-right", labelKey: "sketch.tools.arrow" },
   { id: "text", icon: "font", labelKey: "sketch.tools.text" },
   { id: "eraser", icon: "eraser", labelKey: "sketch.tools.eraser" },

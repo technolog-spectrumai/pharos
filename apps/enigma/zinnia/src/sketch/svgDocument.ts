@@ -191,12 +191,15 @@ function toShape(el: Element, caps: SketchCaps, measure: MeasureText): Shape | n
         return { ...common, kind: "ellipse", cx, cy, rx: r, ry: r };
       }
       case "line": {
-        // No `line` kind exists — an arrow whose head is degenerate is the
-        // closest faithful representation, and it stays editable.
+        // A line is an arrow with no head — `head: false` — and it serialises
+        // back out as a bare <line>. It used to import as an ordinary arrow,
+        // and since the exporter always drew the head polygon, every plain
+        // line GREW AN ARROWHEAD the first time the file was saved. A triangle
+        // drawn from three lines came back as three arrows, permanently.
         const x1 = n(el, "x1") ?? 0, y1 = n(el, "y1") ?? 0;
         const x2 = n(el, "x2"), y2 = n(el, "y2");
         if (x2 === null || y2 === null) return null;
-        return { ...common, kind: "arrow", x1, y1, x2, y2 };
+        return { ...common, kind: "arrow", x1, y1, x2, y2, head: false };
       }
       case "polygon": {
         // Only OUR triangles: an arbitrary 3-point polygon is not necessarily
