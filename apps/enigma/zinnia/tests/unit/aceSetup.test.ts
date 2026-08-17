@@ -25,6 +25,9 @@ describe("ACE offline setup", () => {
       "Cargo.toml": "toml",
       "settings.ini": "ini",
       "feed.xml": "xml",
+      // The fallback when a deck is opened as text: without this it lands in
+      // plain_text and silently loses XML highlighting.
+      "talk.pxml": "xml",
       "main.js": "javascript",
       "main.ts": "typescript",
       "script.py": "python",

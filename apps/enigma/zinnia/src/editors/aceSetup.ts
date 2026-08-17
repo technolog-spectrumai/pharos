@@ -62,6 +62,7 @@ const EXT_TO_MODE: Record<string, string> = {
   cfg: "ini",
   conf: "ini",
   xml: "xml",
+  pxml: "xml",
   svg: "xml",
   js: "javascript",
   mjs: "javascript",

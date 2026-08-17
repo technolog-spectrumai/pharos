@@ -58,5 +58,7 @@ export const KIND_FILES: Record<EditorKind, {
   document: { untitledKey: "file.untitledDoc",   extensions: ["xml"],  filterKey: "nav.write" },
   sketch:   { untitledKey: "file.untitled",      extensions: ["svg"],  filterKey: "nav.sketch" },
   sheet:    { untitledKey: "file.untitledSheet", extensions: ["json"], filterKey: "nav.sheets" },
-  deck:     { untitledKey: "file.untitledDeck",  extensions: ["xml"],  filterKey: "nav.presentations" },
+  // pxml FIRST: extensions[0] is what Save As defaults to. "xml" stays as a
+  // second entry so the Open dialog still shows the decks already on disk.
+  deck:     { untitledKey: "file.untitledDeck",  extensions: ["pxml", "xml"], filterKey: "nav.presentations" },
 };

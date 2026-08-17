@@ -190,7 +190,7 @@ export default {
     newSheet: "New spreadsheet",
     untitledSheet: "untitled-sheet.json",
     newDeck: "New presentation",
-    untitledDeck: "untitled-deck.xml",
+    untitledDeck: "untitled-deck.pxml",
     newDoc: "New document",
     untitledDoc: "untitled.xml",
     newText: "New text",

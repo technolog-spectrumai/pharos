@@ -155,7 +155,7 @@ function addBlock(type: string, slot: string) {
  *
  *  These payloads are a FILE's contents, so typing them was never the right
  *  interaction: an image block wanted a pasted data URI and an svg block a
- *  pasted document. The deck is a single self-contained .xml, so the file is
+ *  pasted document. The deck is a single self-contained .pxml, so the file is
  *  embedded rather than referenced — a path would break the moment the deck
  *  was moved or sent to someone. */
 const importing = ref(false);

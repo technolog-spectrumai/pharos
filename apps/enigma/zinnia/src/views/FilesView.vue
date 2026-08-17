@@ -18,7 +18,7 @@ import { useCloudFiles } from "../files/useCloudFiles";
 import { useWorkspace, type Entry } from "../files/useWorkspace";
 import { useCloud } from "../cloud/useCloud";
 import { formatDate, formatSize } from "../files/format";
-import { kindForFile, looksOpenable } from "../files/openWith";
+import { kindForFile, kindForVaultFile, looksOpenable } from "../files/openWith";
 import { isEmptyDirectory, trailTo, type TreeNode } from "../files/cloudTree";
 import type { VaultFileDto } from "../api/vault";
 import type { EditorKind } from "../tabs";
@@ -71,7 +71,11 @@ async function openVaultFile(file: VaultFileDto) {
   try {
     const content = await vault.open(file);
     const name = file.title || file.key;
-    const kind = kindForFile(name, content);
+    // The server's own classification wins for a cloud file. The vault's pxml
+    // migration retyped legacy decks without renaming them, so a deck row can
+    // be typed `pxml` while still titled `talk.xml` — routing on the title
+    // alone would send it to the document editor.
+    const kind = kindForVaultFile(file.file_type, name, content);
     if (!kind) {
       actionError.value = "files.cannotOpen";
       return;

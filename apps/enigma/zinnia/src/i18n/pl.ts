@@ -190,7 +190,7 @@ export default {
     newSheet: "Nowy arkusz",
     untitledSheet: "bez-nazwy-arkusz.json",
     newDeck: "Nowa prezentacja",
-    untitledDeck: "bez-nazwy-prezentacja.xml",
+    untitledDeck: "bez-nazwy-prezentacja.pxml",
     newDoc: "Nowy dokument",
     untitledDoc: "bez-nazwy.xml",
     newText: "Nowy tekst",

@@ -39,6 +39,8 @@ same time — enigma owns 1420/1421. That number appears in four files
 |---|---|---|
 | Drawing | `.svg` | a hand-rolled SVG engine, ported from enigma |
 | Document | `.xml` (cyprian) | TipTap with cyprian's own schema |
+| Presentation | `.pxml` (memo) | slide blocks over the same TipTap schema |
+| Sheet | `.json` | a grid over the sheet format |
 | Text | everything else | ACE, with modes and workers bundled offline |
 
 `src/views/EditorHost.vue` owns the FILE — opening, saving, the discard prompt,

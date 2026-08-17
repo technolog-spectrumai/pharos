@@ -4,11 +4,16 @@
 // and the file is assumed to comply. A file browser inverts that — you click a
 // file and the app has to work out where it goes.
 //
-// Extension alone cannot do it. `document` and `deck` BOTH claim `.xml`, so a
-// `.xml` is genuinely ambiguous and has to be settled by looking inside. The
-// sniffers already exist, written for exactly this question when each editor
-// decides whether to accept what it was handed — so this reuses them rather
-// than inventing a second, divergent opinion about what a document looks like.
+// A `.pxml` deck says what it is in its name, and so does a `.svg` or a `.json`.
+// A `.xml` does not: cyprian documents still use it, and every deck written
+// before the `.pxml` class existed is one. So the extension decides where it
+// can, and the sniffers settle `.xml`. The sniffers already exist, written for
+// exactly this question when each editor decides whether to accept what it was
+// handed — so this reuses them rather than inventing a second, divergent
+// opinion about what a document looks like.
+//
+// The sniffing that survives here is LEGACY RESCUE, not the router. Deleting it
+// would strand every deck already sitting on a user's disk as a `.xml`.
 import { sniffIsDocument } from "../formats/document";
 import { sniffIsPresentation } from "../formats/presentation";
 import { isSheet } from "../formats/sheet";
@@ -18,6 +23,20 @@ import type { EditorKind } from "../tabs";
 const BY_EXTENSION: Record<string, EditorKind> = {
   svg: "sketch",
   json: "sheet",
+  pxml: "deck",
+};
+
+/** Vault file_type -> editor. The server types a deck now, so a cloud file does
+ *  not have to be guessed at from its name — which matters because the vault
+ *  migration retyped legacy decks WITHOUT renaming them, so a `pxml` row can
+ *  still be titled `talk.xml`. "presentation" is the legacy spelling, still
+ *  served by hosts the migration could not fully reach. */
+const BY_VAULT_TYPE: Record<string, EditorKind> = {
+  pxml: "deck",
+  presentation: "deck",
+  svg: "sketch",
+  sheet: "sheet",
+  document: "document",
 };
 
 export function extensionOf(name: string): string {
@@ -44,7 +63,10 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
     if (sniffIsPresentation(content)) return "deck";
     if (sniffIsDocument(content)) return "document";
     if (ext === "svg") return "sketch"; // no sniffer; the extension is the claim
-    return null;
+    // Fall back to the name rather than giving up: a `.pxml` whose bytes did
+    // not sniff (an empty deck, say) is still a deck, and returning null here
+    // would make it unopenable precisely when its content WAS available.
+    return BY_EXTENSION[ext] ?? null;
   }
 
   return BY_EXTENSION[ext] ?? null;
@@ -56,4 +78,20 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
 export function looksOpenable(name: string): boolean {
   const ext = extensionOf(name);
   return ext === "xml" || ext in BY_EXTENSION;
+}
+
+/**
+ * The editor for a file in the CLOUD, where the server has already classified
+ * it. Preferred over `kindForFile` for vault rows: the vault's `pxml` migration
+ * retyped decks without renaming them, so the title is the less reliable of the
+ * two signals. Falls back to the name-and-content route for types the vault
+ * does not map (plain `xml`, which is still genuinely ambiguous).
+ */
+export function kindForVaultFile(
+  fileType: string | undefined,
+  name: string,
+  content?: string,
+): EditorKind | null {
+  const byType = fileType ? BY_VAULT_TYPE[fileType] : undefined;
+  return byType ?? kindForFile(name, content);
 }
