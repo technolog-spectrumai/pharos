@@ -9,7 +9,7 @@ app:
   # Must MATCH tauri.conf.json (productName / identifier / version), which stays
   # authoritative for the native bundle — build.rs asserts equality.
   name: Enigma26
-  identifier: com.basilisk.enigma
+  identifier: com.spectrumaipl.enigma
   version: 0.1.3
 
 
