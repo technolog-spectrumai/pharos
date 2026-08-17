@@ -284,6 +284,24 @@ function setBackgroundColor(c: string) {
             </button>
           </div>
         </div>
+
+        <div class="border-t pt-3 border-accent-2/50 dark:border-accent-1/50">
+          <label class="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 cursor-pointer accent-current"
+              data-testid="brush-sticky"
+              :checked="sketch.sticky.value"
+              @change="sketch.sticky.value = ($event.target as HTMLInputElement).checked"
+            />
+            <span class="min-w-0">
+              <span class="block text-xs font-semibold">{{ $t("sketch.sticky") }}</span>
+              <span class="block text-[11px] leading-snug opacity-60">
+                {{ $t("sketch.stickyHint") }}
+              </span>
+            </span>
+          </label>
+        </div>
       </div>
     </SketchPickerModal>
 

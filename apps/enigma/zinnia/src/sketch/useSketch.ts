@@ -101,6 +101,11 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
   const currentOpacity = ref<number>(1);
   /** null = outline only. Applies to rect / ellipse / triangle. */
   const currentFill = ref<string | null>(null);
+  /** Snap a new shape's corners to the vertices and edge centres of the shapes
+   *  already on the board. Off by default: it changes where a drag lands, and
+   *  a tool that silently moves your line is worse than one that does not help
+   *  until asked. */
+  const sticky = ref<boolean>(false);
   /** The seven assignable colours behind both the stroke row and the fill row. */
 
   /** Board size comes from the FILE's own viewBox, not from the container. The
@@ -515,6 +520,7 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     currentColor,
     currentWidth,
     currentOpacity,
+    sticky,
     currentFill,
     boardW,
     setBoardWidth,

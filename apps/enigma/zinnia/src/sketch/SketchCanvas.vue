@@ -26,6 +26,8 @@ import {
   trianglePoints,
   type Shape,
   type ArrowShape,
+  nearestSnap,
+  snapPoints,
 } from "./sketchModel";
 import type { Sketch } from "./useSketch";
 
@@ -174,9 +176,13 @@ function onDown(e: PointerEvent) {
     case "ellipse":
     case "triangle":
     case "line":
-    case "arrow":
-      drag.value = { mode: "shape", start: p, cur: p };
+    case "arrow": {
+      // Both ends stick: the corner you start from matters as much as the one
+      // you finish on.
+      const from = stick(p);
+      drag.value = { mode: "shape", start: from, cur: from };
       return;
+    }
     case "eraser":
       sketch.value.beginErase();
       sketch.value.eraseAlong(p.x, p.y, p.x, p.y, ERASER_RADIUS);
@@ -244,7 +250,7 @@ function onMove(e: PointerEvent) {
         d.last = p;
         break;
       case "shape":
-        d.cur = p;
+        d.cur = stick(p);
         break;
       case "move":
         sketch.value.moveSelected(p.x - d.last.x, p.y - d.last.y);
@@ -314,6 +320,39 @@ function rotOf(s: Shape): string | undefined {
   const { cx, cy } = shapePivot(s);
   return `rotate(${s.rot} ${cx} ${cy})`;
 }
+/** How far from the pointer a snap point still gets a ring. Wider than the
+ *  snap radius itself, so a target announces itself BEFORE the drag reaches it
+ *  rather than appearing at the instant it takes effect. */
+const SNAP_SHOW_RADIUS = 72;
+
+/** The snap targets on the board, when sticky is on.
+ *
+ *  Computed from the COMMITTED shapes, so the shape being dragged right now
+ *  never offers points to itself — a rect snapping to its own corner would
+ *  pin the drag at zero size. */
+const snapTargets = computed<[number, number][]>(() =>
+  sketch.value.sticky.value ? snapPoints(sketch.value.shapes.value) : [],
+);
+
+/** Apply sticky to a pointer position, if it is on and something is in range. */
+function stick(p: { x: number; y: number }): { x: number; y: number } {
+  if (!sketch.value.sticky.value) return p;
+  return nearestSnap(p.x, p.y, snapTargets.value) ?? p;
+}
+
+/** The targets worth DRAWING: the ones near enough to matter. Showing all of
+ *  them would put a ring on every corner of every shape — on a full board that
+ *  is hundreds of rings, and the one you are about to hit disappears into
+ *  them. */
+const visibleSnaps = computed<[number, number][]>(() => {
+  if (!sketch.value.sticky.value) return [];
+  const p = cursor.value;
+  if (!p) return [];
+  return snapTargets.value.filter(
+    ([x, y]) => Math.hypot(x - p.x, y - p.y) <= SNAP_SHOW_RADIUS,
+  );
+});
+
 function triPoints(s: Shape): string {
   return trianglePoints(s as never)
     .map(([x, y]) => `${x},${y}`)
@@ -557,6 +596,20 @@ const boardSurfaceClass = computed(() =>
             stroke-linecap="round"
           />
           <polygon :points="previewArrowHead" :fill="sketch.currentColor.value" />
+        </g>
+      </g>
+
+      <!-- Sticky targets near the pointer: a small ring with a dot in it.
+           Drawn last so they sit above the drawing, and pointer-events: none so
+           they can never eat a click meant for a shape. Sized in BOARD units,
+           which is the same everywhere on the board regardless of zoom. -->
+      <g v-if="visibleSnaps.length" pointer-events="none">
+        <g v-for="([sx, sy], i) in visibleSnaps" :key="`snap-${i}`">
+          <circle
+            :cx="sx" :cy="sy" r="5"
+            fill="none" stroke="currentColor" stroke-width="1.25" opacity="0.55"
+          />
+          <circle :cx="sx" :cy="sy" r="1.4" fill="currentColor" opacity="0.75" />
         </g>
       </g>
 

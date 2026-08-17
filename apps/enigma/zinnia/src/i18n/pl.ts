@@ -283,6 +283,8 @@ export default {
     },
     size: "Grubość linii",
     opacity: "Przezroczystość",
+    sticky: "Przyciąganie",
+    stickyHint: "Przyciągaj do naroży i środków krawędzi pobliskich kształtów.",
     fill: "Wypełnienie",
     background: "Tło",
     noBackground: "Przezroczyste",

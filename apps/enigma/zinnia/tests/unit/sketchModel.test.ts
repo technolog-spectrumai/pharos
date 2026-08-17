@@ -29,6 +29,9 @@ import {
   type PathShape,
   type Shape,
   type SketchCaps,
+  nearestSnap,
+  snapPoints,
+  snapPointsOf,
 } from "../../src/sketch/sketchModel";
 
 const CAPS: SketchCaps = { maxShapes: 1000, maxTextLen: 200 };
@@ -711,5 +714,90 @@ describe("elastic board width", () => {
     const svg = toSvg(emptyDoc(), { image: img, width: 2296 });
     expect(svg).toContain('preserveAspectRatio="xMidYMid slice"');
     expect(svg).toContain('width="2296" height="1080"');
+  });
+});
+
+describe("sticky snap points", () => {
+  const base = { color: "#111111", sw: 2, opacity: 1, fill: null, rot: 0 };
+  const near = (pts: [number, number][], x: number, y: number) =>
+    pts.some(([px, py]) => Math.hypot(px - x, py - y) < 0.001);
+
+  it("offers a rect its four corners and four edge centres", () => {
+    const pts = snapPointsOf({ ...base, id: "r", kind: "rect", x: 0, y: 0, w: 100, h: 40 } as Shape);
+    expect(pts).toHaveLength(8);
+    for (const [x, y] of [[0, 0], [100, 0], [100, 40], [0, 40]]) {
+      expect(near(pts, x, y)).toBe(true);          // corners
+    }
+    for (const [x, y] of [[50, 0], [100, 20], [50, 40], [0, 20]]) {
+      expect(near(pts, x, y)).toBe(true);          // edge centres
+    }
+  });
+
+  it("offers a triangle three vertices and three edge centres", () => {
+    const pts = snapPointsOf({ ...base, id: "t", kind: "triangle", x: 0, y: 0, w: 100, h: 100 } as Shape);
+    expect(pts).toHaveLength(6);
+  });
+
+  it("offers a line both ends and its middle", () => {
+    const pts = snapPointsOf({
+      ...base, id: "l", kind: "arrow", x1: 0, y1: 0, x2: 100, y2: 0, head: false,
+    } as Shape);
+    expect(pts).toHaveLength(3);
+    expect(near(pts, 50, 0)).toBe(true);
+  });
+
+  it("offers a circle its four quadrant points and no edge centres", () => {
+    // A circle has no corners and no edges to halve.
+    const pts = snapPointsOf({ ...base, id: "c", kind: "ellipse", cx: 50, cy: 50, rx: 10, ry: 10 } as Shape);
+    expect(pts).toHaveLength(4);
+    expect(near(pts, 40, 50)).toBe(true);
+    expect(near(pts, 50, 60)).toBe(true);
+  });
+
+  it("offers a freehand path only its two ends", () => {
+    // Every sample point would be hundreds of targets a millimetre apart.
+    const pts = snapPointsOf({
+      ...base, id: "p", kind: "path", pts: [0, 0, 5, 5, 10, 0, 20, 30],
+    } as Shape);
+    expect(pts).toEqual([[0, 0], [20, 30]]);
+  });
+
+  it("offers text nothing", () => {
+    const pts = snapPointsOf({
+      ...base, id: "x", kind: "text", x: 0, y: 0, text: "hi", size: 12, tw: 20, th: 14,
+    } as Shape);
+    expect(pts).toEqual([]);
+  });
+
+  it("follows a rotated shape", () => {
+    // Snapping to where a shape ISN'T is worse than not snapping at all.
+    const upright = snapPointsOf({ ...base, id: "r", kind: "rect", x: 0, y: 0, w: 100, h: 40 } as Shape);
+    const turned = snapPointsOf({ ...base, id: "r", kind: "rect", x: 0, y: 0, w: 100, h: 40, rot: 90 } as Shape);
+    expect(turned).toHaveLength(8);
+    expect(turned).not.toEqual(upright);
+    // A 90° turn about the centre (50,20) carries the top-left corner (0,0)
+    // to (70,-30) — outside the upright box, which is the point.
+    expect(near(turned, 70, -30)).toBe(true);
+  });
+
+  it("takes the nearest point inside the radius and nothing outside it", () => {
+    const pts: [number, number][] = [[0, 0], [100, 0]];
+    expect(nearestSnap(4, 3, pts, 12)).toEqual({ x: 0, y: 0 });
+    expect(nearestSnap(96, 0, pts, 12)).toEqual({ x: 100, y: 0 });
+    expect(nearestSnap(50, 0, pts, 12)).toBeNull();
+  });
+
+  it("is stable when two points coincide", () => {
+    // Two shapes sharing a corner must not make the snap flicker between them.
+    const pts: [number, number][] = [[10, 10], [10, 10]];
+    expect(nearestSnap(11, 11, pts)).toEqual({ x: 10, y: 10 });
+  });
+
+  it("collects every shape's points for the board", () => {
+    const shapes = [
+      { ...base, id: "r", kind: "rect", x: 0, y: 0, w: 10, h: 10 },
+      { ...base, id: "l", kind: "arrow", x1: 0, y1: 0, x2: 10, y2: 0 },
+    ] as Shape[];
+    expect(snapPoints(shapes)).toHaveLength(8 + 3);
   });
 });

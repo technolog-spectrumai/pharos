@@ -399,6 +399,103 @@ export function shapePivot(s: Shape): { cx: number; cy: number } {
   return { cx: quant(b.x + b.w / 2), cy: quant(b.y + b.h / 2) };
 }
 
+/** How near the pointer has to be, in board units, for a snap to take. */
+export const SNAP_RADIUS = 12;
+
+/** The points a shape offers to snap to: its VERTICES and the CENTRE OF EACH
+ *  EDGE, and nothing else.
+ *
+ *  A finite, nameable set is the whole idea — it is what makes a drawing come
+ *  out clean. Snapping to the nearest point anywhere along an edge would be
+ *  more powerful and much less predictable, and there would be nothing discrete
+ *  to draw as a ring.
+ *
+ *  Returned in board coordinates with the shape's own rotation already applied,
+ *  because a rotated rect's corners are not its unrotated corners and snapping
+ *  to where a shape ISN'T is worse than not snapping at all.
+ *
+ *  Text is deliberately absent: a label has a box but no geometry anyone means
+ *  to align to. A freehand path offers only its two ends — every sample point
+ *  would be hundreds of targets a millimetre apart. */
+export function snapPointsOf(s: Shape): [number, number][] {
+  const raw: [number, number][] = (() => {
+    switch (s.kind) {
+      case "rect": {
+        const { x, y, w, h } = s;
+        const mx = x + w / 2, my = y + h / 2;
+        return [
+          [x, y], [x + w, y], [x + w, y + h], [x, y + h],   // corners
+          [mx, y], [x + w, my], [mx, y + h], [x, my],       // edge centres
+        ];
+      }
+      case "triangle": {
+        const pts = trianglePoints(s);
+        const mid: [number, number][] = pts.map((p, i) => {
+          const q = pts[(i + 1) % pts.length];
+          return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        });
+        return [...pts, ...mid];
+      }
+      case "ellipse":
+        // The four quadrant points. A circle has no corners and no edges to
+        // halve, so these are the only landmarks on it worth aiming at.
+        return [
+          [s.cx - s.rx, s.cy], [s.cx + s.rx, s.cy],
+          [s.cx, s.cy - s.ry], [s.cx, s.cy + s.ry],
+        ];
+      case "arrow":
+        // Both ends and the middle — the same rule as any other edge, applied
+        // to a shape that is one edge. Covers plain lines too (head: false).
+        return [
+          [s.x1, s.y1], [s.x2, s.y2],
+          [(s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2],
+        ];
+      case "path": {
+        const n = s.pts.length;
+        if (n < 2) return [];
+        return [[s.pts[0], s.pts[1]], [s.pts[n - 2], s.pts[n - 1]]];
+      }
+      default:
+        return [];
+    }
+  })();
+
+  if (!s.rot || !raw.length) return raw;
+  const { cx, cy } = shapePivot(s);
+  return raw.map(([x, y]) => {
+    const r = rotatePoint(x, y, cx, cy, s.rot);
+    return [r.x, r.y] as [number, number];
+  });
+}
+
+/** Every snap point on the board. */
+export function snapPoints(shapes: Shape[]): [number, number][] {
+  return shapes.flatMap(snapPointsOf);
+}
+
+/** The nearest snap point within `radius`, or null.
+ *
+ *  Ties go to the earlier point, which is stable: the caller passes shapes in
+ *  document order, so the same cursor position always snaps to the same place
+ *  rather than flickering between two coincident corners. */
+export function nearestSnap(
+  px: number,
+  py: number,
+  points: [number, number][],
+  radius: number = SNAP_RADIUS,
+): { x: number; y: number } | null {
+  let best: { x: number; y: number } | null = null;
+  let bestDist = radius;
+  for (const [x, y] of points) {
+    const d = Math.hypot(x - px, y - py);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { x, y };
+    }
+  }
+  return best;
+}
+
 /** Rotate a point about (cx,cy) by `deg` clockwise (SVG's positive direction). */
 export function rotatePoint(
   px: number,

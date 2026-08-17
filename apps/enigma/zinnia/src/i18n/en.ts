@@ -283,6 +283,8 @@ export default {
     },
     size: "Stroke width",
     opacity: "Transparency",
+    sticky: "Sticky",
+    stickyHint: "Snap to the corners and edge centres of nearby shapes.",
     fill: "Fill",
     background: "Background",
     noBackground: "Transparent",
