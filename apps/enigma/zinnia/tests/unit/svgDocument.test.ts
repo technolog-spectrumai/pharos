@@ -303,3 +303,38 @@ describe("a plain line survives being opened and saved", () => {
     expect(out).toContain('data-en-kind="arrow"');
   });
 });
+
+describe("an arrow's head width survives a save and reopen", () => {
+  const reserialise = (text: string) => {
+    const { doc } = parse(text);
+    return serializeSvgDocument(withShapes(doc, shapesOf(doc)));
+  };
+  const wide =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">' +
+    '<g data-en-kind="arrow" data-en-headw="5.4" opacity="1">' +
+    '<line x1="0" y1="0" x2="100" y2="0" stroke="#111111" stroke-width="4"/>' +
+    '<polygon points="100,0 88,-10 88,10" fill="#111111"/>' +
+    "</g></svg>";
+
+  it("reads the width back off the file", () => {
+    const shapes = shapesOf(parse(wide).doc);
+    expect((shapes[0] as { headWidth?: number }).headWidth).toBe(5.4);
+  });
+
+  it("writes it out again, so reopening does not re-cut the head", () => {
+    // The head polygon is REGENERATED from the shaft on open. Without the hint
+    // every arrow in an old drawing would silently take the current setting.
+    expect(reserialise(wide)).toContain('data-en-headw="5.4"');
+  });
+
+  it("is stable over repeated cycles", () => {
+    const once = reserialise(wide);
+    expect(reserialise(once)).toBe(once);
+  });
+
+  it("says nothing about an ordinary arrow", () => {
+    // Only a non-default width is written, so plain files stay unadorned.
+    const plain = wide.replace(' data-en-headw="5.4"', "");
+    expect(reserialise(plain)).not.toContain("data-en-headw");
+  });
+});

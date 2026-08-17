@@ -393,6 +393,7 @@ const previewArrowHead = computed(() => {
     x2: p.x2,
     y2: p.y2,
     sw: sketch.value.currentWidth.value,
+    headWidth: sketch.value.currentHeadWidth.value,
   } as never)
     .map(([x, y]) => `${x},${y}`)
     .join(" ");

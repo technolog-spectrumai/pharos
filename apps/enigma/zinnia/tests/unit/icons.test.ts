@@ -15,6 +15,7 @@ import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-
 import { TONE_ICONS } from "../../src/icons";
 import "../../src/icons"; // performs library.add as a side effect
 import { APP_TABS } from "../../src/tabs";
+import { SKETCH_TOOLS } from "../../src/sketch/tools";
 
 const SRC = join(__dirname, "../../src");
 
@@ -73,6 +74,15 @@ describe("icon registration", () => {
   it("registers every tab's icon", () => {
     for (const tab of APP_TABS) {
       expect(registered(tab.icon), `tab ${tab.id} → ${tab.icon}`).toBe(true);
+    }
+  });
+
+  it("registers every sketch tool's icon", () => {
+    // The hole this closes: the tool list is a TS object literal, so the
+    // template scanner above never saw it — the line tool shipped naming an
+    // unregistered `minus` and drew nothing at all.
+    for (const tool of SKETCH_TOOLS) {
+      expect(registered(tool.icon), `tool ${tool.id} → ${tool.icon}`).toBe(true);
     }
   });
 

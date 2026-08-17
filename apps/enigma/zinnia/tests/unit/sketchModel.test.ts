@@ -32,6 +32,8 @@ import {
   nearestSnap,
   snapPoints,
   snapPointsOf,
+  DEFAULT_HEAD_WIDTH,
+  DEFAULT_CAPS,
 } from "../../src/sketch/sketchModel";
 
 const CAPS: SketchCaps = { maxShapes: 1000, maxTextLen: 200 };
@@ -799,5 +801,53 @@ describe("sticky snap points", () => {
       { ...base, id: "l", kind: "arrow", x1: 0, y1: 0, x2: 10, y2: 0 },
     ] as Shape[];
     expect(snapPoints(shapes)).toHaveLength(8 + 3);
+  });
+});
+
+describe("arrow head width", () => {
+  const arrow = (over: Record<string, unknown> = {}) => ({
+    id: "a", kind: "arrow", x1: 0, y1: 0, x2: 100, y2: 0,
+    color: "#111111", sw: 4, opacity: 1, fill: null, rot: 0, ...over,
+  }) as Shape;
+
+  const widthOf = (s: Shape) => {
+    const [, b, c] = arrowHead(s as never);
+    return Math.hypot(b[0] - c[0], b[1] - c[1]);
+  };
+
+  it("defaults to the head being 3.6x the line's thickness", () => {
+    expect(widthOf(arrow())).toBeCloseTo(4 * DEFAULT_HEAD_WIDTH, 6);
+  });
+
+  it("is 50% wider than the head this replaced", () => {
+    // The old geometry was half-width = size * 0.4 with size = sw * 3, so a
+    // full width of 2.4 * sw. This is that, one half again.
+    expect(DEFAULT_HEAD_WIDTH).toBeCloseTo(2.4 * 1.5, 6);
+  });
+
+  it("follows the setting", () => {
+    expect(widthOf(arrow({ headWidth: 2.4 }))).toBeCloseTo(4 * 2.4, 6);
+    expect(widthOf(arrow({ headWidth: 5.4 }))).toBeCloseTo(4 * 5.4, 6);
+  });
+
+  it("scales with the line's thickness, not with its length", () => {
+    // Tying the width to the head's LENGTH would make it grow sideways
+    // whenever the head was clamped short on a stubby arrow.
+    expect(widthOf(arrow({ sw: 8 }))).toBeCloseTo(2 * widthOf(arrow({ sw: 4 })), 6);
+    expect(widthOf(arrow({ x2: 12 }))).toBeCloseTo(widthOf(arrow()), 6);
+  });
+
+  it("keeps a non-default width across a save and reopen", () => {
+    // The head polygon is regenerated from the shaft on open, so without the
+    // hint every arrow would be re-cut to the CURRENT setting.
+    const wide = validateShape({ ...(arrow({ headWidth: 5.4 }) as object) }, DEFAULT_CAPS);
+    expect((wide as { headWidth?: number }).headWidth).toBe(5.4);
+  });
+
+  it("refuses a nonsense width rather than drawing a spike", () => {
+    for (const bad of [0, -3, 99, Number.NaN]) {
+      const out = validateShape({ ...(arrow({ headWidth: bad }) as object) }, DEFAULT_CAPS);
+      expect((out as { headWidth?: number }).headWidth).toBeUndefined();
+    }
   });
 });

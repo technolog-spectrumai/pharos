@@ -40,6 +40,7 @@ import {
   type SketchDoc,
   type TextShape,
   type TriangleShape,
+  DEFAULT_HEAD_WIDTH,
 } from "./sketchModel";
 import {
   emptySvgDocument,
@@ -106,6 +107,10 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
    *  a tool that silently moves your line is worse than one that does not help
    *  until asked. */
   const sticky = ref<boolean>(false);
+  /** Head width for NEW arrows, as a multiple of the line's thickness. Stored
+   *  on each arrow as it is drawn, so changing this never re-cuts the heads on
+   *  a drawing somebody already made. */
+  const currentHeadWidth = ref<number>(DEFAULT_HEAD_WIDTH);
   /** The seven assignable colours behind both the stroke row and the fill row. */
 
   /** Board size comes from the FILE's own viewBox, not from the container. The
@@ -316,6 +321,7 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
       y1: quant(y1),
       x2: quant(x2),
       y2: quant(y2),
+      headWidth: currentHeadWidth.value,
     } as ArrowShape);
   }
 
@@ -521,6 +527,7 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     currentWidth,
     currentOpacity,
     sticky,
+    currentHeadWidth,
     currentFill,
     boardW,
     setBoardWidth,

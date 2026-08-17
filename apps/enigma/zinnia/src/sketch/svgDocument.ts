@@ -26,6 +26,7 @@ import {
   DEFAULT_CAPS,
   HINT_BG,
   HINT_BGIMG,
+  HINT_HEADW,
   HINT_KIND,
   HINT_PTS,
   MAX_BOARD_W,
@@ -240,12 +241,14 @@ function toShape(el: Element, caps: SketchCaps, measure: MeasureText): Shape | n
         const x1 = n(line, "x1") ?? 0, y1 = n(line, "y1") ?? 0;
         const x2 = n(line, "x2"), y2 = n(line, "y2");
         if (x2 === null || y2 === null) return null;
+        const headW = n(el, HINT_HEADW);
         return {
           ...common,
           kind: "arrow",
           color: str(line, "stroke") ?? common.color,
           sw: n(line, "stroke-width") ?? common.sw,
           x1, y1, x2, y2,
+          ...(headW === null ? {} : { headWidth: headW }),
         };
       }
       default:

@@ -19,7 +19,7 @@ import {
   faSquarePlus, faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFolderPlus, faFont, faHardDrive, faDownload,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
-  faSquare, faTrash, faTriangleExclamation, faXmark,
+  faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -30,7 +30,7 @@ library.add(
   faSquarePlus, faSquareRootVariable, faTable, faUnderline,
   faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFolderPlus, faFont, faHardDrive, faDownload,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
-  faSquare, faTrash, faTriangleExclamation, faXmark,
+  faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
 );
 
 /** A callout's icon. The tones are cyprian's, so this is the only place that

@@ -200,6 +200,8 @@ export interface ArrowShape extends ShapeBase {
   y1: number;
   x2: number;
   y2: number;
+  /** Head width as a multiple of `sw`. Absent means DEFAULT_HEAD_WIDTH. */
+  headWidth?: number;
   /** Whether to draw the head. A plain line is an arrow without one.
    *
    *  Optional, and absent MEANS TRUE: every arrow written before this existed
@@ -344,9 +346,13 @@ export function arrowHead(s: ArrowShape): [number, number][] {
   const size = Math.min(Math.max(s.sw * 3, 8), len);
   const ux = dx / len;
   const uy = dy / len;
-  // Perpendicular, half-width of the head.
-  const px = -uy * size * 0.4;
-  const py = ux * size * 0.4;
+  // Perpendicular, half-width of the head. Derived from the STROKE, not from
+  // `size`: the width is what the setting controls, and tying it to the length
+  // would make the head grow sideways every time it was clamped short on a
+  // stubby arrow.
+  const half = (s.sw * (s.headWidth ?? DEFAULT_HEAD_WIDTH)) / 2;
+  const px = -uy * half;
+  const py = ux * half;
   const bx = s.x2 - ux * size;
   const by = s.y2 - uy * size;
   return [
@@ -398,6 +404,14 @@ export function shapePivot(s: Shape): { cx: number; cy: number } {
   const b = shapeBounds(s);
   return { cx: quant(b.x + b.w / 2), cy: quant(b.y + b.h / 2) };
 }
+
+/** An arrow head's full width, as a multiple of the line's thickness.
+ *
+ *  Was effectively 2.4 (a head 3× the stroke long, 0.4 of that as half-width);
+ *  3.6 is that 50% wider, which reads better at the stroke widths people
+ *  actually draw with. Width only — the head's LENGTH along the shaft is
+ *  unchanged, so an arrow keeps its reach and just gains a broader point. */
+export const DEFAULT_HEAD_WIDTH = 3.6;
 
 /** How near the pointer has to be, in board units, for a snap to take. */
 export const SNAP_RADIUS = 12;
@@ -779,9 +793,14 @@ export function validateShape(x: unknown, caps: SketchCaps): Shape | null {
       if (x1 === null || y1 === null || x2 === null || y2 === null) return null;
       // Only ever written when false: absent means headed, which keeps the
       // shape of every document that predates the flag.
+      const hw =
+        typeof o.headWidth === "number" && Number.isFinite(o.headWidth)
+          && o.headWidth >= 0.5 && o.headWidth <= 12
+          ? { headWidth: o.headWidth }
+          : {};
       return o.head === false
         ? { ...base, kind: "arrow", x1, y1, x2, y2, head: false }
-        : { ...base, kind: "arrow", x1, y1, x2, y2 };
+        : { ...base, kind: "arrow", x1, y1, x2, y2, ...hw };
     }
     case "text": {
       const x0 = num(o.x);
@@ -861,6 +880,12 @@ export const HINT_KIND = "data-en-kind";
 export const HINT_PTS = "data-en-pts";
 export const HINT_BG = "data-en-bg";
 export const HINT_BGIMG = "data-en-bgimg";
+/** An arrow's head width, as a multiple of its stroke width. Written only when
+ *  it differs from the default, so ordinary arrows stay unadorned — but written
+ *  when it does, because the head polygon is REGENERATED from the shaft on
+ *  open. Without the hint, reopening a drawing would silently re-cut every
+ *  arrowhead to whatever the current setting happens to be. */
+export const HINT_HEADW = "data-en-headw";
 
 /** One shape as an SVG fragment. */
 export function shapeToSvg(s: Shape): string {
@@ -892,7 +917,11 @@ export function shapeToSvg(s: Shape): string {
       // head turn together AND composite once — putting opacity on each child would
       // darken their overlap, which is not what the board shows.
       return (
-        `<g ${HINT_KIND}="arrow" opacity="${s.opacity}"${rot}>` +
+        `<g ${HINT_KIND}="arrow"${
+          s.headWidth !== undefined && s.headWidth !== DEFAULT_HEAD_WIDTH
+            ? ` ${HINT_HEADW}="${s.headWidth}"`
+            : ""
+        } opacity="${s.opacity}"${rot}>` +
         `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" stroke="${esc(s.color)}" stroke-width="${s.sw}" stroke-linecap="round"/>` +
         `<polygon points="${polyPoints(arrowHead(s))}" fill="${esc(s.color)}"/>` +
         `</g>`

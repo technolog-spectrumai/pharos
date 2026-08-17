@@ -15,6 +15,8 @@
 import { computed, ref, watch } from "vue";
 import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import SketchPickerModal from "./SketchPickerModal.vue";
+import { SKETCH_TOOLS } from "./tools";
+import { DEFAULT_HEAD_WIDTH } from "./sketchModel";
 import SketchPickerTrigger from "./SketchPickerTrigger.vue";
 import {
   BACKGROUND_COLORS,
@@ -46,16 +48,14 @@ const emit = defineEmits<{
   chooseImage: [];
 }>();
 
-const TOOLS: { id: Tool; icon: string; labelKey: string }[] = [
-  { id: "select", icon: "arrow-pointer", labelKey: "sketch.tools.select" },
-  { id: "draw", icon: "pencil", labelKey: "sketch.tools.draw" },
-  { id: "rect", icon: "square", labelKey: "sketch.tools.rect" },
-  { id: "ellipse", icon: "circle", labelKey: "sketch.tools.circle" },
-  { id: "triangle", icon: "play", labelKey: "sketch.tools.triangle" },
-  { id: "line", icon: "minus", labelKey: "sketch.tools.line" },
-  { id: "arrow", icon: "arrow-right", labelKey: "sketch.tools.arrow" },
-  { id: "text", icon: "font", labelKey: "sketch.tools.text" },
-  { id: "eraser", icon: "eraser", labelKey: "sketch.tools.eraser" },
+const TOOLS = SKETCH_TOOLS;
+
+/** Head width relative to the line's thickness. Named rather than numeric —
+ *  "3.6" means nothing to someone choosing an arrowhead. */
+const HEAD_WIDTHS = [
+  { value: 2.4, labelKey: "sketch.headNarrow" },
+  { value: DEFAULT_HEAD_WIDTH, labelKey: "sketch.headNormal" },
+  { value: 5.4, labelKey: "sketch.headWide" },
 ];
 
 /** Style changes apply to the current selection too, so the select tool doubles as
@@ -281,6 +281,28 @@ function setBackgroundColor(c: string) {
               @click="emit('update:textSize', s)"
             >
               {{ s }}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="mb-1 text-xs font-semibold opacity-70">{{ $t("sketch.headWidth") }}</p>
+          <div class="flex items-center gap-1">
+            <button
+              v-for="h in HEAD_WIDTHS"
+              :key="h.value"
+              type="button"
+              class="flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-[11px] transition"
+              :class="
+                sketch.currentHeadWidth.value === h.value
+                  ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark'
+                  : 'border-accent-2 dark:border-accent-1 hover:opacity-80'
+              "
+              :aria-label="$t(h.labelKey)"
+              :data-testid="`headwidth-${h.value}`"
+              @click="sketch.currentHeadWidth.value = h.value"
+            >
+              {{ $t(h.labelKey) }}
             </button>
           </div>
         </div>
