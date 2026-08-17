@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createClient, normalizeServerUrl } from "../../src/api/client";
 import { ApiFailure } from "../../src/api/errors";
 import { login } from "../../src/api/auth";
-import { getContent, listFiles, putContent } from "../../src/api/vault";
+import { createFile, getContent, listFiles, putContent } from "../../src/api/vault";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -89,5 +89,49 @@ describe("the client", () => {
     expect(url).toBe("http://server.test/vault/api/files/a%20b/content/");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body as string)).toEqual({ content: "hello" });
+  });
+});
+
+describe("pushing to the vault", () => {
+  it("sends the base hash so the server can refuse a stale overwrite", async () => {
+    // Without base_hash the save is last-writer-wins, which is exactly why
+    // vault files used to open read-only here.
+    const fetchMock = vi.fn(async () => jsonResponse(200, { key: "k" }));
+    await putContent(clientWith(fetchMock as unknown as typeof fetch), "k", "new", "abc123");
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ content: "new", base_hash: "abc123" });
+  });
+
+  it("surfaces a stale save as a conflict, not a generic failure", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(409, {
+      error: "changed", content_hash: "server-side", kept_as_version: 4,
+    }));
+    const err = await putContent(
+      clientWith(fetchMock as unknown as typeof fetch), "k", "mine", "stale",
+    ).then(() => null, (e) => e as ApiFailure);
+    expect(err!.error.kind).toBe("conflict");
+  });
+
+  it("surfaces a locked file as locked, so the UI can name the holder", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(423, {
+      error: "busy", locked_by: "ada",
+    }));
+    const err = await putContent(clientWith(fetchMock as unknown as typeof fetch), "k", "x")
+      .then(() => null, (e) => e as ApiFailure);
+    expect(err!.error.kind).toBe("locked");
+    expect((err!.error as { holder: string }).holder).toBe("ada");
+  });
+
+  it("creates a new vault file WITH its content in one request", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, { key: "talk", file_type: "pxml" }));
+    await createFile(clientWith(fetchMock as unknown as typeof fetch), {
+      bucket_slug: "b", title: "talk.pxml", file_type: "pxml", content: "<presentation/>",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://server.test/vault/api/files/create/");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      bucket_slug: "b", title: "talk.pxml", file_type: "pxml", content: "<presentation/>",
+    });
   });
 });

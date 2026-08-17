@@ -24,7 +24,14 @@ import type { VaultFileDto } from "../api/vault";
 import type { EditorKind } from "../tabs";
 
 const { t } = useI18n({ useScope: "global" });
-const emit = defineEmits<{ open: [{ kind: EditorKind; name: string; content: string }] }>();
+const emit = defineEmits<{
+  open: [{
+    kind: EditorKind; name: string; content: string;
+    /** Present only for CLOUD files. Carries the vault identity and the state
+     *  the content was read at, which is what lets the editor save it back. */
+    origin?: { key: string; baseHash: string };
+  }];
+}>();
 
 /** Kept out of the template binding on purpose: a literal inside an :icon
  *  ternary reads as an icon name to the registration scanner, and a comparison
@@ -69,7 +76,8 @@ async function openVaultFile(file: VaultFileDto) {
   busy.value = true;
   actionError.value = "";
   try {
-    const content = await vault.open(file);
+    const opened = await vault.open(file);
+    const content = opened.content;
     const name = file.title || file.key;
     // The server's own classification wins for a cloud file. The vault's pxml
     // migration retyped legacy decks without renaming them, so a deck row can
@@ -80,7 +88,10 @@ async function openVaultFile(file: VaultFileDto) {
       actionError.value = "files.cannotOpen";
       return;
     }
-    emit("open", { kind, name, content });
+    emit("open", {
+      kind, name, content,
+      origin: { key: file.key, baseHash: opened.content_hash },
+    });
   } catch (err) {
     actionError.value = describeError(err);
   } finally {
@@ -151,7 +162,7 @@ async function downloadFile(file: VaultFileDto) {
   busy.value = true;
   actionError.value = "";
   try {
-    const content = await vault.open(file);
+    const { content } = await vault.open(file);
     const { save } = await import("@tauri-apps/plugin-dialog");
     const target = await save({ defaultPath: file.title || file.key });
     if (typeof target !== "string") return;

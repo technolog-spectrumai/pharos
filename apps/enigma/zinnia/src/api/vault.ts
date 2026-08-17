@@ -39,6 +39,13 @@ export interface FileContent {
   is_editable: boolean;
   size: number;
   content: string;
+  /** The state this content came from. Send it back as `base_hash` when saving
+   *  and the server refuses the write if the file moved on meanwhile, instead
+   *  of silently overwriting whoever moved it. */
+  content_hash: string;
+  /** Whoever holds the edit lock, if anyone. Advisory — the save is what
+   *  enforces it — but knowing before you type is worth a lot more. */
+  locked_by: string | null;
 }
 
 /** The server's hard cap on the file list. Not a page size — there is no
@@ -64,17 +71,35 @@ export async function getContent(client: ApiClient, key: string): Promise<FileCo
   return client.get<FileContent>(`/vault/api/files/${encodeURIComponent(key)}/content/`);
 }
 
-/** Returns the refreshed file dict; the server recomputes size + content hash. */
+/** Write content back to a file that is already in the vault.
+ *
+ *  `baseHash` is the `content_hash` that came with the content being edited.
+ *  ALWAYS pass it. Without it the server cannot tell an ordinary save from an
+ *  overwrite of work somebody else did while this buffer was open, and the
+ *  save becomes last-writer-wins — which is exactly why this app opened vault
+ *  files read-only until the server grew the precondition.
+ *
+ *  Throws `{kind: "conflict"}` when the file moved on (the server keeps the
+ *  rejected content as a version, so nothing is lost) and `{kind: "locked"}`
+ *  when somebody is in the browser editor. */
 export async function putContent(
-  client: ApiClient, key: string, content: string,
+  client: ApiClient, key: string, content: string, baseHash?: string,
 ): Promise<VaultFileDto> {
   return client.put<VaultFileDto>(
-    `/vault/api/files/${encodeURIComponent(key)}/content/`, { content });
+    `/vault/api/files/${encodeURIComponent(key)}/content/`,
+    baseHash ? { content, base_hash: baseHash } : { content });
 }
 
+/** Create a vault file. With `content`, this is a PUSH — the client already
+ *  holds the bytes, so the server does not need a starter for the type and any
+ *  writable type is allowed. Without it, the server mints an empty file, which
+ *  only works for types it knows an empty shape for. */
 export async function createFile(
   client: ApiClient,
-  args: { bucket_slug: string; title: string; file_type: string; directory_id?: number },
+  args: {
+    bucket_slug: string; title: string; file_type: string;
+    directory_id?: number; content?: string;
+  },
 ): Promise<VaultFileDto> {
   return client.post<VaultFileDto>("/vault/api/files/create/", args);
 }

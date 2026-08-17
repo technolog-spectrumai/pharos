@@ -62,7 +62,10 @@ type Host = {
   saveAs: () => void;
   exportFile: () => void;
   exportLabelKey: string;
-  openRemote: (name: string, content: string) => void;
+  openRemote: (
+    name: string, content: string,
+    origin?: { key: string; baseHash: string },
+  ) => void;
   name: string;
   dirty: boolean;
   busy: boolean;
@@ -113,10 +116,13 @@ const activeHost = computed<Host | null>(() => {
  *  The tab it belongs to has to be MOUNTED before its host exists — hosts
  *  register through a template ref — so this shows the tab first and hands the
  *  buffer over on the next tick. */
-async function openFromFiles(payload: { kind: EditorKind; name: string; content: string }) {
+async function openFromFiles(payload: {
+  kind: EditorKind; name: string; content: string;
+  origin?: { key: string; baseHash: string };
+}) {
   show(payload.kind);
   await nextTick();
-  hostRegistry[payload.kind]?.openRemote(payload.name, payload.content);
+  hostRegistry[payload.kind]?.openRemote(payload.name, payload.content, payload.origin);
 }
 
 const menuOpen = ref(false);

@@ -16,6 +16,9 @@ import {
   bucketTree, createDirectory, decryptFile, deleteDirectory, deleteFile,
   encryptFile, FILE_LIST_CAP, getContent, getStrongbox, listFiles,
   type StrongboxDto, type VaultBucketDto, type VaultFileDto,
+  putContent,
+  createFile,
+  type FileContent,
 } from "../api/vault";
 import { buildTree, filesIn, type TreeNode } from "./cloudTree";
 import { useCloud } from "../cloud/useCloud";
@@ -81,8 +84,33 @@ export function useCloudFiles() {
     }
   }
 
-  async function open(file: VaultFileDto): Promise<string> {
-    return (await getContent(client(), file.key)).content;
+  /** The content AND the state it came from. The hash is what makes saving it
+   *  back safe, so the two travel together and never get separated. */
+  async function open(file: VaultFileDto): Promise<FileContent> {
+    return getContent(client(), file.key);
+  }
+
+  /** Write an edited buffer back to the file it came from. */
+  async function save(key: string, content: string, baseHash: string) {
+    const saved = await putContent(client(), key, content, baseHash);
+    const at = files.value.findIndex((f) => f.key === key);
+    if (at !== -1) files.value[at] = saved;
+    return saved;
+  }
+
+  /** Push a buffer the vault has never seen into the selected folder. */
+  async function push(args: { title: string; fileType: string; content: string }) {
+    const node = selected.value;
+    if (!node) throw new Error("no folder selected");
+    const created = await createFile(client(), {
+      bucket_slug: node.bucketSlug,
+      title: args.title,
+      file_type: args.fileType,
+      directory_id: node.directoryId ?? undefined,
+      content: args.content,
+    });
+    files.value = [created, ...files.value];
+    return created;
   }
 
   async function remove(file: VaultFileDto): Promise<void> {
@@ -135,7 +163,7 @@ export function useCloudFiles() {
   return {
     files, buckets, nodes, selected, selectedId, visibleFiles,
     loading, error, search, atCap,
-    refresh, open, remove, newFolder, removeFolder, select,
+    refresh, open, save, push, remove, newFolder, removeFolder, select,
     strongbox, lockCloud, unlockCloud,
   };
 }
