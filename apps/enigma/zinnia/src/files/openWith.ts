@@ -39,6 +39,18 @@ const BY_VAULT_TYPE: Record<string, EditorKind> = {
   document: "document",
 };
 
+/** Own properties only. A bracket lookup on an object literal also resolves
+ *  `Object.prototype`, so a file called `x.constructor` would otherwise come
+ *  back as a truthy non-editor. (`hasOwnProperty.call` rather than
+ *  `Object.hasOwn`, which this build's lib target does not carry.) */
+function has(table: Record<string, EditorKind>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(table, key);
+}
+
+function byExtension(ext: string): EditorKind | null {
+  return has(BY_EXTENSION, ext) ? BY_EXTENSION[ext] : null;
+}
+
 export function extensionOf(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
@@ -66,10 +78,10 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
     // Fall back to the name rather than giving up: a `.pxml` whose bytes did
     // not sniff (an empty deck, say) is still a deck, and returning null here
     // would make it unopenable precisely when its content WAS available.
-    return BY_EXTENSION[ext] ?? null;
+    return byExtension(ext);
   }
 
-  return BY_EXTENSION[ext] ?? null;
+  return byExtension(ext);
 }
 
 /** Whether a listing row should look clickable, before anything is fetched.
@@ -77,7 +89,7 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
  *  settled once the bytes arrive. */
 export function looksOpenable(name: string): boolean {
   const ext = extensionOf(name);
-  return ext === "xml" || ext in BY_EXTENSION;
+  return ext === "xml" || has(BY_EXTENSION, ext);
 }
 
 /**
@@ -92,6 +104,8 @@ export function kindForVaultFile(
   name: string,
   content?: string,
 ): EditorKind | null {
-  const byType = fileType ? BY_VAULT_TYPE[fileType] : undefined;
+  const byType = fileType && has(BY_VAULT_TYPE, fileType)
+    ? BY_VAULT_TYPE[fileType]
+    : undefined;
   return byType ?? kindForFile(name, content);
 }

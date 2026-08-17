@@ -65,6 +65,16 @@ describe("choosing an editor for a file", () => {
     expect(looksOpenable("old-talk.xml")).toBe(true);
   });
 
+  it("does not resolve inherited object properties as editors", () => {
+    // A bracket lookup on an object literal also finds Object.prototype, so a
+    // file called `x.constructor` would come back as a truthy non-editor.
+    expect(kindForFile("x.constructor")).toBe(null);
+    expect(kindForFile("x.__proto__")).toBe(null);
+    expect(kindForFile("x.toString")).toBe(null);
+    expect(looksOpenable("x.constructor")).toBe(false);
+    expect(kindForVaultFile("constructor", "x.constructor")).toBe(null);
+  });
+
   it("reads extensions the way a filename actually looks", () => {
     expect(extensionOf("a.b.SVG")).toBe("svg");
     expect(extensionOf("noextension")).toBe("");
