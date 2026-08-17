@@ -1,4 +1,4 @@
-package com.spectrumaipl.enigma
+package com.basilisk.enigma
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
