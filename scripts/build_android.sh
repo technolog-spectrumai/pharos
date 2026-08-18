@@ -130,99 +130,32 @@ KEYSTORE_PROPS="${GEN_DIR}/keystore.properties"
 # ── Release signing pre-flight ────────────────────────────────────────────────
 #
 # gen/android/app/build.gradle.kts is the authority and fails the build closed
-# on its own. This is the same check run early, because by the time Gradle sees
+# on its own. This runs the same check early, because by the time Gradle sees
 # the task graph the frontend has already been rebuilt — no reason to spend
-# that to learn there is no key. Keep the two in step (the Python mirror lives
-# in tools/enigma_builder/signing.py).
+# that to learn there is no key. One implementation, not three: the check IS
+# tools/enigma_builder/signing.py (stdlib-only), so this script and the GUI
+# cannot drift apart. `env -u` scrubs the vars a frozen PyInstaller Builder
+# leaks into its children, which would otherwise poison the system python.
 
-prop_value() {  # prop_value <key> — value from keystore.properties, or ""
-  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\(.*\)$/\1/p" \
-    "${KEYSTORE_PROPS}" 2>/dev/null | tail -1 | sed 's/[[:space:]]*$//'
-}
+SIGNING_CLI="${SCRIPT_DIR}/../tools/enigma_builder/signing_cli.py"
 
-resolve_store_file() {  # absolute path of storeFile, resolved like Gradle does
-  local raw="$1"
-  case "${raw}" in
-    "~/"*) echo "${HOME}/${raw#\~/}" ;;
-    /*)    echo "${raw}" ;;
-    *)     echo "${GEN_DIR}/${raw}" ;;
-  esac
-}
-
-signing_preflight() {
-  if [[ ! -f "${KEYSTORE_PROPS}" ]]; then
-    cat >&2 <<EOF
-
-ERROR: release signing is not configured — refusing to build an unsigned release.
-
-  ${KEYSTORE_PROPS} does not exist.
-
-  Copy the template beside it and fill in the four keys:
-    cp ${GEN_DIR}/keystore.properties.example ${KEYSTORE_PROPS}
-    \$EDITOR ${KEYSTORE_PROPS}     # storeFile, storePassword, keyAlias, keyPassword
-
-  Need a keystore? Generate one once, and back it up — losing it means never
-  being able to update the published app:
-    keytool -genkeypair -v -keystore enigma-release.jks -alias enigma \\
-      -keyalg RSA -keysize 4096 -validity 10000
-
-  keystore.properties is gitignored; never commit it or the keystore it names.
-  Debug builds need none of this: $0 ${APP} debug
-
-EOF
+run_signing_cli() {  # run_signing_cli <action> [args…]
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: release builds need python3 for the signing checks" >&2
+    echo "  (debug builds do not: ${0##*/} ${APP} debug)" >&2
     exit 1
   fi
-
-  local missing=()
-  local key
-  for key in storeFile storePassword keyAlias keyPassword; do
-    if [[ -z "$(prop_value "${key}")" ]]; then
-      missing+=("${key}")
-    fi
-  done
-  if (( ${#missing[@]} )); then
-    echo "" >&2
-    echo "ERROR: ${KEYSTORE_PROPS} is missing: ${missing[*]}" >&2
-    echo "       All of storeFile, storePassword, keyAlias, keyPassword are required." >&2
-    echo "" >&2
-    exit 1
-  fi
-
-  local raw_store alias store
-  raw_store="$(prop_value storeFile)"
-  alias="$(prop_value keyAlias)"
-  store="$(resolve_store_file "${raw_store}")"
-
-  if [[ "${alias}" == "androiddebugkey" || "$(basename "${store}")" == "debug.keystore" \
-        || "${store}" == "${HOME}/.android/debug.keystore" ]]; then
-    cat >&2 <<EOF
-
-ERROR: ${KEYSTORE_PROPS} points at the Android DEBUG key.
-       storeFile = ${raw_store}
-       keyAlias  = ${alias}
-
-  The debug key ships with the Android SDK and its password is publicly known,
-  so it must NEVER sign a release: an APK signed with it can never be updated
-  by a real release, and anyone can forge an update for it.
-
-  Generate a release keystore and point storeFile at that instead.
-
-EOF
-    exit 1
-  fi
-
-  if [[ ! -f "${store}" ]]; then
-    echo "" >&2
-    echo "ERROR: storeFile '${raw_store}' does not exist (resolved to ${store})." >&2
-    echo "" >&2
-    exit 1
-  fi
-
-  echo "==> Release signing: ${store} (alias '${alias}')"
+  env -u LD_LIBRARY_PATH -u PYTHONHOME -u PYTHONPATH \
+    python3 "${SIGNING_CLI}" "$@"
 }
 
 if [[ "${BUILD_TYPE}" == "release" ]]; then
-  signing_preflight
+  run_signing_cli status --gen "${GEN_DIR}" || {
+    echo "" >&2
+    echo "Release signing is not configured — refusing to build an unsigned release." >&2
+    echo "Debug builds are unaffected: ${0##*/} ${APP} debug" >&2
+    exit 1
+  }
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
