@@ -64,10 +64,12 @@ def test_the_picker_offers_exactly_the_three_editions(window):
     assert not hasattr(tab, "custom_chip")
     tab.preset_buttons["basic"].click()
     assert window.model.detect_preset() == "basic"
-    # The description panel shows the REAL yaml values for the choice.
-    assert "Maps" in tab.included_label.text()  # listed as not-included
+    # The read-only list shows the REAL yaml values for the choice.
+    assert tab.feature_badges["maps.enabled"].text() == "not included"
+    assert tab.feature_badges["contacts.enabled"].text() == "included"
     tab.preset_buttons["professional"].click()
     assert window.model.detect_preset() == "professional"
+    assert tab.feature_badges["maps.enabled"].text() == "included"
 
 
 def test_a_hand_edited_invalid_combo_still_blocks_the_build(window):

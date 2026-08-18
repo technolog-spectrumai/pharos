@@ -29,6 +29,61 @@ PRESET_LABELS = {
     "professional": "Professional",
 }
 
+#: Display copy for the read-only feature list. Same voice as the old editable
+#: card: what a build actually loses, not marketing copy.
+GATE_HINTS: dict[str, tuple[str, str]] = {
+    "p2p.allow_hosted_relays": (
+        "Hosted relays and discovery",
+        "n0-hosted relays plus pkarr/DNS publishing. Off = direct QUIC "
+        "(ticket/QR) and Tor still work, but a bare NodeId can no longer be "
+        "resolved.",
+    ),
+    "dht.enabled": (
+        "Mainline DHT",
+        "Rendezvous publishing, ticketless join-by-room-code, the nickname "
+        "directory and presence. Requires hosted relays.",
+    ),
+    "calls.enabled": (
+        "Voice calls",
+        "1:1 calls. Off = no Calls tab and useVoxCall is never instantiated, "
+        "so no call offer ever lands.",
+    ),
+    "contacts.enabled": (
+        "Contacts",
+        "The Contacts tab and direct room invites. DHT room codes are "
+        "unaffected.",
+    ),
+    "calendar.enabled": (
+        "Calendar",
+        "Meetings, polls and the reminder tick.",
+    ),
+    "peers.enabled": (
+        "Peer sync",
+        "Person-to-person scoped sync. Off = the enigma/plink/0 ALPN is not "
+        "registered, so a request from a peer with the gate is refused at "
+        "negotiation.",
+    ),
+    "maps.enabled": (
+        "Maps",
+        "The Map tab and every map_* command. Regions come from "
+        "tools/map_packager — the app never fetches tiles itself.",
+    ),
+    "keyring.enabled": (
+        "Keyring",
+        "One passphrase locking MANY local files (keyring_* commands). "
+        "Per-file locking is always in — this gates only the shared ring.",
+    ),
+    "lock.pin_unlock": (
+        "PIN unlock",
+        "Re-open the vault with a short PIN on a keypad after an idle lock. "
+        "Convenience only — the passphrase is still required after a restart.",
+    ),
+    "devices.allow_linking": (
+        "Device linking",
+        "Linking your own devices, and with it Files→Devices file sync.",
+    ),
+}
+
 #: Features every edition ships because they have no gate at all.
 ALWAYS_ON = "P2P encrypted chat · Tor transport · file transfer · local locked files · vault / panic code"
 
@@ -43,6 +98,7 @@ class FeaturesTab(QWidget):
         layout = widgets.scroll_page(outer)
 
         layout.addWidget(self._build_preset_card())
+        layout.addWidget(self._build_features_card())
         layout.addStretch()
 
         preview_header = QHBoxLayout()
@@ -98,26 +154,44 @@ class FeaturesTab(QWidget):
         layout.addWidget(self.included_label)
         return frame
 
+    def _build_features_card(self) -> QWidget:
+        """The feature list, READ-ONLY: what the chosen edition compiles in.
+
+        Rows, not checkboxes — the block informs the choice above, it is not a
+        second place to make one. Values come from the live model, so the list
+        always tells the truth about the file that will be saved.
+        """
+        frame, layout = widgets.card(spacing=6)
+        layout.addWidget(widgets.section_title("What's included"))
+        layout.addWidget(
+            widgets.hint(
+                f"Every edition ships {ALWAYS_ON}. The gated features below "
+                "follow the edition chosen above.",
+                "gateHint",
+            )
+        )
+
+        self.feature_badges: dict[str, QWidget] = {}
+        for path, (label, description) in GATE_HINTS.items():
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(8)
+            badge = widgets.badge("", True)
+            self.feature_badges[path] = badge
+            row_layout.addWidget(badge)
+            row_layout.addWidget(
+                widgets.hint(f"{label} — {description}", "gateHint"), 1
+            )
+            layout.addWidget(row)
+        return frame
+
     # ----- behaviour ------------------------------------------------------
 
     def _apply_preset(self, edition: str) -> None:
         if self._syncing:
             return
         self.model.apply_preset(edition)
-
-    def _describe(self, edition: str) -> str:
-        """The edition's real gate values, phrased as in/out lists."""
-        preset = self.model.preset(edition)
-        if not preset:
-            return ""
-        on = [label for path, label in FEATURE_GATES if get_path(preset, path)]
-        off = [label for path, label in FEATURE_GATES if not get_path(preset, path)]
-        lines = [f"Always included: {ALWAYS_ON}."]
-        if on:
-            lines.append(f"{PRESET_LABELS[edition]} adds: " + " · ".join(on) + ".")
-        if off:
-            lines.append("Not in this edition: " + " · ".join(off) + ".")
-        return "\n".join(lines)
 
     def refresh(self) -> None:
         if not self.model.ready:
@@ -131,13 +205,19 @@ class FeaturesTab(QWidget):
             for edition, button in self.preset_buttons.items():
                 button.setChecked(edition == detected)
             if detected:
-                self.included_label.setText(self._describe(detected))
+                self.included_label.setText("")
             else:
                 # Only reachable by loading a hand-edited file that slipped
                 # past the refusal — say so rather than pretending.
                 self.included_label.setText(
                     "This configuration matches no edition — pick one above."
                 )
+            for path, badge in self.feature_badges.items():
+                included = bool(self.model.get(path))
+                badge.setText("included" if included else "not included")
+                badge.setObjectName("successBadge" if included else "warningBadge")
+                badge.style().unpolish(badge)
+                badge.style().polish(badge)
             self.preview.set_content(self.model.render())
         finally:
             self._syncing = False
