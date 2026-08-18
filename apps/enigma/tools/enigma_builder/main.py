@@ -27,22 +27,53 @@ import paths
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    # --repo is legal both before and after a subcommand. The parent parser
+    # must default to SUPPRESS: with a plain default of None, the subparser's
+    # copy would overwrite a value the top-level parser already captured, and
+    # `enigma-builder --repo X signing …` would silently lose X.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--repo",
+        metavar="PATH",
+        default=argparse.SUPPRESS,
+        help="the Enigma checkout to use, overriding both the remembered "
+        f"choice and ${paths.ROOT_ENV_VAR}",
+    )
+
     parser = argparse.ArgumentParser(
         prog="enigma-builder",
         description="Configure and build Enigma.",
-    )
-    parser.add_argument(
-        "--repo",
-        metavar="PATH",
-        help="the Enigma checkout to configure and build, overriding both the "
-        f"remembered choice and ${paths.ROOT_ENV_VAR}",
+        parents=[common],
     )
     parser.add_argument(
         "--check",
         action="store_true",
         help="print the resolved repository and exit without opening a window",
     )
-    return parser.parse_args(argv)
+
+    # Subcommands are optional on purpose: a bare `enigma-builder` opens the
+    # GUI exactly as it always has.
+    sub = parser.add_subparsers(dest="command")
+
+    signing_p = sub.add_parser(
+        "signing", help="signing configuration and checks", parents=[common]
+    )
+    signing_sub = signing_p.add_subparsers(dest="platform", required=True)
+    android_p = signing_sub.add_parser(
+        "android", help="Android release signing", parents=[common]
+    )
+    android_sub = android_p.add_subparsers(dest="action", required=True)
+    android_sub.add_parser(
+        "status",
+        help="report whether a release build would be signed, and from where",
+        parents=[common],
+    )
+
+    args = parser.parse_args(argv)
+    # SUPPRESS means the attribute may be absent entirely; normalize it.
+    if not hasattr(args, "repo"):
+        args.repo = None
+    return args
 
 
 def resolve_override(value: str | None) -> Path | None:
@@ -59,13 +90,21 @@ def resolve_override(value: str | None) -> Path | None:
     return root
 
 
-def run_check(override: Path | None) -> int:
-    """Report which checkout would be used, and whether it is complete."""
+def resolve_repo(override: Path | None) -> str:
+    """Point `paths` at the right checkout for a headless command.
+
+    Resolution order matches the GUI: --repo, then the remembered QSettings
+    choice, then whatever import-time detection found ($ENIGMA_REPO or a
+    search upward). Returns a provenance string for the report line. Needs a
+    QCoreApplication only because QSettings resolves its file through the
+    application identity — no window is ever created.
+    """
     from PyQt6.QtCore import QCoreApplication, QSettings
 
-    app = QCoreApplication(sys.argv)
-    app.setApplicationName(paths.APP_NAME)
-    app.setOrganizationName(paths.ORG_NAME)
+    if QCoreApplication.instance() is None:
+        app = QCoreApplication(sys.argv)
+        app.setApplicationName(paths.APP_NAME)
+        app.setOrganizationName(paths.ORG_NAME)
 
     from window import SETTINGS_REPO_KEY
 
@@ -80,6 +119,12 @@ def run_check(override: Path | None) -> int:
             source = "remembered"
         elif paths.ROOT_ENV_VAR in __import__("os").environ:
             source = f"${paths.ROOT_ENV_VAR}"
+    return source
+
+
+def run_check(override: Path | None) -> int:
+    """Report which checkout would be used, and whether it is complete."""
+    source = resolve_repo(override)
 
     if not paths.have_repo():
         print("repository: none found")
@@ -99,12 +144,29 @@ def run_check(override: Path | None) -> int:
     return 0
 
 
+def run_signing(args: argparse.Namespace, override: Path | None) -> int:
+    """Dispatch `signing android <action>` — headless, no window."""
+    resolve_repo(override)
+    if not paths.have_repo():
+        print("repository: none found — pass --repo or set "
+              f"${paths.ROOT_ENV_VAR}", file=sys.stderr)
+        return 1
+
+    import signing_cli
+
+    if args.action == "status":
+        return signing_cli.status(paths.ANDROID_GEN)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     override = resolve_override(args.repo)
 
     if args.check:
         return run_check(override)
+    if args.command == "signing":
+        return run_signing(args, override)
 
     from PyQt6.QtWidgets import QApplication
 
