@@ -587,3 +587,129 @@ def test_no_report_ever_contains_a_secret(gen_android, tmp_path):
     report = status.report()
     for secret in ("sekrit-store-pw", "sekrit-key-pw", "sekrit-env-pw", "sekrit-local-pw"):
         assert secret not in report
+
+
+# ----- fingerprints, classification, identity (A5) ---------------------------
+
+
+def _sign_fake_apk(tmp_path, alias="enigma", password="pw12345"):
+    """(signed apk, keystore) — real keytool + real apksigner, or skip."""
+    tool = _apksigner_or_skip()
+    store = make_keystore(tmp_path / "release.jks", alias=alias, password=password)
+    unsigned = _fake_apk(tmp_path / "unsigned.apk")
+    signed = tmp_path / "signed.apk"
+    subprocess.run(
+        [
+            str(tool), "sign", "--ks", str(store),
+            "--ks-pass", f"pass:{password}", "--key-pass", f"pass:{password}",
+            "--ks-key-alias", alias, "--min-sdk-version", "24",
+            "--out", str(signed), str(unsigned),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return signed, store
+
+
+def test_normalize_fingerprint_unifies_the_two_tools():
+    assert signing.normalize_fingerprint("1A:2B:3C") == "1a2b3c"
+    assert signing.normalize_fingerprint(" 1a2b3c ") == "1a2b3c"
+
+
+def test_a_signed_apk_yields_fingerprint_and_schemes(tmp_path):
+    signed, _store = _sign_fake_apk(tmp_path)
+    signature = signing.verify_apk(signed)
+    assert signature.verified
+    assert len(signature.fingerprints) == 1
+    fp = signature.fingerprints[0]
+    assert len(fp) == 64 and all(c in "0123456789abcdef" for c in fp)
+    assert dict(signature.schemes)  # at least one scheme verdict parsed
+
+
+def test_apksigner_and_keytool_agree_on_the_fingerprint(tmp_path):
+    """What makes the pin trustworthy at all: the fingerprint apksigner reads
+    off the APK equals the one keytool reads off the keystore that signed it."""
+    signed, store = _sign_fake_apk(tmp_path)
+    apk_fp = signing.verify_apk(signed).fingerprints[0]
+
+    keytool = shutil.which("keytool")
+    listing = subprocess.run(
+        [keytool, "-list", "-v", "-keystore", str(store),
+         "-storepass", "pw12345", "-alias", "enigma"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    import re as _re
+    match = _re.search(r"SHA256:\s*([0-9A-Fa-f:]+)", listing)
+    assert match, listing
+    assert signing.normalize_fingerprint(match.group(1)) == apk_fp
+
+
+def test_classification_is_a_three_way_verdict(tmp_path):
+    signed, _ = _sign_fake_apk(tmp_path)
+    assert signing.classify(signing.verify_apk(signed)) == signing.SIGNED_RELEASE
+
+    unsigned = _fake_apk(tmp_path / "raw.apk")
+    assert signing.classify(signing.verify_apk(unsigned)) == signing.UNSIGNED_RELEASE
+
+    fake_debug = signing.Signature(
+        verified=True, signers=("C=US, O=Android, CN=Android Debug",)
+    )
+    assert signing.classify(fake_debug) == signing.DEBUG
+
+
+def test_badging_reads_the_repo_debug_apk():
+    apk = paths.ANDROID_OUTPUTS / "apk" / "universal" / "debug" / "app-universal-debug.apk"
+    if not apk.is_file():
+        pytest.skip("no built debug APK in this checkout")
+    if signing.find_build_tool("aapt2") is None:
+        pytest.skip("aapt2 not available")
+    info = signing.read_badging(apk)
+    assert info is not None
+    assert info.package  # e.g. com.spectrumaipl.enigma — identity, not hardcoded
+    assert info.version_name and info.version_code
+    assert info.source == "aapt2"
+
+
+def test_output_metadata_is_the_labelled_fallback(tmp_path):
+    apk = tmp_path / "app-universal-release-unsigned.apk"
+    _fake_apk(apk)
+    (tmp_path / "output-metadata.json").write_text(
+        '{"applicationId": "com.example.app", "elements": '
+        '[{"versionCode": 7, "versionName": "1.2.3", '
+        '"outputFile": "app-universal-release-unsigned.apk"}]}',
+        encoding="utf-8",
+    )
+    info = signing.read_output_metadata(apk)
+    assert info is not None
+    assert info.package == "com.example.app"
+    assert info.version_code == "7" and info.version_name == "1.2.3"
+    assert "not read from the artifact" in info.source
+
+
+def test_an_aab_is_verified_via_keytool(tmp_path):
+    """apksigner cannot read bundles; jar-sign a zip and read it back."""
+    jarsigner = shutil.which("jarsigner")
+    if jarsigner is None:
+        pytest.skip("jarsigner not on PATH (needs a JDK)")
+    store = make_keystore(tmp_path / "release.jks")
+    aab = tmp_path / "app-universal-release.aab"
+    with zipfile.ZipFile(aab, "w") as archive:
+        archive.writestr("BundleConfig.pb", b"placeholder")
+    subprocess.run(
+        [jarsigner, "-keystore", str(store), "-storepass", "pw12345",
+         str(aab), "enigma"],
+        capture_output=True, check=True,
+    )
+    signature = signing.verify_aab(aab)
+    assert signature.verified
+    assert any("Enigma Release Test" in s for s in signature.signers)
+    assert signature.fingerprints and len(signature.fingerprints[0]) == 64
+
+
+def test_an_unsigned_aab_is_refused(tmp_path):
+    aab = tmp_path / "plain.aab"
+    with zipfile.ZipFile(aab, "w") as archive:
+        archive.writestr("BundleConfig.pb", b"placeholder")
+    signature = signing.verify_aab(aab)
+    assert not signature.verified
+    assert signing.classify(signature) == signing.UNSIGNED_RELEASE

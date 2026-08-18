@@ -216,94 +216,22 @@ done
 
 # ── Signature check ───────────────────────────────────────────────────────────
 #
-# The build type says what was *asked* for; only the artifact says what was
-# produced. A release that came out unsigned is a failure, not a build with a
-# caveat — say so and exit non-zero, so no caller reads the line above as
-# "shippable".
-
-find_apksigner() {
-  if command -v apksigner >/dev/null 2>&1; then
-    command -v apksigner
-    return 0
-  fi
-  local tools="${ANDROID_HOME}/build-tools" version
-  # Newest stable first; a pre-release ("36.1.0-rc1") only if it is all there is.
-  for version in $(ls -1 "${tools}" 2>/dev/null | grep -v -- '-' | sort -Vr) \
-                 $(ls -1 "${tools}" 2>/dev/null | grep -- '-' | sort -Vr); do
-    if [[ -x "${tools}/${version}/apksigner" ]]; then
-      echo "${tools}/${version}/apksigner"
-      return 0
-    fi
-  done
-  return 1
-}
+# The build type says what was ASKED for; only the artifact says what was
+# PRODUCED. One implementation (signing_cli.py verify): classification, the
+# identity report (package, version, signer, SHA-256 fingerprint), and the
+# never-debug-signed rule for releases all live there.
 
 if [[ "${BUILD_TYPE}" == "release" ]]; then
+  VERIFY_FLAGS=()
+  if [[ "${ALLOW_UNSIGNED}" == "1" ]]; then
+    VERIFY_FLAGS+=(--allow-unsigned)
+  fi
   echo ""
-  echo "==> Verifying release signatures"
-
-  APKSIGNER="$(find_apksigner || true)"
-  UNSIGNED=0
-  CHECKED=0
-
-  while read -r artifact; do
-    [[ -z "${artifact}" ]] && continue
-    CHECKED=$((CHECKED + 1))
-    case "${artifact}" in
-      *.apk)
-        if [[ -z "${APKSIGNER}" ]]; then
-          echo "  UNVERIFIED  $(basename "${artifact}") — apksigner not found" >&2
-          echo "              (install Android build tools, or check by hand)" >&2
-          UNSIGNED=1
-        elif signer="$("${APKSIGNER}" verify --print-certs "${artifact}" 2>&1 \
-                        | sed -n 's/^Signer #1 certificate DN: //p')" \
-             && [[ -n "${signer}" ]]; then
-          echo "  SIGNED      $(basename "${artifact}")"
-          echo "              signer: ${signer}"
-          if [[ "${signer}" == *"CN=Android Debug"* ]]; then
-            echo "  DEBUG KEY   ${artifact} is signed with the SDK debug key!" >&2
-            UNSIGNED=1
-          fi
-        else
-          echo "  UNSIGNED    $(basename "${artifact}")" >&2
-          UNSIGNED=1
-        fi
-        ;;
-      *.aab)
-        # apksigner does not read app bundles; a signed .aab is jar-signed.
-        if command -v jarsigner >/dev/null 2>&1 \
-           && jarsigner -verify "${artifact}" 2>/dev/null | grep -q "jar verified"; then
-          echo "  SIGNED      $(basename "${artifact}")"
-        else
-          echo "  UNSIGNED    $(basename "${artifact}")" >&2
-          UNSIGNED=1
-        fi
-        ;;
-    esac
-  done < <(find "${GEN_DIR}/app/build/outputs" \
-             \( -path "*release*" -name "*.apk" \) -o -name "*.aab" 2>/dev/null)
-
-  if (( CHECKED == 0 )); then
+  run_signing_cli verify --gen "${GEN_DIR}" --build-type release "${VERIFY_FLAGS[@]}" || {
     echo "" >&2
-    echo "ERROR: the release build produced no APK or AAB to verify." >&2
+    echo "ERROR: the release build did not produce properly signed artifacts." >&2
     exit 1
-  fi
-
-  if (( UNSIGNED )); then
-    cat >&2 <<EOF
-
-ERROR: at least one release artifact is NOT properly signed.
-
-  An unsigned APK installs nowhere and a debug-signed one can never be updated
-  by a real release. Check ${KEYSTORE_PROPS} and the signingConfig in
-  ${GEN_DIR}/app/build.gradle.kts, then rebuild.
-
-EOF
-    exit 1
-  fi
-
-  echo ""
-  echo "==> Release build is SIGNED (${CHECKED} artifact(s) verified)."
+  }
 else
   echo ""
   echo "==> Debug build — signed with the Android SDK debug key."

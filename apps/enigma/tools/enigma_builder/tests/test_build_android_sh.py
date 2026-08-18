@@ -38,6 +38,10 @@ def test_the_duplicate_preflight_is_really_gone():
     assert "prop_value" not in text
     assert "signing_preflight" not in text
     assert "storePassword" not in text
+    # The verify half went the same way in A5: no inline apksigner/jarsigner.
+    assert "apksigner" not in text
+    assert "jarsigner" not in text
+    assert "CN=Android Debug" not in text
 
 
 def test_the_python_is_launched_with_a_scrubbed_environment():

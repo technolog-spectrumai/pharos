@@ -549,13 +549,14 @@ def _build_tools_key(name: str) -> tuple:
     return (0 if suffix else 1,) + parts
 
 
-def find_apksigner(sdk_root: Path | None = None) -> Path | None:
-    """``apksigner`` from PATH, else the newest build-tools in the SDK.
+def find_build_tool(name: str, sdk_root: Path | None = None) -> Path | None:
+    """A build-tools binary from PATH, else the newest build-tools in the SDK.
 
-    Returns None when it is nowhere to be found — callers must treat that as
-    "cannot verify", never as "verified".
+    apksigner and aapt2 live in the same directory, so they are found — or
+    missing — together. Returns None when nowhere to be found; for apksigner
+    callers must treat that as "cannot verify", never as "verified".
     """
-    on_path = shutil.which("apksigner")
+    on_path = shutil.which(name)
     if on_path:
         return Path(on_path)
 
@@ -576,19 +577,29 @@ def find_apksigner(sdk_root: Path | None = None) -> Path | None:
             key=lambda d: _build_tools_key(d.name),
             reverse=True,
         ):
-            candidate = directory / "apksigner"
+            candidate = directory / name
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return candidate
     return None
 
 
+def find_apksigner(sdk_root: Path | None = None) -> Path | None:
+    """Kept as the documented name; see find_build_tool."""
+    return find_build_tool("apksigner", sdk_root)
+
+
 @dataclass(frozen=True)
 class Signature:
-    """What ``apksigner verify`` said about one APK."""
+    """What the verifier said about one artifact (APK via apksigner, AAB via
+    keytool -printcert -jarfile)."""
 
     verified: bool
     signers: tuple[str, ...] = ()
     output: str = ""
+    #: SHA-256 certificate digests, normalized: lowercase hex, no colons.
+    fingerprints: tuple[str, ...] = ()
+    #: e.g. {"v1": False, "v2": True, ...} — only apksigner reports these.
+    schemes: tuple[tuple[str, bool], ...] = ()
 
     @property
     def debug_signed(self) -> bool:
@@ -602,6 +613,12 @@ class Signature:
 
 
 _SIGNER_DN = re.compile(r"^Signer #\d+ certificate DN:\s*(.+)$", re.MULTILINE)
+_SIGNER_SHA256 = re.compile(
+    r"^Signer #\d+ certificate SHA-256 digest:\s*([0-9a-fA-F]+)$", re.MULTILINE
+)
+_SCHEME_LINE = re.compile(
+    r"^Verified using (v[0-9.]+) scheme[^:]*:\s*(true|false)$", re.MULTILINE
+)
 
 
 def verify_apk(
@@ -618,11 +635,15 @@ def verify_apk(
             "apksigner not found on PATH or under ANDROID_HOME/build-tools"
         )
 
+    # --print-certs is what yields the DN and digest lines; --verbose adds the
+    # per-scheme verdicts. --verbose ALONE prints neither certificate nor
+    # fingerprint — a trap this comment exists to keep out of future edits.
     result = subprocess.run(
         [
             str(tool),
             "verify",
             "--print-certs",
+            "--verbose",
             "--min-sdk-version",
             str(min_sdk),
             str(apk),
@@ -633,8 +654,165 @@ def verify_apk(
     )
     output = (result.stdout or "") + (result.stderr or "")
     signers = tuple(m.group(1).strip() for m in _SIGNER_DN.finditer(output))
+    fingerprints = tuple(
+        normalize_fingerprint(m.group(1)) for m in _SIGNER_SHA256.finditer(output)
+    )
+    schemes = tuple(
+        (m.group(1), m.group(2) == "true") for m in _SCHEME_LINE.finditer(output)
+    )
     return Signature(
         verified=result.returncode == 0 and bool(signers),
         signers=signers,
         output=output.strip(),
+        fingerprints=fingerprints,
+        schemes=schemes,
     )
+
+
+_AAB_SHA256 = re.compile(r"SHA256:\s*([0-9A-Fa-f:]+)")
+_AAB_OWNER = re.compile(r"^Owner:\s*(.+)$", re.MULTILINE)
+
+
+def verify_aab(aab: Path) -> Signature:
+    """Verify an app bundle via ``keytool -printcert -jarfile``.
+
+    apksigner cannot read AABs at all, and ``jarsigner -verify`` reports no
+    fingerprint; keytool yields both the Owner DN and a SHA256 line. keytool is
+    guaranteed present — the Android build already requires JAVA_HOME.
+    """
+    keytool = shutil.which("keytool")
+    if keytool is None:
+        raise FileNotFoundError("keytool not on PATH (needs a JDK)")
+
+    result = subprocess.run(
+        [keytool, "-printcert", "-jarfile", str(aab)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = (result.stdout or "") + (result.stderr or "")
+    if "Not a signed jar file" in output or result.returncode != 0:
+        return Signature(verified=False, output=output.strip())
+
+    signers = tuple(m.group(1).strip() for m in _AAB_OWNER.finditer(output))
+    fingerprints = tuple(
+        normalize_fingerprint(m.group(1)) for m in _AAB_SHA256.finditer(output)
+    )
+    return Signature(
+        verified=bool(signers),
+        signers=signers,
+        output=output.strip(),
+        fingerprints=fingerprints,
+    )
+
+
+def normalize_fingerprint(raw: str) -> str:
+    """One canonical fingerprint form: lowercase hex, no colons.
+
+    apksigner prints ``1a2b…``; keytool prints ``1A:2B:…``. Everything that
+    compares fingerprints — the pin above all — must go through here first.
+    """
+    return raw.replace(":", "").replace(" ", "").strip().lower()
+
+
+# ----- what exactly was produced --------------------------------------------
+
+# Classification of a built artifact. UNVERIFIABLE is deliberately not
+# "unsigned": a missing verifier tool must fail a release build, never pass it.
+DEBUG = "DEBUG"
+UNSIGNED_RELEASE = "UNSIGNED RELEASE"
+SIGNED_RELEASE = "SIGNED RELEASE"
+UNVERIFIABLE = "UNVERIFIABLE"
+
+
+def classify(signature: Signature) -> str:
+    """Three-way verdict over one artifact's signature."""
+    if not signature.verified:
+        return UNSIGNED_RELEASE
+    if signature.debug_signed:
+        return DEBUG
+    return SIGNED_RELEASE
+
+
+@dataclass(frozen=True)
+class ArtifactInfo:
+    """Identity of a built artifact, and where each fact was read from."""
+
+    package: str = ""
+    version_name: str = ""
+    version_code: str = ""
+    source: str = "unknown"
+
+
+def read_badging(apk: Path, aapt2: Path | None = None) -> ArtifactInfo | None:
+    """Package identity straight from the artifact, via ``aapt2 dump badging``.
+
+    The artifact is the truth — output-metadata.json only records what the
+    build *intended* — so this is always preferred when aapt2 exists.
+    """
+    tool = aapt2 or find_build_tool("aapt2")
+    if tool is None:
+        return None
+    result = subprocess.run(
+        [str(tool), "dump", "badging", str(apk)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    match = re.search(
+        r"package: name='([^']*)' versionCode='([^']*)' versionName='([^']*)'",
+        result.stdout,
+    )
+    if not match:
+        return None
+    return ArtifactInfo(
+        package=match.group(1),
+        version_code=match.group(2),
+        version_name=match.group(3),
+        source="aapt2",
+    )
+
+
+def read_output_metadata(artifact: Path) -> ArtifactInfo | None:
+    """Fallback identity from AGP's ``output-metadata.json`` beside the APK.
+
+    Records intent rather than fact, and does not exist beside the AAB — the
+    caller labels the source so a report can say which one it is quoting.
+    """
+    import json
+
+    meta = artifact.parent / "output-metadata.json"
+    if not meta.is_file():
+        return None
+    try:
+        data = json.loads(meta.read_text(encoding="utf-8"))
+        element = data["elements"][0]
+        return ArtifactInfo(
+            package=str(data.get("applicationId", "")),
+            version_code=str(element.get("versionCode", "")),
+            version_name=str(element.get("versionName", "")),
+            source="build-config, not read from the artifact",
+        )
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
+
+
+def describe_artifact(artifact: Path) -> tuple[Signature, str, ArtifactInfo]:
+    """(signature, classification, identity) for one built APK or AAB.
+
+    Missing identity metadata degrades to "unknown" and never fails; a missing
+    VERIFIER is a FileNotFoundError from the verify half, and callers must let
+    that fail the build.
+    """
+    artifact = Path(artifact)
+    if artifact.suffix.lower() == ".aab":
+        signature = verify_aab(artifact)
+        # aapt2 cannot read bundles and AGP writes no metadata next to them;
+        # the sibling APK's metadata is the same variant when it exists.
+        info = read_output_metadata(artifact) or ArtifactInfo()
+    else:
+        signature = verify_apk(artifact)
+        info = read_badging(artifact) or read_output_metadata(artifact) or ArtifactInfo()
+    return signature, classify(signature), info
