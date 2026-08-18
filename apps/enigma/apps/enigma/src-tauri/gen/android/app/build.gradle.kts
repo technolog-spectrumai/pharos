@@ -1,4 +1,6 @@
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 import java.util.Properties
 
 plugins {
@@ -16,15 +18,21 @@ val tauriProperties = Properties().apply {
 
 // ── Release signing ──────────────────────────────────────────────────────────
 //
-// Credentials live in gen/android/keystore.properties, which is gitignored and
-// never committed; keystore.properties.example documents the four keys. The
-// rules below are mirrored in Python by tools/enigma_builder/signing.py — keep
-// the two in lockstep.
+// Credential precedence, per key (storeFile, storePassword, keyAlias,
+// keyPassword) — mirrored in Python by tools/enigma_builder/signing.py; keep
+// the two in lockstep (its check_gradle() asserts these names appear here):
+//
+//   1. a ${VAR} placeholder in gen/android/keystore.properties;
+//   2. the well-known environment variable — ENIGMA_KEYSTORE_FILE,
+//      ENIGMA_KEYSTORE_PASSWORD, ENIGMA_KEY_ALIAS, ENIGMA_KEY_PASSWORD;
+//   3. a literal in keystore.properties (gitignored, never committed);
+//   4. $XDG_CONFIG_HOME/enigma-builder/signing.properties (default
+//      ~/.config/…), which must be chmod 600 — outside every repo.
 //
 // Two deliberate refusals:
 //
-//   * FAIL CLOSED. With no usable keystore.properties, a *release* build stops
-//     with the error below instead of quietly producing
+//   * FAIL CLOSED. With no usable credentials, a *release* build stops with
+//     the error below instead of quietly producing
 //     app-universal-release-unsigned.apk. Debug builds are untouched and keep
 //     using the SDK's debug signing.
 //   * NO DEBUG KEY. ~/.android/debug.keystore ships with the SDK and its
@@ -40,10 +48,68 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+// The machine-global fallback (rule 4). Ignored with a warning unless 0600 —
+// it may hold passwords and, unlike the env, it persists.
+val localSigningFile: File = run {
+    val xdg = providers.environmentVariable("XDG_CONFIG_HOME").orNull?.trim().orEmpty()
+    val base = if (xdg.isEmpty()) File(System.getProperty("user.home"), ".config") else File(xdg)
+    File(base, "enigma-builder/signing.properties")
+}
+
+var localSigningProblem: String? = null
+val localSigningProperties = Properties().apply {
+    if (localSigningFile.isFile) {
+        val lax = try {
+            val perms: Set<PosixFilePermission> =
+                Files.getPosixFilePermissions(localSigningFile.toPath())
+            perms.any { p -> p.name.startsWith("GROUP_") || p.name.startsWith("OTHERS_") }
+        } catch (_: UnsupportedOperationException) {
+            false // non-POSIX filesystem: nothing to check
+        }
+        if (lax) {
+            localSigningProblem =
+                "${localSigningFile.absolutePath} is readable by group/other. " +
+                    "Run: chmod 600 ${localSigningFile.absolutePath}"
+        } else {
+            localSigningFile.inputStream().use { load(it) }
+        }
+    }
+}
+
 val requiredSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
 
-fun signingProperty(name: String): String =
-    (keystoreProperties.getProperty(name) ?: "").trim()
+val envForSigningKey = mapOf(
+    "storeFile" to "ENIGMA_KEYSTORE_FILE",
+    "storePassword" to "ENIGMA_KEYSTORE_PASSWORD",
+    "keyAlias" to "ENIGMA_KEY_ALIAS",
+    "keyPassword" to "ENIGMA_KEY_PASSWORD",
+)
+
+// `storePassword=${MY_VAR}` — the whole value must be a single placeholder.
+val signingPlaceholder = Regex("^\\$\\{([A-Za-z_][A-Za-z0-9_]*)\\}$")
+
+/** Unresolved-placeholder errors, collected so the message can name the VAR. */
+val placeholderProblems = mutableListOf<String>()
+
+fun signingProperty(name: String): String {
+    val raw = (keystoreProperties.getProperty(name) ?: "").trim()
+    val placeholder = signingPlaceholder.matchEntire(raw)
+    if (placeholder != null) {
+        val variable = placeholder.groupValues[1]
+        val fromEnv = providers.environmentVariable(variable).orNull?.trim().orEmpty()
+        if (fromEnv.isEmpty()) {
+            placeholderProblems +=
+                "$name is set to \${$variable} in ${keystorePropertiesFile.name} " +
+                    "but \$$variable is not set in the environment."
+        }
+        return fromEnv
+    }
+    val fromEnv = providers.environmentVariable(envForSigningKey.getValue(name))
+        .orNull?.trim().orEmpty()
+    if (fromEnv.isNotEmpty()) return fromEnv
+    if (raw.isNotEmpty()) return raw
+    return (localSigningProperties.getProperty(name) ?: "").trim()
+}
 
 /** storeFile resolved like the Python mirror: ~ expanded, relative to gen/android. */
 fun resolveStoreFile(raw: String): File {
@@ -61,40 +127,63 @@ fun isDebugKeystore(store: File): Boolean {
     return store.canonicalFile == sdkDefault.canonicalFile
 }
 
+/** Whether storeFile's value came from keystore.properties (relative paths
+ *  are legal there, resolved against gen/android) or from the env/local file
+ *  (machine-global, so a relative path is ambiguous and refused). */
+fun storeFileIsFromPropertiesFile(): Boolean {
+    val raw = (keystoreProperties.getProperty("storeFile") ?: "").trim()
+    if (raw.isEmpty() || signingPlaceholder.matchEntire(raw) != null) return false
+    // A literal in the file loses to the env var (rule 2 beats rule 3).
+    val fromEnv = providers.environmentVariable("ENIGMA_KEYSTORE_FILE").orNull?.trim().orEmpty()
+    return fromEnv.isEmpty()
+}
+
 /** Why a release build cannot be signed, or null when it can. */
 val releaseSigningProblem: String? = run {
-    if (!keystorePropertiesFile.exists()) {
-        "${keystorePropertiesFile.absolutePath} does not exist.\n" +
-            "Copy keystore.properties.example next to it as keystore.properties " +
-            "and fill in: ${requiredSigningKeys.joinToString(", ")}.\n" +
-            "It is gitignored — never commit it, or the keystore it names."
-    } else {
-        val missing = requiredSigningKeys.filter { signingProperty(it).isEmpty() }
-        val alias = signingProperty("keyAlias")
-        val rawStore = signingProperty("storeFile")
-        when {
-            missing.isNotEmpty() ->
-                "${keystorePropertiesFile.absolutePath} is missing " +
-                    "${missing.joinToString(", ")} — all of " +
-                    "${requiredSigningKeys.joinToString(", ")} are required."
+    val missing = requiredSigningKeys.filter { signingProperty(it).isEmpty() }
+    val alias = signingProperty("keyAlias")
+    val rawStore = signingProperty("storeFile")
+    val fromFile = storeFileIsFromPropertiesFile()
+    when {
+        localSigningProblem != null -> localSigningProblem
 
-            alias == "androiddebugkey" || isDebugKeystore(resolveStoreFile(rawStore)) ->
-                "${keystorePropertiesFile.absolutePath} points at the Android " +
-                    "DEBUG key (storeFile '$rawStore', keyAlias '$alias').\n" +
-                    "The debug key ships with the SDK and its password is " +
-                    "publicly known: it must never sign a release. An APK " +
-                    "signed with it cannot be updated by a real release, and " +
-                    "anyone can forge an update for it.\n" +
-                    "Generate a release keystore instead:\n" +
-                    "  keytool -genkeypair -v -keystore enigma-release.jks " +
-                    "-alias enigma -keyalg RSA -keysize 4096 -validity 10000"
+        placeholderProblems.isNotEmpty() -> placeholderProblems.joinToString("\n")
 
-            !resolveStoreFile(rawStore).isFile ->
-                "storeFile '$rawStore' from ${keystorePropertiesFile.absolutePath} " +
-                    "does not exist (resolved to ${resolveStoreFile(rawStore).absolutePath})."
+        missing.size == requiredSigningKeys.size ->
+            "No release signing credentials found.\n" +
+                "Provide them via ${keystorePropertiesFile.absolutePath} (copy " +
+                "keystore.properties.example), the ENIGMA_KEYSTORE_* / " +
+                "ENIGMA_KEY_* environment variables, or " +
+                "${localSigningFile.absolutePath} (chmod 600).\n" +
+                "Required: ${requiredSigningKeys.joinToString(", ")}."
 
-            else -> null
-        }
+        missing.isNotEmpty() ->
+            "Release signing is missing ${missing.joinToString(", ")} — all " +
+                "of ${requiredSigningKeys.joinToString(", ")} are required " +
+                "(from keystore.properties, the environment, or " +
+                "${localSigningFile.absolutePath})."
+
+        !fromFile && !rawStore.startsWith("~") && !File(rawStore).isAbsolute ->
+            "storeFile '$rawStore' came from the environment or " +
+                "${localSigningFile.absolutePath} and must be an absolute " +
+                "path or start with ~/."
+
+        alias == "androiddebugkey" || isDebugKeystore(resolveStoreFile(rawStore)) ->
+            "Release signing points at the Android DEBUG key (storeFile " +
+                "'$rawStore', keyAlias '$alias').\n" +
+                "The debug key ships with the SDK and its password is " +
+                "publicly known: it must never sign a release. An APK " +
+                "signed with it cannot be updated by a real release, and " +
+                "anyone can forge an update for it.\n" +
+                "Generate a release keystore instead:\n" +
+                "  keytool -genkeypair -v -keystore enigma-release.jks " +
+                "-alias enigma -keyalg RSA -keysize 4096 -validity 10000"
+
+        !resolveStoreFile(rawStore).isFile ->
+            "storeFile '$rawStore' does not exist (resolved to " +
+                "${resolveStoreFile(rawStore).absolutePath})."
+
+        else -> null
     }
 }
 
@@ -158,14 +247,17 @@ android {
 // spending the Rust compile and handing back an -unsigned.apk. Checked on the
 // task graph so it fires before any work, and only for this module's release
 // packaging tasks — a debug build never trips it.
-gradle.taskGraph.whenReady { graph ->
+gradle.taskGraph.whenReady {
+    // Kotlin DSL: the Action overload makes the graph the receiver — a named
+    // `graph ->` parameter fails script compilation against the Closure
+    // overload, which is exactly how this gate once shipped broken.
     val problem = releaseSigningProblem
     if (problem != null) {
         val producers = listOf("assemble", "bundle", "package")
-        val wantsRelease = graph.allTasks.any { task ->
+        val wantsRelease = allTasks.any { task ->
             task.project.path == project.path &&
                 task.name.contains("Release") &&
-                producers.any { task.name.startsWith(it) }
+                producers.any { p -> task.name.startsWith(p) }
         }
         if (wantsRelease) {
             throw GradleException(

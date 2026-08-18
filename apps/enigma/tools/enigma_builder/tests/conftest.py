@@ -64,6 +64,17 @@ def isolate_app_data(tmp_path_factory, monkeypatch):
     (home / ".local" / "share").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))
+    # XDG_CONFIG_HOME too: signing.py resolves ~/.config/enigma-builder/
+    # signing.properties through it, and a test must never read the
+    # developer's real signing credentials (same class of bug the HOME
+    # redirect exists for).
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    # And the signing env vars themselves — an exported ENIGMA_KEY_PASSWORD
+    # on the developer's machine must not leak into credential-resolution
+    # tests as a surprise fourth source.
+    for var in ("ENIGMA_KEYSTORE_FILE", "ENIGMA_KEYSTORE_PASSWORD",
+                "ENIGMA_KEY_ALIAS", "ENIGMA_KEY_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     return home
 

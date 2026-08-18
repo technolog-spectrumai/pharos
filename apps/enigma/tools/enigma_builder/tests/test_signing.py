@@ -443,3 +443,147 @@ def test_the_newest_build_tools_win_over_a_release_candidate(tmp_path, monkeypat
     found = signing.find_apksigner(sdk_root=sdk)
     assert found is not None
     assert found.parent.name == "36.0.0"
+
+
+# ----- credential precedence (env vars / local config / placeholders) -------
+
+
+def _complete_env(store: Path) -> dict[str, str]:
+    return {
+        "ENIGMA_KEYSTORE_FILE": str(store),
+        "ENIGMA_KEYSTORE_PASSWORD": "env-store-pass",
+        "ENIGMA_KEY_ALIAS": "enigma",
+        "ENIGMA_KEY_PASSWORD": "env-key-pass",
+    }
+
+
+def test_env_variables_alone_are_a_complete_configuration(gen_android, tmp_path):
+    """No keystore.properties at all — CI's whole setup is four env vars."""
+    store = make_keystore(tmp_path / "release.jks")
+    status = signing.inspect(
+        gen_android, environ=_complete_env(store), local_path=tmp_path / "absent"
+    )
+    assert status.signed_release, status.report()
+    assert dict(status.sources)["storePassword"] == "$ENIGMA_KEYSTORE_PASSWORD"
+
+
+def test_a_placeholder_redirects_to_its_variable(gen_android, tmp_path):
+    store = make_keystore(tmp_path / "release.jks")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="${MY_STORE_SECRET}",
+        keyAlias="enigma",
+        keyPassword="literal-key-pass",
+    )
+    environ = {"MY_STORE_SECRET": "from-my-var",
+               # The generic var is ALSO set: the placeholder must win.
+               "ENIGMA_KEYSTORE_PASSWORD": "should-not-be-used"}
+    status = signing.inspect(gen_android, environ=environ, local_path=tmp_path / "absent")
+    assert status.signed_release, status.report()
+    assert dict(status.sources)["storePassword"] == "$MY_STORE_SECRET (via placeholder)"
+
+
+def test_an_unset_placeholder_names_the_variable(gen_android, tmp_path):
+    store = make_keystore(tmp_path / "release.jks")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="${NOT_EXPORTED}",
+        keyAlias="enigma",
+        keyPassword="x",
+    )
+    status = signing.inspect(gen_android, environ={}, local_path=tmp_path / "absent")
+    assert status.has(signing.ENV_MISSING)
+    assert "$NOT_EXPORTED" in status.report()
+
+
+def test_env_beats_a_literal_in_the_file(gen_android, tmp_path):
+    store = make_keystore(tmp_path / "release.jks")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="stale-literal",
+        keyAlias="enigma",
+        keyPassword="k",
+    )
+    creds, problems, _ = signing.resolve_credentials(
+        signing.read_properties(gen_android / signing.KEYSTORE_PROPERTIES),
+        environ={"ENIGMA_KEYSTORE_PASSWORD": "fresh-from-env"},
+        local_path=tmp_path / "absent",
+    )
+    assert not problems
+    assert creds["storePassword"].value == "fresh-from-env"
+    assert creds["storePassword"].source == "$ENIGMA_KEYSTORE_PASSWORD"
+
+
+def test_a_literal_password_earns_a_note_but_still_works(gen_android, tmp_path):
+    store = make_keystore(tmp_path / "release.jks")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="pw",
+        keyAlias="enigma",
+        keyPassword="pw",
+    )
+    status = signing.inspect(gen_android, environ={}, local_path=tmp_path / "absent")
+    assert status.signed_release
+    assert any("literal" in n for n in status.notes)
+
+
+def test_the_local_config_is_the_last_resort(gen_android, tmp_path):
+    store = make_keystore(tmp_path / "release.jks")
+    local = tmp_path / "signing.properties"
+    local.write_text(
+        f"storeFile={store}\nstorePassword=pw\nkeyAlias=enigma\nkeyPassword=pw\n",
+        encoding="utf-8",
+    )
+    local.chmod(0o600)
+    status = signing.inspect(gen_android, environ={}, local_path=local)
+    assert status.signed_release, status.report()
+    assert dict(status.sources)["storePassword"] == str(local)
+
+
+def test_a_lax_local_config_is_refused_with_the_chmod_line(gen_android, tmp_path):
+    local = tmp_path / "signing.properties"
+    local.write_text("storePassword=pw\n", encoding="utf-8")
+    local.chmod(0o644)
+    status = signing.inspect(gen_android, environ={}, local_path=local)
+    assert status.has(signing.LOCAL_CONFIG_MODE)
+    assert f"chmod 600 {local}" in status.report()
+
+
+def test_a_relative_store_from_the_environment_is_refused(gen_android, tmp_path):
+    environ = _complete_env(Path("relative/path.jks"))
+    environ["ENIGMA_KEYSTORE_FILE"] = "relative/path.jks"
+    status = signing.inspect(gen_android, environ=environ, local_path=tmp_path / "absent")
+    assert status.has(signing.RELATIVE_STORE)
+
+
+def test_the_debug_keystore_via_env_is_still_the_debug_key(gen_android, tmp_path):
+    environ = _complete_env(Path.home() / ".android" / "debug.keystore")
+    status = signing.inspect(gen_android, environ=environ, local_path=tmp_path / "absent")
+    assert status.has(signing.DEBUG_KEY)
+
+
+def test_no_report_ever_contains_a_secret(gen_android, tmp_path):
+    """The one invariant that matters most: values never reach the report."""
+    store = make_keystore(tmp_path / "release.jks", password="sekrit-store-pw")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="sekrit-store-pw",
+        keyAlias="enigma",
+        keyPassword="sekrit-key-pw",
+    )
+    local = tmp_path / "signing.properties"
+    local.write_text("keyPassword=sekrit-local-pw\n", encoding="utf-8")
+    local.chmod(0o600)
+    status = signing.inspect(
+        gen_android,
+        environ={"ENIGMA_KEY_PASSWORD": "sekrit-env-pw"},
+        local_path=local,
+    )
+    report = status.report()
+    for secret in ("sekrit-store-pw", "sekrit-key-pw", "sekrit-env-pw", "sekrit-local-pw"):
+        assert secret not in report
