@@ -366,7 +366,7 @@ async function confirmDeleteColumn() {
 </script>
 
 <template>
-  <OyaCard :padded="true" class="flex max-h-[85vh] w-full max-w-5xl flex-col gap-3 overflow-hidden">
+  <OyaCard :padded="true" class="flex max-h-[85dvh] w-full max-w-5xl flex-col gap-3 overflow-hidden">
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
         <p class="flex items-center gap-2 text-sm font-semibold">
@@ -398,7 +398,9 @@ async function confirmDeleteColumn() {
       {{ $t('peers.boardNoIdentity') }}
     </p>
 
-    <div class="flex flex-1 gap-3 overflow-x-auto overflow-y-auto pb-2">
+    <!-- `min-h-0`: the columns are taller than the 85dvh card on any real board,
+         and without it this row refuses to shrink and gets clipped instead. -->
+    <div class="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-auto pb-2">
       <section
         v-for="(col, i) in columns"
         :key="col.id"
@@ -671,7 +673,7 @@ async function confirmDeleteColumn() {
 
     <!-- Column delete says where the cards go, because they are not deleted with it -->
     <OyaModal :open="!!deleteTarget" @close="deleteTarget = null">
-      <OyaCard v-if="deleteTarget" :padded="true" class="w-full max-w-md space-y-3 text-sm">
+      <OyaCard v-if="deleteTarget" :padded="true" class="max-h-[85dvh] overflow-y-auto w-full max-w-md space-y-3 text-sm">
         <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
           {{ $t('peers.boardDeleteColumnTitle', { name: deleteTarget.title }) }}
         </p>

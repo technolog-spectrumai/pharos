@@ -218,7 +218,7 @@ async function submit() {
 
 <template>
   <OyaModal :open="open" @close="close">
-    <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+    <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
       <p class="flex items-center gap-2 text-lg font-bold">
         <font-awesome-icon :icon="primaryIcon" />
         {{ $t(titleKey) }}

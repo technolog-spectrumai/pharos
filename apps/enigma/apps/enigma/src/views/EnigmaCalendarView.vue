@@ -175,7 +175,7 @@ async function cancelPollNow() {
 
     <!-- Confirm a winning slot — closes the poll and invites the room. -->
     <OyaModal :open="!!confirmingSlot" @close="confirmingSlot = null">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="calendar-plus" />
           {{ $t('calendar.confirmSlot') }}
@@ -205,7 +205,7 @@ async function cancelPollNow() {
 
     <!-- Cancel poll confirmation — the cancellation is broadcast to the room. -->
     <OyaModal :open="!!cancellingPoll" @close="cancellingPoll = null">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold text-warn-dark">
           <font-awesome-icon icon="triangle-exclamation" />
           {{ $t('calendar.cancelPoll') }}
@@ -235,7 +235,7 @@ async function cancelPollNow() {
 
     <!-- Cancel confirmation — the cancellation is broadcast to the room. -->
     <OyaModal :open="!!cancelling" @close="cancelling = null">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold text-warn-dark">
           <font-awesome-icon icon="triangle-exclamation" />
           {{ $t('calendar.cancelMeeting') }}

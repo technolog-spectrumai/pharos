@@ -41,7 +41,7 @@ onMounted(() => { void peers.init(); });
 
 <template>
   <OyaModal :open="!!incoming" @close="peers.respond(false, [])">
-    <OyaCard v-if="incoming" :padded="true" class="w-full max-w-md space-y-4 text-sm">
+    <OyaCard v-if="incoming" :padded="true" class="max-h-[85dvh] overflow-y-auto w-full max-w-md space-y-4 text-sm">
       <div>
         <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
           {{ $t('peers.incomingTitle') }}

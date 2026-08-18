@@ -48,7 +48,7 @@ async function kick() {
 
 <template>
   <OyaModal :open="open" @close="emit('update:open', false)">
-    <div v-if="participant" class="w-full max-w-sm space-y-4 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+    <div v-if="participant" class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-4 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
       <div class="flex items-center gap-3">
         <OyaAvatar :name="participant.name" :src="participant.avatar_url" size="md" />
         <div class="min-w-0 flex-1">

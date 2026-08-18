@@ -17,7 +17,7 @@ function close() {
 
 <template>
   <OyaModal :open="open" @close="close">
-    <div v-if="room" class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+    <div v-if="room" class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
       <p class="flex items-center gap-2 text-lg font-bold text-warn-dark">
         <font-awesome-icon icon="triangle-exclamation" />{{ $t("chat.deleteRoomTitle") }}
       </p>

@@ -23,7 +23,9 @@ const activeTab = ref<MapTab>("map");
 </script>
 
 <template>
-  <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
+  <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
+    <!-- Fills <main> exactly; the MapLibre canvas and the sidebar divide that
+         height between them and scroll internally. -->
     <h1 class="sr-only">{{ $t('map.title') }}</h1>
     <!-- Map / Regions tabs -->
     <div

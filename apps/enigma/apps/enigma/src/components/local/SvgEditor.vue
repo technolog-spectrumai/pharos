@@ -369,7 +369,7 @@ defineExpose({
     </template>
 
     <OyaModal :open="textModal !== null" @close="textModal = null">
-      <div class="w-full max-w-sm space-y-3">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3">
         <p class="text-sm font-semibold">{{ $t('sketch.addText') }}</p>
         <OyaTextField v-model="textInput" :placeholder="$t('sketch.textPlaceholder')" @enter="confirmText" />
         <div class="flex justify-end gap-2">

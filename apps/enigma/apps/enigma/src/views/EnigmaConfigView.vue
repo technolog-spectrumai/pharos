@@ -1483,7 +1483,7 @@ async function clearSelectedOfflineData() {
 
     <!-- Reset-passphrase modal -->
     <OyaModal v-model:open="showResetPass" @close="showResetPass = false">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="text-lg font-bold">{{ $t('vault.resetTitle') }}</p>
         <OyaTextField v-model="resetCurrent" type="password" :placeholder="$t('config.currentPass')" :disabled="resetBusy" />
         <OyaTextField v-model="resetNew" type="password" :placeholder="$t('config.newPass')" :disabled="resetBusy" />
@@ -1510,7 +1510,7 @@ async function clearSelectedOfflineData() {
     <!-- Panic-code modal -->
     <!-- PIN setup modal: the passphrase proves knowledge before it is sealed. -->
     <OyaModal :open="showPinModal" @close="showPinModal = false">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="lock" />{{ $t('config.pinSet') }}
         </p>
@@ -1538,7 +1538,7 @@ async function clearSelectedOfflineData() {
     </OyaModal>
 
     <OyaModal v-model:open="showPanic" @close="showPanic = false">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="text-lg font-bold">{{ $t('vault.panicTitle') }}</p>
         <p class="text-sm text-warn-dark">{{ $t('vault.panicWarning') }}</p>
         <OyaTextField v-model="panicCurrent" type="password" :placeholder="$t('config.currentPass')" :disabled="panicBusy" />

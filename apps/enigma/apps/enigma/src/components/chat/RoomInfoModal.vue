@@ -52,7 +52,7 @@ function close() {
 
 <template>
   <OyaModal :open="open" @close="close">
-    <div v-if="room" class="max-h-[85vh] w-full max-w-sm space-y-3 overflow-y-auto rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+    <div v-if="room" class="max-h-[85dvh] w-full max-w-sm space-y-3 overflow-y-auto rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
       <div class="flex items-center gap-3">
         <img v-if="logo" :src="logo" alt="Room logo" class="h-10 w-10 shrink-0 rounded-lg object-cover" />
         <font-awesome-icon v-else icon="circle-nodes" class="text-lg opacity-60" />

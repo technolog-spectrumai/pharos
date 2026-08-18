@@ -196,7 +196,7 @@ onMounted(() => { void peers.init(); });
 
     <!-- Revoke confirm — says exactly what revoking can and cannot do -->
     <OyaModal :open="!!revokeTarget" @close="revokeTarget = null">
-      <OyaCard v-if="revokeTarget" :padded="true" class="w-full max-w-md space-y-3 text-sm">
+      <OyaCard v-if="revokeTarget" :padded="true" class="max-h-[85dvh] overflow-y-auto w-full max-w-md space-y-3 text-sm">
         <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
           {{ $t('peers.revokeTitle', { name: revokeTarget.peerName || shortNode(revokeTarget.peerNodeId) }) }}
         </p>

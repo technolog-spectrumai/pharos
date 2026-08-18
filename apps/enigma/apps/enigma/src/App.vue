@@ -290,8 +290,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    class="min-h-screen flex flex-col font-sans transition-colors duration-300 bg-primary-bg-light text-text-main-light dark:bg-primary-bg-dark dark:text-text-main-dark"
+    class="flex h-[100dvh] flex-col overflow-hidden font-sans transition-colors duration-300 bg-primary-bg-light text-text-main-light dark:bg-primary-bg-dark dark:text-text-main-dark"
   >
+    <!-- The shell is a fixed-height column measured against the DYNAMIC viewport
+         (100dvh): on Android the URL bar / gesture area shrinks the visible area,
+         and 100vh would leave the footer permanently below the fold. Nothing
+         scrolls here — <main> below is the app's one scroll container. -->
     <!-- Encryption-at-rest gate: blocks everything until unlocked (non-dismissable) -->
     <div
       v-if="gateMode !== 'ready'"
@@ -534,8 +538,13 @@ onBeforeUnmount(() => {
       </Transition>
     </header>
 
-    <!-- Main -->
-    <main class="flex flex-1 px-4 py-6 sm:px-6 lg:px-8">
+    <!-- Main — THE scroll container of the app: every routed view that outgrows
+         the pane scrolls here, between the sticky header and the footer.
+         `min-h-0` is load-bearing: a flex child's automatic minimum size is its
+         content, so without it <main> refuses to shrink, grows past the shell
+         and `overflow-y-auto` never fires. Views that own their own scrolling
+         (chat log, map) simply fill it with `h-full` and never overflow. -->
+    <main class="flex min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
       <RouterView v-slot="{ Component }">
         <component :is="Component" :dark-mode="darkMode" />
       </RouterView>

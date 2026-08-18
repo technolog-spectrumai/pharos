@@ -698,7 +698,11 @@ function dismissFocus() {
       </div>
 
       <!-- Pins / routes sidebar -->
-      <div class="flex w-full flex-col gap-3 overflow-y-auto lg:w-80">
+      <!-- `min-h-0`: stacked under the canvas on a phone this is a COLUMN flex
+           item, whose automatic minimum size is its content — without it the
+           sidebar refuses to shrink, `overflow-y-auto` never fires and the pins
+           list is clipped by the view instead of scrolling. -->
+      <div class="flex w-full min-h-0 flex-col gap-3 overflow-y-auto lg:w-80">
         <!-- What the room shared — above your own pins: it's the volatile part. -->
         <SharedSharesCard
           :on-map="layer.onMap.value"
@@ -755,7 +759,7 @@ function dismissFocus() {
       <!-- Share a location: explicit, one-shot, and it says how long peers see it. -->
       <OyaModal :open="locModal !== null" @close="closeLocModal">
         <form
-          class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
+          class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
           @submit.prevent="shareLocation"
         >
           <p class="flex items-center gap-2 text-lg font-bold">

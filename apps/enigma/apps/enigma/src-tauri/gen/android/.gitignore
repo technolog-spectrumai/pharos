@@ -15,6 +15,10 @@ build
 local.properties
 key.properties
 keystore.properties
+# Signing credentials never enter the repo; keystore.properties.example (which
+# holds only the key names) is the committed half.
+*.jks
+*.keystore
 
 /.tauri
 /tauri.settings.gradle

@@ -25,7 +25,8 @@ const activeTab = ref<FilesTab>("p2p");
 </script>
 
 <template>
-  <div class="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
+  <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-1 flex-col gap-3 overflow-hidden">
+    <!-- Fills <main> exactly; each sub-tab panel scrolls inside the pane below. -->
     <!-- Sub-tab pills -->
     <!-- Four pills must fit a phone: labels drop below `sm` (icons carry the
          meaning), rows never wrap, and overflow scrolls instead of clipping. -->
@@ -80,7 +81,12 @@ const activeTab = ref<FilesTab>("p2p");
 
     <!-- P2P file transfer: offer a file to a peer of the active room, accept or
          decline incoming offers, watch transfer progress. -->
-    <div class="min-h-0 flex-1">
+    <!-- The pane is a flex COLUMN, not a bare block: every panel below sizes
+         itself with `flex-1 min-h-0` + its own `overflow-y-auto`, which a
+         display:block wrapper silently ignores — the panel then grew past the
+         pane and got clipped by the view's `overflow-hidden` (Devices worst of
+         all, since its list is the longest). -->
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <FilePanel v-if="activeTab === 'p2p'" />
       <!-- Devices: the user's own linked devices — per-file push/pull + pairing. -->
       <DevicesTab v-else-if="activeTab === 'devices' && devicesAllowed" :dark-mode="darkMode" />

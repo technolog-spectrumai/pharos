@@ -602,7 +602,9 @@ function fmtDate(ms: number): string {
       </p>
 
       <!-- Listing -->
-      <div class="flex-1 space-y-2 overflow-y-auto p-3">
+      <!-- `min-h-0`: without it this column item cannot shrink below the file
+           list, so it never scrolls and the panel's `overflow-hidden` clips. -->
+      <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         <div
           v-for="f in files"
           :key="f.path"
@@ -728,7 +730,7 @@ function fmtDate(ms: number): string {
 
     <!-- New file: fresh text, fresh drawing, or an existing file from disk. -->
     <OyaModal :open="showNewFile" @close="showNewFile = false">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="plus" />
           {{ $t('local.newFile') }}
@@ -787,7 +789,7 @@ function fmtDate(ms: number): string {
 
     <!-- Forget confirm -->
     <OyaModal :open="forgetTarget !== null" @close="forgetTarget = null">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="xmark" />{{ $t('local.forgetTitle') }}
         </p>
@@ -807,7 +809,7 @@ function fmtDate(ms: number): string {
 
     <!-- Unsaved-changes confirm (leaving the editor) -->
     <OyaModal :open="discardAction !== null" @close="discardAction = null">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="triangle-exclamation" />{{ $t('local.unsavedTitle') }}
         </p>

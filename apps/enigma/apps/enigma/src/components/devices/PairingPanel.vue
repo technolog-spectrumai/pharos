@@ -166,7 +166,7 @@ onUnmounted(() => {
 
     <!-- Incoming pairing request (primary confirm gate) -->
     <OyaModal :open="!!pairRequest" @close="store.confirmPairing(false)">
-      <OyaCard v-if="pairRequest" :padded="true" class="w-full max-w-md space-y-3 text-sm">
+      <OyaCard v-if="pairRequest" :padded="true" class="max-h-[85dvh] overflow-y-auto w-full max-w-md space-y-3 text-sm">
         <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
           {{ t('devices.requestTitle') }}
         </p>

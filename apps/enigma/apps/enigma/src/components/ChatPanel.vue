@@ -24,7 +24,30 @@ const { currentRoom, error, isParticipant } = channel;
 const p2p = useP2pRooms(channel);
 const { createOpen, joinOpen, infoOpen, deleteOpen } = p2p;
 const sidebarOpen = ref(false);
+
+// ── Join ⇄ camera handoff ────────────────────────────────────────────────────
+// The scanner is only reachable from inside the join window, and both are
+// body-teleported overlays: leaving the join modal open behind the camera meant
+// its backdrop + opaque card painted over the live feed (teleport siblings stack
+// by MOUNT order, not by which opened last). So the two are mutually exclusive —
+// the camera takes the whole screen, and the join window comes straight back on a
+// decode or a dismiss, since it owns the connect/MLS progress and the auto-close
+// countdown.
 const scanning = ref(false);
+
+function openScanner() {
+  joinOpen.value = false;
+  scanning.value = true;
+}
+function closeScanner() {
+  scanning.value = false;
+  joinOpen.value = true;
+}
+async function onScanned(ticket: string) {
+  scanning.value = false;
+  joinOpen.value = true; // progress renders there, so restore it BEFORE joining
+  await p2p.joinTicket(ticket);
+}
 
 onMounted(() => channel.loadP2pRooms());
 watch(currentRoom, () => (sidebarOpen.value = false));
@@ -80,18 +103,17 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <!-- Off-screen mount point for html5-qrcode's scan-from-image-file flow. -->
     <div id="p2p-qr-file-region" class="hidden"></div>
 
-    <!-- QR camera scanner (feeds the join modal's progress via the controller) -->
-    <QrScannerModal v-model:open="scanning" @decoded="p2p.joinTicket($event)" />
+    <!-- QR camera scanner — replaces the join window while it's up, then hands the
+         screen back (never open at the same time; it also rides its own z layer). -->
+    <QrScannerModal
+      :open="scanning"
+      @update:open="$event ? openScanner() : closeScanner()"
+      @decoded="onScanned($event)"
+    />
 
     <!-- Create / Join modals (teleport to body, so they also cover the mobile drawer) -->
     <CreateRoomModal v-model:open="createOpen" :controller="p2p" />
-    <JoinRoomModal
-      v-model:open="joinOpen"
-      :channel="channel"
-      :controller="p2p"
-      :scanning="scanning"
-      @toggle-camera="scanning = !scanning"
-    />
+    <JoinRoomModal v-model:open="joinOpen" :channel="channel" :controller="p2p" @open-camera="openScanner" />
     <RoomInfoModal v-model:open="infoOpen" :controller="p2p" :channel="channel" />
     <DeleteRoomModal v-model:open="deleteOpen" :controller="p2p" />
 

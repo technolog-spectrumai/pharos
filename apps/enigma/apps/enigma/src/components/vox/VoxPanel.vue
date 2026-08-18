@@ -182,208 +182,214 @@ const cardClass = computed(() =>
 </script>
 
 <template>
-  <div class="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-4">
-    <!-- Browser / unsupported -->
-    <div v-if="!available" :class="cardClass" class="max-w-md">
-      <font-awesome-icon icon="phone" class="text-3xl opacity-60" />
-      <p class="text-sm opacity-80">{{ t("vox.desktopOnly") }}</p>
-    </div>
-
-    <!-- Incoming call -->
-    <div v-else-if="phase === 'incoming'" :class="cardClass" class="max-w-md">
-      <font-awesome-icon icon="phone" class="text-3xl animate-pulse text-accent-dark" />
-      <p class="text-lg font-bold">{{ t("vox.incomingFrom", { name: incomingName }) }}</p>
-      <div class="flex gap-3">
-        <OyaButton variant="primary" @click="vox.accept()">
-          <font-awesome-icon icon="phone" /> {{ t("vox.accept") }}
-        </OyaButton>
-        <OyaButton variant="secondary" @click="vox.decline()">
-          <font-awesome-icon icon="phone-slash" /> {{ t("vox.decline") }}
-        </OyaButton>
-      </div>
-    </div>
-
-    <!-- Connected -->
-    <div v-else-if="phase === 'connected'" :class="cardClass" class="max-w-md">
-      <div
-        class="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold"
-        :class="darkMode ? 'bg-bubble-bg-dark' : 'bg-bubble-bg-light'"
-      >
-        {{ (peerName || "?").slice(0, 1).toUpperCase() }}
-      </div>
-      <p class="text-lg font-bold">{{ peerName }}</p>
-      <p class="font-mono text-sm opacity-70">{{ elapsed }}</p>
-
-      <!-- Encryption status -->
-      <p
-        v-if="encryption === 'mls'"
-        class="flex items-center gap-1.5 text-xs font-semibold text-emerald-500"
-      >
-        <font-awesome-icon icon="lock" /> {{ t("vox.encMls") }}
-      </p>
-      <div
-        v-else-if="encryption === 'transport'"
-        class="flex flex-col items-center gap-1.5 rounded-lg border border-warn-dark/40 bg-warn-dark/10 px-3 py-2 text-xs text-warn-dark"
-      >
-        <span class="flex items-center gap-1.5">
-          <font-awesome-icon icon="triangle-exclamation" /> {{ t("vox.encTransport") }}
-        </span>
-        <button type="button" class="font-bold underline" @click="vox.restart()">
-          {{ t("vox.restart") }}
-        </button>
+  <div class="h-full min-h-0 overflow-y-auto p-4">
+    <!-- Scroller OUTSIDE, centering INSIDE: a `justify-center` flex box that is
+         also the scroll container pushes overflow past its own top edge, where it
+         cannot be scrolled to. `min-h-full` on the inner box keeps a short call
+         card centered while a tall one simply grows and scrolls. -->
+    <div class="flex min-h-full flex-col items-center justify-center gap-4">
+      <!-- Browser / unsupported -->
+      <div v-if="!available" :class="cardClass" class="max-w-md">
+        <font-awesome-icon icon="phone" class="text-3xl opacity-60" />
+        <p class="text-sm opacity-80">{{ t("vox.desktopOnly") }}</p>
       </div>
 
-      <!-- Live equalizer of the incoming voice -->
-      <div class="flex h-20 w-full max-w-xs items-center justify-center gap-[3px]">
+      <!-- Incoming call -->
+      <div v-else-if="phase === 'incoming'" :class="cardClass" class="max-w-md">
+        <font-awesome-icon icon="phone" class="text-3xl animate-pulse text-accent-dark" />
+        <p class="text-lg font-bold">{{ t("vox.incomingFrom", { name: incomingName }) }}</p>
+        <div class="flex gap-3">
+          <OyaButton variant="primary" @click="vox.accept()">
+            <font-awesome-icon icon="phone" /> {{ t("vox.accept") }}
+          </OyaButton>
+          <OyaButton variant="secondary" @click="vox.decline()">
+            <font-awesome-icon icon="phone-slash" /> {{ t("vox.decline") }}
+          </OyaButton>
+        </div>
+      </div>
+
+      <!-- Connected -->
+      <div v-else-if="phase === 'connected'" :class="cardClass" class="max-w-md">
         <div
-          v-for="(b, i) in bars"
-          :key="i"
-          class="w-1.5 rounded-full transition-[height] duration-75 ease-out"
-          :class="darkMode ? 'bg-accent-dark' : 'bg-accent-light'"
-          :style="{ height: `${Math.max(6, b * 100)}%`, opacity: muted ? 0.3 : 0.55 + b * 0.45 }"
+          class="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold"
+          :class="darkMode ? 'bg-bubble-bg-dark' : 'bg-bubble-bg-light'"
+        >
+          {{ (peerName || "?").slice(0, 1).toUpperCase() }}
+        </div>
+        <p class="text-lg font-bold">{{ peerName }}</p>
+        <p class="font-mono text-sm opacity-70">{{ elapsed }}</p>
+
+        <!-- Encryption status -->
+        <p
+          v-if="encryption === 'mls'"
+          class="flex items-center gap-1.5 text-xs font-semibold text-emerald-500"
+        >
+          <font-awesome-icon icon="lock" /> {{ t("vox.encMls") }}
+        </p>
+        <div
+          v-else-if="encryption === 'transport'"
+          class="flex flex-col items-center gap-1.5 rounded-lg border border-warn-dark/40 bg-warn-dark/10 px-3 py-2 text-xs text-warn-dark"
+        >
+          <span class="flex items-center gap-1.5">
+            <font-awesome-icon icon="triangle-exclamation" /> {{ t("vox.encTransport") }}
+          </span>
+          <button type="button" class="font-bold underline" @click="vox.restart()">
+            {{ t("vox.restart") }}
+          </button>
+        </div>
+
+        <!-- Live equalizer of the incoming voice -->
+        <div class="flex h-20 w-full max-w-xs items-center justify-center gap-[3px]">
+          <div
+            v-for="(b, i) in bars"
+            :key="i"
+            class="w-1.5 rounded-full transition-[height] duration-75 ease-out"
+            :class="darkMode ? 'bg-accent-dark' : 'bg-accent-light'"
+            :style="{ height: `${Math.max(6, b * 100)}%`, opacity: muted ? 0.3 : 0.55 + b * 0.45 }"
+          />
+        </div>
+
+        <div class="flex gap-3">
+          <OyaButton variant="secondary" @click="vox.toggleMute()">
+            <font-awesome-icon :icon="muted ? 'microphone-slash' : 'microphone'" />
+            {{ muted ? t("vox.unmute") : t("vox.mute") }}
+          </OyaButton>
+          <OyaButton variant="primary" @click="vox.hangup()">
+            <font-awesome-icon icon="phone-slash" /> {{ t("vox.hangUp") }}
+          </OyaButton>
+        </div>
+      </div>
+
+      <!-- Calling out -->
+      <div v-else-if="phase === 'calling'" :class="cardClass" class="max-w-md">
+        <font-awesome-icon icon="spinner" spin class="text-3xl opacity-70" />
+        <p class="text-sm opacity-80">{{ peerName ? t("vox.callingName", { name: peerName }) : t("vox.calling") }}</p>
+        <OyaButton variant="secondary" @click="vox.hangup()">
+          <font-awesome-icon icon="phone-slash" /> {{ t("vox.cancel") }}
+        </OyaButton>
+      </div>
+
+      <!-- Waiting (we created a ticket) -->
+      <div v-else-if="phase === 'waiting'" :class="cardClass" class="w-full max-w-md">
+        <p class="text-sm font-semibold opacity-80">{{ t("vox.shareToCall") }}</p>
+        <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR" class="h-48 w-48 rounded bg-white p-2" />
+        <textarea
+          :value="ticket"
+          readonly
+          rows="3"
+          class="w-full resize-none rounded-lg border border-current/15 bg-transparent p-2 text-xs"
         />
+        <div class="flex items-center gap-3">
+          <OyaButton variant="secondary" @click="copyTicket">
+            <font-awesome-icon icon="copy" /> {{ ticketCopied ? t("chat.copy") + " ✓" : t("chat.copy") }}
+          </OyaButton>
+          <OyaButton variant="primary" @click="vox.hangup()">
+            {{ t("vox.cancel") }}
+          </OyaButton>
+        </div>
+        <p class="flex items-center gap-2 text-xs opacity-60">
+          <font-awesome-icon icon="spinner" spin /> {{ t("vox.waiting") }}
+        </p>
       </div>
 
-      <div class="flex gap-3">
-        <OyaButton variant="secondary" @click="vox.toggleMute()">
-          <font-awesome-icon :icon="muted ? 'microphone-slash' : 'microphone'" />
-          {{ muted ? t("vox.unmute") : t("vox.mute") }}
-        </OyaButton>
-        <OyaButton variant="primary" @click="vox.hangup()">
-          <font-awesome-icon icon="phone-slash" /> {{ t("vox.hangUp") }}
-        </OyaButton>
-      </div>
-    </div>
-
-    <!-- Calling out -->
-    <div v-else-if="phase === 'calling'" :class="cardClass" class="max-w-md">
-      <font-awesome-icon icon="spinner" spin class="text-3xl opacity-70" />
-      <p class="text-sm opacity-80">{{ peerName ? t("vox.callingName", { name: peerName }) : t("vox.calling") }}</p>
-      <OyaButton variant="secondary" @click="vox.hangup()">
-        <font-awesome-icon icon="phone-slash" /> {{ t("vox.cancel") }}
-      </OyaButton>
-    </div>
-
-    <!-- Waiting (we created a ticket) -->
-    <div v-else-if="phase === 'waiting'" :class="cardClass" class="w-full max-w-md">
-      <p class="text-sm font-semibold opacity-80">{{ t("vox.shareToCall") }}</p>
-      <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR" class="h-48 w-48 rounded bg-white p-2" />
-      <textarea
-        :value="ticket"
-        readonly
-        rows="3"
-        class="w-full resize-none rounded-lg border border-current/15 bg-transparent p-2 text-xs"
-      />
-      <div class="flex items-center gap-3">
-        <OyaButton variant="secondary" @click="copyTicket">
-          <font-awesome-icon icon="copy" /> {{ ticketCopied ? t("chat.copy") + " ✓" : t("chat.copy") }}
-        </OyaButton>
-        <OyaButton variant="primary" @click="vox.hangup()">
-          {{ t("vox.cancel") }}
-        </OyaButton>
-      </div>
-      <p class="flex items-center gap-2 text-xs opacity-60">
-        <font-awesome-icon icon="spinner" spin /> {{ t("vox.waiting") }}
-      </p>
-    </div>
-
-    <!-- Idle: start or join -->
-    <div v-else class="flex w-full max-w-md flex-col gap-6">
-      <p
-        v-if="!canCall"
-        data-testid="vox-blocked"
-        class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-sm font-semibold text-amber-500"
-      >{{ t(network.blockedReasonKey) }}</p>
-      <!-- Call a member of the current room -->
-      <div :class="cardClass">
-        <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
-        <p class="text-sm font-semibold opacity-80">{{ t("vox.roomPeersTitle") }}</p>
-        <p v-if="!roomPeers.length" class="text-xs opacity-60">{{ t("vox.noRoomPeers") }}</p>
-        <ul v-else class="flex w-full flex-col gap-2">
-          <li
-            v-for="peer in roomPeers"
-            :key="peer.id"
-            class="flex items-center justify-between gap-2 rounded-lg border border-current/10 px-3 py-2"
-          >
-            <span class="truncate text-sm">{{ peer.name || peer.id }}</span>
-            <OyaButton variant="primary" :disabled="!canCall" @click="vox.callPeer({ id: peer.id, name: peer.name })">
-              <font-awesome-icon icon="phone" /> {{ t("vox.callPeer") }}
-            </OyaButton>
-          </li>
-        </ul>
-      </div>
-
-      <!-- Call by nickname (DHT directory) — absent without the DHT -->
-      <div v-if="dhtAllowed" :class="cardClass">
-        <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
-        <p class="text-sm opacity-80">{{ t("vox.callContactHint") }}</p>
-        <input
-          v-model="nickQuery"
-          :placeholder="t('vox.contactPlaceholder')"
-          class="w-full rounded-lg border border-current/15 bg-transparent p-2 text-sm"
-          @keydown.enter="callByNick"
-        />
-        <OyaButton variant="primary" :disabled="!canCall" @click="callByNick">
-          <font-awesome-icon icon="phone" /> {{ t("vox.callContact") }}
-        </OyaButton>
-        <!-- Disambiguation: nickname claims are unauthenticated, so show fingerprints. -->
-        <div v-if="nickResults.length > 1" class="w-full text-left">
-          <p class="mb-1 text-xs opacity-60">{{ t("vox.nickResultsHint") }}</p>
-          <ul class="flex flex-col gap-2">
+      <!-- Idle: start or join -->
+      <div v-else class="flex w-full max-w-md flex-col gap-6">
+        <p
+          v-if="!canCall"
+          data-testid="vox-blocked"
+          class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-sm font-semibold text-amber-500"
+        >{{ t(network.blockedReasonKey) }}</p>
+        <!-- Call a member of the current room -->
+        <div :class="cardClass">
+          <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
+          <p class="text-sm font-semibold opacity-80">{{ t("vox.roomPeersTitle") }}</p>
+          <p v-if="!roomPeers.length" class="text-xs opacity-60">{{ t("vox.noRoomPeers") }}</p>
+          <ul v-else class="flex w-full flex-col gap-2">
             <li
-              v-for="claim in nickResults"
-              :key="claim.node_id"
+              v-for="peer in roomPeers"
+              :key="peer.id"
               class="flex items-center justify-between gap-2 rounded-lg border border-current/10 px-3 py-2"
             >
-              <span class="min-w-0">
-                <span class="block truncate text-sm">{{ claim.name || "?" }}</span>
-                <span class="block truncate font-mono text-[10px] opacity-60">{{ fingerprint(claim.node_id) }}</span>
-              </span>
-              <OyaButton variant="secondary" :disabled="!canCall" @click="vox.callNode(claim.node_id, claim.name)">
+              <span class="truncate text-sm">{{ peer.name || peer.id }}</span>
+              <OyaButton variant="primary" :disabled="!canCall" @click="vox.callPeer({ id: peer.id, name: peer.name })">
                 <font-awesome-icon icon="phone" /> {{ t("vox.callPeer") }}
               </OyaButton>
             </li>
           </ul>
         </div>
-      </div>
 
-      <!-- Start a ticket/QR call -->
-      <div :class="cardClass">
-        <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
-        <p class="text-sm opacity-80">{{ t("vox.startHint") }}</p>
-        <OyaButton variant="primary" :disabled="!canCall" @click="vox.createCall()">
-          <font-awesome-icon icon="phone" /> {{ t("vox.startCall") }}
-        </OyaButton>
-      </div>
-
-      <div :class="cardClass">
-        <p class="text-sm font-semibold opacity-80">{{ t("vox.joinHint") }}</p>
-        <textarea
-          v-model="joinTicket"
-          :placeholder="t('vox.pasteTicket')"
-          rows="3"
-          class="w-full resize-none rounded-lg border border-current/15 bg-transparent p-2 text-xs"
-        />
-        <div class="flex flex-wrap items-center justify-center gap-2">
-          <OyaButton variant="primary" :disabled="!canCall" @click="joinPasted">
-            <font-awesome-icon icon="phone" /> {{ t("vox.join") }}
+        <!-- Call by nickname (DHT directory) — absent without the DHT -->
+        <div v-if="dhtAllowed" :class="cardClass">
+          <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
+          <p class="text-sm opacity-80">{{ t("vox.callContactHint") }}</p>
+          <input
+            v-model="nickQuery"
+            :placeholder="t('vox.contactPlaceholder')"
+            class="w-full rounded-lg border border-current/15 bg-transparent p-2 text-sm"
+            @keydown.enter="callByNick"
+          />
+          <OyaButton variant="primary" :disabled="!canCall" @click="callByNick">
+            <font-awesome-icon icon="phone" /> {{ t("vox.callContact") }}
           </OyaButton>
-          <OyaButton variant="secondary" :disabled="!canCall" @click="scanning ? stopScan() : startScan()">
-            <font-awesome-icon icon="camera" /> {{ scanning ? t("vox.stopScan") : t("chat.scanQr") }}
-          </OyaButton>
-          <OyaButton variant="secondary" :disabled="!canCall" @click="fileInput?.click()">
-            <font-awesome-icon icon="upload" /> {{ t("chat.uploadQr") }}
-          </OyaButton>
-          <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="scanFile" />
+          <!-- Disambiguation: nickname claims are unauthenticated, so show fingerprints. -->
+          <div v-if="nickResults.length > 1" class="w-full text-left">
+            <p class="mb-1 text-xs opacity-60">{{ t("vox.nickResultsHint") }}</p>
+            <ul class="flex flex-col gap-2">
+              <li
+                v-for="claim in nickResults"
+                :key="claim.node_id"
+                class="flex items-center justify-between gap-2 rounded-lg border border-current/10 px-3 py-2"
+              >
+                <span class="min-w-0">
+                  <span class="block truncate text-sm">{{ claim.name || "?" }}</span>
+                  <span class="block truncate font-mono text-[10px] opacity-60">{{ fingerprint(claim.node_id) }}</span>
+                </span>
+                <OyaButton variant="secondary" :disabled="!canCall" @click="vox.callNode(claim.node_id, claim.name)">
+                  <font-awesome-icon icon="phone" /> {{ t("vox.callPeer") }}
+                </OyaButton>
+              </li>
+            </ul>
+          </div>
         </div>
-        <div v-show="scanning" id="vox-qr-region" class="w-full max-w-[260px]" />
-        <div id="vox-qr-file-region" class="hidden" />
-        <p v-if="scanError" class="text-xs text-warn-dark">{{ t(scanError) }}</p>
-      </div>
-    </div>
 
-    <p v-if="error && phase !== 'connected'" class="text-xs text-warn-dark">
-      {{ error.startsWith("vox.") || error.startsWith("chat.") ? t(error) : error }}
-    </p>
+        <!-- Start a ticket/QR call -->
+        <div :class="cardClass">
+          <font-awesome-icon icon="phone" class="text-3xl opacity-70" />
+          <p class="text-sm opacity-80">{{ t("vox.startHint") }}</p>
+          <OyaButton variant="primary" :disabled="!canCall" @click="vox.createCall()">
+            <font-awesome-icon icon="phone" /> {{ t("vox.startCall") }}
+          </OyaButton>
+        </div>
+
+        <div :class="cardClass">
+          <p class="text-sm font-semibold opacity-80">{{ t("vox.joinHint") }}</p>
+          <textarea
+            v-model="joinTicket"
+            :placeholder="t('vox.pasteTicket')"
+            rows="3"
+            class="w-full resize-none rounded-lg border border-current/15 bg-transparent p-2 text-xs"
+          />
+          <div class="flex flex-wrap items-center justify-center gap-2">
+            <OyaButton variant="primary" :disabled="!canCall" @click="joinPasted">
+              <font-awesome-icon icon="phone" /> {{ t("vox.join") }}
+            </OyaButton>
+            <OyaButton variant="secondary" :disabled="!canCall" @click="scanning ? stopScan() : startScan()">
+              <font-awesome-icon icon="camera" /> {{ scanning ? t("vox.stopScan") : t("chat.scanQr") }}
+            </OyaButton>
+            <OyaButton variant="secondary" :disabled="!canCall" @click="fileInput?.click()">
+              <font-awesome-icon icon="upload" /> {{ t("chat.uploadQr") }}
+            </OyaButton>
+            <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="scanFile" />
+          </div>
+          <div v-show="scanning" id="vox-qr-region" class="w-full max-w-[260px]" />
+          <div id="vox-qr-file-region" class="hidden" />
+          <p v-if="scanError" class="text-xs text-warn-dark">{{ t(scanError) }}</p>
+        </div>
+      </div>
+
+      <p v-if="error && phase !== 'connected'" class="text-xs text-warn-dark">
+        {{ error.startsWith("vox.") || error.startsWith("chat.") ? t(error) : error }}
+      </p>
+    </div>
   </div>
 </template>

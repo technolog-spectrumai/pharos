@@ -618,7 +618,7 @@ async function acceptIncoming() {
 
     <!-- Add-contact modal -->
     <OyaModal v-model:open="addOpen" @close="addOpen = false">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="address-book" />{{ $t('contacts.addTitle') }}
         </p>
@@ -651,7 +651,7 @@ async function acceptIncoming() {
 
     <!-- Rename modal -->
     <OyaModal v-model:open="editOpen" @close="editOpen = false">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="text-lg font-bold">{{ $t('contacts.rename') }}</p>
         <OyaTextField v-model="editName" :placeholder="$t('contacts.namePlaceholder')" @enter="submitEdit" />
         <button
@@ -675,7 +675,7 @@ async function acceptIncoming() {
 
     <!-- Direct-invite modal: pick a room → live handshake → outcome -->
     <OyaModal :open="inviteOpen" @close="closeInvite">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="paper-plane" />
           {{ $t('contacts.invitePickTitle', { name: inviteTarget?.name ?? '' }) }}

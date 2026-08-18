@@ -8,9 +8,13 @@ const props = defineProps<{
   open: boolean;
   channel: ChatChannel;
   controller: P2pRoomsController;
-  scanning?: boolean;
 }>();
-const emit = defineEmits<{ "update:open": [boolean]; "toggle-camera": [] }>();
+// `open-camera` hands the screen over to the scanner: the parent CLOSES this modal
+// while the camera is up (both are body-teleported overlays, so leaving this one
+// mounted painted its backdrop + card over the live feed) and reopens it on the
+// decode/dismiss, because the connect → MLS progress and the auto-close countdown
+// live here.
+const emit = defineEmits<{ "update:open": [boolean]; "open-camera": [] }>();
 
 const { ticket, scanError, joinStarted, joinError, joiningTor, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin } =
   props.controller;
@@ -25,7 +29,10 @@ function close() {
 
 <template>
   <OyaModal :open="open" @close="close">
-    <div class="w-full max-w-sm space-y-4 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+    <div
+      data-testid="join-room-modal"
+      class="w-full max-w-sm space-y-4 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
+    >
       <p class="flex items-center gap-2 text-lg font-bold">
         <font-awesome-icon icon="right-to-bracket" />{{ $t("chat.joinChat") }}
       </p>
@@ -41,7 +48,12 @@ function close() {
           >
             {{ $t("chat.join") }}
           </button>
-          <OyaIconButton :icon="scanning ? 'xmark' : 'camera'" :label="$t('chat.scanQr')" @click="emit('toggle-camera')" />
+          <OyaIconButton
+            icon="camera"
+            data-testid="join-scan"
+            :label="$t('chat.scanQr')"
+            @click="emit('open-camera')"
+          />
           <OyaIconButton icon="image" :label="$t('chat.uploadQr')" @click="fileInput?.click()" />
           <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="scanFile" />
         </div>

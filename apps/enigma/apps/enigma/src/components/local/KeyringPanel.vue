@@ -255,7 +255,10 @@ onMounted(refreshRings);
 </script>
 
 <template>
-  <OyaCard :padded="true" class="space-y-3">
+  <!-- The key ring grows with the number of rings and locked files, and it sits
+       in the fixed-height Files pane — so the card itself is the scroller
+       (`min-h-0` so it may shrink below its content in the first place). -->
+  <OyaCard :padded="true" class="h-full min-h-0 space-y-3 overflow-y-auto">
     <div>
       <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
         <font-awesome-icon icon="key" class="mr-1" />{{ t('keys.title') }}
@@ -437,7 +440,7 @@ onMounted(refreshRings);
       </div>
     </template>
     <OyaModal :open="showCreate" @close="busy || (showCreate = false)">
-      <div class="w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
+      <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <p class="flex items-center gap-2 text-lg font-bold">
           <font-awesome-icon icon="key" />{{ t('keys.createTitle') }}
         </p>
