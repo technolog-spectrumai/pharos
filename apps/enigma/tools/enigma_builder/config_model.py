@@ -216,7 +216,17 @@ class ConfigModel(QObject):
     PRODUCT_HEADER = "# product-config v1"
 
     def save_product(self, path: Path, icon: Path | None = None) -> Path:
-        """Write the live config (and optional branding) as a product file."""
+        """Write the live config (and optional branding) as a product file.
+
+        Refuses a gate set that matches no edition: the product line is the
+        three presets, and a fourth ad-hoc feature set is not a product. The
+        same refusal guards load_product and (through it) every build.
+        """
+        if self.detect_preset() is None:
+            raise ValueError(
+                "this feature set matches no edition — a product config must "
+                "carry exactly Basic, Standard or Professional"
+            )
         text = f"{self.PRODUCT_HEADER}\n" + self.render()
         if icon is not None:
             text += (
@@ -246,6 +256,13 @@ class ConfigModel(QObject):
                 if key in merged:
                     self._cfg[key] = merged[key]
         self.changed.emit()
+        if self.detect_preset() is None:
+            raise ValueError(
+                f"{path} carries a hand-edited feature set that matches no "
+                f"edition (Basic / Standard / Professional). Custom feature "
+                f"sets are not buildable products — re-save it from the "
+                f"Config Builder after picking an edition."
+            )
         branding = data.get("branding")
         if isinstance(branding, dict) and branding.get("icon"):
             return str(branding["icon"])

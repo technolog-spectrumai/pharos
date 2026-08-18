@@ -66,7 +66,7 @@ class MainWindow(QMainWindow):
     def __init__(
         self,
         repo_override: Path | None = None,
-        mode: str = "full",
+        mode: str = "config",
         product_file: Path | None = None,
     ) -> None:
         super().__init__()
@@ -239,11 +239,8 @@ class MainWindow(QMainWindow):
             self.tabs.addTab(self.build_tab, "Build")
             for tab in (self.features_tab, self.identity_tab, self.expert_tab):
                 tab.hide()
-        else:
-            self.tabs.addTab(self.features_tab, TAB_TITLES[0])
-            self.tabs.addTab(self.identity_tab, TAB_TITLES[1])
-            self.tabs.addTab(self.expert_tab, TAB_TITLES[2])
-            self.tabs.addTab(self.build_tab, TAB_TITLES[3])
+        else:  # pragma: no cover — the combined mode is gone; config is default
+            raise ValueError(f"unknown Builder mode {self.mode!r}")
 
         root_layout.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
@@ -398,12 +395,10 @@ class MainWindow(QMainWindow):
 
     def _mark_tabs(self, issues) -> None:
         """Flag the tabs holding a blocking error, so nothing hides off-screen."""
-        if self.mode != "full":
-            # config mode: same tabs, but indices still match TAB_TITLES only
-            # for the first three; build mode: ONE tab, and renaming it to
-            # "Features" by index is exactly the bug this guard prevents.
-            if self.mode == "build":
-                return
+        if self.mode == "build":
+            # ONE tab; renaming it to "Features" by index is exactly the bug
+            # this guard prevents.
+            return
         blocking = error_issues(issues)
         owners = {
             0: ("p2p", "dht", "calls", "contacts", "calendar", "peers", "maps", "devices", "features"),

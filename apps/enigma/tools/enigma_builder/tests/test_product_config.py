@@ -91,3 +91,27 @@ def test_the_saved_file_parses_as_plain_yaml(tmp_path):
     data = yaml.safe_load(saved.read_text(encoding="utf-8"))
     assert data["branding"]["icon"] == "i.png"
     assert "app" in data and "crypto" in data
+
+
+def test_a_custom_feature_set_is_refused_at_save(tmp_path):
+    """There is no fourth product: a gate set matching no edition cannot be
+    saved as a product config."""
+    model = ConfigModel()
+    model.set("contacts.enabled", False)  # no edition ships without contacts
+    with pytest.raises(ValueError, match="matches no edition"):
+        model.save_product(tmp_path / "franken.yaml")
+
+
+def test_a_hand_edited_custom_file_is_refused_at_load(tmp_path):
+    """...and one written by hand is refused on the way in — which also makes
+    it unbuildable, since productbuild loads through the same gate."""
+    model = ConfigModel()
+    model.apply_preset("professional")
+    text = model.render().replace(
+        "  enabled: true", "  enabled: false", 1
+    )  # first gate flipped by hand → off every preset
+    franken = tmp_path / "franken.yaml"
+    franken.write_text(text, encoding="utf-8")
+    victim = ConfigModel()
+    with pytest.raises(ValueError, match="hand-edited feature set"):
+        victim.load_product(franken)

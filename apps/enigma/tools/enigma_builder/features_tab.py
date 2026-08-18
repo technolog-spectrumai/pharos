@@ -1,92 +1,36 @@
-"""Features tab: presets, the ten build gates, and the runtime defaults."""
+"""Features tab — the EDITION PICKER.
+
+There is deliberately no per-gate editing here. The product line is three
+presets — Basic, Standard, Professional — and a product config always carries
+exactly one of them: a hand-assembled "custom" feature set is refused at save,
+at load, and at build (see ConfigModel), because a fourth product that exists
+only on one developer's machine is not a product. What IS free per product:
+identity and branding (Identity tab) and the expert tuning clamps (Expert
+tab), which are invariant-preserving.
+
+The description under each chip is derived from the checked-in preset YAMLs at
+runtime — the values that compile are the values shown, never a hardcoded
+marketing list (a comment drifting from a value has happened before).
+"""
 
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QButtonGroup,
-    QCheckBox,
-    QHBoxLayout,
-    QPushButton,
-    QWidget,
-)
+from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget
 
 import paths
 import widgets
 from config_model import ConfigModel
-from validation import Issue, issues_for
+from validation import FEATURE_GATES, Issue, get_path
 
-# One line per gate, distilled from the comments in build_config.yaml. These
-# are what a build actually loses, not marketing copy.
-GATE_HINTS: dict[str, tuple[str, str]] = {
-    "p2p.allow_hosted_relays": (
-        "Hosted relays and discovery",
-        "n0-hosted relays plus pkarr/DNS publishing. Off = direct QUIC "
-        "(ticket/QR) and Tor still work, but a bare NodeId can no longer be "
-        "resolved.",
-    ),
-    "dht.enabled": (
-        "Mainline DHT",
-        "Rendezvous publishing, ticketless join-by-room-code, the nickname "
-        "directory and presence. Requires hosted relays.",
-    ),
-    "calls.enabled": (
-        "Voice calls",
-        "1:1 calls. Off = no Calls tab and useVoxCall is never instantiated, "
-        "so no call offer ever lands.",
-    ),
-    "contacts.enabled": (
-        "Contacts",
-        "The Contacts tab and direct room invites. DHT room codes are "
-        "unaffected.",
-    ),
-    "calendar.enabled": (
-        "Calendar",
-        "Meetings, polls and the reminder tick.",
-    ),
-    "peers.enabled": (
-        "Peer sync",
-        "Person-to-person scoped sync. Off = the enigma/plink/0 ALPN is not "
-        "registered, so a request from a Pro peer is refused at negotiation.",
-    ),
-    "maps.enabled": (
-        "Maps",
-        "The Map tab and every map_* command. Regions come from "
-        "tools/map_packager — the app never fetches tiles itself.",
-    ),
-    "keyring.enabled": (
-        "Keyring",
-        "One passphrase locking MANY local files (keyring_* commands). "
-        "Per-file locking is always in — this gates only the shared ring.",
-    ),
-    "lock.pin_unlock": (
-        "PIN unlock",
-        "Re-open the vault with a short PIN on a keypad after an idle lock. "
-        "Convenience only — the passphrase is still required after a restart.",
-    ),
-    "devices.allow_linking": (
-        "Device linking",
-        "Linking your own devices, and with it Files→Devices file sync.",
-    ),
+PRESET_LABELS = {
+    "basic": "Basic",
+    "standard": "Standard",
+    "professional": "Professional",
 }
 
-RUNTIME_HINTS: dict[str, tuple[str, str]] = {
-    "features.use_tor": ("Use Tor", "Route P2P through the embedded arti client."),
-    "features.stable_onion": (
-        "Stable onion address",
-        "Reuse one persistent onion address instead of a fresh one per session.",
-    ),
-    "features.dht_discovery": (
-        "DHT discovery",
-        "Publish and look up rooms on the DHT. Stays opt-in even in Pro.",
-    ),
-    "features.dht_nick_publish": (
-        "Publish nickname",
-        "Announce a nickname in the DHT directory.",
-    ),
-}
-
-PRESET_LABELS = {"basic": "Basic", "standard": "Standard", "professional": "Professional"}
+#: Features every edition ships because they have no gate at all.
+ALWAYS_ON = "P2P encrypted chat · Tor transport · file transfer · local locked files · vault / panic code"
 
 
 class FeaturesTab(QWidget):
@@ -99,8 +43,6 @@ class FeaturesTab(QWidget):
         layout = widgets.scroll_page(outer)
 
         layout.addWidget(self._build_preset_card())
-        layout.addWidget(self._build_gates_card())
-        layout.addWidget(self._build_runtime_card())
         layout.addStretch()
 
         preview_header = QHBoxLayout()
@@ -123,13 +65,12 @@ class FeaturesTab(QWidget):
 
     def _build_preset_card(self) -> QWidget:
         frame, layout = widgets.card()
-        layout.addWidget(widgets.section_title("Edition preset"))
+        layout.addWidget(widgets.section_title("Edition"))
         layout.addWidget(
             widgets.hint(
-                "A preset fills in the gates below from the checked-in "
-                "configs/build_config.<edition>.yaml. Builds always go out as "
-                "ENIGMA_EDITION=custom — the product-line files are never "
-                "modified."
+                "The product IS one of these three. Identity and branding are "
+                "yours to change on the Identity tab; the feature set is not "
+                "— a product config that matches no edition is refused."
             )
         )
 
@@ -148,113 +89,60 @@ class FeaturesTab(QWidget):
             self.preset_group.addButton(button)
             self.preset_buttons[edition] = button
             row.addWidget(button)
-
-        self.custom_chip = QPushButton("Custom")
-        self.custom_chip.setObjectName("presetChip")
-        self.custom_chip.setCheckable(True)
-        self.custom_chip.setToolTip(
-            "An indicator, not a preset — change any gate below to land here."
-        )
-        # Clicking it must not "select" a config that does not exist; put the
-        # chips back where the model says they belong.
-        self.custom_chip.clicked.connect(self._sync_preset_chips)
-        self.preset_group.addButton(self.custom_chip)
-        row.addWidget(self.custom_chip)
         row.addStretch()
         layout.addLayout(row)
+
+        # What the selected edition actually compiles in, read from its YAML.
+        self.included_label = widgets.hint("", "gateHint")
+        layout.addWidget(widgets.separator())
+        layout.addWidget(self.included_label)
         return frame
 
-    def _build_gates_card(self) -> QWidget:
-        frame, layout = widgets.card(spacing=6)
-        layout.addWidget(widgets.section_title("Build gates"))
-        layout.addWidget(
-            widgets.hint(
-                "Compile-time consts. A disabled feature has no tab, no route "
-                "and its commands fail fast — it cannot be switched back on at "
-                "runtime."
-            )
-        )
-
-        self.gate_boxes: dict[str, QCheckBox] = {}
-        for path, (label, description) in GATE_HINTS.items():
-            box = QCheckBox(label)
-            box.toggled.connect(lambda value, p=path: self._set(p, value))
-            self.gate_boxes[path] = box
-            layout.addWidget(box)
-            layout.addWidget(widgets.hint(description, "gateHint"))
-
-        self.gate_error = widgets.ErrorLabel()
-        layout.addWidget(self.gate_error)
-        return frame
-
-    def _build_runtime_card(self) -> QWidget:
-        frame, layout = widgets.card(spacing=6)
-        layout.addWidget(widgets.section_title("Runtime defaults"))
-        layout.addWidget(
-            widgets.hint(
-                "Initial values for a NEW profile's toggles — not gates. "
-                "Settings still override them per profile, and existing "
-                "profiles keep whatever they stored."
-            )
-        )
-
-        self.runtime_boxes: dict[str, QCheckBox] = {}
-        for path, (label, description) in RUNTIME_HINTS.items():
-            box = QCheckBox(label)
-            box.toggled.connect(lambda value, p=path: self._set(p, value))
-            self.runtime_boxes[path] = box
-            layout.addWidget(box)
-            layout.addWidget(widgets.hint(description, "gateHint"))
-        return frame
-
-    # ----- behavior -------------------------------------------------------
-
-    def _set(self, path: str, value: bool) -> None:
-        if self._syncing:
-            return
-        self.model.set(path, value)
+    # ----- behaviour ------------------------------------------------------
 
     def _apply_preset(self, edition: str) -> None:
         if self._syncing:
             return
-        if not self.model.apply_preset(edition):
-            self.gate_error.set_messages(
-                [f"cannot read {paths.preset_yaml(edition)} — preset not applied"]
-            )
-            self._sync_preset_chips()
+        self.model.apply_preset(edition)
 
-    def _sync_preset_chips(self) -> None:
-        detected = self.model.detect_preset()
-        self._syncing = True
-        try:
-            for edition, button in self.preset_buttons.items():
-                button.setChecked(edition == detected)
-            self.custom_chip.setChecked(detected is None)
-        finally:
-            self._syncing = False
+    def _describe(self, edition: str) -> str:
+        """The edition's real gate values, phrased as in/out lists."""
+        preset = self.model.preset(edition)
+        if not preset:
+            return ""
+        on = [label for path, label in FEATURE_GATES if get_path(preset, path)]
+        off = [label for path, label in FEATURE_GATES if not get_path(preset, path)]
+        lines = [f"Always included: {ALWAYS_ON}."]
+        if on:
+            lines.append(f"{PRESET_LABELS[edition]} adds: " + " · ".join(on) + ".")
+        if off:
+            lines.append("Not in this edition: " + " · ".join(off) + ".")
+        return "\n".join(lines)
 
     def refresh(self) -> None:
-        """Pull every control's state from the model."""
+        if not self.model.ready:
+            # No repo yet: nothing to detect, nothing to render.
+            self.preview.set_content("")
+            self.included_label.setText("")
+            return
         self._syncing = True
         try:
-            for path, box in self.gate_boxes.items():
-                box.setChecked(bool(self.model.get(path)))
-            for path, box in self.runtime_boxes.items():
-                box.setChecked(bool(self.model.get(path)))
+            detected = self.model.detect_preset()
+            for edition, button in self.preset_buttons.items():
+                button.setChecked(edition == detected)
+            if detected:
+                self.included_label.setText(self._describe(detected))
+            else:
+                # Only reachable by loading a hand-edited file that slipped
+                # past the refusal — say so rather than pretending.
+                self.included_label.setText(
+                    "This configuration matches no edition — pick one above."
+                )
+            self.preview.set_content(self.model.render())
         finally:
             self._syncing = False
-        self._sync_preset_chips()
-        try:
-            self.preview.set_content(self.model.render())
-        except KeyError as exc:
-            # An incomplete config cannot be rendered; say which field is
-            # missing rather than showing a stale preview.
-            self.preview.set_content(f"# cannot render: {exc}")
 
     def set_issues(self, issues: list[Issue]) -> None:
-        relevant = issues_for(
-            issues,
-            *GATE_HINTS.keys(),
-            *RUNTIME_HINTS.keys(),
-        )
-        self.gate_error.set_messages([str(i) for i in relevant])
+        # Gates are no longer editable here, so gate issues cannot originate
+        # from this tab; nothing to funnel. Kept for the window's contract.
+        _ = issues

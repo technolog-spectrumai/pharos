@@ -84,8 +84,11 @@ def test_window_survives_having_no_repository(app, monkeypatch):
         assert win.build_tab.repo_badge.text() == "not set"
         assert not win.build_tab.start_button.isEnabled()
         assert not win.build_tab.clean_button.isEnabled()
-        # No config means no findings to hang off the tabs.
-        assert [win.tabs.tabText(i) for i in range(4)] == list(window_mod.TAB_TITLES)
+        # No config means no findings to hang off the tabs. Config mode
+        # carries three tabs now — Build lives in its own window.
+        assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == list(
+            window_mod.TAB_TITLES[:3]
+        )
     finally:
         win.close()
 

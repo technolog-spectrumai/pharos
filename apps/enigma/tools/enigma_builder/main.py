@@ -369,19 +369,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "config":
         return run_config_gui(args, override)
 
-    from PyQt6.QtWidgets import QApplication
+    # Bare launch = the Config Builder. The old combined window is gone: the
+    # split IS the tool now, and building goes through a saved product config
+    # ("Build this config…", or `enigma-builder build <file>`).
+    class _Bare:
+        file = None
+        repo = args.repo
 
-    from window import MainWindow
-
-    app = QApplication(sys.argv)
-    # Both are required before QSettings() can resolve a config file.
-    app.setApplicationName(paths.APP_NAME)
-    app.setOrganizationName(paths.ORG_NAME)
-    app.setStyle("Fusion")
-
-    window = MainWindow(repo_override=override)
-    window.show()
-    return app.exec()
+    return run_config_gui(_Bare(), override)
 
 
 if __name__ == "__main__":

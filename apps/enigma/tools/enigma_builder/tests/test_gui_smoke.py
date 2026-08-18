@@ -18,10 +18,11 @@ from validation import errors  # noqa: E402
 from window import TAB_TITLES  # noqa: E402
 
 
-def test_window_has_the_four_tabs(window):
-    assert [window.tabs.tabText(i) for i in range(window.tabs.count())] == list(
-        TAB_TITLES
-    )
+def test_the_config_builder_has_three_tabs_and_no_build(window):
+    """Bare launch is the CONFIG BUILDER now: it defines the product and saves
+    a file; there is deliberately no Build tab to reach from here."""
+    titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+    assert titles == ["Features", "Identity", "Expert"]
 
 
 def test_both_themes_apply(window):
@@ -55,25 +56,28 @@ def test_preset_click_updates_gates_and_preview(window):
     assert "# Derived from preset: standard" in preview
 
 
-def test_toggling_a_gate_flips_the_chip_to_custom(window):
-    window.features_tab.preset_buttons["professional"].click()
-    assert not window.features_tab.custom_chip.isChecked()
-    # maps-off would land exactly on Standard (the presets form a chain), so
-    # flip a gate no preset has off — that is what "custom" means now.
-    window.features_tab.gate_boxes["contacts.enabled"].setChecked(False)
-    assert window.features_tab.custom_chip.isChecked()
+def test_the_picker_offers_exactly_the_three_editions(window):
+    """No gate checkboxes, no Custom chip: the product line IS the presets."""
+    tab = window.features_tab
+    assert set(tab.preset_buttons) == {"basic", "standard", "professional"}
+    assert not hasattr(tab, "gate_boxes")
+    assert not hasattr(tab, "custom_chip")
+    tab.preset_buttons["basic"].click()
+    assert window.model.detect_preset() == "basic"
+    # The description panel shows the REAL yaml values for the choice.
+    assert "Maps" in tab.included_label.text()  # listed as not-included
+    tab.preset_buttons["professional"].click()
+    assert window.model.detect_preset() == "professional"
 
 
-def test_cross_field_error_blocks_the_build(window):
-    window.features_tab.gate_boxes["dht.enabled"].setChecked(True)
-    window.features_tab.gate_boxes["p2p.allow_hosted_relays"].setChecked(False)
-
-    assert "allow_hosted_relays" in window.features_tab.gate_error.text()
-    assert window.tabs.tabText(0).endswith("⚠")
+def test_a_hand_edited_invalid_combo_still_blocks_the_build(window):
+    """The GUI can no longer produce dht-without-relays, but a hand-edited
+    file could try; validation (mirroring build.rs) must still catch it."""
+    window.model.set("dht.enabled", True)
+    window.model.set("p2p.allow_hosted_relays", False)
     assert not window.build_tab.start_button.isEnabled()
 
-    window.features_tab.gate_boxes["dht.enabled"].setChecked(False)
-    assert window.tabs.tabText(0) == TAB_TITLES[0]
+    window.model.set("p2p.allow_hosted_relays", True)
     assert window.build_tab.start_button.isEnabled()
 
 

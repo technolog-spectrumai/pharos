@@ -43,13 +43,18 @@ deterministic, git-friendly product-config file) and **Builder** (consume that
 file and produce the app). One codebase, three launch modes:
 
 ```bash
-enigma-builder                       # the classic combined window (unchanged)
-enigma-builder config [product.yaml] # Config Builder: no Build tab; its output
-                                     # is a FILE, never an artifact
+enigma-builder                       # opens the CONFIG BUILDER (the combined
+                                     # window is gone — the split IS the tool)
+enigma-builder config [product.yaml] # same, opening a saved product config
 enigma-builder build product.yaml    # Builder: consumes the file read-only —
                                      # headless by default, --gui for a window
 enigma-builder build product.yaml --platform android --release
 ```
+
+There is deliberately **no custom feature set**: the Features tab is an
+edition picker (Basic / Standard / Professional) and a product config whose
+gates match no edition is refused at save, at load, and at build. Identity,
+branding and the Expert tuning clamps are what vary per product.
 
 A product config is the build-config YAML itself (same schema build.rs
 compiles, rendered deterministically so diffs stay meaningful) plus an
@@ -120,9 +125,9 @@ regenerates. The custom YAML is builder-owned output; regenerate it from the GUI
 
 ## Tabs
 
-- **Features** — Basic / Standard / Professional presets, the ten build gates, the four
-  runtime defaults, and a live preview of the YAML that will be written. The
-  Custom chip is an indicator: change any gate and it lights up on its own.
+- **Features** — the edition picker: Basic / Standard / Professional, with
+  each edition's real in/out list derived from its checked-in YAML, and a live
+  preview of the file that will be written. No per-gate editing, no Custom.
 - **Identity** — product name, bundle identifier, version and the app icon,
   plus the current state of `tauri.conf.json` and a restore button if a
   previous run left it modified.
