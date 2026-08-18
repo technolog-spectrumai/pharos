@@ -1,5 +1,14 @@
 # Enigma pricing — module valuation and edition plans
 
+> **⚠ OPEN PRODUCT DECISION (2026-08-18):** the Light / Plus / Pro editions
+> this document prices were replaced by **Basic / Standard / Professional**
+> (pland.md §1) — different names AND different compositions: contacts,
+> calendar, PIN unlock and device linking moved into the entry edition, and
+> the entry edition dropped hosted relays. Every tier table below therefore
+> prices a product line that no longer ships. Re-cutting the tiers (what does
+> Basic cost when it includes the organiser features?) is a pricing decision,
+> not a documentation one, and has deliberately not been made here.
+
 What each module of the codebase is worth, what Light / Plus / Pro should cost,
 and a lifetime licence proposal.
 

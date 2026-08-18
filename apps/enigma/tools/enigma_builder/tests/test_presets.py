@@ -1,9 +1,8 @@
 """Preset loading, detection, and the invariants that make it safe.
 
 These read the real checked-in edition files. That is deliberate: the Builder
-must never carry its own copy of the edition matrix, because the comments in
-build_config.light.yaml already disagree with the values in
-build_config.plus.yaml, and the values are what build.rs compiles.
+must never carry its own copy of the edition matrix — a comment drifting from a
+value has happened before, and the values are what build.rs compiles.
 """
 
 from __future__ import annotations
@@ -31,29 +30,46 @@ def test_every_edition_file_parses(editions):
         assert config, f"{name} edition config is missing or unparseable"
 
 
-def test_light_is_relays_only(editions):
-    enabled = {path for path, value in gates(editions["light"]).items() if value}
-    assert enabled == {"p2p.allow_hosted_relays"}
+def test_basic_is_the_private_organiser(editions):
+    """Contacts, calendar, PIN unlock and device linking — nothing networked
+    beyond the ticket/QR pairing that has no gate."""
+    enabled = {path for path, value in gates(editions["basic"]).items() if value}
+    assert enabled == {
+        "contacts.enabled",
+        "calendar.enabled",
+        "lock.pin_unlock",
+        "devices.allow_linking",
+    }
 
 
-def test_plus_is_light_plus_calls(editions):
-    light = gates(editions["light"])
-    plus = gates(editions["plus"])
-    differing = {path for path in GATE_PATHS if light[path] != plus[path]}
-    assert differing == {"calls.enabled"}
-    assert plus["calls.enabled"] is True
+def test_standard_is_basic_plus_connectivity(editions):
+    basic = gates(editions["basic"])
+    standard = gates(editions["standard"])
+    differing = {path for path in GATE_PATHS if basic[path] != standard[path]}
+    assert differing == {
+        "p2p.allow_hosted_relays",
+        "dht.enabled",
+        "peers.enabled",
+        "keyring.enabled",
+        "calls.enabled",
+    }
+    assert all(standard[path] for path in differing)
 
 
-def test_pro_enables_everything(editions):
-    assert all(gates(editions["pro"]).values())
+def test_professional_is_standard_plus_maps(editions):
+    standard = gates(editions["standard"])
+    professional = gates(editions["professional"])
+    differing = {path for path in GATE_PATHS if standard[path] != professional[path]}
+    assert differing == {"maps.enabled"}
+    assert all(gates(editions["professional"]).values())
 
 
 @pytest.mark.parametrize("section", ["crypto", "settings", "network"])
 def test_editions_share_crypto_settings_and_network(editions, section):
     """The invariant that lets apply_preset touch only the gates.
 
-    A Light peer has to share rooms with a Pro peer, so these sections are
-    identical across the product line on purpose.
+    A Basic peer has to share rooms with a Professional peer, so these
+    sections are identical across the product line on purpose.
     """
     values = [config[section] for config in editions.values()]
     assert all(value == values[0] for value in values)
@@ -66,10 +82,15 @@ def test_apply_preset_then_detect_round_trips():
         assert model.detect_preset() == edition
 
 
-def test_editing_a_gate_lands_on_custom():
+def test_editing_off_the_preset_chain_lands_on_custom():
+    """The presets form a chain (professional − maps = standard), so detection
+    legitimately slides DOWN the chain on those edits. Custom is what lies
+    outside it — no preset ships without contacts."""
     model = ConfigModel()
-    model.apply_preset("pro")
+    model.apply_preset("professional")
     model.set("maps.enabled", False)
+    assert model.detect_preset() == "standard"  # the chain, working as intended
+    model.set("contacts.enabled", False)
     assert model.detect_preset() is None
     assert "custom" in model.provenance()
 

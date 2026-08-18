@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Enigma Standard",
+  "mainBinaryName": "enigma-standard",
+  "identifier": "com.spectrumaipl.enigma.standard"
+}

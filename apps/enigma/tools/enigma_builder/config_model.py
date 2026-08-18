@@ -6,8 +6,8 @@ so the YAML preview, the validation banner and the Build tab can never show
 three different versions of the same config.
 
 Preset values are read from the checked-in edition files at runtime, never
-hardcoded: the ``# Plus and up`` comments in ``build_config.light.yaml`` are
-already stale relative to ``build_config.plus.yaml``, so the files are the only
+hardcoded: a comment drifting from a value has happened before in the edition
+files, so the files' VALUES are the only
 trustworthy source.
 """
 

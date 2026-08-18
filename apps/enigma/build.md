@@ -212,9 +212,9 @@ The product line — **Light / Plus / Pro** — is three checked-in configs unde
 an environment variable that `build.rs` reads:
 
 ```bash
-ENIGMA_EDITION=light ./build_desktop.sh      # basic encrypted chat only
-ENIGMA_EDITION=plus  ./run_dev.sh            # + voice calls (Vox), nothing else
-ENIGMA_EDITION=pro   npm run build:android   # + DHT, contacts, device linking, calendar, maps, peers
+ENIGMA_EDITION=basic        ./build_desktop.sh    # contacts, calendar, PIN unlock, device linking
+ENIGMA_EDITION=standard     ./run_dev.sh          # + relays, DHT, peer sync, keyring, voice calls
+ENIGMA_EDITION=professional npm run build:android # + maps
 ./build_desktop.sh                           # unset → build_config.yaml (everything on)
 ```
 
@@ -225,7 +225,7 @@ so switching editions always regenerates rather than reusing a cached binary
 (the Rust crate does recompile — expect a full rebuild when you switch).
 
 The dev launchers `run_dev.sh` and `run2.sh` now default to
-`ENIGMA_EDITION=pro`, the everything-on edition, so every gated surface is
+`ENIGMA_EDITION=professional`, the everything-on edition, so every gated surface is
 exercisable in a dev run; shipped/CI defaults are unchanged, and an explicit
 `ENIGMA_EDITION=…` in the environment still wins.
 

@@ -1,4 +1,4 @@
-# Enigma product line — Light / Plus / Pro
+# Enigma product line — Basic / Standard / Professional
 
 One codebase, three shipped products. Every edition is the same binary source
 built with a different **compile-time build config**; there is no runtime
@@ -20,87 +20,94 @@ lives) · [README.md](README.md) (orientation).
 
 ## 1. The three editions
 
-### Enigma Light — "just the encrypted chat"
+*(Until 2026-08-18 the line was Light / Plus / Pro; those editions were
+replaced wholesale by the presets below — different names AND different
+compositions, e.g. contacts and calendar moved into the entry edition. An
+installed `.pro` app does not upgrade into `.professional`: the bundle
+identifiers differ, so it is a separate install.)*
 
-The minimum viable secure messenger. Everything needed to pair with someone and
-talk to them safely, and nothing else.
+### Enigma Basic — "the private organiser"
+
+The offline-first core: everything that works without any third-party
+infrastructure, plus the personal-organisation surface.
 
 **In:** P2P MLS chat with QR/ticket pairing and persistent rooms · Tor
-transport · P2P file transfer · per-file local locking + the notes and SVG editors ·
-the encrypted-at-rest vault (passphrase gate, panic code, idle auto-lock,
-airplane mode) · profile + settings + i18n.
+transport · P2P file transfer · per-file local locking + the notes and SVG
+editors · the encrypted-at-rest vault (passphrase gate, panic code, idle
+auto-lock, airplane mode) · **Contacts** · **Calendar** (meetings + polls) ·
+**PIN unlock** · **multi-device linking** · profile + settings + i18n.
 
-**Out:** the DHT, Contacts, voice calls, calendar, maps, multi-device linking.
+**Out:** hosted relays and pkarr discovery, the DHT, peer sync, the key ring,
+voice calls, maps.
 
-**Who it's for:** the user who wants one thing to work and to be able to explain
-what the app does in a sentence. Also the smallest binary and the smallest
-audit surface — the natural default for a high-risk user.
+**The honest consequence of "no relays":** pairing works anywhere (the
+QR/ticket carries addresses), but *reconnecting to a saved NodeId across
+different networks does not* — with `p2p.allow_hosted_relays: false` the iroh
+endpoint registers no lookup service at all, so rooms reconnect on the same
+LAN or over Tor, and device linking pairs on the LAN. That is the point of
+this edition: zero third-party infrastructure, and the trade is stated rather
+than hidden.
 
-### Enigma Plus — "chat, and talk"
+**Who it's for:** the user who wants a private organiser and messenger with
+the smallest possible audit surface, and who either shares a network with
+their peers or runs Tor.
 
-Light plus exactly one thing: **1:1 voice calls** (the **Vox** tab — `vox`,
-riding the room's MLS group).
+### Enigma Standard — "the connected messenger"
 
-**Out:** everything Light is out, minus calls. No DHT, no Contacts, no device
-linking, no calendar, no maps.
+Basic plus the connectivity layer.
 
-**Who it's for:** the user who wants voice without acquiring a directory, a
-contact list, or a second device to keep in sync. Reachability is Light's:
-QR/ticket first, then reconnect to the saved NodeId via n0 discovery — so a call
-starts from a ticket or from someone already in a room with you. There is
-deliberately no "call a nickname", because there is no nickname directory.
+**Adds:** **hosted relays + pkarr discovery** (NAT-to-NAT pairing, reconnect
+to a saved NodeId from anywhere) · **the Mainline DHT** (ticketless
+join-by-room-code, the nickname directory, presence — still opt-in per
+profile) · **Peer sync** (scoped, revocable person-to-person links — see
+[peer.md](peer.md)) · **Key ring** (one passphrase, many locked files) ·
+**Vox** (1:1 voice calls).
 
-### Enigma Pro — "the collaboration suite"
+**Who it's for:** the ordinary case — people on different networks who want
+calls and reliable reconnection, accepting n0's relay/DNS infrastructure and
+the (opt-in) public DHT in exchange.
 
-Everything. Plus, extended with the discovery layer and the shared-workspace
-features.
+### Enigma Professional — "the collaboration suite"
 
-**Adds:** **DHT discovery** (ticketless join-by-room-code, the nickname
-directory, presence) · **Contacts** (built on that: presence, nickname search,
-direct room invites with Accept/Decline) · **multi-device linking** (the user's
-own devices converge over pure P2P — no third party) · **Peer sync** (scoped,
-revocable person-to-person links — see [peer.md](peer.md)) · **Calendar**
-(meetings + scheduling polls) · **Maps** (offline region packages).
+Standard plus **Maps** (offline region packages, P2P region sharing, the
+shared location layer).
 
-**Who it's for:** teams and organisations running Enigma as their working
-surface. It is the only edition that touches a public network the user does not
-control — the Mainline DHT — which is why discovery, and everything built on it,
-lives here and nowhere else. That is now the *whole* of what distinguishes Pro's
-threat model: until 2026-08 Pro was also the only edition that could talk to a
-server (Enigma Cloud, defaulting on via `cloud.allow_connections`), and that
-client has been deleted from the product entirely (technology.md §16). No
-edition speaks to an application server any more.
+**Who it's for:** teams running Enigma as their working surface. Nothing here
+touches any infrastructure Standard does not already touch — since Enigma
+Cloud was deleted (2026-08, technology.md §16) no edition speaks to an
+application server, so Professional's threat model is Standard's plus a
+larger local surface.
 
 ---
 
 ## 2. Feature matrix
 
-| Feature | Light | Plus | Pro | Gate |
+| Feature | Basic | Standard | Professional | Gate |
 |---|:--:|:--:|:--:|---|
 | P2P MLS chat, QR/ticket pairing, room persistence | ✅ | ✅ | ✅ | — (always) |
 | Tor onion transport | ✅ | ✅ | ✅ | — |
-| Hosted relays + pkarr discovery | ✅ | ✅ | ✅ | `p2p.allow_hosted_relays` |
 | P2P file transfer | ✅ | ✅ | ✅ | — |
 | Local locked files + notes and SVG editors | ✅ | ✅ | ✅ | — |
 | Vault, panic code, idle lock, airplane mode | ✅ | ✅ | ✅ | — |
+| **Contacts** (saved peers, direct room invites) | ✅ | ✅ | ✅ | `contacts.enabled` |
+| **Calendar** (meetings + polls) | ✅ | ✅ | ✅ | `calendar.enabled` |
+| **PIN unlock** (keypad re-unlock after idle lock) | ✅ | ✅ | ✅ | `lock.pin_unlock` |
+| Multi-device linking | ✅ | ✅ | ✅ | `devices.allow_linking` |
+| Hosted relays + pkarr discovery | ❌ | ✅ | ✅ | `p2p.allow_hosted_relays` |
+| **DHT discovery** (room codes, nick directory, presence) | ❌ | ✅ | ✅ | `dht.enabled` |
+| **Peer sync** (scoped person-to-person links) | ❌ | ✅ | ✅ | `peers.enabled` |
+| **Key ring** (one passphrase, many locked files) | ❌ | ✅ | ✅ | `keyring.enabled` |
 | **Vox** (1:1 voice calls) | ❌ | ✅ | ✅ | `calls.enabled` |
-| **DHT discovery** (room codes, nick directory, presence) | ❌ | ❌ | ✅ | `dht.enabled` |
-| **Contacts** (presence, nick search, invites) | ❌ | ❌ | ✅ | `contacts.enabled` |
-| Multi-device linking | ❌ | ❌ | ✅ | `devices.allow_linking` |
-| **Calendar** (meetings + polls) | ❌ | ❌ | ✅ | `calendar.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
-| **PIN unlock** (keypad re-unlock after idle lock) | ❌ | ❌ | ✅ | `lock.pin_unlock` |
-| **Key ring** (one passphrase, many locked files) | ❌ | ❌ | ✅ | `keyring.enabled` |
-| **Peer sync** (scoped person-to-person links) | ❌ | ❌ | ✅ | `peers.enabled` |
 
-The Kanban board, Sketch board and Mind map were Pro features until 2026-07-27,
+The Kanban board, Sketch board and Mind map were features of the top edition until 2026-07-27,
 when they were **parked** (no maintenance capacity) — code, tests and docs kept
 under `limbo/frontend/{kanban,sketch,mind}/` with restore checklists. Their
 build-config sections and flags are gone with them; restoring a feature re-adds
 its section, so the matrix would gain its row back.
 
 **Enigma Cloud** — the client for the user's own self-hosted faros server — was a
-Pro row here (gate `cloud.allow_connections`) until 2026-08, when it was
+top-edition row here (gate `cloud.allow_connections`) until 2026-08, when it was
 **deleted**, not parked: no `limbo/` copy, no flag, no YAML to restore
 (technology.md §16). It is the one feature this matrix has lost outright rather
 than gated away, and the reason no edition now contains any code that speaks to
@@ -109,18 +116,16 @@ treatment — see that document's §9.
 
 Two separate gates, easy to confuse:
 
-- **`p2p.allow_hosted_relays`** is `true` in every edition and stays that way.
-  It buys the n0 relay fallback and pkarr/DNS discovery — which is what makes
-  NAT-to-NAT pairing work and lets a saved NodeId still be resolved after a
-  restart. Turning it off would break plain chat reconnection in *every*
-  edition, so it is not the lever for shipping a smaller product.
-- **`dht.enabled`** (Pro only) is the lever. It gates the Mainline DHT alone:
-  ticketless join-by-room-code, the nickname directory, and presence. Light and
-  Plus therefore pair by QR/ticket and reconnect by saved NodeId, which is the
-  ordinary path anyway — what they lose is the short room code and the ability
-  to find someone by name.
+- **`p2p.allow_hosted_relays`** (Standard and up) buys the n0 relay fallback
+  and pkarr/DNS discovery — NAT-to-NAT pairing, and resolving a saved NodeId
+  after a restart from a different network. Basic turns it off deliberately:
+  zero third-party infrastructure, at the stated cost of off-LAN reconnection
+  (§1).
+- **`dht.enabled`** (Standard and up, and it requires relays — build.rs
+  rejects the combination without them) gates the Mainline DHT alone:
+  ticketless join-by-room-code, the nickname directory, and presence.
 
-Even in Pro the DHT stays **opt-in per profile** (`features.dht_discovery:
+Even in Professional the DHT stays **opt-in per profile** (`features.dht_discovery:
 false`): the build gate only decides whether the toggle can be offered, and
 nothing is published to a public network until the user asks for it.
 
@@ -136,11 +141,12 @@ across the three configs, deliberately:
   the vendored `rotor_core`/`gervasius` anyway — they cannot drift silently.)
 - **Network / wire.** Same `max_frame_bytes`, `onion_port`, chunk size, Tor
   timeouts. `max_frame_bytes` is **wire-interop sensitive**: peers in one room
-  must agree on it, and a Light user must be able to sit in a room with a Pro
+  must agree on it, and a Basic user must be able to sit in a room with a
+  Professional
   user. Never diverge this per edition.
 - **Settings clamps.** Same defaults and bounds for every user-tunable setting,
   including ones whose feature is off in that edition (`map_storage_limit_mb`
-  is still a required, validated field in the Light config — it is simply
+  is still a required, validated field in the Basic config — it is simply
   never read).
 - **App identity.** All three declare `name: Enigma`, the same identifier and
   the same version, because `build.rs` asserts equality against
@@ -156,15 +162,15 @@ variable:
 
 ```
 ENIGMA_EDITION unset  →  src-tauri/build_config.yaml               (unchanged default)
-ENIGMA_EDITION=light  →  src-tauri/configs/build_config.light.yaml
-ENIGMA_EDITION=plus   →  src-tauri/configs/build_config.plus.yaml
-ENIGMA_EDITION=pro    →  src-tauri/configs/build_config.pro.yaml
+ENIGMA_EDITION=basic         →  src-tauri/configs/build_config.basic.yaml
+ENIGMA_EDITION=standard      →  src-tauri/configs/build_config.standard.yaml
+ENIGMA_EDITION=professional  →  src-tauri/configs/build_config.professional.yaml
 ```
 
 ```bash
-ENIGMA_EDITION=light ./build_desktop.sh          # release bundle, Light
-ENIGMA_EDITION=pro   ./run_dev.sh                # dev run, Pro
-ENIGMA_EDITION=plus  ( cd apps/enigma/src-tauri && cargo build )
+ENIGMA_EDITION=basic        ./build_desktop.sh   # release bundle, Basic
+ENIGMA_EDITION=professional ./run_dev.sh         # dev run, Professional
+ENIGMA_EDITION=standard ( cd apps/enigma/src-tauri && cargo build )
 ```
 
 An unset variable keeps today's behaviour exactly — the repo default build is
@@ -188,7 +194,7 @@ layers each:
 
 | Layer | `calls.enabled: false` | `contacts.enabled: false` | `calendar.enabled: false` |
 |---|---|---|---|
-| Rust | the `enigma/vox/0` ALPN is not registered on the p2p router (an inbound call is refused at ALPN negotiation) and every `vox_*` command returns `CALLS_DISABLED` | the invite ALPN is not registered — a direct room invite from a Pro peer is refused at negotiation | — (meetings ride the chat channel's sync seam; no dedicated Rust surface) |
+| Rust | the `enigma/vox/0` ALPN is not registered on the p2p router (an inbound call is refused at ALPN negotiation) and every `vox_*` command returns `CALLS_DISABLED` | the invite ALPN is not registered — a direct room invite from a maps-capable peer is refused at negotiation | — (meetings ride the chat channel's sync seam; no dedicated Rust surface) |
 | Store | `useVoxCall` never instantiated (`chatStore.vox === null`) | `useRoomInvites` never instantiated | `useMeetings` never instantiated; no reminder tick |
 | UI | no Vox tab, `/vox` redirects to `/chat`, no ring indicator, no call button in Contacts | no Contacts tab, `/contacts` redirects, no invite badge | no Calendar tab, `/calendar` redirects, no meeting badge |
 
@@ -198,7 +204,7 @@ capability rather than a tab:
 | Layer | `dht.enabled: false` |
 |---|---|
 | Rust | `p2p_dht::discovery_enabled` and `nick_publish_enabled` return false **before** reading the user's setting, which is the single choke point for the `DhtHandle`, `DhtAddressLookup`, the rendezvous publisher/resolver, the nick publisher and room-code minting. On top of that `dht_presence` / `dht_publish_nick` / `dht_find_nick` / `dht_apply` fail fast with `DHT_DISABLED`, so a stray call cannot even bind the endpoint. `dht_status` and `dht_room_code` stay silent instead — each already has a total "nothing here" value in its own return type. |
-| Frontend | `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus` in rakotis apply the same gate ahead of the same kv read, so every consumer goes inert at once — including `useRoomInvites`, which then prefers a Pro peer's **ticket** over the room code it also sends. |
+| Frontend | `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus` in rakotis apply the same gate ahead of the same kv read, so every consumer goes inert at once — including `useRoomInvites`, which then prefers a DHT-capable peer's **ticket** over the room code it also sends. |
 | UI | no Settings→Connections DHT card, no nickname claim / find-people / presence surfaces in Contacts, no call-by-nickname in Vox, no room-code field in create or room-info. Hidden, not disabled: every off-state string points at the Settings card, which is exactly what this build lacks. |
 
 Because the composables are the things that register sync handlers on the chat
@@ -206,8 +212,9 @@ channel, a flag-off build does not merely hide a surface — it never subscribes
 to those message types at all. An incoming call offer or meeting invite from a
 higher-edition peer is simply an unhandled sync type and is dropped.
 
-Cross-edition rooms therefore degrade quietly rather than erroring: a Pro user
-can schedule a meeting in a room containing Light users; those users see
+Cross-edition rooms therefore degrade quietly rather than erroring: a
+Professional user can share a map region into a room containing Basic users;
+those users see
 nothing. That is the intended behaviour, but it is also the sharpest edge in
 this design — see §6.
 
@@ -226,15 +233,15 @@ which the code carries) and reconnects by persisted NodeIds instead.
 1. **Distinct installable products.** All three editions currently build as
    "Enigma" with bundle id `com.spectrumaipl.enigma`, because `build.rs`
    asserts `app.{name,identifier,version}` against `tauri.conf.json`. Shipping
-   Light/Plus/Pro side by side needs per-edition `tauri.conf.json` variants (or
+   Basic/Standard/Professional side by side needs per-edition `tauri.conf.json` variants (or
    a generated one) so they get distinct names, ids, and install paths.
-2. **No cross-edition capability signalling.** A Pro peer cannot tell that a
-   room member is on Light, so it cannot warn "3 members won't see this
+2. **No cross-edition capability signalling.** A Professional peer cannot tell
+   that a room member is on Basic, so it cannot warn "3 members won't see this
    meeting". A capability byte in the MLS-carried presence/join payload would
    fix it; today the degradation is silent. Peer sync makes this sharper: a sync
-   request to a Light or Plus peer is refused at ALPN negotiation and the
+   request to a peer without that gate is refused at ALPN negotiation and the
    requester cannot explain why (peer.md §6).
-3. **Upgrade path.** Moving a profile from Light to Pro is "install the other
+3. **Upgrade path.** Moving a profile from Basic to Professional is "install the other
    build and point it at the same profile" — the vault format is
    edition-independent, so this works, but it is untested and undocumented.
 4. **No tier UI.** Nothing in the app tells the user which edition they are
@@ -250,9 +257,9 @@ which the code carries) and reconnects by persisted NodeIds instead.
    that binary", and for tabs/composables that holds. It does not yet hold for
    the DHT: `dht.enabled: false` makes every path unreachable, but iroh's
    `address-lookup-pkarr-dht` feature and the `mainline` crate are still linked
-   into a Light binary. Honest wording today is "unreachable"; making it true
+   into a Basic binary. Honest wording today is "unreachable"; making it true
    needs a `#[cfg(feature)]` split in `Cargo.toml`, which is the same gap
    `maps.rs` and `vox.rs` have.
 7. **Per-edition caps are deliberately not used.** If a future tier wants, say,
-   a bigger file-size default for Pro, note that `settings.*` clamps are safe to
+   a bigger file-size default for Professional, note that `settings.*` clamps are safe to
    vary per edition but `network.max_frame_bytes` is **not** (§3).

@@ -45,20 +45,22 @@ def test_identity_is_seeded_from_tauri_conf(window):
 
 
 def test_preset_click_updates_gates_and_preview(window):
-    window.features_tab.preset_buttons["plus"].click()
-    assert window.model.detect_preset() == "plus"
+    window.features_tab.preset_buttons["standard"].click()
+    assert window.model.detect_preset() == "standard"
     assert window.model.get("calls.enabled") is True
     assert window.model.get("maps.enabled") is False
 
     preview = window.features_tab.preview.toPlainText()
     assert "maps:" in preview
-    assert "# Derived from preset: plus" in preview
+    assert "# Derived from preset: standard" in preview
 
 
 def test_toggling_a_gate_flips_the_chip_to_custom(window):
-    window.features_tab.preset_buttons["pro"].click()
+    window.features_tab.preset_buttons["professional"].click()
     assert not window.features_tab.custom_chip.isChecked()
-    window.features_tab.gate_boxes["maps.enabled"].setChecked(False)
+    # maps-off would land exactly on Standard (the presets form a chain), so
+    # flip a gate no preset has off — that is what "custom" means now.
+    window.features_tab.gate_boxes["contacts.enabled"].setChecked(False)
     assert window.features_tab.custom_chip.isChecked()
 
 

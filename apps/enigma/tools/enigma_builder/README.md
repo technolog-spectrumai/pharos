@@ -72,7 +72,7 @@ the Identity tab.
 ## Why every build is `ENIGMA_EDITION=custom`
 
 `build.rs` bakes one YAML into compile-time consts, chosen by `ENIGMA_EDITION`:
-unset picks `build_config.yaml`, and `light` / `plus` / `pro` / `custom` pick
+unset picks `build_config.yaml`, and `basic` / `standard` / `professional` / `custom` pick
 `configs/build_config.<edition>.yaml`. The Builder always materializes the form
 into the `custom` file and builds that — even when the form matches a preset
 exactly.
@@ -85,9 +85,9 @@ configs at once. Writing only `custom` means the product-line files stay exactly
 as `pland.md` defines them, and at most one tracked file is ever touched.
 
 Presets are therefore value *sources* for the form, not build targets. Their
-values are read from the checked-in YAML at runtime, never hardcoded — the
-`# Plus and up` comments in `build_config.light.yaml` already disagree with the
-values in `build_config.plus.yaml`, and the values are what compiles.
+values are read from the checked-in YAML at runtime, never hardcoded — a
+comment drifting from a value has happened before in the edition files, and
+the values are what compiles.
 
 One consequence worth knowing: after an automatic identity restore, a *manual*
 `ENIGMA_EDITION=custom cargo build` fails the equality assert until the Builder
@@ -95,7 +95,7 @@ regenerates. The custom YAML is builder-owned output; regenerate it from the GUI
 
 ## Tabs
 
-- **Features** — Light / Plus / Pro presets, the nine build gates, the four
+- **Features** — Basic / Standard / Professional presets, the ten build gates, the four
   runtime defaults, and a live preview of the YAML that will be written. The
   Custom chip is an indicator: change any gate and it lights up on its own.
 - **Identity** — product name, bundle identifier, version and the app icon,

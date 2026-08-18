@@ -568,7 +568,7 @@ const _: () = assert!(
 /// `custom` is the local Enigma Builder's output (tools/enigma_builder): that
 /// file is generated and gitignored, so a fresh checkout has no `custom` config
 /// and building one without running the Builder first fails with "not found".
-const EDITIONS: &[&str] = &["light", "plus", "pro", "custom"];
+const EDITIONS: &[&str] = &["basic", "standard", "professional", "custom"];
 
 /// Resolve which YAML to bake in. Unknown names FAIL — never silently fall back
 /// to the default config, or a typo'd edition would ship every feature.

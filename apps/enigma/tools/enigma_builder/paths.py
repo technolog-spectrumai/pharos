@@ -24,7 +24,7 @@ ORG_NAME = "Enigma"
 # The edition the Builder always writes and builds. Presets are value sources
 # for the form, never build targets — see README.
 CUSTOM_EDITION = "custom"
-PRESETS = ("light", "plus", "pro")
+PRESETS = ("basic", "standard", "professional")
 
 # `deploy/build.sh` derives the app name from its own location; every other
 # script takes it as the first positional argument.

@@ -86,7 +86,7 @@ RUNTIME_HINTS: dict[str, tuple[str, str]] = {
     ),
 }
 
-PRESET_LABELS = {"light": "Light", "plus": "Plus", "pro": "Pro"}
+PRESET_LABELS = {"basic": "Basic", "standard": "Standard", "professional": "Professional"}
 
 
 class FeaturesTab(QWidget):
