@@ -68,6 +68,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="report whether a release build would be signed, and from where",
         parents=[common],
     )
+    verify_sub = android_sub.add_parser(
+        "verify",
+        help="verify a built artifact (or the last build) and print its identity",
+        parents=[common],
+    )
+    verify_sub.add_argument("artifact", nargs="?", metavar="APK_OR_AAB",
+                            help="one artifact; omitted = the last release build")
+    verify_sub.add_argument("--allow-unsigned", action="store_true")
+    pin_sub = android_sub.add_parser(
+        "pin",
+        help="record the release-key fingerprint the build must match",
+        parents=[common],
+    )
+    pin_sub.add_argument("--from", dest="source", metavar="ARTIFACT", required=True)
+    pin_sub.add_argument("--rotate", action="store_true")
+    pin_sub.add_argument("--yes", action="store_true")
 
     build_p = sub.add_parser(
         "build", help="run a build headlessly", parents=[common]
@@ -181,6 +197,15 @@ def run_signing(args: argparse.Namespace, override: Path | None) -> int:
 
     if args.action == "status":
         return signing_cli.status(paths.ANDROID_GEN)
+    if args.action == "verify":
+        target = Path(args.artifact).expanduser() if args.artifact else paths.ANDROID_GEN
+        return signing_cli.verify(
+            target, "release", args.allow_unsigned, paths.ANDROID_PIN
+        )
+    if args.action == "pin":
+        return signing_cli.pin_action(
+            paths.ANDROID_PIN, Path(args.source).expanduser(), args.rotate, args.yes
+        )
     return 2
 
 

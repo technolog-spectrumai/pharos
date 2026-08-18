@@ -713,3 +713,57 @@ def test_an_unsigned_aab_is_refused(tmp_path):
     signature = signing.verify_aab(aab)
     assert not signature.verified
     assert signing.classify(signature) == signing.UNSIGNED_RELEASE
+
+
+# ----- the release-key pin (A6) ----------------------------------------------
+
+
+def test_missing_and_empty_pin_read_the_same(tmp_path):
+    absent = signing.read_pin(tmp_path / "nowhere.properties")
+    assert not absent.recorded
+    empty = tmp_path / "pin.properties"
+    empty.write_text("sha256=\nalias=\n", encoding="utf-8")
+    assert not signing.read_pin(empty).recorded
+
+
+def test_no_pin_is_a_notice_never_a_failure():
+    problem = signing.check_pin(signing.Pin(), ("aa" * 32,))
+    assert problem is not None and problem.code == signing.NO_PIN
+    assert "pin --from" in problem.message  # tells you HOW to record it
+
+
+def test_a_matching_fingerprint_passes_whatever_the_case_or_colons():
+    pin = signing.Pin(sha256="aa" * 32)
+    assert signing.check_pin(pin, ("AA:" * 31 + "AA",)) is None
+    assert signing.check_pin(pin, ("aa" * 32,)) is None
+
+
+def test_a_mismatch_names_both_keys_and_the_consequence():
+    pin = signing.Pin(sha256="aa" * 32)
+    problem = signing.check_pin(pin, ("bb" * 32,))
+    assert problem is not None and problem.code == signing.FINGERPRINT_MISMATCH
+    assert "aa" * 32 in problem.message and "bb" * 32 in problem.message
+    assert "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in problem.message
+    assert "--rotate" in problem.message
+
+
+def test_write_pin_round_trips_and_documents_rotation(tmp_path):
+    path = tmp_path / "pin.properties"
+    signing.write_pin(path, "AA:BB" + ":CC" * 15, alias="enigma", subject="CN=X")
+    pin = signing.read_pin(path)
+    assert pin.recorded and pin.sha256 == ("aabb" + "cc" * 15)
+    # Rotation leaves the previous key in the committed diff.
+    signing.write_pin(path, "dd" * 32, alias="enigma", subject="CN=Y",
+                      rotated_from=pin.sha256)
+    text = path.read_text(encoding="utf-8")
+    assert f"rotated_from={pin.sha256}" in text
+    assert signing.read_pin(path).sha256 == "dd" * 32
+    # The header must keep explaining WHY the file exists.
+    assert "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in text
+    assert "Play" in text  # the upload-key vs Play-key distinction
+
+
+def test_the_committed_pin_file_exists_and_parses():
+    pin_file = paths.APP_DIR / "deploy" / "android-release-key.properties"
+    assert pin_file.is_file(), "the pin file must ship with the repo"
+    signing.read_pin(pin_file)  # must parse whether or not it is recorded yet

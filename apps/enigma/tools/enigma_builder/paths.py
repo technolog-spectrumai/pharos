@@ -79,6 +79,7 @@ def set_repo_root(root: Path | None) -> Path | None:
     global REPO_ROOT, APP_DIR, SRC_TAURI, CANONICAL_YAML, CONFIGS_DIR
     global CUSTOM_YAML, TAURI_CONF, BUILD_RS, CARGO_TOML, TARGET_DIR
     global ANDROID_GEN, ANDROID_OUTPUTS, BUILD_DESKTOP_SH, BUILD_ANDROID_SH
+    global ANDROID_PIN
     global RESET_PROFILE_SH, DEPLOY_BUILD_SH, DEPLOY_DIST
 
     REPO_ROOT = Path(root).resolve() if root is not None else Path("/nonexistent")
@@ -98,6 +99,9 @@ def set_repo_root(root: Path | None) -> Path | None:
     ANDROID_OUTPUTS = ANDROID_GEN / "app" / "build" / "outputs"
 
     BUILD_DESKTOP_SH = REPO_ROOT / "build_desktop.sh"
+    # The committed release-key fingerprint pin (see signing.py). Deliberately
+    # OUTSIDE gen/android, which `tauri android init` regenerates.
+    ANDROID_PIN = APP_DIR / "deploy" / "android-release-key.properties"
     BUILD_ANDROID_SH = REPO_ROOT / "scripts" / "build_android.sh"
     RESET_PROFILE_SH = REPO_ROOT / "scripts" / "reset_profile.sh"
     DEPLOY_BUILD_SH = APP_DIR / "deploy" / "build.sh"

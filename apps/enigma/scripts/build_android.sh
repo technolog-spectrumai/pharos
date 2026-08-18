@@ -227,7 +227,9 @@ if [[ "${BUILD_TYPE}" == "release" ]]; then
     VERIFY_FLAGS+=(--allow-unsigned)
   fi
   echo ""
-  run_signing_cli verify --gen "${GEN_DIR}" --build-type release "${VERIFY_FLAGS[@]}" || {
+  PIN_FILE="${APP_DIR}/deploy/android-release-key.properties"
+  run_signing_cli verify --gen "${GEN_DIR}" --build-type release \
+      --pin "${PIN_FILE}" "${VERIFY_FLAGS[@]}" || {
     echo "" >&2
     echo "ERROR: the release build did not produce properly signed artifacts." >&2
     exit 1
