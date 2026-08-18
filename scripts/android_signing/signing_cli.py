@@ -18,6 +18,7 @@ system python3 that a build machine has anyway.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -169,6 +170,106 @@ def pin_action(pin_file: Path, source: Path, rotate: bool, assume_yes: bool) -> 
     return 0
 
 
+WARNING_BANNER = """
+  ╔════════════════════════════════════════════════════════════════════════╗
+  ║  THIS KEY IS THE APP'S IDENTITY, FOREVER.                              ║
+  ║                                                                        ║
+  ║  Android identifies an installed app by (applicationId, signing key).  ║
+  ║  If you lose this file or its password, you can NEVER ship an update   ║
+  ║  to anyone who has already installed Enigma. Not with a new key, not   ║
+  ║  with a support ticket, not ever. They would have to uninstall —       ║
+  ║  losing every local vault — and install a different app.               ║
+  ║                                                                        ║
+  ║  Back up the keystore somewhere you will still have in ten years.      ║
+  ║  Keep the password somewhere ELSE (a password manager).                ║
+  ╚════════════════════════════════════════════════════════════════════════╝
+"""
+
+
+def create(
+    store: Path | None,
+    alias: str,
+    dname: str,
+    *,
+    validity_days: int,
+    assume_yes: bool,
+    save_password: bool,
+    write_properties_into: Path | None,
+    forbidden_root: Path | None,
+) -> int:
+    """Mint a release keystore, with the lose-this-lose-everything warning."""
+    import getpass
+
+    target = store or (signing.keystores_dir() / "enigma-release.jks")
+
+    print(WARNING_BANNER)
+    if not assume_yes:
+        if not sys.stdin.isatty():
+            print("refusing to create a keystore non-interactively without --yes",
+                  file=sys.stderr)
+            return 1
+        answer = input(f"Create {target}? Type 'yes' to proceed: ")
+        if answer.strip().lower() != "yes":
+            print("aborted")
+            return 1
+
+    password = os.environ.get(signing.KEYSTORE_PASSWORD_ENV, "")
+    if not password:
+        password = getpass.getpass("Keystore password (min 12 chars): ")
+        confirm = getpass.getpass("Re-enter password: ")
+        if password != confirm:
+            print("passwords do not match", file=sys.stderr)
+            return 1
+
+    try:
+        signing.create_keystore(
+            target, alias, dname, password,
+            validity_days=validity_days, forbidden_root=forbidden_root,
+        )
+    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    fingerprint = signing.fingerprint_from_keystore(target, alias, password)
+    print(f"created: {target}  (alias '{alias}', RSA 4096, {validity_days} days)")
+    print(f"SHA-256: {fingerprint}")
+
+    # The machine-local credentials file — everything the build needs, 0600.
+    local = signing.local_config_path()
+    if not local.exists():
+        local.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"storeFile={target}", f"keyAlias={alias}"]
+        if save_password:
+            lines += [f"storePassword={password}", f"keyPassword={password}"]
+        local.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        local.chmod(0o600)
+        print(f"wrote {local} (chmod 600{'' if save_password else ', no password'})")
+    if not save_password:
+        print("export the password before building:")
+        print(f"  export {signing.KEYSTORE_PASSWORD_ENV}=…")
+        print(f"  export {signing.KEY_PASSWORD_ENV}=…")
+
+    # Optional repo-side pointer, placeholders ONLY — never a literal secret.
+    if write_properties_into is not None:
+        props = write_properties_into / signing.KEYSTORE_PROPERTIES
+        if props.exists():
+            print(f"NOT overwriting existing {props}", file=sys.stderr)
+        else:
+            props.write_text(
+                f"storeFile={target}\n"
+                f"storePassword=${{{signing.KEYSTORE_PASSWORD_ENV}}}\n"
+                f"keyAlias={alias}\n"
+                f"keyPassword=${{{signing.KEY_PASSWORD_ENV}}}\n",
+                encoding="utf-8",
+            )
+            print(f"wrote {props} (placeholders only)")
+
+    print(WARNING_BANNER)
+    print("record the fingerprint after your first release build:")
+    print("  enigma-builder signing android pin --from <apk>")
+    return 0
+
+
 def _parse(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="signing_cli.py",
@@ -202,6 +303,20 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         help="release-key pin file; a signed release must match it",
     )
 
+    create_p = sub.add_parser("create", help="mint a release keystore with keytool")
+    create_p.add_argument("--keystore", metavar="PATH",
+                          help="where to put it (default: ~/.config/enigma-builder/keystores/)")
+    create_p.add_argument("--alias", default="enigma")
+    create_p.add_argument("--validity", type=int, default=10000, metavar="DAYS")
+    create_p.add_argument("--dname", default="", metavar="DN")
+    create_p.add_argument("--no-save-password", action="store_true",
+                          help="do not write the password into the local config")
+    create_p.add_argument("--write-properties", metavar="GEN_DIR",
+                          help="also write a placeholder keystore.properties here")
+    create_p.add_argument("--forbidden-root", metavar="DIR",
+                          help="refuse keystore paths inside this directory (the repo)")
+    create_p.add_argument("--yes", action="store_true")
+
     pin_p = sub.add_parser("pin", help="record the release-key fingerprint")
     pin_p.add_argument("--pin-file", metavar="FILE", required=True)
     pin_p.add_argument("--from", dest="source", metavar="ARTIFACT", required=True,
@@ -221,6 +336,21 @@ def main(argv: list[str] | None = None) -> int:
         target = Path(args.gen).expanduser() if args.gen else Path(args.artifact).expanduser()
         pin_file = Path(args.pin).expanduser() if args.pin else None
         return verify(target, args.build_type, args.allow_unsigned, pin_file)
+    if args.action == "create":
+        return create(
+            Path(args.keystore).expanduser() if args.keystore else None,
+            args.alias,
+            args.dname or "CN=Enigma Release, O=Enigma",
+            validity_days=args.validity,
+            assume_yes=args.yes,
+            save_password=not args.no_save_password,
+            write_properties_into=(
+                Path(args.write_properties).expanduser() if args.write_properties else None
+            ),
+            forbidden_root=(
+                Path(args.forbidden_root).expanduser() if args.forbidden_root else None
+            ),
+        )
     if args.action == "pin":
         return pin_action(
             Path(args.pin_file).expanduser(), Path(args.source).expanduser(),
