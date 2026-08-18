@@ -36,6 +36,31 @@ missing or incomplete.
 PyInstaller does not cross-compile — run `package.sh` on the platform you want a
 binary for.
 
+## Two tools in one binary
+
+The Builder is splitting into **Config Builder** (define the product, save a
+deterministic, git-friendly product-config file) and **Builder** (consume that
+file and produce the app). One codebase, three launch modes:
+
+```bash
+enigma-builder                       # the classic combined window (unchanged)
+enigma-builder config [product.yaml] # Config Builder: no Build tab; its output
+                                     # is a FILE, never an artifact
+enigma-builder build product.yaml    # Builder: consumes the file read-only —
+                                     # headless by default, --gui for a window
+enigma-builder build product.yaml --platform android --release
+```
+
+A product config is the build-config YAML itself (same schema build.rs
+compiles, rendered deterministically so diffs stay meaningful) plus an
+optional Builder-owned `branding:` block for the icon — stripped before
+anything reaches build.rs. The checked-in edition presets ARE product configs.
+The boundary is structural: config mode never invokes a build script, build
+mode never shows an editing surface, and a headless product build records
+`build-info.json` (config path + sha256, identity, options, and — for Android
+release — each artifact's signing classification and fingerprint) beside the
+collected artifacts.
+
 ## CLI
 
 The same binary is a headless CLI when given a subcommand (the program is

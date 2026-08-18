@@ -50,8 +50,30 @@ SETTINGS_OUTPUT_KEY = "build/output_dir"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, repo_override: Path | None = None) -> None:
+    """One window class, three launch modes.
+
+    - "full"   — the classic combined tool (bare `enigma-builder`).
+    - "config" — the Config Builder: define the product, save a deterministic
+      product-config file for git. No Build tab; it cannot start a build.
+    - "build"  — the Builder: consumes one product config read-only and runs
+      builds. No editing tabs; identity and gates come from the file.
+
+    The boundary the split enforces: config mode never invokes a build script,
+    and build mode never offers an editing surface — product decisions travel
+    only through the saved file.
+    """
+
+    def __init__(
+        self,
+        repo_override: Path | None = None,
+        mode: str = "full",
+        product_file: Path | None = None,
+    ) -> None:
         super().__init__()
+        self.mode = mode
+        self.product_file = product_file
+        self._product_dirty = False
+        self._loading_product = False
         self.settings = QSettings()
         saved = self.settings.value(SETTINGS_THEME_KEY, "")
         self.theme = saved if saved in THEMES else detect_system_theme()
@@ -78,6 +100,17 @@ class MainWindow(QMainWindow):
             or str(paths.default_output_dir())
         )
         self._on_model_changed()
+
+        if self.mode == "build" and self.product_file is not None:
+            if not self.load_product_readonly(self.product_file):
+                # The window still opens, showing the error state — closing it
+                # from the constructor would strand the caller.
+                pass
+        if self.mode == "config":
+            self.setWindowTitle(f"{paths.APP_NAME} — Config")
+            if self.product_file is not None:
+                self.load_product(self.product_file)
+            self._refresh_product_label()
 
         if paths.have_repo():
             self._report_missing_files()
@@ -193,13 +226,134 @@ class MainWindow(QMainWindow):
         self.expert_tab = ExpertTab(self.model)
         self.build_tab = BuildTab(self.model, self.identity_tab)
 
-        self.tabs.addTab(self.features_tab, TAB_TITLES[0])
-        self.tabs.addTab(self.identity_tab, TAB_TITLES[1])
-        self.tabs.addTab(self.expert_tab, TAB_TITLES[2])
-        self.tabs.addTab(self.build_tab, TAB_TITLES[3])
+        if self.mode == "config":
+            # No Build tab: this mode's output is a file, never an artifact.
+            root_layout.addLayout(self._build_product_bar())
+            self.tabs.addTab(self.features_tab, TAB_TITLES[0])
+            self.tabs.addTab(self.identity_tab, TAB_TITLES[1])
+            self.tabs.addTab(self.expert_tab, TAB_TITLES[2])
+            self.build_tab.hide()
+        elif self.mode == "build":
+            # Only the Build tab: the product is decided; the editing tabs are
+            # constructed (BuildTab reads identity through them) but never shown.
+            self.tabs.addTab(self.build_tab, "Build")
+            for tab in (self.features_tab, self.identity_tab, self.expert_tab):
+                tab.hide()
+        else:
+            self.tabs.addTab(self.features_tab, TAB_TITLES[0])
+            self.tabs.addTab(self.identity_tab, TAB_TITLES[1])
+            self.tabs.addTab(self.expert_tab, TAB_TITLES[2])
+            self.tabs.addTab(self.build_tab, TAB_TITLES[3])
 
         root_layout.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
+
+    def load_product_readonly(self, path: Path) -> bool:
+        """Build mode: consume the config; the editing surface stays hidden."""
+        try:
+            icon = self.model.load_product(path)
+        except (ValueError, OSError) as exc:
+            QMessageBox.critical(
+                self, paths.APP_NAME,
+                f"Cannot load the product config:\n{exc}"
+            )
+            return False
+        if icon and hasattr(self.identity_tab, "icon_edit"):
+            self.identity_tab.icon_edit.setText(str(Path(path).parent / icon))
+        self.setWindowTitle(f"{paths.APP_NAME} — Build: {Path(path).name}")
+        return True
+
+    def _build_product_bar(self):
+        """Open / Save / Save As / Build — the Config Builder's file row."""
+        from PyQt6.QtWidgets import QHBoxLayout, QPushButton
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.product_label = QLabel("(unsaved product config)")
+        self.product_label.setObjectName("details")
+        row.addWidget(self.product_label, 1)
+
+        open_button = QPushButton("Open…")
+        open_button.clicked.connect(self._open_product)
+        save_button = QPushButton("Save")
+        save_button.clicked.connect(self._save_product)
+        save_as_button = QPushButton("Save As…")
+        save_as_button.clicked.connect(lambda: self._save_product(ask=True))
+        build_button = QPushButton("Build this config…")
+        build_button.setObjectName("primaryButton")
+        build_button.clicked.connect(self._launch_builder)
+        for button in (open_button, save_button, save_as_button, build_button):
+            row.addWidget(button)
+        return row
+
+    def _refresh_product_label(self) -> None:
+        if self.mode != "config":
+            return
+        name = str(self.product_file) if self.product_file else "(unsaved product config)"
+        star = " *" if self._product_dirty else ""
+        self.product_label.setText(f"{name}{star}")
+        self.setWindowTitle(f"{paths.APP_NAME} — Config{star}")
+
+    def _open_product(self) -> None:
+        start = str(self.product_file.parent if self.product_file
+                    else paths.CONFIGS_DIR if paths.have_repo() else Path.home())
+        chosen, _f = QFileDialog.getOpenFileName(
+            self, "Open a product config", start, "Product configs (*.yaml *.yml)"
+        )
+        if not chosen:
+            return
+        self.load_product(Path(chosen))
+
+    def load_product(self, path: Path) -> bool:
+        self._loading_product = True
+        try:
+            icon = self.model.load_product(path)
+        except (ValueError, OSError) as exc:
+            QMessageBox.critical(self, paths.APP_NAME, str(exc))
+            return False
+        finally:
+            self._loading_product = False
+        if icon and hasattr(self.identity_tab, "icon_edit"):
+            # branding.icon is relative to the product file's directory.
+            resolved = (Path(path).parent / icon)
+            self.identity_tab.icon_edit.setText(str(resolved))
+        self.product_file = Path(path)
+        self._product_dirty = False
+        self._refresh_product_label()
+        return True
+
+    def _save_product(self, ask: bool = False) -> Path | None:
+        if ask or self.product_file is None:
+            start = str(self.product_file or
+                        (paths.CONFIGS_DIR / "product.yaml" if paths.have_repo()
+                         else Path.home() / "product.yaml"))
+            chosen, _f = QFileDialog.getSaveFileName(
+                self, "Save the product config", start, "Product configs (*.yaml)"
+            )
+            if not chosen:
+                return None
+            self.product_file = Path(chosen)
+        icon = self.identity_tab.pending_icon() if hasattr(
+            self.identity_tab, "pending_icon") else None
+        try:
+            saved = self.model.save_product(self.product_file, icon=icon)
+        except OSError as exc:
+            QMessageBox.critical(self, paths.APP_NAME, f"Cannot save:\n{exc}")
+            return None
+        self._product_dirty = False
+        self._refresh_product_label()
+        return saved
+
+    def _launch_builder(self) -> None:
+        """Config mode's one exit into building: through the saved file."""
+        saved = self._save_product() if (self._product_dirty or
+                                         self.product_file is None) else self.product_file
+        if saved is None:
+            return
+        builder = MainWindow(mode="build", product_file=Path(saved))
+        builder.show()
+        # Keep a reference or the window is garbage-collected shut.
+        self._builder_window = builder
 
     def _report_missing_files(self) -> None:
         missing = paths.missing_repo_files()
@@ -216,12 +370,16 @@ class MainWindow(QMainWindow):
     # ----- shared refresh -------------------------------------------------
 
     def _on_model_changed(self) -> None:
+        if self.mode == "config" and not self._loading_product:
+            self._product_dirty = True
+            self._refresh_product_label()
         if not self.model.ready:
             # No readable config: the Build tab explains why and the other tabs
             # have nothing to show, so skip validation rather than flooding
             # every field with "missing".
-            for index, title in enumerate(TAB_TITLES):
-                self.tabs.setTabText(index, title)
+            if self.mode != "build":
+                for index in range(self.tabs.count()):
+                    self.tabs.setTabText(index, TAB_TITLES[index])
             self.build_tab.refresh()
             return
 
@@ -240,6 +398,12 @@ class MainWindow(QMainWindow):
 
     def _mark_tabs(self, issues) -> None:
         """Flag the tabs holding a blocking error, so nothing hides off-screen."""
+        if self.mode != "full":
+            # config mode: same tabs, but indices still match TAB_TITLES only
+            # for the first three; build mode: ONE tab, and renaming it to
+            # "Features" by index is exactly the bug this guard prevents.
+            if self.mode == "build":
+                return
         blocking = error_issues(issues)
         owners = {
             0: ("p2p", "dht", "calls", "contacts", "calendar", "peers", "maps", "devices", "features"),

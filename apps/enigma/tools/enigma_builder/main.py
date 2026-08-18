@@ -98,10 +98,35 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     pin_sub.add_argument("--rotate", action="store_true")
     pin_sub.add_argument("--yes", action="store_true")
 
+    config_p = sub.add_parser(
+        "config",
+        help="open the Config Builder: define the product, save a versioned "
+        "product-config file",
+        parents=[common],
+    )
+    config_p.add_argument("file", nargs="?", metavar="PRODUCT_YAML",
+                          help="a product config to open")
+
     build_p = sub.add_parser(
-        "build", help="run a build headlessly", parents=[common]
+        "build", help="build the app — `build android [...]` or `build <product.yaml>`",
+        parents=[common],
     )
     build_sub = build_p.add_subparsers(dest="platform", required=True)
+    product_build = build_sub.add_parser(
+        "product", help="build from a saved product config", parents=[common]
+    )
+    product_build.add_argument("config", metavar="PRODUCT_YAML")
+    product_build.add_argument(
+        "--platform", dest="target_platform", default="desktop",
+        choices=("desktop", "android", "both"),
+    )
+    pkind = product_build.add_mutually_exclusive_group()
+    pkind.add_argument("--release", action="store_true")
+    pkind.add_argument("--debug", action="store_true")
+    product_build.add_argument("--unsigned", action="store_true")
+    product_build.add_argument("--abi", default="aarch64", metavar="SPEC")
+    product_build.add_argument("--gui", action="store_true",
+                               help="open the Builder window instead of running headlessly")
     android_build = build_sub.add_parser(
         "android", help="build the Android app via scripts/build_android.sh",
         parents=[common],
@@ -266,8 +291,71 @@ def run_build(args: argparse.Namespace, override: Path | None) -> int:
     return subprocess.run(command, cwd=paths.REPO_ROOT).returncode
 
 
+def run_config_gui(args: argparse.Namespace, override: Path | None) -> int:
+    from PyQt6.QtWidgets import QApplication
+
+    from window import MainWindow
+
+    app = QApplication(sys.argv)
+    app.setApplicationName(paths.APP_NAME)
+    app.setOrganizationName(paths.ORG_NAME)
+    app.setStyle("Fusion")
+    resolve_repo(override)
+    window = MainWindow(
+        repo_override=override, mode="config",
+        product_file=Path(args.file).expanduser() if args.file else None,
+    )
+    window.show()
+    return app.exec()
+
+
+def run_product_build(args: argparse.Namespace, override: Path | None) -> int:
+    """`build <product.yaml>` — the Builder half, headless or GUI."""
+    resolve_repo(override)
+    if not paths.have_repo():
+        print("repository: none found — pass --repo or set "
+              f"${paths.ROOT_ENV_VAR}", file=sys.stderr)
+        return 1
+    product = Path(args.config).expanduser()
+    if not product.is_file():
+        print(f"{product} does not exist", file=sys.stderr)
+        return 1
+
+    if args.gui:
+        from PyQt6.QtWidgets import QApplication
+
+        from window import MainWindow
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setApplicationName(paths.APP_NAME)
+        app.setOrganizationName(paths.ORG_NAME)
+        app.setStyle("Fusion")
+        window = MainWindow(mode="build", product_file=product)
+        window.show()
+        return app.exec()
+
+    import buildcmd
+    import productbuild
+
+    build_type = "release" if args.release or not args.debug else "debug"
+    return productbuild.run(
+        product,
+        platform=args.target_platform,
+        build_type=build_type,
+        abi_spec=args.abi,
+        allow_unsigned=args.unsigned,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
+    raw = list(argv if argv is not None else sys.argv[1:])
+    # Sugar: `build <path.yaml>` reads as `build product <path.yaml>` — the
+    # platform names stay reserved words, a config file is anything else.
+    if len(raw) >= 2 and raw[0] == "build" and raw[1] not in (
+        "android", "product", "-h", "--help"
+    ) and not raw[1].startswith("-"):
+        raw.insert(1, "product")
+    args = parse_args(raw)
     override = resolve_override(args.repo)
 
     if args.check:
@@ -275,7 +363,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "signing":
         return run_signing(args, override)
     if args.command == "build":
+        if args.platform == "product":
+            return run_product_build(args, override)
         return run_build(args, override)
+    if args.command == "config":
+        return run_config_gui(args, override)
 
     from PyQt6.QtWidgets import QApplication
 
