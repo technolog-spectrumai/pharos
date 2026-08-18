@@ -816,3 +816,111 @@ def describe_artifact(artifact: Path) -> tuple[Signature, str, ArtifactInfo]:
         signature = verify_apk(artifact)
         info = read_badging(artifact) or read_output_metadata(artifact) or ArtifactInfo()
     return signature, classify(signature), info
+
+
+# ----- the release-key pin ---------------------------------------------------
+#
+# Android identifies an installed app by (applicationId, signing key). Ship one
+# release signed with a different key and every existing install refuses the
+# update (INSTALL_FAILED_UPDATE_INCOMPATIBLE); the user must uninstall — losing
+# every local vault — to move forward. The pin makes a swapped or regenerated
+# keystore a BUILD failure instead of a shipped one.
+#
+# The file lives OUTSIDE gen/android on purpose: `tauri android init`
+# regenerates that tree, and the pin must survive it. It is committed —
+# a fingerprint is public information (every installed APK carries it).
+
+PIN_FILE_NAME = "android-release-key.properties"
+FINGERPRINT_MISMATCH = "fingerprint-mismatch"
+NO_PIN = "no-pin"
+
+
+@dataclass(frozen=True)
+class Pin:
+    """The recorded release-signing identity."""
+
+    sha256: str = ""
+    alias: str = ""
+    subject: str = ""
+
+    @property
+    def recorded(self) -> bool:
+        return bool(self.sha256)
+
+
+def read_pin(path: Path) -> Pin:
+    """The pin, or an empty one — missing file and empty sha256 read the same."""
+    props = read_properties(path)
+    return Pin(
+        sha256=normalize_fingerprint(props.get("sha256", "")),
+        alias=props.get("alias", "").strip(),
+        subject=props.get("subject", "").strip(),
+    )
+
+
+def write_pin(path: Path, fingerprint: str, alias: str, subject: str,
+              rotated_from: str = "") -> None:
+    """Write the pin file, keeping the header that explains WHY it exists.
+
+    ``rotated_from`` leaves the previous fingerprint in the committed diff, so
+    a deliberate rotation documents itself.
+    """
+    import datetime
+
+    lines = [
+        "# The SHA-256 certificate fingerprint every Enigma Android release",
+        "# must carry.",
+        "#",
+        "# Android identifies an installed app by (applicationId, signing key).",
+        "# Ship a release signed with a different key and every existing",
+        "# install fails to update with INSTALL_FAILED_UPDATE_INCOMPATIBLE —",
+        "# the user must uninstall, losing every local vault, before they can",
+        "# take the update. This file makes a swapped or regenerated keystore",
+        "# a build failure instead of a shipped one.",
+        "#",
+        "# This pins the key WE sign with (the upload key). Under Google Play",
+        "# App Signing the key users verify is Google's re-signing key, not",
+        "# this one — do not \"fix\" this file by pinning that fingerprint.",
+        "#",
+        "# Deliberate rotation:",
+        "#   enigma-builder signing android pin --from <apk> --rotate",
+        f"sha256={normalize_fingerprint(fingerprint)}",
+        f"alias={alias}",
+        f"subject={subject}",
+        f"recorded={datetime.date.today().isoformat()}",
+    ]
+    if rotated_from:
+        lines.append(f"rotated_from={rotated_from}")
+        lines.append(f"rotated={datetime.date.today().isoformat()}")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def check_pin(pin: Pin, fingerprints: tuple[str, ...]) -> Problem | None:
+    """Compare an artifact's fingerprints against the pin.
+
+    No pin recorded -> a NO_PIN notice (callers print it, never fail on it,
+    and NEVER auto-record — on a machine with the wrong keystore that would
+    write the wrong key in and disarm the whole mechanism).
+    """
+    if not pin.recorded:
+        return Problem(
+            NO_PIN,
+            "no release-key fingerprint is pinned yet. After confirming this "
+            "build was signed with the right key, record it:\n"
+            "  enigma-builder signing android pin --from <apk>",
+        )
+    normalized = tuple(normalize_fingerprint(f) for f in fingerprints)
+    if pin.sha256 in normalized:
+        return None
+    got = ", ".join(normalized) or "(none)"
+    return Problem(
+        FINGERPRINT_MISMATCH,
+        f"this artifact is signed with a DIFFERENT key than the pinned "
+        f"release identity.\n"
+        f"  pinned:   {pin.sha256}\n"
+        f"  artifact: {got}\n"
+        f"Shipping it would strand every existing install "
+        f"(INSTALL_FAILED_UPDATE_INCOMPATIBLE). If this rotation is "
+        f"deliberate:\n"
+        f"  enigma-builder signing android pin --from <apk> --rotate",
+    )
