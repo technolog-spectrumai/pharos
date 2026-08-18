@@ -76,6 +76,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     verify_sub.add_argument("artifact", nargs="?", metavar="APK_OR_AAB",
                             help="one artifact; omitted = the last release build")
     verify_sub.add_argument("--allow-unsigned", action="store_true")
+    create_sub = android_sub.add_parser(
+        "create",
+        help="mint a release keystore (outside the repo) with keytool",
+        parents=[common],
+    )
+    create_sub.add_argument("--keystore", metavar="PATH")
+    create_sub.add_argument("--alias", default="enigma")
+    create_sub.add_argument("--validity", type=int, default=10000, metavar="DAYS")
+    create_sub.add_argument("--dname", default="", metavar="DN")
+    create_sub.add_argument("--no-save-password", action="store_true")
+    create_sub.add_argument("--write-properties", action="store_true",
+                            help="also write a placeholder gen/android/keystore.properties")
+    create_sub.add_argument("--yes", action="store_true")
     pin_sub = android_sub.add_parser(
         "pin",
         help="record the release-key fingerprint the build must match",
@@ -201,6 +214,20 @@ def run_signing(args: argparse.Namespace, override: Path | None) -> int:
         target = Path(args.artifact).expanduser() if args.artifact else paths.ANDROID_GEN
         return signing_cli.verify(
             target, "release", args.allow_unsigned, paths.ANDROID_PIN
+        )
+    if args.action == "create":
+        import identity as identity_mod
+
+        product = identity_mod.disk_identity().name or "Enigma"
+        return signing_cli.create(
+            Path(args.keystore).expanduser() if args.keystore else None,
+            args.alias,
+            args.dname or f"CN={product} Release, O={product}",
+            validity_days=args.validity,
+            assume_yes=args.yes,
+            save_password=not args.no_save_password,
+            write_properties_into=paths.ANDROID_GEN if args.write_properties else None,
+            forbidden_root=paths.REPO_ROOT,
         )
     if args.action == "pin":
         return signing_cli.pin_action(

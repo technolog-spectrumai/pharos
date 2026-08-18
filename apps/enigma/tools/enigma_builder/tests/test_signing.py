@@ -767,3 +767,63 @@ def test_the_committed_pin_file_exists_and_parses():
     pin_file = paths.APP_DIR / "deploy" / "android-release-key.properties"
     assert pin_file.is_file(), "the pin file must ship with the repo"
     signing.read_pin(pin_file)  # must parse whether or not it is recorded yet
+
+
+# ----- keystore creation (A7) ------------------------------------------------
+
+
+def test_keytool_argv_is_password_free():
+    """The password must NEVER appear in an argv — ps shows argv to everyone."""
+    command = signing.keytool_command(Path("/k/rel.jks"), "enigma", "CN=X, O=Y")
+    assert "-storepass" not in command and "-keypass" not in command
+    assert "-dname" in command and "RSA" in command and "4096" in command
+
+
+def test_create_refuses_the_repo_and_overwrites(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    with pytest.raises(ValueError, match="inside the repository"):
+        signing.create_keystore(repo / "k.jks", "enigma", "CN=X",
+                                "longpassword12", forbidden_root=repo)
+    outside = tmp_path / "keys" / "k.jks"
+    outside.parent.mkdir()
+    outside.write_bytes(b"existing")
+    with pytest.raises(ValueError, match="already exists"):
+        signing.create_keystore(outside, "enigma", "CN=X", "longpassword12")
+
+
+def test_create_refuses_a_debug_identity_and_short_passwords(tmp_path):
+    with pytest.raises(ValueError, match="debug-identity"):
+        signing.create_keystore(tmp_path / "a.jks", signing.DEBUG_ALIAS,
+                                "CN=X", "longpassword12")
+    with pytest.raises(ValueError, match="debug-identity"):
+        signing.create_keystore(tmp_path / "b.jks", "enigma",
+                                "CN=Android Debug", "longpassword12")
+    with pytest.raises(ValueError, match="12 characters"):
+        signing.create_keystore(tmp_path / "c.jks", "enigma", "CN=X", "short")
+
+
+def test_created_keystore_signs_and_round_trips_the_fingerprint(tmp_path):
+    """End to end: mint → fingerprint → sign an APK → verify reports the SAME
+    fingerprint. This is the chain the pin depends on."""
+    if shutil.which("keytool") is None:
+        pytest.skip("keytool not on PATH")
+    store = tmp_path / "keys" / "rel.jks"
+    signing.create_keystore(store, "enigma", "CN=Enigma Create RT, O=Enigma",
+                            "longpassword12", validity_days=30)
+    assert store.stat().st_mode & 0o077 == 0  # 0600
+
+    minted_fp = signing.fingerprint_from_keystore(store, "enigma", "longpassword12")
+    assert len(minted_fp) == 64
+
+    tool = _apksigner_or_skip()
+    unsigned = _fake_apk(tmp_path / "u.apk")
+    signed = tmp_path / "s.apk"
+    subprocess.run(
+        [str(tool), "sign", "--ks", str(store),
+         "--ks-pass", "pass:longpassword12", "--key-pass", "pass:longpassword12",
+         "--ks-key-alias", "enigma", "--min-sdk-version", "24",
+         "--out", str(signed), str(unsigned)],
+        capture_output=True, check=True,
+    )
+    assert signing.verify_apk(signed).fingerprints[0] == minted_fp

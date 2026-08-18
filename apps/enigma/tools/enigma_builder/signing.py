@@ -924,3 +924,124 @@ def check_pin(pin: Pin, fingerprints: tuple[str, ...]) -> Problem | None:
         f"deliberate:\n"
         f"  enigma-builder signing android pin --from <apk> --rotate",
     )
+
+
+# ----- creating a release keystore -------------------------------------------
+
+
+def keystores_dir(environ: dict[str, str] | None = None) -> Path:
+    """Default home for minted keystores — outside every repo by construction."""
+    return local_config_path(environ).parent / "keystores"
+
+
+def keytool_command(store: Path, alias: str, dname: str,
+                    validity_days: int = 10000) -> list[str]:
+    """The exact keytool argv — pure, so tests can assert it is password-free.
+
+    No ``-storepass``/``-keypass``: an argv is visible to every user in
+    ``ps``, so the password travels on stdin instead (keytool has no
+    ``:env``/``:file`` modifier — verified against JDK 17). No ``-storetype``:
+    JDK 17 defaults to PKCS12, the modern format, while the ``.jks`` filename
+    every doc uses keeps working.
+    """
+    return [
+        "keytool", "-genkeypair", "-v",
+        "-keystore", str(store),
+        "-alias", alias,
+        "-keyalg", "RSA", "-keysize", "4096",
+        "-validity", str(validity_days),
+        "-dname", dname,
+    ]
+
+
+def create_keystore(
+    store: Path,
+    alias: str,
+    dname: str,
+    password: str,
+    *,
+    validity_days: int = 10000,
+    forbidden_root: Path | None = None,
+) -> None:
+    """Mint a release keystore. Raises ValueError on every unsafe request.
+
+    Refusals, each load-bearing:
+    - inside ``forbidden_root`` (the repo): a keystore in a checkout is one
+      ``git add -A`` away from being public;
+    - an existing file: overwriting a release keystore orphans every install
+      signed with it — there is deliberately no --force;
+    - a debug identity: CN=Android Debug or the androiddebugkey alias would
+      recreate exactly the key this module exists to refuse;
+    - a short password: this key must outlive a decade of guessing hardware.
+    """
+    store = Path(store).expanduser()
+    if forbidden_root is not None and store.resolve().is_relative_to(
+        Path(forbidden_root).resolve()
+    ):
+        raise ValueError(
+            f"refusing to create a keystore inside the repository "
+            f"({forbidden_root}) — one git add away from public. Use "
+            f"{keystores_dir()} or another path outside every checkout."
+        )
+    if store.exists():
+        raise ValueError(
+            f"{store} already exists. Overwriting a release keystore orphans "
+            f"every install signed with it; pick another path instead."
+        )
+    if alias == DEBUG_ALIAS or "Android Debug" in dname:
+        raise ValueError("refusing to mint a debug-identity key for release use")
+    if len(password) < 12:
+        raise ValueError("the keystore password must be at least 12 characters")
+
+    keytool = shutil.which("keytool")
+    if keytool is None:
+        raise FileNotFoundError("keytool not on PATH (needs a JDK)")
+
+    store.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        store.parent.chmod(0o700)
+    except OSError:
+        pass
+
+    command = keytool_command(store, alias, dname, validity_days)
+    command[0] = keytool
+    # Password on stdin: "Enter keystore password" + "Re-enter". PKCS12 keys
+    # share the store password, so keytool asks nothing further.
+    result = subprocess.run(
+        command,
+        input=f"{password}\n{password}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or not store.is_file():
+        raise RuntimeError(
+            f"keytool failed:\n{(result.stdout or '') + (result.stderr or '')}"
+        )
+    try:
+        store.chmod(0o600)
+    except OSError:
+        pass
+
+
+_KEYTOOL_SHA256 = re.compile(r"SHA256:\s*([0-9A-Fa-f:]+)")
+
+
+def fingerprint_from_keystore(store: Path, alias: str, password: str) -> str:
+    """The key's SHA-256 certificate fingerprint, normalized. Password on stdin."""
+    keytool = shutil.which("keytool")
+    if keytool is None:
+        raise FileNotFoundError("keytool not on PATH (needs a JDK)")
+    result = subprocess.run(
+        [keytool, "-list", "-v", "-keystore", str(store), "-alias", alias],
+        input=f"{password}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    match = _KEYTOOL_SHA256.search(result.stdout or "")
+    if result.returncode != 0 or not match:
+        raise RuntimeError(
+            f"keytool -list failed:\n{(result.stdout or '') + (result.stderr or '')}"
+        )
+    return normalize_fingerprint(match.group(1))
