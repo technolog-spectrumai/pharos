@@ -171,6 +171,7 @@ class BuildTab(QWidget):
         layout.addWidget(self._build_summary_card())
         layout.addWidget(self._build_options_card())
         layout.addWidget(self._build_environment_card())
+        layout.addWidget(self._build_signing_card())
         layout.addWidget(self._build_disk_card())
         layout.addWidget(self._build_appdata_card())
         layout.addWidget(self._build_uninstall_card())
@@ -402,6 +403,41 @@ class BuildTab(QWidget):
         self.environment_card = frame
         return frame
 
+    def _build_signing_card(self) -> QWidget:
+        frame, layout = widgets.card()
+        header = QHBoxLayout()
+        header.addWidget(widgets.section_title("Android release signing"))
+        header.addStretch()
+        self.signing_badge = widgets.badge("", True)
+        header.addWidget(self.signing_badge)
+        layout.addLayout(header)
+
+        self.signing_label = widgets.hint("")
+        layout.addWidget(self.signing_label)
+
+        # Deliberately NOT persisted anywhere: a remembered "unsigned" is
+        # exactly the silent default the whole fail-closed design forbids.
+        # Fresh session, fresh decision, every time.
+        self.unsigned_box = QCheckBox(
+            "Unsigned release (internal only — installs nowhere)"
+        )
+        self.unsigned_box.toggled.connect(self._options_changed)
+        layout.addWidget(self.unsigned_box)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addStretch()
+        self.create_key_button = QPushButton("Create keystore…")
+        self.create_key_button.clicked.connect(self._create_keystore)
+        self.verify_button = QPushButton("Verify artifact…")
+        self.verify_button.clicked.connect(self._verify_artifact)
+        row.addWidget(self.create_key_button)
+        row.addWidget(self.verify_button)
+        layout.addLayout(row)
+
+        self.signing_card = frame
+        return frame
+
     def _build_disk_card(self) -> QWidget:
         frame, layout = widgets.card()
         header = QHBoxLayout()
@@ -576,7 +612,14 @@ class BuildTab(QWidget):
             return command
         # Assembled by buildcmd so the CLI (`enigma-builder build android`)
         # launches the byte-identical command for the same options.
-        return buildcmd.android(paths.APP_SLUG, self.build_type, self.abi_spec)
+        return buildcmd.android(
+            paths.APP_SLUG,
+            self.build_type,
+            self.abi_spec,
+            allow_unsigned=(
+                self.build_type == "release" and self.unsigned_box.isChecked()
+            ),
+        )
 
     def _options_changed(self) -> None:
         if not self._ready:
@@ -589,6 +632,10 @@ class BuildTab(QWidget):
             box.setEnabled(android and not self.abi_all.isChecked())
         self.abi_all.setEnabled(android)
         self.environment_card.setVisible(android)
+        self.signing_card.setVisible(android)
+        self.unsigned_box.setVisible(android and self.build_type == "release")
+        if self.build_type != "release":
+            self.unsigned_box.setChecked(False)
         for box in self.distro_boxes.values():
             box.setEnabled(desktop)
 
@@ -742,6 +789,7 @@ class BuildTab(QWidget):
         self.issue_label.set_messages(messages)
 
         self._refresh_environment()
+        self._refresh_signing()
         self._refresh_disk()
         self._refresh_appdata()
         self._refresh_uninstall()
@@ -768,6 +816,131 @@ class BuildTab(QWidget):
             row_layout.addWidget(widgets.badge("ok" if ok else "missing", ok))
             row_layout.addWidget(widgets.hint(f"{name}: {value}", "gateHint"), 1)
             self.env_layout.addWidget(row)
+
+    def _refresh_signing(self) -> None:
+        """Mirror signing.inspect() — file reads only, cheap enough on refresh."""
+        import signing
+
+        status = signing.inspect(paths.ANDROID_GEN)
+        ok = status.signed_release
+        self.signing_badge.setText("will sign" if ok else "not configured")
+        self.signing_badge.setObjectName("successBadge" if ok else "warningBadge")
+        self.signing_badge.style().unpolish(self.signing_badge)
+        self.signing_badge.style().polish(self.signing_badge)
+        if ok:
+            provenance = ", ".join(f"{k} from {v}" for k, v in status.sources)
+            self.signing_label.setText(
+                f"Release will be signed with {status.store_file} "
+                f"(alias '{status.key_alias}'). {provenance}."
+            )
+        else:
+            first = status.problems[0].message if status.problems else ""
+            self.signing_label.setText(
+                "A release build will REFUSE to run until signing is "
+                f"configured. {first}"
+            )
+        idle = not self.is_busy()
+        self.create_key_button.setEnabled(idle)
+        self.verify_button.setEnabled(idle)
+
+    def _create_keystore(self) -> None:
+        """Mint a release keystore via signing_cli, password via env, not argv."""
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
+        import signing
+
+        if self.is_busy():
+            return
+        target = signing.keystores_dir() / "enigma-release.jks"
+        answer = QMessageBox.warning(
+            self,
+            paths.APP_NAME,
+            "THIS KEY IS THE APP'S IDENTITY, FOREVER.\n\n"
+            "Android identifies an installed app by (applicationId, signing "
+            "key). Losing this file or its password means NO existing install "
+            "can ever be updated again — users would have to uninstall, losing "
+            "every local vault.\n\n"
+            f"The keystore goes to\n{target}\n(outside the repo). Back it up "
+            "somewhere you will still have in ten years; keep the password "
+            "somewhere ELSE.\n\nCreate it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        password, ok = QInputDialog.getText(
+            self, paths.APP_NAME, "Keystore password (min 12 characters):",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return
+        confirm, ok = QInputDialog.getText(
+            self, paths.APP_NAME, "Re-enter the password:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return
+        if password != confirm:
+            QMessageBox.critical(self, paths.APP_NAME, "The passwords do not match.")
+            return
+        if len(password) < 12:
+            QMessageBox.critical(
+                self, paths.APP_NAME, "The password must be at least 12 characters."
+            )
+            return
+
+        # The password rides the child's ENVIRONMENT — never its argv (ps
+        # shows argv to every user on the machine).
+        env = runenv.clean_env()
+        env[signing.KEYSTORE_PASSWORD_ENV] = password
+        product = self.identity_tab.pending_identity().name or "Enigma"
+        self.log.clear()
+        self._started_at = time.time()
+        self._run_queue(
+            [
+                Step(
+                    command=[
+                        "python3", str(Path(__file__).parent / "signing_cli.py"),
+                        "create", "--yes",
+                        "--dname", f"CN={product} Release, O={product}",
+                        "--forbidden-root", str(paths.REPO_ROOT),
+                        "--write-properties", str(paths.ANDROID_GEN),
+                    ],
+                    cwd=paths.REPO_ROOT,
+                    label="Creating keystore",
+                    env=env,
+                )
+            ]
+        )
+
+    def _verify_artifact(self) -> None:
+        """Verify any built APK/AAB and print its identity into the log."""
+        if self.is_busy():
+            return
+        start = str(paths.ANDROID_OUTPUTS if paths.ANDROID_OUTPUTS.is_dir() else Path.home())
+        chosen, _filter = QFileDialog.getOpenFileName(
+            self, "Choose an APK or AAB", start,
+            "Android artifacts (*.apk *.aab)",
+        )
+        if not chosen:
+            return
+        self.log.clear()
+        self._started_at = time.time()
+        self._run_queue(
+            [
+                Step(
+                    command=[
+                        "python3", str(Path(__file__).parent / "signing_cli.py"),
+                        "verify", chosen,
+                        "--build-type", "release",
+                        "--pin", str(paths.ANDROID_PIN),
+                    ],
+                    cwd=paths.REPO_ROOT,
+                    label="Verifying",
+                    env=runenv.clean_env(),
+                )
+            ]
+        )
 
     def _refresh_disk(self) -> None:
         free = free_bytes(paths.TARGET_DIR)
@@ -1043,6 +1216,24 @@ class BuildTab(QWidget):
             if answer == QMessageBox.StandardButton.No:
                 return
 
+        if (
+            self.platform in ("android", "both")
+            and self.build_type == "release"
+            and self.unsigned_box.isChecked()
+        ):
+            answer = QMessageBox.warning(
+                self,
+                paths.APP_NAME,
+                "Build an UNSIGNED release?\n\nThe artifact will install "
+                "NOWHERE — no device, no store. It exists only for internal "
+                "inspection. A signed build needs the keystore configured in "
+                "the Android release signing card.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
         icon_source = self.identity_tab.pending_icon()
         if icon_source is not None and not self._confirm_icon(icon_source):
             return
@@ -1303,6 +1494,8 @@ class BuildTab(QWidget):
         # Re-enabled (or not) by the refresh that follows every run, which
         # re-reads whether a package is still installed.
         self.uninstall_button.setEnabled(False)
+        self.create_key_button.setEnabled(not running)
+        self.verify_button.setEnabled(not running)
         self.cancel_button.setEnabled(running)
 
     def _job_finished(self) -> None:

@@ -81,3 +81,50 @@ def test_bash_and_gradle_agree_on_the_property_name():
     gradle = GRADLE.read_text(encoding="utf-8")
     assert f"ORG_GRADLE_PROJECT_{PROPERTY}=true" in bash
     assert f'findProperty("{PROPERTY}")' in gradle
+
+
+# ----- the GUI checkbox (A8) -------------------------------------------------
+
+
+def test_the_unsigned_checkbox_defaults_off(app, window):
+    tab = window.build_tab
+    assert not tab.unsigned_box.isChecked()
+
+
+def test_the_checkbox_is_android_release_only(app, window):
+    tab = window.build_tab
+    tab.platform_buttons["android"].setChecked(True)
+    tab.release_button.setChecked(True)
+    assert not tab.unsigned_box.isHidden()
+
+    tab.debug_button.setChecked(True)
+    assert tab.unsigned_box.isHidden()
+    # Switching to debug also CLEARS it — a lingering hidden tick must never
+    # ride into a later release build.
+    tab.release_button.setChecked(True)
+    assert not tab.unsigned_box.isChecked()
+
+    tab.platform_buttons["desktop"].setChecked(True)
+    assert tab.unsigned_box.isHidden()
+
+
+def test_the_command_carries_the_flag_only_when_ticked(app, window):
+    tab = window.build_tab
+    tab.platform_buttons["android"].setChecked(True)
+    tab.release_button.setChecked(True)
+    assert "--allow-unsigned-release" not in tab.command()
+    tab.unsigned_box.setChecked(True)
+    assert tab.command()[-1] == "--allow-unsigned-release"
+
+
+def test_the_checkbox_is_never_persisted(app, window):
+    """A remembered 'unsigned' would be the silent default the design forbids —
+    no QSettings key may store it."""
+    from PyQt6.QtCore import QSettings
+
+    window.build_tab.unsigned_box.setChecked(True)
+    settings = QSettings()
+    for key in settings.allKeys():
+        value = str(settings.value(key, "")).lower()
+        assert "unsigned" not in key.lower()
+        assert "unsigned" not in value
