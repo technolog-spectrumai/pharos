@@ -239,6 +239,12 @@ def test_an_unusable_icon_blocks_the_build(app, window, monkeypatch, tmp_path):
 
     shown: list = []
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: shown.append(a)))
+    # _start() asks about free disk before it ever reaches the icon check, so a
+    # machine under the 20 GB warning threshold would block here forever on a
+    # modal nobody can answer. Answering it keeps this test about the icon.
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
     captured: list = []
     monkeypatch.setattr(
         type(window.build_tab), "_run_queue", lambda self, steps: captured.extend(steps)
