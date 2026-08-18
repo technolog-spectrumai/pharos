@@ -1267,6 +1267,8 @@ pub fn run() {
         .manage(maps::MapsState::default())
         // Device-pairing session (ephemeral endpoint + one-time secret).
         .manage(device_link::DevLinkState::default())
+        // Joiner half of the mutual-link offer (see device_link.rs).
+        .manage(device_link::DevLinkJoin::default())
         .manage(peer_link::PeerLinkState::default())
         // Last-heartbeat timestamp for the Rust-side lock watchdog (vault.rs).
         .manage(vault::ActivityState::default())
@@ -1393,6 +1395,8 @@ pub fn run() {
             keyring::keyring_rotate,
             device_link::devlink_pair_begin,
             device_link::devlink_pair_confirm,
+            device_link::devlink_reverse_reply,
+            device_link::devlink_reverse_confirm,
             device_link::devlink_pair_cancel,
             device_link::devlink_pair_join,
             device_link::devlink_status,

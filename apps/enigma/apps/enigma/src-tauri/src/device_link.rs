@@ -240,6 +240,44 @@ struct Verdict {
     status: String, // "accept" | "reject"
 }
 
+/// Which way a link points, from the perspective of the device storing it.
+/// The forward pair (scan a QR) is `Outbound` on the scanner and `Inbound` on
+/// the device that showed the code; a completed reverse request makes both
+/// sides `Mutual`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkDirection {
+    #[default]
+    Outbound,
+    Inbound,
+    Mutual,
+}
+
+impl LinkDirection {
+    /// Idempotent merge: re-running a link never downgrades what is already
+    /// stored, and reaching mutual twice is a no-op rather than a duplicate.
+    fn merged(self, other: LinkDirection) -> LinkDirection {
+        if self == other { self } else { LinkDirection::Mutual }
+    }
+}
+
+/// Closing frame from the joiner. Replaces a bare ack byte whose `Result` was
+/// discarded — `reverse` is how the new device asks to be reachable in both
+/// directions without a second QR.
+#[derive(Serialize, Deserialize)]
+struct Ack {
+    v: u8,
+    #[serde(default)]
+    reverse: bool,
+}
+
+/// The host's answer to `Ack.reverse`, after asking its human once.
+#[derive(Serialize, Deserialize)]
+struct ReverseDecision {
+    v: u8,
+    accepted: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Frame {
@@ -300,6 +338,80 @@ async fn read_frame_capped<T: DeserializeOwned>(recv: &mut RecvStream, cap: usiz
     Ok(serde_json::from_slice(&body)?)
 }
 
+// ── observable state machine ─────────────────────────────────────────────────
+//
+// Pairing used to report only two things: incremental progress, and a final
+// error string. Everything between "I dialled" and "the bundle is arriving"
+// was invisible, so a wait on the OTHER device's human looked identical to a
+// dead connection — the user saw a spinner and was never told which. Every
+// transition below is emitted to the frontend so the UI can always name the
+// stage it is in, and every terminal path emits exactly one of Linked /
+// Failed / TimedOut.
+
+/// Where a pairing is, on whichever side is reporting. Serialized to the
+/// frontend as the `state` field of `devlink://state`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PairState {
+    Idle,
+    /// Joiner: the ticket decoded and is being checked.
+    Validating,
+    /// Joiner: dialling the host's endpoint.
+    Connecting,
+    /// Both: the proof verified, and the HOST's human has been asked. This is
+    /// the state that used to be indistinguishable from a hang.
+    AwaitingApproval,
+    /// Bundle + history are moving.
+    Transferring,
+    Linked,
+    Failed,
+    TimedOut,
+}
+
+/// Why a pairing ended badly. Machine-readable so the UI can offer the right
+/// action (retry, rescan, unlock) instead of printing raw Rust English.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailReason {
+    InvalidTicket,
+    ExpiredTicket,
+    Unreachable,
+    BadProof,
+    ProtocolMismatch,
+    DuplicateLink,
+    Declined,
+    Timeout,
+    Offline,
+    TorBlocked,
+    Locked,
+    Internal,
+}
+
+/// One transition. `detail` carries the human sentence; `reason` is what the
+/// UI branches on.
+fn emit_state(app: &AppHandle, state: PairState, reason: Option<FailReason>, detail: &str) {
+    // Structured enough to follow a failed pairing in a log without a debugger.
+    // eprintln rather than a log crate: this crate has no logging dependency,
+    // and RUST_LOG-less stderr is what run_dev.sh already shows.
+    eprintln!("[devlink] state={state:?} reason={reason:?} detail={detail}");
+    let _ = app.emit(
+        "devlink://state",
+        serde_json::json!({ "state": state, "reason": reason, "detail": detail }),
+    );
+}
+
+/// Terminal failure: emits the state AND the legacy error event, so nothing
+/// that already listens for `devlink://error` goes quiet.
+fn fail(app: &AppHandle, reason: FailReason, detail: &str) {
+    let state = if matches!(reason, FailReason::Timeout) {
+        PairState::TimedOut
+    } else {
+        PairState::Failed
+    };
+    emit_state(app, state, Some(reason), detail);
+    emit_error(app, detail);
+}
+
 // ── events ───────────────────────────────────────────────────────────────────
 
 fn emit_progress(app: &AppHandle, phase: &str, current: u64, total: u64) {
@@ -329,7 +441,15 @@ struct PairSession {
     secret: Option<[u8; 32]>,
     expires_at: Instant,
     confirm: Option<oneshot::Sender<bool>>,
+    /// Resolved by `devlink_reverse_confirm` when the joiner asks to link back.
+    reverse_confirm: Option<oneshot::Sender<bool>>,
 }
+
+/// Joiner-side half of the mutual-link offer. The forward link is already
+/// finished and reported by the time this is used: the connection is simply
+/// held open long enough for the user to answer "also link back?".
+#[derive(Default)]
+pub struct DevLinkJoin(pub Mutex<Option<oneshot::Sender<bool>>>);
 
 /// Tear down any pairing host (airplane/Tor toggle, profile switch, cancel).
 pub async fn shutdown(state: &DevLinkState) {
@@ -395,7 +515,41 @@ fn device_entry_json(
         "leafId": leaf_id,
         "nodeId": node_id,
         "addedAt": added_at,
+        "direction": LinkDirection::default(),
     })
+}
+
+/// Upgrade one registry entry's direction in place. Idempotent by
+/// construction: `merged` never downgrades, so retrying a mutual link is a
+/// no-op rather than a second entry or a corrupted one. A device_id that is
+/// not present is ignored — there is nothing to upgrade.
+fn set_device_direction(app: &AppHandle, device_id: &str, dir: LinkDirection) {
+    let Some(raw) = crate::vault::kv_get_raw(app, NS_DEVICES, SCOPE, KEY_REGISTRY) else { return };
+    let Ok(mut reg) = serde_json::from_str::<serde_json::Value>(&raw) else { return };
+    let Some(list) = reg.get_mut("devices").and_then(|d| d.as_array_mut()) else { return };
+    let mut touched = false;
+    for entry in list.iter_mut() {
+        if entry.get("deviceId").and_then(|v| v.as_str()) != Some(device_id) {
+            continue;
+        }
+        let current: LinkDirection = entry
+            .get("direction")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let next = current.merged(dir);
+        if current != next {
+            entry["direction"] = serde_json::json!(next);
+            touched = true;
+        }
+    }
+    if !touched {
+        return; // already at that direction — do not bump rev for nothing
+    }
+    // The registry is revisioned; a silent in-place edit would let the other
+    // device keep serving a stale copy.
+    let rev = reg.get("rev").and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+    reg["rev"] = serde_json::json!(rev);
+    let _ = crate::vault::kv_put_raw(app, NS_DEVICES, SCOPE, KEY_REGISTRY, &reg.to_string());
 }
 
 /// Load the stored registry, or a fresh one seeded with this (primary) device.
@@ -546,23 +700,45 @@ impl ProtocolHandler for DevlinkProtocol {
 
 impl DevlinkShared {
     async fn serve(self, conn: Connection) -> Result<()> {
-        let (mut send, mut recv) = conn.accept_bi().await?;
-        let hello: Hello = read_frame_capped(&mut recv, CONTROL_FRAME_MAX).await?;
+        // Bounded: a peer that opens the connection and then says nothing
+        // would otherwise park this accept task for the life of the process.
+        let greet = Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&self.app));
+        let (mut send, mut recv) = tokio::time::timeout(greet, conn.accept_bi())
+            .await
+            .map_err(|_| anyhow!("pairing peer opened no stream"))??;
+        let hello: Hello = tokio::time::timeout(
+            greet,
+            read_frame_capped(&mut recv, CONTROL_FRAME_MAX),
+        )
+        .await
+        .map_err(|_| anyhow!("pairing peer sent no hello"))??;
 
         // Redeem the one-time secret (expiry + single use), verify the proof.
         let secret = {
             let mut session = self.session.lock().await;
             if Instant::now() >= session.expires_at {
-                write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "reject".into() }).await?;
+                write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "expired".into() }).await?;
+                fail(&self.app, FailReason::ExpiredTicket,
+                     "That QR code has expired. Show a new one and scan again.");
                 return Err(anyhow!("pairing window expired"));
             }
             let Some(secret) = session.secret else {
-                write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "reject".into() }).await?;
+                write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "used".into() }).await?;
+                fail(&self.app, FailReason::DuplicateLink,
+                     "That QR code was already used. Show a new one to link another device.");
                 return Err(anyhow!("pairing secret already redeemed"));
             };
             let expected = hello_proof(&secret, &hello.device.nonce, &hello.device.device_id, &hello.device.node_id);
-            if hello.v != DEVLINK_VERSION || hello.proof != expected {
+            if hello.v != DEVLINK_VERSION {
+                write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "version".into() }).await?;
+                fail(&self.app, FailReason::ProtocolMismatch,
+                     "The other device runs a different Enigma version. Update both and retry.");
+                return Err(anyhow!("pairing protocol version mismatch"));
+            }
+            if hello.proof != expected {
                 write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "reject".into() }).await?;
+                fail(&self.app, FailReason::BadProof,
+                     "The scanning device could not prove it holds this QR code.");
                 return Err(anyhow!("pairing proof rejected"));
             }
             session.secret = None; // one-time: a second dial gets rejected above
@@ -585,18 +761,30 @@ impl DevlinkShared {
                 "deviceId": hello.device.device_id,
             }),
         );
-        let confirm_deadline = {
-            let session = self.session.lock().await;
-            session.expires_at.saturating_duration_since(Instant::now())
-        };
-        let accepted = matches!(
-            tokio::time::timeout(confirm_deadline, rx).await,
-            Ok(Ok(true))
-        );
-        if !accepted {
-            write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "reject".into() }).await?;
+        emit_state(&self.app, PairState::AwaitingApproval, None,
+                   "Waiting for approval on this device.");
+        // A FRESH window for the human, not the remainder of the ticket's.
+        // The ticket window governs how long the QR may be REDEEMED; once a
+        // joiner has arrived and proved itself, the person still deserves a
+        // full chance to read the prompt and tap. Reusing the remainder meant
+        // a late scan produced a prompt that rejected itself seconds later,
+        // vanishing from under the user's finger.
+        let confirm_deadline = Duration::from_secs(pair_window_secs(&self.app));
+        let outcome = tokio::time::timeout(confirm_deadline, rx).await;
+        if !matches!(outcome, Ok(Ok(true))) {
+            let timed_out = outcome.is_err();
+            let status = if timed_out { "timeout" } else { "reject" };
+            write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: status.into() }).await?;
+            if timed_out {
+                fail(&self.app, FailReason::Timeout,
+                     "Nobody approved the pairing on this device in time.");
+                return Err(anyhow!("pairing approval timed out"));
+            }
+            fail(&self.app, FailReason::Declined,
+                 "The pairing request was declined on this device.");
             return Err(anyhow!("pairing rejected"));
         }
+        emit_state(&self.app, PairState::Transferring, None, "Sending your data to the new device.");
         write_frame(&mut send, &Verdict { v: DEVLINK_VERSION, status: "accept".into() }).await?;
 
         // ── assemble + stream the bundle ─────────────────────────────────────
@@ -713,13 +901,56 @@ impl DevlinkShared {
             .await?;
         let _ = send.finish();
 
-        // 1-byte ack: the joiner has applied everything.
-        let mut ack = [0u8; 1];
-        let _ = recv.read_exact(&mut ack).await;
+        // Ack frame: the joiner has applied everything, and may ask to link
+        // back. This used to be a bare byte whose Result was discarded, so a
+        // joiner that died mid-apply still reported success here.
+        let ack_window = Duration::from_secs(pair_window_secs(&self.app));
+        let ack: Ack = match tokio::time::timeout(
+            ack_window,
+            read_frame_capped(&mut recv, CONTROL_FRAME_MAX),
+        )
+        .await
+        {
+            Ok(Ok(a)) => a,
+            // The forward link is already written on both sides, so a missing
+            // ack is not a failure — it only means no reverse was requested.
+            _ => Ack { v: DEVLINK_VERSION, reverse: false },
+        };
+
         let _ = self.app.emit(
             "devlink://paired",
             serde_json::json!({ "registry": registry, "leafId": leaf_id }),
         );
+        emit_state(&self.app, PairState::Linked, None, "The other device is linked.");
+
+        if ack.reverse {
+            // ONE prompt, on this device: "B wants to link back. Accept/Reject."
+            let (tx, rx) = oneshot::channel::<bool>();
+            {
+                let mut session = self.session.lock().await;
+                session.reverse_confirm = Some(tx);
+            }
+            let _ = self.app.emit(
+                "devlink://reverse-request",
+                serde_json::json!({
+                    "label": hello.device.label,
+                    "deviceId": hello.device.device_id,
+                    "nodeId": hello.device.node_id,
+                }),
+            );
+            emit_state(&self.app, PairState::AwaitingApproval, None,
+                       "A mutual link was requested. Accept or reject it on this device.");
+            let window = Duration::from_secs(pair_window_secs(&self.app));
+            let accepted = matches!(tokio::time::timeout(window, rx).await, Ok(Ok(true)));
+            write_frame(&mut send, &ReverseDecision { v: DEVLINK_VERSION, accepted }).await?;
+            if accepted {
+                set_device_direction(&self.app, &hello.device.device_id, LinkDirection::Mutual);
+                emit_state(&self.app, PairState::Linked, None, "Both devices are now linked.");
+            } else {
+                emit_state(&self.app, PairState::Linked, None,
+                           "The mutual link was declined; the one-way link stands.");
+            }
+        }
         Ok(())
     }
 }
@@ -837,6 +1068,7 @@ async fn join_and_apply(app: AppHandle, ticket: PairTicket, label: String, kind:
 
     // Connect deadline = the user's Settings value (house rule: never a literal).
     let deadline = Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&app));
+    emit_state(&app, PairState::Connecting, None, "Connecting to the other device.");
     let conn = tokio::time::timeout(deadline, endpoint.connect(ticket.addr.clone(), DEVLINK_ALPN))
         .await
         .map_err(|_| anyhow!("pairing connection timed out"))??;
@@ -865,19 +1097,70 @@ async fn join_and_apply(app: AppHandle, ticket: PairTicket, label: String, kind:
     )
     .await?;
 
-    let verdict: Verdict = read_frame_capped(&mut recv, CONTROL_FRAME_MAX).await?;
+    // The host answers only once a HUMAN taps Accept, so this is the longest
+    // wait in the flow — and it used to have no deadline at all. iroh's 5 s
+    // keepalive means no idle timeout ever trips, so if the other device's
+    // prompt was never seen (panel unmounted, tab switched, screen locked)
+    // this parked for the whole window and then reported a FALSE "declined".
+    // Bound it, and say what is being waited on rather than showing a spinner.
+    emit_state(&app, PairState::AwaitingApproval, None,
+               "Waiting for approval on the other device.");
+    let approval = Duration::from_secs(pair_window_secs(&app));
+    let verdict: Verdict = match tokio::time::timeout(
+        approval,
+        read_frame_capped(&mut recv, CONTROL_FRAME_MAX),
+    )
+    .await
+    {
+        Ok(v) => v?,
+        Err(_) => return Err(anyhow!(
+            "The other device did not respond in time. Make sure Enigma is open \
+             on it and the pairing prompt is visible, then try again."
+        )),
+    };
     if verdict.status != "accept" {
-        return Err(anyhow!("The other device declined the pairing request."));
+        // Distinguish the outcomes the host now reports separately: a silent
+        // window expiry is NOT someone pressing Reject, and telling the user
+        // it was is what made this impossible to debug.
+        return Err(match verdict.status.as_str() {
+            "timeout" => anyhow!(
+                "Nobody approved the request on the other device in time. Try again."
+            ),
+            "expired" => anyhow!("That QR code has expired. Show a new one and scan again."),
+            "used" => anyhow!(
+                "That QR code was already used. Show a new one on the other device."
+            ),
+            "version" => anyhow!(
+                "The other device runs a different Enigma version. Update both and retry."
+            ),
+            _ => anyhow!("The other device declined the pairing request."),
+        });
     }
     emit_progress(&app, "accepted", 0, 0);
+    emit_state(&app, PairState::Transferring, None, "Receiving your data.");
 
     let mut leaf_id = String::new();
     let mut room_name = String::new();
     let mut user = String::new();
     let mut history: std::collections::HashMap<String, Vec<serde_json::Value>> = Default::default();
     let mut frame_no: u64 = 0;
+    // Per-frame deadline: the bundle is already flowing, so a stall here means
+    // the host wedged (a slow vault read, a lock it never gets). Without this
+    // the joiner read forever and reported nothing — the same silent hang as
+    // the verdict wait, one stage later.
+    let frame_deadline = Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&app));
     loop {
-        let frame: Frame = read_frame_capped(&mut recv, DATA_FRAME_MAX).await?;
+        let frame: Frame = match tokio::time::timeout(
+            frame_deadline,
+            read_frame_capped(&mut recv, DATA_FRAME_MAX),
+        )
+        .await
+        {
+            Ok(f) => f?,
+            Err(_) => return Err(anyhow!(
+                "The other device stopped sending partway through. Try linking again."
+            )),
+        };
         match frame {
             Frame::Bundle { bundle, .. } => {
                 user = bundle.user.clone();
@@ -900,8 +1183,55 @@ async fn join_and_apply(app: AppHandle, ticket: PairTicket, label: String, kind:
                 for (room, pending) in history.drain() {
                     let _ = write_room_log(&app, &room, pending);
                 }
-                let _ = send.write_all(&[1u8]).await;
+                // The forward link is COMPLETE and reported here — requirement
+                // one: scanning a valid QR is enough, and success is never
+                // withheld pending a reverse handshake.
+                emit_state(&app, PairState::Linked, None, "This device is linked.");
+
+                // Then, optionally, offer the mutual link over the SAME stream
+                // (no second QR, no new connection). Bounded: if nobody
+                // answers, we ack without a reverse request and close.
+                let _ = app.emit(
+                    "devlink://reverse-offer",
+                    serde_json::json!({ "user": user, "roomName": room_name }),
+                );
+                let (tx, rx) = oneshot::channel::<bool>();
+                {
+                    let join_state = app.state::<DevLinkJoin>();
+                    let mut guard = join_state.0.lock().await;
+                    *guard = Some(tx);
+                }
+                let offer_window = Duration::from_secs(pair_window_secs(&app));
+                let want_reverse =
+                    matches!(tokio::time::timeout(offer_window, rx).await, Ok(Ok(true)));
+
+                write_frame(&mut send, &Ack { v: DEVLINK_VERSION, reverse: want_reverse }).await?;
                 let _ = send.finish();
+
+                if want_reverse {
+                    emit_state(&app, PairState::AwaitingApproval, None,
+                               "Waiting for the other device to accept the mutual link.");
+                    let window = Duration::from_secs(pair_window_secs(&app));
+                    match tokio::time::timeout(
+                        window,
+                        read_frame_capped::<ReverseDecision>(&mut recv, CONTROL_FRAME_MAX),
+                    )
+                    .await
+                    {
+                        Ok(Ok(d)) if d.accepted => {
+                            set_device_direction(&app, &device_id, LinkDirection::Mutual);
+                            emit_state(&app, PairState::Linked, None,
+                                       "Both devices are now linked.");
+                        }
+                        Ok(Ok(_)) => emit_state(&app, PairState::Linked, None,
+                            "The other device declined the mutual link; the one-way link stands."),
+                        // Neither case loses the forward link, so this stays a
+                        // Linked state with an explanation, not a failure.
+                        _ => emit_state(&app, PairState::Linked, None,
+                            "No answer to the mutual link; the one-way link stands."),
+                    }
+                }
+
                 conn.close(0u32.into(), b"done");
                 endpoint.close().await;
                 let _ = app.emit(
@@ -944,12 +1274,33 @@ pub async fn devlink_pair_begin(
     };
     let endpoint = builder.bind().await.map_err(|e| format!("devlink bind failed: {e}"))?;
 
+    // Wait for the endpoint to actually come online before reading its address.
+    // `bind()` returns immediately, but the home-relay handshake and net_report
+    // are still in flight, so `endpoint.addr()` at that instant carries local
+    // IPs and NO relay URL (iroh 0.98 endpoint.rs:1115-1127 says as much). A
+    // ticket minted from it is dialable on the same LAN and nowhere else —
+    // which is exactly how this failed for anyone pairing across networks.
+    // file_xfer and vox get away with the same call only because their
+    // endpoints have been up for a while by then; this one is seconds old.
+    if crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+        let online = Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&app));
+        if tokio::time::timeout(online, endpoint.online()).await.is_err() {
+            endpoint.close().await;
+            let detail = "This device could not reach a relay, so the QR code \
+                          would only work on the same network. Check the \
+                          connection and try again.";
+            fail(&app, FailReason::Unreachable, detail);
+            return Err(detail.to_string());
+        }
+    }
+
     let secret = random_bytes32();
     let window = Duration::from_secs(pair_window_secs(&app));
     let session = Arc::new(Mutex::new(PairSession {
         secret: Some(secret),
         expires_at: Instant::now() + window,
         confirm: None,
+        reverse_confirm: None,
     }));
     let shared = DevlinkShared { app: app.clone(), session: session.clone() };
     let router = Router::builder(endpoint.clone())
@@ -968,6 +1319,36 @@ pub async fn devlink_pair_begin(
     Ok(PairBegun { ticket, expires_at })
 }
 
+/// Joiner: answer the "also link back?" offer raised by
+/// `devlink://reverse-offer`. Safe to call late or twice — a stale or absent
+/// channel just means the offer already lapsed, and the one-way link stands.
+#[tauri::command]
+pub async fn devlink_reverse_reply(
+    join: State<'_, DevLinkJoin>,
+    accept: bool,
+) -> Result<(), String> {
+    let mut guard = join.0.lock().await;
+    if let Some(tx) = guard.take() {
+        let _ = tx.send(accept);
+    }
+    Ok(())
+}
+
+/// Primary: accept or reject the mutual link the joiner asked for, i.e. the
+/// single prompt raised by `devlink://reverse-request`.
+#[tauri::command]
+pub async fn devlink_reverse_confirm(
+    state: State<'_, DevLinkState>,
+    accept: bool,
+) -> Result<(), String> {
+    let guard = state.0.lock().await;
+    let host = guard.as_ref().ok_or("no pairing in progress")?;
+    let mut session = host.session.lock().await;
+    let tx = session.reverse_confirm.take().ok_or("no mutual-link request pending")?;
+    let _ = tx.send(accept);
+    Ok(())
+}
+
 /// Primary: resolve the confirm dialog raised by `devlink://request`.
 #[tauri::command]
 pub async fn devlink_pair_confirm(state: State<'_, DevLinkState>, accept: bool) -> Result<(), String> {
@@ -981,8 +1362,19 @@ pub async fn devlink_pair_confirm(state: State<'_, DevLinkState>, accept: bool) 
 
 /// Primary: abort the pairing session (drops the endpoint + secret).
 #[tauri::command]
-pub async fn devlink_pair_cancel(state: State<'_, DevLinkState>) -> Result<(), String> {
+pub async fn devlink_pair_cancel(
+    app: AppHandle,
+    state: State<'_, DevLinkState>,
+    join: State<'_, DevLinkJoin>,
+) -> Result<(), String> {
     shutdown(&state).await;
+    // Release a joiner parked on the mutual-link offer too, so cancelling from
+    // either side ends the exchange instead of leaving one half waiting out
+    // its window.
+    if let Some(tx) = join.0.lock().await.take() {
+        let _ = tx.send(false);
+    }
+    emit_state(&app, PairState::Idle, None, "Pairing cancelled.");
     Ok(())
 }
 
@@ -998,16 +1390,68 @@ pub async fn devlink_pair_join(
     label: String,
     kind: String,
 ) -> Result<(), String> {
-    check_policy(&app, &config)?;
-    ensure_unlocked(&app)?;
-    let ticket = decode_ticket(&ticket).map_err(|e| format!("invalid pairing ticket: {e}"))?;
+    emit_state(&app, PairState::Validating, None, "Checking the scanned code.");
+    if let Err(e) = check_policy(&app, &config) {
+        // Airplane/Tor/build-gate refusals are typed so the UI can point at the
+        // setting that has to change rather than printing a bare sentence.
+        let reason = if e == TOR_BLOCKED {
+            FailReason::TorBlocked
+        } else if e == OFFLINE_BLOCKED {
+            FailReason::Offline
+        } else {
+            FailReason::Internal
+        };
+        fail(&app, reason, &e);
+        return Err(e);
+    }
+    if let Err(e) = ensure_unlocked(&app) {
+        fail(&app, FailReason::Locked, &e);
+        return Err(e);
+    }
+    let ticket = match decode_ticket(&ticket) {
+        Ok(t) => t,
+        Err(e) => {
+            let detail = format!("That QR code is not a valid Enigma pairing code: {e}");
+            fail(&app, FailReason::InvalidTicket, &detail);
+            return Err(detail);
+        }
+    };
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = join_and_apply(app2.clone(), ticket, label, kind).await {
-            emit_error(&app2, &e.to_string());
+        match join_and_apply(app2.clone(), ticket, label, kind).await {
+            // `join_and_apply` emits Linked itself on the Done frame, so there
+            // is nothing to announce here — but every error path must end in a
+            // terminal state, or the UI is back to spinning forever.
+            Ok(()) => {}
+            Err(e) => {
+                let detail = e.to_string();
+                let reason = classify_join_error(&detail);
+                fail(&app2, reason, &detail);
+            }
         }
     });
     Ok(())
+}
+
+/// Map a joiner-side failure onto the reason the UI branches on. Kept next to
+/// the messages it matches so the two cannot drift apart silently.
+fn classify_join_error(detail: &str) -> FailReason {
+    let d = detail.to_ascii_lowercase();
+    if d.contains("did not respond in time") || d.contains("in time") {
+        FailReason::Timeout
+    } else if d.contains("connection timed out") || d.contains("connect") {
+        FailReason::Unreachable
+    } else if d.contains("expired") {
+        FailReason::ExpiredTicket
+    } else if d.contains("already used") {
+        FailReason::DuplicateLink
+    } else if d.contains("different enigma version") {
+        FailReason::ProtocolMismatch
+    } else if d.contains("declined") {
+        FailReason::Declined
+    } else {
+        FailReason::Internal
+    }
 }
 
 /// After vault unlock: if this profile is a linked device, adopt its stored
@@ -1084,6 +1528,127 @@ pub async fn devlink_status(app: AppHandle, state: State<'_, DevLinkState>) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── link direction ──────────────────────────────────────────────────────
+
+    #[test]
+    fn a_fresh_entry_is_one_way() {
+        // The forward pair must never claim to be mutual: the other device has
+        // not agreed to anything yet.
+        assert_eq!(LinkDirection::default(), LinkDirection::Outbound);
+        let entry = device_entry_json("abc", "Phone", "mobile", "u#dev-abc", "node", 1);
+        assert_eq!(entry["direction"], serde_json::json!("outbound"));
+    }
+
+    #[test]
+    fn opposing_directions_merge_to_mutual() {
+        assert_eq!(
+            LinkDirection::Outbound.merged(LinkDirection::Inbound),
+            LinkDirection::Mutual
+        );
+        assert_eq!(
+            LinkDirection::Inbound.merged(LinkDirection::Outbound),
+            LinkDirection::Mutual
+        );
+    }
+
+    #[test]
+    fn merging_is_idempotent_and_never_downgrades() {
+        // Retrying a mutual link must be a no-op rather than a second entry or
+        // a silent downgrade to one-way.
+        for d in [LinkDirection::Outbound, LinkDirection::Inbound, LinkDirection::Mutual] {
+            assert_eq!(d.merged(d), d, "merging a direction with itself must not change it");
+        }
+        assert_eq!(
+            LinkDirection::Mutual.merged(LinkDirection::Outbound),
+            LinkDirection::Mutual
+        );
+        assert_eq!(
+            LinkDirection::Mutual.merged(LinkDirection::Inbound),
+            LinkDirection::Mutual
+        );
+    }
+
+    #[test]
+    fn a_record_written_before_directions_existed_reads_as_one_way() {
+        // Old registries have no `direction` key at all; they must still load.
+        let legacy = serde_json::json!({ "deviceId": "abc", "label": "Phone" });
+        let dir: LinkDirection = legacy
+            .get("direction")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        assert_eq!(dir, LinkDirection::Outbound);
+    }
+
+    // ── failure classification ──────────────────────────────────────────────
+
+    #[test]
+    fn a_silent_window_expiry_is_a_timeout_not_a_refusal() {
+        // The whole original bug: the user was told the other device declined
+        // when in truth nobody was ever shown a prompt.
+        assert_eq!(
+            classify_join_error("The other device did not respond in time. Make sure Enigma is open"),
+            FailReason::Timeout
+        );
+        assert_eq!(
+            classify_join_error("The other device declined the pairing request."),
+            FailReason::Declined
+        );
+    }
+
+    #[test]
+    fn unreachable_and_expired_are_told_apart() {
+        assert_eq!(
+            classify_join_error("pairing connection timed out"),
+            FailReason::Unreachable
+        );
+        assert_eq!(
+            classify_join_error("That QR code has expired. Show a new one and scan again."),
+            FailReason::ExpiredTicket
+        );
+        assert_eq!(
+            classify_join_error("That QR code was already used. Show a new one."),
+            FailReason::DuplicateLink
+        );
+        assert_eq!(
+            classify_join_error("The other device runs a different Enigma version."),
+            FailReason::ProtocolMismatch
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_failure_still_has_a_reason() {
+        // No failure may reach the UI without something to branch on.
+        assert_eq!(classify_join_error("disk on fire"), FailReason::Internal);
+    }
+
+    // ── wire frames ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn an_ack_without_a_reverse_flag_means_no_request() {
+        // Forward compatibility: an older joiner sends no `reverse` field, and
+        // that must read as "did not ask", never as a request nobody made.
+        let ack: Ack = serde_json::from_str(r#"{"v":1}"#).unwrap();
+        assert!(!ack.reverse);
+    }
+
+    #[test]
+    fn the_reverse_decision_round_trips() {
+        let d = ReverseDecision { v: DEVLINK_VERSION, accepted: true };
+        let raw = serde_json::to_string(&d).unwrap();
+        let back: ReverseDecision = serde_json::from_str(&raw).unwrap();
+        assert!(back.accepted);
+        assert_eq!(back.v, DEVLINK_VERSION);
+    }
+
+    #[test]
+    fn every_terminal_state_serializes_for_the_frontend() {
+        // The UI branches on these strings; a rename would silently strand it.
+        assert_eq!(serde_json::to_string(&PairState::Linked).unwrap(), "\"linked\"");
+        assert_eq!(serde_json::to_string(&PairState::TimedOut).unwrap(), "\"timed_out\"");
+        assert_eq!(serde_json::to_string(&PairState::AwaitingApproval).unwrap(), "\"awaiting_approval\"");
+        assert_eq!(serde_json::to_string(&FailReason::Unreachable).unwrap(), "\"unreachable\"");
+    }
 
     #[test]
     fn ticket_round_trips_and_rejects_wrong_tag() {
