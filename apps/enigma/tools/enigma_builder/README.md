@@ -36,6 +36,24 @@ missing or incomplete.
 PyInstaller does not cross-compile — run `package.sh` on the platform you want a
 binary for.
 
+## CLI
+
+The same binary is a headless CLI when given a subcommand (the program is
+`enigma-builder`; if you want the short name, `ln -s enigma-builder enigma` —
+the help text keeps the real name):
+
+| Command | What |
+|---|---|
+| `enigma-builder build android [--release] [--unsigned] [--abi SPEC]` | run scripts/build_android.sh exactly as the Build tab would |
+| `enigma-builder signing android status` | report whether a release would sign, and where each credential comes from |
+| `enigma-builder signing android create` | mint a release keystore (outside the repo) with the loss warnings |
+| `enigma-builder signing android verify [ARTIFACT]` | classify DEBUG / UNSIGNED RELEASE / SIGNED RELEASE with package, version and SHA-256 |
+| `enigma-builder signing android pin --from <apk> [--rotate]` | record the release fingerprint every later build must match |
+
+All of these run without opening a window; `signing_cli.py` itself needs no
+Qt and is what `scripts/build_android.sh` calls for its own checks — one
+implementation, no drift.
+
 ## What it writes
 
 Three things, and nothing else:

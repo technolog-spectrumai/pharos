@@ -413,26 +413,44 @@ apps/enigma/src-tauri/gen/android/app/build/outputs/
 
 ### Signing a release build
 
-Release signing is wired into the Gradle build and **fails closed**: with no
-keystore configured, a release build is refused before any work starts — it can
-no longer produce an `-unsigned.apk` by accident, and the SDK debug key
-(publicly known) is rejected for release outright. Debug builds keep the debug
-key and are unaffected.
+Release signing **fails closed**: with no keystore configured, a release build
+is refused before any work starts, and the SDK debug key (publicly known) is
+rejected for release outright — by path, filename, or the `androiddebugkey`
+alias. Debug builds keep the debug key and are unaffected.
 
-Configure it once by copying
-`src-tauri/gen/android/keystore.properties.example` to `keystore.properties`
-next to it (gitignored) and filling in the four values — `storeFile`,
-`storePassword`, `keyAlias`, `keyPassword`. Generate a keystore with:
+One-time setup, all through the Builder tool (`tools/enigma_builder`):
 
 ```bash
-keytool -genkeypair -v -keystore ~/keys/enigma-release.jks -alias enigma \
-  -keyalg RSA -keysize 4096 -validity 10000
+# Mint a release keystore (outside the repo, chmod 600, RSA 4096) — the tool
+# warns loudly: losing this key permanently orphans every distributed install.
+enigma-builder signing android create
+
+# Build a signed release; artifacts are verified with apksigner afterwards
+# and the report prints package, version, signer and SHA-256 fingerprint.
+enigma-builder build android --release
+
+# After confirming the first build, pin the fingerprint (committed file) so a
+# swapped or regenerated keystore FAILS the build instead of shipping:
+enigma-builder signing android pin --from <apk>
+
+# Inspect any artifact:
+enigma-builder signing android verify <apk-or-aab>
 ```
 
-Keep the keystore **outside the repo** and back it up: losing it means
-already-installed apps can never be updated. Do not hand-sign with `apksigner
-sign` afterwards — the Gradle build signs the APK and AAB itself, and
-`scripts/build_android.sh` verifies the result after every release build.
+Credentials resolve per key from: a `${VAR}` placeholder in
+`gen/android/keystore.properties` → the `ENIGMA_KEYSTORE_FILE` /
+`ENIGMA_KEYSTORE_PASSWORD` / `ENIGMA_KEY_ALIAS` / `ENIGMA_KEY_PASSWORD`
+environment variables → a literal in `keystore.properties` → 
+`~/.config/enigma-builder/signing.properties` (must be chmod 600). Passwords
+never live in source control and never appear on an argv.
+
+An **unsigned release** for internal inspection is a deliberate act, never a
+fallback: `scripts/build_android.sh enigma release aarch64
+--allow-unsigned-release` (or `--unsigned` on the CLI, or the checkbox in the
+Builder GUI). It installs nowhere, says so loudly, and still refuses the debug
+key. The pinned fingerprint lives in
+`apps/enigma/deploy/android-release-key.properties` — deliberately outside
+`gen/android`, which `tauri android init` regenerates.
 
 ### Install & inspect on a device
 
