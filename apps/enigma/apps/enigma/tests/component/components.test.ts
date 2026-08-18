@@ -119,6 +119,33 @@ describe("OyaQrCode", () => {
     await flushPromises();
     expect(wrapper.find("img").exists()).toBe(true);
   });
+
+  it("fills the width it is given on phones, capping only on desktop", async () => {
+    // A QR is only useful if the other camera can resolve it: a fixed 176px
+    // code is unscannable on a phone. `size` is the DESKTOP cap; below `lg`
+    // the image takes its container's width.
+    const wrapper = mount(OyaQrCode, { props: { value: "abc", size: 176 } });
+    await flushPromises();
+    const img = wrapper.find("img");
+    expect(img.classes()).toContain("w-full");
+    expect(img.classes()).toContain("aspect-square");
+    // The desktop cap is applied only from `lg` up...
+    expect(img.classes()).toContain("lg:max-w-[var(--qr-cap)]");
+    expect(img.attributes("style")).toContain("--qr-cap: 176px");
+    // ...and it is NOT a fixed width/height any more.
+    expect(img.attributes("style")).not.toContain("width: 176px");
+  });
+
+  it("generates at a fixed high resolution regardless of display size", async () => {
+    // Generating at the CSS size makes a phone-width code blurry, which costs
+    // more scans than being small does.
+    const { toDataURL } = await import("qrcode");
+    (toDataURL as unknown as { mockClear: () => void }).mockClear();
+    mount(OyaQrCode, { props: { value: "abc", size: 100 } });
+    await flushPromises();
+    const opts = (toDataURL as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1];
+    expect((opts as { width: number }).width).toBe(640);
+  });
 });
 
 function msg(over: Partial<Message> = {}): Message {
