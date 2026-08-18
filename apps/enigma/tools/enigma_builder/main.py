@@ -69,6 +69,31 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parents=[common],
     )
 
+    build_p = sub.add_parser(
+        "build", help="run a build headlessly", parents=[common]
+    )
+    build_sub = build_p.add_subparsers(dest="platform", required=True)
+    android_build = build_sub.add_parser(
+        "android", help="build the Android app via scripts/build_android.sh",
+        parents=[common],
+    )
+    kind = android_build.add_mutually_exclusive_group()
+    kind.add_argument("--release", action="store_true", help="release build")
+    kind.add_argument("--debug", action="store_true", help="debug build (default)")
+    mode = android_build.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--signed", action="store_true",
+        help="require a signed release (the default for --release)",
+    )
+    mode.add_argument(
+        "--unsigned", action="store_true",
+        help="explicitly build an UNSIGNED release (installs nowhere; internal only)",
+    )
+    android_build.add_argument(
+        "--abi", default="aarch64", metavar="SPEC",
+        help="comma-separated ABIs or 'all' (default aarch64)",
+    )
+
     args = parser.parse_args(argv)
     # SUPPRESS means the attribute may be absent entirely; normalize it.
     if not hasattr(args, "repo"):
@@ -159,6 +184,36 @@ def run_signing(args: argparse.Namespace, override: Path | None) -> int:
     return 2
 
 
+def run_build(args: argparse.Namespace, override: Path | None) -> int:
+    """Dispatch `build android` — the same argv the GUI's Build tab launches."""
+    import subprocess
+
+    resolve_repo(override)
+    if not paths.have_repo():
+        print("repository: none found — pass --repo or set "
+              f"${paths.ROOT_ENV_VAR}", file=sys.stderr)
+        return 1
+
+    build_type = "release" if args.release else "debug"
+    if args.unsigned and build_type != "release":
+        print("--unsigned only applies to --release "
+              "(debug builds always use the SDK debug key)", file=sys.stderr)
+        return 2
+    if args.signed and build_type != "release":
+        print("--signed only applies to --release "
+              "(debug builds always use the SDK debug key)", file=sys.stderr)
+        return 2
+
+    import buildcmd
+
+    command = buildcmd.android(
+        paths.APP_SLUG, build_type, args.abi, allow_unsigned=args.unsigned
+    )
+    print("$", " ".join(command))
+    # Stream straight through: this IS the build, minutes of cargo and gradle.
+    return subprocess.run(command, cwd=paths.REPO_ROOT).returncode
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     override = resolve_override(args.repo)
@@ -167,6 +222,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_check(override)
     if args.command == "signing":
         return run_signing(args, override)
+    if args.command == "build":
+        return run_build(args, override)
 
     from PyQt6.QtWidgets import QApplication
 

@@ -39,6 +39,33 @@ if [[ "${BUILD_TYPE}" != "debug" && "${BUILD_TYPE}" != "release" ]]; then
   exit 1
 fi
 
+# Flags after the three positionals. Unknown arguments are REJECTED: a mistyped
+# --allow-unsignd silently ignored as an unused $4 would be the worst possible
+# failure mode for exactly this feature.
+ALLOW_UNSIGNED=0
+shift $(( $# < 3 ? $# : 3 ))
+for arg in "$@"; do
+  case "${arg}" in
+    --allow-unsigned-release)
+      ALLOW_UNSIGNED=1
+      ;;
+    --signed)
+      # The default for release; accepted so intent can be explicit.
+      ;;
+    *)
+      echo "ERROR: unknown argument '${arg}'" >&2
+      echo "  known: --allow-unsigned-release, --signed" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "${ALLOW_UNSIGNED}" == "1" && "${BUILD_TYPE}" != "release" ]]; then
+  echo "ERROR: --allow-unsigned-release only applies to a release build" >&2
+  echo "  (debug builds are always signed with the SDK debug key)" >&2
+  exit 1
+fi
+
 # Map friendly ABI names → Tauri --target flags. "all" → no flag (Tauri builds
 # every installed ABI). Otherwise build a repeated "--target X --target Y" list.
 TAURI_TARGET=()
@@ -58,6 +85,12 @@ fi
 # when the script is invoked directly (not from an interactive shell).
 # shellcheck disable=SC1090
 [[ -f "${HOME}/.bashrc" ]] && source "${HOME}/.bashrc" || true
+
+# The unsigned-release opt-in travels to Gradle as a project property via
+# ORG_GRADLE_PROJECT_*. Unconditionally unset AFTER sourcing ~/.bashrc: an
+# export lurking there would otherwise disarm the fail-closed gate with no
+# trace in any command line. Re-exported below only from the parsed flag.
+unset ORG_GRADLE_PROJECT_enigmaAllowUnsignedRelease
 
 # JAVA_HOME: fall back to the openjdk-17 path if not set
 if [[ -z "${JAVA_HOME:-}" ]]; then
@@ -149,13 +182,18 @@ run_signing_cli() {  # run_signing_cli <action> [args…]
     python3 "${SIGNING_CLI}" "$@"
 }
 
-if [[ "${BUILD_TYPE}" == "release" ]]; then
+if [[ "${BUILD_TYPE}" == "release" && "${ALLOW_UNSIGNED}" != "1" ]]; then
   run_signing_cli status --gen "${GEN_DIR}" || {
     echo "" >&2
     echo "Release signing is not configured — refusing to build an unsigned release." >&2
+    echo "  For an installable-nowhere internal artifact: add --allow-unsigned-release" >&2
     echo "Debug builds are unaffected: ${0##*/} ${APP} debug" >&2
     exit 1
   }
+elif [[ "${BUILD_TYPE}" == "release" ]]; then
+  echo "==> UNSIGNED RELEASE requested (--allow-unsigned-release)"
+  echo "    The artifact will install nowhere and must never be distributed."
+  export ORG_GRADLE_PROJECT_enigmaAllowUnsignedRelease=true
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────

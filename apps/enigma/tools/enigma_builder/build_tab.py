@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 import appdata
+import buildcmd
 import bundles
 import icons as icons_mod
 import identity as identity_mod
@@ -573,13 +574,9 @@ class BuildTab(QWidget):
             if self.build_type == "debug":
                 command.append("--debug")
             return command
-        return [
-            "bash",
-            str(paths.BUILD_ANDROID_SH),
-            paths.APP_SLUG,
-            self.build_type,
-            self.abi_spec,
-        ]
+        # Assembled by buildcmd so the CLI (`enigma-builder build android`)
+        # launches the byte-identical command for the same options.
+        return buildcmd.android(paths.APP_SLUG, self.build_type, self.abi_spec)
 
     def _options_changed(self) -> None:
         if not self._ready:

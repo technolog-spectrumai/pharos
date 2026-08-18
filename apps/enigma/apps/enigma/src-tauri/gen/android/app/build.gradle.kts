@@ -247,6 +247,14 @@ android {
 // spending the Rust compile and handing back an -unsigned.apk. Checked on the
 // task graph so it fires before any work, and only for this module's release
 // packaging tasks — a debug build never trips it.
+// The unsigned-release escape hatch. Set ONLY by scripts/build_android.sh
+// --allow-unsigned-release (via ORG_GRADLE_PROJECT_enigmaAllowUnsignedRelease,
+// the one env→property bridge that survives the tauri CLI, which forwards
+// nothing to Gradle). Read ONLY here, never inside signingConfigs — so it can
+// waive *unsigned*, but can never change WHICH key signs, and in particular
+// can never fall back to the debug key: a debug keystore still refuses above.
+val allowUnsignedRelease = (findProperty("enigmaAllowUnsignedRelease") as? String) == "true"
+
 gradle.taskGraph.whenReady {
     // Kotlin DSL: the Action overload makes the graph the receiver — a named
     // `graph ->` parameter fails script compilation against the Closure
@@ -259,7 +267,14 @@ gradle.taskGraph.whenReady {
                 task.name.contains("Release") &&
                 producers.any { p -> task.name.startsWith(p) }
         }
-        if (wantsRelease) {
+        if (wantsRelease && allowUnsignedRelease && !problem.contains("DEBUG key")) {
+            logger.warn(
+                "\n*** UNSIGNED RELEASE ***\n" +
+                    "Building WITHOUT a release signature on explicit request\n" +
+                    "(--allow-unsigned-release). This artifact installs nowhere\n" +
+                    "and must never be distributed.\n"
+            )
+        } else if (wantsRelease) {
             throw GradleException(
                 "\n\nRelease signing is not configured — refusing to build an " +
                     "unsigned release.\n\n$problem\n\n" +
