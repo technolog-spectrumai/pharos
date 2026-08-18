@@ -228,6 +228,7 @@ def resolve_credentials(
             local_props = read_properties(local_file)
 
     creds: dict[str, Credential] = {}
+    failed_keys: set[str] = set()
     for key in REQUIRED_KEYS:
         raw = props.get(key, "").strip()
         placeholder = PLACEHOLDER_RE.match(raw) if raw else None
@@ -238,12 +239,23 @@ def resolve_credentials(
             value = env.get(var, "")
             if value:
                 creds[key] = Credential(key, value, f"${var} (via placeholder)")
+                continue
+            # The env var is unset: fall through to the secure local config
+            # before erroring. `signing android create` writes BOTH files —
+            # placeholders repo-side, real values in the 0600 local file — so
+            # a hard error here would defeat the very setup the tool creates.
+            local_value = local_props.get(key, "").strip()
+            if local_value:
+                creds[key] = Credential(key, local_value, str(local_file))
+                notes.append(f"{key}: ${var} is not set — using {local_file}")
             else:
+                failed_keys.add(key)
                 problems.append(
                     Problem(
                         ENV_MISSING,
                         f"{key} is set to ${{{var}}} in {KEYSTORE_PROPERTIES} "
-                        f"but ${var} is not set in the environment",
+                        f"but ${var} is not set in the environment, and "
+                        f"{local_file} does not provide {key} either",
                     )
                 )
             continue
@@ -280,7 +292,7 @@ def resolve_credentials(
                 )
             )
 
-    return creds, problems, notes
+    return creds, problems, notes, failed_keys
 
 
 # ----- keystore.properties --------------------------------------------------
@@ -495,12 +507,18 @@ def inspect(
     if properties_file.is_file():
         props = read_properties(properties_file)
 
-    creds, cred_problems, notes = resolve_credentials(props, environ, local_path)
+    creds, cred_problems, notes, failed_keys = resolve_credentials(
+        props, environ, local_path
+    )
     problems += cred_problems
 
     if creds or properties_file.is_file():
         # Something resolved (env / local / file): validate the resolved set.
+        # A key that already has an env-missing problem is not ALSO "missing"
+        # — one problem per cause, or the report reads like two failures.
         resolved = {key: cred.value for key, cred in creds.items()}
+        for key in failed_keys:
+            resolved.setdefault(key, "\0reported")
         problems += check_properties(resolved, android_gen)
     else:
         # Nothing anywhere — the classic first-run state, reported the way it

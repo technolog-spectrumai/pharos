@@ -507,7 +507,7 @@ def test_env_beats_a_literal_in_the_file(gen_android, tmp_path):
         keyAlias="enigma",
         keyPassword="k",
     )
-    creds, problems, _ = signing.resolve_credentials(
+    creds, problems, _notes, _failed = signing.resolve_credentials(
         signing.read_properties(gen_android / signing.KEYSTORE_PROPERTIES),
         environ={"ENIGMA_KEYSTORE_PASSWORD": "fresh-from-env"},
         local_path=tmp_path / "absent",
@@ -827,3 +827,46 @@ def test_created_keystore_signs_and_round_trips_the_fingerprint(tmp_path):
         capture_output=True, check=True,
     )
     assert signing.verify_apk(signed).fingerprints[0] == minted_fp
+
+
+def test_an_unset_placeholder_falls_through_to_the_local_config(gen_android, tmp_path):
+    """The trap `signing android create` used to set for its own users: it
+    writes placeholders into keystore.properties AND the real passwords into
+    the 0600 local file — the placeholder must fall through, not hard-error."""
+    store = make_keystore(tmp_path / "release.jks")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="${ENIGMA_KEYSTORE_PASSWORD}",
+        keyAlias="enigma",
+        keyPassword="${ENIGMA_KEY_PASSWORD}",
+    )
+    local = tmp_path / "signing.properties"
+    local.write_text("storePassword=pw\nkeyPassword=pw\n", encoding="utf-8")
+    local.chmod(0o600)
+
+    status = signing.inspect(gen_android, environ={}, local_path=local)
+    assert status.signed_release, status.report()
+    assert dict(status.sources)["storePassword"] == str(local)
+    assert any("is not set — using" in n for n in status.notes)
+
+
+def test_a_placeholder_with_no_fallback_reports_once_not_twice(gen_android, tmp_path):
+    """One problem per cause: the old report listed the unset variable AND
+    counted the same key as 'missing' — two failures for one mistake."""
+    store = make_keystore(tmp_path / "release.jks")
+    write_properties(
+        gen_android,
+        storeFile=str(store),
+        storePassword="${ENIGMA_KEYSTORE_PASSWORD}",
+        keyAlias="enigma",
+        keyPassword="pw",
+    )
+    status = signing.inspect(gen_android, environ={}, local_path=tmp_path / "absent")
+    assert status.has(signing.ENV_MISSING)
+    assert not status.has(signing.INCOMPLETE)
+    assert not status.signed_release
+    # The message names every remedy: the variable and the local file path.
+    report = status.report()
+    assert "$ENIGMA_KEYSTORE_PASSWORD" in report
+    assert str(tmp_path / "absent") in report

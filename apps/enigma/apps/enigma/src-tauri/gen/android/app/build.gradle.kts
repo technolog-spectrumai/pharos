@@ -97,12 +97,17 @@ fun signingProperty(name: String): String {
     if (placeholder != null) {
         val variable = placeholder.groupValues[1]
         val fromEnv = providers.environmentVariable(variable).orNull?.trim().orEmpty()
-        if (fromEnv.isEmpty()) {
-            placeholderProblems +=
-                "$name is set to \${$variable} in ${keystorePropertiesFile.name} " +
-                    "but \$$variable is not set in the environment."
-        }
-        return fromEnv
+        if (fromEnv.isNotEmpty()) return fromEnv
+        // Unset env var: fall through to the 0600 local config before
+        // erroring — `signing android create` writes placeholders repo-side
+        // and the real values there. Mirrors signing.py.
+        val fromLocal = (localSigningProperties.getProperty(name) ?: "").trim()
+        if (fromLocal.isNotEmpty()) return fromLocal
+        placeholderProblems +=
+            "$name is set to \${$variable} in ${keystorePropertiesFile.name} " +
+                "but \$$variable is not set in the environment, and " +
+                "${localSigningFile.absolutePath} does not provide $name either."
+        return ""
     }
     val fromEnv = providers.environmentVariable(envForSigningKey.getValue(name))
         .orNull?.trim().orEmpty()
