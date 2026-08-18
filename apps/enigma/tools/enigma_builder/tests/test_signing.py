@@ -189,6 +189,36 @@ def test_the_real_filename_stays_gitignored():
     assert (paths.ANDROID_GEN / signing.EXAMPLE_PROPERTIES).is_file()
 
 
+def test_signing_material_is_ignored_repo_wide():
+    """A keystore anywhere in the repo — not just under gen/android — must be
+    uncommittable, while the committed fingerprint pin file must not be caught
+    by the same patterns (it is deliberately named to dodge them)."""
+    def ignored(rel: str) -> bool:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", rel],
+            cwd=paths.REPO_ROOT,
+            capture_output=True,
+        )
+        return result.returncode == 0
+
+    if subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=paths.REPO_ROOT,
+        capture_output=True,
+    ).returncode != 0:
+        pytest.skip("not a git checkout; nothing to ask git about")
+
+    for rel in (
+        "enigma-release.jks",
+        "release.keystore",
+        "keystore.properties",
+        "apps/enigma/keystore.properties",
+        "scripts/signing.properties",
+    ):
+        assert ignored(rel), f"{rel} is committable — root .gitignore regressed"
+    assert not ignored("apps/enigma/deploy/android-release-key.properties")
+
+
 # ----- a well-formed configuration ------------------------------------------
 
 

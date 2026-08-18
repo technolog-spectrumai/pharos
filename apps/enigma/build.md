@@ -413,19 +413,26 @@ apps/enigma/src-tauri/gen/android/app/build/outputs/
 
 ### Signing a release build
 
-Generate a keystore once, then sign:
+Release signing is wired into the Gradle build and **fails closed**: with no
+keystore configured, a release build is refused before any work starts — it can
+no longer produce an `-unsigned.apk` by accident, and the SDK debug key
+(publicly known) is rejected for release outright. Debug builds keep the debug
+key and are unaffected.
+
+Configure it once by copying
+`src-tauri/gen/android/keystore.properties.example` to `keystore.properties`
+next to it (gitignored) and filling in the four values — `storeFile`,
+`storePassword`, `keyAlias`, `keyPassword`. Generate a keystore with:
 
 ```bash
-keytool -genkey -v -keystore enigma-release.jks -alias enigma \
+keytool -genkeypair -v -keystore ~/keys/enigma-release.jks -alias enigma \
   -keyalg RSA -keysize 4096 -validity 10000
-
-apksigner sign --ks enigma-release.jks --ks-key-alias enigma \
-  --out enigma-release-signed.apk app-release.apk
 ```
 
-Or configure `src-tauri/gen/android/app/build.gradle.kts` with your signing config
-before the release build — see the
-[Tauri Android signing docs](https://tauri.app/distribute/sign/android/).
+Keep the keystore **outside the repo** and back it up: losing it means
+already-installed apps can never be updated. Do not hand-sign with `apksigner
+sign` afterwards — the Gradle build signs the APK and AAB itself, and
+`scripts/build_android.sh` verifies the result after every release build.
 
 ### Install & inspect on a device
 

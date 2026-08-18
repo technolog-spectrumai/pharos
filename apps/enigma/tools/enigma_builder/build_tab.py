@@ -281,8 +281,9 @@ class BuildTab(QWidget):
         layout.addWidget(
             widgets.hint(
                 "Desktop produces a package per distribution chosen below. "
-                "Android produces an APK (plus an AAB on release) — release "
-                "outputs are unsigned and need your own keystore.",
+                "Android produces an APK (plus an AAB on release) — a release "
+                "build needs a configured release keystore and refuses to run "
+                "without one.",
                 "gateHint",
             )
         )

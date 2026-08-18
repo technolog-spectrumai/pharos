@@ -11,8 +11,9 @@
 #   both     — desktop + android (default)
 #
 # Android build type (2nd arg, default `debug`): a debug APK is signed with the
-# Android debug key and installs directly; a `release` APK/AAB is unsigned and
-# needs your own keystore before it can be installed/published.
+# Android debug key and installs directly; a `release` build REQUIRES a
+# configured release keystore (gen/android/keystore.properties) and fails
+# closed before any work when it is missing — see build.md §Signing.
 #
 # abi-spec (3rd arg, default `aarch64`): comma-separated Android ABIs or "all".
 #   e.g.  aarch64,x86_64

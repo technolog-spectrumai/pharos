@@ -42,3 +42,16 @@ coverage/
 .vscode/
 .idea/
 .DS_Store
+
+# Android signing material — a keystore or its passwords must never be committed.
+# gen/android/.gitignore covers the generated project; these cover the repo root
+# and anywhere else a stray copy could land. The committed fingerprint PIN file
+# (apps/enigma/deploy/android-release-key.properties) is deliberately named so
+# these patterns do not match it.
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+key.properties
+signing.properties
