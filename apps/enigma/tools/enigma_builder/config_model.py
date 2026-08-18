@@ -201,3 +201,52 @@ class ConfigModel(QObject):
         paths.CUSTOM_YAML.parent.mkdir(parents=True, exist_ok=True)
         paths.CUSTOM_YAML.write_text(text, encoding="utf-8")
         return paths.CUSTOM_YAML
+
+    # ----- product configs (the Config Builder's saved artefact) ----------
+    #
+    # A product config IS the build-config YAML — same schema, same renderer,
+    # so build.rs and yaml_gen never grow a second dialect — plus, optionally,
+    # a Builder-owned `branding:` block that materialisation strips (build.rs
+    # parses with deny_unknown_fields, so the block must never reach an
+    # ENIGMA_EDITION file). The checked-in presets are product configs with no
+    # branding block. Deterministic by construction: yaml_gen renders from a
+    # fixed template, so save → load → save is byte-identical and diffs stay
+    # meaningful in git.
+
+    PRODUCT_HEADER = "# product-config v1"
+
+    def save_product(self, path: Path, icon: Path | None = None) -> Path:
+        """Write the live config (and optional branding) as a product file."""
+        text = f"{self.PRODUCT_HEADER}\n" + self.render()
+        if icon is not None:
+            text += (
+                "\n# ── product-config extras (Builder-owned; stripped from "
+                "the build config) ──\n"
+                f"branding:\n  icon: {icon}\n"
+            )
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def load_product(self, path: Path) -> str | None:
+        """Load a product file into the model; returns branding.icon if any.
+
+        Tolerant on purpose: a bare edition YAML (no header, no branding) is a
+        valid product config — the presets are exactly that. Unknown keys are
+        dropped by merge_known, so a `branding:` block never leaks into the
+        build config.
+        """
+        data = load_yaml(Path(path))
+        if not data:
+            raise ValueError(f"{path} is not a readable product config")
+        with self.batch():
+            merged = merge_known(self.canonical, data)
+            for key in self._cfg:
+                if key in merged:
+                    self._cfg[key] = merged[key]
+        self.changed.emit()
+        branding = data.get("branding")
+        if isinstance(branding, dict) and branding.get("icon"):
+            return str(branding["icon"])
+        return None
