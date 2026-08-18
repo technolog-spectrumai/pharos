@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
-import { initBuildConfig, setHiddenTabs } from "rakotis";
+import { setHiddenTabs } from "rakotis";
 
 const ALL = ["chat", "files", "vox", "calendar", "map", "contacts"] as const;
 
@@ -17,7 +17,11 @@ async function coldBoot() {
   vi.resetModules();
   const tabs = await import("../../src/tabs");
   const router = (await import("../../src/router")).default;
-  return { tabs, router };
+  // From the SAME fresh registry: the build config lives in a module-level
+  // variable, so the top-level `rakotis` import here is a different instance
+  // and writing to it would never be seen by the tabs module under test.
+  const store = await import("rakotis");
+  return { tabs, router, store };
 }
 
 beforeEach(() => {
@@ -69,11 +73,11 @@ describe("no redirect loop", () => {
     // from a cached list: a stale head sends the guard back to a path the guard
     // itself denies, which vue-router reports as an infinite redirection.
     await setHiddenTabs(["chat", "files"]);
-    const { tabs, router } = await coldBoot();
+    const { tabs, router, store } = await coldBoot();
     await tabs.loadTabVisibility();
     await router.replace("/config");
 
-    await initBuildConfig({
+    await store.initBuildConfig({
       calls_enabled: false, calendar_enabled: false,
       maps_enabled: false, contacts_enabled: false,
     });
@@ -83,7 +87,7 @@ describe("no redirect loop", () => {
       await settle();
       expect(router.currentRoute.value.path).toBe("/config");
     } finally {
-      await initBuildConfig({
+      await store.initBuildConfig({
         calls_enabled: true, calendar_enabled: true,
         maps_enabled: true, contacts_enabled: true,
       });

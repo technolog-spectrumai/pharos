@@ -90,7 +90,13 @@ export const visibleTabs = computed(() => availableTabs().filter((t) => !hiddenT
  *  produce the self-redirect vue-router refuses. Settings when nothing is left:
  *  the app must always have somewhere to be. */
 export function firstVisiblePath(): string {
-  return visibleTabs.value[0]?.path ?? SETTINGS_PATH;
+  // Recomputed from the CURRENT gates rather than read off `visibleTabs`: that
+  // computed only tracks `hiddenTabs`, so a build config replaced after its
+  // first evaluation leaves it stale — and a stale head sends the guard to a
+  // path the guard itself denies, which vue-router reports as an infinite
+  // redirection.
+  const live = availableTabs().filter((t) => !hiddenTabs.value.has(t.id));
+  return live[0]?.path ?? SETTINGS_PATH;
 }
 
 /** Read the stored choice. kv lives in the encrypted vault, so this is only
