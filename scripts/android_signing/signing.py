@@ -61,6 +61,48 @@ INCOMPLETE = "incomplete"
 STORE_MISSING = "store-missing"
 DEBUG_KEY = "debug-key"
 NO_GRADLE_CONFIG = "no-gradle-config"
+ENV_MISSING = "env-missing"
+LOCAL_CONFIG_MODE = "local-config-mode"
+RELATIVE_STORE = "relative-store"
+
+# ── credential sources ────────────────────────────────────────────────────────
+# Passwords must never live in source control. Each of the four values can
+# arrive from (in precedence order):
+#   1. a ${VAR} placeholder in keystore.properties — an explicit redirect;
+#   2. its well-known environment variable (CI's mechanism);
+#   3. a literal in keystore.properties (kept working, but noted);
+#   4. ~/.config/enigma-builder/signing.properties, chmod 600 (the developer-
+#      machine mechanism — outside every repo by construction).
+# The gradle script implements the same order; check_gradle() asserts the
+# names below appear there verbatim, so a rename here without one there fails.
+
+STORE_FILE_ENV = "ENIGMA_KEYSTORE_FILE"
+KEYSTORE_PASSWORD_ENV = "ENIGMA_KEYSTORE_PASSWORD"
+KEY_ALIAS_ENV = "ENIGMA_KEY_ALIAS"
+KEY_PASSWORD_ENV = "ENIGMA_KEY_PASSWORD"
+
+ENV_FOR_KEY: dict[str, str] = {
+    "storeFile": STORE_FILE_ENV,
+    "storePassword": KEYSTORE_PASSWORD_ENV,
+    "keyAlias": KEY_ALIAS_ENV,
+    "keyPassword": KEY_PASSWORD_ENV,
+}
+
+#: Values that must never appear in any report, log line or argv.
+SECRET_KEYS = frozenset({"storePassword", "keyPassword"})
+
+#: `storePassword=${MY_VAR}` — the whole value must be one placeholder.
+PLACEHOLDER_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+LOCAL_CONFIG_NAME = "signing.properties"
+
+
+def local_config_path(environ: dict[str, str] | None = None) -> Path:
+    """``$XDG_CONFIG_HOME/enigma-builder/signing.properties`` (or ~/.config)."""
+    env = os.environ if environ is None else environ
+    xdg = env.get("XDG_CONFIG_HOME", "").strip()
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "enigma-builder" / LOCAL_CONFIG_NAME
 
 DEBUG_KEY_MESSAGE = (
     "refuses the Android debug key: it ships with the SDK, its password is "
@@ -90,6 +132,10 @@ class SigningStatus:
     problems: tuple[Problem, ...] = ()
     store_file: Path | None = None
     key_alias: str = ""
+    #: (key, provenance) pairs — where each value came from, never the value.
+    sources: tuple[tuple[str, str], ...] = ()
+    #: Non-fatal advice (e.g. a literal password that should move to the env).
+    notes: tuple[str, ...] = ()
 
     @property
     def signed_release(self) -> bool:
@@ -105,15 +151,136 @@ class SigningStatus:
         return any(p.code == code for p in self.problems)
 
     def report(self) -> str:
-        """A human-readable summary, for a build log or the GUI."""
+        """A human-readable summary, for a build log or the GUI.
+
+        Provenance only, never values: this string ends up in build logs, and
+        a log that can leak a password is worse than no report at all.
+        """
         if self.signed_release:
-            return (
-                f"SIGNED release: {self.store_file}, alias '{self.key_alias}' "
-                f"(from {self.properties_file})"
-            )
+            lines = [f"SIGNED release: {self.store_file}, alias '{self.key_alias}'"]
+            for key, source in self.sources:
+                lines.append(f"  {key}: {source}")
+            lines += [f"  note: {n}" for n in self.notes]
+            return "\n".join(lines)
         lines = ["UNSIGNED release — a release build will fail:"]
         lines += [f"  - {p.message}" for p in self.problems]
+        lines += [f"  note: {n}" for n in self.notes]
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class Credential:
+    """One resolved signing value and where it came from.
+
+    ``source`` is a human-readable provenance ("$ENIGMA_KEY_PASSWORD",
+    "keystore.properties", "local config") — never the value itself for a
+    secret; ``report()`` prints sources so a build log can say where each
+    value was found without ever being able to leak one.
+    """
+
+    key: str
+    value: str
+    source: str
+
+    @property
+    def secret(self) -> bool:
+        return self.key in SECRET_KEYS
+
+
+def resolve_credentials(
+    props: dict[str, str],
+    environ: dict[str, str] | None = None,
+    local_path: Path | None = None,
+) -> tuple[dict[str, Credential], list[Problem], list[str]]:
+    """Resolve the four signing values through the documented precedence.
+
+    Returns (credentials, problems, notes). A key that resolves nowhere is
+    simply absent from the dict — `check_properties` turns that into the
+    existing INCOMPLETE problem, so "unset everywhere" reads the same as it
+    always has. Problems raised here are the new failure modes: a ${VAR}
+    placeholder whose variable is unset, and a group/world-readable local
+    config file.
+    """
+    env = os.environ if environ is None else environ
+    local_file = local_config_path(env) if local_path is None else local_path
+
+    local_props: dict[str, str] = {}
+    problems: list[Problem] = []
+    notes: list[str] = []
+
+    if local_file.is_file():
+        # 0600 or refuse: this file may hold passwords, and unlike the env it
+        # persists. A lax mode is an error, not a note — silently accepting it
+        # would make the "secure local configuration" promise decorative.
+        try:
+            mode = local_file.stat().st_mode & 0o777
+        except OSError:
+            mode = 0
+        if mode & 0o077:
+            problems.append(
+                Problem(
+                    LOCAL_CONFIG_MODE,
+                    f"{local_file} is readable by group/other (mode "
+                    f"{mode:03o}). Run: chmod 600 {local_file}",
+                )
+            )
+        else:
+            local_props = read_properties(local_file)
+
+    creds: dict[str, Credential] = {}
+    for key in REQUIRED_KEYS:
+        raw = props.get(key, "").strip()
+        placeholder = PLACEHOLDER_RE.match(raw) if raw else None
+        env_var = ENV_FOR_KEY[key]
+
+        if placeholder:
+            var = placeholder.group(1)
+            value = env.get(var, "")
+            if value:
+                creds[key] = Credential(key, value, f"${var} (via placeholder)")
+            else:
+                problems.append(
+                    Problem(
+                        ENV_MISSING,
+                        f"{key} is set to ${{{var}}} in {KEYSTORE_PROPERTIES} "
+                        f"but ${var} is not set in the environment",
+                    )
+                )
+            continue
+
+        if env.get(env_var, ""):
+            creds[key] = Credential(key, env[env_var], f"${env_var}")
+            continue
+
+        if raw:
+            creds[key] = Credential(key, raw, KEYSTORE_PROPERTIES)
+            if key in SECRET_KEYS:
+                notes.append(
+                    f"{key} is a literal in {KEYSTORE_PROPERTIES} — consider "
+                    f"${env_var} or {local_file} (chmod 600) instead"
+                )
+            continue
+
+        local_value = local_props.get(key, "").strip()
+        if local_value:
+            creds[key] = Credential(key, local_value, str(local_file))
+
+    # A storeFile that did NOT come from keystore.properties has no gen/android
+    # to be relative to — the env or the local file is machine-global, so a
+    # relative path there is ambiguous and refused rather than guessed at.
+    store = creds.get("storeFile")
+    if store is not None and store.source != KEYSTORE_PROPERTIES:
+        expanded = Path(store.value).expanduser()
+        if not expanded.is_absolute():
+            problems.append(
+                Problem(
+                    RELATIVE_STORE,
+                    f"storeFile '{store.value}' (from {store.source}) must be "
+                    f"an absolute path or start with ~/",
+                )
+            )
+
+    return creds, problems, notes
 
 
 # ----- keystore.properties --------------------------------------------------
@@ -279,13 +446,33 @@ def check_gradle(text: str) -> list[Problem]:
                 f"sign a release",
             )
         )
+
+    # The credential-precedence mirror: every name the Python resolver knows
+    # must appear verbatim in the gradle text, or the two have drifted and one
+    # side is resolving credentials the other cannot see.
+    mirrored = (*ENV_FOR_KEY.values(), LOCAL_CONFIG_NAME, "enigma-builder")
+    for name in mirrored:
+        if name not in text:
+            problems.append(
+                Problem(
+                    NO_GRADLE_CONFIG,
+                    f"app/build.gradle.kts never mentions '{name}' — the "
+                    f"credential resolution has drifted from signing.py's "
+                    f"(env vars, then {LOCAL_CONFIG_NAME}); regenerated by "
+                    f"`tauri android init`?",
+                )
+            )
     return problems
 
 
 # ----- the whole picture ----------------------------------------------------
 
 
-def inspect(android_gen: Path) -> SigningStatus:
+def inspect(
+    android_gen: Path,
+    environ: dict[str, str] | None = None,
+    local_path: Path | None = None,
+) -> SigningStatus:
     """What a release build under ``android_gen`` would do about signing."""
     android_gen = Path(android_gen)
     properties_file = android_gen / KEYSTORE_PROPERTIES
@@ -307,8 +494,17 @@ def inspect(android_gen: Path) -> SigningStatus:
     props: dict[str, str] = {}
     if properties_file.is_file():
         props = read_properties(properties_file)
-        problems += check_properties(props, android_gen)
+
+    creds, cred_problems, notes = resolve_credentials(props, environ, local_path)
+    problems += cred_problems
+
+    if creds or properties_file.is_file():
+        # Something resolved (env / local / file): validate the resolved set.
+        resolved = {key: cred.value for key, cred in creds.items()}
+        problems += check_properties(resolved, android_gen)
     else:
+        # Nothing anywhere — the classic first-run state, reported the way it
+        # always has been so existing docs and messages stay true.
         problems.append(
             Problem(
                 NO_PROPERTIES,
@@ -319,13 +515,22 @@ def inspect(android_gen: Path) -> SigningStatus:
             )
         )
 
-    raw_store = props.get("storeFile", "").strip()
+    store_cred = creds.get("storeFile")
+    store_file: Path | None = None
+    if store_cred is not None:
+        if store_cred.source == KEYSTORE_PROPERTIES:
+            store_file = resolve_store_file(store_cred.value, android_gen)
+        else:
+            store_file = Path(store_cred.value).expanduser()
+
     return SigningStatus(
         android_gen=android_gen,
         properties_file=properties_file,
         problems=tuple(problems),
-        store_file=resolve_store_file(raw_store, android_gen) if raw_store else None,
-        key_alias=props.get("keyAlias", "").strip(),
+        store_file=store_file,
+        key_alias=creds.get("keyAlias", Credential("keyAlias", "", "")).value,
+        sources=tuple((key, cred.source) for key, cred in creds.items()),
+        notes=tuple(notes),
     )
 
 
