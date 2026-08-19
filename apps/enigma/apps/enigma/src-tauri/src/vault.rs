@@ -448,7 +448,7 @@ fn panic_wipe(
     .ok_or_else(|| "no writable scratch location".to_string())?;
     *store = scratch_store;
 
-    // Everything Enigma owns: all profiles (protasius stores, vault.json headers,
+    // Everything Enigma26 owns: all profiles (protasius stores, vault.json headers,
     // maps/*.pmtiles, tor/ onion keystores) plus the pre-vault legacy plaintext.
     let _ = std::fs::remove_dir_all(base.join("profiles"));
     let _ = std::fs::remove_dir_all(base.join("kvstore"));

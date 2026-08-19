@@ -108,7 +108,7 @@ let sourceMaxZoom: number = policy.map.fallbackSourceMaxZoom;
 
 /** The protomaps flavor matching the app theme: a night basemap in dark mode.
  *  (The reference implementation in toto/locations swaps to CARTO dark raster
- *  tiles; Enigma renders vector tiles offline, so it swaps the theme flavor
+ *  tiles; Enigma26 renders vector tiles offline, so it swaps the theme flavor
  *  instead — same result, no tile server involved.) */
 const flavor = computed(() => (props.darkMode ? "dark" : "light"));
 

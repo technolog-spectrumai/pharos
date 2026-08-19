@@ -1,9 +1,9 @@
 """Headless product builds — the Builder half of the split, without a window.
 
 Consumes ONE saved product config and produces the app: materialises
-``build_config.custom.yaml``, applies the file's identity to tauri.conf.json
-for the duration of the build (snapshot/restore, same contract as the GUI),
-runs the repo's own build script, verifies Android signing through
+``build_config.custom.yaml``, applies the fixed identity plus product version
+to tauri.conf.json for the duration of the build (snapshot/restore, same
+contract as the GUI), runs the repo's own build script, verifies Android signing through
 signing_cli, and records ``build-info.json`` beside the artifacts.
 
 The product file is read-only input here: nothing in this module ever writes
@@ -84,8 +84,8 @@ def run(
     print(f"# config: {model.provenance()}")
     print(f"# wrote {written}")
 
-    # Identity applies for the build only — snapshot the whole file and put it
-    # back verbatim, exactly the GUI's contract. The Builder never commits.
+    # Fixed identity + product version apply for the build only — snapshot the
+    # whole file and put it back verbatim, exactly the GUI's contract.
     conf_snapshot = identity_mod.read_conf_text()
     identity_changed = identity_mod.write_identity(pending)
     if identity_changed:

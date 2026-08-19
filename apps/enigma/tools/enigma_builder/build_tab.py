@@ -473,7 +473,7 @@ class BuildTab(QWidget):
             widgets.hint(
                 "Launches the binary you just built, with the custom edition "
                 "and the profile below, streaming its output to the log. The "
-                "vault lives outside the build under the bundle identifier, so "
+                "vault lives outside the build under com.spectrumaipl.enigma26, so "
                 "a rebuild keeps the previous passphrase — reset the profile to "
                 "get a genuine first run.",
                 "gateHint",
@@ -519,7 +519,7 @@ class BuildTab(QWidget):
             widgets.hint(
                 "Removes the app installed system-wide from a built .deb/.rpm "
                 "— pkexec asks for your password, and the output lands in the "
-                "log below. App data under ~/.local/share/<identifier> is not "
+                "log below. App data under ~/.local/share/com.spectrumaipl.enigma26 is not "
                 "touched, so a reinstall finds the old vault again; use Reset "
                 "profile… to clear that.",
                 "gateHint",
@@ -893,7 +893,10 @@ class BuildTab(QWidget):
         # shows argv to every user on the machine).
         env = runenv.clean_env()
         env[signing.KEYSTORE_PASSWORD_ENV] = password
-        product = self.identity_tab.pending_identity().name or "Enigma"
+        product = (
+            self.identity_tab.pending_identity().name
+            or identity_mod.FIXED_APP_NAME
+        )
         self.log.clear()
         self._started_at = time.time()
         self._run_queue(
@@ -963,7 +966,7 @@ class BuildTab(QWidget):
     # ----- local app data -------------------------------------------------
 
     def _identifier(self) -> str:
-        """The identifier the built app will store its data under."""
+        """The fixed identifier the built app will store its data under."""
         return str(self.identity_tab.pending_identity().identifier or "")
 
     @property

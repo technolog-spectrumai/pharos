@@ -73,8 +73,8 @@ def test_identity_rides_the_product_file(tmp_path):
 
     other = ConfigModel()
     other.load_product(saved)
-    assert other.get("app.name") == "Acme Secure"
-    assert other.get("app.identifier") == "com.acme.secure"
+    assert other.get("app.name") == "Enigma26"
+    assert other.get("app.identifier") == "com.spectrumaipl.enigma26"
 
 
 def test_an_unreadable_product_config_is_a_loud_error(tmp_path):

@@ -20,7 +20,7 @@ function showFatal(label: string, detail: unknown): void {
         "white-space:pre-wrap;word-break:break-word;";
       const title = document.createElement("div");
       title.style.cssText = "color:#ff4455;font-weight:700;margin-bottom:10px;";
-      title.textContent = "Enigma hit an error while starting.";
+      title.textContent = "Enigma26 hit an error while starting.";
       el.appendChild(title);
       (document.body || document.documentElement).appendChild(el);
     }

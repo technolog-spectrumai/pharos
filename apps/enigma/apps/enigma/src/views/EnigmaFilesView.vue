@@ -14,7 +14,7 @@ const keyringAllowed = getBuildConfig().keyring_enabled;
 
 // P2P (direct peer transfer) vs Local (passphrase-protected files encrypted on
 // this device) vs Keys (the device-local key ring). There is no server-backed
-// tab: Enigma stores nothing off-device.
+// tab: Enigma26 stores nothing off-device.
 type FilesTab = "p2p" | "local" | "keys";
 const activeTab = ref<FilesTab>("p2p");
 </script>

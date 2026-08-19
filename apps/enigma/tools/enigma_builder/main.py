@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enigma Builder — pick features, generate the build config, build the app.
+"""Enigma26 Builder — pick features, generate the build config, build the app.
 
 From a checkout:
 
@@ -12,9 +12,10 @@ As a standalone binary (see package.sh), from anywhere:
     ./enigma-builder --repo ~/src/enigma   # or point it explicitly
     ./enigma-builder --check               # report what it resolved, then exit
 
-The tool writes exactly two files: apps/enigma/src-tauri/configs/
-build_config.custom.yaml (gitignored) and — only when you change the app
-identity — apps/enigma/src-tauri/tauri.conf.json. It never commits anything.
+The tool writes apps/enigma/src-tauri/configs/build_config.custom.yaml
+(gitignored) and, when version/target settings require it,
+apps/enigma/src-tauri/tauri.conf.json. App name and identifier are fixed to
+Enigma26 / com.spectrumaipl.enigma26. It never commits anything.
 """
 
 from __future__ import annotations
@@ -36,13 +37,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--repo",
         metavar="PATH",
         default=argparse.SUPPRESS,
-        help="the Enigma checkout to use, overriding both the remembered "
+        help="the Enigma26 checkout to use, overriding both the remembered "
         f"choice and ${paths.ROOT_ENV_VAR}",
     )
 
     parser = argparse.ArgumentParser(
         prog="enigma-builder",
-        description="Configure and build Enigma.",
+        description="Configure and build Enigma26.",
         parents=[common],
     )
     parser.add_argument(
@@ -243,7 +244,7 @@ def run_signing(args: argparse.Namespace, override: Path | None) -> int:
     if args.action == "create":
         import identity as identity_mod
 
-        product = identity_mod.disk_identity().name or "Enigma"
+        product = identity_mod.disk_identity().name or identity_mod.FIXED_APP_NAME
         return signing_cli.create(
             Path(args.keystore).expanduser() if args.keystore else None,
             args.alias,

@@ -22,6 +22,7 @@ import yaml
 from PyQt6.QtCore import QObject, pyqtSignal
 
 import paths
+import identity as identity_mod
 import yaml_gen
 from validation import (
     FEATURE_GATES,
@@ -97,6 +98,7 @@ class ConfigModel(QObject):
             if stored
             else copy.deepcopy(self.canonical)
         )
+        self._apply_identity_lock()
         self.changed.emit()
 
     @property
@@ -137,6 +139,10 @@ class ConfigModel(QObject):
                 self.changed.emit()
 
     def set(self, path: str, value: Any) -> None:
+        if path == "app.name":
+            value = identity_mod.FIXED_APP_NAME
+        elif path == "app.identifier":
+            value = identity_mod.FIXED_APP_IDENTIFIER
         if get_path(self._cfg, path) == value:
             return
         set_path(self._cfg, path, value)
@@ -190,7 +196,12 @@ class ConfigModel(QObject):
     # ----- output ---------------------------------------------------------
 
     def validate(self, tauri_conf: dict[str, Any] | None = None) -> list[Issue]:
-        return validate_config(self._cfg, tauri_conf, self.canonical)
+        return validate_config(
+            self._cfg,
+            tauri_conf,
+            self.canonical,
+            android_application_id=identity_mod.android_application_id(),
+        )
 
     def render(self) -> str:
         return yaml_gen.render(self._cfg, self.provenance())
@@ -222,6 +233,12 @@ class ConfigModel(QObject):
         three presets, and a fourth ad-hoc feature set is not a product. The
         same refusal guards load_product and (through it) every build.
         """
+        blocking = [issue for issue in self.validate() if issue.is_error]
+        if blocking:
+            raise ValueError(
+                "this product config is not valid:\n"
+                + "\n".join(f"  - {issue}" for issue in blocking[:8])
+            )
         if self.detect_preset() is None:
             raise ValueError(
                 "this feature set matches no edition — a product config must "
@@ -255,6 +272,7 @@ class ConfigModel(QObject):
             for key in self._cfg:
                 if key in merged:
                     self._cfg[key] = merged[key]
+            self._apply_identity_lock()
         self.changed.emit()
         if self.detect_preset() is None:
             raise ValueError(
@@ -267,3 +285,8 @@ class ConfigModel(QObject):
         if isinstance(branding, dict) and branding.get("icon"):
             return str(branding["icon"])
         return None
+
+    def _apply_identity_lock(self) -> None:
+        """Keep product configs on the one real app identity."""
+        set_path(self._cfg, "app.name", identity_mod.FIXED_APP_NAME)
+        set_path(self._cfg, "app.identifier", identity_mod.FIXED_APP_IDENTIFIER)

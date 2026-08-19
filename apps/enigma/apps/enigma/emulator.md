@@ -66,7 +66,7 @@ looks like:
 ```
 Performing Streamed Install
 Success
-Starting: Intent { cmp=com.spectrumaipl.enigma/.MainActivity }
+Starting: Intent { cmp=com.spectrumaipl.enigma26/.MainActivity }
 ```
 
 Frontend edits hot-reload over the dev server (`[vite] hmr update ...`); changes
@@ -93,8 +93,8 @@ adb shell wm size        # Physical size: 1080x2424
 adb shell wm density     # Physical density: 420
 
 # App package / relaunch
-adb shell pm list packages | grep enigma   # com.spectrumaipl.enigma
-adb shell am start -n com.spectrumaipl.enigma/.MainActivity
+adb shell pm list packages | grep enigma   # com.spectrumaipl.enigma26
+adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
 ```
 
 ## 4. Shut down

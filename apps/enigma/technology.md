@@ -1,6 +1,6 @@
-# Enigma — Technology Overview
+# Enigma26 — Technology Overview
 
-A technical deep-dive into how Enigma works: its design, stack, dependencies,
+A technical deep-dive into how Enigma26 works: its design, stack, dependencies,
 communication flow, cryptography, privacy posture, and known weaknesses — plus the
 project's conventions, config sources of truth, and rework history. For build and
 run instructions see [build.md](build.md).
@@ -25,13 +25,13 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 
 ## 1. Design
 
-Enigma is a **serverless, peer-to-peer, end-to-end-encrypted chat**, packaged as a
+Enigma26 is a **serverless, peer-to-peer, end-to-end-encrypted chat**, packaged as a
 [Tauri 2](https://tauri.app) desktop/mobile app (Vue 3 frontend + Rust backend).
 
 Design principles:
 
 - **No app server.** There is no relay WebSocket, no REST gateway, no login, no
-  server-side directory. Enigma speaks to no application server at all — not one of
+  server-side directory. Enigma26 speaks to no application server at all — not one of
   ours, and since the 2026-08 removal of Enigma Cloud ([§16](#16-history-the-serverless-rework))
   not the user's own either. The app makes no outbound HTTP request of any kind.
   (This is *not* the same as "no infrastructure" — see
@@ -121,7 +121,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
-identifier `com.spectrumaipl.enigma`. The tauri.conf `targets: "all"` governs the
+identifier `com.spectrumaipl.enigma26`. The tauri.conf `targets: "all"` governs the
 desktop bundle formats (Linux `.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
 by the separate `scripts/build_android.sh` path ([build.md](build.md)).
 
@@ -392,7 +392,7 @@ handshake. Cancelling an offer drops its authorization with it.
 ## 6. Is it truly P2P? (intermittent nodes)
 
 **Short answer: message *content* is genuinely peer-to-peer and end-to-end encrypted,
-and Enigma runs no server of its own — but the network layer is not
+and Enigma26 runs no server of its own — but the network layer is not
 infrastructure-free.**
 
 To make QR pairing and ticketless reconnect work behind NATs, iroh is configured to
@@ -1035,9 +1035,9 @@ Argon2id costs for new vaults, feature defaults for new profiles, defaults **and
 clamp bounds** of the kv-backed settings, and network constants (frame cap, onion
 port, timeouts). The frontend fetches the relevant subset once at boot
 via `app_get_build_config` (rakotis `initBuildConfig`/`getBuildConfig`; `main.ts`
-seeds the browser-mode fallback from `config/app.ts`). `tauri.conf.json` stays
-authoritative for productName/identifier/version — `build.rs` asserts the YAML
-mirrors it.
+seeds the browser-mode fallback from `config/app.ts`). App name and identifier
+are fixed to `Enigma26` / `com.spectrumaipl.enigma26`; `build.rs` rejects drift
+and still asserts the YAML mirrors `tauri.conf.json`.
 
 **Frontend app config:** [`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts)
 — brand identity, UI policy, dev port. Import `brand` / `policy` / `dev` from here
@@ -1045,9 +1045,9 @@ instead of hardcoding.
 
 | Value | Canonical home | Notes / mirrors |
 | --- | --- | --- |
-| Display name `Enigma` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` (kept capitalised to match) |
+| Display name `Enigma26` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
 | Copyright / org / legal URL | `config/app.ts` `brand` | Was hardcoded in `App.vue` |
-| Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` (`com.spectrumaipl.enigma`) |
+| Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
 | Hosted-relay allow flag | `build_config.yaml` `p2p.allow_hosted_relays` | Compile-time kill switch: flips iroh to `presets::Minimal` + `RelayMode::Disabled` and forces DHT discovery off, leaving direct QUIC and Tor. (`cloud.allow_connections` sat beside it until 2026-08 and no longer exists — [§16](#16-history-the-serverless-rework)) |

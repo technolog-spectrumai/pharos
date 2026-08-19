@@ -17,13 +17,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 app:
-  # Each edition is its OWN installable app. `tauri.<edition>.conf.json` overlays
-  # productName / mainBinaryName / identifier onto tauri.conf.json (pass it with
-  # --config; build.rs applies the same overlay before asserting equality here).
-  # The distinct identifier is what gives the edition its own data directory, so
-  # a release install and a test install never share a vault. See build.md.
-  name: Enigma Standard
-  identifier: com.spectrumaipl.enigma.standard
+  # App identity is fixed across editions. Editions change feature gates only;
+  # Android installs the fixed Gradle applicationId com.spectrumaipl.enigma26.
+  name: Enigma26
+  identifier: com.spectrumaipl.enigma26
   version: 0.1.3
 
 

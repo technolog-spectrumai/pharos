@@ -21,7 +21,7 @@ import { APP_TABS, firstVisiblePath, isTabVisible, visibleTabs, type AppTabId } 
  *  returns the path being denied, because that tab is by definition not visible. */
 const tabGuard = (id: AppTabId) => () => isTabVisible(id) || firstVisiblePath();
 
-// Enigma is a serverless P2P chat: one chat surface, P2P file transfer,
+// Enigma26 is a serverless P2P chat: one chat surface, P2P file transfer,
 // meeting scheduling (calendar), contacts (peer discovery), and settings.
 // There is no login — identity is the local offline profile, pairing is a
 // QR-shared ticket.

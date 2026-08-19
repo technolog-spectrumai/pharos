@@ -194,10 +194,10 @@ val releaseSigningProblem: String? = run {
 
 android {
     compileSdk = 36
-    namespace = "com.spectrumaipl.enigma"
+    namespace = "com.spectrumaipl.enigma26"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.spectrumaipl.enigma"
+        applicationId = "com.spectrumaipl.enigma26"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

@@ -20,11 +20,11 @@ class _Result:
 @pytest.mark.parametrize(
     "product,expected",
     [
-        ("Enigma", "enigma"),
+        ("Enigma26", "enigma26"),
         ("My App", "my-app"),
         ("MyApp", "my-app"),
         ("my.app_2", "my-app-2"),
-        ("  Enigma  ", "enigma"),
+        ("  Enigma26  ", "enigma26"),
     ],
 )
 def test_kebab_matches_tauri_package_naming(product, expected):
@@ -32,8 +32,8 @@ def test_kebab_matches_tauri_package_naming(product, expected):
 
 
 def test_candidates_are_unique_and_lead_with_the_kebab_name():
-    names = uninstall.candidates("Enigma")
-    assert names[0] == "enigma"
+    names = uninstall.candidates("Enigma26")
+    assert names[0] == "enigma26"
     assert len(names) == len(set(names))
 
 
@@ -57,8 +57,8 @@ def test_an_installed_deb_is_found(monkeypatch):
         "run",
         lambda *a, **k: _Result(0, "installed\t1.2.3"),
     )
-    assert uninstall.installed_package("Enigma") == uninstall.Installed(
-        "deb", "enigma", "1.2.3"
+    assert uninstall.installed_package("Enigma26") == uninstall.Installed(
+        "deb", "enigma26", "1.2.3"
     )
 
 
@@ -72,7 +72,7 @@ def test_a_removed_deb_with_leftover_config_does_not_count(monkeypatch):
         "run",
         lambda *a, **k: _Result(0, "config-files\t1.2.3"),
     )
-    assert uninstall.installed_package("Enigma") is None
+    assert uninstall.installed_package("Enigma26") is None
 
 
 def test_an_installed_rpm_is_found(monkeypatch):
@@ -82,8 +82,8 @@ def test_an_installed_rpm_is_found(monkeypatch):
     monkeypatch.setattr(
         uninstall.subprocess, "run", lambda *a, **k: _Result(0, "1.2.3-1")
     )
-    assert uninstall.installed_package("Enigma") == uninstall.Installed(
-        "rpm", "enigma", "1.2.3-1"
+    assert uninstall.installed_package("Enigma26") == uninstall.Installed(
+        "rpm", "enigma26", "1.2.3-1"
     )
 
 
@@ -96,7 +96,7 @@ def test_nothing_installed_means_none(monkeypatch):
     monkeypatch.setattr(
         uninstall.subprocess, "run", lambda *a, **k: _Result(1, "")
     )
-    assert uninstall.installed_package("Enigma") is None
+    assert uninstall.installed_package("Enigma26") is None
 
 
 # ----- the removal command --------------------------------------------------

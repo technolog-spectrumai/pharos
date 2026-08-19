@@ -19,10 +19,26 @@ from validation import (
     validate_config,
     warnings,
 )
+from identity import FIXED_APP_IDENTIFIER, FIXED_APP_NAME
 
 
-def paths_with_errors(cfg, tauri_conf=None, canonical=None) -> set[str]:
-    return {i.path for i in errors(validate_config(cfg, tauri_conf, canonical))}
+def paths_with_errors(
+    cfg,
+    tauri_conf=None,
+    canonical=None,
+    android_application_id=None,
+) -> set[str]:
+    return {
+        i.path
+        for i in errors(
+            validate_config(
+                cfg,
+                tauri_conf,
+                canonical,
+                android_application_id=android_application_id,
+            )
+        )
+    }
 
 
 def test_canonical_config_is_valid(cfg):
@@ -41,11 +57,18 @@ def test_identity_equality_against_tauri_conf(cfg):
     assert "app.version" in paths_with_errors(cfg, conf)
 
 
+def test_app_name_is_fixed(cfg):
+    cfg["app"]["name"] = "Something Else"
+    issue = issues_for(validate_config(cfg), "app.name")[0]
+    assert FIXED_APP_NAME in issue.message
+
+
 @pytest.mark.parametrize(
     "identifier,valid",
     [
-        ("com.example.app", True),
-        ("Com.Example-App9", True),
+        (FIXED_APP_IDENTIFIER, True),
+        ("com.example.app", False),
+        ("Com.Example-App9", False),
         ("", False),
         ("com.example app", False),
         ("com.example_app", False),
@@ -55,6 +78,14 @@ def test_identity_equality_against_tauri_conf(cfg):
 def test_identifier_charset(cfg, identifier, valid):
     cfg["app"]["identifier"] = identifier
     assert ("app.identifier" in paths_with_errors(cfg)) is not valid
+
+
+def test_android_application_id_must_match_fixed_identifier(cfg):
+    found = paths_with_errors(
+        cfg,
+        android_application_id="com.spectrumaipl.enigma",
+    )
+    assert "app.identifier" in found
 
 
 @pytest.mark.parametrize("field", ["name", "version"])

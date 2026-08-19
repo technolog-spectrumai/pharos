@@ -4,7 +4,7 @@
 #   bash tools/enigma_builder/package.sh
 #
 # Produces dist/enigma-builder — one file, no Python and no venv needed on the
-# machine that runs it. Copy it anywhere; on first launch it asks which Enigma
+# machine that runs it. Copy it anywhere; on first launch it asks which Enigma26
 # checkout to drive and remembers the answer.
 #
 # The binary is built for the platform it is built on: run this on Linux for a

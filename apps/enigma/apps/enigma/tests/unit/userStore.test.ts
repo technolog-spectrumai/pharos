@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 
-// The local identity store. Enigma is serverless — there is no login and no
+// The local identity store. Enigma26 is serverless — there is no login and no
 // /me — so "who you are" is entirely a locally stored offline profile, and this
 // store is what the chat display name and avatar are read from.
 //

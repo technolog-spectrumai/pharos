@@ -1,7 +1,7 @@
 [package]
 name = "enigma"
 version = "0.1.3"
-description = "Enigma — serverless, end-to-end-encrypted (MLS) peer-to-peer chat (Tauri shell)"
+description = "Enigma26 — serverless, end-to-end-encrypted (MLS) peer-to-peer chat (Tauri shell)"
 authors = ["SpectrumAI"]
 edition = "2021"
 
@@ -110,4 +110,3 @@ rusqlite = { version = "0.39", features = ["bundled"] }
 # instead of linking it into the executable slashes peak linker memory and binary
 # size; full gdb debugging still works (it reads the .o files).
 split-debuginfo = "unpacked"
-

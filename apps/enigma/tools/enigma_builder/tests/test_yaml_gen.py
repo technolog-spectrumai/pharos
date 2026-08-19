@@ -22,7 +22,7 @@ def test_round_trips_the_canonical_config(cfg):
 
 def test_round_trips_a_mutated_config(cfg):
     cfg["maps"]["enabled"] = False
-    cfg["app"]["name"] = "Enigma Field"
+    cfg["app"]["version"] = "9.9.9"
     cfg["settings"]["idle_lock_mins"] = {"default": 0, "min": 0, "max": 1}
     cfg["network"]["max_frame_bytes"] = 32 * 1024 * 1024
     assert yaml.safe_load(render(cfg)) == cfg
@@ -59,16 +59,14 @@ def test_header_records_provenance(cfg):
 def test_ambiguous_strings_are_quoted(cfg):
     """A version like 1.0 is a float in bare YAML — it has to survive as text."""
     cfg["app"]["version"] = "1.0"
-    cfg["app"]["name"] = "Enigma: Field Edition"
     loaded = yaml.safe_load(render(cfg))
     assert loaded["app"]["version"] == "1.0"
-    assert loaded["app"]["name"] == "Enigma: Field Edition"
 
 
 def test_dollar_in_a_value_is_not_re_substituted(cfg):
     """Values are inserted once; a literal $ must not be read as a placeholder."""
-    cfg["app"]["name"] = "Enigma $app_version"
-    assert yaml.safe_load(render(cfg))["app"]["name"] == "Enigma $app_version"
+    cfg["app"]["version"] = "1.0-$channel"
+    assert yaml.safe_load(render(cfg))["app"]["version"] == "1.0-$channel"
 
 
 def test_missing_field_raises_rather_than_emitting_a_partial_file(cfg):

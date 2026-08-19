@@ -1,4 +1,4 @@
-# Enigma Builder
+# Enigma26 Builder
 
 A PyQt6 desktop tool for configuring and building Enigma: pick the features to
 compile in, review the generated build config, choose Linux desktop or Android,
@@ -53,8 +53,9 @@ enigma-builder build product.yaml --platform android --release
 
 There is deliberately **no custom feature set**: the Features tab is an
 edition picker (Basic / Standard / Professional) and a product config whose
-gates match no edition is refused at save, at load, and at build. Identity,
-branding and the Expert tuning clamps are what vary per product.
+gates match no edition is refused at save, at load, and at build. App identity
+is fixed to `Enigma26` / `com.spectrumaipl.enigma26`; branding, version and the
+Expert tuning clamps are what vary per product.
 
 A product config is the build-config YAML itself (same schema build.rs
 compiles, rendered deterministically so diffs stay meaningful) plus an
@@ -91,13 +92,13 @@ Three things, and nothing else:
 | Path | When |
 |---|---|
 | `apps/enigma/src-tauri/configs/build_config.custom.yaml` | every build (gitignored) |
-| `apps/enigma/src-tauri/tauri.conf.json` | if you change the app identity or narrow the target distribution |
+| `apps/enigma/src-tauri/tauri.conf.json` | if you change the version or narrow the target distribution |
 | `apps/enigma/src-tauri/icons/**` and the Android launcher | only if you change the app icon |
 | your chosen **output folder** | after a successful build, if collecting is on |
 
-**It never runs git.** If a build changes the identity, the Builder says so
+**It never runs git.** If a build changes `tauri.conf.json`, the Builder says so
 first, and restores the committed values afterwards unless you turn that off on
-the Identity tab.
+the Identity tab. The app name and identifier themselves are not configurable.
 
 ## Why every build is `ENIGMA_EDITION=custom`
 
@@ -107,29 +108,30 @@ unset picks `build_config.yaml`, and `basic` / `standard` / `professional` / `cu
 into the `custom` file and builds that — even when the form matches a preset
 exactly.
 
-The reason is the identity assert. `build.rs` requires
+The reason is the config boundary. `build.rs` requires
 `app.{name,identifier,version}` to equal `tauri.conf.json`'s
-`productName` / `identifier` / `version`. If the Builder edited identity *and*
-built preset editions, one identity change would invalidate all four checked-in
-configs at once. Writing only `custom` means the product-line files stay exactly
-as `pland.md` defines them, and at most one tracked file is ever touched.
+`productName` / `identifier` / `version`, and additionally rejects any app name
+or identifier other than `Enigma26` / `com.spectrumaipl.enigma26`. Writing only
+`custom` means the product-line files stay exactly as `pland.md` defines them,
+and at most one tracked file is ever touched.
 
 Presets are therefore value *sources* for the form, not build targets. Their
 values are read from the checked-in YAML at runtime, never hardcoded — a
 comment drifting from a value has happened before in the edition files, and
 the values are what compiles.
 
-One consequence worth knowing: after an automatic identity restore, a *manual*
-`ENIGMA_EDITION=custom cargo build` fails the equality assert until the Builder
-regenerates. The custom YAML is builder-owned output; regenerate it from the GUI.
+One consequence worth knowing: after an automatic `tauri.conf.json` restore, a
+manual `ENIGMA_EDITION=custom cargo build` can fail the equality assert until
+the Builder regenerates. The custom YAML is builder-owned output; regenerate it
+from the GUI.
 
 ## Tabs
 
 - **Features** — the edition picker: Basic / Standard / Professional, with
   each edition's real in/out list derived from its checked-in YAML, and a live
   preview of the file that will be written. No per-gate editing, no Custom.
-- **Identity** — product name, bundle identifier, version and the app icon,
-  plus the current state of `tauri.conf.json` and a restore button if a
+- **Identity** — fixed app name, fixed Android package id, version and the app
+  icon, plus the current state of `tauri.conf.json` and a restore button if a
   previous run left it modified.
 - **Expert** — settings clamps and network tuning behind a toggle, with the
   crypto declarations shown read-only. `max_frame_bytes` is flagged: peers in
@@ -193,7 +195,7 @@ Two choices, both ticked by default: **Ubuntu / Debian (.deb)** and
 tauri.conf.json for the duration of the build, because both `build_desktop.sh`
 and `deploy/build.sh` call a bare `npx tauri build` — editing the config reaches
 every path without changing either script. The file is restored afterwards, the
-same as the app identity.
+same as version changes.
 
 **This picks a package format, not a build environment.** Tauri packages what
 the host just compiled, so an `.rpm` produced on Ubuntu links against Ubuntu's
@@ -237,8 +239,8 @@ Linux only. Installing a built `.deb`/`.rpm` happens outside the Builder, but
 the **Installed package** card on the Build tab knows whether one is on this
 machine and offers the one button to remove it. Detection is read-only
 (`dpkg-query` / `rpm -q`) and tries the package names Tauri could have derived
-from the product name — `productName` kebab-cased, lowercased, verbatim, and
-the `enigma` slug — so a renamed custom build is still found. The removal runs
+from the fixed product name — `productName` kebab-cased, lowercased, verbatim,
+and the `enigma` slug. The removal runs
 `pkexec apt-get remove -y` (or `dnf remove -y`; the low-level `dpkg -r` /
 `rpm -e` only as fallback), so polkit asks for the password and the Builder
 never sees it; output streams to the log and Cancel works as usual.
@@ -249,7 +251,7 @@ clearing that remains **Reset profile…**'s job.
 
 ## Why a new build knows your old passphrase
 
-It is not the build. Enigma stores everything under Tauri's `app_data_dir()` —
+It is not the build. Enigma26 stores everything under Tauri's `app_data_dir()` —
 on Linux `~/.local/share/<identifier>/profiles/<profile>/` — keyed on the bundle
 identifier, not on anything inside the binary. A new build looks in the same
 place, finds `vault.json`, and protasius reports the vault as already set up, so

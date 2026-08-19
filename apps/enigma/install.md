@@ -1,6 +1,6 @@
-# Enigma Installation
+# Enigma26 Installation
 
-This guide is for installing Enigma artifacts that were produced by the release
+This guide is for installing Enigma26 artifacts that were produced by the release
 process in [release.md](release.md). For building from source, see
 [build.md](build.md).
 
@@ -62,7 +62,7 @@ Steps:
 2. Open it from Files, Downloads, a browser, or the app that received it.
 3. If Android asks, allow that source to install unknown apps.
 4. Tap Install.
-5. Open Enigma and grant camera or microphone permission only when using QR
+5. Open Enigma26 and grant camera or microphone permission only when using QR
    scanning or calls.
 
 On Android 8.0 and newer, the unknown-app permission is per source. Allowing a
@@ -85,24 +85,24 @@ Useful inspection commands:
 
 ```bash
 adb shell pm list packages | grep enigma
-adb shell am start -n com.spectrumaipl.enigma/.MainActivity
+adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
 adb logcat -s RustStdoutStderr enigma
 ```
 
-Uninstalling removes Enigma's local vault, room state, and device-local data:
+Uninstalling removes Enigma26's local vault, room state, and device-local data:
 
 ```bash
-adb uninstall com.spectrumaipl.enigma
+adb uninstall com.spectrumaipl.enigma26
 ```
 
-Only uninstall as a last resort on a real user's device. Enigma is serverless, so
+Only uninstall as a last resort on a real user's device. Enigma26 is serverless, so
 there is no central account that can restore local encrypted state.
 
 ## Why An APK May Fail To Install
 
 ### The APK Is Unsigned
 
-Android requires installable APKs to be signed. Enigma's release build normally
+Android requires installable APKs to be signed. Enigma26's release build normally
 refuses to produce an unsigned release. An artifact built with
 `--allow-unsigned-release` is for packaging inspection only and should not be
 shared.
@@ -132,7 +132,8 @@ older release signed by the original keystore.
 What to do:
 
 - install an APK signed with the same release key as the existing app;
-- use a different package id for side-by-side test builds;
+- use a separate intentionally configured package id only for throwaway test
+  builds outside the fixed release path;
 - uninstall only if losing local data is acceptable.
 
 ### The APK Version Is Older Than The Installed Version
@@ -159,7 +160,7 @@ Common adb symptom:
 INSTALL_FAILED_NO_MATCHING_ABIS
 ```
 
-The default Enigma Android build targets `aarch64`, which is right for most
+The default Enigma26 Android build targets `aarch64`, which is right for most
 modern phones but wrong for an `x86_64` emulator and wrong for old 32-bit
 devices.
 
@@ -175,7 +176,7 @@ For an emulator, include `x86_64`.
 
 ### The Device Is Too Old
 
-Enigma's generated Android project currently declares:
+Enigma26's generated Android project currently declares:
 
 ```text
 minSdk = 24
@@ -239,7 +240,7 @@ What to do:
 
 ### The App Installs But Does Not Work Correctly
 
-Installation success only proves the package was accepted by Android. If Enigma
+Installation success only proves the package was accepted by Android. If Enigma26
 opens blank, crashes, cannot scan QR codes, or cannot join calls:
 
 - update or enable Android System WebView / Chrome;
@@ -259,13 +260,14 @@ enigma-builder signing android verify <apk>
 
 The report should show:
 
-- package id, currently `com.spectrumaipl.enigma` in the generated Gradle file;
+- package id, fixed to `com.spectrumaipl.enigma26` in the generated Gradle file;
 - visible version and Android `versionCode`;
 - signer classification: signed release, debug, or unsigned;
 - SHA-256 signing certificate fingerprint.
 
-Edition names and output filenames are not enough to prove Android side-by-side
-install behavior. Android uses the APK's `applicationId` plus the signing key.
+Edition names and output filenames are not separate Android identities. Android
+uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the
+release `applicationId` to `com.spectrumaipl.enigma26`.
 
 ## Official Android References
 

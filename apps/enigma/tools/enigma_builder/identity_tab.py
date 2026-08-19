@@ -1,9 +1,8 @@
-"""Identity tab: the app name, bundle identifier and version.
+"""Identity tab: the fixed app name, Android package id and version.
 
-These three live in two files at once — ``tauri.conf.json`` (authoritative for
-the native bundle) and the build config's ``app:`` section — and build.rs
-asserts they are equal. The form edits both together, and only writes
-tauri.conf.json at build time, so trying out a name never dirties the tree.
+These fields live in two files at once: ``tauri.conf.json`` and the build
+config's ``app:`` section. Name and identifier are fixed to the product's real
+Android identity; only the version is editable per release.
 """
 
 from __future__ import annotations
@@ -60,9 +59,9 @@ class IdentityTab(QWidget):
         frame, form = widgets.form_card()
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Enigma")
+        self.name_edit.setPlaceholderText(identity_mod.FIXED_APP_NAME)
         self.identifier_edit = QLineEdit()
-        self.identifier_edit.setPlaceholderText("com.example.enigma")
+        self.identifier_edit.setPlaceholderText(identity_mod.FIXED_APP_IDENTIFIER)
         self.version_edit = QLineEdit()
         self.version_edit.setPlaceholderText("0.1.0")
 
@@ -73,16 +72,14 @@ class IdentityTab(QWidget):
         ):
             edit.textChanged.connect(lambda text, f=field: self._set(f, text))
 
-        form.addRow("Product name", self.name_edit)
-        form.addRow("", widgets.hint("Window title and bundle name.", "gateHint"))
-        form.addRow("Identifier", self.identifier_edit)
+        form.addRow("App name", self.name_edit)
+        self.name_hint = widgets.hint("", "gateHint")
+        form.addRow("", self.name_hint)
+        form.addRow("Android package id", self.identifier_edit)
+        self.identifier_hint = widgets.hint("", "gateHint")
         form.addRow(
             "",
-            widgets.hint(
-                "Reverse-DNS bundle id, [a-zA-Z0-9.-] only. Two builds sharing "
-                "an identifier cannot be installed side by side.",
-                "gateHint",
-            ),
+            self.identifier_hint,
         )
         form.addRow("Version", self.version_edit)
 
@@ -187,9 +184,6 @@ class IdentityTab(QWidget):
             )
         )
 
-        self.android_warning = widgets.hint("", "gateHint")
-        self.android_warning.hide()
-        layout.addWidget(self.android_warning)
         return frame
 
     # ----- behavior -------------------------------------------------------
@@ -304,8 +298,32 @@ class IdentityTab(QWidget):
                     edit.setText(value)
         finally:
             self._syncing = False
+        self._refresh_identity_lock()
         self._refresh_status()
         self._refresh_icon()
+
+    def _refresh_identity_lock(self) -> None:
+        application_id = identity_mod.android_application_id()
+        self.name_edit.setReadOnly(True)
+        self.name_edit.setClearButtonEnabled(False)
+        self.identifier_edit.setReadOnly(True)
+        self.identifier_edit.setClearButtonEnabled(False)
+        self.name_hint.setText(
+            f"Fixed to {identity_mod.FIXED_APP_NAME}. Product configs cannot "
+            "rename the app."
+        )
+        if application_id and application_id != identity_mod.FIXED_APP_IDENTIFIER:
+            self.identifier_hint.setText(
+                "Android Gradle currently installs "
+                f"{application_id}; this must be corrected to the fixed id "
+                f"{identity_mod.FIXED_APP_IDENTIFIER} before release."
+            )
+        else:
+            self.identifier_hint.setText(
+                f"Fixed to Android package id "
+                f"{identity_mod.FIXED_APP_IDENTIFIER}. Product configs "
+                "cannot change it."
+            )
 
     def _refresh_status(self) -> None:
         on_disk = identity_mod.disk_identity()
@@ -341,18 +359,6 @@ class IdentityTab(QWidget):
         # Re-polish so the objectName swap actually repaints.
         self.state_badge.style().unpolish(self.state_badge)
         self.state_badge.style().polish(self.state_badge)
-
-        changed_identifier = pending.identifier != self.repo_identity.identifier
-        if changed_identifier and paths.ANDROID_GEN.is_dir():
-            self.android_warning.setText(
-                "⚠ src-tauri/gen/android already exists and has the old "
-                "identifier baked into its Gradle project. Delete that "
-                "directory before an Android build if you need the new one "
-                "(the Builder will not delete it for you)."
-            )
-            self.android_warning.show()
-        else:
-            self.android_warning.hide()
 
     def set_issues(self, issues: list[Issue]) -> None:
         relevant = issues_for(issues, "app")

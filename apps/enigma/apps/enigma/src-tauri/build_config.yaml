@@ -1,4 +1,4 @@
-# Enigma build configuration — baked in at COMPILE TIME by src-tauri/build.rs.
+# Enigma26 build configuration — baked in at COMPILE TIME by src-tauri/build.rs.
 # build.rs validates this file, generates Rust consts from it (enigma_lib's
 # `build_config` module), and FAILS THE BUILD on any invalid or missing value.
 # The shipped binary never re-reads this file. Defaults below match current
@@ -9,7 +9,7 @@ app:
   # Must MATCH tauri.conf.json (productName / identifier / version), which stays
   # authoritative for the native bundle — build.rs asserts equality.
   name: Enigma26
-  identifier: com.spectrumaipl.enigma
+  identifier: com.spectrumaipl.enigma26
   version: 0.1.3
 
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Enigma Professional",
-  "mainBinaryName": "enigma-professional",
-  "identifier": "com.spectrumaipl.enigma.professional"
+  "productName": "Enigma26",
+  "mainBinaryName": "enigma26",
+  "identifier": "com.spectrumaipl.enigma26"
 }

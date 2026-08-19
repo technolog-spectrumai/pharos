@@ -1,4 +1,4 @@
-# Enigma
+# Enigma26
 
 A **serverless, peer-to-peer, end-to-end-encrypted chat** — a Tauri 2 + Vue 3
 desktop/mobile app. There is no app server: peers meet by **sharing a QR code**
@@ -45,7 +45,7 @@ product line and how an edition is built).
 
 | Package | What it is |
 |---------|-----------|
-| **[apps/enigma](apps/enigma)** | The app — P2P MLS chat, QR pairing, calls, files, contacts, calendar. |
+| **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar. |
 | **[packages/rakotis](packages/rakotis)** | Shared primitives (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
 | **Rotor** ([cryptorotor/](cryptorotor)) | The crypto layer. **Vendored in-repo** as its own nested cargo workspace: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the sibling *toto* project. `src-tauri` consumes everything via path dependencies (no GitLab access needed to build). **All MLS crypto stays here.** |
 | **[protasius/](protasius)** | The per-profile **encrypted-at-rest store** (fjall + gervasius): all app state persists as sealed values behind the launch passphrase gate. |
@@ -71,7 +71,7 @@ enigma/
 ├── packages/
 │   └── rakotis/              # shared primitives + P2P chat orchestration
 ├── apps/
-│   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma)
+│   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma26)
 ├── cryptorotor/              # vendored crypto (Rust): rotor_core / gervasius / rotor_wasm / rotor_py
 ├── protasius/                # encrypted-at-rest store (Rust)
 ├── limbo/                    # parked-feature archive (restore playbook)

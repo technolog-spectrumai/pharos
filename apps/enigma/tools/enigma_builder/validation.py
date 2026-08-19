@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from identity import FIXED_APP_IDENTIFIER, FIXED_APP_NAME
+
 ERROR = "error"
 WARNING = "warning"
 
@@ -139,6 +141,7 @@ def validate_config(
     cfg: dict[str, Any],
     tauri_conf: dict[str, Any] | None = None,
     canonical: dict[str, Any] | None = None,
+    android_application_id: str | None = None,
 ) -> list[Issue]:
     """Validate a full build config.
 
@@ -148,7 +151,7 @@ def validate_config(
     GUI-only warnings; pass the parsed ``build_config.yaml``.
     """
     issues: list[Issue] = []
-    _validate_app(issues, cfg, tauri_conf)
+    _validate_app(issues, cfg, tauri_conf, android_application_id)
     _validate_crypto(issues, cfg)
     _validate_settings(issues, cfg)
     _validate_gates(issues, cfg)
@@ -157,7 +160,10 @@ def validate_config(
 
 
 def _validate_app(
-    issues: list[Issue], cfg: dict, tauri_conf: dict[str, Any] | None
+    issues: list[Issue],
+    cfg: dict,
+    tauri_conf: dict[str, Any] | None,
+    android_application_id: str | None,
 ) -> None:
     name = get_path(cfg, "app.name")
     version = get_path(cfg, "app.version")
@@ -165,6 +171,14 @@ def _validate_app(
 
     if not isinstance(name, str) or not name.strip():
         issues.append(Issue("app.name", "must not be empty"))
+    elif name != FIXED_APP_NAME:
+        issues.append(
+            Issue(
+                "app.name",
+                f"cannot be changed to '{name}'; app name is fixed to "
+                f"'{FIXED_APP_NAME}'",
+            )
+        )
     if not isinstance(version, str) or not version.strip():
         issues.append(Issue("app.version", "must not be empty"))
     if not isinstance(identifier, str) or not identifier or not all(
@@ -174,6 +188,23 @@ def _validate_app(
             Issue(
                 "app.identifier",
                 f"'{identifier}' must be non-empty [a-zA-Z0-9.-]",
+            )
+        )
+    elif identifier != FIXED_APP_IDENTIFIER:
+        issues.append(
+            Issue(
+                "app.identifier",
+                f"cannot be changed to '{identifier}'; app identifier is fixed "
+                f"to '{FIXED_APP_IDENTIFIER}'",
+            )
+        )
+    elif android_application_id and android_application_id != FIXED_APP_IDENTIFIER:
+        issues.append(
+            Issue(
+                "app.identifier",
+                f"Android Gradle will install '{android_application_id}', but "
+                f"the fixed app identifier is '{FIXED_APP_IDENTIFIER}' "
+                "(src-tauri/gen/android/app/build.gradle.kts applicationId)",
             )
         )
 

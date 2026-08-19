@@ -18,8 +18,8 @@ import os
 import sys
 from pathlib import Path
 
-APP_NAME = "Enigma Builder"
-ORG_NAME = "Enigma"
+APP_NAME = "Enigma26 Builder"
+ORG_NAME = "Enigma26"
 
 # The edition the Builder always writes and builds. Presets are value sources
 # for the form, never build targets — see README.
@@ -30,7 +30,7 @@ PRESETS = ("basic", "standard", "professional")
 # script takes it as the first positional argument.
 APP_SLUG = "enigma"
 
-# Relative to the repo root: the file whose presence identifies an Enigma
+# Relative to the repo root: the file whose presence identifies an Enigma26
 # checkout. Chosen because the Builder is useless without it.
 MARKER = Path("apps/enigma/src-tauri/build_config.yaml")
 
@@ -39,7 +39,7 @@ ROOT_ENV_VAR = "ENIGMA_REPO"
 
 
 def is_repo(root: Path) -> bool:
-    """True if ``root`` looks like an Enigma checkout the Builder can drive."""
+    """True if ``root`` looks like an Enigma26 checkout the Builder can drive."""
     return (root / MARKER).is_file()
 
 

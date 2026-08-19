@@ -1,4 +1,4 @@
-# Enigma product line — Basic / Standard / Professional
+# Enigma26 product line — Basic / Standard / Professional
 
 One codebase, three shipped products. Every edition is the same binary source
 built with a different **compile-time build config**; there is no runtime
@@ -7,7 +7,7 @@ an unlock. A feature that is not in an edition is **not in that binary**: its
 tab is absent, its route redirects, its composable is never instantiated, and
 its Rust commands fail fast with a `*_DISABLED` error.
 
-That property is the whole point. Enigma's pitch is a serverless, auditable,
+That property is the whole point. Enigma26's pitch is a serverless, auditable,
 end-to-end-encrypted client — an edition that merely *hides* features would
 mean every user still ships the attack surface of every feature. Gating at
 build time keeps each edition's surface honest.
@@ -26,7 +26,7 @@ compositions, e.g. contacts and calendar moved into the entry edition. An
 installed `.pro` app does not upgrade into `.professional`: the bundle
 identifiers differ, so it is a separate install.)*
 
-### Enigma Basic — "the private organiser"
+### Enigma26 Basic — "the private organiser"
 
 The offline-first core: everything that works without any third-party
 infrastructure, plus the personal-organisation surface.
@@ -52,7 +52,7 @@ than hidden.
 the smallest possible audit surface, and who either shares a network with
 their peers or runs Tor.
 
-### Enigma Standard — "the connected messenger"
+### Enigma26 Standard — "the connected messenger"
 
 Basic plus the connectivity layer.
 
@@ -67,13 +67,13 @@ profile) · **Peer sync** (scoped, revocable person-to-person links — see
 calls and reliable reconnection, accepting n0's relay/DNS infrastructure and
 the (opt-in) public DHT in exchange.
 
-### Enigma Professional — "the collaboration suite"
+### Enigma26 Professional — "the collaboration suite"
 
 Standard plus **Maps** (offline region packages, P2P region sharing, the
 shared location layer).
 
-**Who it's for:** teams running Enigma as their working surface. Nothing here
-touches any infrastructure Standard does not already touch — since Enigma
+**Who it's for:** teams running Enigma26 as their working surface. Nothing here
+touches any infrastructure Standard does not already touch — since Enigma26
 Cloud was deleted (2026-08, technology.md §16) no edition speaks to an
 application server, so Professional's threat model is Standard's plus a
 larger local surface.
@@ -148,10 +148,11 @@ across the three configs, deliberately:
   including ones whose feature is off in that edition (`map_storage_limit_mb`
   is still a required, validated field in the Basic config — it is simply
   never read).
-- **App identity.** All three declare `name: Enigma`, the same identifier and
-  the same version, because `build.rs` asserts equality against
-  `tauri.conf.json`. Shipping three separately-installable products with
-  distinct names and bundle ids is a follow-up (§6).
+- **App identity.** All three declare `name: Enigma26`,
+  `identifier: com.spectrumaipl.enigma26`, and the same version, because
+  Android installs by Gradle `applicationId` and `build.rs` rejects any drift
+  between the build config and `tauri.conf.json`. Editions replace the same app
+  instead of installing side by side.
 
 ---
 
@@ -230,11 +231,10 @@ which the code carries) and reconnects by persisted NodeIds instead.
 
 ## 6. Known gaps / follow-ups
 
-1. **Distinct installable products.** All three editions currently build as
-   "Enigma" with bundle id `com.spectrumaipl.enigma`, because `build.rs`
-   asserts `app.{name,identifier,version}` against `tauri.conf.json`. Shipping
-   Basic/Standard/Professional side by side needs per-edition `tauri.conf.json` variants (or
-   a generated one) so they get distinct names, ids, and install paths.
+1. **One installable app identity.** All three editions intentionally build as
+   `Enigma26` with bundle id / Android package id `com.spectrumaipl.enigma26`.
+   Editions replace the same app and share the same app-data root; side-by-side
+   Basic/Standard/Professional installs are not a supported product shape.
 2. **No cross-edition capability signalling.** A Professional peer cannot tell
    that a room member is on Basic, so it cannot warn "3 members won't see this
    meeting". A capability byte in the MLS-carried presence/join payload would

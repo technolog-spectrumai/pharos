@@ -334,7 +334,7 @@ class MainWindow(QMainWindow):
             self.identity_tab, "pending_icon") else None
         try:
             saved = self.model.save_product(self.product_file, icon=icon)
-        except OSError as exc:
+        except (ValueError, OSError) as exc:
             QMessageBox.critical(self, paths.APP_NAME, f"Cannot save:\n{exc}")
             return None
         self._product_dirty = False

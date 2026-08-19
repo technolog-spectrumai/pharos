@@ -104,11 +104,12 @@ def test_apply_preset_leaves_expert_values_alone():
     assert model.get("network.onion_port") == 9
 
 
-def test_apply_preset_leaves_identity_alone():
+def test_apply_preset_keeps_fixed_identity():
     model = ConfigModel()
     model.set("app.name", "Enigma Field")
     model.apply_preset("light")
-    assert model.get("app.name") == "Enigma Field"
+    assert model.get("app.name") == "Enigma26"
+    assert model.get("app.identifier") == "com.spectrumaipl.enigma26"
 
 
 def test_preset_paths_are_gates_and_runtime_defaults_only():

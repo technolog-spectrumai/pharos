@@ -1,4 +1,4 @@
-// Rakotis — reusable app primitives for Enigma: the non-crypto foundation
+// Rakotis — reusable app primitives for Enigma26: the non-crypto foundation
 // (services, i18n, Oya UI components) plus the P2P chat orchestration
 // (Rotor-backed crypto bridge, iroh transport bridge, chat channel composable +
 // MLS envelope state machine). Crypto is delegated to the Rotor-backed `mls_*`

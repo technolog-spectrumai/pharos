@@ -1,6 +1,6 @@
-# Enigma Release Process
+# Enigma26 Release Process
 
-This is the maintainer checklist for producing Enigma desktop and Android
+This is the maintainer checklist for producing Enigma26 desktop and Android
 release artifacts. For toolchain setup and lower-level build notes, see
 [build.md](build.md). For end-user installation, see [install.md](install.md).
 
@@ -40,7 +40,7 @@ explicit for repeatable releases.
 
 ## 2. Prepare The Checkout
 
-Start from the Enigma repo root:
+Start from the Enigma26 repo root:
 
 ```bash
 cd /path/to/enigma
@@ -112,7 +112,7 @@ bundle tree.
 
 ## 5. Configure Android Release Signing
 
-Android release builds must be signed. Enigma deliberately fails closed when a
+Android release builds must be signed. Enigma26 deliberately fails closed when a
 release key is missing or when the Android SDK debug key is used for a release.
 
 Preferred flow:
@@ -197,13 +197,13 @@ Use a clean test device or emulator:
 ```bash
 adb install -r apps/enigma/src-tauri/gen/android/app/build/outputs/apk/release/app-release.apk
 adb shell pm list packages | grep enigma
-adb shell am start -n com.spectrumaipl.enigma/.MainActivity
+adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
 adb logcat -s RustStdoutStderr enigma
 ```
 
 If the device already has a debug build, an unsigned build, or a build signed
 with another key, Android may refuse the update. Uninstalling can fix the test
-device, but it removes the local Enigma vault and room state.
+device, but it removes the local Enigma26 vault and room state.
 
 ## 9. Publish
 
@@ -225,7 +225,7 @@ For Google Play or another store:
 Tag the commit after artifacts are verified:
 
 ```bash
-git tag -a v0.1.3 -m "Enigma 0.1.3"
+git tag -a v0.1.3 -m "Enigma26 0.1.3"
 git push origin v0.1.3
 ```
 
@@ -245,19 +245,17 @@ What to do:
 - verify every release artifact before upload or sharing;
 - never distribute debug-signed or unsigned releases.
 
-### Android Edition Package IDs
+### Android Package ID Is Fixed
 
-Desktop edition overlays change the Tauri identifier. The current generated
-Android Gradle file still declares:
+The generated Android Gradle file declares:
 
 ```text
-applicationId = "com.spectrumaipl.enigma"
+applicationId = "com.spectrumaipl.enigma26"
 ```
 
-and `scripts/build_android.sh` does not pass the edition `--config` overlay.
-Until that path is reviewed and smoke-tested, do not assume Basic, Standard, and
-Professional APKs can coexist on the same Android device. Treat the Android
-package id printed by `enigma-builder signing android verify` as the authority.
+Basic, Standard, and Professional APKs do not install side by side; they update
+or replace the same Android package. Treat the package id printed by
+`enigma-builder signing android verify` as the authority.
 
 ### AAB Is Not A Direct Installer
 
@@ -292,7 +290,7 @@ What to do:
 ### Regenerated Android Project
 
 `tauri android init` can regenerate files under
-`apps/enigma/src-tauri/gen/android/`. Enigma has custom signing gates in the
+`apps/enigma/src-tauri/gen/android/`. Enigma26 has custom signing gates in the
 generated Gradle project, mirrored by `tools/enigma_builder/signing.py`.
 
 What to do:

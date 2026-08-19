@@ -111,8 +111,8 @@ TEMPLATE = Template(
 # generates the `build_config` consts from it. The shipped binary never reads it.
 
 app:
-  # Must MATCH tauri.conf.json (productName / identifier / version), which stays
-  # authoritative for the native bundle — build.rs asserts equality.
+  # App identity is fixed across product configs. Editions change feature gates
+  # only; Android installs the fixed Gradle applicationId below.
   name: $app_name
   identifier: $app_identifier
   version: $app_version

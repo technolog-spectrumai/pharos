@@ -143,7 +143,7 @@ describe("EnigmaMapView — active-region :key remount (Tauri stub)", () => {
     // Mount, then resolve the stored id — the MapPanel :key flips from "none"
     // to "r1" and Vue swaps the instance. The old instance's async onMounted
     // must abort at its disposal guard instead of touching the dead container
-    // (this was the "Enigma hit an error while starting" crash).
+    // (this was the "Enigma26 hit an error while starting" crash).
     const wrapper = mount(EnigmaMapView, { global: GLOBAL() });
     await flushPromises();
     const store = useMapStore();

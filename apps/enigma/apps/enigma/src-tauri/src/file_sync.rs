@@ -5,7 +5,7 @@
 //! dlink_file_* signaling live in the frontend (rakotis fileSyncModel /
 //! useDeviceSync + the app's fileSync store). This module only owns the disk
 //! side: a sanitized tmp path per offer, hash verification, and the landing
-//! tree — the user-visible enigma folder `~/Enigma[-<profile>]` (Files tree
+//! tree — the user-visible enigma folder `~/Enigma26[-<profile>]` (Files tree
 //! redesign; the old flat `<profile_dir>/synced/` stays readable through the
 //! records' absolute paths but receives nothing new). Received files are the
 //! user's own plaintext files, deliberately outside the sealed store (like
@@ -46,8 +46,8 @@ fn tmp_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// The user-visible Enigma folder (Files tree redesign): ~/Enigma for the
-/// default profile, ~/Enigma-<profile> otherwise. This is where NEW imports
+/// The user-visible Enigma26 folder (Files tree redesign): ~/Enigma26 for the
+/// default profile, ~/Enigma26-<profile> otherwise. This is where NEW imports
 /// land — the old <profile_dir>/synced/ folder stays readable (local records
 /// carry absolute paths), it just stops receiving files.
 fn enigma_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -55,9 +55,9 @@ fn enigma_root(app: &AppHandle) -> Result<PathBuf, String> {
     let cfg = crate::active_config(&state)?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let dir = if cfg.profile == "default" {
-        home.join("Enigma")
+        home.join("Enigma26")
     } else {
-        home.join(format!("Enigma-{}", crate::safe_filename_component(&cfg.profile)))
+        home.join(format!("Enigma26-{}", crate::safe_filename_component(&cfg.profile)))
     };
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)

@@ -665,7 +665,7 @@ def test_badging_reads_the_repo_debug_apk():
         pytest.skip("aapt2 not available")
     info = signing.read_badging(apk)
     assert info is not None
-    assert info.package  # e.g. com.spectrumaipl.enigma — identity, not hardcoded
+    assert info.package  # e.g. com.spectrumaipl.enigma26, from the artifact
     assert info.version_name and info.version_code
     assert info.source == "aapt2"
 

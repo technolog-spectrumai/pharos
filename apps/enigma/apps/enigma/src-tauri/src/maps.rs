@@ -630,7 +630,7 @@ pub async fn map_region_import(
         if !missing.is_empty() {
             return Err(format!(
                 "{MAPS_SCHEMA_UNSUPPORTED}: this archive uses a different vector schema \
-                 (missing layers: {}). Build the package with the Enigma map packager.",
+                 (missing layers: {}). Build the package with the Enigma26 map packager.",
                 missing.join(", ")
             ));
         }

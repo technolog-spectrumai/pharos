@@ -1,4 +1,4 @@
-// Profile / runtime storage abstraction for the serverless Enigma app.
+// Profile / runtime storage abstraction for the serverless Enigma26 app.
 //
 // When running inside the Tauri desktop app, all storage goes through Rust via
 // invoke(). In a plain browser (Vite dev server, vitest jsdom) we fall back to
@@ -136,8 +136,8 @@ export interface BuildConfig {
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
 // consts below (literals here: the consts are declared later in the module).
 const FALLBACK_BUILD_CONFIG: BuildConfig = {
-  app_name: "Enigma",
-  app_identifier: "com.spectrumaipl.enigma",
+  app_name: "Enigma26",
+  app_identifier: "com.spectrumaipl.enigma26",
   app_version: "0.1.0",
   p2p_allow_hosted_relays: true,
   dht_enabled: true,

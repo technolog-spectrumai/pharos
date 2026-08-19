@@ -13,9 +13,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 cd "$SCRIPT_DIR"
 
-# Per-edition identity: each edition bundles as its own app (own productName,
-# binary and bundle identifier), so two editions can be installed side by side
-# and keep separate data directories. See scripts/edition_conf.sh.
+# Per-edition Tauri overlay. The app identity itself is fixed to Enigma26 /
+# com.spectrumaipl.enigma26; editions vary feature gates only.
 . "$SCRIPT_DIR/scripts/edition_conf.sh"
 edition_conf_args CONF_ARGS
 

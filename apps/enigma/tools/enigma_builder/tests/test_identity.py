@@ -19,11 +19,12 @@ def test_round_trip_is_byte_identical():
     assert identity_mod.render_conf(json.loads(original)) == original
 
 
-def test_only_the_identity_lines_change():
+def test_only_the_version_line_changes_for_locked_identity():
     original = paths.TAURI_CONF.read_text(encoding="utf-8").splitlines()
     conf = json.loads("\n".join(original))
     conf.update(
-        Identity("Enigma Field", "com.example.field", "9.9.9").as_conf_fields()
+        identity_mod.locked_identity(Identity("Anything", "com.example.field", "9.9.9"))
+        .as_conf_fields()
     )
     changed = identity_mod.render_conf(conf).splitlines()
 
@@ -33,11 +34,8 @@ def test_only_the_identity_lines_change():
         if before != after
     ]
     assert len(original) == len(changed)
-    assert len(differing) == 3
-    assert all(
-        any(key in before for key in ("productName", "identifier", "version"))
-        for before, _ in differing
-    )
+    assert len(differing) == 1
+    assert "version" in differing[0][0]
 
 
 def test_identity_reads_the_three_fields():
@@ -57,9 +55,16 @@ def test_app_section_maps_to_build_config_field_names():
     }
 
 
+def test_write_identity_locks_name_and_identifier():
+    identity = identity_mod.locked_identity(Identity("N", "i.d", "1.2.3"))
+    assert identity.name == identity_mod.FIXED_APP_NAME
+    assert identity.identifier == identity_mod.FIXED_APP_IDENTIFIER
+    assert identity.version == "1.2.3"
+
+
 def test_pending_diff_lists_only_changed_fields():
-    current = Identity("Enigma", "com.a.b", "0.1.0")
-    pending = Identity("Enigma", "com.a.b", "0.2.0")
+    current = Identity("Enigma26", "com.a.b", "0.1.0")
+    pending = Identity("Enigma26", "com.a.b", "0.2.0")
     lines = identity_mod.conf_pending_diff(current, pending)
     assert lines == ["version: 0.1.0 → 0.2.0"]
 

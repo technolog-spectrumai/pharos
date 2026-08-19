@@ -60,7 +60,7 @@ def test_build_mode_shows_only_the_build_tab(app, tmp_path):
         win.close()
 
 
-def test_build_mode_carries_the_products_identity(app, tmp_path):
+def test_build_mode_keeps_the_fixed_identity(app, tmp_path):
     from window import MainWindow
 
     model = ConfigModel()
@@ -71,8 +71,8 @@ def test_build_mode_carries_the_products_identity(app, tmp_path):
     win = MainWindow(mode="build", product_file=product)
     try:
         pending = win.identity_tab.pending_identity()
-        assert pending.name == "Acme Secure"
-        assert pending.identifier == "com.acme.secure"
+        assert pending.name == "Enigma26"
+        assert pending.identifier == "com.spectrumaipl.enigma26"
     finally:
         win.close()
 

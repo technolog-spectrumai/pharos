@@ -176,6 +176,9 @@ const KNOWN_MLS_SUITES: &[&str] = &[
     "MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448",
 ];
 
+const FIXED_APP_NAME: &str = "Enigma26";
+const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.enigma26";
+
 /// The active edition's `tauri.<edition>.conf.json`, if it has one.
 ///
 /// Keep this in lockstep with what the launchers pass to `--config`
@@ -197,9 +200,14 @@ fn edition_conf_overlay(manifest_dir: &Path) -> Option<serde_json::Value> {
 fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
     let mut err = |path: &str, msg: String| errors.push(format!("{path}: {msg}"));
 
-    // app: non-empty, identifier shape, and equality with tauri.conf.json.
+    // app: fixed product identity, valid version, and equality with tauri.conf.json.
     if cfg.app.name.trim().is_empty() {
         err("app.name", "must not be empty".into());
+    } else if cfg.app.name != FIXED_APP_NAME {
+        err(
+            "app.name",
+            format!("must be '{FIXED_APP_NAME}' (app name is not configurable)"),
+        );
     }
     if cfg.app.version.trim().is_empty() {
         err("app.version", "must not be empty".into());
@@ -208,6 +216,13 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         || !cfg.app.identifier.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
     {
         err("app.identifier", format!("'{}' must be non-empty [a-zA-Z0-9.-]", cfg.app.identifier));
+    } else if cfg.app.identifier != FIXED_APP_IDENTIFIER {
+        err(
+            "app.identifier",
+            format!(
+                "must be '{FIXED_APP_IDENTIFIER}' (Android applicationId is not configurable)"
+            ),
+        );
     }
     let conf_path = manifest_dir.join("tauri.conf.json");
     match std::fs::read_to_string(&conf_path)
@@ -215,10 +230,8 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| e.to_string()))
     {
         Ok(mut conf) => {
-            // Per-edition overlay: each shipped edition is its own installable
-            // app (own productName / binary / identifier), which is what gives
-            // it its own data directory — a release install and a test install
-            // must never open the same vault. The overlay is a partial config
+            // Per-edition overlay: editions keep one product identity now and
+            // vary feature gates only. The overlay is still a partial config
             // the tauri CLI is given with `--config`, and it deep-merges over
             // tauri.conf.json; apply the same merge here so this assertion sees
             // the EFFECTIVE identity rather than the base file's.

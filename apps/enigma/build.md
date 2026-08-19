@@ -1,6 +1,6 @@
-# Enigma — Build & Run
+# Enigma26 — Build & Run
 
-How to run Enigma in dev and package it into installable artifacts. Enigma is a
+How to run Enigma26 in dev and package it into installable artifacts. Enigma26 is a
 Tauri 2 (Vue 3 frontend + Rust backend) app; a "build" compiles the frontend
 (`vue-tsc` + Vite) and the Rust core, then bundles them. For how the app *works*
 (architecture, crypto, conventions, config sources) see
@@ -112,7 +112,7 @@ it directly: `scripts/reset_profile.sh [--purge] [-y] <profile>…`. It reads th
 bundle identifier from `tauri.conf.json` rather than hardcoding the data
 directory, and refuses a profile name containing a path separator.
 
-To wipe *everything* Enigma owns, including the global bits, use the app's own
+To wipe *everything* Enigma26 owns, including the global bits, use the app's own
 panic code (Settings → Lock) instead — that is the audited path.
 
 ### Pairing quick-start
@@ -234,42 +234,34 @@ identical across all three, deliberately — `network.max_frame_bytes` is
 wire-interop sensitive and a Light peer must be able to share a room with a Pro
 peer. Who gets what, and why, is [pland.md](pland.md).
 
-#### Each edition is its own installable app (own data directory)
+#### One fixed app identity
 
-Tauri derives `app_data_dir` from the **bundle identifier** alone, so two builds
-sharing an identifier share *everything*: the same `vault.json` (hence the same
-passphrase prompt), the same protasius keyspace, the same rooms and MLS state.
-That is why every edition declares its own identity, via a partial config the
-tauri CLI deep-merges over `tauri.conf.json`:
+Every edition now builds as the same installable app:
 
-| Edition | Identifier | Data directory | Binary |
-|---|---|---|---|
-| `light` | `com.spectrumaipl.enigma.light` | `…/com.spectrumaipl.enigma.light/` | `enigma-light` |
-| `plus` | `com.spectrumaipl.enigma.plus` | `…/com.spectrumaipl.enigma.plus/` | `enigma-plus` |
-| `pro` | `com.spectrumaipl.enigma.pro` | `…/com.spectrumaipl.enigma.pro/` | `enigma-pro` |
-| `custom` | whatever the Enigma Builder sets | that identifier's directory | from its `productName` |
-| unset | `com.spectrumaipl.enigma` | `…/com.spectrumaipl.enigma/` | `enigma` |
+| Value | Fixed setting |
+|---|---|
+| App name | `Enigma26` |
+| Bundle identifier / Android package id | `com.spectrumaipl.enigma26` |
+| Desktop binary name from edition overlays | `enigma26` |
+| Data directory | `…/com.spectrumaipl.enigma26/` |
 
-So a **release install and a test install can coexist** — separate packages,
-separate desktop entries, separate vaults, separate passphrases.
+Editions differ only in feature gates. They do **not** get separate Android
+package ids or separate desktop data roots, so they update/replace the same app
+instead of installing side by side.
 
-The overlays are `apps/enigma/src-tauri/tauri.<edition>.conf.json`, passed with
-`--config` by `run_dev.sh`, `run2.sh` and `build_desktop.sh` (all via
-[`scripts/edition_conf.sh`](scripts/edition_conf.sh)). `build.rs` applies the
-**same merge** before asserting the YAML matches — `edition_conf_overlay()`
-there and the launcher helper must stay in lockstep, or a bundle would carry one
-identity while the assertion checked another.
+The overlays are still `apps/enigma/src-tauri/tauri.<edition>.conf.json`,
+passed with `--config` by `run_dev.sh`, `run2.sh` and `build_desktop.sh` (all
+via [`scripts/edition_conf.sh`](scripts/edition_conf.sh)). They keep the same
+fixed identity, and `build.rs` rejects any hand-edited config that tries to
+change the app name or identifier.
 
-`custom` deliberately has **no** overlay: the Enigma Builder writes
-`tauri.conf.json` directly (`tools/enigma_builder/identity.py`), so for that
-edition the base file already *is* the effective identity — set the identifier
-in the Builder's **Identity** tab to keep a custom build separate.
-
-> **Moving existing data.** Changing an identifier means the app looks in a new
-> directory; nothing is deleted. To carry a profile across:
+> **Moving existing data.** The package id changed from
+> `com.spectrumaipl.enigma` to `com.spectrumaipl.enigma26`. Existing desktop
+> data is not deleted; the new build looks in a new app-data directory. To carry
+> a profile across:
 > ```bash
 > mv ~/.local/share/com.spectrumaipl.enigma/profiles/default \
->    ~/.local/share/com.spectrumaipl.enigma.pro/profiles/default
+>    ~/.local/share/com.spectrumaipl.enigma26/profiles/default
 > ```
 > Or just start fresh with `./run_dev.sh --reset`.
 
@@ -464,7 +456,7 @@ adb logcat -s RustStdoutStderr enigma
 
 ## CI builds
 
-[.gitlab-ci.yml](.gitlab-ci.yml) builds Enigma on GitLab:
+[.gitlab-ci.yml](.gitlab-ci.yml) builds Enigma26 on GitLab:
 
 | Job | Stage | When | What |
 |---|---|---|---|
