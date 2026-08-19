@@ -1,5 +1,5 @@
 // File-sync model — pure types, validation, and merge logic for per-file
-// Push/Pull between a user's own linked devices (Files → Devices). No
+// Push/Pull between a user's own linked devices. No
 // Vue/Tauri imports (deviceSyncModel.ts pattern); shared by useDeviceSync
 // (list replication over the devlink room) and the app's fileSync store.
 //

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Files → Devices → Files: the enigma-folder tree and the two buttons that
-// move files. NOTHING happens on its own — the user checks files and presses
-// Push or Pull, an unsolicited incoming push waits in the consent card until
-// accepted, and a hash-diverged ("changed") file can only be resolved by
-// pulling the version you want; push refuses it.
+// Parked device-file panel: the enigma-folder tree and the two buttons that
+// move files between linked devices. NOTHING happens on its own — the user
+// checks files and presses Push or Pull, an unsolicited incoming push waits in
+// the consent card until accepted, and a hash-diverged ("changed") file can
+// only be resolved by pulling the version you want; push refuses it.
 //
 // Two kinds of buckets, both rendered by FileTree from flat DFS rows:
 //   · This device — everything inside the enigma folder (scan), plus ghost
@@ -21,9 +21,8 @@ import { buildTree } from "./treeBuilder";
 const { t } = useI18n({ useScope: "global" });
 const store = useFileSyncStore();
 
-// Disabled-with-reason, never hidden (the pairing panel's convention). Live
-// from the shared store, so flipping "Connect via Tor" in Settings disables
-// Push/Pull here without a remount.
+// Disabled-with-reason, never hidden. Live from the shared store, so flipping
+// "Connect via Tor" in Settings disables Push/Pull here without a remount.
 const network = useNetworkStore();
 const offline = computed(() => network.offline);
 const torMode = computed(() => network.useTor);

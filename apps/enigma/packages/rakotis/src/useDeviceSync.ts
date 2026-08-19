@@ -1,7 +1,7 @@
-// Linked-device ongoing sync — the runtime half of multi-device (pairing is
-// Rust: src-tauri/device_link.rs). Owns a HEADLESS second chat channel joined
-// to the hidden device room ("devlink-…", name derived Rust-side from the link
-// key), and converges state with the user's other devices over `dlink_*` inner
+// Linked-device ongoing sync for profiles that are already linked. Owns a
+// HEADLESS second chat channel joined to the hidden device room ("devlink-…",
+// name derived Rust-side from the link key), and converges state with the
+// user's other devices over `dlink_*` inner
 // messages through the stock MLS seam:
 //
 //   • hello        — per-room log summary + registry rev + settings mtimes
@@ -50,7 +50,7 @@ const SCOPE = "default";
 const KEY_REGISTRY = "";
 const KEY_LINK = "link";
 const KEY_REVS = "revs";
-/** The shared allowed-files list (Files → Devices). Its own ns so unlink can
+/** The shared allowed-files list for linked-device file sync. Its own ns so unlink can
  *  clear it wholesale; NOT in DEVLINK_SYNC_KV — it replicates via dlink_files
  *  with a semantic merge, never via the automatic kv rail. Pinned by negative
  *  tests on both allow-lists. */
@@ -240,7 +240,7 @@ export function useDeviceSync(main: ChatChannel) {
     return full;
   }
 
-  // ── shared allowed-files list (Files → Devices push/pull) ───────────────────
+  // ── shared allowed-files list (linked-device push/pull) ─────────────────────
   // List CONVERGENCE lives here (sibling of contacts/rooms merging); the
   // transfers themselves live in the app's fileSync store, reached through the
   // onDevlinkFile/sendDevlinkFile passthrough below. File bytes never touch
@@ -779,7 +779,7 @@ export function useDeviceSync(main: ChatChannel) {
     devStatus: dev.mlsStatus, devConnected: dev.isConnected, devOnline, onlineLeafIds,
     start, stop, refresh, unlinkDevice, teardownLink, enforceRevocations,
     sendHello,
-    // allowed-files list (Files → Devices)
+    // allowed-files list (linked-device file sync)
     fileEntries, sendFileList, upsertFileEntry, tombstoneFileEntry, recordFileCopy,
     onDevlinkFile, sendDevlinkFile,
     // incoming-push consent queue (session-only, never persisted)

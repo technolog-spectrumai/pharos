@@ -297,7 +297,7 @@ describe("kpProof determinism", () => {
   });
 });
 
-describe("allowed-files list (Files → Devices)", () => {
+describe("allowed-files list (linked-device file sync)", () => {
   const HASH_A = "a".repeat(64);
 
   function entry(id: string, over: Record<string, unknown> = {}) {

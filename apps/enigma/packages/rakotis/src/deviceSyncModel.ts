@@ -1,8 +1,8 @@
 // Device-link model — pure types, leaf-identity helpers, validation, and merge
 // logic for the multi-device (linked devices) feature. No Vue/Tauri imports
 // (mapModel.ts pattern): everything here is wire- and storage-shape logic
-// shared by useDeviceSync, the chat log, the Devices UI, and (field-for-field)
-// the Rust pairing-bundle path in device_link.rs.
+// shared by useDeviceSync, the chat log, and the Devices UI. The old Rust
+// pairing-bundle mirror is parked in limbo with device pairing.
 //
 // Wire safety: every payload that can arrive over the devlink MLS seam is
 // re-validated here on receive — never trust a wire object. The hidden room
@@ -292,10 +292,9 @@ export function mergeMessages(
 }
 
 // ── Sync allow-list ───────────────────────────────────────────────────────────
-// The complete set of kv entries that replicate between linked devices. The
-// Rust pairing bundle mirrors this list (device_link.rs SYNC_KV) — a pinning
-// test on each side keeps them from drifting. Everything else is deliberately
-// device-local: connect_timeout_secs (per-device network conditions), all
+// The complete set of kv entries that replicate between linked devices.
+// Everything else is deliberately device-local: connect_timeout_secs
+// (per-device network conditions), all
 // map:* / map settings (locked decision), keys/*, mls/*, dht secrets
 // and the devlink pacing knobs. The allow-list is closed, so a namespace that
 // simply is not listed here never syncs — which is how the parked board/mind

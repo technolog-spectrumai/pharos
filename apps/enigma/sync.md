@@ -7,6 +7,11 @@
 > model, sync scope, transport, history depth). Manual two-instance
 > verification via `run2.sh` remains open (§8).
 
+> **Parked 2026-08-19:** new-device QR pairing is removed from active Enigma and
+> parked in `limbo/frontend/device-pairing/` + `limbo/rust/device_link.rs`.
+> Existing linked-profile sync/file sync remains active through the hidden
+> devlink room.
+
 **Post-review hardening (2026-07-20)** — a 5-dimension adversarial workflow
 (25 confirmed findings) drove these fixes:
 
@@ -127,6 +132,8 @@
   2026-07-26:** it moved out of Settings into Files → Devices, split into
   `DevicesTab` (the always-visible device list) + `PairingPanel`, alongside the
   per-file push/pull sync — see fsync.md. Settings has no Devices tab any more.
+  **Superseded 2026-08-19:** Files no longer has a Devices sub-tab; the UI is
+  parked while existing linked-profile sync remains active.
 
 ## 1. Scope
 
@@ -136,7 +143,7 @@ tickets/codes, meetings, settings subset) + full stored history; message
 persistence (`chat:log`); hidden devlink room for ongoing catch-up (registry,
 kv merges, history replay deduped by msg id); roster grouping by user part;
 user-part moderation; per-leaf revocation with N>2 rekey; boot-time identity
-adoption; Devices UI; i18n en+pl; tests at every tier; docs.
+adoption; parked Devices UI; i18n en+pl; tests at every tier; docs.
 **Out:** rotor_core/gervasius/protasius changes; `map:*` sync; kanban sync (its
 room seam converges); any server; Tor-mode pairing/sync; transfer resume;
 `dlink_room_admit_req` (reserved); cross-user device sharing.
@@ -195,9 +202,10 @@ shutdown hooked at profile-switch / airplane-on / Tor-on beside file_xfer).
 
 | File | Change |
 | --- | --- |
-| `views/EnigmaConfigView.vue` | `devices` ConfigTab (flag-gated button + body) |
-| `components/devices/DevicesPanel.vue` | new — list/pair/join/confirm UI (split into DevicesTab + PairingPanel by fsync.md, 2026-07-26) |
-| `stores/devices.ts` | new — pairing state machine over `devlink_*` + events |
+| `views/EnigmaFilesView.vue` | Devices sub-tab removed 2026-08-19 |
+| `views/EnigmaConfigView.vue` | Devices tab removed |
+| `components/devices/DevicesPanel.vue` | deleted; successors are now parked/unused UI |
+| `stores/devices.ts` | linked-device state reader for compatibility |
 | `stores/chat.ts` | instantiates `useDeviceSync` (flag-gated), starts it in `init`, adopts identity in `syncRuntimeIdentity` |
 | `i18n/en.ts` + `pl.ts` | `nav.devices` + `devices.*` (parity enforced) |
 | `main.ts` | `faMobileScreen` icon |
@@ -213,8 +221,8 @@ shutdown hooked at profile-switch / airplane-on / Tor-on beside file_xfer).
   regression**), useDeviceSync (12 — proof round-trip,
   MAC finalize, hello push/pull, history merge, kv merges, registry
   accept/reject, self-revocation, unlink 2-dev/N-dev, revocation enforcement).
-- enigma: DevicesPanel component (4; now devices.test.ts over DevicesTab/PairingPanel/FileSyncPanel), i18n parity, all prior suites.
-- Playwright: devices.spec.ts (2, browser-honest degraded states).
+- enigma: parked device component coverage, i18n parity, all prior suites.
+- Playwright: `noDevicesTab.spec.ts` verifies Files/Settings expose no Devices tab.
 
 ## 8. Manual verification (open — needs two machines/instances)
 
@@ -289,4 +297,3 @@ Modified: `apps/enigma/src-tauri/{build_config.yaml, build.rs, src/lib.rs}`,
 `apps/enigma/src/{views/EnigmaConfigView.vue, stores/chat.ts, main.ts, i18n/en.ts, i18n/pl.ts}`,
 `apps/enigma/src/components/calendar/PollFormModal.vue` (drive-by fix),
 `technology.md` (§14/§15/§16), `build.md`.
-

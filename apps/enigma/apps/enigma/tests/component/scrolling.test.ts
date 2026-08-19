@@ -145,7 +145,6 @@ describe("the views that fill the pane", () => {
   const stubs = {
     ChatPanel: true,
     FilePanel: true,
-    DevicesTab: true,
     KeyringPanel: true,
     LocalPanel: true,
     VoxPanel: true,
@@ -181,7 +180,7 @@ describe("the views that fill the pane", () => {
 
     // A display:block wrapper silently ignores a panel's `flex-1 min-h-0
     // overflow-y-auto` — the panel then outgrows the pane and gets clipped by
-    // the view's `overflow-hidden` (the Devices tab's long list, historically).
+    // the view's `overflow-hidden`.
     const panel = wrapper.find("file-panel-stub").element.parentElement as HTMLElement;
     expect([...panel.classList]).toEqual(expect.arrayContaining(["flex", "flex-col", "min-h-0"]));
   });

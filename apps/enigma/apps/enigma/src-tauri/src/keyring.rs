@@ -30,7 +30,7 @@
 //! original filename the same way and then drops the entry from the ring.
 //!
 //! DEVICE-LOCAL BY DESIGN: the ring file (and everything about it) must never
-//! enter `device_link::DEVLINK_SYNC_KV` or any other sync path — its entries
+//! enter the devlink sync allow-list or any other sync path — its entries
 //! reference absolute local paths and hold raw file keys.
 
 use std::collections::BTreeMap;

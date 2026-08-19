@@ -36,7 +36,8 @@ product line and how an edition is built).
   directory — all over the community-run BitTorrent Mainline DHT. §12.
 - **Beyond chat**: 1:1 **voice calls**, P2P **file transfer**, per-file
   **local locking**, a room **calendar** (meetings + polls), offline **maps**,
-  and **multi-device linking** over pure P2P. §10.
+  and linked-device sync for already-paired profiles. New-device pairing is
+  parked in limbo for now. §10.
 - **Build policy is compiled in**: `build_config.yaml` bakes allow flags
   (hosted relays, device linking), per-feature kill switches, crypto
   declarations, and setting defaults/clamps into the binary at build time. See

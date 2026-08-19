@@ -55,7 +55,7 @@ const REGIONS_SCOPE: &str = "default";
 const REGIONS_KEY: &str = "";
 /// Active (priority) region for tile resolution — sealed per-profile setting;
 /// the frontend writes it via rakotis appStorage.setMapActiveRegion. Device-
-/// local by design: deliberately NOT in device_link::SYNC_KV (each device
+/// local by design: deliberately NOT in the devlink sync allow-list (each device
 /// imports its own packages, so a synced id would usually dangle).
 const KEY_ACTIVE_REGION: &str = "map_active_region";
 

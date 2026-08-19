@@ -1,27 +1,19 @@
 <script setup lang="ts">
-// Files → Devices: the user's own linked devices. The device list is the
-// header — always visible, whichever sub-tab is open — because it is the
-// context for everything below it (which devices a push would reach, whether
-// the other one is even online). Under it: Files (the per-file push/pull list)
-// and Pairing (link a new device / become one).
-//
-// This tab replaced Settings → Devices entirely.
-import { computed, ref } from "vue";
+// Parked linked-device UI. The active Files view no longer exposes a Devices
+// sub-tab; this component remains as reference/compatibility coverage for
+// already-linked profiles.
+import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { OyaButton, OyaCard } from "rakotis";
 import { useDevicesStore } from "../../stores/devices";
 import FileSyncPanel from "./FileSyncPanel.vue";
-import PairingPanel from "./PairingPanel.vue";
 
 defineProps<{ darkMode?: boolean }>();
 
 const { t } = useI18n({ useScope: "global" });
 const store = useDevicesStore();
 const { linked, devices, myDeviceId, lastSyncAt, devConnected, onlineLeafIds } = storeToRefs(store);
-
-type DevicesSubTab = "files" | "pairing";
-const activeTab = ref<DevicesSubTab>("files");
 
 function fmtWhen(ts: number): string {
   return ts ? new Date(ts).toLocaleString() : "—";
@@ -98,34 +90,6 @@ const syncLine = computed(() =>
       </ul>
     </OyaCard>
 
-    <!-- Files / Pairing sub-sub-tabs -->
-    <div
-      :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-      class="flex gap-1 rounded-xl border p-1 text-sm font-semibold"
-    >
-      <button
-        type="button"
-        :class="activeTab === 'files'
-          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-          : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
-        @click="activeTab = 'files'"
-      >
-        <font-awesome-icon icon="file-arrow-up" />{{ t('fsync.filesTab') }}
-      </button>
-      <button
-        type="button"
-        :class="activeTab === 'pairing'
-          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-          : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
-        @click="activeTab = 'pairing'"
-      >
-        <font-awesome-icon icon="qrcode" />{{ t('fsync.pairingTab') }}
-      </button>
-    </div>
-
-    <FileSyncPanel v-if="activeTab === 'files'" />
-    <PairingPanel v-else />
+    <FileSyncPanel />
   </div>
 </template>

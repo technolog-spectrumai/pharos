@@ -36,9 +36,8 @@ mod keyring;
 // P2P region sharing via file_xfer. The app never fetches tiles — packages
 // come from the standalone tools/map_packager (map.md Part II).
 mod maps;
-// Device linking: QR pairing + one-shot bundle/history transfer to a second
-// device over iroh QUIC (sync.md). Ongoing sync rides the hidden devlink room
-// in the frontend (rakotis useDeviceSync).
+// Device linking: linked-profile adoption + hidden-room derivation for existing
+// device sync. QR pairing is parked in limbo for now.
 mod device_link;
 mod peer_link;
 
@@ -1265,9 +1264,10 @@ pub fn run() {
         .manage(p2p_tor::TorP2pState::default())
         // Map download tasks + open PMTiles readers (aborted on airplane / Tor toggles).
         .manage(maps::MapsState::default())
-        // Device-pairing session (ephemeral endpoint + one-time secret).
+        // Parked QR-pairing session state; kept so shutdown paths stay harmless
+        // while existing linked profiles continue using devlink helpers.
         .manage(device_link::DevLinkState::default())
-        // Joiner half of the mutual-link offer (see device_link.rs).
+        // Joiner half of the parked mutual-link offer (see device_link.rs).
         .manage(device_link::DevLinkJoin::default())
         .manage(peer_link::PeerLinkState::default())
         // Last-heartbeat timestamp for the Rust-side lock watchdog (vault.rs).
@@ -1393,13 +1393,6 @@ pub fn run() {
             keyring::keyring_entries,
             keyring::keyring_change_passphrase,
             keyring::keyring_rotate,
-            device_link::devlink_pair_begin,
-            device_link::devlink_pair_confirm,
-            device_link::devlink_reverse_reply,
-            device_link::devlink_reverse_confirm,
-            device_link::devlink_pair_cancel,
-            device_link::devlink_pair_join,
-            device_link::devlink_status,
             device_link::devlink_derive_room,
             device_link::devlink_adopt_identity,
             peer_link::peer_request,

@@ -3,15 +3,13 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { i18n } from "../../src/i18n";
 import DevicesTab from "../../src/components/devices/DevicesTab.vue";
-import PairingPanel from "../../src/components/devices/PairingPanel.vue";
 import FileSyncPanel from "../../src/components/devices/FileSyncPanel.vue";
 import type { DeviceRegistry } from "rakotis";
 
-// Files → Devices in the jsdom shell: no Tauri runtime, so pairing invokes
-// reject (the panel shows its degraded/error state) and file sync shows its
-// desktop-only banner. What we pin here is the pure UI: the always-visible
-// device list with its this-device marker and online dots, unlink delegation,
-// the not-linked empty state, the pairing gates, and the file-list controls.
+// Parked linked-device UI in the jsdom shell: no Tauri runtime, so file sync
+// shows its desktop-only banner. What we pin here is the pure UI: the device
+// list with its this-device marker and online dots, unlink delegation, the
+// parked-pairing empty state, and the file-list controls.
 //
 // The fake deviceSync uses plain `{ value }` holders (vi.hoisted runs before
 // imports, so vue's ref() is unavailable); every test sets state BEFORE mount,
@@ -94,11 +92,11 @@ function linkTwoDevices() {
 }
 
 describe("DevicesTab — the device list header", () => {
-  it("shows the not-linked state and opens on the Files sub-tab", async () => {
+  it("shows the not-linked state and file controls", async () => {
     const wrapper = mount(DevicesTab, { global: GLOBAL() });
     await flushPromises();
     expect(wrapper.find("[data-testid='devices-not-linked']").exists()).toBe(true);
-    // Files sub-tab is the default: its add-file control is on screen.
+    expect(wrapper.find("[data-testid='devices-not-linked']").text()).toContain("parked");
     expect(wrapper.find("[data-testid='fsync-add']").exists()).toBe(true);
   });
 
@@ -121,44 +119,12 @@ describe("DevicesTab — the device list header", () => {
     expect(fakeSync.unlinkCalls).toEqual(["abcd2345"]);
   });
 
-  it("switches to the Pairing sub-tab", async () => {
+  it("does not expose the parked Pairing sub-tab", async () => {
     const wrapper = mount(DevicesTab, { global: GLOBAL() });
     await flushPromises();
-    const pairingPill = wrapper.findAll("button").find((b) => b.text() === "Pairing")!;
-    await pairingPill.trigger("click");
-    expect(wrapper.text()).toContain("Show pairing QR");
-    expect(wrapper.find("[data-testid='fsync-add']").exists()).toBe(false);
-  });
-});
-
-describe("PairingPanel", () => {
-  it("offers both pairing flows", async () => {
-    const wrapper = mount(PairingPanel, { global: GLOBAL() });
-    await flushPromises();
-    expect(wrapper.text()).toContain("Show pairing QR");
-    expect(wrapper.text()).toContain("This is the new device");
-  });
-
-  it("disables pairing with a reason in airplane mode", async () => {
-    localStorage.setItem("enigma:offline", "on");
-    const wrapper = mount(PairingPanel, { global: GLOBAL() });
-    await flushPromises();
-    expect(wrapper.text()).toContain("Offline — all network connections are blocked.");
-    const showQr = wrapper.findAll("button").find((b) => b.text().includes("Show pairing QR"))!;
-    expect(showQr.attributes("disabled")).toBeDefined();
-  });
-
-  it("surfaces a pairing-join failure as an error (no Tauri runtime here)", async () => {
-    const wrapper = mount(PairingPanel, { global: GLOBAL() });
-    await flushPromises();
-    const ticketInput = wrapper
-      .findAll("input")
-      .find((el) => (el.element as HTMLInputElement).type === "text" && el.classes().includes("font-mono"))!;
-    await ticketInput.setValue("lqaa-fake-ticket");
-    const linkBtn = wrapper.findAll("button").find((b) => b.text() === "Link")!;
-    await linkBtn.trigger("click");
-    await flushPromises();
-    expect(wrapper.text().length).toBeGreaterThan(0); // error line rendered, not a crash
+    expect(wrapper.findAll("button").some((b) => b.text() === "Pairing")).toBe(false);
+    expect(wrapper.text()).not.toContain("Show pairing QR");
+    expect(wrapper.text()).not.toContain("This is the new device");
   });
 });
 

@@ -481,7 +481,7 @@ below) / `export_state` + `import_state` (serializable session).
   (`h_i = BLAKE3(h_{i-1} ‖ seq ‖ chunk)`, seeded from the offer id, root in a trailer
   frame) lets the receiver detect a dropped, reordered or altered chunk; a size and
   chunk-count check runs regardless. Applies to all three transfer features (chat
-  share, Maps regions, Files→Devices) — they share `file_xfer.rs`.
+  share, Maps regions, linked-device file sync) — they share `file_xfer.rs`.
 - **Voice-call media** → a *separate*, ephemeral per-call MLS group (a 2-member
   `RotorSession` keyed by the `call_id`) whose **RFC 9420 exporter secret**
   (`export_secret`) derives two directional 256-bit keys → two **ChaCha20-Poly1305**
@@ -630,18 +630,12 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   ticket/QR, by room member (signaled over the chat's MLS seam), or by DHT
   nickname / saved contact where the build has the DHT and Contacts; live
   spectrum equalizer; incoming-call nav dot.
-- **Files** (`EnigmaFilesView`) — four sub-tabs: **P2P** (offer/accept transfers
+- **Files** (`EnigmaFilesView`) — three sub-tabs: **P2P** (offer/accept transfers
   with progress, max-size guard), **Local** (passphrase-lock files in place,
-  ENIGLOCK), **Keys** (`KeyringPanel` — one passphrase over many locked files,
-  gated by `keyring.enabled`), and **Devices** (`DevicesTab` — the user's OWN
-  linked devices, never a room peer):
-  an always-visible list of linked devices (kind, this-device badge, per-device
-  online dot, last sync, unlink) over two sub-sub-tabs — **Files**, a shared list
-  of allowed files with checkboxes, Select all and explicit **Push**/**Pull**
-  buttons (nothing transfers by itself; identical copies are skipped by hash;
-  received files land in `<profile>/synced/`), and **Pairing** (the QR pairing +
-  join flows, moved here from Settings). Compile-time gated
-  (`devices.allow_linking`); see fsync.md and sync.md.
+  ENIGLOCK), and **Keys** (`KeyringPanel` — one passphrase over many locked
+  files, gated by `keyring.enabled`). The former **Devices** sub-tab is removed
+  as of 2026-08-19; new-device QR pairing is parked in limbo and already-linked
+  profiles continue to sync in the background. See fsync.md and sync.md.
 - **Contacts** (`EnigmaContactsView`) — saved peers with DHT presence ("recently
   online"), find-by-nickname, invite-to-room, call buttons ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 - **Calendar** (`EnigmaCalendarView`) — room-scoped meetings + scheduling polls over
@@ -1065,15 +1059,15 @@ instead of hardcoding.
 | Key-ring kill switch | `build_config.yaml` `keyring.enabled` | Compile-time, **Pro only**: `false` builds without the key ring (one passphrase locking MANY local files) — every `keyring_*` command errors `KEYRING_DISABLED`. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` is device-local — deliberately NOT in the device-link sync allow-list (it holds raw file keys + absolute local paths) |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |
-| Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time: `false` builds without the Files→Devices tab (pairing AND per-file sync) and every `devlink_*` command errors `DEVLINK_DISABLED`. Linking is pure P2P (iroh), so it ships **on** by default |
-| Devlink pairing window / resync cadence | kv `p2p:settings` / `devlink_pair_window_secs`, `devlink_resync_secs` | Window bounds how long a pairing QR's one-time secret stays redeemable (default 600 s, 60–3600; read Rust-side in `device_link.rs`); resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list. Pairing dials use `connect_timeout_secs` like every other connect deadline |
+| Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time gate for linked-device sync internals. The Files→Devices UI and QR pairing are parked as of 2026-08-19; already-linked profiles can still use the devlink room |
+| Devlink resync cadence | kv `p2p:settings` / `devlink_resync_secs` | Resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
 | Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests. `build_config.yaml` `app:` must mirror it — `build.rs` fails the build on drift |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
-| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions, Files→Devices). The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
+| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions, linked-device file sync). The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
 | PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |

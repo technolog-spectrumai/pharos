@@ -1,10 +1,17 @@
-# Files → Devices — implementation plan (fsync.md)
+# Device File Sync — implementation plan (fsync.md)
 
 **Status: IMPLEMENTED 2026-07-26** (branch `device_files`) — rakotis 208 vitest ·
 enigma 502 vitest · cargo 112 · Playwright 16 · vue-tsc + vite build clean.
 
 **Tree redesign 2026-08-06** (§0 below) — rakotis 278 · enigma 657 · cargo 153 ·
 enigma_builder 226 · vue-tsc + vite build clean.
+
+**Pairing parked 2026-08-19** — The former Pairing sub-tab is archived in limbo
+for Zinnia; already-linked profiles continue to sync.
+
+**Files sub-tab removed 2026-08-19** — EnigmaFilesView no longer exposes a
+Devices pill at all. The lower-level linked-device file-sync code remains for
+compatibility/background handling, but there is no active Files → Devices UI.
 
 ## 0. The tree redesign (2026-08-06) — decisions D9–D15
 
@@ -57,9 +64,9 @@ separate feature that shipped alongside: one passphrase, many files, sealed
 per-file DEKs wrapped under a ring KEK in `<profile_dir>/keyring.enig`,
 device-local by design (never in `DEVLINK_SYNC_KV`) — see `keyring.rs`.
 
-Per-file **Push/Pull** between the user's **own** linked devices, plus the new
-home for everything device-related: Settings → Devices is gone; Files → Devices
-took its place.
+Per-file **Push/Pull** between the user's **own** linked devices was originally
+hosted under Files → Devices. That Files sub-tab is now removed; the lower-level
+model remains for compatibility/background handling.
 
 ## Decision log (Q&A, 2026-07-26)
 
@@ -75,8 +82,8 @@ took its place.
   device tracks its own path. Removing an entry never deletes bytes.
 - **D4 — Settings → Devices removed entirely.** No deep links existed (`?tab=`
   greps clean; an unknown tab already falls back to "settings").
-- **D5 — the device list is a first-class header** in the Devices tab, visible
-  above both sub-sub-tabs, not buried in the pairing forms.
+- **D5 — superseded:** the device list was a first-class header in the Devices
+  tab; the tab is now removed from Files.
 - **D6 — own devices only.** Everything rides the devlink machinery (registry,
   hidden room, link-key admission). A friend can never appear here; this is
   disjoint from the room-peer P2P file share in Files → P2P.
@@ -193,14 +200,14 @@ separators/control/leading dot, ≤120, falls back to `"file"`), `unique_dest`
 | File | Role |
 | --- | --- |
 | `stores/fileSync.ts` | batches, the file_xfer chain, `dlink_file_*` handling, local records, selection |
-| `components/devices/DevicesTab.vue` | device-list header + Files/Pairing sub-sub-tabs |
-| `components/devices/FileSyncPanel.vue` | the allowed-files list: checkboxes, Select all, Push/Pull, per-row state + outcome, add/remove/open-folder, blocked-with-reason |
-| `components/devices/PairingPanel.vue` | pairing QR + join + confirm modal (extracted from the deleted `DevicesPanel.vue`) |
-| `views/EnigmaFilesView.vue` | 4th pill `Devices`, gated by `devices_allow_linking` |
+| `components/devices/DevicesTab.vue` | parked UI: device-list header + file-sync panel |
+| `components/devices/FileSyncPanel.vue` | parked UI for the allowed-files list |
+| `components/devices/PairingPanel.vue` | parked in `limbo/frontend/device-pairing/` |
+| `views/EnigmaFilesView.vue` | Devices pill removed; Files shows P2P / Local / Keys only |
 | `views/EnigmaConfigView.vue` | Devices tab removed (import, flag, ConfigTab member, query branch, pill, mount) |
 | `App.vue` | `fileSyncStore.init()` after chat init (a push must land with the tab closed) + `isBusy()` covers batches/receives for idle-lock |
 | `stores/devices.ts` | + `onlineLeafIds` for the per-row dot |
-| i18n | `files.devicesTab` + the `fsync.*` namespace (en/pl) |
+| i18n | `files.devicesTab` removed; `fsync.*` remains for parked/device-sync internals |
 
 ## 6. Tests
 
@@ -214,12 +221,10 @@ separators/control/leading dot, ≤120, falls back to `"file"`), `unique_dest`
 - app `fileSyncStore.test.ts` (15) — add/dedupe/remove, push skip-by-hash,
   missing, too-large, sent-on-done, receive chain end-to-end, unknown-entry
   ignore, failed import, pull pre-filter, answering a pull, selection + row state.
-- component `devices.test.ts` (9) — header list w/ online dots + unlink, sub-tab
-  switch, pairing gates, file-list select-all/toggle, disabled without a peer.
+- component `devices.test.ts` — parked device-list/file-list component coverage.
 - Rust `file_sync.rs` (4) — sanitizers, unique_dest, verify_and_place (hash
   mismatch discards; prior path outside `synced/` refused).
-- e2e `devices.spec.ts` (4) — Files → Devices renders, Pairing carries both
-  flows, honest error without the runtime, and Settings has no Devices tab.
+- e2e `noDevicesTab.spec.ts` — Files and Settings expose no Devices tab.
 
 ## 7. Risks & accepted limitations
 
@@ -251,16 +256,16 @@ apps/enigma/src-tauri/src/maps.rs                    ~  blake3_file → pub(crat
 apps/enigma/src-tauri/src/device_link.rs             ~  negative pin (test only)
 apps/enigma/src/stores/fileSync.ts                   +  batches + transfers
 apps/enigma/src/stores/devices.ts                    ~  onlineLeafIds
-apps/enigma/src/components/devices/DevicesTab.vue    +  header list + sub-sub-tabs
-apps/enigma/src/components/devices/FileSyncPanel.vue +  the allowed-files list
-apps/enigma/src/components/devices/PairingPanel.vue  +  pairing (extracted)
+apps/enigma/src/components/devices/DevicesTab.vue    ~  parked header/list UI
+apps/enigma/src/components/devices/FileSyncPanel.vue ~  parked allowed-files UI
+limbo/frontend/device-pairing/PairingPanel.vue       +  pairing parked
 apps/enigma/src/components/devices/DevicesPanel.vue  -  deleted (split in two)
-apps/enigma/src/views/EnigmaFilesView.vue            ~  4th pill
+apps/enigma/src/views/EnigmaFilesView.vue            ~  Devices pill removed
 apps/enigma/src/views/EnigmaConfigView.vue           ~  Devices tab removed
 apps/enigma/src/App.vue                              ~  init + isBusy
-apps/enigma/src/i18n/{en,pl}.ts                      ~  files.devicesTab + fsync.*
+apps/enigma/src/i18n/{en,pl}.ts                      ~  files.devicesTab removed
 apps/enigma/tests/unit/fileSyncStore.test.ts         +
 apps/enigma/tests/component/devices.test.ts          ~  rewritten for the split
-apps/enigma/tests/e2e/devices.spec.ts                ~  rewritten via Files
+apps/enigma/tests/e2e/noDevicesTab.spec.ts           +  Files/Settings absence
 sync.md · technology.md · build.md · fsync.md        ~/+ docs
 ```

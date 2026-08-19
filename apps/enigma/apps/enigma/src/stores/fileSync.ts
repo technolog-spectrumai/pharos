@@ -1,4 +1,4 @@
-// Files → Devices — per-file Push/Pull between the user's OWN linked devices.
+// Device-file sync — per-file Push/Pull between the user's OWN linked devices.
 //
 // Nothing here is automatic: the user checks entries and presses Push or Pull,
 // and that press is the consent for overwriting the destination copy. The

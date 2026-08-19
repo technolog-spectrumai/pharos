@@ -107,8 +107,8 @@ export interface BuildConfig {
   /** PIN unlock: a short in-session re-unlock after an idle lock. The passphrase
    *  still opens the vault at cold start — the PIN never protects data at rest. */
   pin_unlock: boolean;
-  /** false = this build has no device linking: devlink_* commands error with
-   *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
+  /** false = this build has no linked-device sync channel. The old Files→Devices
+   *  UI is removed regardless of this flag. */
   devices_allow_linking: boolean;
   use_tor_default: boolean;
   stable_onion_default: boolean;
