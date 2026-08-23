@@ -8,7 +8,7 @@ import { useChatStore } from "./stores/chat";
 import { useMapStore } from "./stores/map";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
 import PinPad from "./components/PinPad.vue";
-import { barIcon } from "./assets/logos";
+import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, useHideLock, type IdleLockHandle, type HideLockHandle } from "./idleLock";
 import { isTabVisible, loadTabVisibility } from "./tabs";
@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
     >
       <div class="w-full max-w-sm space-y-5">
         <div class="space-y-2 text-center">
-          <img :src="barIcon" :alt="brand.name" class="mx-auto h-14 w-14 rounded-xl object-contain" />
+          <img :src="appIcon" :alt="brand.name" class="mx-auto h-28 w-28 rounded-2xl object-contain sm:h-32 sm:w-32" />
           <h1 class="text-2xl font-bold">{{ brand.name }}</h1>
           <p v-if="gateMode !== 'loading'" class="text-sm opacity-70">
             {{ gateMode === 'setup'
