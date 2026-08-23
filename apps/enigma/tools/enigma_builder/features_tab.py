@@ -57,12 +57,6 @@ GATE_HINTS: dict[str, tuple[str, str]] = {
         "Calendar",
         "Meetings, polls and the reminder tick.",
     ),
-    "peers.enabled": (
-        "Peer sync",
-        "Person-to-person scoped sync. Off = the enigma/plink/0 ALPN is not "
-        "registered, so a request from a peer with the gate is refused at "
-        "negotiation.",
-    ),
     "maps.enabled": (
         "Maps",
         "The Map tab and every map_* command. Regions come from "

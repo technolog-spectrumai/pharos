@@ -635,7 +635,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   ENIGLOCK), and **Keys** (`KeyringPanel` — one passphrase over many locked
   files, gated by `keyring.enabled`). The former **Devices** sub-tab is removed
   as of 2026-08-19; new-device QR pairing is parked in limbo and already-linked
-  profiles continue to sync in the background. See fsync.md and sync.md.
+  profiles continue to sync in the background. Parked 2026-08-18 — see limbo/frontend/devices/.
 - **Contacts** (`EnigmaContactsView`) — saved peers with DHT presence ("recently
   online"), find-by-nickname, invite-to-room, call buttons ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 - **Calendar** (`EnigmaCalendarView`) — room-scoped meetings + scheduling polls over
@@ -927,7 +927,7 @@ Settings → "Clear all data".
   sealed kv like everything else — coordinates never persist
   outside the vault. The region *blobs* are the documented plaintext exception
   (see §8 at-rest posture).
-- **Device file sync (fsync.md):** the shared allowed-files list (ns `filesync`,
+- **Device file sync** (parked, limbo/frontend/devices/fsync.md): the shared allowed-files list (ns `filesync`,
   key `""`) and this device's paths/hashes for it (key `local`) are sealed kv.
   The list replicates between linked devices over the devlink room's own
   `dlink_files` message — deliberately NOT through DEVLINK_SYNC_KV — and the
@@ -1153,7 +1153,7 @@ voice-note recording; offline profiles and the airplane switch.
   manifest verified), P2P region sharing over file_xfer, pins/routes as MLS chat
   cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
 - **Multi-device (linked devices)** (`device_link.rs` + rakotis `useDeviceSync`,
-  plan + decisions in [sync.md](sync.md)): QR pairing streams an E2EE one-shot
+  plan + decisions in [limbo/frontend/devices/sync.md](limbo/frontend/devices/sync.md)): QR pairing streams an E2EE one-shot
   bundle (rooms/tickets, contacts, calendar, settings subset, personas, chat
   history) over a dedicated iroh QUIC endpoint; each device is its own MLS leaf
   (`user#dev-xxxxxxxx`, grouped by user in rosters) and ongoing catch-up rides a

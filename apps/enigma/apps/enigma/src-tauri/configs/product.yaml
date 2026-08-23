@@ -58,10 +58,6 @@ calendar:
   # instantiated (no meetings, no polls, no reminder tick).
   enabled: true
 
-peers:
-  # false = no peer sync: the `enigma/plink/0` ALPN is not registered,
-  # usePeerSync is never instantiated, peer_* fail with PEERS_DISABLED.
-  enabled: true
 
 maps:
   # false = no Maps: no Map tab, /map redirects, every map_* command fails with
@@ -98,7 +94,6 @@ settings:
   map_storage_limit_mb: { default: 512, min: 64, max: 65536 }
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 }
   idle_lock_mins: { default: 15, min: 0, max: 120 }
-  peer_resync_secs: { default: 300, min: 30, max: 3600 }
   file_chunk_kib: { default: 256, min: 16, max: 4096 }
   pin_digits: { default: 6, min: 4, max: 12 }
 

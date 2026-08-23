@@ -244,18 +244,6 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
             ),
         );
     }
-    if crate::build_config::peers::ENABLED {
-        // Peer-link requests (peer.md) ride this endpoint too, so a contact can
-        // ask for a scoped sync link at the NodeId they already have saved.
-        router = router.accept(
-            crate::peer_link::PEER_ALPN,
-            crate::peer_link::PeerProtocol::new(
-                app.clone(),
-                tauri::Manager::state::<crate::peer_link::PeerLinkState>(app).inner().clone(),
-                endpoint.id().to_string(),
-            ),
-        );
-    }
     if crate::build_config::calls::ENABLED {
         // Voice calls (vox) ride this same endpoint too, so a callee is reachable at
         // the stable NodeId their contacts/nickname already resolve to.

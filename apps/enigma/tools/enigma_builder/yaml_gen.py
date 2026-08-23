@@ -46,7 +46,6 @@ SCALAR_PATHS = (
     "calls.enabled",
     "contacts.enabled",
     "calendar.enabled",
-    "peers.enabled",
     "maps.enabled",
     "keyring.enabled",
     "lock.pin_unlock",
@@ -158,11 +157,6 @@ calendar:
   # false = no Calendar: no tab, /calendar redirects, useMeetings is never
   # instantiated (no meetings, no polls, no reminder tick).
   enabled: $calendar_enabled
-
-peers:
-  # false = no peer sync: the `enigma/plink/0` ALPN is not registered,
-  # usePeerSync is never instantiated, peer_* fail with PEERS_DISABLED.
-  enabled: $peers_enabled
 
 maps:
   # false = no Maps: no Map tab, /map redirects, every map_* command fails with

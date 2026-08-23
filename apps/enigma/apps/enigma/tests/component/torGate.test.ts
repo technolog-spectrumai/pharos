@@ -1,7 +1,7 @@
 // Tor mode disables what cannot work over Tor — visibly, not by hiding it.
 //
 // The backend already fails these commands (vox.rs / file_xfer.rs /
-// device_link.rs / peer_link.rs all return TOR_BLOCKED); these tests pin the
+// vox.rs / file_xfer.rs return TOR_BLOCKED); these tests pin the
 // frontend half of the contract: the buttons stay rendered, become disabled,
 // a reason is shown, and flipping the store re-enables them live — no remount.
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -172,16 +172,14 @@ describe("file transfer in Tor mode", () => {
 });
 
 describe("the network store", () => {
-  it("blocks all three iroh capabilities in Tor mode, none otherwise", () => {
+  it("blocks both iroh capabilities in Tor mode, none otherwise", () => {
     const network = useNetworkStore();
     expect(network.canCall).toBe(true);
     expect(network.canFileTransfer).toBe(true);
-    expect(network.canPeerSync).toBe(true);
 
     network.useTor = true;
     expect(network.canCall).toBe(false);
     expect(network.canFileTransfer).toBe(false);
-    expect(network.canPeerSync).toBe(false);
     expect(network.blockedReasonKey).toBe("network.blockedTor");
   });
 

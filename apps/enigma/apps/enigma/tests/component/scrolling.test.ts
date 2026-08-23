@@ -48,11 +48,8 @@ import { loadTabVisibility } from "../../src/tabs";
 
 (i18n.global.locale as any).value = "en";
 
-// Peer links drag in an app-wide modal + store that have nothing to do with
 // layout; off here so the mount stays about the shell (mirrors tabVisibility).
-await initBuildConfig({ peers_enabled: false });
 afterAll(async () => {
-  await initBuildConfig({ peers_enabled: true });
 });
 
 let pinia: ReturnType<typeof createPinia>;

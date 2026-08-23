@@ -27,7 +27,6 @@ struct RawConfig {
     calls: CallsSection,
     contacts: ContactsSection,
     calendar: CalendarSection,
-    peers: PeersSection,
     maps: MapsSection,
     keyring: KeyringSection,
     lock: LockSection,
@@ -93,12 +92,6 @@ struct CalendarSection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PeersSection {
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct MapsSection {
     enabled: bool,
 }
@@ -134,7 +127,6 @@ struct SettingsSection {
     map_storage_limit_mb: Clamp,
     chat_history_cap_msgs: Clamp,
     idle_lock_mins: Clamp,
-    peer_resync_secs: Clamp,
     file_chunk_kib: Clamp,
     pin_digits: Clamp,
 }
@@ -291,7 +283,6 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         ("settings.chat_history_cap_msgs", &cfg.settings.chat_history_cap_msgs, 10u64),
         // floor 0: auto-lock off is a legitimate configuration.
         ("settings.idle_lock_mins", &cfg.settings.idle_lock_mins, 0u64),
-        ("settings.peer_resync_secs", &cfg.settings.peer_resync_secs, 10u64),
         // floor 16 KiB: below that the per-chunk MLS overhead dominates.
         ("settings.file_chunk_kib", &cfg.settings.file_chunk_kib, 16u64),
         // floor 4 digits: the PIN only re-opens an already-unlocked session, but
@@ -410,9 +401,6 @@ pub mod settings {{
     pub const IDLE_LOCK_DEFAULT_MINS: u64 = {il_def};
     pub const IDLE_LOCK_MIN_MINS: u64 = {il_min};
     pub const IDLE_LOCK_MAX_MINS: u64 = {il_max};
-    pub const PEER_RESYNC_DEFAULT_SECS: u64 = {pr_def};
-    pub const PEER_RESYNC_MIN_SECS: u64 = {pr_min};
-    pub const PEER_RESYNC_MAX_SECS: u64 = {pr_max};
     pub const FILE_CHUNK_DEFAULT_KIB: u64 = {fc_def};
     pub const FILE_CHUNK_MIN_KIB: u64 = {fc_min};
     pub const FILE_CHUNK_MAX_KIB: u64 = {fc_max};
@@ -438,10 +426,6 @@ pub mod contacts {{
 
 pub mod calendar {{
     pub const ENABLED: bool = {calendar_enabled};
-}}
-
-pub mod peers {{
-    pub const ENABLED: bool = {peers_enabled};
 }}
 
 pub mod maps {{
@@ -524,9 +508,6 @@ const _: () = assert!(
         il_def = cfg.settings.idle_lock_mins.default,
         il_min = cfg.settings.idle_lock_mins.min,
         il_max = cfg.settings.idle_lock_mins.max,
-        pr_def = cfg.settings.peer_resync_secs.default,
-        pr_min = cfg.settings.peer_resync_secs.min,
-        pr_max = cfg.settings.peer_resync_secs.max,
         fc_def = cfg.settings.file_chunk_kib.default,
         fc_min = cfg.settings.file_chunk_kib.min,
         fc_max = cfg.settings.file_chunk_kib.max,
@@ -540,7 +521,6 @@ const _: () = assert!(
         calls_enabled = cfg.calls.enabled,
         contacts_enabled = cfg.contacts.enabled,
         calendar_enabled = cfg.calendar.enabled,
-        peers_enabled = cfg.peers.enabled,
         maps_enabled = cfg.maps.enabled,
         keyring_enabled = cfg.keyring.enabled,
         pin_unlock = cfg.lock.pin_unlock,

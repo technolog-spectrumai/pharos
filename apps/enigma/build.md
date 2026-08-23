@@ -183,7 +183,7 @@ details):
   makes every `vox_*` command error `CALLS_DISABLED`. These are what the product
   editions are made of — see [pland.md](pland.md). `peers` additionally
   withholds the `enigma/plink/0` ALPN and makes every `peer_*` command error
-  `PEERS_DISABLED` (see peer.md); `maps` has no other knobs, because the app has
+  `PEERS_DISABLED` (parked — see limbo/frontend/peers/peer.md); `maps` has no other knobs, because the app has
   no tile-fetch path at all — region packages are produced by the standalone
   `tools/map_packager` and imported from the device (see map.md Part II).
   (The `kanban`, `sketch` and `mind` sections were removed on 2026-07-27 when

@@ -41,6 +41,27 @@ Parked here, restorable later:
   feature and kept the shared draft-polyline engine, so restoring is purely
   additive — see `frontend/map-routes/NOTES.md` for the two fix-ups to reverse.
 
+- **Device linking + multi-device sync** (2026-08-18) — `frontend/devices/` and
+  `rust/devices/`. QR pairing, the device registry, chat-log/kv convergence
+  between a user's own devices, and the Files→Devices per-file push/pull, parked
+  together: pairing was the only way to create a device link, so the rest was
+  unreachable once it went. **Zinnia is reimplementing this.** Note that
+  `deviceSyncModel.ts` was SPLIT rather than parked — the chat-history and
+  leaf-identity half stayed as `packages/rakotis/src/chatHistoryModel.ts`,
+  because chat and peer sync import it. `NOTES.md` carries the design, the
+  bugs that were expensive to find (the QR ticket minted before
+  `endpoint.online()`, the unbounded verdict wait that reported a timeout as a
+  refusal), and a step-by-step restore checklist.
+
+- **Peer links — scoped person-to-person sync** (2026-08-18) —
+  `frontend/peers/` and `rust/peers/`. A pairwise key, a hidden gossip room and
+  a per-direction allow-list of what two *different* people share. Parked
+  because the grant persisted a 32-byte link key per contact — exposure that
+  was not wanted — and the feature cost more to maintain than it returned.
+  `NOTES.md` records the domain separation from device linking (a live test in
+  `usePeerSync.test.ts` still pins it, with the foreign HMAC label inlined),
+  why the allow-list is per-grant rather than global, and the restore steps.
+
 - **Sketch realtime collaboration** (2026-07) — `frontend/sketch-collab/`. The Sketch
   board shipped as a shared per-room whiteboard (LWW-element-set CRDT + hybrid logical
   clock, live stroke streaming, snapshots for late joiners, all over the MLS `onSync`/

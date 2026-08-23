@@ -48,7 +48,6 @@ def test_standard_is_basic_plus_connectivity(editions):
     assert differing == {
         "p2p.allow_hosted_relays",
         "dht.enabled",
-        "peers.enabled",
         "keyring.enabled",
         "calls.enabled",
     }

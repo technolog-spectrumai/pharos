@@ -60,7 +60,7 @@ Basic plus the connectivity layer.
 to a saved NodeId from anywhere) · **the Mainline DHT** (ticketless
 join-by-room-code, the nickname directory, presence — still opt-in per
 profile) · **Peer sync** (scoped, revocable person-to-person links — see
-[peer.md](peer.md)) · **Key ring** (one passphrase, many locked files) ·
+[limbo/frontend/peers/peer.md](limbo/frontend/peers/peer.md)) · **Key ring** (one passphrase, many locked files) ·
 **Vox** (1:1 voice calls).
 
 **Who it's for:** the ordinary case — people on different networks who want
@@ -240,7 +240,7 @@ which the code carries) and reconnects by persisted NodeIds instead.
    meeting". A capability byte in the MLS-carried presence/join payload would
    fix it; today the degradation is silent. Peer sync makes this sharper: a sync
    request to a peer without that gate is refused at ALPN negotiation and the
-   requester cannot explain why (peer.md §6).
+   requester cannot explain why (limbo/frontend/peers/peer.md §6).
 3. **Upgrade path.** Moving a profile from Basic to Professional is "install the other
    build and point it at the same profile" — the vault format is
    edition-independent, so this works, but it is untested and undocumented.

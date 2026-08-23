@@ -14,9 +14,6 @@ export * from "./services/mapData";
 export * from "./mapModel";
 export * from "./chatHistoryModel";
 export * from "./services/chatLog";
-export * from "./peerSyncModel";
-export { usePeerSync, peerKpProof } from "./usePeerSync";
-export type { PeerSync, PeerSyncSources } from "./usePeerSync";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────

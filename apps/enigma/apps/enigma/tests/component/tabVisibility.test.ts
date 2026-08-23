@@ -37,11 +37,9 @@ import { loadTabVisibility, setTabVisible } from "../../src/tabs";
 
 (i18n.global.locale as any).value = "en";
 
-// Peer links are a separate build gate and drag in an app-wide modal + store
 // that have nothing to do with tabs; off here so the mount stays about the nav.
-await initBuildConfig({ peers_enabled: false });
 afterAll(async () => {
-  await initBuildConfig({ peers_enabled: true, calls_enabled: true });
+  await initBuildConfig({ calls_enabled: true });
 });
 
 let pinia: ReturnType<typeof createPinia>;

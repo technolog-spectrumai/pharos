@@ -95,7 +95,6 @@ export interface BuildConfig {
   /** false = this build has no peer sync: the `enigma/plink/0` ALPN is not
    *  registered, usePeerSync is never instantiated, and every peer_* command
    *  errors with PEERS_DISABLED. (peer.md; pland.md — Pro only.) */
-  peers_enabled: boolean;
   /** false = this build has no Maps: no Map tab, /map redirects, map_* commands
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
@@ -121,7 +120,6 @@ export interface BuildConfig {
   /** Auto-lock: minutes of inactivity before the vault re-locks. 0 = never. */
   idle_lock_mins: SettingClamp;
   /** Peer sync: seconds between a live link's hello + diff pull. */
-  peer_resync_secs: SettingClamp;
   /** P2P transfer chunk, KiB — the "file chunk size" setting's bounds. */
   file_chunk_kib: SettingClamp;
   /** Digits in the unlock PIN. */
@@ -141,7 +139,6 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   calls_enabled: true,
   contacts_enabled: true,
   calendar_enabled: true,
-  peers_enabled: true,
   maps_enabled: true,
   keyring_enabled: true,
   pin_unlock: true,
@@ -155,7 +152,6 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   map_storage_limit_mb: { default: 512, min: 64, max: 65536 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
-  peer_resync_secs: { default: 300, min: 30, max: 3600 },
   file_chunk_kib: { default: 256, min: 16, max: 4096 },
   pin_digits: { default: 6, min: 4, max: 12 },
   file_integrity_default: true,
@@ -337,33 +333,6 @@ export async function setHiddenTabs(ids: readonly string[]): Promise<void> {
   await kvPut("p2p:settings", "default", KEY_HIDDEN_TABS, JSON.stringify([...ids])).catch(() => {});
 }
 
-// ── Peer-sync resync interval (peer.md) ───────────────────────────────────────
-// How often a live peer link re-announces (plink_hello) and pulls the diff for
-// its granted scopes. Device-local, like the devlink cadence above — never in
-// any sync allow-list.
-
-export function clampPeerResyncSecs(secs: number): number {
-  const c = getBuildConfig().peer_resync_secs;
-  if (!Number.isFinite(secs)) return c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
-}
-
-export async function getPeerResyncSecs(): Promise<number> {
-  const c = getBuildConfig().peer_resync_secs;
-  try {
-    const raw = await kvGet("p2p:settings", "default", "peer_resync_secs");
-    if (raw === null || raw === "") return c.default;
-    return clampPeerResyncSecs(Number(raw));
-  } catch {
-    return c.default;
-  }
-}
-
-export async function setPeerResyncSecs(secs: number): Promise<number> {
-  const v = clampPeerResyncSecs(secs);
-  await kvPut("p2p:settings", "default", "peer_resync_secs", String(v)).catch(() => {});
-  return v;
-}
 
 // ── Chat history cap (persisted per-room message log, in messages) ─────────────
 // Bounds the sealed chat:log kv namespace per room; the oldest segment is

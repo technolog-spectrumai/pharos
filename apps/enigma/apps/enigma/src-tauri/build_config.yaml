@@ -70,12 +70,6 @@ calendar:
   # useMeetings is never instantiated (no meetings, no polls, no reminder tick).
   enabled: true
 
-peers:
-  # false = this build has no peer sync: no Peers surface, the `enigma/plink/0`
-  # ALPN is not registered (a request from a Pro peer is refused at negotiation),
-  # usePeerSync is never instantiated, and every peer_* command fails fast with
-  # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
-  enabled: true
 
 maps:
   # false = this build has no Maps: no Map tab, /map redirects, and every map_*
@@ -127,8 +121,6 @@ settings:
   # app returns to the passphrase gate. 0 = never auto-lock. A live call or
   # in-flight transfer defers the countdown (see src/idleLock.ts).
   idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
-  # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
-  peer_resync_secs:         { default: 300, min: 30, max: 3600 }
   # P2P transfer chunk, KiB ("file chunk size" in Settings). Each chunk
   # rides as one MLS message; max must fit network.max_frame_bytes.
   file_chunk_kib:           { default: 256, min: 16, max: 4096 }

@@ -39,7 +39,6 @@ SETTINGS_FLOORS: dict[str, int] = {
     "map_storage_limit_mb": 1,
     "chat_history_cap_msgs": 10,
     "idle_lock_mins": 0,
-    "peer_resync_secs": 10,
     # Below 16 KiB the per-chunk MLS overhead dominates the payload.
     "file_chunk_kib": 16,
     # Fewer than four digits would be guessable by hand at the keypad.
@@ -60,7 +59,6 @@ FEATURE_GATES = (
     ("calls.enabled", "Voice calls"),
     ("contacts.enabled", "Contacts"),
     ("calendar.enabled", "Calendar"),
-    ("peers.enabled", "Peer sync"),
     ("maps.enabled", "Maps"),
     ("keyring.enabled", "Keyring"),
     ("lock.pin_unlock", "PIN unlock"),

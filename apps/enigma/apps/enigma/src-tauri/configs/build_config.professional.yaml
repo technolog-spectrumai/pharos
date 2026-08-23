@@ -49,12 +49,6 @@ contacts:
 calendar:
   enabled: true
 
-peers:
-  # false = this build has no peer sync: no Peers surface, the `enigma/plink/0`
-  # ALPN is not registered (a request from a maps-capable peer is refused at negotiation),
-  # usePeerSync is never instantiated, and every peer_* command fails fast with
-  # PEERS_DISABLED. Person-to-person scoped sync — see peer.md.
-  enabled: true
 
 maps:
   enabled: true
@@ -80,8 +74,6 @@ settings:
   map_storage_limit_mb:  { default: 512, min: 64, max: 65536 }   # total on-disk map regions
   chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
   idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
-  # Peer sync (peer.md): how often a live link re-announces and pulls a diff.
-  peer_resync_secs:         { default: 300, min: 30, max: 3600 }
   file_chunk_kib:           { default: 256, min: 16, max: 4096 }
   pin_digits:               { default: 6, min: 4, max: 12 }
 

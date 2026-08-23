@@ -57,8 +57,6 @@ export const useNetworkStore = defineStore("network", () => {
   const canCall = computed(() => !irohBlocked.value);
   /** P2P file transfer (file_xfer.rs: iroh-only, any size — large ones just fail slower). */
   const canFileTransfer = computed(() => !irohBlocked.value);
-  /** Peer sync links (peer_link.rs). */
-  const canPeerSync = computed(() => !irohBlocked.value);
 
   /** i18n key for the shared "why is this disabled" line; "" when nothing is. */
   const blockedReasonKey = computed(() =>
@@ -67,6 +65,6 @@ export const useNetworkStore = defineStore("network", () => {
 
   return {
     offline, useTor, loaded, refresh, setOffline, setUseTor,
-    canCall, canFileTransfer, canPeerSync, blockedReasonKey,
+    canCall, canFileTransfer, blockedReasonKey,
   };
 });

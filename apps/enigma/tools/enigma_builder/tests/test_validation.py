@@ -135,7 +135,6 @@ def test_clamp_ordering(cfg):
         ("dht_room_publish_secs", 10),
         ("map_storage_limit_mb", 1),
         ("chat_history_cap_msgs", 10),
-        ("peer_resync_secs", 10),
         ("file_chunk_kib", 16),
         ("pin_digits", 4),
     ],
