@@ -1,145 +1,73 @@
-# App icons — how a set is made (icons.md)
+# App icons — the shipped mark and how to change it (icons.md)
 
-The Builder does not let a build engineer point at an arbitrary image. It offers
-a **choice between curated icon sets**, each one a directory under
-`tools/enigma_builder/assets/icons/`. Adding a set is how you add a choice.
+The Builder does **not** offer an icon choice. The app icon is part of the
+product's identity, like its name, its bundle id and its version: one mark,
+fixed in the repository, announced on the Identity tab so a build engineer can
+see what they are shipping — and changed here, in code, not per build.
 
-The reason for the constraint: an app icon is not a per-build whim. It is the
-mark a user identifies on their launcher, it has to survive being cropped to a
-circle on Android and shrunk to 32px on a desktop, and a build that ships a
-hastily-cropped screenshot is a build nobody can undo after release. A set is
-reviewed once and reused; an arbitrary file is reviewed never.
+The mark is `sun-key2`, at
+`tools/enigma_builder/assets/icons/sun-key2/`.
 
-## What a set looks like
+## Why fixed rather than chosen
 
-```
-tools/enigma_builder/assets/icons/<set-id>/
-├── icon.png      # the master image (icon.svg is also accepted)
-└── set.json      # what the chooser shows
-```
+An app icon is what a user identifies on their launcher. A build that could
+pick a different one is a build that can ship the wrong brand, and nothing
+downstream would catch it — the artifact installs and runs perfectly with the
+wrong face. Fixing it removes a decision that has exactly one right answer at
+any moment, and the answer belongs in version control beside the name and the
+version it goes out with.
 
-The directory name is the set **id**: lowercase, stable, and what a saved
-product config records. Rename it and existing configs stop resolving. Names
-beginning with `.` or `_` are skipped, so `_wip/` is a convenient scratch space.
-
-### `set.json`
-
-```json
-{
-  "name": "Enigma Blue",
-  "description": "The default mark: an amber rotor on a deep blue field. Reads as an app icon at 32px and survives the Android adaptive-icon crop.",
-  "author": "Enigma26",
-  "version": 1
-}
-```
-
-| Field | Required | What it is |
-|---|---|---|
-| `name` | yes | Display name in the chooser. Two sets may share one; the id breaks the tie. |
-| `description` | no | One or two sentences, shown under the preview. Say what the mark *is* and how it behaves when cropped — that is what the person choosing needs. |
-| `author` | no | Who made it, for provenance. |
-| `version` | no | `set.json` schema version. Only `1` exists; a higher number is refused rather than guessed at. |
-
-### The master image
-
-`icon.png` is what `tauri icon` consumes to generate every size the app ships.
-
-- **Square.** A non-square master is an error, not a warning — Tauri would
-  distort it into every output size.
-- **At least 512×512**, and **1024×1024 recommended**. Below 512 is refused;
-  between 512 and 1024 builds with a warning, because the largest generated
-  sizes are then upscaled from a smaller original.
-- **PNG with alpha**, or **SVG**. An SVG is accepted because Tauri accepts it,
-  but note it is *not* measured — the square and size rules cannot be checked,
-  so the responsibility moves to you.
-- **Keep the mark inside the middle ~66%.** Android's adaptive icon crops the
-  master to a circle, squircle or rounded square depending on the launcher, and
-  anything in the corners is simply gone. Design for the circle, then check the
-  square still looks deliberate.
-- **Test it small.** Most of an icon's life is 32–48px in a taskbar. Fine
-  detail and thin strokes disappear there; a shape and two colours survive.
-
-The same validation the Builder applies to a set is the validation it applied to
-a hand-picked file before — `icons.validate_source`, one implementation, so a
-set that would fail a build is rejected in the chooser rather than at build time.
-
-## The sets that ship
-
-`tools/enigma_builder/assets/icons/` is the known location, and it holds the
-marks that have been used or considered so far: `cross`, `okti`,
-`okti-glasses`, `skull`, `sun-key`, `sun-key2`. Each keeps its untouched
-original beside the generated master:
+## The set
 
 ```
-<set-id>/
+tools/enigma_builder/assets/icons/sun-key2/
 ├── icon.png     # normalised master: square, 1024×1024, what tauri icon consumes
 ├── source.png   # the original as authored — never overwritten
-└── set.json
+└── set.json     # { "name", "description", "author", "version": 1 }
 ```
 
-Most originals were neither square nor 1024: they were **padded** to square on
-transparency (never stretched — the artwork is centred, not distorted) and
-scaled to 1024. `source.png` is kept precisely so a better master can be
-re-derived later without starting from an upscale. Where an original was
-already square and large enough it was used as authored.
+`icon.png` is what `npx tauri icon` consumes; the original is kept beside it so
+a better master can be re-derived later without starting from an upscale. If
+the original is neither square nor 1024, it is **padded** to square on
+transparency (centred, never stretched) and scaled — the artwork is not
+distorted.
 
-Two of them are byte-identical: `okti-glasses/source.png` and
-`skull/source.png` are the same file under two names. Both are offered because
-both names were asked for; delete one directory if that duplication is not
-wanted.
+### Master image requirements
 
-## Adding one
+- **Square**, or it is refused — Tauri would distort it into every output size.
+- **At least 512×512**; **1024×1024 recommended**, below which the largest
+  generated sizes are upscaled from a smaller original.
+- **PNG with alpha**, or **SVG**. An SVG is accepted because Tauri accepts it,
+  but it is *not* measured, so the square and size rules move to you.
+- **Keep the mark inside the middle ~66%.** Android's adaptive icon crops to a
+  circle, squircle or rounded square depending on the launcher; anything in the
+  corners is gone. Design for the circle, then check the square still looks
+  deliberate.
+- **Test it small.** Most of an icon's life is 32–48px in a taskbar, where fine
+  detail and thin strokes disappear.
 
-Adding a set is **a manual step on purpose** — the Builder does not create,
-edit or delete sets. It reads the directory and offers what it finds. That
-keeps the reviewed-once property: a set appears because someone put it there
-deliberately, not because a dialog made it easy.
+The same validation the Builder shows is the one a build runs
+(`icons.validate_source`), so a mark that would fail the build is reported on
+the Identity tab rather than at build time.
 
-1. `mkdir tools/enigma_builder/assets/icons/my-brand`
-2. Put `icon.png` (1024×1024, square, alpha) and `set.json` in it.
-3. Check it without launching anything:
+## Changing the app icon
 
-   ```bash
-   cd tools/enigma_builder
-   venv/bin/python -c "import iconsets; [print(s.id, s.ok, s.problems) for s in iconsets.available_sets()]"
-   QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest tests/test_iconsets.py -q
-   ```
+Deliberately a manual, reviewed step — the Builder never creates, edits or
+deletes sets.
 
-   `tests/test_iconsets.py` asserts that *every* set in `assets/icons/` is
-   valid, so a bad master fails there rather than in a release build.
-4. Launch the Builder → **Identity**. The set appears in the chooser, with its
-   description and a preview. A malformed set appears too, marked with the
-   reason it cannot be used — sets are never hidden silently, because a set that
-   vanishes looks like a Builder bug rather than a missing file.
-5. If you package the Builder, run `bash tools/enigma_builder/package.sh` again:
-   the assets are bundled *into* the executable, so a set added after packaging
-   is not in the binary you copied elsewhere. For a one-off addition without
-   repackaging, drop an `assets/icons/` directory beside the binary, or point
-   `ENIGMA_BUILDER_ICON_SETS` at a directory of sets.
+1. Put the new master at
+   `tools/enigma_builder/assets/icons/<new-id>/icon.png`, with its
+   `source.png` and a `set.json`.
+2. Point the Builder at it: `FIXED_SET_ID` in
+   `tools/enigma_builder/iconsets.py`.
+3. Repackage if you distribute the standalone binary
+   (`bash tools/enigma_builder/package.sh`) — the assets are baked *into* the
+   executable, so a set added afterwards is not in a copy you already handed
+   out. `ENIGMA_BUILDER_ICON_SETS=/dir` overrides the location for a one-off.
 
-## What a product config records
-
-The set **id**, not a path:
-
-```yaml
-# ── product-config extras (Builder-owned; stripped from the build config) ──
-branding:
-  icon: mono
-```
-
-That is the reason the id has to stay stable. A path would name a directory that
-exists on exactly one machine — the engineer who saved the config — and would
-resolve to nothing, or worse to something else, anywhere else. An id either
-matches a set this Builder ships or it does not.
-
-When it does not, the Identity tab falls back to the repo's committed icons
-**and says which set it could not find**. It does not pick a neighbouring set
-and it does not build silently: shipping the wrong mark is the failure this
-whole mechanism exists to prevent.
-
-Product configs written before the chooser existed stored a file path. Those
-still load: the path is matched back to a set by its directory name or by its
-master image, and only an unmatchable path falls back.
+If the set named by `FIXED_SET_ID` is missing or unusable, the Identity tab
+says so and the build keeps the icons already committed in the repo — it never
+silently ships a different mark.
 
 ## What happens at build time
 

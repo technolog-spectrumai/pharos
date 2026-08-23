@@ -52,12 +52,10 @@ def make_set(root: Path, set_id: str, *, name: str | None = "A Set",
 # ----- the sets that actually ship -----------------------------------------
 
 
-def test_the_shipped_sets_are_discovered():
-    found = iconsets.available_sets()
-    assert len(found) >= 2, "at least two example sets are meant to ship"
-    assert {"skull", "cross", "okti", "okti-glasses", "sun-key", "sun-key2"} <= {
-        icon_set.id for icon_set in found
-    }
+def test_the_shipped_set_is_discovered():
+    """One mark ships, and it is the one the Builder is pinned to."""
+    found = {icon_set.id for icon_set in iconsets.available_sets()}
+    assert iconsets.FIXED_SET_ID in found
 
 
 def test_every_shipped_set_is_valid():
@@ -86,11 +84,10 @@ def test_shipped_sets_carry_real_metadata():
         assert icon_set.version == 1
 
 
-def test_the_two_example_sets_look_different():
-    """The chooser's whole value is telling them apart in the preview."""
-    default = iconsets.load_set("skull")
-    mono = iconsets.load_set("cross")
-    assert default.master.read_bytes() != mono.master.read_bytes()
+def test_the_fixed_set_resolves_to_a_real_master_image():
+    chosen = iconsets.fixed_set()
+    assert chosen is not None and chosen.ok
+    assert chosen.master.is_file() and chosen.master.stat().st_size > 0
 
 
 # ----- discovery ------------------------------------------------------------
@@ -287,180 +284,87 @@ def test_a_frozen_build_also_looks_beside_the_executable(tmp_path, monkeypatch):
     assert iconsets.sets_dir() == tmp_path / "bin" / "assets" / "icons"
 
 
-# ----- the Identity tab's chooser -------------------------------------------
+# ----- the Identity tab: one fixed icon, announced not chosen ---------------
 
 
-def test_the_default_choice_keeps_the_repo_icons(app, window):
-    from identity_tab import KEEP_REPO_ICONS
-
+def test_the_app_icon_is_fixed_not_chosen(app, window):
+    """The icon belongs to the product's identity, like its name and version.
+    There is no chooser, and no way to point at anything else."""
     tab = window.identity_tab
-    assert tab.icon_combo.currentIndex() == 0
-    assert tab.icon_combo.currentText() == KEEP_REPO_ICONS
-    assert tab.pending_icon() is None
-    assert tab.pending_icon_id() is None
+    assert not hasattr(tab, "icon_combo")
+    # And nothing in the tab opens a file dialog for an icon.
+    source = Path("identity_tab.py").read_text(encoding="utf-8")
+    assert "QFileDialog" not in source
 
 
-def test_every_shipped_set_is_offered(app, window):
+def test_the_fixed_icon_is_the_one_that_ships(app, window):
     tab = window.identity_tab
-    offered = [tab.icon_combo.itemData(i) for i in range(tab.icon_combo.count())]
-    assert offered[0] is None
-    assert set(offered[1:]) == {s.id for s in iconsets.usable_sets()}
+    assert tab.pending_icon_id() == iconsets.FIXED_SET_ID
+    assert tab.pending_icon() == iconsets.load_set(iconsets.FIXED_SET_ID).master
 
 
-def test_there_is_no_free_form_icon_picker_left(app, window):
-    """The whole requirement: a set, not any file on disk."""
+def test_the_builder_announces_which_icon_it_will_ship(app, window):
+    """A build engineer cannot choose it, so they must at least SEE it."""
     tab = window.identity_tab
-    assert not hasattr(tab, "icon_edit")
-    assert not hasattr(tab, "_browse_icon")
-
-
-def test_choosing_a_set_returns_its_master_path(app, window):
-    tab = window.identity_tab
-    assert tab.select_icon_set("cross") is True
-    assert tab.pending_icon_id() == "cross"
-    assert tab.pending_icon() == iconsets.load_set("cross").master
-    assert tab.pending_icon().is_file()
-
-
-def test_choosing_keep_repo_icons_returns_none(app, window):
-    tab = window.identity_tab
-    tab.select_icon_set("skull")
-    assert tab.pending_icon() is not None
-
-    tab.select_icon_set("")
-    assert tab.pending_icon() is None
-    assert tab.pending_icon_id() is None
-    assert tab.icon_caption.text() == "current"
-
-
-def test_the_preview_and_description_follow_the_choice(app, window):
-    tab = window.identity_tab
-    tab.select_icon_set("skull")
-    chosen = iconsets.load_set("skull")
-    assert tab.icon_caption.text() == "new"
-    assert not tab.icon_preview.pixmap().isNull()
+    chosen = iconsets.load_set(iconsets.FIXED_SET_ID)
+    assert tab.icon_name.text() == chosen.name
     assert chosen.description in tab.icon_description.text()
-    assert "assets/icons/skull/" in tab.icon_description.text()
+    assert f"assets/icons/{chosen.id}/" in tab.icon_description.text()
+    assert not tab.icon_preview.pixmap().isNull()
     assert tab.icon_error.text() == ""
 
 
-def test_an_unknown_set_id_falls_back_and_says_so(app, window):
-    tab = window.identity_tab
-    assert tab.select_icon_set("acme-rebrand") is False
-    assert tab.pending_icon() is None
-    assert "acme-rebrand" in tab.icon_error.text()
+def test_the_shipped_icon_passes_the_same_validation_a_build_runs(app, window):
+    chosen = iconsets.load_set(iconsets.FIXED_SET_ID)
+    errors, _warnings = icons_mod.validate_source(chosen.master)
+    assert errors == [], f"the one icon we ship must be buildable: {errors}"
 
 
-def test_an_old_config_that_stored_a_path_still_resolves(app, window):
-    """Product configs written before this change name a file, not a set."""
-    tab = window.identity_tab
-    master = iconsets.load_set("cross").master
-    assert tab.select_icon_set(str(master)) is True
-    assert tab.pending_icon_id() == "cross"
-
-
-def test_a_relative_stored_path_is_resolved_against_the_config_folder(app, window):
-    tab = window.identity_tab
-    master = iconsets.load_set("skull").master
-    assert tab.select_icon_set("skull/icon.png", base=master.parent.parent) is True
-    assert tab.pending_icon_id() == "skull"
-
-
-def test_a_path_to_nowhere_falls_back_without_raising(app, window):
-    tab = window.identity_tab
-    assert tab.select_icon_set("/no/such/place/icon.png") is False
-    assert tab.pending_icon() is None
-    assert tab.icon_error.text()
-
-
-def test_reload_reports_a_sets_directory_with_nothing_in_it(
+def test_a_missing_fixed_set_is_reported_and_keeps_the_repo_icons(
     app, window, tmp_path, monkeypatch
 ):
-    tab = window.identity_tab
+    """If the set is deleted the build must fall back visibly, not silently."""
     monkeypatch.setenv(iconsets.SETS_ENV_VAR, str(tmp_path / "gone"))
-    tab.reload_icon_sets()
-
-    assert tab.icon_combo.count() == 1  # just "keep the repo icons"
-    assert tab.pending_icon() is None
-    assert "No usable icon sets" in tab.icon_problems.text()
-
-
-def test_reload_lists_a_broken_set_instead_of_hiding_it(
-    app, window, sets_root
-):
     tab = window.identity_tab
-    make_set(sets_root, "fine", name="Fine")
-    make_set(sets_root, "wrecked", name="Wrecked", master=False)
     tab.reload_icon_sets()
-
-    offered = [tab.icon_combo.itemData(i) for i in range(tab.icon_combo.count())]
-    assert offered == [None, "fine"]
-    assert "wrecked" in tab.icon_problems.text()
-
-
-def test_reload_keeps_the_current_choice_when_the_set_survives(
-    app, window, sets_root
-):
-    tab = window.identity_tab
-    make_set(sets_root, "keeper", name="Keeper")
-    tab.reload_icon_sets()
-    tab.select_icon_set("keeper")
-
-    tab.reload_icon_sets()
-    assert tab.pending_icon_id() == "keeper"
-
-
-def test_a_set_that_disappeared_between_reloads_is_reported(
-    app, window, sets_root
-):
-    tab = window.identity_tab
-    make_set(sets_root, "doomed", name="Doomed")
-    tab.reload_icon_sets()
-    tab.select_icon_set("doomed")
-
-    (sets_root / "doomed" / "icon.png").unlink()
-    (sets_root / "doomed" / iconsets.METADATA_NAME).unlink()
-    (sets_root / "doomed").rmdir()
-    tab.reload_icon_sets()
-
-    assert tab.pending_icon() is None
-    assert "doomed" in tab.icon_error.text()
+    assert tab.pending_icon() is None            # nothing to regenerate from
+    assert iconsets.FIXED_SET_ID in tab.icon_problems.text()
+    assert tab.icon_problems.text().strip()
 
 
 # ----- the product config round trip ----------------------------------------
 
 
-def test_saving_records_the_set_id_not_a_machine_path(app, window, tmp_path):
-    window.identity_tab.select_icon_set("cross")
+def test_saving_records_the_fixed_set_id_not_a_machine_path(app, window, tmp_path):
     window.product_file = tmp_path / "p.yaml"
     saved = window._save_product()
 
     text = saved.read_text(encoding="utf-8")
-    assert "icon: cross" in text
-    # No absolute path anywhere: the same file must mean "mono" on any machine.
+    assert f"icon: {iconsets.FIXED_SET_ID}" in text
+    # No absolute path anywhere: the file must mean the same on any machine.
     assert "assets/icons" not in text
     assert str(tmp_path) not in text
 
 
-def test_loading_a_product_restores_the_chosen_set(app, window, tmp_path):
-    window.identity_tab.select_icon_set("skull")
+def test_a_config_naming_another_icon_is_reported_not_obeyed(app, window):
+    """Configs written when the icon WAS a choice still name one. Building a
+    different brand than the config asked for is worth saying out loud."""
+    tab = window.identity_tab
+    assert tab.select_icon_set("some-other-mark") is False
+    assert "some-other-mark" in tab.icon_error.text()
+    assert iconsets.FIXED_SET_ID in tab.icon_error.text()
+    # ...and it still ships the fixed icon.
+    assert tab.pending_icon_id() == iconsets.FIXED_SET_ID
+
+
+def test_a_config_naming_the_fixed_icon_is_accepted_quietly(app, window):
+    tab = window.identity_tab
+    assert tab.select_icon_set(iconsets.FIXED_SET_ID) is True
+    assert tab.icon_error.text() == ""
+
+
+def test_a_product_round_trip_keeps_the_icon(app, window, tmp_path):
     window.product_file = tmp_path / "p.yaml"
     saved = window._save_product()
-
-    window.identity_tab.select_icon_set("cross")
     assert window.load_product(saved) is True
-    assert window.identity_tab.pending_icon_id() == "skull"
-
-
-def test_loading_a_product_without_branding_clears_the_choice(app, window, tmp_path):
-    window.identity_tab.select_icon_set("cross")
-    window.product_file = tmp_path / "p.yaml"
-    saved = window._save_product()
-
-    # Strip the Builder-owned branding block, as a hand-written config would be.
-    saved.write_text(
-        saved.read_text(encoding="utf-8").split("\n# ── product-config extras")[0],
-        encoding="utf-8",
-    )
-    assert window.load_product(saved) is True
-    assert window.identity_tab.pending_icon_id() is None
+    assert window.identity_tab.pending_icon_id() == iconsets.FIXED_SET_ID

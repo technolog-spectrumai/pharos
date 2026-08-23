@@ -201,17 +201,18 @@ def capture_steps(window, monkeypatch):
     return captured
 
 
-def test_no_icon_chosen_means_no_icon_step(app, window, monkeypatch):
-    assert window.identity_tab.pending_icon() is None
+def test_the_fixed_icon_always_prepends_a_generation_step(app, window, monkeypatch):
+    """The icon is no longer optional: every build regenerates it from the one
+    shipped set, so the artifact carries the right mark whatever is committed."""
+    assert window.identity_tab.pending_icon() is not None
     steps = capture_steps(window, monkeypatch)
-    assert [s.label for s in steps] == ["Building"]
+    assert [s.label for s in steps] == ["Generating icons", "Building"]
 
 
-def test_choosing_an_icon_prepends_a_generation_step(app, window, monkeypatch):
+def test_the_generation_step_uses_the_shipped_master(app, window, monkeypatch):
     import iconsets
 
-    source = iconsets.load_set("skull").master
-    window.identity_tab.select_icon_set("skull")
+    source = iconsets.fixed_set().master
     assert window.identity_tab.pending_icon() == source
 
     steps = capture_steps(window, monkeypatch)
@@ -264,15 +265,10 @@ def test_an_unusable_icon_blocks_the_build(app, window, monkeypatch, tmp_path):
     assert captured == [], "nothing should have been queued"
 
 
-def test_the_preview_shows_the_repo_icon_by_default(app, window):
-    assert window.identity_tab.icon_caption.text() == "current"
-    assert not window.identity_tab.icon_preview.pixmap().isNull()
+def test_the_preview_shows_the_icon_that_will_ship(app, window):
+    import iconsets
 
-
-def test_the_preview_switches_to_the_chosen_set(app, window):
-    window.identity_tab.select_icon_set("skull")
-    assert window.identity_tab.icon_caption.text() == "new"
-    assert not window.identity_tab.icon_preview.pixmap().isNull()
-
-    window.identity_tab.select_icon_set("")
-    assert window.identity_tab.icon_caption.text() == "current"
+    tab = window.identity_tab
+    assert tab.icon_caption.text() == "app icon"
+    assert tab.icon_name.text() == iconsets.fixed_set().name
+    assert not tab.icon_preview.pixmap().isNull()

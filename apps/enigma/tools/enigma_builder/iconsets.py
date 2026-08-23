@@ -51,6 +51,17 @@ SETS_ENV_VAR = "ENIGMA_BUILDER_ICON_SETS"
 #: Highest ``set.json`` version this Builder understands.
 SCHEMA_VERSION = 1
 
+#: The one set every build uses. The app icon is part of the product's identity,
+#: like its name and its version — not a per-build decision. Kept as a set (a
+#: directory with a master image and metadata) rather than a bare path so the
+#: same validation still runs and swapping the mark stays a one-line change.
+FIXED_SET_ID = "sun-key2"
+
+
+def fixed_set() -> "IconSet | None":
+    """The set every build regenerates its icons from, or None if it is gone."""
+    return load_set(FIXED_SET_ID)
+
 
 @dataclass(frozen=True)
 class IconSet:
