@@ -69,9 +69,15 @@ is on screen, so the config you are looking at is the config that gets built —
 saving the product file is for git, not for the build. `enigma-builder build
 product.yaml --gui` still opens the single-tab Builder, which shows no editing
 surface, and a headless product build records
-`build-info.json` (config path + sha256, identity, options, and — for Android
-release — each artifact's signing classification and fingerprint) beside the
-collected artifacts.
+`build-info.json` (config path + sha256, identity, options, the icon set that
+branded the run, and — for Android release — each artifact's signing
+classification and fingerprint) beside the collected artifacts.
+
+The headless build honours `branding.icon` exactly as the window does: it
+regenerates the icons from the named set, mirrors the Android mipmaps, and
+restores the committed trees afterwards. A config naming a set this Builder
+does not ship is refused before any work starts, rather than silently built
+with the repo's icons.
 
 ## CLI
 

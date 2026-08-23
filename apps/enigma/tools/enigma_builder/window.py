@@ -61,11 +61,12 @@ SETTINGS_OUTPUT_KEY = "build/output_dir"
 
 
 class MainWindow(QMainWindow):
-    """One window class, three launch modes.
+    """One window class, two launch modes.
 
-    - "full"   — the classic combined tool (bare `enigma-builder`).
-    - "config" — the default window: define the product, save a deterministic
-      product-config file for git, and build it from the fourth tab.
+    - "config" — the default window (bare `enigma-builder`): define the product
+      on the first three tabs, save a deterministic product-config file for
+      git, and build it from the fourth. The combined "full" mode is gone —
+      this mode does both jobs.
     - "build"  — the Builder: consumes one product config read-only and runs
       builds. No editing tabs; identity and gates come from the file.
 
@@ -419,8 +420,8 @@ class MainWindow(QMainWindow):
             # have nothing to show, so skip validation rather than flooding
             # every field with "missing".
             if self.mode != "build":
-                for index, (title, _widget) in enumerate(self._tab_order):
-                    self.tabs.setTabText(index, title)
+                for title, widget in self._tab_order:
+                    self.tabs.setTabText(self.tabs.indexOf(widget), title)
             self.build_tab.refresh()
             return
 
@@ -447,7 +448,7 @@ class MainWindow(QMainWindow):
             # out of it entirely.
             return
         blocking = error_issues(issues)
-        for index, (title, _widget) in enumerate(self._tab_order):
+        for title, widget in self._tab_order:
             prefixes = TAB_OWNERS.get(title)
             if not prefixes:
                 # Build: its banner lists every issue, so a duplicate marker on
@@ -456,7 +457,12 @@ class MainWindow(QMainWindow):
             has_error = any(
                 issue.path.split(".")[0] in prefixes for issue in blocking
             )
-            self.tabs.setTabText(index, f"{title} ⚠" if has_error else title)
+            # indexOf, not the loop counter: the tab's position is the
+            # QTabWidget's business, and asking it is what makes "a mode with a
+            # different tab count cannot rename the wrong tab" actually true.
+            self.tabs.setTabText(
+                self.tabs.indexOf(widget), f"{title} ⚠" if has_error else title
+            )
 
     # ----- theme ----------------------------------------------------------
 

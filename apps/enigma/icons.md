@@ -67,15 +67,49 @@ set that would fail a build is rejected in the chooser rather than at build time
 
 1. `mkdir tools/enigma_builder/assets/icons/my-brand`
 2. Put `icon.png` (1024×1024, square, alpha) and `set.json` in it.
-3. Launch the Builder → **Identity**. The set appears in the chooser, with its
+3. Check it without launching anything:
+
+   ```bash
+   cd tools/enigma_builder
+   venv/bin/python -c "import iconsets; [print(s.id, s.ok, s.problems) for s in iconsets.available_sets()]"
+   QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest tests/test_iconsets.py -q
+   ```
+
+   `tests/test_iconsets.py` asserts that *every* set in `assets/icons/` is
+   valid, so a bad master fails there rather than in a release build.
+4. Launch the Builder → **Identity**. The set appears in the chooser, with its
    description and a preview. A malformed set appears too, marked with the
    reason it cannot be used — sets are never hidden silently, because a set that
    vanishes looks like a Builder bug rather than a missing file.
-4. If you package the Builder, run `bash tools/enigma_builder/package.sh` again:
+5. If you package the Builder, run `bash tools/enigma_builder/package.sh` again:
    the assets are bundled *into* the executable, so a set added after packaging
    is not in the binary you copied elsewhere. For a one-off addition without
    repackaging, drop an `assets/icons/` directory beside the binary, or point
    `ENIGMA_BUILDER_ICON_SETS` at a directory of sets.
+
+## What a product config records
+
+The set **id**, not a path:
+
+```yaml
+# ── product-config extras (Builder-owned; stripped from the build config) ──
+branding:
+  icon: mono
+```
+
+That is the reason the id has to stay stable. A path would name a directory that
+exists on exactly one machine — the engineer who saved the config — and would
+resolve to nothing, or worse to something else, anywhere else. An id either
+matches a set this Builder ships or it does not.
+
+When it does not, the Identity tab falls back to the repo's committed icons
+**and says which set it could not find**. It does not pick a neighbouring set
+and it does not build silently: shipping the wrong mark is the failure this
+whole mechanism exists to prevent.
+
+Product configs written before the chooser existed stored a file path. Those
+still load: the path is matched back to a set by its directory name or by its
+master image, and only an unmatchable path falls back.
 
 ## What happens at build time
 
@@ -96,9 +130,40 @@ Choosing a set is not what changes the app — running a build is.
 Choosing "Keep the icons already in the repo" skips all of this — no icon step
 runs and nothing is touched.
 
+The headless build does the same thing. `enigma-builder build product.yaml`
+reads `branding.icon`, resolves it through the very same resolver the chooser
+uses, and runs the same snapshot → generate → mirror → restore sequence, so one
+product config produces one brand whether it is built from the window or from a
+CI job. A config naming a set this Builder does not ship is **refused before any
+work starts** rather than quietly built with the repo's icons — a release under
+the wrong brand and a zero exit code is the one outcome worth failing for. The
+set that branded a run is recorded in `build-info.json` as `icon_set`.
+
 ## Replacing the repo's committed icons
 
 If a set should become the app's *permanent* icon rather than one build's, turn
 off restore-after-build on the Identity tab, build once, and commit the
 regenerated `src-tauri/icons/**` and `src-tauri/gen/android/**` yourself. The
 Builder never runs git.
+
+## Where the code is
+
+| File | Responsibility |
+|---|---|
+| `tools/enigma_builder/assets/icons/` | the sets themselves |
+| `tools/enigma_builder/iconsets.py` | discovery, `set.json` parsing, per-set validation |
+| `tools/enigma_builder/icons.py` | the image rules, the `tauri icon` command, the Android mirror, snapshot/restore |
+| `tools/enigma_builder/identity_tab.py` | the chooser, the preview, the fallbacks |
+| `tools/enigma_builder/build_tab.py` | the icon step and putting the repo back afterwards (GUI) |
+| `tools/enigma_builder/productbuild.py` | the same icon step for `enigma-builder build` (headless) |
+| `tools/enigma_builder/tests/test_iconsets.py` | discovery, broken sets, and that every shipped set is valid |
+| `tools/enigma_builder/tests/test_split_modes.py` | that the headless build honours `branding.icon` |
+
+The two sets that ship — `default` (Enigma Blue) and `mono` (Slate Mono) — were
+drawn by `tools/enigma_builder/assets/make_example_sets.py`, a stdlib-only
+script kept so they are reproducible. Nothing in the Builder runs it, and you do
+not need it: export a PNG from whatever you actually design in.
+
+See also [tools/enigma_builder/README.md](tools/enigma_builder/README.md) for
+the Builder as a whole, and [build.md](build.md) for the build scripts the icon
+step runs in front of.

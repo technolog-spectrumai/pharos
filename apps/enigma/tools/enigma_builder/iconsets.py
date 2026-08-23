@@ -259,6 +259,51 @@ def load_set(set_id: str) -> IconSet | None:
     return read_set(directory)
 
 
+def resolve(
+    value: str | Path,
+    base: Path | None = None,
+    sets: dict[str, IconSet] | None = None,
+) -> IconSet | None:
+    """The one rule for turning a stored ``branding.icon`` into a set.
+
+    Accepts the set id the Builder writes, and — for configs written by the old
+    free-file picker — a path, matched back to a set by its directory name or
+    by its resolved master image. Anything that is not one of the sets on this
+    machine returns None: a value may never widen the choice back out to an
+    arbitrary file, which is the whole point of curating them.
+
+    ``base`` resolves a relative stored path against the config's own folder.
+    ``sets`` lets a caller pass the snapshot it already has (the GUI's chooser)
+    instead of re-reading the directory.
+
+    Shared by the GUI and the headless build so the two cannot disagree about
+    what a product config means.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    known = sets if sets is not None else {s.id: s for s in available_sets()}
+
+    raw = Path(text)
+    for candidate in (text, raw.parent.name, raw.name):
+        if candidate and candidate in known:
+            return known[candidate]
+
+    # A stored path from an older config: resolve it and see whether it happens
+    # to be one of the shipped masters.
+    resolved = raw.expanduser()
+    if not resolved.is_absolute() and base is not None:
+        resolved = Path(base) / resolved
+    try:
+        resolved = resolved.resolve()
+    except OSError:  # pragma: no cover — a path this broken is not a set
+        return None
+    for icon_set in known.values():
+        if icon_set.master and icon_set.master.resolve() == resolved:
+            return icon_set
+    return None
+
+
 def problem_report() -> list[str]:
     """One line per unusable set — what the GUI shows under the chooser."""
     return [

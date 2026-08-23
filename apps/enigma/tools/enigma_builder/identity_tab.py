@@ -299,25 +299,13 @@ class IdentityTab(QWidget):
     def _match_icon_set(
         self, text: str, base: Path | None
     ) -> iconsets.IconSet | None:
-        raw = Path(text)
-        candidates = [text, raw.parent.name, raw.name]
-        for candidate in candidates:
-            if candidate and candidate in self._icon_sets:
-                return self._icon_sets[candidate]
+        """Delegates to the shared resolver, against the chooser's own snapshot.
 
-        # A stored path from an older config: resolve it and see whether it
-        # happens to be one of the shipped masters.
-        resolved = raw.expanduser()
-        if not resolved.is_absolute() and base is not None:
-            resolved = Path(base) / resolved
-        try:
-            resolved = resolved.resolve()
-        except OSError:  # pragma: no cover — a path this broken is not a set
-            return None
-        for icon_set in self._icon_sets.values():
-            if icon_set.master and icon_set.master.resolve() == resolved:
-                return icon_set
-        return None
+        The headless build resolves ``branding.icon`` through the same function,
+        so a product config cannot mean one set in the GUI and another on the
+        command line.
+        """
+        return iconsets.resolve(text, base=base, sets=self._icon_sets)
 
     def _select_icon_index(self, index: int) -> None:
         if self.icon_combo.currentIndex() == index:
