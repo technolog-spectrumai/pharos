@@ -7,8 +7,8 @@
 // real Ref<>s for the ChatPanel prop and direct `.value` access.
 
 import {
-  getBuildConfig, invoke, isTauri, useChatChannel, useDeviceSync, usePeerSync,
-  type ChatChannel, type DeviceSync, type PeerSync, type PeerSyncSources,
+  getBuildConfig, useChatChannel, usePeerSync,
+  type ChatChannel, type PeerSync, type PeerSyncSources,
 } from "rakotis";
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
@@ -42,11 +42,6 @@ function createChatStore() {
   // land (Calendar nav dot) and the reminder tick runs regardless of the view.
   const calendarEnabled = getBuildConfig().calendar_enabled;
   const meetings = calendarEnabled ? useMeetings(p2p) : null;
-  // Linked-device sync — owns the hidden devlink channel (headless second
-  // useChatChannel instance) for registry/kv/history convergence with the
-  // user's other devices. Flag-off builds never instantiate it.
-  const devicesEnabled = getBuildConfig().devices_allow_linking;
-  const deviceSync: DeviceSync | null = devicesEnabled ? useDeviceSync(p2p) : null;
   // Peer links — scoped person-to-person sync (peer.md). Flag-off builds never
   // instantiate it, so no `plink_` handler registers and no link channel exists.
   // The data sources are injected by stores/peers.ts (rakotis must not reach
@@ -75,29 +70,18 @@ function createChatStore() {
     if (initialized) return;
     initialized = true;
     await p2p.loadP2pRooms();
-    // A paired profile starts its devlink channel (no-op when never paired).
-    if (deviceSync) await deviceSync.start();
     const last = p2p.p2pRooms.value[0];
     if (last) await p2p.openP2pRoom(last);
   }
 
   // ── identity / profile fan-out ────────────────────────────────────────────────
   async function syncRuntimeIdentity() {
-    // A paired (linked) profile boots with the profile-name identity; adopt its
-    // stored leaf id ("user#dev-…") BEFORE the channel reads the runtime config.
-    if (devicesEnabled && isTauri()) {
-      try { await invoke("devlink_adopt_identity"); } catch { /* never paired */ }
-    }
     await p2p.syncRuntimeIdentity();
   }
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
     await p2p.applyRuntimeProfile(runtime);
     // The profile switch swapped the kv data dir — re-read the meeting list.
     if (meetings) await meetings.reload();
-    if (deviceSync) {
-      deviceSync.stop();
-      await deviceSync.start();
-    }
     // The profile switch swapped the kv data dir — reload this profile's peer
     // grants and reconnect their link rooms.
     if (peerSync) {
@@ -112,7 +96,7 @@ function createChatStore() {
   return {
     p2p, fileShare, vox, callsEnabled, invites, contactsEnabled,
     meetings, calendarEnabled,
-    deviceSync, devicesEnabled, peerSync, peersEnabled, setPeerSources, init,
+    peerSync, peersEnabled, setPeerSources, init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
 }

@@ -134,8 +134,6 @@ def test_clamp_ordering(cfg):
         ("connect_timeout_secs", 1),
         ("dht_room_publish_secs", 10),
         ("map_storage_limit_mb", 1),
-        ("devlink_pair_window_secs", 30),
-        ("devlink_resync_secs", 10),
         ("chat_history_cap_msgs", 10),
         ("peer_resync_secs", 10),
         ("file_chunk_kib", 16),

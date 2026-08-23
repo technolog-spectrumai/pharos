@@ -9,8 +9,8 @@
 # generates the `build_config` consts from it. The shipped binary never reads it.
 
 app:
-  # Must MATCH tauri.conf.json (productName / identifier / version), which stays
-  # authoritative for the native bundle — build.rs asserts equality.
+  # App identity is fixed across product configs. Editions change feature gates
+  # only; Android installs the fixed Gradle applicationId below.
   name: Enigma26
   identifier: com.spectrumaipl.enigma26
   version: 0.1.3
@@ -78,11 +78,6 @@ keyring:
   # (local_lock) is always in — this gates only the shared ring.
   enabled: true
 
-devices:
-  # false = no device linking: every devlink_* command fails with
-  # DEVLINK_DISABLED and the Settings→Devices tab is hidden. Also gates
-  # Files→Devices file sync.
-  allow_linking: true
 
 features:
   # Initial values for a NEW profile's toggles. Runtime Settings switches still
@@ -101,8 +96,6 @@ settings:
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
   max_file_size_mb: { default: 16, min: 0, max: 102400 }
   map_storage_limit_mb: { default: 512, min: 64, max: 65536 }
-  devlink_pair_window_secs: { default: 600, min: 60, max: 3600 }
-  devlink_resync_secs: { default: 300, min: 30, max: 3600 }
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 }
   idle_lock_mins: { default: 15, min: 0, max: 120 }
   peer_resync_secs: { default: 300, min: 30, max: 3600 }

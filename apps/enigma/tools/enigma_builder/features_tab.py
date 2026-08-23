@@ -78,10 +78,6 @@ GATE_HINTS: dict[str, tuple[str, str]] = {
         "Re-open the vault with a short PIN on a keypad after an idle lock. "
         "Convenience only — the passphrase is still required after a restart.",
     ),
-    "devices.allow_linking": (
-        "Device linking",
-        "Linking your own devices, and with it Files→Devices file sync.",
-    ),
 }
 
 #: Features every edition ships because they have no gate at all.

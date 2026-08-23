@@ -38,7 +38,6 @@ def test_basic_is_the_private_organiser(editions):
         "contacts.enabled",
         "calendar.enabled",
         "lock.pin_unlock",
-        "devices.allow_linking",
     }
 
 

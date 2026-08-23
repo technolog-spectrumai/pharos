@@ -28,9 +28,6 @@ vi.mock("../../src/stores/chat", () => ({
     calendarEnabled: true,
   }),
 }));
-vi.mock("../../src/stores/fileSync", () => ({
-  useFileSyncStore: () => ({ init: vi.fn(), items: new Map(), batchActive: false }),
-}));
 
 import App from "../../src/App.vue";
 import EnigmaConfigView from "../../src/views/EnigmaConfigView.vue";

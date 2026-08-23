@@ -12,7 +12,7 @@ import { kvGet, kvPut, kvDelete, kvClearNamespace } from "./localDb";
 import {
   CHAT_LOG_SEG_MAX_MSGS, mergeMessages, validatePersistedMessage,
   type PersistedMessage,
-} from "../deviceSyncModel";
+} from "../chatHistoryModel";
 
 const NS = "chat:log";
 const INDEX_KEY = "index";

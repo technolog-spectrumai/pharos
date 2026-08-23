@@ -35,7 +35,7 @@ import { useChatChannel, type ChatChannel } from "./useChatChannel";
 import { kvGet, kvPut } from "./services/localDb";
 import { getPeerResyncSecs, getChatHistoryCapMsgs } from "./services/appStorage";
 import { logMeta, mergeIntoLog, messagesSince } from "./services/chatLog";
-import { validatePersistedMessage, type PersistedMessage } from "./deviceSyncModel";
+import { validatePersistedMessage, type PersistedMessage } from "./chatHistoryModel";
 import {
   PLINK_VERSION, PEER_HMAC_LABEL_KP, PEER_LINK_MAX, PLINK_HISTORY_CHUNK_MAX_MSGS,
   grantIsLive, lclockWins, mayIAccept, mayISend, mergePeerBoards, mergePeerMeetings,

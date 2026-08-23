@@ -50,7 +50,6 @@ SCALAR_PATHS = (
     "maps.enabled",
     "keyring.enabled",
     "lock.pin_unlock",
-    "devices.allow_linking",
     "features.use_tor",
     "features.stable_onion",
     "features.dht_discovery",
@@ -179,12 +178,6 @@ keyring:
   # keyring_* command fails with KEYRING_DISABLED. Per-file locking
   # (local_lock) is always in — this gates only the shared ring.
   enabled: $keyring_enabled
-
-devices:
-  # false = no device linking: every devlink_* command fails with
-  # DEVLINK_DISABLED and the Settings→Devices tab is hidden. Also gates
-  # Files→Devices file sync.
-  allow_linking: $devices_allow_linking
 
 features:
   # Initial values for a NEW profile's toggles. Runtime Settings switches still

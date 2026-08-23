@@ -35,9 +35,6 @@ vi.mock("../../src/stores/chat", () => ({
     meetings,
   }),
 }));
-vi.mock("../../src/stores/fileSync", () => ({
-  useFileSyncStore: () => ({ init: vi.fn(), items: new Map(), batchActive: false }),
-}));
 
 import App from "../../src/App.vue";
 import EnigmaChatView from "../../src/views/EnigmaChatView.vue";

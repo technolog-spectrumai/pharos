@@ -172,17 +172,15 @@ describe("file transfer in Tor mode", () => {
 });
 
 describe("the network store", () => {
-  it("blocks all four iroh capabilities in Tor mode, none otherwise", () => {
+  it("blocks all three iroh capabilities in Tor mode, none otherwise", () => {
     const network = useNetworkStore();
     expect(network.canCall).toBe(true);
     expect(network.canFileTransfer).toBe(true);
-    expect(network.canDeviceSync).toBe(true);
     expect(network.canPeerSync).toBe(true);
 
     network.useTor = true;
     expect(network.canCall).toBe(false);
     expect(network.canFileTransfer).toBe(false);
-    expect(network.canDeviceSync).toBe(false);
     expect(network.canPeerSync).toBe(false);
     expect(network.blockedReasonKey).toBe("network.blockedTor");
   });

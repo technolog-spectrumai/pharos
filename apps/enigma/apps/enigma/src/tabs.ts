@@ -46,8 +46,8 @@ export interface AppTab {
 }
 
 /** Every hideable tab, in nav order. Settings is absent on purpose (see above),
- *  and this list — not the `nav.*` keys — is the source of truth: `nav.devices`
- *  exists with no route behind it, and the Vox tab's key is `nav.calls`. */
+ *  and this list — not the `nav.*` keys — is the source of truth: the Vox
+ *  tab's key is `nav.calls`, for instance. */
 export const APP_TABS: readonly AppTab[] = [
   { id: "chat", path: "/chat", labelKey: "nav.chat", icon: "comments", gate: null },
   { id: "files", path: "/files", labelKey: "nav.files", icon: "file-arrow-up", gate: null },

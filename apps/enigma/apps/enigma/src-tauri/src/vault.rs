@@ -483,13 +483,11 @@ pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
     let p2p = app.state::<crate::p2p_iroh::P2pState>();
     let tor = app.state::<crate::p2p_tor::TorP2pState>();
     let file = app.state::<crate::file_xfer::FileXferState>();
-    let devlink = app.state::<crate::device_link::DevLinkState>();
 
     crate::vox::shutdown(app, &vox).await;
     crate::p2p_iroh::shutdown(app, &p2p).await;
     crate::p2p_tor::shutdown(app, &tor).await;
     crate::file_xfer::shutdown(&file).await;
-    crate::device_link::shutdown(&devlink).await;
     // Cached mmap readers point into the profile's maps dir — drop them so the
     // locked session holds no open handles into it.
     crate::maps::reset_readers(app).await;

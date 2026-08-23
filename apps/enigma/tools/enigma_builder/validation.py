@@ -37,8 +37,6 @@ SETTINGS_FLOORS: dict[str, int] = {
     "dht_room_publish_secs": 10,
     "max_file_size_mb": 0,
     "map_storage_limit_mb": 1,
-    "devlink_pair_window_secs": 30,
-    "devlink_resync_secs": 10,
     "chat_history_cap_msgs": 10,
     "idle_lock_mins": 0,
     "peer_resync_secs": 10,
@@ -66,7 +64,6 @@ FEATURE_GATES = (
     ("maps.enabled", "Maps"),
     ("keyring.enabled", "Keyring"),
     ("lock.pin_unlock", "PIN unlock"),
-    ("devices.allow_linking", "Device linking"),
 )
 
 RUNTIME_DEFAULTS = (

@@ -401,7 +401,7 @@ class MainWindow(QMainWindow):
             return
         blocking = error_issues(issues)
         owners = {
-            0: ("p2p", "dht", "calls", "contacts", "calendar", "peers", "maps", "devices", "features"),
+            0: ("p2p", "dht", "calls", "contacts", "calendar", "peers", "maps", "features"),
             1: ("app",),
             2: ("settings", "network", "crypto"),
         }

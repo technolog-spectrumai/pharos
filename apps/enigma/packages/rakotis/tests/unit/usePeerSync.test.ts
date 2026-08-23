@@ -49,11 +49,21 @@ vi.mock("../../src/useChatChannel", async () => {
 });
 
 import { usePeerSync, peerKpProof } from "../../src/usePeerSync";
-import { kpProof } from "../../src/useDeviceSync";
 import { appendMessages, loadLog } from "../../src/services/chatLog";
 import { PLINK_VERSION, type PeerGrant, type PeerScope } from "../../src/peerSyncModel";
-import type { PersistedMessage } from "../../src/deviceSyncModel";
+import type { PersistedMessage } from "../../src/chatHistoryModel";
 import type { ChatChannel } from "../../src/useChatChannel";
+
+/** HMAC-SHA256 hex over a base64 key — the same construction usePeerSync uses,
+ *  kept local so the test can mint a proof under an arbitrary label. */
+async function hmacForTest(linkKeyB64: string, message: string): Promise<string> {
+  const raw = Uint8Array.from(atob(linkKeyB64), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey(
+    "raw", raw.buffer as ArrayBuffer, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 const LINK_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 const PEER = "node-bob";
@@ -130,12 +140,17 @@ describe("usePeerSync — admission", () => {
     expect(await check({ key_package: kp })).toBe(false);
   });
 
-  it("a devlink proof does NOT open a peer link (domain separation)", async () => {
+  it("a proof under another family's label does NOT open a peer link (domain separation)", async () => {
     await startedSync(grantOf(["calendar"], ["calendar"]));
     const check = fake.options!.admissionCheck as (d: Record<string, unknown>) => Promise<boolean>;
     const kp = "a-key-package";
-    // Same key, same key package — only the label differs.
-    expect(await check({ key_package: kp, link_proof: await kpProof(LINK_KEY, kp) })).toBe(false);
+    // Same key, same key package — only the HMAC label differs. The label
+    // below is the one device linking used before it was parked (limbo/
+    // frontend/devices); it is inlined here because the property this guards
+    // — a proof minted for any OTHER link family never admits a peer — must
+    // keep holding whether or not that family is in the build.
+    const foreignProof = await hmacForTest(LINK_KEY, `enigma/devlink/v1/kp\0${kp}`);
+    expect(await check({ key_package: kp, link_proof: foreignProof })).toBe(false);
   });
 
   it("a REVOKED grant refuses admission even though the peer still holds the key", async () => {

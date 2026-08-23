@@ -140,7 +140,6 @@ describe("chat store — serverless P2P bootstrap", () => {
       calls_enabled: true,
       contacts_enabled: false,
       calendar_enabled: false,
-      devices_allow_linking: false,
       dht_enabled: false,
     });
 

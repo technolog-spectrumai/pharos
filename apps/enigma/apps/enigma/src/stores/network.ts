@@ -57,8 +57,6 @@ export const useNetworkStore = defineStore("network", () => {
   const canCall = computed(() => !irohBlocked.value);
   /** P2P file transfer (file_xfer.rs: iroh-only, any size — large ones just fail slower). */
   const canFileTransfer = computed(() => !irohBlocked.value);
-  /** Per-file device sync for already-linked profiles (device_link.rs / file_sync.rs). */
-  const canDeviceSync = computed(() => !irohBlocked.value);
   /** Peer sync links (peer_link.rs). */
   const canPeerSync = computed(() => !irohBlocked.value);
 
@@ -69,6 +67,6 @@ export const useNetworkStore = defineStore("network", () => {
 
   return {
     offline, useTor, loaded, refresh, setOffline, setUseTor,
-    canCall, canFileTransfer, canDeviceSync, canPeerSync, blockedReasonKey,
+    canCall, canFileTransfer, canPeerSync, blockedReasonKey,
   };
 });

@@ -22,7 +22,7 @@ import {
   validateLocationShare, validatePinShare, validateRegionShare,
   type MapLocationShare, type MapPinShare, type MapRegionShare,
 } from "./mapModel";
-import { sameUser, userPartOf, type PersistedMessage } from "./deviceSyncModel";
+import { sameUser, userPartOf, type PersistedMessage } from "./chatHistoryModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
 import { getChatHistoryCapMsgs } from "./services/appStorage";
 import { nanoid } from "nanoid";

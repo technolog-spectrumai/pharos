@@ -109,7 +109,6 @@ export interface BuildConfig {
   pin_unlock: boolean;
   /** false = this build has no linked-device sync channel. The old Files→Devices
    *  UI is removed regardless of this flag. */
-  devices_allow_linking: boolean;
   use_tor_default: boolean;
   stable_onion_default: boolean;
   dht_discovery_default: boolean;
@@ -118,8 +117,6 @@ export interface BuildConfig {
   dht_room_publish_secs: SettingClamp;
   max_file_size_mb: SettingClamp;
   map_storage_limit_mb: SettingClamp;
-  devlink_pair_window_secs: SettingClamp;
-  devlink_resync_secs: SettingClamp;
   chat_history_cap_msgs: SettingClamp;
   /** Auto-lock: minutes of inactivity before the vault re-locks. 0 = never. */
   idle_lock_mins: SettingClamp;
@@ -148,7 +145,6 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   maps_enabled: true,
   keyring_enabled: true,
   pin_unlock: true,
-  devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,
   dht_discovery_default: false,
@@ -157,8 +153,6 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 },
   max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
   map_storage_limit_mb: { default: 512, min: 64, max: 65536 },
-  devlink_pair_window_secs: { default: 600, min: 60, max: 3600 },
-  devlink_resync_secs: { default: 300, min: 30, max: 3600 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
   peer_resync_secs: { default: 300, min: 30, max: 3600 },
@@ -341,34 +335,6 @@ export async function getHiddenTabs(): Promise<string[]> {
 
 export async function setHiddenTabs(ids: readonly string[]): Promise<void> {
   await kvPut("p2p:settings", "default", KEY_HIDDEN_TABS, JSON.stringify([...ids])).catch(() => {});
-}
-
-// ── Device-link resync interval (linked-device catch-up cadence) ───────────────
-// How often paired devices exchange dlink_hello and reconcile state/history
-// while both are online. Stored in the encrypted kv store; device-local (each
-// device may pace itself differently — deliberately NOT in the sync allow-list).
-
-export function clampDevlinkResyncSecs(secs: number): number {
-  const c = getBuildConfig().devlink_resync_secs;
-  if (!Number.isFinite(secs)) return c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
-}
-
-export async function getDevlinkResyncSecs(): Promise<number> {
-  const c = getBuildConfig().devlink_resync_secs;
-  try {
-    const raw = await kvGet("p2p:settings", "default", "devlink_resync_secs");
-    if (raw === null || raw === "") return c.default;
-    return clampDevlinkResyncSecs(Number(raw));
-  } catch {
-    return c.default;
-  }
-}
-
-export async function setDevlinkResyncSecs(secs: number): Promise<number> {
-  const v = clampDevlinkResyncSecs(secs);
-  await kvPut("p2p:settings", "default", "devlink_resync_secs", String(v)).catch(() => {});
-  return v;
 }
 
 // ── Peer-sync resync interval (peer.md) ───────────────────────────────────────
