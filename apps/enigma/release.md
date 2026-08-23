@@ -9,9 +9,7 @@ release artifacts. For toolchain setup and lower-level build notes, see
 A release artifact should be:
 
 - built from a known commit;
-- versioned consistently across `package.json`, `apps/enigma/package.json`,
-  `apps/enigma/src-tauri/tauri.conf.json`, and
-  `apps/enigma/src-tauri/build_config.yaml`;
+- versioned consistently across every file that carries the version (§2);
 - signed when Android release artifacts are produced;
 - smoke-tested on the target platform;
 - distributed with checksums and enough metadata to diagnose install failures.
@@ -24,7 +22,10 @@ Decide what is being shipped:
 - Android sideload/test distribution: a signed `.apk`.
 - Android store distribution: a signed `.aab` uploaded to the store, plus an
   APK only when the store or test channel needs one.
-- Both desktop and Android: use the Builder or `apps/enigma/deploy/build.sh`.
+- Both desktop and Android: use the Builder — one window, four tabs
+  (Features / Identity / Expert / Build), so it configures *and* builds; see
+  [build.md](build.md#the-builder-toolsenigma_builder) — or
+  `apps/enigma/deploy/build.sh`.
 
 Choose the edition before building:
 
@@ -37,6 +38,13 @@ ENIGMA_EDITION=professional
 Unset `ENIGMA_EDITION` builds the base `build_config.yaml`. The dev launchers
 default to `professional`, but CI/release defaults do not, so make the edition
 explicit for repeatable releases.
+
+The Builder expresses the same choice differently: its Features tab is an
+edition picker (there is no custom feature set — a config whose gates match no
+edition is refused at save, at load and at build), and every Builder run writes
+`configs/build_config.custom.yaml` and builds with `ENIGMA_EDITION=custom`, so
+the checked-in edition configs are never rewritten. What shipped is recorded in
+`build-info.json`, not in the artifact's name.
 
 ## 2. Prepare The Checkout
 
@@ -52,20 +60,28 @@ Do not release from a dirty tree unless every change is intentional. The
 checked-in `apps/enigma/deploy/dist/` directory can contain old artifacts, so do
 not use "whatever is already in dist" as the release set.
 
-Update version fields together:
+The version is a property of the code, not a build-time choice: it is bumped
+with the change that earns it, and the Builder shows it read-only. It is
+currently **0.1.6**, and it must be the same number in all of:
 
-- root `package.json`;
-- `apps/enigma/package.json`;
-- `apps/enigma/src-tauri/tauri.conf.json`;
-- `apps/enigma/src-tauri/build_config.yaml`;
-- edition configs under `apps/enigma/src-tauri/configs/` when those editions
-  are being shipped.
+- root `package.json`, `apps/enigma/package.json`,
+  `packages/rakotis/package.json`;
+- `apps/enigma/src-tauri/tauri.conf.json` (authoritative for the native bundle)
+  and `apps/enigma/src-tauri/Cargo.toml`;
+- `apps/enigma/src-tauri/build_config.yaml` and **every**
+  `apps/enigma/src-tauri/configs/*.yaml` — not only the editions being shipped.
+  `build.rs` asserts that the config it bakes equals `tauri.conf.json`, so a
+  config left behind fails the build for that edition rather than shipping the
+  wrong version.
 
-Android's generated `tauri.properties` supplies:
+Android's generated
+`apps/enigma/src-tauri/gen/android/app/tauri.properties` is regenerated from
+`tauri.conf.json` and tracks that version — 0.1.3 produced `1003`, so 0.1.6
+produces:
 
 ```text
-tauri.android.versionName=0.1.3
-tauri.android.versionCode=1003
+tauri.android.versionName=0.1.6
+tauri.android.versionCode=1006
 ```
 
 `versionCode` must increase for every Android update with the same
@@ -107,8 +123,14 @@ apps/enigma/src-tauri/target/release/bundle/
   rpm/*.rpm
 ```
 
-If AppImage is enabled in `tauri.conf.json`, it will appear under the same
-bundle tree.
+Which formats actually appear is `bundle.targets` in `tauri.conf.json` — check
+it before a release. The Builder's *Target distribution* box rewrites that key
+for the duration of a build and restores it afterwards, so a cancelled or
+crashed run can leave it narrowed to a single format.
+
+An `.rpm` built on Ubuntu links against Ubuntu's glibc and webkit2gtk: it is a
+package format, not a cross build, and will very likely refuse to start on
+Fedora. Build each distribution's package on that distribution.
 
 ## 5. Configure Android Release Signing
 
@@ -136,9 +158,23 @@ That pinned fingerprint is public metadata. It exists so a swapped, regenerated,
 or lost keystore becomes a build failure instead of an update that strands
 existing installs.
 
-Secrets must stay outside source control. Credentials may come from
-`gen/android/keystore.properties`, environment variables, or
-`~/.config/enigma-builder/signing.properties` with mode `0600`.
+Secrets must stay outside source control. Each of the four values
+(`storeFile`, `storePassword`, `keyAlias`, `keyPassword`) is resolved on its
+own, highest first:
+
+1. a `${VAR}` placeholder in `gen/android/keystore.properties`, read from the
+   environment;
+2. the well-known environment variables `ENIGMA_KEYSTORE_FILE`,
+   `ENIGMA_KEYSTORE_PASSWORD`, `ENIGMA_KEY_ALIAS`, `ENIGMA_KEY_PASSWORD`;
+3. a literal in `keystore.properties`;
+4. `~/.config/enigma-builder/signing.properties`, which is refused unless it is
+   mode `0600`.
+
+With the environment or that local file supplying everything,
+`keystore.properties` can be absent entirely; the committed
+`keystore.properties.example` is the only half that belongs in the repo. No
+password is ever passed on an argv. Command reference:
+[tools/enigma_builder/README.md](tools/enigma_builder/README.md).
 
 ## 6. Build Android Artifacts
 
@@ -148,12 +184,13 @@ The raw script:
 bash scripts/build_android.sh enigma release aarch64,x86_64
 ```
 
-Expected output:
+Expected output — every selected ABI is packed into one `universal` artifact,
+so these paths do not change with the ABI list:
 
 ```text
 apps/enigma/src-tauri/gen/android/app/build/outputs/
-  apk/release/app-release.apk
-  bundle/release/app-release.aab
+  apk/universal/release/app-universal-release.apk
+  bundle/universalRelease/app-universal-release.aab
 ```
 
 Important defaults:
@@ -167,14 +204,26 @@ Important defaults:
 ## 7. Collect And Verify Artifacts
 
 The Builder is the safest release collection path because it records
-`build-info.json` and `SHA256SUMS`, and can filter out stale artifacts from
-previous builds.
+`build-info.json` (config path + sha256, identity, options, and for an Android
+release each artifact's signing classification and fingerprint) next to the
+collected artifacts, generates `SHA256SUMS` for exactly what it collected, and
+— with *Only packages this build produced* ticked — digests the output
+directories before the build so nothing already sitting there is reported as
+this build's output. It never deletes anything.
 
 For a script-only release:
 
 ```bash
 bash apps/enigma/deploy/build.sh both release aarch64,x86_64
-( cd apps/enigma/deploy/dist && sha256sum -- * > SHA256SUMS )
+```
+
+That script copies into `apps/enigma/deploy/dist/` and writes `SHA256SUMS`
+itself, over **everything** in that directory — including the older installers
+archived there by hand. Treat that file as an index of the directory, not as a
+manifest of this release, and publish checksums for the exact files you ship:
+
+```bash
+( cd apps/enigma/deploy/dist && sha256sum -- Enigma26_0.1.6_amd64.deb enigma-universal-release.apk )
 ```
 
 Before sharing Android files, verify package, version, signer, and fingerprint:
@@ -195,7 +244,7 @@ aapt2 dump badging <release.apk> | head
 Use a clean test device or emulator:
 
 ```bash
-adb install -r apps/enigma/src-tauri/gen/android/app/build/outputs/apk/release/app-release.apk
+adb install -r apps/enigma/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 adb shell pm list packages | grep enigma
 adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
 adb logcat -s RustStdoutStderr enigma
@@ -225,8 +274,8 @@ For Google Play or another store:
 Tag the commit after artifacts are verified:
 
 ```bash
-git tag -a v0.1.3 -m "Enigma26 0.1.3"
-git push origin v0.1.3
+git tag -a v0.1.6 -m "Enigma26 0.1.6"
+git push origin v0.1.6
 ```
 
 ## Known Release Friction Points

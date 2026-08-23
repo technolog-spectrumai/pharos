@@ -5,7 +5,7 @@ communication flow, cryptography, privacy posture, and known weaknesses — plus
 project's conventions, config sources of truth, and rework history. For build and
 run instructions see [build.md](build.md).
 
-> **Status:** early-stage (`v0.1.0`). The cryptography is production-grade (OpenMLS),
+> **Status:** early-stage (`v0.1.6`). The cryptography is production-grade (OpenMLS),
 > but several integration-level hardening items remain open — see
 > [Security & privacy considerations](#9-security--privacy-considerations) and
 > [Roadmap](#roadmap). This document is candid about them on purpose.
@@ -19,7 +19,7 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [12 DHT discovery](#12-dht-discovery-mainline-rendezvous--contacts) ·
 [13 Encryption at rest](#13-encryption-at-rest-gervasius--protasius) ·
 [14 Conventions](#14-conventions-naming--palette) · [15 Config sources](#15-config--sources-of-truth) ·
-[16 Rework history](#16-history-the-serverless-rework) · [Roadmap](#roadmap)
+[16 Rework history](#16-history--the-serverless-rework) · [Roadmap](#roadmap)
 
 ---
 
@@ -32,8 +32,11 @@ Design principles:
 
 - **No app server.** There is no relay WebSocket, no REST gateway, no login, no
   server-side directory. Enigma26 speaks to no application server at all — not one of
-  ours, and since the 2026-08 removal of Enigma Cloud ([§16](#16-history-the-serverless-rework))
-  not the user's own either. The app makes no outbound HTTP request of any kind.
+  ours, and since the 2026-08 removal of Enigma Cloud ([§16](#16-history--the-serverless-rework))
+  not the user's own either. The Rust core makes no outbound HTTP request of any
+  kind; the one network fetch left anywhere in the app is the Google Fonts
+  `<link>` in `index.html`, which the webview attempts on load and which is
+  queued for self-hosting ([§15](#15-config--sources-of-truth), palette note).
   (This is *not* the same as "no infrastructure" — see
   [§6](#6-is-it-truly-p2p-intermittent-nodes).)
 - **Rendezvous by QR code.** Two people meet when one shares a QR code carrying the
@@ -53,16 +56,17 @@ Design principles:
   PKI, no phone number. `APP_PROFILE` isolates storage; `CHAT_USER` sets the MLS
   identity, so multiple instances can run side-by-side.
 - **Compile-time build policy.** A build config
-  ([§15](#15-config--sources-of-truth), [build.md](build.md)) bakes in the allow
-  flags (hosted relays, device linking), crypto declarations, feature defaults, and
-  setting clamps — a restricted build is a *different binary*, not a runtime toggle.
+  ([§15](#15-config--sources-of-truth), [build.md](build.md)) bakes in the
+  hosted-relay allow flag, the per-feature kill switches, crypto declarations,
+  feature defaults, and setting clamps — a restricted build is a *different
+  binary*, not a runtime toggle.
 
 ### Layered architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  apps/enigma/src  (Vue 3 UI: Chat · Vox · Files · Contacts ·       │
-│                    Calendar · Settings; QR create/scan; unlock gate)│
+│  apps/enigma/src  (Vue 3 UI: Chat · Files · Vox · Calendar · Map · │
+│                    Contacts · Settings; QR create/scan; unlock gate)│
 ├──────────────────────────────────────────────────────────────────┤
 │  packages/rakotis (TS)                                             │
 │   • useChatChannel — MLS envelope state machine / orchestration    │
@@ -84,7 +88,6 @@ Design principles:
 │   • file_xfer.rs · vox.rs — P2P file transfer · 1:1 voice calls    │
 │   • local_lock.rs — per-file passphrase locking (ENIGLOCK)         │
 │   • lib.rs       — mls_* commands, profiles, build_config, audio   │
-│   • device_link.rs — linked devices (pairing, sync, file push)     │
 ├───────────────┬───────────────────┬──────────────────────────────┤
 │ cryptorotor/  │ protasius         │ iroh 0.98 + iroh-gossip 0.98  │
 │ rotor_core    │ (encrypted store) │ (QUIC P2P, n0 relay+discovery)│
@@ -121,8 +124,9 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
-identifier `com.spectrumaipl.enigma26`. The tauri.conf `targets: "all"` governs the
-desktop bundle formats (Linux `.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
+identifier `com.spectrumaipl.enigma26`. The tauri.conf `bundle.targets` list governs
+which desktop formats a build emits — currently `["deb", "rpm"]`, out of the Linux
+set Tauri can produce (`.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
 by the separate `scripts/build_android.sh` path ([build.md](build.md)).
 
 ---
@@ -148,7 +152,7 @@ which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
 | `pmtiles` | 0.23 | PMTiles v3 read/write for the Map tab: mmap'd local region blobs (`maps.rs`; minimal features — no reqwest/S3/zstd). The app never fetches tiles — packages come from `tools/map_packager` |
 | `data-encoding` | 2 | BASE32 (no-pad) ticket/code text encoding |
 | `bytes`, `futures-lite`, `anyhow` | — | Gossip stream plumbing, error handling |
-| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor, used **only** by the peer-hosted onion transport (`p2p_tor.rs`): `onion-service-service` to host a room's own onion, `onion-service-client` to dial the captain's. There is no outbound HTTP client — it left with Enigma Cloud ([§16](#16-history-the-serverless-rework)) |
+| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor, used **only** by the peer-hosted onion transport (`p2p_tor.rs`): `onion-service-service` to host a room's own onion, `onion-service-client` to dial the captain's. There is no outbound HTTP client — it left with Enigma Cloud ([§16](#16-history--the-serverless-rework)) |
 | `tor-hsservice`, `tor-cell`, `safelog` | 0.43 / 0.8 | Onion-service hosting types (launch/config, accept relay cell, unredacted `.onion` display) |
 | `tokio` | 1 | Async runtime |
 | `cpal` | 0.15 | Microphone capture (native voice notes) + duplex capture/playback for voice calls (`vox.rs`) |
@@ -205,16 +209,15 @@ runtime check (in a plain browser there is no backend — chat is inert by desig
 
 - **`invoke` (commands):** `realtime_*` (transport — dispatched to iroh or Tor),
   `mls_*` (crypto), `app_*` (profiles/runtime/airplane/use-Tor/build-config),
-  `vault_*` (encrypted-store lifecycle), `kv_*` (sealed kv), `dht_*` (discovery),
-  `file_*` / `filesync_*` (P2P transfer, device file sync), `vox_*` (calls),
+  `vault_*` (encrypted-store lifecycle, PIN, panic code), `kv_*` (sealed kv),
+  `dht_*` (discovery), `file_*` (P2P transfer), `vox_*` (calls),
   `invite_*` (direct room invites), `audio_*` (recording), `fs_*` (local file IO),
-  `local_*` / `keyring_*` (per-file locking), `map_*`, `devlink_*`, `peer_*`,
-  `tor_*`.
+  `local_*` / `keyring_*` (per-file locking), `map_*`, `tor_*`.
 - **Events (`listen`):** `realtime://message` `{room, payload}` and
   `realtime://status` `{room, state, peers, peer_id?, reason?}` (both transports
   emit identical shapes, so the frontend is transport-agnostic); plus
   `file://progress|done|error`, `invite://incoming|resolved`,
-  `devlink://*`, and `vox://*` (call state + spectrum).
+  `vault://locked` (the idle-lock watchdog), and `vox://*` (call state + spectrum).
 
 ### Sending a text message (outbound)
 
@@ -379,7 +382,7 @@ failure deletes the partial file.
 **The transfer is bound to one peer.** Before dialling, the downloader calls
 `file_prepare`, which mints its transfer KeyPackage and returns a BLAKE3 hash of it;
 that hash travels back to the host over the feature's own MLS-encrypted signalling —
-chat `file_accept`, the Maps `map_region_bind` card, devlink `dlink_file_bind` — and
+chat `file_accept` or the Maps `map_region_bind` card — and
 the host records it with `file_authorize`. `serve` then accepts only a connection
 presenting that exact KeyPackage, waiting up to 20 s for the authorization to land
 (the bind message and the QUIC dial race each other). Possession of
@@ -480,8 +483,8 @@ below) / `export_state` + `import_state` (serializable session).
   MLS-protected, not merely QUIC-protected. Optional per-chunk **BLAKE3 hash chain**
   (`h_i = BLAKE3(h_{i-1} ‖ seq ‖ chunk)`, seeded from the offer id, root in a trailer
   frame) lets the receiver detect a dropped, reordered or altered chunk; a size and
-  chunk-count check runs regardless. Applies to all three transfer features (chat
-  share, Maps regions, linked-device file sync) — they share `file_xfer.rs`.
+  chunk-count check runs regardless. Applies to both transfer features (chat
+  share and Maps regions) — they share `file_xfer.rs`.
 - **Voice-call media** → a *separate*, ephemeral per-call MLS group (a 2-member
   `RotorSession` keyed by the `call_id`) whose **RFC 9420 exporter secret**
   (`export_secret`) derives two directional 256-bit keys → two **ChaCha20-Poly1305**
@@ -534,7 +537,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
 | Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
-| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. That share is the app's **only** location path — it goes to room members over the encrypted seam and nowhere else, since the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history-the-serverless-rework)). Nothing is ever shared automatically or in the background. |
+| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. That share is the app's **only** location path — it goes to room members over the encrypted seam and nowhere else, since the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history--the-serverless-rework)). Nothing is ever shared automatically or in the background. |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
@@ -550,8 +553,11 @@ is incompatible with the random-access reads the map needs); and — only while 
 back into the vault and wiped on lock/exit (a crash can leave it until the next
 unlock's sweep). `zeroize` scrubs transient RAM buffers; `wipe_file` is a
 best-effort single-pass overwrite (not a secure erase on SSD/journaling
-filesystems). There is **no passphrase recovery**: the unlock gate has no
-wipe/reset; the only destructive reset is Settings → "Clear all data".
+filesystems). There is **no passphrase recovery**: a forgotten passphrase means a
+lost store. The two destructive resets are both deliberate — Settings → Data →
+"Clear all data", and the **panic code**, a second passphrase enrolled in
+Settings → Lock that looks like an ordinary unlock and wipes every profile
+instead (`vault.rs::panic_wipe`; the call returns `Ok(())` indistinguishably).
 
 ---
 
@@ -593,15 +599,21 @@ least-serious) so they can be addressed:
    is future work.)
 8. **WebView / IPC surface.** `tauri.conf.json` sets `security.csp = null` (no Content
    Security Policy); on Linux the app auto-grants every WebView permission request; and
-   `fs_read_text_file` / `fs_write_text_file` are invokable with **unrestricted
-   absolute paths** (no scope/allowlist). → *Add a CSP, gate permission requests, and
-   scope or remove the raw FS commands.*
+   `fs_write_base64_file` — the "save as…" binary writer behind the native dialog —
+   takes an **unrestricted absolute path** (no scope/allowlist). It is the only raw
+   FS command left registered: the text writer that sat beside it is parked
+   (`limbo/rust/NOTES.md`), and text now moves through `local_note_read` /
+   `local_note_write`. → *Add a CSP, gate permission requests, and either scope
+   that command or move it to `@tauri-apps/plugin-fs`, which is permission-declared.*
 9. ~~**`tor.rs` clearnet-TLS footgun.**~~ **Resolved by deletion** — the outbound
    Arti HTTP client (`tor.rs`) and its `AcceptAnyServerCert` verifier (no name/CA
    validation) went with Enigma Cloud in 2026-08
-   ([§16](#16-history-the-serverless-rework)), taking `hyper` and `webpki-roots`
-   with them. The app now makes no outbound HTTP request at all, so there is no
-   clearnet TLS surface to get wrong. The onion transport carries plaintext frames
+   ([§16](#16-history--the-serverless-rework)), taking `hyper` and `webpki-roots`
+   with them. The Rust core now makes no outbound HTTP request at all, so there
+   is no clearnet TLS surface it can get wrong. (The webview still requests
+   Orbitron from `fonts.googleapis.com` — a `<link>` in `index.html`, outside
+   any Rust code path; self-hosting it is on the §15 palette list.) The onion
+   transport carries plaintext frames
    over the Tor circuit — no TLS layer — and arti is reached only through
    `p2p_tor.rs`. *If a future feature needs an HTTP client, it must not resurrect a
    permissive verifier alongside a clearnet path.*
@@ -633,25 +645,31 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
 - **Files** (`EnigmaFilesView`) — three sub-tabs: **P2P** (offer/accept transfers
   with progress, max-size guard), **Local** (passphrase-lock files in place,
   ENIGLOCK), and **Keys** (`KeyringPanel` — one passphrase over many locked
-  files, gated by `keyring.enabled`). The former **Devices** sub-tab is removed
-  as of 2026-08-19; new-device QR pairing is parked in limbo and already-linked
-  profiles continue to sync in the background. Parked 2026-08-18 — see limbo/frontend/devices/.
+  files, gated by `keyring.enabled`). There is no **Devices** sub-tab: device
+  linking and the per-file device sync were parked whole on 2026-08-18
+  ([limbo/frontend/devices/](limbo/frontend/devices/)), so nothing syncs between
+  a user's own devices today ([§16](#16-history--the-serverless-rework)).
 - **Contacts** (`EnigmaContactsView`) — saved peers with DHT presence ("recently
-  online"), find-by-nickname, invite-to-room, call buttons ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
+  online"), find-by-nickname, invite-to-room, call buttons, and **My code** —
+  this device's NodeId QR, which lives here rather than in Settings because this
+  is where it is used ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 - **Calendar** (`EnigmaCalendarView`) — room-scoped meetings + scheduling polls over
   the MLS seam; local OS notification reminders (lead time in Settings).
 - **Map** (`EnigmaMapView` / `MapPanel`, `RegionsPanel`) — fully offline MapLibre map
   over imported PMTiles region packages: immutable content-addressed blobs made by
   the standalone `tools/map_packager` (the app never talks to tile servers),
   imported from the device with BLAKE3 + manifest verification and storage-budgeted;
-  import/export region files, private pins + hand-drawn routes (sealed kv), and
-  room sharing — pins/routes as compact MLS chat cards ("Open in Maps" is always an
+  import/export region files, private pins (sealed kv), and
+  room sharing — pins as compact MLS chat cards ("Open in Maps" is always an
   explicit action), region files over the P2P file-transfer path (never MLS).
+  (Hand-drawn routes were part of this tab until 2026-07-27; they are parked
+  under `limbo/frontend/map-routes/` — map.md D6b — and no `map_route` card is
+  sent or accepted today.)
   One region can be **activated** (Regions → Activate): served first for tiles
   (others still fill), badged in the list + a chip on the canvas, the view opens
   spread to it, and the choice persists sealed per profile (device-local).
   Room members' shares also render as a distinct **shared layer** (violet
-  pins/routes, orange locations, sender initial on the badge) wherever an
+  pins, orange locations, sender initial on the badge) wherever an
   imported region covers them; anything outside coverage is listed in the
   sidebar rather than drawn over blank canvas. A **shared location** is pushed
   by hand — the user taps a point, adds an optional label, and presses Share —
@@ -668,13 +686,20 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   **Mind map** were the three sub-tabs of a Notes tab that no longer exists. No
   maintenance capacity; the code, tests, i18n and design docs are kept under
   `limbo/frontend/{kanban,sketch,mind}/`, each with a restore checklist, and
-  their build-config sections were removed with them. Nothing in the shipped
-  app references them.
-- **Settings** (`EnigmaConfigView`) — four tabs: **Profile** (local-only PII,
-  multiple named profiles), **Settings** (language en/pl; "My identity" NodeId QR;
-  connection timeout; max file size; meeting reminder; DHT discovery + cadences +
-  status probe), **Connections** (use-Tor, stable-onion),
-  **Data** (airplane mode; data profiles; reset passphrase; clear data).
+  their build-config sections were removed with them. No route, tab or store in
+  the shipped app reaches any of them. One piece was kept rather than parked:
+  the Sketch board's drawing engine (`components/sketch/`) is what the Files →
+  Local **SVG editor** (`components/local/SvgEditor.vue`) draws with, so that
+  code ships — the *board*, with its own tab and its own document store, does
+  not.
+- **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
+  multiple named profiles), **Settings** (language en/pl; which tabs this device
+  shows; max file size; transfer chunk size + integrity check; meeting reminder;
+  map storage limit), **Connections** (use-Tor, stable-onion, connection timeout,
+  DHT discovery + cadences + status probe), **Lock** (auto-lock delay,
+  lock-on-hide, reset passphrase, PIN unlock, panic code), **Data** (airplane
+  mode; data profiles; clear data). Settings itself is the one tab with no
+  visibility checkbox — it is the only route back to the others.
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
 tokens — see [§14](#14-conventions-naming--palette). Dark mode defaults on but is
@@ -775,19 +800,19 @@ address the profile is deliberately not using. There is **no fallback directory*
 the Contacts surfaces that depend on discovery are hidden and the Settings toggle
 disables with the reason. Over Tor, peers are reached by ticket/QR alone. (Until
 2026-08 the fallback was a lookup on the user's own faros server; that client is
-gone — [§16](#16-history-the-serverless-rework).)
+gone — [§16](#16-history--the-serverless-rework).)
 
-**Pro only.** `dht.enabled: false` (Light and Plus — pland.md) short-circuits
+**Standard and up.** `dht.enabled: false` (Basic — pland.md) short-circuits
 `discovery_enabled` / `nick_publish_enabled` **ahead of the kv read**, so a
-profile carrying `dht_discovery: "on"` from a Pro build reads as off without
-the key being rewritten. `dht_presence` / `dht_publish_nick` / `dht_find_nick` /
+profile carrying `dht_discovery: "on"` from a DHT-capable build reads as off
+without the key being rewritten. `dht_presence` / `dht_publish_nick` / `dht_find_nick` /
 `dht_apply` fail fast with `DHT_DISABLED`; `dht_status` and `dht_room_code` stay
 silent (each has a total "nothing here" value already). rakotis mirrors the gate
 in `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus`, so the whole UI goes
 inert at once, and every DHT surface is hidden rather than disabled — their
 off-state copy points at a Settings card such a build does not have.
 
-**What it is.** An opt-in (default off; absent in non-Pro builds and inert in
+**What it is.** An opt-in (default off; absent in Basic builds and inert in
 no-hosted-relays ones), fully
 community-run discovery path over the **BitTorrent Mainline DHT** (~10M nodes, no
 infrastructure of ours or n0's): ticketless room join by a shareable **room code**,
@@ -856,7 +881,7 @@ an offer/accept handshake whose payload carries a fresh ticket + the DHT room co
 surfaced as `invite://incoming` / `invite://resolved`. Both peers must be **online
 at the same time** — the handshake is a live QUIC dial with nothing to hold a
 message in the meantime. Since the sealed server mailbox was deleted
-([§16](#16-history-the-serverless-rework)) there is no store-and-forward path at
+([§16](#16-history--the-serverless-rework)) there is no store-and-forward path at
 all, so inviting someone who is away means handing them a QR code, a ticket string
 or a room code out of band.
 
@@ -873,8 +898,8 @@ run — minimum length enforced in UI only). Envelope:
 --XChaCha20-Poly1305--> data`. Password change re-wraps only the DEK (O(1), fresh
 salt) — data is never re-encrypted. Wrong passphrase fails closed on the wrapped-DEK
 AEAD tag. Keys are held in memory only and zeroized on lock/exit. **No recovery by
-design**: the unlock gate has no wipe/reset; the only destructive reset is
-Settings → "Clear all data".
+design**: a forgotten passphrase means a lost store. Destroying data is a
+deliberate act — Settings → Data → "Clear all data", or the panic code (§8).
 
 - **gervasius** (primitives, pure Rust, wasm-clean): Argon2id (v1.3; costs from the
   app's build config for new vaults, default 64 MiB / t=3 / p=4 / out=32, recorded
@@ -927,20 +952,20 @@ Settings → "Clear all data".
   sealed kv like everything else — coordinates never persist
   outside the vault. The region *blobs* are the documented plaintext exception
   (see §8 at-rest posture).
-- **Device file sync** (parked, limbo/frontend/devices/fsync.md): the shared allowed-files list (ns `filesync`,
-  key `""`) and this device's paths/hashes for it (key `local`) are sealed kv.
-  The list replicates between linked devices over the devlink room's own
-  `dlink_files` message — deliberately NOT through DEVLINK_SYNC_KV — and the
-  per-device `local` key never leaves the device (a path leaks directory
-  layout). The synced FILES themselves land in `<profile_dir>/synced/` as
-  ordinary plaintext: they are the user's own files, arriving over file_xfer and
-  BLAKE3-verified on the way in (the same documented exception as map blobs and
-  exported files — see §8).
 - **Map shares add NO at-rest surface.** What a room shared lives only in the
   already-sealed `chat:log` (as the map card it arrived as); the shared map
   layer is derived from that timeline at render time, never stored again. The
   `map:*` namespaces grow only when the user explicitly saves a pin, and
   a shared LOCATION is never written there at all unless adopted.
+
+---
+
+## 14. Conventions (naming & palette)
+
+### Naming
+
+**Vue components.**
+
 - Reusable primitives live in `packages/rakotis/src/components/primitives/` with the
   **`Oya`** prefix, PascalCase (`OyaButton`, `OyaModal`, `OyaTextField` … zero exceptions).
 - App components are PascalCase, **no** prefix, grouped by feature folder
@@ -952,9 +977,8 @@ Settings → "Clear all data".
   `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
-`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `filesync_*`,
-`dht_*`, `invite_*`, `vox_*`, `local_*`, `keyring_*`, `map_*`, `devlink_*`,
-`peer_*`. All registered in the single
+`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`,
+`invite_*`, `vox_*`, `local_*`, `keyring_*`, `map_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -962,14 +986,13 @@ Settings → "Clear all data".
 **Events.** `scheme://path` naming: `realtime://message` and `realtime://status`
 (both transports emit identical names so the frontend is transport-agnostic; a
 single event multiplexes all rooms, the payload carries the room id), plus
-`file://progress|done|error`, `invite://incoming|resolved`, `vox://*`,
-`devlink://request|paired|progress|done|error`.
+`file://progress|done|error`, `invite://incoming|resolved`, `vox://*`, and
+`vault://locked` (emitted when the watchdog re-locks the vault).
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
-Namespaces: `nav`, `common`, `lang`, `config`, `chat`, `calendar`, `map`,
-`contacts`, `fileShare`, `profile`, `vault`, `files`, `vox`, `local`,
-`devices`. Interpolation uses single-brace named
-tokens (`{n}`).
+Namespaces: `nav`, `common`, `keys`, `lang`, `network`, `config`, `chat`,
+`calendar`, `map`, `contacts`, `files`, `vox`, `sketch`, `local`, `fileShare`,
+`profile`, `vault`. Interpolation uses single-brace named tokens (`{n}`).
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
 keyspace tiers are separated by a leading tag byte (`TAG_INTERNAL = 0x01`,
@@ -1027,9 +1050,9 @@ primitive).
 **Build config (compile-time):**
 [`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
 — baked into the binary by `build.rs` (codegen → `enigma_lib::build_config` consts;
-invalid file = build error — see [build.md](build.md)). Owns: the hosted-relay and
-device-linking allow flags, the per-feature kill switches
-(`calls`/`contacts`/`calendar`/`peers`/`maps`/`dht`/`keyring`),
+invalid file = build error — see [build.md](build.md)). Owns: the hosted-relay
+allow flag, the per-feature kill switches
+(`calls`/`contacts`/`calendar`/`maps`/`dht`/`keyring`/`lock.pin_unlock`),
 crypto declarations (compile-asserted against rotor_core/gervasius) +
 Argon2id costs for new vaults, feature defaults for new profiles, defaults **and
 clamp bounds** of the kv-backed settings, and network constants (frame cap, onion
@@ -1047,27 +1070,27 @@ instead of hardcoding.
 | --- | --- | --- |
 | Display name `Enigma26` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
 | Copyright / org / legal URL | `config/app.ts` `brand` | Was hardcoded in `App.vue` |
-| Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`) |
+| Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`); `build.rs` rejects any other value |
+| App icon | `tools/enigma_builder/assets/icons/sun-key2/` | **Fixed, not a build choice** — one mark, regenerated into the app on every build and announced (read-only) on the Builder's Identity tab. See [icons.md](icons.md) |
+| In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma26`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
-| Hosted-relay allow flag | `build_config.yaml` `p2p.allow_hosted_relays` | Compile-time kill switch: flips iroh to `presets::Minimal` + `RelayMode::Disabled` and forces DHT discovery off, leaving direct QUIC and Tor. (`cloud.allow_connections` sat beside it until 2026-08 and no longer exists — [§16](#16-history-the-serverless-rework)) |
+| Hosted-relay allow flag | `build_config.yaml` `p2p.allow_hosted_relays` | Compile-time kill switch: flips iroh to `presets::Minimal` + `RelayMode::Disabled` and forces DHT discovery off, leaving direct QUIC and Tor. (`cloud.allow_connections` sat beside it until 2026-08 and no longer exists — [§16](#16-history--the-serverless-rework)) |
 | Feature defaults (tor/stable/dht) | `build_config.yaml` `features:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable) |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
-| DHT kill switch | `build_config.yaml` `dht.enabled` | Compile-time, **Pro only**: `false` removes the Mainline DHT alone (no join-by-room-code, nickname directory or presence) while leaving n0 relays + pkarr intact. Checked ahead of the kv read on both sides, so a stored `"on"` reads as off without being rewritten; `dht_presence`/`dht_publish_nick`/`dht_find_nick`/`dht_apply` error `DHT_DISABLED`; the UI is hidden, not disabled. Requires `p2p.allow_hosted_relays` — build.rs rejects the pair |
+| DHT kill switch | `build_config.yaml` `dht.enabled` | Compile-time, **Standard and up** (off in Basic): `false` removes the Mainline DHT alone (no join-by-room-code, nickname directory or presence) while leaving n0 relays + pkarr intact. Checked ahead of the kv read on both sides, so a stored `"on"` reads as off without being rewritten; `dht_presence`/`dht_publish_nick`/`dht_find_nick`/`dht_apply` error `DHT_DISABLED`; the UI is hidden, not disabled. Requires `p2p.allow_hosted_relays` — build.rs rejects the pair |
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); absent when `dht.enabled: false`, inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
-| Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time: `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
-| Key-ring kill switch | `build_config.yaml` `keyring.enabled` | Compile-time, **Pro only**: `false` builds without the key ring (one passphrase locking MANY local files) — every `keyring_*` command errors `KEYRING_DISABLED`. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` is device-local — deliberately NOT in the device-link sync allow-list (it holds raw file keys + absolute local paths) |
+| Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time, **Professional only** (off in Basic and Standard): `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
+| Key-ring kill switch | `build_config.yaml` `keyring.enabled` | Compile-time, **Standard and up** (off in Basic): `false` builds without the key ring (one passphrase locking MANY local files) — every `keyring_*` command errors `KEYRING_DISABLED`. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` never leaves the device — it holds raw file keys + absolute local paths, so it stays out of every transfer path |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
-| Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local — deliberately NOT in the device-link sync allow-list (each device imports its own packages) |
-| Device-linking kill switch | `build_config.yaml` `devices.allow_linking` | Compile-time gate for linked-device sync internals. The Files→Devices UI and QR pairing are parked as of 2026-08-19; already-linked profiles can still use the devlink room |
-| Devlink resync cadence | kv `p2p:settings` / `devlink_resync_secs` | Resync paces the linked-device catch-up exchange (default 300 s, 30–3600; rakotis `appStorage.getDevlinkResyncSecs`). Device-local — deliberately NOT in the sync allow-list |
-| Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that survives restarts and replays to linked devices |
+| Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local: each device imports its own packages |
+| Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that lets a room's timeline survive a restart |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
-| Release version `0.1.0` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); duplicated in 6 manifests. `build_config.yaml` `app:` must mirror it — `build.rs` fails the build on drift |
+| Release version `0.1.6` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); hand-duplicated in eleven files — `Cargo.toml`, three `package.json`, `build_config.yaml` and every `configs/*.yaml`. Each config's `app.version` must mirror it — `build.rs` fails the build on drift. Bumped **with the code**: it is not a build-time choice, and the Builder shows it read-only |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
-| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions, linked-device file sync). The sender's value governs a transfer and is echoed in the wire header. Device-local — deliberately out of `DEVLINK_SYNC_KV`. Replaced the old `network.transfer_chunk_bytes` |
+| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
 | PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
@@ -1107,7 +1130,7 @@ get/set) → one constants module. Same for chat timing (`5000`, `30000` duplica
 UI copy/confirm delays (`1200`/`1500`/`2000`).
 
 **Build.** A version-bump script (or Tauri reading version from `package.json`) so
-`0.1.0` isn't hand-maintained in 6 manifests; extract the apt list to
+`0.1.6` isn't hand-maintained in eleven files; extract the apt list to
 `scripts/install_desktop_deps.sh`; add `.nvmrc`/`engines` for the Node floor.
 
 **Palette.** Promote a `--color-scrim` token (unify `black/70` vs `black/40`) and lift
@@ -1150,17 +1173,15 @@ voice-note recording; offline profiles and the airplane switch.
 - **Compile-time build config** (`build_config.yaml`, [§15](#15-config--sources-of-truth)).
 - **Maps** (MapLibre + PMTiles, `maps.rs` + `EnigmaMapView`): fully offline regions
   imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
-  manifest verified), P2P region sharing over file_xfer, pins/routes as MLS chat
+  manifest verified), P2P region sharing over file_xfer, pins as MLS chat
   cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
-- **Multi-device (linked devices)** (`device_link.rs` + rakotis `useDeviceSync`,
-  plan + decisions in [limbo/frontend/devices/sync.md](limbo/frontend/devices/sync.md)): QR pairing streams an E2EE one-shot
-  bundle (rooms/tickets, contacts, calendar, settings subset, personas, chat
-  history) over a dedicated iroh QUIC endpoint; each device is its own MLS leaf
-  (`user#dev-xxxxxxxx`, grouped by user in rosters) and ongoing catch-up rides a
-  hidden `devlink-…` gossip room gated by a linkKey HMAC. Chat history is now
-  persisted per room (sealed `chat:log` kv) so timelines survive restarts.
+- **Persisted chat history** (sealed per-room `chat:log` kv, `services/chatLog.ts`
+  + `chatHistoryModel.ts`): a room's timeline survives a restart, bounded by
+  `chat_history_cap_msgs`. It arrived as part of multi-device sync and outlived
+  it — when device linking was parked, the storage/merge half stayed behind
+  ([below](#parked--device-linking--multi-device-sync-2026-08-18)).
 
-### Removed — Enigma Cloud (2026-08, branch `cleanup_1408`)
+### Removed — Enigma Cloud (2026-08-15, branch `cleanup_1408`)
 
 Enigma Cloud was the client for the user's *own* self-hosted faros/toto server:
 `cloud.rs` (HTTP + telegraph auth + vault file storage), `aster.rs` (username →
@@ -1170,7 +1191,11 @@ outbound Arti HTTP client, used by nothing else), the Cloud tab and its Vue
 components, `stores/cloud.ts` / `stores/beacon.ts`, rakotis `beaconModel.ts`, the
 `cloud.allow_connections` build gate in `build.rs` and all five `build_config`
 YAMLs, and the Builder tool's Cloud checkbox — about 7,200 lines of feature code,
-≈11,400 counting its tests, i18n keys and fixtures.
+≈11,400 counting its tests, i18n keys and fixtures. Deleted, not parked: there is
+no restorable copy, only the record at
+[limbo/removed/cloud.md](limbo/removed/cloud.md) with its rendezvous and
+location halves beside it ([rdv.md](limbo/removed/rdv.md),
+[beacon.md](limbo/removed/beacon.md)).
 
 **What the removal buys.** Enigma Cloud was the only path by which the app spoke
 to an application server, and it carried a second architecture to do it: an HTTP
@@ -1179,7 +1204,8 @@ server-side directory, and a permissive TLS verifier
 ([§9](#9-security--privacy-considerations) item 9). All of that is gone, which
 makes §1's "no app server" literal rather than qualified — there is no
 server-speaking code left to audit, no login, and no outbound HTTP request of any
-kind. The cost is real and is listed below: offline invite delivery and server
+kind from the Rust core (the webview's Google Fonts `<link>` is the one remaining
+network fetch — §1). The cost is real and is listed below: offline invite delivery and server
 file storage had no P2P equivalent and were not replaced.
 
 **What it means in practice, and what was NOT touched:**
@@ -1194,15 +1220,59 @@ file storage had no P2P equivalent and were not replaced.
 - **Maps lost the Beacon layer**, but not location sharing: the peer-to-peer
   *Share this spot* card over the room's MLS seam is untouched (§8, §10, map.md
   Part IV).
-- **Files lost the Cloud sub-tab.** File *storage* is now local, P2P transfer, or
-  device-to-device sync.
-- **The P2P stack is untouched:** iroh QUIC + gossip, MLS, the peer-hosted onion
-  transport in `p2p_tor.rs` (which never used `tor.rs`), file transfer, device
-  linking, maps and calls all work exactly as before.
+- **Files lost the Cloud sub-tab.** File *storage* is now local, and the only way
+  a file moves is a P2P transfer the user starts.
+- **The P2P stack was untouched:** iroh QUIC + gossip, MLS, the peer-hosted onion
+  transport in `p2p_tor.rs` (which never used `tor.rs`), file transfer, maps and
+  calls all came through unchanged. Device linking survived this removal too —
+  it was parked three days later, for reasons of its own (below).
 - **Third-party infrastructure still in use, deliberately:** iroh's n0 hosted
   relays, the Mainline DHT, and Tor's directory authorities
   ([§6](#6-is-it-truly-p2p-intermittent-nodes)). "No server" has always meant no
   *application* server; that distinction is unchanged.
+
+### Parked — device linking & multi-device sync (2026-08-18)
+
+Everything that made a second device *yours* moved to
+[limbo/frontend/devices/](limbo/frontend/devices/) and `limbo/rust/devices/` in
+one piece: QR device pairing, the device registry, the chat-log/kv convergence
+between a user's own devices, and the Files → Devices per-file push/pull. Parked
+whole because pairing was the only way to create a link — with it gone the rest
+was unreachable code. **Zinnia is reimplementing it**, so the record is kept
+where the code went: `NOTES.md` (design, the bugs that were expensive to find, a
+restore checklist) beside the plan docs
+[sync.md](limbo/frontend/devices/sync.md) and
+[fsync.md](limbo/frontend/devices/fsync.md).
+
+What that means for this document: there is no `device_link.rs`, no `devlink_*`
+command family, no `devlink://*` events, no Devices sub-tab, and the
+`devices.allow_linking` gate plus the `devlink_pair_window_secs` /
+`devlink_resync_secs` settings are gone from the build config
+([§15](#15-config--sources-of-truth)). One half deliberately stayed: the model
+file was **split**, and its chat-history and leaf-identity helpers live on as
+`packages/rakotis/src/chatHistoryModel.ts` — the sealed `chat:log` store, the
+message merge, and the `user#dev-xxxxxxxx` leaf parsing the roster still uses.
+
+### Parked — peer links (2026-08-18)
+
+Scoped person-to-person sync — a pairwise key, a hidden gossip room and a
+per-direction allow-list of what two *different* people share (calendar, contact
+card, shared rooms) — moved to [limbo/frontend/peers/](limbo/frontend/peers/) and
+`limbo/rust/peers/`, with its design doc at
+[peer.md](limbo/frontend/peers/peer.md). Two stated reasons, and the first is the
+one worth carrying forward: a grant **persisted a 32-byte pairwise link key in
+each contact record** — long-lived secret material sitting where anything that
+can read the contact list can read it, and outliving any single sync. The second
+is plainer: it cost more to maintain than it returned. The `enigma/plink/0` ALPN,
+the `peer_*` commands, the `peers.enabled` gate and the `peer_resync_secs`
+setting all went with it. A revival should start by asking whether the link key
+needs to persist at all.
+
+Not to be confused with device linking, which assumes both ends are the same
+person and therefore filters nothing. The two families were deliberately
+domain-separated in their HMAC labels (`enigma/plink/v1/kp` vs
+`enigma/devlink/v1/kp`) so a proof minted for one could never be replayed into
+the other — a test in the parked set still pins that.
 
 ---
 

@@ -6,6 +6,14 @@ Status: **IMPLEMENTED 2026-07-19** — all steps landed, all gates green
 (Q&A log below). The step-0 spike PASSED (pmtiles 0.23.1 writer + custom
 `AsyncBackend` + gzip round-trip), so the hard gate never fired.
 
+**Reading order.** Part I is the plan as it landed on 2026-07-19; its
+remote-tile half was cut four days later by the Part II pivot and never
+shipped, so every `cloud.rs` reference in Part I (the transport policy,
+`CLOUD_DISABLED`, the range backend) points at code that does not exist —
+`cloud.rs` itself was deleted with Enigma Cloud in 2026-08 (technology.md §16,
+[limbo/removed/cloud.md](limbo/removed/cloud.md)). Parts II–IV describe the map
+that actually ships.
+
 **Deviations from this plan (all deliberate, noted in the final report):**
 - `map_` was NOT added to the sync-prefix gate in `useChatChannel` — the gate
   runs *before* the mute check and would have swallowed card payloads; the three
@@ -152,11 +160,16 @@ wire-safe by construction — an incoming route from an older peer validates to
 `null` and is dropped, the behaviour the forward-compatibility test already pins.
 
 *Addendum (2026-08).* D6b originally kept the draft-polyline engine alive because
-**beacon** zone/route publishing still drove it. Beacon was deleted with Enigma
-Cloud (technology.md §16), so nothing drives it any more and it left `MapPanel`
-with the rest of the beacon surface. The route half is therefore fully out of the
-shipped map; restoring `limbo/frontend/map-routes/` now means restoring the draw
-engine along with it.
+**beacon** — the deleted server-side location share, where a zone or route was
+published to the user's own faros server for others to fetch — still drove it.
+Beacon went with Enigma Cloud (technology.md §16,
+[limbo/removed/beacon.md](limbo/removed/beacon.md)), so nothing drives the draw
+engine any more and it left `MapPanel` along with the rest of the beacon surface.
+The route half is therefore fully out of the shipped map; restoring
+`limbo/frontend/map-routes/` now means restoring the draw engine with it. Note
+that beacon is *not* the location share described in Part IV: that one is
+peer-to-peer over the room's MLS seam, never touched a server, and is untouched
+by the deletion.
 
 **D9 — Offline style assets are bundled, not fetched.** MapLibre needs a style
 + glyphs (+ sprites) — normally CDN-loaded, which would be a silent clearnet
@@ -509,10 +522,13 @@ contact; the app only ever imports files.
   town lookup (fills the bbox), manual W/S/E/N + zoom range, live tile count,
   progress + cancel. No QtWebEngine.
 - **D-II.4 — Distribution fully manual** (USB / the in-app P2P region share /
-  Files→Devices sync between your own devices / any channel); the
-  BLAKE3-verified `map_region_import` stays the single entry point. The "own
-  Enigma Cloud via Files tab" channel named here in 2026-07 went with the cloud
-  client in 2026-08 (technology.md §16); the decision itself is unchanged.
+  any channel); the BLAKE3-verified `map_region_import` stays the single entry
+  point. Two channels named here in 2026-07 have since gone: "own Enigma Cloud
+  via Files tab" with the cloud client (2026-08,
+  [limbo/removed/cloud.md](limbo/removed/cloud.md)) and Files→Devices sync when
+  device linking was parked (2026-08-18,
+  [limbo/frontend/devices/fsync.md](limbo/frontend/devices/fsync.md)). The
+  decision itself is unchanged — manual was always the point.
 
 ## Part A — app simplification
 
@@ -567,7 +583,11 @@ As built: `map_active_region` in sealed kv (`p2p:settings`); Rust
 resolution; RegionsPanel Activate toggle (emit `show-map`) + badge;
 EnigmaMapView `:key` remount = GL tile-cache invalidation; MapPanel fits the
 active bbox on load (before chat-card focus) + shows a name chip. Four i18n
-keys en+pl. NOT in the device-link sync allow-list (pinned by test).
+keys en+pl. Device-local: it was deliberately kept out of the device-link sync
+allow-list, and since device linking was parked (2026-08-18,
+[limbo/frontend/devices/](limbo/frontend/devices/)) there is no kv replication
+left for it to be in — which region is active is a per-profile, per-device
+setting either way.
 
 ---
 
@@ -577,6 +597,11 @@ Branch `map_share_layer`. Three things: a **shared location** you push by hand,
 **colour/note on pins** (the model always had them; nothing could set them), and
 a **shared layer** so what a room shares actually appears on the map instead of
 being a one-shot preview behind a chat button.
+
+> Part IV landed one day before D6b removed hand-drawn routes, so where it
+> describes route layers, route shares or a route draft it is recording code
+> that left the tab on 2026-07-27 (D6b, `limbo/frontend/map-routes/`). The
+> location and pin halves it describes are what ships.
 
 ## Decisions (Q&A)
 
@@ -605,8 +630,9 @@ being a one-shot preview behind a chat button.
 
 **Wire.** New inner type `map_loc` (`MapLocationShare {lat, lng, at, label?,
 note?}`) beside the existing three. `at` is on the wire, not derived from the
-message timestamp (which is *receive* time) — otherwise sender, receiver and a
-linked-device replay each age the same share differently.
+message timestamp (which is *receive* time) — otherwise sender and receiver age
+the same share differently, and a share restored from the sealed log would
+restart its life on every load.
 
 `validateLocationShare` is **time-independent by design**: it checks `at`
 against a fixed year-2100 ceiling and never against `now`. `chatLog` re-validates
@@ -666,8 +692,8 @@ already holds; `tile_in_bbox` stays private.
   *Share this spot* button is disabled while Tor is on. Hiding your network
   location while broadcasting a geographic one is incoherent. Only SENDING is
   blocked — locations a peer already shared still render, because receiving leaks
-  nothing and dropping them would silently lose data a peer sent. Pins, routes
-  and region sharing are unaffected: they are not statements about where you are.
+  nothing and dropping them would silently lose data a peer sent. Pins and
+  region sharing are unaffected: they are not statements about where you are.
 
 - **Clock skew.** `at` is the sender's clock. A mildly-future `at` fails *open*
   (visible); past `MAP_LOC_MAX_FUTURE_SKEW_MS` (24 h) the share is ignored, so a
@@ -675,9 +701,11 @@ already holds; `tile_in_bbox` stays private.
 - **Timeline cap.** `chat_history_cap_msgs` (default 500) prunes old cards, so a
   share from far enough back leaves the layer on the next restart. The mitigation
   is Save to my pins — deliberately not a shadow store.
-- **Replication asymmetry.** Cards replicate to linked devices via `chat:log`
-  (already true for pins), but each device has its own imported regions —
-  so the same share can be drawn on the laptop and merely listed on the phone.
-  Correct, and the sidebar explains it.
-- **`map:*` stays device-local** (absent from `DEVLINK_SYNC_KV`, pinned on both
-  sides), so "Save to my pins" does not propagate to your other devices.
+- **Everything map is per profile, per device.** Regions are imported on the
+  device that imports them and `map:*` never leaves it — "Save to my pins" on
+  the laptop does not appear on the phone. This used to be a deliberate
+  exclusion from the device-link kv allow-list; with device linking parked
+  (2026-08-18, [limbo/frontend/devices/](limbo/frontend/devices/)) nothing
+  replicates any of it, so a share can be drawn on a device that has the region
+  and merely listed on one that does not. The sidebar's "N outside your maps"
+  count (D18) is what explains that to the user.

@@ -28,20 +28,20 @@ sha256sum -c SHA256SUMS
 Install a Debian package:
 
 ```bash
-sudo apt install ./Enigma26_0.1.3_amd64.deb
+sudo apt install ./Enigma26_0.1.6_amd64.deb
 ```
 
 Install an RPM package:
 
 ```bash
-sudo dnf install ./Enigma26-0.1.3-1.x86_64.rpm
+sudo dnf install ./Enigma26-0.1.6-1.x86_64.rpm
 ```
 
 Run an AppImage, when one is shipped:
 
 ```bash
-chmod +x ./Enigma26_0.1.3_amd64.AppImage
-./Enigma26_0.1.3_amd64.AppImage
+chmod +x ./Enigma26_0.1.6_amd64.AppImage
+./Enigma26_0.1.6_amd64.AppImage
 ```
 
 If a desktop package refuses to start after installation, run the app from a
@@ -102,9 +102,11 @@ there is no central account that can restore local encrypted state.
 
 ### The APK Is Unsigned
 
-Android requires installable APKs to be signed. Enigma26's release build normally
-refuses to produce an unsigned release. An artifact built with
-`--allow-unsigned-release` is for packaging inspection only and should not be
+Android requires installable APKs to be signed. Enigma26's release build fails
+closed: with no release keystore configured the build is refused before any
+work starts, and the Android SDK debug key is refused for a release outright. The only way to obtain an
+unsigned release artifact is to ask for it with `--allow-unsigned-release`, and
+that artifact is for packaging inspection — it installs nowhere and must not be
 shared.
 
 What to do:
@@ -264,6 +266,13 @@ The report should show:
 - visible version and Android `versionCode`;
 - signer classification: signed release, debug, or unsigned;
 - SHA-256 signing certificate fingerprint.
+
+Once a release fingerprint has been pinned in
+`apps/enigma/deploy/android-release-key.properties`, a build signed with any
+other keystore fails instead of shipping — so a mismatch between that file and
+the fingerprint printed above means the artifact did not come from the release
+path. The full command set is in
+[tools/enigma_builder/README.md](tools/enigma_builder/README.md).
 
 Edition names and output filenames are not separate Android identities. Android
 uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the

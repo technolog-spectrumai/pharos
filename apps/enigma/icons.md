@@ -85,14 +85,15 @@ Choosing a set is not what changes the app — running a build is.
    Identity tab; if a run dies mid-way, the Builder prints the git command that
    undoes it.
 
-Choosing "Keep the icons already in the repo" skips all of this — no icon step
-runs and nothing is touched.
+If the fixed set is missing or unusable the icon step is skipped entirely —
+nothing is regenerated and nothing is touched — which is the fallback described
+above, not a per-build option.
 
 The headless build does the same thing. `enigma-builder build product.yaml`
-reads `branding.icon`, resolves it through the very same resolver the chooser
-uses, and runs the same snapshot → generate → mirror → restore sequence, so one
-product config produces one brand whether it is built from the window or from a
-CI job. A config naming a set this Builder does not ship is **refused before any
+reads `branding.icon`, resolves it through the very same resolver the Identity
+tab reads, and runs the same snapshot → generate → mirror → restore sequence, so
+one product config produces one brand whether it is built from the window or
+from a CI job. A config naming a set this Builder does not ship is **refused before any
 work starts** rather than quietly built with the repo's icons — a release under
 the wrong brand and a zero exit code is the one outcome worth failing for. The
 set that branded a run is recorded in `build-info.json` as `icon_set`.
@@ -111,16 +112,18 @@ Builder never runs git.
 | `tools/enigma_builder/assets/icons/` | the sets themselves |
 | `tools/enigma_builder/iconsets.py` | discovery, `set.json` parsing, per-set validation |
 | `tools/enigma_builder/icons.py` | the image rules, the `tauri icon` command, the Android mirror, snapshot/restore |
-| `tools/enigma_builder/identity_tab.py` | the chooser, the preview, the fallbacks |
+| `tools/enigma_builder/identity_tab.py` | the announcement, the preview, the fallbacks |
 | `tools/enigma_builder/build_tab.py` | the icon step and putting the repo back afterwards (GUI) |
 | `tools/enigma_builder/productbuild.py` | the same icon step for `enigma-builder build` (headless) |
 | `tools/enigma_builder/tests/test_iconsets.py` | discovery, broken sets, and that every shipped set is valid |
 | `tools/enigma_builder/tests/test_split_modes.py` | that the headless build honours `branding.icon` |
 
-The two sets that ship — `default` (Enigma Blue) and `mono` (Slate Mono) — were
-drawn by `tools/enigma_builder/assets/make_example_sets.py`, a stdlib-only
-script kept so they are reproducible. Nothing in the Builder runs it, and you do
-not need it: export a PNG from whatever you actually design in.
+`sun-key2` is the only set under `assets/icons/`, which is the point: the
+directory is not a menu. `tools/enigma_builder/assets/make_example_sets.py` is a
+stdlib-only script that draws the two example sets (`default`, `mono`) the
+directory carried while an icon was still a per-build choice; nothing in the
+Builder runs it, and you do not need it — export a PNG from whatever you
+actually design in.
 
 See also [tools/enigma_builder/README.md](tools/enigma_builder/README.md) for
 the Builder as a whole, and [build.md](build.md) for the build scripts the icon

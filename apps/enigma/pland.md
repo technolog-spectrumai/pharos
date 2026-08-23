@@ -22,9 +22,12 @@ lives) · [README.md](README.md) (orientation).
 
 *(Until 2026-08-18 the line was Light / Plus / Pro; those editions were
 replaced wholesale by the presets below — different names AND different
-compositions, e.g. contacts and calendar moved into the entry edition. An
-installed `.pro` app does not upgrade into `.professional`: the bundle
-identifiers differ, so it is a separate install.)*
+compositions, e.g. contacts and calendar moved into the entry edition. The
+editions no longer carry separate bundle identifiers either: all three now
+declare `com.spectrumaipl.enigma26` and replace one another (§3, §6.1). An app
+installed from the older `com.spectrumaipl.enigma` id is untouched by a new
+build and has to be migrated by hand — see
+[build.md](build.md#one-fixed-app-identity).)*
 
 ### Enigma26 Basic — "the private organiser"
 
@@ -35,18 +38,17 @@ infrastructure, plus the personal-organisation surface.
 transport · P2P file transfer · per-file local locking + the notes and SVG
 editors · the encrypted-at-rest vault (passphrase gate, panic code, idle
 auto-lock, airplane mode) · **Contacts** · **Calendar** (meetings + polls) ·
-**PIN unlock** · **multi-device linking** · profile + settings + i18n.
+**PIN unlock** · profile + settings + i18n.
 
-**Out:** hosted relays and pkarr discovery, the DHT, peer sync, the key ring,
-voice calls, maps.
+**Out:** hosted relays and pkarr discovery, the DHT, the key ring, voice calls,
+maps.
 
 **The honest consequence of "no relays":** pairing works anywhere (the
 QR/ticket carries addresses), but *reconnecting to a saved NodeId across
 different networks does not* — with `p2p.allow_hosted_relays: false` the iroh
 endpoint registers no lookup service at all, so rooms reconnect on the same
-LAN or over Tor, and device linking pairs on the LAN. That is the point of
-this edition: zero third-party infrastructure, and the trade is stated rather
-than hidden.
+LAN or over Tor. That is the point of this edition: zero third-party
+infrastructure, and the trade is stated rather than hidden.
 
 **Who it's for:** the user who wants a private organiser and messenger with
 the smallest possible audit surface, and who either shares a network with
@@ -59,9 +61,8 @@ Basic plus the connectivity layer.
 **Adds:** **hosted relays + pkarr discovery** (NAT-to-NAT pairing, reconnect
 to a saved NodeId from anywhere) · **the Mainline DHT** (ticketless
 join-by-room-code, the nickname directory, presence — still opt-in per
-profile) · **Peer sync** (scoped, revocable person-to-person links — see
-[limbo/frontend/peers/peer.md](limbo/frontend/peers/peer.md)) · **Key ring** (one passphrase, many locked files) ·
-**Vox** (1:1 voice calls).
+profile) · **Key ring** (one passphrase, many locked files) · **Vox** (1:1
+voice calls).
 
 **Who it's for:** the ordinary case — people on different networks who want
 calls and reliable reconnection, accepting n0's relay/DNS infrastructure and
@@ -92,10 +93,8 @@ larger local surface.
 | **Contacts** (saved peers, direct room invites) | ✅ | ✅ | ✅ | `contacts.enabled` |
 | **Calendar** (meetings + polls) | ✅ | ✅ | ✅ | `calendar.enabled` |
 | **PIN unlock** (keypad re-unlock after idle lock) | ✅ | ✅ | ✅ | `lock.pin_unlock` |
-| Multi-device linking | ✅ | ✅ | ✅ | `devices.allow_linking` |
 | Hosted relays + pkarr discovery | ❌ | ✅ | ✅ | `p2p.allow_hosted_relays` |
 | **DHT discovery** (room codes, nick directory, presence) | ❌ | ✅ | ✅ | `dht.enabled` |
-| **Peer sync** (scoped person-to-person links) | ❌ | ✅ | ✅ | `peers.enabled` |
 | **Key ring** (one passphrase, many locked files) | ❌ | ✅ | ✅ | `keyring.enabled` |
 | **Vox** (1:1 voice calls) | ❌ | ✅ | ✅ | `calls.enabled` |
 | **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
@@ -105,6 +104,21 @@ when they were **parked** (no maintenance capacity) — code, tests and docs kep
 under `limbo/frontend/{kanban,sketch,mind}/` with restore checklists. Their
 build-config sections and flags are gone with them; restoring a feature re-adds
 its section, so the matrix would gain its row back.
+
+**Multi-device linking** (gate `devices.allow_linking`, a row in all three
+editions) and **peer sync** (gate `peers.enabled`, a Standard-and-up row) were
+**parked on 2026-08-18** the same way: frontend under
+`limbo/frontend/{devices,peers}/`, Rust under `limbo/rust/{devices,peers}/`,
+plans at [limbo/frontend/devices/sync.md](limbo/frontend/devices/sync.md),
+[limbo/frontend/devices/fsync.md](limbo/frontend/devices/fsync.md) and
+[limbo/frontend/peers/peer.md](limbo/frontend/peers/peer.md). Peer sync went for
+a reason beyond capacity: a grant persisted a 32-byte pairwise link key per
+contact, so every contact added standing key material to the vault, and the
+feature cost more to maintain than it returned. Both gates and the
+`devlink_pair_window_secs` / `devlink_resync_secs` / `peer_resync_secs` settings
+are gone from every build config — a restore re-adds them, and with them the
+matrix rows. Device linking is being reimplemented from scratch, so treat the
+parked code as a record rather than a design to return to.
 
 **Enigma Cloud** — the client for the user's own self-hosted faros server — was a
 top-edition row here (gate `cloud.allow_connections`) until 2026-08, when it was
@@ -149,10 +163,15 @@ across the three configs, deliberately:
   is still a required, validated field in the Basic config — it is simply
   never read).
 - **App identity.** All three declare `name: Enigma26`,
-  `identifier: com.spectrumaipl.enigma26`, and the same version, because
-  Android installs by Gradle `applicationId` and `build.rs` rejects any drift
-  between the build config and `tauri.conf.json`. Editions replace the same app
-  instead of installing side by side.
+  `identifier: com.spectrumaipl.enigma26`, and the same version (0.1.6 today),
+  because Android installs by Gradle `applicationId` and `build.rs` rejects any
+  drift between the build config and `tauri.conf.json`. Editions replace the
+  same app instead of installing side by side. The version is bumped with the
+  code, never chosen per build — it is carried identically by `tauri.conf.json`,
+  `Cargo.toml`, the three `package.json` files, `build_config.yaml` and every
+  YAML in `configs/`, and the Builder shows it read-only. The app **icon** is
+  fixed the same way and for the same reason: one mark, `sun-key2`, regenerated
+  into every build — see [icons.md](icons.md).
 
 ---
 
@@ -166,7 +185,13 @@ ENIGMA_EDITION unset  →  src-tauri/build_config.yaml               (unchanged 
 ENIGMA_EDITION=basic         →  src-tauri/configs/build_config.basic.yaml
 ENIGMA_EDITION=standard      →  src-tauri/configs/build_config.standard.yaml
 ENIGMA_EDITION=professional  →  src-tauri/configs/build_config.professional.yaml
+ENIGMA_EDITION=custom        →  src-tauri/configs/build_config.custom.yaml
 ```
+
+`custom` is not a fourth product: it is the file the Enigma Builder materialises
+from whatever config is on screen (generated, gitignored, absent from a fresh
+checkout). Its gates still have to match one of the three editions — the Builder
+refuses a config that matches none, at save, at load and at build.
 
 ```bash
 ENIGMA_EDITION=basic        ./build_desktop.sh   # release bundle, Basic
@@ -195,7 +220,7 @@ layers each:
 
 | Layer | `calls.enabled: false` | `contacts.enabled: false` | `calendar.enabled: false` |
 |---|---|---|---|
-| Rust | the `enigma/vox/0` ALPN is not registered on the p2p router (an inbound call is refused at ALPN negotiation) and every `vox_*` command returns `CALLS_DISABLED` | the invite ALPN is not registered — a direct room invite from a maps-capable peer is refused at negotiation | — (meetings ride the chat channel's sync seam; no dedicated Rust surface) |
+| Rust | the `enigma/vox/0` ALPN is not registered on the p2p router (an inbound call is refused at ALPN negotiation) and every `vox_*` command returns `CALLS_DISABLED` | the invite ALPN is not registered — a direct room invite from a contacts-capable peer is refused at negotiation | — (meetings ride the chat channel's sync seam; no dedicated Rust surface) |
 | Store | `useVoxCall` never instantiated (`chatStore.vox === null`) | `useRoomInvites` never instantiated | `useMeetings` never instantiated; no reminder tick |
 | UI | no Vox tab, `/vox` redirects to `/chat`, no ring indicator, no call button in Contacts | no Contacts tab, `/contacts` redirects, no invite badge | no Calendar tab, `/calendar` redirects, no meeting badge |
 
@@ -220,12 +245,13 @@ nothing. That is the intended behaviour, but it is also the sharpest edge in
 this design — see §6.
 
 One place where quiet degradation was **not** enough: a room joined by code
-stores that code as its credential, and `p2p:rooms` replicates over the
-device-link rail. Reopening such a room in a DHT-less build would hit
-`join_room_by_code` and strand it — and chat auto-reopens the most recent room
-at boot, so it would present as a red banner on first launch. `realtime_join_room`
-therefore recovers the room name from the code (the topic is `blake3(name)`,
-which the code carries) and reconnects by persisted NodeIds instead.
+stores that code as its credential, so the room outlives the build that joined
+it — move the profile to a DHT-less edition (§6.3) and the saved room comes
+with it. Reopening it would hit `join_room_by_code` and strand it, and chat
+auto-reopens the most recent room at boot, so it would present as a red banner
+on first launch. `realtime_join_room` therefore recovers the room name from the
+code (the topic is `blake3(name)`, which the code carries) and reconnects by
+persisted NodeIds instead.
 
 ---
 
@@ -238,17 +264,16 @@ which the code carries) and reconnects by persisted NodeIds instead.
 2. **No cross-edition capability signalling.** A Professional peer cannot tell
    that a room member is on Basic, so it cannot warn "3 members won't see this
    meeting". A capability byte in the MLS-carried presence/join payload would
-   fix it; today the degradation is silent. Peer sync makes this sharper: a sync
-   request to a peer without that gate is refused at ALPN negotiation and the
-   requester cannot explain why (limbo/frontend/peers/peer.md §6).
+   fix it; today the degradation is silent.
 3. **Upgrade path.** Moving a profile from Basic to Professional is "install the other
    build and point it at the same profile" — the vault format is
    edition-independent, so this works, but it is untested and undocumented.
 4. **No tier UI.** Nothing in the app tells the user which edition they are
    running beyond which tabs exist. A line in Settings → About reading the
    already-available build config would be cheap.
-5. **CI matrix.** CI builds the default config only, and `run_dev.sh` defaults
-   to `pro` — both DHT-on, everything-on. Nothing in routine use
+5. **CI matrix.** CI builds the default config only, and `run_dev.sh` /
+   `run2.sh` default to `ENIGMA_EDITION=professional` — both DHT-on,
+   everything-on. Nothing in routine use
    exercises a flag-*off* build, so an edition-only regression would ship
    unnoticed; `tests/component/dhtGate.test.ts` is the only standing guard.
    CI should build all three (a config that fails validation is a build failure,

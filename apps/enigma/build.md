@@ -9,7 +9,8 @@ Tauri 2 (Vue 3 frontend + Rust backend) app; a "build" compiles the frontend
 Contents: [Prerequisites](#prerequisites) · [First-time setup](#first-time-setup) ·
 [Run (dev)](#run-dev) · [Build configuration](#build-configuration-build_configyaml) ·
 [Editions](#editions-enigma_edition) ·
-[Desktop build](#desktop-build) · [Android](#android-toolchain-setup--build) ·
+[Builder](#the-builder-toolsenigma_builder) ·
+[Desktop build](#desktop-build) · [Android](#android--toolchain-setup--build) ·
 [CI](#ci-builds) · [Tests](#tests) · [Troubleshooting](#troubleshooting)
 
 ---
@@ -37,7 +38,7 @@ sudo apt-get install -y \
 The whole build is offline-friendly once crates.io/npm are cached.
 
 Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — see
-[Android](#android-toolchain-setup--build) below.
+[Android](#android--toolchain-setup--build) below.
 
 ---
 
@@ -139,7 +140,7 @@ the Rust backend, so chat does not function here; use it for pure-frontend work.
 
 Full walkthrough (boot AVD, `npm run tauri android dev`, driving via `adb`) is in
 [apps/enigma/emulator.md](apps/enigma/emulator.md). One-time SDK/NDK/Java setup is
-[below](#android-toolchain-setup--build). Short version, from `apps/enigma/`:
+[below](#android--toolchain-setup--build). Short version, from `apps/enigma/`:
 
 ```bash
 "$ANDROID_HOME/emulator/emulator" -avd Pixel_9 -no-snapshot-save -gpu swiftshader_indirect &
@@ -171,30 +172,36 @@ details):
   the key being rewritten), `dht_presence` / `dht_publish_nick` /
   `dht_find_nick` / `dht_apply` error `DHT_DISABLED`, and the whole DHT UI is
   hidden rather than disabled. Requires `p2p.allow_hosted_relays` — build.rs
-  rejects the combination. Pro only.
+  rejects the combination. Standard and up.
 - `crypto` — declared algorithms are **compile-asserted** against the vendored
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
   vaults only.
-- `calls` / `contacts` / `calendar` / `peers` / `maps` — feature kill switches
+- `calls` / `contacts` / `calendar` / `maps` — feature kill switches
   (`enabled: false` builds without the tab, redirects the route, and never
   instantiates the composable — so the feature's sync handlers and, for
   calls/contacts, its ALPN are absent from the binary). `calls` additionally
   makes every `vox_*` command error `CALLS_DISABLED`. These are what the product
-  editions are made of — see [pland.md](pland.md). `peers` additionally
-  withholds the `enigma/plink/0` ALPN and makes every `peer_*` command error
-  `PEERS_DISABLED` (parked — see limbo/frontend/peers/peer.md); `maps` has no other knobs, because the app has
-  no tile-fetch path at all — region packages are produced by the standalone
-  `tools/map_packager` and imported from the device (see map.md Part II).
+  editions are made of — see [pland.md](pland.md). `maps` has no other knobs,
+  because the app has no tile-fetch path at all — region packages are produced
+  by the standalone `tools/map_packager` and imported from the device (see
+  map.md Part II).
   (The `kanban`, `sketch` and `mind` sections were removed on 2026-07-27 when
   those features were parked — `limbo/frontend/*/NOTES.md` carries the exact
-  YAML to paste back. The `cloud` section went in 2026-08 with Enigma Cloud
-  itself; unlike the parked features it was deleted outright, so there is no
-  YAML to restore — see technology.md §16.)
-- `devices.allow_linking` — `false` builds without device linking: no
-  Files→Devices tab (pairing + per-file sync), every `devlink_*` command
-  errors `DEVLINK_DISABLED`
-  (see sync.md). Linking is pure P2P, so the shipped default is `true`.
+  YAML to paste back. `devices.allow_linking` and `peers.enabled` went the same
+  way on 2026-08-18, taking the `settings.devlink_pair_window_secs`,
+  `settings.devlink_resync_secs` and `settings.peer_resync_secs` clamps with
+  them; the restore playbooks are
+  [limbo/frontend/devices/NOTES.md](limbo/frontend/devices/NOTES.md) and
+  [limbo/frontend/peers/NOTES.md](limbo/frontend/peers/NOTES.md). The `cloud`
+  section went in 2026-08 with Enigma Cloud itself; unlike the parked features
+  it was deleted outright, so there is no YAML to restore — see
+  [limbo/removed/cloud.md](limbo/removed/cloud.md) and technology.md §16.)
+- `lock.pin_unlock` / `keyring.enabled` — two smaller kill switches: `false`
+  removes the PIN keypad (`vault_pin_*` → `PIN_UNLOCK_DISABLED`) and the key
+  ring (`keyring_*` → `KEYRING_DISABLED`). The key ring is an edition
+  differentiator, PIN unlock is on in all three. Per-file locking sits under
+  neither — it is always compiled in.
 - `features` / `settings` — new-profile defaults and settings defaults+clamps.
 - `network` — frame cap (**wire-interop**: all peers must agree), onion port,
   chunk sizes, Tor timeouts.
@@ -202,18 +209,19 @@ details):
 `app:` must match `tauri.conf.json` (`productName`/`identifier`/`version`) —
 `tauri.conf.json` stays authoritative and `build.rs` rejects drift. For an
 edition with a `tauri.<edition>.conf.json` overlay, the comparison is against the
-**merged** result (see *Each edition is its own installable app* below). The same
+**merged** result (see *One fixed app identity* below). The same
 YAML drives desktop and Android builds (the codegen is target-agnostic).
 
 ### Editions (`ENIGMA_EDITION`)
 
-The product line — **Light / Plus / Pro** — is three checked-in configs under
+The product line — **Basic / Standard / Professional** — is three checked-in
+configs under
 [`apps/enigma/src-tauri/configs/`](apps/enigma/src-tauri/configs/), selected by
 an environment variable that `build.rs` reads:
 
 ```bash
-ENIGMA_EDITION=basic        ./build_desktop.sh    # contacts, calendar, PIN unlock, device linking
-ENIGMA_EDITION=standard     ./run_dev.sh          # + relays, DHT, peer sync, keyring, voice calls
+ENIGMA_EDITION=basic        ./build_desktop.sh    # contacts, calendar, PIN unlock
+ENIGMA_EDITION=standard     ./run_dev.sh          # + relays, DHT, keyring, voice calls
 ENIGMA_EDITION=professional npm run build:android # + maps
 ./build_desktop.sh                           # unset → build_config.yaml (everything on)
 ```
@@ -231,8 +239,8 @@ exercisable in a dev run; shipped/CI defaults are unchanged, and an explicit
 
 Editions differ **only** in feature gates; `crypto`, `network` and `settings` are
 identical across all three, deliberately — `network.max_frame_bytes` is
-wire-interop sensitive and a Light peer must be able to share a room with a Pro
-peer. Who gets what, and why, is [pland.md](pland.md).
+wire-interop sensitive and a Basic peer must be able to share a room with a
+Professional peer. Who gets what, and why, is [pland.md](pland.md).
 
 #### One fixed app identity
 
@@ -265,6 +273,43 @@ change the app name or identifier.
 > ```
 > Or just start fresh with `./run_dev.sh --reset`.
 
+### The Builder (`tools/enigma_builder`)
+
+The scripts below are also driven by a GUI. A bare `enigma-builder` opens **one**
+window with four tabs — **Features / Identity / Expert / Build** — so the same
+tool configures a product *and* builds it:
+
+| Tab | What it decides |
+|---|---|
+| **Features** | the edition. Basic / Standard / Professional, each edition's in/out list derived from its checked-in `configs/*.yaml` rather than hardcoded. There is deliberately **no custom feature set**: a config whose gates match no edition is refused at save, at load and at build |
+| **Identity** | announcements, not inputs — the fixed app name, the fixed package id, the version read-only (it belongs to the repo, not to the build), and the fixed app icon |
+| **Expert** | the `settings` clamps and `network` tuning, with the `crypto` declarations read-only |
+| **Build** | platform, package formats, build type, Android ABIs, output folder, and a pinned pane the compiler output streams into (Cancel signals the whole process group) |
+
+Validation mirrors `build.rs` rule for rule — same paths, same wording — so a
+mistake reads here exactly as cargo would print it.
+
+A build materializes `configs/build_config.custom.yaml` from what is on screen
+and runs with `ENIGMA_EDITION=custom`: a fourth, gitignored config that only the
+Builder writes, so the checked-in edition files are never rewritten. From there
+it shells out to the same scripts documented below — `build_desktop.sh` for
+desktop, `scripts/build_android.sh` for Android, `apps/enigma/deploy/build.sh`
+for both.
+
+The same binary is a **headless CLI** when given a subcommand:
+`enigma-builder build android [--release] [--unsigned] [--abi SPEC]`, and the
+`enigma-builder signing android status|create|verify|pin` family that
+`scripts/build_android.sh` itself calls for its pre-flight and its post-build
+verification — one implementation, so the script and the GUI cannot drift.
+`enigma-builder build product.yaml --gui` opens a single-tab, read-only Builder
+for a saved product config. Full reference:
+[tools/enigma_builder/README.md](tools/enigma_builder/README.md).
+
+The **app icon is fixed too** — not a per-build choice. One mark, `sun-key2`,
+shipped at `tools/enigma_builder/assets/icons/sun-key2/`, announced on the
+Identity tab and regenerated into the app (every desktop size plus the Android
+mipmaps) on every build. Changing it is a code change: [icons.md](icons.md).
+
 ---
 
 ## Desktop build
@@ -273,7 +318,7 @@ One-click (installs workspace deps, then builds — the frontend build runs
 automatically via Tauri's `beforeBuildCommand`):
 
 ```bash
-./build_desktop.sh            # release bundles (.deb / .AppImage / .rpm)
+./build_desktop.sh            # release bundles
 ./build_desktop.sh --debug    # faster, unoptimized debug bundle
 
 # equivalently, via npm:
@@ -281,14 +326,17 @@ npm run build                 # -> ./build_desktop.sh
 npm run build:debug           # -> ./build_desktop.sh --debug
 ```
 
-Output:
+Which formats come out is `bundle.targets` in `tauri.conf.json` — currently
+`["deb", "rpm"]`. The script and CI only assert that *some* Linux bundle
+appeared, so a narrowed `targets` key produces a green build with fewer
+artifacts than you expected; check it before a release. Output:
 
 ```
 apps/enigma/src-tauri/target/release/bundle/     # release
 apps/enigma/src-tauri/target/debug/bundle/       # --debug
-  deb/enigma_<ver>_amd64.deb
-  appimage/enigma_<ver>_amd64.AppImage
-  rpm/enigma-<ver>-1.x86_64.rpm
+  deb/Enigma26_<ver>_amd64.deb
+  rpm/Enigma26-<ver>-1.x86_64.rpm
+  appimage/Enigma26_<ver>_amd64.AppImage         # only if "appimage" is in bundle.targets
 ```
 
 ### Piecemeal (frontend / Rust separately)
@@ -394,14 +442,19 @@ bash scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AA
 `aarch64` (modern phones), `x86_64` (emulator), `armv7` (old 32-bit), `i686`
 (32-bit emulator), or `all`.
 
-Output:
+Output — the selected ABIs are packed into ONE `universal` APK (Gradle's
+`universal` flavour), so the paths do not vary with `abi-spec`:
 
 ```
 apps/enigma/src-tauri/gen/android/app/build/outputs/
-  apk/debug/app-debug.apk
-  apk/release/app-release.apk       # release only
-  bundle/release/app-release.aab    # release only
+  apk/universal/debug/app-universal-debug.apk
+  apk/universal/release/app-universal-release.apk     # release only
+  bundle/universalRelease/app-universal-release.aab   # release only
 ```
+
+`apps/enigma/deploy/build.sh` copies these into `deploy/dist/` with the app name
+in place of Tauri's generic `app-` prefix (`enigma-universal-release.apk`),
+because the Tauri names are identical between builds.
 
 ### Signing a release build
 
@@ -434,7 +487,10 @@ Credentials resolve per key from: a `${VAR}` placeholder in
 `ENIGMA_KEYSTORE_PASSWORD` / `ENIGMA_KEY_ALIAS` / `ENIGMA_KEY_PASSWORD`
 environment variables → a literal in `keystore.properties` → 
 `~/.config/enigma-builder/signing.properties` (must be chmod 600). Passwords
-never live in source control and never appear on an argv.
+never live in source control and never appear on an argv. The four keys and the
+full CLI are documented in
+[tools/enigma_builder/README.md](tools/enigma_builder/README.md), and
+`gen/android/keystore.properties.example` is the committed template.
 
 An **unsigned release** for internal inspection is a deliberate act, never a
 fallback: `scripts/build_android.sh enigma release aarch64
@@ -448,7 +504,7 @@ key. The pinned fingerprint lives in
 
 ```bash
 adb devices
-adb install apps/enigma/src-tauri/gen/android/app/build/outputs/apk/debug/app-debug.apk
+adb install apps/enigma/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 adb logcat -s RustStdoutStderr enigma
 ```
 
@@ -462,7 +518,7 @@ adb logcat -s RustStdoutStderr enigma
 |---|---|---|---|
 | `frontend:build` | check | every commit | `vue-tsc` + `vite build`, asserts `dist/index.html` |
 | `rotor:wasm` | build | every branch/tag | wasm-pack build of `rotor_wasm` (web + bundler) as a gate; 30-day artifacts with a `COMMIT` provenance stamp |
-| `tauri:build` | build | every branch commit | full desktop bundle, asserts a `.deb`/`.AppImage`/`.rpm` was produced |
+| `tauri:build` | build | every branch commit | full desktop bundle, asserts at least one `.deb`/`.AppImage`/`.rpm` was produced |
 | `tauri:desktop` | build | tags / manual | release bundle, 30-day artifacts |
 | `android:build` | build | manual | stubbed (not provisioned to a CI image yet) |
 

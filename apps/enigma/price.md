@@ -3,11 +3,16 @@
 > **⚠ OPEN PRODUCT DECISION (2026-08-18):** the Light / Plus / Pro editions
 > this document prices were replaced by **Basic / Standard / Professional**
 > (pland.md §1) — different names AND different compositions: contacts,
-> calendar, PIN unlock and device linking moved into the entry edition, and
-> the entry edition dropped hosted relays. Every tier table below therefore
-> prices a product line that no longer ships. Re-cutting the tiers (what does
-> Basic cost when it includes the organiser features?) is a pricing decision,
-> not a documentation one, and has deliberately not been made here.
+> calendar and PIN unlock moved into the entry edition, and the entry edition
+> dropped hosted relays. On the same day **multi-device + file sync and peer
+> sync were parked**, so two of the modules priced below no longer ship in any
+> edition (§3, §6, §9.5), and the Builder stopped being able to produce an
+> arbitrary feature combination at all (§6, §9.6). Every tier table below
+> therefore prices a product line that no longer exists. Re-cutting the tiers
+> (what does Basic cost when it includes the organiser features and no device
+> sync?) is a pricing decision, not a documentation one, and has deliberately
+> not been made here — which is why the tables keep the old tier names: those
+> numbers were set for those compositions.
 
 What each module of the codebase is worth, what Light / Plus / Pro should cost,
 and a lifetime licence proposal.
@@ -23,7 +28,7 @@ Two different questions live in this document and they must not be blurred:
 **Related:** [pland.md](pland.md) (what is in each edition and why) ·
 [build.md](build.md) (how an edition is built) ·
 [tools/enigma_builder/README.md](tools/enigma_builder/README.md) (the tool that
-produces a custom build).
+configures and builds a product).
 
 ---
 
@@ -40,9 +45,9 @@ rules out most of the pricing playbook:
 
 - **A subscription cannot be enforced.** There is no server to revoke access
   against, and no phone-home. A monthly plan would be an honour system.
-- **Feature upsell inside the app is impossible.** A Light binary does not
-  contain the Pro features to unlock — that is the entire point of gating at
-  build time.
+- **Feature upsell inside the app is impossible.** A Basic binary does not
+  contain the Professional features to unlock — that is the entire point of
+  gating at build time.
 - **What is actually sold is a build**, plus the right to future builds.
 
 So the honest model is a **one-time purchase of an edition, and paid major
@@ -76,13 +81,14 @@ deliberately not a timesheet of how this repo actually came to exist. For
 valuation, licensing floors and "what would it cost you to build instead", the
 replacement basis is the right one.
 
-Day-rate sensitivity on the full 967-day estimate:
+Day-rate sensitivity on the full 774-day estimate (§3, after the 2026-08 cloud
+deletion and the 2026-08-18 park):
 
 | Rate | Basis | Total build cost |
 |---|---|---|
-| $400/day | CEE contractor | **$387,000** |
-| $750/day | blended EU senior *(used below)* | **$725,000** |
-| $1,200/day | US/UK senior security engineer | **$1,160,000** |
+| $400/day | CEE contractor | **$309,600** |
+| $750/day | blended EU senior *(used below)* | **$580,500** |
+| $1,200/day | US/UK senior security engineer | **$928,800** |
 
 ---
 
@@ -95,16 +101,24 @@ Line counts are real, measured across `src-tauri/src`, `apps/enigma/src`,
 | Module | sys | app | test | LOC | Days | Build cost |
 |---|---:|---:|---:|---:|---:|---:|
 | **Core platform** | 11,731 | 10,874 | 4,602 | 27,207 | 495 | **$371,000** |
-| Multi-device + file sync | 3,163 | 1,228 | 1,843 | 6,234 | 115 | **$86,300** |
 | Maps | 1,426 | 4,670 | 1,210 | 7,306 | 114 | **$85,800** |
-| Peer sync | 1,754 | 1,564 | 1,134 | 4,452 | 78 | **$58,200** |
 | Calendar | 0 | 2,320 | 1,540 | 3,860 | 49 | **$36,400** |
 | Vox (1:1 voice calls) | 1,271 | 818 | 302 | 2,391 | 46 | **$34,900** |
 | Contacts + presence | 664 | 1,274 | 755 | 2,693 | 42 | **$31,800** |
 | DHT discovery | 901 | 0 | 548 | 1,449 | 28 | **$21,000** |
-| **Total** | **20,910** | **22,748** | **11,934** | **55,592** | **967** | **$725,400** |
+| **Total** | **15,993** | **19,956** | **8,957** | **44,906** | **774** | **$580,900** |
 
-**Enigma Cloud was a ninth row here** — 2,150 sys / 2,463 app / 1,183 test =
+**Two rows left this table on 2026-08-18.** Multi-device + file sync
+(3,163 sys / 1,228 app / 1,843 test = 6,234 LOC, 115 days, **$86,300**) and peer
+sync (1,754 / 1,564 / 1,134 = 4,452 LOC, 78 days, **$58,200**) were **parked** —
+frontend to `limbo/frontend/{devices,peers}/`, Rust to
+`limbo/rust/{devices,peers}/` (pland.md §2). The code still exists, so unlike
+Cloud it is not written off; it moves to the parked pile in §9.5, on the same
+rule that keeps Kanban/Sketch/Mind out of a table of what ships. Together they
+take $144,500 and 193 days out of the basis, which is why the total is $580,900
+where this document said $725,400 in July.
+
+**Enigma Cloud was a further row here** — 2,150 sys / 2,463 app / 1,183 test =
 5,796 LOC, 101 days, **$75,600** — until the feature was deleted in 2026-08
 (technology.md §16). The row is gone rather than parked: unlike Kanban/Sketch/Mind
 (§9.5) there is no `limbo/` copy to price back in later. Its numbers are simply
@@ -127,13 +141,9 @@ What sits in each module:
   locking (`local_lock`), the vendored crypto crates (`rotor_core`,
   `gervasius`), the chat/files/profile/settings UI, the notes and SVG editors,
   `useChatChannel` + `appStorage` in rakotis, and both i18n catalogues.
-- **Multi-device + file sync** — `device_link`, `file_sync`, `deviceSyncModel`,
-  `useDeviceSync`, `fileSyncModel` and the Devices UI. Expensive because it is
-  a distributed-convergence problem with a hand-curated, dual-mirrored sync
-  allow-list and drift tests on both sides.
-- **Maps** — `maps.rs`, the map UI and share layer, plus the standalone
+- **Maps** — `maps.rs`, the map UI and share layer (the in-room location share
+  over MLS; the server-side beacon layer went with Cloud), plus the standalone
   `tools/map_packager` region packager, which is a product in its own right.
-- **Peer sync** — scoped, revocable person-to-person links (`peer.md`).
 - **Calendar** — meetings and scheduling polls. Pure application code, but
   heavily tested (1,540 test lines against 2,320 of implementation).
 - **Vox** — 1:1 voice over the room's MLS group, incl. the audio pipeline.
@@ -155,9 +165,9 @@ matters commercially — see §6.
 |---|---|---:|---:|
 | **Light** | Core platform | 27,207 | **$371,000** |
 | **Plus** | Light + Vox | 29,598 | **$406,000** |
-| **Pro** | everything | 55,592 | **$725,400** |
+| **Pro** | everything | 44,906 | **$580,900** |
 
-Note the shape: **Light is 49% of the code but carries 100% of the hard parts.**
+Note the shape: **Light is 61% of the code but carries 100% of the hard parts.**
 Everything a buyer is actually paying for in the security story — MLS, the Tor
 transport, the vault, panic code, at-rest crypto — is in the edition with the
 lowest price. Pro is where the *breadth* is, not where the *difficulty* is.
@@ -195,10 +205,10 @@ donation-funded; Wire and Element sit at $5–9/user/month but are *hosted*
 products where the price buys infrastructure Enigma's users run themselves;
 purpose-built secure-comms suites for government and NGO buyers run to hundreds
 or thousands per seat. Enigma Pro is not a messenger — it is a serverless
-collaboration suite with offline maps, calendar and device sync, sold to people
-who deliberately want no vendor in the path. Since 2026-08 it does not talk to
-any server, the user's own included, which sharpens rather than weakens that
-pitch. A
+collaboration suite with offline maps, a room calendar and voice calls, sold to
+people who deliberately want no vendor in the path. Since 2026-08 it does not
+talk to any server, the user's own included, which sharpens rather than weakens
+that pitch. A
 one-off $129 individual / $199-per-seat org price undercuts every hosted
 alternative within roughly 18 months of use, which is the argument to lead with.
 
@@ -211,11 +221,15 @@ what is actually in the binary.
 
 ## 6. Per-module add-on pricing
 
-Because the [Enigma Builder](tools/enigma_builder/README.md) reduces a bespoke
-build to picking checkboxes and pressing one button, arbitrary feature
-combinations became operationally cheap to produce. That is what makes à-la-carte
-pricing viable at all; before it, every custom combination was a manual YAML edit
-and a hand-run script.
+> **This section has lost its mechanism (2026-08-18).** It was written when the
+> [Enigma Builder](tools/enigma_builder/README.md) could compile any combination
+> of gates from a checkbox screen, which is what made per-module SKUs cheap
+> enough to sell. The Builder now deliberately has **no custom feature set**: its
+> Features tab is an edition picker, and a config whose gates match no edition is
+> refused at save, at load and at build. À-la-carte would first need that
+> refusal lifted — a product decision, not a build step (§9.6). Two of the
+> modules priced here are parked besides. The prices are kept because the
+> per-module *ratios* are still the useful part of the analysis.
 
 Add-ons on top of Light, perpetual, individual:
 
@@ -225,29 +239,27 @@ Add-ons on top of Light, perpetual, individual:
 | DHT discovery | $15 | $21,000 | 1,400 |
 | Contacts + presence | $20 | $31,800 | 1,590 |
 | Calendar | $20 | $36,400 | 1,820 |
-| Peer sync | $25 | $58,200 | 2,330 |
 | Maps | $35 | $85,800 | 2,450 |
-| Multi-device + file sync | $35 | $86,300 | 2,470 |
-| **Light + all seven** | **$194** | | |
-| **Pro bundle** | **$129** | | **−34%** |
+| **Light + all five** | **$105** | | |
+| **Pro bundle** | **$129** | | **+23%** |
 
-(Enigma Cloud was an eighth add-on at $30. Deleting it took $30 off the
-à-la-carte ceiling, which narrows the Pro bundle discount from 42% to 34% — Pro
-still costs $129 and now contains one module fewer. Whether that is the right
-call is a pricing decision, not a documentation one: see §9.)
+Three modules have left this table: Enigma Cloud at $30 (deleted, 2026-08), peer
+sync at $25 and multi-device + file sync at $35 (both parked, 2026-08-18). That
+is $90 off the à-la-carte ceiling, and it **inverts the argument this section was
+built on**: buying every remaining module separately now costs $105, so the $129
+bundle is a 23% *premium* rather than the 34% discount that made Pro look
+correctly priced. Whether the answer is a cheaper bundle, a repriced add-on set
+or no à-la-carte at all is a pricing decision, not a documentation one — §9.6.
 
 The right-hand column is the check on whether these prices are proportionate:
 every module recovers its own build cost within a 1,400–2,500 sale band, so no
-module is quietly subsidising another.
+module is quietly subsidising another. That much is unchanged.
 
-The 34% bundle discount is the point: à-la-carte exists to make Pro look
-correctly priced and to serve the buyer who genuinely wants a minimal binary
-(the high-risk user in pland.md's Light pitch, who wants maps but not a
-directory). Do not promote it as the default path — every extra SKU is another
-build to produce, sign and support.
-
-**Recommendation:** offer à-la-carte only for organisation deals and as a paid
-custom-build service (§8), not on the consumer storefront.
+À-la-carte was always meant to serve the buyer who genuinely wants a minimal
+binary (the high-risk user in pland.md's entry-edition pitch, who wants maps but
+not a directory), never to be the default path — every extra SKU is another build
+to produce, sign and support. If it comes back, the same rule applies:
+organisation deals and paid custom builds (§8), not the consumer storefront.
 
 ---
 
@@ -304,18 +316,20 @@ not a giveaway. It is defensible in public, which matters for this audience.
 
 ## 8. Break-even and the revenue that is not licences
 
-Against the $725,400 replacement-cost basis at $750/day:
+Against the $580,900 replacement-cost basis at $750/day (§3 — the basis fell
+with the cloud deletion and the 2026-08-18 park, so every count below is lower
+than it was in July for reasons that have nothing to do with the prices):
 
 | Product | Price | Units to cover build cost |
 |---|---:|---:|
-| Pro individual, perpetual | $129 | 5,625 |
-| Pro individual, lifetime | $299 | 2,425 |
-| Pro org seat (1–9) | $199 | 3,645 |
-| Pro org seat, lifetime (1–9) | $449 | 1,615 |
-| Site licence | $29,000 | 25 |
-| Site licence, lifetime | $69,000 | 11 |
+| Pro individual, perpetual | $129 | 4,505 |
+| Pro individual, lifetime | $299 | 1,945 |
+| Pro org seat (1–9) | $199 | 2,920 |
+| Pro org seat, lifetime (1–9) | $449 | 1,295 |
+| Site licence | $29,000 | 20 |
+| Site licence, lifetime | $69,000 | 8 |
 
-Eleven lifetime site licences covering the entire build is the number worth
+Eight lifetime site licences covering the entire build is the number worth
 remembering: **the org channel is the business, and the consumer storefront is
 the credibility that feeds it.**
 
@@ -323,14 +337,22 @@ Non-licence revenue, all of which fits the architecture rather than fighting it:
 
 | Line | Suggested price |
 |---|---|
-| Custom build (chosen module set, own identity/branding, signed) | $2,500 setup + $500/rebuild |
+| Custom build (edition, branding, release signing — from a product config) | $2,500 setup + $500/rebuild |
 | Deployment + key-management workshop (org onboarding) | $4,000/engagement |
 | Priority support + guaranteed rebuilds, annual | 18% of licence value/year |
 | Third-party security audit, sponsored and published | cost + 15% |
 | Map region packaging for a customer's territories | $1,500/region set |
 
 The custom-build line is only profitable because the Builder exists; each one is
-now minutes of work plus signing, against a day of careful YAML editing before.
+now minutes of work plus signing, against a day of careful YAML editing before —
+and Android release signing is part of the product rather than a customer's
+problem: the Builder resolves the keystore from `gen/android/keystore.properties`,
+env vars or `~/.config/enigma-builder/signing.properties`, refuses the SDK debug
+key for a release, and can pin the release fingerprint so a swapped keystore
+fails the build. Note what a "custom build" is not: the app name, bundle id and
+icon are fixed (pland.md §3, icons.md), and the feature set is one of the three
+editions — what varies per customer is the branding directory, the edition and
+the signing identity.
 
 ---
 
@@ -353,8 +375,10 @@ now minutes of work plus signing, against a day of careful YAML editing before.
    $75,600 of build cost, ~9% of the basis, and is still listed at $129
    individual / $199 per seat. Three defensible answers: **hold the price** (the
    §8 break-even actually *improves* — fewer units cover a smaller basis, and the
-   remaining modules are the ones buyers cite), **cut it** to ~$115 to keep the
-   per-module ratio honest against the now-$194 à-la-carte ceiling (§6), or
+   remaining modules are the ones buyers cite), **cut it** to keep the
+   per-module ratio honest against the à-la-carte ceiling — the ~$115 figure
+   suggested here was anchored on a $194 ceiling that has since fallen to $105,
+   so the same reasoning now implies a deeper cut (§6, and question 6 below), or
    **hold it and say why** — the cloud client was the one feature that put a
    server in the path, and removing it is arguably worth more to this buyer than
    it cost. The document assumes *hold* until someone decides otherwise. Two
@@ -362,10 +386,28 @@ now minutes of work plus signing, against a day of careful YAML editing before.
    bundle-discount line.
 5. **Parked features.** Kanban (1,769 lines), the Mind map (4,594) and the
    collaborative Sketch board (2,433 + 396) sit in `limbo/` — about 9,200 lines,
-   **≈ $98,000** of build cost already spent and currently earning nothing. They
-   are not priced here because they do not ship. If Pro regains them, that
-   justifies a price rise rather than being absorbed silently.
-6. **Source availability.** The pitch is "auditable". Auditable by whom, under
+   **≈ $98,000** of build cost already spent and currently earning nothing.
+   Multi-device + file sync (6,234 lines, **$86,300**) and peer sync (4,452,
+   **$58,200**) joined them on 2026-08-18, taking the parked pile to ~19,900
+   lines and **≈ $242,500** — a third as much as everything that does ship.
+   None of it is priced here because none of it ships. If a shipping edition
+   regains a feature, that justifies a price rise rather than being absorbed
+   silently. Device linking is the exception to even that: it is being
+   reimplemented rather than restored, so its $86,300 is a record of what was
+   spent, not a shelf-ready asset to price back in.
+6. **Is à-la-carte still a product at all?** *(2026-08-18, open — a product
+   decision.)* §6's per-module SKUs assumed a Builder that could compile any
+   combination of gates. It refuses to, by design: the Features tab is an
+   edition picker and a non-edition gate set is rejected at save, at load and at
+   build. With Cloud, peer sync and multi-device also gone from the module list,
+   the à-la-carte ceiling on top of Light is $105 against a $129 bundle — the
+   discount that justified the bundle is now a premium. Three defensible
+   answers: **retire à-la-carte** (the Builder already assumes it is gone, and
+   every SKU is a build to produce, sign and support), **reprice the bundle**
+   against the five remaining modules, or **re-open custom gate sets** in the
+   Builder and accept the combinatorial support load that the edition picker was
+   introduced to remove. Nothing here should be decided by a documentation edit.
+7. **Source availability.** The pitch is "auditable". Auditable by whom, under
    what licence? A source-available licence with a paid commercial grant
    (BSL-style) fits this product better than a closed binary, and changes §5
    materially.

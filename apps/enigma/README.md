@@ -9,9 +9,11 @@ content encrypted by **MLS** (OpenMLS via the Rotor crate) and all local state
 **Docs:** this README (orientation) · [build.md](build.md) (run in dev, desktop +
 Android builds, CI, troubleshooting) · [technology.md](technology.md) (the deep
 dive: architecture, transports, crypto, privacy posture, conventions, config
-sources of truth, rework history) · [pland.md](pland.md) (the Light / Plus / Pro
-product line and how an edition is built) · [icons.md](icons.md) (the curated
-app-icon sets the Builder offers, and how to add one).
+sources of truth, rework history) · [pland.md](pland.md) (the Basic / Standard /
+Professional product line and how an edition is built) ·
+[tools/enigma_builder/README.md](tools/enigma_builder/README.md) (the GUI/CLI
+tool that configures and builds a product) · [icons.md](icons.md) (the one
+shipped app mark, `sun-key2`, and how to change it).
 
 ## How it works
 
@@ -33,20 +35,22 @@ app-icon sets the Builder offers, and how to add one).
   **captain** is auto-elected with failover (gold ★ in the roster; iroh is off
   while on). See [technology.md](technology.md) §11.
 - **DHT discovery (optional)**: an opt-in toggle adds ticketless room joins by
-  a short **room code**, a **Contacts** tab with presence, and a nickname
-  directory — all over the community-run BitTorrent Mainline DHT. §12.
+  a short **room code**, plus presence and search-by-nickname in the
+  **Contacts** tab (which exists either way) — all over the community-run
+  BitTorrent Mainline DHT. §12.
 - **Beyond chat**: 1:1 **voice calls**, P2P **file transfer**, per-file
-  **local locking**, a room **calendar** (meetings + polls), offline **maps**,
-  and linked-device sync for already-paired profiles. New-device pairing is
-  parked in limbo for now. §10.
+  **local locking**, a room **calendar** (meetings + polls), and offline
+  **maps** — including a location you share into a room by tapping the spot
+  (never from the device's GPS). §10.
 - **Build policy is compiled in**: `build_config.yaml` bakes allow flags
-  (hosted relays, device linking), per-feature kill switches, crypto
-  declarations, and setting defaults/clamps into the binary at build time. See
-  [build.md](build.md).
+  (hosted relays, the DHT), per-feature kill switches (calls, contacts,
+  calendar, maps, key ring, PIN unlock), crypto declarations, and setting
+  defaults/clamps into the binary at build time. Which file is used is chosen
+  by `ENIGMA_EDITION` — see [pland.md](pland.md) and [build.md](build.md).
 
 | Package | What it is |
 |---------|-----------|
-| **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar. |
+| **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar, maps. |
 | **[packages/rakotis](packages/rakotis)** | Shared primitives (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
 | **Rotor** ([cryptorotor/](cryptorotor)) | The crypto layer. **Vendored in-repo** as its own nested cargo workspace: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the sibling *toto* project. `src-tauri` consumes everything via path dependencies (no GitLab access needed to build). **All MLS crypto stays here.** |
 | **[protasius/](protasius)** | The per-profile **encrypted-at-rest store** (fjall + gervasius): all app state persists as sealed values behind the launch passphrase gate. |
@@ -75,7 +79,8 @@ enigma/
 │   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma26)
 ├── cryptorotor/              # vendored crypto (Rust): rotor_core / gervasius / rotor_wasm / rotor_py
 ├── protasius/                # encrypted-at-rest store (Rust)
-├── limbo/                    # parked-feature archive (restore playbook)
+├── tools/                    # enigma_builder (configure + build) · map_packager
+├── limbo/                    # parked features (restore playbook) + limbo/removed/ (records of deleted ones)
 ├── build.md                  # run in dev + desktop/Android build guide
 ├── technology.md             # architecture, crypto, privacy, conventions, config
 ├── run_dev.sh · run2.sh      # dev instance launchers (profile-isolated)
