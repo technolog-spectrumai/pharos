@@ -63,7 +63,37 @@ The same validation the Builder applies to a set is the validation it applied to
 a hand-picked file before — `icons.validate_source`, one implementation, so a
 set that would fail a build is rejected in the chooser rather than at build time.
 
+## The sets that ship
+
+`tools/enigma_builder/assets/icons/` is the known location, and it holds the
+marks that have been used or considered so far: `cross`, `okti`,
+`okti-glasses`, `skull`, `sun-key`, `sun-key2`. Each keeps its untouched
+original beside the generated master:
+
+```
+<set-id>/
+├── icon.png     # normalised master: square, 1024×1024, what tauri icon consumes
+├── source.png   # the original as authored — never overwritten
+└── set.json
+```
+
+Most originals were neither square nor 1024: they were **padded** to square on
+transparency (never stretched — the artwork is centred, not distorted) and
+scaled to 1024. `source.png` is kept precisely so a better master can be
+re-derived later without starting from an upscale. Where an original was
+already square and large enough it was used as authored.
+
+Two of them are byte-identical: `okti-glasses/source.png` and
+`skull/source.png` are the same file under two names. Both are offered because
+both names were asked for; delete one directory if that duplication is not
+wanted.
+
 ## Adding one
+
+Adding a set is **a manual step on purpose** — the Builder does not create,
+edit or delete sets. It reads the directory and offers what it finds. That
+keeps the reviewed-once property: a set appears because someone put it there
+deliberately, not because a dialog made it easy.
 
 1. `mkdir tools/enigma_builder/assets/icons/my-brand`
 2. Put `icon.png` (1024×1024, square, alpha) and `set.json` in it.

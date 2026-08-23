@@ -210,8 +210,8 @@ def test_no_icon_chosen_means_no_icon_step(app, window, monkeypatch):
 def test_choosing_an_icon_prepends_a_generation_step(app, window, monkeypatch):
     import iconsets
 
-    source = iconsets.load_set("default").master
-    window.identity_tab.select_icon_set("default")
+    source = iconsets.load_set("skull").master
+    window.identity_tab.select_icon_set("skull")
     assert window.identity_tab.pending_icon() == source
 
     steps = capture_steps(window, monkeypatch)
@@ -228,7 +228,7 @@ def test_choosing_an_icon_prepends_a_generation_step(app, window, monkeypatch):
 
 
 def test_a_snapshot_is_taken_before_the_icon_step(app, window, monkeypatch):
-    window.identity_tab.select_icon_set("default")
+    window.identity_tab.select_icon_set("skull")
     capture_steps(window, monkeypatch)
     assert len(window.build_tab._icon_snapshot) > 50
 
@@ -270,7 +270,7 @@ def test_the_preview_shows_the_repo_icon_by_default(app, window):
 
 
 def test_the_preview_switches_to_the_chosen_set(app, window):
-    window.identity_tab.select_icon_set("default")
+    window.identity_tab.select_icon_set("skull")
     assert window.identity_tab.icon_caption.text() == "new"
     assert not window.identity_tab.icon_preview.pixmap().isNull()
 

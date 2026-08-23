@@ -55,7 +55,9 @@ def make_set(root: Path, set_id: str, *, name: str | None = "A Set",
 def test_the_shipped_sets_are_discovered():
     found = iconsets.available_sets()
     assert len(found) >= 2, "at least two example sets are meant to ship"
-    assert {"default", "mono"} <= {icon_set.id for icon_set in found}
+    assert {"skull", "cross", "okti", "okti-glasses", "sun-key", "sun-key2"} <= {
+        icon_set.id for icon_set in found
+    }
 
 
 def test_every_shipped_set_is_valid():
@@ -86,8 +88,8 @@ def test_shipped_sets_carry_real_metadata():
 
 def test_the_two_example_sets_look_different():
     """The chooser's whole value is telling them apart in the preview."""
-    default = iconsets.load_set("default")
-    mono = iconsets.load_set("mono")
+    default = iconsets.load_set("skull")
+    mono = iconsets.load_set("cross")
     assert default.master.read_bytes() != mono.master.read_bytes()
 
 
@@ -314,15 +316,15 @@ def test_there_is_no_free_form_icon_picker_left(app, window):
 
 def test_choosing_a_set_returns_its_master_path(app, window):
     tab = window.identity_tab
-    assert tab.select_icon_set("mono") is True
-    assert tab.pending_icon_id() == "mono"
-    assert tab.pending_icon() == iconsets.load_set("mono").master
+    assert tab.select_icon_set("cross") is True
+    assert tab.pending_icon_id() == "cross"
+    assert tab.pending_icon() == iconsets.load_set("cross").master
     assert tab.pending_icon().is_file()
 
 
 def test_choosing_keep_repo_icons_returns_none(app, window):
     tab = window.identity_tab
-    tab.select_icon_set("default")
+    tab.select_icon_set("skull")
     assert tab.pending_icon() is not None
 
     tab.select_icon_set("")
@@ -333,12 +335,12 @@ def test_choosing_keep_repo_icons_returns_none(app, window):
 
 def test_the_preview_and_description_follow_the_choice(app, window):
     tab = window.identity_tab
-    tab.select_icon_set("default")
-    chosen = iconsets.load_set("default")
+    tab.select_icon_set("skull")
+    chosen = iconsets.load_set("skull")
     assert tab.icon_caption.text() == "new"
     assert not tab.icon_preview.pixmap().isNull()
     assert chosen.description in tab.icon_description.text()
-    assert "assets/icons/default/" in tab.icon_description.text()
+    assert "assets/icons/skull/" in tab.icon_description.text()
     assert tab.icon_error.text() == ""
 
 
@@ -352,16 +354,16 @@ def test_an_unknown_set_id_falls_back_and_says_so(app, window):
 def test_an_old_config_that_stored_a_path_still_resolves(app, window):
     """Product configs written before this change name a file, not a set."""
     tab = window.identity_tab
-    master = iconsets.load_set("mono").master
+    master = iconsets.load_set("cross").master
     assert tab.select_icon_set(str(master)) is True
-    assert tab.pending_icon_id() == "mono"
+    assert tab.pending_icon_id() == "cross"
 
 
 def test_a_relative_stored_path_is_resolved_against_the_config_folder(app, window):
     tab = window.identity_tab
-    master = iconsets.load_set("default").master
-    assert tab.select_icon_set("default/icon.png", base=master.parent.parent) is True
-    assert tab.pending_icon_id() == "default"
+    master = iconsets.load_set("skull").master
+    assert tab.select_icon_set("skull/icon.png", base=master.parent.parent) is True
+    assert tab.pending_icon_id() == "skull"
 
 
 def test_a_path_to_nowhere_falls_back_without_raising(app, window):
@@ -429,29 +431,29 @@ def test_a_set_that_disappeared_between_reloads_is_reported(
 
 
 def test_saving_records_the_set_id_not_a_machine_path(app, window, tmp_path):
-    window.identity_tab.select_icon_set("mono")
+    window.identity_tab.select_icon_set("cross")
     window.product_file = tmp_path / "p.yaml"
     saved = window._save_product()
 
     text = saved.read_text(encoding="utf-8")
-    assert "icon: mono" in text
+    assert "icon: cross" in text
     # No absolute path anywhere: the same file must mean "mono" on any machine.
     assert "assets/icons" not in text
     assert str(tmp_path) not in text
 
 
 def test_loading_a_product_restores_the_chosen_set(app, window, tmp_path):
-    window.identity_tab.select_icon_set("default")
+    window.identity_tab.select_icon_set("skull")
     window.product_file = tmp_path / "p.yaml"
     saved = window._save_product()
 
-    window.identity_tab.select_icon_set("mono")
+    window.identity_tab.select_icon_set("cross")
     assert window.load_product(saved) is True
-    assert window.identity_tab.pending_icon_id() == "default"
+    assert window.identity_tab.pending_icon_id() == "skull"
 
 
 def test_loading_a_product_without_branding_clears_the_choice(app, window, tmp_path):
-    window.identity_tab.select_icon_set("mono")
+    window.identity_tab.select_icon_set("cross")
     window.product_file = tmp_path / "p.yaml"
     saved = window._save_product()
 
