@@ -80,10 +80,15 @@ class IdentityTab(QWidget):
         self.version_edit = QLineEdit()
         self.version_edit.setPlaceholderText("0.1.0")
 
+        # Name, identifier AND version are announcements, not inputs. The
+        # version belongs to the code: every change to the app bumps it in the
+        # repo, so a build engineer choosing their own would ship an artifact
+        # whose number means nothing — and Android refuses an upgrade whose
+        # versionCode went backwards. Editing is disabled rather than hidden,
+        # because the number is the one thing a builder must be able to read.
         for field, edit in (
             ("name", self.name_edit),
             ("identifier", self.identifier_edit),
-            ("version", self.version_edit),
         ):
             edit.textChanged.connect(lambda text, f=field: self._set(f, text))
 
@@ -97,6 +102,8 @@ class IdentityTab(QWidget):
             self.identifier_hint,
         )
         form.addRow("Version", self.version_edit)
+        self.version_hint = widgets.hint("", "gateHint")
+        form.addRow("", self.version_hint)
 
         self.form_error = widgets.ErrorLabel()
         form.addRow("", self.form_error)
@@ -446,6 +453,12 @@ class IdentityTab(QWidget):
         self.name_edit.setReadOnly(True)
         self.name_edit.setClearButtonEnabled(False)
         self.identifier_edit.setReadOnly(True)
+        self.version_edit.setReadOnly(True)
+        version = str(self.model.get("app.version") or "")
+        self.version_hint.setText(
+            f"This build is {version}. The version comes from the repository and "
+            f"is bumped with the code — it is not a build-time choice."
+        )
         self.identifier_edit.setClearButtonEnabled(False)
         self.name_hint.setText(
             f"Fixed to {identity_mod.FIXED_APP_NAME}. Product configs cannot "

@@ -76,3 +76,27 @@ def test_head_identity_matches_disk_on_a_clean_tree():
         return
     assert isinstance(head, Identity)
     assert head.identifier
+
+
+def test_the_version_is_announced_but_not_editable(app, window):
+    """The version belongs to the code, not to the build engineer: shipping an
+    artifact whose number they chose makes the number meaningless, and Android
+    refuses an upgrade whose versionCode went backwards."""
+    tab = window.identity_tab
+    assert tab.version_edit.isReadOnly()
+    shown = tab.version_edit.text()
+    assert shown, "the builder must still be able to READ what it is building"
+    assert shown in tab.version_hint.text()
+
+    # Typing is refused rather than silently reverted on the next refresh.
+    before = window.model.get("app.version")
+    tab.version_edit.setText("9.9.9")
+    assert window.model.get("app.version") == before
+
+
+def test_the_announced_version_is_the_repo_version(app, window):
+    """What the tab shows is what tauri.conf.json carries — the assert build.rs
+    makes is the same one, so a drift here is a build failure later."""
+    import json
+    conf = json.loads(paths.TAURI_CONF.read_text(encoding="utf-8"))
+    assert window.identity_tab.version_edit.text() == conf["version"]

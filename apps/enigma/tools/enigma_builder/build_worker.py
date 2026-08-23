@@ -94,10 +94,20 @@ class BuildWorker(QThread):
             # stderr merged into stdout: a single reader cannot deadlock on a
             # full unread pipe. start_new_session makes bash the group leader
             # so cancellation reaches every child it spawns.
+            env = dict(self.env)
+            # cargo/rustc only print per-crate progress and coloured diagnostics
+            # to a terminal. Through a pipe they go quiet for the whole link —
+            # minutes of nothing, which reads as a hang. Ask for the output a
+            # terminal would get; colour codes are stripped by the log pane.
+            env.setdefault("CARGO_TERM_PROGRESS_WHEN", "always")
+            env.setdefault("CARGO_TERM_PROGRESS_WIDTH", "60")
+            env.setdefault("CARGO_TERM_COLOR", "never")
+            # Gradle likewise: plain console, per-task lines.
+            env.setdefault("TERM", "dumb")
             self._process = subprocess.Popen(
                 self.command,
                 cwd=str(self.cwd),
-                env=self.env,
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
@@ -108,7 +118,10 @@ class BuildWorker(QThread):
             assert self._process.stdout is not None
 
             for raw_line in self._process.stdout:
-                line = raw_line.rstrip()
+                # Compilers redraw progress in place with carriage returns
+                # ("Compiling 41/120 … \r"); universal-newline mode flattens
+                # those onto one line, so take only the final frame of each.
+                line = raw_line.rstrip().split("\r")[-1].strip()
                 if line:
                     self.log_message.emit(line)
                     tail.append(line)

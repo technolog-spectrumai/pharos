@@ -13,7 +13,7 @@ app:
   # only; Android installs the fixed Gradle applicationId below.
   name: Enigma26
   identifier: com.spectrumaipl.enigma26
-  version: 0.1.3
+  version: 0.1.4
 
 p2p:
   # false = iroh runs with RelayMode::Disabled and all hosted discovery is off
@@ -58,7 +58,6 @@ calendar:
   # instantiated (no meetings, no polls, no reminder tick).
   enabled: true
 
-
 maps:
   # false = no Maps: no Map tab, /map redirects, every map_* command fails with
   # MAPS_DISABLED. The app NEVER fetches tiles itself — region packages come
@@ -73,7 +72,6 @@ keyring:
   # keyring_* command fails with KEYRING_DISABLED. Per-file locking
   # (local_lock) is always in — this gates only the shared ring.
   enabled: true
-
 
 features:
   # Initial values for a NEW profile's toggles. Runtime Settings switches still
@@ -108,3 +106,7 @@ network:
   # Local-only tuning (no wire impact).
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30
+
+# ── product-config extras (Builder-owned; stripped from the build config) ──
+branding:
+  icon: sun-key2

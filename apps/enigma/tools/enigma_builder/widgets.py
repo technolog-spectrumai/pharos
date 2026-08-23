@@ -8,6 +8,7 @@ have something to say.
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -26,6 +27,10 @@ from PyQt6.QtWidgets import (
 )
 
 INT_MAX = 2_147_483_647
+
+# Terminal colour/cursor sequences — compilers emit them even when told not
+# to, and a log pane must not show them as garbage.
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 def card(spacing: int = 12) -> tuple[QFrame, QVBoxLayout]:
@@ -187,7 +192,7 @@ class MonoPane(QPlainTextEdit):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def append_line(self, message: str) -> None:
-        cleaned = message.rstrip()
+        cleaned = _ANSI.sub("", message).rstrip()
         if not cleaned:
             return
         self.appendPlainText(cleaned)
