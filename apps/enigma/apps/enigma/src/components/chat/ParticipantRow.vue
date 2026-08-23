@@ -27,7 +27,6 @@ defineEmits<{ moderate: [] }>();
           :title="$t('chat.mutedFor', { time: formatRemaining(participant.muteUntil, Date.now()) })"
         />
       </p>
-      <p v-if="!compact" class="text-xs opacity-60">Human</p>
     </div>
     <button
       v-if="canModerate"

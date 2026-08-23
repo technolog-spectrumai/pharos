@@ -1,7 +1,7 @@
 {
   "name": "enigma-workspace",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Monorepo for Enigma26 — a serverless P2P chat (iroh + MLS, QR-code pairing). Shared primitives live in the in-repo rakotis workspace package (packages/rakotis).",
   "workspaces": [
     "packages/*",

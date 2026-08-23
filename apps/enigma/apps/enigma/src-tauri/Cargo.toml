@@ -1,6 +1,6 @@
 [package]
 name = "enigma"
-version = "0.1.6"
+version = "0.1.7"
 description = "Enigma26 — serverless, end-to-end-encrypted (MLS) peer-to-peer chat (Tauri shell)"
 authors = ["SpectrumAI"]
 edition = "2021"

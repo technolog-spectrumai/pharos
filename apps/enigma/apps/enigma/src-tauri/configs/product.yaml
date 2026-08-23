@@ -13,7 +13,7 @@ app:
   # only; Android installs the fixed Gradle applicationId below.
   name: Enigma26
   identifier: com.spectrumaipl.enigma26
-  version: 0.1.6
+  version: 0.1.7
 
 p2p:
   # false = iroh runs with RelayMode::Disabled and all hosted discovery is off
