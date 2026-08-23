@@ -178,11 +178,30 @@ class BuildTab(QWidget):
         layout.addWidget(self._build_artifacts_card())
         layout.addStretch()
 
-        self.log = widgets.MonoPane("log", "Build output will appear here…", 5000)
-        self.log.setMinimumHeight(160)
+        # A labelled, pinned output pane. It sits OUTSIDE the scroll area on
+        # purpose: wherever the form above is scrolled to, the log and the
+        # status beside it stay on screen for the whole build.
+        log_header = QHBoxLayout()
+        log_header.setContentsMargins(0, 0, 0, 0)
+        log_header.setSpacing(8)
+        log_header.addWidget(widgets.section_title("Build output"))
+        log_header.addStretch()
+        # The summary card's status scrolls away; this copy does not.
+        self.log_status = QLabel("Ready")
+        self.log_status.setObjectName("status")
+        log_header.addWidget(self.log_status)
+        outer.addLayout(log_header)
+
+        self.log = widgets.MonoPane(
+            "log",
+            "Build output appears here, line by line, as the build runs…",
+            5000,
+        )
+        self.log.setMinimumHeight(200)
         # Capped rather than Expanding: the spare height belongs to the options
-        # above, which is what the user is actually reading before a build.
-        self.log.setMaximumHeight(300)
+        # above, which is what the user is actually reading before a build. The
+        # cap is still tall enough that a running build is unmistakable.
+        self.log.setMaximumHeight(420)
         self.log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         outer.addWidget(self.log)
 
@@ -1391,7 +1410,7 @@ class BuildTab(QWidget):
         self.worker = BuildWorker(
             command=step.command, cwd=step.cwd, env=step.env, label=step.label
         )
-        self.worker.status_changed.connect(self.status_label.setText)
+        self.worker.status_changed.connect(self._set_status)
         self.worker.log_message.connect(self.log.append_line)
         self.worker.job_finished.connect(self._job_finished)
         self.worker.job_failed.connect(self._job_failed)
@@ -1478,6 +1497,12 @@ class BuildTab(QWidget):
         self.log.append_line("# tauri.conf.json restored")
         self.identity_tab.refresh()
 
+    def _set_status(self, text: str) -> None:
+        """Status is shown twice: in the summary card, which scrolls out of
+        sight, and in the pinned log header, which never does."""
+        self.status_label.setText(text)
+        self.log_status.setText(text)
+
     def _set_running(self, running: bool) -> None:
         # cargo and gradle give no usable percentage, so the bar is a busy
         # indicator rather than a lie about progress.
@@ -1508,7 +1533,7 @@ class BuildTab(QWidget):
                 note = step.after()
             except Exception as exc:  # a post-step must not strand the queue
                 self._failure = f"{step.label}: {type(exc).__name__}: {exc}"
-                self.status_label.setText("Failed")
+                self._set_status("Failed")
                 return
             if note:
                 self.log.append_line(note)
@@ -1516,11 +1541,11 @@ class BuildTab(QWidget):
 
     def _job_failed(self, message: str) -> None:
         self._failure = message
-        self.status_label.setText("Failed")
+        self._set_status("Failed")
 
     def _job_cancelled(self) -> None:
         self._cancelled = True
-        self.status_label.setText("Cancelled")
+        self._set_status("Cancelled")
         self.log.append_line("Build cancelled.")
 
     def _thread_finished(self) -> None:
@@ -1565,7 +1590,7 @@ class BuildTab(QWidget):
             QMessageBox.critical(self, "Build failed", failure)
             return
 
-        self.status_label.setText("Complete")
+        self._set_status("Complete")
         self._show_artifacts()
 
     def _restore_icons(self) -> None:

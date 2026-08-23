@@ -1,8 +1,8 @@
 """The Config Builder / Builder split (B3-B4).
 
-The boundary under test: config mode has no Build tab and cannot start a
-build; build mode consumes a product file and shows no editing surface.
-Product decisions travel only through the saved file.
+The boundary under test: config mode edits AND builds in one window — the
+Build tab is the fourth tab, not a second window — while build mode consumes a
+product file read-only and shows no editing surface.
 """
 
 from __future__ import annotations
@@ -29,10 +29,68 @@ def config_window(app):
     win.close()
 
 
-def test_config_mode_has_no_build_tab(app, config_window):
+def test_config_mode_carries_the_build_tab(app, config_window):
+    """The build surface lives in THIS window; a second one went unnoticed."""
     titles = [config_window.tabs.tabText(i) for i in range(config_window.tabs.count())]
-    assert "Build" not in titles
-    assert titles == ["Features", "Identity", "Expert"]
+    assert titles == ["Features", "Identity", "Expert", "Build"]
+    assert config_window.tabs.widget(3) is config_window.build_tab
+
+
+def test_build_this_config_switches_tabs_instead_of_opening_a_window(
+    app, config_window, tmp_path, monkeypatch
+):
+    """The old button opened a second MainWindow, which people missed entirely.
+    Now it saves and moves you to the Build tab in place."""
+    from PyQt6.QtWidgets import QApplication
+
+    import window as window_mod
+
+    target = tmp_path / "p.yaml"
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(target), "")),
+    )
+    # An unmocked modal hangs the offscreen suite forever.
+    monkeypatch.setattr(
+        window_mod.QMessageBox, "critical", staticmethod(lambda *a, **k: None)
+    )
+
+    config_window.tabs.setCurrentIndex(0)
+    before = len(QApplication.topLevelWidgets())
+
+    config_window.build_button.click()
+
+    assert config_window.tabs.currentWidget() is config_window.build_tab
+    assert len(QApplication.topLevelWidgets()) == before
+    assert not hasattr(config_window, "_builder_window")
+    assert not hasattr(config_window, "_launch_builder")
+    # The click still writes the product config it names in the label.
+    assert target.is_file()
+    assert str(target) in config_window.product_label.text()
+
+
+def test_the_build_tab_still_opens_when_the_save_is_cancelled(
+    app, config_window, monkeypatch
+):
+    """`_start` materialises the build config from the LIVE model, so backing
+    out of the file dialog must not swallow the click."""
+    import window as window_mod
+
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: ("", "")),
+    )
+    monkeypatch.setattr(
+        window_mod.QMessageBox, "critical", staticmethod(lambda *a, **k: None)
+    )
+
+    config_window.tabs.setCurrentIndex(0)
+    config_window.build_button.click()
+
+    assert config_window.tabs.currentWidget() is config_window.build_tab
+    assert config_window.product_file is None
 
 
 def test_config_mode_tracks_dirtiness_and_saves(app, config_window, tmp_path):
@@ -46,6 +104,7 @@ def test_config_mode_tracks_dirtiness_and_saves(app, config_window, tmp_path):
 
 
 def test_build_mode_shows_only_the_build_tab(app, tmp_path):
+    """`enigma-builder build product.yaml --gui`: ONE tab, no editing surface."""
     from window import MainWindow
 
     product = ConfigModel().save_product(tmp_path / "p.yaml")
@@ -53,6 +112,8 @@ def test_build_mode_shows_only_the_build_tab(app, tmp_path):
     try:
         titles = [win.tabs.tabText(i) for i in range(win.tabs.count())]
         assert titles == ["Build"]
+        assert win.tabs.count() == 1
+        assert not hasattr(win, "build_button")
         assert win.features_tab.isHidden()
         assert win.identity_tab.isHidden()
         assert "p.yaml" in win.windowTitle()

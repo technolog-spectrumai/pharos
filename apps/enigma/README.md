@@ -10,7 +10,8 @@ content encrypted by **MLS** (OpenMLS via the Rotor crate) and all local state
 Android builds, CI, troubleshooting) · [technology.md](technology.md) (the deep
 dive: architecture, transports, crypto, privacy posture, conventions, config
 sources of truth, rework history) · [pland.md](pland.md) (the Light / Plus / Pro
-product line and how an edition is built).
+product line and how an edition is built) · [icons.md](icons.md) (the curated
+app-icon sets the Builder offers, and how to add one).
 
 ## How it works
 

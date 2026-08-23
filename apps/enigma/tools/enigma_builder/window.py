@@ -45,6 +45,17 @@ from validation import errors as error_issues
 
 TAB_TITLES = ("Features", "Identity", "Expert", "Build")
 
+#: Which config sections each tab owns, for the "⚠" markers. Keyed by TITLE
+#: rather than by tab index on purpose: the index of a tab depends on the mode
+#: and on how many tabs precede it, and marking by index is exactly the bug
+#: that once renamed the Build tab "Features".
+TAB_OWNERS: dict[str, tuple[str, ...]] = {
+    "Features": ("p2p", "dht", "calls", "contacts", "calendar", "maps", "features"),
+    "Identity": ("app",),
+    "Expert": ("settings", "network", "crypto"),
+    # "Build" owns nothing: it reports every issue in its own banner.
+}
+
 SETTINGS_REPO_KEY = "repo/root"
 SETTINGS_OUTPUT_KEY = "build/output_dir"
 
@@ -53,14 +64,16 @@ class MainWindow(QMainWindow):
     """One window class, three launch modes.
 
     - "full"   — the classic combined tool (bare `enigma-builder`).
-    - "config" — the Config Builder: define the product, save a deterministic
-      product-config file for git. No Build tab; it cannot start a build.
+    - "config" — the default window: define the product, save a deterministic
+      product-config file for git, and build it from the fourth tab.
     - "build"  — the Builder: consumes one product config read-only and runs
       builds. No editing tabs; identity and gates come from the file.
 
-    The boundary the split enforces: config mode never invokes a build script,
-    and build mode never offers an editing surface — product decisions travel
-    only through the saved file.
+    Config mode carries the Build tab because the alternative — a second
+    window, opened by a button — was missed entirely: people asked where the
+    build step had gone. One window, four tabs, the log on the last one.
+    Build mode stays single-tab: `enigma-builder build product.yaml --gui`
+    consumes a decided product and must not offer an editing surface.
     """
 
     def __init__(
@@ -91,6 +104,7 @@ class MainWindow(QMainWindow):
         self._apply_theme(self.theme)
         self.theme_button.clicked.connect(self._toggle_theme)
         self.model.changed.connect(self._on_model_changed)
+        self.identity_tab.icon_set_changed.connect(self._on_icon_set_changed)
         self.build_tab.repo_root_changed.connect(self.set_repo_root)
         self.build_tab.output_dir_changed.connect(
             lambda path: self.settings.setValue(SETTINGS_OUTPUT_KEY, path)
@@ -226,17 +240,23 @@ class MainWindow(QMainWindow):
         self.expert_tab = ExpertTab(self.model)
         self.build_tab = BuildTab(self.model, self.identity_tab)
 
+        # Titles in tab order, so nothing has to map an index to a name by
+        # hand; see TAB_OWNERS.
+        self._tab_order: list[tuple[str, QWidget]] = []
+
         if self.mode == "config":
-            # No Build tab: this mode's output is a file, never an artifact.
+            # Four tabs: define the product on the first three, build it on the
+            # last. The Build tab reads the LIVE model, so what is on screen is
+            # what gets built.
             root_layout.addLayout(self._build_product_bar())
-            self.tabs.addTab(self.features_tab, TAB_TITLES[0])
-            self.tabs.addTab(self.identity_tab, TAB_TITLES[1])
-            self.tabs.addTab(self.expert_tab, TAB_TITLES[2])
-            self.build_tab.hide()
+            self._add_tab(self.features_tab, TAB_TITLES[0])
+            self._add_tab(self.identity_tab, TAB_TITLES[1])
+            self._add_tab(self.expert_tab, TAB_TITLES[2])
+            self._add_tab(self.build_tab, TAB_TITLES[3])
         elif self.mode == "build":
             # Only the Build tab: the product is decided; the editing tabs are
             # constructed (BuildTab reads identity through them) but never shown.
-            self.tabs.addTab(self.build_tab, "Build")
+            self._add_tab(self.build_tab, TAB_TITLES[3])
             for tab in (self.features_tab, self.identity_tab, self.expert_tab):
                 tab.hide()
         else:  # pragma: no cover — the combined mode is gone; config is default
@@ -244,6 +264,10 @@ class MainWindow(QMainWindow):
 
         root_layout.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
+
+    def _add_tab(self, widget: QWidget, title: str) -> None:
+        self.tabs.addTab(widget, title)
+        self._tab_order.append((title, widget))
 
     def load_product_readonly(self, path: Path) -> bool:
         """Build mode: consume the config; the editing surface stays hidden."""
@@ -255,8 +279,10 @@ class MainWindow(QMainWindow):
                 f"Cannot load the product config:\n{exc}"
             )
             return False
-        if icon and hasattr(self.identity_tab, "icon_edit"):
-            self.identity_tab.icon_edit.setText(str(Path(path).parent / icon))
+        if icon:
+            # branding.icon is an icon-set id; older configs stored a path,
+            # which select_icon_set still resolves against the config's folder.
+            self.identity_tab.select_icon_set(icon, base=Path(path).parent)
         self.setWindowTitle(f"{paths.APP_NAME} — Build: {Path(path).name}")
         return True
 
@@ -276,9 +302,13 @@ class MainWindow(QMainWindow):
         save_button.clicked.connect(self._save_product)
         save_as_button = QPushButton("Save As…")
         save_as_button.clicked.connect(lambda: self._save_product(ask=True))
-        build_button = QPushButton("Build this config…")
+        self.build_button = build_button = QPushButton("Build this config…")
         build_button.setObjectName("primaryButton")
-        build_button.clicked.connect(self._launch_builder)
+        build_button.setToolTip(
+            "Save the product config and go to the Build tab, where the build "
+            "runs with live output."
+        )
+        build_button.clicked.connect(self._show_build_tab)
         for button in (open_button, save_button, save_as_button, build_button):
             row.addWidget(button)
         return row
@@ -310,10 +340,10 @@ class MainWindow(QMainWindow):
             return False
         finally:
             self._loading_product = False
-        if icon and hasattr(self.identity_tab, "icon_edit"):
-            # branding.icon is relative to the product file's directory.
-            resolved = (Path(path).parent / icon)
-            self.identity_tab.icon_edit.setText(str(resolved))
+        if icon:
+            self.identity_tab.select_icon_set(icon, base=Path(path).parent)
+        else:
+            self.identity_tab.select_icon_set("")
         self.product_file = Path(path)
         self._product_dirty = False
         self._refresh_product_label()
@@ -330,8 +360,10 @@ class MainWindow(QMainWindow):
             if not chosen:
                 return None
             self.product_file = Path(chosen)
-        icon = self.identity_tab.pending_icon() if hasattr(
-            self.identity_tab, "pending_icon") else None
+        # The set id, not its path: the same product config must pick the same
+        # icon on a machine whose Builder lives somewhere else entirely.
+        chosen = self.identity_tab.pending_icon_id()
+        icon = Path(chosen) if chosen else None
         try:
             saved = self.model.save_product(self.product_file, icon=icon)
         except (ValueError, OSError) as exc:
@@ -341,16 +373,22 @@ class MainWindow(QMainWindow):
         self._refresh_product_label()
         return saved
 
-    def _launch_builder(self) -> None:
-        """Config mode's one exit into building: through the saved file."""
-        saved = self._save_product() if (self._product_dirty or
-                                         self.product_file is None) else self.product_file
-        if saved is None:
-            return
-        builder = MainWindow(mode="build", product_file=Path(saved))
-        builder.show()
-        # Keep a reference or the window is garbage-collected shut.
-        self._builder_window = builder
+    def _show_build_tab(self) -> None:
+        """Save the product config, then hand the user the Build tab.
+
+        This used to open a SECOND window in build mode, which people missed
+        completely — the report was "the build step isn't there". Now it is a
+        tab in this window and the button just moves you to it.
+
+        The save is bookkeeping: `BuildTab._start` materialises
+        build_config.custom.yaml from the LIVE model, so the build always
+        reflects what is on screen, saved or not. A cancelled or refused save
+        therefore does not swallow the click — the Build tab's own banner is
+        where an unbuildable config gets explained.
+        """
+        if self._product_dirty or self.product_file is None:
+            self._save_product()
+        self.tabs.setCurrentWidget(self.build_tab)
 
     def _report_missing_files(self) -> None:
         missing = paths.missing_repo_files()
@@ -366,6 +404,12 @@ class MainWindow(QMainWindow):
 
     # ----- shared refresh -------------------------------------------------
 
+    def _on_icon_set_changed(self) -> None:
+        """The icon lives outside the model, so it marks the product dirty here."""
+        if self.mode == "config" and not self._loading_product:
+            self._product_dirty = True
+            self._refresh_product_label()
+
     def _on_model_changed(self) -> None:
         if self.mode == "config" and not self._loading_product:
             self._product_dirty = True
@@ -375,8 +419,8 @@ class MainWindow(QMainWindow):
             # have nothing to show, so skip validation rather than flooding
             # every field with "missing".
             if self.mode != "build":
-                for index in range(self.tabs.count()):
-                    self.tabs.setTabText(index, TAB_TITLES[index])
+                for index, (title, _widget) in enumerate(self._tab_order):
+                    self.tabs.setTabText(index, title)
             self.build_tab.refresh()
             return
 
@@ -396,20 +440,22 @@ class MainWindow(QMainWindow):
     def _mark_tabs(self, issues) -> None:
         """Flag the tabs holding a blocking error, so nothing hides off-screen."""
         if self.mode == "build":
-            # ONE tab; renaming it to "Features" by index is exactly the bug
-            # this guard prevents.
+            # ONE tab, and it is the Build tab. The loop below is keyed by
+            # title rather than by index precisely so that a mode with a
+            # different tab count cannot rename the wrong tab ("Build" once
+            # became "Features" that way); this early return keeps build mode
+            # out of it entirely.
             return
         blocking = error_issues(issues)
-        owners = {
-            0: ("p2p", "dht", "calls", "contacts", "calendar", "maps", "features"),
-            1: ("app",),
-            2: ("settings", "network", "crypto"),
-        }
-        for index, prefixes in owners.items():
+        for index, (title, _widget) in enumerate(self._tab_order):
+            prefixes = TAB_OWNERS.get(title)
+            if not prefixes:
+                # Build: its banner lists every issue, so a duplicate marker on
+                # the tab would say nothing the tab does not already say.
+                continue
             has_error = any(
                 issue.path.split(".")[0] in prefixes for issue in blocking
             )
-            title = TAB_TITLES[index]
             self.tabs.setTabText(index, f"{title} ⚠" if has_error else title)
 
     # ----- theme ----------------------------------------------------------

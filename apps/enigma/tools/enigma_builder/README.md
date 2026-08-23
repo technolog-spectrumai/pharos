@@ -38,13 +38,13 @@ binary for.
 
 ## Two tools in one binary
 
-The Builder is splitting into **Config Builder** (define the product, save a
-deterministic, git-friendly product-config file) and **Builder** (consume that
-file and produce the app). One codebase, three launch modes:
+The Builder is **Config Builder** (define the product, save a deterministic,
+git-friendly product-config file) plus **Builder** (produce the app). One
+codebase, two launch modes:
 
 ```bash
-enigma-builder                       # opens the CONFIG BUILDER (the combined
-                                     # window is gone — the split IS the tool)
+enigma-builder                       # the normal window: Features / Identity /
+                                     # Expert / Build — configure AND build here
 enigma-builder config [product.yaml] # same, opening a saved product config
 enigma-builder build product.yaml    # Builder: consumes the file read-only —
                                      # headless by default, --gui for a window
@@ -59,10 +59,16 @@ Expert tuning clamps are what vary per product.
 
 A product config is the build-config YAML itself (same schema build.rs
 compiles, rendered deterministically so diffs stay meaningful) plus an
-optional Builder-owned `branding:` block for the icon — stripped before
-anything reaches build.rs. The checked-in edition presets ARE product configs.
-The boundary is structural: config mode never invokes a build script, build
-mode never shows an editing surface, and a headless product build records
+optional Builder-owned `branding:` block naming an icon **set** — stripped
+before anything reaches build.rs. The checked-in edition presets ARE product configs.
+
+The normal window carries the **Build** tab as its fourth tab: press *Build
+this config…* on the product bar (it saves the file, then takes you there) or
+just click the tab. The build materialises `build_config.custom.yaml` from what
+is on screen, so the config you are looking at is the config that gets built —
+saving the product file is for git, not for the build. `enigma-builder build
+product.yaml --gui` still opens the single-tab Builder, which shows no editing
+surface, and a headless product build records
 `build-info.json` (config path + sha256, identity, options, and — for Android
 release — each artifact's signing classification and fingerprint) beside the
 collected artifacts.
@@ -93,7 +99,7 @@ Three things, and nothing else:
 |---|---|
 | `apps/enigma/src-tauri/configs/build_config.custom.yaml` | every build (gitignored) |
 | `apps/enigma/src-tauri/tauri.conf.json` | if you change the version or narrow the target distribution |
-| `apps/enigma/src-tauri/icons/**` and the Android launcher | only if you change the app icon |
+| `apps/enigma/src-tauri/icons/**` and the Android launcher | only if you pick an icon set |
 | your chosen **output folder** | after a successful build, if collecting is on |
 
 **It never runs git.** If a build changes `tauri.conf.json`, the Builder says so
@@ -131,8 +137,9 @@ from the GUI.
   each edition's real in/out list derived from its checked-in YAML, and a live
   preview of the file that will be written. No per-gate editing, no Custom.
 - **Identity** — fixed app name, fixed Android package id, version and the app
-  icon, plus the current state of `tauri.conf.json` and a restore button if a
-  previous run left it modified.
+  icon chosen from the curated sets in `assets/icons/` (no free file picker —
+  see [icons.md](../../icons.md)), plus the current state of `tauri.conf.json`
+  and a restore button if a previous run left it modified.
 - **Expert** — settings clamps and network tuning behind a toggle, with the
   crypto declarations shown read-only. `max_frame_bytes` is flagged: peers in
   one room must agree on it.
@@ -275,9 +282,36 @@ the reset never takes a path from the GUI — only a profile *name*, which
 
 ## The app icon
 
-Choose one square PNG or SVG (≥512px, 1024 recommended) on the Identity tab and
-the build gains a first step: `npx tauri icon <source>`, run from `apps/enigma`,
-which regenerates every desktop size plus an `icons/android/` mipmap tree.
+Not a file path — a pick from the **icon sets** shipped in `assets/icons/`. Each
+set is a directory holding one reviewed square master image plus a `set.json`
+describing it; the Identity tab offers those and nothing else, with "Keep the
+icons already in the repo" as the default no-op. Full format, requirements and
+how to add one: [icons.md](../../icons.md).
+
+```
+assets/icons/<id>/icon.png     # square, ≥512px (1024 recommended), RGBA
+assets/icons/<id>/set.json     # {"name", "description", "author", "version"}
+```
+
+The closed list is the point. A free path field accepted a screenshot or a
+300px JPEG as readily as the approved artwork, and what it saved into the
+product config was an absolute path that meant nothing on another machine. A
+product config now records the set **id**, which resolves the same way
+everywhere or fails loudly; an old config that stored a path is still matched
+back to a set, and a path that matches nothing falls back to the repo icons and
+says so instead of building the wrong brand.
+
+Sets are validated at discovery by the same `icons.validate_source` the build
+re-runs, so nothing can be offered and then rejected. A set missing its master
+image or its `set.json` is listed under the chooser with the reason rather than
+silently disappearing. `package.sh` bakes `assets/` into the standalone binary
+(`--add-data`; one-file PyInstaller unpacks it to `sys._MEIPASS`, which is
+where `iconsets.py` looks first), and `ENIGMA_BUILDER_ICON_SETS=/dir` replaces
+the search for a one-off.
+
+Choosing a set gives the build a first step: `npx tauri icon <the set's
+icon.png>`, run from `apps/enigma`, which regenerates every desktop size plus
+an `icons/android/` mipmap tree.
 
 That is not sufficient on its own. `tauri android init` copies those mipmaps
 into `gen/android/app/src/main/res/` once, and the two trees drift apart from
@@ -323,8 +357,11 @@ drives real subprocesses to prove cancellation reaches grandchildren;
 `test_paths_and_output.py` covers repo resolution, the standalone first run
 with no checkout at all, and the artifact copy; `test_icons.py` builds real
 PNGs with nothing but `zlib` and proves the icon snapshot restores every
-tracked file it touched; `test_bundles.py` pins the distribution mapping and
-the cross-build warning.
+tracked file it touched; `test_iconsets.py` asserts that every set actually
+shipped in `assets/icons/` is valid — a bad master image fails there rather
+than in a release build — and that a malformed set is reported instead of
+crashing the window on the way up; `test_bundles.py` pins the distribution
+mapping and the cross-build warning.
 
 Several of these drive code paths that legitimately write into the checkout, so
 an autouse fixture in `conftest.py` snapshots `tauri.conf.json` and both icon

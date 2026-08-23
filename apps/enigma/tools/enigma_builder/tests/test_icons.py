@@ -207,9 +207,11 @@ def test_no_icon_chosen_means_no_icon_step(app, window, monkeypatch):
     assert [s.label for s in steps] == ["Building"]
 
 
-def test_choosing_an_icon_prepends_a_generation_step(app, window, monkeypatch, tmp_path):
-    source = write_png(tmp_path / "brand.png", 1024)
-    window.identity_tab.icon_edit.setText(str(source))
+def test_choosing_an_icon_prepends_a_generation_step(app, window, monkeypatch):
+    import iconsets
+
+    source = iconsets.load_set("default").master
+    window.identity_tab.select_icon_set("default")
     assert window.identity_tab.pending_icon() == source
 
     steps = capture_steps(window, monkeypatch)
@@ -225,8 +227,8 @@ def test_choosing_an_icon_prepends_a_generation_step(app, window, monkeypatch, t
     assert steps[1].env["ENIGMA_EDITION"] == paths.CUSTOM_EDITION
 
 
-def test_a_snapshot_is_taken_before_the_icon_step(app, window, monkeypatch, tmp_path):
-    window.identity_tab.icon_edit.setText(str(write_png(tmp_path / "b.png", 1024)))
+def test_a_snapshot_is_taken_before_the_icon_step(app, window, monkeypatch):
+    window.identity_tab.select_icon_set("default")
     capture_steps(window, monkeypatch)
     assert len(window.build_tab._icon_snapshot) > 50
 
@@ -234,8 +236,15 @@ def test_a_snapshot_is_taken_before_the_icon_step(app, window, monkeypatch, tmp_
 def test_an_unusable_icon_blocks_the_build(app, window, monkeypatch, tmp_path):
     from PyQt6.QtWidgets import QMessageBox
 
-    window.identity_tab.icon_edit.setText(str(write_png(tmp_path / "tiny.png", 64)))
-    assert window.identity_tab.icon_error.text()
+    # No icon SET can be too small — every shipped set is validated at
+    # discovery and unusable ones are never offered. What is still reachable is
+    # a set whose master went bad after the window opened (an edited checkout,
+    # a sets directory on a stale mount), so drive that state directly: the
+    # build's own re-check is the last line of defence and must hold.
+    tiny = write_png(tmp_path / "tiny.png", 64)
+    monkeypatch.setattr(
+        type(window.identity_tab), "pending_icon", lambda self: tiny
+    )
 
     shown: list = []
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: shown.append(a)))
@@ -260,10 +269,10 @@ def test_the_preview_shows_the_repo_icon_by_default(app, window):
     assert not window.identity_tab.icon_preview.pixmap().isNull()
 
 
-def test_the_preview_switches_to_the_chosen_image(app, window, tmp_path):
-    window.identity_tab.icon_edit.setText(str(write_png(tmp_path / "n.png", 1024)))
+def test_the_preview_switches_to_the_chosen_set(app, window):
+    window.identity_tab.select_icon_set("default")
     assert window.identity_tab.icon_caption.text() == "new"
     assert not window.identity_tab.icon_preview.pixmap().isNull()
 
-    window.identity_tab.icon_edit.setText("")
+    window.identity_tab.select_icon_set("")
     assert window.identity_tab.icon_caption.text() == "current"

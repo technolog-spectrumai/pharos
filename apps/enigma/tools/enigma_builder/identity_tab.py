@@ -1,28 +1,33 @@
-"""Identity tab: the fixed app name, Android package id and version.
+"""Identity tab: the fixed app name, Android package id, version and icon set.
 
-These fields live in two files at once: ``tauri.conf.json`` and the build
-config's ``app:`` section. Name and identifier are fixed to the product's real
-Android identity; only the version is editable per release.
+The first three fields live in two files at once: ``tauri.conf.json`` and the
+build config's ``app:`` section. Name and identifier are fixed to the product's
+real Android identity; only the version is editable per release.
+
+The icon is not a file path. It is a choice from the curated sets shipped in
+``assets/icons/`` (see :mod:`iconsets` and ``icons.md``), so what a product
+config records is a set id that means the same thing on every machine, and
+nothing unreviewed can reach a signed build.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QFileDialog,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 import icons as icons_mod
+import iconsets
 import identity as identity_mod
 import paths
 import widgets
@@ -32,12 +37,22 @@ from validation import Issue, issues_for
 
 PREVIEW_SIDE = 96
 
+#: The chooser's first entry, and the default: change nothing.
+KEEP_REPO_ICONS = "Keep the icons already in the repo"
+
 
 class IdentityTab(QWidget):
+    #: Emitted when the build engineer picks a different icon set, so the
+    #: window can mark the product config unsaved. Not emitted while a config
+    #: is being loaded into the form.
+    icon_set_changed = pyqtSignal()
+
     def __init__(self, model: ConfigModel) -> None:
         super().__init__()
         self.model = model
         self._syncing = False
+        self._icon_sets: dict[str, iconsets.IconSet] = {}
+        self._icon_complaint = ""
 
         self.launch_identity = identity_mod.disk_identity()
         self.repo_identity = self.launch_identity
@@ -92,10 +107,12 @@ class IdentityTab(QWidget):
         layout.addWidget(widgets.section_title("App icon"))
         layout.addWidget(
             widgets.hint(
-                "One square source image, from which Tauri generates every "
-                "size: the .deb / .AppImage / .rpm icon and the Android "
-                "launcher. Leave it empty to keep the icons already in the "
-                "repo."
+                "One of the icon sets shipped with the Builder. Each set is a "
+                "reviewed square master image, from which Tauri generates "
+                "every size: the .deb / .AppImage / .rpm icon and the Android "
+                "launcher. Arbitrary files are deliberately not offered — a "
+                "new set is added to assets/icons/ and reviewed there (see "
+                "icons.md)."
             )
         )
 
@@ -116,34 +133,23 @@ class IdentityTab(QWidget):
 
         controls = QVBoxLayout()
         controls.setSpacing(8)
-        picker = QHBoxLayout()
-        picker.setSpacing(8)
-        self.icon_edit = QLineEdit()
-        self.icon_edit.setPlaceholderText("Keep the icons already in the repo")
-        self.icon_edit.setClearButtonEnabled(True)
-        self.icon_edit.textChanged.connect(self._icon_changed)
-        icon_browse = QPushButton("Choose image…")
-        icon_browse.clicked.connect(self._browse_icon)
-        picker.addWidget(self.icon_edit, 1)
-        picker.addWidget(icon_browse)
-        controls.addLayout(picker)
+        self.icon_combo = QComboBox()
+        self.icon_combo.currentIndexChanged.connect(self._icon_changed)
+        controls.addWidget(self.icon_combo)
 
-        controls.addWidget(
-            widgets.hint(
-                f"Square PNG or SVG, at least {icons_mod.MIN_SIDE}px — "
-                f"{icons_mod.RECOMMENDED_SIDE}px recommended. Transparency is "
-                "preserved.",
-                "gateHint",
-            )
-        )
+        self.icon_description = widgets.hint("", "gateHint")
+        controls.addWidget(self.icon_description)
         self.icon_error = widgets.ErrorLabel()
         controls.addWidget(self.icon_error)
         self.icon_note = widgets.hint("", "gateHint")
         controls.addWidget(self.icon_note)
+        self.icon_problems = widgets.hint("", "gateHint")
+        controls.addWidget(self.icon_problems)
         controls.addStretch()
         row.addLayout(controls, 1)
 
         layout.addLayout(row)
+        self.reload_icon_sets()
         return frame
 
     def _build_status_card(self) -> QWidget:
@@ -190,38 +196,173 @@ class IdentityTab(QWidget):
 
     # ----- icon -----------------------------------------------------------
 
+    def reload_icon_sets(self) -> None:
+        """Re-read ``assets/icons/`` and rebuild the chooser.
+
+        Keeps the current choice if that set is still there — the Builder can
+        be pointed at a different sets directory, and losing the engineer's
+        pick on a refresh would be worse than showing a stale one.
+        """
+        wanted = self.pending_icon_id() if self._icon_sets else None
+
+        self._icon_sets = {s.id: s for s in iconsets.available_sets()}
+        self.icon_combo.blockSignals(True)
+        try:
+            self.icon_combo.clear()
+            self.icon_combo.addItem(KEEP_REPO_ICONS, None)
+            for icon_set in self._icon_sets.values():
+                if icon_set.ok:
+                    self.icon_combo.addItem(icon_set.name, icon_set.id)
+        finally:
+            self.icon_combo.blockSignals(False)
+
+        self._refresh_icon_problems()
+        if wanted:
+            self.select_icon_set(wanted)
+        else:
+            self._refresh_icon()
+
+    def _refresh_icon_problems(self) -> None:
+        """Say what was found and rejected — never hide a broken set."""
+        lines = list(iconsets.problem_report())
+        if self.icon_combo.count() <= 1:
+            lines.insert(0, f"No usable icon sets in {iconsets.sets_dir()}.")
+        elif lines:
+            lines.insert(0, "Not offered:")
+        self.icon_problems.setText("\n".join(lines))
+        self.icon_problems.setVisible(bool(lines))
+
+    # ----- what the rest of the tool asks for ------------------------------
+
+    def pending_icon_id(self) -> str | None:
+        """The chosen set's id, or None for "keep the repo icons".
+
+        This is what a product config stores: an id resolves on any machine,
+        an absolute path resolves on exactly one.
+        """
+        data = self.icon_combo.currentData()
+        return str(data) if data else None
+
+    def pending_icon_set(self) -> iconsets.IconSet | None:
+        set_id = self.pending_icon_id()
+        return self._icon_sets.get(set_id) if set_id else None
+
     def pending_icon(self) -> Path | None:
-        """The source image this build should regenerate icons from, if any."""
-        text = self.icon_edit.text().strip()
-        return Path(text).expanduser() if text else None
+        """The source image this build should regenerate icons from, if any.
 
-    def _browse_icon(self) -> None:
-        start = self.icon_edit.text().strip() or str(Path.home())
-        chosen, _filter = QFileDialog.getOpenFileName(
-            self, "Choose an app icon", start, "Images (*.png *.svg)"
-        )
-        if chosen:
-            self.icon_edit.setText(chosen)
+        Still a plain path, because that is what ``npx tauri icon`` takes and
+        what build_tab snapshots around. A set whose image has gone bad since
+        launch is returned anyway, so the build reports it rather than quietly
+        skipping the icon step.
+        """
+        chosen = self.pending_icon_set()
+        return chosen.master if chosen is not None else None
 
-    def _icon_changed(self) -> None:
+    def select_icon_set(self, value: str | Path, base: Path | None = None) -> bool:
+        """Point the chooser at the set a product config names. True if found.
+
+        Accepts the set id the Builder writes, and — for configs written by the
+        old free-file picker — a path, matched back to a set by its master
+        image or its directory name. Anything else falls back to the repo's
+        committed icons and says so on the tab, because silently building the
+        wrong brand is the failure that matters here.
+        """
+        text = str(value or "").strip()
+        self._icon_complaint = ""
+        if not text:
+            self._select_icon_index(0)
+            return False
+
+        match = self._match_icon_set(text, base)
+        if match is None:
+            self._select_icon_index(0)
+            self._icon_complaint = (
+                f"This config asks for icon set “{text}”, which this Builder "
+                f"does not ship. Keeping the repo's committed icons — pick a "
+                f"set below, or add the missing one to assets/icons/."
+            )
+            self._refresh_icon()
+            return False
+        if not match.ok:
+            self._select_icon_index(0)
+            self._icon_complaint = (
+                f"Icon set “{match.id}” is present but unusable: "
+                + "; ".join(match.problems)
+            )
+            self._refresh_icon()
+            return False
+
+        index = self.icon_combo.findData(match.id)
+        self._select_icon_index(index if index >= 0 else 0)
+        return index >= 0
+
+    def _match_icon_set(
+        self, text: str, base: Path | None
+    ) -> iconsets.IconSet | None:
+        raw = Path(text)
+        candidates = [text, raw.parent.name, raw.name]
+        for candidate in candidates:
+            if candidate and candidate in self._icon_sets:
+                return self._icon_sets[candidate]
+
+        # A stored path from an older config: resolve it and see whether it
+        # happens to be one of the shipped masters.
+        resolved = raw.expanduser()
+        if not resolved.is_absolute() and base is not None:
+            resolved = Path(base) / resolved
+        try:
+            resolved = resolved.resolve()
+        except OSError:  # pragma: no cover — a path this broken is not a set
+            return None
+        for icon_set in self._icon_sets.values():
+            if icon_set.master and icon_set.master.resolve() == resolved:
+                return icon_set
+        return None
+
+    def _select_icon_index(self, index: int) -> None:
+        if self.icon_combo.currentIndex() == index:
+            self._refresh_icon()
+            return
+        self.icon_combo.blockSignals(True)
+        try:
+            self.icon_combo.setCurrentIndex(index)
+        finally:
+            self.icon_combo.blockSignals(False)
         self._refresh_icon()
 
-    def _refresh_icon(self) -> None:
-        source = self.pending_icon()
+    # ----- rendering the choice --------------------------------------------
 
-        if source is None:
+    def _icon_changed(self) -> None:
+        self._icon_complaint = ""
+        self._refresh_icon()
+        self.icon_set_changed.emit()
+
+    def _refresh_icon(self) -> None:
+        chosen = self.pending_icon_set()
+
+        if chosen is None:
             existing = icons_mod.preview_icon()
             self._set_preview(existing)
             self.icon_caption.setText("current" if existing else "no icon found")
-            self.icon_error.set_messages([])
+            self.icon_error.set_messages(
+                [self._icon_complaint] if self._icon_complaint else []
+            )
+            self.icon_description.setText(
+                "src-tauri/icons and the Android launcher are left exactly as "
+                "committed."
+            )
             self.icon_note.setText("")
             self.icon_note.hide()
             return
 
-        errors, warnings_ = icons_mod.validate_source(source)
+        if chosen.master is None:
+            errors, warnings_ = list(chosen.problems), []
+        else:
+            errors, warnings_ = icons_mod.validate_source(chosen.master)
         self.icon_error.set_messages(errors)
-        self._set_preview(None if errors else source)
+        self._set_preview(None if errors else chosen.master)
         self.icon_caption.setText("new" if not errors else "unusable")
+        self.icon_description.setText(self._describe_icon_set(chosen))
 
         notes = list(warnings_)
         if not errors:
@@ -236,6 +377,16 @@ class IdentityTab(QWidget):
                 )
         self.icon_note.setText(" ".join(notes))
         self.icon_note.setVisible(bool(notes))
+
+    def _describe_icon_set(self, icon_set: iconsets.IconSet) -> str:
+        facts = [f"assets/icons/{icon_set.id}/"]
+        if icon_set.credit:
+            facts.append(icon_set.credit)
+        size = icons_mod.png_size(icon_set.master) if icon_set.master else None
+        if size:
+            facts.append(f"{size[0]}×{size[1]}")
+        joined = " · ".join(facts)
+        return f"{icon_set.description}\n{joined}" if icon_set.description else joined
 
     def _set_preview(self, path: Path | None) -> None:
         if path is None or not path.is_file():

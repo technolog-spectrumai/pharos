@@ -101,8 +101,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     config_p = sub.add_parser(
         "config",
-        help="open the Config Builder: define the product, save a versioned "
-        "product-config file",
+        help="open the normal window: define the product, save a versioned "
+        "product-config file, and build it from the Build tab",
         parents=[common],
     )
     config_p.add_argument("file", nargs="?", metavar="PRODUCT_YAML",
@@ -370,9 +370,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "config":
         return run_config_gui(args, override)
 
-    # Bare launch = the Config Builder. The old combined window is gone: the
-    # split IS the tool now, and building goes through a saved product config
-    # ("Build this config…", or `enigma-builder build <file>`).
+    # Bare launch = the normal window: Features / Identity / Expert / Build.
+    # The Build tab is IN it — it used to open as a second window and people
+    # never found it. `enigma-builder build <file>` is the read-only variant
+    # for a decided product.
     class _Bare:
         file = None
         repo = args.repo

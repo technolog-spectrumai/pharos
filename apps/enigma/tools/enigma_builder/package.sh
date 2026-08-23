@@ -26,13 +26,23 @@ echo "==> Installing build dependencies"
 "${PY}" -m pip install --quiet -r requirements-dev.txt
 
 echo "==> Building single-file executable"
+# PyInstaller's --add-data separator is ':' everywhere except Windows.
+DATA_SEP=":"
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win32*) DATA_SEP=";" ;;
+esac
+
 # --paths . because the tool is a flat module dir rather than a package.
+# --add-data ships assets/ (the curated icon sets) INSIDE the binary; onefile
+# unpacks it to sys._MEIPASS, which is where iconsets.py looks first. Without
+# this the standalone Builder offers no icons at all.
 # The excludes keep PyQt6's WebEngine and the test tooling out of the bundle;
 # without them the binary roughly doubles in size.
 "${PY}" -m PyInstaller \
   --noconfirm --clean --onefile \
   --name enigma-builder \
   --paths . \
+  --add-data "assets${DATA_SEP}assets" \
   --exclude-module tkinter \
   --exclude-module pytest \
   --exclude-module PyQt6.QtWebEngineCore \
@@ -51,3 +61,4 @@ echo ""
 echo "==> Built $(du -h "${BIN}" | cut -f1)  ${BIN}"
 echo "    Run it from anywhere; set the repo path on the Build tab,"
 echo "    or point it with:  ENIGMA_REPO=/path/to/enigma ${BIN}"
+echo "    Icon sets are baked in; override with ENIGMA_BUILDER_ICON_SETS=/dir"

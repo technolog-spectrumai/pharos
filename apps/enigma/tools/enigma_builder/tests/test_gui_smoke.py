@@ -18,11 +18,53 @@ from validation import errors  # noqa: E402
 from window import TAB_TITLES  # noqa: E402
 
 
-def test_the_config_builder_has_three_tabs_and_no_build(window):
-    """Bare launch is the CONFIG BUILDER now: it defines the product and saves
-    a file; there is deliberately no Build tab to reach from here."""
+def test_the_default_window_has_four_tabs_ending_in_build(window):
+    """A bare launch must be able to BUILD. The Build tab used to live in a
+    second window opened by a button, and people simply never found it."""
     titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
-    assert titles == ["Features", "Identity", "Expert"]
+    assert titles == ["Features", "Identity", "Expert", "Build"]
+    assert titles == list(TAB_TITLES)
+    assert window.tabs.indexOf(window.build_tab) == 3
+
+
+def test_the_build_tab_is_reachable_and_carries_the_log(window):
+    """Reachable in one click, with the log and Start button on it."""
+    window.tabs.setCurrentWidget(window.build_tab)
+    assert window.tabs.currentWidget() is window.build_tab
+    assert window.build_tab.log is not None
+    assert window.build_tab.start_button.text() == "Start build"
+
+
+def test_the_log_is_pinned_labelled_and_mirrors_the_status(window):
+    """The log sits outside the scroll area with its own heading, so a running
+    build is visible wherever the form above is scrolled to."""
+    from PyQt6.QtWidgets import QLabel
+
+    tab = window.build_tab
+    titles = [
+        label.text()
+        for label in tab.findChildren(QLabel)
+        if label.objectName() == "sectionTitle"
+    ]
+    assert "Build output" in titles
+    assert tab.log.minimumHeight() >= 200
+
+    tab._set_status("Building")
+    assert tab.status_label.text() == "Building"
+    assert tab.log_status.text() == "Building"
+
+
+def test_only_the_owning_tab_is_flagged_and_build_is_never_renamed(window):
+    """The ⚠ marker is placed by tab TITLE, not by index — a wrong index used
+    to rename the wrong tab, and there are four tabs now."""
+    window.model.set("dht.enabled", True)
+    window.model.set("p2p.allow_hosted_relays", False)
+    titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+    assert titles[0] == "Features ⚠"
+    assert titles[1:] == ["Identity", "Expert", "Build"]
+
+    window.model.set("p2p.allow_hosted_relays", True)
+    assert [window.tabs.tabText(i) for i in range(4)] == list(TAB_TITLES)
 
 
 def test_both_themes_apply(window):
