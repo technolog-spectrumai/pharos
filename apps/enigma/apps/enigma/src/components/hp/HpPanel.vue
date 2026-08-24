@@ -65,6 +65,15 @@ const GROUPS: { key: string; ids: string[] }[] = [
     ],
   },
   {
+    key: "invites",
+    ids: [
+      "invite.general.create.clearnet",
+      "invite.general.create.tor",
+      "invite.personal.create.clearnet",
+      "invite.personal.create.tor",
+    ],
+  },
+  {
     key: "messages",
     ids: ["msg.clearnet.plain", "msg.tor.plain", "msg.clearnet.mls", "msg.tor.mls"],
   },

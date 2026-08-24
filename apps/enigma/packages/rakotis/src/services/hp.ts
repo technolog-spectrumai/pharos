@@ -79,6 +79,10 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
     A("room.create.tor", "event", 100, "hp.explain.roomCreateTor"),
     A("room.join.clearnet", "event", 500, "hp.explain.roomJoinClearnet"),
     A("room.join.tor", "event", 100, "hp.explain.roomJoinTor"),
+    A("invite.personal.create.clearnet", "event", 300, "hp.explain.invitePersonalCreateClearnet"),
+    A("invite.personal.create.tor", "event", 100, "hp.explain.invitePersonalCreateTor"),
+    A("invite.general.create.clearnet", "event", 1000, "hp.explain.inviteGeneralCreateClearnet"),
+    A("invite.general.create.tor", "event", 500, "hp.explain.inviteGeneralCreateTor"),
     A("msg.tor.mls", "metered", 0, "hp.explain.msgTorMls"),
     A("msg.clearnet.mls", "metered", 5, "hp.explain.msgClearnetMls", {
       perMibCenti: 5,
@@ -116,6 +120,7 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
     R("local.passphrase.change", 300, null, "hp.explain.localPassphraseChange"),
     R("local.reencrypt.keyring", 1000, null, "hp.explain.localReencryptKeyring"),
     R("local.reencrypt.files", 1000, null, "hp.explain.localReencryptFiles"),
+    R("invite.revoke", 500, null, "hp.explain.inviteRevoke"),
     R("room.rekey", 300, null, "hp.explain.roomRekey"),
     R("room.leave", 300, null, "hp.explain.roomLeave"),
   ],

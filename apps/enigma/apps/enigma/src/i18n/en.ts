@@ -725,6 +725,7 @@ export default {
       rooms: "Rooms and invitations",
       messages: "Messages",
       calendar: "Meetings and polls",
+      invites: "Invitations",
       traffic: "Calls and files",
       local: "This device",
     },
@@ -745,6 +746,11 @@ export default {
       msgClearnetPlain: "Unencrypted message, no Tor",
       calendarShareTor: "Meeting or poll over Tor",
       calendarShareClearnet: "Meeting or poll, no Tor",
+      invitePersonalCreateClearnet: "Private invite (no Tor)",
+      invitePersonalCreateTor: "Private invite (over Tor)",
+      inviteGeneralCreateClearnet: "Shareable invite (no Tor)",
+      inviteGeneralCreateTor: "Shareable invite (over Tor)",
+      inviteRevoke: "Withdraw an invitation",
       fileSend: "Send a file",
       voxCall: "Voice call",
       localAutolockOff: "Turn auto-lock off",
@@ -797,6 +803,16 @@ export default {
         "Invitations, replies and votes are always encrypted and go over Tor — the safest way to organise, and free.",
       calendarShareClearnet:
         "Nobody can read the invitation or your reply, but the relays carrying it see that you sent something, when, and to which peers.",
+      invitePersonalCreateClearnet:
+        "Only the person you chose can read this code, but it carries the address your device answers on — which on this connection is your IP.",
+      invitePersonalCreateTor:
+        "Only the person you chose can read this code, and it carries an onion address rather than your IP. The cheapest way to invite anyone.",
+      inviteGeneralCreateClearnet:
+        "Anyone who sees this code can read it and join, and it carries the address your device answers on — which on this connection is your IP.",
+      inviteGeneralCreateTor:
+        "Anyone who sees this code can read it and join, though it carries an onion address rather than your IP.",
+      inviteRevoke:
+        "The invitation stops working from now on. Anyone who already joined with it stays in the room.",
       fileSend:
         "The transfer connects your device directly to theirs; the size and how long it takes are visible even though the contents are not.",
       voxCall:

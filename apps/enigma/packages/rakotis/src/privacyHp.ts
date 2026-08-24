@@ -178,6 +178,17 @@ export function ticketActionId(tor: boolean): string {
 }
 
 /**
+ * Invitations — the variant axis is the kind of credential AND the transport.
+ *
+ * `personal` is sealed to one contact's key; `general` is a bearer code anyone
+ * holding it can redeem. That difference dominates the price, and the transport
+ * modifies it: both kinds carry an address, and on clearnet an address is an IP.
+ */
+export function inviteActionId(kind: "personal" | "general", tor: boolean): string {
+  return `invite.${kind}.create.${tor ? "tor" : "clearnet"}`;
+}
+
+/**
  * Calendar traffic — meeting invites, RSVPs, poll snapshots and ballots.
  *
  * Only a transport axis, deliberately: these ride `sendSync`, which encrypts or

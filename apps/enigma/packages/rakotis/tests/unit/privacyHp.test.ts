@@ -14,6 +14,7 @@ import {
   formatMeter,
   formatPrice,
   historyRows,
+  inviteActionId,
   messageActionId,
   meterBand,
   meterPercent,
@@ -169,6 +170,73 @@ describe("variant selection", () => {
     expect(roomActionId("create", true)).toBe("room.create.tor");
     expect(roomActionId("join", false)).toBe("room.join.clearnet");
     expect(ticketActionId(false)).toBe("ticket.export.clearnet");
+  });
+});
+
+// ── invitations ─────────────────────────────────────────────────────────────
+
+describe("invitations", () => {
+  it("makes a private invite far cheaper than the room ticket it replaces", () => {
+    // The headline. A room ticket is permanent, unrevocable and readable by
+    // anyone who sees it; a private invite is none of those, and costs a third.
+    expect(priceOf(act("invite.personal.create.clearnet"))).toBe(300);
+    expect(priceOf(act("ticket.export.clearnet"))).toBe(1000);
+    expect(priceOf(act("invite.personal.create.tor"))).toBe(100);
+  });
+
+  it("charges a bearer invite far more than a private one", () => {
+    const personal = priceOf(act("invite.personal.create.clearnet"));
+    const general = priceOf(act("invite.general.create.clearnet"));
+    expect(general).toBeGreaterThan(personal * 3);
+  });
+
+  it("always confirms a bearer invite, so the warning precedes the tap", () => {
+    const full = deriveBalances(P, [], T0);
+    expect(needsConfirm(P, -priceOf(act("invite.general.create.clearnet")), full)).toBe(true);
+    // ...and never interrupts a private one.
+    expect(needsConfirm(P, -priceOf(act("invite.personal.create.clearnet")), full)).toBe(false);
+    expect(needsConfirm(P, -priceOf(act("invite.personal.create.tor")), full)).toBe(false);
+  });
+
+  it("prices a bearer invite level with exporting a ticket", () => {
+    // Same address, same audience. It is better only in that it expires and can
+    // be revoked, which limits the damage rather than removing it.
+    expect(priceOf(act("invite.general.create.clearnet"))).toBe(
+      priceOf(act("ticket.export.clearnet")),
+    );
+  });
+
+  it("selects the variant from kind and transport", () => {
+    expect(inviteActionId("personal", false)).toBe("invite.personal.create.clearnet");
+    expect(inviteActionId("personal", true)).toBe("invite.personal.create.tor");
+    expect(inviteActionId("general", false)).toBe("invite.general.create.clearnet");
+    expect(inviteActionId("general", true)).toBe("invite.general.create.tor");
+  });
+
+  it("resolves every variant to a real table entry", () => {
+    for (const kind of ["personal", "general"] as const) {
+      for (const tor of [true, false]) {
+        expect(findAction(P, inviteActionId(kind, tor)), `${kind}/${tor}`).not.toBeNull();
+      }
+    }
+  });
+
+  it("makes every Tor invite cheaper than its clearnet twin", () => {
+    for (const kind of ["personal", "general"] as const) {
+      expect(priceOf(act(inviteActionId(kind, true)))).toBeLessThan(
+        priceOf(act(inviteActionId(kind, false))),
+      );
+    }
+  });
+
+  it("pays a revocation without pairing it to one transport", () => {
+    // A bearer invite can be minted on either transport, so pairing the credit
+    // to one action id would silently refuse to pay for the other. The verified
+    // state change is enforced at the call site instead.
+    const rec = findRecovery(P, "invite.revoke");
+    expect(rec).not.toBeNull();
+    expect(rec!.creditCenti).toBe(500);
+    expect(rec!.requires).toBeNull();
   });
 });
 

@@ -723,6 +723,7 @@ export default {
       rooms: "Pokoje i zaproszenia",
       messages: "Wiadomości",
       calendar: "Spotkania i ankiety",
+      invites: "Zaproszenia",
       traffic: "Rozmowy i pliki",
       local: "To urządzenie",
     },
@@ -743,6 +744,11 @@ export default {
       msgClearnetPlain: "Niezaszyfrowana wiadomość, bez Tora",
       calendarShareTor: "Spotkanie lub ankieta przez Tor",
       calendarShareClearnet: "Spotkanie lub ankieta, bez Tora",
+      invitePersonalCreateClearnet: "Prywatne zaproszenie (bez Tora)",
+      invitePersonalCreateTor: "Prywatne zaproszenie (przez Tor)",
+      inviteGeneralCreateClearnet: "Zaproszenie do udostępniania (bez Tora)",
+      inviteGeneralCreateTor: "Zaproszenie do udostępniania (przez Tor)",
+      inviteRevoke: "Wycofaj zaproszenie",
       fileSend: "Wyślij plik",
       voxCall: "Rozmowa głosowa",
       localAutolockOff: "Wyłącz automatyczną blokadę",
@@ -795,6 +801,16 @@ export default {
         "Zaproszenia, odpowiedzi i głosy są zawsze zaszyfrowane i idą przez Tor — najbezpieczniejszy sposób organizacji i za darmo.",
       calendarShareClearnet:
         "Nikt nie przeczyta zaproszenia ani twojej odpowiedzi, ale przekaźniki widzą, że coś wysłałeś, kiedy i do których rozmówców.",
+      invitePersonalCreateClearnet:
+        "Tylko wybrana przez ciebie osoba odczyta ten kod, ale niesie on adres, pod którym odpowiada twoje urządzenie — czyli na tym połączeniu twoje IP.",
+      invitePersonalCreateTor:
+        "Tylko wybrana przez ciebie osoba odczyta ten kod, a niesie on adres onion zamiast twojego IP. Najtańszy sposób zaproszenia kogokolwiek.",
+      inviteGeneralCreateClearnet:
+        "Każdy, kto zobaczy ten kod, odczyta go i dołączy, a kod niesie adres, pod którym odpowiada twoje urządzenie — czyli twoje IP.",
+      inviteGeneralCreateTor:
+        "Każdy, kto zobaczy ten kod, odczyta go i dołączy, choć niesie on adres onion zamiast twojego IP.",
+      inviteRevoke:
+        "Zaproszenie przestaje działać od teraz. Kto już dołączył, zostaje w pokoju.",
       fileSend:
         "Transfer łączy twoje urządzenie bezpośrednio z ich; rozmiar i czas trwania są widoczne, nawet jeśli zawartość nie jest.",
       voxCall:
