@@ -13,6 +13,10 @@ export * from "./services/moderation";
 export * from "./services/mapData";
 export * from "./mapModel";
 export * from "./chatHistoryModel";
+// Privacy HP: the pure policy model (types, prices, meter derivation, copy) and
+// the bridge to the Rust ledger. technology.md §17.
+export * from "./privacyHp";
+export * from "./services/hp";
 export * from "./services/chatLog";
 export type { Participant, Room } from "./services/types";
 

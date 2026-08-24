@@ -1,0 +1,425 @@
+// Privacy HP — the policy model: fixed prices, variant selection, meter
+// derivation, regeneration, rollovers, clock rollback and display.
+//
+// Everything under test is pure, so `now` is passed explicitly and no fake
+// timers are needed anywhere in this file.
+
+import { describe, it, expect } from "vitest";
+import {
+  deriveBalances,
+  exposureLive,
+  findAction,
+  findRecovery,
+  formatHp,
+  formatMeter,
+  formatPrice,
+  historyRows,
+  messageActionId,
+  meterBand,
+  meterPercent,
+  needsConfirm,
+  priceOf,
+  regenPerHour,
+  roomActionId,
+  severityOf,
+  ticketActionId,
+  type HpEntry,
+} from "../../src/privacyHp";
+import { FALLBACK_HP_POLICY as P } from "../../src/services/hp";
+
+const HOUR = 3_600_000;
+const DAY = 86_400_000;
+const MIB = 1024 * 1024;
+const T0 = 1_800_000_000_000; // a fixed, arbitrary "now"
+
+const spend = (ts: number, code: string, hpCenti: number): HpEntry => ({
+  ts,
+  kind: "spend",
+  code,
+  hp: -hpCenti,
+  n: 1,
+  bucket: 0,
+});
+const credit = (ts: number, code: string, hpCenti: number): HpEntry => ({
+  ts,
+  kind: "recover",
+  code,
+  hp: hpCenti,
+  n: 1,
+  bucket: 0,
+});
+const act = (id: string) => {
+  const a = findAction(P, id);
+  if (!a) throw new Error(`no action ${id}`);
+  return a;
+};
+
+// ── fixed prices ────────────────────────────────────────────────────────────
+
+describe("fixed prices", () => {
+  it("charges the same for the same action every time", () => {
+    // The central promise of the feature: no randomness, no personalisation.
+    const a = act("ticket.export.clearnet");
+    const runs = Array.from({ length: 50 }, () => priceOf(a));
+    expect(new Set(runs).size).toBe(1);
+    expect(runs[0]).toBe(1000);
+  });
+
+  it("prices the severe exposures at the top rung", () => {
+    expect(act("transport.tor.disable").costCenti).toBe(2000);
+    expect(act("dht.nickname.publish").costCenti).toBe(2000);
+  });
+
+  it("prices every fixed action on a ladder rung", () => {
+    const rungs = [100, 300, 500, 1000, 2000];
+    for (const a of P.actions) {
+      if (a.kind === "metered") continue;
+      expect(rungs, `${a.id} is off the ladder`).toContain(a.costCenti);
+    }
+  });
+
+  it("never charges an ordinary message on the safe lane", () => {
+    expect(priceOf(act("msg.tor.mls"), 64 * MIB)).toBe(0);
+  });
+
+  it("makes every Tor variant cheaper than its clearnet twin", () => {
+    for (const pair of [
+      ["room.create.tor", "room.create.clearnet"],
+      ["room.join.tor", "room.join.clearnet"],
+      ["ticket.export.tor", "ticket.export.clearnet"],
+      ["msg.tor.mls", "msg.clearnet.mls"],
+      ["msg.tor.plain", "msg.clearnet.plain"],
+    ]) {
+      expect(act(pair[0]).costCenti, pair[0]).toBeLessThan(act(pair[1]).costCenti);
+    }
+  });
+
+  it("gives every action a one-sentence explanation key", () => {
+    for (const a of P.actions) expect(a.explainKey).toMatch(/^hp\.explain\.[a-zA-Z]+$/);
+    for (const r of P.recoveries) expect(r.explainKey).toMatch(/^hp\.explain\.[a-zA-Z]+$/);
+  });
+});
+
+// ── metered arithmetic (must match privacy_hp.rs exactly) ───────────────────
+
+describe("metered pricing", () => {
+  it("bills a tiny message at the base rate only", () => {
+    expect(priceOf(act("msg.clearnet.mls"), 20)).toBe(5);
+  });
+
+  it("bills message size per MiB when not on Tor", () => {
+    expect(priceOf(act("msg.clearnet.mls"), 4 * MIB)).toBe(25);
+    expect(priceOf(act("msg.clearnet.plain"), 4 * MIB)).toBe(250);
+  });
+
+  it("never bills size on Tor", () => {
+    expect(priceOf(act("msg.tor.mls"), 64 * MIB)).toBe(0);
+    expect(priceOf(act("msg.tor.plain"), 64 * MIB)).toBe(10);
+  });
+
+  it("caps a single event", () => {
+    expect(priceOf(act("msg.clearnet.mls"), 64 * MIB)).toBe(100);
+    expect(priceOf(act("msg.clearnet.plain"), 64 * MIB)).toBe(500);
+    expect(priceOf(act("file.send"), 4096 * MIB)).toBe(500);
+    expect(priceOf(act("vox.call"), 0, 600)).toBe(1000);
+  });
+
+  it("charges a long call more than a short one", () => {
+    expect(priceOf(act("vox.call"), 0, 1)).toBe(310);
+    expect(priceOf(act("vox.call"), 0, 60)).toBe(900);
+  });
+});
+
+// ── variant selection ───────────────────────────────────────────────────────
+
+describe("variant selection", () => {
+  it("picks a lane from transport and MLS state", () => {
+    expect(messageActionId({ tor: true, mlsReady: true })).toBe("msg.tor.mls");
+    expect(messageActionId({ tor: false, mlsReady: true })).toBe("msg.clearnet.mls");
+    expect(messageActionId({ tor: true, mlsReady: false })).toBe("msg.tor.plain");
+    expect(messageActionId({ tor: false, mlsReady: false })).toBe("msg.clearnet.plain");
+  });
+
+  it("resolves every lane to a real table entry", () => {
+    for (const tor of [true, false]) {
+      for (const mlsReady of [true, false]) {
+        expect(findAction(P, messageActionId({ tor, mlsReady }))).not.toBeNull();
+      }
+    }
+  });
+
+  it("drops the rate to zero the moment MLS reports ready over Tor", () => {
+    const before = act(messageActionId({ tor: true, mlsReady: false })).costCenti;
+    const after = act(messageActionId({ tor: true, mlsReady: true })).costCenti;
+    expect(before).toBeGreaterThan(0);
+    expect(after).toBe(0);
+  });
+
+  it("picks room and ticket variants by transport", () => {
+    expect(roomActionId("create", true)).toBe("room.create.tor");
+    expect(roomActionId("join", false)).toBe("room.join.clearnet");
+    expect(ticketActionId(false)).toBe("ticket.export.clearnet");
+  });
+});
+
+// ── confirmation policy ─────────────────────────────────────────────────────
+
+describe("confirmation", () => {
+  const full = deriveBalances(P, [], T0);
+
+  it("confirms high and severe costs only", () => {
+    expect(needsConfirm(P, -2000, full)).toBe(true);
+    expect(needsConfirm(P, -1000, full)).toBe(true);
+    expect(needsConfirm(P, -500, full)).toBe(false);
+    expect(needsConfirm(P, -100, full)).toBe(false);
+    expect(needsConfirm(P, -5, full)).toBe(false);
+  });
+
+  it("confirms anything once a meter is empty", () => {
+    const drained = deriveBalances(P, [spend(T0, "x", 100_000)], T0);
+    expect(drained.daily.balanceCenti).toBe(0);
+    expect(needsConfirm(P, -5, drained)).toBe(true);
+  });
+
+  it("never confirms a free action", () => {
+    const drained = deriveBalances(P, [spend(T0, "x", 100_000)], T0);
+    expect(needsConfirm(P, 0, drained)).toBe(false);
+  });
+
+  it("maps costs onto ladder names", () => {
+    expect(severityOf(-2000)).toBe("severe");
+    expect(severityOf(-1000)).toBe("high");
+    expect(severityOf(-500)).toBe("moderate");
+    expect(severityOf(-300)).toBe("low");
+    expect(severityOf(-5)).toBe("negligible");
+  });
+});
+
+// ── meters ──────────────────────────────────────────────────────────────────
+
+describe("meter derivation", () => {
+  it("starts both meters full with no history", () => {
+    const b = deriveBalances(P, [], T0);
+    expect(b.daily.balanceCenti).toBe(10_000);
+    expect(b.weekly.balanceCenti).toBe(70_000);
+    expect(b.daily.msToNextHp).toBeNull();
+  });
+
+  it("subtracts a charge from both meters at once", () => {
+    const b = deriveBalances(P, [spend(T0, "dht.presence.enable", 1000)], T0);
+    expect(b.daily.balanceCenti).toBe(9000);
+    expect(b.weekly.balanceCenti).toBe(69_000);
+  });
+
+  it("derives the same balances from the same rows every time", () => {
+    const log = [spend(T0 - HOUR, "room.create.clearnet", 500), credit(T0, "room.leave", 300)];
+    const a = deriveBalances(P, log, T0);
+    const b = deriveBalances(P, [...log].reverse(), T0);
+    expect(a).toEqual(b);
+  });
+
+  it("clamps a meter at zero rather than going negative", () => {
+    const b = deriveBalances(P, [spend(T0, "x", 999_999)], T0);
+    expect(b.daily.balanceCenti).toBe(0);
+    expect(b.weekly.balanceCenti).toBe(0);
+  });
+
+  it("never lets credits push a meter above its ceiling", () => {
+    const b = deriveBalances(P, [credit(T0, "local.reencrypt.keyring", 5000)], T0);
+    expect(b.daily.balanceCenti).toBe(P.dailyMaxCenti);
+  });
+});
+
+// ── regeneration ────────────────────────────────────────────────────────────
+
+describe("regeneration", () => {
+  it("heals the daily meter at 4 HP per hour", () => {
+    const log = [spend(T0, "dht.presence.enable", 1000)];
+    expect(deriveBalances(P, log, T0).daily.balanceCenti).toBe(9000);
+    expect(deriveBalances(P, log, T0 + HOUR).daily.balanceCenti).toBe(9400);
+    expect(deriveBalances(P, log, T0 + 2 * HOUR).daily.balanceCenti).toBe(9800);
+  });
+
+  it("heals the weekly meter four times slower", () => {
+    const log = [spend(T0, "dht.presence.enable", 1000)];
+    expect(deriveBalances(P, log, T0 + HOUR).weekly.balanceCenti).toBe(69_100);
+    expect(regenPerHour(deriveBalances(P, log, T0).daily)).toBe("4");
+    expect(regenPerHour(deriveBalances(P, log, T0).weekly)).toBe("1");
+  });
+
+  it("heals continuously rather than in hourly steps", () => {
+    // The visible difference between "+1/hour" and a bar that creeps.
+    const log = [spend(T0, "transport.tor.disable", 2000)];
+    const quarter = deriveBalances(P, log, T0 + 15 * 60_000).daily.balanceCenti;
+    expect(quarter).toBe(8100);
+  });
+
+  it("fully heals a charge and then stops", () => {
+    const log = [spend(T0, "dht.presence.enable", 1000)];
+    const late = deriveBalances(P, log, T0 + 100 * HOUR);
+    expect(late.daily.balanceCenti).toBe(P.dailyMaxCenti);
+    expect(late.daily.unhealedCenti).toBe(0);
+  });
+
+  it("heals nothing when the clock has been set backwards", () => {
+    // A charge stamped "in the future" must not heal, and must not un-heal.
+    const log = [spend(T0, "dht.presence.enable", 1000)];
+    const b = deriveBalances(P, log, T0 - 5 * HOUR);
+    expect(b.daily.balanceCenti).toBe(9000);
+  });
+
+  it("counts down to the next WHOLE HP, not the next hundredth", () => {
+    // Regeneration is continuous, so a hundredth arrives every 9 seconds — but
+    // the UI says "+1 HP", so the countdown has to mean that.
+    const log = [spend(T0, "transport.tor.disable", 2000)];
+    expect(deriveBalances(P, log, T0).daily.msToNextHp).toBe(15 * 60_000);
+    expect(deriveBalances(P, log, T0 + 60_000).daily.msToNextHp).toBe(14 * 60_000);
+    // Weekly ticks a whole HP once an hour.
+    expect(deriveBalances(P, log, T0).weekly.msToNextHp).toBe(60 * 60_000);
+  });
+
+  it("reports no next tick once the meter is full", () => {
+    expect(deriveBalances(P, [], T0).daily.msToNextHp).toBeNull();
+  });
+
+  it("heals each charge on its own clock", () => {
+    // An old charge can be fully settled while a fresh one still weighs.
+    const log = [spend(T0 - 10 * HOUR, "dht.presence.enable", 1000), spend(T0, "room.create.clearnet", 500)];
+    const b = deriveBalances(P, log, T0);
+    expect(b.daily.unhealedCenti).toBe(500);
+  });
+});
+
+// ── windows and rollover ────────────────────────────────────────────────────
+
+describe("rolling windows", () => {
+  it("drops a charge out of the daily window after 24 h", () => {
+    const log = [spend(T0 - DAY - 1, "transport.tor.disable", 2000)];
+    expect(deriveBalances(P, log, T0).daily.balanceCenti).toBe(P.dailyMaxCenti);
+  });
+
+  it("keeps that same charge in the weekly window", () => {
+    // 20 HP charged 25 h ago, healing at 1 HP/h on the weekly meter: fully
+    // settled by regeneration, but still inside the window.
+    const log = [spend(T0 - 2 * DAY, "transport.tor.disable", 2000)];
+    const b = deriveBalances(P, log, T0);
+    expect(b.weekly.balanceCenti).toBe(P.weeklyMaxCenti);
+  });
+
+  it("expires a weekly charge after seven days", () => {
+    const week = 7 * DAY;
+    const log = [spend(T0 - week - 1, "transport.tor.disable", 2000)];
+    expect(deriveBalances(P, log, T0).weekly.balanceCenti).toBe(P.weeklyMaxCenti);
+  });
+
+  it("does not double-count the drip and the window expiry", () => {
+    // Ten 20 HP charges, one a minute apart. The weekly drip is 1 HP/h, so by
+    // `now` the i-th has healed floor(i x 100 / 60) centi — 72 centi in total.
+    // The point of the assertion is that the total is EXACTLY the drip and
+    // nothing else: the 7-day expiry has not also taken a slice.
+    const log = Array.from({ length: 10 }, (_, i) => spend(T0 - i * 60_000, "transport.tor.disable", 2000));
+    const b = deriveBalances(P, log, T0);
+    const drip = Array.from({ length: 10 }, (_, i) => Math.floor((i * 100) / 60)).reduce((x, y) => x + y, 0);
+    expect(drip).toBe(72);
+    expect(b.weekly.unhealedCenti).toBe(20_000 - drip);
+    expect(b.weekly.balanceCenti).toBe(70_000 - (20_000 - drip));
+  });
+
+  it("survives a restart: balances come from rows alone", () => {
+    // Nothing is cached, so "reloading" is just calling again with the same rows.
+    const log = [spend(T0 - 3 * HOUR, "vox.call", 900)];
+    expect(deriveBalances(P, log, T0)).toEqual(deriveBalances(P, [...log], T0));
+  });
+});
+
+// ── exposure pairing ────────────────────────────────────────────────────────
+
+describe("exposure pairing", () => {
+  it("reports a toggle live once charged", () => {
+    expect(exposureLive(P, [spend(T0, "dht.presence.enable", 1000)], "dht.presence.enable")).toBe(true);
+  });
+
+  it("settles it when the paired recovery is awarded", () => {
+    const log = [spend(T0, "dht.presence.enable", 1000), credit(T0 + 1, "dht.presence.withdraw", 500)];
+    expect(exposureLive(P, log, "dht.presence.enable")).toBe(false);
+  });
+
+  it("ignores an unrelated recovery", () => {
+    const log = [spend(T0, "dht.presence.enable", 1000), credit(T0 + 1, "room.leave", 300)];
+    expect(exposureLive(P, log, "dht.presence.enable")).toBe(true);
+  });
+
+  it("makes a switch flipped off and on again a net loss", () => {
+    const log = [
+      spend(T0, "dht.presence.enable", 1000),
+      credit(T0 + 1, "dht.presence.withdraw", 500),
+      spend(T0 + 2, "dht.presence.enable", 1000),
+    ];
+    const b = deriveBalances(P, log, T0 + 2);
+    // −10 +5 −10 = −15, never a profit.
+    expect(b.daily.balanceCenti).toBe(8500);
+    expect(exposureLive(P, log, "dht.presence.enable")).toBe(true);
+  });
+});
+
+// ── history ─────────────────────────────────────────────────────────────────
+
+describe("why did this change", () => {
+  it("lists newest first", () => {
+    const log = [spend(T0 - HOUR, "room.create.clearnet", 500), spend(T0, "vox.call", 900)];
+    const rows = historyRows(P, log, T0);
+    expect(rows[0].code).toBe("vox.call");
+    expect(rows[1].code).toBe("room.create.clearnet");
+  });
+
+  it("shows how much of a charge has healed", () => {
+    const rows = historyRows(P, [spend(T0 - HOUR, "transport.tor.disable", 2000)], T0);
+    expect(rows[0].healedCenti).toBe(400);
+    expect(rows[0].settled).toBe(false);
+  });
+
+  it("marks a charge settled once regeneration has repaid it", () => {
+    const rows = historyRows(P, [spend(T0 - 10 * HOUR, "room.create.clearnet", 500)], T0);
+    expect(rows[0].settled).toBe(true);
+  });
+
+  it("keeps the activation count of a coalesced bucket", () => {
+    const bucket: HpEntry = { ts: T0, kind: "spend", code: "msg.clearnet.mls", hp: -235, n: 47, bucket: 1 };
+    expect(historyRows(P, [bucket], T0)[0].n).toBe(47);
+  });
+
+  it("never exceeds the requested limit", () => {
+    const log = Array.from({ length: 500 }, (_, i) => spend(T0 - i, "file.send", 100));
+    expect(historyRows(P, log, T0, 25)).toHaveLength(25);
+  });
+});
+
+// ── display ─────────────────────────────────────────────────────────────────
+
+describe("display", () => {
+  it("formats whole and fractional HP without trailing zeros", () => {
+    expect(formatHp(300)).toBe("3");
+    expect(formatHp(5)).toBe("0.05");
+    expect(formatHp(8725)).toBe("87.25");
+    expect(formatHp(50)).toBe("0.5");
+  });
+
+  it("uses a real minus sign on a price badge", () => {
+    expect(formatPrice(-300)).toBe("−3 HP");
+    expect(formatPrice(500)).toBe("+5 HP");
+    expect(formatPrice(0)).toBe("0 HP");
+  });
+
+  it("labels a meter as balance over maximum", () => {
+    const b = deriveBalances(P, [spend(T0, "room.create.clearnet", 500)], T0);
+    expect(formatMeter(b.daily)).toBe("95 / 100");
+  });
+
+  it("reports a percentage and a band for the bar", () => {
+    const full = deriveBalances(P, [], T0).daily;
+    expect(meterPercent(full)).toBe(100);
+    expect(meterBand(full)).toBe("full");
+    const empty = deriveBalances(P, [spend(T0, "x", 100_000)], T0).daily;
+    expect(meterBand(empty)).toBe("empty");
+  });
+});
