@@ -14,6 +14,7 @@ import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
 import { useVoxCall } from "../components/vox/useVoxCall";
 import { useRoomInvites } from "../components/contacts/useRoomInvites";
+import { useInviteAdmit } from "../components/chat/useInviteAdmit";
 import { useMeetings } from "../components/calendar/useMeetings";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
@@ -38,6 +39,11 @@ function createChatStore() {
   // invite must be caught (and the Contacts nav dot lit) wherever the user is.
   const contactsEnabled = getBuildConfig().contacts_enabled;
   const invites = contactsEnabled ? useRoomInvites(p2p) : null;
+  // Invitation redemptions (technology.md §18). App-lifetime and NOT build-gated:
+  // someone redeeming an invitation we issued must be admitted wherever the user
+  // happens to be in the app, and a build that could mint invitations but not
+  // honour them would strand every one it issued.
+  const inviteAdmit = useInviteAdmit(p2p);
   // Meeting scheduling — rides the same seam; app-lifetime so incoming invites
   // land (Calendar nav dot) and the reminder tick runs regardless of the view.
   const calendarEnabled = getBuildConfig().calendar_enabled;
@@ -68,7 +74,7 @@ function createChatStore() {
   }
 
   return {
-    p2p, fileShare, vox, callsEnabled, invites, contactsEnabled,
+    p2p, fileShare, vox, callsEnabled, invites, contactsEnabled, inviteAdmit,
     meetings, calendarEnabled,
     init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,

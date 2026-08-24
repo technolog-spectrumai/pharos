@@ -1291,6 +1291,105 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
   }
 
+  // ── invitations (technology.md §18) ─────────────────────────────────────────
+  // Redemption is driven by Rust, but the two MLS halves belong here, with every
+  // other MLS operation in this app. The admission also has to BROADCAST its
+  // commit over this room's transport, and `send` is this module's — exposing it
+  // so a store could do the group work outside would be the wrong seam.
+
+  /**
+   * Admit someone who redeemed an invitation: add their key package to this
+   * room's group, tell the existing members, and hand back the Welcome for the
+   * newcomer.
+   *
+   * Requires the room to be OPEN and its group ready — the commit has nowhere to
+   * go otherwise, and a member added to a group nobody else knows about would be
+   * invisible to everyone. `null` means "could not admit", and the caller must
+   * pass that on so Rust releases the invitation's lease rather than burning it.
+   */
+  async function admitInvited(
+    roomSlug: string,
+    keyPackageB64: string,
+  ): Promise<{ welcome: string; roomName: string; peers: string[]; onion: string } | null> {
+    if (!currentRoom.value || currentRoom.value.slug !== roomSlug) return null;
+    if (mlsStatus.value !== "ready") return null;
+    try {
+      const result = await cryptoService.addMember(
+        roomSlug,
+        mlsIdentity.value,
+        base64ToBytes(keyPackageB64),
+      );
+      if (!result) return null;
+      // Existing members first: they must be able to process the commit before
+      // the newcomer starts sending, or their group state diverges from his.
+      send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
+      void refreshP2pRoster();
+
+      // Where the newcomer should connect. Read from the ROOM's transport, not
+      // from a global setting — a room opened before the Tor switch moved is
+      // still on the transport it was opened with.
+      //
+      // This is the room's address, which every member necessarily has; it is
+      // not a credential. Nothing here re-admits anybody: the group is closed
+      // again the moment this commit lands.
+      const onion = currentRoomIsTor.value ? myOnion.value : "";
+      const peers = currentRoomIsTor.value ? [] : [(await ensureNode()) ?? ""].filter(Boolean);
+      return {
+        welcome: bytesToBase64(result.welcome),
+        roomName: currentRoom.value.name,
+        peers,
+        onion,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The redeemer's half: join the group from the Welcome the inviter granted,
+   * then join the room's transport.
+   *
+   * MLS first, transport second — the reverse of an ordinary join. A normal
+   * joiner arrives on the topic and negotiates; here the negotiation already
+   * happened over the authenticated redemption stream, so the group membership
+   * is settled before the first gossip frame.
+   */
+  async function joinByInvite(grant: {
+    roomName: string;
+    welcome: string;
+    peers: string[];
+    onion: string;
+  }): Promise<boolean> {
+    error.value = null;
+    try {
+      // `joinByNode` routes on both transports (realtime_join_room_by_node).
+      // Over Tor it re-hosts this room's name as an onion of our own, so the
+      // captain has to be pointed at explicitly afterwards — the same two-step
+      // a Tor reconnect already performs.
+      await joinByNode(grant.roomName, grant.peers);
+      if (grant.onion && currentRoom.value) {
+        chatTransport.setCaptain(currentRoom.value.slug, grant.onion);
+      }
+      if (!currentRoom.value) return false;
+      const ok = await cryptoService.joinFromWelcome(
+        currentRoom.value.slug,
+        mlsIdentity.value,
+        base64ToBytes(grant.welcome),
+      );
+      if (!ok) {
+        mlsStatus.value = "error";
+        mlsError.value = "Failed to join encrypted group.";
+        return false;
+      }
+      mlsStatus.value = "ready";
+      messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+      return true;
+    } catch (e) {
+      error.value = errorMessage(e);
+      return false;
+    }
+  }
+
   /** Ensure this channel's iroh endpoint is started and return our NodeId (shown in
    *  Settings; also what a future contact-QR would carry). */
   async function ensureNode(): Promise<string | null> {
@@ -1587,6 +1686,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendAudio, sendMapShare, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
+    admitInvited, joinByInvite,
     cancelJoin, deleteRoom,
     ensureNode,
     onSync, sendSync, postSystemNotice,
