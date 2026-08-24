@@ -1622,7 +1622,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
    *  onion identity — and close its connections. Kicking peers only reaches them while
    *  we are connected to the room with MLS ready (i.e. deleting the open room). */
   /** Returns the bytes of stored history that went away, so the caller can claim
-   *  the Privacy HP data-deletion credit. 0 when there was nothing stored. */
+   *  the Privacy MANA data-deletion credit. 0 when there was nothing stored. */
   async function deleteRoom(entry: P2pRoomEntry): Promise<number> {
     const slug = entry.room;
     const identity = mlsIdentity.value;

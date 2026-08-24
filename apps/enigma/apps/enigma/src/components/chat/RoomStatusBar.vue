@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { OyaButton, OyaIconButton } from "rakotis";
 import type { ChatChannel } from "rakotis";
-import { recoverHp } from "../hp/useHp";
+import { recoverMana } from "../mana/useMana";
 import MlsStatusChip from "./MlsStatusChip.vue";
 import ConnectionStatusChip from "./ConnectionStatusChip.vue";
 
@@ -10,13 +10,13 @@ const props = defineProps<{ channel: ChatChannel; compact?: boolean }>();
 const ch = props.channel;
 const { mlsStatus, mlsError, wsStatus, isEncrypted, isParticipant } = ch;
 
-/** Privacy HP: a reset renegotiates the group's keys, so old key material no
+/** Privacy MANA: a reset renegotiates the group's keys, so old key material no
  *  longer opens what comes next — a real reduction in risk being carried, and
  *  one of the few recoveries a user can trigger deliberately. Awarded once per
  *  rolling day; Rust applies the cap. */
 async function resetEncryption(): Promise<void> {
   await ch.forceResetMls();
-  await recoverHp("room.rekey");
+  await recoverMana("room.rekey");
 }
 
 const busy = ref(false);

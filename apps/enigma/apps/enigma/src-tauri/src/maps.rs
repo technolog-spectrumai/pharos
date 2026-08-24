@@ -426,12 +426,12 @@ pub async fn map_region_remove(app: AppHandle, id: String) -> Result<(), String>
     }
     if !remaining.iter().any(|r| r.blake3 == removed.blake3) {
         let path = blob_path(&app, &removed.blake3)?;
-        // Privacy HP: measured here, on the real file, immediately before it is
+        // Privacy MANA: measured here, on the real file, immediately before it is
         // unlinked — this credit never takes the frontend's word for a size.
         let freed = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let _ = std::fs::remove_file(&path);
         app.state::<MapsState>().local_readers.lock().await.remove(&removed.blake3);
-        crate::privacy_hp::award_data(&app, "data.delete.maps", freed);
+        crate::privacy_mana::award_data(&app, "data.delete.maps", freed);
     }
     Ok(())
 }

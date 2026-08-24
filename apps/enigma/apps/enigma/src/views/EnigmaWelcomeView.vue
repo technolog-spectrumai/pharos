@@ -19,7 +19,7 @@ import {
   type OfflineProfile,
 } from "rakotis";
 import { brand } from "../config/app";
-import HpPanel from "../components/hp/HpPanel.vue";
+import ManaPanel from "../components/mana/ManaPanel.vue";
 import { PRIVACY_PATH } from "../tabs";
 
 const router = useRouter();
@@ -81,17 +81,17 @@ onMounted(async () => {
     <!-- ── your budget ──────────────────────────────────────────────────── -->
     <OyaCard class="flex flex-col gap-4">
       <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.title") }}</h2>
+        <h2 class="text-sm font-bold uppercase opacity-70">{{ $t("mana.title") }}</h2>
         <button
           type="button"
           class="text-xs font-semibold underline opacity-70 transition hover:opacity-100"
-          data-testid="welcome-hp-details"
+          data-testid="welcome-mana-details"
           @click="router.push(PRIVACY_PATH)"
         >
-          {{ $t("hp.seeDetails") }}
+          {{ $t("mana.seeDetails") }}
         </button>
       </div>
-      <HpPanel compact />
+      <ManaPanel compact />
     </OyaCard>
   </section>
 </template>

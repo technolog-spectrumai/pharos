@@ -17,7 +17,7 @@
 //                  NodeId directly (resolved via the DHT nickname directory).
 
 import { ref } from "vue";
-import { chargeHp, confirmHp } from "../hp/useHp";
+import { chargeMana, confirmMana } from "../mana/useMana";
 import type { ChatChannel, NickClaim } from "rakotis";
 import { dhtFindNick } from "rakotis";
 
@@ -73,13 +73,13 @@ export function useVoxCall(channel: ChatChannel) {
     if (timer) {
       clearInterval(timer);
       timer = null;
-      // Privacy HP, billed on the way out with the call's REAL duration: a
+      // Privacy MANA, billed on the way out with the call's REAL duration: a
       // 40-second call and a four-hour call are not the same disclosure, and
       // charging up-front could only guess. Minutes round up, so any connected
       // call costs at least the base plus one minute. Voice is iroh-direct only
       // (Tor mode blocks it), so there is no cheaper variant to pick.
       const minutes = Math.ceil(callSeconds.value / 60);
-      if (minutes > 0) void chargeHp("vox.call", { minutes });
+      if (minutes > 0) void chargeMana("vox.call", { minutes });
     }
   }
   function startTimer() {
@@ -274,7 +274,7 @@ export function useVoxCall(channel: ChatChannel) {
       return;
     }
     if (!target?.id) return;
-    if (!(await confirmHp("vox.call"))) return;
+    if (!(await confirmMana("vox.call"))) return;
     error.value = "";
     try {
       await ensureListeners();

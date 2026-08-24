@@ -1,4 +1,4 @@
-// Privacy HP — the ledger, the clock and the price enforcement.
+// Privacy MANA — the ledger, the clock and the price enforcement.
 //
 // WHAT THIS IS. A safety budget the user can read: every exposing action in the
 // app has one fixed price, the price is shown before the tap, and spending it
@@ -7,8 +7,8 @@
 // or weakens MLS, Tor, iroh, the vault or the passphrase. If this whole module
 // were deleted the app would behave identically, minus the numbers.
 //
-// WHERE THE PRICES COME FROM. `crate::hp_policy`, generated at compile time from
-// src-tauri/privacy_hp.yaml by build.rs. The webview never sends an HP amount —
+// WHERE THE PRICES COME FROM. `crate::mana_policy`, generated at compile time from
+// src-tauri/privacy_mana.yaml by build.rs. The webview never sends an MANA amount —
 // it names an action id and this module looks the price up. A compromised
 // frontend can therefore charge a *wrong action*, but it cannot invent a price,
 // hand itself a credit, or write a ledger row of its own devising.
@@ -37,10 +37,10 @@
 // meant anyway.
 //
 // REGENERATION is derived, never stored. A charge of N made T ago currently
-// weighs `max(0, N - T x rate)`. Nothing is written when HP comes back, which is
+// weighs `max(0, N - T x rate)`. Nothing is written when MANA comes back, which is
 // why offline use, restarts, crashes and app-closed time need no reconciliation:
 // there is no counter to reconcile. Balances are derived in rakotis
-// (`privacyHp.ts`) from the rows this module hands out — policy there,
+// (`privacyMana.ts`) from the rows this module hands out — policy there,
 // persistence here.
 
 use std::collections::HashMap;
@@ -48,10 +48,14 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
-use crate::hp_policy::{self, HpKind};
+use crate::mana_policy::{self, ManaKind};
 use crate::invites;
 use crate::vault;
 
+/// The on-disk namespace. Still "hp": this feature was called Privacy HP when the
+/// first ledgers were written, and renaming the namespace would orphan every one
+/// of them — a cosmetic rename is not worth losing a user's history over. Nothing
+/// outside this constant carries the old name.
 const NS: &str = "hp";
 const META_KEY: &str = "meta";
 const META_VERSION: u32 = 1;
@@ -69,7 +73,7 @@ const MIB: i64 = 1024 * 1024;
 
 // ── ledger types ────────────────────────────────────────────────────────────
 
-/// `spend` is stored as a negative `hp`, `recover` as positive, so summing a
+/// `spend` is stored as a negative `mana`, `recover` as positive, so summing a
 /// window is just a fold. `kind` is kept separately anyway because the history
 /// view groups by it and a zero-valued row (a capped-out credit is never
 /// written, but a coalesced bucket can round to zero) must still say which it
@@ -82,8 +86,12 @@ pub struct Entry {
     pub kind: String,
     /// An action / recovery / data-source id from the compile-time table.
     pub code: String,
-    /// Centi-HP. Negative for a spend, positive for a credit.
-    pub hp: i64,
+    /// Centi-MANA. Negative for a spend, positive for a credit.
+    /// Written as "mana"; ALSO read from "hp", which is what rows minted before
+    /// the rename carry. An alias is cheaper and safer than a migration pass that
+    /// could fail halfway through somebody's history, and it costs one attribute.
+    #[serde(alias = "hp")]
+    pub mana: i64,
     /// How many activations this row represents. > 1 only for coalesced
     /// metered buckets.
     #[serde(default = "one")]
@@ -140,12 +148,12 @@ fn day_key(ts: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// What one activation of a metered action costs, in centi-HP (positive).
+/// What one activation of a metered action costs, in centi-MANA (positive).
 ///
 /// Rounded DOWN, so the meter never charges more than the arithmetic says, and
 /// capped per event so a single 16 MiB frame or a four-hour call cannot empty a
 /// meter in one go.
-pub fn metered_cost(a: &hp_policy::HpAction, bytes: u64, minutes: u64) -> i64 {
+pub fn metered_cost(a: &mana_policy::ManaAction, bytes: u64, minutes: u64) -> i64 {
     let mut c = a.cost_centi;
     if a.per_mib_centi > 0 {
         c += (bytes as i64).saturating_mul(a.per_mib_centi) / MIB;
@@ -179,18 +187,18 @@ pub fn exposure_live(entries: &[Entry], action_id: &str) -> bool {
     let withdrawn = entries.iter().any(|e| {
         e.kind == "recover"
             && e.ts >= charged_at
-            && hp_policy::recovery(&e.code).and_then(|r| r.requires) == Some(action_id)
+            && mana_policy::recovery(&e.code).and_then(|r| r.requires) == Some(action_id)
     });
     !withdrawn
 }
 
-/// Credits paid inside the last `window_ms`, in centi-HP.
+/// Credits paid inside the last `window_ms`, in centi-MANA.
 fn credits_since(entries: &[Entry], now: i64, window_ms: i64, only: Option<&[&str]>) -> i64 {
     entries
         .iter()
         .filter(|e| e.kind == "recover" && now - e.ts < window_ms)
         .filter(|e| only.is_none_or(|ids| ids.contains(&e.code.as_str())))
-        .map(|e| e.hp)
+        .map(|e| e.mana)
         .sum()
 }
 
@@ -202,19 +210,19 @@ fn apply_caps(entries: &[Entry], now: i64, want: i64, data_ids: Option<&[&str]>)
     let mut allowed = want;
 
     let spent_day = credits_since(entries, now, MS_PER_DAY, None);
-    allowed = allowed.min(hp_policy::RECOVERY_DAILY_CAP_CENTI - spent_day);
+    allowed = allowed.min(mana_policy::RECOVERY_DAILY_CAP_CENTI - spent_day);
 
-    let window = MS_PER_DAY * hp_policy::CREDIT_WINDOW_DAYS;
+    let window = MS_PER_DAY * mana_policy::CREDIT_WINDOW_DAYS;
     let spent_window = credits_since(entries, now, window, None);
-    allowed = allowed.min(hp_policy::RECOVERY_WINDOW_CAP_CENTI - spent_window);
+    allowed = allowed.min(mana_policy::RECOVERY_WINDOW_CAP_CENTI - spent_window);
 
     // Data-deletion credits carry their own, tighter pair of caps on top — the
     // declared bound on the known import-then-delete farm.
     if let Some(ids) = data_ids {
         let d_day = credits_since(entries, now, MS_PER_DAY, Some(ids));
-        allowed = allowed.min(hp_policy::DATA_DAILY_CAP_CENTI - d_day);
+        allowed = allowed.min(mana_policy::DATA_DAILY_CAP_CENTI - d_day);
         let d_window = credits_since(entries, now, window, Some(ids));
-        allowed = allowed.min(hp_policy::DATA_WINDOW_CAP_CENTI - d_window);
+        allowed = allowed.min(mana_policy::DATA_WINDOW_CAP_CENTI - d_window);
     }
 
     allowed.max(0)
@@ -227,9 +235,9 @@ pub fn data_award(bytes: u64) -> i64 {
     if bytes == 0 {
         return 0;
     }
-    let raw = (bytes as i64).saturating_mul(hp_policy::DATA_PER_MIB_CENTI) / MIB;
-    raw.max(hp_policy::DATA_MIN_AWARD_CENTI)
-        .min(hp_policy::DATA_MAX_PER_EVENT_CENTI)
+    let raw = (bytes as i64).saturating_mul(mana_policy::DATA_PER_MIB_CENTI) / MIB;
+    raw.max(mana_policy::DATA_MIN_AWARD_CENTI)
+        .min(mana_policy::DATA_MAX_PER_EVENT_CENTI)
 }
 
 /// Has `recovery_id` already paid inside the last 24 h?
@@ -312,7 +320,7 @@ fn append(app: &AppHandle, meta: &mut Meta, entry: Entry) -> Result<(), String> 
             .iter_mut()
             .find(|r| r.bucket == entry.bucket && r.code == entry.code && r.kind == entry.kind)
         {
-            slot.hp += entry.hp;
+            slot.mana += entry.mana;
             slot.n = slot.n.saturating_add(entry.n);
             write_day(app, &day, &rows)?;
             write_meta(app, meta)?;
@@ -388,11 +396,11 @@ pub struct PolicyDto {
 
 /// What a charge/credit actually did. `applied` is 0 whenever the action was a
 /// no-op — an already-live toggle, a capped-out credit, a deletion that freed
-/// nothing — so the UI can stay silent rather than flashing "−0 HP".
+/// nothing — so the UI can stay silent rather than flashing "−0 MANA".
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HpDelta {
-    /// Centi-HP actually written. Negative = spent, positive = credited.
+pub struct ManaDelta {
+    /// Centi-MANA actually written. Negative = spent, positive = credited.
     pub applied: i64,
     /// The id it was recorded under (echoed so the UI can label the flash).
     pub code: String,
@@ -401,23 +409,23 @@ pub struct HpDelta {
 // ── commands ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn hp_get_policy() -> PolicyDto {
+pub fn mana_get_policy() -> PolicyDto {
     PolicyDto {
-        version: hp_policy::VERSION,
-        confirm_at_centi: hp_policy::CONFIRM_AT_CENTI,
-        daily_max_centi: hp_policy::DAILY_MAX_CENTI,
-        daily_regen_centi: hp_policy::DAILY_REGEN_CENTI,
-        daily_regen_per_minutes: hp_policy::DAILY_REGEN_PER_MINUTES,
-        daily_tor_regen_per_minutes: hp_policy::DAILY_TOR_REGEN_PER_MINUTES,
-        recovery_daily_cap_centi: hp_policy::RECOVERY_DAILY_CAP_CENTI,
-        recovery_window_cap_centi: hp_policy::RECOVERY_WINDOW_CAP_CENTI,
+        version: mana_policy::VERSION,
+        confirm_at_centi: mana_policy::CONFIRM_AT_CENTI,
+        daily_max_centi: mana_policy::DAILY_MAX_CENTI,
+        daily_regen_centi: mana_policy::DAILY_REGEN_CENTI,
+        daily_regen_per_minutes: mana_policy::DAILY_REGEN_PER_MINUTES,
+        daily_tor_regen_per_minutes: mana_policy::DAILY_TOR_REGEN_PER_MINUTES,
+        recovery_daily_cap_centi: mana_policy::RECOVERY_DAILY_CAP_CENTI,
+        recovery_window_cap_centi: mana_policy::RECOVERY_WINDOW_CAP_CENTI,
         history_days: 7,
-        data_per_mib_centi: hp_policy::DATA_PER_MIB_CENTI,
-        data_min_award_centi: hp_policy::DATA_MIN_AWARD_CENTI,
-        data_max_per_event_centi: hp_policy::DATA_MAX_PER_EVENT_CENTI,
-        data_daily_cap_centi: hp_policy::DATA_DAILY_CAP_CENTI,
-        data_window_cap_centi: hp_policy::DATA_WINDOW_CAP_CENTI,
-        actions: hp_policy::ACTIONS
+        data_per_mib_centi: mana_policy::DATA_PER_MIB_CENTI,
+        data_min_award_centi: mana_policy::DATA_MIN_AWARD_CENTI,
+        data_max_per_event_centi: mana_policy::DATA_MAX_PER_EVENT_CENTI,
+        data_daily_cap_centi: mana_policy::DATA_DAILY_CAP_CENTI,
+        data_window_cap_centi: mana_policy::DATA_WINDOW_CAP_CENTI,
+        actions: mana_policy::ACTIONS
             .iter()
             .map(|a| ActionDto {
                 id: a.id,
@@ -429,7 +437,7 @@ pub fn hp_get_policy() -> PolicyDto {
                 explain_key: a.explain_key,
             })
             .collect(),
-        recoveries: hp_policy::RECOVERIES
+        recoveries: mana_policy::RECOVERIES
             .iter()
             .map(|r| RecoveryDto {
                 id: r.id,
@@ -438,7 +446,7 @@ pub fn hp_get_policy() -> PolicyDto {
                 explain_key: r.explain_key,
             })
             .collect(),
-        data_sources: hp_policy::DATA_SOURCES
+        data_sources: mana_policy::DATA_SOURCES
             .iter()
             .map(|d| DataSourceDto { id: d.id, explain_key: d.explain_key })
             .collect(),
@@ -447,8 +455,8 @@ pub fn hp_get_policy() -> PolicyDto {
 
 /// Record which transport posture this profile is running in.
 ///
-/// A **zero-HP row**, not a charge. Turning Tor on or off costs and earns
-/// nothing; what it changes is how fast HP comes back (privacy_hp.yaml, the
+/// A **zero-MANA row**, not a charge. Turning Tor on or off costs and earns
+/// nothing; what it changes is how fast MANA comes back (privacy_mana.yaml, the
 /// meters note). These markers are what let that be integrated *piecewise* —
 /// hours with Tor on heal at the fast rate, hours without at the slow one — so a
 /// balance never jumps because a switch moved.
@@ -458,7 +466,7 @@ pub fn hp_get_policy() -> PolicyDto {
 /// re-establishes the marker after a profile's oldest rows have been pruned, and
 /// catches a toggle that happened while the ledger was unreachable.
 #[tauri::command]
-pub fn hp_set_tor_posture(app: AppHandle, on: bool) -> Result<bool, String> {
+pub fn mana_set_tor_posture(app: AppHandle, on: bool) -> Result<bool, String> {
     let code = if on { "transport.tor.on" } else { "transport.tor.off" };
     let mut meta = read_meta(&app);
     let entries = load_recent(&app, &meta);
@@ -478,14 +486,14 @@ pub fn hp_set_tor_posture(app: AppHandle, on: bool) -> Result<bool, String> {
     append(
         &app,
         &mut meta,
-        Entry { ts, kind: "posture".into(), code: code.to_string(), hp: 0, n: 1, bucket: 0 },
+        Entry { ts, kind: "posture".into(), code: code.to_string(), mana: 0, n: 1, bucket: 0 },
     )?;
     Ok(true)
 }
 
 /// The rows rakotis derives both meters and the history view from.
 #[tauri::command]
-pub fn hp_ledger(app: AppHandle) -> Result<Vec<Entry>, String> {
+pub fn mana_ledger(app: AppHandle) -> Result<Vec<Entry>, String> {
     let meta = read_meta(&app);
     Ok(load_recent(&app, &meta))
 }
@@ -496,13 +504,13 @@ pub fn hp_ledger(app: AppHandle) -> Result<Vec<Entry>, String> {
 /// Returns what was actually applied — 0 for an already-live toggle, which is
 /// how "re-affirming a switch is free" is enforced rather than merely intended.
 #[tauri::command]
-pub fn hp_charge(
+pub fn mana_charge(
     app: AppHandle,
     action_id: String,
     bytes: Option<u64>,
     minutes: Option<u64>,
-) -> Result<HpDelta, String> {
-    let Some(action) = hp_policy::action(&action_id) else {
+) -> Result<ManaDelta, String> {
+    let Some(action) = mana_policy::action(&action_id) else {
         return Err(format!("HP_UNKNOWN_ACTION: {action_id}"));
     };
 
@@ -510,30 +518,30 @@ pub fn hp_charge(
     let entries = load_recent(&app, &meta);
 
     let cost = match action.kind {
-        HpKind::Toggle => {
+        ManaKind::Toggle => {
             if exposure_live(&entries, action.id) {
-                return Ok(HpDelta { applied: 0, code: action_id });
+                return Ok(ManaDelta { applied: 0, code: action_id });
             }
             action.cost_centi
         }
-        HpKind::Event => action.cost_centi,
-        HpKind::Metered => metered_cost(action, bytes.unwrap_or(0), minutes.unwrap_or(0)),
+        ManaKind::Event => action.cost_centi,
+        ManaKind::Metered => metered_cost(action, bytes.unwrap_or(0), minutes.unwrap_or(0)),
     };
     if cost <= 0 {
         // A free lane (msg.tor.mls) writes nothing at all. The table still lists
         // it so the composer can show the rate falling to zero.
-        return Ok(HpDelta { applied: 0, code: action_id });
+        return Ok(ManaDelta { applied: 0, code: action_id });
     }
 
     let ts = stamp(&mut meta);
-    let bucket = if matches!(action.kind, HpKind::Metered) { ts / MS_PER_HOUR } else { 0 };
+    let bucket = if matches!(action.kind, ManaKind::Metered) { ts / MS_PER_HOUR } else { 0 };
     prune(&app, &mut meta, ts);
     append(
         &app,
         &mut meta,
-        Entry { ts, kind: "spend".into(), code: action.id.to_string(), hp: -cost, n: 1, bucket },
+        Entry { ts, kind: "spend".into(), code: action.id.to_string(), mana: -cost, n: 1, bucket },
     )?;
-    Ok(HpDelta { applied: -cost, code: action_id })
+    Ok(ManaDelta { applied: -cost, code: action_id })
 }
 
 // ── persistent Tor exposure ─────────────────────────────────────────────────
@@ -589,11 +597,11 @@ fn write_marks(app: &AppHandle, marks: &ExposureMarks) -> Result<(), String> {
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TorExposureReport {
-    /// Centi-HP charged by this tick across all rooms. Negative, or zero.
+    /// Centi-MANA charged by this tick across all rooms. Negative, or zero.
     pub charged_centi: i64,
     /// Rooms currently accruing — what the UI counts and names.
     pub rooms: Vec<String>,
-    /// Centi-HP per hour these rooms are costing, for the drain-rate readout.
+    /// Centi-MANA per hour these rooms are costing, for the drain-rate readout.
     pub drain_per_hour_centi: i64,
 }
 
@@ -612,7 +620,7 @@ pub fn accrue_tor_exposure(
     persistent: &[String],
     now: i64,
 ) -> Result<TorExposureReport, String> {
-    let Some(action) = hp_policy::action("tor.persistent.hold") else {
+    let Some(action) = mana_policy::action("tor.persistent.hold") else {
         return Ok(TorExposureReport::default());
     };
     let live: Vec<String> = hosted.iter().filter(|r| persistent.contains(r)).cloned().collect();
@@ -638,7 +646,7 @@ pub fn accrue_tor_exposure(
                         ts,
                         kind: "spend".into(),
                         code: action.id.to_string(),
-                        hp: -cost,
+                        mana: -cost,
                         n: 1,
                         bucket: ts / MS_PER_HOUR,
                     },
@@ -703,9 +711,9 @@ fn rooms_with_standing_invite(app: &AppHandle) -> Vec<String> {
 /// — and a second derivation on this side is exactly how the two would come to
 /// disagree about a number the user can see. So this reports what it billed and
 /// what is accruing; the caller compares that against the meter it already has
-/// and calls `hp_tor_shutdown` if it must.
+/// and calls `mana_tor_shutdown` if it must.
 #[tauri::command]
-pub async fn hp_tor_tick(
+pub async fn mana_tor_tick(
     app: AppHandle,
     tor: State<'_, crate::p2p_tor::TorP2pState>,
 ) -> Result<TorExposureReport, String> {
@@ -724,7 +732,7 @@ pub async fn hp_tor_tick(
 /// Revoking BEFORE the close matters: the address is about to stop answering, and
 /// an invitation left redeemable would be a promise the app has already broken.
 #[tauri::command]
-pub fn hp_tor_shutdown(app: AppHandle, rooms: Vec<String>) -> Result<u32, String> {
+pub fn mana_tor_shutdown(app: AppHandle, rooms: Vec<String>) -> Result<u32, String> {
     let mut revoked = 0u32;
     for rec in invites::list(&app) {
         if invites::never_expires(&rec) && rooms.contains(&rec.room_slug) {
@@ -749,7 +757,7 @@ pub fn hp_tor_shutdown(app: AppHandle, rooms: Vec<String>) -> Result<u32, String
 /// keeping the room. It is destructive on purpose — anyone holding the old QR is
 /// left holding nothing, which is exactly what rotation has to mean.
 #[tauri::command]
-pub async fn hp_tor_rotate(
+pub async fn mana_tor_rotate(
     app: AppHandle,
     tor: State<'_, crate::p2p_tor::TorP2pState>,
     room: String,
@@ -770,8 +778,8 @@ pub async fn hp_tor_rotate(
 
 /// Award a fixed recovery, if the state change it names actually reduced risk.
 #[tauri::command]
-pub fn hp_recover(app: AppHandle, recovery_id: String) -> Result<HpDelta, String> {
-    let Some(rec) = hp_policy::recovery(&recovery_id) else {
+pub fn mana_recover(app: AppHandle, recovery_id: String) -> Result<ManaDelta, String> {
+    let Some(rec) = mana_policy::recovery(&recovery_id) else {
         return Err(format!("HP_UNKNOWN_RECOVERY: {recovery_id}"));
     };
     award(&app, rec.id, rec.credit_centi, rec.requires, None)
@@ -789,29 +797,29 @@ pub fn hp_recover(app: AppHandle, recovery_id: String) -> Result<HpDelta, String
 ///   because the deletion happens frontend-side (kv scope wipes and the locked
 ///   files index). A dishonest webview could inflate `bytes_freed` — and the
 ///   ceiling below is what makes that pointless: `max_per_event` caps a single
-///   claim at 5 HP and the two data caps bound the day and the week regardless
+///   claim at 5 MANA and the two data caps bound the day and the week regardless
 ///   of what is claimed.
 ///
 /// Idempotent in all three cases for the same structural reason: a byte can only
 /// be deleted once, and deleting nothing pays nothing.
 #[tauri::command]
-pub fn hp_data_credit(
+pub fn mana_data_credit(
     app: AppHandle,
     source_id: String,
     bytes_freed: u64,
-) -> Result<HpDelta, String> {
-    if hp_policy::data_source(&source_id).is_none() {
+) -> Result<ManaDelta, String> {
+    if mana_policy::data_source(&source_id).is_none() {
         return Err(format!("HP_UNKNOWN_DATA_SOURCE: {source_id}"));
     }
     Ok(award_data(&app, &source_id, bytes_freed))
 }
 
-/// Award path for Rust-side deletions (see `hp_data_credit`). Swallows its own
+/// Award path for Rust-side deletions (see `mana_data_credit`). Swallows its own
 /// errors: a credit is never worth failing a deletion the user asked for.
-pub fn award_data(app: &AppHandle, source_id: &str, bytes_freed: u64) -> HpDelta {
-    let ids: Vec<&str> = hp_policy::DATA_SOURCES.iter().map(|d| d.id).collect();
+pub fn award_data(app: &AppHandle, source_id: &str, bytes_freed: u64) -> ManaDelta {
+    let ids: Vec<&str> = mana_policy::DATA_SOURCES.iter().map(|d| d.id).collect();
     award(app, source_id, data_award(bytes_freed), None, Some(&ids))
-        .unwrap_or(HpDelta { applied: 0, code: source_id.to_string() })
+        .unwrap_or(ManaDelta { applied: 0, code: source_id.to_string() })
 }
 
 /// Shared award path: verify, cap, write. Never writes a zero row.
@@ -821,27 +829,27 @@ fn award(
     want: i64,
     requires: Option<&'static str>,
     data_ids: Option<&[&str]>,
-) -> Result<HpDelta, String> {
+) -> Result<ManaDelta, String> {
     let mut meta = read_meta(app);
     let entries = load_recent(app, &meta);
     let now = now_ms().max(meta.hi_ts);
 
     if want <= 0 {
-        return Ok(HpDelta { applied: 0, code: code.to_string() });
+        return Ok(ManaDelta { applied: 0, code: code.to_string() });
     }
     // Tied to a verified state change: no live exposure, no credit.
     if let Some(pair) = requires {
         if !exposure_live(&entries, pair) {
-            return Ok(HpDelta { applied: 0, code: code.to_string() });
+            return Ok(ManaDelta { applied: 0, code: code.to_string() });
         }
     } else if data_ids.is_none() && paid_recently(&entries, now, code) {
         // Unpaired credits are bounded by a rolling-day lockout instead.
-        return Ok(HpDelta { applied: 0, code: code.to_string() });
+        return Ok(ManaDelta { applied: 0, code: code.to_string() });
     }
 
     let applied = apply_caps(&entries, now, want, data_ids);
     if applied <= 0 {
-        return Ok(HpDelta { applied: 0, code: code.to_string() });
+        return Ok(ManaDelta { applied: 0, code: code.to_string() });
     }
 
     let ts = stamp(&mut meta);
@@ -849,9 +857,9 @@ fn award(
     append(
         app,
         &mut meta,
-        Entry { ts, kind: "recover".into(), code: code.to_string(), hp: applied, n: 1, bucket: 0 },
+        Entry { ts, kind: "recover".into(), code: code.to_string(), mana: applied, n: 1, bucket: 0 },
     )?;
-    Ok(HpDelta { applied, code: code.to_string() })
+    Ok(ManaDelta { applied, code: code.to_string() })
 }
 
 /// Called from `vault::vault_change_passphrase` on success.
@@ -865,7 +873,7 @@ pub fn award_passphrase_change(app: &AppHandle, old_len: usize, new_len: usize) 
     } else {
         "local.passphrase.change"
     };
-    if let Some(rec) = hp_policy::recovery(id) {
+    if let Some(rec) = mana_policy::recovery(id) {
         let _ = award(app, rec.id, rec.credit_centi, rec.requires, None);
     }
 }
@@ -874,15 +882,15 @@ pub fn award_passphrase_change(app: &AppHandle, old_len: usize, new_len: usize) 
 /// Pays more than a passphrase change because it re-encrypts the data itself
 /// rather than re-wrapping the key above it.
 pub fn award_rotation(app: &AppHandle, id: &str) {
-    if let Some(rec) = hp_policy::recovery(id) {
+    if let Some(rec) = mana_policy::recovery(id) {
         let _ = award(app, rec.id, rec.credit_centi, rec.requires, None);
     }
 }
 
 /// Total ledger rows — used by the Data tab to say whether a wipe would discard
-/// any HP history. Cheap enough to call on render.
+/// any MANA history. Cheap enough to call on render.
 #[tauri::command]
-pub fn hp_count(app: AppHandle) -> Result<u64, String> {
+pub fn mana_count(app: AppHandle) -> Result<u64, String> {
     let meta = read_meta(&app);
     Ok(load_recent(&app, &meta).len() as u64)
 }
@@ -890,11 +898,11 @@ pub fn hp_count(app: AppHandle) -> Result<u64, String> {
 /// Per-code totals over the retention window, for the "Why did this change?"
 /// summary line. Kept in Rust so the view never needs the raw rows twice.
 #[tauri::command]
-pub fn hp_totals(app: AppHandle) -> Result<HashMap<String, i64>, String> {
+pub fn mana_totals(app: AppHandle) -> Result<HashMap<String, i64>, String> {
     let meta = read_meta(&app);
     let mut out: HashMap<String, i64> = HashMap::new();
     for e in load_recent(&app, &meta) {
-        *out.entry(e.code).or_insert(0) += e.hp;
+        *out.entry(e.code).or_insert(0) += e.mana;
     }
     Ok(out)
 }
@@ -905,14 +913,14 @@ pub fn hp_totals(app: AppHandle) -> Result<HashMap<String, i64>, String> {
 mod tests {
     use super::*;
 
-    fn spend(ts: i64, code: &str, hp: i64) -> Entry {
-        Entry { ts, kind: "spend".into(), code: code.into(), hp: -hp, n: 1, bucket: 0 }
+    fn spend(ts: i64, code: &str, mana: i64) -> Entry {
+        Entry { ts, kind: "spend".into(), code: code.into(), mana: -mana, n: 1, bucket: 0 }
     }
-    fn recover(ts: i64, code: &str, hp: i64) -> Entry {
-        Entry { ts, kind: "recover".into(), code: code.into(), hp, n: 1, bucket: 0 }
+    fn recover(ts: i64, code: &str, mana: i64) -> Entry {
+        Entry { ts, kind: "recover".into(), code: code.into(), mana, n: 1, bucket: 0 }
     }
-    fn action(id: &str) -> &'static hp_policy::HpAction {
-        hp_policy::action(id).expect("action in table")
+    fn action(id: &str) -> &'static mana_policy::ManaAction {
+        mana_policy::action(id).expect("action in table")
     }
 
     // ── the price table itself ──────────────────────────────────────────────
@@ -925,11 +933,11 @@ mod tests {
             ts: 1,
             kind: "posture".into(),
             code: "transport.tor.on".into(),
-            hp: 0,
+            mana: 0,
             n: 1,
             bucket: 0,
         };
-        assert_eq!(row.hp, 0);
+        assert_eq!(row.mana, 0);
         assert_ne!(row.kind, "spend");
         assert_ne!(row.kind, "recover");
     }
@@ -938,9 +946,9 @@ mod tests {
     fn turning_tor_on_and_off_has_no_price_in_the_table() {
         // Pinned so the old one-time charge cannot creep back: it punished the
         // transition while ignoring the posture, which is backwards.
-        assert!(hp_policy::action("transport.tor.disable").is_none());
-        assert!(hp_policy::action("transport.tor.enable").is_none());
-        assert!(hp_policy::recovery("transport.tor.enable").is_none());
+        assert!(mana_policy::action("transport.tor.disable").is_none());
+        assert!(mana_policy::action("transport.tor.enable").is_none());
+        assert!(mana_policy::recovery("transport.tor.enable").is_none());
     }
 
     // ── persistent Tor exposure ─────────────────────────────────────────────
@@ -951,8 +959,8 @@ mod tests {
 
     #[test]
     fn an_hour_of_a_standing_onion_costs_the_documented_rate() {
-        // 0.08 HP/minute = 4.8 HP/hour. Pinned here because the whole mechanic is
-        // calibrated against the daily meter's Tor regeneration (12 HP/hour): one
+        // 0.08 MANA/minute = 4.8 MANA/hour. Pinned here because the whole mechanic is
+        // calibrated against the daily meter's Tor regeneration (12 MANA/hour): one
         // room is comfortably sustainable, three are not.
         let a = action("tor.persistent.hold");
         assert_eq!(a.per_minute_centi, 8);
@@ -963,7 +971,7 @@ mod tests {
     #[test]
     fn one_accrual_cannot_dump_a_whole_sleep_onto_the_meter() {
         // A suspended laptop leaves a long gap between ticks, during which the
-        // onion answered nobody. The cap is what stops waking up to a 40 HP charge
+        // onion answered nobody. The cap is what stops waking up to a 40 MANA charge
         // for exposure that was not live.
         let a = action("tor.persistent.hold");
         assert_eq!(a.cap_per_event_centi, 500);
@@ -1016,19 +1024,19 @@ mod tests {
     fn tor_always_regenerates_at_least_as_fast() {
         // A smaller period is a higher rate. build.rs rejects the inverse, but
         // the invariant is worth asserting where a reader will meet it.
-        assert!(hp_policy::DAILY_TOR_REGEN_PER_MINUTES < hp_policy::DAILY_REGEN_PER_MINUTES);
+        assert!(mana_policy::DAILY_TOR_REGEN_PER_MINUTES < mana_policy::DAILY_REGEN_PER_MINUTES);
         // And the documented 3x.
-        assert_eq!(hp_policy::DAILY_REGEN_PER_MINUTES, 3 * hp_policy::DAILY_TOR_REGEN_PER_MINUTES);
+        assert_eq!(mana_policy::DAILY_REGEN_PER_MINUTES, 3 * mana_policy::DAILY_TOR_REGEN_PER_MINUTES);
     }
 
     #[test]
     fn every_price_is_exact_hundredths_and_within_the_ladder() {
-        for a in hp_policy::ACTIONS {
+        for a in mana_policy::ACTIONS {
             assert!(a.cost_centi >= 0, "{} has a negative cost", a.id);
             assert!(a.cost_centi <= 1000, "{} exceeds the top rung", a.id);
-            assert!(a.explain_key.starts_with("hp.explain."), "{} explain_key", a.id);
+            assert!(a.explain_key.starts_with("mana.explain."), "{} explain_key", a.id);
         }
-        for r in hp_policy::RECOVERIES {
+        for r in mana_policy::RECOVERIES {
             assert!(r.credit_centi > 0, "{} must pay something", r.id);
         }
     }
@@ -1056,17 +1064,17 @@ mod tests {
         // call site charge for something the app can no longer do — and, worse,
         // would read as though it still could.
         for id in ["ticket.export.clearnet", "ticket.export.tor", "dht.room_code.publish"] {
-            assert!(hp_policy::action(id).is_none(), "{id} must not be priced");
+            assert!(mana_policy::action(id).is_none(), "{id} must not be priced");
         }
-        assert!(hp_policy::recovery("room.inviteonly.enable").is_none());
+        assert!(mana_policy::recovery("room.inviteonly.enable").is_none());
     }
 
     #[test]
     fn key_rotation_pays_more_than_a_passphrase_change() {
-        let change = hp_policy::recovery("local.passphrase.change").unwrap().credit_centi;
-        let strengthen = hp_policy::recovery("local.passphrase.strengthen").unwrap().credit_centi;
-        let keyring = hp_policy::recovery("local.reencrypt.keyring").unwrap().credit_centi;
-        let files = hp_policy::recovery("local.reencrypt.files").unwrap().credit_centi;
+        let change = mana_policy::recovery("local.passphrase.change").unwrap().credit_centi;
+        let strengthen = mana_policy::recovery("local.passphrase.strengthen").unwrap().credit_centi;
+        let keyring = mana_policy::recovery("local.reencrypt.keyring").unwrap().credit_centi;
+        let files = mana_policy::recovery("local.reencrypt.files").unwrap().credit_centi;
         assert!(strengthen > change);
         assert!(keyring > change, "rotation must out-pay a plain passphrase change");
         assert!(files > change);
@@ -1074,8 +1082,8 @@ mod tests {
 
     #[test]
     fn unknown_ids_have_no_price() {
-        assert!(hp_policy::action("msg.definitely.not.real").is_none());
-        assert!(hp_policy::recovery("free.money").is_none());
+        assert!(mana_policy::action("msg.definitely.not.real").is_none());
+        assert!(mana_policy::recovery("free.money").is_none());
     }
 
     // ── metered arithmetic ──────────────────────────────────────────────────
@@ -1099,9 +1107,9 @@ mod tests {
 
     #[test]
     fn message_size_is_billed_per_mib() {
-        // 4 MiB at 0.05/MiB on top of the 0.05 base = 0.25 HP.
+        // 4 MiB at 0.05/MiB on top of the 0.05 base = 0.25 MANA.
         assert_eq!(metered_cost(action("msg.clearnet.mls"), 4 * 1024 * 1024, 0), 10);
-        // Plaintext lane is ten times the rate: 0.5 + 4 x 0.5 = 2.5 HP.
+        // Plaintext lane is ten times the rate: 0.5 + 4 x 0.5 = 2.5 MANA.
         assert_eq!(metered_cost(action("msg.clearnet.plain"), 4 * 1024 * 1024, 0), 125);
     }
 
@@ -1113,13 +1121,13 @@ mod tests {
 
     #[test]
     fn per_event_caps_bind() {
-        // A 16 MiB frame on the plaintext lane would be 8.5 HP; the cap is 5.
+        // A 16 MiB frame on the plaintext lane would be 8.5 MANA; the cap is 5.
         assert_eq!(metered_cost(action("msg.clearnet.plain"), 16 * 1024 * 1024, 0), 250);
-        // The MLS lane's own cap is far tighter (1 HP), reached around 19 MiB.
+        // The MLS lane's own cap is far tighter (1 MANA), reached around 19 MiB.
         assert_eq!(metered_cost(action("msg.clearnet.mls"), 64 * 1024 * 1024, 0), 50);
-        // A 4 GiB transfer is capped at 5 HP, not 205.
+        // A 4 GiB transfer is capped at 5 MANA, not 205.
         assert_eq!(metered_cost(action("file.send"), 4 * 1024 * 1024 * 1024, 0), 250);
-        // A four-hour call is capped at 10 HP.
+        // A four-hour call is capped at 10 MANA.
         assert_eq!(metered_cost(action("vox.call"), 0, 240), 500);
     }
 
@@ -1165,14 +1173,14 @@ mod tests {
     fn the_daily_cap_bounds_credits() {
         let now = 10 * MS_PER_DAY;
         let log = vec![recover(now - 1000, "local.reencrypt.keyring", 1200)];
-        // 12 of the 12.5 daily HP are gone; a 5 HP credit is trimmed to 0.5.
+        // 12 of the 12.5 daily MANA are gone; a 5 MANA credit is trimmed to 0.5.
         assert_eq!(apply_caps(&log, now, 500, None), 50);
     }
 
     #[test]
     fn credits_outside_the_window_stop_counting() {
         let now = 10 * MS_PER_DAY;
-        // Paid 25 HP just over a day ago — the daily cap is clear again.
+        // Paid 25 MANA just over a day ago — the daily cap is clear again.
         let log = vec![recover(now - MS_PER_DAY - 1, "local.reencrypt.keyring", 1250)];
         assert_eq!(apply_caps(&log, now, 500, None), 500);
     }
@@ -1183,7 +1191,7 @@ mod tests {
         let log: Vec<Entry> = (1..=5)
             .map(|d| recover(now - d * MS_PER_DAY + 1, "local.reencrypt.keyring", 1000))
             .collect();
-        // 50 of 50 weekly HP already paid, and none of it inside today.
+        // 50 of 50 weekly MANA already paid, and none of it inside today.
         assert_eq!(apply_caps(&log, now, 500, None), 0);
     }
 
@@ -1196,16 +1204,16 @@ mod tests {
 
     #[test]
     fn small_deletions_pay_the_floor_and_large_ones_the_ceiling() {
-        assert_eq!(data_award(1024), hp_policy::DATA_MIN_AWARD_CENTI);
-        assert_eq!(data_award(8 * 1024 * 1024), 96); // 8 MiB x 0.12 = 0.96 HP
-        assert_eq!(data_award(10 * 1024 * 1024 * 1024), hp_policy::DATA_MAX_PER_EVENT_CENTI);
+        assert_eq!(data_award(1024), mana_policy::DATA_MIN_AWARD_CENTI);
+        assert_eq!(data_award(8 * 1024 * 1024), 96); // 8 MiB x 0.12 = 0.96 MANA
+        assert_eq!(data_award(10 * 1024 * 1024 * 1024), mana_policy::DATA_MAX_PER_EVENT_CENTI);
     }
 
     #[test]
     fn the_import_then_delete_farm_is_bounded_by_its_own_caps() {
         let now = 10 * MS_PER_DAY;
         let ids = ["data.delete.maps"];
-        // Ten 5 HP map deletions today would be 50 HP; the data daily cap is 10.
+        // Ten 5 MANA map deletions today would be 50 MANA; the data daily cap is 10.
         let log: Vec<Entry> =
             (1..=2).map(|i| recover(now - i * 1000, "data.delete.maps", 250)).collect();
         assert_eq!(apply_caps(&log, now, 250, Some(&ids)), 0);
@@ -1289,10 +1297,24 @@ mod tests {
     }
 
     #[test]
+    fn rows_written_before_the_rename_still_load() {
+        // The ledger called this field "hp" until the feature was renamed to MANA.
+        // A serde alias reads those rows; without it every history older than the
+        // rename would deserialize to zero and the chart would show a cliff that
+        // never happened.
+        let json = br#"{"ts":1,"kind":"spend","code":"file.send","hp":-250}"#;
+        let back: Entry = serde_json::from_slice(json).unwrap();
+        assert_eq!(back.mana, -250);
+        // …and new rows are written under the new name.
+        let fresh = serde_json::to_string(&spend(1, "file.send", 250)).unwrap();
+        assert!(fresh.contains("\"mana\""), "{fresh}");
+    }
+
+    #[test]
     fn rows_written_before_coalescing_existed_still_load() {
         // `n` and `bucket` are serde-defaulted, so an older ledger is readable
         // rather than being silently dropped on the floor.
-        let json = br#"{"ts":1,"kind":"spend","code":"file.send","hp":-250}"#;
+        let json = br#"{"ts":1,"kind":"spend","code":"file.send","mana":-250}"#;
         let e: Entry = serde_json::from_slice(json).unwrap();
         assert_eq!(e.n, 1);
         assert_eq!(e.bucket, 0);

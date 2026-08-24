@@ -43,13 +43,13 @@ const router = createRouter({
     { path: "/calendar", component: EnigmaCalendarView, name: "calendar", beforeEnter: tabGuard("calendar") },
     { path: "/map", component: EnigmaMapView, name: "map", beforeEnter: tabGuard("map") },
     { path: "/contacts", component: EnigmaContactsView, name: "contacts", beforeEnter: tabGuard("contacts") },
-    // Privacy HP — reached from the header's HP chip, not from the nav, so it is
+    // Privacy MANA — reached from the header's MANA chip, not from the nav, so it is
     // ungated like Settings and the welcome page.
     { path: "/privacy", component: EnigmaPrivacyView, name: "privacy" },
     // Settings has no gate of either kind — it is the way back from everything
     // else, including from a nav the user has emptied out.
     { path: "/config", component: EnigmaConfigView, name: "config" },
-    // Welcome: app info, who you are, and the Privacy HP meters. Ungated for the
+    // Welcome: app info, who you are, and the Privacy MANA meters. Ungated for the
     // same reason Settings is — it is where the header logo goes, and a logo that
     // could lead nowhere would be a dead end on every screen. Note this is NOT
     // "/": that still resolves to the first visible tab, which is where a lock

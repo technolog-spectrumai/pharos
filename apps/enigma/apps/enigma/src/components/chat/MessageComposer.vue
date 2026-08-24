@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaButton, OyaTextArea, OyaHpPrice, formatRemaining, messageActionId } from "rakotis";
+import { OyaButton, OyaTextArea, OyaManaPrice, formatRemaining, messageActionId } from "rakotis";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import VoiceRecorderButton from "./VoiceRecorderButton.vue";
 import { useChatStore } from "../../stores/chat";
 import { useNetworkStore } from "../../stores/network";
-import { chargeHp, explainFor, priceFor } from "../hp/useHp";
+import { chargeMana, explainFor, priceFor } from "../mana/useMana";
 
 const { t } = useI18n();
 
@@ -129,10 +129,10 @@ async function send() {
 }
 
 /** Bill one send on whichever lane the room is currently on. Never confirmed and
- *  never blocking: the price is a fraction of an HP, and a composer that stops
+ *  never blocking: the price is a fraction of an MANA, and a composer that stops
  *  to ask would be unusable. */
 async function billSend(bytes: number): Promise<void> {
-  await chargeHp(messageActionId({ tor: onTor.value, mlsReady: mlsStatus.value === "ready" }), {
+  await chargeMana(messageActionId({ tor: onTor.value, mlsReady: mlsStatus.value === "ready" }), {
     bytes,
   });
 }
@@ -154,16 +154,16 @@ function onKeydown(e: KeyboardEvent) {
       <span
         v-if="msgPrice === 0"
         class="rounded-md border border-success-light/40 px-1.5 py-0.5 font-bold text-success-light dark:border-success-dark/40 dark:text-success-dark"
-        data-testid="hp-msg-free"
+        data-testid="mana-msg-free"
       >
-        {{ $t('hp.free') }}
+        {{ $t('mana.free') }}
       </span>
-      <OyaHpPrice
+      <OyaManaPrice
         v-else
         :centi="msgPrice"
-        :unit="$t('hp.unitMessage')"
+        :unit="$t('mana.unitMessage')"
         :explain="explainFor(msgAction)"
-        data-testid="hp-msg-rate"
+        data-testid="mana-msg-rate"
       />
     </div>
 

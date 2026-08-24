@@ -55,7 +55,7 @@ function makeChannel() {
     currentUserName: ref("alice"),
     mlsIdentity: ref("alice-device"),
     currentRoom: ref<{ slug: string; name: string } | null>({ slug: "room-1", name: "Room 1" }),
-    // The room's own transport, which decides the Privacy HP lane a calendar
+    // The room's own transport, which decides the Privacy MANA lane a calendar
     // action is billed on (clearnet here — the default this suite exercises).
     currentRoomIsTor: ref(false),
     mlsStatus: ref("ready"),
@@ -235,20 +235,20 @@ describe("useMeetings — organizer side", () => {
   });
 });
 
-// ── Privacy HP ───────────────────────────────────────────────────────────────
+// ── Privacy MANA ───────────────────────────────────────────────────────────────
 // Calendar traffic is billed at the encrypted-message rate for the room's
 // transport, once per USER ACTION. The automatic paths — the MLS-ready outbox
 // flush and the re-broadcast when the participant list grows — must bill
 // nothing: they re-send frames nobody initiated, and charging them would drain
 // the meter for a tap that never happened.
 
-describe("useMeetings — Privacy HP", () => {
-  /** Which HP actions were charged, in order. Asserting on the charge CALLS
+describe("useMeetings — Privacy MANA", () => {
+  /** Which MANA actions were charged, in order. Asserting on the charge CALLS
    *  rather than on a balance keeps this independent of whether a Rust ledger is
    *  present — this suite runs with `__TAURI_INTERNALS__` set, so charges go to
    *  the backend rather than to rakotis' in-memory fallback. */
-  const hpCharges = () =>
-    invokeMock.mock.calls.filter((c) => c[0] === "hp_charge").map((c) => c[1].actionId);
+  const manaCharges = () =>
+    invokeMock.mock.calls.filter((c) => c[0] === "mana_charge").map((c) => c[1].actionId);
 
   it("bills a meeting created in a room at the clearnet encrypted-message lane", async () => {
     const { channel } = makeChannel();
@@ -257,7 +257,7 @@ describe("useMeetings — Privacy HP", () => {
     invokeMock.mockClear();
     await meetings.create(DRAFT);
     await flush();
-    expect(hpCharges()).toEqual(["calendar.share.clearnet"]);
+    expect(manaCharges()).toEqual(["calendar.share.clearnet"]);
   });
 
   it("bills nothing for a local-only meeting, which sends nothing", async () => {
@@ -268,7 +268,7 @@ describe("useMeetings — Privacy HP", () => {
     invokeMock.mockClear();
     await meetings.create({ ...DRAFT, roomSlug: "", roomName: "" });
     await flush();
-    expect(hpCharges()).toEqual([]);
+    expect(manaCharges()).toEqual([]);
   });
 
   it("uses the free Tor lane when the room is an onion room", async () => {
@@ -279,7 +279,7 @@ describe("useMeetings — Privacy HP", () => {
     invokeMock.mockClear();
     await meetings.create(DRAFT);
     await flush();
-    expect(hpCharges()).toEqual(["calendar.share.tor"]);
+    expect(manaCharges()).toEqual(["calendar.share.tor"]);
   });
 
   it("bills an RSVP once, like any other user action", async () => {
@@ -291,7 +291,7 @@ describe("useMeetings — Privacy HP", () => {
     invokeMock.mockClear();
     await meetings.respond("mt-9", "accepted");
     await flush();
-    expect(hpCharges()).toEqual(["calendar.share.clearnet"]);
+    expect(manaCharges()).toEqual(["calendar.share.clearnet"]);
   });
 
   it("bills NOTHING when a late joiner triggers a re-broadcast", async () => {
@@ -311,7 +311,7 @@ describe("useMeetings — Privacy HP", () => {
 
     // The frame went out again — and cost nothing, because nobody asked for it.
     expect(stub.sendSync).toHaveBeenCalledWith("meeting_invite", expect.anything());
-    expect(hpCharges()).toEqual([]);
+    expect(manaCharges()).toEqual([]);
   });
 
   it("bills NOTHING when the outbox flushes on MLS becoming ready", async () => {
@@ -327,7 +327,7 @@ describe("useMeetings — Privacy HP", () => {
     stub.mlsStatus.value = "ready";
     await flush();
     expect(stub.sendSync).toHaveBeenCalledWith("meeting_invite", expect.anything());
-    expect(hpCharges()).toEqual([]);
+    expect(manaCharges()).toEqual([]);
   });
 
   it("bills a confirmed poll once, though it emits two frames", async () => {
@@ -342,7 +342,7 @@ describe("useMeetings — Privacy HP", () => {
     invokeMock.mockClear();
     await meetings.confirmPoll(poll.id, poll.slots[0].id);
     await flush();
-    expect(hpCharges()).toEqual(["calendar.share.clearnet"]);
+    expect(manaCharges()).toEqual(["calendar.share.clearnet"]);
   });
 });
 

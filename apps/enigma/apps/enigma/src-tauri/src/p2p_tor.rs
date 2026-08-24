@@ -152,7 +152,7 @@ fn room_for(name: &str) -> String {
 ///
 /// The generation is what makes rotation possible. A room's onion is its exposure:
 /// anyone who has the address can keep knocking for as long as it resolves, which
-/// is why `privacy_hp` charges for every hour one stays up. Rotating has to
+/// is why `privacy_mana` charges for every hour one stays up. Rotating has to
 /// actually retire the address, not just stop serving it for a while — so it bumps
 /// the generation, which changes the nickname, which makes arti mint a *different*
 /// identity key. The old key is deleted, so the old `.onion` is gone rather than
@@ -847,7 +847,7 @@ pub async fn clean_keystore(app: &AppHandle, state: &TorP2pState) {
 
 /// Every room whose onion service is up right now.
 ///
-/// The Privacy HP exposure meter charges per active persistent onion, so it needs
+/// The Privacy MANA exposure meter charges per active persistent onion, so it needs
 /// to know exactly which ones are reachable — not which rooms are saved, and not
 /// which the user is looking at. A room absent from this list costs nothing,
 /// which is what makes "stop charging when the room closes, when Tor is switched
@@ -865,7 +865,7 @@ pub async fn hosted_rooms(state: &TorP2pState) -> Vec<String> {
 /// therefore a new identity key. Anyone holding the old address — including anyone
 /// holding a never-expiring invitation that names it — is now holding nothing.
 ///
-/// That is also what ends the HP drain: the exposure was the address remaining
+/// That is also what ends the MANA drain: the exposure was the address remaining
 /// valid, so invalidating it is the honest way to stop paying for it.
 ///
 /// The caller re-hosts afterwards (`create_room`) to bring the room back up under

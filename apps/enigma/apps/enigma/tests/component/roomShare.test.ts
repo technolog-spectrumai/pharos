@@ -17,9 +17,9 @@ const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invokeMock(...a) }));
 
 import { i18n } from "../../src/i18n";
-import { resetHpLedgerForTest } from "rakotis";
+import { resetManaLedgerForTest } from "rakotis";
 import RoomShareCard from "../../src/components/chat/RoomShareCard.vue";
-import { refreshHp, resolveHpConfirm, setHpTranslator, stopHp } from "../../src/components/hp/useHp";
+import { refreshMana, resolveManaConfirm, setManaTranslator, stopMana } from "../../src/components/mana/useMana";
 
 const global = { plugins: [i18n], stubs: { "font-awesome-icon": true } };
 
@@ -36,14 +36,14 @@ beforeEach(async () => {
   // browser-fallback mode and the list never loads.
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   setActivePinia(createPinia());
-  resetHpLedgerForTest();
-  stopHp();
-  setHpTranslator({
+  resetManaLedgerForTest();
+  stopMana();
+  setManaTranslator({
     t: (k) => String((i18n.global.t as (x: string) => string)(k)),
     has: (k) => Boolean((i18n.global.te as (x: string) => boolean)(k)),
   });
   invokeMock.mockResolvedValue([]);
-  await refreshHp();
+  await refreshMana();
 });
 
 describe("RoomShareCard", () => {
@@ -86,15 +86,15 @@ describe("RoomShareCard", () => {
     const privatePrice = w.get('[data-testid="share-price"]').text();
     await w.get('[data-testid="share-mode-general"]').trigger("click");
     const bearerPrice = w.get('[data-testid="share-price"]').text();
-    expect(privatePrice).toContain("−1.5 HP");
-    expect(bearerPrice).toContain("−5 HP");
+    expect(privatePrice).toContain("−1.5 MANA");
+    expect(bearerPrice).toContain("−5 MANA");
   });
 
   it("prices a private QR at its cheapest over Tor", async () => {
     const w = card({ tor: true });
     await flushPromises();
     await w.get('[data-testid="share-mode-personal"]').trigger("click");
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−0.5 HP");
+    expect(w.get('[data-testid="share-price"]').text()).toContain("−0.5 MANA");
   });
 
   it("warns plainly that a shareable code is not secret", async () => {
@@ -174,10 +174,10 @@ describe("RoomShareCard", () => {
     });
     await w.get('[data-testid="invite-create"]').trigger("click");
     await flushPromises();
-    // A bearer invitation is −10 HP, so it always raises the confirmation
+    // A bearer invitation is −10 MANA, so it always raises the confirmation
     // carrying its warning. Nothing is minted until that is answered.
     expect(invokeMock.mock.calls.find((c) => c[0] === "invite_create")).toBeUndefined();
-    resolveHpConfirm(true);
+    resolveManaConfirm(true);
     await flushPromises();
 
     const created = invokeMock.mock.calls.find((c) => c[0] === "invite_create");
@@ -200,7 +200,7 @@ describe("RoomShareCard", () => {
     );
     await w.get('[data-testid="invite-create"]').trigger("click");
     await flushPromises();
-    resolveHpConfirm(true);
+    resolveManaConfirm(true);
     await flushPromises();
     expect(w.find('[data-testid="invite-countdown"]').exists()).toBe(true);
 

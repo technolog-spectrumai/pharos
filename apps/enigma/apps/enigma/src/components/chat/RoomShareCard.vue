@@ -39,10 +39,10 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   OyaCopyField,
-  OyaHpPrice,
+  OyaManaPrice,
   OyaQrCode,
   OyaTextField,
-  formatHp,
+  formatMana,
   getBuildConfig,
   invoke,
   isTauri,
@@ -50,7 +50,7 @@ import {
   inviteActionId,
   type ContactEntry,
 } from "rakotis";
-import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from "../hp/useHp";
+import { chargeMana, confirmMana, creditFor, explainFor, priceFor, recoverMana } from "../mana/useMana";
 
 const props = defineProps<{
   roomSlug: string;
@@ -137,9 +137,9 @@ async function createInvite() {
   if (!canCreate.value) return;
   const kind = mode.value;
   const action = inviteActionId(kind, !!props.tor);
-  // Confirmed BEFORE minting. A bearer invite is ≥10 HP, so this always asks and
+  // Confirmed BEFORE minting. A bearer invite is ≥10 MANA, so this always asks and
   // carries the warning; a private one never interrupts.
-  if (!(await confirmHp(action))) return;
+  if (!(await confirmMana(action))) return;
 
   busy.value = true;
   error.value = "";
@@ -153,7 +153,7 @@ async function createInvite() {
     });
     minted.value = res;
     // Charged only once the credential actually exists.
-    await chargeHp(action);
+    await chargeMana(action);
     await refreshRows();
   } catch (e) {
     error.value = typeof e === "string" ? e : ((e as Error).message ?? "");
@@ -167,7 +167,7 @@ async function revoke(id: string) {
   // that boolean IS the verified state change the credit is tied to, so
   // revoking something already spent or expired earns nothing.
   const moved = await invoke<boolean>("invite_revoke", { inviteId: id }).catch(() => false);
-  if (moved) await recoverHp("invite.revoke");
+  if (moved) await recoverMana("invite.revoke");
   if (minted.value && rows.value.find((r) => r.id === id)) minted.value = null;
   await refreshRows();
 }
@@ -216,7 +216,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
       <p class="min-w-0 flex-1 text-[11px] leading-relaxed opacity-70" data-testid="share-consequence">
         {{ $t(`invite.consequence.${mode}`) }}
       </p>
-      <OyaHpPrice :centi="priceCenti" :explain="priceExplain" data-testid="share-price" />
+      <OyaManaPrice :centi="priceCenti" :explain="priceExplain" data-testid="share-price" />
     </div>
 
     <p
@@ -316,7 +316,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
         >
           <font-awesome-icon :icon="busy ? 'spinner' : 'qrcode'" :spin="busy" />
           {{ $t("invite.create") }}
-          <span class="tabular-nums opacity-70">{{ formatHp(priceCenti) }} HP</span>
+          <span class="tabular-nums opacity-70">{{ formatMana(priceCenti) }} MANA</span>
         </button>
         <p v-if="error" class="text-xs text-warn-dark" data-testid="invite-error">{{ error }}</p>
       </template>
@@ -366,7 +366,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
               @click="revoke(r.id)"
             >
               {{ $t("invite.revoke") }}
-              <span class="opacity-70">+{{ formatHp(creditFor("invite.revoke")) }}</span>
+              <span class="opacity-70">+{{ formatMana(creditFor("invite.revoke")) }}</span>
             </button>
           </li>
         </ul>

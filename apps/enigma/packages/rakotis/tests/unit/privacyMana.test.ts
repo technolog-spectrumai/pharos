@@ -1,4 +1,4 @@
-// Privacy HP — the policy model: fixed prices, variant selection, meter
+// Privacy MANA — the policy model: fixed prices, variant selection, meter
 // derivation, regeneration, rollovers, clock rollback and display.
 //
 // Everything under test is pure, so `now` is passed explicitly and no fake
@@ -11,7 +11,7 @@ import {
   exposureLive,
   findAction,
   findRecovery,
-  formatHp,
+  formatMana,
   formatMeter,
   formatPrice,
   historyRows,
@@ -26,28 +26,28 @@ import {
   roomActionId,
   severityOf,
   torActiveNow,
-  type HpEntry,
-} from "../../src/privacyHp";
-import { FALLBACK_HP_POLICY as P } from "../../src/services/hp";
+  type ManaEntry,
+} from "../../src/privacyMana";
+import { FALLBACK_HP_POLICY as P } from "../../src/services/mana";
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 const MIB = 1024 * 1024;
 const T0 = 1_800_000_000_000; // a fixed, arbitrary "now"
 
-const spend = (ts: number, code: string, hpCenti: number): HpEntry => ({
+const spend = (ts: number, code: string, manaCenti: number): ManaEntry => ({
   ts,
   kind: "spend",
   code,
-  hp: -hpCenti,
+  mana: -manaCenti,
   n: 1,
   bucket: 0,
 });
-const credit = (ts: number, code: string, hpCenti: number): HpEntry => ({
+const credit = (ts: number, code: string, manaCenti: number): ManaEntry => ({
   ts,
   kind: "recover",
   code,
-  hp: hpCenti,
+  mana: manaCenti,
   n: 1,
   bucket: 0,
 });
@@ -83,7 +83,7 @@ describe("fixed prices", () => {
   });
 
   it("keeps severityOf's rungs in step with the price table", () => {
-    // The ladder lives in privacy_hp.yaml and is pinned by build.rs, but
+    // The ladder lives in privacy_mana.yaml and is pinned by build.rs, but
     // `severityOf` needs it too — and it has no policy to read. This is what
     // stops the two drifting when the scale is re-tuned.
     const used = new Set(
@@ -123,12 +123,12 @@ describe("fixed prices", () => {
   });
 
   it("gives every action a one-sentence explanation key", () => {
-    for (const a of P.actions) expect(a.explainKey).toMatch(/^hp\.explain\.[a-zA-Z]+$/);
-    for (const r of P.recoveries) expect(r.explainKey).toMatch(/^hp\.explain\.[a-zA-Z]+$/);
+    for (const a of P.actions) expect(a.explainKey).toMatch(/^mana\.explain\.[a-zA-Z]+$/);
+    for (const r of P.recoveries) expect(r.explainKey).toMatch(/^mana\.explain\.[a-zA-Z]+$/);
   });
 });
 
-// ── metered arithmetic (must match privacy_hp.rs exactly) ───────────────────
+// ── metered arithmetic (must match privacy_mana.rs exactly) ───────────────────
 
 describe("metered pricing", () => {
   it("bills a tiny message at the base rate only", () => {
@@ -316,7 +316,7 @@ describe("meter derivation", () => {
   it("starts the meter full with no history", () => {
     const b = deriveBalances(P, [], T0);
     expect(b.daily.balanceCenti).toBe(10_000);
-    expect(b.daily.msToNextHp).toBeNull();
+    expect(b.daily.msToNextMana).toBeNull();
   });
 
   it("subtracts a charge from the meter", () => {
@@ -345,7 +345,7 @@ describe("meter derivation", () => {
 // ── regeneration ────────────────────────────────────────────────────────────
 
 describe("regeneration", () => {
-  it("heals the daily meter at 4 HP per hour", () => {
+  it("heals the daily meter at 4 MANA per hour", () => {
     const log = [spend(T0, "dht.presence.enable", 1000)];
     expect(deriveBalances(P, log, T0).daily.balanceCenti).toBe(9000);
     expect(deriveBalances(P, log, T0 + HOUR).daily.balanceCenti).toBe(9400);
@@ -374,17 +374,17 @@ describe("regeneration", () => {
     expect(b.daily.balanceCenti).toBe(9000);
   });
 
-  it("counts down to the next WHOLE HP, not the next hundredth", () => {
+  it("counts down to the next WHOLE MANA, not the next hundredth", () => {
     // Regeneration is continuous, so a hundredth arrives every 9 seconds — but
-    // the UI says "+1 HP", so the countdown has to mean that.
+    // the UI says "+1 MANA", so the countdown has to mean that.
     const log = [spend(T0, "transport.tor.disable", 2000)];
-    expect(deriveBalances(P, log, T0).daily.msToNextHp).toBe(15 * 60_000);
-    expect(deriveBalances(P, log, T0 + 60_000).daily.msToNextHp).toBe(14 * 60_000);
-    // Weekly ticks a whole HP once an hour.
+    expect(deriveBalances(P, log, T0).daily.msToNextMana).toBe(15 * 60_000);
+    expect(deriveBalances(P, log, T0 + 60_000).daily.msToNextMana).toBe(14 * 60_000);
+    // Weekly ticks a whole MANA once an hour.
   });
 
   it("reports no next tick once the meter is full", () => {
-    expect(deriveBalances(P, [], T0).daily.msToNextHp).toBeNull();
+    expect(deriveBalances(P, [], T0).daily.msToNextMana).toBeNull();
   });
 
   it("heals each charge on its own clock", () => {
@@ -398,11 +398,11 @@ describe("regeneration", () => {
 // ── Tor changes the rate, not a price ───────────────────────────────────────
 
 describe("Tor regeneration", () => {
-  const posture = (ts: number, on: boolean): HpEntry => ({
+  const posture = (ts: number, on: boolean): ManaEntry => ({
     ts,
     kind: "posture",
     code: on ? "transport.tor.on" : "transport.tor.off",
-    hp: 0,
+    mana: 0,
     n: 1,
     bucket: 0,
   });
@@ -472,7 +472,7 @@ describe("Tor regeneration", () => {
   });
 
   it("keeps posture markers out of the balance entirely", () => {
-    // Zero-HP rows: neither spend nor credit, and they must not dilute either.
+    // Zero-MANA rows: neither spend nor credit, and they must not dilute either.
     const log = [posture(T0, true), posture(T0 + 1, false), posture(T0 + 2, true)];
     const b = deriveBalances(P, log, T0 + 3);
     expect(b.daily.balanceCenti).toBe(P.dailyMaxCenti);
@@ -481,7 +481,7 @@ describe("Tor regeneration", () => {
   });
 
   it("keeps posture markers out of the history view", () => {
-    // "Why did this change?" lists what cost or earned HP. A rate change did
+    // "Why did this change?" lists what cost or earned MANA. A rate change did
     // neither, so listing it would be noise the user cannot act on.
     const log = [posture(T0, true), spend(T0 + 1, "vox.call", 900)];
     const rows = historyRows(P, log, T0 + 2);
@@ -491,9 +491,9 @@ describe("Tor regeneration", () => {
 
   it("counts the countdown down at the Tor rate", () => {
     const charge = spend(T0, "transport.onion_stable.enable", 2000);
-    expect(deriveBalances(P, [charge], T0).daily.msToNextHp).toBe(15 * 60_000);
+    expect(deriveBalances(P, [charge], T0).daily.msToNextMana).toBe(15 * 60_000);
     expect(
-      deriveBalances(P, [posture(T0 - 1, true), charge], T0).daily.msToNextHp,
+      deriveBalances(P, [posture(T0 - 1, true), charge], T0).daily.msToNextMana,
     ).toBe(5 * 60_000);
   });
 
@@ -516,7 +516,7 @@ describe("rolling windows", () => {
 
 
   it("does not double-count the drip and the window expiry", () => {
-    // Ten 20 HP charges, one a minute apart. The daily drip is 4 HP/h, so by
+    // Ten 20 MANA charges, one a minute apart. The daily drip is 4 MANA/h, so by
     // `now` the i-th has healed floor(i x 100 / 60) centi — 72 centi in total.
     // The point of the assertion is that the total is EXACTLY the drip and
     // nothing else: the 7-day expiry has not also taken a slice.
@@ -585,7 +585,7 @@ describe("why did this change", () => {
   });
 
   it("keeps the activation count of a coalesced bucket", () => {
-    const bucket: HpEntry = { ts: T0, kind: "spend", code: "msg.clearnet.mls", hp: -235, n: 47, bucket: 1 };
+    const bucket: ManaEntry = { ts: T0, kind: "spend", code: "msg.clearnet.mls", mana: -235, n: 47, bucket: 1 };
     expect(historyRows(P, [bucket], T0)[0].n).toBe(47);
   });
 
@@ -598,32 +598,32 @@ describe("why did this change", () => {
 // ── display ─────────────────────────────────────────────────────────────────
 
 describe("display", () => {
-  it("formats whole and fractional HP without trailing zeros", () => {
-    expect(formatHp(300)).toBe("3");
-    expect(formatHp(5)).toBe("0.05");
-    expect(formatHp(8725)).toBe("87.25");
-    expect(formatHp(50)).toBe("0.5");
+  it("formats whole and fractional MANA without trailing zeros", () => {
+    expect(formatMana(300)).toBe("3");
+    expect(formatMana(5)).toBe("0.05");
+    expect(formatMana(8725)).toBe("87.25");
+    expect(formatMana(50)).toBe("0.5");
   });
 
   it("writes the decimal separator in the user's language", () => {
     // Halving the ladder made most prices fractional, so this is on almost every
-    // button. Polish takes a comma: "−0,5 HP", not "−0.5 HP".
+    // button. Polish takes a comma: "−0,5 MANA", not "−0.5 MANA".
     currentLocale.value = "pl";
     try {
-      expect(formatHp(50)).toBe("0,5");
-      expect(formatHp(8725)).toBe("87,25");
-      expect(formatPrice(-50)).toBe("−0,5 HP");
+      expect(formatMana(50)).toBe("0,5");
+      expect(formatMana(8725)).toBe("87,25");
+      expect(formatPrice(-50)).toBe("−0,5 MANA");
       // Whole numbers have no separator to get wrong, in either language.
-      expect(formatHp(300)).toBe("3");
+      expect(formatMana(300)).toBe("3");
     } finally {
       currentLocale.value = "en";
     }
   });
 
   it("uses a real minus sign on a price badge", () => {
-    expect(formatPrice(-300)).toBe("−3 HP");
-    expect(formatPrice(500)).toBe("+5 HP");
-    expect(formatPrice(0)).toBe("0 HP");
+    expect(formatPrice(-300)).toBe("−3 MANA");
+    expect(formatPrice(500)).toBe("+5 MANA");
+    expect(formatPrice(0)).toBe("0 MANA");
   });
 
   it("labels a meter as balance over maximum", () => {

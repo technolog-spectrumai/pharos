@@ -16,7 +16,7 @@
 // that session across — carrying the private init key the Welcome needs.
 
 import { bytesToBase64, cryptoService, roomActionId, type ChatChannel } from "rakotis";
-import { chargeHp } from "../hp/useHp";
+import { chargeMana } from "../mana/useMana";
 
 export interface InvitePeek {
   kind: string;
@@ -109,7 +109,7 @@ export async function redeemInvitation(
     }
     // Redeeming IS joining a room, and is charged as one — a second price for the
     // same event would break the ladder's ordering.
-    await chargeHp(roomActionId("join", !!grant.onion));
+    await chargeMana(roomActionId("join", !!grant.onion));
     return { ok: true, errorKey: "", peek };
   } catch (e) {
     const raw = typeof e === "string" ? e : ((e as Error).message ?? "");

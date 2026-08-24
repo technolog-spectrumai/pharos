@@ -19,7 +19,7 @@ const { mockGetConnectTimeoutSecs } = vi.hoisted(() => ({
 
 // PARTIAL mock: the real module underneath, with only the seam this test drives
 // replaced. A whole-module replacement used to be enough, but the controller also
-// reaches for rakotis' Privacy HP helpers, and re-stubbing every export a
+// reaches for rakotis' Privacy MANA helpers, and re-stubbing every export a
 // dependency happens to use is a standing breakage.
 vi.mock("rakotis", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),

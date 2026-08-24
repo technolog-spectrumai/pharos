@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The price badge that sits beside a risky control: "−3 HP" plus an info dot
+// The price badge that sits beside a risky control: "−3 MANA" plus an info dot
 // that reveals one sentence about what becomes visible, and to whom.
 //
 // Two rules from the brief live in this component. The price is shown BEFORE the
@@ -12,11 +12,11 @@
 // `aria-hidden` from the button's own accessible name (the parent control keeps
 // its label; the price is announced separately through the info button).
 import { onBeforeUnmount, ref } from "vue";
-import { formatPrice, severityOf } from "../../privacyHp";
+import { formatPrice, severityOf } from "../../privacyMana";
 
 const props = withDefaults(
   defineProps<{
-    /** Centi-HP, signed. Negative spends, positive credits. */
+    /** Centi-MANA, signed. Negative spends, positive credits. */
     centi: number;
     /** One-sentence explanation, already translated by the caller. */
     explain?: string;
@@ -114,7 +114,7 @@ function tone(): string {
     <span
       :class="[tone(), size === 'md' ? 'px-2.5 py-1 text-xs' : 'px-2 py-0.5 text-[11px]']"
       class="inline-flex shrink-0 items-center rounded-md border font-bold tabular-nums whitespace-nowrap"
-      data-testid="hp-price"
+      data-testid="mana-price"
     >
       {{ formatPrice(centi) }}<span v-if="unit" class="font-normal opacity-70">/{{ unit }}</span>
     </span>
@@ -128,7 +128,7 @@ function tone(): string {
       class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current/30 text-[9px] opacity-60 transition hover:opacity-100"
       :aria-label="explain"
       :aria-expanded="open"
-      data-testid="hp-info"
+      data-testid="mana-info"
       @click.stop.prevent="toggle()"
     >
       <font-awesome-icon icon="info" />
@@ -142,7 +142,7 @@ function tone(): string {
       <template v-if="open">
         <div
           class="fixed inset-0 z-[74] cursor-default"
-          data-testid="hp-explain-backdrop"
+          data-testid="mana-explain-backdrop"
           @click.stop.prevent="close()"
         />
         <div
@@ -154,7 +154,7 @@ function tone(): string {
             width: `${PANEL_W}px`,
             maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
           }"
-          data-testid="hp-explain"
+          data-testid="mana-explain"
         >
           {{ explain }}
         </div>

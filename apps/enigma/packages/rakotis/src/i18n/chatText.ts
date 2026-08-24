@@ -9,7 +9,7 @@
 // English literals, so a Polish user met them in English at exactly the moments
 // that matter.
 //
-// The seam is the one `setHpTranslator` already established for Privacy HP
+// The seam is the one `setManaTranslator` already established for Privacy MANA
 // labels, and for the same reason: emitting a notice should not drag the whole
 // message catalog into the module that emits it. One precedent, applied twice,
 // rather than two mechanisms doing the same job differently.

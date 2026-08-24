@@ -1,8 +1,8 @@
-# Privacy HP — the price table, baked in at COMPILE TIME by src-tauri/build.rs.
+# Privacy MANA — the price table, baked in at COMPILE TIME by src-tauri/build.rs.
 #
-# HP is a *safety budget*, not a security control. Nothing here gates, blocks or
+# MANA is a *safety budget*, not a security control. Nothing here gates, blocks or
 # weakens anything: MLS, Tor, iroh, the vault and the passphrase behave exactly
-# as they would if this file did not exist. What HP does is let the user compare
+# as they would if this file did not exist. What MANA does is let the user compare
 # the relative exposure of the choices the app offers, in one currency, with the
 # price shown before the tap.
 #
@@ -15,12 +15,12 @@
 # the table into the binary makes that structural: build.rs validates this file
 # and FAILS THE BUILD on anything invalid, the shipped binary never re-reads it,
 # and the webview can only ever name an action id — never a number. Prices are
-# deliberately NOT per-edition (there is one privacy_hp.yaml, not one per
+# deliberately NOT per-edition (there is one privacy_mana.yaml, not one per
 # configs/*.yaml): an exposure does not become cheaper because you bought a
 # different tier.
 #
-# ARITHMETIC. Every HP figure here is exact to two decimal places and is stored
-# and computed internally as an INTEGER number of hundredths ("centi-HP"). No
+# ARITHMETIC. Every MANA figure here is exact to two decimal places and is stored
+# and computed internally as an INTEGER number of hundredths ("centi-MANA"). No
 # float ever reaches the ledger, so balances are reproducible byte-for-byte.
 # build.rs rejects a third decimal place.
 
@@ -56,8 +56,8 @@ confirm_at_hp: 5
 # hiding in one of them.
 #
 # REGENERATION is derived, never stored: each charge heals on its own clock, so
-# a charge of N HP made T ago currently weighs max(0, N - T x rate). Nothing is
-# written when HP comes back, which is why offline use, restarts, crashes and
+# a charge of N MANA made T ago currently weighs max(0, N - T x rate). Nothing is
+# written when MANA comes back, which is why offline use, restarts, crashes and
 # app-closed time need no reconciliation at all — there is no counter to
 # reconcile. A backwards clock jump heals nothing (saturating subtraction); a
 # forwards one heals faster and is not defended against, because the only person
@@ -73,19 +73,19 @@ confirm_at_hp: 5
 meters:
   daily:
     max: 100
-    # +4 HP/h with Tor off. Today's budget is meant to be forgiving: you would
+    # +4 MANA/h with Tor off. Today's budget is meant to be forgiving: you would
     # have to send more than 80 clearnet messages an hour to outpace it.
     regen_hp: 1
     regen_per_minutes: 15
-    # +12 HP/h with Tor on — three times as fast. See the note below.
+    # +12 MANA/h with Tor on — three times as fast. See the note below.
     tor_regen_per_minutes: 5
 
 # ── why Tor changes the RATE and not a price ─────────────────────────────────
 #
 # Turning Tor on or off costs nothing and earns nothing. Instead, every hour
-# spent with Tor on regenerates HP three times faster than an hour without it.
+# spent with Tor on regenerates MANA three times faster than an hour without it.
 #
-# This replaced a one-time −20 HP charge for switching Tor off, which had a hole
+# This replaced a one-time −20 MANA charge for switching Tor off, which had a hole
 # big enough to see through: Tor ships OFF, so a profile that never touched the
 # switch was never charged, despite being permanently in the exposed state. The
 # budget punished the *transition* while ignoring the *posture*, which is exactly
@@ -99,7 +99,7 @@ meters:
 # NOT RETROACTIVE, and this is the part that makes it honest. Regeneration is
 # derived from ledger timestamps, so a naive implementation would re-heal every
 # past charge at whichever rate is current — flip Tor on and the meter jumps, flip
-# it off and it drops. Instead the ledger records posture markers (zero-HP rows)
+# it off and it drops. Instead the ledger records posture markers (zero-MANA rows)
 # and healing is integrated piecewise: hours with Tor on heal fast, hours without
 # heal slow, and no balance ever moves because a switch moved.
 #
@@ -108,7 +108,7 @@ meters:
 # exposure one act causes. A clearnet invitation still carries your IP whatever
 # your regeneration looks like.
 
-# ── what costs HP ────────────────────────────────────────────────────────────
+# ── what costs MANA ────────────────────────────────────────────────────────────
 #
 # kind: toggle   charged on the off->on transition ONLY, and idempotent —
 #                re-affirming a switch that is already on costs nothing and
@@ -135,7 +135,7 @@ actions:
   - id: transport.onion_stable.enable
     kind: toggle
     cost: low
-    explain_key: hp.explain.transportOnionStableEnable
+    explain_key: mana.explain.transportOnionStableEnable
     # A stable .onion is reusable across sessions, so sessions become linkable to
     # one long-lived address; it also materialises an onion keystore on disk
     # while unlocked (§8, "at-rest posture" exceptions). Low, not moderate: the
@@ -146,7 +146,7 @@ actions:
   - id: dht.nickname.publish
     kind: toggle
     cost: severe
-    explain_key: hp.explain.dhtNicknamePublish
+    explain_key: mana.explain.dhtNicknamePublish
     # §12. Binds a human-chosen handle to your NodeId in a GLOBAL directory that
     # anyone can query. This is the strongest de-anonymiser the app contains:
     # every other exposure leaks a machine identity, this one volunteers a name a
@@ -155,7 +155,7 @@ actions:
   - id: dht.presence.enable
     kind: toggle
     cost: high
-    explain_key: hp.explain.dhtPresenceEnable
+    explain_key: mana.explain.dhtPresenceEnable
     # §12 — "the presence feature's data source IS its privacy cost". Publishes
     # your pkarr record to the Mainline DHT, republished hourly: anyone holding
     # your NodeId learns when you are online, at roughly one-hour granularity.
@@ -176,7 +176,7 @@ actions:
   # it is dead paper).
   #
   # The rate is set against the daily meter's Tor regeneration, which is what makes
-  # it a budget rather than a countdown. On Tor the daily meter heals 1 HP every
+  # it a budget rather than a countdown. On Tor the daily meter heals 1 MANA every
   # 5 minutes — 12/hour — so:
   #
   #     one standing room    4.8/hour   comfortably under regen; keep it for ever
@@ -192,10 +192,10 @@ actions:
     cost: 0
     per_minute: 0.08
     cap_per_event: 5
-    explain_key: hp.explain.torPersistentHold
-    # 0.08/minute = 4.8 HP/hour. The cap bounds ONE accrual, which matters because
+    explain_key: mana.explain.torPersistentHold
+    # 0.08/minute = 4.8 MANA/hour. The cap bounds ONE accrual, which matters because
     # a suspended laptop can leave a long gap between ticks: waking to a single
-    # 40 HP charge for hours during which the onion answered nobody would be both
+    # 40 MANA charge for hours during which the onion answered nobody would be both
     # wrong and alarming. Ticks are minutes apart, so the cap only ever bites after
     # a sleep — exactly the case where the exposure was not really live.
 
@@ -204,26 +204,26 @@ actions:
   - id: room.create.clearnet
     kind: event
     cost: moderate
-    explain_key: hp.explain.roomCreateClearnet
+    explain_key: mana.explain.roomCreateClearnet
     # A new gossip topic joined in the clear. topic = blake3(name) has no secret
     # (§9.7), so a low-entropy room name is derivable by anyone who guesses it.
 
   - id: room.create.tor
     kind: event
     cost: negligible
-    explain_key: hp.explain.roomCreateTor
+    explain_key: mana.explain.roomCreateTor
     # Topic guessability is unchanged; your IP is not on the wire.
 
   - id: room.join.clearnet
     kind: event
     cost: moderate
-    explain_key: hp.explain.roomJoinClearnet
+    explain_key: mana.explain.roomJoinClearnet
     # Joining announces your NodeId and IP to that topic's peers and to n0.
 
   - id: room.join.tor
     kind: event
     cost: negligible
-    explain_key: hp.explain.roomJoinTor
+    explain_key: mana.explain.roomJoinTor
 
   # ── invitations (technology.md §18) ────────────────────────────────────────
   #
@@ -245,7 +245,7 @@ actions:
   - id: invite.personal.create.clearnet
     kind: event
     cost: low
-    explain_key: hp.explain.invitePersonalCreateClearnet
+    explain_key: mana.explain.invitePersonalCreateClearnet
     # Sealed to one contact's public key, one-use, expiring, revocable. Nobody
     # else who photographs it can read it — and no decryption key travels with
     # it. Not free, because the invitation still carries the inviter's dialable
@@ -254,14 +254,14 @@ actions:
   - id: invite.personal.create.tor
     kind: event
     cost: negligible
-    explain_key: hp.explain.invitePersonalCreateTor
+    explain_key: mana.explain.invitePersonalCreateTor
     # The same sealed invitation carrying a .onion instead of an IP. The
     # cheapest way to invite anyone to anything in this app, deliberately.
 
   - id: invite.general.create.clearnet
     kind: event
     cost: high
-    explain_key: hp.explain.inviteGeneralCreateClearnet
+    explain_key: mana.explain.inviteGeneralCreateClearnet
     # A BEARER credential in cleartext: there is no recipient to seal it to, so
     # anyone who sees the code can read it and redeem it. The most exposing thing
     # the share card can do, and priced accordingly — it is bounded only in that
@@ -274,7 +274,7 @@ actions:
   - id: invite.general.create.tor
     kind: event
     cost: moderate
-    explain_key: hp.explain.inviteGeneralCreateTor
+    explain_key: mana.explain.inviteGeneralCreateTor
     # Still a bearer credential, but without an IP attached to it.
 
   # ── messages ───────────────────────────────────────────────────────────────
@@ -285,7 +285,7 @@ actions:
   - id: msg.tor.mls
     kind: metered
     cost: 0
-    explain_key: hp.explain.msgTorMls
+    explain_key: mana.explain.msgTorMls
     # The safe path, and free. Present in the table only so the composer can show
     # the rate falling to zero when it applies — which makes the encryption state
     # legible in a way the lock badge alone is not.
@@ -295,14 +295,14 @@ actions:
     cost: 0.02
     per_mib: 0.02
     cap_per_event: 0.5
-    explain_key: hp.explain.msgClearnetMls
+    explain_key: mana.explain.msgClearnetMls
     # Content is sealed by MLS, but the send itself is an observable event to n0:
     # its timing, its size, and which peers it fans out to.
 
   - id: msg.tor.plain
     kind: metered
     cost: 0.05
-    explain_key: hp.explain.msgTorPlain
+    explain_key: mana.explain.msgTorPlain
     # §9.5 — the cleartext fallback before MLS reports ready. Inside the circuit,
     # so no per-MiB rate, but the frame is not end-to-end encrypted.
 
@@ -310,12 +310,12 @@ actions:
     kind: metered
     cost: 0.25
     per_mib: 0.25
-    # Deliberately five times the MLS lane's ceiling. At a 1 HP cap this lane's
+    # Deliberately five times the MLS lane's ceiling. At a 1 MANA cap this lane's
     # per-MiB rate was inert — 1 MiB already hit the ceiling, so a 20-byte
     # cleartext message and a 4 MiB cleartext image cost the same, on the one
     # channel where size matters most. At 5 the rate stays live out to 9 MiB.
     cap_per_event: 2.5
-    explain_key: hp.explain.msgClearnetPlain
+    explain_key: mana.explain.msgClearnetPlain
     # §9.5, and the worst per-message case in the app: not E2E at all, in the
     # clear, on a topic anyone who guessed the room name can be sitting on.
 
@@ -342,14 +342,14 @@ actions:
   - id: calendar.share.tor
     kind: metered
     cost: 0
-    explain_key: hp.explain.calendarShareTor
+    explain_key: mana.explain.calendarShareTor
 
   - id: calendar.share.clearnet
     kind: metered
     cost: 0.02
     per_mib: 0.02
     cap_per_event: 0.5
-    explain_key: hp.explain.calendarShareClearnet
+    explain_key: mana.explain.calendarShareClearnet
 
   # ── traffic that cannot use Tor at all ─────────────────────────────────────
   # vox.rs and file_xfer.rs are iroh-direct-QUIC only and are BLOCKED in Tor
@@ -361,7 +361,7 @@ actions:
     cost: 0.5
     per_mib: 0.02
     cap_per_event: 2.5
-    explain_key: hp.explain.fileSend
+    explain_key: mana.explain.fileSend
     # Size and duration are visible to relays and to anyone watching either
     # endpoint even though the bytes are sealed (§9.10). The cap keeps one large
     # transfer from emptying the meter.
@@ -371,7 +371,7 @@ actions:
     cost: 1.5
     per_minute: 0.05
     cap_per_event: 5
-    explain_key: hp.explain.voxCall
+    explain_key: mana.explain.voxCall
     # A continuously flowing, distinctively shaped real-time stream over a direct
     # path. It confirms who spoke to whom, when, and for how long. Metered by
     # minute because a 40-second call and a four-hour call are not the same
@@ -385,14 +385,14 @@ actions:
   - id: local.autolock.off
     kind: toggle
     cost: high
-    explain_key: hp.explain.localAutolockOff
+    explain_key: mana.explain.localAutolockOff
     # idle_lock_mins = 0 keeps the DEK live in memory indefinitely (§13). An
     # unlocked device that is walked up to, or stolen, is total compromise.
 
   - id: local.pin.enroll
     kind: toggle
     cost: low
-    explain_key: hp.explain.localPinEnroll
+    explain_key: mana.explain.localPinEnroll
     # Memory-only convenience (§7): someone who dumps the RAM of an idle-locked
     # process can brute-force six digits. Strictly weaker than the passphrase —
     # a real reduction, but a small one, and nothing PIN-derived reaches disk.
@@ -400,22 +400,22 @@ actions:
   - id: local.panic_code.clear
     kind: toggle
     cost: low
-    explain_key: hp.explain.localPanicCodeClear
+    explain_key: mana.explain.localPanicCodeClear
     # Removes the duress escape hatch (§8). Not an exposure — a loss of
     # protection under coercion, which is why it is priced low rather than high.
 
   - id: local.lock_on_hide.off
     kind: toggle
     cost: negligible
-    explain_key: hp.explain.localLockOnHideOff
+    explain_key: mana.explain.localLockOnHideOff
 
   - id: local.file_integrity.off
     kind: toggle
     cost: negligible
-    explain_key: hp.explain.localFileIntegrityOff
+    explain_key: mana.explain.localFileIntegrityOff
     # Drops the per-chunk hash chain on transfers.
 
-# ── what gives HP back ───────────────────────────────────────────────────────
+# ── what gives MANA back ───────────────────────────────────────────────────────
 #
 # Recovery is NOT a second regeneration. It pays only for a change that reduces
 # risk you are CURRENTLY carrying, it is capped, and it is idempotent — a fixed
@@ -437,17 +437,17 @@ recovery:
     - id: dht.nickname.withdraw
       credit: 5
       requires: dht.nickname.publish
-      explain_key: hp.explain.dhtNicknameWithdraw
+      explain_key: mana.explain.dhtNicknameWithdraw
 
     - id: dht.presence.withdraw
       credit: 2.5
       requires: dht.presence.enable
-      explain_key: hp.explain.dhtPresenceWithdraw
+      explain_key: mana.explain.dhtPresenceWithdraw
 
     - id: local.autolock.on
       credit: 2.5
       requires: local.autolock.off
-      explain_key: hp.explain.localAutolockOn
+      explain_key: mana.explain.localAutolockOn
 
     # ── passphrase and re-encryption ──────────────────────────────────────
     # The best-paying recoveries in the table, because they are the only ones
@@ -463,7 +463,7 @@ recovery:
     - id: local.passphrase.strengthen
       credit: 5
       requires: ~
-      explain_key: hp.explain.localPassphraseStrengthen
+      explain_key: mana.explain.localPassphraseStrengthen
       # Verified inside vault_change_passphrase at the moment of the change: the
       # new passphrase must be longer than the old one. Both are compared by
       # length and neither is stored, logged or measured any other way. Pays a
@@ -472,7 +472,7 @@ recovery:
     - id: local.passphrase.change
       credit: 1.5
       requires: ~
-      explain_key: hp.explain.localPassphraseChange
+      explain_key: mana.explain.localPassphraseChange
       # A change that is not longer than before still earns something: protasius
       # re-wraps the DEK under a FRESH salt (§13), so an attacker's precomputed
       # work against the old wrap is dead. Mutually exclusive with `strengthen` —
@@ -489,13 +489,13 @@ recovery:
     - id: local.reencrypt.keyring
       credit: 5
       requires: ~
-      explain_key: hp.explain.localReencryptKeyring
+      explain_key: mana.explain.localReencryptKeyring
       # keyring_rotate: fresh file keys, every entry re-encrypted under them.
 
     - id: local.reencrypt.files
       credit: 5
       requires: ~
-      explain_key: hp.explain.localReencryptFiles
+      explain_key: mana.explain.localReencryptFiles
       # rotate_local_file: a locked file re-sealed under a fresh key. Pays once
       # per day for the id, not once per file — rotating fifty files is one
       # award, so a large collection is not a faucet.
@@ -503,7 +503,7 @@ recovery:
       # Note what is NOT here: rotating the vault's own DEK and re-sealing every
       # record. Enigma26 has no such operation — change_passphrase re-wraps the
       # DEK in place and data is never re-encrypted (§13) — and inventing one to
-      # hand out HP would be exactly the kind of change to the vault this feature
+      # hand out MANA would be exactly the kind of change to the vault this feature
       # promised not to make. If DEK rotation ever ships, it earns a line here.
 
     - id: invite.revoke
@@ -515,19 +515,19 @@ recovery:
       # revoked, and the credit is claimed only on `true`. Revoking something
       # already spent, already revoked or long expired earns nothing.
       requires: ~
-      explain_key: hp.explain.inviteRevoke
+      explain_key: mana.explain.inviteRevoke
 
     - id: room.rekey
       credit: 1.5
       requires: ~
-      explain_key: hp.explain.roomRekey
+      explain_key: mana.explain.roomRekey
 
     - id: room.leave
       credit: 1.5
       requires: ~
-      explain_key: hp.explain.roomLeave
+      explain_key: mana.explain.roomLeave
 
-  # Deleting data you are holding earns HP in proportion to how much actually
+  # Deleting data you are holding earns MANA in proportion to how much actually
   # went away — measured by Rust as it performs the deletion, so the credit is
   # tied to a verified reduction rather than a number the webview claims.
   # Idempotent for free: each byte can only be deleted once.
@@ -544,14 +544,14 @@ recovery:
     window_cap: 12.5
     sources:
       - id: data.delete.chat
-        explain_key: hp.explain.dataDeleteChat
+        explain_key: mana.explain.dataDeleteChat
       - id: data.delete.maps
-        explain_key: hp.explain.dataDeleteMaps
+        explain_key: mana.explain.dataDeleteMaps
       - id: data.delete.files
-        explain_key: hp.explain.dataDeleteFiles
+        explain_key: mana.explain.dataDeleteFiles
 
 # A full "Clear all data" wipe is deliberately absent from this table. It
-# destroys the profile store — INCLUDING the HP ledger that any award would be
+# destroys the profile store — INCLUDING the MANA ledger that any award would be
 # written into — so there is nowhere to put a credit. The outcome is already the
 # best one available: the fresh profile opens at a full 100 / 700, because no
 # history survives to count against it. The Data tab says so plainly rather than

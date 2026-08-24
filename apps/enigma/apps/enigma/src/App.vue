@@ -7,10 +7,10 @@ import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { useMapStore } from "./stores/map";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
-import HpChip from "./components/hp/HpChip.vue";
-import HpFlash from "./components/hp/HpFlash.vue";
-import HpConfirmModal from "./components/hp/HpConfirmModal.vue";
-import { startHp, stopHp } from "./components/hp/useHp";
+import ManaChip from "./components/mana/ManaChip.vue";
+import ManaFlash from "./components/mana/ManaFlash.vue";
+import ManaConfirmModal from "./components/mana/ManaConfirmModal.vue";
+import { startMana, stopMana } from "./components/mana/useMana";
 import PinPad from "./components/PinPad.vue";
 import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
@@ -59,10 +59,10 @@ async function runLoaders() {
   // before `ready` so the nav's first frame is already the right one, and the
   // router re-validates the route the app booted into off the same change.
   await loadTabVisibility();
-  // Privacy HP meters. The ledger is sealed in the vault, so like the tab
+  // Privacy MANA meters. The ledger is sealed in the vault, so like the tab
   // choice this is the earliest point it can be read; not awaited past its own
   // first read, since a slow ledger must never hold up the app's first frame.
-  void startHp();
+  void startMana();
   await chatStore.syncRuntimeIdentity();
   await userStore.loadOfflineProfile();
   // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
@@ -140,9 +140,9 @@ async function startHideLock() {
 }
 
 async function lockNow() {
-  // Drop the HP meters before the vault goes: their ledger belongs to the
+  // Drop the MANA meters before the vault goes: their ledger belongs to the
   // profile that is closing.
-  stopHp();
+  stopMana();
   idleLock.value?.stop();
   idleLock.value = null;
   hideLock?.stop();
@@ -370,7 +370,7 @@ onBeforeUnmount(() => {
     >
       <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
 
-        <!-- Logo → the welcome page (app info, your name, your HP meters).
+        <!-- Logo → the welcome page (app info, your name, your MANA meters).
              Deliberately not "/": that redirect is the lock cycle's re-entry
              point and must keep landing on a working tab. -->
         <RouterLink to="/welcome" class="flex items-center gap-3 hover:opacity-80 transition">
@@ -438,14 +438,14 @@ onBeforeUnmount(() => {
             {{ darkMode ? $t('nav.light') : $t('nav.dark') }}
           </button>
 
-          <!-- Privacy HP, always in view: today's balance and this week's. -->
-          <HpChip />
+          <!-- Privacy MANA, always in view: today's balance and this week's. -->
+          <ManaChip />
         </nav>
 
-        <!-- Mobile: HP chip + hamburger. The chip sheds its weekly figure below
-             `sm` (HpChip), so it stays a two-glyph badge on a narrow phone. -->
+        <!-- Mobile: MANA chip + hamburger. The chip sheds its weekly figure below
+             `sm` (ManaChip), so it stays a two-glyph badge on a narrow phone. -->
         <div class="flex items-center gap-3 lg:hidden">
-          <HpChip />
+          <ManaChip />
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"
@@ -558,12 +558,12 @@ onBeforeUnmount(() => {
       @close="lockWarn = false"
     />
 
-    <!-- Privacy HP: the post-activation flash ("−10 HP · DHT presence enabled")
+    <!-- Privacy MANA: the post-activation flash ("−10 MANA · DHT presence enabled")
          and the confirmation that only high/severe prices raise. Both live at
          app level so a charge fired from a modal still reports itself after that
          modal has closed. -->
-    <HpFlash />
-    <HpConfirmModal />
+    <ManaFlash />
+    <ManaConfirmModal />
     </template>
   </div>
 </template>

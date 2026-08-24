@@ -36,7 +36,7 @@ import {
   type NickClaim,
   formatDate,
 } from "rakotis";
-import { chargeHp, confirmHp, recoverHp } from "../components/hp/useHp";
+import { chargeMana, confirmMana, recoverMana } from "../components/mana/useMana";
 import { useChatStore } from "../stores/chat";
 import { isTabVisible } from "../tabs";
 
@@ -129,7 +129,7 @@ async function publishNick() {
   // Severe, and the only action in the app that volunteers a name a HUMAN chose
   // into a global directory — every other exposure leaks a machine identity.
   // Always confirmed, and confirmed before the record goes anywhere.
-  if (!(await confirmHp("dht.nickname.publish"))) return;
+  if (!(await confirmMana("dht.nickname.publish"))) return;
   // Publishing implies staying findable: the background announcer keeps the
   // claim fresh (records age out of the DHT in ~1–2 h otherwise).
   nickPublish.value = true;
@@ -140,7 +140,7 @@ async function publishNick() {
     await invoke("dht_publish_nick");
     publishState.value = "published";
     // Charged on success only: a publish that errored put nothing in the DHT.
-    await chargeHp("dht.nickname.publish");
+    await chargeMana("dht.nickname.publish");
   } catch (e) {
     publishState.value = "error";
     publishError.value = typeof e === "string" ? e : ((e as Error).message ?? "");
@@ -161,7 +161,7 @@ async function toggleNickPublish() {
   await invoke("dht_apply").catch(() => {});
   // Recovery, not a refund: withdrawing stops the claim being refreshed, but
   // anyone who already resolved it still has what they read.
-  await recoverHp("dht.nickname.withdraw");
+  await recoverMana("dht.nickname.withdraw");
 }
 
 // ── Find people (nickname search — results are CLAIMS, not identities) ────────

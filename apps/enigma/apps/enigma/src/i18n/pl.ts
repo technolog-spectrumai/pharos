@@ -759,44 +759,44 @@ export default {
     panicWarning: "Wpisanie go na ekranie odblokowania natychmiast kasuje każdy profil na tym urządzeniu — bez potwierdzenia i bez odzyskiwania. Następnie staje się hasłem do nowego, pustego profilu.",
   },
 
-  // ── Privacy HP (technology.md §17) ──────────────────────────────────────────
+  // ── Privacy MANA (technology.md §17) ──────────────────────────────────────────
   // Każdy tekst `explain` odpowiada w jednym zdaniu na jedno pytanie: co staje
   // się widoczne i dla kogo. Nazywają konkretnego obserwatora, a nie mówią
   // ogólnie "to zmniejsza prywatność".
-  hp: {
+  mana: {
     chartTitle: "Ostatnie 7 dni",
     chartTick: "Rozdzielczość wykresu",
     tickHour: "Co godzinę",
     tickDay: "Co dzień",
     chartAlt: "Twój budżet z ostatnich {n} dni",
     chartLow: "Najniżej w ciągu {days} dni: {n}",
-    title: "Privacy HP",
+    title: "Privacy MANA",
     intro:
       "Budżet na to, ile o sobie ujawniasz. Bezpieczniejsze wybory go zachowują, ujawniające go wydają. Niczego nie blokuje — pokazuje cenę, zanim klikniesz.",
     daily: "Dzisiaj",
     loading: "Wczytywanie historii…",
     free: "Za darmo",
-    chipTitle: "Privacy HP pozostałe dzisiaj",
+    chipTitle: "Privacy MANA pozostałe dzisiaj",
     seeDetails: "Ceny i historia",
-    regenRate: "+{n} HP / godz.",
-    torRateActive: "Regeneracja {n} HP / godz.",
-    torRateOffer: "Z Torem regeneracja {n} HP / godz.",
-    torBonusOn: "Tor jest włączony — HP wraca trzy razy szybciej.",
-    torBonusOff: "Włącz Tor, a HP będzie wracać trzy razy szybciej. Sam przełącznik nic nie kosztuje.",
+    regenRate: "+{n} MANA / godz.",
+    torRateActive: "Regeneracja {n} MANA / godz.",
+    torRateOffer: "Z Torem regeneracja {n} MANA / godz.",
+    torBonusOn: "Tor jest włączony — MANA wraca trzy razy szybciej.",
+    torBonusOff: "Włącz Tor, a MANA będzie wracać trzy razy szybciej. Sam przełącznik nic nie kosztuje.",
     regenNext: "kolejne +1 za {n} min",
     regenDisclaimer:
-      "HP wraca samo z upływem czasu. To mechanika gry, a nie naprawa: opublikowany wpis nadal tam jest, długo po tym, jak pasek się zapełni.",
-    pricesTitle: "Co kosztuje HP",
+      "MANA wraca samo z upływem czasu. To mechanika gry, a nie naprawa: opublikowany wpis nadal tam jest, długo po tym, jak pasek się zapełni.",
+    pricesTitle: "Co kosztuje MANA",
     pricesHint:
       "Stałe ceny, za każdym razem takie same. Zwykłe zaszyfrowane wiadomości przez Tor są darmowe — to domyślny stan, którego ten budżet ma bronić.",
     unitMessage: "wiad.",
     unitMinute: "min",
-    ratePerMib: "plus {n} HP za każdy wysłany MiB",
-    ratePerMinute: "plus {n} HP za minutę",
-    recoveryTitle: "Co przywraca HP",
+    ratePerMib: "plus {n} MANA za każdy wysłany MiB",
+    ratePerMinute: "plus {n} MANA za minutę",
+    recoveryTitle: "Co przywraca MANA",
     recoveryHint:
       "Tylko zmiany, które zmniejszają ryzyko ponoszone właśnie teraz. Każda płaci raz, a wyłączenie i ponowne włączenie zawsze wychodzi na minus.",
-    recoveryCaps: "Najwyżej {daily} HP dziennie i {weekly} HP tygodniowo, łącznie ze wszystkiego tutaj.",
+    recoveryCaps: "Najwyżej {daily} MANA dziennie i {weekly} MANA tygodniowo, łącznie ze wszystkiego tutaj.",
     subtab: {
       rules: "Zasady",
       decisions: "Decyzje",
@@ -812,9 +812,9 @@ export default {
     confirmTitle: "To kosztuje sporo",
     confirmContinue: "Kontynuuj",
     confirmExhausted:
-      "Ten licznik jest już pusty. Nadal możesz to zrobić — HP niczego nie blokuje — ale dziś wydałeś już dużo.",
+      "Ten licznik jest już pusty. Nadal możesz to zrobić — MANA niczego nie blokuje — ale dziś wydałeś już dużo.",
     advisoryNote:
-      "Privacy HP mierzy i zapamiętuje; nie chroni. Nic tutaj nie zmienia tego, co ta czynność faktycznie ujawnia.",
+      "Privacy MANA mierzy i zapamiętuje; nie chroni. Nic tutaj nie zmienia tego, co ta czynność faktycznie ujawnia.",
     group: {
       transport: "Jak się łączysz",
       discovery: "Bycie odnajdywalnym",

@@ -16,7 +16,7 @@
 import { ref } from "vue";
 import { getMaxFileSizeMb } from "rakotis";
 import type { ChatChannel } from "rakotis";
-import { chargeHp, confirmHp } from "../hp/useHp";
+import { chargeMana, confirmMana } from "../mana/useMana";
 import { i18n } from "../../i18n";
 
 const t = i18n.global.t as (key: string, params?: Record<string, unknown>) => string;
@@ -132,13 +132,13 @@ export function useFileShare(channel: ChatChannel) {
         state.value = "error";
         return;
       }
-      // Privacy HP. Asked BEFORE the offer goes out, so a decline sends nothing.
+      // Privacy MANA. Asked BEFORE the offer goes out, so a decline sends nothing.
       // In practice this only ever raises a dialog when a meter is already
-      // empty: file.send is capped at 5 HP, below the confirm threshold, so no
+      // empty: file.send is capped at 5 MANA, below the confirm threshold, so no
       // transfer interrupts on price alone however large it is. P2P transfer is
       // iroh-direct only (Tor mode blocks it outright), so there is no cheaper
       // variant to offer here.
-      if (!(await confirmHp("file.send", { bytes: meta.size }))) {
+      if (!(await confirmMana("file.send", { bytes: meta.size }))) {
         void _invoke("file_offer_cancel", { offerId: meta.offer_id }).catch(() => {});
         return;
       }
@@ -161,7 +161,7 @@ export function useFileShare(channel: ChatChannel) {
       // Charged once the offer is actually on the wire: the peer's address, the
       // size and the timing are visible from that moment, whether or not they
       // accept.
-      await chargeHp("file.send", { bytes: meta.size });
+      await chargeMana("file.send", { bytes: meta.size });
     } catch (e: any) {
       error.value = e?.message ?? String(e);
       state.value = "error";

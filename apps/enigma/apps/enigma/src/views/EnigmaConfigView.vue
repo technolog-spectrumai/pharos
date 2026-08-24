@@ -10,15 +10,15 @@ import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
 import { availableTabs, isTabVisible, setTabVisible, type AppTabId } from "../tabs";
 import {
-  chargeHp,
-  confirmHp,
+  chargeMana,
+  confirmMana,
   creditFor,
   explainFor,
-  hpBalances,
+  manaBalances,
   priceFor,
   recordTorPosture,
-  recoverHp,
-} from "../components/hp/useHp";
+  recoverMana,
+} from "../components/mana/useMana";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -76,12 +76,12 @@ import {
 import { OyaCard } from "rakotis";
 import { OyaButton } from "rakotis";
 import { OyaModal, OyaTextField } from "rakotis";
-import { OyaHpPrice, formatHp } from "rakotis";
+import { OyaManaPrice, formatMana } from "rakotis";
 
 // Price badges show what the NEXT tap would cost, so they flip with the switch —
 // which is what "show the price on the setting" has to mean for a toggle. A
-// direction that costs nothing renders no badge rather than a "−0 HP".
-const hpExplain = (id: string) => explainFor(id);
+// direction that costs nothing renders no badge rather than a "−0 MANA".
+const manaExplain = (id: string) => explainFor(id);
 
 defineProps<{ darkMode: boolean }>();
 
@@ -148,8 +148,8 @@ async function toggleOffline() {
 async function toggleUseTor() {
   const next = !useTor.value;
   await network.setUseTor(next);
-  // Privacy HP: the switch itself costs and earns NOTHING. What it changes is
-  // the regeneration rate — every hour with Tor on returns HP three times
+  // Privacy MANA: the switch itself costs and earns NOTHING. What it changes is
+  // the regeneration rate — every hour with Tor on returns MANA three times
   // faster. Recording the posture is what lets that be counted from here on
   // without re-scoring the hours already behind it.
   await recordTorPosture(next);
@@ -163,7 +163,7 @@ async function toggleStableOnion() {
   // Only the ON direction is an exposure (one long-lived address makes sessions
   // linkable). Switching back is free but earns nothing: the old address was
   // already published to whoever saw it.
-  if (stableOnion.value) await chargeHp("transport.onion_stable.enable");
+  if (stableOnion.value) await chargeMana("transport.onion_stable.enable");
 }
 
 // ── DHT discovery (Mainline/Kademlia rendezvous + presence — technology.md §12) ──────────
@@ -200,14 +200,14 @@ async function refreshDhtStatus() {
 }
 async function toggleDhtDiscovery() {
   const next = !dhtDiscovery.value;
-  if (next && !(await confirmHp("dht.presence.enable"))) return;
+  if (next && !(await confirmMana("dht.presence.enable"))) return;
   dhtDiscovery.value = next;
   await setDhtDiscovery(next);
   // Charged after dht_apply, not before: the record is published by the rebind,
   // so until this resolves nothing has actually been announced.
   await applyDhtDiscovery();
-  if (next) await chargeHp("dht.presence.enable");
-  else await recoverHp("dht.presence.withdraw");
+  if (next) await chargeMana("dht.presence.enable");
+  else await recoverMana("dht.presence.withdraw");
   void refreshDhtStatus();
 }
 
@@ -269,7 +269,7 @@ async function saveFileChunk() {
 async function toggleFileIntegrity() {
   fileIntegrity.value = !fileIntegrity.value;
   await setFileIntegrity(fileIntegrity.value);
-  if (!fileIntegrity.value) await chargeHp("local.file_integrity.off");
+  if (!fileIntegrity.value) await chargeMana("local.file_integrity.off");
 }
 
 async function saveMaxFileSize() {
@@ -351,13 +351,13 @@ async function saveIdleLock() {
   // 0 = never auto-lock, which leaves the DEK live in memory indefinitely. The
   // charge follows the STATE, not the edit: changing 15 to 30 is neither an
   // exposure nor a recovery and must move nothing.
-  if (Number(idleLockMins.value) === 0 && !wasOff && !(await confirmHp("local.autolock.off"))) {
+  if (Number(idleLockMins.value) === 0 && !wasOff && !(await confirmMana("local.autolock.off"))) {
     return;
   }
   idleLockMins.value = await setIdleLockMins(Number(idleLockMins.value));
   applyIdleLockMins(idleLockMins.value);
-  if (idleLockMins.value === 0) await chargeHp("local.autolock.off");
-  else await recoverHp("local.autolock.on");
+  if (idleLockMins.value === 0) await chargeMana("local.autolock.off");
+  else await recoverMana("local.autolock.on");
   idleLockSaved.value = true;
   setTimeout(() => { idleLockSaved.value = false; }, 1500);
 }
@@ -375,7 +375,7 @@ async function toggleLockOnHide() {
     await setLockOnHide(next);
     lockOnHide.value = next;
     applyLockOnHide(next);
-    if (!next) await chargeHp("local.lock_on_hide.off");
+    if (!next) await chargeMana("local.lock_on_hide.off");
   } finally {
     lockOnHideBusy.value = false;
   }
@@ -473,7 +473,7 @@ async function submitPin() {
     showPinModal.value = false;
     // The PIN is a memory-only convenience layer over the passphrase, so it is a
     // small, real reduction rather than an exposure (technology.md §7).
-    await chargeHp("local.pin.enroll");
+    await chargeMana("local.pin.enroll");
   } catch (e) {
     pinError.value = (e as Error)?.message ?? String(e);
   }
@@ -514,7 +514,7 @@ async function removePanic() {
     await vaultClearPanicCode(panicCurrent.value);
     // Not an exposure — a loss of protection under coercion, which is why it is
     // priced low rather than high.
-    await chargeHp("local.panic_code.clear");
+    await chargeMana("local.panic_code.clear");
     panicArmed.value = false;
     panicDone.value = t("config.panicCodeRemoved");
     setTimeout(() => { showPanic.value = false; }, 1200);
@@ -839,12 +839,12 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.fileIntegrity') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.fileIntegrityHint') }}</p>
-          <OyaHpPrice
+          <OyaManaPrice
             v-if="fileIntegrity ? priceFor('local.file_integrity.off') : 0 !== 0"
             class="mt-1"
             :centi="fileIntegrity ? priceFor('local.file_integrity.off') : 0"
-            :explain="hpExplain('local.file_integrity.off')"
-            data-testid="hp-badge-integrity"
+            :explain="manaExplain('local.file_integrity.off')"
+            data-testid="mana-badge-integrity"
           />
         </div>
         <button
@@ -992,12 +992,12 @@ async function clearSelectedOfflineData() {
             :class="useTor
               ? 'border-success-light/50 text-success-light dark:border-success-dark/50 dark:text-success-dark'
               : 'border-current/25 opacity-70'"
-            data-testid="hp-badge-tor"
+            data-testid="mana-badge-tor"
           >
             <font-awesome-icon icon="shield-halved" />
             {{ useTor
-              ? $t('hp.torRateActive', { n: formatHp(hpBalances.daily.regenPerHourCenti) })
-              : $t('hp.torRateOffer', { n: formatHp(hpBalances.daily.torRegenPerHourCenti) }) }}
+              ? $t('mana.torRateActive', { n: formatMana(manaBalances.daily.regenPerHourCenti) })
+              : $t('mana.torRateOffer', { n: formatMana(manaBalances.daily.torRegenPerHourCenti) }) }}
           </span>
         </div>
         <button
@@ -1030,12 +1030,12 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ stableOnion ? $t('config.stableOnionOnHint') : $t('config.stableOnionOffHint') }}
           </p>
-          <OyaHpPrice
+          <OyaManaPrice
             v-if="stableOnion ? 0 : priceFor('transport.onion_stable.enable') !== 0"
             class="mt-1"
             :centi="stableOnion ? 0 : priceFor('transport.onion_stable.enable')"
-            :explain="hpExplain('transport.onion_stable.enable')"
-            data-testid="hp-badge-stable-onion"
+            :explain="manaExplain('transport.onion_stable.enable')"
+            data-testid="mana-badge-stable-onion"
           />
         </div>
         <button
@@ -1080,12 +1080,12 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
           </p>
-          <OyaHpPrice
+          <OyaManaPrice
             v-if="dhtDiscovery ? creditFor('dht.presence.withdraw') : priceFor('dht.presence.enable') !== 0"
             class="mt-1"
             :centi="dhtDiscovery ? creditFor('dht.presence.withdraw') : priceFor('dht.presence.enable')"
-            :explain="hpExplain('dht.presence.enable')"
-            data-testid="hp-badge-dht"
+            :explain="manaExplain('dht.presence.enable')"
+            data-testid="mana-badge-dht"
           />
         </div>
         <button
@@ -1233,12 +1233,12 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">{{ $t('config.idleLockOff') }}</p>
           <!-- Priced by the STATE the number produces, not by the edit: 0 means
                "never auto-lock", which leaves the key in memory indefinitely. -->
-          <OyaHpPrice
+          <OyaManaPrice
             v-if="Number(idleLockMins) === 0"
             class="mt-1"
             :centi="priceFor('local.autolock.off')"
-            :explain="hpExplain('local.autolock.off')"
-            data-testid="hp-badge-autolock"
+            :explain="manaExplain('local.autolock.off')"
+            data-testid="mana-badge-autolock"
           />
         </div>
         <div class="flex shrink-0 items-center gap-2">
@@ -1267,12 +1267,12 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.lockOnHide') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.lockOnHideHint') }}</p>
-          <OyaHpPrice
+          <OyaManaPrice
             v-if="lockOnHide ? priceFor('local.lock_on_hide.off') : 0 !== 0"
             class="mt-1"
             :centi="lockOnHide ? priceFor('local.lock_on_hide.off') : 0"
-            :explain="hpExplain('local.lock_on_hide.off')"
-            data-testid="hp-badge-lock-on-hide"
+            :explain="manaExplain('local.lock_on_hide.off')"
+            data-testid="mana-badge-lock-on-hide"
           />
         </div>
         <button

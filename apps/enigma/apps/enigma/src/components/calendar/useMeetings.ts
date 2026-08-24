@@ -22,7 +22,7 @@
 
 import { computed, ref, watch } from "vue";
 import { calendarActionId, formatTime, getMeetingReminderMins, kvGet, kvPut } from "rakotis";
-import { chargeHp } from "../hp/useHp";
+import { chargeMana } from "../mana/useMana";
 import type { ChatChannel } from "rakotis";
 import { i18n } from "../../i18n";
 import {
@@ -341,7 +341,7 @@ export function useMeetings(channel: ChatChannel) {
     await persistPolls();
   }
 
-  // ── Privacy HP ────────────────────────────────────────────────────────────
+  // ── Privacy MANA ────────────────────────────────────────────────────────────
   // Calendar traffic is billed at exactly the encrypted-message rate for the
   // room's transport. Scheduling "Tuesday 3pm" must not be cheaper than typing
   // it: to a relay the two are the same event — something was sent, this big, to
@@ -361,11 +361,11 @@ export function useMeetings(channel: ChatChannel) {
     // preference: a room created before the switch was flipped is still on the
     // transport it was created with.
     if (!channel.currentRoom.value) return;
-    // Never let a charge break the thing it is measuring. HP is advisory: a
+    // Never let a charge break the thing it is measuring. MANA is advisory: a
     // meeting that was created must stay created even if the ledger write, the
     // policy lookup or the transport flag misbehaves.
     try {
-      await chargeHp(calendarActionId(channel.currentRoomIsTor?.value === true));
+      await chargeMana(calendarActionId(channel.currentRoomIsTor?.value === true));
     } catch {
       /* the action already happened; the meter simply misses it */
     }

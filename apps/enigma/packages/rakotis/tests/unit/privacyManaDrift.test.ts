@@ -1,23 +1,23 @@
-// The price table has one source of truth: apps/enigma/src-tauri/privacy_hp.yaml.
+// The price table has one source of truth: apps/enigma/src-tauri/privacy_mana.yaml.
 //
 // Rust reads it at compile time; this package carries a browser-mode mirror so the
 // app still works in the Vite dev server and so these tests have real numbers to
 // assert against. A mirror is a drift hazard, so this file removes the hazard: it
 // parses the actual YAML and fails if a single value disagrees.
 //
-// If this test fails, the YAML is right and `services/hp.ts` is stale.
+// If this test fails, the YAML is right and `services/mana.ts` is stale.
 
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse } from "yaml";
-import { FALLBACK_HP_POLICY as MIRROR } from "../../src/services/hp";
+import { FALLBACK_HP_POLICY as MIRROR } from "../../src/services/mana";
 
 /** Walk up from the working directory to the monorepo root and take the YAML
  *  from there. `import.meta.url` is not a file: URL under the jsdom environment
  *  these tests run in, so the lookup is done by path instead. */
 function findPolicyYaml(): string {
-  const rel = "apps/enigma/src-tauri/privacy_hp.yaml";
+  const rel = "apps/enigma/src-tauri/privacy_mana.yaml";
   let dir = process.cwd();
   for (let i = 0; i < 6; i++) {
     const candidate = resolve(dir, rel);
@@ -63,14 +63,14 @@ const yaml = parse(readFileSync(YAML_PATH, "utf8")) as {
   };
 };
 
-/** HP → centi-HP, the same conversion build.rs performs. */
-const centi = (hp: number) => Math.round(hp * 100);
+/** MANA → centi-MANA, the same conversion build.rs performs. */
+const centi = (mana: number) => Math.round(mana * 100);
 
 /** `cost: severe` and `cost: 0.05` are both legal in the YAML. */
 const costCenti = (cost: number | string) =>
   typeof cost === "number" ? centi(cost) : centi(yaml.scale[cost]);
 
-describe("the mirror matches privacy_hp.yaml", () => {
+describe("the mirror matches privacy_mana.yaml", () => {
   it("agrees on the meters", () => {
     expect(MIRROR.version).toBe(yaml.version);
     expect(MIRROR.confirmAtCenti).toBe(centi(yaml.confirm_at_hp));
@@ -149,8 +149,8 @@ describe("the YAML holds to its own rules", () => {
     const rungs = Object.values(yaml.scale);
     for (const a of yaml.actions) {
       if (a.kind === "metered") continue;
-      const hp = typeof a.cost === "number" ? a.cost : yaml.scale[a.cost];
-      expect(rungs, `${a.id} is off the ladder`).toContain(hp);
+      const mana = typeof a.cost === "number" ? a.cost : yaml.scale[a.cost];
+      expect(rungs, `${a.id} is off the ladder`).toContain(mana);
     }
     for (const r of yaml.recovery.fixed) {
       expect(rungs, `${r.id} credit is off the ladder`).toContain(r.credit);
