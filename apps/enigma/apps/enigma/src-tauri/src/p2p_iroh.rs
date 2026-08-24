@@ -737,6 +737,33 @@ pub async fn node_info(app: &AppHandle, state: &P2pState) -> Result<String> {
         .to_string())
 }
 
+/// This node's own dialable address, for embedding in an invitation.
+///
+/// Same value a room ticket carries in `peers` — which is why a clearnet
+/// invitation costs Privacy HP for the IP it exposes, exactly as a ticket does.
+pub async fn local_addr(app: &AppHandle, state: &P2pState) -> Result<EndpointAddr> {
+    ensure_started(app, state).await?;
+    let guard = state.0.lock().await;
+    Ok(guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?.endpoint.addr())
+}
+
+/// A clone of the live endpoint, plus the invitation's embedded addresses folded
+/// into the address book so a dial-by-NodeId can actually reach the inviter
+/// (mirrors what a ticket join does with `ticket.peers`).
+pub async fn endpoint_for_dial(
+    app: &AppHandle,
+    state: &P2pState,
+    hints: &[EndpointAddr],
+) -> Result<Endpoint> {
+    ensure_started(app, state).await?;
+    let mut guard = state.0.lock().await;
+    let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
+    for hint in hints {
+        node.lookup.add_endpoint_info(hint.clone());
+    }
+    Ok(node.endpoint.clone())
+}
+
 // ── receive loop ───────────────────────────────────────────────────────────────
 
 fn spawn_receiver(

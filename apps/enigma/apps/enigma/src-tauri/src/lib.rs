@@ -27,6 +27,8 @@ mod invites;
 // The redemption exchange itself, over iroh's own ALPN and over the onion
 // transport's stream. Same checks on both.
 mod invite_redeem;
+// The commands the invitation UI drives: mint, list, revoke, inspect, redeem.
+mod invite_api;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
@@ -1324,6 +1326,14 @@ pub fn run() {
             // driven by the protocol handlers; this is how the frontend answers
             // the `invite://admit` request it raises.
             invite_admit,
+            invite_api::invite_create,
+            invite_api::invite_list,
+            invite_api::invite_get,
+            invite_api::invite_revoke,
+            invite_api::invite_has_live_general,
+            invite_api::invite_peek,
+            invite_api::invite_is_invite,
+            invite_api::invite_redeem,
             privacy_hp::hp_get_policy,
             privacy_hp::hp_ledger,
             privacy_hp::hp_charge,

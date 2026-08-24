@@ -247,6 +247,13 @@ async fn write_frame<W: AsyncWrite + Unpin>(w: &mut W, payload: &str) -> Result<
     Ok(())
 }
 
+/// This room's own onion, for embedding in an invitation. `None` when the room
+/// is not hosted over Tor on this device.
+pub async fn room_onion(state: &TorP2pState, room: &str) -> Option<String> {
+    let guard = state.0.lock().await;
+    Some(guard.as_ref()?.rooms.get(room)?.my_onion.clone())
+}
+
 /// Dial an inviter's onion for an invitation redemption.
 ///
 /// Reuses the room transport wholesale — same onion, same virtual port, same

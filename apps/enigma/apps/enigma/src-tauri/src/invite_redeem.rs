@@ -328,10 +328,22 @@ async fn decide(
                 onion: a.onion,
             }
         }
-        _ => {
+        other => {
             // A failed or abandoned admission must not burn the invitation —
             // hand the lease back so the holder can simply try again.
             let _ = invites::release(app, &req.invite_id);
+            // The frontend's reason stays on the INVITER's side. The redeemer
+            // gets a bare code: why an admission failed can name a room, a
+            // member or an MLS state, and none of that is owed to someone who
+            // has just been refused.
+            match other {
+                Ok(Ok(a)) if !a.error.is_empty() => {
+                    eprintln!("[redeem] admission refused by the frontend: {}", a.error)
+                }
+                Ok(Ok(_)) => eprintln!("[redeem] admission declined"),
+                Ok(Err(_)) => eprintln!("[redeem] admission dropped before answering"),
+                Err(_) => eprintln!("[redeem] admission timed out"),
+            }
             ReplyFrame::refused("INVITE_ADMIT_FAILED")
         }
     }
