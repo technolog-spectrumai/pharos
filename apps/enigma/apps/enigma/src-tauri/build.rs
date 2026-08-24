@@ -580,7 +580,615 @@ fn generate_build_config() {
         .unwrap_or_else(|e| panic!("cannot write {}: {e}", out_path.display()));
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Privacy HP — src-tauri/privacy_hp.yaml → `enigma_lib::hp_policy`
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Same contract as the build config above: parse → validate → codegen, and any
+// invalid value fails the build here rather than shipping a wrong price. The
+// table is deliberately NOT per-edition (one privacy_hp.yaml, not one per
+// configs/*.yaml) — an exposure does not get cheaper with a different tier.
+//
+// Every HP figure is converted to an integer number of hundredths ("centi-HP")
+// at this point, and no float survives into the generated code. That is what
+// makes balances reproducible: the ledger and both meters are integer
+// arithmetic end to end.
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawHp {
+    version: u32,
+    scale: HpScale,
+    confirm_at_hp: f64,
+    meters: HpMeters,
+    actions: Vec<HpAction>,
+    recovery: HpRecovery,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpScale {
+    negligible: f64,
+    low: f64,
+    moderate: f64,
+    high: f64,
+    severe: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpMeters {
+    daily: HpMeter,
+    weekly: HpMeter,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpMeter {
+    max: f64,
+    regen_hp: f64,
+    regen_per_minutes: u64,
+    /// Daily has no rolling window — it resets on the local day boundary.
+    #[serde(default)]
+    window_days: Option<u64>,
+}
+
+/// `cost: severe` and `cost: 0.05` are both legal. The ladder is the idiom for a
+/// fixed price (and is enforced for one); metered actions bill in fractions
+/// below the bottom rung, so they name a number.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum HpCost {
+    Num(f64),
+    Named(String),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpAction {
+    id: String,
+    kind: String,
+    cost: HpCost,
+    #[serde(default)]
+    per_mib: Option<f64>,
+    #[serde(default)]
+    per_minute: Option<f64>,
+    #[serde(default)]
+    cap_per_event: Option<f64>,
+    explain_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpRecovery {
+    daily_cap: f64,
+    weekly_cap: f64,
+    fixed: Vec<HpFixed>,
+    data: HpData,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpFixed {
+    id: String,
+    credit: f64,
+    /// `~` (null) = pays without a paired exposure being live.
+    #[serde(default)]
+    requires: Option<String>,
+    explain_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpData {
+    per_mib: f64,
+    min_award: f64,
+    max_per_event: f64,
+    daily_cap: f64,
+    weekly_cap: f64,
+    sources: Vec<HpDataSource>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HpDataSource {
+    id: String,
+    explain_key: String,
+}
+
+/// Ids the app actually charges against. Listed here so that RENAMING one in the
+/// YAML fails the build instead of silently making that surface free — the
+/// failure mode a price table must never have.
+const REQUIRED_HP_ACTIONS: &[&str] = &[
+    "transport.tor.disable",
+    "transport.onion_stable.enable",
+    "dht.nickname.publish",
+    "dht.presence.enable",
+    "dht.room_code.publish",
+    "ticket.export.clearnet",
+    "ticket.export.tor",
+    "room.create.clearnet",
+    "room.create.tor",
+    "room.join.clearnet",
+    "room.join.tor",
+    "msg.tor.mls",
+    "msg.clearnet.mls",
+    "msg.tor.plain",
+    "msg.clearnet.plain",
+    "file.send",
+    "vox.call",
+    "local.autolock.off",
+    "local.pin.enroll",
+    "local.panic_code.clear",
+    "local.lock_on_hide.off",
+    "local.file_integrity.off",
+];
+
+/// Recovery ids the app awards. Same rationale as above, mirrored.
+const REQUIRED_HP_RECOVERIES: &[&str] = &[
+    "transport.tor.enable",
+    "dht.nickname.withdraw",
+    "dht.presence.withdraw",
+    "local.autolock.on",
+    "local.passphrase.strengthen",
+    "local.passphrase.change",
+    "local.reencrypt.keyring",
+    "local.reencrypt.files",
+    "room.rekey",
+    "room.leave",
+];
+
+const REQUIRED_HP_DATA_SOURCES: &[&str] =
+    &["data.delete.chat", "data.delete.maps", "data.delete.files"];
+
+/// HP → centi-HP, rejecting a third decimal place. Every price in the table goes
+/// through here, so "exact to two places" is enforced rather than assumed.
+fn to_centi(path: &str, v: f64, errors: &mut Vec<String>) -> i64 {
+    if !v.is_finite() || v < 0.0 {
+        errors.push(format!("{path}: {v} must be a finite, non-negative number"));
+        return 0;
+    }
+    let scaled = v * 100.0;
+    let rounded = scaled.round();
+    if (scaled - rounded).abs() > 1e-6 {
+        errors.push(format!(
+            "{path}: {v} has more than two decimal places — HP is stored in hundredths"
+        ));
+        return 0;
+    }
+    rounded as i64
+}
+
+fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
+    let mut err = |msg: String| errors.push(format!("privacy_hp.yaml {msg}"));
+
+    if cfg.version != 1 {
+        err(format!("version: {} is not supported (expected 1)", cfg.version));
+    }
+
+    // The ladder is fixed. Its whole job is to keep prices comparable at a
+    // glance, which a re-tuned rung would quietly destroy.
+    let expected = [
+        ("negligible", cfg.scale.negligible, 1.0),
+        ("low", cfg.scale.low, 3.0),
+        ("moderate", cfg.scale.moderate, 5.0),
+        ("high", cfg.scale.high, 10.0),
+        ("severe", cfg.scale.severe, 20.0),
+    ];
+    for (name, got, want) in expected {
+        if (got - want).abs() > f64::EPSILON {
+            err(format!("scale.{name}: {got} must be {want} — the ladder is fixed"));
+        }
+    }
+
+    let ladder = [
+        cfg.scale.negligible,
+        cfg.scale.low,
+        cfg.scale.moderate,
+        cfg.scale.high,
+        cfg.scale.severe,
+    ];
+    let on_ladder = |v: f64| ladder.iter().any(|l| (l - v).abs() < 1e-9);
+
+    if !on_ladder(cfg.confirm_at_hp) {
+        err(format!(
+            "confirm_at_hp: {} is not a rung of the ladder {ladder:?}",
+            cfg.confirm_at_hp
+        ));
+    }
+
+    for (name, m) in [("daily", &cfg.meters.daily), ("weekly", &cfg.meters.weekly)] {
+        if m.max <= 0.0 {
+            err(format!("meters.{name}.max: must be positive"));
+        }
+        if m.regen_hp <= 0.0 {
+            err(format!("meters.{name}.regen_hp: must be positive"));
+        }
+        if m.regen_per_minutes == 0 {
+            err(format!("meters.{name}.regen_per_minutes: must be at least 1"));
+        }
+        if let Some(d) = m.window_days {
+            if !(1..=31).contains(&d) {
+                err(format!("meters.{name}.window_days: {d} outside 1..=31"));
+            }
+        }
+    }
+    if cfg.meters.daily.window_days.is_some() {
+        err("meters.daily.window_days: the daily meter resets on the local day boundary and has no rolling window".into());
+    }
+    if cfg.meters.weekly.window_days.is_none() {
+        err("meters.weekly.window_days: required (the rolling window)".into());
+    }
+    if cfg.meters.weekly.max <= cfg.meters.daily.max {
+        err("meters: weekly.max must exceed daily.max".into());
+    }
+
+    // ── actions ───────────────────────────────────────────────────────────────
+    let mut seen: Vec<&str> = Vec::new();
+    for a in &cfg.actions {
+        let p = format!("actions[{}]", a.id);
+        if a.id.is_empty()
+            || !a.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_')
+        {
+            err(format!("{p}: id must be non-empty [a-z0-9._]"));
+        }
+        if seen.contains(&a.id.as_str()) {
+            err(format!("{p}: duplicate id"));
+        }
+        seen.push(&a.id);
+
+        if !a.explain_key.starts_with("hp.explain.") {
+            err(format!(
+                "{p}.explain_key: '{}' must start with 'hp.explain.' (the i18n namespace)",
+                a.explain_key
+            ));
+        }
+
+        let cost = match &a.cost {
+            HpCost::Num(v) => *v,
+            HpCost::Named(n) => match n.as_str() {
+                "negligible" => cfg.scale.negligible,
+                "low" => cfg.scale.low,
+                "moderate" => cfg.scale.moderate,
+                "high" => cfg.scale.high,
+                "severe" => cfg.scale.severe,
+                other => {
+                    err(format!("{p}.cost: '{other}' is not a rung name"));
+                    0.0
+                }
+            },
+        };
+        if cost > cfg.scale.severe {
+            err(format!("{p}.cost: {cost} exceeds the top rung ({})", cfg.scale.severe));
+        }
+
+        match a.kind.as_str() {
+            "toggle" | "event" => {
+                if !on_ladder(cost) {
+                    err(format!(
+                        "{p}.cost: {cost} is not a rung of {ladder:?} — a fixed price must land on the ladder"
+                    ));
+                }
+                if a.per_mib.is_some() || a.per_minute.is_some() || a.cap_per_event.is_some() {
+                    err(format!("{p}: per_mib / per_minute / cap_per_event belong to kind 'metered'"));
+                }
+            }
+            "metered" => {
+                if a.per_mib.is_some() && a.per_minute.is_some() {
+                    err(format!("{p}: choose per_mib or per_minute, not both"));
+                }
+                if let Some(cap) = a.cap_per_event {
+                    if cap < cost {
+                        err(format!("{p}.cap_per_event: {cap} is below the base cost {cost}"));
+                    }
+                    if cap > cfg.scale.severe {
+                        err(format!("{p}.cap_per_event: {cap} exceeds the top rung"));
+                    }
+                }
+                if (a.per_mib.is_some() || a.per_minute.is_some()) && a.cap_per_event.is_none() {
+                    err(format!("{p}: a metered rate needs a cap_per_event, or one event could drain the meter"));
+                }
+            }
+            other => err(format!("{p}.kind: '{other}' is not one of toggle | event | metered")),
+        }
+    }
+    for want in REQUIRED_HP_ACTIONS {
+        if !seen.contains(want) {
+            err(format!(
+                "actions: '{want}' is missing — the app charges it, so removing or renaming it here would make that surface silently free"
+            ));
+        }
+    }
+
+    // ── recovery ──────────────────────────────────────────────────────────────
+    let mut rseen: Vec<&str> = Vec::new();
+    let mut max_credit = 0.0f64;
+    for r in &cfg.recovery.fixed {
+        let p = format!("recovery.fixed[{}]", r.id);
+        if rseen.contains(&r.id.as_str()) {
+            err(format!("{p}: duplicate id"));
+        }
+        if seen.contains(&r.id.as_str()) {
+            err(format!("{p}: id collides with an action id"));
+        }
+        rseen.push(&r.id);
+        if !on_ladder(r.credit) {
+            err(format!("{p}.credit: {} is not a rung of {ladder:?}", r.credit));
+        }
+        max_credit = max_credit.max(r.credit);
+        if !r.explain_key.starts_with("hp.explain.") {
+            err(format!("{p}.explain_key: must start with 'hp.explain.'"));
+        }
+        if let Some(req) = &r.requires {
+            if !seen.contains(&req.as_str()) {
+                err(format!("{p}.requires: '{req}' is not an action id"));
+            }
+        }
+    }
+    for want in REQUIRED_HP_RECOVERIES {
+        if !rseen.contains(want) {
+            err(format!("recovery.fixed: '{want}' is missing — the app awards it"));
+        }
+    }
+
+    let d = &cfg.recovery.data;
+    if d.per_mib <= 0.0 {
+        err("recovery.data.per_mib: must be positive".into());
+    }
+    if d.min_award <= 0.0 {
+        err("recovery.data.min_award: must be positive".into());
+    }
+    if d.max_per_event < d.min_award {
+        err("recovery.data.max_per_event: below min_award".into());
+    }
+    if d.daily_cap < d.max_per_event {
+        err("recovery.data.daily_cap: below max_per_event".into());
+    }
+    if d.weekly_cap < d.daily_cap {
+        err("recovery.data.weekly_cap: below daily_cap".into());
+    }
+    let mut dseen: Vec<&str> = Vec::new();
+    for src in &d.sources {
+        if dseen.contains(&src.id.as_str()) || seen.contains(&src.id.as_str()) || rseen.contains(&src.id.as_str()) {
+            err(format!("recovery.data.sources[{}]: duplicate or colliding id", src.id));
+        }
+        dseen.push(&src.id);
+        if !src.explain_key.starts_with("hp.explain.") {
+            err(format!("recovery.data.sources[{}].explain_key: must start with 'hp.explain.'", src.id));
+        }
+    }
+    for want in REQUIRED_HP_DATA_SOURCES {
+        if !dseen.contains(want) {
+            err(format!("recovery.data.sources: '{want}' is missing — the app awards it"));
+        }
+    }
+
+    // Caps must be able to pay at least one of anything, or a credit the UI
+    // advertises could never actually land.
+    if cfg.recovery.daily_cap < max_credit {
+        err(format!(
+            "recovery.daily_cap: {} cannot pay the largest single credit ({max_credit})",
+            cfg.recovery.daily_cap
+        ));
+    }
+    if cfg.recovery.weekly_cap < cfg.recovery.daily_cap {
+        err("recovery.weekly_cap: below daily_cap".into());
+    }
+}
+
+fn generate_hp(cfg: &RawHp, errors: &mut Vec<String>) -> String {
+    let mut o = String::new();
+    let _ = write!(
+        &mut o,
+        r#"// @generated from privacy_hp.yaml by build.rs — do not edit.
+//
+// All HP figures are CENTI-HP (hundredths). The webview never sends a number:
+// it names an action id and this table supplies the price.
+
+/// How an action is billed. Mirrored in rakotis' `privacyHp.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HpKind {{
+    /// Charged on the off→on transition only; re-affirming costs nothing.
+    Toggle,
+    /// Charged on every activation.
+    Event,
+    /// Base + per-MiB or per-minute rate, capped, coalesced into hourly buckets.
+    Metered,
+}}
+
+impl HpKind {{
+    pub fn as_str(self) -> &'static str {{
+        match self {{
+            HpKind::Toggle => "toggle",
+            HpKind::Event => "event",
+            HpKind::Metered => "metered",
+        }}
+    }}
+}}
+
+pub struct HpAction {{
+    pub id: &'static str,
+    pub kind: HpKind,
+    pub cost_centi: i64,
+    /// 0 = not billed by size.
+    pub per_mib_centi: i64,
+    /// 0 = not billed by duration.
+    pub per_minute_centi: i64,
+    /// 0 = uncapped (only legal when there is no metered rate).
+    pub cap_per_event_centi: i64,
+    pub explain_key: &'static str,
+}}
+
+pub struct HpRecovery {{
+    pub id: &'static str,
+    pub credit_centi: i64,
+    /// `Some(action_id)` = pays only while that exposure is live and unrecovered.
+    pub requires: Option<&'static str>,
+    pub explain_key: &'static str,
+}}
+
+pub struct HpDataSource {{
+    pub id: &'static str,
+    pub explain_key: &'static str,
+}}
+
+pub const VERSION: u32 = {version};
+pub const CONFIRM_AT_CENTI: i64 = {confirm_at};
+
+pub const DAILY_MAX_CENTI: i64 = {d_max};
+pub const DAILY_REGEN_CENTI: i64 = {d_regen};
+pub const DAILY_REGEN_PER_MINUTES: i64 = {d_per};
+pub const WEEKLY_MAX_CENTI: i64 = {w_max};
+pub const WEEKLY_REGEN_CENTI: i64 = {w_regen};
+pub const WEEKLY_REGEN_PER_MINUTES: i64 = {w_per};
+pub const WEEKLY_WINDOW_DAYS: i64 = {w_days};
+
+pub const RECOVERY_DAILY_CAP_CENTI: i64 = {r_daily};
+pub const RECOVERY_WEEKLY_CAP_CENTI: i64 = {r_weekly};
+
+pub const DATA_PER_MIB_CENTI: i64 = {dd_per_mib};
+pub const DATA_MIN_AWARD_CENTI: i64 = {dd_min};
+pub const DATA_MAX_PER_EVENT_CENTI: i64 = {dd_max};
+pub const DATA_DAILY_CAP_CENTI: i64 = {dd_daily};
+pub const DATA_WEEKLY_CAP_CENTI: i64 = {dd_weekly};
+
+pub const ACTIONS: &[HpAction] = &[
+{actions}];
+
+pub const RECOVERIES: &[HpRecovery] = &[
+{recoveries}];
+
+pub const DATA_SOURCES: &[HpDataSource] = &[
+{sources}];
+
+/// The price of `id`, or `None` if this build has no such action. Every charge
+/// path goes through here — that is what makes a forged price impossible.
+pub fn action(id: &str) -> Option<&'static HpAction> {{
+    ACTIONS.iter().find(|a| a.id == id)
+}}
+
+pub fn recovery(id: &str) -> Option<&'static HpRecovery> {{
+    RECOVERIES.iter().find(|r| r.id == id)
+}}
+
+pub fn data_source(id: &str) -> Option<&'static HpDataSource> {{
+    DATA_SOURCES.iter().find(|d| d.id == id)
+}}
+"#,
+        version = cfg.version,
+        confirm_at = to_centi("confirm_at_hp", cfg.confirm_at_hp, errors),
+        d_max = to_centi("meters.daily.max", cfg.meters.daily.max, errors),
+        d_regen = to_centi("meters.daily.regen_hp", cfg.meters.daily.regen_hp, errors),
+        d_per = cfg.meters.daily.regen_per_minutes,
+        w_max = to_centi("meters.weekly.max", cfg.meters.weekly.max, errors),
+        w_regen = to_centi("meters.weekly.regen_hp", cfg.meters.weekly.regen_hp, errors),
+        w_per = cfg.meters.weekly.regen_per_minutes,
+        w_days = cfg.meters.weekly.window_days.unwrap_or(7),
+        r_daily = to_centi("recovery.daily_cap", cfg.recovery.daily_cap, errors),
+        r_weekly = to_centi("recovery.weekly_cap", cfg.recovery.weekly_cap, errors),
+        dd_per_mib = to_centi("recovery.data.per_mib", cfg.recovery.data.per_mib, errors),
+        dd_min = to_centi("recovery.data.min_award", cfg.recovery.data.min_award, errors),
+        dd_max = to_centi("recovery.data.max_per_event", cfg.recovery.data.max_per_event, errors),
+        dd_daily = to_centi("recovery.data.daily_cap", cfg.recovery.data.daily_cap, errors),
+        dd_weekly = to_centi("recovery.data.weekly_cap", cfg.recovery.data.weekly_cap, errors),
+        actions = {
+            let mut s = String::new();
+            for a in &cfg.actions {
+                let cost = match &a.cost {
+                    HpCost::Num(v) => *v,
+                    HpCost::Named(n) => match n.as_str() {
+                        "negligible" => cfg.scale.negligible,
+                        "low" => cfg.scale.low,
+                        "moderate" => cfg.scale.moderate,
+                        "high" => cfg.scale.high,
+                        "severe" => cfg.scale.severe,
+                        _ => 0.0,
+                    },
+                };
+                let kind = match a.kind.as_str() {
+                    "toggle" => "HpKind::Toggle",
+                    "event" => "HpKind::Event",
+                    _ => "HpKind::Metered",
+                };
+                let _ = writeln!(
+                    &mut s,
+                    "    HpAction {{ id: {id}, kind: {kind}, cost_centi: {cost}, per_mib_centi: {mib}, per_minute_centi: {min}, cap_per_event_centi: {cap}, explain_key: {ek} }},",
+                    id = rust_str(&a.id),
+                    kind = kind,
+                    cost = to_centi(&format!("actions[{}].cost", a.id), cost, errors),
+                    mib = a.per_mib.map(|v| to_centi(&format!("actions[{}].per_mib", a.id), v, errors)).unwrap_or(0),
+                    min = a.per_minute.map(|v| to_centi(&format!("actions[{}].per_minute", a.id), v, errors)).unwrap_or(0),
+                    cap = a.cap_per_event.map(|v| to_centi(&format!("actions[{}].cap_per_event", a.id), v, errors)).unwrap_or(0),
+                    ek = rust_str(&a.explain_key),
+                );
+            }
+            s
+        },
+        recoveries = {
+            let mut s = String::new();
+            for r in &cfg.recovery.fixed {
+                let req = match &r.requires {
+                    Some(x) => format!("Some({})", rust_str(x)),
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    &mut s,
+                    "    HpRecovery {{ id: {id}, credit_centi: {c}, requires: {req}, explain_key: {ek} }},",
+                    id = rust_str(&r.id),
+                    c = to_centi(&format!("recovery.fixed[{}].credit", r.id), r.credit, errors),
+                    req = req,
+                    ek = rust_str(&r.explain_key),
+                );
+            }
+            s
+        },
+        sources = {
+            let mut s = String::new();
+            for d in &cfg.recovery.data.sources {
+                let _ = writeln!(
+                    &mut s,
+                    "    HpDataSource {{ id: {id}, explain_key: {ek} }},",
+                    id = rust_str(&d.id),
+                    ek = rust_str(&d.explain_key),
+                );
+            }
+            s
+        },
+    );
+    o
+}
+
+fn generate_privacy_hp() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let manifest_dir = Path::new(&manifest_dir);
+    let yaml_path = manifest_dir.join("privacy_hp.yaml");
+    println!("cargo:rerun-if-changed=privacy_hp.yaml");
+
+    let raw = std::fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
+        panic!(
+            "\n\nprivacy_hp.yaml not found at {} ({e}) — the Privacy HP price table is required (see technology.md §17)\n",
+            yaml_path.display()
+        )
+    });
+    let cfg: RawHp = serde_norway::from_str(&raw)
+        .unwrap_or_else(|e| panic!("\n\nprivacy_hp.yaml is not valid:\n  {e}\n"));
+
+    let mut errors = Vec::new();
+    validate_hp(&cfg, &mut errors);
+    let generated = generate_hp(&cfg, &mut errors); // to_centi reports here too
+    if !errors.is_empty() {
+        let list: String = errors.iter().map(|e| format!("  - {e}\n")).collect();
+        panic!("\n\nprivacy_hp.yaml is invalid:\n{list}");
+    }
+
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let out_path = Path::new(&out_dir).join("hp_policy_gen.rs");
+    std::fs::write(&out_path, generated)
+        .unwrap_or_else(|e| panic!("cannot write {}: {e}", out_path.display()));
+}
+
 fn main() {
     generate_build_config(); // fail fast, before tauri_build
+    generate_privacy_hp();
     tauri_build::build()
 }

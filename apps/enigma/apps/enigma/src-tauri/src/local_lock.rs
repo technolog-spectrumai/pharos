@@ -140,21 +140,31 @@ pub fn local_unlock_file(path: String, passphrase: String) -> Result<LockedFileI
 /// file) fails closed and leaves the file untouched.
 #[tauri::command]
 pub fn local_rotate_file(
+    app: tauri::AppHandle,
     path: String,
     current: String,
     new: String,
 ) -> Result<LockedFileInfo, String> {
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let info = rotate_file_at(&path, &current, &new)?;
+    // Privacy HP: same reasoning as the key ring — the file's own key is now a
+    // key that no longer exists anywhere else. Pays once per rolling day.
+    crate::privacy_hp::award_rotation(&app, "local.reencrypt.files");
+    Ok(info)
+}
+
+/// The rotation itself, free of any Tauri handle so it stays directly testable.
+fn rotate_file_at(path: &str, current: &str, new: &str) -> Result<LockedFileInfo, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let (header, sealed) = parse_frame(&bytes)?;
 
-    let dek = unlock(&header, &current).map_err(crypto_err)?;
+    let dek = unlock(&header, current).map_err(crypto_err)?;
     let plain = open(&dek, AAD, sealed).map_err(crypto_err)?;
 
-    let (header2, dek2) = create_vault_with_params(&new, crate::kdf_params()).map_err(crypto_err)?;
+    let (header2, dek2) = create_vault_with_params(new, crate::kdf_params()).map_err(crypto_err)?;
     let sealed2 = seal(&dek2, AAD, &plain).map_err(crypto_err)?;
 
-    atomic_write(&path, &build_frame(&header2, &sealed2)?)?;
-    Ok(LockedFileInfo { name: file_name(&path), size: plain.len() as u64 })
+    atomic_write(path, &build_frame(&header2, &sealed2)?)?;
+    Ok(LockedFileInfo { name: file_name(path), size: plain.len() as u64 })
 }
 
 /// Whether the file at `path` currently begins with the ENIGLOCK magic. Infallible
@@ -363,7 +373,7 @@ mod tests {
         let before = std::fs::read(&path).unwrap();
 
         // Same-passphrase rotation still rolls salt/DEK/nonce → on-disk bytes differ.
-        local_rotate_file(path.clone(), "pass-one".into(), "pass-one".into()).unwrap();
+        rotate_file_at(&path, "pass-one", "pass-one").unwrap();
         let after = std::fs::read(&path).unwrap();
         assert!(has_magic(&after));
         assert_ne!(before, after, "rotation must roll the key material");
@@ -382,7 +392,7 @@ mod tests {
         std::fs::write(&path, &original).unwrap();
         local_lock_file(path.clone(), "old-pass".into()).unwrap();
 
-        local_rotate_file(path.clone(), "old-pass".into(), "new-pass".into()).unwrap();
+        rotate_file_at(&path, "old-pass", "new-pass").unwrap();
 
         // Old passphrase no longer unlocks; the new one does.
         let err = local_unlock_file(path.clone(), "old-pass".into()).unwrap_err();
@@ -400,7 +410,7 @@ mod tests {
         local_lock_file(path.clone(), "right".into()).unwrap();
         let locked = std::fs::read(&path).unwrap();
 
-        let err = local_rotate_file(path.clone(), "wrong".into(), "whatever".into()).unwrap_err();
+        let err = rotate_file_at(&path, "wrong", "whatever").unwrap_err();
         assert!(err.contains("wrong passphrase"), "got: {err}");
         // The file is untouched after a failed rotation.
         assert_eq!(std::fs::read(&path).unwrap(), locked);
@@ -498,7 +508,7 @@ mod tests {
         local_lock_file(path.clone(), "pass-one".into()).unwrap();
 
         // Something else re-keys the file while the editor holds the old passphrase.
-        local_rotate_file(path.clone(), "pass-one".into(), "pass-two".into()).unwrap();
+        rotate_file_at(&path, "pass-one", "pass-two").unwrap();
         let rotated = std::fs::read(&path).unwrap();
 
         let err = local_note_write(path.clone(), "edited".into(), Some("pass-one".into())).unwrap_err();
