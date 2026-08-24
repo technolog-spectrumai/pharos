@@ -247,6 +247,61 @@ async fn write_frame<W: AsyncWrite + Unpin>(w: &mut W, payload: &str) -> Result<
     Ok(())
 }
 
+/// Dial an inviter's onion for an invitation redemption.
+///
+/// Reuses the room transport wholesale — same onion, same virtual port, same
+/// handshake, same framing — and differs only in the `kind` it declares, which
+/// routes the accepted stream to `invite_redeem` instead of a room's message
+/// loop. Nothing about the room transport had to change to carry this.
+///
+/// Starting the node if it is not already up is deliberate: someone redeeming an
+/// invitation over Tor has usually not opened a room yet, so there is nothing to
+/// have started it for them.
+pub async fn dial_redeem(
+    app: &AppHandle,
+    state: &TorP2pState,
+    onion: &str,
+) -> Result<(ReadHalf<DataStream>, WriteHalf<DataStream>)> {
+    ensure_started(app, state).await?;
+    let client = client_of(state).await?;
+    let my_id = load_or_create_peer_id(app)?;
+    let ds = client
+        .connect((onion, ONION_PORT))
+        .await
+        .map_err(|e| anyhow!("INVITE_UNREACHABLE: tor connect to {onion} failed: {e}"))?;
+    let (mut rd, mut wr) = tokio::io::split(ds);
+    write_frame_bounded(
+        &mut wr,
+        &serde_json::to_string(&Hello {
+            // The inviter shows this nowhere: a redemption is not a room join, so
+            // the roster name comes later, inside the redemption request itself.
+            name: String::new(),
+            peer_id: my_id,
+            kind: Some("redeem".to_string()),
+        })
+        .unwrap(),
+    )
+    .await?;
+    match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut rd)).await {
+        Ok(r) => {
+            r.map_err(|e| anyhow!("INVITE_UNREACHABLE: handshake failed: {e}"))?;
+        }
+        Err(_) => return Err(anyhow!("INVITE_UNREACHABLE: handshake timed out")),
+    }
+    Ok((rd, wr))
+}
+
+/// Framing, for `invite_redeem`'s Tor adapter. The onion transport's frames are
+/// the only ones that exist on this carrier, so an invitation redemption uses
+/// exactly the same envelope every room message does.
+pub async fn write_frame_pub<W: AsyncWrite + Unpin>(w: &mut W, payload: &str) -> Result<()> {
+    write_frame(w, payload).await
+}
+
+pub async fn read_frame_pub<R: AsyncRead + Unpin>(r: &mut R) -> Result<String> {
+    read_frame(r).await
+}
+
 /// `write_frame` bounded by `WRITE_TIMEOUT` — a stalled peer errors out instead of
 /// blocking every other peer in a fan-out.
 async fn write_frame_bounded<W: AsyncWrite + Unpin>(w: &mut W, payload: &str) -> Result<()> {
@@ -274,6 +329,12 @@ async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<String> {
 struct Hello {
     name: String,
     peer_id: String,
+    /// What this connection is for. Absent means `"room"` — the only thing that
+    /// existed before invitations, so a peer built before this field keeps
+    /// working untouched. `"redeem"` routes the stream to `invite_redeem`
+    /// instead of the room's message loop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -502,7 +563,12 @@ async fn dial_and_handshake(
     let (mut rd, mut wr) = tokio::io::split(ds);
     write_frame_bounded(
         &mut wr,
-        &serde_json::to_string(&Hello { name: name.to_string(), peer_id: my_id.to_string() }).unwrap(),
+        &serde_json::to_string(&Hello {
+            name: name.to_string(),
+            peer_id: my_id.to_string(),
+            kind: None,
+        })
+        .unwrap(),
     )
     .await?;
     match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut rd)).await {
@@ -1035,6 +1101,23 @@ where
             {
                 continue;
             }
+
+            // An invitation redemption borrows this onion but is not a room
+            // member: it runs one request/response exchange and closes, never
+            // joining `peers` and never seeing a broadcast.
+            if hello.kind.as_deref() == Some("redeem") {
+                let app2 = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let pending = app2.state::<crate::invite_redeem::RedeemState>().inner().clone();
+                    if let Err(e) =
+                        crate::invite_redeem::serve_tor(&app2, &pending, &mut wr, &mut rd).await
+                    {
+                        eprintln!("[redeem/tor] serve ended: {e}");
+                    }
+                });
+                continue;
+            }
+
             let write = Arc::new(Mutex::new(wr));
             let seq = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
             let peer = PeerConn { seq, write };
@@ -1119,6 +1202,49 @@ fn emit_status_reason(
         "realtime://status",
         serde_json::json!({ "room": room, "state": state, "peers": peers, "peer_id": peer_id, "reason": reason }),
     );
+}
+
+#[cfg(test)]
+mod hello_compat_tests {
+    use super::*;
+
+    // `Hello` gained a `kind` field so one onion can carry both room traffic and
+    // invitation redemptions. That is a WIRE change, so both directions of
+    // compatibility are pinned here.
+
+    #[test]
+    fn a_hello_from_an_older_peer_still_parses() {
+        // No `kind` at all — every build that predates invitations.
+        let old: Hello = serde_json::from_str(r#"{"name":"alice","peer_id":"abc"}"#).unwrap();
+        assert_eq!(old.name, "alice");
+        assert_eq!(old.kind, None);
+    }
+
+    #[test]
+    fn a_room_hello_is_byte_identical_to_what_older_peers_expect() {
+        // `skip_serializing_if` keeps the field off the wire entirely for room
+        // dials, so an older peer sees exactly the frame it always saw.
+        let room = Hello { name: "alice".into(), peer_id: "abc".into(), kind: None };
+        assert_eq!(serde_json::to_string(&room).unwrap(), r#"{"name":"alice","peer_id":"abc"}"#);
+    }
+
+    #[test]
+    fn a_redeem_hello_declares_itself() {
+        let redeem = Hello { name: String::new(), peer_id: "abc".into(), kind: Some("redeem".into()) };
+        let text = serde_json::to_string(&redeem).unwrap();
+        assert!(text.contains(r#""kind":"redeem""#));
+        let back: Hello = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.kind.as_deref(), Some("redeem"));
+    }
+
+    #[test]
+    fn an_unknown_kind_is_treated_as_room_traffic() {
+        // Forward compatibility: a future kind this build does not know must not
+        // be routed to the redeem handler, and must not drop the connection.
+        let future: Hello =
+            serde_json::from_str(r#"{"name":"a","peer_id":"b","kind":"something-new"}"#).unwrap();
+        assert_ne!(future.kind.as_deref(), Some("redeem"));
+    }
 }
 
 #[cfg(test)]

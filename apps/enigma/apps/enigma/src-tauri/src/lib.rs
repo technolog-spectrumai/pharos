@@ -24,6 +24,9 @@ mod invite_ticket;
 // The issuer's sealed record of every invitation minted — expiry, revocation and
 // one-use consumption are all decided here, on the INVITER's clock.
 mod invites;
+// The redemption exchange itself, over iroh's own ALPN and over the onion
+// transport's stream. Same checks on both.
+mod invite_redeem;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
@@ -929,6 +932,22 @@ fn mls_key_package(
 /// Returns:
 /// - `welcome_bytes`
 /// - `commit_bytes`
+/// Answer a parked redemption.
+///
+/// The frontend has by now run `mls_add_member` for the invited key package and
+/// broadcast the resulting commit to the room's existing members; what comes back
+/// here is the Welcome and the room's coordinates, which the protocol handler
+/// writes to the waiting redeemer. `ok: false` releases the invitation's lease so
+/// the holder can try again rather than losing it to a failed round.
+#[tauri::command]
+async fn invite_admit(
+    pending: State<'_, invite_redeem::RedeemState>,
+    request_id: String,
+    answer: invite_redeem::AdmitAnswer,
+) -> Result<bool, String> {
+    Ok(invite_redeem::answer_admit(&pending, &request_id, answer).await)
+}
+
 #[tauri::command]
 fn mls_add_member(
     app: AppHandle,
@@ -1238,6 +1257,9 @@ pub fn run() {
         .manage(AudioRecorder::default())
         .manage(p2p_iroh::P2pState::default())
         .manage(p2p_invite::InviteState::default())
+        // Redemptions parked awaiting the frontend's MLS add. Registered before
+        // the iroh router is built — `p2p_iroh` reaches for it there.
+        .manage(invite_redeem::RedeemState::default())
         .manage(file_xfer::FileXferState::default())
         // 1:1 voice-call state (accepts VOX_ALPN on the main p2p endpoint).
         .manage(vox::VoxState::default())
@@ -1298,6 +1320,10 @@ pub fn run() {
             // Privacy HP (technology.md §17). Read-only table + ledger reads,
             // plus the three write paths — none of which accepts an HP amount
             // from the caller.
+            // Invitations (technology.md §18). The redemption exchange itself is
+            // driven by the protocol handlers; this is how the frontend answers
+            // the `invite://admit` request it raises.
+            invite_admit,
             privacy_hp::hp_get_policy,
             privacy_hp::hp_ledger,
             privacy_hp::hp_charge,

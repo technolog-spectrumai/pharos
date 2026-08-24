@@ -233,6 +233,16 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     // protocol, so a dial from a higher-edition peer is refused at the ALPN
     // negotiation rather than ringing a surface that isn't there.
     let mut router = Router::builder(endpoint.clone()).accept(GOSSIP_ALPN, gossip.clone());
+    // Invitation redemption. Unlike the surfaces below it is NOT edition-gated:
+    // an invitation is how someone joins a room, and a build that could mint one
+    // but not honour one would strand every invitation it issued.
+    router = router.accept(
+        crate::invite_redeem::REDEEM_ALPN,
+        crate::invite_redeem::RedeemProtocol::new(
+            app.clone(),
+            tauri::Manager::state::<crate::invite_redeem::RedeemState>(app).inner().clone(),
+        ),
+    );
     if crate::build_config::contacts::ENABLED {
         // Direct room invites from contacts ride this same endpoint, so a contact
         // is invitable at the stable NodeId they already have saved.
