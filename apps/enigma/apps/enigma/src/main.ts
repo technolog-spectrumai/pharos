@@ -7,7 +7,7 @@ import "./style.css";
 import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
-import { initBuildConfig } from "rakotis";
+import { initBuildConfig, initHpPolicy } from "rakotis";
 import { brand, policy } from "./config/app";
 
 import { library } from "@fortawesome/fontawesome-svg-core";
@@ -306,6 +306,11 @@ void initBuildConfig({
     min: 0,
     max: 100 * 1024,
   },
-}).then(() => {
-  app.mount("#app");
-});
+})
+  // The Privacy HP price table, fetched the same way and for the same reason:
+  // every badge in the app renders from it, so it has to be final before the
+  // first frame. In the browser the mirror in rakotis stands in.
+  .then(() => initHpPolicy())
+  .then(() => {
+    app.mount("#app");
+  });

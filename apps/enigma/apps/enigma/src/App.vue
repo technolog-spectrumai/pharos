@@ -7,6 +7,10 @@ import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { useMapStore } from "./stores/map";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
+import HpChip from "./components/hp/HpChip.vue";
+import HpFlash from "./components/hp/HpFlash.vue";
+import HpConfirmModal from "./components/hp/HpConfirmModal.vue";
+import { startHp, stopHp } from "./components/hp/useHp";
 import PinPad from "./components/PinPad.vue";
 import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
@@ -55,6 +59,10 @@ async function runLoaders() {
   // before `ready` so the nav's first frame is already the right one, and the
   // router re-validates the route the app booted into off the same change.
   await loadTabVisibility();
+  // Privacy HP meters. The ledger is sealed in the vault, so like the tab
+  // choice this is the earliest point it can be read; not awaited past its own
+  // first read, since a slow ledger must never hold up the app's first frame.
+  void startHp();
   await chatStore.syncRuntimeIdentity();
   await userStore.loadOfflineProfile();
   // Serverless: reopen the last P2P room (reconnect via persisted peer NodeIds).
@@ -132,6 +140,9 @@ async function startHideLock() {
 }
 
 async function lockNow() {
+  // Drop the HP meters before the vault goes: their ledger belongs to the
+  // profile that is closing.
+  stopHp();
   idleLock.value?.stop();
   idleLock.value = null;
   hideLock?.stop();
@@ -359,8 +370,10 @@ onBeforeUnmount(() => {
     >
       <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
 
-        <!-- Logo -->
-        <RouterLink to="/" class="flex items-center gap-3 hover:opacity-80 transition">
+        <!-- Logo → the welcome page (app info, your name, your HP meters).
+             Deliberately not "/": that redirect is the lock cycle's re-entry
+             point and must keep landing on a working tab. -->
+        <RouterLink to="/welcome" class="flex items-center gap-3 hover:opacity-80 transition">
           <img :src="barIcon" alt="Enigma26 icon" class="h-9 w-9 rounded-lg object-contain" />
           <h1 class="text-xl font-bold tracking-wide sm:text-2xl">{{ brand.name }}</h1>
         </RouterLink>
@@ -424,10 +437,15 @@ onBeforeUnmount(() => {
             <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" />
             {{ darkMode ? $t('nav.light') : $t('nav.dark') }}
           </button>
+
+          <!-- Privacy HP, always in view: today's balance and this week's. -->
+          <HpChip />
         </nav>
 
-        <!-- Mobile: avatar + hamburger -->
+        <!-- Mobile: HP chip + hamburger. The chip sheds its weekly figure below
+             `sm` (HpChip), so it stays a two-glyph badge on a narrow phone. -->
         <div class="flex items-center gap-3 lg:hidden">
+          <HpChip />
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"
@@ -539,6 +557,13 @@ onBeforeUnmount(() => {
       :handle="idleLock"
       @close="lockWarn = false"
     />
+
+    <!-- Privacy HP: the post-activation flash ("−10 HP · DHT presence enabled")
+         and the confirmation that only high/severe prices raise. Both live at
+         app level so a charge fired from a modal still reports itself after that
+         modal has closed. -->
+    <HpFlash />
+    <HpConfirmModal />
     </template>
   </div>
 </template>

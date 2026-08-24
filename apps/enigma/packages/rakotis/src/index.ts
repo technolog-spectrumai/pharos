@@ -48,6 +48,8 @@ export { default as OyaAvatar } from "./components/primitives/OyaAvatar.vue";
 export { default as OyaEmptyState } from "./components/primitives/OyaEmptyState.vue";
 export { default as OyaSectionHeader } from "./components/primitives/OyaSectionHeader.vue";
 export { default as OyaModal } from "./components/primitives/OyaModal.vue";
+export { default as OyaHpPrice } from "./components/primitives/OyaHpPrice.vue";
+export { default as OyaHpMeter } from "./components/primitives/OyaHpMeter.vue";
 
 // ── Crypto bridge (Rotor-backed MLS) ──────────────────────────────────────────
 export { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
