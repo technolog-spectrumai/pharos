@@ -77,7 +77,7 @@ const linksTo = (wrapper: ReturnType<typeof mount>, path: string) =>
 describe("the nav", () => {
   it("shows every tab by default, in both lists", async () => {
     const wrapper = await mountApp();
-    for (const path of ["/chat", "/files", "/vox", "/calendar", "/map", "/contacts", "/privacy", "/config"]) {
+    for (const path of ["/chat", "/files", "/vox", "/calendar", "/map", "/contacts", "/config"]) {
       expect(linksTo(wrapper, path), path).toBe(2);
     }
   });
@@ -109,7 +109,7 @@ describe("the nav", () => {
   });
 
   it("keeps Settings even when the user has hidden everything else", async () => {
-    for (const id of ["chat", "files", "vox", "calendar", "map", "contacts", "privacy"] as const) {
+    for (const id of ["chat", "files", "vox", "calendar", "map", "contacts"] as const) {
       await setTabVisible(id, false);
     }
     const wrapper = await mountApp();

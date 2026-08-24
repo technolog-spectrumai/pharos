@@ -44,7 +44,8 @@ import HpFlash from "../../src/components/hp/HpFlash.vue";
 import EnigmaWelcomeView from "../../src/views/EnigmaWelcomeView.vue";
 import EnigmaPrivacyView from "../../src/views/EnigmaPrivacyView.vue";
 import HpChip from "../../src/components/hp/HpChip.vue";
-import { setTabVisible } from "../../src/tabs";
+import { APP_TABS, loadTabVisibility } from "../../src/tabs";
+import { setHiddenTabs } from "rakotis";
 import router from "../../src/router";
 import {
   chargeHp,
@@ -490,19 +491,22 @@ describe("HpChip", () => {
     }
   });
 
-  it("falls back to the welcome page when that tab is hidden", async () => {
-    // A chip that did nothing, or landed somewhere unrelated, would be worse
-    // than no chip — and the welcome page carries the same meters.
+  it("is Privacy's only entrance, so the route is never gated away", async () => {
+    // There is no nav tab beside it and no visibility checkbox — hiding tabs
+    // cannot strand the chip, which is why /privacy has no guard.
+    expect(APP_TABS.some((t) => t.path === "/privacy")).toBe(false);
     const push = vi.spyOn(router, "push").mockResolvedValue(undefined as never);
-    await setTabVisible("privacy", false);
+    await setHiddenTabs(["chat", "files", "vox", "calendar", "map", "contacts"]);
+    await loadTabVisibility();
     try {
       const w = mount(HpChip, { global });
       await refreshHp();
       await flushPromises();
       await w.get('[data-testid="hp-chip"]').trigger("click");
-      expect(push).toHaveBeenCalledWith("/welcome");
+      expect(push).toHaveBeenCalledWith("/privacy");
     } finally {
-      await setTabVisible("privacy", true);
+      await setHiddenTabs([]);
+      await loadTabVisibility();
       push.mockRestore();
     }
   });

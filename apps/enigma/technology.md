@@ -722,15 +722,17 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   logo and rules, ban management, and the **invite only** switch
   ([§18.8](#188-invite-only-rooms)), whose label states plainly that enforcement
   holds only while every member is running this app.
-- **Privacy** (`EnigmaPrivacyView`, `/privacy`) — a tab of its own: the two HP
-  meters, the whole price table and the "Why did this change?" ledger
-  ([§17](#17-privacy-hp--the-exposure-budget)). Read-only by design — prices are
-  charged where the risky thing happens, never from a list of them. It lived as a
-  sixth pill inside Settings until the meters became something people *check*
-  rather than configure. `gate: null`: the budget is not a sellable feature, so
-  there is nothing to compile out, but it is hideable like any other tab and the
-  prices still appear beside the controls they belong to. The header **HP chip**
-  links here (and falls back to the welcome page when the tab is hidden).
+- **Privacy** (`EnigmaPrivacyView`, `/privacy`) — the two HP meters, then two
+  sub-tabs: **Rules** (the whole price table, each section folded by default, plus
+  what earns HP back) and **Decisions** (the ledger, scrolling in its own box).
+  Read-only by design — prices are charged where the risky thing happens, never
+  from a list of them ([§17](#17-privacy-hp--the-exposure-budget)).
+
+  Reached **only** from the header's **HP chip**, and deliberately absent from
+  `APP_TABS`: like Settings and the welcome page it is chrome, not a nav tab, so
+  it has no nav link, no visibility checkbox and no route guard — the chip cannot
+  be stranded by hiding tabs. It lived as a sixth pill inside Settings until the
+  meters became something people *check* rather than configure.
 - **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
   shows; max file size; transfer chunk size + integrity check; meeting reminder;
@@ -747,7 +749,8 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
   redirect still resolves to the first visible tab, which is where every lock
   cycle re-enters after the webview reload. A compact **HP chip** — today's
-  balance only — sits in the header on every screen and opens the **Privacy** tab
+  balance only — sits in the header on every screen and is the only way into
+  **Privacy**
   ([§17](#17-privacy-hp--the-exposure-budget)).
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design

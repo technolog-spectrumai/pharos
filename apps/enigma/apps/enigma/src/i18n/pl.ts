@@ -9,7 +9,6 @@ export default {
     myProfile: "Mój profil",
     settings: "Ustawienia",
     connections: "Połączenia",
-    privacy: "Prywatność",
     lock: "Blokada",
     data: "Dane",
     light: "Jasny",

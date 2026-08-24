@@ -424,10 +424,6 @@ onBeforeUnmount(() => {
               :title="$t('contacts.incomingTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="isTabVisible('privacy')" to="/privacy" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.privacy')">
-            <font-awesome-icon icon="shield-halved" />
-            {{ $t('nav.privacy') }}
-          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -514,10 +510,6 @@ onBeforeUnmount(() => {
               v-if="invites?.incoming.value"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('privacy')" to="/privacy" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="shield-halved" class="w-4 text-center" />
-            {{ $t('nav.privacy') }}
           </RouterLink>
           <RouterLink
             to="/config"

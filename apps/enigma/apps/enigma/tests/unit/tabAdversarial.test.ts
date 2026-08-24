@@ -3,7 +3,7 @@ import { flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setHiddenTabs } from "rakotis";
 
-const ALL = ["chat", "files", "vox", "calendar", "map", "contacts", "privacy"] as const;
+const ALL = ["chat", "files", "vox", "calendar", "map", "contacts"] as const;
 
 async function settle() {
   await nextTick();
@@ -72,9 +72,7 @@ describe("no redirect loop", () => {
     // The guard's fallback must be computed from the CURRENT build gates, not
     // from a cached list: a stale head sends the guard back to a path the guard
     // itself denies, which vue-router reports as an infinite redirection.
-    // Every tab with `gate: null` has to be hidden by hand — the build gates
-    // below cannot remove them, and the scenario under test is an EMPTY nav.
-    await setHiddenTabs(["chat", "files", "privacy"]);
+    await setHiddenTabs(["chat", "files"]);
     const { tabs, router, store } = await coldBoot();
     await tabs.loadTabVisibility();
     await router.replace("/config");

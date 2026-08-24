@@ -9,19 +9,17 @@
 import { useRouter } from "vue-router";
 import { formatHp, meterBand } from "rakotis";
 import { hpBalances, hpLoaded } from "./useHp";
-import { isTabVisible } from "../../tabs";
+import { PRIVACY_PATH } from "../../tabs";
 
 const router = useRouter();
 
 /**
- * The shield and the number are one control: tapping either opens Privacy.
- *
- * If the user has hidden that tab, fall back to the welcome page — which carries
- * the same meters — rather than to a route the guard would bounce. A chip that
- * did nothing, or that landed somewhere unrelated, would be worse than no chip.
+ * The shield and the number are one control, and this chip is Privacy's ONLY
+ * entrance — there is no nav tab beside it (see `PRIVACY_PATH`). So the route is
+ * ungated and this can never fail to lead somewhere.
  */
 function openPrivacy() {
-  router.push(isTabVisible("privacy") ? "/privacy" : "/welcome");
+  router.push(PRIVACY_PATH);
 }
 
 /** Today's band drives the colour: it is the meter that moves fastest, so it is

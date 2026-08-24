@@ -32,7 +32,7 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, getHiddenTabs, setHiddenTabs, type BuildConfig } from "rakotis";
 
-export type AppTabId = "chat" | "files" | "vox" | "calendar" | "map" | "contacts" | "privacy";
+export type AppTabId = "chat" | "files" | "vox" | "calendar" | "map" | "contacts";
 
 export interface AppTab {
   id: AppTabId;
@@ -56,16 +56,18 @@ export const APP_TABS: readonly AppTab[] = [
   { id: "calendar", path: "/calendar", labelKey: "nav.calendar", icon: "calendar", gate: (c) => c.calendar_enabled },
   { id: "map", path: "/map", labelKey: "nav.map", icon: "map", gate: (c) => c.maps_enabled },
   { id: "contacts", path: "/contacts", labelKey: "nav.contacts", icon: "address-book", gate: (c) => c.contacts_enabled },
-  // Privacy HP (technology.md §17). `gate: null` — the budget is not a sellable
-  // feature and every edition has it, so there is nothing to compile out. It IS
-  // hideable like any other tab: a user who does not want to be scored can put
-  // it away, and the prices still appear beside the controls they belong to.
-  { id: "privacy", path: "/privacy", labelKey: "nav.privacy", icon: "shield-halved", gate: null },
 ];
 
 /** Settings — the tab that can never be hidden, and therefore the terminal
  *  fallback of every redirect below. */
 export const SETTINGS_PATH = "/config";
+
+/** Privacy HP (technology.md §17). Like Settings and the welcome page it is a
+ *  route reached from the app chrome rather than a nav tab: the header's HP chip
+ *  is its one entrance, and a nav entry beside it would be a second door to the
+ *  same room. Absent from `APP_TABS` for that reason, so it has no nav link and
+ *  no visibility checkbox. */
+export const PRIVACY_PATH = "/privacy";
 
 // Ids only (not AppTabId): an id written by a NEWER build is meaningless here
 // but must survive a round-trip rather than being silently un-hidden.

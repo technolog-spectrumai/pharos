@@ -43,8 +43,9 @@ const router = createRouter({
     { path: "/calendar", component: EnigmaCalendarView, name: "calendar", beforeEnter: tabGuard("calendar") },
     { path: "/map", component: EnigmaMapView, name: "map", beforeEnter: tabGuard("map") },
     { path: "/contacts", component: EnigmaContactsView, name: "contacts", beforeEnter: tabGuard("contacts") },
-    // Privacy HP — hideable like any other tab, but never build-gated.
-    { path: "/privacy", component: EnigmaPrivacyView, name: "privacy", beforeEnter: tabGuard("privacy") },
+    // Privacy HP — reached from the header's HP chip, not from the nav, so it is
+    // ungated like Settings and the welcome page.
+    { path: "/privacy", component: EnigmaPrivacyView, name: "privacy" },
     // Settings has no gate of either kind — it is the way back from everything
     // else, including from a nav the user has emptied out.
     { path: "/config", component: EnigmaConfigView, name: "config" },

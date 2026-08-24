@@ -9,7 +9,6 @@ export default {
     myProfile: "My Profile",
     settings: "Settings",
     connections: "Connections",
-    privacy: "Privacy",
     lock: "Lock",
     data: "Data",
     light: "Light",
