@@ -121,6 +121,7 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
     R("local.reencrypt.keyring", 1000, null, "hp.explain.localReencryptKeyring"),
     R("local.reencrypt.files", 1000, null, "hp.explain.localReencryptFiles"),
     R("invite.revoke", 500, null, "hp.explain.inviteRevoke"),
+    R("room.inviteonly.enable", 500, null, "hp.explain.roomInviteonlyEnable"),
     R("room.rekey", 300, null, "hp.explain.roomRekey"),
     R("room.leave", 300, null, "hp.explain.roomLeave"),
   ],

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { OyaModal, RULES_MAX_CHARS, getBuildConfig, isTorTicket } from "rakotis";
+import { OyaModal, RULES_MAX_CHARS, formatHp, getBuildConfig, isTorTicket } from "rakotis";
 import RoomShareCard from "./RoomShareCard.vue";
+import { creditFor, recoverHp } from "../hp/useHp";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 
@@ -30,6 +31,26 @@ async function onLogoPicked(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (logoInput.value) logoInput.value.value = "";
   if (file) await props.channel.setRoomLogo(file);
+}
+
+// ── invite only ─────────────────────────────────────────────────────────────
+// Captain-set, distributed with the rest of the room meta. The Privacy HP credit
+// is claimed only when the flag actually MOVED false→true — `setInviteOnly`
+// reports that — so re-asserting a closed room, or reopening one, earns nothing.
+const inviteOnly = computed(() => isCurrent.value && props.channel.inviteOnly?.value === true);
+const inviteOnlyBusy = ref(false);
+
+async function toggleInviteOnly() {
+  if (!canEdit.value || inviteOnlyBusy.value) return;
+  inviteOnlyBusy.value = true;
+  try {
+    if (await props.channel.setInviteOnly(!inviteOnly.value)) {
+      // Only the closing direction is a risk reduction; reopening pays nothing.
+      if (!inviteOnly.value) await recoverHp("room.inviteonly.enable");
+    }
+  } finally {
+    inviteOnlyBusy.value = false;
+  }
 }
 
 const editingRules = ref(false);
@@ -86,6 +107,49 @@ function close() {
           @click="channel.setRoomLogo(null)"
         >
           {{ $t("chat.removeLogo") }}
+        </button>
+      </div>
+
+      <!-- Invite only (captain-set, visible to everyone in the room) -->
+      <div v-if="inviteOnly || canEdit" class="flex items-start gap-3">
+        <font-awesome-icon
+          icon="lock"
+          :class="inviteOnly ? 'text-success-light dark:text-success-dark' : 'opacity-50'"
+          class="mt-0.5 shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ $t("chat.inviteOnly") }}</p>
+          <!-- Deliberately not "only people you invite can join": enforcement is
+               app convention, so a member on a modified or older build still
+               auto-admits (technology.md §9.3, §18.8). The wording promises what
+               this build does, not what the protocol guarantees. -->
+          <p class="text-xs leading-relaxed opacity-60">
+            {{ inviteOnly ? $t("chat.inviteOnlyOnHint") : $t("chat.inviteOnlyOffHint") }}
+          </p>
+          <span
+            v-if="canEdit && !inviteOnly"
+            class="mt-1 inline-flex items-center rounded-md border border-success-light/50 px-2 py-0.5 text-[11px] font-bold text-success-light dark:border-success-dark/50 dark:text-success-dark"
+            data-testid="invite-only-credit"
+          >
+            +{{ formatHp(creditFor("room.inviteonly.enable")) }} HP
+          </span>
+        </div>
+        <button
+          v-if="canEdit"
+          type="button"
+          role="switch"
+          :aria-checked="inviteOnly"
+          :aria-label="$t('chat.inviteOnly')"
+          :disabled="inviteOnlyBusy"
+          :class="inviteOnly ? 'bg-accent-dark' : 'bg-accent-2 dark:bg-accent-1'"
+          class="relative mt-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition disabled:opacity-50"
+          data-testid="invite-only-toggle"
+          @click="toggleInviteOnly()"
+        >
+          <span
+            :class="inviteOnly ? 'translate-x-6' : 'translate-x-1'"
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+          />
         </button>
       </div>
 

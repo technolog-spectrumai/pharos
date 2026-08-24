@@ -739,6 +739,7 @@ const REQUIRED_HP_RECOVERIES: &[&str] = &[
     "dht.presence.withdraw",
     "local.autolock.on",
     "invite.revoke",
+    "room.inviteonly.enable",
     "local.passphrase.strengthen",
     "local.passphrase.change",
     "local.reencrypt.keyring",

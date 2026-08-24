@@ -153,6 +153,36 @@ describe("the invite-only flag", () => {
   });
 });
 
+// ── the credit's precondition ───────────────────────────────────────────────
+
+describe("what the Privacy HP credit hangs on", () => {
+  // The UI claims +5 only when `setInviteOnly` reports a real move, so these are
+  // the assertions that keep the credit honest.
+
+  it("reports a move exactly once for a room that was open", async () => {
+    const ch = await readyChannel();
+    ch.captainId.value = "me-device";
+    expect(await ch.setInviteOnly(true)).toBe(true);
+    expect(await ch.setInviteOnly(true)).toBe(false);
+  });
+
+  it("reports a move when reopening, which the caller must not pay for", async () => {
+    // The flag moved, but the direction is not a risk reduction — the caller
+    // checks the direction, not just the boolean.
+    const ch = await readyChannel();
+    ch.captainId.value = "me-device";
+    await ch.setInviteOnly(true);
+    expect(await ch.setInviteOnly(false)).toBe(true);
+  });
+
+  it("reports no move for a non-captain, so nothing can be claimed", async () => {
+    const ch = await readyChannel();
+    ch.captainId.value = "someone-else";
+    expect(await ch.setInviteOnly(true)).toBe(false);
+    expect(ch.inviteOnly.value).toBe(false);
+  });
+});
+
 // ── enforcement ─────────────────────────────────────────────────────────────
 
 describe("enforcement", () => {

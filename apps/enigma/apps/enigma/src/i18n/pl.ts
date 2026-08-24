@@ -240,6 +240,9 @@ export default {
     setLogo: "Ustaw logo pokoju",
     removeLogo: "Usuń",
     roomRules: "Zasady pokoju",
+    inviteOnly: "Tylko na zaproszenia",
+    inviteOnlyOnHint: "Bilet pokoju nikogo już nie wpuszcza \u2014 dołącza się przez realizację zaproszenia. Pilnuje tego każdy w pokoju, więc działa dopóki wszyscy używają tej aplikacji.",
+    inviteOnlyOffHint: "Dołączy każdy, kto ma bilet pokoju albo zgadnie jego nazwę. Włącz, by przyjmować tylko zaproszenia.",
     editRules: "Edytuj",
     rulesPlaceholder: "Zasady pokoju widoczne dla wszystkich po dołączeniu…",
     saveRules: "Zapisz zasady",
@@ -748,6 +751,7 @@ export default {
       invitePersonalCreateTor: "Prywatne zaproszenie (przez Tor)",
       inviteGeneralCreateClearnet: "Zaproszenie do udostępniania (bez Tora)",
       inviteGeneralCreateTor: "Zaproszenie do udostępniania (przez Tor)",
+      roomInviteonlyEnable: "Ustaw pokój tylko na zaproszenia",
       inviteRevoke: "Wycofaj zaproszenie",
       fileSend: "Wyślij plik",
       voxCall: "Rozmowa głosowa",
@@ -809,6 +813,8 @@ export default {
         "Każdy, kto zobaczy ten kod, odczyta go i dołączy, a kod niesie adres, pod którym odpowiada twoje urządzenie — czyli twoje IP.",
       inviteGeneralCreateTor:
         "Każdy, kto zobaczy ten kod, odczyta go i dołączy, choć niesie on adres onion zamiast twojego IP.",
+      roomInviteonlyEnable:
+        "Pokój przestaje kogokolwiek wpuszczać ze swojego tematu \u2014 wpuszcza tylko zrealizowane zaproszenie. Pilnuje tego każdy w pokoju, więc działa dopóki wszyscy używają tej aplikacji.",
       inviteRevoke:
         "Zaproszenie przestaje działać od teraz. Kto już dołączył, zostaje w pokoju.",
       fileSend:

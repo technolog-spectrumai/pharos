@@ -240,6 +240,28 @@ describe("invitations", () => {
   });
 });
 
+// ── closing a room ──────────────────────────────────────────────────────────
+
+describe("invite-only rooms", () => {
+  it("pays for closing a room, without pairing it to an exposure", () => {
+    // Opening a room was never priced as an action, so there is no charge to
+    // withdraw — the verified state change is enforced at the call site instead
+    // (`setInviteOnly` reports whether the flag actually moved).
+    const rec = findRecovery(P, "room.inviteonly.enable");
+    expect(rec).not.toBeNull();
+    expect(rec!.creditCenti).toBe(500);
+    expect(rec!.requires).toBeNull();
+  });
+
+  it("is not an action anyone can be charged for", () => {
+    // Closing a room is a protection, never an expense — and reopening one is
+    // not priced either, since being open was the default all along.
+    expect(findAction(P, "room.inviteonly.enable")).toBeNull();
+    expect(findAction(P, "room.inviteonly.disable")).toBeNull();
+    expect(findRecovery(P, "room.inviteonly.disable")).toBeNull();
+  });
+});
+
 // ── confirmation policy ─────────────────────────────────────────────────────
 
 describe("confirmation", () => {

@@ -240,6 +240,9 @@ export default {
     setLogo: "Set room logo",
     removeLogo: "Remove",
     roomRules: "Room rules",
+    inviteOnly: "Invite only",
+    inviteOnlyOnHint: "The room ticket no longer admits anyone \u2014 people join by redeeming an invitation. Everyone in the room enforces this, so it holds as long as they are all running this app.",
+    inviteOnlyOffHint: "Anyone with the room ticket, or who guesses the room name, can join. Turn this on to accept invitations only.",
     editRules: "Edit",
     rulesPlaceholder: "House rules everyone sees when they join…",
     saveRules: "Save rules",
@@ -750,6 +753,7 @@ export default {
       invitePersonalCreateTor: "Private invite (over Tor)",
       inviteGeneralCreateClearnet: "Shareable invite (no Tor)",
       inviteGeneralCreateTor: "Shareable invite (over Tor)",
+      roomInviteonlyEnable: "Make a room invite only",
       inviteRevoke: "Withdraw an invitation",
       fileSend: "Send a file",
       voxCall: "Voice call",
@@ -811,6 +815,8 @@ export default {
         "Anyone who sees this code can read it and join, and it carries the address your device answers on — which on this connection is your IP.",
       inviteGeneralCreateTor:
         "Anyone who sees this code can read it and join, though it carries an onion address rather than your IP.",
+      roomInviteonlyEnable:
+        "The room stops letting anyone in off its topic \u2014 only a redeemed invitation admits. Everyone in the room enforces this, so it holds as long as they are all running this app.",
       inviteRevoke:
         "The invitation stops working from now on. Anyone who already joined with it stays in the room.",
       fileSend:

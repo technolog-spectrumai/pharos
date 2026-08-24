@@ -488,6 +488,20 @@ recovery:
       requires: ~
       explain_key: hp.explain.inviteRevoke
 
+    - id: room.inviteonly.enable
+      credit: 5
+      # Closing a room stops it admitting anyone off the gossip topic, which is a
+      # real reduction in risk being carried right now — the auto-admit path
+      # (§9.3, §9.7) is the app's oldest access-control gap.
+      #
+      # No `requires`: this is not the withdrawal of an exposure the budget ever
+      # charged for, since opening a room was never priced as an action. The
+      # verified state change is enforced at the call site — `setInviteOnly`
+      # returns whether the flag actually moved false→true — so re-asserting a
+      # room that is already closed, or reopening one, earns nothing.
+      requires: ~
+      explain_key: hp.explain.roomInviteonlyEnable
+
     - id: room.rekey
       credit: 3
       requires: ~
