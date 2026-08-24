@@ -30,6 +30,9 @@ shipped app mark, `sun-key2`, and how to change it).
   it. A transferable **shareable QR** is offered too, clearly labelled as not
   secret. Redemption connects to you and proves the capability before anything
   about the room is revealed; the QR itself carries no room name and no topic.
+  A room can also be marked **invite only**, after which its ticket admits nobody
+  and a redeemed invitation is the only way in — enforced by every member, so it
+  holds as long as they are all running this app.
   See [technology.md §18](technology.md#18-invitations--encrypted-expiring-revocable).
 - **Reconnecting**: each peer's stable **NodeId** is persisted per room; on
   restart the app rejoins its last room and resolves current addresses through

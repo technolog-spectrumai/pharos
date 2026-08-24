@@ -19,7 +19,9 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [12 DHT discovery](#12-dht-discovery-mainline-rendezvous--contacts) ·
 [13 Encryption at rest](#13-encryption-at-rest-gervasius--protasius) ·
 [14 Conventions](#14-conventions-naming--palette) · [15 Config sources](#15-config--sources-of-truth) ·
-[16 Rework history](#16-history--the-serverless-rework) · [Roadmap](#roadmap)
+[16 Rework history](#16-history--the-serverless-rework) ·
+[17 Privacy HP](#17-privacy-hp--the-exposure-budget) ·
+[18 Invitations](#18-invitations--encrypted-expiring-revocable) · [Roadmap](#roadmap)
 
 ---
 
@@ -603,10 +605,12 @@ least-serious) so they can be addressed:
    join the swarm and attempt to be added to the MLS group. (DHT room *codes* carry a
    proper secret; the auto-admit MLS flow is the shared gap — an admission-approval UI
    is future work.) **Invitations ([§18](#18-invitations--encrypted-expiring-revocable))
-   narrow this without closing it**: they add an admission path that is
-   authenticated, expiring and revocable, but auto-admit over gossip is unchanged,
-   so a room reached by invitation is still joinable by anyone holding its ticket
-   or guessing its topic. An invite-only room flag is the piece that would close it.
+   add an authenticated, expiring, revocable admission path, and marking a room
+   **invite only** ([§18.8](#188-invite-only-rooms)) makes every member refuse
+   gossip key packages outright — which narrows this gap substantially. It does
+   not close it: enforcement is app convention like everything else in §9.3, so a
+   member on a modified or older build still auto-admits, and OpenMLS in this
+   configuration still lets any member commit an add.
 8. **WebView / IPC surface.** `tauri.conf.json` sets `security.csp = null` (no Content
    Security Policy); on Linux the app auto-grants every WebView permission request; and
    `fs_write_base64_file` — the "save as…" binary writer behind the native dialog —
@@ -710,7 +714,14 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   Privacy HP price before the tap, and the invitation modes carry the "keep this
   room open until they join" note ([§18](#18-invitations--encrypted-expiring-revocable)).
   Redemption needs no new surface: `JoinRoomModal`'s single field routes an
-  invitation by its tag byte.
+  invitation by its tag byte. In a room the captain has marked **invite only**
+  ([§18.8](#188-invite-only-rooms)) the ticket pill is withdrawn entirely and the
+  card says why — a ticket there would put someone on the topic and never into
+  the group.
+- **Room info** (`RoomInfoModal`) — the share card above, the captain-set room
+  logo and rules, ban management, and the **invite only** switch
+  ([§18.8](#188-invite-only-rooms)), whose label states plainly that enforcement
+  holds only while every member is running this app.
 - **Settings** (`EnigmaConfigView`) — six tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
   shows; max file size; transfer chunk size + integrity check; meeting reminder;
@@ -1502,6 +1513,8 @@ carrying**, capped at **25 HP/day and 100 HP/week** across everything.
 | `local.autolock.on` | +5 | `idle_lock_mins > 0` |
 | `local.passphrase.change` | +3 | Any change — protasius re-wraps the DEK under a fresh salt |
 | `room.rekey` / `room.leave` | +3 | Once per rolling day |
+| `invite.revoke` | +5 | Only when a record really moved live→revoked |
+| `room.inviteonly.enable` | +5 | Only when a room really moved open→closed ([§18.8](#188-invite-only-rooms)) |
 | `data.delete.chat` / `.maps` / `.files` | +0.25/MiB freed, floor 0.5, ceiling 5 | Own caps: 10/day, 25/week |
 
 **Key rotation out-pays a passphrase change by a full rung, and the gap is the
@@ -1756,10 +1769,12 @@ a record really moved from live to revoked, and the credit is claimed only on th
 2. **A General invitation is not confidential.** Cleartext by construction; there
    is no recipient to seal it to. Sealing it under a key printed beside it would
    be theatre.
-3. **An invitation does not make a room invite-only.** Auto-admit over gossip
-   (§9.3, §9.7) is unchanged, so a room reached by invitation is still joinable by
-   anyone holding its ticket or guessing its `blake3(name)` topic. The guarantee
-   is about the QR, not the room. An invite-only flag is future work.
+3. **An invitation alone does not close a room — the room has to be closed too.**
+   A room left open still admits anyone holding its ticket or guessing its
+   `blake3(name)` topic, whatever the invitation did. Marking it **invite only**
+   ([§18.8](#188-invite-only-rooms)) is what makes the guarantee about the room
+   rather than only the QR — and even then it is app convention, not protocol
+   (§9.3).
 4. **`expires_at` in the QR is advisory** (§18.1). Only the inviter's record
    decides.
 5. **Identity-key reuse** (§18.2) is a deliberate, documented trade.
@@ -1769,6 +1784,54 @@ a record really moved from live to revoked, and the credit is claimed only on th
    *admission*, not what a member does afterwards. It is not handed the DHT room
    code, so it cannot publish or resolve the room by rendezvous.
 
+### 18.8 Invite-only rooms
+
+A room the captain has marked **invite only** refuses gossip `mls_key_package`
+frames outright. The only way in is a redeemed invitation — which never rides
+gossip at all, so closing the room does not close the invitations.
+
+**The flag rides `room_meta`**, the captain-authored snapshot that already
+distributes the logo, rules, mutes and bans over the MLS seam. It inherits that
+mechanism's revision guard (a stale snapshot cannot silently reopen a closed
+room) and its persistence, and needs no new message type. **Absent means open**,
+which is what an older peer's snapshot looks like — the field is additive in both
+directions, so a build that never heard of it can neither close a room by accident
+nor keep one closed.
+
+**Enforcement sits above the admin split** in the `mls_key_package` handler. That
+placement is the point: a guard below it would close the branch that *adds* while
+leaving the branch that *defers* still answering a stranger with our own key
+package — a half-closed door. Headless channels (device link, peer sync) are
+exempt; they carry their own `admissionCheck` and have no room meta.
+
+**A refused joiner is told, locally.** They land in the existing observer state,
+and once the user's connect deadline passes without a Welcome they see "no one
+admitted you to this room — it may require an invitation". Nothing is sent to
+them: no member has to confirm to a stranger that a room exists and is closed, and
+there is no unauthenticated frame for anyone to forge. This also fixed a related
+lie — the key-exchange timer used to declare "end-to-end encryption active" after
+five seconds regardless, so a refused joiner was shown a green lock over a group
+of one and could type into the void ([§9.5](#9-security--privacy-considerations)).
+It now distinguishes the two cases by whether any *other* member's traffic has
+been seen: a lone creator sees none, a refused joiner sees plenty and can read
+none of it.
+
+**The share card withdraws the room ticket** while the room is closed (§10),
+because a ticket would put someone on the topic and never into the group — handing
+out something that silently does not work reads as a bug, not a policy.
+
+**What it does not guarantee.** Every member enforces independently, so the
+guarantee is only as strong as the weakest member's client: a member running a
+modified or older build will still auto-admit, and OpenMLS in this configuration
+lets any member commit an add. This is the same app-convention caveat as the
+captain election and the single-adder rule ([§9.3](#9-security--privacy-considerations)),
+and it is why the switch's own label says "everyone in the room enforces this, so
+it holds as long as they are all running this app" rather than "only people you
+invite can join".
+
+Privacy HP: `room.inviteonly.enable` **+5**, claimed only on a real open→closed
+move ([§17](#17-privacy-hp--the-exposure-budget)).
+
 ---
 
 ## Roadmap
@@ -1777,8 +1840,28 @@ Open work, in rough priority order (security hardening items are enumerated in
 [§9](#9-security--privacy-considerations) and are the recommended pre-production
 work — key verification, admission approval, CSP/FS scoping, PCS key rotation):
 
-- **Admission-approval UI** before `addMember` — closes the auto-admit gap shared by
-  guessable room names and leaked room codes/tickets.
+- **Admission-approval UI** before `addMember` — the remaining half of the
+  auto-admit gap. [§18.8](#188-invite-only-rooms) lets a room refuse gossip key
+  packages outright, which covers the "nobody uninvited gets in" case; an approval
+  UI is what an *open* room still needs, so a member can see and accept a joiner
+  rather than the first admin adding them silently.
+- **Duration-scaled invitation pricing** — an invitation valid for a week should
+  cost more Privacy HP than one valid for an hour, over a baseline for minting at
+  all. The metered machinery already has the shape (a base `cost` plus a rate plus
+  a `cap_per_event`, exactly as `vox.call` bills by the minute); what is missing is
+  a third rate axis beside `per_mib` and `per_minute`:
+
+  ```yaml
+  - id: invite.general.create.clearnet
+    kind: metered
+    cost: 5           # baseline: minting a credential at all
+    per_hour: 0.05    # the validity window, not a payload size
+    cap_per_event: 20
+  ```
+
+  Needs `per_hour` in `build.rs`, in the derivation, and in the share card — whose
+  badge must move as the deadline preset changes, because the price on the button
+  has to be the price charged ([§17](#17-privacy-hp--the-exposure-budget)).
 - **Accepted limitations (documented, deliberate):**
   - Cold start: if *every* member is offline long enough for discovery records to
     lapse **and** all addresses changed, reconnection needs a fresh QR.
