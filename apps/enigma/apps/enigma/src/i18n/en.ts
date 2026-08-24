@@ -706,14 +706,16 @@ export default {
     recoveryHint:
       "Only changes that reduce risk you are carrying right now. Each pays once, and turning something off and on again is always a net loss.",
     recoveryCaps: "At most {daily} HP a day and {weekly} HP a week, across everything here.",
+    subtab: {
+      rules: "Rules",
+      decisions: "Decisions",
+    },
     historyTitle: "Why did this change?",
     historyHint: "Every entry, newest first, with how much has since regenerated.",
     historyEmpty: "Nothing spent or earned yet.",
     historyCount: "{n} times",
     historyHealed: "{n} of {total} regenerated",
     historySettled: "fully regenerated",
-    historyMore: "Show all {n}",
-    historyLess: "Show fewer",
     historyPrivacy:
       "This history stores reason codes and numbers only — never a message, contact, room name, nickname, ticket or file path.",
     confirmTitle: "This one costs a lot",

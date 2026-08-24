@@ -704,14 +704,16 @@ export default {
     recoveryHint:
       "Tylko zmiany, które zmniejszają ryzyko ponoszone właśnie teraz. Każda płaci raz, a wyłączenie i ponowne włączenie zawsze wychodzi na minus.",
     recoveryCaps: "Najwyżej {daily} HP dziennie i {weekly} HP tygodniowo, łącznie ze wszystkiego tutaj.",
+    subtab: {
+      rules: "Zasady",
+      decisions: "Decyzje",
+    },
     historyTitle: "Skąd ta zmiana?",
     historyHint: "Wszystkie wpisy, od najnowszych, wraz z tym, ile już się zregenerowało.",
     historyEmpty: "Nic jeszcze nie wydano ani nie zyskano.",
     historyCount: "{n} razy",
     historyHealed: "zregenerowano {n} z {total}",
     historySettled: "w pełni zregenerowane",
-    historyMore: "Pokaż wszystkie ({n})",
-    historyLess: "Pokaż mniej",
     historyPrivacy:
       "Ta historia przechowuje wyłącznie kody powodów i liczby — nigdy wiadomości, kontaktu, nazwy pokoju, pseudonimu, zaproszenia ani ścieżki pliku.",
     confirmTitle: "To kosztuje sporo",

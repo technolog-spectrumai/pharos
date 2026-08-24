@@ -27,7 +27,6 @@ withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
 
 const { t } = useI18n({ useScope: "global" });
 const policy = getHpPolicy();
-const showAllHistory = ref(false);
 
 // ── folding ─────────────────────────────────────────────────────────────────
 // The price table is the honest part of this feature and also the longest: eight
@@ -40,6 +39,32 @@ const showAllHistory = ref(false);
 // user, and losing it costs a click. Guarded because storage can throw outright
 // in a private window or with site data blocked.
 const OPEN_KEY = "enigma:hp:open";
+const SUBTAB_KEY = "enigma:hp:subtab";
+
+// Below the meters the panel answers two different questions, and mixing them
+// made both harder to read: "what does this cost?" (the rules, which are fixed
+// and worth browsing) and "what did I spend?" (my own decisions, which are a
+// running log). Two sub-tabs, so neither is scrolled past to reach the other.
+type SubTab = "rules" | "decisions";
+
+function loadSubTab(): SubTab {
+  try {
+    return localStorage.getItem(SUBTAB_KEY) === "decisions" ? "decisions" : "rules";
+  } catch {
+    return "rules";
+  }
+}
+
+const subTab = ref<SubTab>(loadSubTab());
+
+function selectSubTab(next: SubTab) {
+  subTab.value = next;
+  try {
+    localStorage.setItem(SUBTAB_KEY, next);
+  } catch {
+    /* a remembered tab is a convenience; forgetting it costs one click */
+  }
+}
 
 function loadOpen(): Set<string> {
   try {
@@ -158,7 +183,6 @@ function rateNote(id: string): string {
 }
 
 const rows = computed(() => historyRows(policy, hpEntries.value, Date.now(), 200));
-const visibleRows = computed(() => (showAllHistory.value ? rows.value : rows.value.slice(0, 8)));
 
 /** "47 messages" for a coalesced bucket; nothing for a single activation. */
 function countNote(n: number): string {
@@ -221,8 +245,31 @@ const recoveries = computed(() => policy.recoveries);
     </p>
 
     <template v-if="!compact">
+      <!-- Two questions, two panes: what things cost, and what I have spent. -->
+      <div
+        class="flex gap-1 rounded-xl border border-current/20 p-1 text-xs font-semibold"
+        role="tablist"
+      >
+        <button
+          v-for="tab in (['rules', 'decisions'] as const)"
+          :key="tab"
+          type="button"
+          role="tab"
+          :aria-selected="subTab === tab"
+          :class="subTab === tab
+            ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
+            : 'opacity-60 hover:opacity-100'"
+          class="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 transition"
+          :data-testid="`hp-subtab-${tab}`"
+          @click="selectSubTab(tab)"
+        >
+          <font-awesome-icon :icon="tab === 'rules' ? 'scale-balanced' : 'clock-rotate-left'" />
+          <span class="truncate">{{ $t(`hp.subtab.${tab}`) }}</span>
+        </button>
+      </div>
+
       <!-- ── the price list ─────────────────────────────────────────────── -->
-      <section class="flex flex-col gap-4">
+      <section v-if="subTab === 'rules'" class="flex flex-col gap-4">
         <h3 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.pricesTitle") }}</h3>
         <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.pricesHint") }}</p>
 
@@ -279,7 +326,7 @@ const recoveries = computed(() => policy.recoveries);
       </section>
 
       <!-- ── what earns HP back ─────────────────────────────────────────── -->
-      <section class="flex flex-col">
+      <section v-if="subTab === 'rules'" class="flex flex-col">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-bold uppercase opacity-70 transition hover:opacity-100"
@@ -315,18 +362,26 @@ const recoveries = computed(() => policy.recoveries);
         </template>
       </section>
 
-      <!-- ── why did this change? ───────────────────────────────────────── -->
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.historyTitle") }}</h3>
+      <!-- ── decisions: the ledger ──────────────────────────────────────── -->
+      <!-- Formerly "Why did this change?" — the same rows, given their own pane
+           and allowed to scroll instead of being truncated behind a "show more".
+           A ledger you have to expand to read is a ledger nobody reads. -->
+      <section v-if="subTab === 'decisions'" class="flex flex-col gap-2">
         <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.historyHint") }}</p>
 
         <p v-if="rows.length === 0" class="py-3 text-sm opacity-60" data-testid="hp-history-empty">
           {{ $t("hp.historyEmpty") }}
         </p>
 
-        <ul v-else class="flex flex-col divide-y divide-current/10" data-testid="hp-history">
+        <!-- Scrolls in its own box: the meters above it must stay on screen, and
+             the page itself must not grow without bound as the log does. -->
+        <ul
+          v-else
+          class="flex max-h-[46vh] flex-col divide-y divide-current/10 overflow-y-auto pr-1"
+          data-testid="hp-history"
+        >
           <li
-            v-for="(row, i) in visibleRows"
+            v-for="(row, i) in rows"
             :key="`${row.ts}-${row.code}-${i}`"
             class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2"
           >
@@ -359,15 +414,6 @@ const recoveries = computed(() => policy.recoveries);
             </span>
           </li>
         </ul>
-
-        <button
-          v-if="rows.length > 8"
-          type="button"
-          class="self-start text-xs font-semibold underline opacity-70 transition hover:opacity-100"
-          @click="showAllHistory = !showAllHistory"
-        >
-          {{ showAllHistory ? $t("hp.historyLess") : $t("hp.historyMore", { n: rows.length }) }}
-        </button>
 
         <!-- What the ledger deliberately does not contain. Worth stating on the
              screen that shows it, not only in the docs. -->

@@ -74,6 +74,7 @@ beforeEach(async () => {
     .forEach((n) => n.remove());
   // The panel remembers which sections were open; each test starts folded.
   localStorage.removeItem("enigma:hp:open");
+  localStorage.removeItem("enigma:hp:subtab");
   setActivePinia(createPinia());
   resetHpLedgerForTest();
   stopHp();
@@ -315,22 +316,70 @@ describe("HpPanel", () => {
     expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(false);
   });
 
-  it("shows an empty history before anything happens", () => {
+  it("shows an empty history before anything happens", async () => {
     const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
     expect(w.find('[data-testid="hp-history-empty"]').exists()).toBe(true);
   });
 
-  it("lists a charge in the history once one is made", async () => {
+  it("lists a charge under Decisions once one is made", async () => {
     await chargeHp("dht.presence.enable");
     const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
     await flushPromises();
     const history = w.get('[data-testid="hp-history"]').text();
     expect(history).toContain("−5 HP");
     expect(history).toContain("DHT");
   });
 
-  it("promises the ledger holds no content", () => {
+  it("separates what things cost from what you spent", async () => {
+    // Two different questions. Mixing them made both harder to read: the rules
+    // are fixed and worth browsing, the ledger is a running log.
+    await chargeHp("dht.presence.enable");
     const w = mount(HpPanel, { global });
+    await flushPromises();
+    // Rules is the default pane, and the ledger is not in it.
+    expect(w.find('[data-testid="hp-group-discovery"]').exists()).toBe(true);
+    expect(w.find('[data-testid="hp-history"]').exists()).toBe(false);
+
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
+    expect(w.find('[data-testid="hp-history"]').exists()).toBe(true);
+    expect(w.find('[data-testid="hp-group-discovery"]').exists()).toBe(false);
+  });
+
+  it("keeps the meters on screen whichever pane is open", async () => {
+    // The sub-tabs sit BELOW the meters; switching must not scroll them away.
+    const w = mount(HpPanel, { global });
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+  });
+
+  it("scrolls the ledger rather than truncating it", async () => {
+    // Every row is rendered; the box scrolls. A ledger you have to expand to
+    // read is a ledger nobody reads.
+    for (let i = 0; i < 30; i++) await chargeHp("ticket.export.clearnet");
+    const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
+    await flushPromises();
+    const list = w.get('[data-testid="hp-history"]');
+    expect(list.classes().join(" ")).toContain("overflow-y-auto");
+    expect(list.findAll("li").length).toBeGreaterThan(8);
+  });
+
+  it("remembers which pane was open", async () => {
+    const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
+    // Asserted on the tab itself, not on the ledger: with no rows the pane shows
+    // its empty state, so the list would be absent either way.
+    const again = mount(HpPanel, { global });
+    expect(again.get('[data-testid="hp-subtab-decisions"]').attributes("aria-selected")).toBe("true");
+    expect(again.find('[data-testid="hp-group-discovery"]').exists()).toBe(false);
+  });
+
+  it("promises the ledger holds no content", async () => {
+    const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
     expect(w.text()).toMatch(/never a message, contact, room name/i);
   });
 });
