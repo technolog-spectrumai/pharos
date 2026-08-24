@@ -9,6 +9,8 @@ import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n
 import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
 import { availableTabs, isTabVisible, setTabVisible, type AppTabId } from "../tabs";
+import HpPanel from "../components/hp/HpPanel.vue";
+import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from "../components/hp/useHp";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -66,6 +68,12 @@ import {
 import { OyaCard } from "rakotis";
 import { OyaButton } from "rakotis";
 import { OyaModal, OyaTextField } from "rakotis";
+import { OyaHpPrice } from "rakotis";
+
+// Price badges show what the NEXT tap would cost, so they flip with the switch —
+// which is what "show the price on the setting" has to mean for a toggle. A
+// direction that costs nothing renders no badge rather than a "−0 HP".
+const hpExplain = (id: string) => explainFor(id);
 
 defineProps<{ darkMode: boolean }>();
 
@@ -83,10 +91,11 @@ const { t, locale } = useI18n({ useScope: "global" });
 // directly (nav links use that); otherwise we open on the settings controls. The
 // Lock tab gathers everything that guards the vault (auto-lock, passphrase, panic
 // code); Data is purely about the offline profile data again.
-type ConfigTab = "profile" | "settings" | "connections" | "lock" | "data";
+type ConfigTab = "profile" | "settings" | "connections" | "privacy" | "lock" | "data";
 const tabFromQuery = (q: unknown): ConfigTab =>
   q === "profile" ? "profile"
   : q === "connections" ? "connections"
+  : q === "privacy" ? "privacy"
   : q === "lock" ? "lock"
   : q === "data" ? "data"
   : "settings";
@@ -130,7 +139,14 @@ async function toggleOffline() {
 // Exclusive with iroh: toggling tears down the other transport in Rust, so the
 // shown NodeId (iroh) / onion refreshes on the next room command.
 async function toggleUseTor() {
-  await network.setUseTor(!useTor.value);
+  const next = !useTor.value;
+  // Turning Tor OFF is the app's single most exposing state change (it re-opens
+  // every other action's clearnet variant), so it confirms; turning it ON is a
+  // recovery and never asks. Charged only after the switch actually flipped.
+  if (!next && !(await confirmHp("transport.tor.disable"))) return;
+  await network.setUseTor(next);
+  if (next) await recoverHp("transport.tor.enable");
+  else await chargeHp("transport.tor.disable");
 }
 
 // ── Keep onion stable (encrypted-at-rest HS key) ─────────────────────────────
@@ -138,6 +154,10 @@ const stableOnion = ref(false);
 async function toggleStableOnion() {
   stableOnion.value = !stableOnion.value;
   await setStableOnion(stableOnion.value);
+  // Only the ON direction is an exposure (one long-lived address makes sessions
+  // linkable). Switching back is free but earns nothing: the old address was
+  // already published to whoever saw it.
+  if (stableOnion.value) await chargeHp("transport.onion_stable.enable");
 }
 
 // ── DHT discovery (Mainline/Kademlia rendezvous + presence — technology.md §12) ──────────
@@ -173,9 +193,15 @@ async function refreshDhtStatus() {
   dhtBootstrapped.value = false;
 }
 async function toggleDhtDiscovery() {
-  dhtDiscovery.value = !dhtDiscovery.value;
-  await setDhtDiscovery(dhtDiscovery.value);
+  const next = !dhtDiscovery.value;
+  if (next && !(await confirmHp("dht.presence.enable"))) return;
+  dhtDiscovery.value = next;
+  await setDhtDiscovery(next);
+  // Charged after dht_apply, not before: the record is published by the rebind,
+  // so until this resolves nothing has actually been announced.
   await applyDhtDiscovery();
+  if (next) await chargeHp("dht.presence.enable");
+  else await recoverHp("dht.presence.withdraw");
   void refreshDhtStatus();
 }
 
@@ -237,6 +263,7 @@ async function saveFileChunk() {
 async function toggleFileIntegrity() {
   fileIntegrity.value = !fileIntegrity.value;
   await setFileIntegrity(fileIntegrity.value);
+  if (!fileIntegrity.value) await chargeHp("local.file_integrity.off");
 }
 
 async function saveMaxFileSize() {
@@ -314,8 +341,17 @@ const idleLockSaved = ref(false);
 const locking = ref(false);
 
 async function saveIdleLock() {
+  const wasOff = idleLockMins.value === 0;
+  // 0 = never auto-lock, which leaves the DEK live in memory indefinitely. The
+  // charge follows the STATE, not the edit: changing 15 to 30 is neither an
+  // exposure nor a recovery and must move nothing.
+  if (Number(idleLockMins.value) === 0 && !wasOff && !(await confirmHp("local.autolock.off"))) {
+    return;
+  }
   idleLockMins.value = await setIdleLockMins(Number(idleLockMins.value));
   applyIdleLockMins(idleLockMins.value);
+  if (idleLockMins.value === 0) await chargeHp("local.autolock.off");
+  else await recoverHp("local.autolock.on");
   idleLockSaved.value = true;
   setTimeout(() => { idleLockSaved.value = false; }, 1500);
 }
@@ -333,6 +369,7 @@ async function toggleLockOnHide() {
     await setLockOnHide(next);
     lockOnHide.value = next;
     applyLockOnHide(next);
+    if (!next) await chargeHp("local.lock_on_hide.off");
   } finally {
     lockOnHideBusy.value = false;
   }
@@ -428,6 +465,9 @@ async function submitPin() {
     );
     pinEnrolled.value = true;
     showPinModal.value = false;
+    // The PIN is a memory-only convenience layer over the passphrase, so it is a
+    // small, real reduction rather than an exposure (technology.md §7).
+    await chargeHp("local.pin.enroll");
   } catch (e) {
     pinError.value = (e as Error)?.message ?? String(e);
   }
@@ -466,6 +506,9 @@ async function removePanic() {
   panicBusy.value = true;
   try {
     await vaultClearPanicCode(panicCurrent.value);
+    // Not an exposure — a loss of protection under coercion, which is why it is
+    // priced low rather than high.
+    await chargeHp("local.panic_code.clear");
     panicArmed.value = false;
     panicDone.value = t("config.panicCodeRemoved");
     setTimeout(() => { showPanic.value = false; }, 1200);
@@ -642,6 +685,17 @@ async function clearSelectedOfflineData() {
       </button>
       <button
         type="button"
+        :class="activeTab === 'privacy'
+          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
+          : 'opacity-60 hover:opacity-100'"
+        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
+        data-testid="config-tab-privacy"
+        @click="activeTab = 'privacy'"
+      >
+        <font-awesome-icon icon="shield-halved" />{{ $t('nav.privacy') }}
+      </button>
+      <button
+        type="button"
         :class="activeTab === 'lock'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
@@ -788,6 +842,13 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.fileIntegrity') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.fileIntegrityHint') }}</p>
+          <OyaHpPrice
+            v-if="fileIntegrity ? priceFor('local.file_integrity.off') : 0 !== 0"
+            class="mt-1"
+            :centi="fileIntegrity ? priceFor('local.file_integrity.off') : 0"
+            :explain="hpExplain('local.file_integrity.off')"
+            data-testid="hp-badge-integrity"
+          />
         </div>
         <button
           type="button"
@@ -926,6 +987,13 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ useTor ? $t('config.useTorOnHint') : $t('config.useTorOffHint') }}
           </p>
+          <OyaHpPrice
+            v-if="useTor ? priceFor('transport.tor.disable') : 0 !== 0"
+            class="mt-1"
+            :centi="useTor ? priceFor('transport.tor.disable') : 0"
+            :explain="hpExplain('transport.tor.disable')"
+            data-testid="hp-badge-tor"
+          />
         </div>
         <button
           type="button"
@@ -957,6 +1025,13 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ stableOnion ? $t('config.stableOnionOnHint') : $t('config.stableOnionOffHint') }}
           </p>
+          <OyaHpPrice
+            v-if="stableOnion ? 0 : priceFor('transport.onion_stable.enable') !== 0"
+            class="mt-1"
+            :centi="stableOnion ? 0 : priceFor('transport.onion_stable.enable')"
+            :explain="hpExplain('transport.onion_stable.enable')"
+            data-testid="hp-badge-stable-onion"
+          />
         </div>
         <button
           type="button"
@@ -1000,6 +1075,13 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ dhtDiscovery ? $t('config.dhtDiscoveryOnHint') : $t('config.dhtDiscoveryOffHint') }}
           </p>
+          <OyaHpPrice
+            v-if="dhtDiscovery ? creditFor('dht.presence.withdraw') : priceFor('dht.presence.enable') !== 0"
+            class="mt-1"
+            :centi="dhtDiscovery ? creditFor('dht.presence.withdraw') : priceFor('dht.presence.enable')"
+            :explain="hpExplain('dht.presence.enable')"
+            data-testid="hp-badge-dht"
+          />
         </div>
         <button
           type="button"
@@ -1121,6 +1203,19 @@ async function clearSelectedOfflineData() {
 
     <!-- Lock tab — everything guarding the vault: when it locks itself, the
          passphrase that opens it, and the code that destroys it -->
+    <!-- Privacy tab — the HP meters, the whole price table, and the ledger.
+         Read-only by design: prices are charged where the risky thing happens,
+         never from a list of them. -->
+    <template v-if="activeTab === 'privacy'">
+      <OyaCard class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-lg font-bold">{{ $t('hp.title') }}</h2>
+          <p class="text-sm leading-relaxed opacity-70">{{ $t('hp.intro') }}</p>
+        </div>
+        <HpPanel />
+      </OyaCard>
+    </template>
+
     <template v-if="activeTab === 'lock'">
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
@@ -1144,6 +1239,15 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.idleLock') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.idleLockOff') }}</p>
+          <!-- Priced by the STATE the number produces, not by the edit: 0 means
+               "never auto-lock", which leaves the key in memory indefinitely. -->
+          <OyaHpPrice
+            v-if="Number(idleLockMins) === 0"
+            class="mt-1"
+            :centi="priceFor('local.autolock.off')"
+            :explain="hpExplain('local.autolock.off')"
+            data-testid="hp-badge-autolock"
+          />
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
@@ -1171,6 +1275,13 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.lockOnHide') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.lockOnHideHint') }}</p>
+          <OyaHpPrice
+            v-if="lockOnHide ? priceFor('local.lock_on_hide.off') : 0 !== 0"
+            class="mt-1"
+            :centi="lockOnHide ? priceFor('local.lock_on_hide.off') : 0"
+            :explain="hpExplain('local.lock_on_hide.off')"
+            data-testid="hp-badge-lock-on-hide"
+          />
         </div>
         <button
           type="button"
