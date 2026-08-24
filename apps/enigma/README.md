@@ -13,7 +13,7 @@ sources of truth, rework history) · [pland.md](pland.md) (the Basic / Standard 
 Professional product line and how an edition is built) ·
 [tools/enigma_builder/README.md](tools/enigma_builder/README.md) (the GUI/CLI
 tool that configures and builds a product) · [icons.md](icons.md) (the one
-shipped app mark, `sun-key2`, and how to change it).
+shipped app mark, `enigma`, and how to change it).
 
 ## How it works
 

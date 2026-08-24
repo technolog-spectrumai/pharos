@@ -55,7 +55,7 @@ SCHEMA_VERSION = 1
 #: like its name and its version — not a per-build decision. Kept as a set (a
 #: directory with a master image and metadata) rather than a bare path so the
 #: same validation still runs and swapping the mark stays a one-line change.
-FIXED_SET_ID = "sun-key2"
+FIXED_SET_ID = "enigma"
 
 
 def fixed_set() -> "IconSet | None":

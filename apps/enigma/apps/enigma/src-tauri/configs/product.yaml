@@ -13,7 +13,7 @@ app:
   # only; Android installs the fixed Gradle applicationId below.
   name: Enigma26
   identifier: com.spectrumaipl.enigma26
-  version: 0.1.9
+  version: 0.1.10
 
 p2p:
   # false = iroh runs with RelayMode::Disabled and all hosted discovery is off
@@ -109,4 +109,4 @@ network:
 
 # ── product-config extras (Builder-owned; stripped from the build config) ──
 branding:
-  icon: sun-key2
+  icon: enigma

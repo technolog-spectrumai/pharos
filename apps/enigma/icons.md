@@ -5,8 +5,8 @@ product's identity, like its name, its bundle id and its version: one mark,
 fixed in the repository, announced on the Identity tab so a build engineer can
 see what they are shipping — and changed here, in code, not per build.
 
-The mark is `sun-key2`, at
-`tools/enigma_builder/assets/icons/sun-key2/`.
+The mark is `enigma`, at
+`tools/enigma_builder/assets/icons/enigma/`.
 
 ## Why fixed rather than chosen
 
@@ -20,7 +20,7 @@ version it goes out with.
 ## The set
 
 ```
-tools/enigma_builder/assets/icons/sun-key2/
+tools/enigma_builder/assets/icons/enigma/
 ├── icon.png     # normalised master: square, 1024×1024, what tauri icon consumes
 ├── source.png   # the original as authored — never overwritten
 └── set.json     # { "name", "description", "author", "version": 1 }
@@ -118,7 +118,7 @@ Builder never runs git.
 | `tools/enigma_builder/tests/test_iconsets.py` | discovery, broken sets, and that every shipped set is valid |
 | `tools/enigma_builder/tests/test_split_modes.py` | that the headless build honours `branding.icon` |
 
-`sun-key2` is the only set under `assets/icons/`, which is the point: the
+`enigma` is the only set under `assets/icons/`, which is the point: the
 directory is not a menu. `tools/enigma_builder/assets/make_example_sets.py` is a
 stdlib-only script that draws the two example sets (`default`, `mono`) the
 directory carried while an icon was still a per-build choice; nothing in the

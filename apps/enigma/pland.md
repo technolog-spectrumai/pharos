@@ -170,7 +170,7 @@ across the three configs, deliberately:
   code, never chosen per build — it is carried identically by `tauri.conf.json`,
   `Cargo.toml`, the three `package.json` files, `build_config.yaml` and every
   YAML in `configs/`, and the Builder shows it read-only. The app **icon** is
-  fixed the same way and for the same reason: one mark, `sun-key2`, regenerated
+  fixed the same way and for the same reason: one mark, `enigma`, regenerated
   into every build — see [icons.md](icons.md).
 
 ---

@@ -22,7 +22,7 @@ app:
   # Android installs the fixed Gradle applicationId com.spectrumaipl.enigma26.
   name: Enigma26
   identifier: com.spectrumaipl.enigma26
-  version: 0.1.9
+  version: 0.1.10
 
 
 p2p:

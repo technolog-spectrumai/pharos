@@ -1131,7 +1131,7 @@ instead of hardcoding.
 | Display name `Enigma26` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
 | Copyright / org / legal URL | `config/app.ts` `brand` | Was hardcoded in `App.vue` |
 | Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`); `build.rs` rejects any other value |
-| App icon | `tools/enigma_builder/assets/icons/sun-key2/` | **Fixed, not a build choice** — one mark, regenerated into the app on every build and announced (read-only) on the Builder's Identity tab. See [icons.md](icons.md) |
+| App icon | `tools/enigma_builder/assets/icons/enigma/` | **Fixed, not a build choice** — one mark, regenerated into the app on every build and announced (read-only) on the Builder's Identity tab. See [icons.md](icons.md) |
 | In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma26`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |

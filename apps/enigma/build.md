@@ -305,8 +305,8 @@ verification — one implementation, so the script and the GUI cannot drift.
 for a saved product config. Full reference:
 [tools/enigma_builder/README.md](tools/enigma_builder/README.md).
 
-The **app icon is fixed too** — not a per-build choice. One mark, `sun-key2`,
-shipped at `tools/enigma_builder/assets/icons/sun-key2/`, announced on the
+The **app icon is fixed too** — not a per-build choice. One mark, `enigma`,
+shipped at `tools/enigma_builder/assets/icons/enigma/`, announced on the
 Identity tab and regenerated into the app (every desktop size plus the Android
 mipmaps) on every build. Changing it is a code change: [icons.md](icons.md).
 
