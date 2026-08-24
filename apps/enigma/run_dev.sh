@@ -55,6 +55,11 @@ fi
 . "$SCRIPT_DIR/scripts/edition_conf.sh"
 edition_conf_args CONF_ARGS
 
+# Per-profile Cargo build directory: two instances must not queue behind each
+# other's link. Costs ~17 GB per profile — see scripts/dev_target.sh.
+. "$SCRIPT_DIR/scripts/dev_target.sh"
+dev_target_export "$APP_PROFILE" "$APP_DIR/src-tauri"
+
 cd "$APP_DIR"
 
 APP_PROFILE="$APP_PROFILE" CHAT_USER="$CHAT_USER" npm run tauri -- dev "${CONF_ARGS[@]}"

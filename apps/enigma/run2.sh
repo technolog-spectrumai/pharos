@@ -82,6 +82,8 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
+. "$SCRIPT_DIR/scripts/dev_target.sh"
+
 launch() {
   local profile="$1"
   echo "[run2] starting instance: profile=$profile"
@@ -89,6 +91,10 @@ launch() {
   # Output is line-prefixed with the profile so the two logs stay distinguishable.
   (
     cd "$APP_DIR"
+    # Own build dir per profile — without this the second instance parks on
+    # "Blocking waiting for file lock on build directory" for the whole of the
+    # first one's compile+link (scripts/dev_target.sh).
+    dev_target_export "$profile" "$APP_DIR/src-tauri" || exit 1
     APP_PROFILE="$profile" CHAT_USER="$profile" npm run tauri -- dev "${CONF_ARGS[@]}"
   ) 2>&1 | sed -u "s/^/[$profile] /" &
 }

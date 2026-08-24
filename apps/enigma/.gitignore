@@ -6,6 +6,10 @@ dist/
 build/
 target/
 **/target/
+# Per-profile dev build dirs (scripts/dev_target.sh) — one per running instance
+# so two dev instances never queue behind one another's Cargo lock.
+target-*/
+**/target-*/
 *.wasm
 Cargo.lock
 # ...except the vendored cryptorotor workspace, which commits its own lock (upstream does).
