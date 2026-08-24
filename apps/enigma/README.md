@@ -53,8 +53,8 @@ shipped app mark, `sun-key2`, and how to change it).
   **maps** — including a location you share into a room by tapping the spot
   (never from the device's GPS). §10.
 - **Privacy HP**: a game-like *safety budget* that puts one fixed, comparable
-  price beside every exposing action — a private invitation costs −3 HP where
-  exporting a room ticket costs −10 — so the relative cost of a choice is visible
+  price beside every exposing action — a private invitation costs −1.5 HP where
+  exporting a room ticket costs −5 — so the relative cost of a choice is visible
   before the tap. Two meters (100/day, 700/week) that regenerate on their own, and
   **three times faster while Tor is on**. Advisory only: it never blocks anything,
   and it measures rather than protects. See
