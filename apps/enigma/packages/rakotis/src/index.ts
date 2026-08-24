@@ -32,6 +32,14 @@ export {
 export type { Locale, AppI18n } from "./i18n";
 // The seam the app uses to translate notices rakotis emits (see chatText.ts).
 export { setChatTranslator, clearChatTranslator } from "./i18n/chatText";
+export {
+  formatDate,
+  formatTime,
+  formatNumber,
+  currentLocale,
+  resetDateFormatCache,
+} from "./i18n/dateFormat";
+export type { DateStyle, DateInput } from "./i18n/dateFormat";
 export type { ChatTranslator } from "./i18n/chatText";
 
 // ── UI components (Oya primitives) ────────────────────────────────────────────

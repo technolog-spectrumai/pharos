@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OyaAvatar } from "rakotis";
+import { OyaAvatar, formatTime } from "rakotis";
 import type { Message } from "../stores/chat";
 import MapShareCard from "./map/MapShareCard.vue";
 
@@ -66,7 +66,7 @@ defineProps<{ message: Message }>();
           class="text-success-dark opacity-80"
           :title="$t('chat.a11yEncrypted')"
         />
-        {{ message.timestamp.toLocaleTimeString() }}
+        {{ formatTime(message.timestamp) }}
       </p>
     </div>
 

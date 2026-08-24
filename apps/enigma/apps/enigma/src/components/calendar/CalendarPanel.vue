@@ -3,7 +3,7 @@
 // event dots per day, click a day to select it (drives DayEventsPanel).
 // Filled dots = scheduled meetings; hollow dots = open-poll proposed slots.
 import { computed, ref } from "vue";
-import { OyaCard } from "rakotis";
+import { OyaCard, formatDate } from "rakotis";
 import { dayKey, monthGrid, type Meeting, type MeetingPoll } from "./meetingModel";
 
 const props = defineProps<{ meetings: Meeting[]; polls?: MeetingPoll[]; modelValue: Date }>();
@@ -41,11 +41,11 @@ function dotsFor(day: Date): { filled: number; hollow: number } {
 }
 
 const monthLabel = computed(() =>
-  anchor.value.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+  formatDate(anchor.value, "monthYear"),
 );
 // Monday-first weekday headers in the viewer's locale (2024-01-01 was a Monday).
 const weekdays = Array.from({ length: 7 }, (_, i) =>
-  new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: "short" }),
+  formatDate(new Date(2024, 0, 1 + i), "weekdayShort"),
 );
 
 function shiftMonth(delta: number) {

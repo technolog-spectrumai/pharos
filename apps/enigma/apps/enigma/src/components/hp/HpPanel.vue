@@ -20,6 +20,7 @@ import {
   getHpPolicy,
   historyRows,
   severityOf,
+  formatDate,
 } from "rakotis";
 import { explainFor, hpBalances, hpEntries, hpLoaded, labelFor } from "./useHp";
 
@@ -196,7 +197,7 @@ function healNote(healed: number, hp: number, settled: boolean): string {
 }
 
 function when(ts: number): string {
-  return new Date(ts).toLocaleString();
+  return formatDate(ts, "dateTime");
 }
 
 const recoveries = computed(() => policy.recoveries);

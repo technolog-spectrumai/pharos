@@ -3,6 +3,7 @@
 // themselves live in the app (apps/enigma/src/i18n), so rakotis carries no app strings.
 
 import { createI18n, type I18n } from "vue-i18n";
+import { syncDateLocale } from "./dateFormat";
 
 export const SUPPORTED_LOCALES = ["en", "pl"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -57,17 +58,25 @@ export interface AppI18n {
  * language hint from elsewhere (e.g. a profile) without an explicit choice.
  */
 export function createAppI18n(messages: Record<Locale, unknown>): AppI18n {
+  const initial = getStoredLocale() ?? browserLocale();
   const i18n = createI18n({
     legacy: false,
     globalInjection: true,
-    locale: getStoredLocale() ?? browserLocale(),
+    locale: initial,
     fallbackLocale: "en",
     // Catalog shape is app-defined; vue-i18n's strict message typing is bypassed here.
     messages: messages as Record<string, never>,
   });
 
+  // Dates read their locale from the same place the catalogs do. Seeded here and
+  // updated in `setLocale` below, so a language switch moves "August 2026" to
+  // "sierpień 2026" along with everything else rather than leaving dates in the
+  // operating system's language (see ./dateFormat.ts).
+  syncDateLocale(initial);
+
   function setLocale(locale: Locale, persist = true): void {
     (i18n.global.locale as unknown as { value: Locale }).value = locale;
+    syncDateLocale(locale);
     try {
       document.documentElement.setAttribute("lang", locale);
     } catch {

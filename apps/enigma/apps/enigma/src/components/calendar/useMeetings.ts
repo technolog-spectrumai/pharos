@@ -21,7 +21,7 @@
 // Trust model: cooperative — see meetingModel.ts.
 
 import { computed, ref, watch } from "vue";
-import { calendarActionId, getMeetingReminderMins, kvGet, kvPut } from "rakotis";
+import { calendarActionId, formatTime, getMeetingReminderMins, kvGet, kvPut } from "rakotis";
 import { chargeHp } from "../hp/useHp";
 import type { ChatChannel } from "rakotis";
 import { i18n } from "../../i18n";
@@ -703,7 +703,7 @@ export function useMeetings(channel: ChatChannel) {
       let ok = await isPermissionGranted();
       if (!ok) ok = (await requestPermission()) === "granted";
       if (!ok) return;
-      const when = new Date(m.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const when = formatTime(m.start);
       sendNotification({
         title: t("reminderTitle", { title: m.title }),
         body: m.location ? t("reminderBodyAt", { when, location: m.location }) : t("reminderBody", { when }),

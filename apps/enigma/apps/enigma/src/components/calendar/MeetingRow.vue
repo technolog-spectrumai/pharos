@@ -3,7 +3,7 @@
 // Accept/Decline here (the "act in the Calendar tab" side of a chat invite);
 // the organizer gets Edit/Cancel plus the attendee roster.
 import { computed } from "vue";
-import { OyaBadge } from "rakotis";
+import { OyaBadge, formatDate, formatTime } from "rakotis";
 import type { Meeting } from "./meetingModel";
 
 const props = defineProps<{ meeting: Meeting }>();
@@ -14,12 +14,13 @@ const emit = defineEmits<{
   remove: [];
 }>();
 
-const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
 const timeRange = computed(() => {
   const s = new Date(props.meeting.start);
   const e = new Date(props.meeting.end);
-  const cross = s.toDateString() !== e.toDateString() ? ` (${e.toLocaleDateString()})` : "";
-  return `${s.toLocaleTimeString([], TIME)} – ${e.toLocaleTimeString([], TIME)}${cross}`;
+  // Only spell out the end DATE when the meeting crosses midnight; otherwise the
+  // day is already established by the row's position in the day list.
+  const cross = s.toDateString() !== e.toDateString() ? ` (${formatDate(e, "date")})` : "";
+  return `${formatTime(s)} – ${formatTime(e)}${cross}`;
 });
 
 const isPast = computed(() => props.meeting.end <= Date.now());

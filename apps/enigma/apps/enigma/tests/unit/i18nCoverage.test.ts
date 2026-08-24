@@ -120,6 +120,38 @@ function scanRakotisNotices(): Finding[] {
   return found;
 }
 
+/**
+ * Dates formatted against the OS locale instead of the app's.
+ *
+ * `toLocaleDateString(undefined, …)` and `toLocaleTimeString([], …)` read the
+ * OPERATING SYSTEM's language, so they rendered "August 2026" to users who had
+ * chosen Polski. Every one of them now goes through rakotis's `formatDate` /
+ * `formatTime`, which read the app locale — this keeps the next one from landing.
+ */
+function scanDateFormatting(): Finding[] {
+  const found: Finding[] = [];
+  const roots = [
+    resolve(ROOT, "apps/enigma/src"),
+    resolve(ROOT, "packages/rakotis/src"),
+  ];
+  for (const root of roots) {
+    for (const ext of [".vue", ".ts"]) {
+      for (const file of walk(root, ext)) {
+        // The formatter itself names these calls in its own documentation.
+        if (file.endsWith("i18n/dateFormat.ts")) continue;
+        const rel = relative(ROOT, file);
+        readFileSync(file, "utf8")
+          .split("\n")
+          .forEach((line, i) => {
+            const m = line.match(/\.toLocale(?:Date|Time)?String\s*\(/);
+            if (m) found.push({ file: rel, line: i + 1, text: line.trim().slice(0, 90) });
+          });
+      }
+    }
+  }
+  return found;
+}
+
 const show = (f: Finding[]) => f.map((x) => `${x.file}:${x.line}  ${x.text}`);
 
 describe("no hard-coded user-facing English", () => {
@@ -133,6 +165,13 @@ describe("no hard-coded user-facing English", () => {
     // These go through `t(key, englishFallback)` — the seam in
     // packages/rakotis/src/i18n/chatText.ts.
     expect(show(scanRakotisNotices())).toEqual([]);
+  });
+
+it("formats every date through the app locale, not the OS", () => {
+    // A raw toLocale*String call takes its language from the operating system, so
+    // the app's language switch does not reach it. Use formatDate/formatTime from
+    // rakotis instead — they read the locale the user actually chose.
+    expect(show(scanDateFormatting())).toEqual([]);
   });
 
   it("actually detects prose, so an empty result means something", () => {

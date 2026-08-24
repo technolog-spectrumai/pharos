@@ -2,7 +2,7 @@
 // The selected day's meetings + the next few upcoming ones. Row actions
 // (RSVP / edit / cancel / remove) bubble up to the view.
 import { computed } from "vue";
-import { OyaCard, OyaEmptyState } from "rakotis";
+import { OyaCard, OyaEmptyState, formatDate, formatTime } from "rakotis";
 import MeetingRow from "./MeetingRow.vue";
 import { dayKey, meetingsOnDay, upcoming, type Meeting } from "./meetingModel";
 
@@ -15,7 +15,7 @@ const emit = defineEmits<{
 }>();
 
 const dayLabel = computed(() =>
-  props.day.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+  formatDate(props.day, "dayMonthWeekday"),
 );
 const dayMeetings = computed(() => meetingsOnDay(props.meetings, dayKey(props.day)));
 // The day list already shows today's items — "Upcoming" fills the lookahead.
@@ -51,8 +51,8 @@ const upcomingMeetings = computed(() => upcoming(props.meetings, Date.now()));
       <div class="flex flex-col gap-2">
         <div v-for="m in upcomingMeetings" :key="m.id" class="text-sm">
           <span class="font-mono text-xs opacity-60">
-            {{ new Date(m.start).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) }}
-            {{ new Date(m.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+            {{ formatDate(m.start, 'dayMonth') }}
+            {{ formatTime(m.start) }}
           </span>
           <span class="ml-2 font-medium">{{ m.title }}</span>
           <span v-if="!m.mine && m.myRsvp === 'pending'" class="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-warn-dark" :title="$t('calendar.pendingTitle')" />

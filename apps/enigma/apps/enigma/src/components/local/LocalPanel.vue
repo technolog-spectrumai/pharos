@@ -30,6 +30,7 @@ import {
   type LocalNoteContent,
   type LocalNoteStat,
   type NoteRecentRecord,
+  formatDate,
 } from "rakotis";
 import { policy } from "../../config/app";
 import LocalPassphraseModal, { type LockOutcome } from "./LocalPassphraseModal.vue";
@@ -511,7 +512,7 @@ function fmtSize(bytes: number): string {
 
 function fmtDate(ms: number): string {
   const d = new Date(ms);
-  return isNaN(d.getTime()) ? "" : d.toLocaleDateString();
+  return formatDate(d, "date");
 }
 </script>
 

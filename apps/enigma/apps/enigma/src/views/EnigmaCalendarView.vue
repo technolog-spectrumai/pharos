@@ -3,7 +3,7 @@
 // RSVP and organizer actions. All state lives in the app-wide meetings
 // orchestrator (stores/chat.ts) — this view is just its surface.
 import { computed, ref } from "vue";
-import { OyaButton, OyaModal } from "rakotis";
+import { OyaButton, OyaModal, formatDate } from "rakotis";
 import { useChatStore } from "../stores/chat";
 import CalendarPanel from "../components/calendar/CalendarPanel.vue";
 import DayEventsPanel from "../components/calendar/DayEventsPanel.vue";
@@ -89,9 +89,7 @@ const confirmingSlotLabel = computed(() => {
   const c = confirmingSlot.value;
   const slot = c?.poll.slots.find((s) => s.id === c.slotId);
   if (!slot) return "";
-  return new Date(slot.start).toLocaleString(undefined, {
-    weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-  });
+  return formatDate(slot.start, "dayMonthWeekdayTime");
 });
 
 async function confirmSlotNow() {

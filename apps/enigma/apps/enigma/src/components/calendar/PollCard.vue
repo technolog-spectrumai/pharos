@@ -4,7 +4,7 @@
 // "Schedule this time" + "Cancel poll" controls. Expiry is derived at render
 // time from the stored deadline (pollExpired) — no timer.
 import { computed } from "vue";
-import { OyaBadge } from "rakotis";
+import { OyaBadge, formatDate, formatTime } from "rakotis";
 import { pollExpired, tallyPoll, type MeetingPoll, type PollVoteChoice } from "./meetingModel";
 
 const props = defineProps<{ poll: MeetingPoll }>();
@@ -51,19 +51,12 @@ const leadingSlotId = computed(() => {
   return best && best.yes + best.ifneedbe > 0 ? best.slotId : null;
 });
 
-const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
 function slotLabel(start: number, end: number): string {
-  const s = new Date(start);
-  const e = new Date(end);
-  const day = s.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-  return `${day} · ${s.toLocaleTimeString([], TIME)} – ${e.toLocaleTimeString([], TIME)}`;
+  const day = formatDate(start, "dayMonthWeekdayShort");
+  return `${day} · ${formatTime(start)} – ${formatTime(end)}`;
 }
 const deadlineLabel = computed(() =>
-  props.poll.deadline
-    ? new Date(props.poll.deadline).toLocaleString(undefined, {
-        day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-      })
-    : "",
+  props.poll.deadline ? formatDate(props.poll.deadline, "dayMonthTime") : "",
 );
 
 function votersFor(slotId: string): Array<{ name: string; choice: PollVoteChoice }> {

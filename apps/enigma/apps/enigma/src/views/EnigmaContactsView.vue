@@ -34,6 +34,7 @@ import {
   type ContactEntry,
   type P2pRoomEntry,
   type NickClaim,
+  formatDate,
 } from "rakotis";
 import { chargeHp, confirmHp, recoverHp } from "../components/hp/useHp";
 import { useChatStore } from "../stores/chat";
@@ -106,7 +107,7 @@ onUnmounted(() => {
 });
 
 function lastSeenLabel(c: ContactEntry): string {
-  return c.lastSeen ? new Date(c.lastSeen).toLocaleString() : "";
+  return c.lastSeen ? formatDate(c.lastSeen, "dateTime") : "";
 }
 
 // ── My nickname (opt-in "findable as ‹nick›" claim on the DHT directory) ──────
