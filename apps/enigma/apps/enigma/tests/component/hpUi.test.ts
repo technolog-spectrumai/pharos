@@ -63,6 +63,12 @@ const global = {
 const modalGlobal = { ...global, stubs: { ...global.stubs, teleport: true } };
 
 beforeEach(async () => {
+  // Teleported popovers live on <body>, outside any wrapper, so a mount left
+  // standing by an earlier test would still be on the page. Clear them so each
+  // test's assertions are about its own component.
+  document
+    .querySelectorAll('[data-testid="hp-explain"], [data-testid="hp-explain-backdrop"]')
+    .forEach((n) => n.remove());
   setActivePinia(createPinia());
   resetHpLedgerForTest();
   stopHp();
@@ -98,10 +104,94 @@ describe("OyaHpPrice", () => {
 
   it("reveals exactly one sentence behind the info icon", async () => {
     const explain = "Anyone holding your network identity can tell when you are around.";
-    const w = mount(OyaHpPrice, { props: { centi: -1000, explain }, global });
-    expect(w.find('[data-testid="hp-explain"]').exists()).toBe(false);
+    const w = mount(OyaHpPrice, { props: { centi: -1000, explain }, attachTo: document.body, global });
+    expect(document.querySelector('[data-testid="hp-explain"]')).toBeNull();
     await w.get('[data-testid="hp-info"]').trigger("click");
-    expect(w.get('[data-testid="hp-explain"]').text()).toBe(explain);
+    expect(document.querySelector('[data-testid="hp-explain"]')?.textContent?.trim()).toBe(explain);
+    w.unmount();
+  });
+
+  it("escapes its container instead of being clipped by it", async () => {
+    // The bug this fixes: the badge sits inside modal cards that are
+    // `overflow-y-auto`, and an absolutely-positioned child of a scroll
+    // container is clipped by it — the explanation ended up half off the side
+    // of the New-chat dialog. Teleporting to <body> is what takes it out of
+    // every ancestor's clipping box, so that is what is asserted.
+    const w = mount(OyaHpPrice, {
+      props: { centi: -1000, explain: "why" },
+      attachTo: document.body,
+      global,
+    });
+    await w.get('[data-testid="hp-info"]').trigger("click");
+    const panel = document.querySelector('[data-testid="hp-explain"]');
+    expect(panel).not.toBeNull();
+    // Not a descendant of the badge — that is the whole point.
+    expect(w.element.contains(panel!)).toBe(false);
+    expect(panel!.parentElement).toBe(document.body);
+    expect(panel!.className).toContain("fixed");
+    // Positioned in viewport coordinates, which is what makes it immune to an
+    // ancestor's overflow.
+    expect((panel as HTMLElement).style.top).not.toBe("");
+    w.unmount();
+  });
+
+  it("opens downward from the icon", async () => {
+    // Upward looked tidier beside a button low in a dialog, but these badges sit
+    // near the TOP of one, where "up" is off the dialog entirely.
+    const w = mount(OyaHpPrice, {
+      props: { centi: -1000, explain: "why" },
+      attachTo: document.body,
+      global,
+    });
+    const icon = w.get('[data-testid="hp-info"]').element as HTMLElement;
+    await w.get('[data-testid="hp-info"]').trigger("click");
+    const panel = document.querySelector('[data-testid="hp-explain"]') as HTMLElement;
+    expect(parseFloat(panel.style.top)).toBeGreaterThanOrEqual(
+      icon.getBoundingClientRect().bottom,
+    );
+    w.unmount();
+  });
+
+  it("never positions itself off the left edge", async () => {
+    // Right-aligning to the icon would push a badge near the left margin
+    // off-screen; the clamp is what stops that.
+    const w = mount(OyaHpPrice, {
+      props: { centi: -1000, explain: "why" },
+      attachTo: document.body,
+      global,
+    });
+    await w.get('[data-testid="hp-info"]').trigger("click");
+    const panel = document.querySelector('[data-testid="hp-explain"]') as HTMLElement;
+    expect(parseFloat(panel.style.left)).toBeGreaterThanOrEqual(0);
+    w.unmount();
+  });
+
+  it("closes on a click away and leaves nothing behind", async () => {
+    const w = mount(OyaHpPrice, {
+      props: { centi: -1000, explain: "why" },
+      attachTo: document.body,
+      global,
+    });
+    await w.get('[data-testid="hp-info"]').trigger("click");
+    expect(document.querySelector('[data-testid="hp-explain"]')).not.toBeNull();
+    const backdrop = document.querySelector('[data-testid="hp-explain-backdrop"]') as HTMLElement;
+    backdrop.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await w.vm.$nextTick();
+    expect(document.querySelector('[data-testid="hp-explain"]')).toBeNull();
+    w.unmount();
+  });
+
+  it("cleans up when unmounted while open", async () => {
+    // A dialog can be closed with the panel still up; a teleported node that
+    // outlived its owner would sit on the page forever.
+    const w = mount(OyaHpPrice, {
+      props: { centi: -1000, explain: "why" },
+      attachTo: document.body,
+      global,
+    });
+    await w.get('[data-testid="hp-info"]').trigger("click");
+    w.unmount();
+    expect(document.querySelector('[data-testid="hp-explain"]')).toBeNull();
   });
 
   it("offers no info icon when there is nothing to explain", () => {
