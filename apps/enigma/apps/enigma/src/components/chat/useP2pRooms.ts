@@ -1,5 +1,18 @@
 import { ref, watch } from "vue";
-import { isTorTicket, getConnectTimeoutSecs, roomActionId } from "rakotis";
+import {
+  bytesToBase64,
+  cryptoService,
+  getConnectTimeoutSecs,
+  isInviteTicket,
+  isTorTicket,
+  roomActionId,
+} from "rakotis";
+import { isTauri as _isTauriFn, invoke as _rawInvoke } from "rakotis";
+
+async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!_isTauriFn()) throw new Error("INVITE_UNREACHABLE");
+  return _rawInvoke<T>(cmd, args);
+}
 import { chargeHp, dataCreditHp, recoverHp } from "../hp/useHp";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
 
@@ -179,9 +192,100 @@ export function useP2pRooms(channel: ChatChannel) {
     clearConnectTimer();
   }
 
+  // ── invitations (technology.md §18) ─────────────────────────────────────────
+  // A scanned invitation goes down a different road entirely: instead of joining
+  // a topic, we connect to the inviter, prove we hold the capability, and are
+  // admitted to the group by them. The join field does not change — the tag byte
+  // routes it, exactly as it already routes Tor tickets and DHT room codes.
+
+  /** What a scanned invitation says about itself, before committing to it. */
+  const invitePeek = ref<{ kind: string; inviter: string; expiresAt: number } | null>(null);
+
+  /** Refusals come back as stable `INVITE_*` codes so each gets its own
+   *  sentence. "Already used" and "expired" call for different things from the
+   *  person holding the code, and collapsing them into "failed" helps nobody. */
+  function inviteErrorKey(raw: string): string {
+    const code = raw.match(/INVITE_[A-Z_]+/)?.[0] ?? "";
+    switch (code) {
+      case "INVITE_NOT_FOR_YOU":
+      case "INVITE_WRONG_RECIPIENT":
+        return "invite.errNotForYou";
+      case "INVITE_EXPIRED":
+        return "invite.errExpired";
+      case "INVITE_USED":
+        return "invite.errUsed";
+      case "INVITE_REVOKED":
+        return "invite.errRevoked";
+      case "INVITE_BUSY":
+        return "invite.errBusy";
+      case "INVITE_UNREACHABLE":
+        return "invite.errUnreachable";
+      case "INVITE_ADMIT_FAILED":
+        return "invite.errAdmitFailed";
+      case "INVITE_VERSION":
+        return "invite.errVersion";
+      default:
+        return "invite.errGeneric";
+    }
+  }
+
+  async function redeemInvite(code: string) {
+    joinError.value = "";
+    joinStarted.value = true;
+    invitePeek.value = null;
+    try {
+      // Look before leaping: the peek is local and tells the user who is
+      // inviting them and how long the code has left.
+      const peek = await _invoke<{ kind: string; inviter: string; expiresAt: number }>(
+        "invite_peek",
+        { ticket: code },
+      );
+      invitePeek.value = peek;
+
+      // The KeyPackage must exist BEFORE the room is known — an invitation
+      // deliberately does not name its room until the capability is proven. So
+      // it is built under a scratch key and the session moves once the grant
+      // names a room (mls_adopt_session).
+      const identity = channel.mlsIdentity.value;
+      const scratch = `invite:${peek.inviter}:${peek.expiresAt}`;
+      await cryptoService.initSession(scratch, identity);
+      const kp = await cryptoService.keyPackage(scratch, identity);
+      if (!kp) throw new Error("INVITE_ADMIT_FAILED");
+
+      const grant = await _invoke<{
+        welcome: string;
+        roomName: string;
+        peers: string[];
+        onion: string;
+      }>("invite_redeem", {
+        ticket: code,
+        keyPackage: bytesToBase64(kp),
+        name: channel.currentUserName.value,
+      });
+
+      if (!(await channel.joinByInvite(grant, scratch))) {
+        joinError.value = "invite.errAdmitFailed";
+        return;
+      }
+      // Redeeming IS joining a room, and is charged as one — a second price for
+      // the same event would break the ladder's ordering.
+      await chargeHp(roomActionId("join", !!grant.onion));
+      ticket.value = "";
+      joinError.value = "";
+    } catch (e) {
+      joinError.value = inviteErrorKey(typeof e === "string" ? e : ((e as Error).message ?? ""));
+    }
+  }
+
   async function joinRoom() {
     const t = ticket.value.trim();
     if (!t) return;
+    // Tag sniff first: an invitation is not a ticket and must not reach the
+    // ticket parser, which would reject it as malformed.
+    if (isInviteTicket(t)) {
+      await redeemInvite(t);
+      return;
+    }
     joinError.value = "";
     joinStarted.value = true;
     joiningTor.value = isTorTicket(t);
@@ -326,6 +430,7 @@ export function useP2pRooms(channel: ChatChannel) {
     joinRoom,
     cancelJoin,
     joinTicket,
+    invitePeek,
     scanFile,
   };
 }

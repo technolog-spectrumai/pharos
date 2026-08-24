@@ -975,6 +975,57 @@ fn mls_add_member(
 }
 
 /// Join a group using a Welcome message received from the group creator.
+/// Re-file an MLS session under a different room key.
+///
+/// Needed by exactly one flow, and it is worth saying why rather than leaving it
+/// looking like a convenience. A redeemer has to produce a **KeyPackage before it
+/// knows which room** it is for — the whole point of an invitation is that the
+/// QR does not name the room, which is only granted after the capability is
+/// proven. So the redeemer builds its session under a scratch key derived from
+/// the invitation, and the Welcome must be processed by *that* session, because
+/// it is the one holding the KeyPackage's private init key.
+///
+/// This moves it to where the rest of the app expects to find it. `export_state`
+/// / `import_state` is the same round-trip `persist`/`restore` already perform,
+/// so no new serialisation surface is introduced.
+///
+/// Refuses to overwrite an existing session: adopting onto a room we are already
+/// a member of would discard live group state, and a silently broken group is
+/// worse than a failed join.
+#[tauri::command]
+fn mls_adopt_session(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    sessions: State<Sessions>,
+    from_room: String,
+    to_room: String,
+    identity: String,
+) -> Result<(), String> {
+    let config = active_config(&config)?;
+    let from = session_key(&config.profile, &from_room, &identity);
+    let to = session_key(&config.profile, &to_room, &identity);
+    if from == to {
+        return Ok(());
+    }
+
+    let mut map = sessions.lock().map_err(|e| e.to_string())?;
+    if map.contains_key(&to) || restore(&app, &config, &to_room, &identity).is_some() {
+        return Err("MLS_SESSION_EXISTS".to_string());
+    }
+    let session = map.remove(&from).ok_or_else(|| "session not initialised".to_string())?;
+
+    let mut bytes = session.export_state()?;
+    let adopted = RotorSession::import_state(&bytes)?;
+    bytes.zeroize();
+
+    persist(&app, &config, &adopted, &to_room, &identity);
+    map.insert(to, adopted);
+    // The scratch key's persisted copy would otherwise sit in the vault holding
+    // the same group material under a name nothing looks for.
+    let _ = vault::delete(&app, "mls", &mls_key(&from_room, &identity));
+    Ok(())
+}
+
 #[tauri::command]
 fn mls_join_from_welcome(
     app: AppHandle,
@@ -1362,6 +1413,7 @@ pub fn run() {
             mls_key_package,
             mls_add_member,
             mls_join_from_welcome,
+            mls_adopt_session,
             mls_process_message,
             mls_encrypt,
             mls_clear_state,

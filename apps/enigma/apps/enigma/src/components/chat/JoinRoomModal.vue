@@ -16,7 +16,7 @@ const props = defineProps<{
 // live here.
 const emit = defineEmits<{ "update:open": [boolean]; "open-camera": [] }>();
 
-const { ticket, scanError, joinStarted, joinError, joiningTor, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin } =
+const { ticket, scanError, joinStarted, joinError, joiningTor, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin, invitePeek } =
   props.controller;
 // Live status from the channel — "established" = MLS Encrypted.
 const { isEncrypted, mlsStatus } = props.channel;
@@ -40,6 +40,15 @@ function close() {
       <!-- Paste / scan / upload form -->
       <template v-if="!joinStarted">
         <OyaTextField v-model="ticket" :placeholder="$t('chat.pasteTicket')" @enter="joinRoom" />
+        <!-- A scanned invitation says who is inviting you before it is redeemed:
+             an invitation is a connection to a person, not a topic to join. -->
+        <p
+          v-if="invitePeek"
+          class="text-xs opacity-70"
+          data-testid="invite-peek"
+        >
+          {{ $t("invite.redeeming", { who: invitePeek.inviter.slice(0, 12) }) }}
+        </p>
         <div class="flex gap-2">
           <button
             type="button"

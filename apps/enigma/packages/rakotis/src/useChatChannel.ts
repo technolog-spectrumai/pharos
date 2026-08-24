@@ -1354,12 +1354,13 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
    * happened over the authenticated redemption stream, so the group membership
    * is settled before the first gossip frame.
    */
-  async function joinByInvite(grant: {
-    roomName: string;
-    welcome: string;
-    peers: string[];
-    onion: string;
-  }): Promise<boolean> {
+  async function joinByInvite(
+    grant: { roomName: string; welcome: string; peers: string[]; onion: string },
+    /** The scratch room key the redeemer's KeyPackage was built under. It has to
+     *  move onto the real room before the Welcome can be processed there — that
+     *  session is the one holding the KeyPackage's private init key. */
+    scratchRoom: string,
+  ): Promise<boolean> {
     error.value = null;
     try {
       // `joinByNode` routes on both transports (realtime_join_room_by_node).
@@ -1371,8 +1372,14 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         chatTransport.setCaptain(currentRoom.value.slug, grant.onion);
       }
       if (!currentRoom.value) return false;
+      const slug = currentRoom.value.slug;
+      if (!(await cryptoService.adoptSession(scratchRoom, slug, mlsIdentity.value))) {
+        mlsStatus.value = "error";
+        mlsError.value = "Could not take up the invitation's encrypted session.";
+        return false;
+      }
       const ok = await cryptoService.joinFromWelcome(
-        currentRoom.value.slug,
+        slug,
         mlsIdentity.value,
         base64ToBytes(grant.welcome),
       );
