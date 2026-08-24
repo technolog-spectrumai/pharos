@@ -685,6 +685,10 @@ export default {
     chipTitle: "Privacy HP left today",
     seeDetails: "Prices and history",
     regenRate: "+{n} HP / hour",
+    torRateActive: "Regenerating {n} HP / hour",
+    torRateOffer: "Tor would regenerate {n} HP / hour",
+    torBonusOn: "Tor is on — HP returns three times faster.",
+    torBonusOff: "Turn Tor on and HP returns three times faster. The switch itself is free.",
     regenNext: "next +1 in {n} min",
     regenDisclaimer:
       "HP returns on its own as time passes. That is a game mechanic, not a repair: a record you published is still out there long after the bar has refilled.",
@@ -725,7 +729,6 @@ export default {
       local: "This device",
     },
     action: {
-      transportTorDisable: "Turn Tor off",
       transportOnionStableEnable: "Keep one onion address",
       dhtNicknamePublish: "Publish your nickname",
       dhtPresenceEnable: "Turn on DHT discovery",
@@ -749,7 +752,6 @@ export default {
       localPanicCodeClear: "Remove the panic code",
       localLockOnHideOff: "Stop locking when hidden",
       localFileIntegrityOff: "Turn off transfer checks",
-      transportTorEnable: "Turn Tor on",
       dhtNicknameWithdraw: "Withdraw your nickname",
       dhtPresenceWithdraw: "Turn off DHT discovery",
       localAutolockOn: "Turn auto-lock on",
@@ -764,8 +766,6 @@ export default {
       dataDeleteFiles: "Remove a locked file",
     },
     explain: {
-      transportTorDisable:
-        "Without Tor, the relays that help you connect can see your address alongside who you talk to, when, and how much — for everything you do afterwards.",
       transportOnionStableEnable:
         "Reusing one onion address lets anyone who has seen it recognise you across sessions instead of meeting a fresh address each time.",
       dhtNicknamePublish:
@@ -810,8 +810,6 @@ export default {
       localLockOnHideOff: "Hiding the window no longer locks the app behind your passphrase.",
       localFileIntegrityOff:
         "Transfers are no longer checked chunk by chunk, so a corrupted or altered file can arrive unnoticed.",
-      transportTorEnable:
-        "Rendezvous and chat move onto Tor, so relays stop seeing your address for everything that follows.",
       dhtNicknameWithdraw:
         "Your nickname stops being republished and ages out of the directory. Anyone who already looked it up still has what they read.",
       dhtPresenceWithdraw:

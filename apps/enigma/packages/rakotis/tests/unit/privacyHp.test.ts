@@ -23,6 +23,7 @@ import {
   roomActionId,
   severityOf,
   ticketActionId,
+  torActiveNow,
   type HpEntry,
 } from "../../src/privacyHp";
 import { FALLBACK_HP_POLICY as P } from "../../src/services/hp";
@@ -66,8 +67,17 @@ describe("fixed prices", () => {
   });
 
   it("prices the severe exposures at the top rung", () => {
-    expect(act("transport.tor.disable").costCenti).toBe(2000);
     expect(act("dht.nickname.publish").costCenti).toBe(2000);
+  });
+
+  it("puts no price on the Tor switch at all", () => {
+    // Tor changes the regeneration RATE, not a price. The old one-time charge
+    // for switching it off punished the transition while ignoring the posture —
+    // and since Tor ships off, a profile that never touched the switch was never
+    // charged despite being permanently exposed.
+    expect(findAction(P, "transport.tor.disable")).toBeNull();
+    expect(findAction(P, "transport.tor.enable")).toBeNull();
+    expect(findRecovery(P, "transport.tor.enable")).toBeNull();
   });
 
   it("prices every fixed action on a ladder rung", () => {
@@ -287,6 +297,117 @@ describe("regeneration", () => {
     const log = [spend(T0 - 10 * HOUR, "dht.presence.enable", 1000), spend(T0, "room.create.clearnet", 500)];
     const b = deriveBalances(P, log, T0);
     expect(b.daily.unhealedCenti).toBe(500);
+  });
+});
+
+// ── Tor changes the rate, not a price ───────────────────────────────────────
+
+describe("Tor regeneration", () => {
+  const posture = (ts: number, on: boolean): HpEntry => ({
+    ts,
+    kind: "posture",
+    code: on ? "transport.tor.on" : "transport.tor.off",
+    hp: 0,
+    n: 1,
+    bucket: 0,
+  });
+
+  it("heals three times faster while Tor is on", () => {
+    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const off = deriveBalances(P, [charge], T0 + HOUR).daily;
+    const on = deriveBalances(P, [posture(T0 - 1, true), charge], T0 + HOUR).daily;
+    expect(off.balanceCenti).toBe(8400); // −20, +4 back
+    expect(on.balanceCenti).toBe(9200); // −20, +12 back
+  });
+
+  it("reports the rate actually in force", () => {
+    const plain = deriveBalances(P, [], T0);
+    expect(plain.daily.regenPerHourCenti).toBe(400);
+    expect(plain.daily.torActive).toBe(false);
+    const tor = deriveBalances(P, [posture(T0 - 1, true)], T0);
+    expect(tor.daily.regenPerHourCenti).toBe(1200);
+    expect(tor.weekly.regenPerHourCenti).toBe(300);
+    expect(tor.daily.torActive).toBe(true);
+  });
+
+  it("always advertises what Tor would pay, whatever the current posture", () => {
+    // Drives the "you could be regenerating faster" hint.
+    const plain = deriveBalances(P, [], T0).daily;
+    expect(plain.torRegenPerHourCenti).toBe(1200);
+  });
+
+  it("does not re-heal the past when Tor is switched on", () => {
+    // THE property this design exists for. A naive implementation multiplies
+    // total elapsed time by the current rate, so flipping the switch would jump
+    // the meter. Here the balance is identical either side of the flip.
+    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const flip = T0 + HOUR;
+    const justBefore = deriveBalances(P, [charge], flip).daily.balanceCenti;
+    const justAfter = deriveBalances(P, [charge, posture(flip, true)], flip).daily.balanceCenti;
+    expect(justAfter).toBe(justBefore);
+  });
+
+  it("does not un-heal the past when Tor is switched off", () => {
+    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const flip = T0 + HOUR;
+    const log = [posture(T0 - 1, true), charge];
+    const before = deriveBalances(P, log, flip).daily.balanceCenti;
+    const after = deriveBalances(P, [...log, posture(flip, false)], flip).daily.balanceCenti;
+    expect(after).toBe(before);
+  });
+
+  it("counts each hour at the rate that was actually in force", () => {
+    // One hour with Tor off (+4), then one with it on (+12) = 16 back.
+    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const log = [charge, posture(T0 + HOUR, true)];
+    expect(deriveBalances(P, log, T0 + 2 * HOUR).daily.balanceCenti).toBe(9600);
+    // And the mirror image: fast hour first, then slow.
+    const log2 = [posture(T0 - 1, true), charge, posture(T0 + HOUR, false)];
+    expect(deriveBalances(P, log2, T0 + 2 * HOUR).daily.balanceCenti).toBe(9600);
+  });
+
+  it("counts a charge made mid-Tor-session at the Tor rate", () => {
+    const log = [posture(T0, true), spend(T0 + HOUR, "transport.onion_stable.enable", 2000)];
+    expect(deriveBalances(P, log, T0 + 2 * HOUR).daily.balanceCenti).toBe(9200);
+  });
+
+  it("treats an absent posture history as Tor off", () => {
+    // The shipped default. A profile that predates the marker must not be
+    // credited with protection it never had.
+    expect(deriveBalances(P, [], T0).daily.torActive).toBe(false);
+  });
+
+  it("keeps posture markers out of the balance entirely", () => {
+    // Zero-HP rows: neither spend nor credit, and they must not dilute either.
+    const log = [posture(T0, true), posture(T0 + 1, false), posture(T0 + 2, true)];
+    const b = deriveBalances(P, log, T0 + 3);
+    expect(b.daily.balanceCenti).toBe(P.dailyMaxCenti);
+    expect(b.daily.unhealedCenti).toBe(0);
+    expect(b.daily.creditedCenti).toBe(0);
+  });
+
+  it("keeps posture markers out of the history view", () => {
+    // "Why did this change?" lists what cost or earned HP. A rate change did
+    // neither, so listing it would be noise the user cannot act on.
+    const log = [posture(T0, true), spend(T0 + 1, "vox.call", 900)];
+    const rows = historyRows(P, log, T0 + 2);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].code).toBe("vox.call");
+  });
+
+  it("counts the countdown down at the Tor rate", () => {
+    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    expect(deriveBalances(P, [charge], T0).daily.msToNextHp).toBe(15 * 60_000);
+    expect(
+      deriveBalances(P, [posture(T0 - 1, true), charge], T0).daily.msToNextHp,
+    ).toBe(5 * 60_000);
+  });
+
+  it("reads the current posture from the newest marker", () => {
+    expect(torActiveNow([posture(T0, true), posture(T0 + 1, false)])).toBe(false);
+    expect(torActiveNow([posture(T0 + 1, false), posture(T0, true)])).toBe(false);
+    expect(torActiveNow([posture(T0, false), posture(T0 + 1, true)])).toBe(true);
+    expect(torActiveNow([])).toBe(false);
   });
 });
 

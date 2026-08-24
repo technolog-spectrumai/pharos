@@ -1337,6 +1337,7 @@ pub fn run() {
             privacy_hp::hp_get_policy,
             privacy_hp::hp_ledger,
             privacy_hp::hp_charge,
+            privacy_hp::hp_set_tor_posture,
             privacy_hp::hp_recover,
             privacy_hp::hp_data_credit,
             privacy_hp::hp_count,

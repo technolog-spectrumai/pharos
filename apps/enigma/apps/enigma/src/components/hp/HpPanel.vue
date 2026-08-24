@@ -47,7 +47,7 @@ function nextLabel(ms: number | null): string {
 const GROUPS: { key: string; ids: string[] }[] = [
   {
     key: "transport",
-    ids: ["transport.tor.disable", "transport.onion_stable.enable"],
+    ids: ["transport.onion_stable.enable"],
   },
   {
     key: "discovery",
@@ -151,6 +151,20 @@ const recoveries = computed(() => policy.recoveries);
     </div>
 
     <p v-if="!hpLoaded" class="text-sm opacity-60">{{ $t("hp.loading") }}</p>
+
+    <!-- The one lever the user can pull on the rate itself. Worth saying next to
+         the meters rather than burying in the price list: it is the only thing
+         here that changes how fast HP comes back. -->
+    <p
+      class="rounded-lg border p-3 text-xs leading-relaxed"
+      :class="hpBalances.daily.torActive
+        ? 'border-success-light/40 bg-success-light/10 dark:border-success-dark/40 dark:bg-success-dark/10'
+        : 'border-current/15 opacity-70'"
+      data-testid="hp-tor-bonus"
+    >
+      <font-awesome-icon icon="shield-halved" class="mr-1.5 opacity-70" />
+      {{ hpBalances.daily.torActive ? $t("hp.torBonusOn") : $t("hp.torBonusOff") }}
+    </p>
 
     <!-- The line that keeps the whole feature honest. Shown wherever the meters
          are, including the compact welcome view. -->

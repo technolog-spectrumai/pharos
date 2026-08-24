@@ -10,7 +10,16 @@ import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
 import { availableTabs, isTabVisible, setTabVisible, type AppTabId } from "../tabs";
 import HpPanel from "../components/hp/HpPanel.vue";
-import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from "../components/hp/useHp";
+import {
+  chargeHp,
+  confirmHp,
+  creditFor,
+  explainFor,
+  hpBalances,
+  priceFor,
+  recordTorPosture,
+  recoverHp,
+} from "../components/hp/useHp";
 import {
   clearOfflineProfile,
   getProfileState,
@@ -68,7 +77,7 @@ import {
 import { OyaCard } from "rakotis";
 import { OyaButton } from "rakotis";
 import { OyaModal, OyaTextField } from "rakotis";
-import { OyaHpPrice } from "rakotis";
+import { OyaHpPrice, formatHp } from "rakotis";
 
 // Price badges show what the NEXT tap would cost, so they flip with the switch —
 // which is what "show the price on the setting" has to mean for a toggle. A
@@ -140,13 +149,12 @@ async function toggleOffline() {
 // shown NodeId (iroh) / onion refreshes on the next room command.
 async function toggleUseTor() {
   const next = !useTor.value;
-  // Turning Tor OFF is the app's single most exposing state change (it re-opens
-  // every other action's clearnet variant), so it confirms; turning it ON is a
-  // recovery and never asks. Charged only after the switch actually flipped.
-  if (!next && !(await confirmHp("transport.tor.disable"))) return;
   await network.setUseTor(next);
-  if (next) await recoverHp("transport.tor.enable");
-  else await chargeHp("transport.tor.disable");
+  // Privacy HP: the switch itself costs and earns NOTHING. What it changes is
+  // the regeneration rate — every hour with Tor on returns HP three times
+  // faster. Recording the posture is what lets that be counted from here on
+  // without re-scoring the hours already behind it.
+  await recordTorPosture(next);
 }
 
 // ── Keep onion stable (encrypted-at-rest HS key) ─────────────────────────────
@@ -987,13 +995,21 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ useTor ? $t('config.useTorOnHint') : $t('config.useTorOffHint') }}
           </p>
-          <OyaHpPrice
-            v-if="useTor ? priceFor('transport.tor.disable') : 0 !== 0"
-            class="mt-1"
-            :centi="useTor ? priceFor('transport.tor.disable') : 0"
-            :explain="hpExplain('transport.tor.disable')"
+
+          <!-- Not a price: Tor is free to switch. The badge advertises the
+               regeneration bonus, which is what actually changes. -->
+          <span
+            class="mt-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-bold"
+            :class="useTor
+              ? 'border-success-light/50 text-success-light dark:border-success-dark/50 dark:text-success-dark'
+              : 'border-current/25 opacity-70'"
             data-testid="hp-badge-tor"
-          />
+          >
+            <font-awesome-icon icon="shield-halved" />
+            {{ useTor
+              ? $t('hp.torRateActive', { n: formatHp(hpBalances.daily.regenPerHourCenti) })
+              : $t('hp.torRateOffer', { n: formatHp(hpBalances.daily.torRegenPerHourCenti) }) }}
+          </span>
         </div>
         <button
           type="button"

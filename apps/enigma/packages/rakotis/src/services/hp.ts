@@ -55,9 +55,11 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
   dailyMaxCenti: 10_000,
   dailyRegenCenti: 100,
   dailyRegenPerMinutes: 15,
+  dailyTorRegenPerMinutes: 5,
   weeklyMaxCenti: 70_000,
   weeklyRegenCenti: 100,
   weeklyRegenPerMinutes: 60,
+  weeklyTorRegenPerMinutes: 20,
   weeklyWindowDays: 7,
   recoveryDailyCapCenti: 2500,
   recoveryWeeklyCapCenti: 10_000,
@@ -67,7 +69,6 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
   dataDailyCapCenti: 1000,
   dataWeeklyCapCenti: 2500,
   actions: [
-    A("transport.tor.disable", "toggle", 2000, "hp.explain.transportTorDisable"),
     A("transport.onion_stable.enable", "toggle", 300, "hp.explain.transportOnionStableEnable"),
     A("dht.nickname.publish", "toggle", 2000, "hp.explain.dhtNicknamePublish"),
     A("dht.presence.enable", "toggle", 1000, "hp.explain.dhtPresenceEnable"),
@@ -108,7 +109,6 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
     A("local.file_integrity.off", "toggle", 100, "hp.explain.localFileIntegrityOff"),
   ],
   recoveries: [
-    R("transport.tor.enable", 1000, "transport.tor.disable", "hp.explain.transportTorEnable"),
     R("dht.nickname.withdraw", 1000, "dht.nickname.publish", "hp.explain.dhtNicknameWithdraw"),
     R("dht.presence.withdraw", 500, "dht.presence.enable", "hp.explain.dhtPresenceWithdraw"),
     R("local.autolock.on", 500, "local.autolock.off", "hp.explain.localAutolockOn"),
@@ -285,6 +285,28 @@ function browserExposureLive(actionId: string): boolean {
   return !browserLedger.some(
     (e) => e.kind === "recover" && e.ts >= at && findRecovery(policy, e.code)?.requires === actionId,
   );
+}
+
+/**
+ * Record the transport posture. A zero-HP ledger row, not a charge.
+ *
+ * Idempotent — re-asserting the posture already recorded writes nothing, so it
+ * is safe to call at every boot, which is also what re-establishes the marker
+ * after old rows are pruned.
+ */
+export async function hpSetTorPosture(on: boolean): Promise<boolean> {
+  if (isTauri()) {
+    try {
+      return await invoke<boolean>("hp_set_tor_posture", { on });
+    } catch {
+      return false;
+    }
+  }
+  const code = on ? "transport.tor.on" : "transport.tor.off";
+  const last = [...browserLedger].filter((e) => e.kind === "posture").sort((a, b) => a.ts - b.ts).pop();
+  if ((last?.code ?? "transport.tor.off") === code) return false;
+  browserLedger.push({ ts: browserStamp(), kind: "posture", code, hp: 0, n: 1, bucket: 0 });
+  return true;
 }
 
 /** Award a fixed recovery. Rust verifies the paired exposure is live and applies

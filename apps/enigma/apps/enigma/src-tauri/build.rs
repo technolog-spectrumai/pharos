@@ -628,6 +628,10 @@ struct HpMeter {
     max: f64,
     regen_hp: f64,
     regen_per_minutes: u64,
+    /// The faster period that applies while Tor is on. Must be SMALLER than
+    /// `regen_per_minutes` (a shorter period means a higher rate) — running with
+    /// Tor may never regenerate more slowly than running without it.
+    tor_regen_per_minutes: u64,
     /// Daily has no rolling window — it resets on the local day boundary.
     #[serde(default)]
     window_days: Option<u64>,
@@ -700,7 +704,6 @@ struct HpDataSource {
 /// YAML fails the build instead of silently making that surface free — the
 /// failure mode a price table must never have.
 const REQUIRED_HP_ACTIONS: &[&str] = &[
-    "transport.tor.disable",
     "transport.onion_stable.enable",
     "dht.nickname.publish",
     "dht.presence.enable",
@@ -728,7 +731,6 @@ const REQUIRED_HP_ACTIONS: &[&str] = &[
 
 /// Recovery ids the app awards. Same rationale as above, mirrored.
 const REQUIRED_HP_RECOVERIES: &[&str] = &[
-    "transport.tor.enable",
     "dht.nickname.withdraw",
     "dht.presence.withdraw",
     "local.autolock.on",
@@ -808,6 +810,17 @@ fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
         }
         if m.regen_per_minutes == 0 {
             err(format!("meters.{name}.regen_per_minutes: must be at least 1"));
+        }
+        if m.tor_regen_per_minutes == 0 {
+            err(format!("meters.{name}.tor_regen_per_minutes: must be at least 1"));
+        }
+        // The whole mechanic is "Tor regenerates faster". A config where it did
+        // not would invert the incentive silently, so it fails the build.
+        if m.tor_regen_per_minutes > m.regen_per_minutes {
+            err(format!(
+                "meters.{name}.tor_regen_per_minutes: {} is SLOWER than the base {} — running with Tor must never regenerate more slowly",
+                m.tor_regen_per_minutes, m.regen_per_minutes
+            ));
         }
         if let Some(d) = m.window_days {
             if !(1..=31).contains(&d) {
@@ -1040,9 +1053,12 @@ pub const CONFIRM_AT_CENTI: i64 = {confirm_at};
 pub const DAILY_MAX_CENTI: i64 = {d_max};
 pub const DAILY_REGEN_CENTI: i64 = {d_regen};
 pub const DAILY_REGEN_PER_MINUTES: i64 = {d_per};
+/// The faster period while Tor is on (smaller = faster).
+pub const DAILY_TOR_REGEN_PER_MINUTES: i64 = {d_tor};
 pub const WEEKLY_MAX_CENTI: i64 = {w_max};
 pub const WEEKLY_REGEN_CENTI: i64 = {w_regen};
 pub const WEEKLY_REGEN_PER_MINUTES: i64 = {w_per};
+pub const WEEKLY_TOR_REGEN_PER_MINUTES: i64 = {w_tor};
 pub const WEEKLY_WINDOW_DAYS: i64 = {w_days};
 
 pub const RECOVERY_DAILY_CAP_CENTI: i64 = {r_daily};
@@ -1082,9 +1098,11 @@ pub fn data_source(id: &str) -> Option<&'static HpDataSource> {{
         d_max = to_centi("meters.daily.max", cfg.meters.daily.max, errors),
         d_regen = to_centi("meters.daily.regen_hp", cfg.meters.daily.regen_hp, errors),
         d_per = cfg.meters.daily.regen_per_minutes,
+        d_tor = cfg.meters.daily.tor_regen_per_minutes,
         w_max = to_centi("meters.weekly.max", cfg.meters.weekly.max, errors),
         w_regen = to_centi("meters.weekly.regen_hp", cfg.meters.weekly.regen_hp, errors),
         w_per = cfg.meters.weekly.regen_per_minutes,
+        w_tor = cfg.meters.weekly.tor_regen_per_minutes,
         w_days = cfg.meters.weekly.window_days.unwrap_or(7),
         r_daily = to_centi("recovery.daily_cap", cfg.recovery.daily_cap, errors),
         r_weekly = to_centi("recovery.weekly_cap", cfg.recovery.weekly_cap, errors),

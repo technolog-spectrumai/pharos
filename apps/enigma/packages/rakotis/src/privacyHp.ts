@@ -60,9 +60,12 @@ export interface HpPolicy {
   dailyMaxCenti: number;
   dailyRegenCenti: number;
   dailyRegenPerMinutes: number;
+  /** The faster period while Tor is on (smaller = faster). */
+  dailyTorRegenPerMinutes: number;
   weeklyMaxCenti: number;
   weeklyRegenCenti: number;
   weeklyRegenPerMinutes: number;
+  weeklyTorRegenPerMinutes: number;
   weeklyWindowDays: number;
   recoveryDailyCapCenti: number;
   recoveryWeeklyCapCenti: number;
@@ -80,7 +83,8 @@ export interface HpPolicy {
  *  message, contact, room name, nickname, ticket or path. */
 export interface HpEntry {
   ts: number;
-  kind: "spend" | "recover";
+  /** `posture` rows carry no HP; they mark where the regeneration rate changed. */
+  kind: "spend" | "recover" | "posture";
   code: string;
   /** Centi-HP, signed. */
   hp: number;
@@ -98,8 +102,12 @@ export interface HpMeter {
   unhealedCenti: number;
   /** Credits inside the window. */
   creditedCenti: number;
-  /** Centi-HP returned per hour. */
+  /** Centi-HP returned per hour AT THE CURRENT POSTURE. */
   regenPerHourCenti: number;
+  /** What the rate would be with Tor on — for the "you could be earning" hint. */
+  torRegenPerHourCenti: number;
+  /** Whether Tor is on right now, per the latest posture marker. */
+  torActive: boolean;
   /** Milliseconds until the next whole HP comes back; null when already full. */
   msToNextHp: number | null;
 }
@@ -212,18 +220,90 @@ interface MeterSpec {
   windowMs: number;
   regenCenti: number;
   regenPerMinutes: number;
+  torRegenPerMinutes: number;
+}
+
+/** A point where the transport posture changed. */
+interface Posture {
+  at: number;
+  tor: boolean;
 }
 
 /**
- * How much of a charge has healed by `now`.
+ * The posture timeline, oldest first.
+ *
+ * Absent history means Tor off — the shipped default (`features.use_tor`). Rust
+ * re-asserts the current posture at every boot, so a profile whose oldest rows
+ * have been pruned still has a marker to stand on.
+ */
+function postures(entries: readonly HpEntry[]): Posture[] {
+  return entries
+    .filter((e) => e.kind === "posture")
+    .map((e) => ({ at: e.ts, tor: e.code === "transport.tor.on" }))
+    .sort((a, b) => a.at - b.at);
+}
+
+/** Is Tor on right now? */
+export function torActiveNow(entries: readonly HpEntry[]): boolean {
+  const list = postures(entries);
+  return list.length > 0 ? list[list.length - 1].tor : false;
+}
+
+/** Centi-HP returned per millisecond at a given posture. */
+function ratePerMs(tor: boolean, spec: MeterSpec): number {
+  const mins = tor ? spec.torRegenPerMinutes : spec.regenPerMinutes;
+  return spec.regenCenti / (mins * MS_PER_MINUTE);
+}
+
+/**
+ * How much of a charge has healed by `now`, integrated over the posture timeline.
+ *
+ * Hours spent with Tor on heal at the fast rate and hours without at the slow
+ * one, each counted where it actually happened. That piecewise walk is the whole
+ * reason posture markers exist: multiplying total elapsed time by whichever rate
+ * is *current* would re-heal the past every time the switch moved, so flipping
+ * Tor on would jump the meter up and flipping it off would drag it back down.
+ * Nothing here moves a balance; it only changes how fast the next minute counts.
  *
  * Continuous rather than stepped, so the bar creeps rather than jumping on the
- * hour — and integer throughout, so it never drifts. A backwards clock heals
- * nothing (`elapsed` floors at zero) rather than un-healing what already had.
+ * hour. A backwards clock heals nothing rather than un-healing what already had.
  */
-function healedCenti(entryTs: number, now: number, spec: MeterSpec): number {
-  const elapsed = Math.max(0, now - entryTs);
-  return Math.floor((elapsed * spec.regenCenti) / (spec.regenPerMinutes * MS_PER_MINUTE));
+function healedRaw(
+  entryTs: number,
+  now: number,
+  spec: MeterSpec,
+  timeline: readonly Posture[],
+): number {
+  if (now <= entryTs) return 0;
+
+  // The posture in force when the charge was made.
+  let tor = false;
+  for (const p of timeline) {
+    if (p.at > entryTs) break;
+    tor = p.tor;
+  }
+
+  let healed = 0;
+  let cursor = entryTs;
+  for (const p of timeline) {
+    if (p.at <= entryTs) continue;
+    if (p.at >= now) break;
+    healed += ratePerMs(tor, spec) * (p.at - cursor);
+    cursor = p.at;
+    tor = p.tor;
+  }
+  healed += ratePerMs(tor, spec) * (now - cursor);
+  return healed;
+}
+
+/// Whole centi-HP healed. The balance is integer, so it floors.
+function healedCenti(
+  entryTs: number,
+  now: number,
+  spec: MeterSpec,
+  timeline: readonly Posture[],
+): number {
+  return Math.floor(healedRaw(entryTs, now, spec, timeline));
 }
 
 function deriveMeter(entries: readonly HpEntry[], now: number, spec: MeterSpec): HpMeter {
@@ -231,15 +311,21 @@ function deriveMeter(entries: readonly HpEntry[], now: number, spec: MeterSpec):
   let credited = 0;
   // The soonest a whole HP returns, across every charge still weighing.
   let nextHpAt: number | null = null;
+  const timeline = postures(entries);
+  const tor = timeline.length > 0 ? timeline[timeline.length - 1].tor : false;
 
   for (const e of entries) {
     if (now - e.ts >= spec.windowMs) continue; // outside the window entirely
+    // Posture rows are timeline, not money: they must not count as spend or
+    // credit, and their zero HP must not dilute anything.
+    if (e.kind === "posture") continue;
     if (e.kind === "recover") {
       credited += e.hp;
       continue;
     }
     const owed = Math.abs(e.hp);
-    const healed = healedCenti(e.ts, now, spec);
+    const raw = healedRaw(e.ts, now, spec, timeline);
+    const healed = Math.floor(raw);
     const left = owed - healed;
     if (left <= 0) continue;
     unhealed += left;
@@ -249,9 +335,14 @@ function deriveMeter(entries: readonly HpEntry[], now: number, spec: MeterSpec):
     // promises "+1 HP", and counting down to a hundredth would be a countdown
     // to nothing the user can see. Rounded up to the next whole HP of this
     // charge, or to the moment it finishes paying if that comes first.
-    const perCenti = (spec.regenPerMinutes * MS_PER_MINUTE) / spec.regenCenti;
+    // Assumes the CURRENT posture holds from here on — the future is not
+    // knowable, and a countdown that assumed otherwise would be fiction.
+    const perCenti = 1 / ratePerMs(tor, spec);
     const nextWhole = Math.min(owed, (Math.floor(healed / 100) + 1) * 100);
-    const nextWholeAt = e.ts + Math.ceil(nextWhole * perCenti);
+    // From `raw`, not `healed`: the floored value discards up to a full centi of
+    // progress already earned, which would show a countdown that never quite
+    // reaches zero on time.
+    const nextWholeAt = now + Math.ceil((nextWhole - raw) * perCenti);
     // Charges heal independently, so the meter's next visible tick is whichever
     // of them reaches its boundary first.
     if (nextHpAt === null || nextWholeAt < nextHpAt) nextHpAt = nextWholeAt;
@@ -264,7 +355,11 @@ function deriveMeter(entries: readonly HpEntry[], now: number, spec: MeterSpec):
     maxCenti: spec.maxCenti,
     unhealedCenti: unhealed,
     creditedCenti: credited,
-    regenPerHourCenti: Math.floor((spec.regenCenti * 60) / spec.regenPerMinutes),
+    regenPerHourCenti: Math.floor(
+      (spec.regenCenti * 60) / (tor ? spec.torRegenPerMinutes : spec.regenPerMinutes),
+    ),
+    torRegenPerHourCenti: Math.floor((spec.regenCenti * 60) / spec.torRegenPerMinutes),
+    torActive: tor,
     msToNextHp: balance >= spec.maxCenti || nextHpAt === null ? null : Math.max(0, nextHpAt - now),
   };
 }
@@ -288,12 +383,14 @@ export function deriveBalances(
       windowMs: MS_PER_DAY,
       regenCenti: policy.dailyRegenCenti,
       regenPerMinutes: policy.dailyRegenPerMinutes,
+      torRegenPerMinutes: policy.dailyTorRegenPerMinutes,
     }),
     weekly: deriveMeter(entries, now, {
       maxCenti: policy.weeklyMaxCenti,
       windowMs: MS_PER_DAY * policy.weeklyWindowDays,
       regenCenti: policy.weeklyRegenCenti,
       regenPerMinutes: policy.weeklyRegenPerMinutes,
+      torRegenPerMinutes: policy.weeklyTorRegenPerMinutes,
     }),
   };
 }
@@ -352,13 +449,19 @@ export function historyRows(
     windowMs: MS_PER_DAY,
     regenCenti: policy.dailyRegenCenti,
     regenPerMinutes: policy.dailyRegenPerMinutes,
+    torRegenPerMinutes: policy.dailyTorRegenPerMinutes,
   };
+  const timeline = postures(entries);
   return [...entries]
+    // Posture markers are not events the user "did"; they belong to the rate,
+    // not to the list of what cost or earned HP.
+    .filter((e): e is HpEntry & { kind: "spend" | "recover" } => e.kind !== "posture")
     .sort((a, b) => b.ts - a.ts)
     .slice(0, limit)
     .map((e) => {
       const owed = Math.abs(e.hp);
-      const healed = e.kind === "spend" ? Math.min(owed, healedCenti(e.ts, now, spec)) : 0;
+      const healed =
+        e.kind === "spend" ? Math.min(owed, healedCenti(e.ts, now, spec, timeline)) : 0;
       return {
         ts: e.ts,
         code: e.code,

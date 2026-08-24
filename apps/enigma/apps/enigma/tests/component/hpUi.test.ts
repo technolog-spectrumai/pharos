@@ -235,7 +235,7 @@ describe("HpPanel", () => {
 
   it("lists a price for every priced action", () => {
     const w = mount(HpPanel, { global });
-    for (const id of ["transport.tor.disable", "dht.presence.enable", "ticket.export.clearnet"]) {
+    for (const id of ["dht.presence.enable", "ticket.export.clearnet", "vox.call"]) {
       expect(w.find(`[data-testid="hp-price-row-${id}"]`).exists(), id).toBe(true);
     }
   });
@@ -245,6 +245,15 @@ describe("HpPanel", () => {
     const row = w.get('[data-testid="hp-price-row-msg.tor.mls"]');
     expect(row.text()).toContain("Free");
     expect(row.text()).not.toContain("0 HP");
+  });
+
+  it("offers the Tor regeneration bonus rather than pricing the switch", () => {
+    // Tor is free to toggle; what it changes is the rate. The panel says so next
+    // to the meters, because it is the only lever on how fast HP comes back.
+    const w = mount(HpPanel, { global });
+    expect(w.get('[data-testid="hp-tor-bonus"]').text()).toMatch(/three times faster/i);
+    // And it must not appear as a price anywhere in the list.
+    expect(w.find('[data-testid="hp-price-row-transport.tor.disable"]').exists()).toBe(false);
   });
 
   it("says plainly that regeneration does not undo exposure", () => {
@@ -288,10 +297,10 @@ describe("HpConfirmModal", () => {
 
   it("shows the price and the one-sentence reason for a severe action", async () => {
     const w = mount(HpConfirmModal, { global: modalGlobal });
-    const pending = confirmHp("transport.tor.disable");
+    const pending = confirmHp("dht.nickname.publish");
     await flushPromises();
     expect(w.get('[data-testid="hp-confirm-price"]').text()).toBe("−20 HP");
-    expect(w.get('[data-testid="hp-confirm"]').text()).toMatch(/relays/i);
+    expect(w.get('[data-testid="hp-confirm"]').text()).toMatch(/directory/i);
     resolveHpConfirm(false);
     await pending;
   });
@@ -307,7 +316,7 @@ describe("HpConfirmModal", () => {
 
   it("lets the action through when Continue is clicked", async () => {
     const w = mount(HpConfirmModal, { global: modalGlobal });
-    const pending = confirmHp("transport.tor.disable");
+    const pending = confirmHp("dht.nickname.publish");
     await flushPromises();
     await w.get('[data-testid="hp-confirm-continue"]').trigger("click");
     await expect(pending).resolves.toBe(true);

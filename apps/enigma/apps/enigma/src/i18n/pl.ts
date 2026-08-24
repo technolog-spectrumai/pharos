@@ -683,6 +683,10 @@ export default {
     chipTitle: "Privacy HP pozostałe dzisiaj",
     seeDetails: "Ceny i historia",
     regenRate: "+{n} HP / godz.",
+    torRateActive: "Regeneracja {n} HP / godz.",
+    torRateOffer: "Z Torem regeneracja {n} HP / godz.",
+    torBonusOn: "Tor jest włączony — HP wraca trzy razy szybciej.",
+    torBonusOff: "Włącz Tor, a HP będzie wracać trzy razy szybciej. Sam przełącznik nic nie kosztuje.",
     regenNext: "kolejne +1 za {n} min",
     regenDisclaimer:
       "HP wraca samo z upływem czasu. To mechanika gry, a nie naprawa: opublikowany wpis nadal tam jest, długo po tym, jak pasek się zapełni.",
@@ -723,7 +727,6 @@ export default {
       local: "To urządzenie",
     },
     action: {
-      transportTorDisable: "Wyłącz Tor",
       transportOnionStableEnable: "Zachowaj jeden adres onion",
       dhtNicknamePublish: "Opublikuj swój pseudonim",
       dhtPresenceEnable: "Włącz wykrywanie DHT",
@@ -747,7 +750,6 @@ export default {
       localPanicCodeClear: "Usuń kod awaryjny",
       localLockOnHideOff: "Nie blokuj po ukryciu okna",
       localFileIntegrityOff: "Wyłącz kontrolę transferów",
-      transportTorEnable: "Włącz Tor",
       dhtNicknameWithdraw: "Wycofaj swój pseudonim",
       dhtPresenceWithdraw: "Wyłącz wykrywanie DHT",
       localAutolockOn: "Włącz automatyczną blokadę",
@@ -762,8 +764,6 @@ export default {
       dataDeleteFiles: "Usuń zablokowany plik",
     },
     explain: {
-      transportTorDisable:
-        "Bez Tora przekaźniki pomagające ci się połączyć widzą twój adres razem z tym, z kim rozmawiasz, kiedy i ile — dla wszystkiego, co zrobisz potem.",
       transportOnionStableEnable:
         "Ponowne użycie jednego adresu onion pozwala każdemu, kto go widział, rozpoznać cię między sesjami, zamiast spotykać za każdym razem nowy adres.",
       dhtNicknamePublish:
@@ -808,8 +808,6 @@ export default {
       localLockOnHideOff: "Ukrycie okna nie blokuje już aplikacji za twoim hasłem.",
       localFileIntegrityOff:
         "Transfery nie są już sprawdzane fragment po fragmencie, więc uszkodzony lub zmieniony plik może dotrzeć niezauważony.",
-      transportTorEnable:
-        "Wyszukiwanie i czat przechodzą na Tor, więc przekaźniki przestają widzieć twój adres we wszystkim, co nastąpi potem.",
       dhtNicknameWithdraw:
         "Twój pseudonim przestaje być odświeżany i wygasa z katalogu. Kto już go wyszukał, nadal ma to, co odczytał.",
       dhtPresenceWithdraw:

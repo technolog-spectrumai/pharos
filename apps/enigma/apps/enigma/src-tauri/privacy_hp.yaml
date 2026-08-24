@@ -58,20 +58,53 @@ confirm_at_hp: 10
 meters:
   daily:
     max: 100
-    # +4 HP/h. Today's budget is meant to be forgiving: you would have to send
-    # more than 80 clearnet messages an hour to outpace it.
+    # +4 HP/h with Tor off. Today's budget is meant to be forgiving: you would
+    # have to send more than 80 clearnet messages an hour to outpace it.
     regen_hp: 1
     regen_per_minutes: 15
+    # +12 HP/h with Tor on — three times as fast. See the note below.
+    tor_regen_per_minutes: 5
   weekly:
     max: 700
-    # +1 HP/h. The slower meter is the one that registers a sustained habit —
-    # above ~20 clearnet messages an hour it starts to fall behind.
+    # +1 HP/h with Tor off. The slower meter is the one that registers a
+    # sustained habit — above ~20 clearnet messages an hour it starts to fall
+    # behind.
     regen_hp: 1
     regen_per_minutes: 60
+    # +3 HP/h with Tor on.
+    tor_regen_per_minutes: 20
     # A charge also drops out of the weekly window entirely on its 7th day.
     # That is the backstop under the drip, not a second helping: both act on the
     # same per-charge quantity, so they cannot double-count.
     window_days: 7
+
+# ── why Tor changes the RATE and not a price ─────────────────────────────────
+#
+# Turning Tor on or off costs nothing and earns nothing. Instead, every hour
+# spent with Tor on regenerates HP three times faster than an hour without it.
+#
+# This replaced a one-time −20 HP charge for switching Tor off, which had a hole
+# big enough to see through: Tor ships OFF, so a profile that never touched the
+# switch was never charged, despite being permanently in the exposed state. The
+# budget punished the *transition* while ignoring the *posture*, which is exactly
+# backwards — nobody is harmed by flipping a switch, they are harmed by where the
+# switch has been sitting for the last week.
+#
+# A rate expresses that correctly and continuously: protection you actually ran
+# with pays, for as long as you ran with it, and stopping simply stops the bonus.
+# There is no one-time hit to take and then forget, and no way to game the toggle.
+#
+# NOT RETROACTIVE, and this is the part that makes it honest. Regeneration is
+# derived from ledger timestamps, so a naive implementation would re-heal every
+# past charge at whichever rate is current — flip Tor on and the meter jumps, flip
+# it off and it drops. Instead the ledger records posture markers (zero-HP rows)
+# and healing is integrated piecewise: hours with Tor on heal fast, hours without
+# heal slow, and no balance ever moves because a switch moved.
+#
+# The per-action Tor variants below are untouched and answer a different
+# question. The rate is about the posture you keep; a variant is about the
+# exposure one act causes. A clearnet ticket still leaks your IP whatever your
+# regeneration looks like.
 
 # ── what costs HP ────────────────────────────────────────────────────────────
 #
@@ -92,19 +125,10 @@ actions:
 
   # ── transport posture ──────────────────────────────────────────────────────
 
-  - id: transport.tor.disable
-    kind: toggle
-    cost: severe
-    explain_key: hp.explain.transportTorDisable
-    # technology.md §8, §9.6. This is the one switch that changes every other
-    # action's exposure: with Tor off, NodeId<->IP, who-talks-to-whom, timing,
-    # sizes and online presence go to n0 relays and discovery for everything
-    # that follows. Severe because it is not one disclosure, it is a posture.
-    #
-    # Note Tor ships OFF by default, so a fresh profile is never charged this.
-    # That is intentional and is why the clearnet posture is ALSO priced through
-    # every action's own clearnet variant below — HP prices what you do, not a
-    # standing state it never saw you enter.
+  # Turning Tor on or off is deliberately ABSENT from this table. It is not
+  # priced at all; it changes the regeneration rate instead (see the meters
+  # note above). Switching a protection on should not read as an expense, and
+  # switching it off should not be a one-time toll you pay once and then forget.
 
   - id: transport.onion_stable.enable
     kind: toggle
@@ -334,11 +358,6 @@ recovery:
   weekly_cap: 100
 
   fixed:
-    - id: transport.tor.enable
-      credit: 10
-      requires: transport.tor.disable
-      explain_key: hp.explain.transportTorEnable
-
     - id: dht.nickname.withdraw
       credit: 10
       requires: dht.nickname.publish

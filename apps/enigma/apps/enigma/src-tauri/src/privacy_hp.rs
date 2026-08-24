@@ -369,9 +369,11 @@ pub struct PolicyDto {
     pub daily_max_centi: i64,
     pub daily_regen_centi: i64,
     pub daily_regen_per_minutes: i64,
+    pub daily_tor_regen_per_minutes: i64,
     pub weekly_max_centi: i64,
     pub weekly_regen_centi: i64,
     pub weekly_regen_per_minutes: i64,
+    pub weekly_tor_regen_per_minutes: i64,
     pub weekly_window_days: i64,
     pub recovery_daily_cap_centi: i64,
     pub recovery_weekly_cap_centi: i64,
@@ -407,9 +409,11 @@ pub fn hp_get_policy() -> PolicyDto {
         daily_max_centi: hp_policy::DAILY_MAX_CENTI,
         daily_regen_centi: hp_policy::DAILY_REGEN_CENTI,
         daily_regen_per_minutes: hp_policy::DAILY_REGEN_PER_MINUTES,
+        daily_tor_regen_per_minutes: hp_policy::DAILY_TOR_REGEN_PER_MINUTES,
         weekly_max_centi: hp_policy::WEEKLY_MAX_CENTI,
         weekly_regen_centi: hp_policy::WEEKLY_REGEN_CENTI,
         weekly_regen_per_minutes: hp_policy::WEEKLY_REGEN_PER_MINUTES,
+        weekly_tor_regen_per_minutes: hp_policy::WEEKLY_TOR_REGEN_PER_MINUTES,
         weekly_window_days: hp_policy::WEEKLY_WINDOW_DAYS,
         recovery_daily_cap_centi: hp_policy::RECOVERY_DAILY_CAP_CENTI,
         recovery_weekly_cap_centi: hp_policy::RECOVERY_WEEKLY_CAP_CENTI,
@@ -444,6 +448,44 @@ pub fn hp_get_policy() -> PolicyDto {
             .map(|d| DataSourceDto { id: d.id, explain_key: d.explain_key })
             .collect(),
     }
+}
+
+/// Record which transport posture this profile is running in.
+///
+/// A **zero-HP row**, not a charge. Turning Tor on or off costs and earns
+/// nothing; what it changes is how fast HP comes back (privacy_hp.yaml, the
+/// meters note). These markers are what let that be integrated *piecewise* —
+/// hours with Tor on heal at the fast rate, hours without at the slow one — so a
+/// balance never jumps because a switch moved.
+///
+/// Idempotent: re-asserting the posture already recorded writes nothing, so this
+/// is safe to call on every boot. Calling it at boot is in fact the point — it
+/// re-establishes the marker after a profile's oldest rows have been pruned, and
+/// catches a toggle that happened while the ledger was unreachable.
+#[tauri::command]
+pub fn hp_set_tor_posture(app: AppHandle, on: bool) -> Result<bool, String> {
+    let code = if on { "transport.tor.on" } else { "transport.tor.off" };
+    let mut meta = read_meta(&app);
+    let entries = load_recent(&app, &meta);
+
+    let current = entries
+        .iter()
+        .filter(|e| e.kind == "posture")
+        .max_by_key(|e| e.ts)
+        .map(|e| e.code.as_str());
+    // Absent means "off" — the shipped default (build_config `features.use_tor`).
+    if current.unwrap_or("transport.tor.off") == code {
+        return Ok(false);
+    }
+
+    let ts = stamp(&mut meta);
+    prune(&app, &mut meta, ts);
+    append(
+        &app,
+        &mut meta,
+        Entry { ts, kind: "posture".into(), code: code.to_string(), hp: 0, n: 1, bucket: 0 },
+    )?;
+    Ok(true)
 }
 
 /// The rows rakotis derives both meters and the history view from.
@@ -649,6 +691,43 @@ mod tests {
     // ── the price table itself ──────────────────────────────────────────────
 
     #[test]
+    fn a_posture_row_carries_no_hp() {
+        // The mechanic in one assertion: posture is a rate change, never a
+        // charge and never a credit.
+        let row = Entry {
+            ts: 1,
+            kind: "posture".into(),
+            code: "transport.tor.on".into(),
+            hp: 0,
+            n: 1,
+            bucket: 0,
+        };
+        assert_eq!(row.hp, 0);
+        assert_ne!(row.kind, "spend");
+        assert_ne!(row.kind, "recover");
+    }
+
+    #[test]
+    fn turning_tor_on_and_off_has_no_price_in_the_table() {
+        // Pinned so the old one-time charge cannot creep back: it punished the
+        // transition while ignoring the posture, which is backwards.
+        assert!(hp_policy::action("transport.tor.disable").is_none());
+        assert!(hp_policy::action("transport.tor.enable").is_none());
+        assert!(hp_policy::recovery("transport.tor.enable").is_none());
+    }
+
+    #[test]
+    fn tor_always_regenerates_at_least_as_fast() {
+        // A smaller period is a higher rate. build.rs rejects the inverse, but
+        // the invariant is worth asserting where a reader will meet it.
+        assert!(hp_policy::DAILY_TOR_REGEN_PER_MINUTES < hp_policy::DAILY_REGEN_PER_MINUTES);
+        assert!(hp_policy::WEEKLY_TOR_REGEN_PER_MINUTES < hp_policy::WEEKLY_REGEN_PER_MINUTES);
+        // And the documented 3x.
+        assert_eq!(hp_policy::DAILY_REGEN_PER_MINUTES, 3 * hp_policy::DAILY_TOR_REGEN_PER_MINUTES);
+        assert_eq!(hp_policy::WEEKLY_REGEN_PER_MINUTES, 3 * hp_policy::WEEKLY_TOR_REGEN_PER_MINUTES);
+    }
+
+    #[test]
     fn every_price_is_exact_hundredths_and_within_the_ladder() {
         for a in hp_policy::ACTIONS {
             assert!(a.cost_centi >= 0, "{} has a negative cost", a.id);
@@ -665,7 +744,6 @@ mod tests {
         // The whole feature rests on "the same action always costs the same",
         // so the headline numbers are pinned here rather than left to the YAML
         // alone: changing one has to be a deliberate two-file act.
-        assert_eq!(action("transport.tor.disable").cost_centi, 2000);
         assert_eq!(action("dht.nickname.publish").cost_centi, 2000);
         assert_eq!(action("dht.presence.enable").cost_centi, 1000);
         assert_eq!(action("ticket.export.clearnet").cost_centi, 1000);

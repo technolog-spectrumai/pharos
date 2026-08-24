@@ -29,10 +29,12 @@ import {
   findRecovery,
   formatPrice,
   getHpPolicy,
+  getUseTor,
   hpCharge,
   hpDataCredit,
   hpLedger,
   hpRecover,
+  hpSetTorPosture,
   needsConfirm,
   priceOf,
   type HpBalances,
@@ -235,6 +237,17 @@ export async function recoverHp(recoveryId: string): Promise<void> {
   showFlash(delta.applied, delta.code);
 }
 
+/**
+ * Tell the ledger which transport posture this profile is running in.
+ *
+ * Not a charge and not a credit: Tor changes how fast HP comes back, and this
+ * marks where that rate changed so the past is never re-scored. Silent by
+ * design — there is no flash, because nothing was spent or earned.
+ */
+export async function recordTorPosture(on: boolean): Promise<void> {
+  if (await hpSetTorPosture(on)) await refreshHp();
+}
+
 /** Award for data actually deleted. `bytes` is a hint; Rust measures its own. */
 export async function dataCreditHp(sourceId: string, bytes: number): Promise<void> {
   const delta = await hpDataCredit(sourceId, bytes);
@@ -262,6 +275,11 @@ let tick: ReturnType<typeof setInterval> | null = null;
  * suspended machine catches up on its first tick rather than drifting.
  */
 export async function startHp(): Promise<void> {
+  // Re-assert the posture first: it decides the regeneration rate every meter
+  // below is about, and re-asserting is what recovers the marker for a profile
+  // whose oldest rows have been pruned. Read from storage rather than taken as
+  // an argument, so no caller can start the meters on a stale idea of it.
+  await hpSetTorPosture(await getUseTor().catch(() => false)).catch(() => false);
   await refreshHp();
   if (tick) return;
   tick = setInterval(() => {

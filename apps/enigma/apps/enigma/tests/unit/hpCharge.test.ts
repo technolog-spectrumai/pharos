@@ -156,7 +156,7 @@ describe("confirmation", () => {
   });
 
   it("asks for a high-cost action and honours a refusal", async () => {
-    const pending = confirmHp("transport.tor.disable");
+    const pending = confirmHp("dht.nickname.publish");
     expect(hpConfirm.value).not.toBeNull();
     expect(hpConfirm.value?.centi).toBe(-2000);
     resolveHpConfirm(false);
@@ -225,7 +225,7 @@ describe("withHp", () => {
 
   it("does not act at all when the confirmation is declined", async () => {
     const run = vi.fn();
-    const pending = withHp("transport.tor.disable", run);
+    const pending = withHp("dht.nickname.publish", run);
     resolveHpConfirm(false);
     expect(await pending).toBeNull();
     expect(run).not.toHaveBeenCalled();
@@ -279,9 +279,9 @@ describe("labels", () => {
       },
       has: () => true,
     });
-    expect(labelFor("transport.tor.disable")).toBe("T:hp.action.transportTorDisable");
-    expect(explainFor("transport.tor.disable")).toBe("T:hp.explain.transportTorDisable");
-    expect(seen).toContain("hp.action.transportTorDisable");
+    expect(labelFor("dht.nickname.publish")).toBe("T:hp.action.dhtNicknamePublish");
+    expect(explainFor("dht.nickname.publish")).toBe("T:hp.explain.dhtNicknamePublish");
+    expect(seen).toContain("hp.action.dhtNicknamePublish");
   });
 
   it("survives a translator that throws", () => {
@@ -319,7 +319,7 @@ describe("labels", () => {
 
 describe("lifecycle", () => {
   it("drops everything on lock so one profile's shape cannot leak into the next", async () => {
-    await chargeHp("transport.tor.disable");
+    await chargeHp("dht.nickname.publish");
     expect(daily()).toBeLessThan(10_000);
     stopHp();
     expect(hpFlash.value).toBeNull();
@@ -328,7 +328,7 @@ describe("lifecycle", () => {
   });
 
   it("resolves a pending confirmation as declined when the vault locks", async () => {
-    const pending = confirmHp("transport.tor.disable");
+    const pending = confirmHp("dht.nickname.publish");
     stopHp();
     await expect(pending).resolves.toBe(false);
   });
