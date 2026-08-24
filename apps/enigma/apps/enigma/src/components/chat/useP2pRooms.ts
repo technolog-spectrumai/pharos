@@ -12,6 +12,9 @@ export function useP2pRooms(channel: ChatChannel) {
   const ticket = ref("");
   const createdTicket = ref("");
   const createdCode = ref(""); // ticketless-join room code — "" while DHT discovery is off
+  // The room the ticket above belongs to. Invitations are minted against a room
+  // slug, and the entry is the only place that pairs a ticket with one.
+  const createdRoom = ref<{ slug: string; name: string }>({ slug: "", name: "" });
   const scanError = ref(""); // i18n key, "" when clear
 
   // ── Create modal ─────────────────────────────────────────────────────────────
@@ -60,8 +63,9 @@ export function useP2pRooms(channel: ChatChannel) {
       if (t) {
         createdTicket.value = t; // success wins, even after a timeout was shown
         // The room code (ticketless join) rides the remembered entry.
-        createdCode.value =
-          channel.p2pRooms.value.find((r) => r.ticket === t)?.code ?? "";
+        const entry = channel.p2pRooms.value.find((r) => r.ticket === t);
+        createdCode.value = entry?.code ?? "";
+        createdRoom.value = { slug: entry?.room ?? "", name: entry?.name ?? n };
         createError.value = "";
         name.value = "";
         // Privacy HP, charged only on a room that actually came up. The variant
@@ -295,6 +299,7 @@ export function useP2pRooms(channel: ChatChannel) {
     name,
     ticket,
     createdTicket,
+    createdRoom,
     createdCode,
     scanError,
     createOpen,

@@ -857,4 +857,48 @@ export default {
     identity: "Identity: {id}",
     profile: "Profile: {p}",
   },
+
+  // ── Invitations (technology.md §18) ─────────────────────────────────────────
+  invite: {
+    modeTicket: "Room ticket",
+    modePersonal: "Private QR",
+    modeGeneral: "Shareable QR",
+    consequence: {
+      ticket: "Permanent. Anyone who sees it can join, and it cannot be withdrawn.",
+      personal: "Only the person you choose can use it. Expires, and you can withdraw it.",
+      general: "Anyone holding the code can join. Expires, and you can withdraw it.",
+    },
+    bearerWarning:
+      "This code is not secret. Anyone who sees it — a photo, a forwarded message, someone behind you — can join until it expires.",
+    recipient: "Invite",
+    pickContact: "Choose a contact…",
+    pasteNodeCode: "Paste their node code",
+    usePaste: "Not in your contacts?",
+    usePicker: "Choose from contacts",
+    expiresIn: "Expires in",
+    ttl1h: "1 hour",
+    ttl24h: "24 hours",
+    ttl7d: "7 days",
+    ttlCustom: "Custom",
+    ttlCustomHours: "Hours until it expires",
+    keepRoomOpen:
+      "Keep this room open until they join — an invitation is redeemed by connecting to you.",
+    create: "Create code",
+    validFor: "Valid for {t}",
+    another: "Create another",
+    listTitle: "This room's invitations",
+    revoke: "Withdraw",
+    expired: "expired",
+    inDays: "{n} days",
+    inHours: "{n} hours",
+    inMinutes: "{n} min",
+    state: {
+      active: "Active",
+      inflight: "Being used…",
+      consumed: "Used",
+      revoked: "Withdrawn",
+      expired: "Expired",
+    },
+    admitRoomClosed: "Someone tried to use an invitation, but the room was not open.",
+  },
 };

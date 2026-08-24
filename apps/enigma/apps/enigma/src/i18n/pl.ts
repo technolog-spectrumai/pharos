@@ -855,4 +855,48 @@ export default {
     identity: "Tożsamość: {id}",
     profile: "Profil: {p}",
   },
+
+  // ── Zaproszenia (technology.md §18) ─────────────────────────────────────────
+  invite: {
+    modeTicket: "Bilet pokoju",
+    modePersonal: "Prywatny QR",
+    modeGeneral: "QR do udostępniania",
+    consequence: {
+      ticket: "Na stałe. Każdy, kto go zobaczy, może dołączyć, i nie da się go wycofać.",
+      personal: "Użyje go tylko wybrana przez ciebie osoba. Wygasa i możesz go wycofać.",
+      general: "Dołączy każdy, kto ma ten kod. Wygasa i możesz go wycofać.",
+    },
+    bearerWarning:
+      "Ten kod nie jest tajny. Każdy, kto go zobaczy — na zdjęciu, w przesłanej wiadomości, zaglądając ci przez ramię — może dołączyć, dopóki nie wygaśnie.",
+    recipient: "Zaproś",
+    pickContact: "Wybierz kontakt…",
+    pasteNodeCode: "Wklej jego kod węzła",
+    usePaste: "Nie ma go w kontaktach?",
+    usePicker: "Wybierz z kontaktów",
+    expiresIn: "Wygasa za",
+    ttl1h: "1 godzinę",
+    ttl24h: "24 godziny",
+    ttl7d: "7 dni",
+    ttlCustom: "Własny",
+    ttlCustomHours: "Godziny do wygaśnięcia",
+    keepRoomOpen:
+      "Zostaw ten pokój otwarty, dopóki nie dołączą — zaproszenie realizuje się przez połączenie z tobą.",
+    create: "Utwórz kod",
+    validFor: "Ważne przez {t}",
+    another: "Utwórz kolejny",
+    listTitle: "Zaproszenia tego pokoju",
+    revoke: "Wycofaj",
+    expired: "wygasło",
+    inDays: "{n} dni",
+    inHours: "{n} godz.",
+    inMinutes: "{n} min",
+    state: {
+      active: "Aktywne",
+      inflight: "W trakcie użycia…",
+      consumed: "Użyte",
+      revoked: "Wycofane",
+      expired: "Wygasłe",
+    },
+    admitRoomClosed: "Ktoś próbował użyć zaproszenia, ale pokój nie był otwarty.",
+  },
 };

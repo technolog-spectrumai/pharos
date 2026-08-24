@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import {
-  OyaModal, OyaTextField, OyaQrCode, OyaCopyField, OyaHpPrice,
-  getUseTor, isTorTicket, ticketActionId,
-} from "rakotis";
-import { chargeHp, explainFor, priceFor } from "../hp/useHp";
+import { OyaModal, OyaTextField, getUseTor, isTorTicket } from "rakotis";
+import RoomShareCard from "./RoomShareCard.vue";
 import type { P2pRoomsController } from "./useP2pRooms";
 
 const props = defineProps<{ open: boolean; controller: P2pRoomsController }>();
 const emit = defineEmits<{ "update:open": [boolean] }>();
 
-const { name, createdTicket, createdCode, createBusy, createError, createRoom } = props.controller;
+const { name, createdTicket, createdRoom, createdCode, createBusy, createError, createRoom } = props.controller;
 
 // Whether this will be a Tor room — drives the spinner wording + the captain ★ hint.
 const tor = ref(false);
@@ -57,27 +54,16 @@ function close() {
           <font-awesome-icon v-if="tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
         </p>
         <p v-if="tor" class="text-xs opacity-60">{{ $t("chat.hostStarHint") }}</p>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
-          <OyaHpPrice
-            :centi="priceFor(ticketActionId(isTorTicket(createdTicket)))"
-            :explain="explainFor(ticketActionId(isTorTicket(createdTicket)))"
-            data-testid="hp-badge-ticket"
-          />
-        </div>
-        <OyaQrCode :value="createdTicket" :size="176" alt="Room QR code" />
-        <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
-        <OyaCopyField
-          :value="createdTicket"
-          mono
-          :copy-label="$t('chat.copy')"
-          @copied="chargeHp(ticketActionId(isTorTicket(createdTicket)))"
+        <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
+        <!-- Three ways in — ticket, private invitation, bearer invitation —
+             shared with Room info so the two can never disagree. -->
+        <RoomShareCard
+          :room-slug="createdRoom.slug"
+          :room-name="createdRoom.name"
+          :ticket="createdTicket"
+          :code="createdCode"
+          :tor="isTorTicket(createdTicket)"
         />
-        <!-- Ticketless-join room code (DHT rendezvous) — only with discovery on -->
-        <template v-if="createdCode">
-          <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareCode") }}</p>
-          <OyaCopyField :value="createdCode" mono :copy-label="$t('chat.copy')" />
-        </template>
       </div>
 
       <!-- Error -->
