@@ -12,6 +12,7 @@ import { ref, computed, watch } from "vue";
 import { chatTransport, type WsStatus } from "./chatTransport";
 import { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
 import { getRuntimeConfig, type AppRuntimeConfig } from "./services/appStorage";
+import { t } from "./i18n/chatText";
 import type { Participant, Room } from "./services/types";
 import { kvGet, kvPut } from "./services/localDb";
 import {
@@ -283,6 +284,23 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
 
   function initials(name: string): string {
     return name.split(/\s+/).map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
+  }
+
+  /**
+   * A TRANSLATED system notice — the form every new one should take.
+   *
+   * `systemMsg` below still takes finished text, because a few callers already
+   * hold a string (an error from the transport, a caller-supplied reason). This
+   * wrapper is the one that goes through the app's catalog, falling back to the
+   * English beside the key when no translator is registered (`i18n/chatText.ts`).
+   */
+  function sysMsg(
+    key: string,
+    fallback: string,
+    params?: Record<string, unknown>,
+    type: "system_info" | "system_error" = "system_info",
+  ): Message {
+    return systemMsg(t(key, fallback, params), type);
   }
 
   function systemMsg(content: string, type: "system_info" | "system_error" = "system_info"): Message {
@@ -584,7 +602,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     bans.value = Array.isArray(inner.bans) ? (inner.bans as unknown[]).filter((b): b is string => typeof b === "string") : [];
     persistRoomMod();
     if (roomRules.value && roomRules.value !== rulesBefore) {
-      messages.value.push(systemMsg(`📜 Room rules:\n${roomRules.value}`));
+      messages.value.push(sysMsg("chat.sys.rules", "📜 Room rules:\n{rules}", { rules: roomRules.value }));
     }
     void refreshP2pRoster();
   }
@@ -652,7 +670,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     persistRoomMod();
     await sendEncryptedMedia("mod_mute", { device_id: mlsIdentity.value, target, until }).catch(() => {});
     await broadcastRoomMeta();
-    messages.value.push(systemMsg(`🔇 ${nameFor(target)} was muted for ${formatRemaining(until, Date.now())}.`));
+    messages.value.push(sysMsg("chat.sys.muted", "🔇 {who} was muted for {time}.", { who: nameFor(target), time: formatRemaining(until, Date.now()) }));
     void refreshP2pRoster();
   }
 
@@ -667,7 +685,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     persistRoomMod();
     await sendEncryptedMedia("mod_unmute", { device_id: mlsIdentity.value, target }).catch(() => {});
     await broadcastRoomMeta();
-    messages.value.push(systemMsg(`🔊 ${nameFor(target)} was unmuted.`));
+    messages.value.push(sysMsg("chat.sys.unmuted", "🔊 {who} was unmuted.", { who: nameFor(target) }));
     void refreshP2pRoster();
   }
 
@@ -694,7 +712,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       const commit = await cryptoService.removeMember(room, mlsIdentity.value, leaf).catch(() => null);
       if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
     }
-    messages.value.push(systemMsg(`🚫 ${nameFor(target)} was removed from the room.`));
+    messages.value.push(sysMsg("chat.sys.removed", "🚫 {who} was removed from the room.", { who: nameFor(target) }));
     void refreshP2pRoster();
   }
 
@@ -717,7 +735,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (tor) chatTransport.forgetTorOnion(name);
     if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
-    clearLocalChatState("🚫 You were removed from this room by the host.");
+    clearLocalChatState(t("chat.sys.kicked", "🚫 You were removed from this room by the host."));
   }
 
   function nameFor(id: string): string {
@@ -743,7 +761,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
     if (deadId) deadCaptains.add(deadId);
     currentCaptainOnion.value = null; // force a re-point on the next election
-    messages.value.push(systemMsg("The room host went offline — electing a new host…"));
+    messages.value.push(sysMsg("chat.sys.hostGone", "The room host went offline — electing a new host…"));
     await refreshP2pRoster(); // re-elect (skips deadCaptains) + re-point to the next captain
     // Evict the dead host from MLS only AFTER the re-point lands, so the removal
     // commit is broadcast over the NEW captain's connection (the old one is dead).
@@ -784,15 +802,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       if (kp) {
         const b64 = bytesToBase64(kp);
         send({ type: "mls_key_package", key_package: b64, device_id: identity, ...(await kpEnvelopeExtra(b64)) });
-        messages.value.push(systemMsg("🔑 MLS group changed — sent a fresh key package."));
+        messages.value.push(sysMsg("chat.sys.groupChanged", "🔑 MLS group changed — sent a fresh key package."));
       } else {
         mlsStatus.value = "error";
-        messages.value.push(systemMsg("Could not recover MLS session.", "system_error"));
+        messages.value.push(sysMsg("chat.sys.recoverFailed", "Could not recover MLS session.", undefined, "system_error"));
       }
     } catch (e) {
       mlsStatus.value = "error";
       mlsError.value = errorMessage(e);
-      messages.value.push(systemMsg(`Could not recover MLS session: ${errorMessage(e)}`, "system_error"));
+      messages.value.push(sysMsg("chat.sys.recoverFailedWhy", "Could not recover MLS session: {why}", { why: errorMessage(e) }, "system_error"));
     } finally {
       pendingRecoveryRooms.delete(recoveryKey);
     }
@@ -813,12 +831,12 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     log("status →", status);
     wsStatus.value = status;
     if (status === "connected") {
-      messages.value.push(systemMsg(`Connected to ${currentRoom.value?.name ?? "room"}.`));
+      messages.value.push(sysMsg("chat.sys.connected", "Connected to {room}.", { room: currentRoom.value?.name ?? "room" }));
       void startMls();
     } else if (status === "disconnected") {
-      messages.value.push(systemMsg("Disconnected."));
+      messages.value.push(sysMsg("chat.sys.disconnected", "Disconnected."));
     } else if (status === "error") {
-      messages.value.push(systemMsg("Connection error.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.connectionError", "Connection error.", undefined, "system_error"));
     }
   });
 
@@ -903,7 +921,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           mlsStatus.value = "ready";
           send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
           send({ type: "mls_welcome", welcome: bytesToBase64(result.welcome), target_channel: data.sender_channel });
-          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
           void refreshP2pRoster();
         } else {
           pendingInvites.delete(deviceId);
@@ -915,15 +933,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (type === "mls_welcome" && data.welcome) {
       if (mlsStatus.value === "key_exchange" && currentRoom.value) {
         clearCreatorTimer();
-        messages.value.push(systemMsg("🔑 Received group invitation — joining encrypted group…"));
+        messages.value.push(sysMsg("chat.sys.gotWelcome", "🔑 Received group invitation — joining encrypted group…"));
         const ok = await cryptoService.joinFromWelcome(currentRoom.value.slug, mlsIdentity.value, base64ToBytes(data.welcome as string));
         if (ok) {
           mlsStatus.value = "ready";
-          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
         } else {
           mlsStatus.value = "error";
-          mlsError.value = "Failed to join encrypted group.";
-          messages.value.push(systemMsg("Failed to join encrypted group.", "system_error"));
+          mlsError.value = t("chat.sys.joinGroupFailed", "Failed to join encrypted group.");
+          messages.value.push(sysMsg("chat.sys.joinGroupFailed", "Failed to join encrypted group.", undefined, "system_error"));
         }
       }
       return;
@@ -940,7 +958,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           } else {
             mlsStatus.value = "error";
             mlsError.value = errorMessage(e);
-            messages.value.push(systemMsg(`Could not process MLS commit: ${errorMessage(e)}`, "system_error"));
+            messages.value.push(sysMsg("chat.sys.commitFailed", "Could not process MLS commit: {why}", { why: errorMessage(e) }, "system_error"));
           }
         }
       }
@@ -962,7 +980,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           if (isGroupMismatch(e)) { await requestFreshMlsInvite(errorMessage(e)); }
           else {
             mlsStatus.value = "error"; mlsError.value = errorMessage(e);
-            messages.value.push(systemMsg(`Could not decrypt incoming message: ${errorMessage(e)}`, "system_error"));
+            messages.value.push(sysMsg("chat.sys.decryptFailedWhy", "Could not decrypt incoming message: {why}", { why: errorMessage(e) }, "system_error"));
           }
           return;
         }
@@ -1035,7 +1053,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
                 // Targets are user parts from new builds, full ids from old ones
                 // — sameUser covers both against our leaf identity.
                 const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
-                messages.value.push(systemMsg(`🔇 ${who} muted for ${formatRemaining(until, Date.now())}.`));
+                messages.value.push(sysMsg("chat.sys.mutedShort", "🔇 {who} muted for {time}.", { who, time: formatRemaining(until, Date.now()) }));
                 void refreshP2pRoster();
               }
             }
@@ -1048,7 +1066,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
               mutes.value = next;
               persistRoomMod();
               const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
-              messages.value.push(systemMsg(`🔊 ${who} unmuted.`));
+              messages.value.push(sysMsg("chat.sys.unmutedShort", "🔊 {who} unmuted.", { who }));
               void refreshP2pRoster();
             }
             return;
@@ -1064,7 +1082,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
                 for (const leaf of [...presenceById.keys()]) {
                   if (leaf === inner.target || userPartOf(leaf) === inner.target) presenceById.delete(leaf);
                 }
-                messages.value.push(systemMsg(`🚫 ${nameFor(inner.target)} was removed from the room.`));
+                messages.value.push(sysMsg("chat.sys.removed", "🚫 {who} was removed from the room.", { who: nameFor(inner.target) }));
                 void refreshP2pRoster();
               }
             }
@@ -1112,7 +1130,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             pushMessage({ id: rxId, type: "mls_app", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: text, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           }
         } else {
-          messages.value.push(systemMsg("⚠ Could not decrypt an incoming message.", "system_error"));
+          messages.value.push(sysMsg("chat.sys.decryptFailed", "⚠ Could not decrypt an incoming message.", undefined, "system_error"));
         }
       } else {
         // Transient "arrived before MLS was ready" placeholder — pushed straight
@@ -1156,7 +1174,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       if (kp) {
         const b64 = bytesToBase64(kp);
         send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
-        messages.value.push(systemMsg("🔑 Setting up encryption…"));
+        messages.value.push(sysMsg("chat.sys.settingUp", "🔑 Setting up encryption…"));
         mlsStatus.value = "key_exchange";
         clearCreatorTimer();
         creatorTimer = setTimeout(() => {
@@ -1173,13 +1191,13 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           // Nobody else is here — a fresh room with one member really is
           // encrypted, and this is the case the timer was written for.
           mlsStatus.value = "ready";
-          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
         }, 5000);
       }
     } catch (e) {
       mlsStatus.value = "error";
       mlsError.value = (e as Error).message;
-      messages.value.push(systemMsg(`Encryption init failed: ${(e as Error).message}`, "system_error"));
+      messages.value.push(sysMsg("chat.sys.initFailed", "Encryption init failed: {why}", { why: (e as Error).message }, "system_error"));
     }
   }
 
@@ -1473,7 +1491,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       const slug = currentRoom.value.slug;
       if (!(await cryptoService.adoptSession(scratchRoom, slug, mlsIdentity.value))) {
         mlsStatus.value = "error";
-        mlsError.value = "Could not take up the invitation's encrypted session.";
+        mlsError.value = t("chat.sys.adoptFailed", "Could not take up the invitation's encrypted session.");
         return false;
       }
       const ok = await cryptoService.joinFromWelcome(
@@ -1483,11 +1501,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       );
       if (!ok) {
         mlsStatus.value = "error";
-        mlsError.value = "Failed to join encrypted group.";
+        mlsError.value = t("chat.sys.joinGroupFailed", "Failed to join encrypted group.");
         return false;
       }
       mlsStatus.value = "ready";
-      messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+      messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
       return true;
     } catch (e) {
       error.value = errorMessage(e);
@@ -1577,7 +1595,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
     forgetP2pRoom(slug);
     // Close connections / reset the view.
-    if (isCurrent) clearLocalChatState("Room deleted.");
+    if (isCurrent) clearLocalChatState(t("chat.sys.roomDeleted", "Room deleted."));
     else chatTransport.leaveRoom(slug); // stop hosting/dialing a non-open room
     return freed;
   }
@@ -1595,7 +1613,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
     // Resets the channel + leaves the notice as the sole system message.
-    clearLocalChatState("This room was deleted by the host.");
+    clearLocalChatState(t("chat.sys.roomDeletedByHost", "This room was deleted by the host."));
   }
 
   // ── sending ──────────────────────────────────────────────────────────────────
@@ -1633,7 +1651,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
       return;
     }
     try {
@@ -1653,7 +1671,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
       return;
     }
     try {
@@ -1668,7 +1686,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
       return;
     }
     try {
@@ -1695,7 +1713,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: myAvatarOrNull(), msg_id: msgId });
         pushMessage({ id: msgId, type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
       } else {
-        messages.value.push(systemMsg("Encryption failed — message not sent.", "system_error"));
+        messages.value.push(sysMsg("chat.sys.encryptFailed", "Encryption failed — message not sent.", undefined, "system_error"));
       }
     } else {
       // Pre-MLS fallback (plaintext over the gossip topic; QUIC still encrypts hops).
@@ -1717,7 +1735,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     mlsError.value = null;
     pendingInvites.clear();
     pendingRecoveryRooms.clear();
-    messages.value = [systemMsg("🔄 Session reset — history cleared.")];
+    messages.value = [sysMsg("chat.sys.sessionReset", "🔄 Session reset — history cleared.")];
     try {
       await cryptoService.clearState(room, identity);
       await cryptoService.initSession(room, identity);
@@ -1726,16 +1744,16 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         const b64 = bytesToBase64(kp);
         send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
         mlsStatus.value = "key_exchange";
-        messages.value.push(systemMsg("🔑 Fresh key package sent."));
+        messages.value.push(sysMsg("chat.sys.freshKp", "🔑 Fresh key package sent."));
         setTimeout(() => {
           if (mlsStatus.value === "key_exchange") {
             mlsStatus.value = "ready";
-            messages.value.push(systemMsg("🔒 New encryption group created."));
+            messages.value.push(sysMsg("chat.sys.newGroup", "🔒 New encryption group created."));
           }
         }, 5000);
       } else {
         mlsStatus.value = "error";
-        messages.value.push(systemMsg("Failed to generate key package.", "system_error"));
+        messages.value.push(sysMsg("chat.sys.kpFailed", "Failed to generate key package.", undefined, "system_error"));
       }
     } catch (e) {
       mlsStatus.value = "error";

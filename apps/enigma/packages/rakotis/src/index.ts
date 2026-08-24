@@ -30,6 +30,9 @@ export {
   createAppI18n,
 } from "./i18n";
 export type { Locale, AppI18n } from "./i18n";
+// The seam the app uses to translate notices rakotis emits (see chatText.ts).
+export { setChatTranslator, clearChatTranslator } from "./i18n/chatText";
+export type { ChatTranslator } from "./i18n/chatText";
 
 // ── UI components (Oya primitives) ────────────────────────────────────────────
 // Explicit single-level re-exports (NOT `export *` through a sub-barrel): WebKit's

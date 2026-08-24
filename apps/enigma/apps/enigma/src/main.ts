@@ -8,7 +8,7 @@ import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
 import { setHpTranslator } from "./components/hp/useHp";
-import { initBuildConfig, initHpPolicy } from "rakotis";
+import { initBuildConfig, initHpPolicy, setChatTranslator } from "rakotis";
 import { brand, policy } from "./config/app";
 
 import { library } from "@fortawesome/fontawesome-svg-core";
@@ -301,6 +301,13 @@ installVueErrorHandler(app);
 // Privacy HP labels read through the app's catalog. Injected rather than
 // imported by the HP modules themselves, so that charging HP never drags the
 // message catalog into the composer, the file-share composable or vox.
+// Chat notices emitted from inside rakotis read through the same catalog
+// (packages/rakotis/src/i18n/chatText.ts). Injected rather than imported, for the
+// reason given there: a library should not carry the app's message catalog.
+setChatTranslator((key, params) =>
+  String((i18n.global.t as (k: string, p?: Record<string, unknown>) => string)(key, params ?? {})),
+);
+
 setHpTranslator({
   t: (key: string) => String((i18n.global.t as (k: string) => string)(key)),
   has: (key: string) => Boolean((i18n.global.te as (k: string) => boolean)(key)),
