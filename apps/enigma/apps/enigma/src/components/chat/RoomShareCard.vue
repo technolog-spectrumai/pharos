@@ -62,12 +62,19 @@ const props = defineProps<{
   code?: string;
   /** Whether the room runs over Tor. Decides which price variant applies. */
   tor?: boolean;
+  /** Invite-only: gossip key packages are refused, so the room ticket puts
+   *  someone on the topic but never into the group. The ticket mode is withdrawn
+   *  rather than left on offer — handing out something that silently does not
+   *  work reads as a bug, not as a policy. */
+  inviteOnly?: boolean;
 }>();
 
 const { t } = useI18n({ useScope: "global" });
 
 type ShareMode = "ticket" | "personal" | "general";
-const mode = ref<ShareMode>("ticket");
+// A closed room has no ticket to open on, and the flag can be flipped while this
+// card is on screen — so the mode follows it rather than being chosen once.
+const mode = ref<ShareMode>(props.inviteOnly ? "personal" : "ticket");
 
 // ── invitation form ─────────────────────────────────────────────────────────
 
@@ -145,6 +152,16 @@ watch(mode, () => {
   error.value = "";
 });
 
+// The captain can close the room while this card is open. Leaving the user on a
+// ticket that no longer admits anyone would be the exact failure this stage
+// exists to prevent.
+watch(
+  () => props.inviteOnly,
+  (closed) => {
+    if (closed && mode.value === "ticket") mode.value = "personal";
+  },
+);
+
 async function createInvite() {
   if (!canCreate.value) return;
   const kind = mode.value === "personal" ? "personal" : "general";
@@ -193,11 +210,16 @@ function remaining(expiresAt: number): string {
   return t("invite.inMinutes", { n: Math.max(1, Math.floor(ms / 60_000)) });
 }
 
-const MODES: { id: ShareMode; label: string; icon: string }[] = [
+const ALL_MODES: { id: ShareMode; label: string; icon: string }[] = [
   { id: "ticket", label: "invite.modeTicket", icon: "ticket" },
   { id: "personal", label: "invite.modePersonal", icon: "user-lock" },
   { id: "general", label: "invite.modeGeneral", icon: "share-nodes" },
 ];
+
+/** A closed room offers invitations only. */
+const MODES = computed(() =>
+  props.inviteOnly ? ALL_MODES.filter((m) => m.id !== "ticket") : ALL_MODES,
+);
 </script>
 
 <template>
@@ -219,6 +241,15 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
         <font-awesome-icon :icon="m.icon" /><span class="hidden truncate sm:inline">{{ $t(m.label) }}</span>
       </button>
     </div>
+
+    <!-- Said before the pills, because it explains why one of them is missing. -->
+    <p
+      v-if="inviteOnly"
+      class="rounded-lg border border-accent-1/40 bg-accent-1/10 p-2.5 text-[11px] leading-relaxed"
+      data-testid="share-invite-only"
+    >
+      <font-awesome-icon icon="lock" class="mr-1" />{{ $t("invite.closedNotice") }}
+    </p>
 
     <!-- One line on what this mode actually means, plus its price. The
          consequence and the cost belong together, before the tap. -->

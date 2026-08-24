@@ -45,6 +45,67 @@ beforeEach(async () => {
   await refreshHp();
 });
 
+describe("RoomShareCard — an invite-only room", () => {
+  // A closed room refuses gossip key packages, so the room ticket puts someone
+  // on the topic but never into the group. Offering it would hand out something
+  // that silently does not work, which reads as a bug rather than a policy.
+
+  it("withdraws the ticket mode entirely", async () => {
+    const w = card({ inviteOnly: true });
+    await flushPromises();
+    expect(w.find('[data-testid="share-mode-ticket"]').exists()).toBe(false);
+    expect(w.find('[data-testid="share-mode-personal"]').exists()).toBe(true);
+    expect(w.find('[data-testid="share-mode-general"]').exists()).toBe(true);
+  });
+
+  it("opens on an invitation rather than a mode that is gone", async () => {
+    const w = card({ inviteOnly: true });
+    await flushPromises();
+    expect(w.find('[data-testid="invite-create"]').exists()).toBe(true);
+  });
+
+  it("explains why the ticket is missing", async () => {
+    const w = card({ inviteOnly: true });
+    await flushPromises();
+    expect(w.get('[data-testid="share-invite-only"]').text()).toMatch(/invite only/i);
+    expect(w.get('[data-testid="share-invite-only"]').text()).toMatch(/no longer lets anyone in/i);
+  });
+
+  it("says nothing about it in an open room", async () => {
+    const w = card();
+    await flushPromises();
+    expect(w.find('[data-testid="share-invite-only"]').exists()).toBe(false);
+  });
+
+  it("hides the DHT room code, which cannot admit anyone either", async () => {
+    const w = card({ inviteOnly: true, code: "dhtcode" });
+    await flushPromises();
+    expect(w.text()).not.toContain("dhtcode");
+  });
+
+  it("moves off the ticket when the captain closes the room mid-view", async () => {
+    // The flag arrives over room_meta and can land while this card is open.
+    // Leaving the user holding a ticket that no longer admits anyone is exactly
+    // the failure this stage exists to prevent.
+    const w = card();
+    await flushPromises();
+    expect(w.get('[data-testid="share-consequence"]').text()).toMatch(/permanent/i);
+    await w.setProps({ inviteOnly: true });
+    await flushPromises();
+    expect(w.find('[data-testid="share-mode-ticket"]').exists()).toBe(false);
+    expect(w.get('[data-testid="share-consequence"]').text()).not.toMatch(/permanent/i);
+  });
+
+  it("keeps both invitation modes and their prices", async () => {
+    const w = card({ inviteOnly: true });
+    await flushPromises();
+    expect(w.get('[data-testid="share-price"]').text()).toContain("−3 HP");
+    await w.get('[data-testid="share-mode-general"]').trigger("click");
+    expect(w.get('[data-testid="share-price"]').text()).toContain("−10 HP");
+    expect(w.find('[data-testid="share-bearer-warning"]').exists()).toBe(true);
+  });
+});
+
 describe("RoomShareCard", () => {
   it("offers all three ways in", async () => {
     const w = card();

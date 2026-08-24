@@ -898,6 +898,8 @@ export default {
       expired: "Wygasłe",
     },
     admitRoomClosed: "Ktoś próbował użyć zaproszenia, ale pokój nie był otwarty.",
+    closedNotice:
+      "Ten pokój jest tylko na zaproszenia. Bilet pokoju już nikogo nie wpuszcza \u2014 dołącza się przez realizację zaproszenia.",
     redeeming: "Łączenie z {who}…",
     errNotForYou: "To zaproszenie jest zaadresowane do innego urządzenia.",
     errExpired: "To zaproszenie wygasło. Poproś o nowe.",

@@ -900,6 +900,8 @@ export default {
       expired: "Expired",
     },
     admitRoomClosed: "Someone tried to use an invitation, but the room was not open.",
+    closedNotice:
+      "This room is invite only. The room ticket no longer lets anyone in \u2014 people join by redeeming an invitation.",
     redeeming: "Connecting to {who}…",
     errNotForYou: "This invitation is addressed to another device.",
     errExpired: "This invitation has expired. Ask for a new one.",

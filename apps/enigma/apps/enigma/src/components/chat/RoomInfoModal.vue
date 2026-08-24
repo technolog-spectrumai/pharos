@@ -147,6 +147,7 @@ function close() {
         :ticket="room.ticket"
         :code="dhtAllowed ? room.code : ''"
         :tor="isTorTicket(room.ticket)"
+        :invite-only="channel.inviteOnly.value"
       />
     </div>
 
