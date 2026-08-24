@@ -1044,7 +1044,40 @@ single event multiplexes all rooms, the payload carries the room id), plus
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 Namespaces: `nav`, `common`, `keys`, `lang`, `network`, `config`, `chat`,
 `calendar`, `map`, `contacts`, `files`, `vox`, `sketch`, `local`, `fileShare`,
-`profile`, `vault`. Interpolation uses single-brace named tokens (`{n}`).
+`profile`, `vault`, `hp`, `welcome`. Interpolation uses single-brace named tokens
+(`{n}`). English and Polish live in
+[`apps/enigma/src/i18n/`](apps/enigma/src/i18n/) and are the **only** catalogs;
+documentation is not translated.
+
+`chat.sys.*` is a namespace of its own for the 34 system notices the chat channel
+pushes into the transcript ("🔒 End-to-end encryption active.", "Disconnected.",
+"The room host went offline…"). These are emitted from **rakotis**, which
+[`packages/rakotis/src/i18n/index.ts`](packages/rakotis/src/i18n/index.ts) says
+must carry no app strings — so they reach a catalog through an injected
+translator, [`i18n/chatText.ts`](packages/rakotis/src/i18n/chatText.ts), registered
+by the app in `main.ts` beside the identical `setHpTranslator` seam:
+
+```ts
+sysMsg("chat.sys.joined", 'Joined "{name}". Connecting to peers…', { name })
+```
+
+The English **fallback stays at the call site**, which is a deliberate softening of
+that rule and the reason the seam is shaped this way. A *catalog* in rakotis would
+be the drift hazard the rule exists to prevent; one fallback beside its key is not,
+and it means an unregistered translator — a headless channel, a unit test, a boot
+that failed before `main.ts` ran — degrades to today's English instead of rendering
+a raw key at somebody mid-call.
+
+Two tests guard this, and they cover different failures.
+[`i18n.test.ts`](apps/enigma/tests/unit/i18n.test.ts) checks en/pl define the same
+keys; it cannot see a string that never became a key at all, which is how ~41 of
+them accumulated. [`i18nCoverage.test.ts`](apps/enigma/tests/unit/i18nCoverage.test.ts)
+closes that: it reads `.vue` and `useChatChannel.ts` as text and fails on bare
+English in `placeholder=`/`label=`/`alt=`/`title=`/`aria-label=`, in `{{ … }}`
+interpolations, and in `systemMsg(…)`. `alt` and `aria-label` are in scope on
+purpose — a Polish screen-reader user is still a Polish user. Its allowlist
+(protocol and product names: `Tor`, `iroh`, `Enigma26`, `MLS`, `QR`) requires a
+reason per entry, so it stays a record rather than a dumping ground.
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
 keyspace tiers are separated by a leading tag byte (`TAG_INTERNAL = 0x01`,
