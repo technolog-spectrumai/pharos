@@ -21,6 +21,9 @@ mod p2p_invite;
 // Encrypted, expiring QR invitations: the ticket format and its sealing
 // (technology.md §18). Carries no room name, topic or MLS material.
 mod invite_ticket;
+// The issuer's sealed record of every invitation minted — expiry, revocation and
+// one-use consumption are all decided here, on the INVITER's clock.
+mod invites;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
