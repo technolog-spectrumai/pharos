@@ -5,6 +5,7 @@
 // timers are needed anywhere in this file.
 
 import { describe, it, expect } from "vitest";
+import { currentLocale } from "../../src/i18n/dateFormat";
 import {
   deriveBalances,
   exposureLive,
@@ -629,6 +630,21 @@ describe("display", () => {
     expect(formatHp(5)).toBe("0.05");
     expect(formatHp(8725)).toBe("87.25");
     expect(formatHp(50)).toBe("0.5");
+  });
+
+  it("writes the decimal separator in the user's language", () => {
+    // Halving the ladder made most prices fractional, so this is on almost every
+    // button. Polish takes a comma: "−0,5 HP", not "−0.5 HP".
+    currentLocale.value = "pl";
+    try {
+      expect(formatHp(50)).toBe("0,5");
+      expect(formatHp(8725)).toBe("87,25");
+      expect(formatPrice(-50)).toBe("−0,5 HP");
+      // Whole numbers have no separator to get wrong, in either language.
+      expect(formatHp(300)).toBe("3");
+    } finally {
+      currentLocale.value = "en";
+    }
   });
 
   it("uses a real minus sign on a price badge", () => {

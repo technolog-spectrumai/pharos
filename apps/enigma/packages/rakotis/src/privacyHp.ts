@@ -11,6 +11,13 @@
 // always passed in. That is what makes the whole model directly testable, and it is
 // why the same functions can serve the Tauri app and a plain browser unchanged.
 //
+// One ambient input, named here so the paragraph above stays true: `formatHp` reads
+// the active locale, because Polish writes the decimal point as a comma and the
+// halved ladder made most prices fractional — "0,5 HP", not "0.5 HP". It is the only
+// thing in this file that is not a function of its arguments, and it affects how a
+// number is SPELLED, never what it is: every amount is an integer of centi-HP right
+// up to the moment it becomes text.
+//
 // ── the model in four sentences ──────────────────────────────────────────────
 // Every exposing action has one fixed price, shown before the tap. Spending
 // subtracts from two meters that differ only in ceiling, window length and
@@ -24,6 +31,8 @@
 // credited.
 
 // ── types (mirror src-tauri/privacy_hp.rs DTOs) ─────────────────────────────
+
+import { formatNumber } from "./i18n/dateFormat";
 
 export type HpKind = "toggle" | "event" | "metered";
 export type HpSeverity = "negligible" | "low" | "moderate" | "high" | "severe";
@@ -502,8 +511,9 @@ export function historyRows(
 
 /** Centi-HP → a bare number with no trailing zeros: 300 → "3", 5 → "0.05". */
 export function formatHp(centi: number): string {
-  const hp = Math.abs(centi) / 100;
-  return Number.isInteger(hp) ? String(hp) : String(Number(hp.toFixed(2)));
+  // `maximumFractionDigits: 2` also trims the trailing zeros that the old
+  // `Number(hp.toFixed(2))` round-trip existed to remove.
+  return formatNumber(Math.abs(centi) / 100, { maximumFractionDigits: 2 });
 }
 
 /**
