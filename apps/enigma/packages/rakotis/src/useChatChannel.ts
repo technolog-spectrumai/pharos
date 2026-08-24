@@ -1353,7 +1353,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       // Run the election now so the sole-member creator is marked captain (★) over
       // Tor immediately — before any joiner arrives.
       void refreshP2pRoster();
-      messages.value.push(systemMsg(`Created “${res.name}”. Share the QR / ticket to invite peers.`));
+      messages.value.push(
+        sysMsg("chat.sys.created", "Created “{name}”. Share the QR / ticket to invite peers.", {
+          name: res.name,
+        }),
+      );
       return res.ticket;
     } catch (e) {
       error.value = errorMessage(e);
@@ -1376,7 +1380,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = tor;
       myOnion.value = res.onion;
-      messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
+      messages.value.push(
+        sysMsg("chat.sys.joined", "Joined “{name}”. Connecting to peers…", { name: res.name }),
+      );
     } catch (e) {
       error.value = errorMessage(e);
     }
@@ -1401,7 +1407,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = false; // ticketless reconnect is the iroh path
       myOnion.value = "";
-      messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
+      messages.value.push(
+        sysMsg("chat.sys.joined", "Joined “{name}”. Connecting to peers…", { name: res.name }),
+      );
     } catch (e) {
       error.value = errorMessage(e);
     }
@@ -1758,7 +1766,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     } catch (e) {
       mlsStatus.value = "error";
       mlsError.value = (e as Error).message;
-      messages.value.push(systemMsg(`Reset failed: ${(e as Error).message}`, "system_error"));
+      messages.value.push(
+        sysMsg("chat.sys.resetFailed", "Reset failed: {err}", { err: (e as Error).message }, "system_error"),
+      );
     }
   }
 

@@ -362,7 +362,7 @@ async function acceptIncoming() {
         <p class="mt-1 text-sm opacity-65">{{ $t('contacts.myCodeHint') }}</p>
       </div>
       <div v-if="myNodeId" class="space-y-3">
-        <OyaQrCode :value="myNodeId" :size="176" alt="My contact QR code" />
+        <OyaQrCode :value="myNodeId" :size="176" :alt="$t('chat.a11yContactQr')" />
         <OyaCopyField :value="myNodeId" mono :copy-label="$t('chat.copy')" />
       </div>
       <p v-else-if="myNodeLoading" class="text-sm opacity-60">…</p>

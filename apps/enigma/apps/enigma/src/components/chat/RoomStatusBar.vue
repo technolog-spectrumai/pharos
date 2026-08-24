@@ -46,7 +46,7 @@ async function leave() {
       <OyaIconButton
         icon="rotate-right"
         size="sm"
-        label="Reset encryption session — clears history and renegotiates keys"
+        :label="$t('chat.a11yResetEncryption')"
         :class="
           mlsStatus === 'key_exchange' || mlsStatus === 'error'
             ? 'border-highlight/40 bg-highlight/10 text-highlight'

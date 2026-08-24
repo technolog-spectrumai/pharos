@@ -272,7 +272,7 @@ const cardClass = computed(() =>
       <!-- Waiting (we created a ticket) -->
       <div v-else-if="phase === 'waiting'" :class="cardClass" class="w-full max-w-md">
         <p class="text-sm font-semibold opacity-80">{{ t("vox.shareToCall") }}</p>
-        <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR" class="h-48 w-48 rounded bg-white p-2" />
+        <img v-if="qrDataUrl" :src="qrDataUrl" :alt="$t('chat.a11yCallQr')" class="h-48 w-48 rounded bg-white p-2" />
         <textarea
           :value="ticket"
           readonly

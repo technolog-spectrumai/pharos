@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
              Deliberately not "/": that redirect is the lock cycle's re-entry
              point and must keep landing on a working tab. -->
         <RouterLink to="/welcome" class="flex items-center gap-3 hover:opacity-80 transition">
-          <img :src="barIcon" alt="Enigma26 icon" class="h-9 w-9 rounded-lg object-contain" />
+          <img :src="barIcon" :alt="$t('chat.a11yAppIcon')" class="h-9 w-9 rounded-lg object-contain" />
           <h1 class="text-xl font-bold tracking-wide sm:text-2xl">{{ brand.name }}</h1>
         </RouterLink>
 

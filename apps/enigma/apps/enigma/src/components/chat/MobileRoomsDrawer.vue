@@ -60,7 +60,7 @@ function close() {
     >
       <div class="flex items-center justify-between border-b border-current/10 pb-3">
         <span class="text-sm font-bold">Rooms</span>
-        <OyaIconButton icon="xmark" size="sm" label="Close rooms" @click="close" />
+        <OyaIconButton icon="xmark" size="sm" :label="$t('chat.a11yCloseRooms')" @click="close" />
       </div>
 
       <div class="mt-4">

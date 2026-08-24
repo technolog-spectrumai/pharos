@@ -64,7 +64,7 @@ defineProps<{ message: Message }>();
           v-if="message.encrypted"
           icon="lock"
           class="text-success-dark opacity-80"
-          title="End-to-end encrypted"
+          :title="$t('chat.a11yEncrypted')"
         />
         {{ message.timestamp.toLocaleTimeString() }}
       </p>

@@ -28,7 +28,7 @@ function openModerate(p: Participant) {
       @moderate="openModerate(p)"
     />
     <OyaEmptyState v-if="!participants.length" size="sm">
-      {{ compact ? "No participants." : "No participants yet." }}
+      {{ compact ? $t("chat.noParticipants") : $t("chat.noParticipantsYet") }}
     </OyaEmptyState>
     <ModerateMemberModal v-model:open="moderateOpen" :participant="moderateTarget" :channel="channel" />
   </div>

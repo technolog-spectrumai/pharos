@@ -270,7 +270,7 @@ const MODES = computed(() =>
 
     <!-- ── the room ticket ──────────────────────────────────────────────── -->
     <template v-if="mode === 'ticket'">
-      <OyaQrCode :value="ticket" :size="176" alt="Room QR code" />
+      <OyaQrCode :value="ticket" :size="176" :alt="$t('chat.a11yRoomQr')" />
       <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
       <OyaCopyField
         :value="ticket"
@@ -381,7 +381,7 @@ const MODES = computed(() =>
 
       <!-- The minted code -->
       <template v-else>
-        <OyaQrCode :value="minted.ticket" :size="176" alt="Invitation QR code" />
+        <OyaQrCode :value="minted.ticket" :size="176" :alt="$t('chat.a11yInviteQr')" />
         <p class="text-center text-[10px] opacity-50" data-testid="invite-countdown">
           {{ $t("invite.validFor", { t: remaining(minted.expiresAt) }) }}
         </p>

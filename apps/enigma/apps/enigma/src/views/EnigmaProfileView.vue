@@ -44,7 +44,7 @@ const newOfflineProfileLabel = ref("");
 
 const selectedOfflineProfileLabel = computed(() =>
   offlineProfiles.value.find((profile) => profile.id === selectedOfflineProfileId.value)?.label
-  ?? "Selected profile"
+  ?? t("profile.selectedProfile")
 );
 
 onMounted(async () => {
@@ -209,7 +209,7 @@ async function clearAllData() {
           <input
             v-model="offlineProfile.display_name"
             type="text"
-            placeholder="Your name"
+            :placeholder="$t('profile.yourNamePlaceholder')"
             :maxlength="policy.displayNameMaxLen"
             :class="
               darkMode
@@ -273,7 +273,7 @@ async function clearAllData() {
           <textarea
             v-model="offlineProfile.bio"
             rows="3"
-            placeholder="A few words about yourself…"
+            :placeholder="$t('profile.bioPlaceholder')"
             :class="
               darkMode
                 ? 'bg-primary-bg-dark border-accent-1 text-text-main-dark placeholder:text-text-main-dark/30'
@@ -293,7 +293,7 @@ async function clearAllData() {
           @click="saveOffline"
         >
           <font-awesome-icon :icon="savedOffline ? 'check' : 'floppy-disk'" />
-          {{ savedOffline ? "Saved locally" : `Save ${selectedOfflineProfileLabel}` }}
+          {{ savedOffline ? $t("profile.savedLocally") : $t("profile.saveNamed", { label: selectedOfflineProfileLabel }) }}
         </OyaButton>
 
         <OyaButton
@@ -303,7 +303,7 @@ async function clearAllData() {
           @click="clearOfflineData"
         >
           <font-awesome-icon :icon="clearedOffline ? 'check' : 'trash'" />
-          {{ clearedOffline ? "Cleared" : "Clear data" }}
+          {{ clearedOffline ? $t("profile.cleared") : $t("profile.clearData") }}
         </OyaButton>
       </div>
 
@@ -311,7 +311,7 @@ async function clearAllData() {
         <input
           v-model="newOfflineProfileLabel"
           type="text"
-          placeholder="New profile name"
+          :placeholder="$t('profile.newProfilePlaceholder')"
           :maxlength="policy.profileNameMaxLen"
           :class="
             darkMode

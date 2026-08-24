@@ -183,10 +183,28 @@ export default {
     offlineCleared: "Offline data cleared.",
   },
   chat: {
+    a11yAppIcon: "Enigma26 icon",
+    a11yRoomLogo: "Room logo",
+    a11yRoomQr: "Room QR code",
+    a11yInviteQr: "Invitation QR code",
+    a11yContactQr: "My contact QR code",
+    a11yCallQr: "Call QR code",
+    a11yOpenRooms: "Open rooms",
+    a11yCloseRooms: "Close rooms",
+    a11yResetEncryption: "Reset encryption session — clears history and renegotiates keys",
+    activeRoom: "Active room",
+    noRoomSelected: "No room selected",
+    selectARoom: "Select a room",
+    joinedLabel: "Joined",
+    observerLabel: "Observer",
+    noParticipants: "No participants.",
+    noParticipantsYet: "No participants yet.",
     // ── system notices emitted by rakotis (packages/rakotis/src/i18n/chatText.ts)
     // The English beside each key over there is the fallback; THIS is what a
     // user actually reads. Keep the two in step — the coverage test checks that
     // every `t("chat.sys.…")` call has a key here.
+    a11yEncrypted: "End-to-end encrypted",
+    sendImage: "Send image",
     sys: {
       kicked: "🚫 You were removed from this room by the host.",
       hostGone: "The room host went offline — electing a new host…",
@@ -197,6 +215,9 @@ export default {
       connected: "Connected to {room}.",
       connectionError: "Connection error.",
       encrypted: "🔒 End-to-end encryption active.",
+      created: "Created “{name}”. Share the QR / ticket to invite peers.",
+      joined: "Joined “{name}”. Connecting to peers…",
+      resetFailed: "Reset failed: {err}",
       gotWelcome: "🔑 Received group invitation — joining encrypted group…",
       joinGroupFailed: "Failed to join encrypted group.",
       decryptFailed: "⚠ Could not decrypt an incoming message.",
@@ -674,6 +695,14 @@ export default {
     encrypted: "Encrypted peer-to-peer transfer",
   },
   profile: {
+    selectedProfile: "Selected profile",
+    yourNamePlaceholder: "Your name",
+    bioPlaceholder: "A few words about yourself…",
+    savedLocally: "Saved locally",
+    saveNamed: "Save {label}",
+    cleared: "Cleared",
+    clearData: "Clear data",
+    newProfilePlaceholder: "New profile name",
     dangerZone: "Danger zone",
     dangerZoneHint: "Clear the local profile data and reset the chat state on this device.",
     clearAllData: "Clear all data",

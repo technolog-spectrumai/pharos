@@ -193,7 +193,7 @@ function onKeydown(e: KeyboardEvent) {
           attachDisabled ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
         ]"
         class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition"
-        title="Send image"
+        :title="$t('chat.sendImage')"
         @click="imageFileInput?.click()"
       >
         <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'image'" :spin="uploadingImage" />
