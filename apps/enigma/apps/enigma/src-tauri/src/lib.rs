@@ -29,6 +29,7 @@ mod invites;
 mod invite_redeem;
 // The commands the invitation UI drives: mint, list, revoke, inspect, redeem.
 mod invite_api;
+mod legacy_ticket;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;
@@ -1377,6 +1378,7 @@ pub fn run() {
             // driven by the protocol handlers; this is how the frontend answers
             // the `invite://admit` request it raises.
             invite_admit,
+            legacy_ticket::legacy_ticket_decode,
             invite_api::invite_create,
             invite_api::invite_list,
             invite_api::invite_get,

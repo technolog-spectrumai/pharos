@@ -36,7 +36,14 @@ export type MapShare = MapPinShare | MapLocationShare | MapRegionShare;
 export interface P2pRoomEntry {
   room: string;
   name: string;
-  ticket: string;
+  /**
+   * LEGACY permanent room ticket. Written by builds before invitations became the
+   * only way in, never minted now, and read exactly once — `loadP2pRooms` decodes
+   * it to recover what the record was missing (iroh peers, or a Tor captain's
+   * onion) and then drops the field. Kept optional so an old record still
+   * deserializes; nothing else may read it.
+   */
+  ticket?: string;
   /** NodeIds of peers seen in this room — persisted so a restart can re-subscribe
    *  and resolve their current addresses via n0 discovery (no fresh QR needed). */
   peers?: string[];
@@ -47,6 +54,16 @@ export interface P2pRoomEntry {
   tor?: boolean;
   /** Our own onion for this room (Tor) — announced over presence for election. */
   onion?: string;
+  /**
+   * The CAPTAIN's onion for this room (Tor) — the address we dial to get back in.
+   *
+   * Distinct from `onion` above, which is ours. This used to live only inside the
+   * permanent ticket, so a Tor room we JOINED had no recorded way back once the
+   * ticket was gone; that is what stranded them. Written whenever we learn a
+   * captain address (invitation grant, election) and backfilled from a legacy
+   * ticket on first load.
+   */
+  captainOnion?: string;
   /** Ticketless-join room code (DHT rendezvous — technology.md §12). Present when this room
    *  was created/joined with DHT discovery on, or a code was minted for it. */
   code?: string;
@@ -497,6 +514,10 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       if (captainOnion && captainOnion !== currentCaptainOnion.value) {
         currentCaptainOnion.value = captainOnion;
         scheduleSetCaptain(currentRoom.value.slug, captainOnion);
+        // Persisted, not just dialled: this is the only address that gets us back
+        // into a Tor room we did not host, and it used to survive only inside the
+        // permanent ticket.
+        updateRoomEntry({ captainOnion });
       }
     }
 
@@ -1262,9 +1283,48 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     try {
       const raw = await kvGet("p2p:rooms", "default", "");
       p2pRooms.value = raw ? (JSON.parse(raw) as P2pRoomEntry[]) : [];
+      await backfillLegacyTickets();
     } catch {
       p2pRooms.value = [];
     }
+  }
+
+  /**
+   * Read every legacy room ticket once, then delete it.
+   *
+   * Rooms saved before invitations became the only way in carry a permanent
+   * ticket, and for two kinds of room it is the only record of how to get back:
+   * an iroh room whose address book was never filled, and — the case that would
+   * otherwise be lost for good — a Tor room we JOINED, whose captain onion lives
+   * nowhere else. `openP2pRoom` no longer reads tickets, so without this pass
+   * those rooms would open into an error on the first launch after upgrading.
+   *
+   * Runs once: the field is gone afterwards, so the next load has nothing to do.
+   * A ticket that will not decode is dropped anyway — it could not have been used.
+   */
+  async function backfillLegacyTickets(): Promise<void> {
+    const stale = p2pRooms.value.filter((r) => typeof r.ticket === "string" && r.ticket);
+    if (!stale.length) return;
+    for (const entry of stale) {
+      try {
+        const info = await chatTransport.decodeLegacyTicket(entry.ticket as string);
+        if (info) {
+          if (info.tor) {
+            entry.tor = true;
+            if (!entry.captainOnion && info.captain_onion) entry.captainOnion = info.captain_onion;
+          }
+          // Union rather than overwrite: the live address book is fresher than a
+          // ticket minted once at room creation.
+          if (info.peers?.length) {
+            entry.peers = Array.from(new Set([...(entry.peers ?? []), ...info.peers]));
+          }
+        }
+      } catch {
+        /* undecodable — it could not have been used either; drop it below */
+      }
+      delete entry.ticket;
+    }
+    persistP2pRooms();
   }
 
   function persistP2pRooms() {
@@ -1497,6 +1557,20 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       }
       if (!currentRoom.value) return false;
       const slug = currentRoom.value.slug;
+      // SAVE the room. Without this an invited member holds the room only for the
+      // life of the process: it is absent from the saved list, `updateRoomEntry`
+      // no-ops so meta/mutes/bans never persist, and `rememberPeerForRoom` bails
+      // so the address book that ticketless reconnect depends on never fills. It
+      // went unnoticed while everyone also held a ticket; with invitations the
+      // only way in, this call is what makes membership survive a restart.
+      rememberP2pRoom({
+        room: slug,
+        name: grant.roomName,
+        peers: grant.peers,
+        tor: currentRoomIsTor.value,
+        onion: myOnion.value || undefined,
+        captainOnion: grant.onion || undefined,
+      });
       if (!(await cryptoService.adoptSession(scratchRoom, slug, mlsIdentity.value))) {
         mlsStatus.value = "error";
         mlsError.value = t("chat.sys.adoptFailed", "Could not take up the invitation's encrypted session.");
@@ -1532,23 +1606,36 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
   }
 
-  /** Open a saved room. iroh: rejoin by ticket, seeding the persisted peer NodeIds
-   *  so stale ticket addresses don't strand us. Tor: the host re-launches its onion
-   *  (same nickname ⇒ same `.onion`, idempotent), a joiner re-dials the saved onion.
-   *  The transport is inferred from the ticket, so iroh rooms are unaffected. */
+  /**
+   * Open a saved room, with no ticket anywhere in the path.
+   *
+   * The transport comes from the record's own `tor` flag rather than from sniffing
+   * a ticket's tag byte — the flag has always been written at create/join time, it
+   * just was not the thing consulted.
+   *
+   * Tor, hosted: re-launch our own onion (same nickname ⇒ same `.onion`, so this is
+   * idempotent). Tor, joined: re-host under the room name and then point at the
+   * captain's saved onion, the same two-step a Tor reconnect already performs.
+   * iroh: re-subscribe by name and seed the persisted peer NodeIds, letting n0
+   * discovery resolve their current addresses.
+   */
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
     teardown();
     clearMessages();
     try {
-      const tor = isTorTicket(entry.ticket);
+      const tor = entry.tor === true;
       const res = tor && entry.host
         ? await chatTransport.createRoom(entry.name)
-        : await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
+        : await chatTransport.joinRoomByNode(entry.name, entry.peers ?? []);
       enterP2pRoom(entry.room, entry.name);
       currentRoomIsTor.value = tor;
       myOnion.value = res.onion;
+      // A joiner has no route back into a Tor room without the captain's address.
+      if (tor && !entry.host && entry.captainOnion) {
+        chatTransport.setCaptain(entry.room, entry.captainOnion);
+      }
     } catch (e) {
       error.value = errorMessage(e);
     }
