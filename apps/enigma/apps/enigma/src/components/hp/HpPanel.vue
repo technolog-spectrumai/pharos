@@ -29,6 +29,45 @@ const { t } = useI18n({ useScope: "global" });
 const policy = getHpPolicy();
 const showAllHistory = ref(false);
 
+// ── folding ─────────────────────────────────────────────────────────────────
+// The price table is the honest part of this feature and also the longest: eight
+// groups of four-ish rows each, which buries the meters people actually came to
+// look at. So every section folds, and they start folded — the headings are a
+// contents page, and you open the one you are asking about.
+//
+// Which ones are open is a per-viewer convenience, so it lives in localStorage
+// rather than the encrypted kv: it is not a setting, it says nothing about the
+// user, and losing it costs a click. Guarded because storage can throw outright
+// in a private window or with site data blocked.
+const OPEN_KEY = "enigma:hp:open";
+
+function loadOpen(): Set<string> {
+  try {
+    const raw = localStorage.getItem(OPEN_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+const openSections = ref<Set<string>>(loadOpen());
+
+function isOpen(key: string): boolean {
+  return openSections.value.has(key);
+}
+
+function toggleSection(key: string) {
+  const next = new Set(openSections.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  openSections.value = next;
+  try {
+    localStorage.setItem(OPEN_KEY, JSON.stringify([...next]));
+  } catch {
+    /* the fold state is a convenience; failing to remember it changes nothing */
+  }
+}
+
 /** Regeneration line: "+4 HP / hour". */
 function regenLabel(centiPerHour: number): string {
   return t("hp.regenRate", { n: formatHp(centiPerHour) });
@@ -187,9 +226,29 @@ const recoveries = computed(() => policy.recoveries);
         <h3 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.pricesTitle") }}</h3>
         <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.pricesHint") }}</p>
 
-        <div v-for="g in groups" :key="g.key" class="flex flex-col gap-2">
-          <h4 class="text-xs font-bold uppercase opacity-50">{{ $t(`hp.group.${g.key}`) }}</h4>
-          <ul class="flex flex-col divide-y divide-current/10">
+        <div v-for="g in groups" :key="g.key" class="flex flex-col">
+          <!-- The heading IS the control: a whole-width button, so the hit target
+               matches what it looks like rather than being a stray chevron. -->
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 rounded-lg py-2 text-left text-xs font-bold uppercase opacity-60 transition hover:opacity-100"
+            :aria-expanded="isOpen(g.key)"
+            :data-testid="`hp-group-${g.key}`"
+            @click="toggleSection(g.key)"
+          >
+            <font-awesome-icon
+              :icon="isOpen(g.key) ? 'chevron-down' : 'chevron-right'"
+              class="w-3 shrink-0 opacity-70"
+            />
+            <span class="min-w-0 flex-1 truncate">{{ $t(`hp.group.${g.key}`) }}</span>
+            <!-- A folded heading still says how much is under it. -->
+            <span class="shrink-0 tabular-nums opacity-50">{{ g.rows.length }}</span>
+          </button>
+          <ul
+            v-if="isOpen(g.key)"
+            class="flex flex-col divide-y divide-current/10 pb-2"
+            :data-testid="`hp-group-body-${g.key}`"
+          >
             <li
               v-for="a in g.rows"
               :key="a.id"
@@ -220,8 +279,22 @@ const recoveries = computed(() => policy.recoveries);
       </section>
 
       <!-- ── what earns HP back ─────────────────────────────────────────── -->
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.recoveryTitle") }}</h3>
+      <section class="flex flex-col">
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-bold uppercase opacity-70 transition hover:opacity-100"
+          :aria-expanded="isOpen('recovery')"
+          data-testid="hp-group-recovery"
+          @click="toggleSection('recovery')"
+        >
+          <font-awesome-icon
+            :icon="isOpen('recovery') ? 'chevron-down' : 'chevron-right'"
+            class="w-3 shrink-0 opacity-70"
+          />
+          <span class="min-w-0 flex-1 truncate">{{ $t("hp.recoveryTitle") }}</span>
+          <span class="shrink-0 tabular-nums opacity-50">{{ recoveries.length }}</span>
+        </button>
+        <template v-if="isOpen('recovery')">
         <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.recoveryHint") }}</p>
         <ul class="flex flex-col divide-y divide-current/10">
           <li
@@ -239,6 +312,7 @@ const recoveries = computed(() => policy.recoveries);
             weekly: formatHp(policy.recoveryWeeklyCapCenti),
           }) }}
         </p>
+        </template>
       </section>
 
       <!-- ── why did this change? ───────────────────────────────────────── -->

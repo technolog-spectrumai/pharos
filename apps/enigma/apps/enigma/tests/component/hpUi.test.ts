@@ -72,6 +72,8 @@ beforeEach(async () => {
   document
     .querySelectorAll('[data-testid="hp-explain"], [data-testid="hp-explain-backdrop"]')
     .forEach((n) => n.remove());
+  // The panel remembers which sections were open; each test starts folded.
+  localStorage.removeItem("enigma:hp:open");
   setActivePinia(createPinia());
   resetHpLedgerForTest();
   stopHp();
@@ -236,15 +238,58 @@ describe("HpPanel", () => {
     expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
   });
 
-  it("lists a price for every priced action", () => {
+  it("lists a price for every priced action, once its section is opened", async () => {
     const w = mount(HpPanel, { global });
-    for (const id of ["dht.presence.enable", "ticket.export.clearnet", "vox.call"]) {
+    for (const [group, id] of [
+      ["discovery", "dht.presence.enable"],
+      ["rooms", "ticket.export.clearnet"],
+      ["traffic", "vox.call"],
+    ]) {
+      await w.get(`[data-testid="hp-group-${group}"]`).trigger("click");
       expect(w.find(`[data-testid="hp-price-row-${id}"]`).exists(), id).toBe(true);
     }
   });
 
-  it("shows the safe message lane as free rather than as a zero price", () => {
+  it("starts with every section folded, so the meters are not buried", () => {
+    // Eight groups of four-ish rows would push the meters off the screen. The
+    // headings are a contents page; you open the one you are asking about.
     const w = mount(HpPanel, { global });
+    expect(w.findAll('[data-testid^="hp-group-body-"]')).toHaveLength(0);
+    expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(false);
+    // ...but every heading is there to be opened.
+    expect(w.findAll('[data-testid^="hp-group-"]').length).toBeGreaterThan(5);
+  });
+
+  it("folds a section back up", async () => {
+    const w = mount(HpPanel, { global });
+    const head = w.get('[data-testid="hp-group-local"]');
+    await head.trigger("click");
+    expect(w.find('[data-testid="hp-group-body-local"]').exists()).toBe(true);
+    expect(head.attributes("aria-expanded")).toBe("true");
+    await head.trigger("click");
+    expect(w.find('[data-testid="hp-group-body-local"]').exists()).toBe(false);
+    expect(head.attributes("aria-expanded")).toBe("false");
+  });
+
+  it("says how many prices a folded section holds", async () => {
+    // A folded heading still has to convey size, or folding just hides the
+    // table without telling you what you are missing.
+    const w = mount(HpPanel, { global });
+    expect(w.get('[data-testid="hp-group-transport"]').text()).toMatch(/\d/);
+  });
+
+  it("remembers which sections were open", async () => {
+    const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-group-messages"]').trigger("click");
+    // A fresh mount — as happens on every visit to the tab — keeps the choice.
+    const again = mount(HpPanel, { global });
+    expect(again.find('[data-testid="hp-group-body-messages"]').exists()).toBe(true);
+    expect(again.find('[data-testid="hp-group-body-local"]').exists()).toBe(false);
+  });
+
+  it("shows the safe message lane as free rather than as a zero price", async () => {
+    const w = mount(HpPanel, { global });
+    await w.get('[data-testid="hp-group-messages"]').trigger("click");
     const row = w.get('[data-testid="hp-price-row-msg.tor.mls"]');
     expect(row.text()).toContain("Free");
     expect(row.text()).not.toContain("0 HP");
@@ -267,7 +312,7 @@ describe("HpPanel", () => {
   it("hides the price list and history in compact mode", () => {
     const w = mount(HpPanel, { props: { compact: true }, global });
     expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
-    expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(false);
+    expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(false);
   });
 
   it("shows an empty history before anything happens", () => {
@@ -363,7 +408,10 @@ describe("EnigmaPrivacyView", () => {
     const w = mount(EnigmaPrivacyView, { global });
     await flushPromises();
     expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
-    // The full panel, not the compact one the welcome page uses.
+    // The full panel, not the compact one the welcome page uses — its sections
+    // start folded, so what distinguishes them is that the headings are there.
+    expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(true);
+    await w.get('[data-testid="hp-group-traffic"]').trigger("click");
     expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(true);
   });
 

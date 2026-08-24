@@ -723,7 +723,7 @@ export default {
     group: {
       transport: "Jak się łączysz",
       discovery: "Bycie odnajdywalnym",
-      rooms: "Pokoje i zaproszenia",
+      rooms: "Pokoje i bilety",
       messages: "Wiadomości",
       calendar: "Spotkania i ankiety",
       invites: "Zaproszenia",

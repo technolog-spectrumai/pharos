@@ -725,7 +725,7 @@ export default {
     group: {
       transport: "How you connect",
       discovery: "Being findable",
-      rooms: "Rooms and invitations",
+      rooms: "Rooms and tickets",
       messages: "Messages",
       calendar: "Meetings and polls",
       invites: "Invitations",
