@@ -13,10 +13,15 @@ use zeroize::ZeroizeOnDrop;
 
 mod aead;
 mod kdf;
+mod seal;
 mod vault;
 
 pub use aead::{open, seal, AEAD_NAME};
 pub use kdf::{KDF_NAME, KDF_OUT_LEN};
+pub use seal::{
+    open_sealed, seal_to, x25519_from_ed25519_pk, x25519_from_ed25519_sk, x25519_public,
+    X25519_PK_LEN,
+};
 pub use vault::{create_vault, create_vault_with_params, rewrap, unlock, KdfParams, VaultHeader};
 
 /// A 32-byte data-encryption key, zeroized on drop. Obtained from `create_vault`
