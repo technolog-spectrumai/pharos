@@ -9,6 +9,7 @@ import { useI18n } from "vue-i18n";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import layersFn from "protomaps-themes-base";
+import { currentLocale } from "rakotis";
 import {
   isTauri,
   invoke,
@@ -135,7 +136,12 @@ function buildStyle(themeFlavor: string, maxZoom: number): maplibregl.StyleSpeci
     },
     // `layers()` ALREADY includes the label layers — spreading `labels()` on
     // top duplicates every id, which fails style validation outright.
-    layers: layersFn("protomaps", themeFlavor, "en"),
+    // Label language. Protomaps tiles carry a `name:<lang>` field per feature, so
+    // this picks the Polish exonym where the tile has one ("Warszawa", not
+    // "Warsaw") and falls back to the local name where it does not. Hard-coded to
+    // "en" this was the largest block of untranslated text in the app, and none of
+    // it lives in a catalog we could have swept.
+    layers: layersFn("protomaps", themeFlavor, currentLocale.value),
   } as maplibregl.StyleSpecification;
 }
 
@@ -395,6 +401,15 @@ watch(flavor, (next) => {
   if (!map || !ready.value) return;
   trace(`theme: switching basemap to ${next}`);
   map.setStyle(buildStyle(next, sourceMaxZoom));
+});
+
+// Same swap on a language change: `buildStyle` bakes the label language into the
+// layer definitions, so the map keeps English names until the style is rebuilt.
+// Nothing else in the map tree reads the locale, so without this the place names
+// are the one surface a language switch does not reach.
+watch(currentLocale, () => {
+  if (!map || !ready.value) return;
+  map.setStyle(buildStyle(flavor.value, sourceMaxZoom));
 });
 
 watch(() => layer.onMap.value, refreshShared, { deep: true });

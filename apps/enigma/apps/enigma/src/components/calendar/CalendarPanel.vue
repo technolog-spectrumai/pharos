@@ -73,7 +73,10 @@ function pick(day: Date) {
 <template>
   <OyaCard>
     <div class="mb-3 flex items-center justify-between gap-2">
-      <h2 class="text-lg font-semibold capitalize">{{ monthLabel }}</h2>
+      <!-- No `capitalize`: Intl already gives "August 2026" in English, and Polish
+           writes month names in lower case — "sierpień 2026". Forcing a capital here
+           would override the one piece of grammar Intl got right. -->
+      <h2 class="text-lg font-semibold">{{ monthLabel }}</h2>
       <div class="flex items-center gap-1">
         <button
           type="button"
@@ -100,8 +103,9 @@ function pick(day: Date) {
       </div>
     </div>
 
-    <div class="grid grid-cols-7 gap-1 text-center text-xs font-semibold uppercase opacity-50">
-      <span v-for="wd in weekdays" :key="wd" class="py-1 capitalize">{{ wd }}</span>
+    <div class="grid grid-cols-7 gap-1 text-center text-xs font-semibold opacity-50">
+      <!-- Likewise: "Mon" comes capitalised, "pon." does not, and both are right. -->
+      <span v-for="wd in weekdays" :key="wd" class="py-1">{{ wd }}</span>
     </div>
     <div class="grid grid-cols-7 gap-1">
       <button
