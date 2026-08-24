@@ -74,88 +74,13 @@ struct RoomHandle {
 
 // ── ticket ────────────────────────────────────────────────────────────────────
 
-/// Leading tag byte on an iroh ticket. Distinguishes it from a Tor ticket (which
-/// is tagged `0x54`) so the realtime layer can route a scanned ticket by sniffing.
-/// Without this, an iroh ticket whose topic happens to start with `0x54` (~1/256)
-/// would be misrouted to the Tor backend. See `p2p_tor::TOR_TAG`.
-const IROH_TAG: u8 = 0x49; // 'I'
+// Room tickets and DHT room codes both used to live here: base32 blobs, tagged
+// `0x49` / `0x54` / `0x44`, that named a room and admitted whoever held one. They
+// are gone. A room is entered only by redeeming an invitation (§18), which is
+// bounded, revocable and bound to one redeemer, so there is nothing left to mint
+// or to sniff a tag byte from. `legacy_ticket.rs` still READS the old blobs, once,
+// to migrate saved rooms — it cannot make one.
 
-#[derive(Serialize, Deserialize)]
-struct Ticket {
-    topic: TopicId,
-    name: String,
-    peers: Vec<EndpointAddr>,
-}
-
-impl Ticket {
-    fn encode(&self) -> String {
-        let mut buf = vec![IROH_TAG];
-        buf.extend_from_slice(&postcard::to_stdvec(self).expect("postcard::to_stdvec is infallible"));
-        let mut text = data_encoding::BASE32_NOPAD.encode(&buf);
-        text.make_ascii_lowercase();
-        text
-    }
-    fn decode(s: &str) -> Result<Self> {
-        let bytes = data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes())?;
-        // Strip the tag; older untagged tickets fall back to raw postcard.
-        let body = match bytes.split_first() {
-            Some((&IROH_TAG, rest)) => rest,
-            _ => &bytes[..],
-        };
-        Ok(postcard::from_bytes(body)?)
-    }
-}
-
-// ── room code (ticketless join via DHT rendezvous — technology.md §12) ─────────────────────
-
-/// Leading tag byte on a DHT room code, joining the `IROH_TAG 0x49` /
-/// `TOR_TAG 0x54` family so the one join field routes any pasted/scanned code.
-const DHT_TAG: u8 = 0x44; // 'D'
-
-/// Ticketless-join credential: the room name (→ the SAME blake3 gossip topic
-/// ticket-joiners use) plus the rendezvous secret. No addresses embedded — those
-/// come from the DHT, so a code never goes stale the way a ticket's peers can.
-/// It is a bearer credential (see technology.md §12 threat notes), like the ticket itself.
-#[derive(Serialize, Deserialize)]
-struct RoomCode {
-    name: String,
-    secret: [u8; 32],
-}
-
-impl RoomCode {
-    fn encode(&self) -> String {
-        let mut buf = vec![DHT_TAG];
-        buf.extend_from_slice(&postcard::to_stdvec(self).expect("postcard::to_stdvec is infallible"));
-        let mut text = data_encoding::BASE32_NOPAD.encode(&buf);
-        text.make_ascii_lowercase();
-        text
-    }
-    fn decode(s: &str) -> Result<Self> {
-        let bytes = data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes())?;
-        match bytes.split_first() {
-            Some((&DHT_TAG, body)) => Ok(postcard::from_bytes(body)?),
-            _ => Err(anyhow!("not a DHT room code")),
-        }
-    }
-}
-
-/// Tag sniff for the realtime router (mirrors `p2p_tor::ticket_is_tor`).
-pub fn code_is_dht(s: &str) -> bool {
-    match data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes()) {
-        Ok(bytes) => bytes.first() == Some(&DHT_TAG),
-        Err(_) => false,
-    }
-}
-
-/// The room NAME inside a code, without touching the DHT. Lets a build with
-/// `dht.enabled: false` still REOPEN a room that was saved by code (the entry's
-/// stored credential is the code itself — see useChatChannel's join path): the
-/// topic is `blake3(name)`, which the code already carries, so only the
-/// rendezvous is missing and persisted NodeIds can take over. Returns None for
-/// anything that is not a well-formed code.
-pub fn room_name_from_code(code: &str) -> Option<String> {
-    RoomCode::decode(code).ok().map(|c| c.name)
-}
 
 fn topic_for(name: &str) -> TopicId {
     TopicId::from_bytes(*blake3::hash(name.as_bytes()).as_bytes())
@@ -388,13 +313,14 @@ fn spawn_rendezvous_resolver(
     })
 }
 
-/// Open a room (we are the first member) and return `(room_id, ticket, code)`.
-/// `code` is the ticketless-join room code — `None` while DHT discovery is off.
-pub async fn create_room(
-    app: &AppHandle,
-    state: &P2pState,
-    name: String,
-) -> Result<(String, String, Option<String>)> {
+/// Open a room (we are the first member) and return its `room_id`.
+///
+/// It used to also mint a permanent ticket and a DHT room code. Both were bearer
+/// credentials that never expired and could not be withdrawn, and both are gone:
+/// a room is entered by redeeming an invitation, which is minted separately and
+/// on demand (`invite_api::mint`). Creating a room now produces no shareable
+/// credential at all — that is a deliberate second step.
+pub async fn create_room(app: &AppHandle, state: &P2pState, name: String) -> Result<String> {
     ensure_started(app, state).await?;
     let topic = topic_for(&name);
     let room = topic.to_string();
@@ -402,107 +328,21 @@ pub async fn create_room(
     let mut guard = state.0.lock().await;
     let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
     open_room(app, node, topic, &room, &name, vec![]).await?;
-    let ticket = Ticket {
-        topic,
-        name: name.clone(),
-        peers: vec![node.endpoint.addr()],
-    }
-    .encode();
-    let code = if node.dht.is_some() {
-        let secret = crate::p2p_dht::load_or_create_room_secret(app, &room)?;
-        start_publisher(app, node, &room);
-        Some(RoomCode { name, secret }.encode())
-    } else {
-        None
-    };
-    Ok((room, ticket, code))
+    Ok(room)
 }
 
-/// Join a room from a ticket and return `(room_id, name)`.
+/// Join a room by name, bootstrapping from peer NodeIds — the ONLY way into an
+/// iroh room now that tickets and room codes are gone.
 ///
-/// `extra_peer_ids` seeds the gossip bootstrap with additional known peers (the
-/// persisted NodeIds from previous sessions): the ticket's embedded addresses may
-/// be stale, but a bare NodeId still resolves through n0 discovery — this is what
-/// makes "pair once by QR, reconnect forever" work.
-pub async fn join_room(
-    app: &AppHandle,
-    state: &P2pState,
-    ticket: String,
-    extra_peer_ids: Vec<String>,
-) -> Result<(String, String)> {
-    ensure_started(app, state).await?;
-    let ticket = Ticket::decode(&ticket).map_err(|e| anyhow!("invalid ticket: {e}"))?;
-    let topic = ticket.topic;
-    let room = topic.to_string();
-    let mut peer_ids = ticket.peers.iter().map(|p| p.id).collect::<Vec<_>>();
-    for id in &extra_peer_ids {
-        if let Ok(id) = id.parse::<EndpointId>() {
-            if !peer_ids.contains(&id) {
-                peer_ids.push(id);
-            }
-        }
-    }
-
-    let mut guard = state.0.lock().await;
-    let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
-    for peer in &ticket.peers {
-        node.lookup.add_endpoint_info(peer.clone());
-    }
-    open_room(app, node, topic, &room, &ticket.name, peer_ids).await?;
-    // No-op unless this room's rendezvous secret exists from an earlier
-    // create/code-join — then keep the room discoverable for code-joiners.
-    start_publisher(app, node, &room);
-    Ok((room, ticket.name))
-}
-
-/// Ticketless join from a DHT room code (see technology.md §12): the code carries the room
-/// name + rendezvous secret; member addresses come from the Mainline DHT. The
-/// topic stays `blake3(name)`, so code-joiners land in the same room as
-/// ticket-joiners and reconnects.
-pub async fn join_room_by_code(
-    app: &AppHandle,
-    state: &P2pState,
-    code: String,
-) -> Result<(String, String)> {
-    // Before ensure_started: binding the endpoint for a join that cannot
-    // succeed would open a relay connection for nothing.
-    if !crate::build_config::dht::ENABLED {
-        return Err(anyhow!(crate::p2p_dht::DHT_DISABLED));
-    }
-    ensure_started(app, state).await?;
-    let RoomCode { name, secret } =
-        RoomCode::decode(&code).map_err(|e| anyhow!("invalid room code: {e}"))?;
-    let topic = topic_for(&name);
-    let room = topic.to_string();
-
-    // Resolve OUTSIDE the state lock — a DHT lookup takes seconds and must not
-    // stall other realtime commands.
-    let (dht, self_id) = {
-        let guard = state.0.lock().await;
-        let node = guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?;
-        let dht = node.dht.clone().ok_or_else(|| {
-            anyhow!("DHT discovery is off — enable it in Settings to join by room code")
-        })?;
-        (dht, node.endpoint.id())
-    };
-    // Persist first: we are now a secret-holder and keep the room discoverable.
-    crate::p2p_dht::store_room_secret(app, &room, &secret)?;
-    let peer_ids = dht.resolve_room_peers(&secret, Some(self_id)).await;
-
-    let mut guard = state.0.lock().await;
-    let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
-    // An empty bootstrap is fine: subscribe anyway — our publisher makes US
-    // findable, and the resolver keeps looking until a neighbor appears.
-    open_room(app, node, topic, &room, &name, peer_ids).await?;
-    start_publisher(app, node, &room);
-    start_resolver(app, node, &room);
-    Ok((room, name))
-}
-
-/// Join a room by name, bootstrapping from peer NodeIds. Unlike `join_room`, no ticket
-/// is needed — peer addresses are resolved via iroh's built-in n0 discovery. This is
-/// the reconnect path after a one-time QR pairing: the app persists each room's peer
-/// NodeIds and re-subscribes with them on startup.
+/// The topic is `blake3(name)`, so everyone who opens the same room lands on the
+/// same gossip topic; peer addresses resolve via iroh's built-in n0 discovery, so
+/// a bare NodeId is enough. Two callers: reopening a saved room from its persisted
+/// address book, and completing a redeemed invitation, whose grant carries the
+/// inviter's NodeId.
+///
+/// Note this is a TRANSPORT-level join. Landing on the topic is not membership:
+/// every member refuses gossip key packages outright, so nothing but a redeemed
+/// invitation adds anyone to the MLS group.
 pub async fn join_room_by_node(
     app: &AppHandle,
     state: &P2pState,
@@ -703,28 +543,6 @@ pub async fn dht_find_nick(
         .collect())
 }
 
-/// Mint (or re-surface) the ticketless-join code for a saved room — lets rooms
-/// created before the toggle (or ticket-joined) become code-shareable. `None`
-/// while discovery is off. Starts the node lazily like every room command, so
-/// the Contacts invite flow works before any room is opened this session.
-pub async fn dht_room_code(
-    app: &AppHandle,
-    state: &P2pState,
-    room: &str,
-    name: &str,
-) -> Result<Option<String>> {
-    ensure_started(app, state).await?;
-    let mut guard = state.0.lock().await;
-    let Some(node) = guard.as_mut() else { return Ok(None) };
-    if node.dht.is_none() {
-        return Ok(None);
-    }
-    let secret = crate::p2p_dht::load_or_create_room_secret(app, room)?;
-    // Newly minted secret on an open room ⇒ start serving code-joiners now.
-    start_publisher(app, node, room);
-    Ok(Some(RoomCode { name: name.to_string(), secret }.encode()))
-}
-
 pub async fn broadcast(state: &P2pState, room: &str, payload: String) -> Result<()> {
     let guard = state.0.lock().await;
     let node = guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?;
@@ -842,26 +660,7 @@ fn emit_status(app: &AppHandle, room: &str, state: &str, peers: u32, peer_id: Op
 mod tests {
     use super::*;
 
-    #[test]
-    fn ticket_round_trips_through_base32() {
-        let topic = TopicId::from_bytes([7u8; 32]);
-        let topic_s = topic.to_string();
-        let ticket = Ticket { topic, name: "general".to_string(), peers: vec![] };
 
-        let encoded = ticket.encode();
-        assert!(!encoded.is_empty());
-        assert_eq!(encoded, encoded.to_ascii_lowercase()); // tickets are lowercase
-
-        let decoded = Ticket::decode(&encoded).expect("decode our own ticket");
-        assert_eq!(decoded.topic.to_string(), topic_s);
-        assert_eq!(decoded.name, "general");
-        assert!(decoded.peers.is_empty());
-    }
-
-    #[test]
-    fn ticket_decode_rejects_garbage() {
-        assert!(Ticket::decode("not a valid ticket!!!").is_err());
-    }
 
     #[test]
     fn topic_is_derived_deterministically_from_name() {
@@ -869,40 +668,6 @@ mod tests {
         assert_ne!(topic_for("room-a").to_string(), topic_for("room-b").to_string());
     }
 
-    #[test]
-    fn room_code_round_trips_through_base32() {
-        let code = RoomCode { name: "general".to_string(), secret: [5u8; 32] };
-        let encoded = code.encode();
-        assert_eq!(encoded, encoded.to_ascii_lowercase()); // codes are lowercase
 
-        let decoded = RoomCode::decode(&encoded).expect("decode our own code");
-        assert_eq!(decoded.name, "general");
-        assert_eq!(decoded.secret, [5u8; 32]);
-    }
 
-    #[test]
-    fn room_code_decode_rejects_garbage_and_foreign_tags() {
-        assert!(RoomCode::decode("not a valid code!!!").is_err());
-        // An iroh ticket must not decode as a room code (routing depends on it).
-        let ticket = Ticket {
-            topic: TopicId::from_bytes([7u8; 32]),
-            name: "general".to_string(),
-            peers: vec![],
-        };
-        assert!(RoomCode::decode(&ticket.encode()).is_err());
-    }
-
-    #[test]
-    fn code_sniff_routes_only_dht_codes() {
-        let code = RoomCode { name: "general".to_string(), secret: [5u8; 32] }.encode();
-        assert!(code_is_dht(&code));
-
-        let ticket = Ticket {
-            topic: TopicId::from_bytes([7u8; 32]),
-            name: "general".to_string(),
-            peers: vec![],
-        };
-        assert!(!code_is_dht(&ticket.encode()));
-        assert!(!code_is_dht("not a valid code!!!"));
-    }
 }

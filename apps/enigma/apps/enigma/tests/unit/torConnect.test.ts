@@ -2,39 +2,46 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ref, nextTick } from "vue";
 import type { ChatChannel } from "rakotis";
 
-// Tor-connect UX matrix for the create/join modals (useP2pRooms controller):
-// the connect window waits N seconds (N = the user setting, Settings tab) for the
-// transport, then keeps the window one more N-second interval so the outcome can
-// be read (total lifetime ≈ 2×N), with a visible countdown. A hung Tor join is
-// aborted (cancelJoin frees the onion lock); iroh joins are never aborted.
+// Connect-window UX matrix for the create/join modals (useP2pRooms controller):
+// the window waits N seconds (N = the user setting, Settings tab) for the join,
+// then keeps itself open one more N-second interval so the outcome can be read
+// (total lifetime ≈ 2×N), with a visible countdown. A hung Tor redemption is
+// aborted (cancelJoin frees the onion lock); an iroh one is never aborted.
+//
+// The join being timed is now a REDEMPTION — an invitation is the only way in —
+// so the thing that hangs is the `invite_peek` / `invite_redeem` invoke rather
+// than a transport join. The window's shape is unchanged, which is the point:
+// removing tickets was not meant to change how long anyone waits.
 
 const { mockGetConnectTimeoutSecs } = vi.hoisted(() => ({
   mockGetConnectTimeoutSecs: vi.fn(async () => 5),
 }));
 
-// PARTIAL mock: the real module underneath, with only the two seams this test
-// drives replaced. A whole-module replacement used to be enough, but the
-// controller now also reaches for rakotis' Privacy HP helpers, and re-stubbing
-// every export a dependency happens to use is a standing breakage.
+// PARTIAL mock: the real module underneath, with only the seam this test drives
+// replaced. A whole-module replacement used to be enough, but the controller also
+// reaches for rakotis' Privacy HP helpers, and re-stubbing every export a
+// dependency happens to use is a standing breakage.
 vi.mock("rakotis", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  // Mirror of useChatChannel.isTorTicket (base32 first byte == 0x54).
-  isTorTicket: (ticket: string) => {
-    const B32 = "abcdefghijklmnopqrstuvwxyz234567";
-    const s = ticket.trim().toLowerCase();
-    if (s.length < 2) return false;
-    const a = B32.indexOf(s[0]);
-    const b = B32.indexOf(s[1]);
-    if (a < 0 || b < 0) return false;
-    return (((a << 3) | (b >> 2)) & 0xff) === 0x54;
-  },
   getConnectTimeoutSecs: mockGetConnectTimeoutSecs,
 }));
 
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invokeMock(...a) }));
+
 import { useP2pRooms } from "../../src/components/chat/useP2pRooms";
 
-const TOR_TICKET = "kqaa"; // base32(0x54, …)
-const IROH_TICKET = "aaaqeay"; // tagless
+/** base32 of [0x4E, …] — an invitation, the only thing the join field takes. */
+const INVITE = "jybucrq";
+
+/** Make the redeem hang for ever, after a peek that names the transport. */
+function hangingRedeem(tor: boolean) {
+  invokeMock.mockImplementation(async (cmd: string) => {
+    if (cmd === "invite_peek") return { kind: "general", inviter: "alice", expiresAt: Date.now() + 6e5, tor };
+    if (cmd === "invite_redeem") return new Promise(() => {});
+    return null;
+  });
+}
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -52,10 +59,12 @@ function makeChannel() {
   return {
     error: ref<string | null>(null),
     isEncrypted: ref(false),
-    // The controller reads the created room's DHT code off the remembered list.
-    p2pRooms: ref<Array<{ room: string; name: string; ticket: string; code?: string }>>([]),
+    mlsIdentity: ref("me"),
+    currentUserName: ref("me"),
+    // The controller reads the created room's transport off the remembered list.
+    p2pRooms: ref<Array<{ room: string; name: string; tor?: boolean }>>([]),
     createRoom: vi.fn<(name: string) => Promise<string | null>>(),
-    joinByTicket: vi.fn<(t: string) => Promise<void>>(),
+    joinByInvite: vi.fn(async () => true),
     cancelJoin: vi.fn(async () => {}),
     deleteRoom: vi.fn(async () => {}),
   };
@@ -74,7 +83,10 @@ async function flush() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.clearAllMocks();
+  (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   mockGetConnectTimeoutSecs.mockImplementation(async () => 5);
+  hangingRedeem(true);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -85,14 +97,15 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   it("hung Tor join: times out at N with the timeout message, aborts the onion dial, then auto-closes after N more", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockReturnValue(new Promise(() => {})); // hangs forever
+    hangingRedeem(true); // the redeem invoke never settles
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
 
     expect(ctrl.joinStarted.value).toBe(true);
+    // The peek said Tor, so Cancel is on offer and the timeout will abort.
     expect(ctrl.joiningTor.value).toBe(true);
 
     // Just before N: still spinning, no error, not aborted.
@@ -121,17 +134,21 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   it("successful Tor join: encrypted inside the window → no timeout; the window stays N seconds (countdown) then closes", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    const join = deferred<void>();
-    ch.joinByTicket.mockReturnValue(join.promise);
+    const join = deferred<unknown>();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5, tor: true };
+      if (cmd === "invite_redeem") return join.promise;
+      return null;
+    });
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
 
-    // Transport connects at t=2s — inside the window, so no error is shown.
+    // The inviter admits us at t=2s — inside the window, so no error is shown.
     await vi.advanceTimersByTimeAsync(2_000);
-    join.resolve();
+    join.resolve({ welcome: "V0VMQ09NRQ==", roomName: "R", peers: [], onion: "x.onion" });
     await flush();
     expect(ctrl.joinError.value).toBe("");
     expect(ch.cancelJoin).not.toHaveBeenCalled();
@@ -151,44 +168,50 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     expect(ctrl.joinOpen.value).toBe(false);
   });
 
-  it("transport connects but MLS never establishes → still times out at N and aborts (the field-bug shape)", async () => {
-    // This is exactly how the dropped-startMls bug presented: "Connected" but
-    // "Not encrypted" forever. The connect window covers the key exchange too.
+  it("admitted onto the transport but never into the group → a named error, not a hang", async () => {
+    // The successor to the old field bug ("Connected" but "Not encrypted" for
+    // ever, only a manual reset recovering). A redemption reports admission
+    // directly: the inviter either adds us to the MLS group or does not, so this
+    // now surfaces as a specific refusal inside the window instead of an
+    // open-ended wait. The read window still arms, so the message can be read.
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockResolvedValue(undefined); // transport joins instantly
+    ch.joinByInvite.mockResolvedValue(false); // their room was not open
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5, tor: true };
+      if (cmd === "invite_redeem") return { welcome: "V0VMQ09NRQ==", roomName: "R", peers: [], onion: "x.onion" };
+      return null;
+    });
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
-    expect(ctrl.joinError.value).toBe("");
 
-    // isEncrypted never flips → at N the join is declared failed.
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(ctrl.joinError.value).toBe("chat.joinTimeout");
-    expect(ch.cancelJoin).toHaveBeenCalledTimes(1);
-
-    // …and the read window still follows before auto-close.
+    expect(ctrl.joinError.value).toBe("invite.errAdmitFailed");
+    // Nothing hung, so nothing to abort — and no timeout should follow either.
+    expect(ch.cancelJoin).not.toHaveBeenCalled();
     await flush();
     expect(ctrl.autoCloseSecs.value).toBe(5);
     await vi.advanceTimersByTimeAsync(5_000);
     expect(ctrl.joinOpen.value).toBe(false);
+    expect(ctrl.joinError.value).toBe("invite.errAdmitFailed"); // never overwritten
   });
 
   it("fast transport error surfaces immediately and still gets the read window", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockImplementation(async () => {
-      ch.error.value = "invalid tor ticket";
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "invite_peek") throw new Error("INVITE_EXPIRED");
+      return null;
     });
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
 
-    expect(ctrl.joinError.value).toBe("invalid tor ticket");
+    expect(ctrl.joinError.value).toBe("invite.errExpired");
     expect(ch.cancelJoin).not.toHaveBeenCalled(); // it failed, nothing to abort
     await flush();
     expect(ctrl.autoCloseSecs.value).toBe(5); // read window armed for the error too
@@ -197,10 +220,10 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   it("user cancel mid-join aborts the dial and returns to the form without a countdown", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockReturnValue(new Promise(() => {}));
+    hangingRedeem(true);
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
 
@@ -221,10 +244,10 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   it("Retry after a timeout clears the read-window countdown", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockReturnValue(new Promise(() => {}));
+    hangingRedeem(true);
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
     await vi.advanceTimersByTimeAsync(5_000);
@@ -238,13 +261,13 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     expect(ctrl.joinOpen.value).toBe(true);
   });
 
-  it("iroh join times out with the same message but never aborts (cancel is Tor-only)", async () => {
+  it("iroh redemption times out with the same message but never aborts (cancel is Tor-only)", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockReturnValue(new Promise(() => {}));
+    hangingRedeem(false); // the peek says iroh — nothing holding an onion lock
 
     ctrl.openJoin();
-    ctrl.ticket.value = IROH_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
     expect(ctrl.joiningTor.value).toBe(false);
@@ -258,10 +281,10 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     mockGetConnectTimeoutSecs.mockImplementation(async () => 7);
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    ch.joinByTicket.mockReturnValue(new Promise(() => {}));
+    hangingRedeem(true);
 
     ctrl.openJoin();
-    ctrl.ticket.value = TOR_TICKET;
+    ctrl.ticket.value = INVITE;
     void ctrl.joinRoom();
     await flush();
 
@@ -273,7 +296,7 @@ describe("Tor join — connect window (N) + read window (N)", () => {
 });
 
 describe("Tor create — the same timeout governs the launch window", () => {
-  it("hung onion launch: shows the timeout error at N; a late success still shows the ticket", async () => {
+  it("hung onion launch: shows the timeout error at N; a late success still opens the room", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
     const create = deferred<string | null>();
@@ -290,9 +313,10 @@ describe("Tor create — the same timeout governs the launch window", () => {
     expect(ctrl.createError.value).toBe("chat.joinTimeout");
 
     // The invoke was never aborted — when the onion finally publishes, success wins.
-    create.resolve("ticket-xyz");
+    ch.p2pRooms.value = [{ room: "room-xyz", name: "aaaa", tor: true }];
+    create.resolve("room-xyz");
     await flush();
-    expect(ctrl.createdTicket.value).toBe("ticket-xyz");
+    expect(ctrl.createdRoom.value?.slug).toBe("room-xyz");
     expect(ctrl.createError.value).toBe("");
   });
 
@@ -308,9 +332,10 @@ describe("Tor create — the same timeout governs the launch window", () => {
     await flush();
 
     await vi.advanceTimersByTimeAsync(3_000);
-    create.resolve("ticket-abc");
+    ch.p2pRooms.value = [{ room: "room-abc", name: "aaaa" }];
+    create.resolve("room-abc");
     await flush();
-    expect(ctrl.createdTicket.value).toBe("ticket-abc");
+    expect(ctrl.createdRoom.value?.slug).toBe("room-abc");
     expect(ctrl.createError.value).toBe("");
 
     // Past N — the cleared timer must stay quiet.

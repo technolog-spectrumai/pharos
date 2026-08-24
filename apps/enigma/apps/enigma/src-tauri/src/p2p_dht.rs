@@ -202,21 +202,7 @@ pub fn load_room_secret(app: &AppHandle, room_id: &str) -> Option<[u8; 32]> {
     bytes.try_into().ok()
 }
 
-pub fn store_room_secret(app: &AppHandle, room_id: &str, secret: &[u8; 32]) -> Result<()> {
-    crate::vault::put(app, VAULT_NS, &secret_key_name(room_id), secret)
-        .map_err(|e| anyhow!("persist room secret: {e}"))
-}
 
-/// The room secret is random — NEVER derived from the room name, so rendezvous
-/// points can't be squatted or enumerated from guessable names.
-pub fn load_or_create_room_secret(app: &AppHandle, room_id: &str) -> Result<[u8; 32]> {
-    if let Some(secret) = load_room_secret(app, room_id) {
-        return Ok(secret);
-    }
-    let secret = iroh::SecretKey::generate().to_bytes();
-    store_room_secret(app, room_id, &secret)?;
-    Ok(secret)
-}
 
 // ── key derivation ───────────────────────────────────────────────────────────────
 

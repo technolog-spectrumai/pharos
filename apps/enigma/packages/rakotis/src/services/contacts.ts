@@ -93,16 +93,6 @@ export async function dhtPresence(nodeIds: string[]): Promise<ContactPresence[]>
   }
 }
 
-/** Mint/show the ticketless-join code for a saved room (invite-a-contact flow).
- *  Null while the DHT toggle is off. */
-export async function dhtRoomCode(room: string, name: string): Promise<string | null> {
-  if (!isTauri()) return null;
-  try {
-    return await invoke<string | null>("dht_room_code", { room, name });
-  } catch {
-    return null;
-  }
-}
 
 export interface NickClaim {
   node_id: string;

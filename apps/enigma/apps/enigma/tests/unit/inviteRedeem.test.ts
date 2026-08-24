@@ -74,15 +74,18 @@ describe("redeeming an invitation", () => {
     expect(stub.joinByTicket).not.toHaveBeenCalled();
   });
 
-  it("leaves an ordinary room ticket on the ticket path", async () => {
-    const { channel, stub } = makeChannel();
+  it("refuses an old room ticket in plain words", async () => {
+    // There is no ticket path any more. A QR minted by an older build still
+    // exists in the world, so it gets a refusal that names the problem — not
+    // "invalid ticket" from a parser, and certainly not a dial somewhere.
+    const { channel } = makeChannel();
     const c = useP2pRooms(channel);
     c.ticket.value = TICKET;
     await c.joinRoom();
     await flush();
 
     expect(invokeMock.mock.calls.some((x) => x[0] === "invite_peek")).toBe(false);
-    expect(stub.joinByTicket).toHaveBeenCalled();
+    expect(c.joinError.value).toBe("invite.errNotAnInvitation");
   });
 
   it("says who is inviting before committing to the code", async () => {

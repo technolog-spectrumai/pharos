@@ -31,6 +31,13 @@ const { qr } = vi.hoisted(() => ({
   },
 }));
 
+const invokeMock = vi.fn(async (cmd: string) => {
+  if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5, tor: false };
+  if (cmd === "invite_redeem") return { welcome: "V0VMQ09NRQ==", roomName: "R", peers: [], onion: "" };
+  return null;
+});
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invokeMock(...(a as [string])) }));
+
 vi.mock("html5-qrcode", () => ({
   Html5Qrcode: class {
     constructor(public elementId: string) {}
@@ -56,7 +63,9 @@ function makeChannel() {
     p2pRooms: ref<unknown[]>([]),
     loadP2pRooms: vi.fn(async () => {}),
     createRoom: vi.fn(async () => null),
-    joinByTicket: vi.fn(async () => {}),
+    mlsIdentity: ref("me"),
+    currentUserName: ref("me"),
+    joinByInvite: vi.fn(async () => true),
     cancelJoin: vi.fn(async () => {}),
     deleteRoom: vi.fn(async () => {}),
   };
@@ -106,6 +115,10 @@ async function openCamera(wrapper: ReturnType<typeof mount>, controller: P2pRoom
 
 beforeEach(() => {
   localStorage.clear();
+  // mockClear, not clearAllMocks: the implementation above IS the fixture, and
+  // resetting it would make every redemption resolve undefined.
+  invokeMock.mockClear();
+  (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   qr.starts = 0;
   qr.stops = 0;
   qr.config = null;
@@ -153,13 +166,23 @@ describe("ChatPanel — join window ⇄ camera handoff", () => {
     const { wrapper, controller } = await mountPanel(channel);
     await openCamera(wrapper, controller);
 
-    qr.onSuccess!("  ticket-xyz  ");
+    // Park the REDEEM (not the settings read that precedes it) so the window
+    // stays on its progress state — what this test is about is the handoff, not
+    // the outcome.
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5, tor: false };
+      if (cmd === "invite_redeem") return new Promise(() => {});
+      return null;
+    });
+    // A scanned invitation — the only thing the join field takes now.
+    qr.onSuccess!("  jybucrq  ");
     await flushPromises();
 
     expect(scannerModal(wrapper).exists()).toBe(false);
     expect(joinModal(wrapper).exists()).toBe(true);
     expect(qr.stops).toBe(1); // camera released
-    expect(channel.joinByTicket).toHaveBeenCalledWith("ticket-xyz");
+    // Trimmed and redeemed: the peek is the first thing the redemption does.
+    expect(invokeMock).toHaveBeenCalledWith("invite_peek", { ticket: "jybucrq" });
     // The join window is what renders the connect/MLS progress + countdown.
     expect(controller.joinStarted.value).toBe(true);
     expect(wrapper.text()).toContain("Connecting to the room…");
@@ -180,7 +203,7 @@ describe("ChatPanel — join window ⇄ camera handoff", () => {
     expect(joinModal(wrapper).exists()).toBe(true);
     expect(controller.joinOpen.value).toBe(true);
     expect(qr.stops).toBe(1);
-    expect(channel.joinByTicket).not.toHaveBeenCalled();
+    expect(invokeMock).not.toHaveBeenCalledWith("invite_peek", expect.anything());
   });
 
   it("sizes the scan box from the viewfinder instead of a fixed 220 px box", async () => {

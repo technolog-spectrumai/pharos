@@ -29,7 +29,7 @@ type StatusHandler = (room: string, state: WsStatus, peerId?: string, reason?: s
 
 /** `code` is the ticketless-join room code (DHT rendezvous — technology.md §12); empty
  *  while the DHT discovery toggle is off, and for Tor rooms. */
-export interface CreatedRoom { room: string; name: string; ticket: string; onion: string; code: string }
+export interface CreatedRoom { room: string; name: string; onion: string }
 export interface JoinedRoom { room: string; name: string; onion: string }
 
 /** What a retired permanent room ticket still tells us, for the one-time backfill
@@ -44,9 +44,6 @@ export interface LegacyTicketInfo {
 export interface ChatTransport {
   // P2P (iroh) rooms — Tauri only.
   createRoom(name: string): Promise<CreatedRoom>;
-  /** Join by ticket (the QR payload). `peerNodeIds` seeds the bootstrap with
-   *  previously persisted peers whose addresses resolve via n0 discovery. */
-  joinRoom(ticket: string, peerNodeIds?: string[]): Promise<JoinedRoom>;
   /** Ticketless reconnect: re-subscribe to a named room from persisted peer NodeIds. */
   joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom>;
   /** Migration only: read a retired permanent room ticket so its addresses can be
@@ -109,13 +106,6 @@ class GatewayChatTransport implements ChatTransport {
     return _invoke<CreatedRoom>("realtime_create_room", { name });
   }
 
-  async joinRoom(ticket: string, peerNodeIds?: string[]): Promise<JoinedRoom> {
-    await this.ensureListeners();
-    return _invoke<JoinedRoom>("realtime_join_room", {
-      ticket,
-      peerNodeIds: peerNodeIds ?? null,
-    });
-  }
 
   async decodeLegacyTicket(ticket: string): Promise<LegacyTicketInfo | null> {
     return _invoke<LegacyTicketInfo>("legacy_ticket_decode", { ticket }).catch(() => null);
@@ -172,9 +162,6 @@ const P2P_REQUIRES_APP = "P2P rooms require the desktop/mobile app.";
 
 class StubChatTransport implements ChatTransport {
   createRoom(): Promise<CreatedRoom> {
-    return Promise.reject(new Error(P2P_REQUIRES_APP));
-  }
-  joinRoom(): Promise<JoinedRoom> {
     return Promise.reject(new Error(P2P_REQUIRES_APP));
   }
   decodeLegacyTicket(): Promise<LegacyTicketInfo | null> {

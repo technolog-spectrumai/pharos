@@ -1005,6 +1005,7 @@ export default {
     errUnreachable: "Nie udało się połączyć z autorem. Musi być online z otwartym pokojem.",
     errAdmitFailed: "Nie mógł cię wpuścić — pokój mógł zostać zamknięty. Zaproszenie nadal działa, spróbuj ponownie.",
     errVersion: "To zaproszenie utworzyła nowsza wersja Enigma26.",
+    errNotAnInvitation: "To nie jest zaproszenie. Bilety i kody pokoju nikogo już nie wpuszczają — poproś o zaproszenie.",
     errGeneric: "Nie udało się użyć tego zaproszenia.",
   },
 };

@@ -95,14 +95,6 @@ function firstTagByte(ticket: string): number {
   if (a < 0 || b < 0) return -1;
   return ((a << 3) | (b >> 2)) & 0xff;
 }
-export function isTorTicket(ticket: string): boolean {
-  return firstTagByte(ticket) === 0x54;
-}
-/** DHT room codes are base32(`0x44` ('D') ++ postcard) — the ticketless-join
- *  credential (technology.md §12; mirrors `p2p_iroh::code_is_dht`). */
-export function isDhtCode(ticket: string): boolean {
-  return firstTagByte(ticket) === 0x44;
-}
 /** Invitations are base32(`0x4E` ('N') ++ version ++ kind ++ body) — encrypted,
  *  expiring, and redeemed by connecting to the inviter rather than by joining a
  *  topic (technology.md §18; mirrors `invite_ticket::is_invite_ticket`).
@@ -1371,16 +1363,24 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (wsStatus.value === "connected") void startMls();
   }
 
+  /**
+   * Create a room and enter it. Returns its slug, or null on failure.
+   *
+   * It used to return a permanent ticket — the thing you then handed out. Creating
+   * a room now yields no shareable credential at all: the transport reports which
+   * transport it landed on (a non-empty onion means Tor), and letting anyone else
+   * in is a separate, deliberate act of minting an invitation.
+   */
   async function createRoom(name: string): Promise<string | null> {
     error.value = null;
     teardown();
     clearMessages();
     try {
       const res = await chatTransport.createRoom(name.trim());
-      const tor = isTorTicket(res.ticket);
+      // Only the Tor backend hosts an onion, so its presence IS the transport.
+      const tor = !!res.onion;
       rememberP2pRoom({
-        room: res.room, name: res.name, ticket: res.ticket, host: true, tor,
-        onion: res.onion, ...(res.code ? { code: res.code } : {}),
+        room: res.room, name: res.name, host: true, tor, onion: res.onion || undefined,
       });
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = tor;
@@ -1389,39 +1389,17 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       // Tor immediately — before any joiner arrives.
       void refreshP2pRoster();
       messages.value.push(
-        sysMsg("chat.sys.created", "Created “{name}”. Share the QR / ticket to invite peers.", {
+        sysMsg("chat.sys.created", "Created “{name}”. Invite someone to let them in.", {
           name: res.name,
         }),
       );
-      return res.ticket;
+      return res.room;
     } catch (e) {
       error.value = errorMessage(e);
       return null;
     }
   }
 
-  async function joinByTicket(ticket: string) {
-    error.value = null;
-    teardown();
-    clearMessages();
-    try {
-      const res = await chatTransport.joinRoom(ticket.trim());
-      const tor = isTorTicket(ticket.trim());
-      // A DHT code join stores the code as the entry's "ticket" too — reopening
-      // by it routes back through the code path (tag-sniffed), which never goes
-      // stale the way a ticket's embedded addresses can.
-      const code = isDhtCode(ticket.trim()) ? { code: ticket.trim() } : {};
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim(), tor, onion: res.onion, ...code });
-      enterP2pRoom(res.room, res.name);
-      currentRoomIsTor.value = tor;
-      myOnion.value = res.onion;
-      messages.value.push(
-        sysMsg("chat.sys.joined", "Joined “{name}”. Connecting to peers…", { name: res.name }),
-      );
-    } catch (e) {
-      error.value = errorMessage(e);
-    }
-  }
 
   // Abort an in-flight Tor join (the join modal's "Cancel" button). Frees the
   // half-launched onion's lock in Rust so a retry doesn't hit "resource already in
@@ -1884,7 +1862,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendAudio, sendMapShare, forceResetMls,
-    p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
+    p2pRooms, loadP2pRooms, createRoom, joinByNode, openP2pRoom,
     admitInvited, joinByInvite,
     cancelJoin, deleteRoom,
     ensureNode,

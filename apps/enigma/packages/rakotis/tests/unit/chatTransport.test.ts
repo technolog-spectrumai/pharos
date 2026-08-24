@@ -72,31 +72,23 @@ describe("chatTransport — room-multiplexing Rust gateway backend (P2P only)", 
     expect(got).toContainEqual(["room-2", "disconnected", undefined]);
   });
 
-  it("createRoom and joinRoom call the right gateway commands", async () => {
-    invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", ticket: "tkt" });
+  it("createRoom returns a room, not a credential", async () => {
+    // It used to hand back a permanent ticket. Creating a room now produces
+    // nothing shareable — letting someone in is a separate, deliberate act.
+    invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", onion: "" });
     const created = await transport.createRoom("general");
     expect(invoke).toHaveBeenCalledWith("realtime_create_room", { name: "general" });
-    expect(created).toEqual({ room: "topic-abc", name: "general", ticket: "tkt" });
-
-    invoke.mockResolvedValueOnce({ room: "topic-xyz", name: "secret" });
-    const joined = await transport.joinRoom("ticket-string");
-    expect(invoke).toHaveBeenCalledWith("realtime_join_room", {
-      ticket: "ticket-string",
-      peerNodeIds: null,
-    });
-    expect(joined).toEqual({ room: "topic-xyz", name: "secret" });
+    expect(created).toEqual({ room: "topic-abc", name: "general", onion: "" });
+    expect(created).not.toHaveProperty("ticket");
   });
 
-  it("joinRoom seeds the bootstrap with persisted peer NodeIds", async () => {
-    invoke.mockResolvedValueOnce({ room: "topic-xyz", name: "secret" });
-    await transport.joinRoom("ticket-string", ["node-a", "node-b"]);
-    expect(invoke).toHaveBeenCalledWith("realtime_join_room", {
-      ticket: "ticket-string",
-      peerNodeIds: ["node-a", "node-b"],
-    });
+  it("has no join-by-ticket command left to call", async () => {
+    // `realtime_join_room` is gone from the Rust command table; calling it would
+    // fail at runtime rather than being merely unused.
+    expect((transport as Record<string, unknown>).joinRoom).toBeUndefined();
   });
 
-  it("joinRoomByNode bootstraps a named room from peer NodeIds — no ticket", async () => {
+  it("joinRoomByNode bootstraps a named room from peer NodeIds — the only join", async () => {
     invoke.mockResolvedValueOnce({ room: "topic-n", name: "duo" });
     const joined = await transport.joinRoomByNode("duo", ["node-a", "node-b"]);
     expect(invoke).toHaveBeenCalledWith("realtime_join_room_by_node", {
@@ -125,7 +117,7 @@ describe("chatTransport — browser stub (no Tauri runtime)", () => {
     vi.resetModules();
     const stub = (await import("../../src/chatTransport")).chatTransport;
     await expect(stub.createRoom("x")).rejects.toThrow(/desktop/i);
-    await expect(stub.joinRoom("t")).rejects.toThrow(/desktop/i);
+    await expect(stub.joinRoomByNode("x", [])).rejects.toThrow(/desktop/i);
     await expect(stub.nodeInfo()).resolves.toBeNull();
   });
 });

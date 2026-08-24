@@ -6,7 +6,6 @@ import {
   removeContact,
   touchContact,
   dhtPresence,
-  dhtRoomCode,
 } from "../../src/services/contacts";
 
 // Contacts are one JSON array under the encrypted kv (same single-key pattern
@@ -65,7 +64,4 @@ describe("contacts service — DHT lookups degrade gracefully in the browser", (
     expect(await dhtPresence([])).toEqual([]);
   });
 
-  it("room-code minting resolves to null without the Tauri runtime", async () => {
-    expect(await dhtRoomCode("room-id", "general")).toBeNull();
-  });
 });

@@ -46,15 +46,12 @@ use tor_hsservice::config::OnionServiceConfigBuilder;
 use tor_hsservice::{handle_rend_requests, HsNickname, RendRequest, RunningOnionService};
 use tor_rtcompat::PreferredRuntime;
 
-/// Virtual onion port every peer connects to. Fixed per build (build_config.yaml),
-/// and also carried in the ticket so it can change without breaking old tickets.
+/// The virtual port a room's onion service listens on. Rides inside each
+/// invitation, so a change affects newly minted ones only.
 const ONION_PORT: u16 = crate::build_config::network::ONION_PORT;
-/// Frame size cap — matches iroh's `max_message_size` (same build_config value)
-/// so MLS-encrypted images and voice notes fit in a single frame.
+/// WIRE-INTEROP: caps a Tor transport frame. Peers in one room must agree.
 const MAX_FRAME: usize = crate::build_config::network::MAX_FRAME_BYTES;
-/// One-byte magic prefixed before the postcard ticket bytes so the realtime layer
-/// can tell a Tor ticket from an iroh ticket (tagged `0x49`) by sniffing. 'T'.
-const TOR_TAG: u8 = 0x54;
+
 /// Cap per-frame writes so one stalled onion circuit can't block the host's
 /// fan-out (or a joiner's send) forever.
 const WRITE_TIMEOUT: Duration =
@@ -142,41 +139,6 @@ struct PeerConn {
     write: Arc<Mutex<WriteHalf<DataStream>>>,
 }
 
-// ── ticket ──────────────────────────────────────────────────────────────────
-
-#[derive(Serialize, Deserialize)]
-struct TorTicket {
-    onion: String,
-    port: u16,
-    name: String,
-}
-
-impl TorTicket {
-    fn encode(&self) -> String {
-        let mut buf = vec![TOR_TAG];
-        buf.extend_from_slice(&postcard::to_stdvec(self).expect("postcard::to_stdvec is infallible"));
-        let mut text = data_encoding::BASE32_NOPAD.encode(&buf);
-        text.make_ascii_lowercase();
-        text
-    }
-    fn decode(s: &str) -> Result<Self> {
-        let bytes = data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes())?;
-        let (&tag, rest) = bytes.split_first().ok_or_else(|| anyhow!("empty ticket"))?;
-        if tag != TOR_TAG {
-            return Err(anyhow!("not a tor ticket"));
-        }
-        Ok(postcard::from_bytes(rest)?)
-    }
-}
-
-/// True when `s` decodes to a Tor ticket (leading magic byte). Used by realtime.rs
-/// to route a scanned ticket to the Tor backend regardless of the switch state.
-pub fn ticket_is_tor(s: &str) -> bool {
-    match data_encoding::BASE32_NOPAD.decode(s.trim().to_ascii_uppercase().as_bytes()) {
-        Ok(bytes) => bytes.first() == Some(&TOR_TAG),
-        Err(_) => false,
-    }
-}
 
 /// Room slug — deterministic from the name so creator and joiner agree (and the
 /// MLS session key `profile:room:identity` matches). A room is either iroh or
@@ -590,7 +552,13 @@ async fn dial_and_handshake(
 /// Open a room as the initial captain and return `(room, ticket, my_onion)`.
 /// Idempotent: recreating an already-open room returns the existing onion (the
 /// reconnect / re-host path).
-pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> Result<(String, String, String)> {
+/// Host a room's onion service and return `(room, my_onion)`.
+///
+/// It used to also mint a permanent ticket carrying this onion. That ticket was
+/// the only way a joiner learned the captain's address — and the only record of
+/// it, which is why removing it needed `captainOnion` on the saved room record
+/// first. An invitation carries the address now, freshly, at mint time.
+pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> Result<(String, String)> {
     ensure_started(app, state).await?;
     let room = room_for(&name);
 
@@ -599,8 +567,7 @@ pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> 
         let guard = state.0.lock().await;
         if let Some(node) = guard.as_ref() {
             if let Some(mr) = node.rooms.get(&room) {
-                let ticket = TorTicket { onion: mr.my_onion.clone(), port: ONION_PORT, name: name.clone() }.encode();
-                return Ok((room, ticket, mr.my_onion.clone()));
+                return Ok((room, mr.my_onion.clone()));
             }
         }
     }
@@ -613,8 +580,7 @@ pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> 
         // drop our duplicate service (it holds the same nickname/lock) and return theirs.
         if let Some(mr) = node.rooms.get(&room) {
             accept_task.abort();
-            let ticket = TorTicket { onion: mr.my_onion.clone(), port: ONION_PORT, name: name.clone() }.encode();
-            return Ok((room, ticket, mr.my_onion.clone()));
+            return Ok((room, mr.my_onion.clone()));
         }
         node.rooms.insert(
             room.clone(),
@@ -630,104 +596,7 @@ pub async fn create_room(app: &AppHandle, state: &TorP2pState, name: String) -> 
         );
     }
     emit_status(app, &room, "connecting", 0, None);
-    let ticket = TorTicket { onion: my_onion.clone(), port: ONION_PORT, name }.encode();
-    Ok((room, ticket, my_onion))
-}
-
-/// Join a room: host my own onion (so I can become captain), then dial the ticket
-/// onion (the initial captain). Returns `(room, name, my_onion)`.
-/// `_extra` is accepted for parity with the iroh backend but unused.
-pub async fn join_room(
-    app: &AppHandle,
-    state: &TorP2pState,
-    ticket: String,
-    _extra: Vec<String>,
-) -> Result<(String, String, String)> {
-    ensure_started(app, state).await?;
-    let t = TorTicket::decode(&ticket).map_err(|e| anyhow!("invalid tor ticket: {e}"))?;
-    let room = room_for(&t.name);
-    let my_id = load_or_create_peer_id(app)?;
-    emit_status(app, &room, "connecting", 0, None);
-
-    // Register a cancel channel so the frontend's "Cancel" button can abort this
-    // join while it is hosting the onion / dialling the captain (the slow, failure-
-    // prone Tor steps). Signal any prior in-flight join first — its onion would hold
-    // the same keystore lock and make ours fail "already in use".
-    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-    {
-        let mut guard = state.0.lock().await;
-        let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
-        if let Some(prev) = node.join_cancel.take() {
-            let _ = prev.send(());
-        }
-        node.join_cancel = Some(cancel_tx);
-    }
-
-    // The cancellable body: host my own onion (failover / future captain), dial the
-    // ticket's captain, then register the room. If `cancel_rx` fires first, this
-    // future is DROPPED at its current await point — which drops the onion `service`
-    // (releasing arti's lock) so a retry launches cleanly.
-    let body = async {
-        let (my_onion, service, peers, accept_task, up) = host_onion(app, state, &room, &t.name).await?;
-        // Dial the initial captain synchronously so a bad onion fails loudly.
-        let client = client_of(state).await?;
-        let (rd, wr) = dial_and_handshake(&client, &t.onion, &t.name, &my_id).await?;
-        *up.lock().await = Some(wr);
-        let task = spawn_captain_manager(
-            app.clone(),
-            room.clone(),
-            t.name.clone(),
-            client,
-            my_id.clone(),
-            t.onion.clone(),
-            up.clone(),
-            peers.clone(),
-            Some(rd),
-        );
-        {
-            let mut guard = state.0.lock().await;
-            let node = guard.as_mut().ok_or_else(|| anyhow!("tor not started"))?;
-            node.rooms.insert(
-                room.clone(),
-                MemberRoom {
-                    name: t.name.clone(),
-                    my_onion: my_onion.clone(),
-                    _service: service,
-                    peers,
-                    accept_task,
-                    up,
-                    outbound: Some(Outbound { captain_onion: t.onion.clone(), task }),
-                },
-            );
-        }
-        Ok::<(String, String, String), anyhow::Error>((room.clone(), t.name.clone(), my_onion))
-    };
-
-    let result = tokio::select! {
-        r = body => r,
-        _ = cancel_rx => Err(anyhow!("join cancelled")),
-    };
-
-    // Release our cancel slot (the UI serialises joins, so it is still ours).
-    {
-        let mut guard = state.0.lock().await;
-        if let Some(node) = guard.as_mut() {
-            node.join_cancel = None;
-        }
-    }
-
-    match result {
-        Ok(joined) => {
-            emit_status(app, &room, "connected", 1, Some(t.onion));
-            Ok(joined)
-        }
-        Err(e) => {
-            // Cancelled or failed: no room was registered. Signal disconnected so the
-            // status map is consistent for a retry.
-            emit_status(app, &room, "disconnected", 0, None);
-            Err(e)
-        }
-    }
+    Ok((room, my_onion))
 }
 
 /// Cancel any in-flight Tor join. Fires the join's cancel signal (dropping the
@@ -804,15 +673,16 @@ pub async fn set_captain(app: &AppHandle, state: &TorP2pState, room: &str, capta
     Ok(())
 }
 
-/// Reconnect by name — for Tor this means "re-host" (same nickname ⇒ same onion).
-/// The joiner reconnect path goes through `join_room` with the saved ticket.
+/// Enter a room by name — for Tor this means "host it" (same nickname ⇒ same
+/// onion), after which a joiner is pointed at the captain via `set_captain` from
+/// the saved `captainOnion` or an invitation grant. The only Tor entry path.
 pub async fn join_room_by_node(
     app: &AppHandle,
     state: &TorP2pState,
     name: String,
     _onions: Vec<String>,
 ) -> Result<String> {
-    let (room, _ticket, _onion) = create_room(app, state, name).await?;
+    let (room, _onion) = create_room(app, state, name).await?;
     Ok(room)
 }
 
@@ -1258,39 +1128,8 @@ mod hello_compat_tests {
 mod tests {
     use super::*;
 
-    #[test]
-    fn tor_ticket_round_trips_and_is_tagged() {
-        let t = TorTicket { onion: "abcd1234.onion".to_string(), port: 9999, name: "general".to_string() };
-        let encoded = t.encode();
-        assert_eq!(encoded, encoded.to_ascii_lowercase());
-        assert!(ticket_is_tor(&encoded));
 
-        let decoded = TorTicket::decode(&encoded).expect("decode our own ticket");
-        assert_eq!(decoded.onion, "abcd1234.onion");
-        assert_eq!(decoded.port, 9999);
-        assert_eq!(decoded.name, "general");
-    }
 
-    #[test]
-    fn ticket_is_tor_rejects_iroh_and_garbage() {
-        // Garbage / non-base32.
-        assert!(!ticket_is_tor("not a valid ticket!!!"));
-        assert!(!ticket_is_tor(""));
-        // A base32 blob whose first byte is not the tag (an iroh-style tagless
-        // ticket) must not be mistaken for Tor.
-        let iroh_like = data_encoding::BASE32_NOPAD.encode(&[0u8, 1, 2, 3]).to_ascii_lowercase();
-        assert!(!ticket_is_tor(&iroh_like));
-    }
-
-    #[test]
-    fn decode_rejects_wrong_tag() {
-        let mut bytes = vec![0x00u8]; // wrong tag
-        bytes.extend_from_slice(
-            &postcard::to_stdvec(&TorTicket { onion: "x".into(), port: 1, name: "n".into() }).unwrap(),
-        );
-        let s = data_encoding::BASE32_NOPAD.encode(&bytes).to_ascii_lowercase();
-        assert!(TorTicket::decode(&s).is_err());
-    }
 
     #[test]
     fn room_and_nickname_are_deterministic() {

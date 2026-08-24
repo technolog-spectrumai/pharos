@@ -1010,6 +1010,7 @@ export default {
     errUnreachable: "Could not reach whoever sent this. They need to be online with the room open.",
     errAdmitFailed: "They could not let you in — their room may have been closed. The invitation still works, so try again.",
     errVersion: "This invitation was made by a newer version of Enigma26.",
+    errNotAnInvitation: "That is not an invitation. Room tickets and room codes no longer let anyone in — ask for an invitation instead.",
     errGeneric: "This invitation could not be used.",
   },
 };

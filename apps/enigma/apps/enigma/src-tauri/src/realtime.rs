@@ -58,13 +58,9 @@ pub async fn realtime_send(
 pub struct CreatedRoom {
     room: String,
     name: String,
-    ticket: String,
     /// This member's own onion (Tor rooms) — announced over presence so peers can
     /// dial us if we're elected captain. Empty for iroh rooms.
     onion: String,
-    /// Ticketless-join room code (DHT rendezvous — technology.md §12). Empty while the DHT
-    /// discovery toggle is off, and for Tor rooms.
-    code: String,
 }
 
 #[derive(Serialize)]
@@ -86,70 +82,22 @@ pub async fn realtime_create_room(
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
-    let (room, ticket, onion, code) = if use_tor(&app, &config) {
-        let (room, ticket, onion) =
-            p2p_tor::create_room(&app, &tor, name.clone()).await.map_err(|e| e.to_string())?;
-        (room, ticket, onion, String::new())
+    let (room, onion) = if use_tor(&app, &config) {
+        p2p_tor::create_room(&app, &tor, name.clone()).await.map_err(|e| e.to_string())?
     } else {
-        let (room, ticket, code) =
-            p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?;
-        (room, ticket, String::new(), code.unwrap_or_default())
+        let room = p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?;
+        (room, String::new())
     };
-    Ok(CreatedRoom { room, name, ticket, onion, code })
+    Ok(CreatedRoom { room, name, onion })
 }
 
-/// Join by ticket. Routing is decided by the ticket itself (a Tor ticket is
-/// tagged), so a scanned QR reaches the right backend regardless of the switch.
-/// `peer_node_ids` seeds the iroh bootstrap with persisted peers (ignored by Tor).
-#[tauri::command]
-pub async fn realtime_join_room(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
-    ticket: String,
-    peer_node_ids: Option<Vec<String>>,
-) -> Result<JoinedRoom, String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let (room, name, onion) = if p2p_iroh::code_is_dht(&ticket) {
-        // DHT room code (ticketless join) — same field, routed by its tag byte.
-        if crate::build_config::dht::ENABLED {
-            let (room, name) =
-                p2p_iroh::join_room_by_code(&app, &p2p, ticket).await.map_err(|e| e.to_string())?;
-            (room, name, String::new())
-        } else {
-            // A room joined by code stores the CODE as its credential, so a
-            // DHT-less build reopening that room lands here — and erroring
-            // would strand the room (chat auto-reopens the most recent one on
-            // boot). The code carries the name, the topic is blake3(name), and
-            // the persisted NodeIds resolve through n0 discovery, so reconnect
-            // by node instead. With no persisted peers this subscribes without
-            // connecting, which is what the ordinary stale-reconnect path does.
-            let name = p2p_iroh::room_name_from_code(&ticket)
-                .ok_or_else(|| "invalid room code".to_string())?;
-            let room =
-                p2p_iroh::join_room_by_node(&app, &p2p, name.clone(), peer_node_ids.unwrap_or_default())
-                    .await
-                    .map_err(|e| e.to_string())?;
-            (room, name, String::new())
-        }
-    } else if p2p_tor::ticket_is_tor(&ticket) {
-        p2p_tor::join_room(&app, &tor, ticket, peer_node_ids.unwrap_or_default())
-            .await
-            .map_err(|e| e.to_string())?
-    } else {
-        let (room, name) = p2p_iroh::join_room(&app, &p2p, ticket, peer_node_ids.unwrap_or_default())
-            .await
-            .map_err(|e| e.to_string())?;
-        (room, name, String::new())
-    };
-    Ok(JoinedRoom { room, name, onion })
-}
-
-/// Reconnect to a room by name + peers — no ticket. For iroh this re-subscribes
-/// from persisted NodeIds; for Tor this re-hosts (same nickname ⇒ same onion).
+/// Enter a room by name + peers — the only join command there is.
+///
+/// For iroh this subscribes to `blake3(name)` and bootstraps from the given
+/// NodeIds; for Tor this re-hosts under the room name (same nickname ⇒ same
+/// onion). Two callers: reopening a saved room, and completing a redeemed
+/// invitation. Landing on the topic is not membership — every member refuses
+/// gossip key packages, so only a redeemed invitation joins the MLS group.
 #[tauri::command]
 pub async fn realtime_join_room_by_node(
     app: AppHandle,
@@ -350,26 +298,6 @@ pub async fn dht_find_nick(
         .collect::<Vec<_>>()))
 }
 
-/// Mint/show the ticketless-join code for an open room (e.g. rooms created
-/// before the toggle). `None` while DHT discovery is off.
-#[tauri::command]
-pub async fn dht_room_code(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    room: String,
-    name: String,
-) -> Result<Option<String>, String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    // Room codes are iroh-only; minting one would start the iroh node, which
-    // Tor-exclusive mode forbids.
-    if use_tor(&app, &config) {
-        return Ok(None);
-    }
-    p2p_iroh::dht_room_code(&app, &p2p, &room, &name).await.map_err(|e| e.to_string())
-}
 
 /// Apply a flipped DHT toggle: tear the iroh node down (same pattern as the
 /// airplane-mode switch); the next realtime command lazily re-binds with the

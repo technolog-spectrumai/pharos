@@ -8,7 +8,7 @@
 // sealed, so only Rust (which holds the identity secret) can answer any of that.
 
 import { describe, it, expect } from "vitest";
-import { isDhtCode, isInviteTicket, isTorTicket } from "../../src/useChatChannel";
+import { isInviteTicket } from "../../src/useChatChannel";
 
 /** base32(lowercase, no pad) of a byte sequence — the encoder the tickets use. */
 function b32(bytes: number[]): string {
@@ -42,23 +42,13 @@ describe("isInviteTicket", () => {
     expect(isInviteTicket(`  ${general()}  `)).toBe(true);
   });
 
-  it("does not claim tickets belonging to the other tag families", () => {
-    const iroh = b32([0x49, 0x00, 0x01]);
-    const tor = b32([0x54, 0x00, 0x01]);
-    const dht = b32([0x44, 0x00, 0x01]);
-    expect(isInviteTicket(iroh)).toBe(false);
-    expect(isInviteTicket(tor)).toBe(false);
-    expect(isInviteTicket(dht)).toBe(false);
-    // And the family members still recognise their own.
-    expect(isTorTicket(tor)).toBe(true);
-    expect(isDhtCode(dht)).toBe(true);
-  });
-
-  it("never claims an invitation for another family", () => {
-    // The routing property that matters: exactly one sniff may answer true.
-    for (const ticket of [general(), personal()]) {
-      expect(isTorTicket(ticket)).toBe(false);
-      expect(isDhtCode(ticket)).toBe(false);
+  it("does not claim a blob from a retired tag family", () => {
+    // Room tickets (0x49 / 0x54) and DHT room codes (0x44) are gone, so their
+    // sniffs are too — but an old QR still exists in the world, and this is the
+    // check that decides it gets a plain refusal rather than being mistaken for
+    // an invitation and dialled somewhere.
+    for (const tag of [0x49, 0x54, 0x44]) {
+      expect(isInviteTicket(b32([tag, 0x00, 0x01])), tag.toString(16)).toBe(false);
     }
   });
 

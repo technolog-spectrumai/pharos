@@ -22,6 +22,8 @@ export interface InvitePeek {
   kind: string;
   inviter: string;
   expiresAt: number;
+  /** True when the invitation names an onion — so the redeem dials over Tor. */
+  tor?: boolean;
 }
 
 export interface RedeemOutcome {

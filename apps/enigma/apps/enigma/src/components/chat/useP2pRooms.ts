@@ -2,7 +2,6 @@ import { ref, watch } from "vue";
 import {
   getConnectTimeoutSecs,
   isInviteTicket,
-  isTorTicket,
   roomActionId,
 } from "rakotis";
 import { isTauri as _isTauriFn, invoke as _rawInvoke } from "rakotis";
@@ -18,8 +17,6 @@ import type { ChatChannel, P2pRoomEntry } from "rakotis";
 export function useP2pRooms(channel: ChatChannel) {
   const name = ref("");
   const ticket = ref("");
-  const createdTicket = ref("");
-  const createdCode = ref(""); // ticketless-join room code — "" while DHT discovery is off
   // The room the ticket above belongs to. Invitations are minted against a room
   // slug, and the entry is the only place that pairs a ticket with one.
   const createdRoom = ref<{ slug: string; name: string }>({ slug: "", name: "" });
@@ -43,8 +40,6 @@ export function useP2pRooms(channel: ChatChannel) {
 
   function openCreate() {
     name.value = "";
-    createdTicket.value = "";
-    createdCode.value = "";
     createError.value = "";
     createBusy.value = false;
     clearCreateTimer();
@@ -69,20 +64,16 @@ export function useP2pRooms(channel: ChatChannel) {
       const t = await channel.createRoom(n);
       clearCreateTimer();
       if (t) {
-        createdTicket.value = t; // success wins, even after a timeout was shown
-        // The room code (ticketless join) rides the remembered entry.
-        const entry = channel.p2pRooms.value.find((r) => r.ticket === t);
-        createdCode.value = entry?.code ?? "";
-        createdRoom.value = { slug: entry?.room ?? "", name: entry?.name ?? n };
+        // `createRoom` returns the room slug now, not a ticket — creating a room
+        // produces no shareable credential at all.
+        const entry = channel.p2pRooms.value.find((r) => r.room === t);
+        createdRoom.value = { slug: t, name: entry?.name ?? n };
         createError.value = "";
         name.value = "";
         // Privacy HP, charged only on a room that actually came up. The variant
-        // is read from the ticket the transport produced rather than from the
-        // Tor setting, so a room that fell back to clearnet is priced as one.
-        await chargeHp(roomActionId("create", isTorTicket(t)));
-        // A DHT room code is a separate, additional exposure: the rendezvous
-        // record is public even though its contents are sealed.
-        if (createdCode.value) await chargeHp("dht.room_code.publish");
+        // is read from the room the transport produced rather than from the Tor
+        // setting, so a room that fell back to clearnet is priced as one.
+        await chargeHp(roomActionId("create", entry?.tor === true));
       } else if (!createError.value) {
         createError.value = channel.error.value || "chat.launchFailed";
       }
@@ -200,51 +191,58 @@ export function useP2pRooms(channel: ChatChannel) {
   async function redeemInvite(code: string) {
     joinError.value = "";
     joinStarted.value = true;
+    joinCancelling.value = false;
+    joinTimedOut.value = false;
     invitePeek.value = null;
+    // The same N-second connect window a ticket join used to get, so the modal's
+    // 2×N lifetime (N to connect, N to read the outcome) is unchanged. Rust bounds
+    // the rendezvous separately at 2×N; this is the window the USER sees, and it
+    // stays shorter so a hung redeem shows Retry rather than a frozen spinner.
+    armConnectTimer(1000 * (await getConnectTimeoutSecs()));
     const out = await redeemInvitation(channel, code, (p) => {
       invitePeek.value = p;
+      // A Tor redemption dials an onion, which is the case that can hang holding
+      // a keystore lock — so Cancel has to be on offer, and the timeout has to
+      // abort rather than just give up. Known only after the peek, which is why
+      // it is set here rather than before the call.
+      joiningTor.value = p.tor === true;
     });
-    if (out.ok) ticket.value = "";
+    clearConnectTimer();
+    if (out.ok) {
+      // Success wins, even after a timeout was already shown: the redemption
+      // completed, so we ARE in the room, and leaving "timed out" on screen would
+      // contradict the transcript behind it.
+      joinTimedOut.value = false;
+      ticket.value = "";
+      joinError.value = "";
+      return;
+    }
+    // A timeout or a cancel already put its own message up and the modal is
+    // showing Retry; overwriting it with whatever the aborted call returned would
+    // replace a true statement with a confusing one.
+    if (joinTimedOut.value || joinCancelling.value) return;
     joinError.value = out.errorKey;
   }
 
+  /**
+   * Join whatever was pasted or scanned.
+   *
+   * There is exactly one thing that can be: an invitation. Room tickets and DHT
+   * room codes both used to arrive through this same field, tag-sniffed apart and
+   * routed to their own backends; both are gone, so anything that is not an
+   * invitation is rejected here rather than handed to a parser that no longer
+   * exists. Saying so plainly beats "invalid ticket" for someone holding a QR that
+   * an older build minted and this one will not honour.
+   */
   async function joinRoom() {
     const t = ticket.value.trim();
     if (!t) return;
-    // Tag sniff first: an invitation is not a ticket and must not reach the
-    // ticket parser, which would reject it as malformed.
-    if (isInviteTicket(t)) {
-      await redeemInvite(t);
+    if (!isInviteTicket(t)) {
+      joinError.value = "invite.errNotAnInvitation";
+      joinStarted.value = true;
       return;
     }
-    joinError.value = "";
-    joinStarted.value = true;
-    joiningTor.value = isTorTicket(t);
-    joinCancelling.value = false;
-    joinTimedOut.value = false;
-    armConnectTimer(1000 * (await getConnectTimeoutSecs()));
-    await channel.joinByTicket(t);
-    // NOTE: the connect timer stays armed past this point — the transport is up but
-    // the window only ends on a terminal state (Encrypted, or an error), which the
-    // terminal watcher below handles. This keeps an MLS hang covered by the timeout.
-    ticket.value = "";
-    // If the user cancelled mid-join, cancelJoin() already reset the UI — swallow the
-    // "join cancelled" error the aborted invoke produced (in both this controller and
-    // the channel) instead of surfacing it anywhere.
-    if (joinCancelling.value) {
-      channel.error.value = null;
-      return;
-    }
-    // Connect timed out: keep the timeout error (the modal shows Retry), and swallow
-    // the "join cancelled" error the timeout's abort produced.
-    if (joinTimedOut.value) {
-      channel.error.value = null;
-      return;
-    }
-    // The modal then watches channel.isEncrypted for "established". A transport error
-    // lands in channel.error.
-    if (channel.error.value) joinError.value = channel.error.value;
-    else await chargeHp(roomActionId("join", joiningTor.value));
+    await redeemInvite(t);
   }
 
   // Abort a hanging Tor join and return to the form. Frees the onion lock in Rust so
@@ -333,9 +331,7 @@ export function useP2pRooms(channel: ChatChannel) {
   return {
     name,
     ticket,
-    createdTicket,
     createdRoom,
-    createdCode,
     scanError,
     createOpen,
     createBusy,
