@@ -71,10 +71,9 @@ export interface P2pRoomEntry {
   logo?: string;
   /** Room rules text — captain-set, distributed via `room_meta`. */
   rules?: string;
-  /** Invite-only: gossip key packages are refused, and the only way in is a
-   *  redeemed invitation (technology.md §18.8). Captain-set, distributed via
-   *  `room_meta`. Enforced by every member independently — app convention, like
-   *  the captain rule itself (§9.3). */
+  /** LEGACY: invite-only used to be a per-room captain-set flag. Every room is
+   *  invite-only now, so nothing reads this; it stays on the type only so a record
+   *  written by an older build still deserializes without losing the rest. */
   inviteOnly?: boolean;
   /** Monotonic revision of the captain-authoritative meta/moderation snapshot. */
   metaRev?: number;
@@ -255,7 +254,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   const amCaptain = computed(() => !!captainId.value && captainId.value === mlsIdentity.value);
   const roomLogo = ref("");
   const roomRules = ref("");
-  const inviteOnly = ref(false);
   const metaRev = ref(0);
   const mutes = ref<MuteMap>({});
   const bans = ref<string[]>([]);
@@ -574,7 +572,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     updateRoomEntry({
       logo: roomLogo.value || undefined,
       rules: roomRules.value || undefined,
-      inviteOnly: inviteOnly.value || undefined,
       metaRev: metaRev.value,
       mutes: mutes.value,
       bans: bans.value,
@@ -593,7 +590,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       device_id: mlsIdentity.value,
       logo: roomLogo.value,
       rules: roomRules.value,
-      inviteOnly: inviteOnly.value,
       mutes: mutes.value,
       bans: bans.value,
       rev: metaRev.value,
@@ -616,9 +612,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     metaRev.value = rev;
     roomLogo.value = typeof inner.logo === "string" ? inner.logo : "";
     roomRules.value = typeof inner.rules === "string" ? clampRules(inner.rules) : "";
-    // Absent means OPEN, which is what an older peer's snapshot looks like. The
-    // rev guard above is what stops a stale one silently reopening a closed room.
-    inviteOnly.value = inner.inviteOnly === true;
     mutes.value = nextMutes;
     bans.value = Array.isArray(inner.bans) ? (inner.bans as unknown[]).filter((b): b is string => typeof b === "string") : [];
     persistRoomMod();
@@ -655,27 +648,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     bumpRev();
     persistRoomMod();
     await broadcastRoomMeta();
-  }
-
-  /**
-   * Captain: close or reopen the room.
-   *
-   * While closed, every member refuses gossip key packages (see the
-   * `mls_key_package` handler) and the only way in is a redeemed invitation,
-   * which never travels over gossip at all. Returns whether the flag actually
-   * MOVED — the caller claims a Privacy HP recovery only on a real false→true
-   * flip, so re-asserting a closed room earns nothing.
-   *
-   * Enforcement is app convention (§9.3): a member on a modified or older build
-   * will still auto-admit, so this narrows §9.7 rather than closing it.
-   */
-  async function setInviteOnly(on: boolean): Promise<boolean> {
-    if (!amCaptain.value || inviteOnly.value === on) return false;
-    inviteOnly.value = on;
-    bumpRev();
-    persistRoomMod();
-    await broadcastRoomMeta();
-    return true;
   }
 
   /** Captain: mute a member for `minutes`. Enforced cooperatively: everyone drops
@@ -905,18 +877,21 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       // (HMAC over the kp bytes) before anyone here even considers it.
       if (options.admissionCheck && !(await options.admissionCheck(data))) return;
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
-      // Invite-only: nobody gets in off the topic. Placed ABOVE the admin split
-      // below on purpose — a guard placed after it would close the branch that
-      // ADDS while leaving the branch that DEFERS still answering a stranger
-      // with our own key package, which is a half-closed door.
+      // Nobody gets in off the topic. Ever.
       //
-      // The invitation path is untouched by this and that is the whole point:
-      // `admitInvited` calls `cryptoService.addMember` directly and never rides
-      // gossip, so a redeemed invitation still admits in a closed room.
+      // This used to be a captain-set flag; it is now the only mode, which is why
+      // there is no longer anything to read. A redeemed invitation is the sole way
+      // into a room, and it never rides gossip at all — `admitInvited` calls
+      // `cryptoService.addMember` directly — so this closes the door without
+      // touching the one path that is supposed to open it.
+      //
+      // Placed ABOVE the admin split below on purpose: a guard placed after it
+      // would close the branch that ADDS while leaving the branch that DEFERS
+      // still answering a stranger with our own key package — a half-closed door.
       //
       // Headless channels (devlink, peer sync) carry their own `admissionCheck`
       // and have no room meta of their own, so they are exempt.
-      if (!options.headless && inviteOnly.value) return;
+      if (!options.headless) return;
       // Banned (kicked) identities are refused re-admission: the acting admin
       // never adds them, and nobody defers to them with a counter key package.
       // Bans key by user part, so every linked device of a kicked user is out.
@@ -1916,8 +1891,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     onSync, sendSync, postSystemNotice,
     mergeHistory, removeLeaf,
     // Room meta + moderation (captain-authoritative)
-    captainId, amCaptain, roomLogo, roomRules, inviteOnly, bans, selfMuteUntil,
-    setRoomLogo, setRoomRules, setInviteOnly, kickMember, muteMember, unmuteMember, unbanMember,
+    captainId, amCaptain, roomLogo, roomRules, bans, selfMuteUntil,
+    setRoomLogo, setRoomRules, kickMember, muteMember, unmuteMember, unbanMember,
   };
 }
 

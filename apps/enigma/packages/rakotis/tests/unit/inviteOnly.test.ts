@@ -1,13 +1,15 @@
-// Invite-only rooms: the flag, how it travels, and what it refuses.
+// Every room is invite-only, and there is no longer a flag saying so.
 //
-// A room marked invite-only refuses gossip `mls_key_package` frames outright, so
-// the only way in is a redeemed invitation — which never rides gossip at all.
-// That narrows §9.7, the app's oldest access-control gap.
+// This used to be a captain-set toggle that travelled on `room_meta`. It is now
+// the only mode: a gossip `mls_key_package` frame is refused unconditionally, and
+// the sole way into a room is a redeemed invitation — which never rides gossip at
+// all. That closes §9.7, the app's oldest access-control gap, rather than merely
+// narrowing it.
 //
-// It does NOT close it cryptographically. Every member enforces independently,
-// so the guarantee is only as strong as the weakest member's client: one member
-// on a modified or older build still auto-admits. These tests pin the behaviour
-// of THIS client, which is all a client can promise.
+// It still does NOT close it cryptographically. Every member enforces
+// independently, so the guarantee is only as strong as the weakest member's
+// client: one member on a modified or older build still auto-admits. These tests
+// pin the behaviour of THIS client, which is all a client can promise.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -120,85 +122,14 @@ beforeEach(() => {
   mockTransport.lastStatus.mockReturnValue(undefined);
 });
 
-// ── the flag travels on room_meta ───────────────────────────────────────────
-
-describe("the invite-only flag", () => {
-  it("starts off", async () => {
-    const ch = await readyChannel();
-    expect(ch.inviteOnly.value).toBe(false);
-  });
-
-  it("is set by the captain and broadcast in the meta snapshot", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "me-device"; // we are the captain
-    expect(await ch.setInviteOnly(true)).toBe(true);
-    expect(ch.inviteOnly.value).toBe(true);
-    // It rides the existing captain-authored snapshot, not a new message type.
-    expect(crypto.addMember).not.toHaveBeenCalled();
-  });
-
-  it("reports whether the flag actually moved, so a credit is only paid once", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "me-device";
-    expect(await ch.setInviteOnly(true)).toBe(true);
-    expect(await ch.setInviteOnly(true)).toBe(false); // already closed
-    expect(await ch.setInviteOnly(false)).toBe(true);
-  });
-
-  it("cannot be set by a non-captain", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "someone-else";
-    expect(await ch.setInviteOnly(true)).toBe(false);
-    expect(ch.inviteOnly.value).toBe(false);
-  });
-});
-
-// ── the credit's precondition ───────────────────────────────────────────────
-
-describe("what the Privacy HP credit hangs on", () => {
-  // The UI claims +5 only when `setInviteOnly` reports a real move, so these are
-  // the assertions that keep the credit honest.
-
-  it("reports a move exactly once for a room that was open", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "me-device";
-    expect(await ch.setInviteOnly(true)).toBe(true);
-    expect(await ch.setInviteOnly(true)).toBe(false);
-  });
-
-  it("reports a move when reopening, which the caller must not pay for", async () => {
-    // The flag moved, but the direction is not a risk reduction — the caller
-    // checks the direction, not just the boolean.
-    const ch = await readyChannel();
-    ch.captainId.value = "me-device";
-    await ch.setInviteOnly(true);
-    expect(await ch.setInviteOnly(false)).toBe(true);
-  });
-
-  it("reports no move for a non-captain, so nothing can be claimed", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "someone-else";
-    expect(await ch.setInviteOnly(true)).toBe(false);
-    expect(ch.inviteOnly.value).toBe(false);
-  });
-});
-
 // ── enforcement ─────────────────────────────────────────────────────────────
 
 describe("enforcement", () => {
-  it("admits a gossip key package while the room is open", async () => {
-    // The baseline, so the refusal below means something.
+  it("refuses a gossip key package, with nothing to configure", async () => {
+    // No setup, no flag: a stranger announcing itself on the topic is simply not
+    // admitted. This is the whole change — the room does not have an open state.
     const ch = await readyChannel();
     ch.captainId.value = "me-device";
-    await deliver(STRANGER_KP);
-    expect(crypto.addMember).toHaveBeenCalled();
-  });
-
-  it("refuses a gossip key package while invite-only", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "me-device";
-    await ch.setInviteOnly(true);
-    mockTransport.send.mockClear();
     await deliver(STRANGER_KP);
     expect(crypto.addMember).not.toHaveBeenCalled();
   });
@@ -210,7 +141,6 @@ describe("enforcement", () => {
     const ch = await readyChannel();
     ch.mlsIdentity.value = "zz-me"; // sorts AFTER the stranger → the defer branch
     ch.captainId.value = "zz-me";
-    await ch.setInviteOnly(true);
     mockTransport.send.mockClear();
     await deliver({ ...STRANGER_KP, device_id: "aa-stranger" });
     const sent = mockTransport.send.mock.calls.filter(
@@ -220,33 +150,21 @@ describe("enforcement", () => {
     expect(crypto.addMember).not.toHaveBeenCalled();
   });
 
-  it("still admits through the invitation path in a closed room", async () => {
+  it("still admits through the invitation path", async () => {
     // THE test. Invitations do not ride gossip — `admitInvited` calls addMember
-    // directly — which is exactly why closing the room does not close them.
+    // directly — which is why closing the topic does not close the only door.
     const ch = await readyChannel();
     ch.captainId.value = "me-device";
-    await ch.setInviteOnly(true);
     const grant = await ch.admitInvited("room-1", "AQID");
     expect(grant).not.toBeNull();
     expect(crypto.addMember).toHaveBeenCalled();
   });
 
-  it("leaves the ban guard independent of the invite-only guard", async () => {
-    // Two separate reasons to refuse; neither may quietly stand in for the other.
-    const ch = await readyChannel();
-    ch.captainId.value = "me-device";
-    expect(ch.inviteOnly.value).toBe(false);
-    await ch.kickMember("zz-stranger").catch(() => {});
-    crypto.addMember.mockClear();
-    await deliver(STRANGER_KP);
-    expect(crypto.addMember).not.toHaveBeenCalled();
-  });
-
   it("exempts a headless channel, which carries its own admission check", async () => {
     // devlink / peer sync gate on a linkKey proof and have no room meta at all.
+    // If this ever broke, multi-device pairing would fail silently.
     const ch = await readyChannel({ headless: true });
     ch.captainId.value = "me-device";
-    ch.inviteOnly.value = true; // even if something set it
     await deliver(STRANGER_KP);
     expect(crypto.addMember).toHaveBeenCalled();
   });
@@ -387,42 +305,33 @@ describe("receiving a meta snapshot", () => {
     await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: from, user: from });
   }
 
-  it("closes the room when the captain says so", async () => {
+  // The flag these once carried is gone, but the REVISION GUARD they were really
+  // exercising is not: it still decides whether a snapshot may overwrite rules,
+  // mutes and bans. Re-pointed at `rules` so the coverage survives the feature.
+
+  it("applies a captain's snapshot", async () => {
     const ch = await readyChannel();
     ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(1, { inviteOnly: true }));
-    expect(ch.inviteOnly.value).toBe(true);
+    await deliverMeta("captain", meta(1, { rules: "be kind" }));
+    expect(ch.roomRules.value).toBe("be kind");
   });
 
-  it("cannot be reopened by a stale snapshot", async () => {
-    // The rev guard matters most here: replaying an old snapshot must not be a
-    // way to reopen a room somebody deliberately closed.
+  it("ignores a stale snapshot", async () => {
+    // Replaying an old snapshot must not be a way to undo a deliberate change.
     const ch = await readyChannel();
     ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(5, { inviteOnly: true }));
-    await deliverMeta("captain", meta(2, { inviteOnly: false }));
-    expect(ch.inviteOnly.value).toBe(true);
-  });
-
-  it("treats a snapshot without the field as open", async () => {
-    // What an older peer's snapshot looks like. Absent means open — the flag is
-    // additive, so a build that never heard of it cannot close a room by
-    // accident, and cannot keep one closed either.
-    const ch = await readyChannel();
-    ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(1, { inviteOnly: true }));
-    expect(ch.inviteOnly.value).toBe(true);
-    await deliverMeta("captain", meta(2));
-    expect(ch.inviteOnly.value).toBe(false);
+    await deliverMeta("captain", meta(5, { rules: "current" }));
+    await deliverMeta("captain", meta(2, { rules: "ancient" }));
+    expect(ch.roomRules.value).toBe("current");
   });
 
   it("ignores a snapshot that did not come from the captain at the same revision", async () => {
     const ch = await readyChannel();
     ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(9, { inviteOnly: false }));
+    await deliverMeta("captain", meta(9, { rules: "real" }));
     // Same rev from a non-captain: only STRICTLY newer is accepted from anyone
     // else, which is the captaincy-handoff rule.
-    await deliverMeta("impostor", meta(9, { inviteOnly: true }));
-    expect(ch.inviteOnly.value).toBe(false);
+    await deliverMeta("impostor", meta(9, { rules: "forged" }));
+    expect(ch.roomRules.value).toBe("real");
   });
 });

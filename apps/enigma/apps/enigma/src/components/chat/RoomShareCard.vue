@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// The three ways to let somebody into a room, in one place.
+// The two ways to let somebody into a room, in one place.
 //
 // Used by BOTH "New chat" and "Room info" — they are the same "share this room"
-// surface at two moments, and two copies of a three-way selector is how two
-// copies start disagreeing.
+// surface at two moments, and two copies of a selector is how two copies start
+// disagreeing.
 //
-// ── what the three modes actually are ──────────────────────────────────────
+// There used to be a third: the permanent room ticket, which never expired, could
+// not be withdrawn, and admitted anyone who photographed it. It is gone, and every
+// room is invite-only, so both remaining modes are bounded credentials the issuer
+// can revoke.
 //
-// • Room ticket   permanent · anyone who sees it · cannot be revoked.
-//                 The original mechanism. Carries the plaintext room name and
-//                 the creator's address (technology.md §8). Charged on COPY,
-//                 because the ticket already exists and sharing it is the act.
+// ── what the two modes actually are ────────────────────────────────────────
 //
 // • Private QR    one person · expires · revocable · one-use.
 //                 Sealed to a contact's public key, so nobody else who
@@ -19,12 +19,13 @@
 //
 // • Shareable QR  anyone holding it · expires · revocable.
 //                 A bearer credential in CLEARTEXT. There is no recipient to
-//                 seal it to, so pretending it is secret would be theatre. It
-//                 is priced level with a room ticket and always confirms.
+//                 seal it to, so pretending it is secret would be theatre. It is
+//                 the most exposing thing this card can do, and always confirms.
 //
-// The two invitation modes are charged at CREATION rather than on copy: minting
-// is what brings the credential into existence, and copying it again exposes
-// nothing further.
+// Both are charged at CREATION rather than on copy: minting is what brings the
+// credential into existence, and copying it again exposes nothing further. The
+// minted QR appears in this same card, directly under the controls that made it —
+// there is no second screen to go and find it on.
 //
 // ── the constraint this card has to state ──────────────────────────────────
 //
@@ -45,9 +46,7 @@ import {
   getBuildConfig,
   invoke,
   isTauri,
-  isTorTicket,
   listContacts,
-  ticketActionId,
   inviteActionId,
   type ContactEntry,
 } from "rakotis";
@@ -56,25 +55,15 @@ import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from 
 const props = defineProps<{
   roomSlug: string;
   roomName: string;
-  /** The room ticket — the existing, permanent share mechanism. */
-  ticket: string;
-  /** DHT room code, when this room has one. */
-  code?: string;
   /** Whether the room runs over Tor. Decides which price variant applies. */
   tor?: boolean;
-  /** Invite-only: gossip key packages are refused, so the room ticket puts
-   *  someone on the topic but never into the group. The ticket mode is withdrawn
-   *  rather than left on offer — handing out something that silently does not
-   *  work reads as a bug, not as a policy. */
-  inviteOnly?: boolean;
 }>();
 
 const { t } = useI18n({ useScope: "global" });
 
-type ShareMode = "ticket" | "personal" | "general";
-// A closed room has no ticket to open on, and the flag can be flipped while this
-// card is on screen — so the mode follows it rather than being chosen once.
-const mode = ref<ShareMode>(props.inviteOnly ? "personal" : "ticket");
+type ShareMode = "personal" | "general";
+// Private first: it is the cheaper, narrower credential, and the one to reach for.
+const mode = ref<ShareMode>("personal");
 
 // ── invitation form ─────────────────────────────────────────────────────────
 
@@ -83,8 +72,8 @@ const recipient = ref(""); // NodeId
 const pasted = ref("");
 const usePaste = ref(false);
 
-/** Deadline presets, in seconds. "Never" is deliberately absent — the unbounded
- *  credential already exists and is called a room ticket. */
+/** Deadline presets, in seconds. "Never" is deliberately absent: an invitation
+ *  that never expires is the permanent ticket again under a new name. */
 const PRESETS = [
   { key: "invite.ttl1h", secs: 3600 },
   { key: "invite.ttl24h", secs: 86_400 },
@@ -106,16 +95,8 @@ const minted = ref<{ ticket: string; expiresAt: number; kind: string } | null>(n
 const contactsEnabled = getBuildConfig().contacts_enabled;
 const chosenRecipient = computed(() => (usePaste.value ? pasted.value.trim() : recipient.value));
 
-const priceCenti = computed(() =>
-  mode.value === "ticket"
-    ? priceFor(ticketActionId(isTorTicket(props.ticket)))
-    : priceFor(inviteActionId(mode.value === "personal" ? "personal" : "general", !!props.tor)),
-);
-const priceExplain = computed(() =>
-  mode.value === "ticket"
-    ? explainFor(ticketActionId(isTorTicket(props.ticket)))
-    : explainFor(inviteActionId(mode.value === "personal" ? "personal" : "general", !!props.tor)),
-);
+const priceCenti = computed(() => priceFor(inviteActionId(mode.value, !!props.tor)));
+const priceExplain = computed(() => explainFor(inviteActionId(mode.value, !!props.tor)));
 
 const canCreate = computed(
   () => !busy.value && (mode.value === "general" || !!chosenRecipient.value),
@@ -152,19 +133,9 @@ watch(mode, () => {
   error.value = "";
 });
 
-// The captain can close the room while this card is open. Leaving the user on a
-// ticket that no longer admits anyone would be the exact failure this stage
-// exists to prevent.
-watch(
-  () => props.inviteOnly,
-  (closed) => {
-    if (closed && mode.value === "ticket") mode.value = "personal";
-  },
-);
-
 async function createInvite() {
   if (!canCreate.value) return;
-  const kind = mode.value === "personal" ? "personal" : "general";
+  const kind = mode.value;
   const action = inviteActionId(kind, !!props.tor);
   // Confirmed BEFORE minting. A bearer invite is ≥10 HP, so this always asks and
   // carries the warning; a private one never interrupts.
@@ -213,16 +184,10 @@ function remaining(expiresAt: number): string {
   return t("invite.inMinutes", Math.max(1, Math.floor(ms / 60_000)));
 }
 
-const ALL_MODES: { id: ShareMode; label: string; icon: string }[] = [
-  { id: "ticket", label: "invite.modeTicket", icon: "ticket" },
+const MODES: { id: ShareMode; label: string; icon: string }[] = [
   { id: "personal", label: "invite.modePersonal", icon: "user-lock" },
   { id: "general", label: "invite.modeGeneral", icon: "share-nodes" },
 ];
-
-/** A closed room offers invitations only. */
-const MODES = computed(() =>
-  props.inviteOnly ? ALL_MODES.filter((m) => m.id !== "ticket") : ALL_MODES,
-);
 </script>
 
 <template>
@@ -245,15 +210,6 @@ const MODES = computed(() =>
       </button>
     </div>
 
-    <!-- Said before the pills, because it explains why one of them is missing. -->
-    <p
-      v-if="inviteOnly"
-      class="rounded-lg border border-accent-1/40 bg-accent-1/10 p-2.5 text-[11px] leading-relaxed"
-      data-testid="share-invite-only"
-    >
-      <font-awesome-icon icon="lock" class="mr-1" />{{ $t("invite.closedNotice") }}
-    </p>
-
     <!-- One line on what this mode actually means, plus its price. The
          consequence and the cost belong together, before the tap. -->
     <div class="flex flex-wrap items-start justify-between gap-2">
@@ -271,25 +227,8 @@ const MODES = computed(() =>
       <font-awesome-icon icon="triangle-exclamation" class="mr-1" />{{ $t("invite.bearerWarning") }}
     </p>
 
-    <!-- ── the room ticket ──────────────────────────────────────────────── -->
-    <template v-if="mode === 'ticket'">
-      <OyaQrCode :value="ticket" :size="176" :alt="$t('chat.a11yRoomQr')" />
-      <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
-      <OyaCopyField
-        :value="ticket"
-        mono
-        :copy-label="$t('chat.copy')"
-        @copied="chargeHp(ticketActionId(isTorTicket(ticket)))"
-      />
-      <template v-if="code">
-        <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareCode") }}</p>
-        <OyaCopyField :value="code" mono :copy-label="$t('chat.copy')" />
-      </template>
-    </template>
-
-    <!-- ── an invitation ────────────────────────────────────────────────── -->
-    <template v-else>
-      <template v-if="!minted">
+    <!-- ── mint, and then show what was minted, right here ──────────────── -->
+    <template v-if="!minted">
         <!-- Recipient, private mode only. A bearer invite binds to nobody —
              that IS the difference — so it has no picker at all. -->
         <template v-if="mode === 'personal'">
@@ -322,8 +261,8 @@ const MODES = computed(() =>
           </button>
         </template>
 
-        <!-- Deadline. Every invitation has one; that is what separates it from
-             the ticket above. -->
+        <!-- Deadline. Every invitation has one — that is the whole difference
+             between this and the permanent ticket it replaced. -->
         <label class="block text-[10px] uppercase tracking-wide opacity-50">
           {{ $t("invite.expiresIn") }}
         </label>
@@ -432,6 +371,5 @@ const MODES = computed(() =>
           </li>
         </ul>
       </template>
-    </template>
   </div>
 </template>

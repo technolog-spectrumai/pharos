@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { OyaModal, OyaTextField, getUseTor, isTorTicket } from "rakotis";
+import { OyaModal, OyaTextField, getUseTor } from "rakotis";
 import RoomShareCard from "./RoomShareCard.vue";
 import type { P2pRoomsController } from "./useP2pRooms";
 
 const props = defineProps<{ open: boolean; controller: P2pRoomsController }>();
 const emit = defineEmits<{ "update:open": [boolean] }>();
 
-const { name, createdTicket, createdRoom, createdCode, createBusy, createError, createRoom } = props.controller;
+const { name, createdRoom, createBusy, createError, createRoom } = props.controller;
 
 // Whether this will be a Tor room — drives the spinner wording + the captain ★ hint.
 const tor = ref(false);
@@ -31,7 +31,7 @@ function close() {
       </p>
 
       <!-- Name form -->
-      <template v-if="!createdTicket && !createBusy && !createError">
+      <template v-if="!createdRoom && !createBusy && !createError">
         <OyaTextField v-model="name" :placeholder="$t('chat.newRoomName')" @enter="createRoom" />
         <button
           type="button"
@@ -49,21 +49,15 @@ function close() {
       </div>
 
       <!-- Success: you're the host + QR to share -->
-      <div v-else-if="createdTicket" class="space-y-2.5">
+      <div v-else-if="createdRoom" class="space-y-2.5">
         <p class="flex items-center gap-2 text-sm font-semibold text-success-dark">
           <font-awesome-icon v-if="tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
         </p>
         <p v-if="tor" class="text-xs opacity-60">{{ $t("chat.hostStarHint") }}</p>
         <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
-        <!-- Three ways in — ticket, private invitation, bearer invitation —
-             shared with Room info so the two can never disagree. -->
-        <RoomShareCard
-          :room-slug="createdRoom.slug"
-          :room-name="createdRoom.name"
-          :ticket="createdTicket"
-          :code="createdCode"
-          :tor="isTorTicket(createdTicket)"
-        />
+        <!-- Mint an invitation and see its QR without leaving this modal — the
+             same card Room info uses, so the two can never disagree. -->
+        <RoomShareCard :room-slug="createdRoom.slug" :room-name="createdRoom.name" :tor="tor" />
       </div>
 
       <!-- Error -->

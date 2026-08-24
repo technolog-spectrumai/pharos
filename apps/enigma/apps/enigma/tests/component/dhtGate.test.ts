@@ -107,15 +107,16 @@ describe("a build without the DHT has no DHT surface", () => {
     expect(text).toContain("Start a call");
   });
 
-  it("room info hides a persisted room code", () => {
+  it("room info offers no standing room credential at all", () => {
     mountRoomInfo();
     // OyaModal teleports to <body>, and OyaCopyField renders its payload as a
     // readonly input value rather than text — so read both from the document.
     const shown = [...document.body.querySelectorAll("input")].map((i) => i.value);
+    // Neither of the two permanent credentials this app used to hand out: the
+    // room code was always DHT-gated, and the ticket is gone from every build.
     expect(shown).not.toContain(ROOM_WITH_CODE.code);
+    expect(shown).not.toContain(ROOM_WITH_CODE.ticket);
     expect(document.body.textContent).not.toContain("join without a ticket");
-    // The ticket is the pairing path that survives, so it must still be offered.
-    expect(shown).toContain(ROOM_WITH_CODE.ticket);
   });
 });
 
@@ -129,9 +130,11 @@ describe("the same surfaces are present when the build HAS the DHT", () => {
       const vox = mount(VoxPanel, { props: { darkMode: true }, global: { plugins: [i18n, pinia] } });
       expect(vox.text()).toContain("Call by nickname");
 
+      // Room info shows no credential on a DHT build either — the room code is
+      // not a way in any more, so enabling the DHT does not bring one back.
       mountRoomInfo();
       const shown = [...document.body.querySelectorAll("input")].map((i) => i.value);
-      expect(shown).toContain(ROOM_WITH_CODE.code);
+      expect(shown).not.toContain(ROOM_WITH_CODE.code);
     } finally {
       await initBuildConfig({ dht_enabled: false });
     }

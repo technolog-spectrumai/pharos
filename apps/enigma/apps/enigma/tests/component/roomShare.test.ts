@@ -1,4 +1,8 @@
-// The three-way share card: room ticket, private QR, shareable QR.
+// The share card: private QR, shareable QR — and no longer a room ticket.
+//
+// The permanent ticket was the third mode. It is gone, along with any way to open
+// a room to the gossip topic, so both remaining modes are bounded credentials the
+// issuer can withdraw.
 //
 // What these pin is mostly *honesty of presentation*. The card is where a user
 // decides how much of themselves to hand out, so each mode has to state its
@@ -19,12 +23,9 @@ import { refreshHp, resolveHpConfirm, setHpTranslator, stopHp } from "../../src/
 
 const global = { plugins: [i18n], stubs: { "font-awesome-icon": true } };
 
-/** base32 of [0x49, …] — an iroh (clearnet) room ticket. */
-const CLEARNET_TICKET = "jffci7y4nlaagnhsfexo2uomnfiuc2cbtblc";
-
 function card(props: Record<string, unknown> = {}) {
   return mount(RoomShareCard, {
-    props: { roomSlug: "room-1", roomName: "Room One", ticket: CLEARNET_TICKET, ...props },
+    props: { roomSlug: "room-1", roomName: "Room One", ...props },
     global,
   });
 }
@@ -45,106 +46,48 @@ beforeEach(async () => {
   await refreshHp();
 });
 
-describe("RoomShareCard — an invite-only room", () => {
-  // A closed room refuses gossip key packages, so the room ticket puts someone
-  // on the topic but never into the group. Offering it would hand out something
-  // that silently does not work, which reads as a bug rather than a policy.
-
-  it("withdraws the ticket mode entirely", async () => {
-    const w = card({ inviteOnly: true });
+describe("RoomShareCard", () => {
+  it("offers the two invitation modes and no third", async () => {
+    const w = card();
     await flushPromises();
-    expect(w.find('[data-testid="share-mode-ticket"]').exists()).toBe(false);
     expect(w.find('[data-testid="share-mode-personal"]').exists()).toBe(true);
     expect(w.find('[data-testid="share-mode-general"]').exists()).toBe(true);
-  });
-
-  it("opens on an invitation rather than a mode that is gone", async () => {
-    const w = card({ inviteOnly: true });
-    await flushPromises();
-    expect(w.find('[data-testid="invite-create"]').exists()).toBe(true);
-  });
-
-  it("explains why the ticket is missing", async () => {
-    const w = card({ inviteOnly: true });
-    await flushPromises();
-    expect(w.get('[data-testid="share-invite-only"]').text()).toMatch(/invite only/i);
-    expect(w.get('[data-testid="share-invite-only"]').text()).toMatch(/no longer lets anyone in/i);
-  });
-
-  it("says nothing about it in an open room", async () => {
-    const w = card();
-    await flushPromises();
-    expect(w.find('[data-testid="share-invite-only"]').exists()).toBe(false);
-  });
-
-  it("hides the DHT room code, which cannot admit anyone either", async () => {
-    const w = card({ inviteOnly: true, code: "dhtcode" });
-    await flushPromises();
-    expect(w.text()).not.toContain("dhtcode");
-  });
-
-  it("moves off the ticket when the captain closes the room mid-view", async () => {
-    // The flag arrives over room_meta and can land while this card is open.
-    // Leaving the user holding a ticket that no longer admits anyone is exactly
-    // the failure this stage exists to prevent.
-    const w = card();
-    await flushPromises();
-    expect(w.get('[data-testid="share-consequence"]').text()).toMatch(/permanent/i);
-    await w.setProps({ inviteOnly: true });
-    await flushPromises();
+    // The retired one. Its absence is the feature.
     expect(w.find('[data-testid="share-mode-ticket"]').exists()).toBe(false);
-    expect(w.get('[data-testid="share-consequence"]').text()).not.toMatch(/permanent/i);
   });
 
-  it("keeps both invitation modes and their prices", async () => {
-    const w = card({ inviteOnly: true });
-    await flushPromises();
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−1.5 HP");
-    await w.get('[data-testid="share-mode-general"]').trigger("click");
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−5 HP");
-    expect(w.find('[data-testid="share-bearer-warning"]').exists()).toBe(true);
-  });
-});
-
-describe("RoomShareCard", () => {
-  it("offers all three ways in", async () => {
+  it("opens on the private QR, the cheaper and narrower credential", async () => {
     const w = card();
     await flushPromises();
-    for (const m of ["ticket", "personal", "general"]) {
-      expect(w.find(`[data-testid="share-mode-${m}"]`).exists(), m).toBe(true);
-    }
-  });
-
-  it("opens on the room ticket, so nothing existing changes shape", async () => {
-    const w = card();
-    await flushPromises();
-    expect(w.get('[data-testid="share-consequence"]').text()).toMatch(/permanent/i);
-    expect(w.find('[data-testid="invite-create"]').exists()).toBe(false);
+    expect(w.get('[data-testid="share-consequence"]').text()).toMatch(/only the person you choose/i);
+    // Straight to minting: there is no longer a mode that shows an existing code.
+    expect(w.find('[data-testid="invite-create"]').exists()).toBe(true);
   });
 
   it("states each mode's consequence before the tap", async () => {
     const w = card();
     await flushPromises();
     const said: string[] = [];
-    for (const m of ["ticket", "personal", "general"]) {
+    for (const m of ["personal", "general"]) {
       await w.get(`[data-testid="share-mode-${m}"]`).trigger("click");
       said.push(w.get('[data-testid="share-consequence"]').text());
     }
-    // Three modes, three distinct sentences — none of them boilerplate.
-    expect(new Set(said).size).toBe(3);
-    expect(said[1]).toMatch(/only the person you choose/i);
-    expect(said[2]).toMatch(/anyone holding the code/i);
+    // Two modes, two distinct sentences — neither of them boilerplate.
+    expect(new Set(said).size).toBe(2);
+    expect(said[0]).toMatch(/only the person you choose/i);
+    expect(said[1]).toMatch(/anyone holding the code/i);
   });
 
-  it("prices a private QR far below the room ticket", async () => {
-    // The headline the whole feature exists for.
+  it("prices a private QR far below a shareable one", async () => {
+    // The headline the whole feature exists for: the narrow credential is cheap,
+    // the bearer one costs what the permanent ticket used to.
     const w = card();
     await flushPromises();
-    const ticketPrice = w.get('[data-testid="share-price"]').text();
-    await w.get('[data-testid="share-mode-personal"]').trigger("click");
     const privatePrice = w.get('[data-testid="share-price"]').text();
-    expect(ticketPrice).toContain("−5 HP");
+    await w.get('[data-testid="share-mode-general"]').trigger("click");
+    const bearerPrice = w.get('[data-testid="share-price"]').text();
     expect(privatePrice).toContain("−1.5 HP");
+    expect(bearerPrice).toContain("−5 HP");
   });
 
   it("prices a private QR at its cheapest over Tor", async () => {
