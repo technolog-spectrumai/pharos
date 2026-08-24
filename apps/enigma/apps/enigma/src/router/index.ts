@@ -8,6 +8,7 @@ import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
 import EnigmaMapView from "../views/EnigmaMapView.vue";
 import EnigmaWelcomeView from "../views/EnigmaWelcomeView.vue";
+import EnigmaPrivacyView from "../views/EnigmaPrivacyView.vue";
 import { APP_TABS, firstVisiblePath, isTabVisible, visibleTabs, type AppTabId } from "../tabs";
 
 /** Guard for a tab that can be switched off — build gate AND the user's own
@@ -42,6 +43,8 @@ const router = createRouter({
     { path: "/calendar", component: EnigmaCalendarView, name: "calendar", beforeEnter: tabGuard("calendar") },
     { path: "/map", component: EnigmaMapView, name: "map", beforeEnter: tabGuard("map") },
     { path: "/contacts", component: EnigmaContactsView, name: "contacts", beforeEnter: tabGuard("contacts") },
+    // Privacy HP — hideable like any other tab, but never build-gated.
+    { path: "/privacy", component: EnigmaPrivacyView, name: "privacy", beforeEnter: tabGuard("privacy") },
     // Settings has no gate of either kind — it is the way back from everything
     // else, including from a nav the user has emptied out.
     { path: "/config", component: EnigmaConfigView, name: "config" },

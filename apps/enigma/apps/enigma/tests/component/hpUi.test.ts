@@ -42,6 +42,9 @@ import HpPanel from "../../src/components/hp/HpPanel.vue";
 import HpConfirmModal from "../../src/components/hp/HpConfirmModal.vue";
 import HpFlash from "../../src/components/hp/HpFlash.vue";
 import EnigmaWelcomeView from "../../src/views/EnigmaWelcomeView.vue";
+import EnigmaPrivacyView from "../../src/views/EnigmaPrivacyView.vue";
+import HpChip from "../../src/components/hp/HpChip.vue";
+import { setTabVisible } from "../../src/tabs";
 import router from "../../src/router";
 import {
   chargeHp,
@@ -350,6 +353,61 @@ describe("HpFlash", () => {
     await chargeHp("msg.tor.mls", { bytes: 4096 });
     await flushPromises();
     expect(w.find('[data-testid="hp-flash"]').exists()).toBe(false);
+  });
+});
+
+// ── the Privacy tab ─────────────────────────────────────────────────────────
+
+describe("EnigmaPrivacyView", () => {
+  it("shows the meters and the full price list", async () => {
+    const w = mount(EnigmaPrivacyView, { global });
+    await flushPromises();
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    // The full panel, not the compact one the welcome page uses.
+    expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(true);
+  });
+
+  it("renders the same panel the welcome page does", async () => {
+    // One component in both places, so the two can never disagree about a number.
+    const tab = mount(EnigmaPrivacyView, { global });
+    const welcome = mount(EnigmaWelcomeView, { global });
+    await flushPromises();
+    expect(tab.get('[data-testid="hp-meter-value"]').text()).toBe(
+      welcome.get('[data-testid="hp-meter-value"]').text(),
+    );
+  });
+});
+
+describe("HpChip", () => {
+  it("opens the Privacy tab", async () => {
+    // The shield and the number are one control.
+    const push = vi.spyOn(router, "push").mockResolvedValue(undefined as never);
+    try {
+      const w = mount(HpChip, { global });
+      await refreshHp();
+      await flushPromises();
+      await w.get('[data-testid="hp-chip"]').trigger("click");
+      expect(push).toHaveBeenCalledWith("/privacy");
+    } finally {
+      push.mockRestore();
+    }
+  });
+
+  it("falls back to the welcome page when that tab is hidden", async () => {
+    // A chip that did nothing, or landed somewhere unrelated, would be worse
+    // than no chip — and the welcome page carries the same meters.
+    const push = vi.spyOn(router, "push").mockResolvedValue(undefined as never);
+    await setTabVisible("privacy", false);
+    try {
+      const w = mount(HpChip, { global });
+      await refreshHp();
+      await flushPromises();
+      await w.get('[data-testid="hp-chip"]').trigger("click");
+      expect(push).toHaveBeenCalledWith("/welcome");
+    } finally {
+      await setTabVisible("privacy", true);
+      push.mockRestore();
+    }
   });
 });
 

@@ -45,7 +45,7 @@ beforeEach(async () => {
 describe("defaults", () => {
   it("shows every tab the build contains, in nav order", () => {
     expect(visibleTabs.value.map((t) => t.id)).toEqual([
-      "chat", "files", "vox", "calendar", "map", "contacts",
+      "chat", "files", "vox", "calendar", "map", "contacts", "privacy",
     ]);
     expect(availableTabs().map((t) => t.id)).toEqual(APP_TABS.map((t) => t.id));
   });
@@ -194,7 +194,7 @@ describe("a build without Vox", () => {
   it("offers no checkbox for it — the user cannot enable what is not there", () => {
     expect(availableTabs().map((t) => t.id)).not.toContain("vox");
     expect(availableTabs().map((t) => t.id)).toEqual([
-      "chat", "files", "calendar", "map", "contacts",
+      "chat", "files", "calendar", "map", "contacts", "privacy",
     ]);
   });
 

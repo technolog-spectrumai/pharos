@@ -722,13 +722,20 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   logo and rules, ban management, and the **invite only** switch
   ([§18.8](#188-invite-only-rooms)), whose label states plainly that enforcement
   holds only while every member is running this app.
-- **Settings** (`EnigmaConfigView`) — six tabs: **Profile** (local-only PII,
+- **Privacy** (`EnigmaPrivacyView`, `/privacy`) — a tab of its own: the two HP
+  meters, the whole price table and the "Why did this change?" ledger
+  ([§17](#17-privacy-hp--the-exposure-budget)). Read-only by design — prices are
+  charged where the risky thing happens, never from a list of them. It lived as a
+  sixth pill inside Settings until the meters became something people *check*
+  rather than configure. `gate: null`: the budget is not a sellable feature, so
+  there is nothing to compile out, but it is hideable like any other tab and the
+  prices still appear beside the controls they belong to. The header **HP chip**
+  links here (and falls back to the welcome page when the tab is hidden).
+- **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
   shows; max file size; transfer chunk size + integrity check; meeting reminder;
   map storage limit), **Connections** (use-Tor, stable-onion, connection timeout,
-  DHT discovery + cadences + status probe), **Privacy** (the Privacy HP meters,
-  the whole price table and the "Why did this change?" ledger — read-only:
-  prices are charged where the risky thing happens, never from a list of them),
+  DHT discovery + cadences + status probe),
   **Lock** (auto-lock delay, lock-on-hide, reset passphrase, PIN unlock, panic
   code), **Data** (airplane mode; data profiles; clear data). Settings itself is
   the one tab with no visibility checkbox — it is the only route back to the
@@ -740,7 +747,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
   redirect still resolves to the first visible tab, which is where every lock
   cycle re-enters after the webview reload. A compact **HP chip** — today's
-  balance only — sits in the header on every screen and links here
+  balance only — sits in the header on every screen and opens the **Privacy** tab
   ([§17](#17-privacy-hp--the-exposure-budget)).
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design

@@ -9,8 +9,20 @@
 import { useRouter } from "vue-router";
 import { formatHp, meterBand } from "rakotis";
 import { hpBalances, hpLoaded } from "./useHp";
+import { isTabVisible } from "../../tabs";
 
 const router = useRouter();
+
+/**
+ * The shield and the number are one control: tapping either opens Privacy.
+ *
+ * If the user has hidden that tab, fall back to the welcome page — which carries
+ * the same meters — rather than to a route the guard would bounce. A chip that
+ * did nothing, or that landed somewhere unrelated, would be worse than no chip.
+ */
+function openPrivacy() {
+  router.push(isTabVisible("privacy") ? "/privacy" : "/welcome");
+}
 
 /** Today's band drives the colour: it is the meter that moves fastest, so it is
  *  the one worth reacting to. Cosmetic only — nothing is gated on it. */
@@ -31,7 +43,7 @@ const bandClass: Record<string, string> = {
     :title="$t('hp.chipTitle')"
     :aria-label="$t('hp.chipTitle')"
     data-testid="hp-chip"
-    @click="router.push('/welcome')"
+    @click="openPrivacy()"
   >
     <font-awesome-icon icon="shield-halved" />
     <span data-testid="hp-chip-daily">{{ formatHp(hpBalances.daily.balanceCenti) }}</span>

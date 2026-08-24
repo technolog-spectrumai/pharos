@@ -3,7 +3,7 @@ import { flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setHiddenTabs } from "rakotis";
 
-const ALL = ["chat", "files", "vox", "calendar", "map", "contacts"] as const;
+const ALL = ["chat", "files", "vox", "calendar", "map", "contacts", "privacy"] as const;
 
 async function settle() {
   await nextTick();
@@ -72,7 +72,9 @@ describe("no redirect loop", () => {
     // The guard's fallback must be computed from the CURRENT build gates, not
     // from a cached list: a stale head sends the guard back to a path the guard
     // itself denies, which vue-router reports as an infinite redirection.
-    await setHiddenTabs(["chat", "files"]);
+    // Every tab with `gate: null` has to be hidden by hand — the build gates
+    // below cannot remove them, and the scenario under test is an EMPTY nav.
+    await setHiddenTabs(["chat", "files", "privacy"]);
     const { tabs, router, store } = await coldBoot();
     await tabs.loadTabVisibility();
     await router.replace("/config");
@@ -111,7 +113,7 @@ describe("Settings stays usable in every hidden state", () => {
     await setHiddenTabs([...ALL]);
     const { tabs } = await coldBoot();
     await tabs.loadTabVisibility();
-    expect(tabs.availableTabs().length).toBe(6);
+    expect(tabs.availableTabs().length).toBe(tabs.APP_TABS.length);
     expect(tabs.visibleTabs.value.length).toBe(0);
     // and turning one back on works
     await tabs.setTabVisible("chat", true);
@@ -147,7 +149,7 @@ describe("stored value abuse", () => {
       localStorage.setItem("enigma:db:p2p:settings:default:hidden_tabs", junk);
       const { tabs } = await coldBoot();
       await tabs.loadTabVisibility();
-      expect(tabs.visibleTabs.value.length, junk).toBe(6);
+      expect(tabs.visibleTabs.value.length, junk).toBe(tabs.APP_TABS.length);
     }
   });
 });

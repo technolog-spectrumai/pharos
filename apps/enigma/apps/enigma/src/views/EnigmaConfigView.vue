@@ -9,7 +9,6 @@ import { SUPPORTED_LOCALES, LOCALE_NAMES, setLocale, type Locale } from "../i18n
 import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
 import { availableTabs, isTabVisible, setTabVisible, type AppTabId } from "../tabs";
-import HpPanel from "../components/hp/HpPanel.vue";
 import {
   chargeHp,
   confirmHp,
@@ -100,11 +99,10 @@ const { t, locale } = useI18n({ useScope: "global" });
 // directly (nav links use that); otherwise we open on the settings controls. The
 // Lock tab gathers everything that guards the vault (auto-lock, passphrase, panic
 // code); Data is purely about the offline profile data again.
-type ConfigTab = "profile" | "settings" | "connections" | "privacy" | "lock" | "data";
+type ConfigTab = "profile" | "settings" | "connections" | "lock" | "data";
 const tabFromQuery = (q: unknown): ConfigTab =>
   q === "profile" ? "profile"
   : q === "connections" ? "connections"
-  : q === "privacy" ? "privacy"
   : q === "lock" ? "lock"
   : q === "data" ? "data"
   : "settings";
@@ -693,17 +691,6 @@ async function clearSelectedOfflineData() {
       </button>
       <button
         type="button"
-        :class="activeTab === 'privacy'
-          ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
-          : 'opacity-60 hover:opacity-100'"
-        class="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition"
-        data-testid="config-tab-privacy"
-        @click="activeTab = 'privacy'"
-      >
-        <font-awesome-icon icon="shield-halved" />{{ $t('nav.privacy') }}
-      </button>
-      <button
-        type="button"
         :class="activeTab === 'lock'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
@@ -1219,19 +1206,6 @@ async function clearSelectedOfflineData() {
 
     <!-- Lock tab — everything guarding the vault: when it locks itself, the
          passphrase that opens it, and the code that destroys it -->
-    <!-- Privacy tab — the HP meters, the whole price table, and the ledger.
-         Read-only by design: prices are charged where the risky thing happens,
-         never from a list of them. -->
-    <template v-if="activeTab === 'privacy'">
-      <OyaCard class="flex flex-col gap-4">
-        <div class="flex flex-col gap-1">
-          <h2 class="text-lg font-bold">{{ $t('hp.title') }}</h2>
-          <p class="text-sm leading-relaxed opacity-70">{{ $t('hp.intro') }}</p>
-        </div>
-        <HpPanel />
-      </OyaCard>
-    </template>
-
     <template v-if="activeTab === 'lock'">
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>

@@ -32,7 +32,7 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, getHiddenTabs, setHiddenTabs, type BuildConfig } from "rakotis";
 
-export type AppTabId = "chat" | "files" | "vox" | "calendar" | "map" | "contacts";
+export type AppTabId = "chat" | "files" | "vox" | "calendar" | "map" | "contacts" | "privacy";
 
 export interface AppTab {
   id: AppTabId;
@@ -56,6 +56,11 @@ export const APP_TABS: readonly AppTab[] = [
   { id: "calendar", path: "/calendar", labelKey: "nav.calendar", icon: "calendar", gate: (c) => c.calendar_enabled },
   { id: "map", path: "/map", labelKey: "nav.map", icon: "map", gate: (c) => c.maps_enabled },
   { id: "contacts", path: "/contacts", labelKey: "nav.contacts", icon: "address-book", gate: (c) => c.contacts_enabled },
+  // Privacy HP (technology.md §17). `gate: null` — the budget is not a sellable
+  // feature and every edition has it, so there is nothing to compile out. It IS
+  // hideable like any other tab: a user who does not want to be scored can put
+  // it away, and the prices still appear beside the controls they belong to.
+  { id: "privacy", path: "/privacy", labelKey: "nav.privacy", icon: "shield-halved", gate: null },
 ];
 
 /** Settings — the tab that can never be hidden, and therefore the terminal

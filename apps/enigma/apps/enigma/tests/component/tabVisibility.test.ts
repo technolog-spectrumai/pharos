@@ -33,7 +33,7 @@ import App from "../../src/App.vue";
 import EnigmaConfigView from "../../src/views/EnigmaConfigView.vue";
 import router from "../../src/router";
 import { i18n } from "../../src/i18n";
-import { loadTabVisibility, setTabVisible } from "../../src/tabs";
+import { APP_TABS, loadTabVisibility, setTabVisible } from "../../src/tabs";
 
 (i18n.global.locale as any).value = "en";
 
@@ -77,7 +77,7 @@ const linksTo = (wrapper: ReturnType<typeof mount>, path: string) =>
 describe("the nav", () => {
   it("shows every tab by default, in both lists", async () => {
     const wrapper = await mountApp();
-    for (const path of ["/chat", "/files", "/vox", "/calendar", "/map", "/contacts", "/config"]) {
+    for (const path of ["/chat", "/files", "/vox", "/calendar", "/map", "/contacts", "/privacy", "/config"]) {
       expect(linksTo(wrapper, path), path).toBe(2);
     }
   });
@@ -109,7 +109,7 @@ describe("the nav", () => {
   });
 
   it("keeps Settings even when the user has hidden everything else", async () => {
-    for (const id of ["chat", "files", "vox", "calendar", "map", "contacts"] as const) {
+    for (const id of ["chat", "files", "vox", "calendar", "map", "contacts", "privacy"] as const) {
       await setTabVisible(id, false);
     }
     const wrapper = await mountApp();
@@ -171,7 +171,7 @@ describe("the Settings checkboxes", () => {
     const wrapper = await mountSettings();
     expect(box(wrapper, "config").exists()).toBe(false);
     expect(box(wrapper, "settings").exists()).toBe(false);
-    expect(wrapper.findAll('input[data-testid^="tab-visible-"]').length).toBe(6);
+    expect(wrapper.findAll('input[data-testid^="tab-visible-"]').length).toBe(APP_TABS.length);
   });
 
   it("unticking one hides the tab and writes the choice through", async () => {
@@ -194,11 +194,11 @@ describe("the Settings checkboxes", () => {
     try {
       const wrapper = await mountSettings();
       expect(box(wrapper, "vox").exists()).toBe(false);
-      expect(wrapper.findAll('input[data-testid^="tab-visible-"]').length).toBe(5);
+      expect(wrapper.findAll('input[data-testid^="tab-visible-"]').length).toBe(APP_TABS.length - 1);
       // A stored "hidden" from a Vox-capable build stays untouched underneath.
       await setHiddenTabs(["vox"]);
       await loadTabVisibility();
-      expect((await mountSettings()).findAll('input[data-testid^="tab-visible-"]').length).toBe(5);
+      expect((await mountSettings()).findAll('input[data-testid^="tab-visible-"]').length).toBe(APP_TABS.length - 1);
     } finally {
       await initBuildConfig({ calls_enabled: true });
     }

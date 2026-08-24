@@ -20,7 +20,7 @@ import {
 } from "rakotis";
 import { brand } from "../config/app";
 import HpPanel from "../components/hp/HpPanel.vue";
-import { SETTINGS_PATH } from "../tabs";
+import { isTabVisible, SETTINGS_PATH } from "../tabs";
 
 const router = useRouter();
 const cfg = getBuildConfig();
@@ -86,7 +86,7 @@ onMounted(async () => {
           type="button"
           class="text-xs font-semibold underline opacity-70 transition hover:opacity-100"
           data-testid="welcome-hp-details"
-          @click="router.push(`${SETTINGS_PATH}?tab=privacy`)"
+          @click="router.push(isTabVisible('privacy') ? '/privacy' : SETTINGS_PATH)"
         >
           {{ $t("hp.seeDetails") }}
         </button>
