@@ -20,7 +20,12 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 const dhtFindNick = vi.fn(async (_nick: string) => [] as { node_id: string; name: string; ts: number }[]);
-vi.mock("rakotis", () => ({ dhtFindNick: (...a: unknown[]) => (dhtFindNick as any)(...a) }));
+// PARTIAL mock (see torConnect.test.ts): the controller also uses rakotis'
+// Privacy HP helpers, so only the nickname lookup is replaced.
+vi.mock("rakotis", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  dhtFindNick: (...a: unknown[]) => (dhtFindNick as any)(...a),
+}));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const fire = (name: string, payload: unknown) => backendListeners.get(name)?.({ payload });

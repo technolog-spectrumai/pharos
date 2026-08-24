@@ -1,5 +1,6 @@
 import { ref, watch } from "vue";
-import { isTorTicket, getConnectTimeoutSecs } from "rakotis";
+import { isTorTicket, getConnectTimeoutSecs, roomActionId } from "rakotis";
+import { chargeHp, dataCreditHp } from "../hp/useHp";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
 
 // Shared P2P room state + actions for the chat surface. One instance is created in
@@ -63,6 +64,13 @@ export function useP2pRooms(channel: ChatChannel) {
           channel.p2pRooms.value.find((r) => r.ticket === t)?.code ?? "";
         createError.value = "";
         name.value = "";
+        // Privacy HP, charged only on a room that actually came up. The variant
+        // is read from the ticket the transport produced rather than from the
+        // Tor setting, so a room that fell back to clearnet is priced as one.
+        await chargeHp(roomActionId("create", isTorTicket(t)));
+        // A DHT room code is a separate, additional exposure: the rendezvous
+        // record is public even though its contents are sealed.
+        if (createdCode.value) await chargeHp("dht.room_code.publish");
       } else if (!createError.value) {
         createError.value = channel.error.value || "chat.launchFailed";
       }
@@ -101,7 +109,11 @@ export function useP2pRooms(channel: ChatChannel) {
     deleteBusy.value = true;
     try {
       // Kicks participants (if host + connected), closes connections, wipes the data.
-      await channel.deleteRoom(room);
+      const freed = await channel.deleteRoom(room);
+      // Privacy HP: deleting stored history is a real reduction in what this
+      // device is holding, so it earns — scaled by how much actually went, and
+      // nothing at all for a room that had no stored log.
+      if (freed > 0) await dataCreditHp("data.delete.chat", freed);
       deleteOpen.value = false;
       deleteRoomEntry.value = null;
     } finally {
@@ -190,6 +202,7 @@ export function useP2pRooms(channel: ChatChannel) {
     // The modal then watches channel.isEncrypted for "established". A transport error
     // lands in channel.error.
     if (channel.error.value) joinError.value = channel.error.value;
+    else await chargeHp(roomActionId("join", joiningTor.value));
   }
 
   // Abort a hanging Tor join and return to the form. Frees the onion lock in Rust so

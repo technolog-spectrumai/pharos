@@ -38,7 +38,6 @@ import {
   type HpBalances,
   type HpEntry,
 } from "rakotis";
-import { i18n } from "../../i18n";
 
 const EMPTY: HpEntry[] = [];
 
@@ -114,13 +113,33 @@ export function resolveHpConfirm(ok: boolean): void {
 
 // ── i18n helpers ────────────────────────────────────────────────────────────
 
-// Same cast as `useMeetings`: vue-i18n's `t` is a union of overload sets that
-// TypeScript cannot narrow outside a component, so the call signature is pinned
-// here once rather than at every use.
-const translate = i18n.global.t as (key: string) => string;
-const exists = i18n.global.te as (key: string) => boolean;
+// The translator is INJECTED at boot (main.ts) rather than imported.
+//
+// Importing the app's i18n instance here would make every module that merely
+// wants to charge HP — the composer, the file-share composable, the vox
+// composable — pull in the whole message catalog and, through it, rakotis'
+// i18n factory. That is a real cost in the app and a needless coupling in tests,
+// where charging HP has nothing to do with which language the UI is in.
+//
+// Unregistered, labels fall back to the raw action id. That is the correct
+// degradation: a ledger row reading "vox.call" is still true.
+type HpTranslator = { t: (key: string) => string; has: (key: string) => boolean };
 
-const t = (key: string, fallback = ""): string => (exists(key) ? String(translate(key)) : fallback);
+let translator: HpTranslator | null = null;
+
+/** Wire the app's i18n into the HP labels. Called once from main.ts. */
+export function setHpTranslator(next: HpTranslator | null): void {
+  translator = next;
+}
+
+const t = (key: string, fallback = ""): string => {
+  if (!translator) return fallback;
+  try {
+    return translator.has(key) ? String(translator.t(key)) : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 /** The human name of an action or recovery: `hp.action.<camelId>`. */
 export function labelFor(code: string): string {

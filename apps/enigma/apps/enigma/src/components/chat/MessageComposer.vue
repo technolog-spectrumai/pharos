@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
-import { OyaButton, OyaTextArea, formatRemaining } from "rakotis";
+import { OyaButton, OyaTextArea, OyaHpPrice, formatRemaining, messageActionId } from "rakotis";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import VoiceRecorderButton from "./VoiceRecorderButton.vue";
 import { useChatStore } from "../../stores/chat";
+import { useNetworkStore } from "../../stores/network";
+import { chargeHp, explainFor, priceFor } from "../hp/useHp";
 
 const props = defineProps<{ channel: ChatChannel }>();
 const ch = props.channel;
@@ -16,6 +18,16 @@ const { currentRoom, isConnected, isParticipant, mlsStatus, selfMuteUntil } = ch
 const voxBusy = computed(() =>
   ["calling", "connected"].includes(useChatStore().vox?.phase.value ?? "idle"),
 );
+
+// Which message lane this room is on right now. Both halves are live: Tor is a
+// per-profile switch and MLS comes up asynchronously, so the rate chip below has
+// to track them rather than sample once at mount.
+const network = useNetworkStore();
+const onTor = computed(() => network.useTor);
+const msgAction = computed(() =>
+  messageActionId({ tor: onTor.value, mlsReady: mlsStatus.value === "ready" }),
+);
+const msgPrice = computed(() => priceFor(msgAction.value));
 
 const draft = ref("");
 const uploadingImage = ref(false);
@@ -94,6 +106,10 @@ async function send() {
       } else {
         await ch.sendAudio(att.data as Blob);
       }
+      // Attachments are billed by size, which is the whole reason size is billed
+      // at all: on a clearnet lane a 4 MiB voice note is a far more distinctive
+      // event to an observer than a line of text.
+      await billSend(att.data instanceof Blob ? att.data.size : 0);
     } finally {
       uploadingImage.value = false;
       uploadProgress.value = 0;
@@ -103,7 +119,19 @@ async function send() {
   if (text) {
     ch.sendMessage(text);
     draft.value = "";
+    // Text is bytes, so this is the base rate and nothing more — and on the safe
+    // lane (MLS over Tor) the base rate is zero and nothing is written at all.
+    await billSend(new Blob([text]).size);
   }
+}
+
+/** Bill one send on whichever lane the room is currently on. Never confirmed and
+ *  never blocking: the price is a fraction of an HP, and a composer that stops
+ *  to ask would be unusable. */
+async function billSend(bytes: number): Promise<void> {
+  await chargeHp(messageActionId({ tor: onTor.value, mlsReady: mlsStatus.value === "ready" }), {
+    bytes,
+  });
 }
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -115,6 +143,27 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <div class="border-t border-current/10 p-4 bg-bubble-bg-light dark:bg-bubble-bg-dark">
+    <!-- The per-message rate for the lane this room is CURRENTLY on. This is the
+         one price in the app that changes under you, and that is exactly its
+         value: it drops to "Free" the moment MLS reports ready over Tor, which
+         makes the encryption state legible in a way the lock badge alone is not. -->
+    <div class="mb-2 flex items-center justify-end gap-2 text-[11px]">
+      <span
+        v-if="msgPrice === 0"
+        class="rounded-md border border-success-light/40 px-1.5 py-0.5 font-bold text-success-light dark:border-success-dark/40 dark:text-success-dark"
+        data-testid="hp-msg-free"
+      >
+        {{ $t('hp.free') }}
+      </span>
+      <OyaHpPrice
+        v-else
+        :centi="msgPrice"
+        :unit="$t('hp.unitMessage')"
+        :explain="explainFor(msgAction)"
+        data-testid="hp-msg-rate"
+      />
+    </div>
+
     <AttachmentPreview v-if="pending" :pending="pending" @clear="clearPending" />
 
     <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">

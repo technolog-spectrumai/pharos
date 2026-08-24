@@ -508,8 +508,23 @@ pub fn hp_recover(app: AppHandle, recovery_id: String) -> Result<HpDelta, String
     award(&app, rec.id, rec.credit_centi, rec.requires, None)
 }
 
-/// Award for data actually deleted. `bytes_freed` is measured by the caller in
-/// Rust *as it performs the deletion* — never a figure the webview supplies.
+/// Award for data deleted, scaled by how much actually went away.
+///
+/// WHO MEASURES, precisely — because this is the one credit whose size is not
+/// fixed, and it should not be oversold:
+///
+/// * `data.delete.maps` is measured HERE. `maps::map_region_remove` deletes the
+///   blob itself and calls `award_data` with the size it saw on disk, so the
+///   webview is not consulted at all.
+/// * `data.delete.chat` and `data.delete.files` are reported by the caller,
+///   because the deletion happens frontend-side (kv scope wipes and the locked
+///   files index). A dishonest webview could inflate `bytes_freed` — and the
+///   ceiling below is what makes that pointless: `max_per_event` caps a single
+///   claim at 5 HP and the two data caps bound the day and the week regardless
+///   of what is claimed.
+///
+/// Idempotent in all three cases for the same structural reason: a byte can only
+/// be deleted once, and deleting nothing pays nothing.
 #[tauri::command]
 pub fn hp_data_credit(
     app: AppHandle,
@@ -519,8 +534,15 @@ pub fn hp_data_credit(
     if hp_policy::data_source(&source_id).is_none() {
         return Err(format!("HP_UNKNOWN_DATA_SOURCE: {source_id}"));
     }
+    Ok(award_data(&app, &source_id, bytes_freed))
+}
+
+/// Award path for Rust-side deletions (see `hp_data_credit`). Swallows its own
+/// errors: a credit is never worth failing a deletion the user asked for.
+pub fn award_data(app: &AppHandle, source_id: &str, bytes_freed: u64) -> HpDelta {
     let ids: Vec<&str> = hp_policy::DATA_SOURCES.iter().map(|d| d.id).collect();
-    award(&app, &source_id, data_award(bytes_freed), None, Some(&ids))
+    award(app, source_id, data_award(bytes_freed), None, Some(&ids))
+        .unwrap_or(HpDelta { applied: 0, code: source_id.to_string() })
 }
 
 /// Shared award path: verify, cap, write. Never writes a zero row.

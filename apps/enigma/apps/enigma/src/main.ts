@@ -7,6 +7,7 @@ import "./style.css";
 import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
+import { setHpTranslator } from "./components/hp/useHp";
 import { initBuildConfig, initHpPolicy } from "rakotis";
 import { brand, policy } from "./config/app";
 
@@ -292,6 +293,14 @@ const app = createApp(App)
   .component("font-awesome-icon", FontAwesomeIcon);
 
 installVueErrorHandler(app);
+
+// Privacy HP labels read through the app's catalog. Injected rather than
+// imported by the HP modules themselves, so that charging HP never drags the
+// message catalog into the composer, the file-share composable or vox.
+setHpTranslator({
+  t: (key: string) => String((i18n.global.t as (k: string) => string)(key)),
+  has: (key: string) => Boolean((i18n.global.te as (k: string) => boolean)(key)),
+});
 
 // Fetch the compile-time build config (allow flags, setting clamps) before
 // mount so every component sees final values; in the browser the app-config

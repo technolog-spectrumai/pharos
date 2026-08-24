@@ -16,6 +16,7 @@
 import { ref } from "vue";
 import { getMaxFileSizeMb } from "rakotis";
 import type { ChatChannel } from "rakotis";
+import { chargeHp, confirmHp } from "../hp/useHp";
 
 export type FileShareState =
   | "idle"
@@ -128,6 +129,14 @@ export function useFileShare(channel: ChatChannel) {
         state.value = "error";
         return;
       }
+      // Privacy HP. Confirmed BEFORE the offer goes out — the price scales with
+      // the file, so a large transfer can reach the confirm threshold that a
+      // small one never does. P2P transfer is iroh-direct only (Tor mode blocks
+      // it outright), so there is no cheaper variant to offer here.
+      if (!(await confirmHp("file.send", { bytes: meta.size }))) {
+        void _invoke("file_offer_cancel", { offerId: meta.offer_id }).catch(() => {});
+        return;
+      }
       reset();
       myOfferId = meta.offer_id;
       peerName.value = target.name;
@@ -144,6 +153,10 @@ export function useFileShare(channel: ChatChannel) {
         mime: meta.mime,
         fromName: channel.currentUserName.value,
       });
+      // Charged once the offer is actually on the wire: the peer's address, the
+      // size and the timing are visible from that moment, whether or not they
+      // accept.
+      await chargeHp("file.send", { bytes: meta.size });
     } catch (e: any) {
       error.value = e?.message ?? String(e);
       state.value = "error";

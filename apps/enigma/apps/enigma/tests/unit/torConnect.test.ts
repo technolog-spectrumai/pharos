@@ -12,9 +12,13 @@ const { mockGetConnectTimeoutSecs } = vi.hoisted(() => ({
   mockGetConnectTimeoutSecs: vi.fn(async () => 5),
 }));
 
-vi.mock("rakotis", () => ({
-  // Mirror of useChatChannel.isTorTicket (base32 first byte == 0x54). Duplicated
-  // here because mocking "rakotis" replaces the whole module.
+// PARTIAL mock: the real module underneath, with only the two seams this test
+// drives replaced. A whole-module replacement used to be enough, but the
+// controller now also reaches for rakotis' Privacy HP helpers, and re-stubbing
+// every export a dependency happens to use is a standing breakage.
+vi.mock("rakotis", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  // Mirror of useChatChannel.isTorTicket (base32 first byte == 0x54).
   isTorTicket: (ticket: string) => {
     const B32 = "abcdefghijklmnopqrstuvwxyz234567";
     const s = ticket.trim().toLowerCase();

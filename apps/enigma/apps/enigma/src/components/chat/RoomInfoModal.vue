@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { OyaModal, OyaQrCode, OyaCopyField, RULES_MAX_CHARS, getBuildConfig } from "rakotis";
+import {
+  OyaModal, OyaQrCode, OyaCopyField, OyaHpPrice,
+  RULES_MAX_CHARS, getBuildConfig, isTorTicket, ticketActionId,
+} from "rakotis";
+import { chargeHp, explainFor, priceFor } from "../hp/useHp";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 
@@ -137,10 +141,25 @@ function close() {
         </div>
       </div>
 
-      <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
+      <!-- A clearnet ticket carries the room name, the creator's NodeId AND their
+           IP addresses; over Tor it carries a .onion and no IP. The price sits on
+           the share control because that is the moment it leaves the device. -->
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
+        <OyaHpPrice
+          :centi="priceFor(ticketActionId(isTorTicket(room.ticket)))"
+          :explain="explainFor(ticketActionId(isTorTicket(room.ticket)))"
+          data-testid="hp-badge-ticket"
+        />
+      </div>
       <OyaQrCode :value="room.ticket" :size="176" alt="Room QR code" />
       <p class="text-center text-[10px] opacity-50">{{ $t("chat.scanToJoin") }}</p>
-      <OyaCopyField :value="room.ticket" mono :copy-label="$t('chat.copy')" />
+      <OyaCopyField
+        :value="room.ticket"
+        mono
+        :copy-label="$t('chat.copy')"
+        @copied="chargeHp(ticketActionId(isTorTicket(room.ticket)))"
+      />
       <!-- Ticketless-join room code (DHT rendezvous) — present when minted -->
       <template v-if="dhtAllowed && room.code">
         <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareCode") }}</p>

@@ -130,7 +130,12 @@ let policy: HpPolicy = FALLBACK_HP_POLICY;
 export async function initHpPolicy(): Promise<HpPolicy> {
   if (isTauri()) {
     try {
-      policy = await invoke<HpPolicy>("hp_get_policy");
+      const fetched = await invoke<HpPolicy>("hp_get_policy");
+      // A table without actions is not a table; keep the mirror rather than
+      // render an app whose every price silently reads zero.
+      if (fetched && Array.isArray(fetched.actions) && fetched.actions.length > 0) {
+        policy = fetched;
+      }
     } catch {
       /* keep the mirror — browser-equivalent behaviour */
     }
@@ -170,7 +175,10 @@ export function resetHpLedgerForTest(): void {
 export async function hpLedger(): Promise<HpEntry[]> {
   if (isTauri()) {
     try {
-      return await invoke<HpEntry[]>("hp_ledger");
+      // Same defensive read as `asDelta`: a command that answers with nothing
+      // must degrade to "no history", not to a crash in every meter.
+      const rows = await invoke<HpEntry[]>("hp_ledger");
+      return Array.isArray(rows) ? rows : [];
     } catch {
       return [];
     }
@@ -192,6 +200,23 @@ export interface HpDelta {
 }
 
 /**
+ * Coerce whatever came back from `invoke` into a usable delta.
+ *
+ * A command can legitimately answer with nothing — an older binary that predates
+ * these commands, a build where they are not registered, a transport hiccup. The
+ * callers of these functions are ordinary UI paths (send a file, flip a switch),
+ * and none of them should break because the HP layer had nothing to say. An
+ * unusable answer becomes a no-op delta, exactly like a charge that was declined.
+ */
+function asDelta(raw: unknown, code: string): HpDelta {
+  const d = raw as Partial<HpDelta> | null | undefined;
+  return {
+    applied: typeof d?.applied === "number" && Number.isFinite(d.applied) ? d.applied : 0,
+    code: typeof d?.code === "string" && d.code ? d.code : code,
+  };
+}
+
+/**
  * Charge an action. The caller names an id and, for metered actions, the
  * quantity — never an amount. Rust looks the price up in its own table, so a
  * wrong id is the worst a broken caller can manage.
@@ -206,11 +231,14 @@ export async function hpCharge(
 ): Promise<HpDelta> {
   if (isTauri()) {
     try {
-      return await invoke<HpDelta>("hp_charge", {
+      return asDelta(
+        await invoke<HpDelta>("hp_charge", {
+          actionId,
+          bytes: opts.bytes ?? null,
+          minutes: opts.minutes ?? null,
+        }),
         actionId,
-        bytes: opts.bytes ?? null,
-        minutes: opts.minutes ?? null,
-      });
+      );
     } catch {
       return { applied: 0, code: actionId };
     }
@@ -259,7 +287,7 @@ function browserExposureLive(actionId: string): boolean {
 export async function hpRecover(recoveryId: string): Promise<HpDelta> {
   if (isTauri()) {
     try {
-      return await invoke<HpDelta>("hp_recover", { recoveryId });
+      return asDelta(await invoke<HpDelta>("hp_recover", { recoveryId }), recoveryId);
     } catch {
       return { applied: 0, code: recoveryId };
     }
@@ -284,7 +312,7 @@ export async function hpRecover(recoveryId: string): Promise<HpDelta> {
 export async function hpDataCredit(sourceId: string, bytesFreed: number): Promise<HpDelta> {
   if (isTauri()) {
     try {
-      return await invoke<HpDelta>("hp_data_credit", { sourceId, bytesFreed });
+      return asDelta(await invoke<HpDelta>("hp_data_credit", { sourceId, bytesFreed }), sourceId);
     } catch {
       return { applied: 0, code: sourceId };
     }
