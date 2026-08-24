@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// The always-visible budget: "⛨ 87 · 631" in the sticky header.
+// The always-visible budget: "⛨ 87" in the sticky header.
 //
-// Compact on purpose — two numbers and a shield. The header is already tight at
-// phone width, so the weekly figure drops below `sm` and only today's remains;
-// the full picture lives one tap away on the welcome page.
+// TODAY'S balance only. The weekly figure used to sit beside it, but two numbers
+// separated by a dot in a cramped app bar read as one number and invite the
+// wrong one to be scanned. Today's is the one that moves on the timescale a
+// glance is useful over; the weekly meter — and everything else — is one tap
+// away on the welcome page.
 import { useRouter } from "vue-router";
 import { formatHp, meterBand } from "rakotis";
 import { hpBalances, hpLoaded } from "./useHp";
@@ -33,9 +35,5 @@ const bandClass: Record<string, string> = {
   >
     <font-awesome-icon icon="shield-halved" />
     <span data-testid="hp-chip-daily">{{ formatHp(hpBalances.daily.balanceCenti) }}</span>
-    <span class="hidden opacity-50 sm:inline">·</span>
-    <span class="hidden sm:inline" data-testid="hp-chip-weekly">
-      {{ formatHp(hpBalances.weekly.balanceCenti) }}
-    </span>
   </button>
 </template>

@@ -680,7 +680,7 @@ export default {
     weekly: "W tym tygodniu",
     loading: "Wczytywanie historii…",
     free: "Za darmo",
-    chipTitle: "Privacy HP — dzisiaj · w tym tygodniu",
+    chipTitle: "Privacy HP pozostałe dzisiaj",
     seeDetails: "Ceny i historia",
     regenRate: "+{n} HP / godz.",
     regenNext: "kolejne +1 za {n} min",

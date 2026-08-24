@@ -714,8 +714,9 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   profile) and your HP meters. Ungated for the same reason Settings is — a logo
   that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
   redirect still resolves to the first visible tab, which is where every lock
-  cycle re-enters after the webview reload. A compact **HP chip** sits in the
-  header on every screen and links here ([§17](#17-privacy-hp--the-exposure-budget)).
+  cycle re-enters after the webview reload. A compact **HP chip** — today's
+  balance only — sits in the header on every screen and links here
+  ([§17](#17-privacy-hp--the-exposure-budget)).
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
 tokens — see [§14](#14-conventions-naming--palette). Dark mode defaults on but is
