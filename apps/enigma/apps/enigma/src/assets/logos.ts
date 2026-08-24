@@ -1,6 +1,9 @@
 import { logoDir } from "../../package.json";
 
-// One mark, two renders. `logoDir` keeps the brand swappable in one place:
+// Two marks, deliberately not identical: `app_icon` is the sun-key v2 mark on
+// the unlock/welcome gate, `bar_icon` the v1 mark in the top bar. They read as
+// the same brand at a glance, which is the point — the bar sits beside the
+// product name all day, the gate is a single large first impression. `logoDir` keeps the brand swappable in one place:
 // every asset below lives in `assets/<logoDir>/`, so changing the directory
 // changes the whole app's face without touching a component.
 //
