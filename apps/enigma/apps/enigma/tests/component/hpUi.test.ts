@@ -277,7 +277,7 @@ describe("HpPanel", () => {
     const w = mount(HpPanel, { global });
     await flushPromises();
     const history = w.get('[data-testid="hp-history"]').text();
-    expect(history).toContain("−10 HP");
+    expect(history).toContain("−5 HP");
     expect(history).toContain("DHT");
   });
 
@@ -299,7 +299,7 @@ describe("HpConfirmModal", () => {
     const w = mount(HpConfirmModal, { global: modalGlobal });
     const pending = confirmHp("dht.nickname.publish");
     await flushPromises();
-    expect(w.get('[data-testid="hp-confirm-price"]').text()).toBe("−20 HP");
+    expect(w.get('[data-testid="hp-confirm-price"]').text()).toBe("−10 HP");
     expect(w.get('[data-testid="hp-confirm"]').text()).toMatch(/directory/i);
     resolveHpConfirm(false);
     await pending;
@@ -323,7 +323,7 @@ describe("HpConfirmModal", () => {
   });
 
   it("explains an empty meter without refusing the action", async () => {
-    for (let i = 0; i < 10; i++) await chargeHp("ticket.export.clearnet");
+    for (let i = 0; i < 20; i++) await chargeHp("ticket.export.clearnet");
     const w = mount(HpConfirmModal, { global: modalGlobal });
     const pending = confirmHp("room.create.tor");
     await flushPromises();
@@ -341,7 +341,7 @@ describe("HpFlash", () => {
     await chargeHp("dht.presence.enable");
     await flushPromises();
     const text = w.get('[data-testid="hp-flash"]').text();
-    expect(text).toContain("−10 HP");
+    expect(text).toContain("−5 HP");
     expect(text).toMatch(/DHT/);
   });
 

@@ -30,16 +30,26 @@ version: 1
 # Five rungs, so prices stay comparable at a glance. A fixed-cost action must
 # land on one of them (build.rs enforces it); metered actions bill in fractions
 # below the bottom rung and are exempt.
+# HALVED 2026-08-24. Every rung, every metered rate and every credit was divided
+# by two, so the whole budget goes twice as far while every RATIO between prices
+# is preserved exactly — which is what the ladder is for. The meters (100/700)
+# and the regeneration rates were deliberately left alone: the request was to
+# halve what actions cost, not to shrink the budget or slow recovery.
+#
+# Three rates could not halve exactly at two decimal places — 0.05 and 0.25 want
+# 0.025 and 0.125 — and are rounded DOWN rather than up (0.02, 0.12). Down is the
+# direction the halving was asked for, and the affected values are per-message and
+# per-MiB rates where the difference is far below anything a user can perceive.
 scale:
-  negligible: 1
-  low: 3
-  moderate: 5
-  high: 10
-  severe: 20
+  negligible: 0.5
+  low: 1.5
+  moderate: 2.5
+  high: 5
+  severe: 10
 
 # Costs at or above this get a confirmation step. Everything cheaper stays
 # one-tap — a budget that interrupts you constantly is one you stop reading.
-confirm_at_hp: 10
+confirm_at_hp: 5
 
 # ── the two meters ───────────────────────────────────────────────────────────
 # They differ ONLY in ceiling and recovery period. There is no second formula
@@ -269,29 +279,29 @@ actions:
 
   - id: msg.clearnet.mls
     kind: metered
-    cost: 0.05
-    per_mib: 0.05
-    cap_per_event: 1
+    cost: 0.02
+    per_mib: 0.02
+    cap_per_event: 0.5
     explain_key: hp.explain.msgClearnetMls
     # Content is sealed by MLS, but the send itself is an observable event to n0:
     # its timing, its size, and which peers it fans out to.
 
   - id: msg.tor.plain
     kind: metered
-    cost: 0.1
+    cost: 0.05
     explain_key: hp.explain.msgTorPlain
     # §9.5 — the cleartext fallback before MLS reports ready. Inside the circuit,
     # so no per-MiB rate, but the frame is not end-to-end encrypted.
 
   - id: msg.clearnet.plain
     kind: metered
-    cost: 0.5
-    per_mib: 0.5
+    cost: 0.25
+    per_mib: 0.25
     # Deliberately five times the MLS lane's ceiling. At a 1 HP cap this lane's
     # per-MiB rate was inert — 1 MiB already hit the ceiling, so a 20-byte
     # cleartext message and a 4 MiB cleartext image cost the same, on the one
     # channel where size matters most. At 5 the rate stays live out to 9 MiB.
-    cap_per_event: 5
+    cap_per_event: 2.5
     explain_key: hp.explain.msgClearnetPlain
     # §9.5, and the worst per-message case in the app: not E2E at all, in the
     # clear, on a topic anyone who guessed the room name can be sitting on.
@@ -323,9 +333,9 @@ actions:
 
   - id: calendar.share.clearnet
     kind: metered
-    cost: 0.05
-    per_mib: 0.05
-    cap_per_event: 1
+    cost: 0.02
+    per_mib: 0.02
+    cap_per_event: 0.5
     explain_key: hp.explain.calendarShareClearnet
 
   # ── traffic that cannot use Tor at all ─────────────────────────────────────
@@ -335,9 +345,9 @@ actions:
 
   - id: file.send
     kind: metered
-    cost: 1
-    per_mib: 0.05
-    cap_per_event: 5
+    cost: 0.5
+    per_mib: 0.02
+    cap_per_event: 2.5
     explain_key: hp.explain.fileSend
     # Size and duration are visible to relays and to anyone watching either
     # endpoint even though the bytes are sealed (§9.10). The cap keeps one large
@@ -345,9 +355,9 @@ actions:
 
   - id: vox.call
     kind: metered
-    cost: 3
-    per_minute: 0.1
-    cap_per_event: 10
+    cost: 1.5
+    per_minute: 0.05
+    cap_per_event: 5
     explain_key: hp.explain.voxCall
     # A continuously flowing, distinctively shaped real-time stream over a direct
     # path. It confirms who spoke to whom, when, and for how long. Metered by
@@ -401,22 +411,22 @@ actions:
 # therefore nets a loss, not a profit.
 recovery:
   # Ceilings across everything below, so recovery can never become a faucet.
-  daily_cap: 25
-  weekly_cap: 100
+  daily_cap: 12.5
+  weekly_cap: 50
 
   fixed:
     - id: dht.nickname.withdraw
-      credit: 10
+      credit: 5
       requires: dht.nickname.publish
       explain_key: hp.explain.dhtNicknameWithdraw
 
     - id: dht.presence.withdraw
-      credit: 5
+      credit: 2.5
       requires: dht.presence.enable
       explain_key: hp.explain.dhtPresenceWithdraw
 
     - id: local.autolock.on
-      credit: 5
+      credit: 2.5
       requires: local.autolock.off
       explain_key: hp.explain.localAutolockOn
 
@@ -432,7 +442,7 @@ recovery:
     # single day), and the daily/weekly caps above sit over the lot.
 
     - id: local.passphrase.strengthen
-      credit: 10
+      credit: 5
       requires: ~
       explain_key: hp.explain.localPassphraseStrengthen
       # Verified inside vault_change_passphrase at the moment of the change: the
@@ -441,7 +451,7 @@ recovery:
       # full high rung — this is the single most useful thing a user can do here.
 
     - id: local.passphrase.change
-      credit: 3
+      credit: 1.5
       requires: ~
       explain_key: hp.explain.localPassphraseChange
       # A change that is not longer than before still earns something: protasius
@@ -458,13 +468,13 @@ recovery:
     # it is the best-paying thing in this table.
 
     - id: local.reencrypt.keyring
-      credit: 10
+      credit: 5
       requires: ~
       explain_key: hp.explain.localReencryptKeyring
       # keyring_rotate: fresh file keys, every entry re-encrypted under them.
 
     - id: local.reencrypt.files
-      credit: 10
+      credit: 5
       requires: ~
       explain_key: hp.explain.localReencryptFiles
       # rotate_local_file: a locked file re-sealed under a fresh key. Pays once
@@ -478,7 +488,7 @@ recovery:
       # promised not to make. If DEK rotation ever ships, it earns a line here.
 
     - id: invite.revoke
-      credit: 5
+      credit: 2.5
       # No `requires`: a bearer invitation can be minted on either transport, so
       # pairing it to one action id would silently refuse to pay for the other.
       # The verified state change is enforced at the call site instead —
@@ -489,7 +499,7 @@ recovery:
       explain_key: hp.explain.inviteRevoke
 
     - id: room.inviteonly.enable
-      credit: 5
+      credit: 2.5
       # Closing a room stops it admitting anyone off the gossip topic, which is a
       # real reduction in risk being carried right now — the auto-admit path
       # (§9.3, §9.7) is the app's oldest access-control gap.
@@ -503,12 +513,12 @@ recovery:
       explain_key: hp.explain.roomInviteonlyEnable
 
     - id: room.rekey
-      credit: 3
+      credit: 1.5
       requires: ~
       explain_key: hp.explain.roomRekey
 
     - id: room.leave
-      credit: 3
+      credit: 1.5
       requires: ~
       explain_key: hp.explain.roomLeave
 
@@ -522,11 +532,11 @@ recovery:
   # properly would need a hidden "data must be N days old" rule, and a visible
   # cap is the more honest trade.
   data:
-    per_mib: 0.25
-    min_award: 0.5      # a deletion worth less than this pays min_award or 0
-    max_per_event: 5
-    daily_cap: 10
-    weekly_cap: 25
+    per_mib: 0.12
+    min_award: 0.25     # a deletion worth less than this pays min_award or 0
+    max_per_event: 2.5
+    daily_cap: 5
+    weekly_cap: 12.5
     sources:
       - id: data.delete.chat
         explain_key: hp.explain.dataDeleteChat

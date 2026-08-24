@@ -778,12 +778,15 @@ fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
 
     // The ladder is fixed. Its whole job is to keep prices comparable at a
     // glance, which a re-tuned rung would quietly destroy.
+    // Halved 2026-08-24 (privacy_hp.yaml, the note above `scale:`). Pinned here
+    // as literals on purpose: the rungs' RATIOS are what make prices comparable
+    // at a glance, so re-tuning one silently is exactly what this must catch.
     let expected = [
-        ("negligible", cfg.scale.negligible, 1.0),
-        ("low", cfg.scale.low, 3.0),
-        ("moderate", cfg.scale.moderate, 5.0),
-        ("high", cfg.scale.high, 10.0),
-        ("severe", cfg.scale.severe, 20.0),
+        ("negligible", cfg.scale.negligible, 0.5),
+        ("low", cfg.scale.low, 1.5),
+        ("moderate", cfg.scale.moderate, 2.5),
+        ("high", cfg.scale.high, 5.0),
+        ("severe", cfg.scale.severe, 10.0),
     ];
     for (name, got, want) in expected {
         if (got - want).abs() > f64::EPSILON {

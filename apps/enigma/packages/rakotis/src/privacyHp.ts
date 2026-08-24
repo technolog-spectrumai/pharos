@@ -203,13 +203,26 @@ export function calendarActionId(tor: boolean): string {
 
 // ── severity and confirmation ───────────────────────────────────────────────
 
+/**
+ * The ladder, in centi-HP. Mirrors `scale:` in privacy_hp.yaml, which `build.rs`
+ * pins as literals — so these two must move together. `privacyHp.test.ts` asserts
+ * they agree against the fetched policy rather than trusting the comment.
+ */
+export const HP_RUNGS = {
+  negligible: 50,
+  low: 150,
+  moderate: 250,
+  high: 500,
+  severe: 1000,
+} as const;
+
 /** The ladder rung a price sits on. Drives the badge colour, nothing else. */
 export function severityOf(centi: number): HpSeverity {
   const hp = Math.abs(centi);
-  if (hp >= 2000) return "severe";
-  if (hp >= 1000) return "high";
-  if (hp >= 500) return "moderate";
-  if (hp >= 300) return "low";
+  if (hp >= HP_RUNGS.severe) return "severe";
+  if (hp >= HP_RUNGS.high) return "high";
+  if (hp >= HP_RUNGS.moderate) return "moderate";
+  if (hp >= HP_RUNGS.low) return "low";
   return "negligible";
 }
 

@@ -39,14 +39,14 @@ const weekly = () => hpBalances.value.weekly.balanceCenti;
 
 describe("prices", () => {
   it("reports a negative price for an action and a positive credit for a recovery", () => {
-    expect(priceFor("dht.presence.enable")).toBe(-1000);
-    expect(creditFor("dht.presence.withdraw")).toBe(500);
+    expect(priceFor("dht.presence.enable")).toBe(-500);
+    expect(creditFor("dht.presence.withdraw")).toBe(250);
   });
 
   it("scales a metered price by the quantity given", () => {
-    expect(priceFor("file.send")).toBe(-100);
-    expect(priceFor("file.send", { bytes: 100 * 1024 * 1024 })).toBe(-500); // capped
-    expect(priceFor("vox.call", { minutes: 10 })).toBe(-400);
+    expect(priceFor("file.send")).toBe(-50);
+    expect(priceFor("file.send", { bytes: 100 * 1024 * 1024 })).toBe(-250); // capped
+    expect(priceFor("vox.call", { minutes: 10 })).toBe(-200);
   });
 
   it("prices an action this build does not have at zero", () => {
@@ -60,8 +60,8 @@ describe("prices", () => {
 describe("charging", () => {
   it("subtracts from BOTH meters at once", async () => {
     await chargeHp("dht.presence.enable");
-    expect(daily()).toBe(9000);
-    expect(weekly()).toBe(69_000);
+    expect(daily()).toBe(9500);
+    expect(weekly()).toBe(69_500);
   });
 
   it("charges a toggle once and then stops", async () => {
@@ -75,7 +75,7 @@ describe("charging", () => {
   it("charges an event every single time", async () => {
     await chargeHp("ticket.export.clearnet");
     await chargeHp("ticket.export.clearnet");
-    expect(daily()).toBe(10_000 - 2000);
+    expect(daily()).toBe(10_000 - 1000);
   });
 
   it("never charges an ordinary encrypted message on the safe lane", async () => {
@@ -85,9 +85,9 @@ describe("charging", () => {
 
   it("bills a clearnet message a little, and more when it is large", async () => {
     await chargeHp("msg.clearnet.mls", { bytes: 20 });
-    expect(daily()).toBe(9995);
+    expect(daily()).toBe(9998);
     await chargeHp("msg.clearnet.mls", { bytes: 4 * 1024 * 1024 });
-    expect(daily()).toBe(9995 - 25);
+    expect(daily()).toBe(9998 - 10);
   });
 
   it("coalesces repeated metered charges into one bucket", async () => {
@@ -98,14 +98,14 @@ describe("charging", () => {
     // timestamped log of when you sent things.
     expect(rows).toHaveLength(1);
     expect(rows[0].n).toBe(47);
-    expect(rows[0].hp).toBe(-235);
+    expect(rows[0].hp).toBe(-94);
   });
 
   it("makes a switch flipped off and on again a net loss", async () => {
     await chargeHp("dht.presence.enable");
     await recoverHp("dht.presence.withdraw");
     await chargeHp("dht.presence.enable");
-    expect(daily()).toBe(10_000 - 1000 + 500 - 1000);
+    expect(daily()).toBe(10_000 - 500 + 250 - 500);
   });
 
   it("pays nothing for a recovery whose exposure was never live", async () => {
@@ -132,7 +132,7 @@ describe("meetings and polls", () => {
 
   it("bills a little on a clearnet room", async () => {
     await chargeHp("calendar.share.clearnet");
-    expect(daily()).toBe(9995);
+    expect(daily()).toBe(9998);
   });
 
   it("has no plaintext lane, because the calendar cannot send unencrypted", () => {
@@ -158,7 +158,7 @@ describe("confirmation", () => {
   it("asks for a high-cost action and honours a refusal", async () => {
     const pending = confirmHp("dht.nickname.publish");
     expect(hpConfirm.value).not.toBeNull();
-    expect(hpConfirm.value?.centi).toBe(-2000);
+    expect(hpConfirm.value?.centi).toBe(-1000);
     resolveHpConfirm(false);
     await expect(pending).resolves.toBe(false);
     expect(hpConfirm.value).toBeNull();
@@ -172,7 +172,7 @@ describe("confirmation", () => {
 
   it("asks even for a cheap action once a meter is empty", async () => {
     // Drain today with repeated clearnet ticket exports.
-    for (let i = 0; i < 10; i++) await chargeHp("ticket.export.clearnet");
+    for (let i = 0; i < 20; i++) await chargeHp("ticket.export.clearnet");
     expect(daily()).toBe(0);
     const pending = confirmHp("room.create.tor");
     expect(hpConfirm.value?.exhausted).toBe(true);
@@ -181,7 +181,7 @@ describe("confirmation", () => {
   });
 
   it("never asks about a free action, even at zero", async () => {
-    for (let i = 0; i < 10; i++) await chargeHp("ticket.export.clearnet");
+    for (let i = 0; i < 20; i++) await chargeHp("ticket.export.clearnet");
     await expect(confirmHp("msg.tor.mls")).resolves.toBe(true);
     expect(hpConfirm.value).toBeNull();
   });
@@ -202,7 +202,7 @@ describe("confirmation", () => {
     // vox.call caps at 10 HP, exactly the threshold, so a long call DOES ask.
     await expect(confirmHp("vox.call", { minutes: 1 })).resolves.toBe(true);
     const pending = confirmHp("vox.call", { minutes: 600 });
-    expect(hpConfirm.value?.centi).toBe(-1000);
+    expect(hpConfirm.value?.centi).toBe(-500);
     resolveHpConfirm(false);
     await expect(pending).resolves.toBe(false);
   });
@@ -220,7 +220,7 @@ describe("withHp", () => {
     const result = await withHp("room.create.clearnet", run);
     expect(result).toBe("done");
     expect(order).toEqual(["acted"]);
-    expect(daily()).toBe(9500);
+    expect(daily()).toBe(9750);
   });
 
   it("does not act at all when the confirmation is declined", async () => {
@@ -238,8 +238,8 @@ describe("withHp", () => {
 describe("the flash", () => {
   it("reports what was spent", async () => {
     await chargeHp("dht.presence.enable");
-    expect(hpFlash.value?.centi).toBe(-1000);
-    expect(formatPrice(hpFlash.value!.centi)).toBe("−10 HP");
+    expect(hpFlash.value?.centi).toBe(-500);
+    expect(formatPrice(hpFlash.value!.centi)).toBe("−5 HP");
   });
 
   it("stays silent for a no-op", async () => {

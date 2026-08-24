@@ -14,6 +14,7 @@ import {
   formatMeter,
   formatPrice,
   historyRows,
+  HP_RUNGS,
   inviteActionId,
   messageActionId,
   meterBand,
@@ -64,11 +65,11 @@ describe("fixed prices", () => {
     const a = act("ticket.export.clearnet");
     const runs = Array.from({ length: 50 }, () => priceOf(a));
     expect(new Set(runs).size).toBe(1);
-    expect(runs[0]).toBe(1000);
+    expect(runs[0]).toBe(500);
   });
 
   it("prices the severe exposures at the top rung", () => {
-    expect(act("dht.nickname.publish").costCenti).toBe(2000);
+    expect(act("dht.nickname.publish").costCenti).toBe(1000);
   });
 
   it("puts no price on the Tor switch at all", () => {
@@ -81,8 +82,23 @@ describe("fixed prices", () => {
     expect(findRecovery(P, "transport.tor.enable")).toBeNull();
   });
 
+  it("keeps severityOf's rungs in step with the price table", () => {
+    // The ladder lives in privacy_hp.yaml and is pinned by build.rs, but
+    // `severityOf` needs it too — and it has no policy to read. This is what
+    // stops the two drifting when the scale is re-tuned.
+    const used = new Set(
+      P.actions.filter((a) => a.kind !== "metered").map((a) => a.costCenti),
+    );
+    for (const centi of used) {
+      expect(Object.values(HP_RUNGS), `${centi} is not a rung`).toContain(centi);
+    }
+    for (const r of P.recoveries) {
+      expect(Object.values(HP_RUNGS), `${r.id} credit`).toContain(r.creditCenti);
+    }
+  });
+
   it("prices every fixed action on a ladder rung", () => {
-    const rungs = [100, 300, 500, 1000, 2000];
+    const rungs = [50, 150, 250, 500, 1000];
     for (const a of P.actions) {
       if (a.kind === "metered") continue;
       expect(rungs, `${a.id} is off the ladder`).toContain(a.costCenti);
@@ -115,29 +131,29 @@ describe("fixed prices", () => {
 
 describe("metered pricing", () => {
   it("bills a tiny message at the base rate only", () => {
-    expect(priceOf(act("msg.clearnet.mls"), 20)).toBe(5);
+    expect(priceOf(act("msg.clearnet.mls"), 20)).toBe(2);
   });
 
   it("bills message size per MiB when not on Tor", () => {
-    expect(priceOf(act("msg.clearnet.mls"), 4 * MIB)).toBe(25);
-    expect(priceOf(act("msg.clearnet.plain"), 4 * MIB)).toBe(250);
+    expect(priceOf(act("msg.clearnet.mls"), 4 * MIB)).toBe(10);
+    expect(priceOf(act("msg.clearnet.plain"), 4 * MIB)).toBe(125);
   });
 
   it("never bills size on Tor", () => {
     expect(priceOf(act("msg.tor.mls"), 64 * MIB)).toBe(0);
-    expect(priceOf(act("msg.tor.plain"), 64 * MIB)).toBe(10);
+    expect(priceOf(act("msg.tor.plain"), 64 * MIB)).toBe(5);
   });
 
   it("caps a single event", () => {
-    expect(priceOf(act("msg.clearnet.mls"), 64 * MIB)).toBe(100);
-    expect(priceOf(act("msg.clearnet.plain"), 64 * MIB)).toBe(500);
-    expect(priceOf(act("file.send"), 4096 * MIB)).toBe(500);
-    expect(priceOf(act("vox.call"), 0, 600)).toBe(1000);
+    expect(priceOf(act("msg.clearnet.mls"), 64 * MIB)).toBe(50);
+    expect(priceOf(act("msg.clearnet.plain"), 64 * MIB)).toBe(250);
+    expect(priceOf(act("file.send"), 4096 * MIB)).toBe(250);
+    expect(priceOf(act("vox.call"), 0, 600)).toBe(500);
   });
 
   it("charges a long call more than a short one", () => {
-    expect(priceOf(act("vox.call"), 0, 1)).toBe(310);
-    expect(priceOf(act("vox.call"), 0, 60)).toBe(900);
+    expect(priceOf(act("vox.call"), 0, 1)).toBe(155);
+    expect(priceOf(act("vox.call"), 0, 60)).toBe(450);
   });
 });
 
@@ -179,9 +195,9 @@ describe("invitations", () => {
   it("makes a private invite far cheaper than the room ticket it replaces", () => {
     // The headline. A room ticket is permanent, unrevocable and readable by
     // anyone who sees it; a private invite is none of those, and costs a third.
-    expect(priceOf(act("invite.personal.create.clearnet"))).toBe(300);
-    expect(priceOf(act("ticket.export.clearnet"))).toBe(1000);
-    expect(priceOf(act("invite.personal.create.tor"))).toBe(100);
+    expect(priceOf(act("invite.personal.create.clearnet"))).toBe(150);
+    expect(priceOf(act("ticket.export.clearnet"))).toBe(500);
+    expect(priceOf(act("invite.personal.create.tor"))).toBe(50);
   });
 
   it("charges a bearer invite far more than a private one", () => {
@@ -235,7 +251,7 @@ describe("invitations", () => {
     // state change is enforced at the call site instead.
     const rec = findRecovery(P, "invite.revoke");
     expect(rec).not.toBeNull();
-    expect(rec!.creditCenti).toBe(500);
+    expect(rec!.creditCenti).toBe(250);
     expect(rec!.requires).toBeNull();
   });
 });
@@ -249,7 +265,7 @@ describe("invite-only rooms", () => {
     // (`setInviteOnly` reports whether the flag actually moved).
     const rec = findRecovery(P, "room.inviteonly.enable");
     expect(rec).not.toBeNull();
-    expect(rec!.creditCenti).toBe(500);
+    expect(rec!.creditCenti).toBe(250);
     expect(rec!.requires).toBeNull();
   });
 
@@ -268,17 +284,17 @@ describe("confirmation", () => {
   const full = deriveBalances(P, [], T0);
 
   it("confirms high and severe costs only", () => {
-    expect(needsConfirm(P, -2000, full)).toBe(true);
     expect(needsConfirm(P, -1000, full)).toBe(true);
-    expect(needsConfirm(P, -500, full)).toBe(false);
-    expect(needsConfirm(P, -100, full)).toBe(false);
-    expect(needsConfirm(P, -5, full)).toBe(false);
+    expect(needsConfirm(P, -500, full)).toBe(true);
+    expect(needsConfirm(P, -250, full)).toBe(false);
+    expect(needsConfirm(P, -50, full)).toBe(false);
+    expect(needsConfirm(P, -2, full)).toBe(false);
   });
 
   it("confirms anything once a meter is empty", () => {
     const drained = deriveBalances(P, [spend(T0, "x", 100_000)], T0);
     expect(drained.daily.balanceCenti).toBe(0);
-    expect(needsConfirm(P, -5, drained)).toBe(true);
+    expect(needsConfirm(P, -2, drained)).toBe(true);
   });
 
   it("never confirms a free action", () => {
@@ -287,11 +303,11 @@ describe("confirmation", () => {
   });
 
   it("maps costs onto ladder names", () => {
-    expect(severityOf(-2000)).toBe("severe");
-    expect(severityOf(-1000)).toBe("high");
-    expect(severityOf(-500)).toBe("moderate");
-    expect(severityOf(-300)).toBe("low");
-    expect(severityOf(-5)).toBe("negligible");
+    expect(severityOf(-1000)).toBe("severe");
+    expect(severityOf(-500)).toBe("high");
+    expect(severityOf(-250)).toBe("moderate");
+    expect(severityOf(-150)).toBe("low");
+    expect(severityOf(-2)).toBe("negligible");
   });
 });
 

@@ -99,9 +99,9 @@ describe("RoomShareCard — an invite-only room", () => {
   it("keeps both invitation modes and their prices", async () => {
     const w = card({ inviteOnly: true });
     await flushPromises();
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−3 HP");
+    expect(w.get('[data-testid="share-price"]').text()).toContain("−1.5 HP");
     await w.get('[data-testid="share-mode-general"]').trigger("click");
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−10 HP");
+    expect(w.get('[data-testid="share-price"]').text()).toContain("−5 HP");
     expect(w.find('[data-testid="share-bearer-warning"]').exists()).toBe(true);
   });
 });
@@ -143,15 +143,15 @@ describe("RoomShareCard", () => {
     const ticketPrice = w.get('[data-testid="share-price"]').text();
     await w.get('[data-testid="share-mode-personal"]').trigger("click");
     const privatePrice = w.get('[data-testid="share-price"]').text();
-    expect(ticketPrice).toContain("−10 HP");
-    expect(privatePrice).toContain("−3 HP");
+    expect(ticketPrice).toContain("−5 HP");
+    expect(privatePrice).toContain("−1.5 HP");
   });
 
   it("prices a private QR at its cheapest over Tor", async () => {
     const w = card({ tor: true });
     await flushPromises();
     await w.get('[data-testid="share-mode-personal"]').trigger("click");
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−1 HP");
+    expect(w.get('[data-testid="share-price"]').text()).toContain("−0.5 HP");
   });
 
   it("warns plainly that a shareable code is not secret", async () => {

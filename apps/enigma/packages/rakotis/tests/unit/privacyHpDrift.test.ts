@@ -121,7 +121,10 @@ describe("the mirror matches privacy_hp.yaml", () => {
 
 describe("the YAML holds to its own rules", () => {
   it("keeps the ladder fixed", () => {
-    expect(yaml.scale).toEqual({ negligible: 1, low: 3, moderate: 5, high: 10, severe: 20 });
+    // Halved 2026-08-24. Pinned as literals because the RATIOS between rungs
+    // are what make prices comparable — re-tuning one silently is the thing this
+    // assertion exists to catch.
+    expect(yaml.scale).toEqual({ negligible: 0.5, low: 1.5, moderate: 2.5, high: 5, severe: 10 });
   });
 
   it("states every price to at most two decimal places", () => {

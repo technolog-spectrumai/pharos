@@ -1367,8 +1367,17 @@ byte-for-byte. `build.rs` rejects a third decimal place.
 
 ### 17.2 The price table
 
-Five rungs — **1 / 3 / 5 / 10 / 20** — for negligible, low, moderate, high and
+Five rungs — **0.5 / 1.5 / 2.5 / 5 / 10** — for negligible, low, moderate, high and
 severe. A fixed price must land on a rung (build-enforced); metered actions bill
+
+**Halved 2026-08-24.** Every rung, metered rate and credit was divided by two, so
+the budget goes twice as far while every *ratio* between prices is preserved —
+which is what the ladder is for. The meters (100 / 700) and the regeneration
+rates were deliberately left alone: the change was to what actions cost, not to
+the size of the budget or the speed of recovery. Three rates could not halve
+exactly at two decimal places (0.05 → 0.025, 0.25 → 0.125) and are rounded
+**down** — the direction the halving was asked for, on per-message and per-MiB
+rates where the difference is far below anything a user can perceive.
 in fractions below the bottom rung. Every price cites the threat-model line it
 comes from.
 
@@ -1377,24 +1386,24 @@ comes from.
 | Action | HP | Why ([§8](#8-privacy), [§9](#9-security--privacy-considerations)) |
 | --- | ---: | --- |
 | `transport.tor.disable` | **−20** | §8, §9.6 — re-exposes NodeId↔IP, social graph, timing, sizes and presence to n0 for *everything after it*. Severe because it is a posture, not one disclosure |
-| `transport.onion_stable.enable` | −3 | One long-lived `.onion` makes sessions linkable; materialises an onion keystore while unlocked (§8) |
+| `transport.onion_stable.enable` | −1.5 | One long-lived `.onion` makes sessions linkable; materialises an onion keystore while unlocked (§8) |
 
 **Discovery**
 
 | Action | HP | Why ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | --- | ---: | --- |
-| `dht.nickname.publish` | **−20** | Binds a *human-chosen* handle to your NodeId in a global directory. The strongest de-anonymiser in the app: everything else leaks a machine identity |
-| `dht.presence.enable` | **−10** | *"The presence feature's data source is its privacy cost"* — publishes your pkarr record hourly to anyone holding the NodeId |
-| `dht.room_code.publish` | −5 | Sealed and hourly-rotated, but the record is public and the code is a **bearer credential** |
+| `dht.nickname.publish` | **−10** | Binds a *human-chosen* handle to your NodeId in a global directory. The strongest de-anonymiser in the app: everything else leaks a machine identity |
+| `dht.presence.enable` | **−5** | *"The presence feature's data source is its privacy cost"* — publishes your pkarr record hourly to anyone holding the NodeId |
+| `dht.room_code.publish` | −2.5 | Sealed and hourly-rotated, but the record is public and the code is a **bearer credential** |
 
 **Rooms and tickets** — the Tor variant axis (chat re-homes onto the onion transport)
 
 | Action | HP | Why |
 | --- | ---: | --- |
-| `ticket.export.clearnet` | **−10** | §8 — carries room name + NodeId + **IP addresses**, and is the most copyable artefact in the app |
-| `ticket.export.tor` | −3 | Room name + `.onion`, **no IP** |
-| `room.create.clearnet` / `.tor` | −5 / −1 | A `blake3(name)` topic joined in the clear (§9.7) vs. the same topic without an IP |
-| `room.join.clearnet` / `.tor` | −5 / −1 | Announces your device to the topic's peers, with or without an IP |
+| `ticket.export.clearnet` | **−5** | §8 — carries room name + NodeId + **IP addresses**, and is the most copyable artefact in the app |
+| `ticket.export.tor` | −1.5 | Room name + `.onion`, **no IP** |
+| `room.create.clearnet` / `.tor` | −2.5 / −0.5 | A `blake3(name)` topic joined in the clear (§9.7) vs. the same topic without an IP |
+| `room.join.clearnet` / `.tor` | −2.5 / −0.5 | Announces your device to the topic's peers, with or without an IP |
 
 **Messages** — billed per send *and* per MiB, because size is exactly what an
 observer sees when the content is sealed. Received messages are never billed.
@@ -1402,9 +1411,9 @@ observer sees when the content is sealed. Received messages are never billed.
 | Lane | Per message | Per MiB | Cap |
 | --- | ---: | ---: | ---: |
 | `msg.tor.mls` | **0** | 0 | — |
-| `msg.clearnet.mls` | −0.05 | −0.05 | −1 |
-| `msg.tor.plain` | −0.1 | 0 | — |
-| `msg.clearnet.plain` | −0.5 | −0.5 | −5 |
+| `msg.clearnet.mls` | −0.02 | −0.02 | −0.5 |
+| `msg.tor.plain` | −0.05 | 0 | — |
+| `msg.clearnet.plain` | −0.25 | −0.25 | −2.5 |
 
 The plaintext lanes are the pre-MLS cleartext fallback (§9.5). The composer shows
 the current lane's rate and it **drops to "Free" the moment MLS reports ready over
@@ -1416,7 +1425,7 @@ not.
 | Action | Per action | Per MiB | Cap |
 | --- | ---: | ---: | ---: |
 | `calendar.share.tor` | **0** | 0 | — |
-| `calendar.share.clearnet` | −0.05 | −0.05 | −1 |
+| `calendar.share.clearnet` | −0.02 | −0.02 | −0.5 |
 
 Priced **identically to an encrypted chat message on the same transport**,
 because the observable event is identical: a relay sees that you sent something,
@@ -1443,19 +1452,19 @@ no safe variant to offer, which is precisely why they price where they do.
 
 | Action | Base | Metered | Cap |
 | --- | ---: | --- | ---: |
-| `vox.call` | −3 | −0.1 / minute | −10 |
-| `file.send` | −1 | −0.05 / MiB | −5 |
+| `vox.call` | −1.5 | −0.05 / minute | −5 |
+| `file.send` | −0.5 | −0.02 / MiB | −2.5 |
 
 **Local security** — not exposure, but a lower wall between the data and whoever
 picks up the device.
 
 | Action | HP | Why |
 | --- | ---: | --- |
-| `local.autolock.off` | **−10** | `idle_lock_mins = 0` keeps the DEK live indefinitely ([§13](#13-encryption-at-rest-gervasius--protasius)) |
-| `local.pin.enroll` | −3 | Memory-only convenience; a RAM dump of an idle-locked process can brute-force six digits (§7) |
-| `local.panic_code.clear` | −3 | Loss of the duress escape hatch — priced low precisely because it is not an exposure |
-| `local.lock_on_hide.off` | −1 | |
-| `local.file_integrity.off` | −1 | Drops the per-chunk hash chain |
+| `local.autolock.off` | **−5** | `idle_lock_mins = 0` keeps the DEK live indefinitely ([§13](#13-encryption-at-rest-gervasius--protasius)) |
+| `local.pin.enroll` | −1.5 | Memory-only convenience; a RAM dump of an idle-locked process can brute-force six digits (§7) |
+| `local.panic_code.clear` | −1.5 | Loss of the duress escape hatch — priced low precisely because it is not an exposure |
+| `local.lock_on_hide.off` | −0.5 | |
+| `local.file_integrity.off` | −0.5 | Drops the per-chunk hash chain |
 
 **Never charged:** receiving anything, reading, searching, local-only work, and
 every message on the safe lane.
@@ -1468,7 +1477,7 @@ every message on the safe lane.
   exactly the number that was on the button.
 - **Metered** actions charge a base plus a rate, capped per event, and are
   coalesced (§17.6).
-- **Confirmation** is raised only at ≥10 HP or when a meter is already empty.
+- **Confirmation** is raised only at ≥5 HP or when a meter is already empty.
   Everything cheaper stays one-tap. The dialog never refuses — "Continue" is
   always available, at any balance.
 - Charges land **after** the action succeeds, so a room that never came up or a
@@ -1501,21 +1510,21 @@ what registers a sustained habit.
 ### 17.5 Recovery
 
 Fixed credits, paid **only for a change that reduces risk you are currently
-carrying**, capped at **25 HP/day and 100 HP/week** across everything.
+carrying**, capped at **12.5 HP/day and 50 HP/week** across everything.
 
 | Recovery | HP | Condition |
 | --- | ---: | --- |
-| `transport.tor.enable` | +10 | Paired exposure live |
-| `dht.nickname.withdraw` | +10 | Paired exposure live |
-| `local.passphrase.strengthen` | +10 | New passphrase **longer** than the old (lengths only, compared inside `vault_change_passphrase`; neither is stored) |
-| `local.reencrypt.keyring` / `.files` | +10 | A completed key rotation |
-| `dht.presence.withdraw` | +5 | Paired exposure live |
-| `local.autolock.on` | +5 | `idle_lock_mins > 0` |
-| `local.passphrase.change` | +3 | Any change — protasius re-wraps the DEK under a fresh salt |
-| `room.rekey` / `room.leave` | +3 | Once per rolling day |
-| `invite.revoke` | +5 | Only when a record really moved live→revoked |
-| `room.inviteonly.enable` | +5 | Only when a room really moved open→closed ([§18.8](#188-invite-only-rooms)) |
-| `data.delete.chat` / `.maps` / `.files` | +0.25/MiB freed, floor 0.5, ceiling 5 | Own caps: 10/day, 25/week |
+| `transport.tor.enable` | +5 | Paired exposure live |
+| `dht.nickname.withdraw` | +5 | Paired exposure live |
+| `local.passphrase.strengthen` | +5 | New passphrase **longer** than the old (lengths only, compared inside `vault_change_passphrase`; neither is stored) |
+| `local.reencrypt.keyring` / `.files` | +5 | A completed key rotation |
+| `dht.presence.withdraw` | +2.5 | Paired exposure live |
+| `local.autolock.on` | +2.5 | `idle_lock_mins > 0` |
+| `local.passphrase.change` | +1.5 | Any change — protasius re-wraps the DEK under a fresh salt |
+| `room.rekey` / `room.leave` | +1.5 | Once per rolling day |
+| `invite.revoke` | +2.5 | Only when a record really moved live→revoked |
+| `room.inviteonly.enable` | +2.5 | Only when a room really moved open→closed ([§18.8](#188-invite-only-rooms)) |
+| `data.delete.chat` / `.maps` / `.files` | +0.12/MiB freed, floor 0.25, ceiling 2.5 | Own caps: 5/day, 12.5/week |
 
 **Key rotation out-pays a passphrase change by a full rung, and the gap is the
 point.** Changing a passphrase re-wraps the DEK: it protects the key, but every
@@ -1738,16 +1747,16 @@ finished today.
 
 | Action | HP |
 | --- | ---: |
-| `invite.personal.create.tor` | **−1** |
-| `invite.personal.create.clearnet` | **−3** |
-| `invite.general.create.tor` | −5 |
-| `invite.general.create.clearnet` | −10 |
+| `invite.personal.create.tor` | **−0.5** |
+| `invite.personal.create.clearnet` | **−1.5** |
+| `invite.general.create.tor` | −2.5 |
+| `invite.general.create.clearnet` | −5 |
 | `invite.revoke` | **+5** |
 
-A private invitation is **−3 against the room ticket's −10** — the cheap option is
+A private invitation is **−1.5 against the room ticket's −5** — the cheap option is
 the private one, which is the point. A bearer invitation is priced *level with*
 exporting a ticket: same address, same audience, better only in that it expires
-and can be revoked. At −10 it always raises the confirmation, so the warning
+and can be revoked. At −5 it always raises the confirmation, so the warning
 precedes the tap.
 
 Charged at **creation**, not on copy: minting brings the credential into

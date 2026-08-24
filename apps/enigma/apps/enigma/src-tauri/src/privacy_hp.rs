@@ -731,7 +731,7 @@ mod tests {
     fn every_price_is_exact_hundredths_and_within_the_ladder() {
         for a in hp_policy::ACTIONS {
             assert!(a.cost_centi >= 0, "{} has a negative cost", a.id);
-            assert!(a.cost_centi <= 2000, "{} exceeds the top rung", a.id);
+            assert!(a.cost_centi <= 1000, "{} exceeds the top rung", a.id);
             assert!(a.explain_key.starts_with("hp.explain."), "{} explain_key", a.id);
         }
         for r in hp_policy::RECOVERIES {
@@ -744,15 +744,15 @@ mod tests {
         // The whole feature rests on "the same action always costs the same",
         // so the headline numbers are pinned here rather than left to the YAML
         // alone: changing one has to be a deliberate two-file act.
-        assert_eq!(action("dht.nickname.publish").cost_centi, 2000);
-        assert_eq!(action("dht.presence.enable").cost_centi, 1000);
-        assert_eq!(action("ticket.export.clearnet").cost_centi, 1000);
-        assert_eq!(action("ticket.export.tor").cost_centi, 300);
-        assert_eq!(action("room.create.clearnet").cost_centi, 500);
-        assert_eq!(action("room.create.tor").cost_centi, 100);
-        assert_eq!(action("local.autolock.off").cost_centi, 1000);
+        assert_eq!(action("dht.nickname.publish").cost_centi, 1000);
+        assert_eq!(action("dht.presence.enable").cost_centi, 500);
+        assert_eq!(action("ticket.export.clearnet").cost_centi, 500);
+        assert_eq!(action("ticket.export.tor").cost_centi, 150);
+        assert_eq!(action("room.create.clearnet").cost_centi, 250);
+        assert_eq!(action("room.create.tor").cost_centi, 50);
+        assert_eq!(action("local.autolock.off").cost_centi, 500);
         assert_eq!(action("msg.tor.mls").cost_centi, 0);
-        assert_eq!(action("msg.clearnet.mls").cost_centi, 5);
+        assert_eq!(action("msg.clearnet.mls").cost_centi, 2);
     }
 
     #[test]
@@ -780,49 +780,49 @@ mod tests {
         // cost the same as a cleartext "ok".
         let tiny = metered_cost(action("msg.clearnet.plain"), 20, 0);
         let image = metered_cost(action("msg.clearnet.plain"), 4 * 1024 * 1024, 0);
-        assert_eq!(tiny, 50);
-        assert_eq!(image, 250);
+        assert_eq!(tiny, 25);
+        assert_eq!(image, 125);
         assert!(image > tiny * 4);
     }
 
     #[test]
     fn a_tiny_clearnet_message_costs_only_the_base() {
         // 20 bytes rounds to zero MiB — the base price and nothing more.
-        assert_eq!(metered_cost(action("msg.clearnet.mls"), 20, 0), 5);
+        assert_eq!(metered_cost(action("msg.clearnet.mls"), 20, 0), 2);
     }
 
     #[test]
     fn message_size_is_billed_per_mib() {
         // 4 MiB at 0.05/MiB on top of the 0.05 base = 0.25 HP.
-        assert_eq!(metered_cost(action("msg.clearnet.mls"), 4 * 1024 * 1024, 0), 25);
+        assert_eq!(metered_cost(action("msg.clearnet.mls"), 4 * 1024 * 1024, 0), 10);
         // Plaintext lane is ten times the rate: 0.5 + 4 x 0.5 = 2.5 HP.
-        assert_eq!(metered_cost(action("msg.clearnet.plain"), 4 * 1024 * 1024, 0), 250);
+        assert_eq!(metered_cost(action("msg.clearnet.plain"), 4 * 1024 * 1024, 0), 125);
     }
 
     #[test]
     fn tor_messages_are_never_billed_by_size() {
         assert_eq!(metered_cost(action("msg.tor.mls"), 64 * 1024 * 1024, 0), 0);
-        assert_eq!(metered_cost(action("msg.tor.plain"), 64 * 1024 * 1024, 0), 10);
+        assert_eq!(metered_cost(action("msg.tor.plain"), 64 * 1024 * 1024, 0), 5);
     }
 
     #[test]
     fn per_event_caps_bind() {
         // A 16 MiB frame on the plaintext lane would be 8.5 HP; the cap is 5.
-        assert_eq!(metered_cost(action("msg.clearnet.plain"), 16 * 1024 * 1024, 0), 500);
+        assert_eq!(metered_cost(action("msg.clearnet.plain"), 16 * 1024 * 1024, 0), 250);
         // The MLS lane's own cap is far tighter (1 HP), reached around 19 MiB.
-        assert_eq!(metered_cost(action("msg.clearnet.mls"), 64 * 1024 * 1024, 0), 100);
+        assert_eq!(metered_cost(action("msg.clearnet.mls"), 64 * 1024 * 1024, 0), 50);
         // A 4 GiB transfer is capped at 5 HP, not 205.
-        assert_eq!(metered_cost(action("file.send"), 4 * 1024 * 1024 * 1024, 0), 500);
+        assert_eq!(metered_cost(action("file.send"), 4 * 1024 * 1024 * 1024, 0), 250);
         // A four-hour call is capped at 10 HP.
-        assert_eq!(metered_cost(action("vox.call"), 0, 240), 1000);
+        assert_eq!(metered_cost(action("vox.call"), 0, 240), 500);
     }
 
     #[test]
     fn a_short_call_costs_far_less_than_a_long_one() {
         let short = metered_cost(action("vox.call"), 0, 1);
         let long = metered_cost(action("vox.call"), 0, 60);
-        assert_eq!(short, 310);
-        assert_eq!(long, 900);
+        assert_eq!(short, 155);
+        assert_eq!(long, 450);
         assert!(long > short);
     }
 
@@ -830,20 +830,20 @@ mod tests {
 
     #[test]
     fn a_toggle_is_live_once_charged_and_settled_once_withdrawn() {
-        let mut log = vec![spend(1_000, "dht.presence.enable", 1000)];
+        let mut log = vec![spend(1_000, "dht.presence.enable", 500)];
         assert!(exposure_live(&log, "dht.presence.enable"));
-        log.push(recover(2_000, "dht.presence.withdraw", 500));
+        log.push(recover(2_000, "dht.presence.withdraw", 250));
         assert!(!exposure_live(&log, "dht.presence.enable"));
         // Re-enabling makes it live again — the charge applies afresh.
-        log.push(spend(3_000, "dht.presence.enable", 1000));
+        log.push(spend(3_000, "dht.presence.enable", 500));
         assert!(exposure_live(&log, "dht.presence.enable"));
     }
 
     #[test]
     fn an_unrelated_recovery_does_not_settle_an_exposure() {
         let log = vec![
-            spend(1_000, "dht.presence.enable", 1000),
-            recover(2_000, "room.leave", 300),
+            spend(1_000, "dht.presence.enable", 500),
+            recover(2_000, "room.leave", 150),
         ];
         assert!(exposure_live(&log, "dht.presence.enable"));
     }
@@ -858,27 +858,27 @@ mod tests {
     #[test]
     fn the_daily_cap_bounds_credits() {
         let now = 10 * MS_PER_DAY;
-        let log = vec![recover(now - 1000, "local.reencrypt.keyring", 2400)];
-        // 24 of the 25 daily HP are gone; a 10 HP credit is trimmed to 1.
-        assert_eq!(apply_caps(&log, now, 1000, None), 100);
+        let log = vec![recover(now - 1000, "local.reencrypt.keyring", 1200)];
+        // 12 of the 12.5 daily HP are gone; a 5 HP credit is trimmed to 0.5.
+        assert_eq!(apply_caps(&log, now, 500, None), 50);
     }
 
     #[test]
     fn credits_outside_the_window_stop_counting() {
         let now = 10 * MS_PER_DAY;
         // Paid 25 HP just over a day ago — the daily cap is clear again.
-        let log = vec![recover(now - MS_PER_DAY - 1, "local.reencrypt.keyring", 2500)];
-        assert_eq!(apply_caps(&log, now, 1000, None), 1000);
+        let log = vec![recover(now - MS_PER_DAY - 1, "local.reencrypt.keyring", 1250)];
+        assert_eq!(apply_caps(&log, now, 500, None), 500);
     }
 
     #[test]
     fn the_weekly_cap_bounds_credits_the_daily_one_would_allow() {
         let now = 10 * MS_PER_DAY;
         let log: Vec<Entry> = (1..=5)
-            .map(|d| recover(now - d * MS_PER_DAY + 1, "local.reencrypt.keyring", 2000))
+            .map(|d| recover(now - d * MS_PER_DAY + 1, "local.reencrypt.keyring", 1000))
             .collect();
-        // 100 of 100 weekly HP already paid, and none of it inside today.
-        assert_eq!(apply_caps(&log, now, 1000, None), 0);
+        // 50 of 50 weekly HP already paid, and none of it inside today.
+        assert_eq!(apply_caps(&log, now, 500, None), 0);
     }
 
     // ── data-deletion credits ───────────────────────────────────────────────
@@ -891,7 +891,7 @@ mod tests {
     #[test]
     fn small_deletions_pay_the_floor_and_large_ones_the_ceiling() {
         assert_eq!(data_award(1024), hp_policy::DATA_MIN_AWARD_CENTI);
-        assert_eq!(data_award(8 * 1024 * 1024), 200); // 8 MiB x 0.25 = 2 HP
+        assert_eq!(data_award(8 * 1024 * 1024), 96); // 8 MiB x 0.12 = 0.96 HP
         assert_eq!(data_award(10 * 1024 * 1024 * 1024), hp_policy::DATA_MAX_PER_EVENT_CENTI);
     }
 
@@ -901,19 +901,19 @@ mod tests {
         let ids = ["data.delete.maps"];
         // Ten 5 HP map deletions today would be 50 HP; the data daily cap is 10.
         let log: Vec<Entry> =
-            (1..=2).map(|i| recover(now - i * 1000, "data.delete.maps", 500)).collect();
-        assert_eq!(apply_caps(&log, now, 500, Some(&ids)), 0);
+            (1..=2).map(|i| recover(now - i * 1000, "data.delete.maps", 250)).collect();
+        assert_eq!(apply_caps(&log, now, 250, Some(&ids)), 0);
     }
 
     #[test]
     fn data_caps_do_not_leak_into_other_credits() {
         let now = 10 * MS_PER_DAY;
         let log = vec![
-            recover(now - 1000, "data.delete.maps", 500),
-            recover(now - 2000, "data.delete.chat", 500),
+            recover(now - 1000, "data.delete.maps", 250),
+            recover(now - 2000, "data.delete.chat", 250),
         ];
         // The data pot is empty, but a passphrase credit draws on the general cap.
-        assert_eq!(apply_caps(&log, now, 1000, None), 1000);
+        assert_eq!(apply_caps(&log, now, 500, None), 500);
     }
 
     // ── once-per-day lockout ────────────────────────────────────────────────
@@ -921,14 +921,14 @@ mod tests {
     #[test]
     fn unpaired_credits_pay_once_per_rolling_day() {
         let now = 10 * MS_PER_DAY;
-        let log = vec![recover(now - MS_PER_DAY + 1, "local.passphrase.change", 300)];
+        let log = vec![recover(now - MS_PER_DAY + 1, "local.passphrase.change", 150)];
         assert!(paid_recently(&log, now, "local.passphrase.change"));
         assert!(!paid_recently(&log, now + MS_PER_DAY, "local.passphrase.change"));
     }
 
     #[test]
     fn the_lockout_is_per_id() {
-        let log = vec![recover(1_000, "local.passphrase.change", 300)];
+        let log = vec![recover(1_000, "local.passphrase.change", 150)];
         assert!(!paid_recently(&log, 2_000, "local.reencrypt.keyring"));
     }
 
@@ -950,7 +950,7 @@ mod tests {
         // does not move it out of the 24 h window, because the window is measured
         // from a `now` that is itself clamped to the mark.
         let charged_at = 10 * MS_PER_DAY;
-        let log = vec![spend(charged_at, "transport.tor.disable", 2000)];
+        let log = vec![spend(charged_at, "transport.onion_stable.enable", 150)];
         let now = (5 * MS_PER_DAY).max(charged_at); // clamped, as `award` does
         assert!(now - log[0].ts < MS_PER_DAY);
     }
@@ -976,7 +976,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_through_json() {
-        let e = spend(1_234, "file.send", 500);
+        let e = spend(1_234, "file.send", 250);
         let bytes = serde_json::to_vec(&e).unwrap();
         let back: Entry = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(e, back);
@@ -986,7 +986,7 @@ mod tests {
     fn rows_written_before_coalescing_existed_still_load() {
         // `n` and `bucket` are serde-defaulted, so an older ledger is readable
         // rather than being silently dropped on the floor.
-        let json = br#"{"ts":1,"kind":"spend","code":"file.send","hp":-500}"#;
+        let json = br#"{"ts":1,"kind":"spend","code":"file.send","hp":-250}"#;
         let e: Entry = serde_json::from_slice(json).unwrap();
         assert_eq!(e.n, 1);
         assert_eq!(e.bucket, 0);
