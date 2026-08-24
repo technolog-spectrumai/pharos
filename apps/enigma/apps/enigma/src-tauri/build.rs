@@ -715,6 +715,8 @@ const REQUIRED_HP_ACTIONS: &[&str] = &[
     "msg.clearnet.mls",
     "msg.tor.plain",
     "msg.clearnet.plain",
+    "calendar.share.tor",
+    "calendar.share.clearnet",
     "file.send",
     "vox.call",
     "local.autolock.off",

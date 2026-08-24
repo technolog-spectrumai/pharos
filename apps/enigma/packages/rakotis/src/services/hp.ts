@@ -88,6 +88,11 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
       perMibCenti: 50,
       capPerEventCenti: 500,
     }),
+    A("calendar.share.tor", "metered", 0, "hp.explain.calendarShareTor"),
+    A("calendar.share.clearnet", "metered", 5, "hp.explain.calendarShareClearnet", {
+      perMibCenti: 5,
+      capPerEventCenti: 100,
+    }),
     A("file.send", "metered", 100, "hp.explain.fileSend", {
       perMibCenti: 5,
       capPerEventCenti: 500,

@@ -720,6 +720,7 @@ export default {
       discovery: "Being findable",
       rooms: "Rooms and invitations",
       messages: "Messages",
+      calendar: "Meetings and polls",
       traffic: "Calls and files",
       local: "This device",
     },
@@ -739,6 +740,8 @@ export default {
       msgClearnetMls: "Encrypted message, no Tor",
       msgTorPlain: "Unencrypted message over Tor",
       msgClearnetPlain: "Unencrypted message, no Tor",
+      calendarShareTor: "Meeting or poll over Tor",
+      calendarShareClearnet: "Meeting or poll, no Tor",
       fileSend: "Send a file",
       voxCall: "Voice call",
       localAutolockOff: "Turn auto-lock off",
@@ -790,6 +793,10 @@ export default {
         "Encryption is not ready yet, so this goes out readable inside the Tor circuit rather than end-to-end encrypted.",
       msgClearnetPlain:
         "Encryption is not ready yet, so this goes out readable to anyone sitting on this room's topic.",
+      calendarShareTor:
+        "Invitations, replies and votes are always encrypted and go over Tor — the safest way to organise, and free.",
+      calendarShareClearnet:
+        "Nobody can read the invitation or your reply, but the relays carrying it see that you sent something, when, and to which peers.",
       fileSend:
         "The transfer connects your device directly to theirs; the size and how long it takes are visible even though the contents are not.",
       voxCall:

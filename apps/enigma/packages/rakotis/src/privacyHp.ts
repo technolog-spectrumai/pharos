@@ -169,6 +169,19 @@ export function ticketActionId(tor: boolean): string {
   return `ticket.export.${tor ? "tor" : "clearnet"}`;
 }
 
+/**
+ * Calendar traffic — meeting invites, RSVPs, poll snapshots and ballots.
+ *
+ * Only a transport axis, deliberately: these ride `sendSync`, which encrypts or
+ * throws, and `canSendTo` gates every send on MLS being ready. There is no
+ * plaintext lane for them to fall onto, so unlike `messageActionId` this takes
+ * no `mlsReady` — a `.plain` variant would be a price for a state that cannot
+ * occur.
+ */
+export function calendarActionId(tor: boolean): string {
+  return `calendar.share.${tor ? "tor" : "clearnet"}`;
+}
+
 // ── severity and confirmation ───────────────────────────────────────────────
 
 /** The ladder rung a price sits on. Drives the badge colour, nothing else. */

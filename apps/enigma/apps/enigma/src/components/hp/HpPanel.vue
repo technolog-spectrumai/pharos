@@ -68,6 +68,7 @@ const GROUPS: { key: string; ids: string[] }[] = [
     key: "messages",
     ids: ["msg.clearnet.plain", "msg.tor.plain", "msg.clearnet.mls", "msg.tor.mls"],
   },
+  { key: "calendar", ids: ["calendar.share.clearnet", "calendar.share.tor"] },
   { key: "traffic", ids: ["vox.call", "file.send"] },
   {
     key: "local",

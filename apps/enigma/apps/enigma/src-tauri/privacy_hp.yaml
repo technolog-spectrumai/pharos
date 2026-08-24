@@ -225,6 +225,38 @@ actions:
     # §9.5, and the worst per-message case in the app: not E2E at all, in the
     # clear, on a topic anyone who guessed the room name can be sitting on.
 
+  # ── calendar ───────────────────────────────────────────────────────────────
+  # Meeting invites, RSVPs, poll snapshots and ballots ride `sendSync` →
+  # `sendEncryptedMedia`, which ENCRYPTS OR THROWS. Unlike chat text there is no
+  # cleartext fallback, and `canSendTo` additionally gates every send on
+  # `mlsStatus === "ready"` — so the Calendar can never emit on a plaintext lane
+  # and has no `.plain` variant to price. That is a stronger guarantee than
+  # ordinary chat gets (§9.5).
+  #
+  # Priced identically to an encrypted chat message on the same transport,
+  # because the observable event is identical: a relay sees that you sent
+  # something, when, how big, and to which peers. Scheduling "Tuesday 3pm" as a
+  # meeting must not be cheaper than typing it, or the budget would be teaching
+  # a distinction that does not exist.
+  #
+  # Charged ONCE PER USER ACTION, never per frame. The outbox re-broadcasts
+  # automatically (`flushOutbox` on MLS-ready, `rebroadcastRoom` when the
+  # participant list grows), and billing those would drain the meter for sends
+  # nobody initiated — breaking the rule that the meter moves by exactly the
+  # number that was on the button.
+
+  - id: calendar.share.tor
+    kind: metered
+    cost: 0
+    explain_key: hp.explain.calendarShareTor
+
+  - id: calendar.share.clearnet
+    kind: metered
+    cost: 0.05
+    per_mib: 0.05
+    cap_per_event: 1
+    explain_key: hp.explain.calendarShareClearnet
+
   # ── traffic that cannot use Tor at all ─────────────────────────────────────
   # vox.rs and file_xfer.rs are iroh-direct-QUIC only and are BLOCKED in Tor
   # mode (stores/network.ts: irohBlocked). There is no safe variant to offer,

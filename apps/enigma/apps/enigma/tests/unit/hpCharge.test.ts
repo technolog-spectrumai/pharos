@@ -114,6 +114,39 @@ describe("charging", () => {
   });
 });
 
+// ── calendar ────────────────────────────────────────────────────────────────
+
+describe("meetings and polls", () => {
+  it("costs exactly what the same information costs as a chat message", async () => {
+    // Meetings ride `sendSync` → `sendEncryptedMedia`, the same MLS seam an
+    // ordinary message uses. To a relay the two events are indistinguishable, so
+    // scheduling "Tuesday 3pm" must not be cheaper than typing it.
+    expect(priceFor("calendar.share.clearnet")).toBe(priceFor("msg.clearnet.mls"));
+    expect(priceFor("calendar.share.tor")).toBe(priceFor("msg.tor.mls"));
+  });
+
+  it("is free over Tor", async () => {
+    for (let i = 0; i < 25; i++) await chargeHp("calendar.share.tor");
+    expect(daily()).toBe(10_000);
+  });
+
+  it("bills a little on a clearnet room", async () => {
+    await chargeHp("calendar.share.clearnet");
+    expect(daily()).toBe(9995);
+  });
+
+  it("has no plaintext lane, because the calendar cannot send unencrypted", () => {
+    // `sendSync` encrypts or throws, and `canSendTo` gates on mlsStatus ===
+    // "ready". A `.plain` price would name a state that cannot occur.
+    const { getHpPolicy: policy } = { getHpPolicy };
+    const ids = policy().actions.map((a) => a.id);
+    expect(ids).toContain("calendar.share.tor");
+    expect(ids).toContain("calendar.share.clearnet");
+    expect(ids).not.toContain("calendar.share.clearnet.plain");
+    expect(ids.filter((id) => id.startsWith("calendar."))).toHaveLength(2);
+  });
+});
+
 // ── the confirm gate ────────────────────────────────────────────────────────
 
 describe("confirmation", () => {

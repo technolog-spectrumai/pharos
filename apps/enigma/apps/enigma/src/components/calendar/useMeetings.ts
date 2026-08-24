@@ -21,7 +21,8 @@
 // Trust model: cooperative — see meetingModel.ts.
 
 import { computed, ref, watch } from "vue";
-import { getMeetingReminderMins, kvGet, kvPut } from "rakotis";
+import { calendarActionId, getMeetingReminderMins, kvGet, kvPut } from "rakotis";
+import { chargeHp } from "../hp/useHp";
 import type { ChatChannel } from "rakotis";
 import { i18n } from "../../i18n";
 import {
@@ -158,6 +159,7 @@ export function useMeetings(channel: ChatChannel) {
     meetings.value = [...meetings.value, meeting];
     await persist();
     await flushOutbox();
+    await billShare();
     return meeting;
   }
 
@@ -186,6 +188,7 @@ export function useMeetings(channel: ChatChannel) {
     if (m.roomSlug) m.needsBroadcast = true;
     await persist();
     await flushOutbox();
+    await billShare();
   }
 
   async function cancel(id: string) {
@@ -197,6 +200,7 @@ export function useMeetings(channel: ChatChannel) {
     if (m.roomSlug) m.needsBroadcast = true;
     await persist();
     await flushOutbox();
+    await billShare();
   }
 
   /** Local-only removal (e.g. clear a cancelled/past entry) — no protocol message. */
@@ -219,6 +223,7 @@ export function useMeetings(channel: ChatChannel) {
     m.needsBroadcast = true; // invitee outbox: RSVP pending send
     await persist();
     await flushOutbox();
+    await billShare();
   }
 
   // ── polls (doodle-style slot voting) ──────────────────────────────────────
@@ -247,6 +252,7 @@ export function useMeetings(channel: ChatChannel) {
     polls.value = [...polls.value, poll];
     await persistPolls();
     await flushOutbox();
+    await billShare();
     return poll;
   }
 
@@ -267,6 +273,7 @@ export function useMeetings(channel: ChatChannel) {
     p.needsBroadcast = true;
     await persistPolls();
     await flushOutbox();
+    await billShare();
   }
 
   /** Organizer picks the winning slot: close the poll and auto-create the
@@ -325,12 +332,43 @@ export function useMeetings(channel: ChatChannel) {
     p.needsBroadcast = true;
     await persistPolls();
     await flushOutbox();
+    await billShare();
   }
 
   /** Local-only removal of a closed/cancelled poll — no protocol message. */
   async function removePollLocal(id: string) {
     polls.value = polls.value.filter((p) => p.id !== id);
     await persistPolls();
+  }
+
+  // ── Privacy HP ────────────────────────────────────────────────────────────
+  // Calendar traffic is billed at exactly the encrypted-message rate for the
+  // room's transport. Scheduling "Tuesday 3pm" must not be cheaper than typing
+  // it: to a relay the two are the same event — something was sent, this big, to
+  // these peers. There is no `.plain` lane to price, because `sendSync` encrypts
+  // or throws and `canSendTo` additionally gates on MLS being ready.
+  //
+  // ONCE PER USER ACTION, and only from the seven functions a tap reaches.
+  // Deliberately NOT inside `flushOutbox`: that also runs from the MLS-ready
+  // watcher and from `rebroadcastRoom` when the participant list grows, and
+  // billing those would drain the meter for frames nobody initiated — which
+  // would break the rule that the meter moves by exactly the number the button
+  // showed. `confirmPoll` is absent for the same reason in reverse: it delegates
+  // to `create`, so it is billed there, once, even though it emits two frames.
+  async function billShare(): Promise<void> {
+    // A meeting with no room is local-only — nothing goes on a wire, so nothing
+    // is charged. The room's OWN transport decides the lane, not the global Tor
+    // preference: a room created before the switch was flipped is still on the
+    // transport it was created with.
+    if (!channel.currentRoom.value) return;
+    // Never let a charge break the thing it is measuring. HP is advisory: a
+    // meeting that was created must stay created even if the ledger write, the
+    // policy lookup or the transport flag misbehaves.
+    try {
+      await chargeHp(calendarActionId(channel.currentRoomIsTor?.value === true));
+    } catch {
+      /* the action already happened; the meter simply misses it */
+    }
   }
 
   // ── protocol: sending ─────────────────────────────────────────────────────

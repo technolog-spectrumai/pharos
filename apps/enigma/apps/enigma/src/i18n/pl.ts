@@ -718,6 +718,7 @@ export default {
       discovery: "Bycie odnajdywalnym",
       rooms: "Pokoje i zaproszenia",
       messages: "Wiadomości",
+      calendar: "Spotkania i ankiety",
       traffic: "Rozmowy i pliki",
       local: "To urządzenie",
     },
@@ -737,6 +738,8 @@ export default {
       msgClearnetMls: "Zaszyfrowana wiadomość, bez Tora",
       msgTorPlain: "Niezaszyfrowana wiadomość przez Tor",
       msgClearnetPlain: "Niezaszyfrowana wiadomość, bez Tora",
+      calendarShareTor: "Spotkanie lub ankieta przez Tor",
+      calendarShareClearnet: "Spotkanie lub ankieta, bez Tora",
       fileSend: "Wyślij plik",
       voxCall: "Rozmowa głosowa",
       localAutolockOff: "Wyłącz automatyczną blokadę",
@@ -788,6 +791,10 @@ export default {
         "Szyfrowanie nie jest jeszcze gotowe, więc to wychodzi czytelnie wewnątrz obwodu Tora, a nie zaszyfrowane end-to-end.",
       msgClearnetPlain:
         "Szyfrowanie nie jest jeszcze gotowe, więc to wychodzi czytelnie dla każdego, kto nasłuchuje tematu tego pokoju.",
+      calendarShareTor:
+        "Zaproszenia, odpowiedzi i głosy są zawsze zaszyfrowane i idą przez Tor — najbezpieczniejszy sposób organizacji i za darmo.",
+      calendarShareClearnet:
+        "Nikt nie przeczyta zaproszenia ani twojej odpowiedzi, ale przekaźniki widzą, że coś wysłałeś, kiedy i do których rozmówców.",
       fileSend:
         "Transfer łączy twoje urządzenie bezpośrednio z ich; rozmiar i czas trwania są widoczne, nawet jeśli zawartość nie jest.",
       voxCall:

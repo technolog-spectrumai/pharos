@@ -1385,6 +1385,32 @@ the current lane's rate and it **drops to "Free" the moment MLS reports ready ov
 Tor** — which makes the encryption state legible in a way the lock badge alone is
 not.
 
+**Calendar** — meeting invites, RSVPs, poll snapshots and ballots.
+
+| Action | Per action | Per MiB | Cap |
+| --- | ---: | ---: | ---: |
+| `calendar.share.tor` | **0** | 0 | — |
+| `calendar.share.clearnet` | −0.05 | −0.05 | −1 |
+
+Priced **identically to an encrypted chat message on the same transport**,
+because the observable event is identical: a relay sees that you sent something,
+when, how big, and to which peers. Scheduling "Tuesday 3pm" must not be cheaper
+than typing it, or the budget would teach a distinction that does not exist.
+
+There is **no `.plain` lane**, and that is a real property rather than an
+omission: calendar traffic rides `sendSync` → `sendEncryptedMedia`, which
+**encrypts or throws**, and `canSendTo` additionally gates every send on
+`mlsStatus === "ready"`. So the Calendar can never emit on the cleartext path
+that ordinary chat text falls back to (§9.5) — a stronger guarantee than chat
+itself gets.
+
+Charged **once per user action, never per frame.** The outbox re-broadcasts on
+its own (`flushOutbox` when MLS becomes ready, `rebroadcastRoom` when the
+participant list grows), and billing those would drain the meter for sends
+nobody initiated. `confirmPoll` emits two frames — the poll close and the meeting
+it created — for one tap, and is billed once, because it delegates to `create`
+where the charge lives.
+
 **Traffic that cannot use Tor.** `vox.rs` and `file_xfer.rs` are iroh-direct-QUIC
 only and are *blocked* in Tor mode (`stores/network.ts`: `irohBlocked`). There is
 no safe variant to offer, which is precisely why they price where they do.
