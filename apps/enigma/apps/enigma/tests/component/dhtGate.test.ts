@@ -79,6 +79,8 @@ function mountRoomInfo() {
         amCaptain: ref(false),
         roomLogo: ref(""),
         roomRules: ref(""),
+        // Part of the channel contract since invite-only rooms: false = open.
+        inviteOnly: ref(false),
       } as any,
     },
     global: { plugins: [i18n, pinia] },
