@@ -17,6 +17,9 @@ import { ref } from "vue";
 import { getMaxFileSizeMb } from "rakotis";
 import type { ChatChannel } from "rakotis";
 import { chargeHp, confirmHp } from "../hp/useHp";
+import { i18n } from "../../i18n";
+
+const t = i18n.global.t as (key: string, params?: Record<string, unknown>) => string;
 
 export type FileShareState =
   | "idle"
@@ -125,7 +128,7 @@ export function useFileShare(channel: ChatChannel) {
       const limitMb = await overSizeLimitMb(meta.size);
       if (limitMb) {
         void _invoke("file_offer_cancel", { offerId: meta.offer_id }).catch(() => {});
-        error.value = `File exceeds the ${limitMb} MB limit (Settings).`;
+        error.value = t("chat.fileTooBig", { n: limitMb });
         state.value = "error";
         return;
       }
@@ -219,7 +222,7 @@ export function useFileShare(channel: ChatChannel) {
         const limitMb = await overSizeLimitMb((payload.size as number) ?? 0);
         if (limitMb) {
           try { await channel.sendSync("file_decline", { offerId }); } catch { /* ignore */ }
-          error.value = `Declined "${(payload.name as string) ?? "a file"}" — over the ${limitMb} MB limit (Settings).`;
+          error.value = t("chat.fileDeclinedTooBig", { name: (payload.name as string) ?? "a file", n: limitMb });
           state.value = "error";
           return;
         }

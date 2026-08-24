@@ -1650,7 +1650,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   function blockedByMute(): boolean {
     const until = mutedUntilFor(mlsIdentity.value, Date.now());
     if (!until) return false;
-    messages.value.push(systemMsg(`🔇 You are muted for another ${formatRemaining(until, Date.now())}.`, "system_error"));
+    messages.value.push(
+      sysMsg("chat.sys.mutedSelf", "🔇 You are muted for another {time}.", {
+        time: formatRemaining(until, Date.now()),
+      }, "system_error"),
+    );
     return true;
   }
 

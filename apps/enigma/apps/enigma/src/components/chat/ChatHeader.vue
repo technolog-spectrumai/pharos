@@ -27,7 +27,7 @@ const { currentRoom, isParticipant, roomLogo } = props.channel;
           {{ currentRoom?.name ?? $t("chat.selectARoom") }}
         </h2>
         <div v-if="currentRoom" class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs opacity-70">
-          <span>{{ currentRoom.participant_count }} participant{{ currentRoom.participant_count === 1 ? "" : "s" }}</span>
+          <span>{{ $t("chat.participantCount", currentRoom.participant_count) }}</span>
           <span>{{ isParticipant ? $t("chat.joinedLabel") : $t("chat.observerLabel") }}</span>
         </div>
       </div>

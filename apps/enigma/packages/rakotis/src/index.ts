@@ -36,6 +36,7 @@ export {
   formatDate,
   formatTime,
   formatNumber,
+  formatBytes,
   currentLocale,
   resetDateFormatCache,
 } from "./i18n/dateFormat";

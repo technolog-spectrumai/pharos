@@ -6,6 +6,9 @@
 import { ref, computed, watch } from "vue";
 import { OyaModal, OyaAvatar, OyaButton, formatRemaining, MUTE_PRESETS_MIN } from "rakotis";
 import type { ChatChannel, Participant } from "rakotis";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{ open: boolean; participant: Participant | null; channel: ChatChannel }>();
 const emit = defineEmits<{ "update:open": [boolean] }>();
@@ -20,7 +23,9 @@ const muteRemaining = computed(() => {
 });
 
 function presetLabel(min: number): string {
-  return min >= 60 ? `${min / 60} h` : `${min} min`;
+  // The same unit keys the mute countdown uses, so a preset button and the badge it
+  // produces cannot disagree about how an hour is spelled.
+  return min >= 60 ? t("chat.dur.hours", { h: min / 60 }) : t("chat.dur.minutes", { m: min });
 }
 
 async function mute(minutes: number) {

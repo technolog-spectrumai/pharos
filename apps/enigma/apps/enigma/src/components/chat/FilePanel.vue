@@ -9,6 +9,7 @@ import { useChatStore } from "../../stores/chat";
 import { isTabVisible } from "../../tabs";
 import { useNetworkStore } from "../../stores/network";
 import { policy } from "../../config/app";
+import { formatBytes } from "rakotis";
 
 const _isTauri = (): boolean =>
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -35,12 +36,9 @@ const pct = computed(() => Math.round(file.progress.value * 100));
 // Tiny transfers finish instantly — below the build threshold the bar is noise.
 const showBar = computed(() => file.fileSize.value > policy.fileShare.progressBarMinBytes);
 
-function fmtSize(bytes: number): string {
-  if (!bytes) return "0 B";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(u.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${u[i]}`;
-}
+// The app's one byte formatter, so a size in the Files tab and the same size on a
+// map card cannot disagree about the decimal separator.
+const fmtSize = formatBytes;
 </script>
 
 <template>

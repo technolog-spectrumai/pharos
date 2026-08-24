@@ -205,9 +205,12 @@ function remaining(expiresAt: number): string {
   const ms = expiresAt - Date.now();
   if (ms <= 0) return t("invite.expired");
   const h = Math.floor(ms / 3_600_000);
-  if (h >= 24) return t("invite.inDays", { n: Math.floor(h / 24) });
-  if (h >= 1) return t("invite.inHours", { n: h });
-  return t("invite.inMinutes", { n: Math.max(1, Math.floor(ms / 60_000)) });
+  // The count is passed POSITIONALLY, which is what selects a plural form; passing
+  // it as { n } interpolates the number but always picks the first form, so English
+  // read "1 days" and Polish could never reach its third form at all.
+  if (h >= 24) return t("invite.inDays", Math.floor(h / 24));
+  if (h >= 1) return t("invite.inHours", h);
+  return t("invite.inMinutes", Math.max(1, Math.floor(ms / 60_000)));
 }
 
 const ALL_MODES: { id: ShareMode; label: string; icon: string }[] = [

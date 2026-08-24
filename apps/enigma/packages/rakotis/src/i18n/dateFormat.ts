@@ -146,6 +146,29 @@ export function formatNumber(value: number, options?: Intl.NumberFormatOptions):
   return new Intl.NumberFormat(INTL_TAG[currentLocale.value], options).format(value);
 }
 
+/**
+ * A byte count in the app's language: "1,5 KB" in Polish, "1.5 KB" in English.
+ *
+ * The unit symbols are deliberately NOT translated — KB/MB/GB are the same symbols
+ * in Polish, and inventing localised ones would make sizes harder to read, not
+ * easier. What does change is the decimal separator, which `toFixed` hard-codes to
+ * a period: that is the whole bug this replaces.
+ */
+export function formatBytes(bytes: number): string {
+  if (!isFinite(bytes) || bytes < 0) return "";
+  const KB = 1024;
+  const MB = KB * 1024;
+  const GB = MB * 1024;
+  // Fixed decimals, matching the `toFixed` this replaced: "2.0 MB" rather than
+  // "2 MB", so sizes in a list stay the same width and only the SEPARATOR moves.
+  const d = (n: number, places: number) =>
+    formatNumber(n, { minimumFractionDigits: places, maximumFractionDigits: places });
+  if (bytes < KB) return `${formatNumber(bytes)} B`;
+  if (bytes < MB) return `${d(bytes / KB, 1)} KB`;
+  if (bytes < GB) return `${d(bytes / MB, 1)} MB`;
+  return `${d(bytes / GB, 2)} GB`;
+}
+
 /** Test seam: the caches key on locale, and a test that swaps locales wants them cold. */
 export function resetDateFormatCache(): void {
   cache.clear();

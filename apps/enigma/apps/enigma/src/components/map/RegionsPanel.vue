@@ -14,6 +14,7 @@ import {
   OyaCard,
   OyaEmptyState,
   type MapRegionManifest,
+  formatBytes,
 } from "rakotis";
 import { useI18n } from "vue-i18n";
 import { useChatStore } from "../../stores/chat";
@@ -53,12 +54,7 @@ const usagePct = computed(() =>
   store.limitBytes > 0 ? Math.min(100, Math.round((store.usedBytes / store.limitBytes) * 100)) : 0,
 );
 
-function human(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+const human = formatBytes;
 
 let unbind: (() => void) | null = null;
 

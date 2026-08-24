@@ -152,6 +152,40 @@ function scanDateFormatting(): Finding[] {
   return found;
 }
 
+/**
+ * Prose in a component's <script setup>, not just its template.
+ *
+ * The attribute scan above misses a whole class: strings COMPUTED into a label
+ * rather than written in the markup. MessageComposer built its placeholder from a
+ * four-way ternary of bare English ("Select a room to start chatting",
+ * "Establishing secure session…") and nothing flagged it, because no `placeholder=`
+ * attribute ever held those words.
+ */
+function scanVueScripts(): Finding[] {
+  const found: Finding[] = [];
+  for (const file of walk(resolve(ROOT, "apps/enigma/src"), ".vue")) {
+    const rel = relative(ROOT, file);
+    const src = readFileSync(file, "utf8");
+    const end = src.indexOf("</script>");
+    if (end < 0) continue;
+    src
+      .slice(0, end)
+      .split("\n")
+      .forEach((line, i) => {
+        const code = line.trim();
+        // Comments are prose on purpose — this codebase has a lot of it.
+        if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
+        // A line already reaching for a translation is doing the right thing; any
+        // English beside it is a documented fallback.
+        if (/\bt\(/.test(code) || code.includes("$t(")) return;
+        for (const m of code.matchAll(/["'`]([^"'`\n]{8,})["'`]/g)) {
+          if (looksLikeProse(m[1])) found.push({ file: rel, line: i + 1, text: m[1] });
+        }
+      });
+  }
+  return found;
+}
+
 const show = (f: Finding[]) => f.map((x) => `${x.file}:${x.line}  ${x.text}`);
 
 describe("no hard-coded user-facing English", () => {
@@ -167,7 +201,13 @@ describe("no hard-coded user-facing English", () => {
     expect(show(scanRakotisNotices())).toEqual([]);
   });
 
-it("formats every date through the app locale, not the OS", () => {
+  it("has none computed inside <script setup>", () => {
+    // Strings assembled in script and handed to the template as a value — the gap
+    // the attribute scan above cannot see.
+    expect(show(scanVueScripts())).toEqual([]);
+  });
+
+  it("formats every date through the app locale, not the OS", () => {
     // A raw toLocale*String call takes its language from the operating system, so
     // the app's language switch does not reach it. Use formatDate/formatTime from
     // rakotis instead — they read the locale the user actually chose.

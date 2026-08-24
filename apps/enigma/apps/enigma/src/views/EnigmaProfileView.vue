@@ -88,7 +88,7 @@ async function clearAllData() {
   clearAllError.value = "";
   try {
     await userStore.clearAllProfileData();
-    chatStore.clearLocalChatState("Cleared profile data and reset MLS.");
+    chatStore.clearLocalChatState(t("profile.clearedNotice"));
     router.push("/chat");
   } catch (e) {
     clearAllError.value = (e as Error).message;

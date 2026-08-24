@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from "vue";
 import { isTauri, invoke } from "rakotis";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{ staged: [Blob, string] }>();
@@ -37,7 +40,7 @@ async function toggle() {
         const bytes = await invoke<number[]>("audio_stop_recording");
         if (bytes.length > 0) {
           const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
-          emit("staged", blob, `Voice message · ${label()}`);
+          emit("staged", blob, t("chat.voiceCaption", { time: label() }));
         }
       } catch (e) {
         console.error("[voice] stop failed:", e);
@@ -65,7 +68,7 @@ async function toggle() {
         isRecording.value = false;
         if (recordingChunks.length === 0) return;
         const blob = new Blob(recordingChunks, { type: mr.mimeType || mimeType || "audio/webm" });
-        emit("staged", blob, `Voice message · ${label()}`);
+        emit("staged", blob, t("chat.voiceCaption", { time: label() }));
       };
       mr.start();
       mediaRecorder = mr;

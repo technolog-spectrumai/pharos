@@ -44,6 +44,29 @@ function browserLocale(): Locale {
   return normalizeLocale(typeof navigator !== "undefined" ? navigator.language : null) ?? "en";
 }
 
+/**
+ * Polish has three plural forms where English has two, and picking between them is
+ * not a matter of "1 versus the rest": it depends on the last two digits.
+ *
+ *     1 uczestnik          — one
+ *     2, 3, 4 uczestnicy   — few
+ *     5…21 uczestników     — many
+ *     22, 23, 24 uczestnicy — few again
+ *     12, 13, 14 uczestników — many, despite ending in 2/3/4
+ *
+ * vue-i18n's default rule is English (`n === 1 ? 0 : 1`), so without this a Polish
+ * catalog can only ever offer two forms and the middle one is simply lost. The
+ * teens carve-out is the part that is easy to get wrong and the reason this is a
+ * function rather than a modulo in a template.
+ */
+function polishPlural(choice: number): number {
+  if (choice === 1) return 0;
+  const mod10 = choice % 10;
+  const mod100 = choice % 100;
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return 1;
+  return 2;
+}
+
 export interface AppI18n {
   i18n: I18n;
   setLocale: (locale: Locale, persist?: boolean) => void;
@@ -64,6 +87,8 @@ export function createAppI18n(messages: Record<Locale, unknown>): AppI18n {
     globalInjection: true,
     locale: initial,
     fallbackLocale: "en",
+    // English keeps vue-i18n's default two-form rule; Polish needs its own.
+    pluralRules: { pl: polishPlural },
     // Catalog shape is app-defined; vue-i18n's strict message typing is bypassed here.
     messages: messages as Record<string, never>,
   });

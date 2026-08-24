@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { OyaButton, OyaTextArea, OyaHpPrice, formatRemaining, messageActionId } from "rakotis";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
@@ -8,6 +9,8 @@ import VoiceRecorderButton from "./VoiceRecorderButton.vue";
 import { useChatStore } from "../../stores/chat";
 import { useNetworkStore } from "../../stores/network";
 import { chargeHp, explainFor, priceFor } from "../hp/useHp";
+
+const { t } = useI18n();
 
 const props = defineProps<{ channel: ChatChannel }>();
 const ch = props.channel;
@@ -82,14 +85,14 @@ const composerDisabled = computed(
 const attachDisabled = computed(() => !currentRoom.value || !isConnected.value || !isParticipant.value || muted.value);
 const placeholder = computed(() =>
   !currentRoom.value
-    ? "Select a room to start chatting"
+    ? t("chat.composerPickRoom")
     : !isParticipant.value
-      ? "Join this room to send messages"
+      ? t("chat.composerJoinFirst")
       : muted.value
-        ? `You are muted (${formatRemaining(selfMuteUntil.value!, Date.now())} left)`
+        ? t("chat.mutedSelf", { time: formatRemaining(selfMuteUntil.value!, Date.now()) })
         : mlsStatus.value !== "ready"
-          ? "Establishing secure session…"
-          : "Message…",
+          ? t("chat.composerEstablishing")
+          : t("chat.composerPlaceholder"),
 );
 
 async function send() {

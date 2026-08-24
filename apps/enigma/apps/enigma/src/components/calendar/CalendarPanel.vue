@@ -44,8 +44,14 @@ const monthLabel = computed(() =>
   formatDate(anchor.value, "monthYear"),
 );
 // Monday-first weekday headers in the viewer's locale (2024-01-01 was a Monday).
-const weekdays = Array.from({ length: 7 }, (_, i) =>
-  formatDate(new Date(2024, 0, 1 + i), "weekdayShort"),
+// A computed, not a plain array: built once in setup, the `formatDate` reads land
+// outside any tracked effect, so a language switch would flip the month header
+// above to "sierpień 2026" and leave "Mon Tue Wed" underneath it — one card, two
+// languages. Nothing reproduces that today only because switching language forces
+// a route change that remounts this component, and `applyProfileLocaleGuess` can
+// already switch it without one.
+const weekdays = computed(() =>
+  Array.from({ length: 7 }, (_, i) => formatDate(new Date(2024, 0, 1 + i), "weekdayShort")),
 );
 
 function shiftMonth(delta: number) {

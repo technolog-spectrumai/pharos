@@ -31,6 +31,7 @@ import {
   type LocalNoteStat,
   type NoteRecentRecord,
   formatDate,
+  formatBytes,
 } from "rakotis";
 import { policy } from "../../config/app";
 import LocalPassphraseModal, { type LockOutcome } from "./LocalPassphraseModal.vue";
@@ -503,12 +504,9 @@ async function forgetNote(rec: NoteRecentRecord) {
 onBeforeUnmount(closeEditor);
 
 // ── formatting ───────────────────────────────────────────────────────────────────
-function fmtSize(bytes: number): string {
-  if (!bytes) return "0 B";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(u.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${u[i]}`;
-}
+// The app's one byte formatter, so a size in the Files tab and the same size on a
+// map card cannot disagree about the decimal separator.
+const fmtSize = formatBytes;
 
 function fmtDate(ms: number): string {
   const d = new Date(ms);

@@ -13,6 +13,7 @@ import { useI18n } from "vue-i18n";
 import { invoke } from "@tauri-apps/api/core";
 import {
   MAP_LOC_TTL_MS, getUseTor, isLocationLive, isTauri, locationAgeMs, type Message,
+  formatBytes,
 } from "rakotis";
 import { useMapStore } from "../../stores/map";
 import { useChatStore } from "../../stores/chat";
@@ -57,10 +58,7 @@ const locExpired = computed(
   () => share.value?.type === "map_loc" && !isLocationLive(share.value, now.value),
 );
 
-function human(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+const human = formatBytes;
 
 // "Open in Maps" is the one way into the Map tab from outside it, so it follows
 // the tab: in a maps-less build, or once the user has hidden Map, the button

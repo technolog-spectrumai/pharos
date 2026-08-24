@@ -573,8 +573,10 @@ const loadedProfileChips = computed(() => {
   return [
     `APP_PROFILE: ${runtimeConfig.value.profile}`,
     `CHAT_USER: ${runtimeConfig.value.identity}`,
-    `State: ${runtimeConfig.value.profile_state_path}`,
-    `Offline data: ${selectedOfflineProfileHasData.value ? "saved" : "empty"}`,
+    `${t("config.chipState")}: ${runtimeConfig.value.profile_state_path}`,
+    `${t("config.chipOfflineData")}: ${
+      selectedOfflineProfileHasData.value ? t("config.chipSaved") : t("config.chipEmpty")
+    }`,
   ];
 });
 
