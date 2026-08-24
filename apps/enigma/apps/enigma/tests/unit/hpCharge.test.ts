@@ -73,8 +73,8 @@ describe("charging", () => {
   });
 
   it("charges an event every single time", async () => {
-    await chargeHp("ticket.export.clearnet");
-    await chargeHp("ticket.export.clearnet");
+    await chargeHp("invite.general.create.clearnet");
+    await chargeHp("invite.general.create.clearnet");
     expect(daily()).toBe(10_000 - 1000);
   });
 
@@ -171,8 +171,8 @@ describe("confirmation", () => {
   });
 
   it("asks even for a cheap action once a meter is empty", async () => {
-    // Drain today with repeated clearnet ticket exports.
-    for (let i = 0; i < 20; i++) await chargeHp("ticket.export.clearnet");
+    // Drain today with repeated clearnet bearer invitations.
+    for (let i = 0; i < 20; i++) await chargeHp("invite.general.create.clearnet");
     expect(daily()).toBe(0);
     const pending = confirmHp("room.create.tor");
     expect(hpConfirm.value?.exhausted).toBe(true);
@@ -181,7 +181,7 @@ describe("confirmation", () => {
   });
 
   it("never asks about a free action, even at zero", async () => {
-    for (let i = 0; i < 20; i++) await chargeHp("ticket.export.clearnet");
+    for (let i = 0; i < 20; i++) await chargeHp("invite.general.create.clearnet");
     await expect(confirmHp("msg.tor.mls")).resolves.toBe(true);
     expect(hpConfirm.value).toBeNull();
   });
@@ -255,9 +255,9 @@ describe("the flash", () => {
   });
 
   it("re-animates two identical charges in a row", async () => {
-    await chargeHp("ticket.export.clearnet");
+    await chargeHp("invite.general.create.clearnet");
     const first = hpFlash.value!.seq;
-    await chargeHp("ticket.export.clearnet");
+    await chargeHp("invite.general.create.clearnet");
     expect(hpFlash.value!.seq).toBeGreaterThan(first);
   });
 });

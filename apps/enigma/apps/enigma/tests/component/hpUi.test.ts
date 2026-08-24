@@ -244,7 +244,7 @@ describe("HpPanel", () => {
     const w = mount(HpPanel, { global });
     for (const [group, id] of [
       ["discovery", "dht.presence.enable"],
-      ["rooms", "ticket.export.clearnet"],
+      ["rooms", "room.create.clearnet"],
       ["traffic", "vox.call"],
     ]) {
       await w.get(`[data-testid="hp-group-${group}"]`).trigger("click");
@@ -359,7 +359,7 @@ describe("HpPanel", () => {
   it("scrolls the ledger rather than truncating it", async () => {
     // Every row is rendered; the box scrolls. A ledger you have to expand to
     // read is a ledger nobody reads.
-    for (let i = 0; i < 30; i++) await chargeHp("ticket.export.clearnet");
+    for (let i = 0; i < 30; i++) await chargeHp("invite.general.create.clearnet");
     const w = mount(HpPanel, { global });
     await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
     await flushPromises();
@@ -421,7 +421,7 @@ describe("HpConfirmModal", () => {
   });
 
   it("explains an empty meter without refusing the action", async () => {
-    for (let i = 0; i < 20; i++) await chargeHp("ticket.export.clearnet");
+    for (let i = 0; i < 20; i++) await chargeHp("invite.general.create.clearnet");
     const w = mount(HpConfirmModal, { global: modalGlobal });
     const pending = confirmHp("room.create.tor");
     await flushPromises();

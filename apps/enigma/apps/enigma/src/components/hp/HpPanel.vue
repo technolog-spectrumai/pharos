@@ -116,7 +116,7 @@ const GROUPS: { key: string; ids: string[] }[] = [
   },
   {
     key: "discovery",
-    ids: ["dht.nickname.publish", "dht.presence.enable", "dht.room_code.publish"],
+    ids: ["dht.nickname.publish", "dht.presence.enable"],
   },
   {
     key: "rooms",

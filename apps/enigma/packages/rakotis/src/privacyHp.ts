@@ -182,9 +182,6 @@ export function roomActionId(what: "create" | "join", tor: boolean): string {
   return `room.${what}.${tor ? "tor" : "clearnet"}`;
 }
 
-export function ticketActionId(tor: boolean): string {
-  return `ticket.export.${tor ? "tor" : "clearnet"}`;
-}
 
 /**
  * Invitations — the variant axis is the kind of credential AND the transport.

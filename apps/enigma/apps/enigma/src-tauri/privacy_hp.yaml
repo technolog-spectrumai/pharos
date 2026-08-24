@@ -113,8 +113,8 @@ meters:
 #
 # The per-action Tor variants below are untouched and answer a different
 # question. The rate is about the posture you keep; a variant is about the
-# exposure one act causes. A clearnet ticket still leaks your IP whatever your
-# regeneration looks like.
+# exposure one act causes. A clearnet invitation still carries your IP whatever
+# your regeneration looks like.
 
 # ── what costs HP ────────────────────────────────────────────────────────────
 #
@@ -168,30 +168,7 @@ actions:
     # your pkarr record to the Mainline DHT, republished hourly: anyone holding
     # your NodeId learns when you are online, at roughly one-hour granularity.
 
-  - id: dht.room_code.publish
-    kind: event
-    cost: moderate
-    explain_key: hp.explain.dhtRoomCodePublish
-    # §12 threat notes. The record is sealed and its key rotates hourly, but its
-    # existence is public and the code is a BEARER credential — whoever holds it
-    # gets transport access and, under the current auto-admit flow, a path into
-    # the MLS group.
-
-  # ── rooms and tickets ──────────────────────────────────────────────────────
-
-  - id: ticket.export.clearnet
-    kind: event
-    cost: high
-    explain_key: hp.explain.ticketExportClearnet
-    # §8, "QR ticket contents". A clearnet ticket carries the plaintext room name
-    # AND the creator's NodeId AND their IP addresses. It is also the most
-    # copyable thing in the app: screenshotted, photographed, forwarded, pasted.
-
-  - id: ticket.export.tor
-    kind: event
-    cost: low
-    explain_key: hp.explain.ticketExportTor
-    # Same ticket over Tor carries the room name and a .onion — no IP (§8).
+  # ── rooms ─────────────────────────────────────────────────────────────────
 
   - id: room.create.clearnet
     kind: event
@@ -219,15 +196,20 @@ actions:
 
   # ── invitations (technology.md §18) ────────────────────────────────────────
   #
-  # An invitation is the cheap way to bring somebody in, and the prices say so.
-  # Set against `ticket.export.clearnet` (−10), a private invitation is −3 — and
-  # −1 over Tor. That gap is the whole point: the room ticket it competes with is
-  # a permanent bearer credential that carries the room name, cannot expire and
-  # cannot be revoked, so it should be the expensive option, not the default one.
+  # An invitation is now the ONLY way to bring somebody in — every room is
+  # invite-only and the permanent room ticket is gone — so these prices no longer
+  # compete with a cheaper, worse option. What they price against each other is
+  # the two kinds of invitation, and the gap between them is the whole point: a
+  # private one is sealed to a single contact and costs `low`, a bearer one is
+  # readable by anyone holding it and costs `high`.
+  #
+  # (`ticket.export.*` used to sit here at `high`, which is where the bearer
+  # invitation's price came from: it exposes the same address to the same
+  # audience. That comparison outlived the thing it compared to, and the price
+  # stands on its own now.)
   #
   # Charged at CREATION, not on copy. Minting is what brings the credential into
-  # existence; copying it again exposes nothing further. (The room ticket is the
-  # other way round — it already exists, so sharing it is the exposing act.)
+  # existence; copying it again exposes nothing further.
 
   - id: invite.personal.create.clearnet
     kind: event
@@ -235,7 +217,7 @@ actions:
     explain_key: hp.explain.invitePersonalCreateClearnet
     # Sealed to one contact's public key, one-use, expiring, revocable. Nobody
     # else who photographs it can read it — and no decryption key travels with
-    # it. Not free, because the ticket still carries the inviter's dialable
+    # it. Not free, because the invitation still carries the inviter's dialable
     # address, and an address is an IP on this transport (§8).
 
   - id: invite.personal.create.tor
@@ -250,10 +232,10 @@ actions:
     cost: high
     explain_key: hp.explain.inviteGeneralCreateClearnet
     # A BEARER credential in cleartext: there is no recipient to seal it to, so
-    # anyone who sees the code can read it and redeem it. Priced level with
-    # `ticket.export.clearnet` because it exposes the same address to the same
-    # audience — it is only better in that it expires and can be revoked, which
-    # is a limit on the damage, not an absence of it.
+    # anyone who sees the code can read it and redeem it. The most exposing thing
+    # the share card can do, and priced accordingly — it is bounded only in that
+    # it expires and can be revoked, which limits the damage rather than avoiding
+    # it.
     #
     # At −10 this crosses `confirm_at_hp`, so it ALWAYS raises the confirmation
     # dialog. That is deliberate: the warning belongs in front of the tap.
@@ -497,20 +479,6 @@ recovery:
       # already spent, already revoked or long expired earns nothing.
       requires: ~
       explain_key: hp.explain.inviteRevoke
-
-    - id: room.inviteonly.enable
-      credit: 2.5
-      # Closing a room stops it admitting anyone off the gossip topic, which is a
-      # real reduction in risk being carried right now — the auto-admit path
-      # (§9.3, §9.7) is the app's oldest access-control gap.
-      #
-      # No `requires`: this is not the withdrawal of an exposure the budget ever
-      # charged for, since opening a room was never priced as an action. The
-      # verified state change is enforced at the call site — `setInviteOnly`
-      # returns whether the flag actually moved false→true — so re-asserting a
-      # room that is already closed, or reopening one, earns nothing.
-      requires: ~
-      explain_key: hp.explain.roomInviteonlyEnable
 
     - id: room.rekey
       credit: 1.5

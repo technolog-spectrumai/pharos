@@ -746,13 +746,25 @@ mod tests {
         // alone: changing one has to be a deliberate two-file act.
         assert_eq!(action("dht.nickname.publish").cost_centi, 1000);
         assert_eq!(action("dht.presence.enable").cost_centi, 500);
-        assert_eq!(action("ticket.export.clearnet").cost_centi, 500);
-        assert_eq!(action("ticket.export.tor").cost_centi, 150);
+        assert_eq!(action("invite.general.create.clearnet").cost_centi, 500);
+        assert_eq!(action("invite.personal.create.clearnet").cost_centi, 150);
         assert_eq!(action("room.create.clearnet").cost_centi, 250);
         assert_eq!(action("room.create.tor").cost_centi, 50);
         assert_eq!(action("local.autolock.off").cost_centi, 500);
         assert_eq!(action("msg.tor.mls").cost_centi, 0);
         assert_eq!(action("msg.clearnet.mls").cost_centi, 2);
+    }
+
+    #[test]
+    fn the_retired_credentials_have_no_price() {
+        // Room tickets and DHT room codes were removed: a room is entered only by
+        // redeeming an invitation. A price left in the table would let a stale
+        // call site charge for something the app can no longer do — and, worse,
+        // would read as though it still could.
+        for id in ["ticket.export.clearnet", "ticket.export.tor", "dht.room_code.publish"] {
+            assert!(hp_policy::action(id).is_none(), "{id} must not be priced");
+        }
+        assert!(hp_policy::recovery("room.inviteonly.enable").is_none());
     }
 
     #[test]

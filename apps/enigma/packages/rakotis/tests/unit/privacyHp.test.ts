@@ -25,7 +25,6 @@ import {
   regenPerHour,
   roomActionId,
   severityOf,
-  ticketActionId,
   torActiveNow,
   type HpEntry,
 } from "../../src/privacyHp";
@@ -63,7 +62,7 @@ const act = (id: string) => {
 describe("fixed prices", () => {
   it("charges the same for the same action every time", () => {
     // The central promise of the feature: no randomness, no personalisation.
-    const a = act("ticket.export.clearnet");
+    const a = act("invite.general.create.clearnet");
     const runs = Array.from({ length: 50 }, () => priceOf(a));
     expect(new Set(runs).size).toBe(1);
     expect(runs[0]).toBe(500);
@@ -114,7 +113,8 @@ describe("fixed prices", () => {
     for (const pair of [
       ["room.create.tor", "room.create.clearnet"],
       ["room.join.tor", "room.join.clearnet"],
-      ["ticket.export.tor", "ticket.export.clearnet"],
+      ["invite.general.create.tor", "invite.general.create.clearnet"],
+      ["invite.personal.create.tor", "invite.personal.create.clearnet"],
       ["msg.tor.mls", "msg.clearnet.mls"],
       ["msg.tor.plain", "msg.clearnet.plain"],
     ]) {
@@ -183,21 +183,20 @@ describe("variant selection", () => {
     expect(after).toBe(0);
   });
 
-  it("picks room and ticket variants by transport", () => {
+  it("picks room variants by transport", () => {
     expect(roomActionId("create", true)).toBe("room.create.tor");
     expect(roomActionId("join", false)).toBe("room.join.clearnet");
-    expect(ticketActionId(false)).toBe("ticket.export.clearnet");
   });
 });
 
 // ── invitations ─────────────────────────────────────────────────────────────
 
 describe("invitations", () => {
-  it("makes a private invite far cheaper than the room ticket it replaces", () => {
-    // The headline. A room ticket is permanent, unrevocable and readable by
-    // anyone who sees it; a private invite is none of those, and costs a third.
+  it("makes a private invite far cheaper than a bearer one", () => {
+    // The headline. A bearer invite is readable by anyone who sees it; a private
+    // one is sealed to a single contact, and costs under a third.
     expect(priceOf(act("invite.personal.create.clearnet"))).toBe(150);
-    expect(priceOf(act("ticket.export.clearnet"))).toBe(500);
+    expect(priceOf(act("invite.general.create.clearnet"))).toBe(500);
     expect(priceOf(act("invite.personal.create.tor"))).toBe(50);
   });
 
@@ -215,12 +214,11 @@ describe("invitations", () => {
     expect(needsConfirm(P, -priceOf(act("invite.personal.create.tor")), full)).toBe(false);
   });
 
-  it("prices a bearer invite level with exporting a ticket", () => {
-    // Same address, same audience. It is better only in that it expires and can
-    // be revoked, which limits the damage rather than removing it.
-    expect(priceOf(act("invite.general.create.clearnet"))).toBe(
-      priceOf(act("ticket.export.clearnet")),
-    );
+  it("keeps a bearer invite on the top rung it inherited from the room ticket", () => {
+    // It was priced level with `ticket.export.clearnet` — same address, same
+    // audience — and that comparison outlived the thing it compared to. The price
+    // is pinned here so it does not drift now that nothing sits beside it.
+    expect(priceOf(act("invite.general.create.clearnet"))).toBe(500);
   });
 
   it("selects the variant from kind and transport", () => {
@@ -260,22 +258,22 @@ describe("invitations", () => {
 // ── closing a room ──────────────────────────────────────────────────────────
 
 describe("invite-only rooms", () => {
-  it("pays for closing a room, without pairing it to an exposure", () => {
-    // Opening a room was never priced as an action, so there is no charge to
-    // withdraw — the verified state change is enforced at the call site instead
-    // (`setInviteOnly` reports whether the flag actually moved).
-    const rec = findRecovery(P, "room.inviteonly.enable");
-    expect(rec).not.toBeNull();
-    expect(rec!.creditCenti).toBe(250);
-    expect(rec!.requires).toBeNull();
+  it("no longer pays a credit for something that cannot be chosen", () => {
+    // There was a +2.5 credit for closing a room. Every room is invite-only now,
+    // so there is no open state to leave and nothing to reward: paying for it
+    // would be paying every user, once per room, for the app's own default.
+    expect(findRecovery(P, "room.inviteonly.enable")).toBeNull();
+    expect(findAction(P, "room.inviteonly.enable")).toBeNull();
+    expect(findRecovery(P, "room.inviteonly.disable")).toBeNull();
+    expect(findAction(P, "room.inviteonly.disable")).toBeNull();
   });
 
-  it("is not an action anyone can be charged for", () => {
-    // Closing a room is a protection, never an expense — and reopening one is
-    // not priced either, since being open was the default all along.
-    expect(findAction(P, "room.inviteonly.enable")).toBeNull();
-    expect(findAction(P, "room.inviteonly.disable")).toBeNull();
-    expect(findRecovery(P, "room.inviteonly.disable")).toBeNull();
+  it("prices no way into a room except an invitation", () => {
+    // The retired credentials. Their absence from the table is what stops a
+    // stale call site quietly charging for something the app cannot do.
+    for (const id of ["ticket.export.clearnet", "ticket.export.tor", "dht.room_code.publish"]) {
+      expect(findAction(P, id), id).toBeNull();
+    }
   });
 });
 
