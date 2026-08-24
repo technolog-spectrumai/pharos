@@ -1,6 +1,6 @@
 import { ref, watch } from "vue";
 import { isTorTicket, getConnectTimeoutSecs, roomActionId } from "rakotis";
-import { chargeHp, dataCreditHp } from "../hp/useHp";
+import { chargeHp, dataCreditHp, recoverHp } from "../hp/useHp";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
 
 // Shared P2P room state + actions for the chat surface. One instance is created in
@@ -114,6 +114,9 @@ export function useP2pRooms(channel: ChatChannel) {
       // device is holding, so it earns — scaled by how much actually went, and
       // nothing at all for a room that had no stored log.
       if (freed > 0) await dataCreditHp("data.delete.chat", freed);
+      // Leaving is itself a reduction: this device stops receiving the room at
+      // all. Separate from the data credit above, and capped independently.
+      await recoverHp("room.leave");
       deleteOpen.value = false;
       deleteRoomEntry.value = null;
     } finally {
