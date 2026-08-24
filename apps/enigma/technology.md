@@ -1068,13 +1068,46 @@ and it means an unregistered translator — a headless channel, a unit test, a b
 that failed before `main.ts` ran — degrades to today's English instead of rendering
 a raw key at somebody mid-call.
 
+**Dates, times and numbers** go through
+[`i18n/dateFormat.ts`](packages/rakotis/src/i18n/dateFormat.ts) — `formatDate`,
+`formatTime`, `formatNumber`, `formatBytes` — never `toLocaleDateString` directly.
+The reason is that `toLocaleDateString(undefined, …)` reads the **operating
+system's** locale, not the app's, so a user who chose Polski still read
+"August 2026" in the calendar header if their OS was English. The formatters read
+`currentLocale`, a ref the i18n factory keeps in step with `i18n.global.locale`;
+being a ref is what makes a rendered date re-render on a language switch, so a date
+formatted in a `computed` or a template updates with everything else. Format one
+outside a tracked scope — a plain array built in `setup` — and it will not.
+
+The module holds **no month or weekday names**. Polish declines them: nominative
+standing alone, genitive beside a day number, and Intl gets both right on its own
+(`{ month: "long", year: "numeric" }` → "sierpień 2026";
+`{ day: "numeric", month: "long", … }` → "24 **sierpnia** 2026"). A hand-written
+table would have to encode that grammar and would be wrong in one of the two cases.
+For the same reason no stylesheet may `capitalize` a formatted date: Polish writes
+month and weekday names in lower case, and English arrives capitalised already.
+
+The `DateStyle` union is a **closed set** rather than free-form options, so two
+surfaces showing the same kind of date cannot drift apart, and so the coverage test
+can tell a formatted date from a hand-rolled one.
+
+**Plurals.** Polish has three forms where English has two, chosen by the last two
+digits (1 uczestnik · 2–4 uczestnicy · 5+ uczestników, with 12–14 taking the third
+despite their last digit). vue-i18n's default rule is English, so `createAppI18n`
+registers a `pl` rule; without it a Polish catalog can only ever offer two forms and
+the middle one is unreachable. Counts must be passed **positionally** —
+`t("chat.participantCount", n)`, not `{ n }` — since a named param interpolates the
+number but never selects a form. That mistake read "1 days" in English too.
+
 Two tests guard this, and they cover different failures.
 [`i18n.test.ts`](apps/enigma/tests/unit/i18n.test.ts) checks en/pl define the same
 keys; it cannot see a string that never became a key at all, which is how ~41 of
 them accumulated. [`i18nCoverage.test.ts`](apps/enigma/tests/unit/i18nCoverage.test.ts)
 closes that: it reads `.vue` and `useChatChannel.ts` as text and fails on bare
 English in `placeholder=`/`label=`/`alt=`/`title=`/`aria-label=`, in `{{ … }}`
-interpolations, and in `systemMsg(…)`. `alt` and `aria-label` are in scope on
+interpolations, in strings computed inside `<script setup>` (the gap that let the
+composer's placeholder chain through), in `systemMsg(…)`, and on any raw
+`toLocale*String` call. `alt` and `aria-label` are in scope on
 purpose — a Polish screen-reader user is still a Polish user. Its allowlist
 (protocol and product names: `Tor`, `iroh`, `Enigma26`, `MLS`, `QR`) requires a
 reason per entry, so it stays a record rather than a dumping ground.
