@@ -150,9 +150,7 @@ pub async fn mint(
         "general" => InviteKind::General,
         other => return Err(format!("unknown invite kind '{other}'")),
     };
-    let ttl = ttl_secs.clamp(MIN_TTL_SECS, MAX_TTL_SECS);
     let now = invites::now_ms();
-    let expires_at = now + ttl * 1000;
 
     // The room's own transport decides the address (see the module note).
     let onion = crate::p2p_tor::room_onion(tor, &room_slug).await;
@@ -162,6 +160,24 @@ pub async fn mint(
             .await
             .map_err(|e| e.to_string())?]),
     };
+    // `ttl_secs == 0` asks for an invitation that never expires. Tor only.
+    //
+    // On a clearnet room the address is an IP, and an invitation naming one for
+    // ever is a standing offer to a network that can watch it. Over Tor the
+    // address is a `.onion`: hard to come by, cheap to retire, and the exposure it
+    // creates is something the budget can price by the hour (`tor.persistent.hold`)
+    // rather than something the app has to forbid. So this is a refusal on the
+    // clearnet path and a charged choice on the Tor one.
+    let forever = ttl_secs == 0;
+    if forever && !addr.is_tor() {
+        return Err("INVITE_FOREVER_TOR_ONLY".to_string());
+    }
+    let expires_at = if forever {
+        0
+    } else {
+        now + ttl_secs.clamp(MIN_TTL_SECS, MAX_TTL_SECS) * 1000
+    };
+
     let inviter = crate::p2p_iroh::load_or_create_secret(app, "gossip")
         .map_err(|e| e.to_string())?
         .public()

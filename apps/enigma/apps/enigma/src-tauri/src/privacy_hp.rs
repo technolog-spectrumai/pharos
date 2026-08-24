@@ -46,9 +46,10 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 use crate::hp_policy::{self, HpKind};
+use crate::invites;
 use crate::vault;
 
 const NS: &str = "hp";
@@ -660,6 +661,113 @@ pub fn accrue_tor_exposure(
     })
 }
 
+// ── the persistent-Tor exposure tick ────────────────────────────────────────
+//
+// One command the frontend calls on a timer. It bills the time since the last
+// call, and — when the day's budget is gone — says which rooms have to close.
+//
+// Everything it needs to decide is on this side: which onions are up
+// (`p2p_tor::hosted_rooms`), which rooms hold a standing invitation
+// (`invites::list`), and what the ledger says. The webview supplies no numbers
+// and no room list, so a compromised frontend can decline to tick — costing the
+// user nothing — but cannot fabricate a charge, dodge one, or nominate somebody
+// else's room for shutdown.
+
+/// Rooms with a live never-expiring invitation.
+fn rooms_with_standing_invite(app: &AppHandle) -> Vec<String> {
+    let now = invites::now_ms();
+    let mut out: Vec<String> = invites::list(app)
+        .into_iter()
+        .filter(|r| {
+            invites::never_expires(r)
+                && matches!(
+                    invites::effective_state(r, now),
+                    invites::EffectiveState::Active | invites::EffectiveState::InFlight
+                )
+        })
+        .map(|r| r.room_slug)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Bill persistent Tor exposure for the time since the last tick.
+///
+/// Called on a timer and once at startup. Safe to call as often as you like: the
+/// mark advances only by whole minutes billed, so an extra tick charges nothing
+/// rather than charging twice.
+///
+/// It does NOT decide whether the budget has run out. Balances are derived in
+/// rakotis from the rows this module hands back — policy there, persistence here
+/// — and a second derivation on this side is exactly how the two would come to
+/// disagree about a number the user can see. So this reports what it billed and
+/// what is accruing; the caller compares that against the meter it already has
+/// and calls `hp_tor_shutdown` if it must.
+#[tauri::command]
+pub async fn hp_tor_tick(
+    app: AppHandle,
+    tor: State<'_, crate::p2p_tor::TorP2pState>,
+) -> Result<TorExposureReport, String> {
+    let hosted = crate::p2p_tor::hosted_rooms(&tor).await;
+    let standing = rooms_with_standing_invite(&app);
+    accrue_tor_exposure(&app, &hosted, &standing, now_ms())
+}
+
+/// Revoke the standing invitations for `rooms`, because the budget ran out.
+///
+/// Called by the frontend when the daily meter has emptied and these are the
+/// rooms accruing against it. Revoking is done here rather than there because it
+/// is a write to trusted state; closing the rooms afterwards is the caller's,
+/// since it owns the transport and the UI that has to say what happened.
+///
+/// Revoking BEFORE the close matters: the address is about to stop answering, and
+/// an invitation left redeemable would be a promise the app has already broken.
+#[tauri::command]
+pub fn hp_tor_shutdown(app: AppHandle, rooms: Vec<String>) -> Result<u32, String> {
+    let mut revoked = 0u32;
+    for rec in invites::list(&app) {
+        if invites::never_expires(&rec) && rooms.contains(&rec.room_slug) {
+            if invites::revoke(&app, &rec.id).unwrap_or(false) {
+                revoked += 1;
+            }
+        }
+    }
+    // The rooms are about to go down; drop their marks so a re-host starts clean
+    // rather than being back-charged for the seconds in between.
+    let mut marks = read_marks(&app);
+    marks.retain(|room, _| !rooms.contains(room));
+    write_marks(&app, &marks)?;
+    Ok(revoked)
+}
+
+/// Retire a room's `.onion` and mint a new one, revoking every invitation that
+/// named the old address.
+///
+/// This is the way OUT of the drain that is not "close the room": the exposure
+/// was the address remaining reachable, so replacing it ends the exposure while
+/// keeping the room. It is destructive on purpose — anyone holding the old QR is
+/// left holding nothing, which is exactly what rotation has to mean.
+#[tauri::command]
+pub async fn hp_tor_rotate(
+    app: AppHandle,
+    tor: State<'_, crate::p2p_tor::TorP2pState>,
+    room: String,
+    name: String,
+) -> Result<(), String> {
+    for rec in invites::list(&app) {
+        if rec.room_slug == room {
+            let _ = invites::revoke(&app, &rec.id);
+        }
+    }
+    crate::p2p_tor::rotate_onion(&app, &tor, name).await.map_err(|e| e.to_string())?;
+    // The room is down and its mark is stale; the next tick drops it.
+    let mut marks = read_marks(&app);
+    marks.remove(&room);
+    write_marks(&app, &marks)?;
+    Ok(())
+}
+
 /// Award a fixed recovery, if the state change it names actually reduced risk.
 #[tauri::command]
 pub fn hp_recover(app: AppHandle, recovery_id: String) -> Result<HpDelta, String> {
@@ -833,6 +941,75 @@ mod tests {
         assert!(hp_policy::action("transport.tor.disable").is_none());
         assert!(hp_policy::action("transport.tor.enable").is_none());
         assert!(hp_policy::recovery("transport.tor.enable").is_none());
+    }
+
+    // ── persistent Tor exposure ─────────────────────────────────────────────
+    //
+    // The vault is not reachable from a unit test, so these exercise the pricing
+    // arithmetic and the mark bookkeeping the accrual is built on rather than the
+    // whole command. The parts that touch disk are covered by the app-side tests.
+
+    #[test]
+    fn an_hour_of_a_standing_onion_costs_the_documented_rate() {
+        // 0.08 HP/minute = 4.8 HP/hour. Pinned here because the whole mechanic is
+        // calibrated against the daily meter's Tor regeneration (12 HP/hour): one
+        // room is comfortably sustainable, three are not.
+        let a = action("tor.persistent.hold");
+        assert_eq!(a.per_minute_centi, 8);
+        assert_eq!(metered_cost(a, 0, 60), 480);
+        assert_eq!(metered_cost(a, 0, 60) * 3, 1440, "three rooms out-drain Tor regen");
+    }
+
+    #[test]
+    fn one_accrual_cannot_dump_a_whole_sleep_onto_the_meter() {
+        // A suspended laptop leaves a long gap between ticks, during which the
+        // onion answered nobody. The cap is what stops waking up to a 40 HP charge
+        // for exposure that was not live.
+        let a = action("tor.persistent.hold");
+        assert_eq!(a.cap_per_event_centi, 500);
+        assert_eq!(metered_cost(a, 0, 10_000), 500);
+    }
+
+    #[test]
+    fn a_short_tick_bills_nothing_and_loses_nothing() {
+        // Ticking every 30 s must not bill zero for ever. The accrual advances its
+        // mark by the whole minutes it billed, so the remainder carries — this
+        // asserts the arithmetic that relies on.
+        let a = action("tor.persistent.hold");
+        assert_eq!(metered_cost(a, 0, 0), 0);
+        // Two half-minutes later the caller has still moved nothing, and the third
+        // tick bills the whole minute rather than three roundings of zero.
+        assert_eq!(metered_cost(a, 0, 1), 8);
+    }
+
+    #[test]
+    fn a_never_expiring_invitation_is_marked_by_a_zero_deadline() {
+        // Zero rather than u64::MAX so a record deserializing without the field
+        // cannot silently inherit "never" — and every read goes through the helper.
+        let mut rec = invites::InviteRecord {
+            id: "a".into(),
+            kind: "general".into(),
+            capability: [0u8; 32],
+            recipient: None,
+            room_slug: "r".into(),
+            room_name: "R".into(),
+            created_at: 1,
+            expires_at: 0,
+            tor: true,
+            state: invites::InviteState::Active,
+        };
+        assert!(invites::never_expires(&rec));
+        // …and it does not expire, however far the clock is pushed.
+        assert!(matches!(
+            invites::effective_state(&rec, i64::MAX as u64),
+            invites::EffectiveState::Active
+        ));
+        rec.expires_at = 10;
+        assert!(!invites::never_expires(&rec));
+        assert!(matches!(
+            invites::effective_state(&rec, 11),
+            invites::EffectiveState::Expired
+        ));
     }
 
     #[test]
