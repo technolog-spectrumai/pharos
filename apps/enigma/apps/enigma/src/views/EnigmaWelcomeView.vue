@@ -36,19 +36,6 @@ onMounted(async () => {
   profile.value = await getOfflineProfile().catch(() => null);
   runtime.value = await getRuntimeConfig().catch(() => null);
 });
-
-/** What this build actually contains. Read from the compile-time config rather
- *  than assumed: an edition without Vox should not claim to have voice calls. */
-const capabilities = [
-  { key: "welcome.capServerless", on: true },
-  { key: "welcome.capMls", on: true },
-  { key: "welcome.capAtRest", on: true },
-  { key: "welcome.capTor", on: true },
-  { key: "welcome.capDht", on: cfg.p2p_allow_hosted_relays && cfg.dht_enabled },
-  { key: "welcome.capVox", on: cfg.calls_enabled },
-  { key: "welcome.capMaps", on: cfg.maps_enabled },
-  { key: "welcome.capKeyring", on: cfg.keyring_enabled },
-].filter((c) => c.on);
 </script>
 
 <template>
@@ -89,7 +76,6 @@ const capabilities = [
           </span>
         </div>
       </div>
-      <p class="text-xs leading-relaxed opacity-60">{{ $t("welcome.identityNote") }}</p>
     </OyaCard>
 
     <!-- ── your budget ──────────────────────────────────────────────────── -->
@@ -106,21 +92,6 @@ const capabilities = [
         </button>
       </div>
       <HpPanel compact />
-    </OyaCard>
-
-    <!-- ── what this build has ──────────────────────────────────────────── -->
-    <OyaCard class="flex flex-col gap-3">
-      <h2 class="text-sm font-bold uppercase opacity-70">{{ $t("welcome.buildTitle") }}</h2>
-      <ul class="flex flex-col gap-1.5">
-        <li v-for="c in capabilities" :key="c.key" class="flex items-start gap-2 text-sm">
-          <font-awesome-icon
-            icon="check"
-            class="mt-1 shrink-0 text-success-light dark:text-success-dark"
-          />
-          <span class="leading-relaxed opacity-80">{{ $t(c.key) }}</span>
-        </li>
-      </ul>
-      <p class="text-xs leading-relaxed opacity-50">{{ brand.copyright }}</p>
     </OyaCard>
   </section>
 </template>

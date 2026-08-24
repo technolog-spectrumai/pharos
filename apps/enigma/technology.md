@@ -709,10 +709,10 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   the one tab with no visibility checkbox — it is the only route back to the
   others.
 - **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma26
-  mark in the top left: what the app is, what this build includes, who you are on
-  it (profile name, avatar, MLS identity, active storage profile) and your HP
-  meters. Ungated for the same reason Settings is — a logo that could lead
-  nowhere would be a dead end on every screen. Deliberately **not** `/`: that
+  mark in the top left. Three cards: what the app is (icon, version, one-line
+  pitch), who you are on it (profile name, avatar, MLS identity, active storage
+  profile) and your HP meters. Ungated for the same reason Settings is — a logo
+  that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
   redirect still resolves to the first visible tab, which is where every lock
   cycle re-enters after the webview reload. A compact **HP chip** sits in the
   header on every screen and links here ([§17](#17-privacy-hp--the-exposure-budget)).

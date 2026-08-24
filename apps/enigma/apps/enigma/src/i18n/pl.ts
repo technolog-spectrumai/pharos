@@ -833,16 +833,5 @@ export default {
     noName: "Nie ustawiono nazwy",
     identity: "Tożsamość: {id}",
     profile: "Profil: {p}",
-    identityNote:
-      "Twoja tożsamość to to, co widzą rozmówcy w pokoju; profil to zaszyfrowany magazyn otwarty na tym urządzeniu. Żadne z nich nie jest nigdzie zarejestrowane.",
-    buildTitle: "Co zawiera ta wersja",
-    capServerless: "Połączenia peer-to-peer bez serwera — nie ma czego zająć ani o co wnioskować.",
-    capMls: "Wiadomości grupowe są szyfrowane end-to-end za pomocą MLS.",
-    capAtRest: "Wszystko na tym urządzeniu jest zaszyfrowane za twoim hasłem.",
-    capTor: "Transport Tor jest dostępny, osobno dla każdego profilu.",
-    capDht: "Bezserwerowe wyszukiwanie: dołączanie kodem pokoju, szukanie ludzi po pseudonimie.",
-    capVox: "Rozmowy głosowe jeden na jeden.",
-    capMaps: "Mapy offline z pakietów regionów, które sam importujesz.",
-    capKeyring: "Pęk kluczy: jedno hasło blokujące wiele lokalnych plików.",
   },
 };

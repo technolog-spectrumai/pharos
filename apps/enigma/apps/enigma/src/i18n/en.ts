@@ -835,16 +835,5 @@ export default {
     noName: "No name set",
     identity: "Identity: {id}",
     profile: "Profile: {p}",
-    identityNote:
-      "Your identity is what peers see in a room; your profile is which encrypted store is open on this device. Neither is registered anywhere.",
-    buildTitle: "What this build includes",
-    capServerless: "Peer-to-peer with no server — nothing to seize or subpoena.",
-    capMls: "Group messages are end-to-end encrypted with MLS.",
-    capAtRest: "Everything on this device is encrypted behind your passphrase.",
-    capTor: "Tor transport is available, per profile.",
-    capDht: "Serverless discovery: join by room code, find people by nickname.",
-    capVox: "One-to-one voice calls.",
-    capMaps: "Offline maps from region packages you import yourself.",
-    capKeyring: "A key ring: one passphrase locking many local files.",
   },
 };
