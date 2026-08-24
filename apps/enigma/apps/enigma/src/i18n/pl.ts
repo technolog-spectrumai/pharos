@@ -9,6 +9,7 @@ export default {
     myProfile: "Mój profil",
     settings: "Ustawienia",
     connections: "Połączenia",
+    privacy: "Prywatność",
     lock: "Blokada",
     data: "Dane",
     light: "Jasny",
@@ -665,5 +666,183 @@ export default {
     panicConfirm: "Potwierdź kod awaryjny",
     panicSame: "Kod awaryjny musi różnić się od hasła.",
     panicWarning: "Wpisanie go na ekranie odblokowania natychmiast kasuje każdy profil na tym urządzeniu — bez potwierdzenia i bez odzyskiwania. Następnie staje się hasłem do nowego, pustego profilu.",
+  },
+
+  // ── Privacy HP (technology.md §17) ──────────────────────────────────────────
+  // Każdy tekst `explain` odpowiada w jednym zdaniu na jedno pytanie: co staje
+  // się widoczne i dla kogo. Nazywają konkretnego obserwatora, a nie mówią
+  // ogólnie "to zmniejsza prywatność".
+  hp: {
+    title: "Privacy HP",
+    intro:
+      "Budżet na to, ile o sobie ujawniasz. Bezpieczniejsze wybory go zachowują, ujawniające go wydają. Niczego nie blokuje — pokazuje cenę, zanim klikniesz.",
+    daily: "Dzisiaj",
+    weekly: "W tym tygodniu",
+    loading: "Wczytywanie historii…",
+    free: "Za darmo",
+    chipTitle: "Privacy HP — dzisiaj · w tym tygodniu",
+    seeDetails: "Ceny i historia",
+    regenRate: "+{n} HP / godz.",
+    regenNext: "kolejne +1 za {n} min",
+    regenDisclaimer:
+      "HP wraca samo z upływem czasu. To mechanika gry, a nie naprawa: opublikowany wpis nadal tam jest, długo po tym, jak pasek się zapełni.",
+    pricesTitle: "Co kosztuje HP",
+    pricesHint:
+      "Stałe ceny, za każdym razem takie same. Zwykłe zaszyfrowane wiadomości przez Tor są darmowe — to domyślny stan, którego ten budżet ma bronić.",
+    unitMessage: "wiad.",
+    unitMinute: "min",
+    ratePerMib: "plus {n} HP za każdy wysłany MiB",
+    ratePerMinute: "plus {n} HP za minutę",
+    recoveryTitle: "Co przywraca HP",
+    recoveryHint:
+      "Tylko zmiany, które zmniejszają ryzyko ponoszone właśnie teraz. Każda płaci raz, a wyłączenie i ponowne włączenie zawsze wychodzi na minus.",
+    recoveryCaps: "Najwyżej {daily} HP dziennie i {weekly} HP tygodniowo, łącznie ze wszystkiego tutaj.",
+    historyTitle: "Skąd ta zmiana?",
+    historyHint: "Wszystkie wpisy, od najnowszych, wraz z tym, ile już się zregenerowało.",
+    historyEmpty: "Nic jeszcze nie wydano ani nie zyskano.",
+    historyCount: "{n} razy",
+    historyHealed: "zregenerowano {n} z {total}",
+    historySettled: "w pełni zregenerowane",
+    historyMore: "Pokaż wszystkie ({n})",
+    historyLess: "Pokaż mniej",
+    historyPrivacy:
+      "Ta historia przechowuje wyłącznie kody powodów i liczby — nigdy wiadomości, kontaktu, nazwy pokoju, pseudonimu, zaproszenia ani ścieżki pliku.",
+    confirmTitle: "To kosztuje sporo",
+    confirmContinue: "Kontynuuj",
+    confirmExhausted:
+      "Ten licznik jest już pusty. Nadal możesz to zrobić — HP niczego nie blokuje — ale dziś wydałeś już dużo.",
+    advisoryNote:
+      "Privacy HP mierzy i zapamiętuje; nie chroni. Nic tutaj nie zmienia tego, co ta czynność faktycznie ujawnia.",
+    group: {
+      transport: "Jak się łączysz",
+      discovery: "Bycie odnajdywalnym",
+      rooms: "Pokoje i zaproszenia",
+      messages: "Wiadomości",
+      traffic: "Rozmowy i pliki",
+      local: "To urządzenie",
+    },
+    action: {
+      transportTorDisable: "Wyłącz Tor",
+      transportOnionStableEnable: "Zachowaj jeden adres onion",
+      dhtNicknamePublish: "Opublikuj swój pseudonim",
+      dhtPresenceEnable: "Włącz wykrywanie DHT",
+      dhtRoomCodePublish: "Opublikuj kod pokoju",
+      ticketExportClearnet: "Udostępnij zaproszenie (bez Tora)",
+      ticketExportTor: "Udostępnij zaproszenie (przez Tor)",
+      roomCreateClearnet: "Utwórz pokój (bez Tora)",
+      roomCreateTor: "Utwórz pokój (przez Tor)",
+      roomJoinClearnet: "Dołącz do pokoju (bez Tora)",
+      roomJoinTor: "Dołącz do pokoju (przez Tor)",
+      msgTorMls: "Zaszyfrowana wiadomość przez Tor",
+      msgClearnetMls: "Zaszyfrowana wiadomość, bez Tora",
+      msgTorPlain: "Niezaszyfrowana wiadomość przez Tor",
+      msgClearnetPlain: "Niezaszyfrowana wiadomość, bez Tora",
+      fileSend: "Wyślij plik",
+      voxCall: "Rozmowa głosowa",
+      localAutolockOff: "Wyłącz automatyczną blokadę",
+      localPinEnroll: "Ustaw PIN odblokowania",
+      localPanicCodeClear: "Usuń kod awaryjny",
+      localLockOnHideOff: "Nie blokuj po ukryciu okna",
+      localFileIntegrityOff: "Wyłącz kontrolę transferów",
+      transportTorEnable: "Włącz Tor",
+      dhtNicknameWithdraw: "Wycofaj swój pseudonim",
+      dhtPresenceWithdraw: "Wyłącz wykrywanie DHT",
+      localAutolockOn: "Włącz automatyczną blokadę",
+      localPassphraseStrengthen: "Wydłuż swoje hasło",
+      localPassphraseChange: "Zmień swoje hasło",
+      localReencryptKeyring: "Wymień klucze pęku",
+      localReencryptFiles: "Wymień klucz zablokowanego pliku",
+      roomRekey: "Zresetuj szyfrowanie pokoju",
+      roomLeave: "Opuść pokój",
+      dataDeleteChat: "Usuń zapisane wiadomości",
+      dataDeleteMaps: "Usuń region mapy",
+      dataDeleteFiles: "Usuń zablokowany plik",
+    },
+    explain: {
+      transportTorDisable:
+        "Bez Tora przekaźniki pomagające ci się połączyć widzą twój adres razem z tym, z kim rozmawiasz, kiedy i ile — dla wszystkiego, co zrobisz potem.",
+      transportOnionStableEnable:
+        "Ponowne użycie jednego adresu onion pozwala każdemu, kto go widział, rozpoznać cię między sesjami, zamiast spotykać za każdym razem nowy adres.",
+      dhtNicknamePublish:
+        "Twój pseudonim trafia do publicznego katalogu, który każdy może przeszukać, powiązany z tożsamością sieciową tego urządzenia.",
+      dhtPresenceEnable:
+        "Publikowany jest publiczny wpis ogłaszający, że to urządzenie jest online, więc każdy, kto zna jego tożsamość sieciową, wie, kiedy jesteś dostępny.",
+      dhtRoomCodePublish:
+        "Publikowany jest publiczny wskaźnik do tego pokoju; jego zawartość jest zapieczętowana, ale kto zdobędzie kod, może z niego wejść.",
+      ticketExportClearnet:
+        "To zaproszenie niesie nazwę pokoju i adres twojego urządzenia, łącznie z IP — dla każdego, kto je zobaczy, sfotografuje lub prześle dalej.",
+      ticketExportTor:
+        "To zaproszenie niesie nazwę pokoju i twój adres onion — bez IP — dla każdego, kto je zobaczy, sfotografuje lub prześle dalej.",
+      roomCreateClearnet:
+        "Utworzenie tego pokoju dołącza do publicznego tematu otwartym tekstem, więc twój adres jest widoczny dla jego uczestników i przekaźników.",
+      roomCreateTor:
+        "Pokój działa przez Tor, więc uczestnicy i przekaźniki widzą adres onion zamiast twojego IP. Każdy, kto zgadnie nazwę pokoju, nadal znajdzie temat.",
+      roomJoinClearnet:
+        "Dołączenie mówi uczestnikom tego pokoju i przekaźnikom, że twoje urządzenie tu jest — wraz z twoim IP.",
+      roomJoinTor:
+        "Dołączenie przez Tor mówi uczestnikom tego pokoju, że twoje urządzenie tu jest, jako adres onion, a nie IP.",
+      msgTorMls: "Zaszyfrowana, przez Tor: najbezpieczniejszy sposób wysyłki i za darmo.",
+      msgClearnetMls:
+        "Nikt jej nie przeczyta, ale przekaźniki widzą, że coś wysłałeś, kiedy, jak dużego i do których rozmówców.",
+      msgTorPlain:
+        "Szyfrowanie nie jest jeszcze gotowe, więc to wychodzi czytelnie wewnątrz obwodu Tora, a nie zaszyfrowane end-to-end.",
+      msgClearnetPlain:
+        "Szyfrowanie nie jest jeszcze gotowe, więc to wychodzi czytelnie dla każdego, kto nasłuchuje tematu tego pokoju.",
+      fileSend:
+        "Transfer łączy twoje urządzenie bezpośrednio z ich; rozmiar i czas trwania są widoczne, nawet jeśli zawartość nie jest.",
+      voxCall:
+        "Rozmowa to ciągły strumień między dwoma urządzeniami, co pokazuje każdemu obserwującemu którykolwiek koniec, że rozmawiałeś, kiedy i jak długo.",
+      localAutolockOff:
+        "Aplikacja przestaje się sama blokować, więc odblokowane dane zostają otwarte dla każdego, kto weźmie to urządzenie.",
+      localPinEnroll:
+        "Krótki PIN może ponownie otworzyć aplikację w trakcie sesji; łatwiej go zgadnąć niż hasło, choć nigdy nie trafia na dysk.",
+      localPanicCodeClear:
+        "Tracisz drugie hasło, które wymazuje to urządzenie, gdy wpiszesz je pod przymusem.",
+      localLockOnHideOff: "Ukrycie okna nie blokuje już aplikacji za twoim hasłem.",
+      localFileIntegrityOff:
+        "Transfery nie są już sprawdzane fragment po fragmencie, więc uszkodzony lub zmieniony plik może dotrzeć niezauważony.",
+      transportTorEnable:
+        "Wyszukiwanie i czat przechodzą na Tor, więc przekaźniki przestają widzieć twój adres we wszystkim, co nastąpi potem.",
+      dhtNicknameWithdraw:
+        "Twój pseudonim przestaje być odświeżany i wygasa z katalogu. Kto już go wyszukał, nadal ma to, co odczytał.",
+      dhtPresenceWithdraw:
+        "Twoje urządzenie przestaje ogłaszać, że jest online, a istniejący wpis wygasa samoczynnie.",
+      localAutolockOn: "Aplikacja znów blokuje się po okresie bezczynności.",
+      localPassphraseStrengthen:
+        "Dłuższe hasło to najbardziej użyteczna zmiana tutaj: chroni ono wszystko inne na tym urządzeniu.",
+      localPassphraseChange:
+        "Nowe hasło ponownie opakowuje twój klucz świeżą solą, więc praca, którą atakujący wykonał nad starym, idzie na marne.",
+      localReencryptKeyring:
+        "Twoje pliki dostają zupełnie nowe klucze, więc kopia starych zaszyfrowanych danych jest teraz zapieczętowana kluczem, który już nigdzie nie istnieje.",
+      localReencryptFiles:
+        "Ten plik dostaje zupełnie nowy klucz, więc jego starsza kopia jest zapieczętowana kluczem, który już nigdzie nie istnieje.",
+      roomRekey: "Szyfrowanie pokoju zaczyna od nowa, więc stary materiał kluczy nie otwiera już tego, co nadejdzie.",
+      roomLeave: "Przestajesz odbierać ten pokój, a jego zapisana historia znika z tego urządzenia.",
+      dataDeleteChat: "Wiadomości zapisane dla tego pokoju zniknęły z tego urządzenia.",
+      dataDeleteMaps: "Dane mapy zapisane dla tego regionu zniknęły z tego urządzenia.",
+      dataDeleteFiles: "Ten zablokowany plik nie jest już śledzony na tym urządzeniu.",
+    },
+  },
+
+  // ── Strona powitalna (znak Enigma26 w lewym górnym rogu) ────────────────────
+  welcome: {
+    version: "Wersja {v}",
+    tagline:
+      "Bezserwerowy komunikator z szyfrowaniem end-to-end. Bez kont, bez numeru telefonu i bez przechowywania czegokolwiek poza twoimi urządzeniami.",
+    youTitle: "Ty, tutaj",
+    noName: "Nie ustawiono nazwy",
+    identity: "Tożsamość: {id}",
+    profile: "Profil: {p}",
+    identityNote:
+      "Twoja tożsamość to to, co widzą rozmówcy w pokoju; profil to zaszyfrowany magazyn otwarty na tym urządzeniu. Żadne z nich nie jest nigdzie zarejestrowane.",
+    buildTitle: "Co zawiera ta wersja",
+    capServerless: "Połączenia peer-to-peer bez serwera — nie ma czego zająć ani o co wnioskować.",
+    capMls: "Wiadomości grupowe są szyfrowane end-to-end za pomocą MLS.",
+    capAtRest: "Wszystko na tym urządzeniu jest zaszyfrowane za twoim hasłem.",
+    capTor: "Transport Tor jest dostępny, osobno dla każdego profilu.",
+    capDht: "Bezserwerowe wyszukiwanie: dołączanie kodem pokoju, szukanie ludzi po pseudonimie.",
+    capVox: "Rozmowy głosowe jeden na jeden.",
+    capMaps: "Mapy offline z pakietów regionów, które sam importujesz.",
+    capKeyring: "Pęk kluczy: jedno hasło blokujące wiele lokalnych plików.",
   },
 };

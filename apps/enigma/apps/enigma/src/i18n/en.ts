@@ -9,6 +9,7 @@ export default {
     myProfile: "My Profile",
     settings: "Settings",
     connections: "Connections",
+    privacy: "Privacy",
     lock: "Lock",
     data: "Data",
     light: "Light",
@@ -665,5 +666,185 @@ export default {
     panicConfirm: "Confirm panic code",
     panicSame: "The panic code must be different from your passphrase.",
     panicWarning: "Typing this at the unlock screen wipes every profile on this device immediately — no confirmation, no recovery. It then becomes your passphrase for the fresh, empty profile.",
+  },
+
+  // ── Privacy HP (technology.md §17) ──────────────────────────────────────────
+  // Every `explain` string answers one question in one sentence: what becomes
+  // visible, and to whom. They are the most load-bearing copy in the app — a
+  // price the user cannot interpret is just a number — so they name the actual
+  // observer ("n0 relays", "anyone holding your NodeId") rather than saying
+  // "your privacy is reduced".
+  hp: {
+    title: "Privacy HP",
+    intro:
+      "A budget for how much you expose. Safer choices keep it; exposing ones spend it. It never blocks anything — it tells you the price before you tap.",
+    daily: "Today",
+    weekly: "This week",
+    loading: "Reading your history…",
+    free: "Free",
+    chipTitle: "Privacy HP — today · this week",
+    seeDetails: "Prices and history",
+    regenRate: "+{n} HP / hour",
+    regenNext: "next +1 in {n} min",
+    regenDisclaimer:
+      "HP returns on its own as time passes. That is a game mechanic, not a repair: a record you published is still out there long after the bar has refilled.",
+    pricesTitle: "What costs HP",
+    pricesHint:
+      "Fixed prices, the same every time. Ordinary encrypted messages over Tor are free — that is the default this budget exists to protect.",
+    unitMessage: "msg",
+    unitMinute: "min",
+    ratePerMib: "plus {n} HP per MiB sent",
+    ratePerMinute: "plus {n} HP per minute",
+    recoveryTitle: "What earns HP back",
+    recoveryHint:
+      "Only changes that reduce risk you are carrying right now. Each pays once, and turning something off and on again is always a net loss.",
+    recoveryCaps: "At most {daily} HP a day and {weekly} HP a week, across everything here.",
+    historyTitle: "Why did this change?",
+    historyHint: "Every entry, newest first, with how much has since regenerated.",
+    historyEmpty: "Nothing spent or earned yet.",
+    historyCount: "{n} times",
+    historyHealed: "{n} of {total} regenerated",
+    historySettled: "fully regenerated",
+    historyMore: "Show all {n}",
+    historyLess: "Show fewer",
+    historyPrivacy:
+      "This history stores reason codes and numbers only — never a message, contact, room name, nickname, ticket or file path.",
+    confirmTitle: "This one costs a lot",
+    confirmContinue: "Continue",
+    confirmExhausted:
+      "This meter is already empty. You can still go ahead — HP never blocks anything — but you have spent a lot today.",
+    advisoryNote:
+      "Privacy HP measures and remembers; it does not protect. Nothing here changes what this action actually exposes.",
+    group: {
+      transport: "How you connect",
+      discovery: "Being findable",
+      rooms: "Rooms and invitations",
+      messages: "Messages",
+      traffic: "Calls and files",
+      local: "This device",
+    },
+    action: {
+      transportTorDisable: "Turn Tor off",
+      transportOnionStableEnable: "Keep one onion address",
+      dhtNicknamePublish: "Publish your nickname",
+      dhtPresenceEnable: "Turn on DHT discovery",
+      dhtRoomCodePublish: "Publish a room code",
+      ticketExportClearnet: "Share an invite (no Tor)",
+      ticketExportTor: "Share an invite (over Tor)",
+      roomCreateClearnet: "Create a room (no Tor)",
+      roomCreateTor: "Create a room (over Tor)",
+      roomJoinClearnet: "Join a room (no Tor)",
+      roomJoinTor: "Join a room (over Tor)",
+      msgTorMls: "Encrypted message over Tor",
+      msgClearnetMls: "Encrypted message, no Tor",
+      msgTorPlain: "Unencrypted message over Tor",
+      msgClearnetPlain: "Unencrypted message, no Tor",
+      fileSend: "Send a file",
+      voxCall: "Voice call",
+      localAutolockOff: "Turn auto-lock off",
+      localPinEnroll: "Set an unlock PIN",
+      localPanicCodeClear: "Remove the panic code",
+      localLockOnHideOff: "Stop locking when hidden",
+      localFileIntegrityOff: "Turn off transfer checks",
+      transportTorEnable: "Turn Tor on",
+      dhtNicknameWithdraw: "Withdraw your nickname",
+      dhtPresenceWithdraw: "Turn off DHT discovery",
+      localAutolockOn: "Turn auto-lock on",
+      localPassphraseStrengthen: "Lengthen your passphrase",
+      localPassphraseChange: "Change your passphrase",
+      localReencryptKeyring: "Rotate your key ring",
+      localReencryptFiles: "Rotate a locked file's key",
+      roomRekey: "Reset a room's encryption",
+      roomLeave: "Leave a room",
+      dataDeleteChat: "Delete stored messages",
+      dataDeleteMaps: "Remove a map region",
+      dataDeleteFiles: "Remove a locked file",
+    },
+    explain: {
+      transportTorDisable:
+        "Without Tor, the relays that help you connect can see your address alongside who you talk to, when, and how much — for everything you do afterwards.",
+      transportOnionStableEnable:
+        "Reusing one onion address lets anyone who has seen it recognise you across sessions instead of meeting a fresh address each time.",
+      dhtNicknamePublish:
+        "Your chosen nickname goes into a public directory anyone can search, tied to this device's network identity.",
+      dhtPresenceEnable:
+        "A record announcing that this device is online is published publicly, so anyone who already knows its network identity can tell when you are around.",
+      dhtRoomCodePublish:
+        "A public pointer to this room is published; its contents are sealed, but whoever gets the code can use it to get in.",
+      ticketExportClearnet:
+        "This invite carries the room name and your device's address, including your IP — to anyone who sees, photographs or forwards it.",
+      ticketExportTor:
+        "This invite carries the room name and your onion address — no IP — to anyone who sees, photographs or forwards it.",
+      roomCreateClearnet:
+        "Creating this room joins a public topic in the clear, so your address is visible to its members and to the relays carrying it.",
+      roomCreateTor:
+        "The room runs over Tor, so members and relays see an onion address instead of your IP. Anyone who guesses the room name can still find the topic.",
+      roomJoinClearnet:
+        "Joining tells this room's members and the relays carrying it that your device is here, with your IP attached.",
+      roomJoinTor:
+        "Joining over Tor tells this room's members that your device is here, as an onion address rather than an IP.",
+      msgTorMls: "Encrypted, over Tor: the safest way to send, and free.",
+      msgClearnetMls:
+        "Nobody can read it, but the relays carrying it see that you sent something, when, how big, and to which peers.",
+      msgTorPlain:
+        "Encryption is not ready yet, so this goes out readable inside the Tor circuit rather than end-to-end encrypted.",
+      msgClearnetPlain:
+        "Encryption is not ready yet, so this goes out readable to anyone sitting on this room's topic.",
+      fileSend:
+        "The transfer connects your device directly to theirs; the size and how long it takes are visible even though the contents are not.",
+      voxCall:
+        "A call is a continuous stream between the two devices, which shows anyone watching either end that you spoke, when, and for how long.",
+      localAutolockOff:
+        "The app stops locking itself, so your unlocked data stays open to whoever picks up this device.",
+      localPinEnroll:
+        "A short PIN can reopen the app during a session; it is far easier to guess than your passphrase, though it never touches the disk.",
+      localPanicCodeClear:
+        "You lose the second passphrase that wipes this device when typed under pressure.",
+      localLockOnHideOff: "Hiding the window no longer locks the app behind your passphrase.",
+      localFileIntegrityOff:
+        "Transfers are no longer checked chunk by chunk, so a corrupted or altered file can arrive unnoticed.",
+      transportTorEnable:
+        "Rendezvous and chat move onto Tor, so relays stop seeing your address for everything that follows.",
+      dhtNicknameWithdraw:
+        "Your nickname stops being republished and ages out of the directory. Anyone who already looked it up still has what they read.",
+      dhtPresenceWithdraw:
+        "Your device stops announcing that it is online, and the existing record expires on its own.",
+      localAutolockOn: "The app locks itself again after a stretch of inactivity.",
+      localPassphraseStrengthen:
+        "A longer passphrase is the single most useful change here: everything else on this device is protected by it.",
+      localPassphraseChange:
+        "A new passphrase re-wraps your key with fresh salt, so any work an attacker had done against the old one is wasted.",
+      localReencryptKeyring:
+        "Your files get brand-new keys, so a copy of the old encrypted data is now sealed under a key that no longer exists anywhere.",
+      localReencryptFiles:
+        "This file gets a brand-new key, so an older copy of it is sealed under a key that no longer exists anywhere.",
+      roomRekey: "The room's encryption starts fresh, so old key material no longer opens what comes next.",
+      roomLeave: "You stop receiving this room and its stored history is removed from this device.",
+      dataDeleteChat: "The messages stored for this room are gone from this device.",
+      dataDeleteMaps: "The map data stored for this region is gone from this device.",
+      dataDeleteFiles: "This locked file is no longer tracked on this device.",
+    },
+  },
+
+  // ── Welcome page (the Enigma26 mark in the top left) ────────────────────────
+  welcome: {
+    version: "Version {v}",
+    tagline:
+      "A serverless, end-to-end encrypted messenger. No accounts, no phone number, and nothing stored anywhere but your own devices.",
+    youTitle: "You, here",
+    noName: "No name set",
+    identity: "Identity: {id}",
+    profile: "Profile: {p}",
+    identityNote:
+      "Your identity is what peers see in a room; your profile is which encrypted store is open on this device. Neither is registered anywhere.",
+    buildTitle: "What this build includes",
+    capServerless: "Peer-to-peer with no server — nothing to seize or subpoena.",
+    capMls: "Group messages are end-to-end encrypted with MLS.",
+    capAtRest: "Everything on this device is encrypted behind your passphrase.",
+    capTor: "Tor transport is available, per profile.",
+    capDht: "Serverless discovery: join by room code, find people by nickname.",
+    capVox: "One-to-one voice calls.",
+    capMaps: "Offline maps from region packages you import yourself.",
+    capKeyring: "A key ring: one passphrase locking many local files.",
   },
 };
