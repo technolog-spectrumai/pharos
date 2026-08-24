@@ -572,37 +572,47 @@ fn abort_dht_tasks(handle: &RoomHandle) {
 }
 
 /// Direct room invite to a contact (see p2p_invite.rs): mint a fresh ticket
-/// (+ code when DHT discovery is on) for the room and offer it over the invite
-/// ALPN, returning the contact's answer. The frontend opens the room before
-/// calling this, so an accepting invitee finds a live member for MLS admission.
+/// Mint a PERSONAL invitation for the room, sealed to this contact's NodeId, and
+/// offer it over the invite ALPN, returning the contact's answer.
+///
+/// It used to mint a permanent room ticket here. The contact now receives an
+/// invitation that expires, can be withdrawn, and admits them alone — minted
+/// through `invite_api::mint`, the same call the share card makes, so the two
+/// paths cannot issue credentials with different lifetimes.
+///
+/// The frontend opens the room before calling this, so an accepting invitee finds
+/// a live member for MLS admission.
 pub async fn invite_send(
     app: &AppHandle,
     state: &P2pState,
+    tor: &crate::p2p_tor::TorP2pState,
     node_id: &str,
     room: &str,
     name: &str,
 ) -> Result<bool> {
     ensure_started(app, state).await?;
-    let (endpoint, ticket, code) = {
+    // The contact has to accept and redeem while we are here — the same liveness
+    // an invitation always needs — so a long deadline would only mislead. One day
+    // is the presets' middle value and leaves room for a delayed Accept.
+    let minted = crate::invite_api::mint(
+        app,
+        state,
+        tor,
+        room.to_string(),
+        name.to_string(),
+        "personal",
+        Some(node_id.to_string()),
+        86_400,
+    )
+    .await
+    .map_err(|e| anyhow!("{e}"))?;
+
+    let endpoint = {
         let mut guard = state.0.lock().await;
         let node = guard.as_mut().ok_or_else(|| anyhow!("p2p not started"))?;
-        // Fresh ticket every time — the embedded addresses are ours, right now.
-        let ticket = Ticket {
-            topic: topic_for(name),
-            name: name.to_string(),
-            peers: vec![node.endpoint.addr()],
-        }
-        .encode();
-        let code = if node.dht.is_some() {
-            let secret = crate::p2p_dht::load_or_create_room_secret(app, room)?;
-            start_publisher(app, node, room);
-            RoomCode { name: name.to_string(), secret }.encode()
-        } else {
-            String::new()
-        };
-        (node.endpoint.clone(), ticket, code)
+        node.endpoint.clone()
     };
-    crate::p2p_invite::send(app, endpoint, node_id, name.to_string(), ticket, code).await
+    crate::p2p_invite::send(app, endpoint, node_id, name.to_string(), minted.ticket).await
 }
 
 /// Ensure the main node is up and hand its endpoint to a Vox call (which accepts

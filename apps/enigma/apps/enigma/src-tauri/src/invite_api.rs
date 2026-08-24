@@ -124,7 +124,28 @@ pub async fn invite_create(
     recipient: Option<String>,
     ttl_secs: u64,
 ) -> Result<InviteCreated, String> {
-    let kind = match kind.as_str() {
+    mint(&app, &p2p, &tor, room_slug, room_name, &kind, recipient, ttl_secs).await
+}
+
+/// The minting core, callable from Rust as well as from the command above.
+///
+/// It exists because the Contacts "invite to room" flow (`p2p_invite.rs`) has to
+/// mint one too: it used to hand the contact a permanent room ticket, and now
+/// sends a personal invitation sealed to that contact's NodeId instead. One
+/// implementation, so the direct-invite path cannot drift into issuing something
+/// with different expiry, revocation or ledger behaviour from the QR path.
+#[allow(clippy::too_many_arguments)]
+pub async fn mint(
+    app: &AppHandle,
+    p2p: &P2pState,
+    tor: &TorP2pState,
+    room_slug: String,
+    room_name: String,
+    kind: &str,
+    recipient: Option<String>,
+    ttl_secs: u64,
+) -> Result<InviteCreated, String> {
+    let kind = match kind {
         "personal" => InviteKind::Personal,
         "general" => InviteKind::General,
         other => return Err(format!("unknown invite kind '{other}'")),
@@ -134,14 +155,14 @@ pub async fn invite_create(
     let expires_at = now + ttl * 1000;
 
     // The room's own transport decides the address (see the module note).
-    let onion = crate::p2p_tor::room_onion(&tor, &room_slug).await;
+    let onion = crate::p2p_tor::room_onion(tor, &room_slug).await;
     let addr = match &onion {
         Some(o) => InviteAddr::Tor(o.clone()),
-        None => InviteAddr::Iroh(vec![crate::p2p_iroh::local_addr(&app, &p2p)
+        None => InviteAddr::Iroh(vec![crate::p2p_iroh::local_addr(app, p2p)
             .await
             .map_err(|e| e.to_string())?]),
     };
-    let inviter = crate::p2p_iroh::load_or_create_secret(&app, "gossip")
+    let inviter = crate::p2p_iroh::load_or_create_secret(app, "gossip")
         .map_err(|e| e.to_string())?
         .public()
         .to_string();
@@ -174,7 +195,7 @@ pub async fn invite_create(
 
     let id_hex: String = invite_id.iter().map(|b| format!("{b:02x}")).collect();
     invites::insert(
-        &app,
+        app,
         InviteRecord {
             id: id_hex.clone(),
             kind: kind.as_str().to_string(),

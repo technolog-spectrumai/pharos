@@ -1,20 +1,24 @@
 // Direct room invites (Contacts tab) — the offer/accept counterpart of
 // useFileShare, but the payload is a room instead of a file. The handshake
 // rides a dedicated iroh ALPN on the main p2p endpoint (Rust `p2p_invite`):
-// dial the contact's stable NodeId, send the room's fresh ticket (+ DHT code),
+// dial the contact's stable NodeId, send a personal invitation sealed to them,
 // and wait for their explicit Accept/Decline.
 //
 // Flow (inviter I → contact C):
 //   I: sendInvite(contact, room) → open the room (MLS admission needs a live
 //      member) → invite_send → "waiting" until C answers (window ≤ 2×N)
 //   C: `invite://incoming` arrives (this composable lives in chatStore, so it's
-//      caught anywhere in the app; the Contacts nav shows a dot) → Accept joins
-//      via the embedded code (DHT on) or ticket — the same path a scanned QR
-//      takes, MLS admission included. Decline just answers.
+//      caught anywhere in the app; the Contacts nav shows a dot) → Accept
+//      REDEEMS the invitation — the same path a scanned invitation QR takes,
+//      MLS admission included. Decline just answers.
+//
+// What arrives used to be a permanent room ticket, which C then joined with. It
+// is now an invitation that expires and can be withdrawn, redeemed through the
+// same `redeemInvitation` the join modal uses so the two cannot diverge.
 
 import { ref } from "vue";
-import { getDhtDiscovery } from "rakotis";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
+import { redeemInvitation } from "../chat/redeemInvitation";
 
 export type OutgoingInviteState = "idle" | "waiting" | "accepted" | "declined" | "error";
 
@@ -22,8 +26,8 @@ export interface IncomingInvite {
   inviteId: string;
   fromNodeId: string;
   roomName: string;
-  ticket: string;
-  code: string;
+  /** A personal invitation sealed to us — not a room ticket. */
+  invite: string;
 }
 
 const _isTauri = (): boolean =>
@@ -40,6 +44,8 @@ export function useRoomInvites(channel: ChatChannel) {
   // Inviter side.
   const outgoing = ref<OutgoingInviteState>("idle");
   const outgoingError = ref(""); // raw backend message; "" when clear
+  /** i18n key when a redemption we accepted then failed; "" when clear. */
+  const acceptError = ref("");
 
   // Invitee side — one invite at a time (like the single file-share offer).
   const incoming = ref<IncomingInvite | null>(null);
@@ -54,8 +60,7 @@ export function useRoomInvites(channel: ChatChannel) {
         inviteId: e.payload.inviteId ?? "",
         fromNodeId: e.payload.fromNodeId ?? "",
         roomName: e.payload.roomName ?? "",
-        ticket: e.payload.ticket ?? "",
-        code: e.payload.code ?? "",
+        invite: e.payload.invite ?? "",
       };
     });
     // The Rust side clears an invite whose decision window lapsed unanswered.
@@ -99,17 +104,18 @@ export function useRoomInvites(channel: ChatChannel) {
     outgoingError.value = "";
   }
 
-  /** Accept the pending invite: answer the inviter, then join their room. */
+  /** Accept the pending invite: answer the inviter, then redeem what they sent.
+   *
+   *  Answering FIRST matters: the inviter is parked on our response byte, and the
+   *  redemption that follows needs them present with the room open to admit us. */
   async function accept() {
     const invite = incoming.value;
     if (!invite) return;
     incoming.value = null;
+    acceptError.value = "";
     await _invoke("invite_respond", { inviteId: invite.inviteId, accept: true }).catch(() => {});
-    // Join exactly like a scanned QR. Prefer the code when our DHT toggle is on
-    // (we become a secret-holder: rendezvous + re-share); the fresh ticket is
-    // the always-works fallback.
-    const blob = invite.code && (await getDhtDiscovery()) ? invite.code : invite.ticket;
-    await channel.joinByTicket(blob);
+    const out = await redeemInvitation(channel, invite.invite);
+    if (!out.ok) acceptError.value = out.errorKey;
   }
 
   async function decline() {
@@ -119,7 +125,10 @@ export function useRoomInvites(channel: ChatChannel) {
     await _invoke("invite_respond", { inviteId: invite.inviteId, accept: false }).catch(() => {});
   }
 
-  return { available, outgoing, outgoingError, incoming, sendInvite, resetOutgoing, accept, decline };
+  return {
+    available, outgoing, outgoingError, incoming, acceptError,
+    sendInvite, resetOutgoing, accept, decline,
+  };
 }
 
 export type RoomInvitesController = ReturnType<typeof useRoomInvites>;

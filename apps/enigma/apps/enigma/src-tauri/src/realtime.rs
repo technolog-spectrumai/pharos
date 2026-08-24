@@ -240,6 +240,7 @@ pub async fn invite_send(
     app: AppHandle,
     config: State<'_, AppConfigState>,
     p2p: State<'_, P2pState>,
+    tor: State<'_, crate::p2p_tor::TorP2pState>,
     node_id: String,
     room: String,
     name: String,
@@ -251,7 +252,7 @@ pub async fn invite_send(
     if use_tor(&app, &config) {
         return Err("Direct invites are unavailable while Tor mode is on.".to_string());
     }
-    let accepted = p2p_iroh::invite_send(&app, &p2p, &node_id, &room, &name)
+    let accepted = p2p_iroh::invite_send(&app, &p2p, &tor, &node_id, &room, &name)
         .await
         .map_err(|e| e.to_string())?;
     Ok(if accepted { "accepted" } else { "declined" }.to_string())

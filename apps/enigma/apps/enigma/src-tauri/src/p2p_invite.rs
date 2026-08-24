@@ -8,19 +8,25 @@
 //
 // Flow (inviter I → contact C):
 //   I: `invite_send` → connect(C, INVITE_ALPN) → bi stream →
-//      frame { v, room_name, ticket, code }
+//      frame { v, room_name, invite }
 //   C: handler emits `invite://incoming` and parks the answer on a oneshot;
 //      the Contacts UI shows Accept / Decline; `invite_respond` resolves it
-//   C→I: one response byte. On accept, C's frontend joins via the embedded
-//      ticket (or the code when its DHT toggle is on) — the exact path a
-//      scanned QR takes, MLS admission included.
+//   C→I: one response byte. On accept, C's frontend REDEEMS the invitation —
+//      the exact path a scanned invitation QR takes, MLS admission included.
 //   I: reads the byte within 2× the user-set connect timeout (N to reach the
 //      contact + N for the human to decide — the same 2×N window shape as the
 //      join modal) → accepted / declined / unreachable in the contact row.
 //
-// The ticket is minted fresh at send time, so its embedded addresses can't be
-// stale (the inviter is online right now). The code rides along so a
-// DHT-enabled invitee becomes a full secret-holder (rendezvous + re-share).
+// What travels used to be a permanent room ticket, minted fresh so its addresses
+// could not be stale. It is now a PERSONAL invitation sealed to this contact's
+// NodeId (§18): it expires, it can be withdrawn, it admits one person once, and
+// nobody who intercepts the frame can read it. The convenience is unchanged — one
+// tap, one Accept — but what the contact ends up holding is no longer a
+// credential that outlives the conversation.
+//
+// It is minted through `invite_api::mint`, the same call the QR card makes, so
+// this path cannot drift into issuing something with different expiry or
+// revocation behaviour.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,9 +55,11 @@ pub struct InviteState(pub Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>);
 struct InvitePayload {
     v: u8,
     room_name: String,
-    ticket: String,
-    /// Ticketless-join room code; empty when the inviter's DHT toggle is off.
-    code: String,
+    /// A personal invitation, sealed to the recipient's NodeId. The field is
+    /// still called `ticket` on the wire so an older peer's frame deserializes;
+    /// what it carries is an invitation, and only this contact can open it.
+    #[serde(alias = "ticket")]
+    invite: String,
 }
 
 // ── wire frames (length-prefixed JSON, same idiom as file_xfer.rs) ─────────────
@@ -118,8 +126,7 @@ impl InviteProtocol {
                 "inviteId": invite_id,
                 "fromNodeId": from.to_string(),
                 "roomName": payload.room_name,
-                "ticket": payload.ticket,
-                "code": payload.code,
+                "invite": payload.invite,
             }),
         );
 
@@ -160,8 +167,7 @@ pub async fn send(
     endpoint: Endpoint,
     node_id: &str,
     room_name: String,
-    ticket: String,
-    code: String,
+    invite: String,
 ) -> Result<bool> {
     let id: EndpointId = node_id.parse().map_err(|_| anyhow!("invalid contact code"))?;
     // 2×N: N for the dial, N for the invitee's human decision window (which is
@@ -173,8 +179,7 @@ pub async fn send(
             .await
             .map_err(|e| anyhow!("contact unreachable: {e}"))?;
         let (mut send, mut recv) = conn.open_bi().await.map_err(|e| anyhow!("open stream: {e}"))?;
-        write_frame(&mut send, &InvitePayload { v: INVITE_VERSION, room_name, ticket, code })
-            .await?;
+        write_frame(&mut send, &InvitePayload { v: INVITE_VERSION, room_name, invite }).await?;
         let mut answer = [0u8; 1];
         recv.read_exact(&mut answer).await.map_err(|e| anyhow!("no answer: {e}"))?;
         // Ack so the invitee's side knows the answer arrived before closing.
@@ -213,8 +218,7 @@ mod tests {
         let payload = InvitePayload {
             v: INVITE_VERSION,
             room_name: "general".into(),
-            ticket: "ticket-blob".into(),
-            code: "iqaa-code".into(),
+            invite: "ninvite-blob".into(),
         };
         let framed = frame_bytes(&payload);
         let len = u32::from_le_bytes(framed[..4].try_into().unwrap()) as usize;
@@ -223,22 +227,30 @@ mod tests {
         let decoded: InvitePayload = serde_json::from_slice(&framed[4..]).expect("decode body");
         assert_eq!(decoded.v, INVITE_VERSION);
         assert_eq!(decoded.room_name, "general");
-        assert_eq!(decoded.ticket, "ticket-blob");
-        assert_eq!(decoded.code, "iqaa-code");
+        assert_eq!(decoded.invite, "ninvite-blob");
     }
 
     #[test]
-    fn empty_code_survives_the_frame() {
-        // DHT off ⇒ the code field is empty, not absent — the wire format must
-        // not treat that as malformed.
+    fn a_frame_from_an_older_peer_still_decodes() {
+        // Older builds named the field `ticket` and sent a permanent room ticket
+        // in it. The alias keeps such a frame parseable rather than dropping the
+        // connection — what the invitee does with the contents is decided
+        // upstream, but a version mismatch must not look like a network fault.
+        let raw = serde_json::json!({ "v": INVITE_VERSION, "room_name": "r", "ticket": "iold", "code": "" });
+        let decoded: InvitePayload = serde_json::from_value(raw).expect("legacy frame");
+        assert_eq!(decoded.invite, "iold");
+    }
+
+    #[test]
+    fn the_room_code_no_longer_rides_along() {
+        // It used to carry a DHT room code so the invitee became a secret-holder.
+        // Room codes are gone; the frame must not reintroduce one.
         let payload = InvitePayload {
             v: INVITE_VERSION,
             room_name: "r".into(),
-            ticket: "t".into(),
-            code: String::new(),
+            invite: "n".into(),
         };
-        let framed = frame_bytes(&payload);
-        let decoded: InvitePayload = serde_json::from_slice(&framed[4..]).expect("decode");
-        assert!(decoded.code.is_empty());
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(!json.contains("code"), "{json}");
     }
 }
