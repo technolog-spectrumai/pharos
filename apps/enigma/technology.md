@@ -534,6 +534,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Identity | Local profile; `CHAT_USER` = MLS identity, NodeId = transport identity. Self-asserted, no PKI. |
 | Metadata to n0 relays/discovery | **Exposed on iroh:** NodeId↔IP, who-talks-to-whom, timing, sizes, online presence. Avoided when "use Tor" is on; removable at build time (`p2p.allow_hosted_relays: false`). |
 | QR ticket contents | iroh: leaks the **plaintext room name** + the creator's **NodeId + IP addresses**. Tor: leaks the room name + the creator's `.onion` (no IP). |
+| Invitation QR contents | **No room name, no topic, no MLS material.** A *personal* invitation is sealed to one contact's key and carries no decryption key of its own; a *general* one is a cleartext bearer code. Both carry the inviter's address — an IP on clearnet, an `.onion` over Tor — and a deadline the inviter's own clock enforces ([§18](#18-invitations--encrypted-expiring-revocable)). |
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
 | Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
@@ -601,7 +602,11 @@ least-serious) so they can be addressed:
    secret; low-entropy names are trivially derived, letting anyone who knows the name
    join the swarm and attempt to be added to the MLS group. (DHT room *codes* carry a
    proper secret; the auto-admit MLS flow is the shared gap — an admission-approval UI
-   is future work.)
+   is future work.) **Invitations ([§18](#18-invitations--encrypted-expiring-revocable))
+   narrow this without closing it**: they add an admission path that is
+   authenticated, expiring and revocable, but auto-admit over gossip is unchanged,
+   so a room reached by invitation is still joinable by anyone holding its ticket
+   or guessing its topic. An invite-only room flag is the piece that would close it.
 8. **WebView / IPC surface.** `tauri.conf.json` sets `security.csp = null` (no Content
    Security Policy); on Linux the app auto-grants every WebView permission request; and
    `fs_write_base64_file` — the "save as…" binary writer behind the native dialog —
@@ -697,6 +702,15 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   Local **SVG editor** (`components/local/SvgEditor.vue`) draws with, so that
   code ships — the *board*, with its own tab and its own document store, does
   not.
+- **Sharing a room** (`RoomShareCard`, in both `CreateRoomModal` and
+  `RoomInfoModal`) — three ways in, on segmented pills: the **room ticket**
+  (permanent, anyone, not revocable), a **private QR** (sealed to one contact,
+  expiring, revocable) and a **shareable QR** (bearer, expiring, revocable, with
+  an explicit "this is not secret" warning). Each states its consequence and its
+  Privacy HP price before the tap, and the invitation modes carry the "keep this
+  room open until they join" note ([§18](#18-invitations--encrypted-expiring-revocable)).
+  Redemption needs no new surface: `JoinRoomModal`'s single field routes an
+  invitation by its tag byte.
 - **Settings** (`EnigmaConfigView`) — six tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
   shows; max file size; transfer chunk size + integrity check; meeting reminder;
@@ -1118,6 +1132,7 @@ instead of hardcoding.
 | Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
 | Privacy HP price table | `apps/enigma/src-tauri/privacy_hp.yaml` | Compile-time, **all editions** (prices are not a product knob — one file, not one per `configs/*.yaml`). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of making a surface free) and generates `enigma_lib::hp_policy`. Fetched once at boot via `hp_get_policy` → rakotis `initHpPolicy`/`getHpPolicy`; `services/hp.ts` carries a browser-mode mirror that `privacyHpDrift.test.ts` pins against the YAML. See [§17](#17-privacy-hp--the-exposure-budget) |
 | Privacy HP ledger | protasius ns `hp` via `vault::get/put` (**internal** tag) | Per-profile, append-only, reason codes and numbers only. Deliberately NOT in the `kv_*` keyspace the webview can write: a different AAD tag means JS cannot read, forge or clobber it. Balances are derived, never stored — see [§17.4](#174-regeneration) |
+| Invitation state | protasius ns `invites` via `vault::get/put` (**internal** tag) | Per-profile, per-issuer: the capability, recipient binding, deadline and `Active/InFlight/Consumed/Revoked` state of every invitation minted. Deliberately NOT in the `kv_*` keyspace the webview can write. Expiry is decided **here**, on the inviter's clock — the deadline inside a ticket is advisory ([§18](#18-invitations--encrypted-expiring-revocable)) |
 | PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
@@ -1565,6 +1580,194 @@ subtraction).
    dropped because the vault DEK is gone while locked, forcing an
    anchor-then-settle mechanism with real edge cases (crash windows, restarts,
    clock rollback) for a small gain. Its absence is a decision, not an oversight.
+
+---
+
+## 18. Invitations — encrypted, expiring, revocable
+
+A second way into a room, deliberately narrower than a ticket.
+
+A **room ticket** is a permanent bearer credential: it carries the plaintext room
+name, the creator's NodeId and — on clearnet — their IP addresses ([§8](#8-privacy)).
+It cannot expire, cannot be revoked, and anyone it is forwarded to can join. An
+**invitation** carries no room name and no topic, is checked against the
+*inviter's own* clock at redemption, and can be revoked or spent exactly once.
+
+Two kinds, because the honest claim differs:
+
+- **Personal** — the whole body is sealed to one contact's public key. Nobody
+  else who photographs it can read it, and **no decryption key travels with it**:
+  the recipient opens it with the secret behind their own NodeId, which was never
+  in the QR. A real confidentiality claim.
+- **General** — a transferable bearer code in **cleartext**. There is no
+  recipient to seal it to, so it is not confidential, is not claimed to be, and
+  the UI, the HP explanation and the price all say so.
+
+### 18.1 The ticket
+
+```
+base32-nopad-lowercase( TAG(0x4E) || FORMAT_V(0x01) || KIND || body )
+  KIND 0x50 'P' → body = seal_to(recipient_x25519, AAD, postcard(InviteBody))
+  KIND 0x47 'G' → body = postcard(InviteBody)
+  AAD = [TAG, FORMAT_V, KIND]        (so a sealed body cannot be relabelled)
+
+InviteBody { invite_id[16], capability[32], inviter, addr, issued_at, expires_at }
+  addr = Iroh(Vec<EndpointAddr>) | Tor(onion)
+```
+
+The tag joins the `IROH_TAG 0x49` / `TOR_TAG 0x54` / `DHT_TAG 0x44` family, so one
+paste/scan field routes everything. **Never carried:** room name, gossip topic,
+room code, MLS material, or the recipient's identity — a Personal ticket must not
+name its own recipient, or a photograph would reveal who was invited.
+
+The **version byte sits outside the seal** on purpose: a v2 ticket handed to a v1
+build must say "this needs a newer version" rather than failing as corrupt, and
+that decision cannot wait on a key we may not have.
+
+**`expires_at` here is advisory.** It drives the countdown and nothing else — a
+bearer can edit their own copy, and on a General ticket it is not even
+authenticated. Only the inviter's record decides.
+
+### 18.2 Sealing (`gervasius::seal`)
+
+Ephemeral-static X25519 → HKDF-SHA256 → the crate's existing XChaCha20-Poly1305:
+
+```
+sealed = eph_pk(32) || nonce(24) || ciphertext+tag
+key    = HKDF-SHA256(ikm = X25519(eph_sk, recipient_pk),
+                     salt = eph_pk || recipient_pk, info = …/v1)
+```
+
+Both public keys go into the salt, so a ciphertext is bound to the recipient it
+was made for and cannot be re-pointed by rewriting the ephemeral header.
+
+**Identity keys are reused for encryption.** A contact record holds only their
+iroh **NodeId**, an Ed25519 *signing* key, so `x25519_from_ed25519_pk` maps it to
+Curve25519's Montgomery form — the standard birational map (age does the same for
+`ssh-ed25519`; libsodium ships it as `crypto_sign_ed25519_pk_to_curve25519`). The
+signing side is Ed25519 over the Edwards form and the sealing side is X25519 ECDH
+over the Montgomery form; they use disjoint hash prefixes and neither protocol
+interprets the other's messages. The alternative — a second key per contact,
+distributed and verified out of band — is a channel Enigma26 does not have.
+
+Small-order keys are refused at both conversion and seal time; note that roughly
+**half of all 32-byte strings are valid curve points**, so a successful conversion
+is not a NodeId validator and is not used as one.
+
+Forward secrecy is **one-sided**: the ephemeral key is discarded, but the
+recipient's is long-lived, so a later compromise opens any captured blob. Right
+for something that expires in hours; wrong for a long-term secret.
+
+### 18.3 Redemption
+
+`REDEEM_ALPN = enigma/redeem/0` on the same iroh router as `INVITE_ALPN`; over Tor,
+the existing `Hello` frame gained `kind: "room" | "redeem"` (absent = `"room"`, so
+older peers are untouched and a room dial is byte-identical to before).
+
+```
+inviter  → redeemer : challenge (32 random bytes)
+redeemer → inviter  : invite_id, node_id, key_package,
+                      sig   = Ed25519(identity_sk, challenge)
+                      proof = blake3::keyed_hash(capability,
+                                  invite_id ‖ challenge ‖ node_id)
+inviter checks, under one lock:  signature → transport identity (iroh only)
+                                 → state → expiry (INVITER's clock)
+                                 → recipient binding → proof
+                                 → CAS Active → InFlight
+inviter  → redeemer : welcome ‖ room name ‖ addresses    — or a refusal code
+```
+
+**The capability never crosses the wire.** What travels is a MAC over a fresh
+challenge *and* the redeemer's identity, so a captured proof cannot be replayed by
+the same holder (new challenge) or reused by a different one (different node_id).
+
+**The signature exists because of Tor.** On iroh, QUIC already authenticates the
+peer and the handler cross-checks the claimed NodeId against it. **Tor
+authenticates the server, not the client** — an onion stream carries no client
+identity, so without a signature "recipient binding" there would reduce to the
+redeemer *claiming* to be the recipient.
+
+**One-use is a lease, not a burn.** `Active → InFlight(60 s) → Consumed`. Two
+racing redeemers: exactly one takes the lease. A failed MLS round lets the lease
+lapse back to `Active` rather than destroying the invitation over someone else's
+bad network.
+
+### 18.4 Admission, and the KeyPackage ordering problem
+
+Rust performs every check, then parks and asks the frontend, because admission is
+an MLS group operation whose commit must reach the room's existing members over
+that room's transport — both `useChatChannel`'s.
+
+The redeemer has to produce a **KeyPackage before it knows which room it is for**,
+since the QR deliberately does not name one until the capability is proven. So it
+builds a session under a scratch key (`invite:<inviter>:<expiry>`), and
+`mls_adopt_session` re-files it onto the real room once the grant names one — that
+session is the one holding the KeyPackage's private init key. It refuses to
+overwrite an existing session: adopting onto a room we are already in would
+discard live group state.
+
+### 18.5 State
+
+`vault::get/put` under ns `invites` — the protasius **internal** tag, so the
+webview can neither read nor forge invite state (the boundary the HP ledger uses).
+
+The **capability itself is stored**, not just a hash. Verifying a keyed MAC needs
+the key; an issuer holding only a hash could not check the proof, and the protocol
+would have to fall back to the redeemer transmitting the raw capability — losing
+the challenge binding to protect a secret the vault already protects, alongside
+the MLS state and the iroh identity key.
+
+Retention runs from the **terminal event** (`Consumed{at}` / `Revoked{at}`), not
+the deadline: an invitation revoked today but issued with a year to run is
+finished today.
+
+### 18.6 Prices ([§17](#17-privacy-hp--the-exposure-budget))
+
+| Action | HP |
+| --- | ---: |
+| `invite.personal.create.tor` | **−1** |
+| `invite.personal.create.clearnet` | **−3** |
+| `invite.general.create.tor` | −5 |
+| `invite.general.create.clearnet` | −10 |
+| `invite.revoke` | **+5** |
+
+A private invitation is **−3 against the room ticket's −10** — the cheap option is
+the private one, which is the point. A bearer invitation is priced *level with*
+exporting a ticket: same address, same audience, better only in that it expires
+and can be revoked. At −10 it always raises the confirmation, so the warning
+precedes the tap.
+
+Charged at **creation**, not on copy: minting brings the credential into
+existence, and copying it again exposes nothing further. (The room ticket is the
+other way round — it already exists, so sharing is the act.) Redemption is charged
+as `room.join.*`, because it *is* a room join.
+
+`invite.revoke` is unpaired — a bearer invitation can be minted on either
+transport, so pairing it to one action id would refuse to pay for the other. The
+verified state change is enforced at the call site: `invite_revoke` returns whether
+a record really moved from live to revoked, and the credit is claimed only on that.
+
+### 18.7 Limitations
+
+1. **The inviter must be online AND have the room open.** There is no
+   store-and-forward ([§16](#16-history--the-serverless-rework)), and admission
+   needs the group loaded plus a live transport for its commit. An invitation is a
+   rendezvous, not a message left for someone. The share card says so.
+2. **A General invitation is not confidential.** Cleartext by construction; there
+   is no recipient to seal it to. Sealing it under a key printed beside it would
+   be theatre.
+3. **An invitation does not make a room invite-only.** Auto-admit over gossip
+   (§9.3, §9.7) is unchanged, so a room reached by invitation is still joinable by
+   anyone holding its ticket or guessing its `blake3(name)` topic. The guarantee
+   is about the QR, not the room. An invite-only flag is future work.
+4. **`expires_at` in the QR is advisory** (§18.1). Only the inviter's record
+   decides.
+5. **Identity-key reuse** (§18.2) is a deliberate, documented trade.
+6. **Forward secrecy is one-sided** (§18.2).
+7. **A member can always re-share.** After admission the redeemer holds the room
+   name and its addresses, as every member must. The invitation controls
+   *admission*, not what a member does afterwards. It is not handed the DHT room
+   code, so it cannot publish or resolve the room by rendezvous.
 
 ---
 

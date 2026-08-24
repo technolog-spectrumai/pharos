@@ -24,6 +24,13 @@ shipped app mark, `sun-key2`, and how to change it).
   the ticket — both peers subscribe to the same topic and the **MLS handshake
   runs over the topic itself** (key package → welcome/commit). No server ever
   sees anything but ciphertext.
+- **Invitations (optional, cheaper)**: instead of handing out the permanent room
+  ticket, mint a **private QR** sealed to one contact's public key — nobody else
+  who photographs it can read it, it expires, it is one-use, and you can withdraw
+  it. A transferable **shareable QR** is offered too, clearly labelled as not
+  secret. Redemption connects to you and proves the capability before anything
+  about the room is revealed; the QR itself carries no room name and no topic.
+  See [technology.md §18](technology.md#18-invitations--encrypted-expiring-revocable).
 - **Reconnecting**: each peer's stable **NodeId** is persisted per room; on
   restart the app rejoins its last room and resolves current addresses through
   iroh's built-in n0 discovery — pair once, reconnect forever. Only a full cold
@@ -42,6 +49,13 @@ shipped app mark, `sun-key2`, and how to change it).
   **local locking**, a room **calendar** (meetings + polls), and offline
   **maps** — including a location you share into a room by tapping the spot
   (never from the device's GPS). §10.
+- **Privacy HP**: a game-like *safety budget* that puts one fixed, comparable
+  price beside every exposing action — a private invitation costs −3 HP where
+  exporting a room ticket costs −10 — so the relative cost of a choice is visible
+  before the tap. Two meters (100/day, 700/week) that regenerate on their own, and
+  **three times faster while Tor is on**. Advisory only: it never blocks anything,
+  and it measures rather than protects. See
+  [technology.md §17](technology.md#17-privacy-hp--the-exposure-budget).
 - **Build policy is compiled in**: `build_config.yaml` bakes allow flags
   (hosted relays, the DHT), per-feature kill switches (calls, contacts,
   calendar, maps, key ring, PIN unlock), crypto declarations, and setting
