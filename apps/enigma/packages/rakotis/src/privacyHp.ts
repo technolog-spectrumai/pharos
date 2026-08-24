@@ -71,18 +71,15 @@ export interface HpPolicy {
   dailyRegenPerMinutes: number;
   /** The faster period while Tor is on (smaller = faster). */
   dailyTorRegenPerMinutes: number;
-  weeklyMaxCenti: number;
-  weeklyRegenCenti: number;
-  weeklyRegenPerMinutes: number;
-  weeklyTorRegenPerMinutes: number;
-  weeklyWindowDays: number;
+  /** Days the ledger chart spans. Not a meter — there is only one of those. */
+  historyDays: number;
   recoveryDailyCapCenti: number;
-  recoveryWeeklyCapCenti: number;
+  recoveryWindowCapCenti: number;
   dataPerMibCenti: number;
   dataMinAwardCenti: number;
   dataMaxPerEventCenti: number;
   dataDailyCapCenti: number;
-  dataWeeklyCapCenti: number;
+  dataWindowCapCenti: number;
   actions: HpAction[];
   recoveries: HpRecovery[];
   dataSources: HpDataSource[];
@@ -123,7 +120,6 @@ export interface HpMeter {
 
 export interface HpBalances {
   daily: HpMeter;
-  weekly: HpMeter;
 }
 
 const MS_PER_MINUTE = 60_000;
@@ -240,7 +236,7 @@ export function severityOf(centi: number): HpSeverity {
 export function needsConfirm(policy: HpPolicy, centi: number, balances?: HpBalances): boolean {
   if (Math.abs(centi) >= policy.confirmAtCenti) return true;
   if (!balances || centi === 0) return false;
-  return balances.daily.balanceCenti <= 0 || balances.weekly.balanceCenti <= 0;
+  return balances.daily.balanceCenti <= 0;
 }
 
 // ── derivation ──────────────────────────────────────────────────────────────
@@ -397,10 +393,14 @@ function deriveMeter(entries: readonly HpEntry[], now: number, spec: MeterSpec):
 /**
  * Both meters, from the ledger alone.
  *
- * Deterministic: same rows plus same `now` always give the same pair, on any
- * device, in any timezone, with nothing cached. Both windows ROLL rather than
- * resetting at a calendar boundary — no midnight to double-collect across, and
- * no local-date arithmetic to disagree with Rust about.
+ * Deterministic: the same rows plus the same `now` always give the same balance,
+ * on any device, in any timezone, with nothing cached. The window ROLLS rather
+ * than resetting at a calendar boundary — no midnight to double-collect across,
+ * and no local-date arithmetic to disagree with Rust about.
+ *
+ * Being a pure function of (rows, now) is what makes the history chart possible:
+ * `hpHistory` below simply calls this at a series of past instants. There is no
+ * stored timeline to keep in step, and it works with no network.
  */
 export function deriveBalances(
   policy: HpPolicy,
@@ -415,14 +415,126 @@ export function deriveBalances(
       regenPerMinutes: policy.dailyRegenPerMinutes,
       torRegenPerMinutes: policy.dailyTorRegenPerMinutes,
     }),
-    weekly: deriveMeter(entries, now, {
-      maxCenti: policy.weeklyMaxCenti,
-      windowMs: MS_PER_DAY * policy.weeklyWindowDays,
-      regenCenti: policy.weeklyRegenCenti,
-      regenPerMinutes: policy.weeklyRegenPerMinutes,
-      torRegenPerMinutes: policy.weeklyTorRegenPerMinutes,
-    }),
   };
+}
+
+/** One sample on the history chart. */
+export interface HpSample {
+  /** Epoch ms of the sample. */
+  t: number;
+  /** The daily meter's balance at that instant, in centi-HP. */
+  centi: number;
+}
+
+/** How finely the history is sampled. */
+export type HpTick = "hour" | "day";
+
+/**
+ * The daily meter's balance over the last `days`, as a series to draw.
+ *
+ * Reconstructed rather than recorded. `deriveBalances` is a pure function of
+ * (rows, now), so the balance at any past instant is just that function called
+ * with a past `now` — which means there is no timeline to persist, nothing to
+ * keep in step with the ledger, and no way for the chart to disagree with the
+ * number above it. It also means the whole thing works offline: the rows are
+ * already on the device, and no clock but the local one is consulted.
+ *
+ * `tick` chooses the resolution. "hour" gives 169 points over a week — enough to
+ * see a single afternoon's drain — and "day" gives 8, which is the shape of a
+ * habit. Neither costs anything to switch between, since both are derived on
+ * demand from the same rows.
+ *
+ * Samples before the ledger's retention window are still meaningful: rows that
+ * fell out of the 24-hour meter window simply do not count towards them, which is
+ * exactly what the meter itself did at that moment.
+ */
+export function hpHistory(
+  policy: HpPolicy,
+  entries: readonly HpEntry[],
+  now: number,
+  tick: HpTick = "hour",
+  days = policy.historyDays,
+): HpSample[] {
+  const step = tick === "hour" ? MS_PER_HOUR : MS_PER_DAY;
+  const span = days * MS_PER_DAY;
+  const start = now - span;
+  const out: HpSample[] = [];
+  // Walk forward from the oldest so the series reads left-to-right, and land the
+  // LAST sample exactly on `now` — a chart whose final point is up to an hour
+  // stale next to a live number is the kind of small lie that erodes trust in it.
+  for (let t = start; t < now; t += step) {
+    out.push({ t, centi: deriveBalances(policy, entries, t).daily.balanceCenti });
+  }
+  out.push({ t: now, centi: deriveBalances(policy, entries, now).daily.balanceCenti });
+  return out;
+}
+
+/**
+ * An SVG polyline `points` string for `samples`, fitted to a `w`×`h` box.
+ *
+ * Drawn by hand rather than by a chart library: the app ships offline, a
+ * dependency for one polyline would be the largest thing in the bundle it is
+ * used by, and the y-axis here is not data-driven — it is always 0..max, because
+ * a chart that rescaled to the data would make a quiet week look like a crisis.
+ */
+export function hpSparkline(
+  samples: readonly HpSample[],
+  maxCenti: number,
+  w = 100,
+  h = 32,
+): string {
+  if (samples.length === 0 || maxCenti <= 0) return "";
+  if (samples.length === 1) return `0,${h} ${w},${h}`;
+  const span = samples.length - 1;
+  return samples
+    .map((s, i) => {
+      const x = (i / span) * w;
+      // SVG y grows downward, so a full meter sits at the top.
+      const y = h - Math.max(0, Math.min(1, s.centi / maxCenti)) * h;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+/** One bar of the per-day chart, in the same 0..w / 0..h box as the polyline. */
+export interface HpBar {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Epoch ms of the day this bar covers, for the label and the title text. */
+  t: number;
+  centi: number;
+}
+
+/**
+ * `samples` as bars rather than a line.
+ *
+ * The per-day view draws the SAME series the per-hour one does — the meter's
+ * balance — so switching the dropdown changes how the history is drawn and never
+ * what it measures. Bars suit the coarser view because eight of them read as
+ * eight discrete days, where a line through eight points invites you to believe
+ * in the slope between them, which is an artefact of sampling and not something
+ * that happened.
+ *
+ * A zero balance still gets a hairline so the day is visibly present rather than
+ * missing — "you were at zero" and "there is no data" must not look the same.
+ */
+export function hpBars(
+  samples: readonly HpSample[],
+  maxCenti: number,
+  w = 100,
+  h = 32,
+): HpBar[] {
+  if (samples.length === 0 || maxCenti <= 0) return [];
+  const slot = w / samples.length;
+  const barW = Math.max(1, slot * 0.7);
+  const pad = (slot - barW) / 2;
+  return samples.map((s, i) => {
+    const frac = Math.max(0, Math.min(1, s.centi / maxCenti));
+    const barH = Math.max(0.6, frac * h);
+    return { x: i * slot + pad, y: h - barH, w: barW, h: barH, t: s.t, centi: s.centi };
+  });
 }
 
 /** Is `actionId`'s exposure live — charged and not since withdrawn? Mirrors

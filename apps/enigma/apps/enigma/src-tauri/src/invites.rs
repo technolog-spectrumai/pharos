@@ -174,13 +174,27 @@ impl std::fmt::Display for RedeemError {
 
 // ── pure state machine (no vault, no clock — directly testable) ─────────────
 
+/// `expires_at == 0` means NEVER — the one invitation that does not run out.
+///
+/// Only a Tor invitation may carry it (`invite_api::mint` refuses it otherwise):
+/// a `.onion` is hard enough to come by that a standing invitation is a risk the
+/// budget can price rather than forbid. It is not free — `privacy_hp` charges for
+/// every hour one stays outstanding, and a drained daily meter closes the room it
+/// belongs to. Zero rather than `u64::MAX` because zero is what an older record
+/// deserializing without the field would produce, and "never" is the wrong default
+/// to inherit silently; every read of this field goes through the helper below so
+/// there is one place that decides.
+pub fn never_expires(rec: &InviteRecord) -> bool {
+    rec.expires_at == 0
+}
+
 pub fn effective_state(rec: &InviteRecord, now: u64) -> EffectiveState {
     match &rec.state {
         // Terminal states outrank expiry: "you already used this" is more useful
         // than "it expired", and revocation is a decision, not a timeout.
         InviteState::Consumed { .. } => EffectiveState::Consumed,
         InviteState::Revoked { .. } => EffectiveState::Revoked,
-        _ if now >= rec.expires_at => EffectiveState::Expired,
+        _ if !never_expires(rec) && now >= rec.expires_at => EffectiveState::Expired,
         InviteState::InFlight { lease_until, .. } if *lease_until > now => EffectiveState::InFlight,
         // A lapsed lease is indistinguishable from Active, which is the point.
         InviteState::InFlight { .. } | InviteState::Active => EffectiveState::Active,
@@ -256,7 +270,11 @@ fn dead_since(rec: &InviteRecord) -> u64 {
     match &rec.state {
         InviteState::Consumed { at, .. } => *at,
         InviteState::Revoked { at } => *at,
-        // Nothing happened to it; it simply ran out.
+        // Nothing happened to it; it simply ran out. A never-expiring record is
+        // not dead at all, so this arm is unreachable for one — `sweep` checks
+        // liveness first — but returning its issue time rather than 0 keeps the
+        // arithmetic below honest if that ever stops being true.
+        _ if never_expires(rec) => rec.created_at,
         _ => rec.expires_at,
     }
 }

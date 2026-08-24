@@ -764,11 +764,16 @@ export default {
   // się widoczne i dla kogo. Nazywają konkretnego obserwatora, a nie mówią
   // ogólnie "to zmniejsza prywatność".
   hp: {
+    chartTitle: "Ostatnie 7 dni",
+    chartTick: "Rozdzielczość wykresu",
+    tickHour: "Co godzinę",
+    tickDay: "Co dzień",
+    chartAlt: "Twój budżet z ostatnich {n} dni",
+    chartLow: "Najniżej w ciągu {days} dni: {n}",
     title: "Privacy HP",
     intro:
       "Budżet na to, ile o sobie ujawniasz. Bezpieczniejsze wybory go zachowują, ujawniające go wydają. Niczego nie blokuje — pokazuje cenę, zanim klikniesz.",
     daily: "Dzisiaj",
-    weekly: "W tym tygodniu",
     loading: "Wczytywanie historii…",
     free: "Za darmo",
     chipTitle: "Privacy HP pozostałe dzisiaj",
@@ -827,6 +832,7 @@ export default {
       dhtRoomCodePublish: "Opublikuj kod pokoju",
       ticketExportClearnet: "Udostępnij zaproszenie (bez Tora)",
       ticketExportTor: "Udostępnij zaproszenie (przez Tor)",
+      torPersistentHold: "Utrzymywanie pokoju Tor dostępnym",
       roomCreateClearnet: "Utwórz pokój (bez Tora)",
       roomCreateTor: "Utwórz pokój (przez Tor)",
       roomJoinClearnet: "Dołącz do pokoju (bez Tora)",
@@ -876,6 +882,8 @@ export default {
         "To zaproszenie niesie nazwę pokoju i adres twojego urządzenia, łącznie z IP — dla każdego, kto je zobaczy, sfotografuje lub prześle dalej.",
       ticketExportTor:
         "To zaproszenie niesie nazwę pokoju i twój adres onion — bez IP — dla każdego, kto je zobaczy, sfotografuje lub prześle dalej.",
+      torPersistentHold:
+        "Bezterminowe zaproszenie ma wartość tylko dopóki adres .onion, który wskazuje, wciąż odpowiada — więc każdy, kto ma ten adres, może próbować tak długo, jak pokój działa. Naliczane co godzinę, za każdy pokój; kończy się, gdy zamkniesz pokój, wyłączysz Tora albo zmienisz adres.",
       roomCreateClearnet:
         "Utworzenie tego pokoju dołącza do publicznego tematu otwartym tekstem, więc twój adres jest widoczny dla jego uczestników i przekaźników.",
       roomCreateTor:

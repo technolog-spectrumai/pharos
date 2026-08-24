@@ -769,11 +769,16 @@ export default {
   // observer ("n0 relays", "anyone holding your NodeId") rather than saying
   // "your privacy is reduced".
   hp: {
+    chartTitle: "Last 7 days",
+    chartTick: "Chart resolution",
+    tickHour: "Per hour",
+    tickDay: "Per day",
+    chartAlt: "Your budget over the last {n} days",
+    chartLow: "Lowest in {days} days: {n}",
     title: "Privacy HP",
     intro:
       "A budget for how much you expose. Safer choices keep it; exposing ones spend it. It never blocks anything — it tells you the price before you tap.",
     daily: "Today",
-    weekly: "This week",
     loading: "Reading your history…",
     free: "Free",
     chipTitle: "Privacy HP left today",
@@ -832,6 +837,7 @@ export default {
       dhtRoomCodePublish: "Publish a room code",
       ticketExportClearnet: "Share an invite (no Tor)",
       ticketExportTor: "Share an invite (over Tor)",
+      torPersistentHold: "Keep a Tor room reachable",
       roomCreateClearnet: "Create a room (no Tor)",
       roomCreateTor: "Create a room (over Tor)",
       roomJoinClearnet: "Join a room (no Tor)",
@@ -881,6 +887,8 @@ export default {
         "This invite carries the room name and your device's address, including your IP — to anyone who sees, photographs or forwards it.",
       ticketExportTor:
         "This invite carries the room name and your onion address — no IP — to anyone who sees, photographs or forwards it.",
+      torPersistentHold:
+        "A standing invitation is only worth anything while the .onion it names still answers — so anyone who has that address can keep trying, for as long as the room stays up. Charged by the hour, per room, and it stops the moment the room closes, Tor goes off, or you rotate the address.",
       roomCreateClearnet:
         "Creating this room joins a public topic in the clear, so your address is visible to its members and to the relays carrying it.",
       roomCreateTor:

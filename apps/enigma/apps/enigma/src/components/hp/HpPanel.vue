@@ -23,6 +23,7 @@ import {
   formatDate,
 } from "rakotis";
 import { explainFor, hpBalances, hpEntries, hpLoaded, labelFor } from "./useHp";
+import HpHistoryChart from "./HpHistoryChart.vue";
 
 withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
 
@@ -185,6 +186,14 @@ function rateNote(id: string): string {
 
 const rows = computed(() => historyRows(policy, hpEntries.value, Date.now(), 200));
 
+// One `now` for the chart, recomputed when the ledger changes rather than on every
+// render: a chart whose last point crept forward mid-frame would redraw constantly
+// and say nothing new.
+const chartNow = computed(() => {
+  void hpEntries.value.length;
+  return Date.now();
+});
+
 /** "47 messages" for a coalesced bucket; nothing for a single activation. */
 function countNote(n: number): string {
   return n > 1 ? t("hp.historyCount", { n }) : "";
@@ -214,14 +223,17 @@ const recoveries = computed(() => policy.recoveries);
         :regen-label="regenLabel(hpBalances.daily.regenPerHourCenti)"
         :next-label="nextLabel(hpBalances.daily.msToNextHp)"
       />
-      <OyaHpMeter
-        class="flex-1"
-        :meter="hpBalances.weekly"
-        :label="$t('hp.weekly')"
-        :regen-label="regenLabel(hpBalances.weekly.regenPerHourCenti)"
-        :next-label="nextLabel(hpBalances.weekly.msToNextHp)"
-      />
     </div>
+
+    <!-- Seven days of the same meter, in place of the second bar that used to
+         sit beside it. A shape says what a slower number could not. -->
+    <HpHistoryChart
+      v-if="hpLoaded"
+      :policy="policy"
+      :entries="hpEntries"
+      :max-centi="hpBalances.daily.maxCenti"
+      :now="chartNow"
+    />
 
     <p v-if="!hpLoaded" class="text-sm opacity-60">{{ $t("hp.loading") }}</p>
 
@@ -357,7 +369,7 @@ const recoveries = computed(() => policy.recoveries);
         <p class="text-xs leading-relaxed opacity-60">
           {{ $t("hp.recoveryCaps", {
             daily: formatHp(policy.recoveryDailyCapCenti),
-            weekly: formatHp(policy.recoveryWeeklyCapCenti),
+            window: formatHp(policy.recoveryWindowCapCenti),
           }) }}
         </p>
         </template>

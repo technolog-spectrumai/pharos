@@ -49,14 +49,15 @@ const yaml = parse(readFileSync(YAML_PATH, "utf8")) as {
   actions: RawAction[];
   recovery: {
     daily_cap: number;
-    weekly_cap: number;
+    window_days: number;
+    window_cap: number;
     fixed: { id: string; credit: number; requires: string | null; explain_key: string }[];
     data: {
       per_mib: number;
       min_award: number;
       max_per_event: number;
       daily_cap: number;
-      weekly_cap: number;
+      window_cap: number;
       sources: { id: string; explain_key: string }[];
     };
   };
@@ -76,10 +77,10 @@ describe("the mirror matches privacy_hp.yaml", () => {
     expect(MIRROR.dailyMaxCenti).toBe(centi(yaml.meters.daily.max));
     expect(MIRROR.dailyRegenCenti).toBe(centi(yaml.meters.daily.regen_hp));
     expect(MIRROR.dailyRegenPerMinutes).toBe(yaml.meters.daily.regen_per_minutes);
-    expect(MIRROR.weeklyMaxCenti).toBe(centi(yaml.meters.weekly.max));
-    expect(MIRROR.weeklyRegenCenti).toBe(centi(yaml.meters.weekly.regen_hp));
-    expect(MIRROR.weeklyRegenPerMinutes).toBe(yaml.meters.weekly.regen_per_minutes);
-    expect(MIRROR.weeklyWindowDays).toBe(yaml.meters.weekly.window_days);
+    // One meter now. The chart replaced the second bar, and its span is the
+    // credit window rather than a meter of its own.
+    expect(MIRROR.historyDays).toBe(yaml.recovery.window_days);
+    expect(yaml.meters.weekly).toBeUndefined();
   });
 
   it("agrees on every action, field by field", () => {
@@ -109,12 +110,12 @@ describe("the mirror matches privacy_hp.yaml", () => {
   it("agrees on the data-deletion credit and its caps", () => {
     const d = yaml.recovery.data;
     expect(MIRROR.recoveryDailyCapCenti).toBe(centi(yaml.recovery.daily_cap));
-    expect(MIRROR.recoveryWeeklyCapCenti).toBe(centi(yaml.recovery.weekly_cap));
+    expect(MIRROR.recoveryWindowCapCenti).toBe(centi(yaml.recovery.window_cap));
     expect(MIRROR.dataPerMibCenti).toBe(centi(d.per_mib));
     expect(MIRROR.dataMinAwardCenti).toBe(centi(d.min_award));
     expect(MIRROR.dataMaxPerEventCenti).toBe(centi(d.max_per_event));
     expect(MIRROR.dataDailyCapCenti).toBe(centi(d.daily_cap));
-    expect(MIRROR.dataWeeklyCapCenti).toBe(centi(d.weekly_cap));
+    expect(MIRROR.dataWindowCapCenti).toBe(centi(d.window_cap));
     expect(MIRROR.dataSources.map((s) => s.id)).toEqual(d.sources.map((s) => s.id));
   });
 });
@@ -176,8 +177,8 @@ describe("the YAML holds to its own rules", () => {
       expect(r.credit, `${r.id}`).toBeLessThanOrEqual(yaml.recovery.daily_cap);
     }
     expect(yaml.recovery.data.max_per_event).toBeLessThanOrEqual(yaml.recovery.data.daily_cap);
-    expect(yaml.recovery.data.daily_cap).toBeLessThanOrEqual(yaml.recovery.data.weekly_cap);
-    expect(yaml.recovery.daily_cap).toBeLessThanOrEqual(yaml.recovery.weekly_cap);
+    expect(yaml.recovery.data.daily_cap).toBeLessThanOrEqual(yaml.recovery.data.window_cap);
+    expect(yaml.recovery.daily_cap).toBeLessThanOrEqual(yaml.recovery.window_cap);
   });
 
   it("keeps key rotation paying more than a plain passphrase change", () => {

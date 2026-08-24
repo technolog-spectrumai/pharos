@@ -65,6 +65,11 @@ confirm_at_hp: 5
 #
 # Regeneration is GAMIFICATION. It does not erase past metadata exposure: the
 # DHT record you published is still out there long after the bar has refilled.
+# ONE meter. There used to be a second, slower 7-day one; it is gone, along with
+# its bar. Two budgets meant every price had to be legible against two ceilings at
+# once, and the weekly one moved so slowly that it read as scenery rather than as
+# something a choice could affect. What is left is the meter a decision actually
+# lands on.
 meters:
   daily:
     max: 100
@@ -74,19 +79,6 @@ meters:
     regen_per_minutes: 15
     # +12 HP/h with Tor on — three times as fast. See the note below.
     tor_regen_per_minutes: 5
-  weekly:
-    max: 700
-    # +1 HP/h with Tor off. The slower meter is the one that registers a
-    # sustained habit — above ~20 clearnet messages an hour it starts to fall
-    # behind.
-    regen_hp: 1
-    regen_per_minutes: 60
-    # +3 HP/h with Tor on.
-    tor_regen_per_minutes: 20
-    # A charge also drops out of the weekly window entirely on its 7th day.
-    # That is the backstop under the drip, not a second helping: both act on the
-    # same per-charge quantity, so they cannot double-count.
-    window_days: 7
 
 # ── why Tor changes the RATE and not a price ─────────────────────────────────
 #
@@ -167,6 +159,45 @@ actions:
     # §12 — "the presence feature's data source IS its privacy cost". Publishes
     # your pkarr record to the Mainline DHT, republished hourly: anyone holding
     # your NodeId learns when you are online, at roughly one-hour granularity.
+
+  # ── persistent Tor reachability ────────────────────────────────────────────
+  #
+  # The one exposure in this table that is charged for PASSING TIME rather than
+  # for an act. An invitation that never expires is only offered over Tor, and it
+  # is only tolerable there because a `.onion` is hard to come by — but a standing
+  # invitation is only as good as the address it names, so the address has to keep
+  # resolving, and anyone who has it can keep knocking for as long as it does.
+  #
+  # So the meter charges per hour, per room whose onion is up with a never-expiring
+  # invitation outstanding. Additive across rooms: two standing doors are twice the
+  # exposure. It stops the moment the address stops being reachable — the room
+  # closes, Tor goes off, or the onion is rotated (which deletes the old identity
+  # key, so the old address is gone rather than dormant and every invitation naming
+  # it is dead paper).
+  #
+  # The rate is set against the daily meter's Tor regeneration, which is what makes
+  # it a budget rather than a countdown. On Tor the daily meter heals 1 HP every
+  # 5 minutes — 12/hour — so:
+  #
+  #     one standing room    4.8/hour   comfortably under regen; keep it for ever
+  #     two standing rooms   9.6/hour   still under; sustainable but with no slack
+  #     three               14.4/hour   over regen — this one drains, and will end
+  #
+  # That is the intended shape. A single persistent room is a supported way to
+  # live; collecting them is not, and the meter says so by emptying rather than by
+  # refusing. Reaching zero closes the rooms that caused it (§17.4).
+
+  - id: tor.persistent.hold
+    kind: metered
+    cost: 0
+    per_minute: 0.08
+    cap_per_event: 5
+    explain_key: hp.explain.torPersistentHold
+    # 0.08/minute = 4.8 HP/hour. The cap bounds ONE accrual, which matters because
+    # a suspended laptop can leave a long gap between ticks: waking to a single
+    # 40 HP charge for hours during which the onion answered nobody would be both
+    # wrong and alarming. Ticks are minutes apart, so the cap only ever bites after
+    # a sleep — exactly the case where the exposure was not really live.
 
   # ── rooms ─────────────────────────────────────────────────────────────────
 
@@ -393,8 +424,14 @@ actions:
 # therefore nets a loss, not a profit.
 recovery:
   # Ceilings across everything below, so recovery can never become a faucet.
+  #
+  # The longer ceiling still spans 7 days even though the weekly METER is gone.
+  # The two were never the same thing: the meter was a budget the user read, this
+  # is an anti-farming bound on how fast credits can be minted, and a
+  # wipe-then-reimport loop is exactly as profitable over a week as it ever was.
   daily_cap: 12.5
-  weekly_cap: 50
+  window_days: 7
+  window_cap: 50
 
   fixed:
     - id: dht.nickname.withdraw
@@ -504,7 +541,7 @@ recovery:
     min_award: 0.25     # a deletion worth less than this pays min_award or 0
     max_per_event: 2.5
     daily_cap: 5
-    weekly_cap: 12.5
+    window_cap: 12.5
     sources:
       - id: data.delete.chat
         explain_key: hp.explain.dataDeleteChat

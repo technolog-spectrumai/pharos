@@ -619,7 +619,6 @@ struct HpScale {
 #[serde(deny_unknown_fields)]
 struct HpMeters {
     daily: HpMeter,
-    weekly: HpMeter,
 }
 
 #[derive(Deserialize)]
@@ -666,7 +665,11 @@ struct HpAction {
 #[serde(deny_unknown_fields)]
 struct HpRecovery {
     daily_cap: f64,
-    weekly_cap: f64,
+    /// Days the credit ceilings span. Independent of any meter — this bounds how
+    /// fast credits can be MINTED, which is an anti-farming rule, not a budget.
+    #[serde(default)]
+    window_days: Option<u64>,
+    window_cap: f64,
     fixed: Vec<HpFixed>,
     data: HpData,
 }
@@ -689,7 +692,7 @@ struct HpData {
     min_award: f64,
     max_per_event: f64,
     daily_cap: f64,
-    weekly_cap: f64,
+    window_cap: f64,
     sources: Vec<HpDataSource>,
 }
 
@@ -715,6 +718,7 @@ const REQUIRED_HP_ACTIONS: &[&str] = &[
     "invite.personal.create.tor",
     "invite.general.create.clearnet",
     "invite.general.create.tor",
+    "tor.persistent.hold",
     "msg.tor.mls",
     "msg.clearnet.mls",
     "msg.tor.plain",
@@ -806,7 +810,7 @@ fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
         ));
     }
 
-    for (name, m) in [("daily", &cfg.meters.daily), ("weekly", &cfg.meters.weekly)] {
+    for (name, m) in [("daily", &cfg.meters.daily)] {
         if m.max <= 0.0 {
             err(format!("meters.{name}.max: must be positive"));
         }
@@ -835,12 +839,6 @@ fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
     }
     if cfg.meters.daily.window_days.is_some() {
         err("meters.daily.window_days: the daily meter resets on the local day boundary and has no rolling window".into());
-    }
-    if cfg.meters.weekly.window_days.is_none() {
-        err("meters.weekly.window_days: required (the rolling window)".into());
-    }
-    if cfg.meters.weekly.max <= cfg.meters.daily.max {
-        err("meters: weekly.max must exceed daily.max".into());
     }
 
     // ── actions ───────────────────────────────────────────────────────────────
@@ -964,8 +962,8 @@ fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
     if d.daily_cap < d.max_per_event {
         err("recovery.data.daily_cap: below max_per_event".into());
     }
-    if d.weekly_cap < d.daily_cap {
-        err("recovery.data.weekly_cap: below daily_cap".into());
+    if d.window_cap < d.daily_cap {
+        err("recovery.data.window_cap: below daily_cap".into());
     }
     let mut dseen: Vec<&str> = Vec::new();
     for src in &d.sources {
@@ -991,8 +989,8 @@ fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
             cfg.recovery.daily_cap
         ));
     }
-    if cfg.recovery.weekly_cap < cfg.recovery.daily_cap {
-        err("recovery.weekly_cap: below daily_cap".into());
+    if cfg.recovery.window_cap < cfg.recovery.daily_cap {
+        err("recovery.window_cap: below daily_cap".into());
     }
 }
 
@@ -1060,20 +1058,17 @@ pub const DAILY_REGEN_CENTI: i64 = {d_regen};
 pub const DAILY_REGEN_PER_MINUTES: i64 = {d_per};
 /// The faster period while Tor is on (smaller = faster).
 pub const DAILY_TOR_REGEN_PER_MINUTES: i64 = {d_tor};
-pub const WEEKLY_MAX_CENTI: i64 = {w_max};
-pub const WEEKLY_REGEN_CENTI: i64 = {w_regen};
-pub const WEEKLY_REGEN_PER_MINUTES: i64 = {w_per};
-pub const WEEKLY_TOR_REGEN_PER_MINUTES: i64 = {w_tor};
-pub const WEEKLY_WINDOW_DAYS: i64 = {w_days};
 
 pub const RECOVERY_DAILY_CAP_CENTI: i64 = {r_daily};
-pub const RECOVERY_WEEKLY_CAP_CENTI: i64 = {r_weekly};
+pub const RECOVERY_WINDOW_CAP_CENTI: i64 = {r_window};
+/// Days the credit ceilings span. Not a meter — an anti-farming bound.
+pub const CREDIT_WINDOW_DAYS: i64 = {c_days};
 
 pub const DATA_PER_MIB_CENTI: i64 = {dd_per_mib};
 pub const DATA_MIN_AWARD_CENTI: i64 = {dd_min};
 pub const DATA_MAX_PER_EVENT_CENTI: i64 = {dd_max};
 pub const DATA_DAILY_CAP_CENTI: i64 = {dd_daily};
-pub const DATA_WEEKLY_CAP_CENTI: i64 = {dd_weekly};
+pub const DATA_WINDOW_CAP_CENTI: i64 = {dd_window};
 
 pub const ACTIONS: &[HpAction] = &[
 {actions}];
@@ -1104,18 +1099,14 @@ pub fn data_source(id: &str) -> Option<&'static HpDataSource> {{
         d_regen = to_centi("meters.daily.regen_hp", cfg.meters.daily.regen_hp, errors),
         d_per = cfg.meters.daily.regen_per_minutes,
         d_tor = cfg.meters.daily.tor_regen_per_minutes,
-        w_max = to_centi("meters.weekly.max", cfg.meters.weekly.max, errors),
-        w_regen = to_centi("meters.weekly.regen_hp", cfg.meters.weekly.regen_hp, errors),
-        w_per = cfg.meters.weekly.regen_per_minutes,
-        w_tor = cfg.meters.weekly.tor_regen_per_minutes,
-        w_days = cfg.meters.weekly.window_days.unwrap_or(7),
         r_daily = to_centi("recovery.daily_cap", cfg.recovery.daily_cap, errors),
-        r_weekly = to_centi("recovery.weekly_cap", cfg.recovery.weekly_cap, errors),
+        r_window = to_centi("recovery.window_cap", cfg.recovery.window_cap, errors),
+        c_days = cfg.recovery.window_days.unwrap_or(7),
         dd_per_mib = to_centi("recovery.data.per_mib", cfg.recovery.data.per_mib, errors),
         dd_min = to_centi("recovery.data.min_award", cfg.recovery.data.min_award, errors),
         dd_max = to_centi("recovery.data.max_per_event", cfg.recovery.data.max_per_event, errors),
         dd_daily = to_centi("recovery.data.daily_cap", cfg.recovery.data.daily_cap, errors),
-        dd_weekly = to_centi("recovery.data.weekly_cap", cfg.recovery.data.weekly_cap, errors),
+        dd_window = to_centi("recovery.data.window_cap", cfg.recovery.data.window_cap, errors),
         actions = {
             let mut s = String::new();
             for a in &cfg.actions {

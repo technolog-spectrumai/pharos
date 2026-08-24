@@ -56,7 +56,8 @@ const META_KEY: &str = "meta";
 const META_VERSION: u32 = 1;
 
 /// Storage buckets older than this are pruned. The meters only ever look back
-/// `WEEKLY_WINDOW_DAYS`; the surplus exists so the "Why did this change?" view
+/// the meter's 24 h; the surplus exists so the history chart and the "Why did
+/// this change?" view
 /// has some history to show and so a clock that jumped cannot orphan a bucket
 /// the very next launch.
 const RETAIN_DAYS: i64 = 30;
@@ -202,17 +203,17 @@ fn apply_caps(entries: &[Entry], now: i64, want: i64, data_ids: Option<&[&str]>)
     let spent_day = credits_since(entries, now, MS_PER_DAY, None);
     allowed = allowed.min(hp_policy::RECOVERY_DAILY_CAP_CENTI - spent_day);
 
-    let week = MS_PER_DAY * hp_policy::WEEKLY_WINDOW_DAYS;
-    let spent_week = credits_since(entries, now, week, None);
-    allowed = allowed.min(hp_policy::RECOVERY_WEEKLY_CAP_CENTI - spent_week);
+    let window = MS_PER_DAY * hp_policy::CREDIT_WINDOW_DAYS;
+    let spent_window = credits_since(entries, now, window, None);
+    allowed = allowed.min(hp_policy::RECOVERY_WINDOW_CAP_CENTI - spent_window);
 
     // Data-deletion credits carry their own, tighter pair of caps on top — the
     // declared bound on the known import-then-delete farm.
     if let Some(ids) = data_ids {
         let d_day = credits_since(entries, now, MS_PER_DAY, Some(ids));
         allowed = allowed.min(hp_policy::DATA_DAILY_CAP_CENTI - d_day);
-        let d_week = credits_since(entries, now, week, Some(ids));
-        allowed = allowed.min(hp_policy::DATA_WEEKLY_CAP_CENTI - d_week);
+        let d_window = credits_since(entries, now, window, Some(ids));
+        allowed = allowed.min(hp_policy::DATA_WINDOW_CAP_CENTI - d_window);
     }
 
     allowed.max(0)
@@ -370,18 +371,15 @@ pub struct PolicyDto {
     pub daily_regen_centi: i64,
     pub daily_regen_per_minutes: i64,
     pub daily_tor_regen_per_minutes: i64,
-    pub weekly_max_centi: i64,
-    pub weekly_regen_centi: i64,
-    pub weekly_regen_per_minutes: i64,
-    pub weekly_tor_regen_per_minutes: i64,
-    pub weekly_window_days: i64,
     pub recovery_daily_cap_centi: i64,
-    pub recovery_weekly_cap_centi: i64,
+    pub recovery_window_cap_centi: i64,
+    /// Days the ledger chart spans. Not a meter — the history window.
+    pub history_days: i64,
     pub data_per_mib_centi: i64,
     pub data_min_award_centi: i64,
     pub data_max_per_event_centi: i64,
     pub data_daily_cap_centi: i64,
-    pub data_weekly_cap_centi: i64,
+    pub data_window_cap_centi: i64,
     pub actions: Vec<ActionDto>,
     pub recoveries: Vec<RecoveryDto>,
     pub data_sources: Vec<DataSourceDto>,
@@ -410,18 +408,14 @@ pub fn hp_get_policy() -> PolicyDto {
         daily_regen_centi: hp_policy::DAILY_REGEN_CENTI,
         daily_regen_per_minutes: hp_policy::DAILY_REGEN_PER_MINUTES,
         daily_tor_regen_per_minutes: hp_policy::DAILY_TOR_REGEN_PER_MINUTES,
-        weekly_max_centi: hp_policy::WEEKLY_MAX_CENTI,
-        weekly_regen_centi: hp_policy::WEEKLY_REGEN_CENTI,
-        weekly_regen_per_minutes: hp_policy::WEEKLY_REGEN_PER_MINUTES,
-        weekly_tor_regen_per_minutes: hp_policy::WEEKLY_TOR_REGEN_PER_MINUTES,
-        weekly_window_days: hp_policy::WEEKLY_WINDOW_DAYS,
         recovery_daily_cap_centi: hp_policy::RECOVERY_DAILY_CAP_CENTI,
-        recovery_weekly_cap_centi: hp_policy::RECOVERY_WEEKLY_CAP_CENTI,
+        recovery_window_cap_centi: hp_policy::RECOVERY_WINDOW_CAP_CENTI,
+        history_days: 7,
         data_per_mib_centi: hp_policy::DATA_PER_MIB_CENTI,
         data_min_award_centi: hp_policy::DATA_MIN_AWARD_CENTI,
         data_max_per_event_centi: hp_policy::DATA_MAX_PER_EVENT_CENTI,
         data_daily_cap_centi: hp_policy::DATA_DAILY_CAP_CENTI,
-        data_weekly_cap_centi: hp_policy::DATA_WEEKLY_CAP_CENTI,
+        data_window_cap_centi: hp_policy::DATA_WINDOW_CAP_CENTI,
         actions: hp_policy::ACTIONS
             .iter()
             .map(|a| ActionDto {
@@ -539,6 +533,131 @@ pub fn hp_charge(
         Entry { ts, kind: "spend".into(), code: action.id.to_string(), hp: -cost, n: 1, bucket },
     )?;
     Ok(HpDelta { applied: -cost, code: action_id })
+}
+
+// ── persistent Tor exposure ─────────────────────────────────────────────────
+//
+// The one charge in this file that is for TIME rather than for an act.
+//
+// A never-expiring invitation is offered over Tor alone, and it is only worth
+// anything while the `.onion` it names still resolves — so the exposure is not the
+// QR, it is the address staying reachable. Anyone who has it can keep knocking for
+// as long as that is true, which is why this accrues by the hour instead of being
+// charged once at mint time.
+//
+// WHAT IS CHARGED. One accrual per room whose onion service is up AND which has a
+// live never-expiring invitation outstanding. Additive: two standing doors cost
+// twice as much. Nothing else about the room matters.
+//
+// WHEN IT STOPS. The room closing, Tor being switched off and the onion being
+// rotated all reduce to the same observable — the room is no longer in
+// `p2p_tor::hosted_rooms` — so one check covers all three rather than three
+// bookkeeping paths that can disagree.
+//
+// WHY IT IS PERSISTED. The mark is a wall-clock instant per room, kept in the
+// vault. Without it, closing and reopening the app would restart every room's
+// clock and the drain would be free to anyone willing to relaunch. With it, the
+// time already billed is on disk, so a restart resumes rather than resets — and
+// cannot bill the same minutes twice either, because the mark advances by exactly
+// what was charged.
+//
+// A room that was NOT hosted at the last tick starts fresh rather than being
+// back-charged: while the app was closed arti was not running, the address
+// answered nobody, and billing for that would be billing for an exposure that did
+// not exist.
+
+/// Per-room mark: the instant this room's exposure has been billed up to.
+type ExposureMarks = HashMap<String, i64>;
+
+const EXPOSURE_KEY: &str = "tor_exposure";
+
+fn read_marks(app: &AppHandle) -> ExposureMarks {
+    vault::get(app, NS, EXPOSURE_KEY)
+        .ok()
+        .flatten()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn write_marks(app: &AppHandle, marks: &ExposureMarks) -> Result<(), String> {
+    let bytes = serde_json::to_vec(marks).map_err(|e| e.to_string())?;
+    vault::put(app, NS, EXPOSURE_KEY, &bytes).map_err(|e| e.to_string())
+}
+
+/// What one tick of the exposure meter did, and what the caller must do about it.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TorExposureReport {
+    /// Centi-HP charged by this tick across all rooms. Negative, or zero.
+    pub charged_centi: i64,
+    /// Rooms currently accruing — what the UI counts and names.
+    pub rooms: Vec<String>,
+    /// Centi-HP per hour these rooms are costing, for the drain-rate readout.
+    pub drain_per_hour_centi: i64,
+}
+
+/// Bill every persistent Tor room for the time since it was last billed.
+///
+/// `hosted` is the set of rooms whose onion is up right now; `persistent` those
+/// holding a never-expiring invitation. A room must be in both: a Tor room with no
+/// standing invitation exposes nothing that outlives the session, and a standing
+/// invitation whose room is down names an address that answers nobody.
+///
+/// Rooms outside `hosted` are dropped from the marks, which is how closing a room,
+/// disabling Tor and rotating an address all stop the charge through one path.
+pub fn accrue_tor_exposure(
+    app: &AppHandle,
+    hosted: &[String],
+    persistent: &[String],
+    now: i64,
+) -> Result<TorExposureReport, String> {
+    let Some(action) = hp_policy::action("tor.persistent.hold") else {
+        return Ok(TorExposureReport::default());
+    };
+    let live: Vec<String> = hosted.iter().filter(|r| persistent.contains(r)).cloned().collect();
+
+    let mut marks = read_marks(app);
+    marks.retain(|room, _| live.contains(room));
+
+    let mut meta = read_meta(app);
+    let mut charged = 0i64;
+    for room in &live {
+        let since = *marks.get(room).unwrap_or(&now);
+        // A clock dragged backwards must not mint free time or a negative charge.
+        let minutes = (now - since).max(0) / 60_000;
+        if minutes > 0 {
+            let cost = metered_cost(action, 0, minutes as u64);
+            if cost > 0 {
+                let ts = stamp(&mut meta);
+                prune(app, &mut meta, ts);
+                append(
+                    app,
+                    &mut meta,
+                    Entry {
+                        ts,
+                        kind: "spend".into(),
+                        code: action.id.to_string(),
+                        hp: -cost,
+                        n: 1,
+                        bucket: ts / MS_PER_HOUR,
+                    },
+                )?;
+                charged -= cost;
+            }
+            // Advance by the whole minutes billed, not to `now`: the remainder is
+            // carried, so ticking every 30 s bills correctly instead of never.
+            marks.insert(room.clone(), since + minutes * 60_000);
+        } else {
+            marks.entry(room.clone()).or_insert(now);
+        }
+    }
+    write_marks(app, &marks)?;
+
+    Ok(TorExposureReport {
+        charged_centi: charged,
+        drain_per_hour_centi: action.per_minute_centi * 60 * live.len() as i64,
+        rooms: live,
+    })
 }
 
 /// Award a fixed recovery, if the state change it names actually reduced risk.
@@ -721,10 +840,8 @@ mod tests {
         // A smaller period is a higher rate. build.rs rejects the inverse, but
         // the invariant is worth asserting where a reader will meet it.
         assert!(hp_policy::DAILY_TOR_REGEN_PER_MINUTES < hp_policy::DAILY_REGEN_PER_MINUTES);
-        assert!(hp_policy::WEEKLY_TOR_REGEN_PER_MINUTES < hp_policy::WEEKLY_REGEN_PER_MINUTES);
         // And the documented 3x.
         assert_eq!(hp_policy::DAILY_REGEN_PER_MINUTES, 3 * hp_policy::DAILY_TOR_REGEN_PER_MINUTES);
-        assert_eq!(hp_policy::WEEKLY_REGEN_PER_MINUTES, 3 * hp_policy::WEEKLY_TOR_REGEN_PER_MINUTES);
     }
 
     #[test]

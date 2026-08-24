@@ -235,9 +235,9 @@ describe("OyaHpMeter", () => {
 // ── the panel ───────────────────────────────────────────────────────────────
 
 describe("HpPanel", () => {
-  it("renders both meters", () => {
+  it("renders the meter", () => {
     const w = mount(HpPanel, { global });
-    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
   });
 
   it("lists a price for every priced action, once its section is opened", async () => {
@@ -313,7 +313,7 @@ describe("HpPanel", () => {
 
   it("hides the price list and history in compact mode", () => {
     const w = mount(HpPanel, { props: { compact: true }, global });
-    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
     expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(false);
   });
 
@@ -348,12 +348,12 @@ describe("HpPanel", () => {
     expect(w.find('[data-testid="hp-group-discovery"]').exists()).toBe(false);
   });
 
-  it("keeps the meters on screen whichever pane is open", async () => {
+  it("keeps the meter on screen whichever pane is open", async () => {
     // The sub-tabs sit BELOW the meters; switching must not scroll them away.
     const w = mount(HpPanel, { global });
-    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
     await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
-    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
   });
 
   it("scrolls the ledger rather than truncating it", async () => {
@@ -454,10 +454,10 @@ describe("HpFlash", () => {
 // ── the Privacy tab ─────────────────────────────────────────────────────────
 
 describe("EnigmaPrivacyView", () => {
-  it("shows the meters and the full price list", async () => {
+  it("shows the meter and the full price list", async () => {
     const w = mount(EnigmaPrivacyView, { global });
     await flushPromises();
-    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
     // The full panel, not the compact one the welcome page uses — its sections
     // start folded, so what distinguishes them is that the headings are there.
     expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(true);
@@ -515,12 +515,12 @@ describe("HpChip", () => {
 // ── the welcome page ────────────────────────────────────────────────────────
 
 describe("EnigmaWelcomeView", () => {
-  it("shows the app version, the user's name and the HP meters", async () => {
+  it("shows the app version, the user's name and the HP meter", async () => {
     const w = mount(EnigmaWelcomeView, { global });
     await flushPromises();
     expect(w.get('[data-testid="welcome-version"]').text()).toMatch(/\d+\.\d+\.\d+/);
     expect(w.find('[data-testid="welcome-name"]').exists()).toBe(true);
-    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
   });
 
   it("offers a way through to the full price list", async () => {

@@ -33,7 +33,6 @@ beforeEach(async () => {
 });
 
 const daily = () => hpBalances.value.daily.balanceCenti;
-const weekly = () => hpBalances.value.weekly.balanceCenti;
 
 // ── prices reach the call sites unchanged ───────────────────────────────────
 
@@ -58,10 +57,9 @@ describe("prices", () => {
 // ── charging ────────────────────────────────────────────────────────────────
 
 describe("charging", () => {
-  it("subtracts from BOTH meters at once", async () => {
+  it("subtracts from the meter", async () => {
     await chargeHp("dht.presence.enable");
     expect(daily()).toBe(9500);
-    expect(weekly()).toBe(69_500);
   });
 
   it("charges a toggle once and then stops", async () => {

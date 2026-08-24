@@ -313,17 +313,15 @@ describe("confirmation", () => {
 // ── meters ──────────────────────────────────────────────────────────────────
 
 describe("meter derivation", () => {
-  it("starts both meters full with no history", () => {
+  it("starts the meter full with no history", () => {
     const b = deriveBalances(P, [], T0);
     expect(b.daily.balanceCenti).toBe(10_000);
-    expect(b.weekly.balanceCenti).toBe(70_000);
     expect(b.daily.msToNextHp).toBeNull();
   });
 
-  it("subtracts a charge from both meters at once", () => {
+  it("subtracts a charge from the meter", () => {
     const b = deriveBalances(P, [spend(T0, "dht.presence.enable", 1000)], T0);
     expect(b.daily.balanceCenti).toBe(9000);
-    expect(b.weekly.balanceCenti).toBe(69_000);
   });
 
   it("derives the same balances from the same rows every time", () => {
@@ -336,7 +334,6 @@ describe("meter derivation", () => {
   it("clamps a meter at zero rather than going negative", () => {
     const b = deriveBalances(P, [spend(T0, "x", 999_999)], T0);
     expect(b.daily.balanceCenti).toBe(0);
-    expect(b.weekly.balanceCenti).toBe(0);
   });
 
   it("never lets credits push a meter above its ceiling", () => {
@@ -355,12 +352,6 @@ describe("regeneration", () => {
     expect(deriveBalances(P, log, T0 + 2 * HOUR).daily.balanceCenti).toBe(9800);
   });
 
-  it("heals the weekly meter four times slower", () => {
-    const log = [spend(T0, "dht.presence.enable", 1000)];
-    expect(deriveBalances(P, log, T0 + HOUR).weekly.balanceCenti).toBe(69_100);
-    expect(regenPerHour(deriveBalances(P, log, T0).daily)).toBe("4");
-    expect(regenPerHour(deriveBalances(P, log, T0).weekly)).toBe("1");
-  });
 
   it("heals continuously rather than in hourly steps", () => {
     // The visible difference between "+1/hour" and a bar that creeps.
@@ -390,7 +381,6 @@ describe("regeneration", () => {
     expect(deriveBalances(P, log, T0).daily.msToNextHp).toBe(15 * 60_000);
     expect(deriveBalances(P, log, T0 + 60_000).daily.msToNextHp).toBe(14 * 60_000);
     // Weekly ticks a whole HP once an hour.
-    expect(deriveBalances(P, log, T0).weekly.msToNextHp).toBe(60 * 60_000);
   });
 
   it("reports no next tick once the meter is full", () => {
@@ -431,7 +421,6 @@ describe("Tor regeneration", () => {
     expect(plain.daily.torActive).toBe(false);
     const tor = deriveBalances(P, [posture(T0 - 1, true)], T0);
     expect(tor.daily.regenPerHourCenti).toBe(1200);
-    expect(tor.weekly.regenPerHourCenti).toBe(300);
     expect(tor.daily.torActive).toBe(true);
   });
 
@@ -524,22 +513,10 @@ describe("rolling windows", () => {
     expect(deriveBalances(P, log, T0).daily.balanceCenti).toBe(P.dailyMaxCenti);
   });
 
-  it("keeps that same charge in the weekly window", () => {
-    // 20 HP charged 25 h ago, healing at 1 HP/h on the weekly meter: fully
-    // settled by regeneration, but still inside the window.
-    const log = [spend(T0 - 2 * DAY, "transport.tor.disable", 2000)];
-    const b = deriveBalances(P, log, T0);
-    expect(b.weekly.balanceCenti).toBe(P.weeklyMaxCenti);
-  });
 
-  it("expires a weekly charge after seven days", () => {
-    const week = 7 * DAY;
-    const log = [spend(T0 - week - 1, "transport.tor.disable", 2000)];
-    expect(deriveBalances(P, log, T0).weekly.balanceCenti).toBe(P.weeklyMaxCenti);
-  });
 
   it("does not double-count the drip and the window expiry", () => {
-    // Ten 20 HP charges, one a minute apart. The weekly drip is 1 HP/h, so by
+    // Ten 20 HP charges, one a minute apart. The daily drip is 4 HP/h, so by
     // `now` the i-th has healed floor(i x 100 / 60) centi — 72 centi in total.
     // The point of the assertion is that the total is EXACTLY the drip and
     // nothing else: the 7-day expiry has not also taken a slice.
@@ -547,8 +524,6 @@ describe("rolling windows", () => {
     const b = deriveBalances(P, log, T0);
     const drip = Array.from({ length: 10 }, (_, i) => Math.floor((i * 100) / 60)).reduce((x, y) => x + y, 0);
     expect(drip).toBe(72);
-    expect(b.weekly.unhealedCenti).toBe(20_000 - drip);
-    expect(b.weekly.balanceCenti).toBe(70_000 - (20_000 - drip));
   });
 
   it("survives a restart: balances come from rows alone", () => {

@@ -147,13 +147,50 @@ fn room_for(name: &str) -> String {
     blake3::hash(name.as_bytes()).to_hex().to_string()
 }
 
-/// Hidden-service nickname — stable per room + profile, so the keystore hands back
-/// the same identity key (⇒ same `.onion`) every launch. HS nicknames have a
-/// restricted charset, so derive from the name hash rather than the raw name.
-fn nickname_for(name: &str) -> Result<HsNickname> {
-    let hex = blake3::hash(name.as_bytes()).to_hex();
+/// Hidden-service nickname — stable per room + profile + GENERATION, so the
+/// keystore hands back the same identity key (⇒ same `.onion`) every launch.
+///
+/// The generation is what makes rotation possible. A room's onion is its exposure:
+/// anyone who has the address can keep knocking for as long as it resolves, which
+/// is why `privacy_hp` charges for every hour one stays up. Rotating has to
+/// actually retire the address, not just stop serving it for a while — so it bumps
+/// the generation, which changes the nickname, which makes arti mint a *different*
+/// identity key. The old key is deleted, so the old `.onion` is gone rather than
+/// dormant, and every invitation naming it is dead paper.
+///
+/// HS nicknames have a restricted charset, so derive from a hash rather than the
+/// raw name. Generation 0 hashes the bare name, which is what every existing
+/// keystore entry was written under — so an upgrade keeps its onion.
+fn nickname_for_gen(name: &str, generation: u32) -> Result<HsNickname> {
+    let seed = if generation == 0 {
+        name.to_string()
+    } else {
+        format!("{name}#{generation}")
+    };
+    let hex = blake3::hash(seed.as_bytes()).to_hex();
     HsNickname::new(format!("enigma_{}", &hex.as_str()[..16]))
         .map_err(|e| anyhow!("invalid hs nickname: {e}"))
+}
+
+/// Which generation of `room`'s onion is current. Persisted, so a restart serves
+/// the same address and a rotation is not undone by relaunching.
+fn generation_of(app: &AppHandle, room: &str) -> u32 {
+    crate::vault::get(app, "tor_gen", room)
+        .ok()
+        .flatten()
+        .and_then(|v| String::from_utf8(v).ok())
+        .and_then(|t| t.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+fn set_generation(app: &AppHandle, room: &str, generation: u32) -> Result<()> {
+    crate::vault::put(app, "tor_gen", room, generation.to_string().as_bytes())
+        .map_err(|e| anyhow!("{e}"))
+}
+
+/// The nickname a room's onion is currently served under.
+fn nickname_for_room(app: &AppHandle, name: &str, room: &str) -> Result<HsNickname> {
+    nickname_for_gen(name, generation_of(app, room))
 }
 
 // ── per-profile paths ─────────────────────────────────────────────────────────
@@ -500,7 +537,7 @@ async fn host_onion(app: &AppHandle, state: &TorP2pState, room: &str, name: &str
     // launch doesn't hit "local resource … already in use".
     clear_stale_locks_if_idle(state).await;
     let client = client_of(state).await?;
-    let nick = nickname_for(name)?;
+    let nick = nickname_for_room(app, name, room)?;
     let svc_cfg = OnionServiceConfigBuilder::default()
         .nickname(nick)
         .build()
@@ -808,6 +845,42 @@ pub async fn clean_keystore(app: &AppHandle, state: &TorP2pState) {
     let _ = crate::vault::delete(app, "keys", "tor_keystore");
 }
 
+/// Every room whose onion service is up right now.
+///
+/// The Privacy HP exposure meter charges per active persistent onion, so it needs
+/// to know exactly which ones are reachable — not which rooms are saved, and not
+/// which the user is looking at. A room absent from this list costs nothing,
+/// which is what makes "stop charging when the room closes, when Tor is switched
+/// off, or when the address is rotated" fall out of one check instead of three.
+pub async fn hosted_rooms(state: &TorP2pState) -> Vec<String> {
+    let guard = state.0.lock().await;
+    guard.as_ref().map(|n| n.rooms.keys().cloned().collect()).unwrap_or_default()
+}
+
+/// Retire this room's `.onion` and mint a different one.
+///
+/// Not a restart: the point is that the OLD address stops resolving. The room's
+/// service is stopped, its hidden-service key is deleted from the keystore, and
+/// the generation counter is bumped so the next launch derives a new nickname and
+/// therefore a new identity key. Anyone holding the old address — including anyone
+/// holding a never-expiring invitation that names it — is now holding nothing.
+///
+/// That is also what ends the HP drain: the exposure was the address remaining
+/// valid, so invalidating it is the honest way to stop paying for it.
+///
+/// The caller re-hosts afterwards (`create_room`) to bring the room back up under
+/// the new address, and revokes the invitations that named the old one.
+pub async fn rotate_onion(app: &AppHandle, state: &TorP2pState, name: String) -> Result<()> {
+    let room = room_for(&name);
+    let next = generation_of(app, &room).saturating_add(1);
+    // Delete the current key FIRST, under the current generation's nickname —
+    // bumping first would leave the old key in the keystore, still able to serve
+    // the old address if anything ever re-derived that nickname.
+    forget_onion(app, state, name).await?;
+    set_generation(app, &room, next)?;
+    Ok(())
+}
+
 /// Destroy a SINGLE room's onion identity (used by "delete room"): stop that room's
 /// service, then remove its nickname-keyed hidden-service keys from arti's keystore so
 /// a future same-named room mints a FRESH `.onion` instead of reusing the persisted HS
@@ -817,7 +890,7 @@ pub async fn forget_onion(app: &AppHandle, state: &TorP2pState, name: String) ->
     // Stop this room's onion service first so its keys are idle before we remove them.
     let room = room_for(&name);
     let _ = leave_room(state, &room).await;
-    let nick = nickname_for(&name)?.to_string();
+    let nick = nickname_for_room(app, &name, &room)?.to_string();
 
     // The on-disk keystore only exists while the node runs; snapshot its dir if so.
     let running = {
@@ -1135,8 +1208,8 @@ mod tests {
     fn room_and_nickname_are_deterministic() {
         assert_eq!(room_for("room-a"), room_for("room-a"));
         assert_ne!(room_for("room-a"), room_for("room-b"));
-        let n1 = nickname_for("room-a").unwrap();
-        let n2 = nickname_for("room-a").unwrap();
+        let n1 = nickname_for_gen("room-a", 0).unwrap();
+        let n2 = nickname_for_gen("room-a", 0).unwrap();
         assert_eq!(n1.to_string(), n2.to_string());
     }
 
