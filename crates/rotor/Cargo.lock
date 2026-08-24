@@ -473,9 +473,13 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
+ "curve25519-dalek",
+ "hkdf",
  "rand_core 0.6.4",
  "serde",
  "serde_json",
+ "sha2",
+ "x25519-dalek",
  "zeroize",
 ]
 
