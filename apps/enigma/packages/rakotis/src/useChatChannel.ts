@@ -24,7 +24,7 @@ import {
 } from "./mapModel";
 import { sameUser, userPartOf, type PersistedMessage } from "./chatHistoryModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
-import { getChatHistoryCapMsgs } from "./services/appStorage";
+import { getChatHistoryCapMsgs, getConnectTimeoutSecs } from "./services/appStorage";
 import { nanoid } from "nanoid";
 
 /** A validated map share riding a chat-timeline card (mapModel wire shapes). */
@@ -193,9 +193,22 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   const pendingRecoveryRooms = new Set<string>();
   const processedResetIds = new Set<string>();
 
+  /**
+   * Evidence that we are NOT the only member: an MLS application frame from
+   * another device arrived while we were still negotiating.
+   *
+   * This is what separates a lone room creator — who legitimately becomes a
+   * "group of one" — from someone who joined a live room and was never admitted.
+   * A refused joiner sees other members' encrypted traffic go by and cannot open
+   * any of it; a creator alone in a fresh room sees nothing at all.
+   */
+  let sawForeignTraffic = false;
+
   let creatorTimer: ReturnType<typeof setTimeout> | null = null;
+  let admissionTimer: ReturnType<typeof setTimeout> | null = null;
   function clearCreatorTimer() {
     if (creatorTimer) { clearTimeout(creatorTimer); creatorTimer = null; }
+    if (admissionTimer) { clearTimeout(admissionTimer); admissionTimer = null; }
   }
 
   const isParticipant = ref(false);
@@ -936,6 +949,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
 
     if (type === "mls_app" && data.ciphertext) {
       if (data.device_id === mlsIdentity.value) return;
+      // Somebody else is talking in here. Noted even when we cannot read it —
+      // especially then, because being unable to read it is the whole point.
+      sawForeignTraffic = true;
       const senderName = (data.sender_name as string) || (data.user as string) || (data.device_id as string) || "Unknown";
       const sender = participantForName(senderName);
       if (mlsStatus.value === "ready" && currentRoom.value) {
@@ -1145,10 +1161,19 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         clearCreatorTimer();
         creatorTimer = setTimeout(() => {
           creatorTimer = null;
-          if (mlsStatus.value === "key_exchange") {
-            mlsStatus.value = "ready";
-            messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          if (mlsStatus.value !== "key_exchange") return;
+          if (sawForeignTraffic) {
+            // Other members are here and none of them has admitted us. Declaring
+            // a group of one would be worse than saying nothing: it would show a
+            // green lock over a group that cannot read us, and let the composer
+            // send into the void (technology.md §9.5). Wait, then say so.
+            armAdmissionTimeout();
+            return;
           }
+          // Nobody else is here — a fresh room with one member really is
+          // encrypted, and this is the case the timer was written for.
+          mlsStatus.value = "ready";
+          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
         }, 5000);
       }
     } catch (e) {
@@ -1156,6 +1181,35 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       mlsError.value = (e as Error).message;
       messages.value.push(systemMsg(`Encryption init failed: ${(e as Error).message}`, "system_error"));
     }
+  }
+
+  /**
+   * Give admission the user's own connect deadline, then say plainly that it did
+   * not happen.
+   *
+   * Nothing is sent to anyone: the message is local, produced by a timeout. No
+   * member has to confirm to a stranger that a room exists and is closed, and
+   * there is no unauthenticated frame for anyone to forge. It replaces an
+   * indefinite "Setting up encryption…", which is indistinguishable from a bug.
+   *
+   * Bounded by the user-set connect timeout like every other deadline in the app
+   * (technology.md §15) — never a literal — so a slow but succeeding handshake
+   * still wins: the Welcome sets `ready` and the check below finds nothing to say.
+   */
+  function armAdmissionTimeout() {
+    if (admissionTimer) clearTimeout(admissionTimer);
+    void getConnectTimeoutSecs().then((secs) => {
+      admissionTimer = setTimeout(() => {
+        admissionTimer = null;
+        if (mlsStatus.value !== "key_exchange") return;
+        messages.value.push(
+          systemMsg(
+            "No one admitted you to this room. It may require an invitation — ask whoever shared it for one.",
+            "system_error",
+          ),
+        );
+      }, secs * 1000);
+    });
   }
 
   // ── identity / lifecycle ─────────────────────────────────────────────────────

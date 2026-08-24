@@ -58,6 +58,9 @@ vi.mock("../../src/crypto", () => ({
 vi.mock("../../src/services/appStorage", () => ({
   getRuntimeConfig: vi.fn(async () => ({ profile: "t", identity: "me-device", profile_state_path: "" })),
   getChatHistoryCapMsgs: vi.fn(async () => 500),
+  // The admission deadline reads the user's own connect timeout, never a
+  // literal (technology.md §15) — so it has to exist here too.
+  getConnectTimeoutSecs: vi.fn(async () => 60),
 }));
 
 vi.mock("../../src/services/localDb", () => ({
@@ -69,7 +72,12 @@ vi.mock("../../src/services/localDb", () => ({
 
 import { useChatChannel } from "../../src/useChatChannel";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
+/** Let pending promises settle. Works under fake timers too — several tests
+ *  below install them, and a plain `setTimeout(0)` would simply never fire. */
+const flush = async () => {
+  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+  else await new Promise((r) => setTimeout(r, 0));
+};
 
 /** Deliver a gossip frame as if it arrived on the open room's topic. */
 async function deliver(data: Record<string, unknown>) {
@@ -98,7 +106,16 @@ async function readyChannel(opts: Parameters<typeof useChatChannel>[0] = {}) {
 }
 
 beforeEach(() => {
+  // A test that times out never reaches its own `finally`, so fake timers are
+  // reset here rather than trusted to be cleaned up by the test that installed
+  // them.
+  vi.useRealTimers();
   vi.clearAllMocks();
+  // `clearAllMocks` does NOT drain a queued `mockResolvedValueOnce`. These tests
+  // deliver frames that are deliberately never decrypted, so an unconsumed value
+  // would surface in whichever test called processMessage next.
+  crypto.processMessage.mockReset();
+  crypto.processMessage.mockResolvedValue(null);
   messageHandlers.length = 0;
   mockTransport.lastStatus.mockReturnValue(undefined);
 });
@@ -202,6 +219,117 @@ describe("enforcement", () => {
     ch.inviteOnly.value = true; // even if something set it
     await deliver(STRANGER_KP);
     expect(crypto.addMember).toHaveBeenCalled();
+  });
+});
+
+// ── what a refused joiner sees ──────────────────────────────────────────────
+
+describe("a joiner nobody admits", () => {
+  // The key-exchange timer used to declare "🔒 End-to-end encryption active."
+  // after 5 s no matter what — so someone refused by a closed room was told they
+  // were encrypted, as a group of one, and could type into the void (§9.5).
+  //
+  // It now distinguishes the two cases by whether any OTHER member's traffic has
+  // been seen: a lone creator sees none, a refused joiner sees plenty and can
+  // read none of it.
+
+  const notices = (ch: ReturnType<typeof useChatChannel>) =>
+    ch.messages.value.map((m) => m.content).join("\n");
+
+  async function joining() {
+    mockTransport.joinRoomByNode.mockResolvedValue({ room: "room-1", name: "Room One" });
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "me-device";
+    await ch.joinByNode("Room One", []);
+    await flush();
+    return ch;
+  }
+
+  /** A channel that has actually RUN startMls, so its 5 s timer is armed. */
+  async function negotiating() {
+    mockTransport.lastStatus.mockReturnValue("connected");
+    mockTransport.createRoom.mockResolvedValue({ room: "room-1", name: "Room One", ticket: "t" });
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "me-device";
+    await ch.createRoom("Room One");
+    await flush();
+    return ch;
+  }
+
+  it("still calls a lone creator's room encrypted", async () => {
+    // The case the 5 s timer was written for must keep working: one member in a
+    // fresh room really is encrypted.
+    vi.useFakeTimers();
+    try {
+      const ch = await negotiating();
+      expect(ch.mlsStatus.value).toBe("key_exchange");
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(ch.mlsStatus.value).toBe("ready");
+      expect(notices(ch)).toMatch(/encryption active/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not claim encryption when other members are present", async () => {
+    vi.useFakeTimers();
+    try {
+      const ch = await joining();
+      ch.mlsStatus.value = "key_exchange";
+      // Another member's traffic goes by — unreadable, which is the point.
+      await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: "someone-else" });
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(ch.mlsStatus.value).not.toBe("ready");
+      expect(notices(ch)).not.toMatch(/encryption active/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says plainly that nobody admitted them, once the deadline passes", async () => {
+    vi.useFakeTimers();
+    try {
+      const ch = await negotiating();
+      await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: "someone-else" });
+      await vi.advanceTimersByTimeAsync(6000);
+      // Not yet — the connect deadline has not run out.
+      expect(notices(ch)).not.toMatch(/no one admitted/i);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(notices(ch)).toMatch(/no one admitted you/i);
+      expect(notices(ch)).toMatch(/invitation/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends nothing to anyone as a result", async () => {
+    // The refusal is local. No member has to confirm to a stranger that a room
+    // exists and is closed, and there is no frame for anyone to forge.
+    vi.useFakeTimers();
+    try {
+      const ch = await negotiating();
+      await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: "someone-else" });
+      mockTransport.send.mockClear();
+      await vi.advanceTimersByTimeAsync(70_000);
+      expect(mockTransport.send).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays silent when a slow handshake eventually succeeds", async () => {
+    // The deadline must not fire over a Welcome that simply took its time.
+    vi.useFakeTimers();
+    try {
+      const ch = await negotiating();
+      await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: "someone-else" });
+      await vi.advanceTimersByTimeAsync(6000);
+      ch.mlsStatus.value = "ready"; // the Welcome landed
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(notices(ch)).not.toMatch(/no one admitted/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
