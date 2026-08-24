@@ -18,6 +18,9 @@ mod vox;
 mod p2p_dht;
 // Direct room invites between contacts (offer/accept over a dedicated ALPN).
 mod p2p_invite;
+// Encrypted, expiring QR invitations: the ticket format and its sealing
+// (technology.md §18). Carries no room name, topic or MLS material.
+mod invite_ticket;
 mod p2p_iroh;
 mod p2p_tor;
 mod realtime;

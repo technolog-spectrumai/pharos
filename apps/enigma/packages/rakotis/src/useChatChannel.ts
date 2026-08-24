@@ -81,6 +81,16 @@ export function isTorTicket(ticket: string): boolean {
 export function isDhtCode(ticket: string): boolean {
   return firstTagByte(ticket) === 0x44;
 }
+/** Invitations are base32(`0x4E` ('N') ++ version ++ kind ++ body) — encrypted,
+ *  expiring, and redeemed by connecting to the inviter rather than by joining a
+ *  topic (technology.md §18; mirrors `invite_ticket::is_invite_ticket`).
+ *
+ *  A sniff only: it answers "is this an invitation?", never "is it valid", "has
+ *  it expired" or "is it mine". A Personal invitation is sealed, so only Rust —
+ *  holding this device's identity secret — can answer any of those. */
+export function isInviteTicket(ticket: string): boolean {
+  return firstTagByte(ticket) === 0x4e;
+}
 
 export type MlsStatus =
   | "idle"
