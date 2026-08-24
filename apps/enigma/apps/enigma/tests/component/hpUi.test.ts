@@ -1,0 +1,279 @@
+// Privacy HP — the rendered half: the price shown on a control, the info
+// sentence behind it, the meters, the confirm dialog, and the welcome page.
+//
+// The brief's UI rules are the assertions here: the price is visible BEFORE the
+// tap, an info icon reveals one sentence, only high/severe costs confirm, and
+// the flash reports what just happened.
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { mount, flushPromises } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import { ref } from "vue";
+import {
+  OyaHpPrice,
+  OyaHpMeter,
+  deriveBalances,
+  getHpPolicy,
+  resetHpLedgerForTest,
+} from "rakotis";
+
+const fileShare = { state: ref("idle") };
+const vox = { phase: ref("idle") };
+const invites = { incoming: ref(false) };
+const meetings = { attentionCount: ref(0) };
+
+vi.mock("../../src/stores/chat", () => ({
+  useChatStore: () => ({
+    syncRuntimeIdentity: vi.fn(),
+    init: vi.fn(),
+    p2p: { currentUserName: ref(""), myAvatar: ref("") },
+    fileShare,
+    vox,
+    invites,
+    meetings,
+    callsEnabled: true,
+    contactsEnabled: true,
+    calendarEnabled: true,
+  }),
+}));
+
+import { i18n } from "../../src/i18n";
+import HpPanel from "../../src/components/hp/HpPanel.vue";
+import HpConfirmModal from "../../src/components/hp/HpConfirmModal.vue";
+import HpFlash from "../../src/components/hp/HpFlash.vue";
+import EnigmaWelcomeView from "../../src/views/EnigmaWelcomeView.vue";
+import router from "../../src/router";
+import {
+  chargeHp,
+  confirmHp,
+  refreshHp,
+  resolveHpConfirm,
+  setHpTranslator,
+  stopHp,
+} from "../../src/components/hp/useHp";
+
+const global = {
+  plugins: [i18n, router],
+  stubs: { "font-awesome-icon": true, RouterLink: true },
+};
+
+// OyaModal teleports to <body>, so the confirmation renders outside the mounted
+// wrapper. Stubbing the teleport keeps it inside, the way the other modal tests
+// in this suite do.
+const modalGlobal = { ...global, stubs: { ...global.stubs, teleport: true } };
+
+beforeEach(async () => {
+  setActivePinia(createPinia());
+  resetHpLedgerForTest();
+  stopHp();
+  setHpTranslator({
+    t: (k) => String((i18n.global.t as (x: string) => string)(k)),
+    has: (k) => Boolean((i18n.global.te as (x: string) => boolean)(k)),
+  });
+  await refreshHp();
+});
+
+// ── the price badge ─────────────────────────────────────────────────────────
+
+describe("OyaHpPrice", () => {
+  it("shows the price with a real minus sign", () => {
+    const w = mount(OyaHpPrice, { props: { centi: -300 }, global });
+    expect(w.get('[data-testid="hp-price"]').text()).toBe("−3 HP");
+  });
+
+  it("shows a fractional price without trailing zeros", () => {
+    const w = mount(OyaHpPrice, { props: { centi: -5 }, global });
+    expect(w.get('[data-testid="hp-price"]').text()).toBe("−0.05 HP");
+  });
+
+  it("appends a rate unit for a metered action", () => {
+    const w = mount(OyaHpPrice, { props: { centi: -5, unit: "msg" }, global });
+    expect(w.get('[data-testid="hp-price"]').text()).toContain("/msg");
+  });
+
+  it("shows a credit as a plus", () => {
+    const w = mount(OyaHpPrice, { props: { centi: 500 }, global });
+    expect(w.get('[data-testid="hp-price"]').text()).toBe("+5 HP");
+  });
+
+  it("reveals exactly one sentence behind the info icon", async () => {
+    const explain = "Anyone holding your network identity can tell when you are around.";
+    const w = mount(OyaHpPrice, { props: { centi: -1000, explain }, global });
+    expect(w.find('[data-testid="hp-explain"]').exists()).toBe(false);
+    await w.get('[data-testid="hp-info"]').trigger("click");
+    expect(w.get('[data-testid="hp-explain"]').text()).toBe(explain);
+  });
+
+  it("offers no info icon when there is nothing to explain", () => {
+    const w = mount(OyaHpPrice, { props: { centi: -100 }, global });
+    expect(w.find('[data-testid="hp-info"]').exists()).toBe(false);
+  });
+});
+
+// ── the meter ───────────────────────────────────────────────────────────────
+
+describe("OyaHpMeter", () => {
+  const meter = (entries: any[] = [], now = Date.now()) =>
+    deriveBalances(getHpPolicy(), entries, now).daily;
+
+  it("shows balance over maximum", () => {
+    const w = mount(OyaHpMeter, { props: { meter: meter(), label: "Today" }, global });
+    expect(w.get('[data-testid="hp-meter-value"]').text()).toBe("100 / 100");
+  });
+
+  it("sizes the bar to the balance", () => {
+    const spent = [{ ts: Date.now(), kind: "spend", code: "x", hp: -5000, n: 1, bucket: 0 }];
+    const w = mount(OyaHpMeter, { props: { meter: meter(spent), label: "Today" }, global });
+    expect(w.get('[data-testid="hp-meter-bar"]').attributes("style")).toContain("width: 50%");
+  });
+
+  it("exposes the level to assistive tech", () => {
+    const w = mount(OyaHpMeter, { props: { meter: meter(), label: "Today" }, global });
+    const bar = w.get('[role="meter"]');
+    expect(bar.attributes("aria-valuenow")).toBe("100");
+    expect(bar.attributes("aria-valuemax")).toBe("100");
+  });
+});
+
+// ── the panel ───────────────────────────────────────────────────────────────
+
+describe("HpPanel", () => {
+  it("renders both meters", () => {
+    const w = mount(HpPanel, { global });
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+  });
+
+  it("lists a price for every priced action", () => {
+    const w = mount(HpPanel, { global });
+    for (const id of ["transport.tor.disable", "dht.presence.enable", "ticket.export.clearnet"]) {
+      expect(w.find(`[data-testid="hp-price-row-${id}"]`).exists(), id).toBe(true);
+    }
+  });
+
+  it("shows the safe message lane as free rather than as a zero price", () => {
+    const w = mount(HpPanel, { global });
+    const row = w.get('[data-testid="hp-price-row-msg.tor.mls"]');
+    expect(row.text()).toContain("Free");
+    expect(row.text()).not.toContain("0 HP");
+  });
+
+  it("says plainly that regeneration does not undo exposure", () => {
+    const w = mount(HpPanel, { global });
+    expect(w.get('[data-testid="hp-disclaimer"]').text()).toMatch(/still out there/i);
+  });
+
+  it("hides the price list and history in compact mode", () => {
+    const w = mount(HpPanel, { props: { compact: true }, global });
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+    expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(false);
+  });
+
+  it("shows an empty history before anything happens", () => {
+    const w = mount(HpPanel, { global });
+    expect(w.find('[data-testid="hp-history-empty"]').exists()).toBe(true);
+  });
+
+  it("lists a charge in the history once one is made", async () => {
+    await chargeHp("dht.presence.enable");
+    const w = mount(HpPanel, { global });
+    await flushPromises();
+    const history = w.get('[data-testid="hp-history"]').text();
+    expect(history).toContain("−10 HP");
+    expect(history).toContain("DHT");
+  });
+
+  it("promises the ledger holds no content", () => {
+    const w = mount(HpPanel, { global });
+    expect(w.text()).toMatch(/never a message, contact, room name/i);
+  });
+});
+
+// ── the confirmation ────────────────────────────────────────────────────────
+
+describe("HpConfirmModal", () => {
+  it("stays closed until something asks", () => {
+    const w = mount(HpConfirmModal, { global: modalGlobal });
+    expect(w.find('[data-testid="hp-confirm"]').exists()).toBe(false);
+  });
+
+  it("shows the price and the one-sentence reason for a severe action", async () => {
+    const w = mount(HpConfirmModal, { global: modalGlobal });
+    const pending = confirmHp("transport.tor.disable");
+    await flushPromises();
+    expect(w.get('[data-testid="hp-confirm-price"]').text()).toBe("−20 HP");
+    expect(w.get('[data-testid="hp-confirm"]').text()).toMatch(/relays/i);
+    resolveHpConfirm(false);
+    await pending;
+  });
+
+  it("says out loud that it measures rather than protects", async () => {
+    const w = mount(HpConfirmModal, { global: modalGlobal });
+    const pending = confirmHp("dht.nickname.publish");
+    await flushPromises();
+    expect(w.get('[data-testid="hp-confirm"]').text()).toMatch(/does not protect/i);
+    resolveHpConfirm(false);
+    await pending;
+  });
+
+  it("lets the action through when Continue is clicked", async () => {
+    const w = mount(HpConfirmModal, { global: modalGlobal });
+    const pending = confirmHp("transport.tor.disable");
+    await flushPromises();
+    await w.get('[data-testid="hp-confirm-continue"]').trigger("click");
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it("explains an empty meter without refusing the action", async () => {
+    for (let i = 0; i < 10; i++) await chargeHp("ticket.export.clearnet");
+    const w = mount(HpConfirmModal, { global: modalGlobal });
+    const pending = confirmHp("room.create.tor");
+    await flushPromises();
+    expect(w.find('[data-testid="hp-confirm-exhausted"]').exists()).toBe(true);
+    await w.get('[data-testid="hp-confirm-continue"]').trigger("click");
+    await expect(pending).resolves.toBe(true);
+  });
+});
+
+// ── the flash ───────────────────────────────────────────────────────────────
+
+describe("HpFlash", () => {
+  it("reports the charge that just happened", async () => {
+    const w = mount(HpFlash, { global });
+    await chargeHp("dht.presence.enable");
+    await flushPromises();
+    const text = w.get('[data-testid="hp-flash"]').text();
+    expect(text).toContain("−10 HP");
+    expect(text).toMatch(/DHT/);
+  });
+
+  it("shows nothing for a no-op charge", async () => {
+    const w = mount(HpFlash, { global });
+    await chargeHp("msg.tor.mls", { bytes: 4096 });
+    await flushPromises();
+    expect(w.find('[data-testid="hp-flash"]').exists()).toBe(false);
+  });
+});
+
+// ── the welcome page ────────────────────────────────────────────────────────
+
+describe("EnigmaWelcomeView", () => {
+  it("shows the app version, the user's name and the HP meters", async () => {
+    const w = mount(EnigmaWelcomeView, { global });
+    await flushPromises();
+    expect(w.get('[data-testid="welcome-version"]').text()).toMatch(/\d+\.\d+\.\d+/);
+    expect(w.find('[data-testid="welcome-name"]').exists()).toBe(true);
+    expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(2);
+  });
+
+  it("offers a way through to the full price list", async () => {
+    const w = mount(EnigmaWelcomeView, { global });
+    await flushPromises();
+    expect(w.find('[data-testid="welcome-hp-details"]').exists()).toBe(true);
+  });
+
+  it("describes what the app is without claiming a server", async () => {
+    const w = mount(EnigmaWelcomeView, { global });
+    await flushPromises();
+    expect(w.text()).toMatch(/serverless/i);
+  });
+});

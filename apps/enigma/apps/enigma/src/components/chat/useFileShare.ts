@@ -129,10 +129,12 @@ export function useFileShare(channel: ChatChannel) {
         state.value = "error";
         return;
       }
-      // Privacy HP. Confirmed BEFORE the offer goes out — the price scales with
-      // the file, so a large transfer can reach the confirm threshold that a
-      // small one never does. P2P transfer is iroh-direct only (Tor mode blocks
-      // it outright), so there is no cheaper variant to offer here.
+      // Privacy HP. Asked BEFORE the offer goes out, so a decline sends nothing.
+      // In practice this only ever raises a dialog when a meter is already
+      // empty: file.send is capped at 5 HP, below the confirm threshold, so no
+      // transfer interrupts on price alone however large it is. P2P transfer is
+      // iroh-direct only (Tor mode blocks it outright), so there is no cheaper
+      // variant to offer here.
       if (!(await confirmHp("file.send", { bytes: meta.size }))) {
         void _invoke("file_offer_cancel", { offerId: meta.offer_id }).catch(() => {});
         return;
