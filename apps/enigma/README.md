@@ -52,13 +52,13 @@ shipped app mark, `enigma`, and how to change it).
   **local locking**, a room **calendar** (meetings + polls), and offline
   **maps** — including a location you share into a room by tapping the spot
   (never from the device's GPS). §10.
-- **Privacy MANA**: a game-like *safety budget* that puts one fixed, comparable
-  price beside every exposing action — a private invitation costs −1.5 MANA where
+- **Privacy HP**: a game-like *safety budget* that puts one fixed, comparable
+  price beside every exposing action — a private invitation costs −1.5 HP where
   exporting a room ticket costs −5 — so the relative cost of a choice is visible
   before the tap. Two meters (100/day, 700/week) that regenerate on their own, and
   **three times faster while Tor is on**. Advisory only: it never blocks anything,
   and it measures rather than protects. See
-  [technology.md §17](technology.md#17-privacy-mana--the-exposure-budget).
+  [technology.md §17](technology.md#17-privacy-hp--the-exposure-budget).
 - **Build policy is compiled in**: `build_config.yaml` bakes allow flags
   (hosted relays, the DHT), per-feature kill switches (calls, contacts,
   calendar, maps, key ring, PIN unlock), crypto declarations, and setting

@@ -567,7 +567,7 @@ pub async fn node_info(app: &AppHandle, state: &P2pState) -> Result<String> {
 /// This node's own dialable address, for embedding in an invitation.
 ///
 /// Same value a room ticket carries in `peers` — which is why a clearnet
-/// invitation costs Privacy MANA for the IP it exposes, exactly as a ticket does.
+/// invitation costs Privacy HP for the IP it exposes, exactly as a ticket does.
 pub async fn local_addr(app: &AppHandle, state: &P2pState) -> Result<EndpointAddr> {
     ensure_started(app, state).await?;
     let guard = state.0.lock().await;

@@ -20,7 +20,7 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [13 Encryption at rest](#13-encryption-at-rest-gervasius--protasius) ·
 [14 Conventions](#14-conventions-naming--palette) · [15 Config sources](#15-config--sources-of-truth) ·
 [16 Rework history](#16-history--the-serverless-rework) ·
-[17 Privacy MANA](#17-privacy-mana--the-exposure-budget) ·
+[17 Privacy HP](#17-privacy-hp--the-exposure-budget) ·
 [18 Invitations](#18-invitations--encrypted-expiring-revocable) · [Roadmap](#roadmap)
 
 ---
@@ -544,7 +544,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
-**Reading this table as a user.** [§17](#17-privacy-mana--the-exposure-budget)
+**Reading this table as a user.** [§17](#17-privacy-hp--the-exposure-budget)
 turns every row above into a fixed, comparable price shown next to the control
 that triggers it — the same threat model, expressed as a budget rather than a
 table. It measures and remembers; it does not protect.
@@ -711,7 +711,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   (permanent, anyone, not revocable), a **private QR** (sealed to one contact,
   expiring, revocable) and a **shareable QR** (bearer, expiring, revocable, with
   an explicit "this is not secret" warning). Each states its consequence and its
-  Privacy MANA price before the tap, and the invitation modes carry the "keep this
+  Privacy HP price before the tap, and the invitation modes carry the "keep this
   room open until they join" note ([§18](#18-invitations--encrypted-expiring-revocable)).
   Redemption needs no new surface: `JoinRoomModal`'s single field routes an
   invitation by its tag byte. In a room the captain has marked **invite only**
@@ -722,13 +722,13 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   logo and rules, ban management, and the **invite only** switch
   ([§18.8](#188-invite-only-rooms)), whose label states plainly that enforcement
   holds only while every member is running this app.
-- **Privacy** (`EnigmaPrivacyView`, `/privacy`) — the two MANA meters, then two
+- **Privacy** (`EnigmaPrivacyView`, `/privacy`) — the two HP meters, then two
   sub-tabs: **Rules** (the whole price table, each section folded by default, plus
-  what earns MANA back) and **Decisions** (the ledger, scrolling in its own box).
+  what earns HP back) and **Decisions** (the ledger, scrolling in its own box).
   Read-only by design — prices are charged where the risky thing happens, never
-  from a list of them ([§17](#17-privacy-mana--the-exposure-budget)).
+  from a list of them ([§17](#17-privacy-hp--the-exposure-budget)).
 
-  Reached **only** from the header's **MANA chip**, and deliberately absent from
+  Reached **only** from the header's **HP chip**, and deliberately absent from
   `APP_TABS`: like Settings and the welcome page it is chrome, not a nav tab, so
   it has no nav link, no visibility checkbox and no route guard — the chip cannot
   be stranded by hiding tabs. It lived as a sixth pill inside Settings until the
@@ -745,13 +745,13 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
 - **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma26
   mark in the top left. Three cards: what the app is (icon, version, one-line
   pitch), who you are on it (profile name, avatar, MLS identity, active storage
-  profile) and your MANA meters. Ungated for the same reason Settings is — a logo
+  profile) and your HP meters. Ungated for the same reason Settings is — a logo
   that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
   redirect still resolves to the first visible tab, which is where every lock
-  cycle re-enters after the webview reload. A compact **MANA chip** — today's
+  cycle re-enters after the webview reload. A compact **HP chip** — today's
   balance only — sits in the header on every screen and is the only way into
   **Privacy**
-  ([§17](#17-privacy-mana--the-exposure-budget)).
+  ([§17](#17-privacy-hp--the-exposure-budget)).
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
 tokens — see [§14](#14-conventions-naming--palette). Dark mode defaults on but is
@@ -1044,7 +1044,7 @@ single event multiplexes all rooms, the payload carries the room id), plus
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 Namespaces: `nav`, `common`, `keys`, `lang`, `network`, `config`, `chat`,
 `calendar`, `map`, `contacts`, `files`, `vox`, `sketch`, `local`, `fileShare`,
-`profile`, `vault`, `mana`, `welcome`. Interpolation uses single-brace named tokens
+`profile`, `vault`, `hp`, `welcome`. Interpolation uses single-brace named tokens
 (`{n}`). English and Polish live in
 [`apps/enigma/src/i18n/`](apps/enigma/src/i18n/) and are the **only** catalogs;
 documentation is not translated.
@@ -1055,7 +1055,7 @@ pushes into the transcript ("🔒 End-to-end encryption active.", "Disconnected.
 [`packages/rakotis/src/i18n/index.ts`](packages/rakotis/src/i18n/index.ts) says
 must carry no app strings — so they reach a catalog through an injected
 translator, [`i18n/chatText.ts`](packages/rakotis/src/i18n/chatText.ts), registered
-by the app in `main.ts` beside the identical `setManaTranslator` seam:
+by the app in `main.ts` beside the identical `setHpTranslator` seam:
 
 ```ts
 sysMsg("chat.sys.joined", 'Joined "{name}". Connecting to peers…', { name })
@@ -1180,13 +1180,13 @@ seeds the browser-mode fallback from `config/app.ts`). App name and identifier
 are fixed to `Enigma26` / `com.spectrumaipl.enigma26`; `build.rs` rejects drift
 and still asserts the YAML mirrors `tauri.conf.json`.
 
-**Privacy MANA price table (compile-time):**
-[`apps/enigma/src-tauri/privacy_mana.yaml`](apps/enigma/src-tauri/privacy_mana.yaml)
+**Privacy HP price table (compile-time):**
+[`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml)
 — the second file `build.rs` bakes in, on the same contract as the build config
-(validate → codegen → `enigma_lib::mana_policy`; an invalid table fails the build).
+(validate → codegen → `enigma_lib::hp_policy`; an invalid table fails the build).
 Unlike the build config it is **not per-edition**: an exposure does not get
 cheaper with a different tier. Full rationale in
-[§17](#17-privacy-mana--the-exposure-budget).
+[§17](#17-privacy-hp--the-exposure-budget).
 
 **Frontend app config:** [`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts)
 — brand identity, UI policy, dev port. Import `brand` / `policy` / `dev` from here
@@ -1217,8 +1217,8 @@ instead of hardcoding.
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
 | Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
-| Privacy MANA price table | `apps/enigma/src-tauri/privacy_mana.yaml` | Compile-time, **all editions** (prices are not a product knob — one file, not one per `configs/*.yaml`). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of making a surface free) and generates `enigma_lib::mana_policy`. Fetched once at boot via `mana_get_policy` → rakotis `initManaPolicy`/`getManaPolicy`; `services/mana.ts` carries a browser-mode mirror that `privacyManaDrift.test.ts` pins against the YAML. See [§17](#17-privacy-mana--the-exposure-budget) |
-| Privacy MANA ledger | protasius ns `mana` via `vault::get/put` (**internal** tag) | Per-profile, append-only, reason codes and numbers only. Deliberately NOT in the `kv_*` keyspace the webview can write: a different AAD tag means JS cannot read, forge or clobber it. Balances are derived, never stored — see [§17.4](#174-regeneration) |
+| Privacy HP price table | `apps/enigma/src-tauri/privacy_hp.yaml` | Compile-time, **all editions** (prices are not a product knob — one file, not one per `configs/*.yaml`). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of making a surface free) and generates `enigma_lib::hp_policy`. Fetched once at boot via `hp_get_policy` → rakotis `initHpPolicy`/`getHpPolicy`; `services/hp.ts` carries a browser-mode mirror that `privacyHpDrift.test.ts` pins against the YAML. See [§17](#17-privacy-hp--the-exposure-budget) |
+| Privacy HP ledger | protasius ns `hp` via `vault::get/put` (**internal** tag) | Per-profile, append-only, reason codes and numbers only. Deliberately NOT in the `kv_*` keyspace the webview can write: a different AAD tag means JS cannot read, forge or clobber it. Balances are derived, never stored — see [§17.4](#174-regeneration) |
 | Invitation state | protasius ns `invites` via `vault::get/put` (**internal** tag) | Per-profile, per-issuer: the capability, recipient binding, deadline and `Active/InFlight/Consumed/Revoked` state of every invitation minted. Deliberately NOT in the `kv_*` keyspace the webview can write. Expiry is decided **here**, on the inviter's clock — the deadline inside a ticket is advisory ([§18](#18-invitations--encrypted-expiring-revocable)) |
 | PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
@@ -1405,7 +1405,7 @@ the other — a test in the parked set still pins that.
 
 ---
 
-## 17. Privacy MANA — the exposure budget
+## 17. Privacy HP — the exposure budget
 
 A small, deliberately game-like layer that lets a user **compare the relative
 safety of the choices this app offers**, in one currency, with the price shown
@@ -1422,22 +1422,22 @@ encrypted store, and nothing about it ever leaves the device.
 
 | Concern | Home |
 | --- | --- |
-| The prices | [`apps/enigma/src-tauri/privacy_mana.yaml`](apps/enigma/src-tauri/privacy_mana.yaml) — one file, all editions |
-| Validation + codegen | `build.rs` → `enigma_lib::mana_policy` consts. **An invalid table fails the build** |
-| Ledger, clock, enforcement | `src-tauri/src/privacy_mana.rs` (`mana_*` commands) |
-| Policy, derivation, copy | `packages/rakotis/src/privacyMana.ts` (pure) + `services/mana.ts` (bridge + browser mirror) |
-| UI | `OyaManaPrice` / `OyaManaMeter` primitives; `components/mana/` (chip, flash, confirm, panel, `useMana`); `EnigmaWelcomeView`; Settings → Privacy |
+| The prices | [`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml) — one file, all editions |
+| Validation + codegen | `build.rs` → `enigma_lib::hp_policy` consts. **An invalid table fails the build** |
+| Ledger, clock, enforcement | `src-tauri/src/privacy_hp.rs` (`hp_*` commands) |
+| Policy, derivation, copy | `packages/rakotis/src/privacyHp.ts` (pure) + `services/hp.ts` (bridge + browser mirror) |
+| UI | `OyaHpPrice` / `OyaHpMeter` primitives; `components/hp/` (chip, flash, confirm, panel, `useHp`); `EnigmaWelcomeView`; Settings → Privacy |
 
 **The webview never names an amount.** It names an action id and Rust looks the
 price up in its own compile-time table. A compromised frontend can charge the
 *wrong* action; it cannot invent a price or hand itself a credit.
 
-**Storage boundary.** The ledger uses `vault::get/put` under ns `mana` — the
+**Storage boundary.** The ledger uses `vault::get/put` under ns `hp` — the
 protasius **internal** tag. The `kv_*` commands the webview can call use a
 different AAD tag and a different record space, so JS can neither read, forge nor
 clobber the ledger even though it freely writes its own settings.
 
-**Arithmetic.** Every amount is an integer number of hundredths ("centi-MANA") in
+**Arithmetic.** Every amount is an integer number of hundredths ("centi-HP") in
 both languages. No float reaches the ledger, so balances are reproducible
 byte-for-byte. `build.rs` rejects a third decimal place.
 
@@ -1459,14 +1459,14 @@ comes from.
 
 **Transport posture**
 
-| Action | MANA | Why ([§8](#8-privacy), [§9](#9-security--privacy-considerations)) |
+| Action | HP | Why ([§8](#8-privacy), [§9](#9-security--privacy-considerations)) |
 | --- | ---: | --- |
 | `transport.tor.disable` | **−20** | §8, §9.6 — re-exposes NodeId↔IP, social graph, timing, sizes and presence to n0 for *everything after it*. Severe because it is a posture, not one disclosure |
 | `transport.onion_stable.enable` | −1.5 | One long-lived `.onion` makes sessions linkable; materialises an onion keystore while unlocked (§8) |
 
 **Discovery**
 
-| Action | MANA | Why ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
+| Action | HP | Why ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | --- | ---: | --- |
 | `dht.nickname.publish` | **−10** | Binds a *human-chosen* handle to your NodeId in a global directory. The strongest de-anonymiser in the app: everything else leaks a machine identity |
 | `dht.presence.enable` | **−5** | *"The presence feature's data source is its privacy cost"* — publishes your pkarr record hourly to anyone holding the NodeId |
@@ -1474,7 +1474,7 @@ comes from.
 
 **Rooms and tickets** — the Tor variant axis (chat re-homes onto the onion transport)
 
-| Action | MANA | Why |
+| Action | HP | Why |
 | --- | ---: | --- |
 | `ticket.export.clearnet` | **−5** | §8 — carries room name + NodeId + **IP addresses**, and is the most copyable artefact in the app |
 | `ticket.export.tor` | −1.5 | Room name + `.onion`, **no IP** |
@@ -1534,7 +1534,7 @@ no safe variant to offer, which is precisely why they price where they do.
 **Local security** — not exposure, but a lower wall between the data and whoever
 picks up the device.
 
-| Action | MANA | Why |
+| Action | HP | Why |
 | --- | ---: | --- |
 | `local.autolock.off` | **−5** | `idle_lock_mins = 0` keeps the DEK live indefinitely ([§13](#13-encryption-at-rest-gervasius--protasius)) |
 | `local.pin.enroll` | −1.5 | Memory-only convenience; a RAM dump of an idle-locked process can brute-force six digits (§7) |
@@ -1553,7 +1553,7 @@ every message on the safe lane.
   exactly the number that was on the button.
 - **Metered** actions charge a base plus a rate, capped per event, and are
   coalesced (§17.6).
-- **Confirmation** is raised only at ≥5 MANA or when a meter is already empty.
+- **Confirmation** is raised only at ≥5 HP or when a meter is already empty.
   Everything cheaper stays one-tap. The dialog never refuses — "Continue" is
   always available, at any balance.
 - Charges land **after** the action succeeds, so a room that never came up or a
@@ -1569,11 +1569,11 @@ expires one day after it was made" literally true.
 Each charge then **heals on its own clock**:
 
 ```
-unhealed(charge) = max(0, mana − elapsed × rate)
+unhealed(charge) = max(0, hp − elapsed × rate)
 balance          = clamp(max − Σ unhealed + credits, 0, max)
 ```
 
-Daily heals **+4 MANA/h**, Weekly **+1 MANA/h**. Nothing is written when MANA returns —
+Daily heals **+4 HP/h**, Weekly **+1 HP/h**. Nothing is written when HP returns —
 which is why offline use, restarts, crashes and app-closed time need no
 reconciliation at all: there is no counter to reconcile. The two meters therefore
 differ *only* in ceiling, window length and rate.
@@ -1586,9 +1586,9 @@ what registers a sustained habit.
 ### 17.5 Recovery
 
 Fixed credits, paid **only for a change that reduces risk you are currently
-carrying**, capped at **12.5 MANA/day and 50 MANA/week** across everything.
+carrying**, capped at **12.5 HP/day and 50 HP/week** across everything.
 
-| Recovery | MANA | Condition |
+| Recovery | HP | Condition |
 | --- | ---: | --- |
 | `transport.tor.enable` | +5 | Paired exposure live |
 | `dht.nickname.withdraw` | +5 | Paired exposure live |
@@ -1621,18 +1621,18 @@ an inflated claim pointless.
 
 ### 17.6 The ledger
 
-`ns "mana"`, one sealed blob per UTC day (`d/<day>`) plus a `meta` index — the
+`ns "hp"`, one sealed blob per UTC day (`d/<day>`) plus a `meta` index — the
 `chat:log` pattern, without needing a key-listing API protasius does not have.
 30-day retention; the meters need 8.
 
 ```
-{ ts, kind: "spend" | "recover", code, mana, n, bucket }
+{ ts, kind: "spend" | "recover", code, hp, n, bucket }
 ```
 
 **Reason codes and numbers only.** No message, contact, room name, nickname,
 ticket, path or peer id ever reaches this file. The "Why did this change?" view
 (Settings → Privacy) is therefore as specific as *"47 messages on an
-unencrypted-transport channel · −2.35 MANA"* and no more.
+unencrypted-transport channel · −2.35 HP"* and no more.
 
 **Micro-charges are coalesced** into one row per (action, hour). One row per
 message would bloat a blob that is re-sealed on every append — and, more
@@ -1653,7 +1653,7 @@ subtraction).
 2. **A forward clock change is not defended against.** Winding the clock forward
    heals charges early and expires them from the window. Backwards is guarded;
    forwards is not, because the only person it cheats is the user.
-3. **MANA prices actions and changes, not standing posture.** Tor ships *off*, so a
+3. **HP prices actions and changes, not standing posture.** Tor ships *off*, so a
    fresh profile is never charged `transport.tor.disable` even though it is fully
    exposed. That is why the clearnet posture is *also* priced through every
    action's own variant.
@@ -1674,7 +1674,7 @@ subtraction).
    clearnet ticket is worse than a Tor one — and the ordering, not the absolute
    number, is what is meant to be trusted.
 9. **Lock-time accrual was considered and deliberately not built.** An earlier
-   design regenerated MANA per hour spent locked behind the passphrase gate; it was
+   design regenerated HP per hour spent locked behind the passphrase gate; it was
    dropped because the vault DEK is gone while locked, forcing an
    anchor-then-settle mechanism with real edge cases (crash windows, restarts,
    clock rollback) for a small gain. Its absence is a decision, not an oversight.
@@ -1699,7 +1699,7 @@ Two kinds, because the honest claim differs:
   in the QR. A real confidentiality claim.
 - **General** — a transferable bearer code in **cleartext**. There is no
   recipient to seal it to, so it is not confidential, is not claimed to be, and
-  the UI, the MANA explanation and the price all say so.
+  the UI, the HP explanation and the price all say so.
 
 ### 18.1 The ticket
 
@@ -1807,7 +1807,7 @@ discard live group state.
 ### 18.5 State
 
 `vault::get/put` under ns `invites` — the protasius **internal** tag, so the
-webview can neither read nor forge invite state (the boundary the MANA ledger uses).
+webview can neither read nor forge invite state (the boundary the HP ledger uses).
 
 The **capability itself is stored**, not just a hash. Verifying a keyed MAC needs
 the key; an issuer holding only a hash could not check the proof, and the protocol
@@ -1819,9 +1819,9 @@ Retention runs from the **terminal event** (`Consumed{at}` / `Revoked{at}`), not
 the deadline: an invitation revoked today but issued with a year to run is
 finished today.
 
-### 18.6 Prices ([§17](#17-privacy-mana--the-exposure-budget))
+### 18.6 Prices ([§17](#17-privacy-hp--the-exposure-budget))
 
-| Action | MANA |
+| Action | HP |
 | --- | ---: |
 | `invite.personal.create.tor` | **−0.5** |
 | `invite.personal.create.clearnet` | **−1.5** |
@@ -1914,8 +1914,8 @@ and it is why the switch's own label says "everyone in the room enforces this, s
 it holds as long as they are all running this app" rather than "only people you
 invite can join".
 
-Privacy MANA: `room.inviteonly.enable` **+5**, claimed only on a real open→closed
-move ([§17](#17-privacy-mana--the-exposure-budget)).
+Privacy HP: `room.inviteonly.enable` **+5**, claimed only on a real open→closed
+move ([§17](#17-privacy-hp--the-exposure-budget)).
 
 ---
 
@@ -1931,7 +1931,7 @@ work — key verification, admission approval, CSP/FS scoping, PCS key rotation)
   UI is what an *open* room still needs, so a member can see and accept a joiner
   rather than the first admin adding them silently.
 - **Duration-scaled invitation pricing** — an invitation valid for a week should
-  cost more Privacy MANA than one valid for an hour, over a baseline for minting at
+  cost more Privacy HP than one valid for an hour, over a baseline for minting at
   all. The metered machinery already has the shape (a base `cost` plus a rate plus
   a `cap_per_event`, exactly as `vox.call` bills by the minute); what is missing is
   a third rate axis beside `per_mib` and `per_minute`:
@@ -1946,7 +1946,7 @@ work — key verification, admission approval, CSP/FS scoping, PCS key rotation)
 
   Needs `per_hour` in `build.rs`, in the derivation, and in the share card — whose
   badge must move as the deadline preset changes, because the price on the button
-  has to be the price charged ([§17](#17-privacy-mana--the-exposure-budget)).
+  has to be the price charged ([§17](#17-privacy-hp--the-exposure-budget)).
 - **Accepted limitations (documented, deliberate):**
   - Cold start: if *every* member is offline long enough for discovery records to
     lapse **and** all addresses changed, reconnection needs a fresh QR.

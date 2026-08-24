@@ -21,7 +21,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const dhtFindNick = vi.fn(async (_nick: string) => [] as { node_id: string; name: string; ts: number }[]);
 // PARTIAL mock (see torConnect.test.ts): the controller also uses rakotis'
-// Privacy MANA helpers, so only the nickname lookup is replaced.
+// Privacy HP helpers, so only the nickname lookup is replaced.
 vi.mock("rakotis", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   dhtFindNick: (...a: unknown[]) => (dhtFindNick as any)(...a),

@@ -856,9 +856,9 @@ pub fn keyring_rotate(
 ) -> Result<Vec<KeyringFileOutcome>, String> {
     ensure_keyring_enabled()?;
     let outcomes = rotate_at(&ring_path(&app, &ring_id)?, &old, &new)?;
-    // Privacy MANA: re-encrypting the data itself out-pays re-wrapping the key
-    // above it, so this credits more than a passphrase change (privacy_mana.yaml).
-    crate::privacy_mana::award_rotation(&app, "local.reencrypt.keyring");
+    // Privacy HP: re-encrypting the data itself out-pays re-wrapping the key
+    // above it, so this credits more than a passphrase change (privacy_hp.yaml).
+    crate::privacy_hp::award_rotation(&app, "local.reencrypt.keyring");
     Ok(outcomes)
 }
 

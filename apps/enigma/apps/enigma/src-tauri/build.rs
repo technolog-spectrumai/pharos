@@ -581,33 +581,33 @@ fn generate_build_config() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Privacy MANA — src-tauri/privacy_mana.yaml → `enigma_lib::mana_policy`
+// Privacy HP — src-tauri/privacy_hp.yaml → `enigma_lib::hp_policy`
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Same contract as the build config above: parse → validate → codegen, and any
 // invalid value fails the build here rather than shipping a wrong price. The
-// table is deliberately NOT per-edition (one privacy_mana.yaml, not one per
+// table is deliberately NOT per-edition (one privacy_hp.yaml, not one per
 // configs/*.yaml) — an exposure does not get cheaper with a different tier.
 //
-// Every MANA figure is converted to an integer number of hundredths ("centi-MANA")
+// Every HP figure is converted to an integer number of hundredths ("centi-HP")
 // at this point, and no float survives into the generated code. That is what
 // makes balances reproducible: the ledger and both meters are integer
 // arithmetic end to end.
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawMana {
+struct RawHp {
     version: u32,
-    scale: ManaScale,
+    scale: HpScale,
     confirm_at_hp: f64,
-    meters: ManaMeters,
-    actions: Vec<ManaAction>,
-    recovery: ManaRecovery,
+    meters: HpMeters,
+    actions: Vec<HpAction>,
+    recovery: HpRecovery,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaScale {
+struct HpScale {
     negligible: f64,
     low: f64,
     moderate: f64,
@@ -617,13 +617,13 @@ struct ManaScale {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaMeters {
-    daily: ManaMeter,
+struct HpMeters {
+    daily: HpMeter,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaMeter {
+struct HpMeter {
     max: f64,
     regen_hp: f64,
     regen_per_minutes: u64,
@@ -641,17 +641,17 @@ struct ManaMeter {
 /// below the bottom rung, so they name a number.
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum ManaCost {
+enum HpCost {
     Num(f64),
     Named(String),
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaAction {
+struct HpAction {
     id: String,
     kind: String,
-    cost: ManaCost,
+    cost: HpCost,
     #[serde(default)]
     per_mib: Option<f64>,
     #[serde(default)]
@@ -663,20 +663,20 @@ struct ManaAction {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaRecovery {
+struct HpRecovery {
     daily_cap: f64,
     /// Days the credit ceilings span. Independent of any meter — this bounds how
     /// fast credits can be MINTED, which is an anti-farming rule, not a budget.
     #[serde(default)]
     window_days: Option<u64>,
     window_cap: f64,
-    fixed: Vec<ManaFixed>,
-    data: ManaData,
+    fixed: Vec<HpFixed>,
+    data: HpData,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaFixed {
+struct HpFixed {
     id: String,
     credit: f64,
     /// `~` (null) = pays without a paired exposure being live.
@@ -687,18 +687,18 @@ struct ManaFixed {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaData {
+struct HpData {
     per_mib: f64,
     min_award: f64,
     max_per_event: f64,
     daily_cap: f64,
     window_cap: f64,
-    sources: Vec<ManaDataSource>,
+    sources: Vec<HpDataSource>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaDataSource {
+struct HpDataSource {
     id: String,
     explain_key: String,
 }
@@ -751,7 +751,7 @@ const REQUIRED_HP_RECOVERIES: &[&str] = &[
 const REQUIRED_HP_DATA_SOURCES: &[&str] =
     &["data.delete.chat", "data.delete.maps", "data.delete.files"];
 
-/// MANA → centi-MANA, rejecting a third decimal place. Every price in the table goes
+/// HP → centi-HP, rejecting a third decimal place. Every price in the table goes
 /// through here, so "exact to two places" is enforced rather than assumed.
 fn to_centi(path: &str, v: f64, errors: &mut Vec<String>) -> i64 {
     if !v.is_finite() || v < 0.0 {
@@ -762,15 +762,15 @@ fn to_centi(path: &str, v: f64, errors: &mut Vec<String>) -> i64 {
     let rounded = scaled.round();
     if (scaled - rounded).abs() > 1e-6 {
         errors.push(format!(
-            "{path}: {v} has more than two decimal places — MANA is stored in hundredths"
+            "{path}: {v} has more than two decimal places — HP is stored in hundredths"
         ));
         return 0;
     }
     rounded as i64
 }
 
-fn validate_hp(cfg: &RawMana, errors: &mut Vec<String>) {
-    let mut err = |msg: String| errors.push(format!("privacy_mana.yaml {msg}"));
+fn validate_hp(cfg: &RawHp, errors: &mut Vec<String>) {
+    let mut err = |msg: String| errors.push(format!("privacy_hp.yaml {msg}"));
 
     if cfg.version != 1 {
         err(format!("version: {} is not supported (expected 1)", cfg.version));
@@ -778,7 +778,7 @@ fn validate_hp(cfg: &RawMana, errors: &mut Vec<String>) {
 
     // The ladder is fixed. Its whole job is to keep prices comparable at a
     // glance, which a re-tuned rung would quietly destroy.
-    // Halved 2026-08-24 (privacy_mana.yaml, the note above `scale:`). Pinned here
+    // Halved 2026-08-24 (privacy_hp.yaml, the note above `scale:`). Pinned here
     // as literals on purpose: the rungs' RATIOS are what make prices comparable
     // at a glance, so re-tuning one silently is exactly what this must catch.
     let expected = [
@@ -855,16 +855,16 @@ fn validate_hp(cfg: &RawMana, errors: &mut Vec<String>) {
         }
         seen.push(&a.id);
 
-        if !a.explain_key.starts_with("mana.explain.") {
+        if !a.explain_key.starts_with("hp.explain.") {
             err(format!(
-                "{p}.explain_key: '{}' must start with 'mana.explain.' (the i18n namespace)",
+                "{p}.explain_key: '{}' must start with 'hp.explain.' (the i18n namespace)",
                 a.explain_key
             ));
         }
 
         let cost = match &a.cost {
-            ManaCost::Num(v) => *v,
-            ManaCost::Named(n) => match n.as_str() {
+            HpCost::Num(v) => *v,
+            HpCost::Named(n) => match n.as_str() {
                 "negligible" => cfg.scale.negligible,
                 "low" => cfg.scale.low,
                 "moderate" => cfg.scale.moderate,
@@ -934,8 +934,8 @@ fn validate_hp(cfg: &RawMana, errors: &mut Vec<String>) {
             err(format!("{p}.credit: {} is not a rung of {ladder:?}", r.credit));
         }
         max_credit = max_credit.max(r.credit);
-        if !r.explain_key.starts_with("mana.explain.") {
-            err(format!("{p}.explain_key: must start with 'mana.explain.'"));
+        if !r.explain_key.starts_with("hp.explain.") {
+            err(format!("{p}.explain_key: must start with 'hp.explain.'"));
         }
         if let Some(req) = &r.requires {
             if !seen.contains(&req.as_str()) {
@@ -971,8 +971,8 @@ fn validate_hp(cfg: &RawMana, errors: &mut Vec<String>) {
             err(format!("recovery.data.sources[{}]: duplicate or colliding id", src.id));
         }
         dseen.push(&src.id);
-        if !src.explain_key.starts_with("mana.explain.") {
-            err(format!("recovery.data.sources[{}].explain_key: must start with 'mana.explain.'", src.id));
+        if !src.explain_key.starts_with("hp.explain.") {
+            err(format!("recovery.data.sources[{}].explain_key: must start with 'hp.explain.'", src.id));
         }
     }
     for want in REQUIRED_HP_DATA_SOURCES {
@@ -994,18 +994,18 @@ fn validate_hp(cfg: &RawMana, errors: &mut Vec<String>) {
     }
 }
 
-fn generate_hp(cfg: &RawMana, errors: &mut Vec<String>) -> String {
+fn generate_hp(cfg: &RawHp, errors: &mut Vec<String>) -> String {
     let mut o = String::new();
     let _ = write!(
         &mut o,
-        r#"// @generated from privacy_mana.yaml by build.rs — do not edit.
+        r#"// @generated from privacy_hp.yaml by build.rs — do not edit.
 //
-// All MANA figures are CENTI-MANA (hundredths). The webview never sends a number:
+// All HP figures are CENTI-HP (hundredths). The webview never sends a number:
 // it names an action id and this table supplies the price.
 
-/// How an action is billed. Mirrored in rakotis' `privacyMana.ts`.
+/// How an action is billed. Mirrored in rakotis' `privacyHp.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ManaKind {{
+pub enum HpKind {{
     /// Charged on the off→on transition only; re-affirming costs nothing.
     Toggle,
     /// Charged on every activation.
@@ -1014,19 +1014,19 @@ pub enum ManaKind {{
     Metered,
 }}
 
-impl ManaKind {{
+impl HpKind {{
     pub fn as_str(self) -> &'static str {{
         match self {{
-            ManaKind::Toggle => "toggle",
-            ManaKind::Event => "event",
-            ManaKind::Metered => "metered",
+            HpKind::Toggle => "toggle",
+            HpKind::Event => "event",
+            HpKind::Metered => "metered",
         }}
     }}
 }}
 
-pub struct ManaAction {{
+pub struct HpAction {{
     pub id: &'static str,
-    pub kind: ManaKind,
+    pub kind: HpKind,
     pub cost_centi: i64,
     /// 0 = not billed by size.
     pub per_mib_centi: i64,
@@ -1037,7 +1037,7 @@ pub struct ManaAction {{
     pub explain_key: &'static str,
 }}
 
-pub struct ManaRecovery {{
+pub struct HpRecovery {{
     pub id: &'static str,
     pub credit_centi: i64,
     /// `Some(action_id)` = pays only while that exposure is live and unrecovered.
@@ -1045,7 +1045,7 @@ pub struct ManaRecovery {{
     pub explain_key: &'static str,
 }}
 
-pub struct ManaDataSource {{
+pub struct HpDataSource {{
     pub id: &'static str,
     pub explain_key: &'static str,
 }}
@@ -1070,26 +1070,26 @@ pub const DATA_MAX_PER_EVENT_CENTI: i64 = {dd_max};
 pub const DATA_DAILY_CAP_CENTI: i64 = {dd_daily};
 pub const DATA_WINDOW_CAP_CENTI: i64 = {dd_window};
 
-pub const ACTIONS: &[ManaAction] = &[
+pub const ACTIONS: &[HpAction] = &[
 {actions}];
 
-pub const RECOVERIES: &[ManaRecovery] = &[
+pub const RECOVERIES: &[HpRecovery] = &[
 {recoveries}];
 
-pub const DATA_SOURCES: &[ManaDataSource] = &[
+pub const DATA_SOURCES: &[HpDataSource] = &[
 {sources}];
 
 /// The price of `id`, or `None` if this build has no such action. Every charge
 /// path goes through here — that is what makes a forged price impossible.
-pub fn action(id: &str) -> Option<&'static ManaAction> {{
+pub fn action(id: &str) -> Option<&'static HpAction> {{
     ACTIONS.iter().find(|a| a.id == id)
 }}
 
-pub fn recovery(id: &str) -> Option<&'static ManaRecovery> {{
+pub fn recovery(id: &str) -> Option<&'static HpRecovery> {{
     RECOVERIES.iter().find(|r| r.id == id)
 }}
 
-pub fn data_source(id: &str) -> Option<&'static ManaDataSource> {{
+pub fn data_source(id: &str) -> Option<&'static HpDataSource> {{
     DATA_SOURCES.iter().find(|d| d.id == id)
 }}
 "#,
@@ -1111,8 +1111,8 @@ pub fn data_source(id: &str) -> Option<&'static ManaDataSource> {{
             let mut s = String::new();
             for a in &cfg.actions {
                 let cost = match &a.cost {
-                    ManaCost::Num(v) => *v,
-                    ManaCost::Named(n) => match n.as_str() {
+                    HpCost::Num(v) => *v,
+                    HpCost::Named(n) => match n.as_str() {
                         "negligible" => cfg.scale.negligible,
                         "low" => cfg.scale.low,
                         "moderate" => cfg.scale.moderate,
@@ -1122,13 +1122,13 @@ pub fn data_source(id: &str) -> Option<&'static ManaDataSource> {{
                     },
                 };
                 let kind = match a.kind.as_str() {
-                    "toggle" => "ManaKind::Toggle",
-                    "event" => "ManaKind::Event",
-                    _ => "ManaKind::Metered",
+                    "toggle" => "HpKind::Toggle",
+                    "event" => "HpKind::Event",
+                    _ => "HpKind::Metered",
                 };
                 let _ = writeln!(
                     &mut s,
-                    "    ManaAction {{ id: {id}, kind: {kind}, cost_centi: {cost}, per_mib_centi: {mib}, per_minute_centi: {min}, cap_per_event_centi: {cap}, explain_key: {ek} }},",
+                    "    HpAction {{ id: {id}, kind: {kind}, cost_centi: {cost}, per_mib_centi: {mib}, per_minute_centi: {min}, cap_per_event_centi: {cap}, explain_key: {ek} }},",
                     id = rust_str(&a.id),
                     kind = kind,
                     cost = to_centi(&format!("actions[{}].cost", a.id), cost, errors),
@@ -1149,7 +1149,7 @@ pub fn data_source(id: &str) -> Option<&'static ManaDataSource> {{
                 };
                 let _ = writeln!(
                     &mut s,
-                    "    ManaRecovery {{ id: {id}, credit_centi: {c}, requires: {req}, explain_key: {ek} }},",
+                    "    HpRecovery {{ id: {id}, credit_centi: {c}, requires: {req}, explain_key: {ek} }},",
                     id = rust_str(&r.id),
                     c = to_centi(&format!("recovery.fixed[{}].credit", r.id), r.credit, errors),
                     req = req,
@@ -1163,7 +1163,7 @@ pub fn data_source(id: &str) -> Option<&'static ManaDataSource> {{
             for d in &cfg.recovery.data.sources {
                 let _ = writeln!(
                     &mut s,
-                    "    ManaDataSource {{ id: {id}, explain_key: {ek} }},",
+                    "    HpDataSource {{ id: {id}, explain_key: {ek} }},",
                     id = rust_str(&d.id),
                     ek = rust_str(&d.explain_key),
                 );
@@ -1174,37 +1174,37 @@ pub fn data_source(id: &str) -> Option<&'static ManaDataSource> {{
     o
 }
 
-fn generate_privacy_mana() {
+fn generate_privacy_hp() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_dir = Path::new(&manifest_dir);
-    let yaml_path = manifest_dir.join("privacy_mana.yaml");
-    println!("cargo:rerun-if-changed=privacy_mana.yaml");
+    let yaml_path = manifest_dir.join("privacy_hp.yaml");
+    println!("cargo:rerun-if-changed=privacy_hp.yaml");
 
     let raw = std::fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
         panic!(
-            "\n\nprivacy_mana.yaml not found at {} ({e}) — the Privacy MANA price table is required (see technology.md §17)\n",
+            "\n\nprivacy_hp.yaml not found at {} ({e}) — the Privacy HP price table is required (see technology.md §17)\n",
             yaml_path.display()
         )
     });
-    let cfg: RawMana = serde_norway::from_str(&raw)
-        .unwrap_or_else(|e| panic!("\n\nprivacy_mana.yaml is not valid:\n  {e}\n"));
+    let cfg: RawHp = serde_norway::from_str(&raw)
+        .unwrap_or_else(|e| panic!("\n\nprivacy_hp.yaml is not valid:\n  {e}\n"));
 
     let mut errors = Vec::new();
     validate_hp(&cfg, &mut errors);
     let generated = generate_hp(&cfg, &mut errors); // to_centi reports here too
     if !errors.is_empty() {
         let list: String = errors.iter().map(|e| format!("  - {e}\n")).collect();
-        panic!("\n\nprivacy_mana.yaml is invalid:\n{list}");
+        panic!("\n\nprivacy_hp.yaml is invalid:\n{list}");
     }
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
-    let out_path = Path::new(&out_dir).join("mana_policy_gen.rs");
+    let out_path = Path::new(&out_dir).join("hp_policy_gen.rs");
     std::fs::write(&out_path, generated)
         .unwrap_or_else(|e| panic!("cannot write {}: {e}", out_path.display()));
 }
 
 fn main() {
     generate_build_config(); // fail fast, before tauri_build
-    generate_privacy_mana();
+    generate_privacy_hp();
     tauri_build::build()
 }

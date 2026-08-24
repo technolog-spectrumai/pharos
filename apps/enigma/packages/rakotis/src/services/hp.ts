@@ -1,6 +1,6 @@
-// Privacy MANA — the bridge to Rust, plus the browser-mode mirror of the table.
+// Privacy HP — the bridge to Rust, plus the browser-mode mirror of the table.
 //
-// In the Tauri app every call here goes to `privacy_mana.rs`: the price table is
+// In the Tauri app every call here goes to `privacy_hp.rs`: the price table is
 // fetched once at boot (like the build config), and the ledger lives in the
 // encrypted profile store where JS cannot reach it. In a plain browser — the Vite
 // dev server and vitest's jsdom — there is no binary and no vault, so the mirror
@@ -8,23 +8,23 @@
 // the app explorable without the desktop runtime, and it is the mode every unit
 // test runs in.
 //
-// THE MIRROR IS NOT A SECOND SOURCE OF TRUTH. `src-tauri/privacy_mana.yaml` is the
-// only one. `tests/unit/privacyManaDrift.test.ts` parses that YAML and fails if a
+// THE MIRROR IS NOT A SECOND SOURCE OF TRUTH. `src-tauri/privacy_hp.yaml` is the
+// only one. `tests/unit/privacyHpDrift.test.ts` parses that YAML and fails if a
 // single number here disagrees with it, so the two cannot quietly drift — and in
 // Tauri the fetched table overwrites this one outright.
 
 import { isTauri, invoke } from "./tauri";
 import {
-  type ManaBalances,
-  type ManaEntry,
-  type ManaPolicy,
+  type HpBalances,
+  type HpEntry,
+  type HpPolicy,
   deriveBalances,
   findAction,
   findRecovery,
   priceOf,
-} from "../privacyMana";
+} from "../privacyHp";
 
-// ── the mirror (see privacy_mana.yaml for the rationale behind every number) ───
+// ── the mirror (see privacy_hp.yaml for the rationale behind every number) ───
 
 const A = (
   id: string,
@@ -49,7 +49,7 @@ const R = (id: string, creditCenti: number, requires: string | null, explainKey:
   explainKey,
 });
 
-export const FALLBACK_HP_POLICY: ManaPolicy = {
+export const FALLBACK_HP_POLICY: HpPolicy = {
   version: 1,
   confirmAtCenti: 500,
   dailyMaxCenti: 10_000,
@@ -65,78 +65,78 @@ export const FALLBACK_HP_POLICY: ManaPolicy = {
   dataDailyCapCenti: 500,
   dataWindowCapCenti: 1250,
   actions: [
-    A("transport.onion_stable.enable", "toggle", 150, "mana.explain.transportOnionStableEnable"),
-    A("dht.nickname.publish", "toggle", 1000, "mana.explain.dhtNicknamePublish"),
-    A("dht.presence.enable", "toggle", 500, "mana.explain.dhtPresenceEnable"),
-    // Per MINUTE, not per event: ≈4.8 MANA/hour while a room's onion stays up with a
-    // never-expiring invitation outstanding. See privacy_mana.yaml.
-    A("tor.persistent.hold", "metered", 0, "mana.explain.torPersistentHold", { perMinuteCenti: 8, capPerEventCenti: 500 }),
-    A("room.create.clearnet", "event", 250, "mana.explain.roomCreateClearnet"),
-    A("room.create.tor", "event", 50, "mana.explain.roomCreateTor"),
-    A("room.join.clearnet", "event", 250, "mana.explain.roomJoinClearnet"),
-    A("room.join.tor", "event", 50, "mana.explain.roomJoinTor"),
-    A("invite.personal.create.clearnet", "event", 150, "mana.explain.invitePersonalCreateClearnet"),
-    A("invite.personal.create.tor", "event", 50, "mana.explain.invitePersonalCreateTor"),
-    A("invite.general.create.clearnet", "event", 500, "mana.explain.inviteGeneralCreateClearnet"),
-    A("invite.general.create.tor", "event", 250, "mana.explain.inviteGeneralCreateTor"),
-    A("msg.tor.mls", "metered", 0, "mana.explain.msgTorMls"),
-    A("msg.clearnet.mls", "metered", 2, "mana.explain.msgClearnetMls", {
+    A("transport.onion_stable.enable", "toggle", 150, "hp.explain.transportOnionStableEnable"),
+    A("dht.nickname.publish", "toggle", 1000, "hp.explain.dhtNicknamePublish"),
+    A("dht.presence.enable", "toggle", 500, "hp.explain.dhtPresenceEnable"),
+    // Per MINUTE, not per event: ≈4.8 HP/hour while a room's onion stays up with a
+    // never-expiring invitation outstanding. See privacy_hp.yaml.
+    A("tor.persistent.hold", "metered", 0, "hp.explain.torPersistentHold", { perMinuteCenti: 8, capPerEventCenti: 500 }),
+    A("room.create.clearnet", "event", 250, "hp.explain.roomCreateClearnet"),
+    A("room.create.tor", "event", 50, "hp.explain.roomCreateTor"),
+    A("room.join.clearnet", "event", 250, "hp.explain.roomJoinClearnet"),
+    A("room.join.tor", "event", 50, "hp.explain.roomJoinTor"),
+    A("invite.personal.create.clearnet", "event", 150, "hp.explain.invitePersonalCreateClearnet"),
+    A("invite.personal.create.tor", "event", 50, "hp.explain.invitePersonalCreateTor"),
+    A("invite.general.create.clearnet", "event", 500, "hp.explain.inviteGeneralCreateClearnet"),
+    A("invite.general.create.tor", "event", 250, "hp.explain.inviteGeneralCreateTor"),
+    A("msg.tor.mls", "metered", 0, "hp.explain.msgTorMls"),
+    A("msg.clearnet.mls", "metered", 2, "hp.explain.msgClearnetMls", {
       perMibCenti: 2,
       capPerEventCenti: 50,
     }),
-    A("msg.tor.plain", "metered", 5, "mana.explain.msgTorPlain"),
-    A("msg.clearnet.plain", "metered", 25, "mana.explain.msgClearnetPlain", {
+    A("msg.tor.plain", "metered", 5, "hp.explain.msgTorPlain"),
+    A("msg.clearnet.plain", "metered", 25, "hp.explain.msgClearnetPlain", {
       perMibCenti: 25,
       capPerEventCenti: 250,
     }),
-    A("calendar.share.tor", "metered", 0, "mana.explain.calendarShareTor"),
-    A("calendar.share.clearnet", "metered", 2, "mana.explain.calendarShareClearnet", {
+    A("calendar.share.tor", "metered", 0, "hp.explain.calendarShareTor"),
+    A("calendar.share.clearnet", "metered", 2, "hp.explain.calendarShareClearnet", {
       perMibCenti: 2,
       capPerEventCenti: 50,
     }),
-    A("file.send", "metered", 50, "mana.explain.fileSend", {
+    A("file.send", "metered", 50, "hp.explain.fileSend", {
       perMibCenti: 2,
       capPerEventCenti: 250,
     }),
-    A("vox.call", "metered", 150, "mana.explain.voxCall", {
+    A("vox.call", "metered", 150, "hp.explain.voxCall", {
       perMinuteCenti: 5,
       capPerEventCenti: 500,
     }),
-    A("local.autolock.off", "toggle", 500, "mana.explain.localAutolockOff"),
-    A("local.pin.enroll", "toggle", 150, "mana.explain.localPinEnroll"),
-    A("local.panic_code.clear", "toggle", 150, "mana.explain.localPanicCodeClear"),
-    A("local.lock_on_hide.off", "toggle", 50, "mana.explain.localLockOnHideOff"),
-    A("local.file_integrity.off", "toggle", 50, "mana.explain.localFileIntegrityOff"),
+    A("local.autolock.off", "toggle", 500, "hp.explain.localAutolockOff"),
+    A("local.pin.enroll", "toggle", 150, "hp.explain.localPinEnroll"),
+    A("local.panic_code.clear", "toggle", 150, "hp.explain.localPanicCodeClear"),
+    A("local.lock_on_hide.off", "toggle", 50, "hp.explain.localLockOnHideOff"),
+    A("local.file_integrity.off", "toggle", 50, "hp.explain.localFileIntegrityOff"),
   ],
   recoveries: [
-    R("dht.nickname.withdraw", 500, "dht.nickname.publish", "mana.explain.dhtNicknameWithdraw"),
-    R("dht.presence.withdraw", 250, "dht.presence.enable", "mana.explain.dhtPresenceWithdraw"),
-    R("local.autolock.on", 250, "local.autolock.off", "mana.explain.localAutolockOn"),
-    R("local.passphrase.strengthen", 500, null, "mana.explain.localPassphraseStrengthen"),
-    R("local.passphrase.change", 150, null, "mana.explain.localPassphraseChange"),
-    R("local.reencrypt.keyring", 500, null, "mana.explain.localReencryptKeyring"),
-    R("local.reencrypt.files", 500, null, "mana.explain.localReencryptFiles"),
-    R("invite.revoke", 250, null, "mana.explain.inviteRevoke"),
-    R("room.rekey", 150, null, "mana.explain.roomRekey"),
-    R("room.leave", 150, null, "mana.explain.roomLeave"),
+    R("dht.nickname.withdraw", 500, "dht.nickname.publish", "hp.explain.dhtNicknameWithdraw"),
+    R("dht.presence.withdraw", 250, "dht.presence.enable", "hp.explain.dhtPresenceWithdraw"),
+    R("local.autolock.on", 250, "local.autolock.off", "hp.explain.localAutolockOn"),
+    R("local.passphrase.strengthen", 500, null, "hp.explain.localPassphraseStrengthen"),
+    R("local.passphrase.change", 150, null, "hp.explain.localPassphraseChange"),
+    R("local.reencrypt.keyring", 500, null, "hp.explain.localReencryptKeyring"),
+    R("local.reencrypt.files", 500, null, "hp.explain.localReencryptFiles"),
+    R("invite.revoke", 250, null, "hp.explain.inviteRevoke"),
+    R("room.rekey", 150, null, "hp.explain.roomRekey"),
+    R("room.leave", 150, null, "hp.explain.roomLeave"),
   ],
   dataSources: [
-    { id: "data.delete.chat", explainKey: "mana.explain.dataDeleteChat" },
-    { id: "data.delete.maps", explainKey: "mana.explain.dataDeleteMaps" },
-    { id: "data.delete.files", explainKey: "mana.explain.dataDeleteFiles" },
+    { id: "data.delete.chat", explainKey: "hp.explain.dataDeleteChat" },
+    { id: "data.delete.maps", explainKey: "hp.explain.dataDeleteMaps" },
+    { id: "data.delete.files", explainKey: "hp.explain.dataDeleteFiles" },
   ],
 };
 
 // ── boot ────────────────────────────────────────────────────────────────────
 
-let policy: ManaPolicy = FALLBACK_HP_POLICY;
+let policy: HpPolicy = FALLBACK_HP_POLICY;
 
 /** Fetch the compile-time table once at boot (await before mounting, beside
  *  `initBuildConfig`). In Tauri the binary's table always wins. */
-export async function initManaPolicy(): Promise<ManaPolicy> {
+export async function initHpPolicy(): Promise<HpPolicy> {
   if (isTauri()) {
     try {
-      const fetched = await invoke<ManaPolicy>("mana_get_policy");
+      const fetched = await invoke<HpPolicy>("hp_get_policy");
       // A table without actions is not a table; keep the mirror rather than
       // render an app whose every price silently reads zero.
       if (fetched && Array.isArray(fetched.actions) && fetched.actions.length > 0) {
@@ -150,18 +150,18 @@ export async function initManaPolicy(): Promise<ManaPolicy> {
 }
 
 /** The table as fetched at boot. Never null: the mirror stands in until then. */
-export function getManaPolicy(): ManaPolicy {
+export function getHpPolicy(): HpPolicy {
   return policy;
 }
 
 /** Test seam — lets a unit test install a small synthetic table. */
-export function setManaPolicyForTest(next: ManaPolicy): void {
+export function setHpPolicyForTest(next: HpPolicy): void {
   policy = next;
 }
 
 // ── browser-mode ledger (memory only; the desktop app uses the vault) ───────
 
-let browserLedger: ManaEntry[] = [];
+let browserLedger: HpEntry[] = [];
 let browserHiTs = 0;
 
 function browserStamp(): number {
@@ -171,19 +171,19 @@ function browserStamp(): number {
 }
 
 /** Drop the in-memory ledger. Used by tests and by a browser-mode profile reset. */
-export function resetManaLedgerForTest(): void {
+export function resetHpLedgerForTest(): void {
   browserLedger = [];
   browserHiTs = 0;
 }
 
 // ── reads ───────────────────────────────────────────────────────────────────
 
-export async function manaLedger(): Promise<ManaEntry[]> {
+export async function hpLedger(): Promise<HpEntry[]> {
   if (isTauri()) {
     try {
       // Same defensive read as `asDelta`: a command that answers with nothing
       // must degrade to "no history", not to a crash in every meter.
-      const rows = await invoke<ManaEntry[]>("mana_ledger");
+      const rows = await invoke<HpEntry[]>("hp_ledger");
       return Array.isArray(rows) ? rows : [];
     } catch {
       return [];
@@ -193,14 +193,14 @@ export async function manaLedger(): Promise<ManaEntry[]> {
 }
 
 /** Both meters right now. `now` is injectable so tests need no fake timers. */
-export async function manaBalances(now = Date.now()): Promise<ManaBalances> {
-  return deriveBalances(policy, await manaLedger(), now);
+export async function hpBalances(now = Date.now()): Promise<HpBalances> {
+  return deriveBalances(policy, await hpLedger(), now);
 }
 
 // ── writes ──────────────────────────────────────────────────────────────────
 
-export interface ManaDelta {
-  /** Centi-MANA actually applied. 0 means the call was a no-op. */
+export interface HpDelta {
+  /** Centi-HP actually applied. 0 means the call was a no-op. */
   applied: number;
   code: string;
 }
@@ -211,11 +211,11 @@ export interface ManaDelta {
  * A command can legitimately answer with nothing — an older binary that predates
  * these commands, a build where they are not registered, a transport hiccup. The
  * callers of these functions are ordinary UI paths (send a file, flip a switch),
- * and none of them should break because the MANA layer had nothing to say. An
+ * and none of them should break because the HP layer had nothing to say. An
  * unusable answer becomes a no-op delta, exactly like a charge that was declined.
  */
-function asDelta(raw: unknown, code: string): ManaDelta {
-  const d = raw as Partial<ManaDelta> | null | undefined;
+function asDelta(raw: unknown, code: string): HpDelta {
+  const d = raw as Partial<HpDelta> | null | undefined;
   return {
     applied: typeof d?.applied === "number" && Number.isFinite(d.applied) ? d.applied : 0,
     code: typeof d?.code === "string" && d.code ? d.code : code,
@@ -229,16 +229,16 @@ function asDelta(raw: unknown, code: string): ManaDelta {
  *
  * A no-op returns `applied: 0` rather than throwing: re-affirming a live toggle
  * and sending on the free Tor lane are both ordinary, and neither should flash a
- * "−0 MANA" at the user.
+ * "−0 HP" at the user.
  */
-export async function manaCharge(
+export async function hpCharge(
   actionId: string,
   opts: { bytes?: number; minutes?: number } = {},
-): Promise<ManaDelta> {
+): Promise<HpDelta> {
   if (isTauri()) {
     try {
       return asDelta(
-        await invoke<ManaDelta>("mana_charge", {
+        await invoke<HpDelta>("hp_charge", {
           actionId,
           bytes: opts.bytes ?? null,
           minutes: opts.minutes ?? null,
@@ -266,10 +266,10 @@ export async function manaCharge(
       ? browserLedger.find((e) => e.bucket === bucket && e.code === actionId && e.kind === "spend")
       : undefined;
   if (open) {
-    open.mana -= cost;
+    open.hp -= cost;
     open.n += 1;
   } else {
-    browserLedger.push({ ts, kind: "spend", code: actionId, mana: -cost, n: 1, bucket });
+    browserLedger.push({ ts, kind: "spend", code: actionId, hp: -cost, n: 1, bucket });
   }
   return { applied: -cost, code: actionId };
 }
@@ -289,16 +289,16 @@ function browserExposureLive(actionId: string): boolean {
 }
 
 /**
- * Record the transport posture. A zero-MANA ledger row, not a charge.
+ * Record the transport posture. A zero-HP ledger row, not a charge.
  *
  * Idempotent — re-asserting the posture already recorded writes nothing, so it
  * is safe to call at every boot, which is also what re-establishes the marker
  * after old rows are pruned.
  */
-export async function manaSetTorPosture(on: boolean): Promise<boolean> {
+export async function hpSetTorPosture(on: boolean): Promise<boolean> {
   if (isTauri()) {
     try {
-      return await invoke<boolean>("mana_set_tor_posture", { on });
+      return await invoke<boolean>("hp_set_tor_posture", { on });
     } catch {
       return false;
     }
@@ -306,16 +306,16 @@ export async function manaSetTorPosture(on: boolean): Promise<boolean> {
   const code = on ? "transport.tor.on" : "transport.tor.off";
   const last = [...browserLedger].filter((e) => e.kind === "posture").sort((a, b) => a.ts - b.ts).pop();
   if ((last?.code ?? "transport.tor.off") === code) return false;
-  browserLedger.push({ ts: browserStamp(), kind: "posture", code, mana: 0, n: 1, bucket: 0 });
+  browserLedger.push({ ts: browserStamp(), kind: "posture", code, hp: 0, n: 1, bucket: 0 });
   return true;
 }
 
 /** Award a fixed recovery. Rust verifies the paired exposure is live and applies
  *  the caps; a credit that is not owed comes back as `applied: 0`. */
-export async function manaRecover(recoveryId: string): Promise<ManaDelta> {
+export async function hpRecover(recoveryId: string): Promise<HpDelta> {
   if (isTauri()) {
     try {
-      return asDelta(await invoke<ManaDelta>("mana_recover", { recoveryId }), recoveryId);
+      return asDelta(await invoke<HpDelta>("hp_recover", { recoveryId }), recoveryId);
     } catch {
       return { applied: 0, code: recoveryId };
     }
@@ -326,7 +326,7 @@ export async function manaRecover(recoveryId: string): Promise<ManaDelta> {
     return { applied: 0, code: recoveryId };
   }
   const ts = browserStamp();
-  browserLedger.push({ ts, kind: "recover", code: recoveryId, mana: rec.creditCenti, n: 1, bucket: 0 });
+  browserLedger.push({ ts, kind: "recover", code: recoveryId, hp: rec.creditCenti, n: 1, bucket: 0 });
   return { applied: rec.creditCenti, code: recoveryId };
 }
 
@@ -337,10 +337,10 @@ export async function manaRecover(recoveryId: string): Promise<ManaDelta> {
  * removed and ignores anything the webview claims, which is what ties the credit
  * to a verified reduction rather than an assertion.
  */
-export async function manaDataCredit(sourceId: string, bytesFreed: number): Promise<ManaDelta> {
+export async function hpDataCredit(sourceId: string, bytesFreed: number): Promise<HpDelta> {
   if (isTauri()) {
     try {
-      return asDelta(await invoke<ManaDelta>("mana_data_credit", { sourceId, bytesFreed }), sourceId);
+      return asDelta(await invoke<HpDelta>("hp_data_credit", { sourceId, bytesFreed }), sourceId);
     } catch {
       return { applied: 0, code: sourceId };
     }
@@ -352,6 +352,6 @@ export async function manaDataCredit(sourceId: string, bytesFreed: number): Prom
     Math.max(policy.dataMinAwardCenti, raw),
   );
   const ts = browserStamp();
-  browserLedger.push({ ts, kind: "recover", code: sourceId, mana: award, n: 1, bucket: 0 });
+  browserLedger.push({ ts, kind: "recover", code: sourceId, hp: award, n: 1, bucket: 0 });
   return { applied: award, code: sourceId };
 }

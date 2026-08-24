@@ -170,7 +170,7 @@ export function mergeIntoLog(
 /** Drop a room's entire stored history (room deleted / kicked / closed).
  *
  *  Returns how many bytes of stored history went away, so the caller can claim
- *  the Privacy MANA data-deletion credit. Measured as the JSON length of what was
+ *  the Privacy HP data-deletion credit. Measured as the JSON length of what was
  *  actually there — an approximation of the sealed size, and deliberately the
  *  conservative direction (the sealed form is larger). Zero when the room had no
  *  stored log, which is what keeps the credit idempotent. */

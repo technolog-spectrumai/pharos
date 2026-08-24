@@ -7,64 +7,64 @@
 // the point: a budget that interrupts constantly is one people click through
 // without reading.
 import { OyaModal, formatPrice } from "rakotis";
-import { manaConfirm, resolveManaConfirm } from "./useMana";
+import { hpConfirm, resolveHpConfirm } from "./useHp";
 </script>
 
 <template>
-  <OyaModal :open="manaConfirm !== null" @close="resolveManaConfirm(false)">
+  <OyaModal :open="hpConfirm !== null" @close="resolveHpConfirm(false)">
     <div
-      v-if="manaConfirm"
+      v-if="hpConfirm"
       class="max-h-[85dvh] w-full max-w-sm space-y-4 overflow-y-auto rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
-      data-testid="mana-confirm"
+      data-testid="hp-confirm"
     >
       <p class="flex items-center gap-2 text-lg font-bold">
-        <font-awesome-icon icon="shield-halved" class="opacity-60" />{{ $t("mana.confirmTitle") }}
+        <font-awesome-icon icon="shield-halved" class="opacity-60" />{{ $t("hp.confirmTitle") }}
       </p>
 
       <div class="flex items-center gap-3">
         <span
           class="shrink-0 rounded-lg border border-warn-light px-3 py-1.5 text-base font-bold tabular-nums text-warn-light dark:border-warn-dark dark:text-warn-dark"
-          data-testid="mana-confirm-price"
+          data-testid="hp-confirm-price"
         >
-          {{ formatPrice(manaConfirm.centi) }}
+          {{ formatPrice(hpConfirm.centi) }}
         </span>
-        <span class="min-w-0 text-sm font-semibold">{{ manaConfirm.label }}</span>
+        <span class="min-w-0 text-sm font-semibold">{{ hpConfirm.label }}</span>
       </div>
 
       <!-- The same one sentence the info dot shows. Repeated rather than expanded:
            the explanation should not change depending on where you meet it. -->
-      <p v-if="manaConfirm.explain" class="text-sm leading-relaxed opacity-80">
-        {{ manaConfirm.explain }}
+      <p v-if="hpConfirm.explain" class="text-sm leading-relaxed opacity-80">
+        {{ hpConfirm.explain }}
       </p>
 
       <p
-        v-if="manaConfirm.exhausted"
+        v-if="hpConfirm.exhausted"
         class="rounded-lg border border-highlight/40 bg-highlight/10 p-3 text-sm leading-relaxed"
-        data-testid="mana-confirm-exhausted"
+        data-testid="hp-confirm-exhausted"
       >
-        {{ $t("mana.confirmExhausted") }}
+        {{ $t("hp.confirmExhausted") }}
       </p>
 
       <!-- Says out loud what a meter cannot: this is a mirror, not a protection.
            Nothing here has undone the exposure it is about to record. -->
-      <p class="text-xs leading-relaxed opacity-60">{{ $t("mana.advisoryNote") }}</p>
+      <p class="text-xs leading-relaxed opacity-60">{{ $t("hp.advisoryNote") }}</p>
     </div>
 
     <template #footer>
       <button
         type="button"
         class="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-        @click="resolveManaConfirm(false)"
+        @click="resolveHpConfirm(false)"
       >
         {{ $t("common.cancel") }}
       </button>
       <button
         type="button"
         class="flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-        data-testid="mana-confirm-continue"
-        @click="resolveManaConfirm(true)"
+        data-testid="hp-confirm-continue"
+        @click="resolveHpConfirm(true)"
       >
-        {{ $t("mana.confirmContinue") }}
+        {{ $t("hp.confirmContinue") }}
       </button>
     </template>
   </OyaModal>

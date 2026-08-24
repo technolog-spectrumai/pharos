@@ -7,8 +7,8 @@ import "./style.css";
 import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
-import { setManaTranslator } from "./components/mana/useMana";
-import { initBuildConfig, initManaPolicy, setChatTranslator } from "rakotis";
+import { setHpTranslator } from "./components/hp/useHp";
+import { initBuildConfig, initHpPolicy, setChatTranslator } from "rakotis";
 import { brand, policy } from "./config/app";
 
 import { library } from "@fortawesome/fontawesome-svg-core";
@@ -298,8 +298,8 @@ const app = createApp(App)
 
 installVueErrorHandler(app);
 
-// Privacy MANA labels read through the app's catalog. Injected rather than
-// imported by the MANA modules themselves, so that charging MANA never drags the
+// Privacy HP labels read through the app's catalog. Injected rather than
+// imported by the HP modules themselves, so that charging HP never drags the
 // message catalog into the composer, the file-share composable or vox.
 // Chat notices emitted from inside rakotis read through the same catalog
 // (packages/rakotis/src/i18n/chatText.ts). Injected rather than imported, for the
@@ -308,7 +308,7 @@ setChatTranslator((key, params) =>
   String((i18n.global.t as (k: string, p?: Record<string, unknown>) => string)(key, params ?? {})),
 );
 
-setManaTranslator({
+setHpTranslator({
   t: (key: string) => String((i18n.global.t as (k: string) => string)(key)),
   has: (key: string) => Boolean((i18n.global.te as (k: string) => boolean)(key)),
 });
@@ -327,10 +327,10 @@ void initBuildConfig({
     max: 100 * 1024,
   },
 })
-  // The Privacy MANA price table, fetched the same way and for the same reason:
+  // The Privacy HP price table, fetched the same way and for the same reason:
   // every badge in the app renders from it, so it has to be final before the
   // first frame. In the browser the mirror in rakotis stands in.
-  .then(() => initManaPolicy())
+  .then(() => initHpPolicy())
   .then(() => {
     app.mount("#app");
   });

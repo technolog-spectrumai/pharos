@@ -146,9 +146,9 @@ pub fn local_rotate_file(
     new: String,
 ) -> Result<LockedFileInfo, String> {
     let info = rotate_file_at(&path, &current, &new)?;
-    // Privacy MANA: same reasoning as the key ring — the file's own key is now a
+    // Privacy HP: same reasoning as the key ring — the file's own key is now a
     // key that no longer exists anywhere else. Pays once per rolling day.
-    crate::privacy_mana::award_rotation(&app, "local.reencrypt.files");
+    crate::privacy_hp::award_rotation(&app, "local.reencrypt.files");
     Ok(info)
 }
 

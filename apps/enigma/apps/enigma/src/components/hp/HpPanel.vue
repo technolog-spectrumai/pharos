@@ -1,34 +1,34 @@
 <script setup lang="ts">
-// The Privacy MANA surface: both meters, the full price list, and the history.
+// The Privacy HP surface: both meters, the full price list, and the history.
 //
 // Deliberately ONE component used in two places — the welcome page (`compact`)
 // and Settings → Privacy (everything). The alternative, two views of the same
 // numbers, is exactly how two views of the same numbers start disagreeing.
 //
 // Everything below is read-only. There is no control here that spends or earns
-// MANA: prices are charged where the risky thing actually happens, and this panel
+// HP: prices are charged where the risky thing actually happens, and this panel
 // only reports. That keeps the "price on the button" rule honest — a price list
 // you can act on would become a second, competing place to act.
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  OyaManaMeter,
-  OyaManaPrice,
+  OyaHpMeter,
+  OyaHpPrice,
   findAction,
-  formatMana,
+  formatHp,
   formatPrice,
-  getManaPolicy,
+  getHpPolicy,
   historyRows,
   severityOf,
   formatDate,
 } from "rakotis";
-import { explainFor, manaBalances, manaEntries, manaLoaded, labelFor } from "./useMana";
-import ManaHistoryChart from "./ManaHistoryChart.vue";
+import { explainFor, hpBalances, hpEntries, hpLoaded, labelFor } from "./useHp";
+import HpHistoryChart from "./HpHistoryChart.vue";
 
 withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
 
 const { t } = useI18n({ useScope: "global" });
-const policy = getManaPolicy();
+const policy = getHpPolicy();
 
 // ── folding ─────────────────────────────────────────────────────────────────
 // The price table is the honest part of this feature and also the longest: eight
@@ -40,8 +40,8 @@ const policy = getManaPolicy();
 // rather than the encrypted kv: it is not a setting, it says nothing about the
 // user, and losing it costs a click. Guarded because storage can throw outright
 // in a private window or with site data blocked.
-const OPEN_KEY = "enigma:mana:open";
-const SUBTAB_KEY = "enigma:mana:subtab";
+const OPEN_KEY = "enigma:hp:open";
+const SUBTAB_KEY = "enigma:hp:subtab";
 
 // Below the meters the panel answers two different questions, and mixing them
 // made both harder to read: "what does this cost?" (the rules, which are fixed
@@ -95,9 +95,9 @@ function toggleSection(key: string) {
   }
 }
 
-/** Regeneration line: "+4 MANA / hour". */
+/** Regeneration line: "+4 HP / hour". */
 function regenLabel(centiPerHour: number): string {
-  return t("mana.regenRate", { n: formatMana(centiPerHour) });
+  return t("hp.regenRate", { n: formatHp(centiPerHour) });
 }
 
 /** Countdown line: "next +1 in 12 min". Minutes only — a second-by-second
@@ -105,7 +105,7 @@ function regenLabel(centiPerHour: number): string {
 function nextLabel(ms: number | null): string {
   if (ms === null) return "";
   const mins = Math.max(1, Math.ceil(ms / 60_000));
-  return t("mana.regenNext", { n: mins });
+  return t("hp.regenNext", { n: mins });
 }
 
 /** The price list, grouped so the table reads as a threat model rather than an
@@ -171,38 +171,38 @@ const groups = computed(() =>
 function unitFor(id: string): string | undefined {
   const a = findAction(policy, id);
   if (!a || a.kind !== "metered") return undefined;
-  if (a.perMinuteCenti > 0) return t("mana.unitMinute");
-  return t("mana.unitMessage");
+  if (a.perMinuteCenti > 0) return t("hp.unitMinute");
+  return t("hp.unitMessage");
 }
 
-/** The second line under a metered price: "+0.05 MANA per MiB sent". */
+/** The second line under a metered price: "+0.05 HP per MiB sent". */
 function rateNote(id: string): string {
   const a = findAction(policy, id);
   if (!a) return "";
-  if (a.perMibCenti > 0) return t("mana.ratePerMib", { n: formatMana(a.perMibCenti) });
-  if (a.perMinuteCenti > 0) return t("mana.ratePerMinute", { n: formatMana(a.perMinuteCenti) });
+  if (a.perMibCenti > 0) return t("hp.ratePerMib", { n: formatHp(a.perMibCenti) });
+  if (a.perMinuteCenti > 0) return t("hp.ratePerMinute", { n: formatHp(a.perMinuteCenti) });
   return "";
 }
 
-const rows = computed(() => historyRows(policy, manaEntries.value, Date.now(), 200));
+const rows = computed(() => historyRows(policy, hpEntries.value, Date.now(), 200));
 
 // One `now` for the chart, recomputed when the ledger changes rather than on every
 // render: a chart whose last point crept forward mid-frame would redraw constantly
 // and say nothing new.
 const chartNow = computed(() => {
-  void manaEntries.value.length;
+  void hpEntries.value.length;
   return Date.now();
 });
 
 /** "47 messages" for a coalesced bucket; nothing for a single activation. */
 function countNote(n: number): string {
-  return n > 1 ? t("mana.historyCount", { n }) : "";
+  return n > 1 ? t("hp.historyCount", { n }) : "";
 }
 
-function healNote(healed: number, mana: number, settled: boolean): string {
-  if (mana > 0 || healed <= 0) return "";
-  if (settled) return t("mana.historySettled");
-  return t("mana.historyHealed", { n: formatMana(healed), total: formatMana(Math.abs(mana)) });
+function healNote(healed: number, hp: number, settled: boolean): string {
+  if (hp > 0 || healed <= 0) return "";
+  if (settled) return t("hp.historySettled");
+  return t("hp.historyHealed", { n: formatHp(healed), total: formatHp(Math.abs(hp)) });
 }
 
 function when(ts: number): string {
@@ -215,46 +215,46 @@ const recoveries = computed(() => policy.recoveries);
 <template>
   <div class="flex w-full min-w-0 flex-col gap-6">
     <!-- ── the two meters ────────────────────────────────────────────────── -->
-    <div class="flex flex-col gap-5 sm:flex-row sm:gap-8" data-testid="mana-meters">
-      <OyaManaMeter
+    <div class="flex flex-col gap-5 sm:flex-row sm:gap-8" data-testid="hp-meters">
+      <OyaHpMeter
         class="flex-1"
-        :meter="manaBalances.daily"
-        :label="$t('mana.daily')"
-        :regen-label="regenLabel(manaBalances.daily.regenPerHourCenti)"
-        :next-label="nextLabel(manaBalances.daily.msToNextMana)"
+        :meter="hpBalances.daily"
+        :label="$t('hp.daily')"
+        :regen-label="regenLabel(hpBalances.daily.regenPerHourCenti)"
+        :next-label="nextLabel(hpBalances.daily.msToNextHp)"
       />
     </div>
 
     <!-- Seven days of the same meter, in place of the second bar that used to
          sit beside it. A shape says what a slower number could not. -->
-    <ManaHistoryChart
-      v-if="manaLoaded"
+    <HpHistoryChart
+      v-if="hpLoaded"
       :policy="policy"
-      :entries="manaEntries"
-      :max-centi="manaBalances.daily.maxCenti"
+      :entries="hpEntries"
+      :max-centi="hpBalances.daily.maxCenti"
       :now="chartNow"
     />
 
-    <p v-if="!manaLoaded" class="text-sm opacity-60">{{ $t("mana.loading") }}</p>
+    <p v-if="!hpLoaded" class="text-sm opacity-60">{{ $t("hp.loading") }}</p>
 
     <!-- The one lever the user can pull on the rate itself. Worth saying next to
          the meters rather than burying in the price list: it is the only thing
-         here that changes how fast MANA comes back. -->
+         here that changes how fast HP comes back. -->
     <p
       class="rounded-lg border p-3 text-xs leading-relaxed"
-      :class="manaBalances.daily.torActive
+      :class="hpBalances.daily.torActive
         ? 'border-success-light/40 bg-success-light/10 dark:border-success-dark/40 dark:bg-success-dark/10'
         : 'border-current/15 opacity-70'"
-      data-testid="mana-tor-bonus"
+      data-testid="hp-tor-bonus"
     >
       <font-awesome-icon icon="shield-halved" class="mr-1.5 opacity-70" />
-      {{ manaBalances.daily.torActive ? $t("mana.torBonusOn") : $t("mana.torBonusOff") }}
+      {{ hpBalances.daily.torActive ? $t("hp.torBonusOn") : $t("hp.torBonusOff") }}
     </p>
 
     <!-- The line that keeps the whole feature honest. Shown wherever the meters
          are, including the compact welcome view. -->
-    <p class="text-xs leading-relaxed opacity-60" data-testid="mana-disclaimer">
-      {{ $t("mana.regenDisclaimer") }}
+    <p class="text-xs leading-relaxed opacity-60" data-testid="hp-disclaimer">
+      {{ $t("hp.regenDisclaimer") }}
     </p>
 
     <template v-if="!compact">
@@ -273,18 +273,18 @@ const recoveries = computed(() => policy.recoveries);
             ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
             : 'opacity-60 hover:opacity-100'"
           class="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 transition"
-          :data-testid="`mana-subtab-${tab}`"
+          :data-testid="`hp-subtab-${tab}`"
           @click="selectSubTab(tab)"
         >
           <font-awesome-icon :icon="tab === 'rules' ? 'scale-balanced' : 'clock-rotate-left'" />
-          <span class="truncate">{{ $t(`mana.subtab.${tab}`) }}</span>
+          <span class="truncate">{{ $t(`hp.subtab.${tab}`) }}</span>
         </button>
       </div>
 
       <!-- ── the price list ─────────────────────────────────────────────── -->
       <section v-if="subTab === 'rules'" class="flex flex-col gap-4">
-        <h3 class="text-sm font-bold uppercase opacity-70">{{ $t("mana.pricesTitle") }}</h3>
-        <p class="text-xs leading-relaxed opacity-70">{{ $t("mana.pricesHint") }}</p>
+        <h3 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.pricesTitle") }}</h3>
+        <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.pricesHint") }}</p>
 
         <div v-for="g in groups" :key="g.key" class="flex flex-col">
           <!-- The heading IS the control: a whole-width button, so the hit target
@@ -293,41 +293,41 @@ const recoveries = computed(() => policy.recoveries);
             type="button"
             class="flex w-full items-center gap-2 rounded-lg py-2 text-left text-xs font-bold uppercase opacity-60 transition hover:opacity-100"
             :aria-expanded="isOpen(g.key)"
-            :data-testid="`mana-group-${g.key}`"
+            :data-testid="`hp-group-${g.key}`"
             @click="toggleSection(g.key)"
           >
             <font-awesome-icon
               :icon="isOpen(g.key) ? 'chevron-down' : 'chevron-right'"
               class="w-3 shrink-0 opacity-70"
             />
-            <span class="min-w-0 flex-1 truncate">{{ $t(`mana.group.${g.key}`) }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ $t(`hp.group.${g.key}`) }}</span>
             <!-- A folded heading still says how much is under it. -->
             <span class="shrink-0 tabular-nums opacity-50">{{ g.rows.length }}</span>
           </button>
           <ul
             v-if="isOpen(g.key)"
             class="flex flex-col divide-y divide-current/10 pb-2"
-            :data-testid="`mana-group-body-${g.key}`"
+            :data-testid="`hp-group-body-${g.key}`"
           >
             <li
               v-for="a in g.rows"
               :key="a.id"
               class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2"
-              :data-testid="`mana-price-row-${a.id}`"
+              :data-testid="`hp-price-row-${a.id}`"
             >
               <span class="flex min-w-0 flex-col">
                 <span class="truncate text-sm font-semibold">{{ labelFor(a.id) }}</span>
                 <span v-if="rateNote(a.id)" class="text-[11px] opacity-60">{{ rateNote(a.id) }}</span>
               </span>
-              <!-- A zero-cost lane says "Free" rather than "−0 MANA": it is a
+              <!-- A zero-cost lane says "Free" rather than "−0 HP": it is a
                    different statement, and it is the one worth making. -->
               <span
                 v-if="a.costCenti === 0 && a.perMibCenti === 0 && a.perMinuteCenti === 0"
                 class="shrink-0 rounded-md border border-success-light/50 px-2 py-0.5 text-[11px] font-bold text-success-light dark:border-success-dark/50 dark:text-success-dark"
               >
-                {{ $t("mana.free") }}
+                {{ $t("hp.free") }}
               </span>
-              <OyaManaPrice
+              <OyaHpPrice
                 v-else
                 :centi="-a.costCenti"
                 :unit="unitFor(a.id)"
@@ -338,24 +338,24 @@ const recoveries = computed(() => policy.recoveries);
         </div>
       </section>
 
-      <!-- ── what earns MANA back ─────────────────────────────────────────── -->
+      <!-- ── what earns HP back ─────────────────────────────────────────── -->
       <section v-if="subTab === 'rules'" class="flex flex-col">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-bold uppercase opacity-70 transition hover:opacity-100"
           :aria-expanded="isOpen('recovery')"
-          data-testid="mana-group-recovery"
+          data-testid="hp-group-recovery"
           @click="toggleSection('recovery')"
         >
           <font-awesome-icon
             :icon="isOpen('recovery') ? 'chevron-down' : 'chevron-right'"
             class="w-3 shrink-0 opacity-70"
           />
-          <span class="min-w-0 flex-1 truncate">{{ $t("mana.recoveryTitle") }}</span>
+          <span class="min-w-0 flex-1 truncate">{{ $t("hp.recoveryTitle") }}</span>
           <span class="shrink-0 tabular-nums opacity-50">{{ recoveries.length }}</span>
         </button>
         <template v-if="isOpen('recovery')">
-        <p class="text-xs leading-relaxed opacity-70">{{ $t("mana.recoveryHint") }}</p>
+        <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.recoveryHint") }}</p>
         <ul class="flex flex-col divide-y divide-current/10">
           <li
             v-for="r in recoveries"
@@ -363,13 +363,13 @@ const recoveries = computed(() => policy.recoveries);
             class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2"
           >
             <span class="truncate text-sm font-semibold">{{ labelFor(r.id) }}</span>
-            <OyaManaPrice :centi="r.creditCenti" :explain="explainFor(r.id)" />
+            <OyaHpPrice :centi="r.creditCenti" :explain="explainFor(r.id)" />
           </li>
         </ul>
         <p class="text-xs leading-relaxed opacity-60">
-          {{ $t("mana.recoveryCaps", {
-            daily: formatMana(policy.recoveryDailyCapCenti),
-            window: formatMana(policy.recoveryWindowCapCenti),
+          {{ $t("hp.recoveryCaps", {
+            daily: formatHp(policy.recoveryDailyCapCenti),
+            window: formatHp(policy.recoveryWindowCapCenti),
           }) }}
         </p>
         </template>
@@ -380,10 +380,10 @@ const recoveries = computed(() => policy.recoveries);
            and allowed to scroll instead of being truncated behind a "show more".
            A ledger you have to expand to read is a ledger nobody reads. -->
       <section v-if="subTab === 'decisions'" class="flex flex-col gap-2">
-        <p class="text-xs leading-relaxed opacity-70">{{ $t("mana.historyHint") }}</p>
+        <p class="text-xs leading-relaxed opacity-70">{{ $t("hp.historyHint") }}</p>
 
-        <p v-if="rows.length === 0" class="py-3 text-sm opacity-60" data-testid="mana-history-empty">
-          {{ $t("mana.historyEmpty") }}
+        <p v-if="rows.length === 0" class="py-3 text-sm opacity-60" data-testid="hp-history-empty">
+          {{ $t("hp.historyEmpty") }}
         </p>
 
         <!-- Scrolls in its own box: the meters above it must stay on screen, and
@@ -391,7 +391,7 @@ const recoveries = computed(() => policy.recoveries);
         <ul
           v-else
           class="flex max-h-[46vh] flex-col divide-y divide-current/10 overflow-y-auto pr-1"
-          data-testid="mana-history"
+          data-testid="hp-history"
         >
           <li
             v-for="(row, i) in rows"
@@ -407,30 +407,30 @@ const recoveries = computed(() => policy.recoveries);
               </span>
               <span class="text-[11px] opacity-50">{{ when(row.ts) }}</span>
               <span
-                v-if="healNote(row.healedCenti, row.mana, row.settled)"
+                v-if="healNote(row.healedCenti, row.hp, row.settled)"
                 class="text-[11px] opacity-60"
               >
-                {{ healNote(row.healedCenti, row.mana, row.settled) }}
+                {{ healNote(row.healedCenti, row.hp, row.settled) }}
               </span>
             </span>
             <span
               class="shrink-0 text-sm font-bold tabular-nums"
               :class="
-                row.mana > 0
+                row.hp > 0
                   ? 'text-success-light dark:text-success-dark'
-                  : severityOf(row.mana) === 'severe' || severityOf(row.mana) === 'high'
+                  : severityOf(row.hp) === 'severe' || severityOf(row.hp) === 'high'
                     ? 'text-warn-light dark:text-warn-dark'
                     : 'opacity-80'
               "
             >
-              {{ formatPrice(row.mana) }}
+              {{ formatPrice(row.hp) }}
             </span>
           </li>
         </ul>
 
         <!-- What the ledger deliberately does not contain. Worth stating on the
              screen that shows it, not only in the docs. -->
-        <p class="text-xs leading-relaxed opacity-60">{{ $t("mana.historyPrivacy") }}</p>
+        <p class="text-xs leading-relaxed opacity-60">{{ $t("hp.historyPrivacy") }}</p>
       </section>
     </template>
   </div>

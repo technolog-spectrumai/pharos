@@ -223,7 +223,7 @@ describe("no hard-coded user-facing English", () => {
     // ...and does not fire on the things it must not.
     expect(looksLikeProse("Tor")).toBe(false);
     expect(looksLikeProse("flex items-center gap-2")).toBe(false);
-    expect(looksLikeProse("mana-price-row")).toBe(false);
+    expect(looksLikeProse("hp-price-row")).toBe(false);
     expect(looksLikeProse("")).toBe(false);
   });
 });

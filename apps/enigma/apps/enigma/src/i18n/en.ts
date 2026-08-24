@@ -762,46 +762,46 @@ export default {
     panicWarning: "Typing this at the unlock screen wipes every profile on this device immediately — no confirmation, no recovery. It then becomes your passphrase for the fresh, empty profile.",
   },
 
-  // ── Privacy MANA (technology.md §17) ──────────────────────────────────────────
+  // ── Privacy HP (technology.md §17) ──────────────────────────────────────────
   // Every `explain` string answers one question in one sentence: what becomes
   // visible, and to whom. They are the most load-bearing copy in the app — a
   // price the user cannot interpret is just a number — so they name the actual
   // observer ("n0 relays", "anyone holding your NodeId") rather than saying
   // "your privacy is reduced".
-  mana: {
+  hp: {
     chartTitle: "Last 7 days",
     chartTick: "Chart resolution",
     tickHour: "Per hour",
     tickDay: "Per day",
     chartAlt: "Your budget over the last {n} days",
     chartLow: "Lowest in {days} days: {n}",
-    title: "Privacy MANA",
+    title: "Privacy HP",
     intro:
       "A budget for how much you expose. Safer choices keep it; exposing ones spend it. It never blocks anything — it tells you the price before you tap.",
     daily: "Today",
     loading: "Reading your history…",
     free: "Free",
-    chipTitle: "Privacy MANA left today",
+    chipTitle: "Privacy HP left today",
     seeDetails: "Prices and history",
-    regenRate: "+{n} MANA / hour",
-    torRateActive: "Regenerating {n} MANA / hour",
-    torRateOffer: "Tor would regenerate {n} MANA / hour",
-    torBonusOn: "Tor is on — MANA returns three times faster.",
-    torBonusOff: "Turn Tor on and MANA returns three times faster. The switch itself is free.",
+    regenRate: "+{n} HP / hour",
+    torRateActive: "Regenerating {n} HP / hour",
+    torRateOffer: "Tor would regenerate {n} HP / hour",
+    torBonusOn: "Tor is on — HP returns three times faster.",
+    torBonusOff: "Turn Tor on and HP returns three times faster. The switch itself is free.",
     regenNext: "next +1 in {n} min",
     regenDisclaimer:
-      "MANA returns on its own as time passes. That is a game mechanic, not a repair: a record you published is still out there long after the bar has refilled.",
-    pricesTitle: "What costs MANA",
+      "HP returns on its own as time passes. That is a game mechanic, not a repair: a record you published is still out there long after the bar has refilled.",
+    pricesTitle: "What costs HP",
     pricesHint:
       "Fixed prices, the same every time. Ordinary encrypted messages over Tor are free — that is the default this budget exists to protect.",
     unitMessage: "msg",
     unitMinute: "min",
-    ratePerMib: "plus {n} MANA per MiB sent",
-    ratePerMinute: "plus {n} MANA per minute",
-    recoveryTitle: "What earns MANA back",
+    ratePerMib: "plus {n} HP per MiB sent",
+    ratePerMinute: "plus {n} HP per minute",
+    recoveryTitle: "What earns HP back",
     recoveryHint:
       "Only changes that reduce risk you are carrying right now. Each pays once, and turning something off and on again is always a net loss.",
-    recoveryCaps: "At most {daily} MANA a day and {weekly} MANA a week, across everything here.",
+    recoveryCaps: "At most {daily} HP a day and {weekly} HP a week, across everything here.",
     subtab: {
       rules: "Rules",
       decisions: "Decisions",
@@ -817,9 +817,9 @@ export default {
     confirmTitle: "This one costs a lot",
     confirmContinue: "Continue",
     confirmExhausted:
-      "This meter is already empty. You can still go ahead — MANA never blocks anything — but you have spent a lot today.",
+      "This meter is already empty. You can still go ahead — HP never blocks anything — but you have spent a lot today.",
     advisoryNote:
-      "Privacy MANA measures and remembers; it does not protect. Nothing here changes what this action actually exposes.",
+      "Privacy HP measures and remembers; it does not protect. Nothing here changes what this action actually exposes.",
     group: {
       transport: "How you connect",
       discovery: "Being findable",
