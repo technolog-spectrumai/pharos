@@ -541,6 +541,11 @@ below) / `export_state` + `import_state` (serializable session).
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
+**Reading this table as a user.** [§17](#17-privacy-hp--the-exposure-budget)
+turns every row above into a fixed, comparable price shown next to the control
+that triggers it — the same threat model, expressed as a budget rather than a
+table. It measures and remembers; it does not protect.
+
 **At-rest posture.** All persisted state is sealed in the per-profile protasius vault
 (Argon2id-derived key wrap, XChaCha20-Poly1305 values, AAD-bound to each record's
 location). The plaintext exceptions are: the vault header `vault.json` (salt +
@@ -692,14 +697,25 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   Local **SVG editor** (`components/local/SvgEditor.vue`) draws with, so that
   code ships — the *board*, with its own tab and its own document store, does
   not.
-- **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
+- **Settings** (`EnigmaConfigView`) — six tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
   shows; max file size; transfer chunk size + integrity check; meeting reminder;
   map storage limit), **Connections** (use-Tor, stable-onion, connection timeout,
-  DHT discovery + cadences + status probe), **Lock** (auto-lock delay,
-  lock-on-hide, reset passphrase, PIN unlock, panic code), **Data** (airplane
-  mode; data profiles; clear data). Settings itself is the one tab with no
-  visibility checkbox — it is the only route back to the others.
+  DHT discovery + cadences + status probe), **Privacy** (the Privacy HP meters,
+  the whole price table and the "Why did this change?" ledger — read-only:
+  prices are charged where the risky thing happens, never from a list of them),
+  **Lock** (auto-lock delay, lock-on-hide, reset passphrase, PIN unlock, panic
+  code), **Data** (airplane mode; data profiles; clear data). Settings itself is
+  the one tab with no visibility checkbox — it is the only route back to the
+  others.
+- **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma26
+  mark in the top left: what the app is, what this build includes, who you are on
+  it (profile name, avatar, MLS identity, active storage profile) and your HP
+  meters. Ungated for the same reason Settings is — a logo that could lead
+  nowhere would be a dead end on every screen. Deliberately **not** `/`: that
+  redirect still resolves to the first visible tab, which is where every lock
+  cycle re-enters after the webview reload. A compact **HP chip** sits in the
+  header on every screen and links here ([§17](#17-privacy-hp--the-exposure-budget)).
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
 tokens — see [§14](#14-conventions-naming--palette). Dark mode defaults on but is
@@ -1062,6 +1078,14 @@ seeds the browser-mode fallback from `config/app.ts`). App name and identifier
 are fixed to `Enigma26` / `com.spectrumaipl.enigma26`; `build.rs` rejects drift
 and still asserts the YAML mirrors `tauri.conf.json`.
 
+**Privacy HP price table (compile-time):**
+[`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml)
+— the second file `build.rs` bakes in, on the same contract as the build config
+(validate → codegen → `enigma_lib::hp_policy`; an invalid table fails the build).
+Unlike the build config it is **not per-edition**: an exposure does not get
+cheaper with a different tier. Full rationale in
+[§17](#17-privacy-hp--the-exposure-budget).
+
 **Frontend app config:** [`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts)
 — brand identity, UI policy, dev port. Import `brand` / `policy` / `dev` from here
 instead of hardcoding.
@@ -1091,6 +1115,8 @@ instead of hardcoding.
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
 | Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
+| Privacy HP price table | `apps/enigma/src-tauri/privacy_hp.yaml` | Compile-time, **all editions** (prices are not a product knob — one file, not one per `configs/*.yaml`). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of making a surface free) and generates `enigma_lib::hp_policy`. Fetched once at boot via `hp_get_policy` → rakotis `initHpPolicy`/`getHpPolicy`; `services/hp.ts` carries a browser-mode mirror that `privacyHpDrift.test.ts` pins against the YAML. See [§17](#17-privacy-hp--the-exposure-budget) |
+| Privacy HP ledger | protasius ns `hp` via `vault::get/put` (**internal** tag) | Per-profile, append-only, reason codes and numbers only. Deliberately NOT in the `kv_*` keyspace the webview can write: a different AAD tag means JS cannot read, forge or clobber it. Balances are derived, never stored — see [§17.4](#174-regeneration) |
 | PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
@@ -1273,6 +1299,245 @@ person and therefore filters nothing. The two families were deliberately
 domain-separated in their HMAC labels (`enigma/plink/v1/kp` vs
 `enigma/devlink/v1/kp`) so a proof minted for one could never be replayed into
 the other — a test in the parked set still pins that.
+
+---
+
+## 17. Privacy HP — the exposure budget
+
+A small, deliberately game-like layer that lets a user **compare the relative
+safety of the choices this app offers**, in one currency, with the price shown
+before the tap. Two meters per profile: **Daily, max 100** and **Weekly, max
+700**.
+
+**It is advisory and inert.** Nothing in it gates, blocks, delays or weakens MLS,
+Tor, iroh, the vault or the passphrase. Deleting the whole feature would leave
+the app behaviourally identical, minus the numbers. It adds no server, no
+account and no telemetry — every byte it writes stays in the profile's own
+encrypted store, and nothing about it ever leaves the device.
+
+### 17.1 Where each part lives
+
+| Concern | Home |
+| --- | --- |
+| The prices | [`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml) — one file, all editions |
+| Validation + codegen | `build.rs` → `enigma_lib::hp_policy` consts. **An invalid table fails the build** |
+| Ledger, clock, enforcement | `src-tauri/src/privacy_hp.rs` (`hp_*` commands) |
+| Policy, derivation, copy | `packages/rakotis/src/privacyHp.ts` (pure) + `services/hp.ts` (bridge + browser mirror) |
+| UI | `OyaHpPrice` / `OyaHpMeter` primitives; `components/hp/` (chip, flash, confirm, panel, `useHp`); `EnigmaWelcomeView`; Settings → Privacy |
+
+**The webview never names an amount.** It names an action id and Rust looks the
+price up in its own compile-time table. A compromised frontend can charge the
+*wrong* action; it cannot invent a price or hand itself a credit.
+
+**Storage boundary.** The ledger uses `vault::get/put` under ns `hp` — the
+protasius **internal** tag. The `kv_*` commands the webview can call use a
+different AAD tag and a different record space, so JS can neither read, forge nor
+clobber the ledger even though it freely writes its own settings.
+
+**Arithmetic.** Every amount is an integer number of hundredths ("centi-HP") in
+both languages. No float reaches the ledger, so balances are reproducible
+byte-for-byte. `build.rs` rejects a third decimal place.
+
+### 17.2 The price table
+
+Five rungs — **1 / 3 / 5 / 10 / 20** — for negligible, low, moderate, high and
+severe. A fixed price must land on a rung (build-enforced); metered actions bill
+in fractions below the bottom rung. Every price cites the threat-model line it
+comes from.
+
+**Transport posture**
+
+| Action | HP | Why ([§8](#8-privacy), [§9](#9-security--privacy-considerations)) |
+| --- | ---: | --- |
+| `transport.tor.disable` | **−20** | §8, §9.6 — re-exposes NodeId↔IP, social graph, timing, sizes and presence to n0 for *everything after it*. Severe because it is a posture, not one disclosure |
+| `transport.onion_stable.enable` | −3 | One long-lived `.onion` makes sessions linkable; materialises an onion keystore while unlocked (§8) |
+
+**Discovery**
+
+| Action | HP | Why ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
+| --- | ---: | --- |
+| `dht.nickname.publish` | **−20** | Binds a *human-chosen* handle to your NodeId in a global directory. The strongest de-anonymiser in the app: everything else leaks a machine identity |
+| `dht.presence.enable` | **−10** | *"The presence feature's data source is its privacy cost"* — publishes your pkarr record hourly to anyone holding the NodeId |
+| `dht.room_code.publish` | −5 | Sealed and hourly-rotated, but the record is public and the code is a **bearer credential** |
+
+**Rooms and tickets** — the Tor variant axis (chat re-homes onto the onion transport)
+
+| Action | HP | Why |
+| --- | ---: | --- |
+| `ticket.export.clearnet` | **−10** | §8 — carries room name + NodeId + **IP addresses**, and is the most copyable artefact in the app |
+| `ticket.export.tor` | −3 | Room name + `.onion`, **no IP** |
+| `room.create.clearnet` / `.tor` | −5 / −1 | A `blake3(name)` topic joined in the clear (§9.7) vs. the same topic without an IP |
+| `room.join.clearnet` / `.tor` | −5 / −1 | Announces your device to the topic's peers, with or without an IP |
+
+**Messages** — billed per send *and* per MiB, because size is exactly what an
+observer sees when the content is sealed. Received messages are never billed.
+
+| Lane | Per message | Per MiB | Cap |
+| --- | ---: | ---: | ---: |
+| `msg.tor.mls` | **0** | 0 | — |
+| `msg.clearnet.mls` | −0.05 | −0.05 | −1 |
+| `msg.tor.plain` | −0.1 | 0 | — |
+| `msg.clearnet.plain` | −0.5 | −0.5 | −5 |
+
+The plaintext lanes are the pre-MLS cleartext fallback (§9.5). The composer shows
+the current lane's rate and it **drops to "Free" the moment MLS reports ready over
+Tor** — which makes the encryption state legible in a way the lock badge alone is
+not.
+
+**Traffic that cannot use Tor.** `vox.rs` and `file_xfer.rs` are iroh-direct-QUIC
+only and are *blocked* in Tor mode (`stores/network.ts`: `irohBlocked`). There is
+no safe variant to offer, which is precisely why they price where they do.
+
+| Action | Base | Metered | Cap |
+| --- | ---: | --- | ---: |
+| `vox.call` | −3 | −0.1 / minute | −10 |
+| `file.send` | −1 | −0.05 / MiB | −5 |
+
+**Local security** — not exposure, but a lower wall between the data and whoever
+picks up the device.
+
+| Action | HP | Why |
+| --- | ---: | --- |
+| `local.autolock.off` | **−10** | `idle_lock_mins = 0` keeps the DEK live indefinitely ([§13](#13-encryption-at-rest-gervasius--protasius)) |
+| `local.pin.enroll` | −3 | Memory-only convenience; a RAM dump of an idle-locked process can brute-force six digits (§7) |
+| `local.panic_code.clear` | −3 | Loss of the duress escape hatch — priced low precisely because it is not an exposure |
+| `local.lock_on_hide.off` | −1 | |
+| `local.file_integrity.off` | −1 | Drops the per-chunk hash chain |
+
+**Never charged:** receiving anything, reading, searching, local-only work, and
+every message on the safe lane.
+
+### 17.3 Charging rules
+
+- **Toggles** charge on the off→on transition only and are idempotent —
+  re-affirming a live switch costs nothing and writes nothing.
+- **Events** charge on every activation. No dedup: the meter always moves by
+  exactly the number that was on the button.
+- **Metered** actions charge a base plus a rate, capped per event, and are
+  coalesced (§17.6).
+- **Confirmation** is raised only at ≥10 HP or when a meter is already empty.
+  Everything cheaper stays one-tap. The dialog never refuses — "Continue" is
+  always available, at any balance.
+- Charges land **after** the action succeeds, so a room that never came up or a
+  transfer that was declined costs nothing.
+
+### 17.4 Regeneration
+
+Both meters are **rolling windows** — 24 h and 7 days — not calendar-bounded.
+That needs no timezone (std has no local-offset API and this was not worth a
+dependency), has no midnight to double-collect across, and makes "a charge
+expires one day after it was made" literally true.
+
+Each charge then **heals on its own clock**:
+
+```
+unhealed(charge) = max(0, hp − elapsed × rate)
+balance          = clamp(max − Σ unhealed + credits, 0, max)
+```
+
+Daily heals **+4 HP/h**, Weekly **+1 HP/h**. Nothing is written when HP returns —
+which is why offline use, restarts, crashes and app-closed time need no
+reconciliation at all: there is no counter to reconcile. The two meters therefore
+differ *only* in ceiling, window length and rate.
+
+The rates were chosen against real use: you would have to send **>80 clearnet
+messages an hour** to outpace the daily drip, and **>20/hour** to outpace the
+weekly one. So casual clearnet chat is effectively free and the weekly meter is
+what registers a sustained habit.
+
+### 17.5 Recovery
+
+Fixed credits, paid **only for a change that reduces risk you are currently
+carrying**, capped at **25 HP/day and 100 HP/week** across everything.
+
+| Recovery | HP | Condition |
+| --- | ---: | --- |
+| `transport.tor.enable` | +10 | Paired exposure live |
+| `dht.nickname.withdraw` | +10 | Paired exposure live |
+| `local.passphrase.strengthen` | +10 | New passphrase **longer** than the old (lengths only, compared inside `vault_change_passphrase`; neither is stored) |
+| `local.reencrypt.keyring` / `.files` | +10 | A completed key rotation |
+| `dht.presence.withdraw` | +5 | Paired exposure live |
+| `local.autolock.on` | +5 | `idle_lock_mins > 0` |
+| `local.passphrase.change` | +3 | Any change — protasius re-wraps the DEK under a fresh salt |
+| `room.rekey` / `room.leave` | +3 | Once per rolling day |
+| `data.delete.chat` / `.maps` / `.files` | +0.25/MiB freed, floor 0.5, ceiling 5 | Own caps: 10/day, 25/week |
+
+**Key rotation out-pays a passphrase change by a full rung, and the gap is the
+point.** Changing a passphrase re-wraps the DEK: it protects the key, but every
+byte on disk is still sealed under the same DEK as yesterday. Rotation replaces
+the keys the *data* is encrypted under, so ciphertext an attacker copied earlier
+is sealed under a key that no longer exists anywhere.
+
+**Pairing is what makes recovery idempotent.** A credit with `requires:` pays only
+while its paired exposure is live and unrecovered, so a switch flipped off and on
+again is always a **net loss**, never a profit. Credits without a pair
+(passphrase, rotation) are bounded by a rolling-day lockout instead.
+
+**Who measures a deletion credit:** `data.delete.maps` is measured in Rust —
+`maps::map_region_remove` reads the blob's real size immediately before unlinking
+it. `data.delete.chat` and `.files` are reported by the frontend, because the
+deletion happens there; the per-event ceiling and the two data caps are what make
+an inflated claim pointless.
+
+### 17.6 The ledger
+
+`ns "hp"`, one sealed blob per UTC day (`d/<day>`) plus a `meta` index — the
+`chat:log` pattern, without needing a key-listing API protasius does not have.
+30-day retention; the meters need 8.
+
+```
+{ ts, kind: "spend" | "recover", code, hp, n, bucket }
+```
+
+**Reason codes and numbers only.** No message, contact, room name, nickname,
+ticket, path or peer id ever reaches this file. The "Why did this change?" view
+(Settings → Privacy) is therefore as specific as *"47 messages on an
+unencrypted-transport channel · −2.35 HP"* and no more.
+
+**Micro-charges are coalesced** into one row per (action, hour). One row per
+message would bloat a blob that is re-sealed on every append — and, more
+importantly, **a timestamped row per message is itself a log of your messaging
+activity**. The open bucket for the current hour is updated in place; a sealed one
+is never touched again.
+
+**Timestamps are clamped monotonic** (`ts = max(now, hi_ts + 1)`), so a clock set
+backwards cannot slip a row in behind existing history, escape a charge, or
+re-collect a once-per-day credit. Backwards clocks also heal nothing (saturating
+subtraction).
+
+### 17.7 Limitations — read these before trusting a number
+
+1. **Regeneration is gamification. It repairs nothing.** A DHT record you
+   published is still out there long after the bar has refilled. The meters
+   measure and remember; they do not protect, and no balance implies safety.
+2. **A forward clock change is not defended against.** Winding the clock forward
+   heals charges early and expires them from the window. Backwards is guarded;
+   forwards is not, because the only person it cheats is the user.
+3. **HP prices actions and changes, not standing posture.** Tor ships *off*, so a
+   fresh profile is never charged `transport.tor.disable` even though it is fully
+   exposed. That is why the clearnet posture is *also* priced through every
+   action's own variant.
+4. **A known, capped farm exists.** Import a large map region, delete it, collect.
+   The per-event ceiling and the data caps bound it to a nuisance. Closing it
+   properly would need a hidden "data must be N days old" rule, and a visible cap
+   is the more honest trade.
+5. **Two deletion credits trust the frontend's byte count** (§17.5). The caps, not
+   the caller, are what bound them.
+6. **A full "Clear all data" wipe awards nothing** — it destroys the profile store
+   *including* this ledger, so there is nowhere to put a credit. The outcome is
+   already the best available: the fresh profile opens at a full 100 / 700,
+   because no history survives to count against it. The panic-code wipe is the
+   same, and that path is untouched by any of this.
+7. **The ledger is per-profile and per-device.** It is not synced, and a second
+   device has its own.
+8. **Prices are a judgement, not a measurement.** They are ordinal — they say a
+   clearnet ticket is worse than a Tor one — and the ordering, not the absolute
+   number, is what is meant to be trusted.
+9. **Lock-time accrual was considered and deliberately not built.** An earlier
+   design regenerated HP per hour spent locked behind the passphrase gate; it was
+   dropped because the vault DEK is gone while locked, forcing an
+   anchor-then-settle mechanism with real edge cases (crash windows, restarts,
+   clock rollback) for a small gain. Its absence is a decision, not an oversight.
 
 ---
 
