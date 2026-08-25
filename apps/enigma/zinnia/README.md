@@ -91,9 +91,14 @@ import OyaButton from "rakotis/components/primitives/OyaButton.vue";
 not in the package. Importing the barrel drags all of that into zinnia's module
 graph and fails to resolve.
 
-## src/api
+## limbo/
 
-An HTTP client for the platform (auth, vault, a typed error taxonomy). Written
-and tested, but **not wired into the UI yet** — there is no sign-in surface on
-purpose. `normalizeServerUrl` is frozen: the normalised URL keys stored
-credentials, so changing the rule later silently orphans every saved login.
+Parked code: written, tested, and not currently reachable from any build. Today
+that is `limbo/cloud/` — sign-in, the vault browser and the HTTP client under
+both, removed when zinnia settled on being local-first. `limbo/README.md`
+explains the convention (borrowed from the platform monorepo) and each parked
+area's `LIMBO.md` lists what left with it and what lifting it back takes.
+
+Nothing in there is compiled: `tsconfig.json` includes only `src/**`, vitest
+collects only `tests/**`, and cargo only builds what a `mod` in
+`src-tauri/src/lib.rs` names.
