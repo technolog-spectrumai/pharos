@@ -364,6 +364,31 @@
   font-size: calc(1em * var(--memo-block-scale, 1));
 }
 
+/* The two blocks whose payload is RAW MARKUP from the file — an `<svg>` element
+ * or a legacy HTML fragment — rather than the deck format's own rich text.
+ *
+ * `contain: layout` is here for one reason and it is not layout: it makes the
+ * block a containing block for absolutely and fixed positioned descendants. A
+ * deck arriving from anywhere can carry `<div style="position:fixed;inset:0">`,
+ * and without this it would escape its slide and cover the whole application —
+ * which, now that there is a passphrase dialog to imitate, is the attack worth
+ * closing. Trapped inside the block's own box, the same markup is a defaced
+ * slide and nothing more.
+ *
+ * It does NOT close the rest of the hole. An inline `<style>` inside an inline
+ * `<svg>` is scoped to the DOCUMENT, not the SVG, so such a block can still
+ * restyle the app around it. The Content-Security-Policy cannot help — ACE,
+ * FontAwesome, TipTap, reveal.js and Univer all inject `<style>` elements with
+ * text content, so `style-src-elem 'self'` would break the editors. Real
+ * isolation means rendering these two block types in a sandboxed iframe or a
+ * shadow root; see the Security tab, which states the limit rather than
+ * implying it is closed. `paint` is deliberately NOT used: it would clip a
+ * full-bleed image to its box. */
+.memo-block[data-type="html"],
+.memo-block[data-type="svg"] {
+  contain: layout;
+}
+
 .memo-block[data-type="image"],
 .memo-block[data-type="svg"] {
   display: flex;
