@@ -39,6 +39,8 @@ use std::path::Path;
 use gervasius::{create_vault_with_params, gervazy, open, seal, KdfParams, VaultHeader};
 use serde::Serialize;
 
+use crate::secrets;
+
 
 /// What a file's ciphertext is bound to. A CONSTANT, never the file name, so a
 /// sealed file survives being renamed or moved. It no longer matches the
@@ -120,6 +122,19 @@ fn name_of(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
+/// The password to use: the one passed in, or the remembered one.
+///
+/// `None` means "use what is remembered", and the answer never leaves Rust —
+/// that is the point of asking here rather than letting the frontend fetch it
+/// and pass it back down.
+fn password_for(given: Option<String>) -> Result<String, String> {
+    match given {
+        Some(p) if !p.is_empty() => Ok(p),
+        _ => secrets::recall()
+            .ok_or_else(|| "no_passphrase: no password was given and none is remembered".to_string()),
+    }
+}
+
 /// Encrypt `path` in place.
 ///
 /// `async`, and that is not decoration: Argon2id at 64 MiB and three passes is
@@ -130,7 +145,8 @@ fn name_of(path: &str) -> String {
 /// Refuses a file that is already sealed, in any format. Double-sealing would
 /// need two passwords undone in the right order, which nobody ever means.
 #[tauri::command(async)]
-pub fn lock_file(path: String, password: String) -> Result<LockedInfo, String> {
+pub fn lock_file(path: String, password: Option<String>) -> Result<LockedInfo, String> {
+    let password = password_for(password)?;
     let plain = read_capped(&path)?;
     if is_current(&plain) || gervazy::is_sealed(&plain) {
         return Err("already_locked: that file is already encrypted".into());
@@ -161,7 +177,8 @@ pub fn lock_file(path: String, password: String) -> Result<LockedInfo, String> {
 /// error says only "wrong password or corrupt file": telling those two apart
 /// would be telling an attacker which half they got right.
 #[tauri::command(async)]
-pub fn unlock_file(path: String, password: String) -> Result<LockedInfo, String> {
+pub fn unlock_file(path: String, password: Option<String>) -> Result<LockedInfo, String> {
+    let password = password_for(password)?;
     let bytes = read_capped(&path)?;
     // A file sealed by the platform, or by this app before 8/2026. Its salt
     // lived on the server's strongbox row, which is parked — so it cannot be
@@ -212,14 +229,14 @@ mod tests {
     #[test]
     fn a_sealed_file_opens_with_only_the_password() {
         let path = tmp("roundtrip", b"some local bytes");
-        lock_file(path.clone(), "pw".into()).unwrap();
+        lock_file(path.clone(), Some("pw".into())).unwrap();
 
         let sealed = std::fs::read(&path).unwrap();
         assert!(is_current(&sealed), "not this build's frame");
         assert!(is_file_locked(path.clone()).unwrap());
         assert_ne!(sealed, b"some local bytes", "the bytes must actually change");
 
-        let info = unlock_file(path.clone(), "pw".into()).unwrap();
+        let info = unlock_file(path.clone(), Some("pw".into())).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"some local bytes");
         assert_eq!(info.size, "some local bytes".len() as u64);
         std::fs::remove_file(&path).ok();
@@ -231,8 +248,8 @@ mod tests {
     fn two_files_under_one_password_share_no_key_material() {
         let a = tmp("uniq-a", b"identical");
         let b = tmp("uniq-b", b"identical");
-        lock_file(a.clone(), "pw".into()).unwrap();
-        lock_file(b.clone(), "pw".into()).unwrap();
+        lock_file(a.clone(), Some("pw".into())).unwrap();
+        lock_file(b.clone(), Some("pw".into())).unwrap();
         assert_ne!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
 
         let (ha, _) = parse_frame(&std::fs::read(&a).unwrap()).unwrap();
@@ -248,11 +265,11 @@ mod tests {
     #[test]
     fn a_sealed_file_survives_being_renamed() {
         let path = tmp("rename-from", b"portable");
-        lock_file(path.clone(), "pw".into()).unwrap();
+        lock_file(path.clone(), Some("pw".into())).unwrap();
         let moved = format!("{path}-moved");
         std::fs::rename(&path, &moved).unwrap();
 
-        unlock_file(moved.clone(), "pw".into()).unwrap();
+        unlock_file(moved.clone(), Some("pw".into())).unwrap();
         assert_eq!(std::fs::read(&moved).unwrap(), b"portable");
         std::fs::remove_file(&moved).ok();
     }
@@ -262,21 +279,42 @@ mod tests {
     #[test]
     fn a_wrong_password_leaves_the_file_untouched() {
         let path = tmp("wrongpw", b"precious");
-        lock_file(path.clone(), "right".into()).unwrap();
+        lock_file(path.clone(), Some("right".into())).unwrap();
         let sealed = std::fs::read(&path).unwrap();
 
-        let err = unlock_file(path.clone(), "wrong".into()).unwrap_err();
+        let err = unlock_file(path.clone(), Some("wrong".into())).unwrap_err();
         assert!(err.starts_with("wrong_password"), "{err}");
         assert_eq!(std::fs::read(&path).unwrap(), sealed, "file must be untouched");
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// The remembered passphrase, reached the way the commands reach it —
+    /// inside Rust. Nothing in this flow hands it to a caller.
+    #[test]
+    fn falls_back_to_the_remembered_passphrase() {
+        let path = tmp("remembered", b"quiet");
+        crate::secrets::secret_forget().unwrap();
+        // With nothing remembered and nothing given, it refuses rather than
+        // sealing under an empty password.
+        assert!(lock_file(path.clone(), None).unwrap_err().starts_with("no_passphrase"));
+
+        crate::secrets::secret_remember("hunter2".into()).unwrap();
+        lock_file(path.clone(), None).unwrap();
+        // …and the file it produced is an ordinary one: the same passphrase
+        // opens it when typed, because the frame never knew where it came from.
+        unlock_file(path.clone(), Some("hunter2".into())).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"quiet");
+
+        crate::secrets::secret_forget().unwrap();
         std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn refuses_to_seal_twice_or_open_plaintext() {
         let path = tmp("double", b"plain");
-        assert!(unlock_file(path.clone(), "x".into()).unwrap_err().starts_with("not_locked"));
-        lock_file(path.clone(), "pw".into()).unwrap();
-        assert!(lock_file(path.clone(), "pw".into()).unwrap_err().starts_with("already_locked"));
+        assert!(unlock_file(path.clone(), Some("x".into())).unwrap_err().starts_with("not_locked"));
+        lock_file(path.clone(), Some("pw".into())).unwrap();
+        assert!(lock_file(path.clone(), Some("pw".into())).unwrap_err().starts_with("already_locked"));
         std::fs::remove_file(&path).ok();
     }
 
@@ -288,7 +326,7 @@ mod tests {
     fn a_platform_sealed_file_is_seen_but_refused() {
         let fernet = tmp("legacy-fernet", b"gAAAAAxyz-not-really-a-token");
         assert!(is_file_locked(fernet.clone()).unwrap(), "must still be badged");
-        let err = unlock_file(fernet.clone(), "pw".into()).unwrap_err();
+        let err = unlock_file(fernet.clone(), Some("pw".into())).unwrap_err();
         assert!(err.starts_with("legacy_format"), "{err}");
         std::fs::remove_file(&fernet).ok();
     }
@@ -308,12 +346,12 @@ mod tests {
     #[test]
     fn a_damaged_frame_is_refused_rather_than_panicking() {
         let path = tmp("truncated", b"x");
-        lock_file(path.clone(), "pw".into()).unwrap();
+        lock_file(path.clone(), Some("pw".into())).unwrap();
         let mut sealed = std::fs::read(&path).unwrap();
         sealed.truncate(PREFIX_LEN + 4);
         std::fs::write(&path, &sealed).unwrap();
 
-        let err = unlock_file(path.clone(), "pw".into()).unwrap_err();
+        let err = unlock_file(path.clone(), Some("pw".into())).unwrap_err();
         assert!(err.starts_with("crypto"), "{err}");
         std::fs::remove_file(&path).ok();
     }

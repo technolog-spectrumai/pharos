@@ -267,6 +267,93 @@ describe("SecurityView — encrypting a file", () => {
     expect(probes).toEqual([`${ROOT}/a.txt`]);
   });
 
+  it("says nothing is remembered until something is", async () => {
+    invoke.mockResolvedValue({ remembered: false, storage: null });
+    const w = mountSecurity();
+    await settle();
+    expect(w.get('[data-testid="secret-row"]').text()).toContain("No passphrase is remembered");
+    expect(w.find('[data-testid="secret-forget"]').exists()).toBe(false);
+  });
+
+  it("remembers a passphrase only after it has worked on a real file", async () => {
+    // Storing it first would remember a typo. The order is: seal, then keep.
+    tree({ [ROOT]: [["notes.txt", false]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "secret_status") return { remembered: false, storage: null };
+      return false;
+    });
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="security-row-notes.txt"]').trigger("click");
+    await flushPromises();
+    await w.get('[data-testid="lock-password"]').setValue("hunter2");
+    await w.get('[data-testid="lock-confirm"]').setValue("hunter2");
+    await w.get('[data-testid="lock-remember"]').setValue(true);
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+
+    const order = invoke.mock.calls.map(([c]) => c);
+    expect(order.indexOf("lock_file")).toBeLessThan(order.indexOf("secret_remember"));
+    expect(invoke).toHaveBeenCalledWith("secret_remember", { passphrase: "hunter2" });
+  });
+
+  it("stops asking once a passphrase is remembered", async () => {
+    // The whole point of remembering. Rust reads it from the secret store, so
+    // `password` goes down as null and the passphrase never reaches this side.
+    tree({ [ROOT]: [["notes.txt", false]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "secret_status") return { remembered: true, storage: "keychain" };
+      return false;
+    });
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+    expect(w.get('[data-testid="secret-row"]').text()).toContain("system keyring");
+
+    await w.get('[data-testid="security-row-notes.txt"]').trigger("click");
+    await settle();
+    // No dialog, and the command was told to use what is remembered.
+    expect(w.find('[data-testid="lock-password"]').exists()).toBe(false);
+    expect(invoke).toHaveBeenCalledWith("lock_file", {
+      path: `${ROOT}/notes.txt`,
+      password: null,
+    });
+  });
+
+  it("says when the passphrase will not survive a restart", async () => {
+    invoke.mockResolvedValue({ remembered: true, storage: "memory" });
+    const w = mountSecurity();
+    await settle();
+    expect(w.get('[data-testid="secret-row"]').text()).toContain("until this app closes");
+  });
+
+  it("forgets on request", async () => {
+    invoke.mockResolvedValue({ remembered: true, storage: "keychain" });
+    const w = mountSecurity();
+    await settle();
+    await w.get('[data-testid="secret-forget"]').trigger("click");
+    await settle();
+    expect(invoke).toHaveBeenCalledWith("secret_forget", {});
+  });
+
+  it("never asks Rust for the passphrase itself", async () => {
+    // The rule the whole design rests on: no command returns it.
+    const { LOCK_ERRORS } = await import("../../src/security/lock");
+    const mod = await import("../../src/security/lock");
+    expect(Object.keys(mod)).not.toContain("recallPassphrase");
+    expect(LOCK_ERRORS).toContain("no_passphrase");
+    invoke.mockResolvedValue({ remembered: true, storage: "keychain" });
+    const w = mountSecurity();
+    await settle();
+    expect(invoke.mock.calls.map(([c]) => c)).not.toContain("secret_recall");
+  });
+
   it("still reports in a browser build, and invokes nothing", async () => {
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
     const w = mountSecurity();

@@ -14,6 +14,7 @@ import type { Entry } from "../files/useWorkspace";
 
 /** Every prefix src-tauri/src/lock.rs can return, and nothing else. */
 export const LOCK_ERRORS = [
+  "no_passphrase",
   "wrong_password",
   "already_locked",
   "not_locked",
@@ -60,14 +61,53 @@ export interface SealedInfo {
   size: number;
 }
 
-/** Encrypt a file in place. No salt: the frame carries its own. */
-export function sealFile(path: string, password: string): Promise<SealedInfo> {
+/** Where a remembered passphrase is being kept, if one is. */
+export type SecretStore = "keychain" | "memory";
+
+export interface SecretStatus {
+  remembered: boolean;
+  storage: SecretStore | null;
+}
+
+/** Encrypt a file in place. No salt: the frame carries its own.
+ *
+ *  `null` means "use the remembered passphrase", which Rust reads from the OS
+ *  secret store itself. There is deliberately no way to fetch it up here — this
+ *  app renders markup that arrived in a file. */
+export function sealFile(path: string, password: string | null): Promise<SealedInfo> {
   return invoke<SealedInfo>("lock_file", { path, password });
 }
 
 /** Decrypt a file in place. A wrong password leaves it untouched. */
-export function unsealFile(path: string, password: string): Promise<SealedInfo> {
+export function unsealFile(path: string, password: string | null): Promise<SealedInfo> {
   return invoke<SealedInfo>("unlock_file", { path, password });
+}
+
+/** Hand a passphrase to the OS secret store. Answers where it went. */
+export function rememberPassphrase(passphrase: string): Promise<SecretStore> {
+  return invoke<SecretStore>("secret_remember", { passphrase });
+}
+
+export function forgetPassphrase(): Promise<void> {
+  return invoke<void>("secret_forget", {});
+}
+
+const NO_SECRET: SecretStatus = { remembered: false, storage: null };
+
+/** Whether one is remembered and where — the only two facts that come back.
+ *
+ *  Normalised rather than trusted. It is a value arriving from outside this
+ *  module, and a reply that is not the shape expected must read as "nothing is
+ *  remembered" — the safe answer, and the one that keeps a render from throwing
+ *  on `undefined.remembered`. */
+export async function passphraseStatus(): Promise<SecretStatus> {
+  if (!isTauri()) return { ...NO_SECRET };
+  const reply = (await invoke<unknown>("secret_status", {})) as Partial<SecretStatus> | undefined;
+  if (!reply || typeof reply.remembered !== "boolean") return { ...NO_SECRET };
+  return {
+    remembered: reply.remembered,
+    storage: reply.storage === "keychain" || reply.storage === "memory" ? reply.storage : null,
+  };
 }
 
 /** Whether a file on disk is sealed — the marker in its first bytes, no

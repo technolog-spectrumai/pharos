@@ -19,7 +19,10 @@ const props = defineProps<{
   open: boolean;
   mode: "lock" | "unlock";
   name: string;
-  action: (password: string) => Promise<void>;
+  action: (password: string, remember: boolean) => Promise<void>;
+  /** Offer to keep the passphrase in the OS secret store. Absent where there is
+   *  no Rust to keep it in. */
+  offerRemember?: boolean;
 }>();
 
 const emit = defineEmits<{ "update:open": [boolean]; done: [] }>();
@@ -28,6 +31,7 @@ const { t } = useI18n({ useScope: "global" });
 
 const password = ref("");
 const confirm = ref("");
+const remember = ref(false);
 const busy = ref(false);
 const error = ref("");
 
@@ -37,6 +41,7 @@ watch(
     if (!isOpen) return;
     password.value = "";
     confirm.value = "";
+    remember.value = false;
     busy.value = false;
     error.value = "";
   },
@@ -55,7 +60,7 @@ async function submit() {
   }
   busy.value = true;
   try {
-    await props.action(password.value);
+    await props.action(password.value, remember.value);
     emit("done");
     emit("update:open", false);
   } catch (err) {
@@ -88,6 +93,12 @@ async function submit() {
              :placeholder="t('lock.confirm')" data-testid="lock-confirm"
              class="w-full rounded-lg border border-accent-2 bg-transparent px-2.5 py-1.5 text-sm dark:border-accent-1"
              @keydown.enter="submit" />
+
+      <label v-if="offerRemember" class="flex cursor-pointer items-start gap-2 text-xs opacity-80">
+        <input v-model="remember" type="checkbox" data-testid="lock-remember"
+               class="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-accent-light dark:accent-accent-dark" />
+        <span>{{ t("lock.remember") }}</span>
+      </label>
 
       <p v-if="error" class="text-sm text-warn-dark" data-testid="lock-error">{{ error }}</p>
 

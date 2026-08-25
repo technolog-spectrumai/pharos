@@ -42,6 +42,14 @@ tauri-plugin-opener = "2"
 gervasius = { path = "../packages/rakotis/crates/gervasius" }
 base64 = "0.22"
 
+# ── remembering one passphrase ──────────────────────────────────────────────
+# The OS secret store, so sealing a second file need not mean typing it again.
+# `vendored` builds libsecret's dependency rather than trusting whatever the
+# build host has; `sync-secret-service` keeps the API blocking, which is what
+# the commands in src/secrets.rs are. No command ever returns what is stored —
+# the sealing commands ask for it inside Rust.
+keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
+
 [profile.dev]
 # Tauri + webkit2gtk produce enough DWARF that the GNU linker can OOM-kill the
 # build on a modest machine; unpacked debuginfo keeps it out of the link step.

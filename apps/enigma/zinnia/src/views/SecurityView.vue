@@ -12,11 +12,14 @@
 // sidepanel drives: expanding a folder here expands it there, and the sealed
 // probes fill one cache for both. A second tree would be a second opinion about
 // what is on disk.
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import LockModal from "../files/LockModal.vue";
 import { filterRows, useWorkspace, type Row } from "../files/useWorkspace";
-import { sealFile, unsealFile } from "../security/lock";
+import {
+  forgetPassphrase, lockErrorKey, passphraseStatus, rememberPassphrase,
+  sealFile, unsealFile, type SecretStatus,
+} from "../security/lock";
 import { CAPABILITY_GROUPS, capabilitiesIn } from "../security/capabilities";
 
 const { t } = useI18n({ useScope: "global" });
@@ -30,6 +33,19 @@ const visible = computed<Row[]>(() => filterRows(workspace.rows.value, filter.va
  *  a modal that eventually encrypts the wrong one. */
 const target = ref<Row | null>(null);
 const modalOpen = ref(false);
+const actionError = ref("");
+
+/** Whether the OS secret store is holding a passphrase, and which store it is.
+ *  Never the passphrase itself — no command returns it. */
+const secret = ref<SecretStatus>({ remembered: false, storage: null });
+async function refreshSecret() {
+  try {
+    secret.value = await passphraseStatus();
+  } catch {
+    secret.value = { remembered: false, storage: null };
+  }
+}
+onMounted(refreshSecret);
 
 // The picked folder can be unreadable by the next launch (the grant does not
 // survive a restart), so this tab reads it itself rather than assuming the
@@ -41,25 +57,50 @@ watch(() => workspace.root.value, (root) => {
 const mode = computed<"lock" | "unlock">(() =>
   target.value && workspace.isSealed(target.value.path) ? "unlock" : "lock");
 
-function activate(row: Row) {
+async function activate(row: Row) {
   if (row.isDirectory) {
     void workspace.toggle(row.path);
+    return;
+  }
+  target.value = row;
+  actionError.value = "";
+
+  // A remembered passphrase is a standing answer to the only question the
+  // dialog asks, so asking it again would be theatre. Rust reads it from the
+  // secret store itself; `null` is how this says "use that one".
+  if (secret.value.remembered) {
+    try {
+      await apply(null, false);
+    } catch (err) {
+      const message = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      actionError.value = lockErrorKey(message) ?? message;
+    }
     return;
   }
   // `looksOpenable` is deliberately NOT consulted: a .png is perfectly
   // encryptable. The sidepanel greys what it cannot open because it is trying
   // to open things; this list is trying to seal them.
-  target.value = row;
   modalOpen.value = true;
 }
 
 /** Handed to the modal, which supplies the passphrase and owns the busy state.
  *  A throw here surfaces as the mapped message; a success closes the dialog. */
-async function apply(password: string): Promise<void> {
+async function apply(password: string | null, remember: boolean): Promise<void> {
   const row = target.value;
   if (!row) return;
   const sealed = workspace.isSealed(row.path);
   await (sealed ? unsealFile : sealFile)(row.path, password);
+  // Only after the passphrase has been proven to work on a real file. Storing
+  // it first would remember a typo.
+  if (remember && password) {
+    try {
+      await rememberPassphrase(password);
+      await refreshSecret();
+    } catch {
+      // The file is sealed either way; failing to remember is not a failure to
+      // seal, and reporting it as one would be a lie about the file.
+    }
+  }
   try {
     await workspace.reprobe(row.path);
   } catch {
@@ -96,6 +137,29 @@ const STATUS_TONE: Record<string, string> = {
         {{ t("security.files.title") }}
       </h2>
       <p class="mt-1 text-sm opacity-70">{{ t("security.files.help") }}</p>
+
+      <!-- What is remembered, and the way to stop remembering it. Never the
+           passphrase itself: nothing can fetch it back up here. -->
+      <div class="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-accent-2 px-4 py-2.5 text-sm dark:border-accent-1"
+           data-testid="secret-row">
+        <span class="min-w-0 flex-1">
+          <template v-if="secret.remembered">
+            {{ t("security.secret.held") }}
+            <span class="opacity-60">{{ t(`security.secret.${secret.storage ?? "memory"}`) }}</span>
+          </template>
+          <span v-else class="opacity-60">{{ t("security.secret.none") }}</span>
+        </span>
+        <button v-if="secret.remembered" type="button" data-testid="secret-forget"
+                class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-sm transition hover:opacity-80 dark:border-accent-1"
+                @click="forgetPassphrase().then(refreshSecret)">
+          {{ t("security.secret.forget") }}
+        </button>
+      </div>
+
+      <p v-if="actionError" class="mt-3 text-sm text-warn-dark" data-testid="security-action-error">
+        {{ t(actionError) }}
+      </p>
+
 
       <div v-if="!workspace.root.value"
            class="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-accent-2 px-4 py-3 dark:border-accent-1"
@@ -191,6 +255,7 @@ const STATUS_TONE: Record<string, string> = {
       </div>
     </div>
 
-    <LockModal v-model:open="modalOpen" :mode="mode" :name="target?.name ?? ''" :action="apply" />
+    <LockModal v-model:open="modalOpen" :mode="mode" :name="target?.name ?? ''"
+               :action="apply" offer-remember />
   </div>
 </template>

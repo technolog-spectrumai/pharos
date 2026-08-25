@@ -54,7 +54,7 @@ export const CAPABILITIES: readonly Capability[] = [
   { id: "refusal", group: "content", name: "", status: "active" },
 
   { id: "passphrase", group: "keys", name: "", status: "active" },
-  { id: "keyring", group: "keys", name: "", status: "absent" },
+  { id: "keyring", group: "keys", name: "", status: "active" },
   { id: "dormantCrypto", group: "keys", name: "gervasius, rakotis", status: "dormant" },
 ];
 

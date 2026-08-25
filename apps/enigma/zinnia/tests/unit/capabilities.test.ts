@@ -85,8 +85,9 @@ describe("the capability inventory", () => {
     // claiming a protection the app does not have.
     expect(CAPABILITIES.find((c) => c.id === "csp")?.status).toBe("active");
     expect(CAPABILITIES.find((c) => c.id === "cspLimit")?.status).toBe("absent");
-    // Still genuinely missing, still said so.
-    expect(CAPABILITIES.find((c) => c.id === "keyring")?.status).toBe("absent");
+    // The keyring holds one passphrase now, so it is in use — but only because
+    // something actually calls it. Still genuinely missing, still said so:
+    expect(CAPABILITIES.find((c) => c.id === "keyring")?.status).toBe("active");
     expect(CAPABILITIES.find((c) => c.id === "network")?.status).toBe("parked");
   });
 });

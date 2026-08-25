@@ -11,12 +11,18 @@
 //! range, which is not something to hand a page that also renders untrusted
 //! `.svg` and deck HTML.
 //!
-//! The `cloud` module — sign-in, the pinned-certificate TLS stack and the
-//! keyring-backed token — used to be the other one. It is parked in
-//! limbo/cloud; reviving it means putting back the crates its LIMBO.md lists,
-//! not just the file.
+//! `secrets` is the other: the OS secret store, holding one passphrase so
+//! sealing a second file need not mean typing it again. It is deliberately
+//! write-only from the frontend's side — no command hands the passphrase back,
+//! because this app renders markup that arrived in a file.
+//!
+//! The `cloud` module — sign-in and the pinned-certificate TLS stack — used to
+//! be a third. It is parked in limbo/cloud; reviving it means putting back the
+//! crates its LIMBO.md lists, not just the file. `secrets` shares only the
+//! keyring crate with it, and none of its code.
 
 mod lock;
+mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +34,9 @@ pub fn run() {
             lock::lock_file,
             lock::unlock_file,
             lock::is_file_locked,
+            secrets::secret_remember,
+            secrets::secret_forget,
+            secrets::secret_status,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
