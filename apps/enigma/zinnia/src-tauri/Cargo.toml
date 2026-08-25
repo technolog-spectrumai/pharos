@@ -29,20 +29,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
 
-# ── the cloud session ───────────────────────────────────────────────────────
-# The one place custom Rust was unavoidable. @tauri-apps/plugin-http was ruled
-# out for two reasons: it puts the session token back within reach of page
-# JavaScript (this app renders untrusted .svg and deck HTML, and the webview has
-# no CSP), and it cannot express "verify normally, but also accept this one
-# pinned certificate" — which is the only way to reach a self-signed server
-# without switching verification off wholesale.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-manual-roots", "charset", "http2"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-pki-types = "1"
-webpki-roots = "0.26"
-sha2 = "0.10"
-keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
-
 # ── file locking, zenobia-compatible ────────────────────────────────────────
 # The SAME construction the platform's file vault uses — Argon2id over the
 # user's server-side salt, then Fernet — so a file locked here decrypts there
