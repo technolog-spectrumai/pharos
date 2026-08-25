@@ -51,6 +51,8 @@ export default {
     desktopOnly: "This needs the desktop app.",
   },
   code: {
+    undo: "Undo",
+    redo: "Redo",
     language: "Language",
     plainText: "Plain text",
   },

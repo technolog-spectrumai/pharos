@@ -100,6 +100,84 @@ describe("the language picker", () => {
   });
 });
 
+describe("the undo stack", () => {
+  async function mountCode(name = "a.txt", content = "hello") {
+    const w = mount(TextEditor, {
+      props: { path: null, name, content, withPicker: true },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    return w;
+  }
+  const undoBtn = (w: ReturnType<typeof mount>) =>
+    w.get('[data-testid="editor-undo"]').element as HTMLButtonElement;
+  const redoBtn = (w: ReturnType<typeof mount>) =>
+    w.get('[data-testid="editor-redo"]').element as HTMLButtonElement;
+
+  it("offers nothing to undo on a file just opened", async () => {
+    // `session.setValue` resets the manager. Without that, the first undo
+    // would offer to undo the act of opening the file.
+    const w = await mountCode();
+    expect(undoBtn(w).disabled).toBe(true);
+    expect(redoBtn(w).disabled).toBe(true);
+  });
+
+  /** The live ACE instance behind a mounted editor. `ace.edit` hands back the
+   *  one already managing an element rather than making a second — which is
+   *  what lets a test drive a real edit instead of simulating one. */
+  async function aceOf(w: ReturnType<typeof mount>) {
+    const ace = (await import("../../src/editors/aceSetup")).default;
+    return ace.edit(w.get('[data-testid="ace-host"]').element as HTMLElement);
+  }
+
+  it("follows the stack as the buffer changes", async () => {
+    const w = await mountCode();
+    const editor = await aceOf(w);
+
+    editor.session.insert({ row: 0, column: 5 }, " there");
+    await flushPromises();
+    expect(editor.getValue()).toBe("hello there");
+    expect(undoBtn(w).disabled).toBe(false);
+    expect(redoBtn(w).disabled).toBe(true);
+
+    await w.get('[data-testid="editor-undo"]').trigger("click");
+    await flushPromises();
+    expect(editor.getValue()).toBe("hello");
+    // Undoing is what fills the redo side.
+    expect(redoBtn(w).disabled).toBe(false);
+
+    await w.get('[data-testid="editor-redo"]').trigger("click");
+    await flushPromises();
+    expect(editor.getValue()).toBe("hello there");
+  });
+
+  it("keeps the host's dirty flag in step with an undo", async () => {
+    // Undoing back to the saved text is not "still edited" — the host's save
+    // button reads this, and the two must agree about what is on screen.
+    const w = await mountCode();
+    const editor = await aceOf(w);
+    const vm = w.vm as unknown as { isDirty(): boolean };
+
+    editor.session.insert({ row: 0, column: 5 }, " there");
+    await flushPromises();
+    expect(vm.isDirty()).toBe(true);
+
+    await w.get('[data-testid="editor-undo"]').trigger("click");
+    await flushPromises();
+    expect(vm.isDirty()).toBe(false);
+  });
+
+  it("is absent from the refusal fallback, which stays bare", async () => {
+    const w = mount(TextEditor, {
+      props: { path: null, name: "a.svg", content: "<svg/>" },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(w.find('[data-testid="editor-undo"]').exists()).toBe(false);
+    expect(w.find('[data-testid="editor-redo"]').exists()).toBe(false);
+  });
+});
+
 describe("host routing", () => {
   it("a refused svg can be reopened as plain text", async () => {
     const w = mount(EditorHost, {

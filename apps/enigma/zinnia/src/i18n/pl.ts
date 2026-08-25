@@ -51,6 +51,8 @@ export default {
     desktopOnly: "To wymaga aplikacji na komputer.",
   },
   code: {
+    undo: "Cofnij",
+    redo: "Pon\u00f3w",
     language: "J\u0119zyk",
     plainText: "Zwyk\u0142y tekst",
   },

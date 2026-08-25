@@ -61,6 +61,32 @@ const currentLabel = computed(
   () => (picked.value ?? languageForFilename(props.name)).label,
 );
 
+// ── the undo stack ──────────────────────────────────────────────────────────
+// ACE keeps it and binds Ctrl+Z / Ctrl+Shift+Z itself; what was missing is a
+// way to SEE it. Both refs are recomputed on every document change, which is
+// the one event that can move either end of the stack — typing clears the redo
+// side, an undo fills it, and both fire `change`.
+const canUndo = ref(false);
+const canRedo = ref(false);
+
+function syncHistory() {
+  const undoManager = editor?.session.getUndoManager?.();
+  canUndo.value = undoManager?.hasUndo?.() ?? false;
+  canRedo.value = undoManager?.hasRedo?.() ?? false;
+}
+
+function undo() {
+  editor?.undo();
+  syncHistory();
+  editor?.focus();
+}
+
+function redo() {
+  editor?.redo();
+  syncHistory();
+  editor?.focus();
+}
+
 function pickLanguage(label: string) {
   const language = LANGUAGES.find((l) => l.label === label);
   if (!language) return;
@@ -95,7 +121,10 @@ onMounted(() => {
   });
   editor.session.setValue(props.content);
   savedContent = props.content;
-  editor.session.on("change", () => setDirty(editor!.getValue() !== savedContent));
+  editor.session.on("change", () => {
+    setDirty(editor!.getValue() !== savedContent);
+    syncHistory();
+  });
   editor.commands.addCommand({
     name: "saveFile",
     bindKey: { win: "Ctrl-S", mac: "Cmd-S" },
@@ -105,6 +134,10 @@ onMounted(() => {
   // Sampled once was the bug: every tab stays mounted across a theme toggle, so
   // an editor that only read the class at mount kept the old theme forever.
   stopDark = watchDark((on) => editor?.setTheme(on ? THEME_DARK : THEME_LIGHT));
+  // `session.setValue` resets the manager, so a freshly opened file starts with
+  // nothing to undo — asserted rather than assumed, because a stack that began
+  // life one step deep would offer to undo the act of opening the file.
+  syncHistory();
 });
 
 // Save As can rename the file, and the highlighting should follow it — unless
@@ -143,6 +176,21 @@ defineExpose({
   <div class="flex min-h-0 flex-1 flex-col">
     <div v-if="withPicker"
          class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-1.5">
+      <button type="button" data-testid="editor-undo"
+              class="rounded border border-accent-2 px-2 py-1 text-xs transition hover:opacity-80 disabled:opacity-30 dark:border-accent-1"
+              :title="t('code.undo')" :aria-label="t('code.undo')"
+              :disabled="!canUndo" @click="undo">
+        <font-awesome-icon icon="rotate-left" />
+      </button>
+      <button type="button" data-testid="editor-redo"
+              class="rounded border border-accent-2 px-2 py-1 text-xs transition hover:opacity-80 disabled:opacity-30 dark:border-accent-1"
+              :title="t('code.redo')" :aria-label="t('code.redo')"
+              :disabled="!canRedo" @click="redo">
+        <font-awesome-icon icon="rotate-right" />
+      </button>
+
+      <span class="mx-1 h-4 w-px bg-current opacity-20" />
+
       <label class="text-xs opacity-70">{{ t("code.language") }}</label>
       <SelectMenu data-testid="language-select" :label="t('code.language')"
                   :model-value="currentLabel" :options="languageLabels"
