@@ -3,6 +3,11 @@
 // writes files, prompts before discarding, and mounts the editor. Editors
 // implement the contract in ../editors/types.ts and never touch disk.
 //
+// Every file this host holds lives on THIS MACHINE. The platform half — a
+// buffer that remembered which vault row it came from and saved itself back
+// there — is parked in limbo/cloud; see its LIMBO.md before reviving a save
+// path that talks to a server.
+//
 // ONE INSTANCE PER TAB, each pinned to a `kind`. The tab decides which editor
 // this is, not the file: a Sheets tab opens sheets, and a document dropped into
 // it is refused by the editor with the plain-text offer rather than silently
@@ -20,8 +25,6 @@ import DocumentEditor from "../editors/DocumentEditor.vue";
 import PresentationEditor from "../editors/PresentationEditor.vue";
 import SheetEditor from "../editors/SheetEditor.vue";
 import type { EditorHandle } from "../editors/types";
-import { useCloudFiles, describe } from "../files/useCloudFiles";
-import { ApiFailure } from "../api/errors";
 import { dumps, newDocument } from "../formats/document";
 import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
 import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
@@ -62,13 +65,7 @@ const MIME: Record<EditorKind, string> = {
 };
 
 // ── the open file ───────────────────────────────────────────────────────────
-const cloudFiles = useCloudFiles();
-
 const path = ref<string | null>(null); // null until first Save As
-/** Where this buffer came from, when it came from the vault. `baseHash` is the
- *  state it was read at: the save sends it back so the server can refuse an
- *  overwrite of work done meanwhile, rather than silently winning. */
-const remote = ref<{ key: string; baseHash: string } | null>(null);
 // Seeded from THIS TAB's kind, not a default: a Write tab that opened showing
 // `untitled.svg` with an empty buffer would hand its editor a file it refuses.
 const initial = seedFor(props.kind);
@@ -118,9 +115,6 @@ function answerDiscard(ok: boolean) {
 
 // ── open / new ──────────────────────────────────────────────────────────────
 function show(fileName: string, filePath: string | null, text: string) {
-  // Cleared FIRST: every other open path funnels through here, and a stale
-  // origin surviving one would write the new file over the old one's vault row.
-  remote.value = null;
   path.value = filePath;
   name.value = fileName;
   content.value = text;
@@ -224,8 +218,7 @@ async function saveFile(text?: string) {
   notice.value = "";
   try {
     const body = text ?? editorRef.value?.getContent() ?? content.value;
-    if (remote.value) await saveToVault(body);
-    else if (path.value === null) await saveAs();
+    if (path.value === null) await saveAs();
     else await writeTo(path.value, body);
   } finally {
     busy.value = false;
@@ -260,63 +253,19 @@ function exportFile() {
   (editorRef.value as { exportFile?: () => void } | null)?.exportFile?.();
 }
 
-/** Open a buffer that did not come from this machine's filesystem — a vault
- *  file. `path` stays null (there is no local file behind it) and `remote`
- *  carries the vault identity instead, so Save writes back to the vault.
+/** Open a buffer the Files panel handed over rather than the Open dialog.
  *
- *  Without an `origin` this stays a read-only-ish buffer whose Save is a Save
- *  As to disk — which is what it was for every vault file until the server
- *  grew a lock check and a content-hash precondition on its content endpoint.
- *  Before that, saving here was a last-writer-wins clobber. */
-function openRemote(
-  fileName: string, text: string, origin?: { key: string; baseHash: string },
-) {
+ *  `path` stays null — nothing here knows where those bytes came from — so the
+ *  first Save is a Save As, and the buffer opens dirty to say that it is not
+ *  yet written anywhere this host can find again. */
+function openRemote(fileName: string, text: string) {
   show(fileName, null, text);
-  remote.value = origin ?? null;
-  dirty.value = !origin;   // a vault file opens clean; it is already saved
-}
-
-/** Write the buffer back to the vault file it came from. */
-async function saveToVault(body: string): Promise<void> {
-  const origin = remote.value;
-  if (!origin) return;
-  try {
-    const saved = await cloudFiles.save(origin.key, body, origin.baseHash);
-    // The state the NEXT save will be based on. Not refreshing this is how a
-    // client ends up conflicting with its own previous save.
-    origin.baseHash = await freshHash(origin.key);
-    name.value = saved.title || name.value;
-    editorRef.value?.markSaved();
-    dirty.value = false;
-    notice.value = t("file.savedToCloud");
-  } catch (err) {
-    if (err instanceof ApiFailure && err.error.kind === "conflict") {
-      // The server kept our text as a version, so nothing is lost — but this
-      // buffer is still the only editable copy, so it stays dirty.
-      fileError.value = t("file.cloudConflict");
-      return;
-    }
-    if (err instanceof ApiFailure && err.error.kind === "locked") {
-      fileError.value = t("file.cloudLocked", { holder: err.error.holder });
-      return;
-    }
-    fileError.value = describe(err);
-  }
-}
-
-/** Re-read just the hash after a save. The PUT returns the file dict, which
- *  carries size and type but not the content hash. */
-async function freshHash(key: string): Promise<string> {
-  try {
-    return (await cloudFiles.open({ key } as never)).content_hash;
-  } catch {
-    return "";   // next save falls back to an unconditional write
-  }
+  dirty.value = true;
 }
 
 defineExpose({
   newFile, openFile, saveFile, saveAs, exportFile, exportLabelKey, openRemote,
-  name, dirty, busy, canSave, notice, fileError, remote,
+  name, dirty, busy, canSave, notice, fileError,
 });
 
 onMounted(() => window.addEventListener("keydown", onKey));

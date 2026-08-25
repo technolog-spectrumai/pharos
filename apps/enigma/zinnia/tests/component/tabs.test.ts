@@ -18,7 +18,7 @@ describe("the tab bar", () => {
       expect(w.find(`[data-testid="nav-${tab.id}"]`).exists(), tab.id).toBe(true);
     }
     expect(APP_TABS.map((t) => t.id))
-      .toEqual(["document", "sketch", "sheet", "deck", "files", "cloud", "settings"]);
+      .toEqual(["document", "sketch", "sheet", "deck", "files", "settings"]);
   });
 
   it("opens on the default tab and mounts nothing else yet", async () => {

@@ -26,19 +26,6 @@ const BY_EXTENSION: Record<string, EditorKind> = {
   pxml: "deck",
 };
 
-/** Vault file_type -> editor. The server types a deck now, so a cloud file does
- *  not have to be guessed at from its name — which matters because the vault
- *  migration retyped legacy decks WITHOUT renaming them, so a `pxml` row can
- *  still be titled `talk.xml`. "presentation" is the legacy spelling, still
- *  served by hosts the migration could not fully reach. */
-const BY_VAULT_TYPE: Record<string, EditorKind> = {
-  pxml: "deck",
-  presentation: "deck",
-  svg: "sketch",
-  sheet: "sheet",
-  document: "document",
-};
-
 /** Own properties only. A bracket lookup on an object literal also resolves
  *  `Object.prototype`, so a file called `x.constructor` would otherwise come
  *  back as a truthy non-editor. (`hasOwnProperty.call` rather than
@@ -90,22 +77,4 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
 export function looksOpenable(name: string): boolean {
   const ext = extensionOf(name);
   return ext === "xml" || has(BY_EXTENSION, ext);
-}
-
-/**
- * The editor for a file in the CLOUD, where the server has already classified
- * it. Preferred over `kindForFile` for vault rows: the vault's `pxml` migration
- * retyped decks without renaming them, so the title is the less reliable of the
- * two signals. Falls back to the name-and-content route for types the vault
- * does not map (plain `xml`, which is still genuinely ambiguous).
- */
-export function kindForVaultFile(
-  fileType: string | undefined,
-  name: string,
-  content?: string,
-): EditorKind | null {
-  const byType = fileType && has(BY_VAULT_TYPE, fileType)
-    ? BY_VAULT_TYPE[fileType]
-    : undefined;
-  return byType ?? kindForFile(name, content);
 }

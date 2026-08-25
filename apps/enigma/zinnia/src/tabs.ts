@@ -18,7 +18,7 @@
 /** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
  *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
 export type EditorKind = "document" | "sketch" | "sheet" | "deck";
-export type AppTabId = EditorKind | "files" | "cloud" | "settings";
+export type AppTabId = EditorKind | "files" | "settings";
 
 export interface AppTab {
   id: AppTabId;
@@ -37,7 +37,6 @@ export const APP_TABS: readonly AppTab[] = [
   { id: "sheet",    path: "/sheets",        labelKey: "nav.sheets",        icon: "table-cells",     kind: "sheet" },
   { id: "deck",     path: "/presentations", labelKey: "nav.presentations", icon: "file-powerpoint", kind: "deck" },
   { id: "files",    path: "/files",         labelKey: "nav.files",         icon: "folder-open",     kind: null },
-  { id: "cloud",    path: "/cloud",         labelKey: "nav.cloud",         icon: "cloud",           kind: null },
   { id: "settings", path: "/settings",      labelKey: "nav.settings",      icon: "gear",            kind: null },
 ];
 

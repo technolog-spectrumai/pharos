@@ -5,7 +5,6 @@ import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
 import { APP_TABS, DEFAULT_TAB, type AppTabId, type EditorKind } from "./tabs";
 import EditorHost from "./views/EditorHost.vue";
-import CloudView from "./views/CloudView.vue";
 import FilesView from "./views/FilesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -62,10 +61,7 @@ type Host = {
   saveAs: () => void;
   exportFile: () => void;
   exportLabelKey: string;
-  openRemote: (
-    name: string, content: string,
-    origin?: { key: string; baseHash: string },
-  ) => void;
+  openRemote: (name: string, content: string) => void;
   name: string;
   dirty: boolean;
   busy: boolean;
@@ -116,13 +112,10 @@ const activeHost = computed<Host | null>(() => {
  *  The tab it belongs to has to be MOUNTED before its host exists — hosts
  *  register through a template ref — so this shows the tab first and hands the
  *  buffer over on the next tick. */
-async function openFromFiles(payload: {
-  kind: EditorKind; name: string; content: string;
-  origin?: { key: string; baseHash: string };
-}) {
+async function openFromFiles(payload: { kind: EditorKind; name: string; content: string }) {
   show(payload.kind);
   await nextTick();
-  hostRegistry[payload.kind]?.openRemote(payload.name, payload.content, payload.origin);
+  hostRegistry[payload.kind]?.openRemote(payload.name, payload.content);
 }
 
 const menuOpen = ref(false);
@@ -251,9 +244,6 @@ function isDisabled(id: string): boolean {
     <!-- Non-editor tabs are not data-driven yet; each is one line here. -->
     <FilesView v-if="visited.has('files')" v-show="active === 'files'"
                class="min-h-0 flex-1" @open="openFromFiles" />
-
-    <CloudView v-if="visited.has('cloud')" v-show="active === 'cloud'"
-               class="min-h-0 flex-1" />
 
     <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"
                   class="min-h-0 flex-1" />

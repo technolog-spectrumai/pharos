@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  extensionOf, kindForFile, kindForVaultFile, looksOpenable,
-} from "../../src/files/openWith";
+import { extensionOf, kindForFile, looksOpenable } from "../../src/files/openWith";
 import { dumps as dumpDoc, newDocument } from "../../src/formats/document";
 import { dumps as dumpDeck, newPresentation } from "../../src/formats/presentation";
 import { dumps as dumpSheet, newWorkbook } from "../../src/formats/sheet";
@@ -72,39 +70,11 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("x.__proto__")).toBe(null);
     expect(kindForFile("x.toString")).toBe(null);
     expect(looksOpenable("x.constructor")).toBe(false);
-    expect(kindForVaultFile("constructor", "x.constructor")).toBe(null);
   });
 
   it("reads extensions the way a filename actually looks", () => {
     expect(extensionOf("a.b.SVG")).toBe("svg");
     expect(extensionOf("noextension")).toBe("");
     expect(extensionOf(".hidden")).toBe("hidden");
-  });
-
-  describe("a file that came from the vault", () => {
-    it("believes the server's type over the filename", () => {
-      // The vault's pxml migration retyped legacy decks WITHOUT renaming them,
-      // so this exact shape — typed pxml, still titled .xml — is what a
-      // migrated deck looks like. Routing on the title would open the writer.
-      expect(kindForVaultFile("pxml", "talk.xml")).toBe("deck");
-    });
-
-    it("understands the legacy spelling a peer may still send", () => {
-      expect(kindForVaultFile("presentation", "talk.xml")).toBe("deck");
-    });
-
-    it("routes the other vault types it knows", () => {
-      expect(kindForVaultFile("document", "notes.xml")).toBe("document");
-      expect(kindForVaultFile("sheet", "budget.json")).toBe("sheet");
-      expect(kindForVaultFile("svg", "d.svg")).toBe("sketch");
-    });
-
-    it("falls back to name and content for a type it does not map", () => {
-      // Plain `xml` is still genuinely ambiguous on the server too.
-      expect(kindForVaultFile("xml", "thing.xml", dumpDoc(newDocument()))).toBe("document");
-      expect(kindForVaultFile("xml", "thing.xml", dumpDeck(newPresentation()))).toBe("deck");
-      expect(kindForVaultFile("xml", "thing.xml")).toBe(null);
-      expect(kindForVaultFile(undefined, "talk.pxml")).toBe("deck");
-    });
   });
 });
