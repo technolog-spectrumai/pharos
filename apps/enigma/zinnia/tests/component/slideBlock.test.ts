@@ -34,13 +34,20 @@ function mountBlock(b: Block, trustHtml = true) {
 }
 
 async function setSandbox(on: boolean) {
-  const { useSandbox } = await import("../../src/security/useSandbox");
-  useSandbox().set(on);
+  const { useMarkupSafety } = await import("../../src/security/useMarkupSafety");
+  useMarkupSafety().set("isolate", on);
+}
+
+async function setSwitch(which: "blockStyles" | "blockScripts", on: boolean) {
+  const { useMarkupSafety } = await import("../../src/security/useMarkupSafety");
+  useMarkupSafety().set(which, on);
 }
 
 beforeEach(async () => {
   localStorage.clear();
-  await setSandbox(false);
+  const { useMarkupSafety } = await import("../../src/security/useMarkupSafety");
+  const m = useMarkupSafety();
+  for (const k of ["isolate", "blockStyles", "blockScripts"] as const) m.set(k, false);
 });
 
 describe("a slide block's raw markup", () => {
@@ -124,17 +131,53 @@ describe("a slide block's raw markup", () => {
   });
 });
 
-describe("the isolation setting", () => {
-  it("is off unless it was turned on", async () => {
-    const { useSandbox } = await import("../../src/security/useSandbox");
-    expect(useSandbox().enabled.value).toBe(false);
+describe("blocking what a file carries", () => {
+  it("leaves the markup alone while both blockers are off", async () => {
+    const w = mountBlock(block());
+    await flushPromises();
+    expect(w.html()).toContain("<style>");
+    w.unmount();
   });
 
-  it("remembers the choice", async () => {
-    const { useSandbox } = await import("../../src/security/useSandbox");
-    useSandbox().set(true);
-    expect(localStorage.getItem("zinnia:sandbox")).toBe("1");
-    useSandbox().set(false);
-    expect(localStorage.getItem("zinnia:sandbox")).toBe("0");
+  it("takes stylesheets out when asked", async () => {
+    await setSwitch("blockStyles", true);
+    const w = mountBlock(block());
+    await flushPromises();
+    expect(w.html()).not.toContain("<style>");
+    // …and leaves the drawing itself, which is the point of keeping the block.
+    expect(w.html()).toContain("<rect");
+    w.unmount();
+  });
+
+  it("takes scripts and handlers out when asked", async () => {
+    await setSwitch("blockScripts", true);
+    const w = mountBlock(block({
+      type: "html",
+      payload: '<script>alert(1)</scr' + 'ipt><img src="x" onerror="alert(2)"><p>kept</p>',
+    }));
+    await flushPromises();
+    expect(w.html()).not.toContain("alert(1)");
+    expect(w.html()).not.toContain("onerror");
+    expect(w.html()).toContain("kept");
+    w.unmount();
+  });
+
+  it("keeps the two blockers independent", async () => {
+    // Blocking scripts must not quietly take the styling too.
+    await setSwitch("blockScripts", true);
+    const w = mountBlock(block());
+    await flushPromises();
+    expect(w.html()).toContain("<style>");
+    w.unmount();
+  });
+
+  it("remembers each choice", async () => {
+    const { useMarkupSafety } = await import("../../src/security/useMarkupSafety");
+    const m = useMarkupSafety();
+    m.set("blockStyles", true);
+    m.set("blockScripts", true);
+    expect(localStorage.getItem("zinnia:blockStyles")).toBe("1");
+    expect(localStorage.getItem("zinnia:blockScripts")).toBe("1");
+    expect(m.blockStyles.value).toBe(true);
   });
 });

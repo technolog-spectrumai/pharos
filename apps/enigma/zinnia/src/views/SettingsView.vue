@@ -12,26 +12,19 @@
 import { useI18n } from "vue-i18n";
 import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "../systemColors";
 import { useSystemColors } from "../useSystemColors";
-import { useWorkspace } from "../files/useWorkspace";
-import { useSandbox } from "../security/useSandbox";
+import { useMarkupSafety, type MarkupSwitch } from "../security/useMarkupSafety";
 
 const { t } = useI18n({ useScope: "global" });
 const { palette, mode, set, reset } = useSystemColors();
 
-// The same store the sidepanel drives, not a copy: picking a folder here has to
-// be the picking the panel already does, or the two would disagree about which
-// folder is open.
-//
-// There is NO text field for the path, and that is not an oversight. The folder
-// picker is what widens the app's filesystem grant to the folder you chose —
-// a path typed in here would be remembered and then refuse to read, which is a
-// worse answer than not offering it.
-const workspace = useWorkspace();
-
 // Off by default and offered here rather than assumed, because isolation is not
 // free: every raw-markup block gets a shadow root of its own. Whether that is
 // noticeable on a large deck is a question this switch exists to answer.
-const sandbox = useSandbox();
+const markup = useMarkupSafety();
+
+/** The three switches, in the order they escalate: where the markup goes, then
+ *  what is taken out of it. Rendered from a list so a fourth is one entry. */
+const SWITCHES: readonly MarkupSwitch[] = ["isolate", "blockStyles", "blockScripts"];
 
 /** A colour input can only ever produce `#rrggbb`, but it is still a value
  *  arriving from outside — validate rather than trust the widget. */
@@ -86,59 +79,26 @@ function onPick(role: SystemRole, event: Event) {
       <!-- ── isolating what a file brings with it ──────────────────────── -->
       <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
         <font-awesome-icon icon="shield-halved" class="opacity-60" />
-        {{ t("settings.sandbox.title") }}
+        {{ t("settings.markup.title") }}
       </h2>
-      <p class="mt-1 text-sm opacity-70">{{ t("settings.sandbox.help") }}</p>
+      <p class="mt-1 text-sm opacity-70">{{ t("settings.markup.help") }}</p>
 
-      <div class="mt-5 rounded-xl border border-accent-2 dark:border-accent-1"
-           data-testid="sandbox-row">
-        <label class="flex cursor-pointer items-start gap-3 px-4 py-3">
+      <div class="mt-5 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1"
+           data-testid="markup-safety">
+        <label v-for="which in SWITCHES" :key="which"
+               class="flex cursor-pointer items-start gap-3 border-b border-current/10 px-4 py-3 last:border-0"
+               :data-testid="`switch-row-${which}`">
           <input type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-accent-light dark:accent-accent-dark"
-                 data-testid="sandbox-toggle"
-                 :checked="sandbox.enabled.value"
-                 @change="sandbox.set(($event.target as HTMLInputElement).checked)" />
+                 :data-testid="`switch-${which}`"
+                 :checked="markup[which].value"
+                 @change="markup.set(which, ($event.target as HTMLInputElement).checked)" />
           <span class="min-w-0 flex-1">
-            <span class="block text-sm font-semibold">{{ t("settings.sandbox.label") }}</span>
-            <span class="mt-0.5 block text-sm opacity-70">{{ t("settings.sandbox.note") }}</span>
+            <span class="block text-sm font-semibold">{{ t(`settings.markup.${which}.label`) }}</span>
+            <span class="mt-0.5 block text-sm opacity-70">{{ t(`settings.markup.${which}.note`) }}</span>
           </span>
         </label>
       </div>
 
-      <!-- ── the workspace folder ──────────────────────────────────────── -->
-      <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
-        <font-awesome-icon icon="folder-open" class="opacity-60" />
-        {{ t("settings.workspace.title") }}
-      </h2>
-      <p class="mt-1 text-sm opacity-70">{{ t("files.pickWorkspaceHint") }}</p>
-
-      <div class="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-accent-2 px-4 py-3 dark:border-accent-1"
-           data-testid="workspace-row">
-        <!-- The path in full, wrapping rather than truncating: a folder you
-             cannot read all of is a folder you cannot check. -->
-        <span v-if="workspace.root.value" class="min-w-0 flex-1">
-          <code class="block break-all text-xs" data-testid="workspace-path">{{ workspace.root.value }}</code>
-          <!-- Stated here as well as in the panel: this is the screen someone
-               comes to when the panel says it cannot read the folder. -->
-          <span v-if="workspace.unreadable.value" class="mt-1 block text-xs text-warn-dark"
-                data-testid="workspace-unreadable">
-            {{ t("files.unreadable") }} {{ t("files.unreadableHint") }}
-          </span>
-        </span>
-        <span v-else class="min-w-0 flex-1 text-sm opacity-60" data-testid="workspace-none">
-          {{ t("settings.workspace.none") }}
-        </span>
-
-        <button type="button" data-testid="workspace-pick"
-                class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-sm font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
-                @click="workspace.pickRoot()">
-          {{ t(workspace.root.value ? "files.changeWorkspace" : "files.pickWorkspace") }}
-        </button>
-        <button v-if="workspace.root.value" type="button" data-testid="workspace-forget"
-                class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-sm transition hover:opacity-80 dark:border-accent-1"
-                @click="workspace.clearRoot()">
-          {{ t("settings.workspace.forget") }}
-        </button>
-      </div>
     </div>
   </div>
 </template>

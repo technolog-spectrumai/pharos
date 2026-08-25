@@ -16,7 +16,8 @@
 //     round-trips through the file untouched either way.
 import { computed } from "vue";
 import ShadowHtml from "./ShadowHtml.vue";
-import { useSandbox } from "../security/useSandbox";
+import { useMarkupSafety } from "../security/useMarkupSafety";
+import { scrub } from "../security/scrub";
 import type { Block } from "../formats/presentation";
 
 const props = defineProps<{
@@ -41,9 +42,13 @@ const style = computed(() =>
   scaleCss.value ? { "--memo-block-scale": scaleCss.value } : undefined);
 
 // The two types whose payload is raw markup from the file rather than the
-// deck format's own rich text. With the setting on they render in a shadow
-// root, so a `<style>` they carry cannot reach the app around them.
-const { enabled: sandboxed } = useSandbox();
+// deck format's own rich text. `isolate` decides WHERE it is rendered; the two
+// blockers decide what is left in it by the time it gets there.
+const { isolate: sandboxed, scrubbing } = useMarkupSafety();
+
+/** The payload as it will actually be rendered. Untouched unless a blocker is
+ *  on — `scrub` returns its input when nothing is switched on. */
+const safePayload = computed(() => scrub(props.block.payload ?? "", scrubbing.value));
 
 const headingTag = computed(() => {
   const level = props.block.attrs?.level;
@@ -76,8 +81,8 @@ const headingTag = computed(() => {
 
   <div v-else-if="block.type === 'svg'" class="memo-block" data-type="svg"
        :data-block-id="block.id" role="img" :aria-label="block.attrs?.alt || ''">
-    <ShadowHtml v-if="sandboxed" :html="block.payload" />
-    <span v-else v-html="block.payload" />
+    <ShadowHtml v-if="sandboxed" :html="safePayload" />
+    <span v-else v-html="safePayload" />
   </div>
 
   <!-- Escaped, not raw: showing the markup is the point of a code block. -->
@@ -99,8 +104,8 @@ const headingTag = computed(() => {
 
   <div v-else-if="block.type === 'html'" class="memo-block" data-type="html"
        :data-block-id="block.id">
-    <ShadowHtml v-if="trustHtml && sandboxed" :html="block.payload" />
-    <span v-else-if="trustHtml" v-html="block.payload" />
+    <ShadowHtml v-if="trustHtml && sandboxed" :html="safePayload" />
+    <span v-else-if="trustHtml" v-html="safePayload" />
     <span v-else class="memo-legacy">Legacy HTML slide</span>
   </div>
 

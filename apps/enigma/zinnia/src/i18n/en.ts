@@ -114,16 +114,12 @@ export default {
       primaryTextNote: "Always black on light and white on dark — not adjustable.",
       reset: "Restore defaults",
     },
-    workspace: {
-      title: "Workspace folder",
-      none: "No workspace yet.",
-      forget: "Forget this folder",
-    },
-    sandbox: {
-      title: "Isolating what a file brings with it",
-      help: "A presentation can carry raw markup — a drawing, or a legacy HTML block. Rendered normally, a stylesheet inside one of them applies to this whole window, because an inline drawing does not scope its own styles.",
-      label: "Render a file\u2019s own markup in isolation",
-      note: "Puts those blocks in a scope of their own, so nothing they carry can restyle the app around them. Off by default: each such block costs a little more to draw, and on a long deck that may show. Turn it on and see.",
+    markup: {
+      title: "What a file may bring with it",
+      help: "A presentation can carry raw markup — a drawing, or a legacy HTML block. These decide what happens to it. All three are off to begin with: the first costs a little to draw, and the other two change how somebody else's document looks.",
+      isolate: { label: "Render a file\u2019s own markup in isolation", note: "Puts those blocks in a scope of their own, so a stylesheet inside one cannot restyle the app around it. An inline drawing does not scope its own styles, so without this it reaches the whole window. Costs a little to draw, which is why it is off to begin with." },
+      blockStyles: { label: "Block style sheets", note: "Takes stylesheets out of that markup before it is drawn at all. A deck that styles itself will come out plain." },
+      blockScripts: { label: "Block scripts", note: "Takes scripts, event handlers and javascript: links out of it. They already cannot run \u2014 the window only executes the app\u2019s own files \u2014 so this is for keeping them out of the page entirely." },
     },
     empty: "Nothing here yet. Theme and language will move here.",
   },

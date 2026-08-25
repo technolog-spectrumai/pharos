@@ -114,16 +114,12 @@ export default {
       primaryTextNote: "Zawsze czarny na jasnym i biały na ciemnym — bez zmian.",
       reset: "Przywróć domyślne",
     },
-    workspace: {
-      title: "Folder roboczy",
-      none: "Nie wybrano folderu.",
-      forget: "Zapomnij ten folder",
-    },
-    sandbox: {
-      title: "Izolowanie tego, co przynosi plik",
-      help: "Prezentacja mo\u017ce nie\u015b\u0107 surowy kod \u2014 rysunek albo starszy blok HTML. Renderowany zwyczajnie, arkusz styl\u00f3w w \u015brodku takiego bloku dzia\u0142a na ca\u0142e to okno, bo osadzony rysunek nie zamyka swoich styl\u00f3w w sobie.",
-      label: "Renderuj w\u0142asny kod pliku w izolacji",
-      note: "Umieszcza takie bloki we w\u0142asnym zakresie, wi\u0119c nic, co nios\u0105, nie przestyluje aplikacji wok\u00f3\u0142. Domy\u015blnie wy\u0142\u0105czone: ka\u017cdy taki blok kosztuje troch\u0119 wi\u0119cej przy rysowaniu, a na d\u0142ugiej prezentacji mo\u017ce to by\u0107 wida\u0107. W\u0142\u0105cz i sprawd\u017a.",
+    markup: {
+      title: "Co plik mo\u017ce ze sob\u0105 przynie\u015b\u0107",
+      help: "Prezentacja mo\u017ce nie\u015b\u0107 surowy kod \u2014 rysunek albo starszy blok HTML. Te prze\u0142\u0105czniki decyduj\u0105, co si\u0119 z nim stanie. Wszystkie trzy s\u0105 pocz\u0105tkowo wy\u0142\u0105czone: pierwszy kosztuje troch\u0119 przy rysowaniu, a dwa pozosta\u0142e zmieniaj\u0105 wygl\u0105d cudzego dokumentu.",
+      isolate: { label: "Renderuj w\u0142asny kod pliku w izolacji", note: "Umieszcza takie bloki we w\u0142asnym zakresie, wi\u0119c arkusz styl\u00f3w w \u015brodku nie przestyluje aplikacji wok\u00f3\u0142. Osadzony rysunek nie zamyka swoich styl\u00f3w w sobie, wi\u0119c bez tego si\u0119gaj\u0105 one ca\u0142ego okna. Kosztuje troch\u0119 przy rysowaniu i dlatego jest pocz\u0105tkowo wy\u0142\u0105czone." },
+      blockStyles: { label: "Blokuj arkusze styl\u00f3w", note: "Usuwa arkusze styl\u00f3w z tego kodu, zanim w og\u00f3le zostanie narysowany. Prezentacja, kt\u00f3ra sama si\u0119 stylizuje, wyjdzie surowo." },
+      blockScripts: { label: "Blokuj skrypty", note: "Usuwa skrypty, obs\u0142ug\u0119 zdarze\u0144 i odno\u015bniki javascript:. I tak nie mog\u0105 si\u0119 uruchomi\u0107 \u2014 okno wykonuje tylko pliki samej aplikacji \u2014 wi\u0119c to po to, by w og\u00f3le nie trafi\u0142y na stron\u0119." },
     },
     empty: "Na razie pusto. Motyw i język trafią tutaj.",
   },

@@ -95,88 +95,47 @@ describe("SettingsView — the system palette", () => {
   });
 });
 
-describe("SettingsView — the workspace folder", () => {
-  beforeEach(async () => {
-    localStorage.clear();
-    openDialog.mockReset();
-    i18n.global.locale.value = "en";
-    const { useWorkspace } = await import("../../src/files/useWorkspace");
-    useWorkspace().clearRoot();
-  });
-
-  it("says there is no workspace before one is chosen", () => {
-    const w = mountSettings();
-    expect(w.get('[data-testid="workspace-none"]').text()).toBe("No workspace yet.");
-    expect(w.find('[data-testid="workspace-path"]').exists()).toBe(false);
-    // Nothing to forget yet, so nothing offers to.
-    expect(w.find('[data-testid="workspace-forget"]').exists()).toBe(false);
-  });
-
-  it("never offers a typed path", async () => {
-    // A typed path gets no dialog grant, so it would be remembered and then
-    // refuse to read. The picker is the only way in, deliberately.
-    const { useWorkspace } = await import("../../src/files/useWorkspace");
-    useWorkspace().root.value = "/home/u/work";
-    const w = mountSettings();
-    expect(w.findAll('input[type="text"]')).toHaveLength(0);
-    expect(w.get('[data-testid="workspace-path"]').text()).toBe("/home/u/work");
-  });
-
-  it("forgets the folder without pretending the grant is gone", async () => {
-    const { useWorkspace } = await import("../../src/files/useWorkspace");
-    const workspace = useWorkspace();
-    workspace.root.value = "/home/u/work";
-    localStorage.setItem("zinnia:workspace", JSON.stringify({ root: "/home/u/work" }));
-    const w = mountSettings();
-
-    await w.get('[data-testid="workspace-forget"]').trigger("click");
-    expect(workspace.root.value).toBe("");
-    expect(localStorage.getItem("zinnia:workspace")).toBe(null);
-    expect(w.get('[data-testid="workspace-none"]').exists()).toBe(true);
-  });
-
-  it("shows why a remembered folder is not readable", async () => {
-    const { useWorkspace } = await import("../../src/files/useWorkspace");
-    const workspace = useWorkspace();
-    workspace.root.value = "/home/u/work";
-    workspace.unreadable.value = true;
-    const w = mountSettings();
-    expect(w.get('[data-testid="workspace-unreadable"]').text()).toContain("Choose it again");
-  });
-});
-
-describe("SettingsView — isolating a file's own markup", () => {
+describe("SettingsView — what a file may bring with it", () => {
   beforeEach(async () => {
     localStorage.clear();
     i18n.global.locale.value = "en";
-    const { useSandbox } = await import("../../src/security/useSandbox");
-    useSandbox().set(false);
+    const { useMarkupSafety } = await import("../../src/security/useMarkupSafety");
+    const m = useMarkupSafety();
+    for (const k of ["isolate", "blockStyles", "blockScripts"] as const) m.set(k, false);
   });
 
-  it("offers the switch, off by default", () => {
+  it("offers all three switches, every one of them off", () => {
     const w = mountSettings();
-    const box = w.get('[data-testid="sandbox-toggle"]');
-    expect((box.element as HTMLInputElement).checked).toBe(false);
+    for (const which of ["isolate", "blockStyles", "blockScripts"]) {
+      const box = w.get(`[data-testid="switch-${which}"]`);
+      expect((box.element as HTMLInputElement).checked, which).toBe(false);
+    }
   });
 
-  it("turns isolation on and remembers it", async () => {
-    const { useSandbox } = await import("../../src/security/useSandbox");
+  it("flips each switch independently, and remembers it", async () => {
+    const { useMarkupSafety } = await import("../../src/security/useMarkupSafety");
     const w = mountSettings();
-    const box = w.get('[data-testid="sandbox-toggle"]');
-    await box.setValue(true);
+    const m = useMarkupSafety();
 
-    expect(useSandbox().enabled.value).toBe(true);
-    expect(localStorage.getItem("zinnia:sandbox")).toBe("1");
+    await w.get('[data-testid="switch-blockScripts"]').setValue(true);
+    expect(m.blockScripts.value).toBe(true);
+    expect(localStorage.getItem("zinnia:blockScripts")).toBe("1");
+    // Its neighbours are untouched — three switches, not one tri-state.
+    expect(m.isolate.value).toBe(false);
+    expect(m.blockStyles.value).toBe(false);
+
     // …and back off again, because a switch that only goes one way is a trap.
-    await box.setValue(false);
-    expect(useSandbox().enabled.value).toBe(false);
-    expect(localStorage.getItem("zinnia:sandbox")).toBe("0");
+    await w.get('[data-testid="switch-blockScripts"]').setValue(false);
+    expect(m.blockScripts.value).toBe(false);
+    expect(localStorage.getItem("zinnia:blockScripts")).toBe("0");
   });
 
-  it("says what it costs, not only what it buys", async () => {
-    // The reason this is a switch rather than a default is performance, and the
-    // note has to say so — otherwise nobody knows why it is off.
+  it("says what each switch costs, not only what it buys", async () => {
+    // The reason these are switches rather than defaults is that they cost
+    // something, and the notes have to say so.
     const w = mountSettings();
-    expect(w.get('[data-testid="sandbox-row"]').text()).toContain("Off by default");
+    const text = w.get('[data-testid="markup-safety"]').text();
+    expect(text).toContain("Costs a little to draw");
+    expect(text).toContain("will come out plain");
   });
 });
