@@ -1,0 +1,196 @@
+<script setup lang="ts">
+// Security — encrypt a file, and an honest account of what this build can do.
+//
+// The inventory half is READ-ONLY and has no controls at all, deliberately: it
+// is a statement of fact, and a page that could act on its own claims would
+// become a second place where the truth is decided. What it reports came from
+// reading the source rather than the comments — four doc comments in this
+// repository were stale about exactly these facts.
+//
+// This tab hosts no editor, so `App.showFiles` gives it no files sidepanel and
+// it brings its own listing. That listing is the SAME workspace store the
+// sidepanel drives: expanding a folder here expands it there, and the sealed
+// probes fill one cache for both. A second tree would be a second opinion about
+// what is on disk.
+import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import LockModal from "../files/LockModal.vue";
+import { filterRows, useWorkspace, type Row } from "../files/useWorkspace";
+import { sealFile, unsealFile } from "../security/lock";
+import { CAPABILITY_GROUPS, capabilitiesIn } from "../security/capabilities";
+
+const { t } = useI18n({ useScope: "global" });
+const workspace = useWorkspace();
+
+const filter = ref("");
+const visible = computed<Row[]>(() => filterRows(workspace.rows.value, filter.value));
+
+/** The row a passphrase is being asked about, or null. One ref, because only
+ *  one thing is ever pending — a modal that could be about two files at once is
+ *  a modal that eventually encrypts the wrong one. */
+const target = ref<Row | null>(null);
+const modalOpen = ref(false);
+
+// The picked folder can be unreadable by the next launch (the grant does not
+// survive a restart), so this tab reads it itself rather than assuming the
+// sidepanel already has — it is reachable without the sidepanel ever mounting.
+watch(() => workspace.root.value, (root) => {
+  if (root && !workspace.rows.value.length) void workspace.refresh();
+}, { immediate: true });
+
+const mode = computed<"lock" | "unlock">(() =>
+  target.value && workspace.isSealed(target.value.path) ? "unlock" : "lock");
+
+function activate(row: Row) {
+  if (row.isDirectory) {
+    void workspace.toggle(row.path);
+    return;
+  }
+  // `looksOpenable` is deliberately NOT consulted: a .png is perfectly
+  // encryptable. The sidepanel greys what it cannot open because it is trying
+  // to open things; this list is trying to seal them.
+  target.value = row;
+  modalOpen.value = true;
+}
+
+/** Handed to the modal, which supplies the passphrase and owns the busy state.
+ *  A throw here surfaces as the mapped message; a success closes the dialog. */
+async function apply(password: string): Promise<void> {
+  const row = target.value;
+  if (!row) return;
+  const sealed = workspace.isSealed(row.path);
+  await (sealed ? unsealFile : sealFile)(row.path, password);
+  try {
+    await workspace.reprobe(row.path);
+  } catch {
+    // The seal itself succeeded; a failed probe must never report otherwise.
+    // The badge corrects itself on the next listing.
+  }
+}
+
+/** The live numbers the inventory quotes, so a claim about this build cannot
+ *  drift from the build. Unused params are ignored by vue-i18n, so every row
+ *  can be given the same object. */
+const facts = computed(() => ({
+  mem: 65536,
+  passes: 3,
+  lanes: 4,
+  folder: workspace.root.value || t("security.inventory.noFolder"),
+}));
+
+const STATUS_TONE: Record<string, string> = {
+  absent: "text-warn-dark",
+  active: "",
+  legacy: "opacity-60",
+  dormant: "opacity-60",
+  parked: "opacity-60",
+};
+</script>
+
+<template>
+  <div class="min-h-0 flex-1 overflow-y-auto p-6">
+    <div class="mx-auto w-full max-w-2xl">
+      <!-- ── encrypting a file ─────────────────────────────────────────── -->
+      <h2 class="flex items-center gap-2 text-lg font-bold">
+        <font-awesome-icon icon="shield-halved" class="opacity-60" />
+        {{ t("security.files.title") }}
+      </h2>
+      <p class="mt-1 text-sm opacity-70">{{ t("security.files.help") }}</p>
+
+      <div v-if="!workspace.root.value"
+           class="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-accent-2 px-4 py-3 dark:border-accent-1"
+           data-testid="security-files-none">
+        <span class="min-w-0 flex-1 text-sm opacity-60">{{ t("security.files.noWorkspace") }}</span>
+        <button type="button" data-testid="security-files-pick"
+                class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-sm font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
+                @click="workspace.pickRoot()">
+          {{ t("files.pickWorkspace") }}
+        </button>
+      </div>
+
+      <template v-else>
+        <div class="mt-5 flex flex-wrap items-center gap-2">
+          <input v-model="filter" type="search" :placeholder="t('common.search')"
+                 data-testid="security-files-filter"
+                 class="min-w-0 flex-1 rounded-lg border border-accent-2 bg-transparent px-2.5 py-1.5 text-sm dark:border-accent-1" />
+          <button type="button" data-testid="security-files-refresh"
+                  class="shrink-0 rounded-lg border border-accent-2 px-2.5 py-1.5 text-sm transition hover:opacity-80 disabled:opacity-40 dark:border-accent-1"
+                  :title="t('security.files.refresh')" :aria-label="t('security.files.refresh')"
+                  :disabled="workspace.loading.value" @click="workspace.refresh()">
+            <font-awesome-icon :icon="workspace.loading.value ? 'spinner' : 'rotate-right'"
+                               :spin="workspace.loading.value" />
+          </button>
+        </div>
+
+        <div class="mt-3 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1"
+             data-testid="security-files">
+          <button v-for="row in visible" :key="row.path" type="button"
+                  class="flex w-full items-center gap-2 border-b border-current/10 py-2 pr-3 text-left transition last:border-0 hover:bg-accent-light/10"
+                  :style="`padding-left: calc(${row.depth} * 0.75rem + 0.75rem)`"
+                  :data-testid="`security-row-${row.name}`"
+                  @click="activate(row)">
+            <font-awesome-icon v-if="row.isDirectory" icon="chevron-right"
+                               class="w-2 shrink-0 text-[9px] opacity-50 transition-transform"
+                               :class="workspace.isExpanded(row.path) ? 'rotate-90' : ''" />
+            <span v-else class="w-2 shrink-0" />
+            <font-awesome-icon
+              :icon="row.isDirectory ? 'folder' : workspace.isSealed(row.path) ? 'lock' : 'file'"
+              class="shrink-0 text-xs"
+              :class="row.isDirectory
+                ? 'text-accent-light dark:text-accent-dark'
+                : workspace.isSealed(row.path) ? 'opacity-70' : 'opacity-40'" />
+            <span class="min-w-0 flex-1 truncate text-sm">{{ row.name }}</span>
+            <span v-if="!row.isDirectory && workspace.isSealed(row.path)"
+                  class="shrink-0 rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold uppercase"
+                  :data-testid="`security-sealed-${row.name}`">
+              {{ t("security.files.sealed") }}
+            </span>
+          </button>
+
+          <p v-if="!visible.length" class="px-4 py-6 text-center text-xs opacity-40"
+             data-testid="security-files-empty">
+            {{ filter ? t("files.noMatches") : t("security.files.empty") }}
+          </p>
+        </div>
+      </template>
+
+      <!-- ── the inventory ─────────────────────────────────────────────── -->
+      <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
+        <font-awesome-icon icon="circle-info" class="opacity-60" />
+        {{ t("security.inventory.title") }}
+      </h2>
+      <p class="mt-1 text-sm opacity-70">{{ t("security.intro") }}</p>
+
+      <div data-testid="inventory">
+        <template v-for="group in CAPABILITY_GROUPS" :key="group">
+          <h3 class="mt-6 text-sm font-bold opacity-80">
+            {{ t(`security.inventory.groups.${group}`) }}
+          </h3>
+          <div class="mt-2 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1">
+            <div v-for="item in capabilitiesIn(group)" :key="item.id"
+                 class="flex items-start gap-3 border-b border-current/10 px-4 py-3 last:border-0"
+                 :data-testid="`cap-${item.id}`">
+              <span class="min-w-0 flex-1">
+                <span class="text-sm font-semibold">
+                  {{ t(`security.inventory.items.${item.id}.label`) }}
+                </span>
+                <!-- Proper nouns, straight from the data — never translated. -->
+                <code v-if="item.name" class="ml-2 text-xs opacity-70">{{ item.name }}</code>
+                <span class="mt-0.5 block text-sm opacity-70">
+                  {{ t(`security.inventory.items.${item.id}.detail`, facts) }}
+                </span>
+              </span>
+              <span class="shrink-0 rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                    :class="STATUS_TONE[item.status]"
+                    :data-testid="`cap-status-${item.id}`">
+                {{ t(`security.inventory.status.${item.status}`) }}
+              </span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <LockModal v-model:open="modalOpen" :mode="mode" :name="target?.name ?? ''" :action="apply" />
+  </div>
+</template>

@@ -4,7 +4,7 @@ export default {
   lock: {
     lockTitle: "Zaszyfruj ten plik",
     unlockTitle: "Odszyfruj ten plik",
-    lockHint: "Używa Twojego hasła platformy i ustawień klucza Twojego konta, więc to samo hasło otworzy plik tutaj i na serwerze.",
+    lockHint: "Hasło nie jest nigdzie zapisywane ani przenoszone między plikami. Wszystko, co potrzebne do ponownego otwarcia tego pliku — poza hasłem — zapisujemy w samym pliku.",
     password: "Hasło",
     confirm: "Powtórz hasło",
     lock: "Zaszyfruj",
@@ -16,6 +16,8 @@ export default {
       already_locked: "Ten plik jest już zaszyfrowany.",
       not_locked: "Ten plik nie jest zaszyfrowany.",
       too_large: "Ten plik jest za duży, by go zaszyfrować.",
+      legacy_format: "Ten plik został zaszyfrowany przez platformę. Ustawienia jego klucza były na serwerze, więc nie da się go tutaj otworzyć.",
+      crypto: "Ten zaszyfrowany plik jest uszkodzony. Nic nie zostało zmienione.",
     },
   },
   nav: {
@@ -28,6 +30,7 @@ export default {
     sheets: "Arkusze",
     presentations: "Prezentacje",
     code: "Kod",
+    security: "Bezpieczeństwo",
     settings: "Ustawienia",
   },
   files: {
@@ -48,6 +51,51 @@ export default {
   code: {
     language: "J\u0119zyk",
     plainText: "Zwyk\u0142y tekst",
+  },
+  security: {
+    title: "Bezpieczeństwo",
+    intro: "Wszystko na tej stronie to stwierdzenie faktu o tej wersji. Nic tu nie jest ustawieniem.",
+    files: {
+      title: "Zaszyfruj plik",
+      help: "Pliki w Twoim folderze roboczym. Szyfrowanie nadpisuje plik w miejscu, a wszystko, co potrzebne do jego ponownego otwarcia, podróżuje w jego wnętrzu — więc zaszyfrowany plik otworzy się na każdym komputerze, na którym podasz hasło. Zamknij plik najpierw w edytorze: karta, która wciąż trzyma starą treść, może zapisać ją z powrotem na zaszyfrowanym pliku.",
+      noWorkspace: "Wybierz folder roboczy, żeby szyfrować w nim pliki.",
+      empty: "Nie ma tu czego szyfrować.",
+      sealed: "Zaszyfrowany",
+      refresh: "Odczytaj folder ponownie",
+    },
+    inventory: {
+      title: "Co ta wersja robi z kryptografią",
+      noFolder: "nie wybrano folderu",
+      groups: {
+        sealing: "Szyfrowanie pliku",
+        reach: "Do czego ta aplikacja sięga",
+        content: "Niezaufana treść",
+        keys: "Gdzie mieszka materiał klucza",
+      },
+      status: {
+        active: "W użyciu",
+        legacy: "Tylko odczyt",
+        dormant: "Nieużywane",
+        parked: "Poza kompilacją",
+        absent: "Nieobecne",
+      },
+      items: {
+        seal: { label: "Szyfr", detail: "Czym szyfrowany jest plik: 24-bajtowa losowa jednorazówka i 16-bajtowy znacznik uwierzytelniający na całym pliku, związany ze stałą etykietą, żeby szyfrogramu nie dało się przenieść do innego zastosowania." },
+        kdf: { label: "Z hasła na klucz", detail: "Zamienia Twoje hasło i sól wylosowaną dla tego jednego pliku w klucz: {mem} KiB pamięci, przebiegi: {passes}, ścieżki: {lanes}. Ten klucz nie szyfruje pliku — owija losowy klucz, który to robi." },
+        frame: { label: "Znacznik", detail: "Zaszyfrowany plik mówi o tym w pierwszych dziewięciu bajtach — dzięki temu można go oznaczyć jako zaszyfrowany bez pytania o hasło." },
+        write: { label: "Zapis pliku", detail: "Zaszyfrowane bajty trafiają do sąsiedniego pliku tymczasowego, są zrzucane na dysk, a potem zastępują oryginał przez zmianę nazwy. Złe hasło przerywa na znaczniku uwierzytelniającym, zanim cokolwiek zostanie zapisane, więc plik na dysku pozostaje nietknięty. Sam folder nie jest zrzucany, więc awaria w trakcie zmiany nazwy wciąż może ją cofnąć." },
+        platform: { label: "Formaty platformy", detail: "Pliki zaszyfrowane przez serwer oraz przez tę aplikację przed sierpniem 2026. Są rozpoznawane i pokazywane jako zaszyfrowane, ale nie da się ich tutaj otworzyć: ustawienia ich kluczy były w rekordzie na serwerze, którego ta wersja już nie zawiera." },
+        openssl: { label: "Dolinkowane", detail: "Natywny OpenSSL jest częścią tej aplikacji z jednego powodu: wciąga go biblioteka rozpoznająca powyższy starszy format. Nic innego tutaj z niego nie korzysta." },
+        workspace: { label: "Jeden folder", detail: "Ta aplikacja może czytać wybrany przez Ciebie folder i wszystko w nim: {folder}. To pozwolenie pochodzi z okna wyboru folderu i żyje tylko w uruchomionym programie — po restarcie folder trzeba wybrać ponownie. Nic w tej wersji nie przyznaje dostępu do dysku z góry." },
+        network: { label: "Sieć", detail: "Nic tutaj nie łączy się z serwerem. Logowanie, połączenie z przypiętym certyfikatem i sejf plików w chmurze są odstawione poza kompilację." },
+        csp: { label: "Brak Content-Security-Policy", detail: "To okno działa bez niej. Dokumentu, któremu udałoby się wprowadzić tu skrypt, silnik przeglądarki by nie zatrzymał." },
+        render: { label: "Pliki są renderowane, nie izolowane", detail: "Otwarty rysunek rysuje własny czytnik tej aplikacji, a blok HTML w prezentacji renderuje się na żywo w otwartej przez Ciebie prezentacji. Żadne z nich nie działa w osobnej ramce." },
+        refusal: { label: "Aktywne rysunki są odrzucane", detail: "Rysunek zawierający skrypt, osadzony dokument, odwołanie na zewnątrz albo deklarację encji jest odrzucany wprost i proponowany jako zwykły XML. Nie jest czyszczony i zapisywany ponownie: to pokazywałoby Ci jeden plik, a przechowywało inny." },
+        passphrase: { label: "Twoje hasło", detail: "Pytamy o nie za każdym razem, używamy i porzucamy. Nigdy nie trafia na dysk, nie jest trzymane między dwoma plikami i nie jest przez tę aplikację zapamiętywane. Nie ma odzyskiwania: zapomniane hasło to utracony plik." },
+        keyring: { label: "Pęk kluczy systemu", detail: "Nieużywany. Trzymał kiedyś token logowania do serwera; komputer, na którym logowano się starszą wersją, może wciąż mieć wpis, a nic tutaj go nie czyta ani nie usuwa. Nic z tego, co ta aplikacja teraz robi, nie musi być nigdzie przechowywane." },
+        dormantCrypto: { label: "Zbudowane, nieużywane", detail: "Dwuslotowy sejf z kodem przymusu, most do wiadomości grupowych, uzgadnianie pary urządzeń i haszowane kafelki mapy — wszystko to jest w tym repozytorium i nic w tej aplikacji tego nie wywołuje." },
+      },
+    },
   },
   settings: {
     colors: {

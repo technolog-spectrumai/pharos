@@ -14,6 +14,7 @@ import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import OyaModal from "rakotis/components/primitives/OyaModal.vue";
 import ModalPanel from "../components/ModalPanel.vue";
+import { lockErrorKey } from "../security/lock";
 
 const props = defineProps<{
   open: boolean;
@@ -59,11 +60,13 @@ async function submit() {
     emit("done");
     emit("update:open", false);
   } catch (err) {
+    // Tauri rejects a `Result<_, String>` with the bare string.
     const message = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-    const prefix = message.split(":")[0];
-    error.value = ["wrong_password", "already_locked", "not_locked", "too_large"].includes(prefix)
-      ? t(`lock.errors.${prefix}`)
-      : message;
+    const key = lockErrorKey(message);
+    // A filesystem message has no key and says more verbatim than "something
+    // failed" would; a Rust prefix always has one. The list lives in
+    // ../security/lock so it can be tested against lock.rs itself.
+    error.value = key ? t(key) : message;
   } finally {
     password.value = "";
     confirm.value = "";

@@ -4,7 +4,7 @@ export default {
   lock: {
     lockTitle: "Encrypt this file",
     unlockTitle: "Decrypt this file",
-    lockHint: "Uses your platform password and your account's key settings, so the same password opens it here or on the server.",
+    lockHint: "The password is never stored, and it is not kept between two files. Everything needed to open this file again — except the password — is written into the file itself.",
     password: "Password",
     confirm: "Repeat the password",
     lock: "Encrypt",
@@ -16,6 +16,8 @@ export default {
       already_locked: "That file is already encrypted.",
       not_locked: "That file is not encrypted.",
       too_large: "That file is too big to encrypt.",
+      legacy_format: "This file was encrypted by the platform. Its key settings lived on the server, so it cannot be opened here.",
+      crypto: "That encrypted file is damaged. Nothing was changed.",
     },
   },
   nav: {
@@ -28,6 +30,7 @@ export default {
     sheets: "Sheets",
     presentations: "Presentations",
     code: "Code",
+    security: "Security",
     settings: "Settings",
   },
   files: {
@@ -48,6 +51,51 @@ export default {
   code: {
     language: "Language",
     plainText: "Plain text",
+  },
+  security: {
+    title: "Security",
+    intro: "Everything on this page is a statement of fact about this build. Nothing here is a setting.",
+    files: {
+      title: "Encrypt a file",
+      help: "Files in your workspace folder. Encrypting rewrites the file in place, and everything needed to open it again travels inside it — so an encrypted file opens on any machine that has your password. Close the file in an editor first: a tab still holding the old text can save it back over the encrypted one.",
+      noWorkspace: "Choose a workspace folder to encrypt files in it.",
+      empty: "Nothing here to encrypt.",
+      sealed: "Encrypted",
+      refresh: "Read the folder again",
+    },
+    inventory: {
+      title: "What this build does with cryptography",
+      noFolder: "no folder chosen",
+      groups: {
+        sealing: "Encrypting a file",
+        reach: "What this app can reach",
+        content: "Untrusted content",
+        keys: "Where key material lives",
+      },
+      status: {
+        active: "In use",
+        legacy: "Read only",
+        dormant: "Unused",
+        parked: "Not built in",
+        absent: "Not present",
+      },
+      items: {
+        seal: { label: "The cipher", detail: "What an encrypted file is encrypted with: a 24-byte random nonce and a 16-byte authentication tag over the whole file, bound to a fixed label so ciphertext cannot be moved between purposes." },
+        kdf: { label: "Password to key", detail: "Turns your password and a salt drawn for this one file into a key: {mem} KiB of memory, {passes} passes, {lanes} lanes. That key does not encrypt the file — it wraps a random key that does." },
+        frame: { label: "The marker", detail: "An encrypted file says so in its first nine bytes, which is how one can be shown as encrypted without asking for a password." },
+        write: { label: "Writing the file", detail: "The encrypted bytes go to a sibling temporary file, are flushed to the disk, then replace the original by rename. A wrong password fails on the authentication tag before anything is written, so the file on disk is untouched. The folder itself is not flushed, so a crash during the rename can still lose the rename." },
+        platform: { label: "The platform's formats", detail: "Files encrypted by the server, and by this app before August 2026. They are recognised and shown as encrypted, but they cannot be opened here: their key settings lived on a server record that is no longer part of this build." },
+        openssl: { label: "Linked in", detail: "Native OpenSSL is part of this app for one reason: the library that recognises the older format above pulls it in. Nothing else here uses it." },
+        workspace: { label: "One folder", detail: "This app can read the folder you picked and everything inside it: {folder}. That permission comes from the folder picker and lives only in the running program — after a restart the folder has to be picked again. Nothing in this build grants access to the disk ahead of time." },
+        network: { label: "The network", detail: "Nothing here contacts a server. Sign-in, the pinned-certificate connection and the online file vault are parked outside the build and are not compiled in." },
+        csp: { label: "No Content-Security-Policy", detail: "This window runs without one. A document that managed to get script into it would not be stopped by the browser engine." },
+        render: { label: "Files are rendered, not sandboxed", detail: "An opened drawing is drawn by this app's own reader, and a presentation's HTML block is rendered live in the deck you opened. Neither runs in a separate frame." },
+        refusal: { label: "Active drawings are refused", detail: "A drawing carrying a script, an embedded document, an external reference or an entity declaration is refused outright and offered as plain XML instead. It is not cleaned up and re-saved: that would show you one file and store another." },
+        passphrase: { label: "Your password", detail: "Asked for every single time, used, and dropped. It is never written to disk, never kept between two files, and never remembered by this app. There is no recovery: a forgotten password means a lost file." },
+        keyring: { label: "The system keyring", detail: "Not used. It once held a sign-in token for the server; a machine that signed in with an older build may still have an entry, and nothing here reads it or clears it. Nothing this app does now needs to be kept anywhere." },
+        dormantCrypto: { label: "Built but unused", detail: "A two-slot vault with a duress code, a group-messaging bridge, a device-pairing handshake and hashed map tiles all ship in this repository and are called by nothing in this app." },
+      },
+    },
   },
   settings: {
     colors: {

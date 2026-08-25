@@ -6,6 +6,7 @@ import { i18n, setLocale, type Locale } from "./i18n";
 import { APP_TABS, DEFAULT_TAB, type AppTabId, type EditorKind } from "./tabs";
 import EditorHost from "./views/EditorHost.vue";
 import FilesPanel from "./files/FilesPanel.vue";
+import SecurityView from "./views/SecurityView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const { t } = useI18n({ useScope: "global" });
@@ -269,6 +270,9 @@ function isDisabled(id: string): boolean {
                       :ref="setterFor(tab.id)"
                       :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
         </template>
+
+        <SecurityView v-if="visited.has('security')" v-show="active === 'security'"
+                      class="min-h-0 flex-1" />
 
         <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"
                       class="min-h-0 flex-1" />

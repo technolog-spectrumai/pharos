@@ -12,8 +12,10 @@
 // and toggles visibility instead, which is why there is a `path` here for
 // nothing to consume yet — it is what a router would need if one arrives.
 //
-// SETTINGS IS LAST AND IS NOT AN EDITOR. It carries no file, so the host's
-// save/discard machinery does not apply to it.
+// SETTINGS IS LAST, AND IT IS NOT THE ONLY TAB THAT CARRIES NO FILE. A tab with
+// a null `kind` hosts no editor, so the host's save/discard machinery does not
+// apply to it — and `App.showFiles` keys off that same null, so it gets no files
+// sidepanel either. A tab that needs to show files must bring its own listing.
 //
 // FILES IS NOT A TAB. It was one, and the tab is what made it useless: picking
 // a file meant leaving the editor. It is a sidepanel now (src/files/FilesPanel
@@ -22,7 +24,7 @@
 /** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
  *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
 export type EditorKind = "document" | "sketch" | "sheet" | "deck" | "code";
-export type AppTabId = EditorKind | "settings";
+export type AppTabId = EditorKind | "security" | "settings";
 
 export interface AppTab {
   id: AppTabId;
@@ -41,6 +43,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: "sheet",    path: "/sheets",        labelKey: "nav.sheets",        icon: "table-cells",     kind: "sheet" },
   { id: "deck",     path: "/presentations", labelKey: "nav.presentations", icon: "file-powerpoint", kind: "deck" },
   { id: "code",     path: "/code",          labelKey: "nav.code",          icon: "code",            kind: "code" },
+  { id: "security", path: "/security",      labelKey: "nav.security",      icon: "shield-halved",   kind: null },
   { id: "settings", path: "/settings",      labelKey: "nav.settings",      icon: "gear",            kind: null },
 ];
 

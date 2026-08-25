@@ -1,0 +1,278 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import SecurityView from "../../src/views/SecurityView.vue";
+import { CAPABILITIES } from "../../src/security/capabilities";
+import { i18n } from "../../src/i18n";
+
+const invoke = vi.fn();
+const readDir = vi.fn();
+const stat = vi.fn();
+const openDialog = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (...a: unknown[]) => openDialog(...a),
+  save: vi.fn(),
+}));
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  readDir: (...a: unknown[]) => readDir(...a),
+  stat: (...a: unknown[]) => stat(...a),
+  readTextFile: vi.fn(),
+  writeTextFile: vi.fn(),
+}));
+
+const ROOT = "/home/u/work";
+
+function mountSecurity() {
+  return mount(SecurityView, {
+    global: { plugins: [i18n], stubs: { teleport: true } },
+  });
+}
+
+/** The chain is deeper than one microtask: a dynamic import of the fs plugin,
+ *  then readDir, then a stat and a probe per row. Drain until it settles. */
+async function settle() {
+  for (let i = 0; i < 10; i++) await flushPromises();
+}
+
+function tree(byDir: Record<string, Array<[string, boolean]>>) {
+  readDir.mockImplementation(async (dir: string) =>
+    (byDir[dir] ?? []).map(([name, isDirectory]) => ({ name, isDirectory })));
+}
+
+async function withRoot(root = ROOT) {
+  const { useWorkspace } = await import("../../src/files/useWorkspace");
+  const workspace = useWorkspace();
+  workspace.root.value = root;
+  return workspace;
+}
+
+beforeEach(async () => {
+  localStorage.clear();
+  for (const fn of [invoke, readDir, stat, openDialog]) fn.mockReset();
+  stat.mockResolvedValue({ size: 12, mtime: null });
+  i18n.global.locale.value = "en";
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  const { useWorkspace } = await import("../../src/files/useWorkspace");
+  useWorkspace().clearRoot();
+});
+
+afterEach(() => {
+  delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  i18n.global.locale.value = "en";
+});
+
+describe("SecurityView — the inventory", () => {
+  it("is read-only: it reports, and offers nothing to act on", async () => {
+    const w = mountSecurity();
+    await settle();
+    const inventory = w.get('[data-testid="inventory"]');
+    expect(inventory.findAll("input")).toHaveLength(0);
+    expect(inventory.findAll("button")).toHaveLength(0);
+    expect(inventory.findAll("select")).toHaveLength(0);
+  });
+
+  it("draws every capability, each with a status", async () => {
+    const w = mountSecurity();
+    await settle();
+    for (const cap of CAPABILITIES) {
+      expect(w.find(`[data-testid="cap-${cap.id}"]`).exists(), cap.id).toBe(true);
+      expect(w.get(`[data-testid="cap-status-${cap.id}"]`).text()).not.toBe("");
+    }
+  });
+
+  it("leaves algorithm names untranslated", async () => {
+    // The real test of "proper nouns live in the data, not the catalogue":
+    // switch locale and the prose changes while the names do not.
+    const w = mountSecurity();
+    await settle();
+    const english = w.get('[data-testid="cap-seal"]').text();
+
+    i18n.global.locale.value = "pl";
+    await flushPromises();
+    const polish = w.get('[data-testid="cap-seal"]').text();
+
+    expect(polish).not.toBe(english);
+    for (const name of ["XChaCha20-Poly1305", "Argon2id", "OpenSSL"]) {
+      expect(w.html(), name).toContain(name);
+    }
+  });
+
+  it("states the costs this build actually uses", async () => {
+    // Interpolated from the build, not written into the catalogue.
+    const w = mountSecurity();
+    await settle();
+    expect(w.get('[data-testid="cap-kdf"]').text()).toContain("65536");
+  });
+
+  it("names the folder it can read, and says so when there is none", async () => {
+    const w = mountSecurity();
+    await settle();
+    expect(w.get('[data-testid="cap-workspace"]').text()).toContain("no folder chosen");
+  });
+});
+
+describe("SecurityView — encrypting a file", () => {
+  it("asks for a folder before it can offer anything", async () => {
+    const w = mountSecurity();
+    await settle();
+    expect(w.get('[data-testid="security-files-none"]').exists()).toBe(true);
+    expect(w.find('[data-testid="security-files"]').exists()).toBe(false);
+  });
+
+  it("lists the workspace and marks what is already encrypted", async () => {
+    tree({ [ROOT]: [["plain.txt", false], ["secret.svg", false]] });
+    invoke.mockImplementation(async (_cmd: string, args: Record<string, string>) =>
+      args.path.endsWith("secret.svg"));
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    expect(w.get('[data-testid="security-row-plain.txt"]').exists()).toBe(true);
+    expect(w.find('[data-testid="security-sealed-secret.svg"]').exists()).toBe(true);
+    expect(w.find('[data-testid="security-sealed-plain.txt"]').exists()).toBe(false);
+  });
+
+  it("offers to encrypt a file no editor could open", async () => {
+    // A .png is perfectly encryptable; the sidepanel greys it because it is
+    // trying to OPEN things, which this list is not.
+    tree({ [ROOT]: [["photo.png", false]] });
+    invoke.mockResolvedValue(false);
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="security-row-photo.png"]').trigger("click");
+    await flushPromises();
+    expect(w.find('[data-testid="lock-password"]').exists()).toBe(true);
+    // Encrypting, so it asks twice.
+    expect(w.find('[data-testid="lock-confirm"]').exists()).toBe(true);
+  });
+
+  it("encrypts with nothing but a path and a password", async () => {
+    // The whole point of the self-contained frame: no salt crosses this call.
+    tree({ [ROOT]: [["notes.txt", false]] });
+    invoke.mockResolvedValue(false);
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="security-row-notes.txt"]').trigger("click");
+    await flushPromises();
+    await w.get('[data-testid="lock-password"]').setValue("hunter2");
+    await w.get('[data-testid="lock-confirm"]').setValue("hunter2");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+
+    expect(invoke).toHaveBeenCalledWith("lock_file", {
+      path: `${ROOT}/notes.txt`,
+      password: "hunter2",
+    });
+  });
+
+  it("offers to decrypt a file that is already encrypted", async () => {
+    tree({ [ROOT]: [["secret.txt", false]] });
+    invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="security-row-secret.txt"]').trigger("click");
+    await flushPromises();
+    // Decrypting asks once, not twice.
+    expect(w.find('[data-testid="lock-confirm"]').exists()).toBe(false);
+
+    await w.get('[data-testid="lock-password"]').setValue("hunter2");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+    expect(invoke).toHaveBeenCalledWith("unlock_file", {
+      path: `${ROOT}/secret.txt`,
+      password: "hunter2",
+    });
+  });
+
+  it("shows a wrong password as a sentence, never as raw Rust", async () => {
+    tree({ [ROOT]: [["secret.txt", false]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "is_file_locked") return true;
+      // Tauri rejects a Result<_, String> with the bare string.
+      throw "wrong_password: wrong password or corrupt file";
+    });
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="security-row-secret.txt"]').trigger("click");
+    await flushPromises();
+    await w.get('[data-testid="lock-password"]').setValue("nope");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+
+    expect(w.get('[data-testid="lock-error"]').text())
+      .toBe("Wrong password, or the file is damaged. Nothing was changed.");
+    expect(w.html()).not.toContain("wrong_password:");
+  });
+
+  it("explains a file the platform encrypted rather than blaming the password", async () => {
+    tree({ [ROOT]: [["old.bin", false]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "is_file_locked") return true;
+      throw "legacy_format: that file was encrypted by the platform";
+    });
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="security-row-old.bin"]').trigger("click");
+    await flushPromises();
+    await w.get('[data-testid="lock-password"]').setValue("x");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+    expect(w.get('[data-testid="lock-error"]').text()).toContain("encrypted by the platform");
+  });
+
+  it("re-checks only the file it just encrypted", async () => {
+    tree({ [ROOT]: [["a.txt", false], ["b.txt", false]] });
+    invoke.mockResolvedValue(false);
+    const workspace = await withRoot();
+    const w = mountSecurity();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    const before = invoke.mock.calls.filter(([c]) => c === "is_file_locked").length;
+    await w.get('[data-testid="security-row-a.txt"]').trigger("click");
+    await flushPromises();
+    await w.get('[data-testid="lock-password"]').setValue("pw");
+    await w.get('[data-testid="lock-confirm"]').setValue("pw");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+
+    const probes = invoke.mock.calls
+      .filter(([c]) => c === "is_file_locked")
+      .slice(before)
+      .map(([, args]) => (args as { path: string }).path);
+    // One targeted probe, not a whole re-listing.
+    expect(probes).toEqual([`${ROOT}/a.txt`]);
+  });
+
+  it("still reports in a browser build, and invokes nothing", async () => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    const w = mountSecurity();
+    await settle();
+    expect(w.get('[data-testid="inventory"]').exists()).toBe(true);
+    expect(w.get('[data-testid="security-files-none"]').exists()).toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
