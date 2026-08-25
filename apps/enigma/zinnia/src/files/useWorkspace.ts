@@ -53,6 +53,14 @@ const children = ref<Map<string, Entry[]>>(new Map());
 const expanded = ref<Set<string>>(new Set());
 const loading = ref(false);
 const error = ref("");
+/** The ROOT itself could not be read. Kept apart from `error`, which any
+ *  sub-folder read can also set: this one means the whole tree is unavailable,
+ *  and the panel answers it with the picker rather than an empty listing.
+ *
+ *  The ordinary cause is not a broken folder. The read grant lives in the
+ *  running process, so after a restart the remembered path is still known and
+ *  no longer readable until it is picked again. */
+const unreadable = ref(false);
 
 function loadRoot(): string {
   try {
@@ -151,7 +159,12 @@ export function useWorkspace() {
     // `recursive: true` is what extends the grant to subfolders — without it
     // the picked folder would open and every folder inside it would refuse.
     const picked = await open({ directory: true, multiple: false, recursive: true });
-    if (typeof picked !== "string") return;
+    // Cancelled. Clear any complaint left over from the folder they came to
+    // change — it is about to be re-tested, or it is no longer the subject.
+    if (typeof picked !== "string") {
+      error.value = "";
+      return;
+    }
     root.value = picked;
     children.value = new Map();
     expanded.value = new Set();
@@ -201,10 +214,10 @@ export function useWorkspace() {
     if (!root.value || !isTauri()) return;
     loading.value = true;
     error.value = "";
-    const stale = children.value;
     children.value = new Map();
     try {
       await read(root.value);
+      unreadable.value = false;
       const open = [...expanded.value].sort((a, b) => a.length - b.length);
       for (const dir of open) {
         try {
@@ -217,8 +230,13 @@ export function useWorkspace() {
         }
       }
     } catch (err) {
+      // The root is gone, or was never granted. Say so as a STATE rather than
+      // as a message over a stale listing: the tree that was on screen belongs
+      // to a folder this run can no longer read, and showing it would invite
+      // clicking a row that cannot be opened.
       error.value = (err as Error)?.message ?? String(err);
-      children.value = stale;
+      unreadable.value = true;
+      expanded.value = new Set();
     } finally {
       loading.value = false;
     }
@@ -247,6 +265,25 @@ export function useWorkspace() {
     }
   }
 
+  /** Forget the folder entirely, so the app is back to having none.
+   *
+   *  It does NOT withdraw the read grant — that lives in the running process
+   *  and there is no API to hand it back — so this is "stop showing me this
+   *  folder", not "stop being able to read it". Restarting is what actually
+   *  drops the grant. Said plainly here because the difference matters. */
+  function clearRoot(): void {
+    root.value = "";
+    children.value = new Map();
+    expanded.value = new Set();
+    error.value = "";
+    unreadable.value = false;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* a blocked store must not break the panel */
+    }
+  }
+
   /** Whether a file on disk is sealed — the same detection the platform uses,
    *  so a file encrypted on either side is badged on both. */
   async function isLocked(entry: Entry): Promise<boolean> {
@@ -261,7 +298,7 @@ export function useWorkspace() {
   }
 
   return {
-    root, rows, loading, error, expanded,
-    isExpanded, pickRoot, refresh, toggle, readText, isLocked,
+    root, rows, loading, error, expanded, unreadable,
+    isExpanded, pickRoot, clearRoot, refresh, toggle, readText, isLocked,
   };
 }

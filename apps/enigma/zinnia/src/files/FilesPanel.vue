@@ -81,7 +81,7 @@ function shown(message: string): string {
             :title="workspace.root.value || t('nav.files')" data-testid="files-root">
         {{ workspace.root.value ? baseName(workspace.root.value) : t("nav.files") }}
       </span>
-      <button v-if="workspace.root.value" type="button" data-testid="files-refresh"
+      <button v-if="workspace.root.value && !workspace.unreadable.value" type="button" data-testid="files-refresh"
               class="rounded p-1 opacity-60 transition hover:opacity-100 disabled:opacity-25"
               :title="t('files.refresh')" :aria-label="t('files.refresh')"
               :disabled="workspace.loading.value" @click="workspace.refresh()">
@@ -96,17 +96,38 @@ function shown(message: string): string {
       </button>
     </div>
 
-    <!-- No folder yet: the picker, and the sentence that says what picking one
-         actually grants. -->
-    <div v-if="!workspace.root.value" class="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center"
+    <!-- Two states share one shape, because from here they are one question:
+         there is no tree, and the answer is the picker.
+           * no folder chosen yet — say so in three words. The paragraph
+             explaining what picking one GRANTS lives in Settings, where there
+             is room to read it.
+           * a folder is remembered but cannot be read — the read grant lives in
+             the running process, so this is what a restart looks like. It used
+             to render as a raw Rust string above an empty listing, which read
+             as a broken app rather than a folder waiting to be re-picked. -->
+    <div v-if="!workspace.root.value || workspace.unreadable.value"
+         class="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center"
          data-testid="files-empty">
       <font-awesome-icon icon="folder-open" class="text-2xl opacity-25" />
-      <p class="text-xs opacity-70">{{ t("files.pickWorkspaceHint") }}</p>
+      <template v-if="workspace.unreadable.value">
+        <p class="text-xs opacity-70" data-testid="files-unreadable">{{ t("files.unreadable") }}</p>
+        <p class="break-all text-[10px] opacity-40">{{ workspace.root.value }}</p>
+        <p class="text-xs opacity-60">{{ t("files.unreadableHint") }}</p>
+      </template>
+      <p v-else class="text-xs opacity-60">{{ t("files.noWorkspace") }}</p>
+
       <button type="button" data-testid="files-pick"
-              class="rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
+              class="mt-1 rounded-lg bg-accent-light px-3 py-1.5 text-xs font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
               @click="workspace.pickRoot()">
         {{ t("files.pickWorkspace") }}
       </button>
+
+      <!-- The browser build has no folder picker; pickRoot says so through the
+           store, and this is the only branch that can show it. -->
+      <p v-if="workspace.error.value && !workspace.unreadable.value"
+         class="text-xs text-warn-dark" data-testid="files-pick-error">
+        {{ shown(workspace.error.value) }}
+      </p>
     </div>
 
     <template v-else>

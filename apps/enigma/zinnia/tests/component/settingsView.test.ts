@@ -1,8 +1,21 @@
 import { mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsView from "../../src/views/SettingsView.vue";
 import { DEFAULT_PALETTE, SYSTEM_ROLES } from "../../src/systemColors";
 import { i18n } from "../../src/i18n";
+
+const openDialog = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (...a: unknown[]) => openDialog(...a),
+  save: vi.fn(),
+}));
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  readDir: vi.fn(async () => []),
+  stat: vi.fn(async () => ({ size: 0, mtime: null })),
+  readTextFile: vi.fn(),
+  writeTextFile: vi.fn(),
+}));
 
 function mountSettings() {
   return mount(SettingsView, {
@@ -79,5 +92,55 @@ describe("SettingsView — the system palette", () => {
 
     await w.get('[data-testid="colors-reset"]').trigger("click");
     expect(document.documentElement.style.getPropertyValue("--sys-mute")).toBe(DEFAULT_PALETTE.mute);
+  });
+});
+
+describe("SettingsView — the workspace folder", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    openDialog.mockReset();
+    i18n.global.locale.value = "en";
+    const { useWorkspace } = await import("../../src/files/useWorkspace");
+    useWorkspace().clearRoot();
+  });
+
+  it("says there is no workspace before one is chosen", () => {
+    const w = mountSettings();
+    expect(w.get('[data-testid="workspace-none"]').text()).toBe("No workspace yet.");
+    expect(w.find('[data-testid="workspace-path"]').exists()).toBe(false);
+    // Nothing to forget yet, so nothing offers to.
+    expect(w.find('[data-testid="workspace-forget"]').exists()).toBe(false);
+  });
+
+  it("never offers a typed path", async () => {
+    // A typed path gets no dialog grant, so it would be remembered and then
+    // refuse to read. The picker is the only way in, deliberately.
+    const { useWorkspace } = await import("../../src/files/useWorkspace");
+    useWorkspace().root.value = "/home/u/work";
+    const w = mountSettings();
+    expect(w.findAll('input[type="text"]')).toHaveLength(0);
+    expect(w.get('[data-testid="workspace-path"]').text()).toBe("/home/u/work");
+  });
+
+  it("forgets the folder without pretending the grant is gone", async () => {
+    const { useWorkspace } = await import("../../src/files/useWorkspace");
+    const workspace = useWorkspace();
+    workspace.root.value = "/home/u/work";
+    localStorage.setItem("zinnia:workspace", JSON.stringify({ root: "/home/u/work" }));
+    const w = mountSettings();
+
+    await w.get('[data-testid="workspace-forget"]').trigger("click");
+    expect(workspace.root.value).toBe("");
+    expect(localStorage.getItem("zinnia:workspace")).toBe(null);
+    expect(w.get('[data-testid="workspace-none"]').exists()).toBe(true);
+  });
+
+  it("shows why a remembered folder is not readable", async () => {
+    const { useWorkspace } = await import("../../src/files/useWorkspace");
+    const workspace = useWorkspace();
+    workspace.root.value = "/home/u/work";
+    workspace.unreadable.value = true;
+    const w = mountSettings();
+    expect(w.get('[data-testid="workspace-unreadable"]').text()).toContain("Choose it again");
   });
 });

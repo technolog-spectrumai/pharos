@@ -12,9 +12,20 @@
 import { useI18n } from "vue-i18n";
 import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "../systemColors";
 import { useSystemColors } from "../useSystemColors";
+import { useWorkspace } from "../files/useWorkspace";
 
 const { t } = useI18n({ useScope: "global" });
 const { palette, mode, set, reset } = useSystemColors();
+
+// The same store the sidepanel drives, not a copy: picking a folder here has to
+// be the picking the panel already does, or the two would disagree about which
+// folder is open.
+//
+// There is NO text field for the path, and that is not an oversight. The folder
+// picker is what widens the app's filesystem grant to the folder you chose —
+// a path typed in here would be remembered and then refuse to read, which is a
+// worse answer than not offering it.
+const workspace = useWorkspace();
 
 /** A colour input can only ever produce `#rrggbb`, but it is still a value
  *  arriving from outside — validate rather than trust the widget. */
@@ -65,6 +76,42 @@ function onPick(role: SystemRole, event: Event) {
               @click="reset()">
         <font-awesome-icon icon="rotate-left" /> {{ t("settings.colors.reset") }}
       </button>
+
+      <!-- ── the workspace folder ──────────────────────────────────────── -->
+      <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
+        <font-awesome-icon icon="folder-open" class="opacity-60" />
+        {{ t("settings.workspace.title") }}
+      </h2>
+      <p class="mt-1 text-sm opacity-70">{{ t("files.pickWorkspaceHint") }}</p>
+
+      <div class="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-accent-2 px-4 py-3 dark:border-accent-1"
+           data-testid="workspace-row">
+        <!-- The path in full, wrapping rather than truncating: a folder you
+             cannot read all of is a folder you cannot check. -->
+        <span v-if="workspace.root.value" class="min-w-0 flex-1">
+          <code class="block break-all text-xs" data-testid="workspace-path">{{ workspace.root.value }}</code>
+          <!-- Stated here as well as in the panel: this is the screen someone
+               comes to when the panel says it cannot read the folder. -->
+          <span v-if="workspace.unreadable.value" class="mt-1 block text-xs text-warn-dark"
+                data-testid="workspace-unreadable">
+            {{ t("files.unreadable") }} {{ t("files.unreadableHint") }}
+          </span>
+        </span>
+        <span v-else class="min-w-0 flex-1 text-sm opacity-60" data-testid="workspace-none">
+          {{ t("settings.workspace.none") }}
+        </span>
+
+        <button type="button" data-testid="workspace-pick"
+                class="shrink-0 rounded-lg bg-accent-light px-3 py-1.5 text-sm font-bold text-primary-bg-light transition hover:opacity-90 dark:bg-accent-dark dark:text-primary-bg-dark"
+                @click="workspace.pickRoot()">
+          {{ t(workspace.root.value ? "files.changeWorkspace" : "files.pickWorkspace") }}
+        </button>
+        <button v-if="workspace.root.value" type="button" data-testid="workspace-forget"
+                class="shrink-0 rounded-lg border border-accent-2 px-3 py-1.5 text-sm transition hover:opacity-80 dark:border-accent-1"
+                @click="workspace.clearRoot()">
+          {{ t("settings.workspace.forget") }}
+        </button>
+      </div>
     </div>
   </div>
 </template>

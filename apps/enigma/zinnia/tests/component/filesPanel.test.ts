@@ -204,15 +204,68 @@ describe("the files panel", () => {
     expect(w.get('[data-testid="files-nothing"]').text()).toBe("Nothing matches that.");
   });
 
-  it("shows a filesystem message verbatim, not as a missing key", async () => {
-    // A read error has no catalogue entry and is more useful as it came.
-    readDir.mockRejectedValue(new Error("forbidden path"));
+  it("says there is no workspace before one is chosen", async () => {
+    const w = mountPanel();
+    await settle();
+    expect(w.get('[data-testid="files-empty"]').text()).toContain("No workspace yet.");
+    expect(w.find('[data-testid="files-unreadable"]').exists()).toBe(false);
+  });
+
+  it("offers the picker when the remembered folder cannot be read", async () => {
+    // The read grant lives in the running process, so this is what every cold
+    // start looks like until the folder is picked again. It used to render the
+    // raw Rust string over an empty listing, which reads as a broken app.
+    readDir.mockRejectedValue(new Error(
+      "forbidden path: /home/u/work, maybe it is not allowed on the scope for "
+      + "`allow-read-dir` permission in your capability file"));
     const workspace = await withRoot();
     const w = mountPanel();
     await settle();
     await workspace.refresh();
     await settle();
-    expect(w.get('[data-testid="files-error"]').text()).toBe("forbidden path");
+
+    expect(workspace.unreadable.value).toBe(true);
+    expect(w.get('[data-testid="files-unreadable"]').text()).toBe("Can\u2019t read this folder.");
+    const empty = w.get('[data-testid="files-empty"]');
+    expect(empty.text()).toContain("/home/u/work");
+    expect(empty.text()).toContain("Choose it again");
+    expect(w.get('[data-testid="files-pick"]').exists()).toBe(true);
+    // No raw Rust anywhere on screen, and no listing pretending to be one.
+    expect(w.html()).not.toContain("capability file");
+    expect(w.find('[data-testid="files-tree"]').exists()).toBe(false);
+    // Nor a refresh button, which could only fail the same way.
+    expect(w.find('[data-testid="files-refresh"]').exists()).toBe(false);
+  });
+
+  it("keeps showing the tree when only a SUBFOLDER fails", async () => {
+    // A folder that lost its permissions is not a broken workspace: the root
+    // still reads, so the tree stays and only that row goes.
+    tree({ [ROOT]: [["notes", true], ["a.svg", false]] });
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    readDir.mockRejectedValueOnce(new Error("EACCES"));
+    await w.get('[data-testid="files-row-notes"]').trigger("click");
+    await settle();
+    expect(workspace.unreadable.value).toBe(false);
+    expect(w.get('[data-testid="files-tree"]').exists()).toBe(true);
+    expect(w.get('[data-testid="files-error"]').text()).toBe("EACCES");
+    expect(workspace.isExpanded(`${ROOT}/notes`)).toBe(false);
+  });
+
+  it("says so when there is no folder picker to open", async () => {
+    // The browser build has no dialog. pickRoot reports it through the store,
+    // and the no-folder branch is the only one that can show it — it could not
+    // before, so the button did nothing at all.
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    const w = mountPanel();
+    await settle();
+    await w.get('[data-testid="files-pick"]').trigger("click");
+    await settle();
+    expect(w.get('[data-testid="files-pick-error"]').text()).toBe("This needs the desktop app.");
   });
 
   it("asks for a folder with the grant that covers what is inside it", async () => {
