@@ -23,6 +23,10 @@ const EDITOR_FOR: Record<EditorKind, string> = {
   document: "DocumentEditor",
   deck: "PresentationEditor",
   sheet: "SheetEditor",
+  // ACE, with its language picker on. Not typechecked here (vitest transpiles
+  // without it), so an omission would silently drop this kind from the suites
+  // below rather than fail.
+  code: "TextEditor",
 };
 
 describe("the editor host", () => {

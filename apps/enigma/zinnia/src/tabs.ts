@@ -21,7 +21,7 @@
 
 /** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
  *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
-export type EditorKind = "document" | "sketch" | "sheet" | "deck";
+export type EditorKind = "document" | "sketch" | "sheet" | "deck" | "code";
 export type AppTabId = EditorKind | "settings";
 
 export interface AppTab {
@@ -40,6 +40,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: "sketch",   path: "/sketch",        labelKey: "nav.sketch",        icon: "pencil",          kind: "sketch" },
   { id: "sheet",    path: "/sheets",        labelKey: "nav.sheets",        icon: "table-cells",     kind: "sheet" },
   { id: "deck",     path: "/presentations", labelKey: "nav.presentations", icon: "file-powerpoint", kind: "deck" },
+  { id: "code",     path: "/code",          labelKey: "nav.code",          icon: "code",            kind: "code" },
   { id: "settings", path: "/settings",      labelKey: "nav.settings",      icon: "gear",            kind: null },
 ];
 
@@ -63,4 +64,17 @@ export const KIND_FILES: Record<EditorKind, {
   // pxml FIRST: extensions[0] is what Save As defaults to. "xml" stays as a
   // second entry so the Open dialog still shows the decks already on disk.
   deck:     { untitledKey: "file.untitledDeck",  extensions: ["pxml", "xml"], filterKey: "nav.presentations" },
+  // `txt` first, so a new Code file is born plain text — the language is a
+  // choice nobody has made yet, and `untitled.py` would make it for them. The
+  // rest widen the Open dialog only.
+  //
+  // `xml` is here although the Files panel never routes one to this tab: the
+  // panel decides from the bytes, and a deck's XML belongs to Presentations.
+  // Opening that same file HERE, on purpose, to look at the source is a
+  // different request — and this editor refuses nothing, so the filter can
+  // afford to offer it.
+  code:     { untitledKey: "file.untitledText",
+              extensions: ["txt", "py", "js", "mjs", "cjs", "ts", "json",
+                           "html", "htm", "css", "md", "yml", "yaml", "sh", "xml"],
+              filterKey: "nav.code" },
 };

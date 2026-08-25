@@ -1,7 +1,7 @@
 # Zinnia
 
-An office suite for the toto platform — drawings, documents, and text — as a
-Tauri 2 desktop app.
+An office suite for the toto platform — drawings, documents, code and text — as
+a Tauri 2 desktop app.
 
 ## Running it
 
@@ -41,7 +41,8 @@ same time — enigma owns 1420/1421. That number appears in four files
 | Document | `.xml` (cyprian) | TipTap with cyprian's own schema |
 | Presentation | `.pxml` (memo) | slide blocks over the same TipTap schema |
 | Sheet | `.json` | a grid over the sheet format |
-| Text | everything else | ACE, with modes and workers bundled offline |
+| Code | `.py` `.js` `.ts` `.css` `.html` `.md` `.yaml` `.sh` `.txt`, plain `.json`, and any `.xml` that is neither | ACE with a language picker, modes and workers bundled offline |
+| Text | anything an editor refuses | the same ACE, stripped to a plain viewer |
 
 `src/files/FilesPanel.vue` is the folder browser, down the left of every editor
 rather than behind a tab of its own — picking a file used to mean leaving the

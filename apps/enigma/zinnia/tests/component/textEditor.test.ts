@@ -115,4 +115,28 @@ describe("host routing", () => {
     expect(w.findComponent({ name: "SketchEditor" }).exists()).toBe(false);
     expect(w.find('[data-testid="ace-host"]').exists()).toBe(true);
   });
+
+  it("the code tab opens a buffer the files panel handed it", async () => {
+    // The whole panel walk in one place: a .py is routed to this tab, the host
+    // remounts the editor for it, the picker detects Python from the name, and
+    // the buffer arrives dirty because nothing on disk holds it yet.
+    const w = mount(EditorHost, {
+      props: { kind: "code" },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(w.find('[data-testid="ace-host"]').exists()).toBe(true);
+    const trigger = '[data-testid="language-select"] [data-testid="select-trigger"]';
+    // A new Code file is born plain text — the language is nobody's choice yet.
+    expect(w.get(trigger).text()).toBe("Plain text");
+
+    const vm = w.vm as unknown as {
+      openRemote(name: string, text: string): void;
+      dirty: boolean;
+    };
+    vm.openRemote("script.py", "print(1)");
+    await flushPromises();
+    expect(w.get(trigger).text()).toBe("Python");
+    expect(vm.dirty).toBe(true);
+  });
 });

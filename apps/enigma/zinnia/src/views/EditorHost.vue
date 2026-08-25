@@ -50,6 +50,7 @@ function seedFor(k: EditorKind): { name: string; text: string } {
     case "deck":     return { name, text: dumpsDeck(newPresentation("")) };
     case "sheet":    return { name, text: dumpsSheet(newWorkbook("New sheet")) };
     case "sketch":   return { name, text: "" }; // the SVG editor starts from empty
+    case "code":     return { name, text: "" }; // ACE parses nothing on open
   }
 }
 
@@ -62,6 +63,7 @@ const MIME: Record<EditorKind, string> = {
   document: "application/xml",
   deck: "application/xml",
   sheet: "application/json",
+  code: "text/plain",
 };
 
 // ── the open file ───────────────────────────────────────────────────────────
@@ -339,6 +341,22 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       @save="saveFile($event)"
       @update:dirty="dirty = $event"
       @open-as-text="openAsText"
+    />
+
+    <TextEditor
+      v-if="kind === 'code'"
+      :key="'c' + generation"
+      ref="editorRef"
+      :path="path"
+      :name="name"
+      :content="content"
+      :busy="busy"
+      :error="fileError"
+      :active="active !== false"
+      with-picker
+      class="min-h-0 flex-1"
+      @save="saveFile($event)"
+      @update:dirty="dirty = $event"
     />
 
     <TextEditor
