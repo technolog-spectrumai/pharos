@@ -14,11 +14,15 @@
 //
 // SETTINGS IS LAST AND IS NOT AN EDITOR. It carries no file, so the host's
 // save/discard machinery does not apply to it.
+//
+// FILES IS NOT A TAB. It was one, and the tab is what made it useless: picking
+// a file meant leaving the editor. It is a sidepanel now (src/files/FilesPanel
+// .vue), on screen beside whichever editor is showing.
 
 /** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
  *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
 export type EditorKind = "document" | "sketch" | "sheet" | "deck";
-export type AppTabId = EditorKind | "files" | "settings";
+export type AppTabId = EditorKind | "settings";
 
 export interface AppTab {
   id: AppTabId;
@@ -36,7 +40,6 @@ export const APP_TABS: readonly AppTab[] = [
   { id: "sketch",   path: "/sketch",        labelKey: "nav.sketch",        icon: "pencil",          kind: "sketch" },
   { id: "sheet",    path: "/sheets",        labelKey: "nav.sheets",        icon: "table-cells",     kind: "sheet" },
   { id: "deck",     path: "/presentations", labelKey: "nav.presentations", icon: "file-powerpoint", kind: "deck" },
-  { id: "files",    path: "/files",         labelKey: "nav.files",         icon: "folder-open",     kind: null },
   { id: "settings", path: "/settings",      labelKey: "nav.settings",      icon: "gear",            kind: null },
 ];
 

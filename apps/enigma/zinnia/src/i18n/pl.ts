@@ -32,6 +32,8 @@ export default {
   files: {
     emptyFolder: "Pusto.",
     noMatches: "Nic nie pasuje.",
+    refresh: "Odśwież",
+    toggle: "Panel plików",
     cannotOpen: "Zinnia nie otworzy tego rodzaju pliku.",
     pickWorkspace: "Wybierz folder",
     pickWorkspaceHint: "Wybierz folder do pracy. Zinnia będzie mogła czytać tylko ten folder i nic więcej na tym komputerze.",

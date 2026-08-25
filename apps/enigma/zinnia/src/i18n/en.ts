@@ -32,6 +32,8 @@ export default {
   files: {
     emptyFolder: "Nothing here.",
     noMatches: "Nothing matches that.",
+    refresh: "Refresh",
+    toggle: "Files panel",
     cannotOpen: "Zinnia cannot open that kind of file.",
     pickWorkspace: "Choose a folder",
     pickWorkspaceHint: "Pick a folder to work in. Zinnia will be able to read that folder and nothing else on this machine.",

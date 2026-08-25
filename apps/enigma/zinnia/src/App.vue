@@ -5,7 +5,7 @@ import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
 import { APP_TABS, DEFAULT_TAB, type AppTabId, type EditorKind } from "./tabs";
 import EditorHost from "./views/EditorHost.vue";
-import FilesView from "./views/FilesView.vue";
+import FilesPanel from "./files/FilesPanel.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const { t } = useI18n({ useScope: "global" });
@@ -48,6 +48,16 @@ function show(id: AppTabId) {
 }
 
 const editorTabs = computed(() => APP_TABS.filter((tab) => tab.kind !== null));
+
+// ── the files sidepanel ─────────────────────────────────────────────────────
+// Beside the editor rather than instead of it. Remembered, because whether you
+// want a file browser on screen is a working habit, not a per-session decision;
+// hidden on Settings, which holds no file for the panel to hand it.
+const filesOpen = ref(localStorage.getItem("zinnia:files") !== "0");
+watch(filesOpen, (on) => localStorage.setItem("zinnia:files", on ? "1" : "0"));
+
+const showFiles = computed(() =>
+  filesOpen.value && APP_TABS.some((tab) => tab.id === active.value && tab.kind !== null));
 
 // ── the file menu ───────────────────────────────────────────────────────────
 // New/Open/Save/Save As belong to the OPEN FILE, and every editor tab has its
@@ -107,7 +117,7 @@ const activeHost = computed<Host | null>(() => {
   return hostRegistry[active.value] ?? null;
 });
 
-/** A file picked in the Files tab, routed to the editor that understands it.
+/** A file picked in the sidepanel, routed to the editor that understands it.
  *
  *  The tab it belongs to has to be MOUNTED before its host exists — hosts
  *  register through a template ref — so this shows the tab first and hands the
@@ -194,6 +204,18 @@ function isDisabled(id: string): boolean {
         </div>
       </div>
 
+      <button type="button" data-testid="files-toggle"
+              class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border
+                     transition hover:opacity-80"
+              :class="filesOpen
+                ? 'border-transparent bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
+                : 'border-accent-2 dark:border-accent-1'"
+              :title="t('files.toggle')" :aria-label="t('files.toggle')"
+              :aria-pressed="filesOpen"
+              @click="filesOpen = !filesOpen">
+        <font-awesome-icon icon="folder-open" />
+      </button>
+
       <!-- The open file, which the deleted file bar used to show. -->
       <p v-if="activeHost" class="flex min-w-0 items-center gap-1.5">
         <span class="truncate text-sm font-semibold" data-testid="file-name">{{ activeHost.name }}</span>
@@ -234,18 +256,23 @@ function isDisabled(id: string): boolean {
       </button>
     </header>
 
-    <!-- v-if on `visited`, v-show on `active`: created once, then kept alive. -->
-    <template v-for="tab in editorTabs" :key="tab.id">
-      <EditorHost v-if="visited.has(tab.id)" v-show="active === tab.id"
-                  :ref="setterFor(tab.id)"
-                  :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
-    </template>
+    <div class="flex min-h-0 flex-1">
+      <!-- The panel is MOUNTED once and hidden, not destroyed: it holds the
+           loaded tree and which folders are open, and rebuilding that on every
+           toggle would re-read the disk to show what was just on screen. -->
+      <FilesPanel v-show="showFiles" class="min-h-0" @open="openFromFiles" />
 
-    <!-- Non-editor tabs are not data-driven yet; each is one line here. -->
-    <FilesView v-if="visited.has('files')" v-show="active === 'files'"
-               class="min-h-0 flex-1" @open="openFromFiles" />
+      <div class="flex min-w-0 min-h-0 flex-1 flex-col">
+        <!-- v-if on `visited`, v-show on `active`: created once, then kept alive. -->
+        <template v-for="tab in editorTabs" :key="tab.id">
+          <EditorHost v-if="visited.has(tab.id)" v-show="active === tab.id"
+                      :ref="setterFor(tab.id)"
+                      :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
+        </template>
 
-    <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"
-                  class="min-h-0 flex-1" />
+        <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"
+                      class="min-h-0 flex-1" />
+      </div>
+    </div>
   </div>
 </template>
