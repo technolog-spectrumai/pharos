@@ -29,14 +29,16 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
 
-# ── file locking, zenobia-compatible ────────────────────────────────────────
-# The SAME construction the platform's file vault uses — Argon2id over the
-# user's server-side salt, then Fernet — so a file locked here decrypts there
-# and vice versa. gervasius (enigma's AEAD) was considered and set aside for
-# this: it cannot be both, and interop with files that already exist won.
-# The construction lives in rakotis now, beside the native envelope — see
-# packages/rakotis/crates/gervasius/src/gervazy.rs. Shared rather than copied:
-# two implementations of a byte-compatible format is two chances to drift.
+# ── file locking, self-contained ────────────────────────────────────────────
+# Argon2id wraps a random per-file DEK, which seals the bytes with
+# XChaCha20-Poly1305; the salt and costs ride along in the file's own header, so
+# a sealed file needs nothing but its password. See src/lock.rs for why that
+# replaced deriving the key from a salt the server owned.
+#
+# `fernet` comes in through gervasius and drags `openssl-sys` with it, which is
+# the only reason native OpenSSL is linked into this binary. It is READ-ONLY
+# legacy: nothing writes that format, and src/lock.rs refuses those files
+# outright now that their salt source is parked.
 gervasius = { path = "../packages/rakotis/crates/gervasius" }
 base64 = "0.22"
 
