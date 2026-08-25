@@ -19,11 +19,31 @@ import { sniffIsPresentation } from "../formats/presentation";
 import { isSheet } from "../formats/sheet";
 import type { EditorKind } from "../tabs";
 
-/** The unambiguous extensions. `.xml` is deliberately absent. */
+/** The unambiguous extensions. `.xml` is deliberately absent — both the writer
+ *  and the deck claim it, and the sniffers settle it below.
+ *
+ *  `json` names CODE, not the sheet, and that is not a demotion: `isSheet` runs
+ *  BEFORE this table on every path that has the bytes, so a real workbook still
+ *  reaches the grid. What changes is the other JSON — a `package.json`, a
+ *  `tsconfig.json` — which used to be handed to Univer and rendered as garbage
+ *  because the extension was the only thing anyone asked. */
 const BY_EXTENSION: Record<string, EditorKind> = {
   svg: "sketch",
-  json: "sheet",
   pxml: "deck",
+  json: "code",
+  txt: "code",
+  py: "code",
+  js: "code",
+  mjs: "code",
+  cjs: "code",
+  ts: "code",
+  html: "code",
+  htm: "code",
+  css: "code",
+  md: "code",
+  yml: "code",
+  yaml: "code",
+  sh: "code",
 };
 
 /** Own properties only. A bracket lookup on an object literal also resolves
@@ -65,15 +85,21 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
     // Fall back to the name rather than giving up: a `.pxml` whose bytes did
     // not sniff (an empty deck, say) is still a deck, and returning null here
     // would make it unopenable precisely when its content WAS available.
-    return byExtension(ext);
+    const byName = byExtension(ext);
+    if (byName) return byName;
+    // Every sniffer passed on it, so this `.xml` is neither a document nor a
+    // deck — it is somebody's config or build file, and that is source. It goes
+    // to Code rather than nowhere, which is where it went before there was a
+    // Code tab to send it to.
+    return ext === "xml" ? "code" : null;
   }
 
   return byExtension(ext);
 }
 
 /** Whether a listing row should look clickable, before anything is fetched.
- *  `.xml` counts as openable here — which of the two editors it goes to is
- *  settled once the bytes arrive. */
+ *  `.xml` counts as openable here — which of the THREE editors it goes to
+ *  (writer, deck, or Code) is settled once the bytes arrive. */
 export function looksOpenable(name: string): boolean {
   const ext = extensionOf(name);
   return ext === "xml" || has(BY_EXTENSION, ext);

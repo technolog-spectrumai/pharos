@@ -7,9 +7,13 @@ import { dumps as dumpSheet, newWorkbook } from "../../src/formats/sheet";
 describe("choosing an editor for a file", () => {
   it("routes the unambiguous extensions", () => {
     expect(kindForFile("drawing.svg")).toBe("sketch");
-    expect(kindForFile("budget.json")).toBe("sheet");
+    // By NAME alone a .json is source. The workbook claim is made by the
+    // sniffer below, which runs first everywhere the bytes are in hand — and
+    // the Files panel always has them, so a real workbook still reaches Sheets.
+    expect(kindForFile("budget.json")).toBe("code");
     expect(kindForFile("talk.pxml")).toBe("deck");
-    expect(kindForFile("notes.txt")).toBe(null);
+    expect(kindForFile("script.py")).toBe("code");
+    expect(kindForFile("notes.txt")).toBe("code");
   });
 
   it("opens a .pxml with no content at all", () => {
@@ -61,6 +65,27 @@ describe("choosing an editor for a file", () => {
     // legacy rescue, not as the router.
     expect(kindForFile("old-talk.xml", dumpDeck(newPresentation()))).toBe("deck");
     expect(looksOpenable("old-talk.xml")).toBe(true);
+  });
+
+  it("lets a structured claim beat the code claim when the bytes agree", () => {
+    expect(kindForFile("budget.json", dumpSheet(newWorkbook()))).toBe("sheet");
+    // …and ordinary JSON, which used to be handed to the grid on its extension
+    // alone and rendered as garbage, is source.
+    expect(kindForFile("package.json", '{"name":"x"}')).toBe("code");
+  });
+
+  it("settles a leftover .xml as source once the sniffers pass on it", () => {
+    // Neither a cyprian document nor a deck, so it is somebody's config file.
+    expect(kindForFile("pom.xml", "<project></project>")).toBe("code");
+    // The two that DO claim .xml still win.
+    expect(kindForFile("notes.xml", dumpDoc(newDocument()))).toBe("document");
+    expect(kindForFile("talk.xml", dumpDeck(newPresentation()))).toBe("deck");
+  });
+
+  it("makes source files clickable in the listing", () => {
+    expect(looksOpenable("script.py")).toBe(true);
+    expect(looksOpenable("styles.css")).toBe(true);
+    expect(looksOpenable("notes.txt")).toBe(true);
   });
 
   it("does not resolve inherited object properties as editors", () => {
