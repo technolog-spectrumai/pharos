@@ -13,6 +13,7 @@ import { useI18n } from "vue-i18n";
 import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "../systemColors";
 import { useSystemColors } from "../useSystemColors";
 import { useWorkspace } from "../files/useWorkspace";
+import { useSandbox } from "../security/useSandbox";
 
 const { t } = useI18n({ useScope: "global" });
 const { palette, mode, set, reset } = useSystemColors();
@@ -26,6 +27,11 @@ const { palette, mode, set, reset } = useSystemColors();
 // a path typed in here would be remembered and then refuse to read, which is a
 // worse answer than not offering it.
 const workspace = useWorkspace();
+
+// Off by default and offered here rather than assumed, because isolation is not
+// free: every raw-markup block gets a shadow root of its own. Whether that is
+// noticeable on a large deck is a question this switch exists to answer.
+const sandbox = useSandbox();
 
 /** A colour input can only ever produce `#rrggbb`, but it is still a value
  *  arriving from outside — validate rather than trust the widget. */
@@ -76,6 +82,27 @@ function onPick(role: SystemRole, event: Event) {
               @click="reset()">
         <font-awesome-icon icon="rotate-left" /> {{ t("settings.colors.reset") }}
       </button>
+
+      <!-- ── isolating what a file brings with it ──────────────────────── -->
+      <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
+        <font-awesome-icon icon="shield-halved" class="opacity-60" />
+        {{ t("settings.sandbox.title") }}
+      </h2>
+      <p class="mt-1 text-sm opacity-70">{{ t("settings.sandbox.help") }}</p>
+
+      <div class="mt-5 rounded-xl border border-accent-2 dark:border-accent-1"
+           data-testid="sandbox-row">
+        <label class="flex cursor-pointer items-start gap-3 px-4 py-3">
+          <input type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-accent-light dark:accent-accent-dark"
+                 data-testid="sandbox-toggle"
+                 :checked="sandbox.enabled.value"
+                 @change="sandbox.set(($event.target as HTMLInputElement).checked)" />
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold">{{ t("settings.sandbox.label") }}</span>
+            <span class="mt-0.5 block text-sm opacity-70">{{ t("settings.sandbox.note") }}</span>
+          </span>
+        </label>
+      </div>
 
       <!-- ── the workspace folder ──────────────────────────────────────── -->
       <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">

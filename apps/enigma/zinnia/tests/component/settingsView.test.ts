@@ -144,3 +144,39 @@ describe("SettingsView — the workspace folder", () => {
     expect(w.get('[data-testid="workspace-unreadable"]').text()).toContain("Choose it again");
   });
 });
+
+describe("SettingsView — isolating a file's own markup", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    i18n.global.locale.value = "en";
+    const { useSandbox } = await import("../../src/security/useSandbox");
+    useSandbox().set(false);
+  });
+
+  it("offers the switch, off by default", () => {
+    const w = mountSettings();
+    const box = w.get('[data-testid="sandbox-toggle"]');
+    expect((box.element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("turns isolation on and remembers it", async () => {
+    const { useSandbox } = await import("../../src/security/useSandbox");
+    const w = mountSettings();
+    const box = w.get('[data-testid="sandbox-toggle"]');
+    await box.setValue(true);
+
+    expect(useSandbox().enabled.value).toBe(true);
+    expect(localStorage.getItem("zinnia:sandbox")).toBe("1");
+    // …and back off again, because a switch that only goes one way is a trap.
+    await box.setValue(false);
+    expect(useSandbox().enabled.value).toBe(false);
+    expect(localStorage.getItem("zinnia:sandbox")).toBe("0");
+  });
+
+  it("says what it costs, not only what it buys", async () => {
+    // The reason this is a switch rather than a default is performance, and the
+    // note has to say so — otherwise nobody knows why it is off.
+    const w = mountSettings();
+    expect(w.get('[data-testid="sandbox-row"]').text()).toContain("Off by default");
+  });
+});

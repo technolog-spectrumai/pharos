@@ -15,6 +15,8 @@
 //   * An unknown type renders as a placeholder rather than a guess — it
 //     round-trips through the file untouched either way.
 import { computed } from "vue";
+import ShadowHtml from "./ShadowHtml.vue";
+import { useSandbox } from "../security/useSandbox";
 import type { Block } from "../formats/presentation";
 
 const props = defineProps<{
@@ -37,6 +39,11 @@ const scaleCss = computed(() => {
 
 const style = computed(() =>
   scaleCss.value ? { "--memo-block-scale": scaleCss.value } : undefined);
+
+// The two types whose payload is raw markup from the file rather than the
+// deck format's own rich text. With the setting on they render in a shadow
+// root, so a `<style>` they carry cannot reach the app around them.
+const { enabled: sandboxed } = useSandbox();
 
 const headingTag = computed(() => {
   const level = props.block.attrs?.level;
@@ -68,8 +75,10 @@ const headingTag = computed(() => {
   </div>
 
   <div v-else-if="block.type === 'svg'" class="memo-block" data-type="svg"
-       :data-block-id="block.id" role="img" :aria-label="block.attrs?.alt || ''"
-       v-html="block.payload" />
+       :data-block-id="block.id" role="img" :aria-label="block.attrs?.alt || ''">
+    <ShadowHtml v-if="sandboxed" :html="block.payload" />
+    <span v-else v-html="block.payload" />
+  </div>
 
   <!-- Escaped, not raw: showing the markup is the point of a code block. -->
   <pre v-else-if="block.type === 'code'" class="memo-block" data-type="code"
@@ -90,7 +99,8 @@ const headingTag = computed(() => {
 
   <div v-else-if="block.type === 'html'" class="memo-block" data-type="html"
        :data-block-id="block.id">
-    <span v-if="trustHtml" v-html="block.payload" />
+    <ShadowHtml v-if="trustHtml && sandboxed" :html="block.payload" />
+    <span v-else-if="trustHtml" v-html="block.payload" />
     <span v-else class="memo-legacy">Legacy HTML slide</span>
   </div>
 
