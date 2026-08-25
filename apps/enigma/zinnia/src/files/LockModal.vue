@@ -1,11 +1,10 @@
 <script setup lang="ts">
 // The password prompt for locking and unlocking a file.
 //
-// One modal for both panes, because from the user's side it IS one feature:
-// the same password locks a local file and a vault file, and the same password
-// opens either — the platform's file vault, reachable from the desktop. Which
-// engine does the work (zinnia's Rust locally, zenobia server-side for vault
-// files) is the caller's business, passed in as `action`.
+// It knows nothing about how a file is encrypted — the caller passes an
+// `action` and this asks for the password it needs. That is why it survived the
+// cloud being parked and the sealing format being replaced underneath it
+// without a line changing: it was written against the question, not the answer.
 //
 // The password is a ref that is cleared the moment the action settles, success
 // or failure — a failed attempt must not leave it sitting in a field for the

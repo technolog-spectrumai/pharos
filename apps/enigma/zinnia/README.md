@@ -49,6 +49,14 @@ rather than behind a tab of its own — picking a file used to mean leaving the
 work. It reads one folder at a time, when you expand it, and it only ever hands
 bytes over: nothing in it can save, rename or delete.
 
+`src/views/SecurityView.vue` encrypts a file with a passphrase, and reports what
+this build actually does with cryptography — algorithms, what the app can reach,
+what it renders without a sandbox, and where key material lives. A sealed file
+is self-contained: its salt and wrapped key ride in its own header, so it opens
+on any machine with the passphrase and there is nothing to back up. Sealed files
+are padlocked in the files panel and refused there rather than opened as
+ciphertext.
+
 `src/views/EditorHost.vue` owns the FILE — opening, saving, the discard prompt,
 and which editor a file gets. Each editor owns only its BUFFER and implements
 the contract in `src/editors/types.ts` (`markSaved` / `getContent` / `isDirty`).

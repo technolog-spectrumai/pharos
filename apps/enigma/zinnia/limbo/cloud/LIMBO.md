@@ -74,16 +74,23 @@ a repair. It can come back whole.
 
 ## What did NOT change, deliberately
 
-- **`src-tauri/src/lock.rs` stays, and so do all three of its commands.** File
-  locking is the platform's format — Argon2id then XChaCha20-Poly1305, byte
-  compatible with the vault — but the sealing itself is local and needs no
-  server. `is_file_locked` is live (`useWorkspace.isLocked` calls it to badge a
-  sealed file on disk). `lock_file` and `unlock_file` have no caller: they take
-  the salt and Argon2 costs as parameters, and the only thing that fetched them
-  was `useCloudFiles.strongbox()`. They were already uncalled before this —
-  `src/files/LockModal.vue` is mounted by nothing — so parking cloud did not
-  strand them; it removed the route by which a caller would have got the salt.
-  A local-only revival would have to decide where the salt comes from instead.
+- **`src-tauri/src/lock.rs` stays, and all three of its commands are now live.**
+  File locking was the platform's format — Argon2id then XChaCha20-Poly1305 —
+  but the sealing itself is local and needs no server. When this was written,
+  `lock_file` and `unlock_file` had no caller: they took the salt and Argon2
+  costs as parameters, and the only thing that fetched them was
+  `useCloudFiles.strongbox()`. Parking cloud did not strand them so much as
+  remove the route by which a caller would have got the salt.
+
+  **That question has since been answered, and not by reviving anything here.**
+  A sealed file now carries its own randomly drawn salt and its wrapped key in
+  its own header (`ZINNLOCK`), so it needs no external salt at all — see
+  `lock.rs` for why, and the Security tab for what it means. The consequence
+  for a revival: files sealed by this build are NOT the platform's format and
+  will not open server-side, and files the platform sealed are detected but
+  refused here. Restoring cross-device sealing would mean restoring the
+  strongbox endpoint AND a second write path, not just this directory.
+
 - **`src/files/LockModal.vue` stays.** It is generic — it takes an `action`
   callback and knows nothing about a server — and it was already unmounted. It
   is the UI half a local lock feature would use.
