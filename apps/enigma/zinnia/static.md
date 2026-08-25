@@ -31,8 +31,9 @@ What does NOT carry over from the desktop:
 
 * **The token-out-of-JS design.** The parked cloud kept the session token in
   the OS keyring precisely because the webview renders untrusted `.svg` and
-  deck HTML with no CSP. A browser has no keyring and no Rust; the protection
-  has to come from somewhere else (see *Auth* and *Untrusted content* below).
+  deck HTML. The desktop now constrains that with a CSP, but a browser has no
+  keyring and no Rust, so the token half of the protection has to come from
+  somewhere else (see *Auth* and *Untrusted content* below).
 * **The folder grant.** The sidepanel's "pick a folder, read only that" is a
   Tauri runtime scope. Browsers have a rough equivalent (File System Access
   API) in Chromium only.
@@ -103,8 +104,8 @@ build input.
   install at all, on any machine with a browser.
 
 **Cost:** the transport file, the auth decision, and reviving the parked pane
-UIs. **Risk:** security posture — see *Untrusted content*; this path is where
-the CSP stops being optional.
+UIs. **Risk:** security posture — see *Untrusted content*. The desktop's policy
+already exists; this path is where something other than Tauri has to serve it.
 
 ### Path C — zinnia as zenobia's editor surface
 
@@ -159,7 +160,7 @@ and opens arbitrary `.svg`. On the desktop this is contained by the app's
 process boundary and mitigated by the token-in-keyring design. In a browser:
 
 * On **Path A** the blast radius is zinnia's own origin, which holds nothing —
-  a tolerable posture, still worth a CSP.
+  a tolerable posture, and the desktop's policy is the one to port.
 * On **Path B (token mode)** a hostile deck could exfiltrate the token. That is
   why token mode is conditional.
 * On **Path C** a hostile deck runs **same-origin with zenobia**, i.e. with the
@@ -175,10 +176,15 @@ Choose one (they compose, strongest first):
    already REFUSES active SVG rather than stripping (`svgDocument.ts`); extend
    the same stance to deck `html` blocks when not desktop: show the source,
    don't execute it. Cheapest, loses a feature the desktop keeps.
-3. **CSP on the document** — `script-src 'self'` plus no inline handlers kills
-   the classic injected-`<script>`/`onerror=` vectors even inside `v-html`.
-   Necessary on every path, sufficient on none (exfiltration via `fetch` from
-   injected DOM is not script-tag-shaped).
+3. **CSP on the document** — **done on the desktop** (`app.security.csp` in
+   `tauri.conf.json`): `script-src 'self'`, no `'unsafe-inline'`, no
+   `'unsafe-eval'`, and `img-src` without a remote origin so an injected node
+   cannot phone home. It kills the classic injected-`<script>`/`onerror=`
+   vectors even inside `v-html`. Necessary on every path, sufficient on none:
+   `style-src` still needs `'unsafe-inline'` (Vue's `:style`, KaTeX, Univer all
+   write style attributes), and exfiltration from injected DOM is not
+   script-tag-shaped. A browser build must re-declare the same policy as a
+   response header or a `<meta>` — the Tauri config does not travel with `dist/`.
 
 **Recommendation:** 3 always; 2 for A/B; 1 before C ships deck editing.
 
@@ -195,7 +201,7 @@ Each of these is independent of the path choice unless marked.
 | 3 | **Local files in browser** | (a) FS Access API + IndexedDB-persisted handle, fallback to input/download; (b) input/download only; (c) OPFS as a private workspace | (a) is the sidepanel's browser story; (c) gives even Firefox a persistent tree but the files live inside the browser, which surprises people — decide deliberately. |
 | 4 | **Locking in browser** | (a) absent (greyed with a why); (b) `gervazy` → WASM via `wasm-pack`, salt still from strongbox; (c) server-side encrypt only (vault files only) | (b) keeps the byte-compatible promise; note Argon2id in WASM is single-threaded and slow — measure before promising. (a) for A; (c) falls out of B/C for vault rows anyway. |
 | 5 | **Auth (B/C)** | cookie/session vs Bearer-in-JS | Cookie. See Path B. |
-| 6 | **Untrusted content** | §above: iframe / refuse / CSP | CSP always; iframe before C. |
+| 6 | **Untrusted content** | §above: iframe / refuse / CSP | CSP is shipped on the desktop and must be re-served for a browser build; iframe before C. |
 | 7 | **Vite `base`** | `/` (A, B); `/static/zinnia/` (C); or `./` relative for host-anywhere | Relative `./` keeps one artefact valid for all three — check the ACE worker URLs tolerate it. |
 | 8 | **Chunking** | status quo (one 1.6 MB index + 5 MB Univer locale chunks); or route-level `import()` so Sheets costs nothing until opened | The app already lazy-MOUNTS tabs; lazy-LOADING them is the browser-grade version of the same decision. Worth it before any public hosting. |
 | 9 | **PWA/offline** | none; or manifest + service worker precache | Natural for A ("installable office suite"), noise for C (zenobia is online by definition). |
@@ -208,7 +214,9 @@ Each of these is independent of the path choice unless marked.
 
 1. **A**, with details 1a/2/3a/4a/7-relative — ship the standalone build,
    because everything later stands on it and it is nearly free.
-2. **CSP + the refuse-HTML stance** (6) — while the app is still origin-alone.
+2. **Port the desktop CSP and take the refuse-HTML stance** (6) — while the app
+   is still origin-alone. The policy already exists; what a static build lacks
+   is a way to serve it.
 3. **C's hosting skeleton** (11) — zenobia serves the same artefact; still no
    account integration, but the deployment path is proven.
 4. **B in cookie mode** (5) — revive `limbo/cloud/` minus `transport.ts`,

@@ -49,6 +49,13 @@ rather than behind a tab of its own — picking a file used to mean leaving the
 work. It reads one folder at a time, when you expand it, and it only ever hands
 bytes over: nothing in it can save, rename or delete.
 
+The desktop window runs under a Content-Security-Policy (`app.security.csp` in
+`src-tauri/tauri.conf.json`): script may come only from the app's own files, and
+images only from itself, `data:` or `blob:` — so an opened `.svg` or a deck's
+HTML block cannot run script or fetch anything remote. `style-src` still needs
+`'unsafe-inline'`, because the app writes style attributes on every render; that
+limit is stated in the Security tab rather than glossed over.
+
 `src/views/SecurityView.vue` encrypts a file with a passphrase, and reports what
 this build actually does with cryptography — algorithms, what the app can reach,
 what it renders without a sandbox, and where key material lives. A sealed file

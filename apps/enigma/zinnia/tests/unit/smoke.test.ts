@@ -38,6 +38,45 @@ describe("the shell", () => {
     expect(shim).toContain(`const port = ${dev.vitePort}`);
   });
 
+  it("ships a Content-Security-Policy, and one that still lets the app work", async () => {
+    // The policy's whole job is `script-src 'self'` with no 'unsafe-inline' and
+    // no 'unsafe-eval': an injected <script> or onerror= in a deck's HTML block
+    // or an opened .svg does not run. Asserted here because a null csp is a
+    // one-word change that reverts the entire protection silently.
+    const fs = await import("node:fs/promises");
+    const conf = JSON.parse(await fs.readFile("src-tauri/tauri.conf.json", "utf8"));
+    const csp: string = conf.app.security.csp;
+    expect(csp).toBeTruthy();
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+
+    // …and the four allowances the app genuinely needs. Each is load-bearing:
+    // ACE re-wraps its syntax workers through a blob, a sketch embeds its
+    // background as data:, the PNG export rasterises through a blob, and every
+    // Tauri command goes over the ipc scheme.
+    expect(csp).toContain("worker-src 'self' blob:");
+    expect(csp).toContain("img-src 'self' data: blob:");
+    expect(csp).toContain("ipc:");
+    // Remote images stay refused — a document that can name one can phone home.
+    expect(csp).not.toMatch(/img-src[^;]*https?:\/\/(?!asset\.localhost)/);
+  });
+
+  it("keeps the dev policy in step with the dev ports", async () => {
+    // devCsp names the Vite and HMR ports, so it is a fifth place that number
+    // lives. A drift here shows up as an app that cannot hot-reload.
+    const fs = await import("node:fs/promises");
+    const conf = JSON.parse(await fs.readFile("src-tauri/tauri.conf.json", "utf8"));
+    const devCsp: string = conf.app.security.devCsp;
+    expect(devCsp).toContain(`http://localhost:${dev.vitePort}`);
+    expect(devCsp).toContain(`ws://localhost:${dev.vitePort + 1}`);
+    // Dev relaxes script-src, because Vite injects inline scripts — and nothing
+    // else. Every other directive matches production, so a violation surfaces
+    // while developing rather than only in a release build.
+    const strip = (c: string) => c.split("; ").filter((d) => !d.startsWith("script-src") && !d.startsWith("connect-src"));
+    expect(strip(devCsp)).toEqual(strip(conf.app.security.csp));
+  });
+
   it("ships the identity the OS data directory is derived from", async () => {
     const fs = await import("node:fs/promises");
     const conf = JSON.parse(await fs.readFile("src-tauri/tauri.conf.json", "utf8"));

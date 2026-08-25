@@ -48,7 +48,8 @@ export const CAPABILITIES: readonly Capability[] = [
   { id: "workspace", group: "reach", name: "", status: "active" },
   { id: "network", group: "reach", name: "", status: "parked" },
 
-  { id: "csp", group: "content", name: "", status: "absent" },
+  { id: "csp", group: "content", name: "Content-Security-Policy", status: "active" },
+  { id: "cspLimit", group: "content", name: "", status: "absent" },
   { id: "render", group: "content", name: "", status: "active" },
   { id: "refusal", group: "content", name: "", status: "active" },
 

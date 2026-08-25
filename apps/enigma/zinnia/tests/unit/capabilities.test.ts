@@ -78,12 +78,15 @@ describe("the capability inventory", () => {
     }
   });
 
-  it("does not claim the keyring or a CSP is in use", () => {
-    // Both are things this build deliberately does NOT have. An inventory that
-    // quietly upgraded either to "active" would be the exact class of stale
-    // claim this page was written to correct.
+  it("reports the policy as present, and its one hole as absent", () => {
+    // The page exists to correct stale claims, so these two are pinned: the
+    // policy is real, and the fact that it cannot sandbox styles is stated
+    // rather than glossed. Flipping `cspLimit` to anything but absent would be
+    // claiming a protection the app does not have.
+    expect(CAPABILITIES.find((c) => c.id === "csp")?.status).toBe("active");
+    expect(CAPABILITIES.find((c) => c.id === "cspLimit")?.status).toBe("absent");
+    // Still genuinely missing, still said so.
     expect(CAPABILITIES.find((c) => c.id === "keyring")?.status).toBe("absent");
-    expect(CAPABILITIES.find((c) => c.id === "csp")?.status).toBe("absent");
     expect(CAPABILITIES.find((c) => c.id === "network")?.status).toBe("parked");
   });
 });
