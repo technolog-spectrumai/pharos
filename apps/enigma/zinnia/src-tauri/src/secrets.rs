@@ -126,8 +126,11 @@ pub fn secret_status() -> Result<SecretStatus, String> {
 mod tests {
     use super::*;
 
-    /// The memory path, which is the one a headless test machine takes. The
-    /// keyring path needs a running secret service and is not asserted here.
+    /// Works against whichever store this machine has. On a desktop with a
+    /// secret service running it exercises the REAL keyring — verified doing so
+    /// on gnome-keyring, where `store` answers `Keychain` — and on a headless
+    /// box it exercises the in-process fallback. Both are supported paths, so
+    /// the test asserts the behaviour they share rather than pinning one.
     #[test]
     fn remembers_and_forgets_without_ever_returning_it() {
         clear();
@@ -145,8 +148,33 @@ mod tests {
         assert!(!secret_status().unwrap().remembered);
     }
 
+    /// Proves the secret really left this process when the keychain took it.
+    /// Emptying the in-memory slot by hand and still reading the value back can
+    /// only mean it came from the OS store — which is the difference between
+    /// "remembered" and "remembered until you quit", and the difference the UI
+    /// reports to the user.
+    #[test]
+    fn a_keychain_secret_outlives_the_memory_slot() {
+        clear();
+        let where_ = store("hunter2");
+        if where_ == Storage::Memory {
+            // No secret service on this machine; there is nothing to prove.
+            clear();
+            return;
+        }
+        if let Ok(mut mem) = memory().lock() {
+            *mem = None;
+        }
+        assert_eq!(recall().as_deref(), Some("hunter2"), "must come from the keychain");
+        assert_eq!(secret_status().unwrap().storage, Some(Storage::Keychain));
+
+        clear();
+        assert!(recall().is_none(), "clear must reach the keychain too");
+    }
+
     #[test]
     fn refuses_to_remember_nothing() {
         assert!(secret_remember(String::new()).unwrap_err().starts_with("no_passphrase"));
     }
 }
+
