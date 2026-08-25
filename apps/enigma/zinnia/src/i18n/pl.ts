@@ -38,6 +38,7 @@ export default {
     noWorkspace: "Nie wybrano folderu.",
     unreadable: "Nie mo\u017cna odczyta\u0107 tego folderu.",
     unreadableHint: "Wybierz go ponownie, aby Zinnia mog\u0142a go odczyta\u0107.",
+    encrypted: "Ten plik jest zaszyfrowany. Odszyfruj go na karcie Bezpiecze\u0144stwo.",
     cannotOpen: "Zinnia nie otworzy tego rodzaju pliku.",
     pickWorkspace: "Wybierz folder",
     pickWorkspaceHint: "Wybierz folder do pracy. Zinnia będzie mogła czytać tylko ten folder i nic więcej na tym komputerze.",

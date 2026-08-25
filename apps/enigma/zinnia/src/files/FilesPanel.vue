@@ -46,6 +46,12 @@ async function activate(row: Row) {
     await workspace.toggle(row.path);
     return;
   }
+  // Before looksOpenable: a sealed .svg still looks openable by name, and the
+  // reason it will not open is the encryption, not the file type.
+  if (workspace.isSealed(row.path)) {
+    openError.value = "files.encrypted";
+    return;
+  }
   if (!looksOpenable(row.name)) return;
   busy.value = true;
   openError.value = "";
@@ -63,6 +69,13 @@ async function activate(row: Row) {
   } finally {
     busy.value = false;
   }
+}
+
+/** The hover text. The padlock must not be an icon-only affordance — someone
+ *  who cannot tell the glyphs apart still needs to know why a row will not
+ *  open. */
+function rowTitle(row: Row): string {
+  return workspace.isSealed(row.path) ? `${row.name} — ${t("files.encrypted")}` : row.name;
 }
 
 /** Errors are i18n keys where we have one and raw text otherwise (a filesystem
@@ -160,10 +173,16 @@ function shown(message: string): string {
                              class="w-2 shrink-0 text-[9px] opacity-50 transition-transform"
                              :class="workspace.isExpanded(row.path) ? 'rotate-90' : ''" />
           <span v-else class="w-2 shrink-0" />
-          <font-awesome-icon :icon="row.isDirectory ? 'folder' : 'file'"
-                             class="shrink-0 text-xs"
-                             :class="row.isDirectory ? 'text-accent-light dark:text-accent-dark' : 'opacity-40'" />
-          <span class="min-w-0 flex-1 truncate" :title="row.name">{{ row.name }}</span>
+          <!-- Sealed rows keep normal opacity and gain a padlock. Grey means
+               "this app cannot read that kind of file"; a padlock means "yours,
+               and locked" — two different facts that must not share a signal. -->
+          <font-awesome-icon
+            :icon="row.isDirectory ? 'folder' : workspace.isSealed(row.path) ? 'lock' : 'file'"
+            class="shrink-0 text-xs"
+            :class="row.isDirectory
+              ? 'text-accent-light dark:text-accent-dark'
+              : workspace.isSealed(row.path) ? 'opacity-70' : 'opacity-40'" />
+          <span class="min-w-0 flex-1 truncate" :title="rowTitle(row)">{{ row.name }}</span>
           <span v-if="!row.isDirectory" class="shrink-0 text-[10px] opacity-40">
             {{ formatSize(row.size) }}
           </span>

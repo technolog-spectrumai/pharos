@@ -279,4 +279,75 @@ describe("the files panel", () => {
     expect(openDialog).toHaveBeenCalledWith(
       expect.objectContaining({ directory: true, recursive: true }));
   });
+
+  it("asks which files are sealed, once per file, after a listing", async () => {
+    // The invariant the badge rests on: read() is the only thing that adds
+    // rows, so it is the only place the probe can live without leaving a hole.
+    tree({ [ROOT]: [["a.svg", false], ["b.txt", false], ["notes", true]] });
+    invoke.mockResolvedValue(false);
+    const workspace = await withRoot();
+    mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    const probed = invoke.mock.calls
+      .filter(([cmd]) => cmd === "is_file_locked")
+      .map(([, args]) => (args as { path: string }).path);
+    // Files only — a directory is never probed.
+    expect(probed.sort()).toEqual([`${ROOT}/a.svg`, `${ROOT}/b.txt`]);
+  });
+
+  it("probes a subfolder's files when it is expanded", async () => {
+    tree({
+      [ROOT]: [["notes", true]],
+      [`${ROOT}/notes`]: [["deep.svg", false]],
+    });
+    invoke.mockResolvedValue(false);
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="files-row-notes"]').trigger("click");
+    await settle();
+    const probed = invoke.mock.calls
+      .filter(([cmd]) => cmd === "is_file_locked")
+      .map(([, args]) => (args as { path: string }).path);
+    expect(probed).toContain(`${ROOT}/notes/deep.svg`);
+  });
+
+  it("badges a sealed file and refuses to open it", async () => {
+    tree({ [ROOT]: [["secret.svg", false]] });
+    invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    const row = w.get('[data-testid="files-row-secret.svg"]');
+    expect(row.html()).toContain('icon="lock"');
+
+    await row.trigger("click");
+    await settle();
+    // Encrypted, so nothing was read and nothing was handed to an editor —
+    // and the reason given is the encryption, not the file type.
+    expect(readTextFile).not.toHaveBeenCalled();
+    expect(w.emitted("open")).toBeUndefined();
+    expect(w.get('[data-testid="files-open-error"]').text())
+      .toBe("This file is encrypted. Decrypt it in the Security tab.");
+  });
+
+  it("does not probe at all in a browser build", async () => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    tree({ [ROOT]: [["a.svg", false]] });
+    const workspace = await withRoot();
+    mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+    expect(invoke).not.toHaveBeenCalled();
+  });
 });

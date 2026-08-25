@@ -28,6 +28,7 @@
 // behaviour: the picked folder can be a home directory, and reading all of it
 // to draw a panel that shows twelve rows is a stall with nothing to show for it.
 import { computed, ref } from "vue";
+import { probeSealed } from "../security/lock";
 
 export interface Entry {
   name: string;
@@ -53,6 +54,19 @@ const children = ref<Map<string, Entry[]>>(new Map());
 const expanded = ref<Set<string>>(new Set());
 const loading = ref(false);
 const error = ref("");
+/** Which files are sealed, by path.
+ *
+ *  Keyed by PATH rather than carried on the row, because every `read()`
+ *  replaces the row objects wholesale — a field would be re-derived, and
+ *  re-probed, on every refresh for rows that did not change. Paths outlive the
+ *  rows, which is the same reason `expanded` is a Set of them.
+ *
+ *  Never cleared by `refresh()`. Probes are fire-and-forget, so one issued
+ *  before a clear could land after it and resurrect a path; entries are only
+ *  ever overwritten. A stale entry for a deleted file is harmless — nothing
+ *  renders a row for a path that has no row — and growth is bounded by the
+ *  files in expanded folders, exactly as `children` is. */
+const sealed = ref<Map<string, boolean>>(new Map());
 /** The ROOT itself could not be read. Kept apart from `error`, which any
  *  sub-folder read can also set: this one means the whole tree is unavailable,
  *  and the panel answers it with the picker rather than an empty listing.
@@ -204,6 +218,36 @@ export function useWorkspace() {
     );
     // A new Map, not a mutation: a Map written in place is not reactive.
     children.value = new Map(children.value).set(dir, rowsHere);
+    // A SECOND pass, deliberately not awaited into the listing: the names are
+    // what the panel draws, and making a folder wait on one round trip per file
+    // to show a padlock nobody is looking at yet trades the tree for the badge.
+    void probeAll(rowsHere);
+  }
+
+  /** Ask Rust which of these files are sealed, and record the answers.
+   *
+   *  Called from `read()` and nowhere else, because `read()` is the ONLY thing
+   *  that adds rows — both `refresh()` and `toggle()` route through it, so
+   *  filling the map anywhere else would leave a hole. */
+  async function probeAll(entries: Entry[]): Promise<void> {
+    const files = entries.filter((e) => !e.isDirectory);
+    if (!files.length) return;
+    const answers = await Promise.all(
+      files.map(async (entry) => {
+        // `is_file_locked` already answers false for anything it cannot open,
+        // so this catch is all but unreachable — it is here so a fire-and-forget
+        // probe can never reject unobserved.
+        try {
+          return [entry.path, await probeSealed(entry)] as const;
+        } catch {
+          return [entry.path, false] as const;
+        }
+      }),
+    );
+    // ONE reassignment for the whole folder; N would be N re-renders.
+    const next = new Map(sealed.value);
+    for (const [path, yes] of answers) next.set(path, yes);
+    sealed.value = next;
   }
 
   /** Re-read the root and every folder currently open.
@@ -275,6 +319,8 @@ export function useWorkspace() {
     root.value = "";
     children.value = new Map();
     expanded.value = new Set();
+    // A different workspace shares no paths with this one.
+    sealed.value = new Map();
     error.value = "";
     unreadable.value = false;
     try {
@@ -284,12 +330,18 @@ export function useWorkspace() {
     }
   }
 
-  /** Whether a file on disk is sealed — the same detection the platform uses,
-   *  so a file encrypted on either side is badged on both. */
-  async function isLocked(entry: Entry): Promise<boolean> {
-    if (entry.isDirectory || !isTauri()) return false;
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<boolean>("is_file_locked", { path: entry.path });
+  /** Whether a file is sealed, from the cache. Synchronous on purpose: a
+   *  template calls this per row, and reading `sealed.value` here is what makes
+   *  the row re-render when a probe lands. */
+  function isSealed(path: string): boolean {
+    return sealed.value.get(path) === true;
+  }
+
+  /** Re-probe ONE path — what the Security tab calls after sealing a file. A
+   *  full refresh would re-stat every open folder to correct one boolean. */
+  async function reprobe(path: string): Promise<void> {
+    const yes = await probeSealed(path);
+    sealed.value = new Map(sealed.value).set(path, yes);
   }
 
   async function readText(entry: Entry): Promise<string> {
@@ -298,7 +350,7 @@ export function useWorkspace() {
   }
 
   return {
-    root, rows, loading, error, expanded, unreadable,
-    isExpanded, pickRoot, clearRoot, refresh, toggle, readText, isLocked,
+    root, rows, loading, error, expanded, unreadable, sealed,
+    isExpanded, isSealed, reprobe, pickRoot, clearRoot, refresh, toggle, readText,
   };
 }

@@ -38,6 +38,7 @@ export default {
     noWorkspace: "No workspace yet.",
     unreadable: "Can\u2019t read this folder.",
     unreadableHint: "Choose it again to let Zinnia read it.",
+    encrypted: "This file is encrypted. Decrypt it in the Security tab.",
     cannotOpen: "Zinnia cannot open that kind of file.",
     pickWorkspace: "Choose a folder",
     pickWorkspaceHint: "Pick a folder to work in. Zinnia will be able to read that folder and nothing else on this machine.",
