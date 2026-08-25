@@ -56,13 +56,13 @@ HTML block cannot run script or fetch anything remote. `style-src` still needs
 `'unsafe-inline'`, because the app writes style attributes on every render; that
 limit is stated in the Security tab rather than glossed over.
 
-`src/views/SecurityView.vue` encrypts a file with a passphrase, and reports what
-this build actually does with cryptography — algorithms, what the app can reach,
-what it renders without a sandbox, and where key material lives. A sealed file
-is self-contained: its salt and wrapped key ride in its own header, so it opens
-on any machine with the passphrase and there is nothing to back up. Sealed files
-are padlocked in the files panel and refused there rather than opened as
-ciphertext.
+`src/views/SecurityView.vue` encrypts a file in place with a passphrase. A
+sealed file is self-contained — its salt and wrapped key ride in its own header,
+so it opens on any machine with the passphrase and there is nothing to back up.
+Sealed files are padlocked in the files panel and refused there rather than
+opened as ciphertext. The passphrase can be kept in the OS keyring, and when it
+is, nothing hands it back to the page: `lock_file` and `unlock_file` take an
+optional password and ask the keyring themselves.
 
 `src/views/EditorHost.vue` owns the FILE — opening, saving, the discard prompt,
 and which editor a file gets. Each editor owns only its BUFFER and implements

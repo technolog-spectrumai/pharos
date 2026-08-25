@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import SecurityView from "../../src/views/SecurityView.vue";
-import { CAPABILITIES } from "../../src/security/capabilities";
 import { i18n } from "../../src/i18n";
 
 const invoke = vi.fn();
@@ -59,56 +58,6 @@ beforeEach(async () => {
 afterEach(() => {
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   i18n.global.locale.value = "en";
-});
-
-describe("SecurityView — the inventory", () => {
-  it("is read-only: it reports, and offers nothing to act on", async () => {
-    const w = mountSecurity();
-    await settle();
-    const inventory = w.get('[data-testid="inventory"]');
-    expect(inventory.findAll("input")).toHaveLength(0);
-    expect(inventory.findAll("button")).toHaveLength(0);
-    expect(inventory.findAll("select")).toHaveLength(0);
-  });
-
-  it("draws every capability, each with a status", async () => {
-    const w = mountSecurity();
-    await settle();
-    for (const cap of CAPABILITIES) {
-      expect(w.find(`[data-testid="cap-${cap.id}"]`).exists(), cap.id).toBe(true);
-      expect(w.get(`[data-testid="cap-status-${cap.id}"]`).text()).not.toBe("");
-    }
-  });
-
-  it("leaves algorithm names untranslated", async () => {
-    // The real test of "proper nouns live in the data, not the catalogue":
-    // switch locale and the prose changes while the names do not.
-    const w = mountSecurity();
-    await settle();
-    const english = w.get('[data-testid="cap-seal"]').text();
-
-    i18n.global.locale.value = "pl";
-    await flushPromises();
-    const polish = w.get('[data-testid="cap-seal"]').text();
-
-    expect(polish).not.toBe(english);
-    for (const name of ["XChaCha20-Poly1305", "Argon2id", "OpenSSL"]) {
-      expect(w.html(), name).toContain(name);
-    }
-  });
-
-  it("states the costs this build actually uses", async () => {
-    // Interpolated from the build, not written into the catalogue.
-    const w = mountSecurity();
-    await settle();
-    expect(w.get('[data-testid="cap-kdf"]').text()).toContain("65536");
-  });
-
-  it("names the folder it can read, and says so when there is none", async () => {
-    const w = mountSecurity();
-    await settle();
-    expect(w.get('[data-testid="cap-workspace"]').text()).toContain("no folder chosen");
-  });
 });
 
 describe("SecurityView — encrypting a file", () => {
@@ -358,7 +307,6 @@ describe("SecurityView — encrypting a file", () => {
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
     const w = mountSecurity();
     await settle();
-    expect(w.get('[data-testid="inventory"]').exists()).toBe(true);
     expect(w.get('[data-testid="security-files-none"]').exists()).toBe(true);
     expect(invoke).not.toHaveBeenCalled();
   });

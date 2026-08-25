@@ -1,11 +1,5 @@
 <script setup lang="ts">
-// Security — encrypt a file, and an honest account of what this build can do.
-//
-// The inventory half is READ-ONLY and has no controls at all, deliberately: it
-// is a statement of fact, and a page that could act on its own claims would
-// become a second place where the truth is decided. What it reports came from
-// reading the source rather than the comments — four doc comments in this
-// repository were stale about exactly these facts.
+// Security — encrypting a file with a passphrase.
 //
 // This tab hosts no editor, so `App.showFiles` gives it no files sidepanel and
 // it brings its own listing. That listing is the SAME workspace store the
@@ -20,7 +14,6 @@ import {
   forgetPassphrase, lockErrorKey, passphraseStatus, rememberPassphrase,
   sealFile, unsealFile, type SecretStatus,
 } from "../security/lock";
-import { CAPABILITY_GROUPS, capabilitiesIn } from "../security/capabilities";
 
 const { t } = useI18n({ useScope: "global" });
 const workspace = useWorkspace();
@@ -109,23 +102,6 @@ async function apply(password: string | null, remember: boolean): Promise<void> 
   }
 }
 
-/** The live numbers the inventory quotes, so a claim about this build cannot
- *  drift from the build. Unused params are ignored by vue-i18n, so every row
- *  can be given the same object. */
-const facts = computed(() => ({
-  mem: 65536,
-  passes: 3,
-  lanes: 4,
-  folder: workspace.root.value || t("security.inventory.noFolder"),
-}));
-
-const STATUS_TONE: Record<string, string> = {
-  absent: "text-warn-dark",
-  active: "",
-  legacy: "opacity-60",
-  dormant: "opacity-60",
-  parked: "opacity-60",
-};
 </script>
 
 <template>
@@ -218,41 +194,6 @@ const STATUS_TONE: Record<string, string> = {
         </div>
       </template>
 
-      <!-- ── the inventory ─────────────────────────────────────────────── -->
-      <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
-        <font-awesome-icon icon="circle-info" class="opacity-60" />
-        {{ t("security.inventory.title") }}
-      </h2>
-      <p class="mt-1 text-sm opacity-70">{{ t("security.intro") }}</p>
-
-      <div data-testid="inventory">
-        <template v-for="group in CAPABILITY_GROUPS" :key="group">
-          <h3 class="mt-6 text-sm font-bold opacity-80">
-            {{ t(`security.inventory.groups.${group}`) }}
-          </h3>
-          <div class="mt-2 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1">
-            <div v-for="item in capabilitiesIn(group)" :key="item.id"
-                 class="flex items-start gap-3 border-b border-current/10 px-4 py-3 last:border-0"
-                 :data-testid="`cap-${item.id}`">
-              <span class="min-w-0 flex-1">
-                <span class="text-sm font-semibold">
-                  {{ t(`security.inventory.items.${item.id}.label`) }}
-                </span>
-                <!-- Proper nouns, straight from the data — never translated. -->
-                <code v-if="item.name" class="ml-2 text-xs opacity-70">{{ item.name }}</code>
-                <span class="mt-0.5 block text-sm opacity-70">
-                  {{ t(`security.inventory.items.${item.id}.detail`, facts) }}
-                </span>
-              </span>
-              <span class="shrink-0 rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                    :class="STATUS_TONE[item.status]"
-                    :data-testid="`cap-status-${item.id}`">
-                {{ t(`security.inventory.status.${item.status}`) }}
-              </span>
-            </div>
-          </div>
-        </template>
-      </div>
     </div>
 
     <LockModal v-model:open="modalOpen" :mode="mode" :name="target?.name ?? ''"
