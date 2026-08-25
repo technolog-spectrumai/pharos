@@ -43,6 +43,11 @@ same time — enigma owns 1420/1421. That number appears in four files
 | Sheet | `.json` | a grid over the sheet format |
 | Text | everything else | ACE, with modes and workers bundled offline |
 
+`src/files/FilesPanel.vue` is the folder browser, down the left of every editor
+rather than behind a tab of its own — picking a file used to mean leaving the
+work. It reads one folder at a time, when you expand it, and it only ever hands
+bytes over: nothing in it can save, rename or delete.
+
 `src/views/EditorHost.vue` owns the FILE — opening, saving, the discard prompt,
 and which editor a file gets. Each editor owns only its BUFFER and implements
 the contract in `src/editors/types.ts` (`markSaved` / `getContent` / `isDirty`).
