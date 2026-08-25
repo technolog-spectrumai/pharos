@@ -10,6 +10,7 @@ const invoke = vi.fn();
 const readDir = vi.fn();
 const stat = vi.fn();
 const readTextFile = vi.fn();
+const readFile = vi.fn();
 const openDialog = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -20,6 +21,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   readDir: (...a: unknown[]) => readDir(...a),
   stat: (...a: unknown[]) => stat(...a),
   readTextFile: (...a: unknown[]) => readTextFile(...a),
+  readFile: (...a: unknown[]) => readFile(...a),
   writeTextFile: vi.fn(),
 }));
 
@@ -53,7 +55,7 @@ function tree(byDir: Record<string, Array<[string, boolean]>>) {
 
 beforeEach(async () => {
   localStorage.clear();
-  for (const fn of [invoke, readDir, stat, readTextFile, openDialog]) fn.mockReset();
+  for (const fn of [invoke, readDir, stat, readTextFile, readFile, openDialog]) fn.mockReset();
   stat.mockResolvedValue({ size: 12, mtime: null });
   i18n.global.locale.value = "en";
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
@@ -171,6 +173,28 @@ describe("the files panel", () => {
     const opened = w.emitted("open")?.[0][0] as { kind: string; name: string };
     expect(opened.kind).toBe("code");
     expect(opened.name).toBe("server.log");
+  });
+
+  it("reads a picture as bytes, not as text", async () => {
+    // readTextFile decodes UTF-8, and a PNG through that comes back as
+    // replacement characters — a lossy copy that could be saved over the real
+    // file. This is why images were unopenable before.
+    tree({ [ROOT]: [["photo.png", false]] });
+    readFile.mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="files-row-photo.png"]').trigger("click");
+    await settle();
+    expect(readFile).toHaveBeenCalledWith(`${ROOT}/photo.png`);
+    expect(readTextFile).not.toHaveBeenCalled();
+
+    const opened = w.emitted("open")?.[0][0] as { kind: string; content: string };
+    expect(opened.kind).toBe("code");
+    expect(opened.content).toBe("data:image/png;base64,iVBORw==");
   });
 
   it("still refuses a sealed file — the one thing that does not open", async () => {

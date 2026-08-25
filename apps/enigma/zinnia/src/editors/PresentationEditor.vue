@@ -20,6 +20,7 @@ import ModalPanel from "../components/ModalPanel.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import FormulaPreview from "../components/FormulaPreview.vue";
 import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
+import { toDataUri } from "../files/images";
 import SlideBlock from "./SlideBlock.vue";
 import DeckPlayer from "./DeckPlayer.vue";
 import RichPayloadEditor from "./RichPayloadEditor.vue";
@@ -223,23 +224,6 @@ function fileToDataUri(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("unreadable"));
     reader.readAsDataURL(file);
   });
-}
-
-const MIME_BY_EXT: Record<string, string> = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
-  gif: "image/gif", webp: "image/webp",
-};
-
-function toDataUri(path: string, bytes: Uint8Array): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
-  // Chunked: btoa(String.fromCharCode(...bytes)) blows the argument limit on
-  // anything but a tiny image.
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return `data:${mime};base64,${btoa(binary)}`;
 }
 
 function deleteBlock(id: string) {

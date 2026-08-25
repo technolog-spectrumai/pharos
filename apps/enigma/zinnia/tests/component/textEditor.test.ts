@@ -178,6 +178,33 @@ describe("the undo stack", () => {
   });
 });
 
+describe("a picture in the code view", () => {
+  const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+  it("shows the image instead of a buffer", async () => {
+    const w = mount(TextEditor, {
+      props: { path: null, name: "photo.png", content: PNG, withPicker: true },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(w.get('[data-testid="image-preview"]').attributes("src")).toBe(PNG);
+    // No editor at all — an undo stack over a data: URI would be nonsense.
+    expect(w.find('[data-testid="ace-host"]').exists()).toBe(false);
+    expect(w.find('[data-testid="editor-undo"]').exists()).toBe(false);
+    expect(w.find('[data-testid="language-select"]').exists()).toBe(false);
+  });
+
+  it("goes back to being an editor for a text file", async () => {
+    const w = mount(TextEditor, {
+      props: { path: null, name: "notes.txt", content: "hello", withPicker: true },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(w.find('[data-testid="image-view"]').exists()).toBe(false);
+    expect(w.get('[data-testid="ace-host"]').exists()).toBe(true);
+  });
+});
+
 describe("host routing", () => {
   it("a refused svg can be reopened as plain text", async () => {
     const w = mount(EditorHost, {
@@ -192,6 +219,31 @@ describe("host routing", () => {
     await flushPromises();
     expect(w.findComponent({ name: "SketchEditor" }).exists()).toBe(false);
     expect(w.find('[data-testid="ace-host"]').exists()).toBe(true);
+  });
+
+  it("refuses to save a picture, so its bytes cannot be written back as text", async () => {
+    // Save As would write the `data:` URI out as text — a corrupt copy of the
+    // file it came from. The whole save path is closed for a picture.
+    const w = mount(EditorHost, {
+      props: { kind: "code" },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    const vm = w.vm as unknown as {
+      openRemote(name: string, text: string): void;
+      canSave: boolean; dirty: boolean;
+    };
+    vm.openRemote("photo.png", "data:image/png;base64,iVBORw0KGgo=");
+    await flushPromises();
+    expect(w.find('[data-testid="image-preview"]').exists()).toBe(true);
+    expect(vm.canSave).toBe(false);
+    // …and no unsaved dot beside something that cannot be saved.
+    expect(vm.dirty).toBe(false);
+
+    // A text file handed over the same way is still savable.
+    vm.openRemote("notes.txt", "hello");
+    await flushPromises();
+    expect(vm.canSave).toBe(true);
   });
 
   it("the code tab opens a buffer the files panel handed it", async () => {

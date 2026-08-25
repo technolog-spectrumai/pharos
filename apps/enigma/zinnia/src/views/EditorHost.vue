@@ -29,6 +29,7 @@ import { dumps, newDocument } from "../formats/document";
 import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
 import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
 import { KIND_FILES, type EditorKind } from "../tabs";
+import { isImageName } from "../files/images";
 
 const props = defineProps<{
   kind: EditorKind;
@@ -193,6 +194,7 @@ async function writeTo(target: string, text: string): Promise<boolean> {
 }
 
 async function saveAs(): Promise<boolean> {
+  if (readOnly.value) return false;
   const text = editorRef.value?.getContent() ?? content.value;
   if (!isTauri) {
     const a = document.createElement("a");
@@ -214,7 +216,7 @@ async function saveAs(): Promise<boolean> {
 }
 
 async function saveFile(text?: string) {
-  if (busy.value) return;
+  if (busy.value || readOnly.value) return;
   busy.value = true;
   fileError.value = "";
   notice.value = "";
@@ -227,8 +229,16 @@ async function saveFile(text?: string) {
   }
 }
 
+/** A picture is SHOWN, not held — there is no buffer behind it, only the bytes
+ *  that were read. Saving would write the `data:` URI out as text, which is a
+ *  corrupt copy of the file it came from, so the whole save path is closed for
+ *  one. The editor asks the same function about the same name, so the view and
+ *  this cannot disagree about what is on screen. */
+const readOnly = computed(() => isImageName(name.value));
+
 /** A never-saved file is always savable; an existing one only when changed. */
-const canSave = computed(() => !busy.value && (dirty.value || path.value === null));
+const canSave = computed(() =>
+  !busy.value && !readOnly.value && (dirty.value || path.value === null));
 
 // ── keyboard: only what is the FILE's, not the buffer's ─────────────────────
 function onKey(e: KeyboardEvent) {
@@ -262,7 +272,9 @@ function exportFile() {
  *  yet written anywhere this host can find again. */
 function openRemote(fileName: string, text: string) {
   show(fileName, null, text);
-  dirty.value = true;
+  // A picture was not edited by arriving, and marking it dirty would put an
+  // unsaved dot beside something that cannot be saved.
+  dirty.value = !isImageName(fileName);
 }
 
 defineExpose({

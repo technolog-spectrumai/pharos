@@ -17,6 +17,7 @@ import { useI18n } from "vue-i18n";
 import { filterRows, useWorkspace, type Entry, type Row } from "./useWorkspace";
 import { baseName, formatSize } from "./format";
 import { kindForFile } from "./openWith";
+import { isImageName } from "./images";
 import type { EditorKind } from "../tabs";
 
 const { t } = useI18n({ useScope: "global" });
@@ -55,8 +56,14 @@ async function activate(row: Row) {
   busy.value = true;
   openError.value = "";
   try {
-    const content = await workspace.readText(row as Entry);
-    const kind = kindForFile(row.name, content);
+    // A picture is read as BYTES and handed over as a data: URI. Reading it as
+    // text would decode UTF-8 over a PNG and hand the editor mojibake — which
+    // is what used to happen, and is why images were unopenable before.
+    const image = isImageName(row.name);
+    const content = image
+      ? await workspace.readImage(row as Entry)
+      : await workspace.readText(row as Entry);
+    const kind = image ? "code" as const : kindForFile(row.name, content);
     if (!kind) {
       openError.value = "files.cannotOpen";
       return;

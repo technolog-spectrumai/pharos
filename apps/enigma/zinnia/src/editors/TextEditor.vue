@@ -24,6 +24,7 @@ import ace, {
   type CodeLanguage,
 } from "./aceSetup";
 import { isDark, watchDark } from "../theme";
+import { isImageName } from "../files/images";
 
 const props = defineProps<{
   path: string | null;
@@ -41,6 +42,12 @@ const emit = defineEmits<{
   save: [content: string];
   "update:dirty": [boolean];
 }>();
+
+/** A picture is SHOWN, not read. The buffer is replaced by the image for as
+ *  long as this file is open; nothing about the file changes, and the host
+ *  refuses to save it — see `readOnly` there, which asks the same question of
+ *  the same function so the two cannot disagree. */
+const isImage = computed(() => isImageName(props.name));
 
 const host = ref<HTMLElement | null>(null);
 let editor: ReturnType<typeof ace.edit> | null = null;
@@ -109,7 +116,9 @@ function save() {
 }
 
 onMounted(() => {
-  if (!host.value) return;
+  // No ACE at all for a picture: mounting an editor over a data: URI would
+  // build an undo stack for a buffer nobody can edit.
+  if (isImage.value || !host.value) return;
   editor = ace.edit(host.value, {
     mode: modeForFilename(props.name),
     theme: isDark() ? THEME_DARK : THEME_LIGHT,
@@ -176,6 +185,7 @@ defineExpose({
   <div class="flex min-h-0 flex-1 flex-col">
     <div v-if="withPicker"
          class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-1.5">
+      <template v-if="!isImage">
       <button type="button" data-testid="editor-undo"
               class="rounded border border-accent-2 px-2 py-1 text-xs transition hover:opacity-80 disabled:opacity-30 dark:border-accent-1"
               :title="t('code.undo')" :aria-label="t('code.undo')"
@@ -191,8 +201,9 @@ defineExpose({
 
       <span class="mx-1 h-4 w-px bg-current opacity-20" />
 
-      <label class="text-xs opacity-70">{{ t("code.language") }}</label>
-      <SelectMenu data-testid="language-select" :label="t('code.language')"
+      </template>
+      <label v-if="!isImage" class="text-xs opacity-70">{{ t("code.language") }}</label>
+      <SelectMenu v-if="!isImage" data-testid="language-select" :label="t('code.language')"
                   :model-value="currentLabel" :options="languageLabels"
                   :empty-label="t('code.plainText')"
                   @update:model-value="pickLanguage($event)" />
@@ -201,7 +212,14 @@ defineExpose({
     <p v-if="error" class="border-b border-current/10 px-3 py-2 text-xs text-warn-dark">
       {{ error }}
     </p>
+    <!-- A picture takes the buffer's place while it is open. -->
+    <div v-if="isImage" class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4"
+         data-testid="image-view">
+      <img :src="content" :alt="name" data-testid="image-preview"
+           class="max-h-full max-w-full object-contain" />
+    </div>
+
     <!-- ACE mounts here and sizes itself to this box. -->
-    <div ref="host" class="min-h-0 w-full flex-1" data-testid="ace-host" />
+    <div v-else ref="host" class="min-h-0 w-full flex-1" data-testid="ace-host" />
   </div>
 </template>

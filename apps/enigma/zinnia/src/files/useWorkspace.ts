@@ -29,6 +29,7 @@
 // to draw a panel that shows twelve rows is a stall with nothing to show for it.
 import { computed, ref } from "vue";
 import { probeSealed } from "../security/lock";
+import { toDataUri } from "./images";
 
 export interface Entry {
   name: string;
@@ -349,8 +350,19 @@ export function useWorkspace() {
     return readTextFile(entry.path);
   }
 
+  /** A picture as a `data:` URI, ready for an <img>.
+   *
+   *  Read as BYTES, never as text: `readTextFile` decodes UTF-8, and a PNG put
+   *  through that comes back as replacement characters — a lossy copy of the
+   *  file that could then be saved over the real one. */
+  async function readImage(entry: Entry): Promise<string> {
+    const { readFile } = await import("@tauri-apps/plugin-fs");
+    return toDataUri(entry.name, await readFile(entry.path));
+  }
+
   return {
     root, rows, loading, error, expanded, unreadable, sealed,
     isExpanded, isSealed, reprobe, pickRoot, clearRoot, refresh, toggle, readText,
+    readImage,
   };
 }
