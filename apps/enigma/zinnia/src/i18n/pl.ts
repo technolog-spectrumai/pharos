@@ -27,6 +27,7 @@ export default {
     sketch: "Rysunek",
     sheets: "Arkusze",
     presentations: "Prezentacje",
+    code: "Kod",
     settings: "Ustawienia",
   },
   files: {
@@ -42,6 +43,10 @@ export default {
     pickWorkspaceHint: "Wybierz folder do pracy. Zinnia będzie mogła czytać tylko ten folder i nic więcej na tym komputerze.",
     changeWorkspace: "Zmień folder",
     desktopOnly: "To wymaga aplikacji na komputer.",
+  },
+  code: {
+    language: "J\u0119zyk",
+    plainText: "Zwyk\u0142y tekst",
   },
   settings: {
     colors: {

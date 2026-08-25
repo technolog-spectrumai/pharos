@@ -27,6 +27,7 @@ export default {
     sketch: "Sketch",
     sheets: "Sheets",
     presentations: "Presentations",
+    code: "Code",
     settings: "Settings",
   },
   files: {
@@ -42,6 +43,10 @@ export default {
     pickWorkspaceHint: "Pick a folder to work in. Zinnia will be able to read that folder and nothing else on this machine.",
     changeWorkspace: "Change folder",
     desktopOnly: "This needs the desktop app.",
+  },
+  code: {
+    language: "Language",
+    plainText: "Plain text",
   },
   settings: {
     colors: {

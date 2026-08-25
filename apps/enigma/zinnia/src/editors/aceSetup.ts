@@ -87,4 +87,52 @@ export function modeForFilename(name: string): string {
   return `ace/mode/${EXT_TO_MODE[ext] ?? "plain_text"}`;
 }
 
+/** A language the Code tab offers by name. */
+export interface CodeLanguage {
+  id: string;
+  /** The bare mode name; the session takes `ace/mode/${mode}`. */
+  mode: string;
+  /** Shown in the picker. A proper noun, so it is NOT translated — "Python" is
+   *  Python in every locale. The one exception is plain text, whose label is
+   *  empty here and supplied by the picker through SelectMenu's `emptyLabel`,
+   *  because "Plain text" is a phrase and does translate. */
+  label: string;
+}
+
+/**
+ * What the language picker offers.
+ *
+ * A SUBSET of what is bundled, not a mirror of it: `EXT_TO_MODE` above covers
+ * 26 extensions because detection should recognise everything the app can
+ * highlight, while this list is what a person is asked to choose from — and a
+ * dropdown of every mode ACE ships is a worse dropdown. A file whose detected
+ * mode is not on this list (a `.rs`, say) still gets its real highlighting; it
+ * is only the picker's label that falls back to plain text.
+ *
+ * Plain text first because it is the default a new file is born as; the rest
+ * alphabetical, which is the only order a reader can predict.
+ */
+export const LANGUAGES: readonly CodeLanguage[] = [
+  { id: "text", mode: "plain_text", label: "" },
+  { id: "css", mode: "css", label: "CSS" },
+  { id: "html", mode: "html", label: "HTML" },
+  { id: "javascript", mode: "javascript", label: "JavaScript" },
+  { id: "json", mode: "json", label: "JSON" },
+  { id: "markdown", mode: "markdown", label: "Markdown" },
+  { id: "python", mode: "python", label: "Python" },
+  { id: "sh", mode: "sh", label: "Shell" },
+  { id: "typescript", mode: "typescript", label: "TypeScript" },
+  { id: "xml", mode: "xml", label: "XML" },
+  { id: "yaml", mode: "yaml", label: "YAML" },
+];
+
+/** Which OFFERED language a file name detects as — what the picker should show
+ *  before anyone touches it. Falls back to plain text for a mode that is
+ *  bundled but not offered, which is a display fallback only: the session was
+ *  already given the real mode by `modeForFilename`. */
+export function languageForFilename(name: string): CodeLanguage {
+  const mode = modeForFilename(name);
+  return LANGUAGES.find((l) => `ace/mode/${l.mode}` === mode) ?? LANGUAGES[0];
+}
+
 export default ace;

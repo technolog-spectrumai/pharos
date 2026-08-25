@@ -31,6 +31,75 @@ describe("the text editor", () => {
   });
 });
 
+describe("the language picker", () => {
+  /** The trigger's text is what the picker currently claims the file is. */
+  async function mountCode(name: string, content = "") {
+    const w = mount(TextEditor, {
+      props: { path: null, name, content, withPicker: true },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    return w;
+  }
+  const shown = (w: ReturnType<typeof mount>) =>
+    w.get('[data-testid="language-select"] [data-testid="select-trigger"]').text();
+
+  async function choose(w: ReturnType<typeof mount>, testid: string) {
+    await w.get('[data-testid="language-select"] [data-testid="select-trigger"]').trigger("click");
+    await w.get(`[data-testid="language-select"] [data-testid="${testid}"]`).trigger("click");
+    await flushPromises();
+  }
+
+  it("is absent in the refusal fallback", async () => {
+    // The fallback is deliberately bare: nothing was chosen about that file.
+    const w = mount(TextEditor, {
+      props: { path: null, name: "a.svg", content: "<svg/>" },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(w.find('[data-testid="language-select"]').exists()).toBe(false);
+  });
+
+  it("names the language it detected from the file", async () => {
+    expect(shown(await mountCode("script.py"))).toBe("Python");
+    expect(shown(await mountCode("styles.css"))).toBe("CSS");
+  });
+
+  it("says plain text for a name it cannot place", async () => {
+    // The empty-label path: SelectMenu supplies the one translatable name.
+    expect(shown(await mountCode("mystery.xyz"))).toBe("Plain text");
+  });
+
+  it("takes the language the user picks", async () => {
+    const w = await mountCode("script.py");
+    await choose(w, "select-option-JSON");
+    expect(shown(w)).toBe("JSON");
+  });
+
+  it("lets a pick outlive a Save As rename", async () => {
+    // A pick is an instruction and a rename is a guess; the guess must not win.
+    // Save As renames without remounting, which is what makes this reachable.
+    const w = await mountCode("script.py");
+    await choose(w, "select-option-JSON");
+    await w.setProps({ name: "script.rb" });
+    await flushPromises();
+    expect(shown(w)).toBe("JSON");
+  });
+
+  it("still follows a rename while nobody has picked", async () => {
+    const w = await mountCode("a.py");
+    await w.setProps({ name: "a.css" });
+    await flushPromises();
+    expect(shown(w)).toBe("CSS");
+  });
+
+  it("offers plain text as a choice, not only as a fallback", async () => {
+    const w = await mountCode("script.py");
+    await choose(w, "select-option-empty");
+    expect(shown(w)).toBe("Plain text");
+  });
+});
+
 describe("host routing", () => {
   it("a refused svg can be reopened as plain text", async () => {
     const w = mount(EditorHost, {
