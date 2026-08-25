@@ -23,6 +23,7 @@ import "ace-builds/src-noconflict/mode-typescript";
 import "ace-builds/src-noconflict/mode-python";
 import "ace-builds/src-noconflict/mode-rust";
 import "ace-builds/src-noconflict/mode-sh";
+import "ace-builds/src-noconflict/mode-latex";
 import "ace-builds/src-noconflict/mode-html";
 import "ace-builds/src-noconflict/mode-css";
 
@@ -38,8 +39,8 @@ import workerHtmlUrl from "ace-builds/src-noconflict/worker-html.js?url";
 import workerXmlUrl from "ace-builds/src-noconflict/worker-xml.js?url";
 import workerYamlUrl from "ace-builds/src-noconflict/worker-yaml.js?url";
 
-// Only these six modes have a worker upstream; toml/ini/python/rust/sh/plain_text
-// and markdown have none, so they simply never ask for one.
+// Only these six modes have a worker upstream; toml/ini/python/rust/sh/latex/
+// plain_text and markdown have none, so they simply never ask for one.
 ace.config.setModuleUrl("ace/mode/json_worker", workerJsonUrl);
 ace.config.setModuleUrl("ace/mode/javascript_worker", workerJavascriptUrl); // also serves typescript
 ace.config.setModuleUrl("ace/mode/css_worker", workerCssUrl);
@@ -78,6 +79,9 @@ const EXT_TO_MODE: Record<string, string> = {
   html: "html",
   htm: "html",
   css: "css",
+  // A .sty is a LaTeX package and a .tex is a document; one mode reads both.
+  tex: "latex",
+  sty: "latex",
 };
 
 /** Pick a highlighting mode from a file name; anything unrecognized stays plain text. */
@@ -118,6 +122,7 @@ export const LANGUAGES: readonly CodeLanguage[] = [
   { id: "html", mode: "html", label: "HTML" },
   { id: "javascript", mode: "javascript", label: "JavaScript" },
   { id: "json", mode: "json", label: "JSON" },
+  { id: "latex", mode: "latex", label: "LaTeX" },
   { id: "markdown", mode: "markdown", label: "Markdown" },
   { id: "python", mode: "python", label: "Python" },
   { id: "sh", mode: "sh", label: "Shell" },

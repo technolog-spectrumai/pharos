@@ -155,15 +155,34 @@ describe("the files panel", () => {
     expect(opened.name).toBe("drawing.svg");
   });
 
-  it("does not try to open a file no editor here reads", async () => {
-    tree({ [ROOT]: [["photo.png", false]] });
+  it("opens a file no editor claims as plain text", async () => {
+    // Nothing is unopenable any more. Refusing would be the app deciding a
+    // file is none of the user's business, and the Code tab reads anything.
+    tree({ [ROOT]: [["server.log", false]] });
+    readTextFile.mockResolvedValue("started");
     const workspace = await withRoot();
     const w = mountPanel();
     await settle();
     await workspace.refresh();
     await settle();
 
-    await w.get('[data-testid="files-row-photo.png"]').trigger("click");
+    await w.get('[data-testid="files-row-server.log"]').trigger("click");
+    await settle();
+    const opened = w.emitted("open")?.[0][0] as { kind: string; name: string };
+    expect(opened.kind).toBe("code");
+    expect(opened.name).toBe("server.log");
+  });
+
+  it("still refuses a sealed file — the one thing that does not open", async () => {
+    tree({ [ROOT]: [["secret.log", false]] });
+    invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="files-row-secret.log"]').trigger("click");
     await settle();
     expect(readTextFile).not.toHaveBeenCalled();
     expect(w.emitted("open")).toBeUndefined();

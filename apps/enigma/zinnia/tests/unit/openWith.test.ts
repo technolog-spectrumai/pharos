@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extensionOf, kindForFile, looksOpenable } from "../../src/files/openWith";
+import { extensionOf, kindForFile } from "../../src/files/openWith";
 import { dumps as dumpDoc, newDocument } from "../../src/formats/document";
 import { dumps as dumpDeck, newPresentation } from "../../src/formats/presentation";
 import { dumps as dumpSheet, newWorkbook } from "../../src/formats/sheet";
@@ -13,6 +13,8 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("budget.json")).toBe("code");
     expect(kindForFile("talk.pxml")).toBe("deck");
     expect(kindForFile("script.py")).toBe("code");
+    expect(kindForFile("paper.tex")).toBe("code");
+    expect(kindForFile("mystyle.sty")).toBe("code");
     expect(kindForFile("notes.txt")).toBe("code");
   });
 
@@ -20,7 +22,6 @@ describe("choosing an editor for a file", () => {
     // The whole point of the extension: a listing can route a deck before it
     // has fetched a single byte.
     expect(kindForFile("talk.pxml")).toBe("deck");
-    expect(looksOpenable("talk.pxml")).toBe(true);
   });
 
   it("still opens a .pxml whose bytes do not sniff", () => {
@@ -31,13 +32,11 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("talk.pxml", "<presentation")).toBe("deck");
   });
 
-  it("refuses to guess at .xml without the content", () => {
-    // Both the writer and the deck claim .xml. Guessing would open the wrong
-    // editor about half the time, and an editor refusing what it was handed is
-    // worse than a row that has not decided yet.
-    expect(kindForFile("thing.xml")).toBe(null);
-    // …but the row still looks clickable, because the bytes will settle it.
-    expect(looksOpenable("thing.xml")).toBe(true);
+  it("does not guess between the two .xml editors without the content", () => {
+    // Both the writer and the deck claim .xml, and guessing would open the
+    // wrong one about half the time. With no bytes to settle it the honest
+    // answer is the plain-text one, never a coin flip between the two.
+    expect(kindForFile("thing.xml")).toBe("code");
   });
 
   it("settles .xml by what is inside it", () => {
@@ -55,16 +54,20 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("a.svg", "<svg xmlns='http://www.w3.org/2000/svg'></svg>")).toBe("sketch");
   });
 
-  it("opens nothing it does not recognise", () => {
-    expect(kindForFile("photo.png", "not a document")).toBe(null);
-    expect(looksOpenable("photo.png")).toBe(false);
+  it("opens what it does not recognise as plain text", () => {
+    // Refusing would be the app deciding a file is none of the user's
+    // business. A .png comes out as mojibake, which is a true rendering of
+    // what a .png is when you read it as text.
+    expect(kindForFile("photo.png", "not a document")).toBe("code");
+    expect(kindForFile("server.log", "started")).toBe("code");
+    expect(kindForFile("LICENSE", "MIT")).toBe("code");
+    expect(kindForFile("noextension")).toBe("code");
   });
 
   it("keeps opening the legacy .xml decks already on disk", () => {
     // Every deck written before .pxml existed is a .xml. The sniff survives as
     // legacy rescue, not as the router.
     expect(kindForFile("old-talk.xml", dumpDeck(newPresentation()))).toBe("deck");
-    expect(looksOpenable("old-talk.xml")).toBe(true);
   });
 
   it("lets a structured claim beat the code claim when the bytes agree", () => {
@@ -82,19 +85,15 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("talk.xml", dumpDeck(newPresentation()))).toBe("deck");
   });
 
-  it("makes source files clickable in the listing", () => {
-    expect(looksOpenable("script.py")).toBe(true);
-    expect(looksOpenable("styles.css")).toBe(true);
-    expect(looksOpenable("notes.txt")).toBe(true);
-  });
-
   it("does not resolve inherited object properties as editors", () => {
     // A bracket lookup on an object literal also finds Object.prototype, so a
     // file called `x.constructor` would come back as a truthy non-editor.
-    expect(kindForFile("x.constructor")).toBe(null);
-    expect(kindForFile("x.__proto__")).toBe(null);
-    expect(kindForFile("x.toString")).toBe(null);
-    expect(looksOpenable("x.constructor")).toBe(false);
+    // The guard still matters: without it these would resolve through
+    // Object.prototype to a truthy value that is not an editor at all. Falling
+    // to "code" is the same answer any other unknown extension gets.
+    expect(kindForFile("x.constructor")).toBe("code");
+    expect(kindForFile("x.__proto__")).toBe("code");
+    expect(kindForFile("x.toString")).toBe("code");
   });
 
   it("reads extensions the way a filename actually looks", () => {

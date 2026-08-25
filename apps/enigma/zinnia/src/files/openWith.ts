@@ -44,6 +44,8 @@ const BY_EXTENSION: Record<string, EditorKind> = {
   yml: "code",
   yaml: "code",
   sh: "code",
+  tex: "code",
+  sty: "code",
 };
 
 /** Own properties only. A bracket lookup on an object literal also resolves
@@ -64,7 +66,7 @@ export function extensionOf(name: string): string {
 }
 
 /**
- * The editor for a file, or null when nothing here can open it.
+ * The editor for a file. Never null: anything unrecognised opens as plain text.
  *
  * `content` is optional so a listing can grey out rows before fetching
  * anything — but without it a `.xml` stays unresolved, because guessing between
@@ -87,20 +89,14 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
     // would make it unopenable precisely when its content WAS available.
     const byName = byExtension(ext);
     if (byName) return byName;
-    // Every sniffer passed on it, so this `.xml` is neither a document nor a
-    // deck — it is somebody's config or build file, and that is source. It goes
-    // to Code rather than nowhere, which is where it went before there was a
-    // Code tab to send it to.
-    return ext === "xml" ? "code" : null;
+    // Nothing claimed it, so it is text until proven otherwise — an `.xml` no
+    // sniffer wanted, a `.log`, a `.csv`, a file with no extension at all. The
+    // Code tab opens it as plain text, and its language picker is there if the
+    // guess was wrong. Refusing would be the app deciding a file is none of the
+    // user's business, which it never is.
+    return "code";
   }
 
-  return byExtension(ext);
+  return byExtension(ext) ?? "code";
 }
 
-/** Whether a listing row should look clickable, before anything is fetched.
- *  `.xml` counts as openable here — which of the THREE editors it goes to
- *  (writer, deck, or Code) is settled once the bytes arrive. */
-export function looksOpenable(name: string): boolean {
-  const ext = extensionOf(name);
-  return ext === "xml" || has(BY_EXTENSION, ext);
-}

@@ -78,6 +78,6 @@ export const KIND_FILES: Record<EditorKind, {
   // afford to offer it.
   code:     { untitledKey: "file.untitledText",
               extensions: ["txt", "py", "js", "mjs", "cjs", "ts", "json",
-                           "html", "htm", "css", "md", "yml", "yaml", "sh", "xml"],
+                           "html", "htm", "css", "md", "yml", "yaml", "sh", "tex", "sty", "xml"],
               filterKey: "nav.code" },
 };

@@ -16,7 +16,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { filterRows, useWorkspace, type Entry, type Row } from "./useWorkspace";
 import { baseName, formatSize } from "./format";
-import { kindForFile, looksOpenable } from "./openWith";
+import { kindForFile } from "./openWith";
 import type { EditorKind } from "../tabs";
 
 const { t } = useI18n({ useScope: "global" });
@@ -46,13 +46,12 @@ async function activate(row: Row) {
     await workspace.toggle(row.path);
     return;
   }
-  // Before looksOpenable: a sealed .svg still looks openable by name, and the
-  // reason it will not open is the encryption, not the file type.
+  // Sealed is the ONE reason a row will not open now. Anything else opens —
+  // as plain text if nothing better claims it.
   if (workspace.isSealed(row.path)) {
     openError.value = "files.encrypted";
     return;
   }
-  if (!looksOpenable(row.name)) return;
   busy.value = true;
   openError.value = "";
   try {
@@ -160,9 +159,7 @@ function shown(message: string): string {
         <button v-for="row in visible" :key="row.path" type="button"
                 class="flex w-full items-center gap-1.5 py-1 pr-2 text-left text-sm transition"
                 :class="[
-                  row.isDirectory || looksOpenable(row.name)
-                    ? 'hover:bg-accent-light/10'
-                    : 'cursor-default opacity-40',
+                  'hover:bg-accent-light/10',
                   openedPath === row.path ? 'font-bold text-accent-light dark:text-accent-dark' : '',
                 ]"
                 :style="`padding-left: calc(${row.depth} * 0.75rem + 0.5rem)`"

@@ -70,13 +70,13 @@ describe("the language catalogue", () => {
     const ids = LANGUAGES.map((l) => l.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([
-      "text", "css", "html", "javascript", "json", "markdown",
+      "text", "css", "html", "javascript", "json", "latex", "markdown",
       "python", "sh", "typescript", "xml", "yaml",
     ]);
     // Every offered mode must be one modeForFilename can also produce, or the
     // picker could name a mode nothing detects.
     const detectable = new Set([
-      "a.txt", "a.css", "a.html", "a.js", "a.json", "a.md",
+      "a.txt", "a.css", "a.html", "a.js", "a.json", "a.tex", "a.md",
       "a.py", "a.sh", "a.ts", "a.xml", "a.yml",
     ].map(modeForFilename));
     for (const l of LANGUAGES) {
@@ -87,7 +87,7 @@ describe("the language catalogue", () => {
   it("labels are proper nouns, left untranslated", () => {
     const labels = LANGUAGES.filter((l) => l.label).map((l) => l.label);
     expect(labels).toEqual([
-      "CSS", "HTML", "JavaScript", "JSON", "Markdown",
+      "CSS", "HTML", "JavaScript", "JSON", "LaTeX", "Markdown",
       "Python", "Shell", "TypeScript", "XML", "YAML",
     ]);
   });
@@ -97,6 +97,14 @@ describe("the language catalogue", () => {
     expect(languageForFilename("conf.yml").id).toBe("yaml");
     expect(languageForFilename("page.HTM").id).toBe("html");
     expect(languageForFilename("notes.txt").id).toBe("text");
+  });
+
+  it("reads a LaTeX document and a LaTeX package the same way", () => {
+    // A .sty is a package and a .tex is a document; one mode covers both, and
+    // neither has a worker upstream, so highlighting is all they get.
+    expect(modeForFilename("paper.tex")).toBe("ace/mode/latex");
+    expect(modeForFilename("mystyle.sty")).toBe("ace/mode/latex");
+    expect(languageForFilename("paper.TEX").id).toBe("latex");
   });
 
   it("falls back to plain text for a mode that is bundled but not offered", () => {
