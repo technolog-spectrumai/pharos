@@ -161,3 +161,45 @@ describe("guards", () => {
     expect(newPresentation("Hi").slides.length).toBe(1);
   });
 });
+
+// The defect this guards against is a real one, found and fixed in the sibling
+// Django app `toto.cyprian` on 2026-09-06: its writer escaped a title (`&` ->
+// `&amp;`) and its reader took the page apart with a REGEX, which returned the
+// escaped text raw. Every save escaped an already-escaped title, so "Tom &
+// Jerry" became "Tom &amp; Jerry", then "Tom &amp;amp; Jerry" — one `amp;` per
+// save, without limit. It survived 87 tests because not one of them asserted
+// `loads(dumps(d)) === d` with an entity in the text.
+//
+// This format should be immune by construction: `escText` writes the entity and
+// the reader is a real XML parser reading `.textContent`, which resolves it. But
+// "should be immune by construction" is exactly what was believed over there, so
+// it is asserted rather than argued — and asserted over SEVERAL saves, because
+// the failure is an accumulation that one round trip can hide.
+describe("entities survive repeated saves (the cyprian defect)", () => {
+  const HOSTILE = 'Tom & Jerry <not-a-tag> "quoted" — café';
+
+  it("keeps a deck title byte-identical over five saves", () => {
+    let deck = newPresentation(HOSTILE);
+    expect(deck.title).toBe(HOSTILE);
+    for (let i = 0; i < 5; i++) {
+      deck = loads(dumps(deck));
+      expect(deck.title).toBe(HOSTILE);
+    }
+  });
+
+  it("keeps a slide title byte-identical over five saves", () => {
+    let deck = newPresentation("deck");
+    deck.slides[0].title = HOSTILE;
+    for (let i = 0; i < 5; i++) {
+      deck = loads(dumps(deck));
+      expect(deck.slides[0].title).toBe(HOSTILE);
+    }
+  });
+
+  it("reaches a fixed point: the second dump equals the first", () => {
+    const deck = newPresentation(HOSTILE);
+    deck.slides[0].title = HOSTILE;
+    const once = dumps(deck);
+    expect(dumps(loads(once))).toBe(once);
+  });
+});

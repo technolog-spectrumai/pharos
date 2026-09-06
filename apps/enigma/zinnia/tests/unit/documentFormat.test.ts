@@ -122,3 +122,43 @@ describe("the outline, derived from headings", () => {
     expect(outline('<h1 id="intro">One</h1>')[0].id).toBe("intro");
   });
 });
+
+// The sibling of the guard in presentationFormat.test.ts, and the one that
+// matters most: THIS is cyprian's own format. The Django app `toto.cyprian`
+// carried a real defect until 2026-09-06 — its writer escaped the title
+// (`&` -> `&amp;`) and its reader pulled it back out with a REGEX, returning
+// the escaped text raw, so every save escaped an already-escaped title.
+// "Tom & Jerry" grew one `amp;` per save, without limit. 87 tests missed it
+// because none asserted `loads(dumps(d)) === d` with an entity in the text.
+//
+// Here the title is an ATTRIBUTE read through `getAttribute`, which resolves
+// entities, so the pair should be symmetric. Asserted rather than argued, and
+// asserted over several saves — an accumulation is invisible in one round trip.
+describe("entities survive repeated saves (the cyprian defect)", () => {
+  const HOSTILE = 'Tom & Jerry <not-a-tag> "quoted" — café';
+
+  it("keeps the title byte-identical over five saves", () => {
+    let doc = newDocument(HOSTILE);
+    expect(doc.title).toBe(HOSTILE);
+    for (let i = 0; i < 5; i++) {
+      doc = loads(dumps(doc));
+      expect(doc.title).toBe(HOSTILE);
+    }
+  });
+
+  it("keeps body text with an ampersand byte-identical over five saves", () => {
+    let doc = newDocument("plain");
+    doc.content = "<p>Tom &amp; Jerry</p>";
+    for (let i = 0; i < 5; i++) {
+      doc = loads(dumps(doc));
+      expect(doc.content).toContain("Tom &amp; Jerry");
+      expect(doc.content).not.toContain("&amp;amp;");
+    }
+  });
+
+  it("reaches a fixed point: the second dump equals the first", () => {
+    const doc = newDocument(HOSTILE);
+    const once = dumps(doc);
+    expect(dumps(loads(once))).toBe(once);
+  });
+});
