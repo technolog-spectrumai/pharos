@@ -61,6 +61,7 @@ export default {
     empty: "Nothing here yet. Theme and language will move here.",
   },
   sheet: {
+    exportCsv: "Export as CSV",
     noRoom: "The grid has no room to draw here.",
     notASheet: "This is not a spreadsheet",
     notASheetBody: "The file is JSON, but not a Univer workbook. Open it as plain text to see what it holds.",

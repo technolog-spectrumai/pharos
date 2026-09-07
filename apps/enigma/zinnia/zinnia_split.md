@@ -2,10 +2,12 @@
 
 ## Status
 
-**Steps 1-8 done — the directory move has happened.** The app now lives in
-`apps/lazurite/`; 462 frontend tests and 24 Rust tests (padova 12, substrate 8,
-lazurite 3) plus padova's `compile_fail` doctest green, clippy clean,
-`npm run build` succeeds.
+**The split is COMPLETE — all twelve steps done.** Three apps
+(`apps/{lazurite,primula,sketch}`) over three shared packages and two shared
+crates. **591 frontend tests** (lazurite 283, primula 55, sketch 253) and 24
+Rust tests plus padova's `compile_fail` doctest green; clippy clean; all three
+apps typecheck and build; three distinct dev-port pairs (1430/1432/1434) so
+they run at once.
 
 Commands run from the REPO ROOT and fan out through npm workspaces: `npm test`,
 `npm run typecheck`, `npm run build`, `npm run test:rust`. The app's own scripts
@@ -30,8 +32,8 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 8 | lazurite becomes an app under apps ← **first irreversible** | **done** |
 | 9 | primula becomes an app under apps | **done** |
 | 10 | sketch becomes an app under apps | **done** |
-| 11 | csv export from the active worksheet | todo |
-| 12 | register only detection where sealing is not offered | todo |
+| 11 | csv export from the active worksheet | **done** |
+| 12 | per-app IPC surface, asserted | **done** |
 
 Deferred, after the split: deck PDF on printpdf, then the title-page template.
 Both are Lazurite-only and neither blocks any step above.

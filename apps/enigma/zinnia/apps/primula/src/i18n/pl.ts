@@ -61,6 +61,7 @@ export default {
     empty: "Na razie pusto. Motyw i język trafią tutaj.",
   },
   sheet: {
+    exportCsv: "Eksportuj jako CSV",
     noRoom: "Arkusz nie ma tu miejsca na rysowanie.",
     notASheet: "To nie jest arkusz",
     notASheetBody: "Plik jest JSON-em, ale nie skoroszytem Univer. Otwórz go jako czysty tekst, żeby zobaczyć zawartość.",

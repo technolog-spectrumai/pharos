@@ -17,6 +17,7 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { dumps, isSheet, loads, newWorkbook, type Workbook } from "../formats/sheet";
+import { workbookToCsv } from "../formats/csv";
 import { isDark, watchDark } from "petalite/theme";
 import { OyaButton } from "petalite/primitives";
 
@@ -44,7 +45,13 @@ const mountError = ref("");
 /** shallowRef: Univer holds its own reactive graph and Vue must not walk into
  *  it — the same reason the sketch orchestrator is held this way. */
 const api = shallowRef<{
-  getActiveWorkbook(): { save(): Workbook };
+  getActiveWorkbook(): {
+    save(): Workbook;
+    /** The FACADE read. Univer recalculates formulas asynchronously after a
+     *  load, so the snapshot's stored `v` is whatever the engine last wrote;
+     *  this is the guaranteed-computed one, and it is what CSV wants. */
+    getActiveSheet?(): { getDataRange(): { getValues(): Array<Array<unknown>> } };
+  };
   toggleDarkMode?(on: boolean): void;
 } | null>(null);
 let stopDarkWatch: (() => void) | null = null;
@@ -58,6 +65,12 @@ let pending: Workbook | null = null;
 /** The snapshot as of the last successful save; dirtiness measures against it. */
 let savedContent = props.content;
 const dirty = ref(false);
+
+/** Under Tauri there is a save dialog and a real filesystem; in a browser the
+ *  same export falls back to a download. */
+function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
 
 function setDirty(v: boolean) {
   if (dirty.value === v) return;
@@ -204,6 +217,44 @@ onBeforeUnmount(() => {
 // Save As renames the file; the buffer is unchanged, so do NOT reload the grid.
 watch(() => props.path, () => undefined);
 
+/** The active worksheet as CSV, saved where the user says.
+ *
+ *  Values come from the facade when the grid is up, because those are the
+ *  COMPUTED ones; the snapshot is the fallback for a sheet that has not
+ *  finished mounting. Lossy by nature — one sheet, no styles, no formulas —
+ *  which is why it is an export and not a save. */
+async function runExportCsv(): Promise<void> {
+  const wb = api.value?.getActiveWorkbook();
+  const snapshot = wb ? wb.save() : pending;
+  if (!snapshot) return;
+  let values: Array<Array<unknown>> | undefined;
+  try {
+    values = wb?.getActiveSheet?.()?.getDataRange().getValues();
+  } catch {
+    // A facade that is not up yet is not an error; fall back to the snapshot.
+  }
+  const text = workbookToCsv(snapshot, values);
+  const stem = (props.name || "sheet").replace(/\.json$/i, "") || "sheet";
+
+  if (!isTauri()) {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${stem}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const target = await save({
+    defaultPath: `${stem}.csv`,
+    filters: [{ name: "CSV", extensions: ["csv"] }],
+  });
+  if (typeof target !== "string") return;
+  const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+  await writeTextFile(target, text);
+}
+
 defineExpose({
   markSaved() {
     savedContent = currentText();
@@ -215,6 +266,9 @@ defineExpose({
   isDirty(): boolean {
     return dirty.value;
   },
+  // Extra file commands the app menu shows beside New/Open/Save. A list, so a
+  // tab can offer more than one and a tab with none adds nothing.
+  exports: [{ labelKey: "sheet.exportCsv", icon: "file-csv", run: runExportCsv }],
 });
 </script>
 
