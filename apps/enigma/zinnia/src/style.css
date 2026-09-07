@@ -9,6 +9,7 @@
  * These are relative to this file; they change when this file moves. */
 @source "../packages/rakotis/src";
 @source "../packages/petalite/src";
+@source "../packages/padova/src";
 
 @theme {
   --color-primary-bg-light: #f2f3f5;

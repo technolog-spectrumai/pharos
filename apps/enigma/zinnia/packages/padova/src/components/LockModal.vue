@@ -12,7 +12,7 @@
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import ModalPanel from "petalite/ModalPanel.vue";
-import { lockErrorKey } from "../security/lock";
+import { lockErrorKey } from "../lock";
 import { OyaModal } from "petalite/primitives";
 
 const props = defineProps<{

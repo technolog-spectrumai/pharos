@@ -10,9 +10,15 @@
 // plugin's scope does not gate them — they will seal anything they are handed.
 // The only caller offers rows from the folder the user picked. Do not add a
 // free-text path field.
-import type { Entry } from "../files/useWorkspace";
+//
+// Nothing here imports from an app. That is what lets a second app get the
+// sealing surface by depending on this package, and it is why `probeSealed`
+// takes a plain path: it used to accept the workspace store's `Entry` too, an
+// overload no caller had used since the store started injecting
+// `setSealProbe((path) => probeSealed(path))`.
 
-/** Every prefix src-tauri/src/lock.rs can return, and nothing else. */
+/** Every prefix the sealing chain can return, and nothing else. Pinned against
+ *  the Rust by tests/unit/lockErrors.test.ts, which reads the crates. */
 export const LOCK_ERRORS = [
   "no_passphrase",
   "wrong_password",
@@ -111,9 +117,14 @@ export async function passphraseStatus(): Promise<SecretStatus> {
 }
 
 /** Whether a file on disk is sealed — the marker in its first bytes, no
- *  password involved. Answers false off the desktop, where there is no Rust. */
-export function probeSealed(entry: Entry | string): Promise<boolean> {
+ *  password involved. Answers false off the desktop, where there is no Rust.
+ *
+ *  This is the ONE function an app can register without offering sealing at
+ *  all: `is_file_locked` is substrate's, needs no key material, and is what
+ *  draws the padlock. An app that wires only this can badge a sealed file and
+ *  refuse to hand it to an editor, while having no command that could open
+ *  one. */
+export function probeSealed(path: string): Promise<boolean> {
   if (!isTauri()) return Promise.resolve(false);
-  const path = typeof entry === "string" ? entry : entry.path;
   return invoke<boolean>("is_file_locked", { path });
 }

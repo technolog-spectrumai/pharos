@@ -5,6 +5,7 @@
 // chosen, the `<html lang>` side effect) is `petalite/i18n`, shared so three
 // apps cannot drift on it.
 import { createAppI18n, type SupportedLocale } from "petalite/i18n";
+import { padovaMessages } from "padova/i18n";
 import en from "./en";
 import pl from "./pl";
 
@@ -16,7 +17,13 @@ const { i18n, setLocale } = createAppI18n({
   // Zinnia's own key. Not rakotis's "enigma:locale", and not shared with a
   // sibling app.
   storageKey: "zinnia:locale",
-  messages: { en, pl },
+  // Padova brings its own `lock.*` and `security.*` words, merged in at the top
+  // level. A package that owns a feature owns the strings that feature shows —
+  // otherwise an app could adopt the Security tab and get a screen of raw keys.
+  messages: {
+    en: { ...en, ...padovaMessages.en },
+    pl: { ...pl, ...padovaMessages.pl },
+  },
 });
 
 export { i18n, setLocale };

@@ -6,7 +6,11 @@ import { i18n, setLocale, type Locale } from "./i18n";
 import { APP_TABS, DEFAULT_TAB, type AppTabId, type EditorKind } from "./tabs";
 import EditorHost from "./views/EditorHost.vue";
 import FilesPanel from "./files/FilesPanel.vue";
-import SecurityView from "./views/SecurityView.vue";
+import SecurityView from "padova/SecurityView.vue";
+// Padova's Security tab is app-agnostic: it takes the workspace it should list
+// rather than importing one, so the app decides which store it sees. This is
+// the same singleton the files sidepanel drives — one tree, two views.
+import { filterRows, useWorkspace } from "./files/useWorkspace";
 import SettingsView from "./views/SettingsView.vue";
 
 const { t } = useI18n({ useScope: "global" });
@@ -56,6 +60,10 @@ const editorTabs = computed(() => APP_TABS.filter((tab) => tab.kind !== null));
 // hidden on Settings, which holds no file for the panel to hand it.
 const filesOpen = ref(localStorage.getItem("zinnia:files") !== "0");
 watch(filesOpen, (on) => localStorage.setItem("zinnia:files", on ? "1" : "0"));
+
+/** The one workspace, handed to Padova's tab. Resolved once here rather than
+ *  inside the tab, because the store is the app's and the tab is a package's. */
+const securityWorkspace = useWorkspace();
 
 const showFiles = computed(() =>
   filesOpen.value && APP_TABS.some((tab) => tab.id === active.value && tab.kind !== null));
@@ -273,6 +281,7 @@ function isDisabled(id: string): boolean {
         </template>
 
         <SecurityView v-if="visited.has('security')" v-show="active === 'security'"
+                      :workspace="securityWorkspace" :filter-rows="filterRows"
                       class="min-h-0 flex-1" />
 
         <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"

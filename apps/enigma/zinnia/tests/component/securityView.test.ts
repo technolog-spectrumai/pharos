@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import SecurityView from "../../src/views/SecurityView.vue";
+import SecurityView from "padova/SecurityView.vue";
+import { filterRows, useWorkspace } from "../../src/files/useWorkspace";
 import { i18n } from "../../src/i18n";
 
 const invoke = vi.fn();
@@ -22,7 +23,12 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 const ROOT = "/home/u/work";
 
 function mountSecurity() {
+  // The tab takes its store as a prop now: it lives in a package, the store
+  // lives in the app, and this is the seam that lets three apps share it.
+  // The store is a module singleton, so this is the same one every helper here
+  // reaches — which is what the "one tree, two views" behaviour rests on.
   return mount(SecurityView, {
+    props: { workspace: useWorkspace(), filterRows },
     global: { plugins: [i18n], stubs: { teleport: true } },
   });
 }
@@ -54,7 +60,7 @@ beforeEach(async () => {
   const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
   // See filesPanel.test.ts: the store takes its probe by injection now, the
   // way main.ts gives it one. Without this the padlocks never appear.
-  const { probeSealed } = await import("../../src/security/lock");
+  const { probeSealed } = await import("padova");
   setSealProbe((path) => probeSealed(path));
   useWorkspace().clearRoot();
 });
@@ -297,8 +303,8 @@ describe("SecurityView — encrypting a file", () => {
 
   it("never asks Rust for the passphrase itself", async () => {
     // The rule the whole design rests on: no command returns it.
-    const { LOCK_ERRORS } = await import("../../src/security/lock");
-    const mod = await import("../../src/security/lock");
+    const { LOCK_ERRORS } = await import("padova");
+    const mod = await import("padova");
     expect(Object.keys(mod)).not.toContain("recallPassphrase");
     expect(LOCK_ERRORS).toContain("no_passphrase");
     invoke.mockResolvedValue({ remembered: true, storage: "keychain" });

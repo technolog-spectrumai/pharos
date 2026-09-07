@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LOCK_ERRORS, lockErrorKey } from "../../src/security/lock";
+import { LOCK_ERRORS, lockErrorKey } from "padova";
 import { i18n } from "../../src/i18n";
 
 // Rust answers `prefix: prose`. A prefix with no `lock.errors.*` key renders as

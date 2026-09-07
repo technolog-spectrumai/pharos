@@ -64,7 +64,7 @@ beforeEach(async () => {
   // must a test that expects padlocks. Installed as the real `probeSealed`, so
   // these tests still assert against `is_file_locked` at the Tauri boundary
   // rather than against a stub of the app's own code.
-  const { probeSealed } = await import("../../src/security/lock");
+  const { probeSealed } = await import("padova");
   setSealProbe((path) => probeSealed(path));
   const workspace = useWorkspace();
   workspace.root.value = "";

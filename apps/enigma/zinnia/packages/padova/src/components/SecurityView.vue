@@ -1,31 +1,66 @@
 <script setup lang="ts">
 // Security — encrypting a file with a passphrase.
 //
-// This tab hosts no editor, so `App.showFiles` gives it no files sidepanel and
-// it brings its own listing. That listing is the SAME workspace store the
+// This tab hosts no editor, so the app gives it no files sidepanel and it
+// brings its own listing. That listing is the SAME workspace store the
 // sidepanel drives: expanding a folder here expands it there, and the sealed
 // probes fill one cache for both. A second tree would be a second opinion about
 // what is on disk.
+//
+// The store arrives as a PROP rather than an import, because this component
+// lives in a package and the store lives in an app. That is the whole seam:
+// three apps can each hand their own workspace to the same Security tab. The
+// prop type is structural — the app's store satisfies it without either side
+// importing the other's types.
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import LockModal from "../files/LockModal.vue";
+import type { Ref } from "vue";
+import LockModal from "./LockModal.vue";
 import FileTree from "petalite/FileTree.vue";
-import { filterRows, useWorkspace, type Row } from "../files/useWorkspace";
 import {
   forgetPassphrase, lockErrorKey, passphraseStatus, rememberPassphrase,
   sealFile, unsealFile, type SecretStatus,
-} from "../security/lock";
+} from "../lock";
+
+/** A row as this tab needs it — the same shape Petalite's FileTree takes. */
+export interface SecurityRow {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  depth: number;
+}
+
+/** What this tab needs of a workspace store. Structural on purpose: the app's
+ *  `useWorkspace()` return value satisfies it as-is. */
+export interface SecurityWorkspace {
+  root: Ref<string>;
+  rows: Ref<SecurityRow[]>;
+  loading: Ref<boolean>;
+  isExpanded: (path: string) => boolean;
+  isSealed: (path: string) => boolean;
+  refresh: () => Promise<void>;
+  toggle: (path: string) => Promise<void>;
+  reprobe: (path: string) => Promise<void>;
+  pickRoot: () => Promise<void>;
+}
+
+const props = defineProps<{
+  workspace: SecurityWorkspace;
+  /** How the app narrows its rows to a filter. Passed in because the app owns
+   *  the store and therefore owns what "matching" means for it. */
+  filterRows: (rows: SecurityRow[], needle: string) => SecurityRow[];
+}>();
 
 const { t } = useI18n({ useScope: "global" });
-const workspace = useWorkspace();
+const workspace = props.workspace;
 
 const filter = ref("");
-const visible = computed<Row[]>(() => filterRows(workspace.rows.value, filter.value));
+const visible = computed<SecurityRow[]>(() => props.filterRows(workspace.rows.value, filter.value));
 
 /** The row a passphrase is being asked about, or null. One ref, because only
  *  one thing is ever pending — a modal that could be about two files at once is
  *  a modal that eventually encrypts the wrong one. */
-const target = ref<Row | null>(null);
+const target = ref<SecurityRow | null>(null);
 const modalOpen = ref(false);
 const actionError = ref("");
 
@@ -51,7 +86,7 @@ watch(() => workspace.root.value, (root) => {
 const mode = computed<"lock" | "unlock">(() =>
   target.value && workspace.isSealed(target.value.path) ? "unlock" : "lock");
 
-async function activate(row: Row) {
+async function activate(row: SecurityRow) {
   if (row.isDirectory) {
     void workspace.toggle(row.path);
     return;

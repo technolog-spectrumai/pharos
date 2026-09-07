@@ -3,7 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "packages/petalite"
+    "packages/petalite",
+    "packages/padova"
   ],
   "type": "module",
   "description": "Zinnia — an office suite (drawings, sheets, slides, documents) for the toto platform. Tauri 2 desktop app.",

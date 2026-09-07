@@ -2,10 +2,12 @@
 
 ## Status
 
-**Steps 1-6 done.** The tree is clean; 461 frontend tests and 24 Rust tests
-(padova 12, substrate 8, zinnia 3) plus padova's `compile_fail` doctest green,
-clippy clean, `npm run build` succeeds. Nothing has moved into `apps/` yet —
-steps 1-7 are in-place refactors.
+**Steps 1-7 done — every in-place refactor is complete.** The tree is clean;
+462 frontend tests and 24 Rust tests (padova 12, substrate 8, zinnia 3) plus
+padova's `compile_fail` doctest green, clippy clean, `npm run build` succeeds.
+
+**Step 8 is next and is the first irreversible commit.** Everything so far is
+reversible in place and leaves one working app.
 
 Run the Rust side with **`npm run test:rust`** (`cargo test --workspace`), never
 `cargo test` from inside `src-tauri/` — that compiles only the app and silently
@@ -21,7 +23,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 4 | padova crate owns sealing and secrets | **done** |
 | 5 | npm workspaces with petalite package | **done** |
 | 6 | one file tree for panel and security tab | **done** |
-| 7 | padova package owns the sealing surface | todo |
+| 7 | padova package owns the sealing surface | **done** |
 | 8 | lazurite becomes an app under apps ← **first irreversible** | todo |
 | 9 | primula becomes an app under apps | todo |
 | 10 | sketch becomes an app under apps | todo |
@@ -204,6 +206,32 @@ And the guard was never actually run by anything: `cargo test` inside
 `security.*` i18n sections — `lockErrors.test.ts` binds `LOCK_ERRORS` to both
 catalogues, so they travel together or that test goes vacuous.
 
+*Built in step 7*, and `lock.ts` moved **whole**, not in halves: `probeSealed`
+went too. Splitting it would have put two files in two packages both wrapping
+`invoke`, and the cached-bridge comment (`lock.ts:40-48`) explains why that
+matters — concurrent `await import()` of the same specifier races. What keeps
+the capability separation is not which package holds the wrapper but **which
+commands an app registers** (step 12): `probeSealed` calls `is_file_locked`,
+which is substrate's and needs no key material.
+
+**The seam that made this possible: `SecurityView` takes its workspace as a
+PROP.** The tab lives in a package, the store lives in an app, so importing was
+never an option. `SecurityWorkspace` and `SecurityRow` are structural
+interfaces — `vue-tsc` accepts the app's `useWorkspace()` return value with no
+cast and no import in either direction. `filterRows` is a prop for the same
+reason: the app owns the store, so it owns what "matching" means for it.
+
+`probeSealed`'s `Entry | string` overload was **dead** and is gone — step 2's
+`setSealProbe((path) => probeSealed(path))` left every caller passing a string.
+That removed the last `../files/useWorkspace` import from what is now a package.
+
+**i18n ships as data, not as a second i18n instance.** `padovaMessages` is
+spread into the app's catalogue under the same top-level names, so every
+`t("lock.*")` in the package keeps working. A package that created its own
+`createI18n` would give its components a different locale from everything
+around them. Verified non-vacuously: removing the merge fails
+`lockErrors.test.ts`.
+
 **Petalite** — `theme.ts`, `systemColors.ts` + `useSystemColors.ts`,
 `ModalPanel.vue`, `SelectMenu.vue`, `files/format.ts`, `files/images.ts`, the
 i18n *mechanism*, the shared catalogue sections (`files.`, `common.`,
@@ -362,14 +390,16 @@ filter from `KIND_FILES[kind].extensions` (`["json"]` for sheets).
    own floor. Its four indirect assertions (`TONE_ICONS`, `APP_TABS`,
    `SKETCH_TOOLS`, heading digits) each follow the app that owns the symbol.
 
-   **This fired in step 5, exactly as predicted.** `ModalPanel.vue` and
-   `SelectMenu.vue` moved to Petalite, the scanner walked only `src/`, and their
-   two cases *silently stopped existing* — 458 → 456 with a green suite. Caught
-   by diffing test NAMES before and after, not counts. The scanner now walks a
-   `ROOTS` list and asserts **per root** that it still finds templates, so a
-   root going empty fails instead of being covered by another root's total.
-   **Diff the test names at every step from here on**; a shrinking suite is the
-   failure mode this whole plan is most exposed to.
+   **This fired in step 5, exactly as predicted — and again in step 7.** Step 5:
+   `ModalPanel.vue` and `SelectMenu.vue` moved to Petalite, the scanner walked
+   only `src/`, and their two cases *silently stopped existing* (458 → 456,
+   green). Step 7: `LockModal.vue` and `SecurityView.vue` moved to Padova and it
+   happened again (461 → 459) — because the step-5 fix added a per-root guard
+   that catches a root going EMPTY, not a package never NAMED.
+   The scanner now **discovers** roots by reading `packages/`, so the next move
+   cannot repeat it. **Diff the test names at every step from here on**; a
+   shrinking suite is the failure mode this plan is most exposed to, and a
+   hand-maintained list of what to scan is not a guard.
 4. **The dev port lives in five places**, including the `devCsp` string
    (`ws://localhost:1431`). `smoke.test.ts` guards three; all its reads are
    CWD-relative, so each app needs its own vitest root.

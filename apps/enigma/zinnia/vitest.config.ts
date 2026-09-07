@@ -13,6 +13,7 @@ const univerStub = new URL("./tests/stubs/univer.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("./packages/rakotis/src", import.meta.url).pathname;
 const petaliteSrc = new URL("./packages/petalite/src", import.meta.url).pathname;
+const padovaSrc = new URL("./packages/padova/src", import.meta.url).pathname;
 
 export default defineConfig({
   plugins: [vue()],
@@ -24,6 +25,9 @@ export default defineConfig({
       { find: /^petalite\/(.*\.vue)$/, replacement: `${petaliteSrc}/components/$1` },
       { find: /^petalite\/(.*)/, replacement: `${petaliteSrc}/$1` },
       { find: /^petalite$/, replacement: `${petaliteSrc}/index.ts` },
+      { find: /^padova\/(.*\.vue)$/, replacement: `${padovaSrc}/components/$1` },
+      { find: /^padova\/(.*)/, replacement: `${padovaSrc}/$1` },
+      { find: /^padova$/, replacement: `${padovaSrc}/index.ts` },
       // The package ROOT stays real: aceSetup calls ace.config.setModuleUrl,
       // which the stub does not implement — and the root loads fine in jsdom.
       { find: /^rakotis\/(.*)/, replacement: `${rakotisSrc}/$1` },

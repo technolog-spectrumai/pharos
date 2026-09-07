@@ -8,7 +8,7 @@
 // was spelled differently from the format's value.
 //
 // So this test reads the source the way the browser does and checks the names.
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -18,14 +18,25 @@ import { APP_TABS } from "../../src/tabs";
 import { SKETCH_TOOLS } from "../../src/sketch/tools";
 
 const SRC = join(__dirname, "../../src");
-/** Shared components ship templates too, and their icons fail the same silent
- *  way. Scanning only `src/` is how two files stopped being checked the moment
- *  they moved into Petalite — the suite stayed green and the coverage left. */
-const PETALITE = join(__dirname, "../../packages/petalite/src");
-const ROOTS = [
-  ["src", SRC],
-  ["petalite", PETALITE],
-] as const;
+const PACKAGES = join(__dirname, "../../packages");
+
+/** Every tree that ships templates: the app, plus each workspace package.
+ *
+ *  DISCOVERED, not listed. A hardcoded list loses a package's coverage in
+ *  silence the moment one is added, and the per-root guard below catches a root
+ *  that went empty — not one that was never named. `LockModal.vue` and
+ *  `SecurityView.vue` proved that twice, moving into Petalite and then into
+ *  Padova; both times the suite stayed green and two cases quietly vanished.
+ *
+ *  `rakotis` is excluded: it is a git subtree with its own tests, and its icon
+ *  set is its own concern. */
+const ROOTS: ReadonlyArray<readonly [string, string]> = [
+  ["src", SRC] as const,
+  ...readdirSync(PACKAGES)
+    .filter((name) => name !== "rakotis")
+    .map((name) => [name, join(PACKAGES, name, "src")] as const)
+    .filter(([, dir]) => existsSync(dir)),
+];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {

@@ -31,10 +31,13 @@ export default defineConfig({
       { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("./packages/petalite/src/components/$1", import.meta.url)) },
       { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("./packages/petalite/src/$1", import.meta.url)) },
       { find: /^petalite$/, replacement: fileURLToPath(new URL("./packages/petalite/src/index.ts", import.meta.url)) },
+      { find: /^padova\/(.*\.vue)$/, replacement: fileURLToPath(new URL("./packages/padova/src/components/$1", import.meta.url)) },
+      { find: /^padova\/(.*)/, replacement: fileURLToPath(new URL("./packages/padova/src/$1", import.meta.url)) },
+      { find: /^padova$/, replacement: fileURLToPath(new URL("./packages/padova/src/index.ts", import.meta.url)) },
       { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("./packages/rakotis/src/$1", import.meta.url)) },
     ],
   },
-  optimizeDeps: { exclude: ["rakotis", "petalite"] },
+  optimizeDeps: { exclude: ["rakotis", "petalite", "padova"] },
 
   // Don't let Vite's overlay hide Rust compiler errors during `tauri dev`.
   clearScreen: false,

@@ -26,7 +26,7 @@ import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 // what lets an app ship the tree without the sealing commands on its IPC
 // surface. Before `mount`, because the panel reads a folder as it appears.
 import { setSealProbe } from "./files/useWorkspace";
-import { probeSealed } from "./security/lock";
+import { probeSealed } from "padova";
 
 setSealProbe((path) => probeSealed(path));
 
