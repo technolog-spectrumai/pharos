@@ -1,10 +1,11 @@
 # CryptoRotor
 
-> **Vendored inside the [enigma](../README.md) repo.** This directory is a self-contained
-> nested cargo workspace and the single source of truth for the crypto layer. enigma
-> consumes `rotor-core` by **path** (no GitLab access needed to build). The toto
-> project vendors a static copy of the `rotor_wasm` build produced by
-> [build_wasm.sh](build_wasm.sh) — see [technology.md](../technology.md) §16.
+> **Its own repository**, and the single source of truth for the crypto layer.
+> It was vendored inside the enigma repo until 2026-09-08; the eight commits of
+> that history came across with it. Consumers pin it by **path** to a sibling
+> checkout — see "Consumers" below — so no GitLab access is needed to build.
+> The toto project vendors a static copy of the `rotor_wasm` build produced by
+> [build_wasm.sh](build_wasm.sh).
 
 CryptoRotor is the canonical home of **Rotor** — a small, reusable [MLS](https://www.rfc-editor.org/rfc/rfc9420)
 (Messaging Layer Security) engine built on [OpenMLS](https://github.com/openmls/openmls).
@@ -75,3 +76,27 @@ Now that Rotor is vendored, consumers use it **by path**, not over git:
 Vendored from CryptoRotor **tag `v0.1.0`**. To update, re-vendor from the upstream
 CryptoRotor history and bump this note. `Cargo.lock` in this directory is committed
 for reproducible builds of the three crates.
+
+## Consumers
+
+Both consumers depend on the crates by relative path, expecting this repo as a
+sibling checkout of the app repo:
+
+| repo | crates | how |
+|---|---|---|
+| **enigma** | `rotor-core`, `gervasius` | `apps/enigma/src-tauri/Cargo.toml`, `protasius/Cargo.toml` |
+| **zinnia** | `gervasius` (via Padova) | not yet pinned here — still carried in its `packages/rakotis` subtree |
+
+The layout the paths assume:
+
+```
+dev/
+├── rotor/crypto_rotor/   ← this repo
+├── enigma/enigma/
+└── zinnia/
+```
+
+`gervasius` currently exists in two forked copies — this one has `seal.rs`
+(X25519 sealing), zinnia's has `gervazy.rs` (the legacy-format sniffer its
+sealed-file detection needs). Neither is a superset; merging them is the
+prerequisite for zinnia pinning this repo.
