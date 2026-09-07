@@ -6,7 +6,7 @@ authors = ["SpectrumAI"]
 license = ""
 repository = "https://gitlab.com/janhagit-group/zinnia"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 [lib]
 # The `_lib` suffix avoids a bin/lib name clash on Windows (rust-lang/cargo#8519).
@@ -22,9 +22,11 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
-# The whole Rust surface for now: native file dialogs, reading and writing the
-# files the editors open, and opening external links. Zinnia deliberately has no
-# custom commands — anything a plugin already does should not become Rust here.
+# Standard operations go through stock plugins: native file dialogs, reading and
+# writing the files the editors open, and opening external links. Anything a
+# plugin already does should not become Rust here. Custom commands exist only
+# for application-specific work a webview cannot do — sealing a file
+# (src/lock.rs) and holding its passphrase in the OS keyring (src/secrets.rs).
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
