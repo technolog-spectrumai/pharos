@@ -21,6 +21,15 @@ import "./useSystemColors";
 import "./icons";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 
+// The file tree draws a padlock; sealing is what knows which files carry one.
+// Wiring the two together HERE, rather than importing one from the other, is
+// what lets an app ship the tree without the sealing commands on its IPC
+// surface. Before `mount`, because the panel reads a folder as it appears.
+import { setSealProbe } from "./files/useWorkspace";
+import { probeSealed } from "./security/lock";
+
+setSealProbe((path) => probeSealed(path));
+
 const app = createApp(App)
   .use(createPinia())
   .use(i18n)

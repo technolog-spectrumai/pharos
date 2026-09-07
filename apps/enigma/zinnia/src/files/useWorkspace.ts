@@ -28,7 +28,6 @@
 // behaviour: the picked folder can be a home directory, and reading all of it
 // to draw a panel that shows twelve rows is a stall with nothing to show for it.
 import { computed, ref } from "vue";
-import { probeSealed } from "../security/lock";
 import { toDataUri } from "./images";
 
 export interface Entry {
@@ -68,6 +67,26 @@ const error = ref("");
  *  renders a row for a path that has no row — and growth is bounded by the
  *  files in expanded folders, exactly as `children` is. */
 const sealed = ref<Map<string, boolean>>(new Map());
+
+/** Asks whether one path is sealed. Injected rather than imported, because
+ *  browsing a folder and encrypting a file are separate concerns that only meet
+ *  at the padlock: this store is generic file browsing, and sealing is one
+ *  app's feature bolted onto it.
+ *
+ *  Absent — the default — `probeAll` does nothing and `isSealed` is always
+ *  false. That is not a degraded mode: it is exactly today's behaviour off the
+ *  desktop, where `probeSealed` already answers false because there is no Rust
+ *  to ask. An app that does not offer sealing simply never sets one. */
+export type SealProbe = (path: string) => Promise<boolean>;
+
+let probe: SealProbe | null = null;
+
+/** Give the store its probe. Call BEFORE the first `read()` — a folder read
+ *  fires the probes for its rows, and one installed afterwards would leave that
+ *  first folder unbadged until a refresh. `main.ts` is the place. */
+export function setSealProbe(next: SealProbe | null): void {
+  probe = next;
+}
 /** The ROOT itself could not be read. Kept apart from `error`, which any
  *  sub-folder read can also set: this one means the whole tree is unavailable,
  *  and the panel answers it with the picker rather than an empty listing.
@@ -231,6 +250,8 @@ export function useWorkspace() {
    *  that adds rows — both `refresh()` and `toggle()` route through it, so
    *  filling the map anywhere else would leave a hole. */
   async function probeAll(entries: Entry[]): Promise<void> {
+    if (!probe) return;
+    const ask = probe;
     const files = entries.filter((e) => !e.isDirectory);
     if (!files.length) return;
     const answers = await Promise.all(
@@ -239,7 +260,7 @@ export function useWorkspace() {
         // so this catch is all but unreachable — it is here so a fire-and-forget
         // probe can never reject unobserved.
         try {
-          return [entry.path, await probeSealed(entry)] as const;
+          return [entry.path, await ask(entry.path)] as const;
         } catch {
           return [entry.path, false] as const;
         }
@@ -341,7 +362,8 @@ export function useWorkspace() {
   /** Re-probe ONE path — what the Security tab calls after sealing a file. A
    *  full refresh would re-stat every open folder to correct one boolean. */
   async function reprobe(path: string): Promise<void> {
-    const yes = await probeSealed(path);
+    if (!probe) return;
+    const yes = await probe(path);
     sealed.value = new Map(sealed.value).set(path, yes);
   }
 

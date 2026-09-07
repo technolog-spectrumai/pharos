@@ -2,14 +2,14 @@
 
 ## Status
 
-**Step 1 done.** The tree is clean and all 454 tests green. Nothing has moved
+**Steps 1-2 done.** The tree is clean and all 458 tests green. Nothing has moved
 into `apps/` yet — steps 1-7 are in-place refactors.
 
 | # | Step | State |
 |---|---|---|
 | 0 | groundwork — plan, `exports` list, PDF parked unwired | **done** |
 | 1 | extract shared preflight into scripts lib | **done** |
-| 2 | workspace store takes an injected seal probe | todo |
+| 2 | workspace store takes an injected seal probe | **done** |
 | 3 | cargo workspace with substrate crate | todo |
 | 4 | padova crate owns sealing and secrets | todo |
 | 5 | npm workspaces with petalite package | todo |
@@ -207,16 +207,26 @@ The store's only coupling to sealing is **two call sites** —
 `useWorkspace.ts:242` and `:344`, both `probeSealed`. Everything else in its 369
 lines is generic browsing.
 
-Petalite ships `createWorkspace({ probe })` where `probe?: (path) =>
-Promise<boolean>`. Absent, `probeAll` is a no-op and `isSealed` is always false
-— which is exactly today's behaviour off-desktop, since `probeSealed` already
-returns `false` when not in Tauri (`lock.ts:116`). Each app injects Padova's
-probe at boot, **before the first `read()`** (`useWorkspace.ts:228-232`).
+**Done in step 2**, though not in the shape first planned. `createWorkspace({
+probe })` assumed a factory; the store is a module-level singleton, so the
+injection landed as `setSealProbe(probe | null)` beside it — same seam, no
+premature restructuring. `main.ts` installs it before `mount`. Absent, `probeAll`
+returns early and `isSealed` is always false, which is exactly today's behaviour
+off-desktop since `probeSealed` already answers `false` outside Tauri
+(`lock.ts:116`).
 
-The store must become a **factory**, not stay the module-level singleton it is
-today (refs at `:49-78` are module-scope). A thin `useWorkspace()` over one
-instance keeps Lazurite's panel and Security tab sharing one tree — which
-`SecurityView.vue:5-8` documents as deliberate.
+The absent case is pinned by `tests/unit/sealProbe.test.ts` — no probe means no
+invoke, no padlock and **no throw** — and that suite was mutation-checked:
+bypassing the injection makes it fail. Two existing suites (`filesPanel`,
+`securityView`) had to start installing a probe, which is the correct signal:
+they mock at the Tauri boundary and were genuinely asserting the padlock.
+
+Whether the store becomes a **factory** is deferred to step 5, where Petalite
+takes ownership. It is a module-level singleton today (refs at `:49-78` are
+module-scope), and step 2 did not change that: the probe seam did not require it,
+and converting both at once would have made one commit two refactors. A thin
+`useWorkspace()` over one instance keeps Lazurite's panel and Security tab
+sharing one tree — which `SecurityView.vue:5-8` documents as deliberate.
 
 ## Primula's CSV export
 

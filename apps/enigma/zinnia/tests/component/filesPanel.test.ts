@@ -59,7 +59,13 @@ beforeEach(async () => {
   stat.mockResolvedValue({ size: 12, mtime: null });
   i18n.global.locale.value = "en";
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
-  const { useWorkspace } = await import("../../src/files/useWorkspace");
+  const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+  // The store no longer imports the seal probe; `main.ts` injects it, and so
+  // must a test that expects padlocks. Installed as the real `probeSealed`, so
+  // these tests still assert against `is_file_locked` at the Tauri boundary
+  // rather than against a stub of the app's own code.
+  const { probeSealed } = await import("../../src/security/lock");
+  setSealProbe((path) => probeSealed(path));
   const workspace = useWorkspace();
   workspace.root.value = "";
   workspace.expanded.value = new Set();

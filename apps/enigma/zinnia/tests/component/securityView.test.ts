@@ -51,7 +51,11 @@ beforeEach(async () => {
   stat.mockResolvedValue({ size: 12, mtime: null });
   i18n.global.locale.value = "en";
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
-  const { useWorkspace } = await import("../../src/files/useWorkspace");
+  const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+  // See filesPanel.test.ts: the store takes its probe by injection now, the
+  // way main.ts gives it one. Without this the padlocks never appear.
+  const { probeSealed } = await import("../../src/security/lock");
+  setSealProbe((path) => probeSealed(path));
   useWorkspace().clearRoot();
 });
 
