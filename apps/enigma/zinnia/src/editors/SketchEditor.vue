@@ -236,11 +236,9 @@ defineExpose({
   isDirty(): boolean {
     return dirty.value;
   },
-  // An editor may offer ONE extra file command; the app menu shows it beside
-  // New/Open/Save. Only the sketch has one today (PNG), which is why this is an
-  // optional part of the editor contract rather than a fixed menu entry.
-  exportFile: runExportPng,
-  exportLabelKey: "sketch.exportPng",
+  // Extra file commands the app menu shows beside New/Open/Save. A list, so a
+  // tab can offer more than one and a tab with none adds nothing.
+  exports: [{ labelKey: "sketch.exportPng", icon: "file-image", run: runExportPng }],
 });
 </script>
 

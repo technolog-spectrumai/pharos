@@ -65,13 +65,16 @@ const showFiles = computed(() =>
 // own. So the menu does not hold any file state — it finds the host of the tab
 // currently on screen and calls into it. One menu, N files, no third copy of
 // "is this dirty" to keep in step.
+type ExportCommand = { labelKey: string; icon: string; run: () => void };
+
 type Host = {
   newFile: () => void;
   openFile: () => void;
   saveFile: () => void;
   saveAs: () => void;
-  exportFile: () => void;
-  exportLabelKey: string;
+  /** Extra file commands the mounted editor offers — a PNG, a PDF. Zero or
+   *  more, so a tab that has none adds nothing to the menu. */
+  exports: ExportCommand[];
   openRemote: (name: string, content: string) => void;
   name: string;
   dirty: boolean;
@@ -138,13 +141,10 @@ const MENU_ITEMS = [
   { id: "saveAs", labelKey: "file.saveAs", icon: "file-pen", run: (h: Host) => h.saveAs() },
 ] as const;
 
-/** Shown only when the tab on screen offers one — the sketch's PNG export
- *  today. An entry that was always present and usually inert would be worse
- *  than one that arrives with the tab it belongs to. */
-const exportItem = computed(() => {
-  const key = activeHost.value?.exportLabelKey;
-  return key ? { labelKey: key, icon: "file-image" } : null;
-});
+/** Shown only when the tab on screen offers any — the sketch's PNG, the
+ *  writer's PDF. An entry that was always present and usually inert would be
+ *  worse than one that arrives with the tab it belongs to. */
+const exportItems = computed<ExportCommand[]>(() => activeHost.value?.exports ?? []);
 
 function runCommand(item: (typeof MENU_ITEMS)[number]) {
   const host = activeHost.value;
@@ -193,14 +193,15 @@ function isDisabled(id: string): boolean {
             <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
             {{ t(item.labelKey) }}
           </button>
-          <button v-if="exportItem" type="button" role="menuitem"
-                  class="flex w-full items-center gap-2.5 border-t border-current/10 px-3 py-2 text-left text-sm
+          <button v-for="(item, i) in exportItems" :key="item.labelKey" type="button" role="menuitem"
+                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm
                          transition hover:bg-accent-light/10 disabled:opacity-40"
-                  data-testid="menu-export"
+                  :class="i === 0 ? 'border-t border-current/10' : ''"
+                  :data-testid="i === 0 ? 'menu-export' : `menu-export-${i}`"
                   :disabled="activeHost?.busy"
-                  @click="menuOpen = false; activeHost?.exportFile()">
-            <font-awesome-icon :icon="exportItem.icon" class="w-4 opacity-70" />
-            {{ t(exportItem.labelKey) }}
+                  @click="menuOpen = false; item.run()">
+            <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
+            {{ t(item.labelKey) }}
           </button>
         </div>
       </div>
