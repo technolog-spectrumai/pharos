@@ -38,8 +38,8 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 10 | sketch becomes an app under apps | **done** |
 | 11 | csv export from the active worksheet | **done** |
 | 12 | per-app IPC surface, asserted | **done** |
-| 13 | rakotis canonical adopts enigma's version | todo |
-| 14 | drop parked sync exports from rakotis | todo |
+| 13 | rakotis canonical adopts enigma's version | **done** |
+| 14 | drop parked sync exports from rakotis | **done** |
 | 15 | enigma re-points rakotis as a subtree | todo |
 | 16 | zinnia pulls the updated rakotis subtree | todo |
 | 17 | crypto_rotor becomes its own repo, history intact | todo |
@@ -594,23 +594,52 @@ and then scaling up is what makes a phone-width code blurry, which costs more
 scans than being small does."* Adopting canonical as-is would hand zinnia the
 **pre-fix** QR component.
 
-13. `rakotis canonical adopts enigma's version` — `git subtree split --prefix=
-    packages/rakotis` in enigma, fetched into canonical and merged.
-    **The histories are UNRELATED** (canonical's `556408d` does not exist in
-    enigma and vice versa — the "import with history" copied the tree, not the
-    ancestry), so this needs `--allow-unrelated-histories` and a file-by-file
-    review rather than a trusted three-way resolve. Baseline before starting:
-    canonical has **no `node_modules`**; after `npm install` its suite is
-    **236 tests / 20 files green**.
-14. `drop parked sync exports from rakotis` — remove `deviceSyncModel`,
-    `fileSyncModel`, `peerSyncModel`, `useDeviceSync`, `usePeerSync`, their
-    five tests and the `index.ts:15-22` exports. They are parked in
-    `enigma/limbo/frontend/{devices,peers}` with restore notes, which is where
-    they belong; recoverable from git and from limbo. A separate commit so the
-    removal is reviewable on its own. Three further canonical-only tests
-    (`dhtCode`, `multiDeviceChannel`, `torTicket`) cover features enigma also
-    retired — **adjudicate each individually, do not assume.**
-    Test delta overall: **+7 arriving, −5 leaving, 12 shared, 3 to decide.**
+13. `rakotis canonical adopts enigma's version` — **done.** `git subtree split
+    --prefix=packages/rakotis` in enigma (274 commits), fetched into canonical,
+    merged. Commits: `e2035aa` · `19e2af3` · `490d582` · `176bb30`.
+
+    **Correction: the histories are NOT unrelated.** The plan said they were,
+    on the evidence that canonical's `556408d` is absent from enigma. That was
+    the wrong question — they share ancestor `71a958e "tabs"`, so this merged
+    with **zero conflicts** and no `--allow-unrelated-histories`. The true
+    shape: canonical is 2 commits past the fork (`Initial commit`, `import
+    rakotis from enigma with history` — repo scaffolding, not library work),
+    enigma is **39 real commits** past it. Canonical was a stale snapshot, and
+    enigma's side won every file; `src/` is now byte-identical to enigma's.
+
+    Two latent bugs fixed on the way, both of which only appear standalone:
+    * **`OyaQrCode` imported `qrcode` without declaring it** — it resolved
+      only through npm hoisting inside enigma, and failed `vue-tsc` in a
+      standalone checkout. Now a real dependency (`490d582`).
+    * **`privacyHpDrift.test.ts` reads `apps/enigma/src-tauri/privacy_hp.yaml`**
+      — impossible outside the monorepo. It now skips there but still runs all
+      13 assertions inside enigma, with a guard test that **fails if it ever
+      skips inside enigma**, where a silent skip would mean no drift check at
+      all. Verified in both locations (`176bb30`).
+
+    Also added a `.gitignore` — the repo had none, and a first `git add -A`
+    committed 4,787 `node_modules` files. Reset, ignored, re-merged.
+14. `drop parked sync exports from rakotis` — **done, and mostly free**: the
+    step-13 merge applied enigma's own deletions, so the five files, their five
+    tests and the `index.ts:15-22` exports left with it. What this step
+    actually did was **adjudicate the eight deleted tests**, each traced to a
+    named, deliberate enigma commit — none collateral:
+
+    | tests | removed by |
+    |---|---|
+    | `deviceSyncModel`, `fileSyncModel`, `useDeviceSync` | `f0c8126 Park device linking and file sync to limbo` |
+    | `peerSyncModel`, `usePeerSync` | `7a2fbca Park peer links to limbo` |
+    | `multiDeviceChannel` | `f0c8126` (same parking) |
+    | `dhtCode`, `torTicket` | `1debb24 Remove ticket and room code join paths` |
+
+    Confirmed the *code* went with the tests, not just the tests: no `src/`
+    references survive for `dhtCode`, `roomCode` or `torTicket`, and `vue-tsc`
+    is clean so `index.ts` exports nothing that no longer exists. One stale
+    comment in `useChatChannel.ts:426` still cited the deleted
+    `multiDeviceChannel.test.ts`; repointed at the parked copy (`39f5eca`).
+
+    Test delta as predicted: **+7 arriving, −5 parked, −3 retired, 12 shared.**
+    Canonical now: **218 passed, 12 skipped, 19 files**; typecheck clean.
 15. `enigma re-points rakotis as a subtree` — replacing 119 commits of in-place
     editing with a tracked relationship, so the next drift is a `subtree pull`.
     Content must not change; `git diff` on `packages/rakotis` proves it.
