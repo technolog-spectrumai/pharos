@@ -77,6 +77,25 @@ describe("cyprian markup survives the editor", () => {
   });
 });
 
+describe("Polish and Unicode survive the editor", () => {
+  it("keeps diacritics, quotes and an emoji byte-identical", async () => {
+    // Nothing in the golden fixtures carries Polish, so this is the one place
+    // it is pinned: title through the envelope, body through TipTap and back.
+    const text = "Zażółć gęślą jaźń — „cytat” • 100 zł • 🌸";
+    const doc = newDocument(text);
+    doc.content = `<p>${text}</p>`;
+    const w = mount(DocumentEditor, {
+      props: { path: null, name: "pl.xml", content: dumps(doc) },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    const out = loads((w.vm as unknown as { getContent(): string }).getContent());
+    expect(out.title).toBe(text);
+    expect(out.content).toContain(text);
+    expect((w.vm as unknown as { isDirty(): boolean }).isDirty()).toBe(false);
+  });
+});
+
 describe("the envelope", () => {
   it("opens without marking the document dirty", async () => {
     const w = mountDoc(docWith("<p>hello</p>"));

@@ -257,13 +257,11 @@ function onKey(e: KeyboardEvent) {
 /** The file commands, for the app menu. The host owns the file — which path it
  *  came from, whether it is dirty, whether a write is in flight — so the menu
  *  asks it rather than keeping a second copy of any of that. */
-/** The mounted editor's optional extra command, if it offers one. */
-const exportLabelKey = computed(() =>
-  (editorRef.value as { exportLabelKey?: string } | null)?.exportLabelKey ?? "");
-
-function exportFile() {
-  (editorRef.value as { exportFile?: () => void } | null)?.exportFile?.();
-}
+/** The mounted editor's extra file commands, if it offers any. Read off the
+ *  editor rather than declared per kind: the editor knows what it can make. */
+const exports = computed(() =>
+  (editorRef.value as { exports?: Array<{ labelKey: string; icon: string; run: () => void }> } | null)
+    ?.exports ?? []);
 
 /** Open a buffer the Files panel handed over rather than the Open dialog.
  *
@@ -278,7 +276,7 @@ function openRemote(fileName: string, text: string) {
 }
 
 defineExpose({
-  newFile, openFile, saveFile, saveAs, exportFile, exportLabelKey, openRemote,
+  newFile, openFile, saveFile, saveAs, exports, openRemote,
   name, dirty, busy, canSave, notice, fileError,
 });
 
@@ -391,8 +389,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         <p class="text-sm font-semibold">{{ t("file.discardTitle") }}</p>
         <p class="text-sm opacity-70">{{ t("file.discardBody") }}</p>
         <div class="flex justify-end gap-2">
-          <OyaButton variant="secondary" @click="answerDiscard(false)">{{ t("common.cancel") }}</OyaButton>
-          <OyaButton @click="answerDiscard(true)">{{ t("file.discardConfirm") }}</OyaButton>
+          <OyaButton variant="secondary" data-testid="discard-cancel" @click="answerDiscard(false)">{{ t("common.cancel") }}</OyaButton>
+          <OyaButton data-testid="discard-confirm" @click="answerDiscard(true)">{{ t("file.discardConfirm") }}</OyaButton>
         </div>
       </ModalPanel>
     </OyaModal>

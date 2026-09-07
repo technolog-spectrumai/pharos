@@ -87,3 +87,35 @@ describe("the editor host", () => {
     }
   });
 });
+
+describe("the discard prompt", () => {
+  it("asks before New throws away unsaved work, and cancel keeps it", async () => {
+    const w = mountHost("sketch");
+    await flushPromises();
+    const vm = w.vm as unknown as {
+      openRemote(name: string, text: string): void;
+      newFile(): Promise<void>;
+      dirty: boolean; name: string;
+    };
+    // A panel-opened buffer arrives dirty: there is no file behind it yet.
+    vm.openRemote("draft.svg", "<svg xmlns='http://www.w3.org/2000/svg'/>");
+    await flushPromises();
+    expect(vm.dirty).toBe(true);
+
+    const pending = vm.newFile();
+    await flushPromises();
+    expect(w.find('[data-testid="discard-cancel"]').exists()).toBe(true);
+    await w.get('[data-testid="discard-cancel"]').trigger("click");
+    await pending;
+    // Still the draft, still dirty: nothing was thrown away.
+    expect(vm.name).toBe("draft.svg");
+    expect(vm.dirty).toBe(true);
+
+    const again = vm.newFile();
+    await flushPromises();
+    await w.get('[data-testid="discard-confirm"]').trigger("click");
+    await again;
+    expect(vm.name).not.toBe("draft.svg");
+    expect(vm.dirty).toBe(false);
+  });
+});
