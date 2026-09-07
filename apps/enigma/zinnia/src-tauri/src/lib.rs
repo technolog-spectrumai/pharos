@@ -11,7 +11,10 @@
 //! range, which is not something to hand a page that also renders untrusted
 //! `.svg` and deck HTML.
 //!
-//! `secrets` is the other: the OS secret store, holding one passphrase so
+//! `pdf` supervises a renderer process — a child that must not touch the UI
+//! thread, must not write outside its own directory, must not run forever and
+//! must not reach the network; four things a webview cannot promise about a
+//! process it merely asked for. `secrets` is the OS secret store, holding one passphrase so
 //! sealing a second file need not mean typing it again. It is deliberately
 //! write-only from the frontend's side — no command hands the passphrase back,
 //! because this app renders markup that arrived in a file.
@@ -22,6 +25,7 @@
 //! keyring crate with it, and none of its code.
 
 mod lock;
+mod pdf;
 mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -37,6 +41,9 @@ pub fn run() {
             secrets::secret_remember,
             secrets::secret_forget,
             secrets::secret_status,
+            pdf::pdf_status,
+            pdf::pdf_render,
+            pdf::pdf_cancel,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
