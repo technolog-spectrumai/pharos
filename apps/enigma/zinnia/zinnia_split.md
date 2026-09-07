@@ -348,8 +348,19 @@ lay out to learn which page each heading lands on, fill in the TOC, which
 reflows the TOC, which can shift every later page. WeasyPrint does multi-pass
 layout. Replicating it means writing that fixpoint yourself.
 
-**Decision: printpdf with a reduced contract**, ~2-3 weeks. What is knowingly
-given up, and must be stated in the UI rather than discovered:
+**Decision: printpdf with a reduced contract**, ~2-3 weeks.
+
+**Why the reduction is acceptable: WeasyPrint stays in Zenobia.** It lives in
+`toto.aralia` (`portal/zenobia/zenobia/toto/aralia/` — dispatch, views, metrics,
+tests, its own `requirements.pdf.txt`), which is the same aralia this repo's
+`render.py` borrowed `refuse_fetch` from. So full-fidelity rendering is not
+being *lost*, it is being *kept where Python already lives*: free in a Django
+portal, costly in a desktop bundle. Zinnia takes the reduced native path and
+Zenobia keeps the complete one — a split of responsibility, not a compromise.
+Nothing in Zenobia is to be parked or changed on account of this.
+
+What is knowingly given up in zinnia, and must be stated in the UI rather than
+discovered:
 
 * No TOC page numbers, no running headers, no section counters.
 * Approximate page breaks — **this breaks the pagination contract**
@@ -376,8 +387,13 @@ baked in, no runtime deps), ~3-4 weeks, where TOC page numbers, widow control,
 spanning tables and real math typesetting all come free — math from the
 `data-latex` source rather than replayed KaTeX HTML. Its cost was that
 `document.css` would stop driving the PDF, and **that objection has been
-accepted**: divergence is allowed where quality wins. So if the reduced contract
-proves too thin in practice, Typst is the next step, not a restart.
+accepted**: divergence is allowed where quality wins.
+
+But with WeasyPrint kept in Zenobia, Typst is now the *third* option rather than
+the second — anyone needing a full-fidelity PDF has one, through the portal. So
+Typst is worth revisiting only if zinnia must produce publication-quality PDFs
+**offline and standalone**. Until that need is real, the reduced native path
+plus Zenobia is the complete answer.
 
 ### PDF build order: decks first
 
@@ -428,10 +444,18 @@ this is built: **avif and ico need decoders** the `image` crate does not bring,
 so the picker should restrict to png/jpeg for the logo; and a large logo inlines
 into every saved document, so it wants a size cap.
 
+**The "simple HTML" output is also the handoff to Zenobia.** Because the
+template renders to plain self-contained HTML, the same string that zinnia's
+native renderer draws can be handed to `toto.aralia` for a full-fidelity PDF
+when one is wanted. That makes HTML the interchange format between the two, and
+is a further reason to keep the generated markup plain and self-contained
+(inline styles, `data:` images, no external references) rather than tuned to
+whichever renderer is nearer.
+
 Open questions deliberately left for build time: whether the template is a new
 editor kind or a mode of the writer; whether the fields are a modal or a
 side-form; whether "simple HTML" means it is also exportable as `.html` (it
-should be — the same string is what the PDF renders).
+should be — the same string is what the PDF renders, and what Zenobia would).
 
 ## Verification
 
