@@ -243,11 +243,11 @@ filter from `KIND_FILES[kind].extensions` (`["json"]` for sheets).
    `src-tauri/pdf/` moves with the module. Lazurite-only.
 10. **`run_dev.sh --reset` never touches the keyring** — the entry survives it.
     Worth saying in the help text.
-11. **Sketch is the export mechanism's only current producer.** `appMenu.test.ts`
-    tests it, and `:137` says *"Export is per-editor: the sketch has PNG, the
-    writer has nothing"* — a comment the in-flight PDF work already falsifies.
-    When sketch leaves, Lazurite's export tests must be re-anchored on PDF or
-    they test an empty menu and pass.
+11. **Sketch is the export mechanism's only producer.** `appMenu.test.ts` tests
+    it, and `:137` says *"Export is per-editor: the sketch has PNG, the writer
+    has nothing"* — still true while PDF stays unwired. When sketch leaves,
+    Lazurite has **no exports at all** until CSV or PDF lands, so those tests
+    must be re-anchored or they assert an empty menu and pass vacuously.
 12. **Sketch is the smoke test's default editor** (`smoke.test.ts:8,55` — *"mounts
     the shell with the sketch editor inside"*) and the representative editor in
     `editorHost.test.ts:22,54,58,93`. Both are host-contract tests, not sketch
@@ -291,12 +291,29 @@ Commit messages: max 8 words, single line, no AI mentions.
 12. `register only detection where sealing is not offered` — the capability
     reduction, once all three apps exist.
 
-**Order note:** Sketch moves *after* Primula even though it is the easier
-extraction, because the in-flight PDF work is mid-refactor of the `exports`
-contract sketch owns — it touches `App.vue`, `EditorHost.vue`,
-`SketchEditor.vue` and both catalogues at once. **That work must be committed
-before step 1.** Splitting across an uncommitted refactor of the exact seam
-being cut is how a merge conflict becomes a lost feature.
+**Order note:** the PDF work that was mid-flight is now committed and no longer
+blocks anything. The `exports` refactor it carried landed separately (`40c11ab`,
+`export menu takes a list of commands`) because it is not PDF-specific — it is
+the mechanism Primula's CSV export builds on, and it removes the stale
+`appMenu.test.ts:137` comment.
+
+### Deferred: PDF export (todo, not abandoned)
+
+The renderer is committed at `b8cb6da` and **works** — `pdf.rs`'s three tests
+pass, including a real render against WeasyPrint 69.0 via
+`ZINNIA_PDF_PYTHON=/tmp/wpv/bin/python`. Note that test **skips itself** without
+that variable, so a plain `cargo test` proves the plumbing, not the render.
+
+It is deliberately **not wired**: `src/pdf/` has zero importers and
+`DocumentEditor.vue:263` exposes no `exports`. The reason is that WeasyPrint is
+**Python**, so the feature only exists where an interpreter with it does —
+`app_data_dir/pdf-venv/bin/python` (the documented setup) or `python3` on PATH.
+Missing WeasyPrint is already handled as a *state*, not a failure (`pdf.rs:26`):
+`pdf_status` reports it and editing continues.
+
+Wiring waits for the pure-Rust **printpdf** backend behind the same three
+commands, so the first PDF path zinnia actually ships carries no Python
+dependency. Lazurite owns all of it; nothing here affects Primula or Sketch.
 
 **Rollback point:** steps 1-7 are reversible in place and leave one app. The
 directory move (8) is the first irreversible commit.
