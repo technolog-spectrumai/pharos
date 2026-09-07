@@ -34,10 +34,15 @@
 //! scope does not gate them — they will seal anything they are handed. The only
 //! caller offers rows from the picked workspace; keep it that way.
 
-use std::path::Path;
-
 use gervasius::{create_vault_with_params, gervazy, open, seal, KdfParams, VaultHeader};
 use serde::Serialize;
+
+// The frame itself — its marker, its shape, and the file I/O that must not lose
+// data — is substrate's, because every app has to RECOGNISE a sealed file even
+// when it cannot open one. What stays here is everything that needs a password.
+use substrate::{
+    atomic_write, is_current, name_of, read_capped, MAGIC, PREFIX_LEN, VERSION,
+};
 
 use crate::secrets;
 
@@ -47,27 +52,10 @@ use crate::secrets;
 /// platform's `sealed.VAULT_AAD`, and should not: this frame is zinnia's own.
 const AAD: &[u8] = b"zinnia:file:v1";
 
-/// This frame's marker. A local file has no `is_encrypted` column to consult,
-/// so the bytes have to say what they are.
-const MAGIC: &[u8; 8] = b"ZINNLOCK";
-const VERSION: u8 = 1;
-/// magic + version + the u32 that gives the header's length.
-const PREFIX_LEN: usize = 8 + 1 + 4;
-
-/// Refuse to slurp something enormous into memory; the platform's own editable
-/// ceiling is 2 MB, and a locked binary can be bigger but not unbounded.
-const MAX_LOCK_BYTES: u64 = 256 * 1024 * 1024;
-
 #[derive(Debug, Serialize)]
 pub struct LockedInfo {
     name: String,
     size: u64,
-}
-
-
-/// Whether bytes are a frame this build wrote.
-fn is_current(bytes: &[u8]) -> bool {
-    bytes.len() > PREFIX_LEN && bytes.starts_with(MAGIC) && bytes[8] == VERSION
 }
 
 /// Split a frame into its header and its sealed body.
@@ -86,40 +74,6 @@ fn parse_frame(bytes: &[u8]) -> Result<(VaultHeader, &[u8]), String> {
     let header: VaultHeader = serde_json::from_slice(&bytes[PREFIX_LEN..start])
         .map_err(|_| "crypto: that encrypted file is damaged".to_string())?;
     Ok((header, &bytes[start..]))
-}
-
-/// Atomic rewrite: sibling temp, fsync, rename. The fsync is deliberate —
-/// enigma's equivalent skips it, and a lock that a power cut can roll back to
-/// plaintext is not a lock.
-fn atomic_write(path: &str, bytes: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-    let tmp = format!("{path}.zlock.tmp");
-    let result = (|| -> std::io::Result<()> {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)
-    })();
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.to_string());
-    }
-    Ok(())
-}
-
-fn read_capped(path: &str) -> Result<Vec<u8>, String> {
-    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
-    if meta.len() > MAX_LOCK_BYTES {
-        return Err("too_large: that file is too big to lock".into());
-    }
-    std::fs::read(path).map_err(|e| e.to_string())
-}
-
-fn name_of(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string())
 }
 
 /// The password to use: the one passed in, or the remembered one.
@@ -198,20 +152,13 @@ pub fn unlock_file(path: String, password: Option<String>) -> Result<LockedInfo,
 /// Cheap sniff, so a listing can badge sealed files without asking for
 /// anything.
 ///
-/// Answers for the PLATFORM'S formats too, although `unlock_file` refuses them:
-/// a file this build cannot open is still one the user must not be handed to an
-/// editor as ciphertext. A file that cannot be opened at all reads as `false` —
-/// a permissions failure is indistinguishable from "not sealed" here, so
-/// nothing downstream should treat this as authoritative.
+/// The command shim stays here while this app registers it; the answer comes
+/// from substrate, because DETECTION is what every app needs and sealing is
+/// what only some do. An app that offers no sealing registers this and nothing
+/// else — it can draw a padlock without ever being able to open one.
 #[tauri::command]
 pub fn is_file_locked(path: String) -> Result<bool, String> {
-    use std::io::Read;
-    let Ok(mut f) = std::fs::File::open(&path) else { return Ok(false) };
-    // Enough for any marker: this frame's 13-byte prefix, the platform's
-    // 9-byte one, or Fernet's base64 prefix.
-    let mut buf = [0u8; 16];
-    let read = match f.read(&mut buf) { Ok(n) => n, Err(_) => return Ok(false) };
-    Ok(is_current(&buf[..read]) || gervazy::is_sealed(&buf[..read]))
+    Ok(substrate::is_sealed_file(&path))
 }
 
 #[cfg(test)]

@@ -4,9 +4,10 @@ dist-ssr/
 *.local
 .DS_Store
 
-# Rust build output and the app crate's lockfile.
+# Rust build output. Globbed, not anchored: the crates move under apps/ in the
+# split, and an anchored `src-tauri/gen/schemas/` would silently stop matching.
 **/target/
-src-tauri/gen/schemas/
+**/gen/schemas/
 
 # Test/build artefacts
 coverage/

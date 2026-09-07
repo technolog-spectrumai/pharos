@@ -2,15 +2,16 @@
 
 ## Status
 
-**Steps 1-2 done.** The tree is clean and all 458 tests green. Nothing has moved
-into `apps/` yet — steps 1-7 are in-place refactors.
+**Steps 1-3 done.** The tree is clean; 458 frontend tests and 23 Rust tests
+(substrate 8, zinnia 15) green. Nothing has moved into `apps/` yet — steps 1-7
+are in-place refactors.
 
 | # | Step | State |
 |---|---|---|
 | 0 | groundwork — plan, `exports` list, PDF parked unwired | **done** |
 | 1 | extract shared preflight into scripts lib | **done** |
 | 2 | workspace store takes an injected seal probe | **done** |
-| 3 | cargo workspace with substrate crate | todo |
+| 3 | cargo workspace with substrate crate | **done** |
 | 4 | padova crate owns sealing and secrets | todo |
 | 5 | npm workspaces with petalite package | todo |
 | 6 | one file tree for panel and security tab | todo |
@@ -126,9 +127,18 @@ scripts/lib.sh                shared preflight, sourced by each app's scripts
 Cargo.toml                    [workspace] — members = apps/*/src-tauri, crates/*
 ```
 
-**`packages/**` stays out of `members`.** The rakotis subtree ships its own
-tracked `Cargo.lock`; as a path dependency *outside* the workspace, cargo
-ignores it and nothing in the subtree is touched.
+**`packages/rakotis` must be `exclude`d, not merely left out of `members`.**
+The plan first assumed a path dependency stays out on its own. It does not:
+cargo automatically adopts any path dependency that sits *inside the workspace
+root directory*, and `packages/rakotis/crates/gervasius` does. Found in step 3
+when `cargo test --workspace` ran the subtree's own tests — gervasius had
+become an implicit member. `exclude = ["packages/rakotis"]` is the documented
+fix; excluded, it compiles as a plain dependency and the subtree is never
+written to. Verified: two members after, subtree `git status` clean.
+
+**The lockfile moved to the root** (`git mv src-tauri/Cargo.lock Cargo.lock`)
+because a workspace resolves at its root. Moved rather than regenerated, so
+every pinned version survived; substrate was the only addition.
 
 ## What moves where
 

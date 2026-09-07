@@ -1,0 +1,18 @@
+[package]
+name = "substrate"
+version = "0.1.0"
+description = "Shared Rust below zinnia's apps — the sealed-file frame and safe file I/O"
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version = "1.88"
+
+[dependencies]
+# The frame's header type and the legacy sniff. Substrate needs gervasius for
+# `VaultHeader` and `gervazy::is_sealed`; it does NOT seal or open anything —
+# that stays in the padova crate, which is what keeps the key material and the
+# keyring on one side of this line.
+gervasius = { path = "../../packages/rakotis/crates/gervasius" }
+
+# No `tauri` dependency, on purpose. Substrate exports plain functions and each
+# app expands its own `#[tauri::command]` shims over them, so the command names
+# stay identical and the frontend's invoke strings never change.

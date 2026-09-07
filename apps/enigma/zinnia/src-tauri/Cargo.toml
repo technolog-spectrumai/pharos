@@ -42,7 +42,11 @@ tauri-plugin-opener = "2"
 # legacy: nothing writes that format, and src/lock.rs refuses those files
 # outright now that their salt source is parked.
 gervasius = { path = "../packages/rakotis/crates/gervasius" }
-base64 = "0.22"
+
+# The frame's shape, its detection, and the atomic write — shared with every
+# app that comes out of the split, because each must RECOGNISE a sealed file
+# even when it cannot open one. See crates/substrate.
+substrate = { path = "../crates/substrate" }
 
 # ── remembering one passphrase ──────────────────────────────────────────────
 # The OS secret store, so sealing a second file need not mean typing it again.
@@ -52,7 +56,6 @@ base64 = "0.22"
 # the sealing commands ask for it inside Rust.
 keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
 
-[profile.dev]
-# Tauri + webkit2gtk produce enough DWARF that the GNU linker can OOM-kill the
-# build on a modest machine; unpacked debuginfo keeps it out of the link step.
-split-debuginfo = "unpacked"
+# `[profile.dev]` used to be here. It lives in the ROOT Cargo.toml now: a
+# profile in a workspace member is ignored with only a warning, and the one
+# it carried (split-debuginfo, against linker OOM) must not be silently lost.
