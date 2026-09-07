@@ -40,8 +40,8 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 12 | per-app IPC surface, asserted | **done** |
 | 13 | rakotis canonical adopts enigma's version | **done** |
 | 14 | drop parked sync exports from rakotis | **done** |
-| 15 | enigma re-points rakotis as a subtree | todo |
-| 16 | zinnia pulls the updated rakotis subtree | todo |
+| 15 | enigma re-points rakotis as a subtree | **done** |
+| 16 | zinnia pulls the updated rakotis subtree | **done** |
 | 17 | crypto_rotor becomes its own repo, history intact | todo |
 | 18 | build scripts take a rotor path | todo |
 | 19 | one gervasius: merge the two forks | todo |
@@ -640,15 +640,31 @@ scans than being small does."* Adopting canonical as-is would hand zinnia the
 
     Test delta as predicted: **+7 arriving, −5 parked, −3 retired, 12 shared.**
     Canonical now: **218 passed, 12 skipped, 19 files**; typecheck clean.
-15. `enigma re-points rakotis as a subtree` — replacing 119 commits of in-place
-    editing with a tracked relationship, so the next drift is a `subtree pull`.
-    Content must not change; `git diff` on `packages/rakotis` proves it.
-16. `zinnia pulls the updated rakotis subtree` — gains the fixed `OyaModal` and
-    `OyaQrCode`. Zinnia imports exactly four primitives (`OyaButton`,
-    `OyaIconButton`, `OyaModal`, `OyaTextField`) and **none** of the diverging
-    feature files, so the blast radius is one file. Expect component tests that
-    assert on modal markup to need updating: enigma's `OyaModal` adds a wrapper
-    div and a `data-testid`.
+15. `enigma re-points rakotis as a subtree` — **done.** `git rm` the in-place
+    copy (`8651dc5`), then `git subtree add --squash` from canonical
+    (`96422c6` + `cb5555c`), replacing 119 commits of in-place editing with a
+    tracked relationship carrying a `git-subtree-dir` trailer. Enigma also
+    *gains* the three canonical fixes, including the `qrcode` declaration it
+    had been papering over by keeping the dependency in the app.
+    Verified: rakotis 230 tests, enigma app 656 — and the HP drift test runs
+    all 13 assertions here rather than skipping, which is the whole point of
+    the guard added in step 13.
+
+    Two ordering traps, both hit and recovered: `subtree add` refuses when the
+    prefix exists, and `git rm` leaves untracked `node_modules` behind, so the
+    directory must be moved aside first. And the first add pulled canonical's
+    `main`, which was still at the pre-merge `556408d` — the merge work was on
+    a branch. **Fast-forward canonical's `main` before adding**, or the subtree
+    silently adopts the stale snapshot and undoes step 13.
+16. `zinnia pulls the updated rakotis subtree` — **done** (`cc3ee23` +
+    `5485874`). Gains the fixed `OyaModal` and `OyaQrCode`.
+    **`crates/` survived the pull**, as predicted, so Padova still links
+    `gervasius` — 13 Rust ok-blocks and 3 builds green.
+
+    The expected breakage did **not** materialise: `OyaModal`'s new wrapper div
+    and `data-testid` broke nothing, because zinnia's component tests assert on
+    behaviour and on the app's own test-ids rather than on rakotis's internal
+    DOM. All **591** frontend tests unchanged (283 · 55 · 253), typecheck clean.
 
     **`crates/` complication:** zinnia tracks 9 files under
     `packages/rakotis/crates/` (`gervasius`, `protasius`) that canonical has
