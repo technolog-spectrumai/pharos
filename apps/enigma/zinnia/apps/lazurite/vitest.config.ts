@@ -7,9 +7,7 @@ import vue from "@vitejs/plugin-vue";
 // ace-builds subpaths are aliased to a lightweight stub so jsdom never loads
 // the real editor — its logic is covered through mocked interactions instead.
 const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
-// Univer needs canvas + a real measure cycle; jsdom has neither. The editor's
 // contract is snapshot-in/snapshot-out, which the stub honours exactly.
-const univerStub = new URL("./tests/stubs/univer.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("../../packages/rakotis/src", import.meta.url).pathname;
 const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
@@ -35,9 +33,6 @@ export default defineConfig({
       // Whole-specifier match: a regex alias replaces only the MATCHED part,
       // so /\.css$/ would rewrite "pkg/index.css" to "pkg/index<stub>".
       { find: /^.+\.css$/, replacement: cssStub },
-      { find: /^@univerjs\/presets$/, replacement: univerStub },
-      { find: /^@univerjs\/preset-sheets-core$/, replacement: univerStub },
-      { find: /^@univerjs\/preset-sheets-core\/locales\/.*/, replacement: univerStub },
     ],
   },
   test: {

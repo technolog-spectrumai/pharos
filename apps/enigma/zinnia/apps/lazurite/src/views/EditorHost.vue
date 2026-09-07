@@ -21,11 +21,9 @@ import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
 import PresentationEditor from "../editors/PresentationEditor.vue";
-import SheetEditor from "../editors/SheetEditor.vue";
 import type { EditorHandle } from "../editors/types";
 import { dumps, newDocument } from "../formats/document";
 import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
-import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
 import { KIND_FILES, type EditorKind } from "../tabs";
 import { isImageName } from "petalite/files";
 import { OyaButton, OyaModal } from "petalite/primitives";
@@ -48,7 +46,6 @@ function seedFor(k: EditorKind): { name: string; text: string } {
   switch (k) {
     case "document": return { name, text: dumps(newDocument("")) };
     case "deck":     return { name, text: dumpsDeck(newPresentation("")) };
-    case "sheet":    return { name, text: dumpsSheet(newWorkbook("New sheet")) };
     case "sketch":   return { name, text: "" }; // the SVG editor starts from empty
     case "code":     return { name, text: "" }; // ACE parses nothing on open
   }
@@ -62,7 +59,6 @@ const MIME: Record<EditorKind, string> = {
   sketch: "image/svg+xml",
   document: "application/xml",
   deck: "application/xml",
-  sheet: "application/json",
   code: "text/plain",
 };
 
@@ -336,21 +332,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       @open-as-text="openAsText"
     />
 
-    <SheetEditor
-      v-if="kind === 'sheet'"
-      :key="'s' + generation"
-      ref="editorRef"
-      :path="path"
-      :name="name"
-      :content="content"
-      :busy="busy"
-      :error="fileError"
-      :active="active !== false"
-      class="min-h-0 flex-1"
-      @save="saveFile($event)"
-      @update:dirty="dirty = $event"
-      @open-as-text="openAsText"
-    />
 
     <TextEditor
       v-if="kind === 'code'"

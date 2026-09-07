@@ -1,5 +1,5 @@
 // FIRST: registers the fatal-error handlers before anything else evaluates.
-import { installVueErrorHandler } from "./errorOverlay";
+import { installVueErrorHandler } from "petalite";
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import "./style.css";
@@ -25,7 +25,7 @@ import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 // Wiring the two together HERE, rather than importing one from the other, is
 // what lets an app ship the tree without the sealing commands on its IPC
 // surface. Before `mount`, because the panel reads a folder as it appears.
-import { setSealProbe } from "./files/useWorkspace";
+import { setSealProbe } from "petalite/files";
 import { probeSealed } from "padova";
 
 setSealProbe((path) => probeSealed(path));

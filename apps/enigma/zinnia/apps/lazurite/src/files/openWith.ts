@@ -16,7 +16,6 @@
 // would strand every deck already sitting on a user's disk as a `.xml`.
 import { sniffIsDocument } from "../formats/document";
 import { sniffIsPresentation } from "../formats/presentation";
-import { isSheet } from "../formats/sheet";
 import type { EditorKind } from "../tabs";
 
 /** The unambiguous extensions. `.xml` is deliberately absent — both the writer
@@ -80,7 +79,6 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
   // Content first when we have it: a file's insides are what it IS, and a
   // renamed `.txt` full of deck XML should still open as a deck.
   if (content !== undefined) {
-    if (isSheet(content)) return "sheet";
     if (sniffIsPresentation(content)) return "deck";
     if (sniffIsDocument(content)) return "document";
     if (ext === "svg") return "sketch"; // no sniffer; the extension is the claim

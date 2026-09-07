@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe("the seal probe is optional", () => {
   it("browses a folder without one — no probe, no invoke, no throw", async () => {
-    const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+    const { useWorkspace, setSealProbe } = await import("petalite/files");
     setSealProbe(null);
     const workspace = useWorkspace();
     workspace.root.value = ROOT;
@@ -55,7 +55,7 @@ describe("the seal probe is optional", () => {
   });
 
   it("reprobes to nothing without one, rather than rejecting", async () => {
-    const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+    const { useWorkspace, setSealProbe } = await import("petalite/files");
     setSealProbe(null);
     // A rejection here would surface as an unhandled promise in the app that
     // has no sealing — the exact case this indirection exists to serve.
@@ -64,7 +64,7 @@ describe("the seal probe is optional", () => {
   });
 
   it("asks the injected probe, and only it", async () => {
-    const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+    const { useWorkspace, setSealProbe } = await import("petalite/files");
     const asked: string[] = [];
     setSealProbe(async (path) => {
       asked.push(path);
@@ -85,7 +85,7 @@ describe("the seal probe is optional", () => {
   });
 
   it("survives a probe that rejects — one bad file is not a broken tree", async () => {
-    const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+    const { useWorkspace, setSealProbe } = await import("petalite/files");
     setSealProbe(() => Promise.reject(new Error("no such command")));
     const workspace = useWorkspace();
     workspace.root.value = ROOT;

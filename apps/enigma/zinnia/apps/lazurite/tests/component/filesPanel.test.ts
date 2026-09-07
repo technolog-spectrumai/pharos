@@ -41,7 +41,7 @@ async function settle() {
 /** Put the store into the state a picked root leaves behind. It is a
  *  module-level store, so it is reached the same way the panel reaches it. */
 async function withRoot(root = ROOT) {
-  const { useWorkspace } = await import("../../src/files/useWorkspace");
+  const { useWorkspace } = await import("petalite/files");
   const workspace = useWorkspace();
   workspace.root.value = root;
   return workspace;
@@ -59,7 +59,7 @@ beforeEach(async () => {
   stat.mockResolvedValue({ size: 12, mtime: null });
   i18n.global.locale.value = "en";
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
-  const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+  const { useWorkspace, setSealProbe } = await import("petalite/files");
   // The store no longer imports the seal probe; `main.ts` injects it, and so
   // must a test that expects padlocks. Installed as the real `probeSealed`, so
   // these tests still assert against `is_file_locked` at the Tauri boundary

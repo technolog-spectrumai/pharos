@@ -10,7 +10,7 @@ import SecurityView from "padova/SecurityView.vue";
 // Padova's Security tab is app-agnostic: it takes the workspace it should list
 // rather than importing one, so the app decides which store it sees. This is
 // the same singleton the files sidepanel drives — one tree, two views.
-import { filterRows, useWorkspace } from "./files/useWorkspace";
+import { filterRows, useWorkspace } from "petalite/files";
 import SettingsView from "./views/SettingsView.vue";
 
 const { t } = useI18n({ useScope: "global" });

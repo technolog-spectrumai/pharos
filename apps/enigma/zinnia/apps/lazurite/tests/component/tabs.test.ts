@@ -18,7 +18,7 @@ describe("the tab bar", () => {
       expect(w.find(`[data-testid="nav-${tab.id}"]`).exists(), tab.id).toBe(true);
     }
     expect(APP_TABS.map((t) => t.id))
-      .toEqual(["document", "sketch", "sheet", "deck", "code", "security", "settings"]);
+      .toEqual(["document", "sketch", "deck", "code", "security", "settings"]);
   });
 
   it("opens on the default tab and mounts nothing else yet", async () => {
@@ -27,17 +27,20 @@ describe("the tab bar", () => {
     const w = mountApp();
     await flushPromises();
     expect(w.findComponent({ name: "DocumentEditor" }).exists()).toBe(true);
-    expect(w.findComponent({ name: "SheetEditor" }).exists()).toBe(false);
     expect(w.findComponent({ name: "PresentationEditor" }).exists()).toBe(false);
     expect(w.findComponent({ name: "SettingsView" }).exists()).toBe(false);
     expect(DEFAULT_TAB).toBe("document");
   });
 
   it("mounts a tab the first time it is opened", async () => {
+    // Nothing but the default tab is mounted until it is asked for; opening one
+    // is what brings its editor into existence.
     const w = mountApp();
-    await w.get('[data-testid="nav-sheet"]').trigger("click");
     await flushPromises();
-    expect(w.findComponent({ name: "SheetEditor" }).exists()).toBe(true);
+    expect(w.findComponent({ name: "PresentationEditor" }).exists()).toBe(false);
+    await w.get('[data-testid="nav-deck"]').trigger("click");
+    await flushPromises();
+    expect(w.findComponent({ name: "PresentationEditor" }).exists()).toBe(true);
   });
 
   it("keeps a visited tab alive so its unsaved work survives a switch", async () => {

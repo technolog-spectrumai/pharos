@@ -8,14 +8,14 @@ describe("the local workspace", () => {
     // listing is re-read every visit, and a cached one would go stale the
     // moment anything changed the folder from outside the app.
     localStorage.setItem("zinnia:workspace", JSON.stringify({ root: "/home/me/work" }));
-    const { useWorkspace } = await import("../../src/files/useWorkspace");
+    const { useWorkspace } = await import("petalite/files");
     expect(useWorkspace().root.value).toBe("/home/me/work");
   });
 
   it("starts empty rather than guessing a folder", async () => {
     // Guessing a root would mean reading somewhere the user never pointed at,
     // and the fs grant only covers what they picked in the dialog anyway.
-    const { useWorkspace } = await import("../../src/files/useWorkspace");
+    const { useWorkspace } = await import("petalite/files");
     const ws = useWorkspace();
     ws.root.value = "";
     expect(ws.root.value).toBe("");
@@ -34,7 +34,8 @@ describe("the stored record", () => {
     localStorage.setItem("zinnia:workspace", stored);
     // Re-importing gets a fresh module-level ref, which is where the read
     // happens; a throw here would take the whole tab down on launch.
-    const mod = await import(`../../src/files/useWorkspace?case=${encodeURIComponent(stored)}`);
+    const mod = await import(
+      /* @vite-ignore */ `petalite/files/useWorkspace?case=${encodeURIComponent(stored)}`);
     expect(() => mod.useWorkspace()).not.toThrow();
   });
 });
@@ -44,7 +45,7 @@ describe("filtering the loaded tree", () => {
     ({ name, path: `/r/${name}`, isDirectory, depth });
 
   it("returns everything for an empty needle", async () => {
-    const { filterRows } = await import("../../src/files/useWorkspace");
+    const { filterRows } = await import("petalite/files");
     const rows = [row("a.svg", 0), row("b.json", 0)];
     expect(filterRows(rows, "   ")).toEqual(rows);
   });
@@ -52,7 +53,7 @@ describe("filtering the loaded tree", () => {
   it("keeps the folders that lead to a match", async () => {
     // Dropping an unmatched ancestor would leave the hit indented under
     // nothing, which reads as a file sitting somewhere it is not.
-    const { filterRows } = await import("../../src/files/useWorkspace");
+    const { filterRows } = await import("petalite/files");
     const rows = [
       row("notes", 0, true),
       row("deep", 1, true),
@@ -66,7 +67,7 @@ describe("filtering the loaded tree", () => {
   it("does not keep a folder because a LATER sibling matched", async () => {
     // The ancestor scan stops at the first row no deeper than the folder —
     // without that boundary every folder above a hit anywhere would survive.
-    const { filterRows } = await import("../../src/files/useWorkspace");
+    const { filterRows } = await import("petalite/files");
     const rows = [
       row("empty", 0, true),
       row("notes", 0, true),
@@ -76,7 +77,7 @@ describe("filtering the loaded tree", () => {
   });
 
   it("matches folders by their own name too", async () => {
-    const { filterRows } = await import("../../src/files/useWorkspace");
+    const { filterRows } = await import("petalite/files");
     const rows = [row("notes", 0, true), row("budget.json", 0)];
     expect(filterRows(rows, "NOT").map((r) => r.name)).toEqual(["notes"]);
   });

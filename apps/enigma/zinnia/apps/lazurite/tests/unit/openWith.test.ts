@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { extensionOf, kindForFile } from "../../src/files/openWith";
 import { dumps as dumpDoc, newDocument } from "../../src/formats/document";
 import { dumps as dumpDeck, newPresentation } from "../../src/formats/presentation";
-import { dumps as dumpSheet, newWorkbook } from "../../src/formats/sheet";
 
 describe("choosing an editor for a file", () => {
   it("routes the unambiguous extensions", () => {
@@ -47,7 +46,6 @@ describe("choosing an editor for a file", () => {
   it("believes the content over the name", () => {
     // A renamed file is still what it is.
     expect(kindForFile("mystery.txt", dumpDeck(newPresentation()))).toBe("deck");
-    expect(kindForFile("mystery.dat", dumpSheet(newWorkbook()))).toBe("sheet");
   });
 
   it("falls back to the extension for svg, which has no sniffer", () => {
@@ -71,7 +69,6 @@ describe("choosing an editor for a file", () => {
   });
 
   it("lets a structured claim beat the code claim when the bytes agree", () => {
-    expect(kindForFile("budget.json", dumpSheet(newWorkbook()))).toBe("sheet");
     // …and ordinary JSON, which used to be handed to the grid on its extension
     // alone and rendered as garbage, is source.
     expect(kindForFile("package.json", '{"name":"x"}')).toBe("code");

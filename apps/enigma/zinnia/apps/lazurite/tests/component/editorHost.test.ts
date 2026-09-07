@@ -6,7 +6,6 @@ import { i18n } from "../../src/i18n";
 import { KIND_FILES, type EditorKind } from "../../src/tabs";
 import { sniffIsDocument } from "../../src/formats/document";
 import { sniffIsPresentation } from "../../src/formats/presentation";
-import { isSheet } from "../../src/formats/sheet";
 
 // The host owns the file; the mounted editor owns the buffer. What matters
 // here is the seam between them — dirty flows up, save asks the editor for its
@@ -22,7 +21,6 @@ const EDITOR_FOR: Record<EditorKind, string> = {
   sketch: "SketchEditor",
   document: "DocumentEditor",
   deck: "PresentationEditor",
-  sheet: "SheetEditor",
   // ACE, with its language picker on. Not typechecked here (vitest transpiles
   // without it), so an omission would silently drop this kind from the suites
   // below rather than fail.
@@ -76,7 +74,6 @@ describe("the editor host", () => {
     const cases: Array<[EditorKind, (t: string) => boolean]> = [
       ["document", sniffIsDocument],
       ["deck", sniffIsPresentation],
-      ["sheet", isSheet],
     ];
     for (const [kind, accepts] of cases) {
       const w = mountHost(kind);

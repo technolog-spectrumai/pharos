@@ -14,7 +14,7 @@
 // would be a second, quieter path to writing over your work.
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { filterRows, useWorkspace, type Entry, type Row } from "./useWorkspace";
+import { filterRows, useWorkspace, type Entry, type Row } from "petalite/files";
 import { baseName, formatSize, isImageName } from "petalite/files";
 import FileTree from "petalite/FileTree.vue";
 import { kindForFile } from "./openWith";

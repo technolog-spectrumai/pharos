@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import SecurityView from "padova/SecurityView.vue";
-import { filterRows, useWorkspace } from "../../src/files/useWorkspace";
+import { filterRows, useWorkspace } from "petalite/files";
 import { i18n } from "../../src/i18n";
 
 const invoke = vi.fn();
@@ -45,7 +45,7 @@ function tree(byDir: Record<string, Array<[string, boolean]>>) {
 }
 
 async function withRoot(root = ROOT) {
-  const { useWorkspace } = await import("../../src/files/useWorkspace");
+  const { useWorkspace } = await import("petalite/files");
   const workspace = useWorkspace();
   workspace.root.value = root;
   return workspace;
@@ -57,7 +57,7 @@ beforeEach(async () => {
   stat.mockResolvedValue({ size: 12, mtime: null });
   i18n.global.locale.value = "en";
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
-  const { useWorkspace, setSealProbe } = await import("../../src/files/useWorkspace");
+  const { useWorkspace, setSealProbe } = await import("petalite/files");
   // See filesPanel.test.ts: the store takes its probe by injection now, the
   // way main.ts gives it one. Without this the padlocks never appear.
   const { probeSealed } = await import("padova");
