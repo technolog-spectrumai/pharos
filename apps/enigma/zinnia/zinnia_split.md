@@ -388,6 +388,51 @@ the rules. That is ~1 week on printpdf, and it proves the Rust backend behind
 the existing three commands with zero Python before the document case commits to
 an engine. `src/pdf/deckHtml.ts` does not exist yet; `usePdf.ts:5` anticipates it.
 
+### TODO: a title-page template (limited-scope PDF)
+
+**Not to be built yet.** Recorded here so the shape is not relitigated later.
+
+A form — **company logo, title, author, date**, user-editable — rendered to
+simple HTML and then to PDF. This is the *right* limited scope, because it needs
+**none of the hard features**: one page, so no break control, no orphans/widows;
+no contents, so no `target-counter`; no section numbering, so no counters; fixed
+fields, so no reflow. It is the deck case's shape — a fixed box you fill — which
+is precisely where printpdf is actually strong.
+
+**Most of it already exists.** `document.css:394-398` is a complete cover
+stylesheet that nothing currently emits:
+
+```css
+.cy-cover { text-align: center; padding-top: 22%; }
+.cy-cover .cy-title { font-size: 2.6em; line-height: 1.15; margin: 0 0 0.3em; }
+.cy-cover .cy-subtitle { font-size: 1.25em; color: var(--cy-muted); margin: 0 0 2.2em; }
+.cy-cover .cy-byline { font-size: 1em; color: var(--cy-muted); }
+.cy-cover .cy-byline span { display: block; margin: 0.15em 0; }
+```
+
+`.cy-subtitle` and `.cy-byline` are **styled but never rendered** —
+`documentHtml.ts:81` emits only `<h1 class="cy-title">`. The stylesheet is ahead
+of the generator, and `.cy-byline span { display: block }` is already exactly the
+stacked author/date layout. So this is filling in a gap, not designing one.
+
+**No format change is needed.** `CyDocument.meta` is a
+`Record<string, string>` that is already parsed, preserved and round-tripped
+(`formats/document.ts`). Author, date and logo live there as `meta` keys — no
+schema bump, no migration, no new codec path. Unknown keys already survive a
+round trip, so an older build opening a newer file loses nothing.
+
+**The logo is the one real decision.** It must be a base64 `data:` URI like
+every other image (`files/images.ts:14-23` — png, jpeg, gif, webp, bmp, ico,
+avif), because the renderer fetches nothing. Two consequences to settle when
+this is built: **avif and ico need decoders** the `image` crate does not bring,
+so the picker should restrict to png/jpeg for the logo; and a large logo inlines
+into every saved document, so it wants a size cap.
+
+Open questions deliberately left for build time: whether the template is a new
+editor kind or a mode of the writer; whether the fields are a modal or a
+side-form; whether "simple HTML" means it is also exportable as `.html` (it
+should be — the same string is what the PDF renders).
+
 ## Verification
 
 * `npm test` per app and at the root (`npm run test --workspaces`).
