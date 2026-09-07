@@ -42,7 +42,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 14 | drop parked sync exports from rakotis | **done** |
 | 15 | enigma re-points rakotis as a subtree | **done** |
 | 16 | zinnia pulls the updated rakotis subtree | **done** |
-| 17 | crypto_rotor becomes its own repo, history intact | todo |
+| 17 | crypto_rotor becomes its own repo, history intact | **done** |
 | 18 | build scripts take a rotor path | todo |
 | 19 | one gervasius: merge the two forks | todo |
 | 20 | restore the parked sketch CRDT | todo |
@@ -683,15 +683,37 @@ two repos by **completely different routes**: enigma keeps them at
 zinnia gets both as passengers inside the rakotis subtree
 (`packages/rakotis/crates/`), which canonical rakotis has never contained.
 
-17. `crypto_rotor becomes its own repo, history intact` — `cryptorotor/` is
-    tracked inside enigma with **8 commits of its own** (`37ec6e3 move
-    cryptorotor inside enigma` … `d02bc89 Add X25519 public-key sealing to
-    gervasius`), so `git subtree split` extracts it to
-    `/home/janek/Desktop/dev/rotor/crypto_rotor` with authorship and dates
-    intact. Consumers to repoint: `apps/enigma/src-tauri/Cargo.toml:38,44`,
-    `protasius/Cargo.toml:12`, `.gitlab-ci.yml:157-196` (the wasm job) and the
-    builder GUI's help text (`tools/enigma_builder/{yaml_gen.py:134,
-    expert_tab.py:204}`). Keep enigma's copy until the build is green.
+17. `crypto_rotor becomes its own repo, history intact` — **done.**
+    `git subtree split --prefix=cryptorotor` carried all **8 commits**
+    (`ca7aeac move cryptorotor inside enigma` … `71b332b Add X25519 public-key
+    sealing to gervasius`) into `/home/janek/Desktop/dev/rotor/crypto_rotor`,
+    which already existed as an empty GitLab-scaffolded repo. Merged with
+    `--allow-unrelated-histories` (genuinely unrelated here, unlike step 13);
+    the only conflict was the placeholder README against the real one.
+    Commits there: `0ecf7b7` · `269a92f`.
+
+    **Verified standalone before enigma was touched**: `cargo build` and
+    `cargo test` in the extracted repo — 24 tests green, no enigma present.
+    Then enigma's manifests were repointed and `cargo check` proved it compiles
+    against the sibling checkout *before* `cryptorotor/` was removed, and again
+    after. Enigma: `e005083`, 886 tests green (rakotis 230 + app 656).
+
+    Paths are relative to a **sibling layout** (`dev/rotor/crypto_rotor` beside
+    `dev/enigma`), which is why they climb five levels from
+    `apps/enigma/src-tauri`. That fragility is what step 18 addresses.
+
+    Also moved or corrected: the `rotor:wasm` **CI job was removed from
+    enigma** — it built a crate that no longer lives there, so it belongs to
+    crypto_rotor's own pipeline (a note in `.gitlab-ci.yml` says where it
+    went); `README.md`, `build.md`, `release.md`, `technology.md`,
+    `apps/enigma/README.md` and the builder GUI's help text
+    (`yaml_gen.py`, `expert_tab.py`) all repointed. The extracted repo's own
+    README no longer claims to be "vendored inside enigma" and now documents
+    the expected checkout layout and the `gervasius` fork.
+
+    Left alone deliberately: historical notes in `technology.md` §1297 and
+    `map.md`, and `limbo/frontend/devices/sync.md` — parked docs describe the
+    world as it was.
 18. `build scripts take a rotor path` — `build_desktop.sh`, `run_dev.sh`,
     `scripts/build_android.sh` and `tools/enigma_builder/` gain a `ROTOR_PATH`
     (env or `--rotor-path`), defaulting to a sibling checkout. **Cargo path
