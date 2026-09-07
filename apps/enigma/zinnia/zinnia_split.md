@@ -2,7 +2,7 @@
 
 ## Status
 
-**Steps 1-5 done.** The tree is clean; 460 frontend tests and 24 Rust tests
+**Steps 1-6 done.** The tree is clean; 461 frontend tests and 24 Rust tests
 (padova 12, substrate 8, zinnia 3) plus padova's `compile_fail` doctest green,
 clippy clean, `npm run build` succeeds. Nothing has moved into `apps/` yet —
 steps 1-7 are in-place refactors.
@@ -20,7 +20,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 3 | cargo workspace with substrate crate | **done** |
 | 4 | padova crate owns sealing and secrets | **done** |
 | 5 | npm workspaces with petalite package | **done** |
-| 6 | one file tree for panel and security tab | todo |
+| 6 | one file tree for panel and security tab | **done** |
 | 7 | padova package owns the sealing surface | todo |
 | 8 | lazurite becomes an app under apps ← **first irreversible** | todo |
 | 9 | primula becomes an app under apps | todo |
@@ -230,6 +230,28 @@ chevrons, padlock, depth indent, filter box. That becomes one `FileTree`
 component in Petalite, rendered by the files panel and by Padova's tab with
 different row actions. It removes real duplication, and a third app gets a file
 tree for nothing.
+
+*Built in step 6.* The line drawn was **what a row IS** (depth, open/closed,
+which of three icons) versus **what a row is FOR** (its density, its testid
+prefix, whether it is disabled, what sits at its right edge). The first is the
+component; the second is props and a `trailing` slot — a file size in the panel,
+a SEALED badge in the Security tab. Net −23 lines in the app, and the chevron
+block and the `'lock' : 'file'` ternary now each exist exactly once.
+
+`FileTree` holds **no store**: rows and the two predicates (`isExpanded`,
+`isSealed`) arrive as props. Petalite must not depend on one app's workspace,
+and a tree that fetched its own rows could disagree with the one beside it. The
+`TreeRow` interface is structural, so the store's `Row` satisfies it with no
+import in either direction — `vue-tsc` confirms.
+
+Verified by **mutation**, because a shared component that silently rendered
+nothing would still pass a green suite: breaking the padlock fails 1 test,
+dropping the `activate` emit fails 17, flattening the depth indent fails 1. The
+SEALED badge stays green under the padlock mutation, which is correct — it comes
+from the caller's slot, and it is asserted both ways.
+
+Both `data-testid` schemes (`files-row-*`, `security-row-*`) are kept via
+`testidPrefix`; dozens of assertions across two suites depend on them.
 
 **Padova ships no primitives of its own.** It ships *views* — `LockModal`,
 `SecurityView` — built from Petalite's primitives, which it imports the same

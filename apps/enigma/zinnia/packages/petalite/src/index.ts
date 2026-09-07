@@ -17,3 +17,5 @@ export * from "./primitives";
 export { createAppI18n, type SupportedLocale } from "./i18n";
 export { default as ModalPanel } from "./components/ModalPanel.vue";
 export { default as SelectMenu } from "./components/SelectMenu.vue";
+export { default as FileTree } from "./components/FileTree.vue";
+export type { TreeRow } from "./components/FileTree.vue";

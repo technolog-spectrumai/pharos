@@ -15,9 +15,9 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { filterRows, useWorkspace, type Entry, type Row } from "./useWorkspace";
-import { baseName, formatSize } from "petalite/files";
+import { baseName, formatSize, isImageName } from "petalite/files";
+import FileTree from "petalite/FileTree.vue";
 import { kindForFile } from "./openWith";
-import { isImageName } from "petalite/files";
 import type { EditorKind } from "../tabs";
 
 const { t } = useI18n({ useScope: "global" });
@@ -161,36 +161,20 @@ function shown(message: string): string {
       </p>
 
       <!-- Flat rows, indented by depth: no recursion, and a folder twelve deep
-           costs the same as one at the top. -->
+           costs the same as one at the top. The rendering is Petalite's, shared
+           with the Security tab; what is ours is the size at the right edge and
+           the busy gate. -->
       <div class="min-h-0 flex-1 overflow-y-auto pb-2" data-testid="files-tree">
-        <button v-for="row in visible" :key="row.path" type="button"
-                class="flex w-full items-center gap-1.5 py-1 pr-2 text-left text-sm transition"
-                :class="[
-                  'hover:bg-accent-light/10',
-                  openedPath === row.path ? 'font-bold text-accent-light dark:text-accent-dark' : '',
-                ]"
-                :style="`padding-left: calc(${row.depth} * 0.75rem + 0.5rem)`"
-                :data-testid="`files-row-${row.name}`"
-                :disabled="busy"
-                @click="activate(row)">
-          <font-awesome-icon v-if="row.isDirectory" icon="chevron-right"
-                             class="w-2 shrink-0 text-[9px] opacity-50 transition-transform"
-                             :class="workspace.isExpanded(row.path) ? 'rotate-90' : ''" />
-          <span v-else class="w-2 shrink-0" />
-          <!-- Sealed rows keep normal opacity and gain a padlock. Grey means
-               "this app cannot read that kind of file"; a padlock means "yours,
-               and locked" — two different facts that must not share a signal. -->
-          <font-awesome-icon
-            :icon="row.isDirectory ? 'folder' : workspace.isSealed(row.path) ? 'lock' : 'file'"
-            class="shrink-0 text-xs"
-            :class="row.isDirectory
-              ? 'text-accent-light dark:text-accent-dark'
-              : workspace.isSealed(row.path) ? 'opacity-70' : 'opacity-40'" />
-          <span class="min-w-0 flex-1 truncate" :title="rowTitle(row)">{{ row.name }}</span>
-          <span v-if="!row.isDirectory" class="shrink-0 text-[10px] opacity-40">
-            {{ formatSize(row.size) }}
-          </span>
-        </button>
+        <FileTree :rows="visible" :is-expanded="workspace.isExpanded"
+                  :is-sealed="workspace.isSealed" testid-prefix="files-row"
+                  :row-title="rowTitle" :active-path="openedPath" :disabled="busy"
+                  @activate="activate">
+          <template #trailing="{ row }">
+            <span v-if="!row.isDirectory" class="shrink-0 text-[10px] opacity-40">
+              {{ formatSize((row as Row).size) }}
+            </span>
+          </template>
+        </FileTree>
 
         <p v-if="!visible.length && !workspace.loading.value"
            class="px-3 pt-6 text-center text-xs opacity-40" data-testid="files-nothing">

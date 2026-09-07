@@ -9,6 +9,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import LockModal from "../files/LockModal.vue";
+import FileTree from "petalite/FileTree.vue";
 import { filterRows, useWorkspace, type Row } from "../files/useWorkspace";
 import {
   forgetPassphrase, lockErrorKey, passphraseStatus, rememberPassphrase,
@@ -164,28 +165,20 @@ async function apply(password: string | null, remember: boolean): Promise<void> 
 
         <div class="mt-3 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1"
              data-testid="security-files">
-          <button v-for="row in visible" :key="row.path" type="button"
-                  class="flex w-full items-center gap-2 border-b border-current/10 py-2 pr-3 text-left transition last:border-0 hover:bg-accent-light/10"
-                  :style="`padding-left: calc(${row.depth} * 0.75rem + 0.75rem)`"
-                  :data-testid="`security-row-${row.name}`"
-                  @click="activate(row)">
-            <font-awesome-icon v-if="row.isDirectory" icon="chevron-right"
-                               class="w-2 shrink-0 text-[9px] opacity-50 transition-transform"
-                               :class="workspace.isExpanded(row.path) ? 'rotate-90' : ''" />
-            <span v-else class="w-2 shrink-0" />
-            <font-awesome-icon
-              :icon="row.isDirectory ? 'folder' : workspace.isSealed(row.path) ? 'lock' : 'file'"
-              class="shrink-0 text-xs"
-              :class="row.isDirectory
-                ? 'text-accent-light dark:text-accent-dark'
-                : workspace.isSealed(row.path) ? 'opacity-70' : 'opacity-40'" />
-            <span class="min-w-0 flex-1 truncate text-sm">{{ row.name }}</span>
-            <span v-if="!row.isDirectory && workspace.isSealed(row.path)"
-                  class="shrink-0 rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold uppercase"
-                  :data-testid="`security-sealed-${row.name}`">
-              {{ t("security.files.sealed") }}
-            </span>
-          </button>
+          <!-- The same tree the sidepanel draws, at the Security tab's own
+               density. What differs is the right edge: a SEALED badge instead
+               of a file size, because here that is the whole point. -->
+          <FileTree :rows="visible" :is-expanded="workspace.isExpanded"
+                    :is-sealed="workspace.isSealed" testid-prefix="security-row"
+                    density="roomy" @activate="activate">
+            <template #trailing="{ row }">
+              <span v-if="!row.isDirectory && workspace.isSealed(row.path)"
+                    class="shrink-0 rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold uppercase"
+                    :data-testid="`security-sealed-${row.name}`">
+                {{ t("security.files.sealed") }}
+              </span>
+            </template>
+          </FileTree>
 
           <p v-if="!visible.length" class="px-4 py-6 text-center text-xs opacity-40"
              data-testid="security-files-empty">
