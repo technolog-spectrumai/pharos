@@ -2624,6 +2624,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "padova"
+version = "0.1.0"
+dependencies = [
+ "gervasius",
+ "keyring",
+ "serde",
+ "serde_json",
+ "substrate",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5445,9 +5456,8 @@ dependencies = [
 name = "zinnia"
 version = "0.1.0"
 dependencies = [
- "gervasius",
- "keyring",
  "log",
+ "padova",
  "serde",
  "serde_json",
  "substrate",

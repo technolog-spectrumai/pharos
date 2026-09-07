@@ -50,6 +50,12 @@ install_deps
 if [ "$RUN_TESTS" -eq 1 ]; then
   step "Running tests"
   npm test
+  # `--workspace`, and from the ROOT, is what reaches the crates: a `cargo test`
+  # run inside src-tauri/ compiles only the app and silently skips padova's
+  # doctest — the one that pins "no command returns the passphrase".
+  if [ "$FRONTEND_ONLY" -eq 0 ]; then
+    npm run test:rust
+  fi
 else
   echo "    (tests skipped)"
 fi

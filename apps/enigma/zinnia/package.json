@@ -12,6 +12,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:rust": "cargo test --workspace",
+    "test:all": "npm run test && npm run test:rust",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

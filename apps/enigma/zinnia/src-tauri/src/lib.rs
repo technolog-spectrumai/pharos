@@ -14,19 +14,27 @@
 //! `pdf` supervises a renderer process — a child that must not touch the UI
 //! thread, must not write outside its own directory, must not run forever and
 //! must not reach the network; four things a webview cannot promise about a
-//! process it merely asked for. `secrets` is the OS secret store, holding one passphrase so
-//! sealing a second file need not mean typing it again. It is deliberately
-//! write-only from the frontend's side — no command hands the passphrase back,
-//! because this app renders markup that arrived in a file.
+//! process it merely asked for.
+//!
+//! `lock` and `secrets` are SHIMS. The sealing itself lives in the padova crate
+//! and the frame in substrate (`crates/`), because more than one app comes out
+//! of this tree and each decides which commands it registers. `secrets` is
+//! deliberately write-only from the frontend's side — no command hands the
+//! passphrase back, because this app renders markup that arrived in a file —
+//! and padova enforces that in the type system rather than by convention.
 //!
 //! The `cloud` module — sign-in and the pinned-certificate TLS stack — used to
 //! be a third. It is parked in limbo/cloud; reviving it means putting back the
-//! crates its LIMBO.md lists, not just the file. `secrets` shares only the
-//! keyring crate with it, and none of its code.
+//! crates its LIMBO.md lists, not just the file.
 
 mod lock;
 mod pdf;
 mod secrets;
+
+/// This app's locker. The service name is what the OS keyring files the
+/// passphrase under, and it is per app by decision — see `padova::Locker`.
+/// The bundle identifier, so it leaks nothing but that the app is installed.
+pub(crate) const LOCKER: padova::Locker = padova::Locker::new("com.spectrumaipl.zinnia");
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

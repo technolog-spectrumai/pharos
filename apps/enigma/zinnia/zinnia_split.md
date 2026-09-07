@@ -2,9 +2,15 @@
 
 ## Status
 
-**Steps 1-3 done.** The tree is clean; 458 frontend tests and 23 Rust tests
-(substrate 8, zinnia 15) green. Nothing has moved into `apps/` yet — steps 1-7
-are in-place refactors.
+**Steps 1-4 done.** The tree is clean; 458 frontend tests and 24 Rust tests
+(padova 12, substrate 8, zinnia 3) plus padova's `compile_fail` doctest green,
+clippy clean. Nothing has moved into `apps/` yet — steps 1-7 are in-place
+refactors.
+
+Run the Rust side with **`npm run test:rust`** (`cargo test --workspace`), never
+`cargo test` from inside `src-tauri/` — that compiles only the app and silently
+skips padova's doctest, which is the one guarding the passphrase property.
+`npm run test:all` runs both suites; `build.sh` now runs both too.
 
 | # | Step | State |
 |---|---|---|
@@ -12,7 +18,7 @@ are in-place refactors.
 | 1 | extract shared preflight into scripts lib | **done** |
 | 2 | workspace store takes an injected seal probe | **done** |
 | 3 | cargo workspace with substrate crate | **done** |
-| 4 | padova crate owns sealing and secrets | todo |
+| 4 | padova crate owns sealing and secrets | **done** |
 | 5 | npm workspaces with petalite package | todo |
 | 6 | one file tree for panel and security tab | todo |
 | 7 | padova package owns the sealing surface | todo |
@@ -152,6 +158,45 @@ expands its own `#[tauri::command]` shims, so command *names* stay identical and
 `pub(crate)` so "no command returns the passphrase" stays a property of the
 crate rather than a convention. Owns the `keyring` dependency, so Lazurite and
 Primula do not link vendored libsecret.
+
+*Built in step 4 as a `Locker` struct*, not free functions: the keyring
+**service name is a field**, which is how "per-app keyring service names" is
+honoured by construction — each app names its service in exactly one constant
+(`src-tauri/src/lib.rs`: `LOCKER`). `recall()` is `pub(crate)` **and pinned by
+a `compile_fail` doctest** on `Locker`, so `cargo test` fails the day anyone
+makes it public. `src-tauri/src/{lock,secrets}.rs` became six one-line shims
+with identical names, parameter names and `async` attributes; `lib.rs`'s
+`generate_handler!` did not change. Neither `keyring` nor `gervasius` is named
+in `src-tauri/Cargo.toml` any more.
+
+Two things the move improved on the way past. Padova's tests use a service of
+their own (`com.spectrumaipl.padova.test`), so `cargo test` no longer clears
+whatever passphrase the user's real app has remembered — the old tests did. And
+keyring-touching tests now hold a shared mutex, because the runner is parallel
+and they share one entry and one in-memory slot.
+
+One trap fired, correctly: `lockErrors.test.ts` scanned `src-tauri/src/lock.rs`
+for error prefixes and found **zero** once it became a shim — its `> 0` floor
+refused to pass. It now reads the whole crate chain and pins one prefix per file
+(`wrong_password`, `no_passphrase`, `too_large`), so a file moving out from
+under the scan is caught rather than satisfied by a stray hit elsewhere.
+
+**The guard itself was weaker than its own comment**, found by adversarial
+review and fixed before the commit. The doctest body was `locker.recall()` — a
+*call*, which fails to compile for a private method but equally for a **public**
+one whose signature changed, so `cargo test` stayed green while the passphrase
+read-back was public API. Reproduced directly: on one sabotaged crate with
+`pub fn recall(&self, _why: &str)`, the call form reports `ok` and the path form
+`let _ = padova::Locker::recall;` reports FAILED. The path form is now the body,
+because it compiles for *any* public signature and fails only on privacy.
+
+The `E0624` in the annotation is documentation only — **rustdoc checks doctest
+error codes on nightly, not stable** — so the body has to do the discriminating,
+not the code.
+
+And the guard was never actually run by anything: `cargo test` inside
+`src-tauri/` skips other crates' doctests entirely. Hence `test:rust` /
+`test:all` and the `build.sh` step. A guard nothing executes is decoration.
 
 **packages/padova** — `LockModal.vue`, `SecurityView.vue`, and the write half of
 `lock.ts` (`sealFile`, `unsealFile`, `rememberPassphrase`, `forgetPassphrase`,
@@ -311,6 +356,21 @@ filter from `KIND_FILES[kind].extensions` (`["json"]` for sheets).
     degree signs at lines 103/126/780 mean plain `grep` silently returns nothing
     on its 853 lines. Use `grep -a`. This will bite anyone scripting the
     migration.
+14. **`cargo test` from inside an app directory skips every other crate's
+    doctests.** Found in step 4: the doctest pinning "no command returns the
+    passphrase" never ran under `cd src-tauri && cargo test`. Per-app scripts
+    (step 8) must call `cargo test --workspace` from the root, or each app's
+    gate will quietly stop testing the shared crates.
+15. **The in-memory passphrase fallback is one slot per PROCESS**, shared by
+    every `Locker` regardless of service name. Harmless while one process is one
+    app — and separate app processes do not share it — but a future in-process
+    multi-app host would leak a remembered passphrase between apps on a machine
+    with no secret service. Documented in `padova/src/secrets.rs`.
+16. **substrate-only apps still link OpenSSL.** `is_sealed_file` calls
+    `gervazy::is_sealed` for a 6-byte legacy prefix compare, and gervasius pulls
+    `fernet` → `openssl-sys`. Sketch and Primula would carry native OpenSSL for
+    one memcmp. Inlining that prefix check into substrate would drop gervasius
+    from the detection path entirely — worth doing before step 10.
 
 ## Migration order
 

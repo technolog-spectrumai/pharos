@@ -31,19 +31,38 @@ describe("the lock error prefixes", () => {
     i18n.global.locale.value = "en";
   });
 
-  it("names every prefix lock.rs can actually return", async () => {
+  it("names every prefix the sealing commands can actually return", async () => {
     // Reads the Rust the way the runtime meets it, the move icons.test.ts makes
     // on templates. This is what stops the next prefix from shipping unmapped
     // and rendering as raw Rust in the dialog.
+    //
+    // An error reaches the dialog through a chain of crates: the app's shim
+    // calls padova, which calls substrate. Every file on that chain is read,
+    // because a prefix can originate in any of them.
     const { readFileSync } = await import("node:fs");
-    const rust = readFileSync("src-tauri/src/lock.rs", "utf8");
+    const CHAIN = {
+      "src-tauri/src/lock.rs": null,
+      "src-tauri/src/secrets.rs": null,
+      // One prefix each file is KNOWN to hold. Without this, one stray hit from
+      // one file would satisfy the floor below while every other file had
+      // silently moved out from under the scan — which is how this test failed
+      // the day padova was extracted, and the only reason it noticed.
+      "crates/padova/src/lock.rs": "wrong_password",
+      "crates/padova/src/secrets.rs": "no_passphrase",
+      "crates/substrate/src/lib.rs": "too_large",
+    } as const;
     const found = new Set<string>();
-    // `"prefix: prose"` — the colon is followed by a space, which is what keeps
-    // the AAD constant (b"zinnia:file:v1") out of the results.
-    for (const m of rust.matchAll(/"([a-z_]+):\s/g)) found.add(m[1]);
+    for (const [file, sentinel] of Object.entries(CHAIN)) {
+      const here = new Set<string>();
+      // `"prefix: prose"` — the colon is followed by a space, which is what
+      // keeps the AAD constant (b"zinnia:file:v1") out of the results.
+      for (const m of readFileSync(file, "utf8").matchAll(/"([a-z_]+):\s/g)) here.add(m[1]);
+      if (sentinel) expect(here, `${file} was read and still yields ${sentinel}`).toContain(sentinel);
+      for (const p of here) found.add(p);
+    }
     expect(found.size).toBeGreaterThan(0);
     for (const prefix of found) {
-      expect(LOCK_ERRORS as readonly string[], `lock.rs returns ${prefix}`)
+      expect(LOCK_ERRORS as readonly string[], `the sealing chain returns ${prefix}`)
         .toContain(prefix);
     }
   });

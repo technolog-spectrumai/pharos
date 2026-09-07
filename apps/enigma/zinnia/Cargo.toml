@@ -17,6 +17,7 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/substrate",
+    "crates/padova",
 ]
 exclude = [
     "packages/rakotis",
