@@ -32,7 +32,7 @@ sudo apt-get install -y \
 ```
 
 **No GitLab account needed.** The crypto crates are **vendored in-repo**
-([cryptorotor/](cryptorotor) — `rotor-core`, `gervasius`) and consumed by
+(the sibling repo `../../rotor/crypto_rotor` — `rotor-core`, `gervasius`) and consumed by
 `src-tauri` as path dependencies, as are [protasius/](protasius) and the
 `rakotis` npm workspace package — there is nothing to authenticate or configure.
 The whole build is offline-friendly once crates.io/npm are cached.
@@ -531,7 +531,7 @@ npm test                                   # all workspaces
 npm test -w enigma                         # vitest: chat store, components, i18n, …
 npm test -w rakotis                        # vitest: transport bridge, storage, i18n
 ( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, maps, …
-( cd cryptorotor/gervasius && cargo test ) # at-rest primitives
+( cd ../../rotor/crypto_rotor/gervasius && cargo test ) # at-rest primitives
 ( cd protasius && cargo test )             # encrypted store
 python apps/enigma/e2e.py                  # Playwright smoke tier (no backend — there is none)
 ```
@@ -566,8 +566,9 @@ python apps/enigma/e2e.py                  # Playwright smoke tier (no backend �
 - **`build_config.yaml is invalid` / `not found`** — the compile-time build config
   failed validation; the panic message lists the offending YAML paths (see
   [Build configuration](#build-configuration-build_configyaml)).
-- **`rotor-core` build error** — it's the vendored crate at `cryptorotor/rotor_core`
-  (no fetch involved); reproduce in isolation with `cd cryptorotor && cargo check -p rotor-core`.
+- **`rotor-core` build error** — it's the sibling-checkout crate at
+  `../../rotor/crypto_rotor/rotor_core` (no fetch involved); reproduce in isolation
+  with `cd ../../rotor/crypto_rotor && cargo check -p rotor-core`.
 - **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
 - **`frontendDist` doesn't exist** — the frontend build didn't run/produce
   `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build_desktop.sh`).

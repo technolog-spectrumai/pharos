@@ -9,7 +9,8 @@ description = "Enigma's centralized per-profile encrypted-at-rest data store (fj
 # unlocked by a passphrase-derived key (via the `gervasius` primitives crate).
 
 [dependencies]
-gervasius = { path = "../cryptorotor/gervasius" }
+# crypto_rotor is a sibling checkout — see apps/enigma/src-tauri/Cargo.toml.
+gervasius = { path = "../../../rotor/crypto_rotor/gervasius" }
 fjall = "2"
 # Filler bytes for the unused panic slot (must be indistinguishable from a real
 # wrapped key, so they come from the OS CSPRNG — same source gervasius uses).

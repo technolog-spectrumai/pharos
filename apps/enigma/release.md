@@ -96,7 +96,7 @@ npm test
 npm run build -w rakotis
 npm run build -w enigma
 ( cd apps/enigma/src-tauri && cargo test )
-( cd cryptorotor/gervasius && cargo test )
+( cd ../../rotor/crypto_rotor/gervasius && cargo test )
 ( cd protasius && cargo test )
 python apps/enigma/e2e.py
 ```

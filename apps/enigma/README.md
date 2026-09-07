@@ -69,7 +69,7 @@ shipped app mark, `enigma`, and how to change it).
 |---------|-----------|
 | **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar, maps. |
 | **[packages/rakotis](packages/rakotis)** | Shared primitives (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
-| **Rotor** ([cryptorotor/](cryptorotor)) | The crypto layer. **Vendored in-repo** as its own nested cargo workspace: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the sibling *toto* project. `src-tauri` consumes everything via path dependencies (no GitLab access needed to build). **All MLS crypto stays here.** |
+| **Rotor** (`../../rotor/crypto_rotor`) | The crypto layer. **Its own repository** since 2026-09-08, checked out as a sibling of this one: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the *toto* project. `src-tauri` consumes it via path dependencies (no GitLab access needed to build). **All MLS crypto stays there.** |
 | **[protasius/](protasius)** | The per-profile **encrypted-at-rest store** (fjall + gervasius): all app state persists as sealed values behind the launch passphrase gate. |
 
 ### Dependency layering
@@ -94,7 +94,7 @@ enigma/
 │   └── rakotis/              # shared primitives + P2P chat orchestration
 ├── apps/
 │   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma26)
-├── cryptorotor/              # vendored crypto (Rust): rotor_core / gervasius / rotor_wasm / rotor_py
+│                             # (crypto lives in the sibling repo rotor/crypto_rotor)
 ├── protasius/                # encrypted-at-rest store (Rust)
 ├── tools/                    # enigma_builder (configure + build) · map_packager
 ├── limbo/                    # parked features (restore playbook) + limbo/removed/ (records of deleted ones)

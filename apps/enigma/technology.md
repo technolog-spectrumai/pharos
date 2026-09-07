@@ -91,7 +91,7 @@ Design principles:
 │   • local_lock.rs — per-file passphrase locking (ENIGLOCK)         │
 │   • lib.rs       — mls_* commands, profiles, build_config, audio   │
 ├───────────────┬───────────────────┬──────────────────────────────┤
-│ cryptorotor/  │ protasius         │ iroh 0.98 + iroh-gossip 0.98  │
+│ crypto_rotor/ │ protasius         │ iroh 0.98 + iroh-gossip 0.98  │
 │ rotor_core    │ (encrypted store) │ (QUIC P2P, n0 relay+discovery)│
 │ (OpenMLS)     │ gervasius (at-rest│ mainline 6 (BitTorrent DHT)   │
 │               │ crypto primitives)│ arti 0.43 (embedded Tor)      │
@@ -136,14 +136,14 @@ by the separate `scripts/build_android.sh` path ([build.md](build.md)).
 ## 3. Dependencies & libraries
 
 Versions are the declared spec (resolved pins live in `apps/enigma/src-tauri/Cargo.lock`,
-which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
+which is gitignored; crypto_rotor commits its own, in its own repo).
 
 ### Rust backend (`apps/enigma/src-tauri/Cargo.toml`)
 
 | Crate | Ver | Role |
 |---|---|---|
 | `tauri` (+ `tauri-plugin-opener`/`-dialog`/`-notification`) | 2 | App framework, IPC, bundler, OS integration |
-| `rotor-core` | path | MLS crypto engine (vendored `cryptorotor/rotor_core`) |
+| `rotor-core` | path | MLS crypto engine (sibling repo `rotor/crypto_rotor/rotor_core`) |
 | `protasius` | path | Per-profile encrypted store (vault lifecycle + sealed kv) |
 | `gervasius` | path | At-rest crypto primitives (also used directly by `local_lock.rs`) |
 | `iroh` | 0.98 | QUIC P2P endpoint, NodeId identity, n0 relay + discovery (`address-lookup-pkarr-dht` feature) |
@@ -170,7 +170,7 @@ which is gitignored, and `cryptorotor/Cargo.lock`, which is committed).
 Build-dependencies: `tauri-build`, plus `serde`/`serde_norway`/`serde_json` for the
 compile-time `build_config.yaml` codegen ([build.md](build.md)).
 
-### Crypto workspace (`cryptorotor/`, vendored)
+### Crypto workspace (`rotor/crypto_rotor`, a sibling repo since 2026-09-08)
 
 - **`rotor_core`** — the MLS engine (`RotorSession`). `openmls =0.7.4`,
   `openmls_rust_crypto =0.4.4`, `openmls_basic_credential =0.4.1`,
@@ -179,7 +179,7 @@ compile-time `build_config.yaml` codegen ([build.md](build.md)).
 - **`gervasius`** — at-rest primitives: `argon2` 0.5 (Argon2id), `chacha20poly1305`
   0.10 (XChaCha20-Poly1305), `rand_core`, `zeroize`. Pure Rust, wasm-clean.
 - **`rotor_wasm`** — `wasm-bindgen` browser bindings (`WasmRotorSession`); built with
-  wasm-pack (`cryptorotor/build_wasm.sh`; CI job `rotor:wasm`). Consumed by the
+  wasm-pack (`build_wasm.sh` in that repo, and its CI). Consumed by the
   sibling *toto* project as a static committed copy — no GitLab in toto's path.
 - **`rotor_py`** — PyO3/maturin Python bindings for toto's Django side.
 
@@ -941,7 +941,7 @@ or a room code out of band.
 
 ## 13. Encryption at rest (gervasius + protasius)
 
-*(Condensed as-built reference. Crates: `cryptorotor/gervasius` — primitives;
+*(Condensed as-built reference. Crates: `crypto_rotor/gervasius` — primitives;
 `protasius/` — the store; app integration in `vault.rs` / `lib.rs`.)*
 
 **Model.** On every launch the user enters a passphrase (per profile; set on first

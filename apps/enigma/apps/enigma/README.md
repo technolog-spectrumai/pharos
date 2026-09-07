@@ -33,7 +33,7 @@ Mind workspaces are parked in [limbo/](../../limbo/README.md).
 - **[rakotis](../../packages/rakotis)** — shared primitives: UI components,
   Tauri helpers, storage, kv cache, i18n, plus the chat channel + MLS envelope
   state machine and the iroh transport bridge.
-- **Rotor** ([cryptorotor/rotor_core](../../cryptorotor/rotor_core)) — OpenMLS
+- **Rotor** (`../../../rotor/crypto_rotor/rotor_core`, sibling repo) — OpenMLS
   crypto, vendored in-repo and consumed from `src-tauri` via a path dependency.
 
 The Rust backend (`src-tauri/`) keeps: `mls_*` (Rotor-backed), the P2P gateway

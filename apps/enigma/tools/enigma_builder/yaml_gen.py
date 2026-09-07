@@ -130,8 +130,8 @@ dht:
   enabled: $dht_enabled
 
 crypto:
-  # Declarations, ASSERTED at compile time against the vendored crates
-  # (cryptorotor/rotor_core, cryptorotor/gervasius). Changing these strings does
+  # Declarations, ASSERTED at compile time against the crypto_rotor crates
+  # (rotor_core, gervasius — sibling repo). Changing these strings does
   # NOT change the algorithms — change the crates, then update the declaration.
   mls_ciphersuite: $crypto_mls_ciphersuite
   at_rest_aead: $crypto_at_rest_aead

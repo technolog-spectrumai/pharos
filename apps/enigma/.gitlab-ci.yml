@@ -153,48 +153,12 @@ tauri:desktop:
     paths: [apps/enigma/src-tauri/target/release/bundle/]
     expire_in: 30 days
 
-# Rotor WASM build gate + provenance artifact. CryptoRotor's single source of
-# truth is this repo (cryptorotor/); this job runs the same one-click script used
-# locally (cryptorotor/build_wasm.sh) so every pipeline proves both wasm-pack
-# targets still build, and tags carry the wasm built at the exact commit shipping
-# that crate revision. NOTE: consumers do NOT pull these artifacts — toto vendors
-# a static copy of the build_wasm.sh output, synced by its deploy.py from a
-# `rotor_wasm_dir` config prop (see technology.md §16). Targets:
-#   web     → cryptorotor/rotor_wasm/build_web/  (static/HTML consumers, e.g.
-#             toto telegraph)
-#   bundler → cryptorotor/rotor_wasm/build/      (`rotor_wasm` file: npm dep)
-rotor:wasm:
-  stage: build
-  needs: []
-  image: rust:1-bookworm
-  variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo
-  cache:
-    key: cargo-rotor-wasm
-    paths:
-      - .cargo/registry
-      - .cargo/bin
-      - cryptorotor/target/
-  before_script:
-    # the wasm-pack installer drops the binary into $CARGO_HOME/bin, which the
-    # cache keeps across runs — install only on a cold cache
-    - export PATH="$CARGO_HOME/bin:$PATH"
-    - rustup target add wasm32-unknown-unknown
-    - command -v wasm-pack >/dev/null
-      || curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
-  script:
-    - bash cryptorotor/build_wasm.sh
-    # assert both packages materialized (not just exit 0)
-    - test -f cryptorotor/rotor_wasm/build_web/rotor_wasm_bg.wasm
-    - test -f cryptorotor/rotor_wasm/build/rotor_wasm_bg.wasm
-    - test -f cryptorotor/rotor_wasm/build/package.json
-    # provenance stamp: which enigma commit built this wasm
-    - echo "$CI_COMMIT_SHA" | tee cryptorotor/rotor_wasm/build/COMMIT cryptorotor/rotor_wasm/build_web/COMMIT
-  artifacts:
-    paths:
-      - cryptorotor/rotor_wasm/build_web/
-      - cryptorotor/rotor_wasm/build/
-    expire_in: 30 days
+# The Rotor WASM build gate moved OUT with the crate. CryptoRotor became its own
+# repository on 2026-09-08 (gitlab.com/janhagit-group/crypto_rotor, checked out
+# as a sibling of this one); the job that ran cryptorotor/build_wasm.sh and
+# stamped provenance into rotor_wasm/build{,_web}/ belongs to that repo's
+# pipeline now. Consumers were never pulling these artifacts anyway — toto
+# vendors a static copy of the build_wasm.sh output.
 
 # Android needs an SDK/NDK image plus signing configuration; the host-provisioning
 # scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)

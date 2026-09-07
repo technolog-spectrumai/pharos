@@ -201,7 +201,7 @@ class ExpertTab(QWidget):
         layout.addWidget(
             widgets.hint(
                 "Declarations, asserted at compile time against "
-                "cryptorotor/rotor_core and cryptorotor/gervasius. Changing "
+                "crypto_rotor's rotor_core and gervasius. Changing "
                 "them here would not change the algorithms — change the crates "
                 "and update build_config.yaml by hand."
             )
