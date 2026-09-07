@@ -2,13 +2,13 @@
 
 ## Status
 
-**Groundwork done, structural work not started.** The tree is clean and every
-test green; nothing has moved yet.
+**Step 1 done.** The tree is clean and all 454 tests green. Nothing has moved
+into `apps/` yet — steps 1-7 are in-place refactors.
 
 | # | Step | State |
 |---|---|---|
 | 0 | groundwork — plan, `exports` list, PDF parked unwired | **done** |
-| 1 | extract shared preflight into scripts lib | todo |
+| 1 | extract shared preflight into scripts lib | **done** |
 | 2 | workspace store takes an injected seal probe | todo |
 | 3 | cargo workspace with substrate crate | todo |
 | 4 | padova crate owns sealing and secrets | todo |

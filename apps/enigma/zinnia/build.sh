@@ -29,38 +29,22 @@ for arg in "$@"; do
   esac
 done
 
-step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
-die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$1" >&2; exit 1; }
+# step/warn/die, the toolchain checks and the dependency install.
+. "$HERE/scripts/lib.sh"
 
 # ── preflight ───────────────────────────────────────────────────────────────
-# Checked up front, by name, because the failure otherwise arrives minutes in
-# and reads as a compiler error rather than "you have no linker".
 step "Checking the toolchain"
-command -v node >/dev/null || die "node is not installed"
-command -v npm  >/dev/null || die "npm is not installed"
+need_node
 echo "    node $(node --version)  npm $(npm --version)"
 if [ "$FRONTEND_ONLY" -eq 0 ]; then
-  command -v cargo >/dev/null || die "cargo is not installed — see https://rustup.rs"
+  need_cargo
   echo "    $(cargo --version)"
-  # webkit2gtk and friends: the Tauri build fails deep inside a -sys crate
-  # without them, with an error that names a .pc file and not the package.
-  if command -v pkg-config >/dev/null; then
-    for pkg in webkit2gtk-4.1 javascriptcoregtk-4.1 libsoup-3.0; do
-      pkg-config --exists "$pkg" 2>/dev/null \
-        || echo "    WARNING: $pkg not found — install libwebkit2gtk-4.1-dev libsoup-3.0-dev"
-    done
-  fi
+  check_system_libs
 fi
 
 # ── dependencies ────────────────────────────────────────────────────────────
 step "Installing dependencies"
-# `npm ci` when the lockfile is authoritative — reproducible, and it refuses
-# rather than silently resolving a drifted package.json.
-if [ -f package-lock.json ]; then
-  npm ci --no-audit --no-fund
-else
-  npm install --no-audit --no-fund
-fi
+install_deps
 
 # ── tests ───────────────────────────────────────────────────────────────────
 if [ "$RUN_TESTS" -eq 1 ]; then
