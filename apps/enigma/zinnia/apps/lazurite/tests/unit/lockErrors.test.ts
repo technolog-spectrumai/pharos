@@ -40,6 +40,8 @@ describe("the lock error prefixes", () => {
     // calls padova, which calls substrate. Every file on that chain is read,
     // because a prefix can originate in any of them.
     const { readFileSync } = await import("node:fs");
+    // Paths are relative to this app's vitest root; the crates are shared and
+    // live at the REPO root, two levels up.
     const CHAIN = {
       "src-tauri/src/lock.rs": null,
       "src-tauri/src/secrets.rs": null,
@@ -47,9 +49,9 @@ describe("the lock error prefixes", () => {
       // one file would satisfy the floor below while every other file had
       // silently moved out from under the scan — which is how this test failed
       // the day padova was extracted, and the only reason it noticed.
-      "crates/padova/src/lock.rs": "wrong_password",
-      "crates/padova/src/secrets.rs": "no_passphrase",
-      "crates/substrate/src/lib.rs": "too_large",
+      "../../crates/padova/src/lock.rs": "wrong_password",
+      "../../crates/padova/src/secrets.rs": "no_passphrase",
+      "../../crates/substrate/src/lib.rs": "too_large",
     } as const;
     const found = new Set<string>();
     for (const [file, sentinel] of Object.entries(CHAIN)) {

@@ -25,25 +25,25 @@
     "baseUrl": ".",
     "paths": {
       "rakotis/*": [
-        "./packages/rakotis/src/*"
+        "../../packages/rakotis/src/*"
       ],
       "petalite/*.vue": [
-        "./packages/petalite/src/components/*.vue"
+        "../../packages/petalite/src/components/*.vue"
       ],
       "petalite/*": [
-        "./packages/petalite/src/*"
+        "../../packages/petalite/src/*"
       ],
       "petalite": [
-        "./packages/petalite/src/index.ts"
+        "../../packages/petalite/src/index.ts"
       ],
       "padova/*.vue": [
-        "./packages/padova/src/components/*.vue"
+        "../../packages/padova/src/components/*.vue"
       ],
       "padova/*": [
-        "./packages/padova/src/*"
+        "../../packages/padova/src/*"
       ],
       "padova": [
-        "./packages/padova/src/index.ts"
+        "../../packages/padova/src/index.ts"
       ]
     }
   },

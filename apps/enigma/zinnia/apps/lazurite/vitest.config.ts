@@ -11,9 +11,9 @@ const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 // contract is snapshot-in/snapshot-out, which the stub honours exactly.
 const univerStub = new URL("./tests/stubs/univer.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
-const rakotisSrc = new URL("./packages/rakotis/src", import.meta.url).pathname;
-const petaliteSrc = new URL("./packages/petalite/src", import.meta.url).pathname;
-const padovaSrc = new URL("./packages/padova/src", import.meta.url).pathname;
+const rakotisSrc = new URL("../../packages/rakotis/src", import.meta.url).pathname;
+const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
+const padovaSrc = new URL("../../packages/padova/src", import.meta.url).pathname;
 
 export default defineConfig({
   plugins: [vue()],

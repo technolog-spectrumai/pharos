@@ -1,7 +1,7 @@
 [package]
-name = "zinnia"
+name = "lazurite"
 version = "0.1.0"
-description = "Zinnia — an office suite for the toto platform"
+description = "Lazurite — the writer: documents, decks and code"
 authors = ["SpectrumAI"]
 license = ""
 repository = "https://gitlab.com/janhagit-group/zinnia"
@@ -10,7 +10,7 @@ rust-version = "1.88"
 
 [lib]
 # The `_lib` suffix avoids a bin/lib name clash on Windows (rust-lang/cargo#8519).
-name = "zinnia_lib"
+name = "lazurite_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -38,8 +38,8 @@ tauri-plugin-opener = "2"
 # and therefore the OS keyring. This app offers sealing, so it depends on both;
 # an app that does not depends on substrate alone and never links libsecret.
 # Neither `gervasius` nor `keyring` is named here any more: they are padova's.
-substrate = { path = "../crates/substrate" }
-padova = { path = "../crates/padova" }
+substrate = { path = "../../../crates/substrate" }
+padova = { path = "../../../crates/padova" }
 
 # `[profile.dev]` used to be here. It lives in the ROOT Cargo.toml now: a
 # profile in a workspace member is ignored with only a warning, and the one

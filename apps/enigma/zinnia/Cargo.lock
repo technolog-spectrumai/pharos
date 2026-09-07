@@ -2106,6 +2106,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazurite"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "padova",
+ "serde",
+ "serde_json",
+ "substrate",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+]
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5450,23 +5467,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "zinnia"
-version = "0.1.0"
-dependencies = [
- "log",
- "padova",
- "serde",
- "serde_json",
- "substrate",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-log",
- "tauri-plugin-opener",
 ]
 
 [[package]]

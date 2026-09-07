@@ -28,13 +28,13 @@ export default defineConfig({
       // because the components live one directory deeper than the subpaths:
       // "petalite/ModalPanel.vue" is src/components/ModalPanel.vue, while
       // "petalite/theme" is src/theme/. Both mirror package.json's `exports`.
-      { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("./packages/petalite/src/components/$1", import.meta.url)) },
-      { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("./packages/petalite/src/$1", import.meta.url)) },
-      { find: /^petalite$/, replacement: fileURLToPath(new URL("./packages/petalite/src/index.ts", import.meta.url)) },
-      { find: /^padova\/(.*\.vue)$/, replacement: fileURLToPath(new URL("./packages/padova/src/components/$1", import.meta.url)) },
-      { find: /^padova\/(.*)/, replacement: fileURLToPath(new URL("./packages/padova/src/$1", import.meta.url)) },
-      { find: /^padova$/, replacement: fileURLToPath(new URL("./packages/padova/src/index.ts", import.meta.url)) },
-      { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("./packages/rakotis/src/$1", import.meta.url)) },
+      { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/petalite/src/components/$1", import.meta.url)) },
+      { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("../../packages/petalite/src/$1", import.meta.url)) },
+      { find: /^petalite$/, replacement: fileURLToPath(new URL("../../packages/petalite/src/index.ts", import.meta.url)) },
+      { find: /^padova\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/padova/src/components/$1", import.meta.url)) },
+      { find: /^padova\/(.*)/, replacement: fileURLToPath(new URL("../../packages/padova/src/$1", import.meta.url)) },
+      { find: /^padova$/, replacement: fileURLToPath(new URL("../../packages/padova/src/index.ts", import.meta.url)) },
+      { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("../../packages/rakotis/src/$1", import.meta.url)) },
     ],
   },
   optimizeDeps: { exclude: ["rakotis", "petalite", "padova"] },

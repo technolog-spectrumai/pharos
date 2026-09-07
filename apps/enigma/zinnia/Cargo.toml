@@ -2,8 +2,9 @@
 #
 # One workspace, so the apps that come out of the split share a target
 # directory, a lockfile and a dependency resolution rather than each rebuilding
-# the same tauri tree. Members are listed by path rather than globbed while
-# there is one app; the glob arrives with `apps/*/src-tauri` in step 8.
+# the same tauri tree. Members are GLOBBED: every app carries its own
+# `src-tauri`, and adding an app should not mean remembering to add a line here
+# for it to be built and tested with the others.
 #
 # `packages/rakotis` is a git subtree with its own tracked `Cargo.lock`, and it
 # must stay OUT of the workspace. Being absent from `members` is not enough:
@@ -15,7 +16,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "src-tauri",
+    "apps/*/src-tauri",
     "crates/substrate",
     "crates/padova",
 ]

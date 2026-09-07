@@ -7,9 +7,9 @@
  * too. Tailwind only emits a class it has seen in a scanned file, and a path
  * that stops matching is SILENT — no error, just components rendering unstyled.
  * These are relative to this file; they change when this file moves. */
-@source "../packages/rakotis/src";
-@source "../packages/petalite/src";
-@source "../packages/padova/src";
+@source "../../../packages/rakotis/src";
+@source "../../../packages/petalite/src";
+@source "../../../packages/padova/src";
 
 @theme {
   --color-primary-bg-light: #f2f3f5;

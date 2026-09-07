@@ -18,7 +18,8 @@ import { APP_TABS } from "../../src/tabs";
 import { SKETCH_TOOLS } from "../../src/sketch/tools";
 
 const SRC = join(__dirname, "../../src");
-const PACKAGES = join(__dirname, "../../packages");
+/** The repo root is two levels above the app now. */
+const PACKAGES = join(__dirname, "../../../../packages");
 
 /** Every tree that ships templates: the app, plus each workspace package.
  *

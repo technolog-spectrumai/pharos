@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run Zinnia in development.
+# Run Lazurite in development.
 #
 #   ./run_dev.sh               desktop window (Tauri) with hot reload
 #   ./run_dev.sh --web         browser only at http://localhost:1430, no Rust
@@ -24,13 +24,16 @@ for arg in "$@"; do
     --web)        WEB=1 ;;
     --reset)      RESET=1 ;;
     --reset-only) RESET=1; RESET_ONLY=1 ;;
-    -h|--help)    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '2,9p' "$HERE/run_dev.sh" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
 
 # step/warn/die, the toolchain checks, snap detection and the app-data path.
-. "$HERE/scripts/lib.sh"
+# The shared preflight lives at the REPO root, not in this app: node/cargo
+# checks, the system libraries and the snap trap are identical for every app,
+# and three copies would mean fixing the next toolchain problem three times.
+. "$HERE/../../scripts/lib.sh"
 
 need_node
 detect_snap
@@ -72,5 +75,5 @@ fi
 # ── desktop ─────────────────────────────────────────────────────────────────
 need_cargo "or use --web"
 
-step "Starting Zinnia (desktop)"
+step "Starting Lazurite (desktop)"
 exec npx tauri dev

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build the Zinnia desktop app.
+# Build the Lazurite desktop app.
 #
 #   ./build.sh                 release bundle (deb + rpm)
 #   ./build.sh --debug         debug bundle — builds far faster, runs slower
@@ -24,13 +24,16 @@ for arg in "$@"; do
     --debug)    DEBUG=1 ;;
     --no-test)  RUN_TESTS=0 ;;
     --frontend) FRONTEND_ONLY=1 ;;
-    -h|--help)  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  sed -n '2,9p' "$HERE/build.sh" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
 
 # step/warn/die, the toolchain checks and the dependency install.
-. "$HERE/scripts/lib.sh"
+# The shared preflight lives at the REPO root, not in this app: node/cargo
+# checks, the system libraries and the snap trap are identical for every app,
+# and three copies would mean fixing the next toolchain problem three times.
+. "$HERE/../../scripts/lib.sh"
 
 # ── preflight ───────────────────────────────────────────────────────────────
 step "Checking the toolchain"

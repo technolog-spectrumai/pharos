@@ -2,12 +2,15 @@
 
 ## Status
 
-**Steps 1-7 done — every in-place refactor is complete.** The tree is clean;
-462 frontend tests and 24 Rust tests (padova 12, substrate 8, zinnia 3) plus
-padova's `compile_fail` doctest green, clippy clean, `npm run build` succeeds.
+**Steps 1-8 done — the directory move has happened.** The app now lives in
+`apps/lazurite/`; 462 frontend tests and 24 Rust tests (padova 12, substrate 8,
+lazurite 3) plus padova's `compile_fail` doctest green, clippy clean,
+`npm run build` succeeds.
 
-**Step 8 is next and is the first irreversible commit.** Everything so far is
-reversible in place and leaves one working app.
+Commands run from the REPO ROOT and fan out through npm workspaces: `npm test`,
+`npm run typecheck`, `npm run build`, `npm run test:rust`. The app's own scripts
+are `apps/lazurite/{run_dev,build}.sh`, and they source `scripts/lib.sh` from
+the root.
 
 Run the Rust side with **`npm run test:rust`** (`cargo test --workspace`), never
 `cargo test` from inside `src-tauri/` — that compiles only the app and silently
@@ -24,7 +27,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 5 | npm workspaces with petalite package | **done** |
 | 6 | one file tree for panel and security tab | **done** |
 | 7 | padova package owns the sealing surface | **done** |
-| 8 | lazurite becomes an app under apps ← **first irreversible** | todo |
+| 8 | lazurite becomes an app under apps ← **first irreversible** | **done** |
 | 9 | primula becomes an app under apps | todo |
 | 10 | sketch becomes an app under apps | todo |
 | 11 | csv export from the active worksheet | todo |
@@ -482,7 +485,33 @@ Commit messages: max 8 words, single line, no AI mentions.
 7. `padova package owns the sealing surface` — `LockModal`, `SecurityView`,
    `lock.ts` write half, `lock.*`/`security.*` catalogues.
 8. `lazurite becomes an app under apps` — the move, with per-app config, port
-   pair, vitest root and generalised smoke/icons tests.
+   pair, vitest root and generalised smoke/icons tests. **Done.** What the move
+   actually required, beyond the `git mv`:
+
+   * **Every relative path gains levels, and each gains a DIFFERENT number.**
+     The configs went `./packages` → `../../packages`; `style.css` went
+     `../packages` → `../../../packages` (it sits one deeper, in `src/`); the
+     crate manifest went `../crates` → `../../../crates`. Getting one wrong
+     fails loudly except for `@source`, which does not.
+   * **`package.json` split in two.** The app took the dependencies and the
+     vite/vitest/tauri scripts; the root kept `workspaces` and fans out with
+     `--workspaces --if-present`. `test:rust` stays at the root because cargo's
+     workspace is repo-wide.
+   * **The Rust crate renamed** `zinnia` → `lazurite` (and `zinnia_lib` →
+     `lazurite_lib`, with `main.rs` following). The **bundle identifier stays
+     `com.spectrumaipl.zinnia`** on purpose: it owns the app-data directory and
+     the keyring entry, so changing it would orphan a user's remembered
+     passphrase and stored settings. `productName` likewise.
+   * **`members = ["apps/*/src-tauri"]`**, globbed, so app 2 and 3 need no line.
+   * **Two tests read across the app boundary** and both broke *loudly* —
+     `icons.test.ts` scanning `packages/`, and `lockErrors.test.ts` reading the
+     shared crates. Both now reach `../../..`. This is what the anti-vacuity
+     work in steps 5-7 bought: they failed instead of quietly testing nothing.
+   * **A pre-existing `--help` bug surfaced.** Both scripts did
+     `sed -n '2,9p' "$0"` after `cd "$HERE"`, so a relative `$0` stopped
+     resolving — invisible while the scripts were run from their own directory,
+     broken the moment they were invoked as `./apps/lazurite/run_dev.sh`. Now
+     anchored to `"$HERE/<name>"` and verified from three directories.
 9. `primula becomes an app under apps` — sheets out of Lazurite; delete
    `openWith.ts:83`, `tabs.ts:26/43/66`, `EditorHost` sheet block.
 10. `sketch becomes an app under apps` — `src/sketch/` and `SketchEditor.vue`
