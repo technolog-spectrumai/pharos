@@ -8,6 +8,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // is already "connected". These tests pin both paths:
 //   A. Tor-like: status cached before entry, no event after  → kp still sent.
 //   B. iroh-like: no cached status, event arrives after entry → kp sent (unchanged).
+//
+// Written against join-by-ticket originally; re-pointed at `joinByNode`, which is
+// the only way into a room now. The race is a property of the TRANSPORT's timing,
+// not of which credential got us here, so removing tickets did not remove it.
 
 // vi.mock factories are hoisted above ordinary const initializers — vi.hoisted
 // makes the shared mock state available to them.
@@ -82,12 +86,12 @@ describe("Tor join — MLS key exchange must start even when 'connected' precede
     // is still in flight; by the time the channel enters the room the event is
     // long gone and only the cache remembers it.
     mockTransport.lastStatus.mockReturnValue("connected");
-    mockTransport.joinRoom.mockResolvedValue({ room: "room-1", name: "aaaa", onion: "abc.onion" });
+    mockTransport.joinRoomByNode.mockResolvedValue({ room: "room-1", name: "aaaa", onion: "abc.onion" });
 
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me-device";
 
-    await ch.joinByTicket("kqaa"); // base32(0x54…) = a Tor ticket
+    await ch.joinByNode("aaaa", ["node-peer"]); // a non-empty onion ⇒ Tor
 
     // startMls() is kicked (not awaited) from enterP2pRoom — flush it.
     await vi.waitFor(() => {
@@ -100,12 +104,12 @@ describe("Tor join — MLS key exchange must start even when 'connected' precede
   });
 
   it("B: iroh-like flow (status event arrives after entry) still triggers exactly one key exchange", async () => {
-    mockTransport.joinRoom.mockResolvedValue({ room: "room-2", name: "bbbb", onion: "" });
+    mockTransport.joinRoomByNode.mockResolvedValue({ room: "room-2", name: "bbbb", onion: "" });
 
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me-device";
 
-    await ch.joinByTicket("aaaqeay"); // tagless base32 → iroh ticket
+    await ch.joinByNode("bbbb", ["node-peer"]); // no onion ⇒ iroh
     expect(ch.wsStatus.value).toBe("connecting"); // nothing cached yet
     expect(keyPackageSends()).toHaveLength(0); // no premature MLS init
 
@@ -122,11 +126,11 @@ describe("Tor join — MLS key exchange must start even when 'connected' precede
 
   it("A+B: cache-kick followed by a late duplicate 'connected' event does not restart the key exchange", async () => {
     mockTransport.lastStatus.mockReturnValue("connected");
-    mockTransport.joinRoom.mockResolvedValue({ room: "room-3", name: "cccc", onion: "abc.onion" });
+    mockTransport.joinRoomByNode.mockResolvedValue({ room: "room-3", name: "cccc", onion: "abc.onion" });
 
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me-device";
-    await ch.joinByTicket("kqaa");
+    await ch.joinByNode("cccc", ["node-peer"]);
 
     await vi.waitFor(() => expect(keyPackageSends()).toHaveLength(1));
 

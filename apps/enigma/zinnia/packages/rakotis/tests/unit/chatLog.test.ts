@@ -3,7 +3,7 @@ import {
   appendMessages, createLogAppender, loadLog, logMeta, mergeIntoLog,
   messagesSince, wipeLog,
 } from "../../src/services/chatLog";
-import { CHAT_LOG_SEG_MAX_MSGS, type PersistedMessage } from "../../src/deviceSyncModel";
+import { CHAT_LOG_SEG_MAX_MSGS, type PersistedMessage } from "../../src/chatHistoryModel";
 
 function msg(id: string, ts: number): PersistedMessage {
   return { id, type: "mls_app", user: "alice", content: `m-${id}`, encrypted: true, ts };

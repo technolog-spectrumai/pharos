@@ -1,4 +1,4 @@
-// Profile / runtime storage abstraction for the serverless Enigma app.
+// Profile / runtime storage abstraction for the serverless Enigma26 app.
 //
 // When running inside the Tauri desktop app, all storage goes through Rust via
 // invoke(). In a plain browser (Vite dev server, vitest jsdom) we fall back to
@@ -95,7 +95,6 @@ export interface BuildConfig {
   /** false = this build has no peer sync: the `enigma/plink/0` ALPN is not
    *  registered, usePeerSync is never instantiated, and every peer_* command
    *  errors with PEERS_DISABLED. (peer.md; pland.md — Pro only.) */
-  peers_enabled: boolean;
   /** false = this build has no Maps: no Map tab, /map redirects, map_* commands
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
@@ -107,9 +106,8 @@ export interface BuildConfig {
   /** PIN unlock: a short in-session re-unlock after an idle lock. The passphrase
    *  still opens the vault at cold start — the PIN never protects data at rest. */
   pin_unlock: boolean;
-  /** false = this build has no device linking: devlink_* commands error with
-   *  DEVLINK_DISABLED and the Settings→Devices tab is hidden. */
-  devices_allow_linking: boolean;
+  /** false = this build has no linked-device sync channel. The old Files→Devices
+   *  UI is removed regardless of this flag. */
   use_tor_default: boolean;
   stable_onion_default: boolean;
   dht_discovery_default: boolean;
@@ -118,13 +116,10 @@ export interface BuildConfig {
   dht_room_publish_secs: SettingClamp;
   max_file_size_mb: SettingClamp;
   map_storage_limit_mb: SettingClamp;
-  devlink_pair_window_secs: SettingClamp;
-  devlink_resync_secs: SettingClamp;
   chat_history_cap_msgs: SettingClamp;
   /** Auto-lock: minutes of inactivity before the vault re-locks. 0 = never. */
   idle_lock_mins: SettingClamp;
   /** Peer sync: seconds between a live link's hello + diff pull. */
-  peer_resync_secs: SettingClamp;
   /** P2P transfer chunk, KiB — the "file chunk size" setting's bounds. */
   file_chunk_kib: SettingClamp;
   /** Digits in the unlock PIN. */
@@ -136,19 +131,17 @@ export interface BuildConfig {
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
 // consts below (literals here: the consts are declared later in the module).
 const FALLBACK_BUILD_CONFIG: BuildConfig = {
-  app_name: "Enigma",
-  app_identifier: "com.spectrumaipl.enigma",
+  app_name: "Enigma26",
+  app_identifier: "com.spectrumaipl.enigma26",
   app_version: "0.1.0",
   p2p_allow_hosted_relays: true,
   dht_enabled: true,
   calls_enabled: true,
   contacts_enabled: true,
   calendar_enabled: true,
-  peers_enabled: true,
   maps_enabled: true,
   keyring_enabled: true,
   pin_unlock: true,
-  devices_allow_linking: true,
   use_tor_default: false,
   stable_onion_default: false,
   dht_discovery_default: false,
@@ -157,11 +150,8 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 },
   max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
   map_storage_limit_mb: { default: 512, min: 64, max: 65536 },
-  devlink_pair_window_secs: { default: 600, min: 60, max: 3600 },
-  devlink_resync_secs: { default: 300, min: 30, max: 3600 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
-  peer_resync_secs: { default: 300, min: 30, max: 3600 },
   file_chunk_kib: { default: 256, min: 16, max: 4096 },
   pin_digits: { default: 6, min: 4, max: 12 },
   file_integrity_default: true,
@@ -343,61 +333,6 @@ export async function setHiddenTabs(ids: readonly string[]): Promise<void> {
   await kvPut("p2p:settings", "default", KEY_HIDDEN_TABS, JSON.stringify([...ids])).catch(() => {});
 }
 
-// ── Device-link resync interval (linked-device catch-up cadence) ───────────────
-// How often paired devices exchange dlink_hello and reconcile state/history
-// while both are online. Stored in the encrypted kv store; device-local (each
-// device may pace itself differently — deliberately NOT in the sync allow-list).
-
-export function clampDevlinkResyncSecs(secs: number): number {
-  const c = getBuildConfig().devlink_resync_secs;
-  if (!Number.isFinite(secs)) return c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
-}
-
-export async function getDevlinkResyncSecs(): Promise<number> {
-  const c = getBuildConfig().devlink_resync_secs;
-  try {
-    const raw = await kvGet("p2p:settings", "default", "devlink_resync_secs");
-    if (raw === null || raw === "") return c.default;
-    return clampDevlinkResyncSecs(Number(raw));
-  } catch {
-    return c.default;
-  }
-}
-
-export async function setDevlinkResyncSecs(secs: number): Promise<number> {
-  const v = clampDevlinkResyncSecs(secs);
-  await kvPut("p2p:settings", "default", "devlink_resync_secs", String(v)).catch(() => {});
-  return v;
-}
-
-// ── Peer-sync resync interval (peer.md) ───────────────────────────────────────
-// How often a live peer link re-announces (plink_hello) and pulls the diff for
-// its granted scopes. Device-local, like the devlink cadence above — never in
-// any sync allow-list.
-
-export function clampPeerResyncSecs(secs: number): number {
-  const c = getBuildConfig().peer_resync_secs;
-  if (!Number.isFinite(secs)) return c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
-}
-
-export async function getPeerResyncSecs(): Promise<number> {
-  const c = getBuildConfig().peer_resync_secs;
-  try {
-    const raw = await kvGet("p2p:settings", "default", "peer_resync_secs");
-    if (raw === null || raw === "") return c.default;
-    return clampPeerResyncSecs(Number(raw));
-  } catch {
-    return c.default;
-  }
-}
-
-export async function setPeerResyncSecs(secs: number): Promise<number> {
-  const v = clampPeerResyncSecs(secs);
-  await kvPut("p2p:settings", "default", "peer_resync_secs", String(v)).catch(() => {});
-  return v;
-}
 
 // ── Chat history cap (persisted per-room message log, in messages) ─────────────
 // Bounds the sealed chat:log kv namespace per room; the oldest segment is

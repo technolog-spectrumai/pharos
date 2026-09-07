@@ -12,6 +12,7 @@ import { ref, computed, watch } from "vue";
 import { chatTransport, type WsStatus } from "./chatTransport";
 import { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
 import { getRuntimeConfig, type AppRuntimeConfig } from "./services/appStorage";
+import { t } from "./i18n/chatText";
 import type { Participant, Room } from "./services/types";
 import { kvGet, kvPut } from "./services/localDb";
 import {
@@ -22,9 +23,9 @@ import {
   validateLocationShare, validatePinShare, validateRegionShare,
   type MapLocationShare, type MapPinShare, type MapRegionShare,
 } from "./mapModel";
-import { sameUser, userPartOf, type PersistedMessage } from "./deviceSyncModel";
+import { sameUser, userPartOf, type PersistedMessage } from "./chatHistoryModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
-import { getChatHistoryCapMsgs } from "./services/appStorage";
+import { getChatHistoryCapMsgs, getConnectTimeoutSecs } from "./services/appStorage";
 import { nanoid } from "nanoid";
 
 /** A validated map share riding a chat-timeline card (mapModel wire shapes). */
@@ -35,7 +36,14 @@ export type MapShare = MapPinShare | MapLocationShare | MapRegionShare;
 export interface P2pRoomEntry {
   room: string;
   name: string;
-  ticket: string;
+  /**
+   * LEGACY permanent room ticket. Written by builds before invitations became the
+   * only way in, never minted now, and read exactly once — `loadP2pRooms` decodes
+   * it to recover what the record was missing (iroh peers, or a Tor captain's
+   * onion) and then drops the field. Kept optional so an old record still
+   * deserializes; nothing else may read it.
+   */
+  ticket?: string;
   /** NodeIds of peers seen in this room — persisted so a restart can re-subscribe
    *  and resolve their current addresses via n0 discovery (no fresh QR needed). */
   peers?: string[];
@@ -46,6 +54,16 @@ export interface P2pRoomEntry {
   tor?: boolean;
   /** Our own onion for this room (Tor) — announced over presence for election. */
   onion?: string;
+  /**
+   * The CAPTAIN's onion for this room (Tor) — the address we dial to get back in.
+   *
+   * Distinct from `onion` above, which is ours. This used to live only inside the
+   * permanent ticket, so a Tor room we JOINED had no recorded way back once the
+   * ticket was gone; that is what stranded them. Written whenever we learn a
+   * captain address (invitation grant, election) and backfilled from a legacy
+   * ticket on first load.
+   */
+  captainOnion?: string;
   /** Ticketless-join room code (DHT rendezvous — technology.md §12). Present when this room
    *  was created/joined with DHT discovery on, or a code was minted for it. */
   code?: string;
@@ -53,6 +71,10 @@ export interface P2pRoomEntry {
   logo?: string;
   /** Room rules text — captain-set, distributed via `room_meta`. */
   rules?: string;
+  /** LEGACY: invite-only used to be a per-room captain-set flag. Every room is
+   *  invite-only now, so nothing reads this; it stays on the type only so a record
+   *  written by an older build still deserializes without losing the rest. */
+  inviteOnly?: boolean;
   /** Monotonic revision of the captain-authoritative meta/moderation snapshot. */
   metaRev?: number;
   /** Active mutes (MLS id → expiry epoch ms), captain-set. */
@@ -73,13 +95,15 @@ function firstTagByte(ticket: string): number {
   if (a < 0 || b < 0) return -1;
   return ((a << 3) | (b >> 2)) & 0xff;
 }
-export function isTorTicket(ticket: string): boolean {
-  return firstTagByte(ticket) === 0x54;
-}
-/** DHT room codes are base32(`0x44` ('D') ++ postcard) — the ticketless-join
- *  credential (technology.md §12; mirrors `p2p_iroh::code_is_dht`). */
-export function isDhtCode(ticket: string): boolean {
-  return firstTagByte(ticket) === 0x44;
+/** Invitations are base32(`0x4E` ('N') ++ version ++ kind ++ body) — encrypted,
+ *  expiring, and redeemed by connecting to the inviter rather than by joining a
+ *  topic (technology.md §18; mirrors `invite_ticket::is_invite_ticket`).
+ *
+ *  A sniff only: it answers "is this an invitation?", never "is it valid", "has
+ *  it expired" or "is it mine". A Personal invitation is sealed, so only Rust —
+ *  holding this device's identity secret — can answer any of those. */
+export function isInviteTicket(ticket: string): boolean {
+  return firstTagByte(ticket) === 0x4e;
 }
 
 export type MlsStatus =
@@ -178,9 +202,22 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   const pendingRecoveryRooms = new Set<string>();
   const processedResetIds = new Set<string>();
 
+  /**
+   * Evidence that we are NOT the only member: an MLS application frame from
+   * another device arrived while we were still negotiating.
+   *
+   * This is what separates a lone room creator — who legitimately becomes a
+   * "group of one" — from someone who joined a live room and was never admitted.
+   * A refused joiner sees other members' encrypted traffic go by and cannot open
+   * any of it; a creator alone in a fresh room sees nothing at all.
+   */
+  let sawForeignTraffic = false;
+
   let creatorTimer: ReturnType<typeof setTimeout> | null = null;
+  let admissionTimer: ReturnType<typeof setTimeout> | null = null;
   function clearCreatorTimer() {
     if (creatorTimer) { clearTimeout(creatorTimer); creatorTimer = null; }
+    if (admissionTimer) { clearTimeout(admissionTimer); admissionTimer = null; }
   }
 
   const isParticipant = ref(false);
@@ -254,6 +291,23 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
 
   function initials(name: string): string {
     return name.split(/\s+/).map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
+  }
+
+  /**
+   * A TRANSLATED system notice — the form every new one should take.
+   *
+   * `systemMsg` below still takes finished text, because a few callers already
+   * hold a string (an error from the transport, a caller-supplied reason). This
+   * wrapper is the one that goes through the app's catalog, falling back to the
+   * English beside the key when no translator is registered (`i18n/chatText.ts`).
+   */
+  function sysMsg(
+    key: string,
+    fallback: string,
+    params?: Record<string, unknown>,
+    type: "system_info" | "system_error" = "system_info",
+  ): Message {
+    return systemMsg(t(key, fallback, params), type);
   }
 
   function systemMsg(content: string, type: "system_info" | "system_error" = "system_info"): Message {
@@ -369,8 +423,10 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   // (handled inline after the mute check), not control traffic. Adding the
   // prefix "for consistency" would make this gate `return` before the mute
   // check and swallow every card — no handler owns `map_`, so nothing would
-  // ever render. The routing tests in multiDeviceChannel.test.ts assert a real
-  // map_loc frame becomes a card and turn red the moment that happens.
+  // ever render. (The routing tests that pinned this lived in
+  // multiDeviceChannel.test.ts, deleted with device linking in enigma's
+  // `f0c8126 Park device linking and file sync to limbo`; the parked copies are
+  // in enigma's limbo/frontend/devices.)
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {
@@ -450,6 +506,10 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       if (captainOnion && captainOnion !== currentCaptainOnion.value) {
         currentCaptainOnion.value = captainOnion;
         scheduleSetCaptain(currentRoom.value.slug, captainOnion);
+        // Persisted, not just dialled: this is the only address that gets us back
+        // into a Tor room we did not host, and it used to survive only inside the
+        // permanent ticket.
+        updateRoomEntry({ captainOnion });
       }
     }
 
@@ -550,7 +610,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     bans.value = Array.isArray(inner.bans) ? (inner.bans as unknown[]).filter((b): b is string => typeof b === "string") : [];
     persistRoomMod();
     if (roomRules.value && roomRules.value !== rulesBefore) {
-      messages.value.push(systemMsg(`📜 Room rules:\n${roomRules.value}`));
+      messages.value.push(sysMsg("chat.sys.rules", "📜 Room rules:\n{rules}", { rules: roomRules.value }));
     }
     void refreshP2pRoster();
   }
@@ -597,7 +657,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     persistRoomMod();
     await sendEncryptedMedia("mod_mute", { device_id: mlsIdentity.value, target, until }).catch(() => {});
     await broadcastRoomMeta();
-    messages.value.push(systemMsg(`🔇 ${nameFor(target)} was muted for ${formatRemaining(until, Date.now())}.`));
+    messages.value.push(sysMsg("chat.sys.muted", "🔇 {who} was muted for {time}.", { who: nameFor(target), time: formatRemaining(until, Date.now()) }));
     void refreshP2pRoster();
   }
 
@@ -612,7 +672,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     persistRoomMod();
     await sendEncryptedMedia("mod_unmute", { device_id: mlsIdentity.value, target }).catch(() => {});
     await broadcastRoomMeta();
-    messages.value.push(systemMsg(`🔊 ${nameFor(target)} was unmuted.`));
+    messages.value.push(sysMsg("chat.sys.unmuted", "🔊 {who} was unmuted.", { who: nameFor(target) }));
     void refreshP2pRoster();
   }
 
@@ -639,7 +699,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       const commit = await cryptoService.removeMember(room, mlsIdentity.value, leaf).catch(() => null);
       if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
     }
-    messages.value.push(systemMsg(`🚫 ${nameFor(target)} was removed from the room.`));
+    messages.value.push(sysMsg("chat.sys.removed", "🚫 {who} was removed from the room.", { who: nameFor(target) }));
     void refreshP2pRoster();
   }
 
@@ -662,7 +722,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (tor) chatTransport.forgetTorOnion(name);
     if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
-    clearLocalChatState("🚫 You were removed from this room by the host.");
+    clearLocalChatState(t("chat.sys.kicked", "🚫 You were removed from this room by the host."));
   }
 
   function nameFor(id: string): string {
@@ -688,7 +748,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
     if (deadId) deadCaptains.add(deadId);
     currentCaptainOnion.value = null; // force a re-point on the next election
-    messages.value.push(systemMsg("The room host went offline — electing a new host…"));
+    messages.value.push(sysMsg("chat.sys.hostGone", "The room host went offline — electing a new host…"));
     await refreshP2pRoster(); // re-elect (skips deadCaptains) + re-point to the next captain
     // Evict the dead host from MLS only AFTER the re-point lands, so the removal
     // commit is broadcast over the NEW captain's connection (the old one is dead).
@@ -729,15 +789,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       if (kp) {
         const b64 = bytesToBase64(kp);
         send({ type: "mls_key_package", key_package: b64, device_id: identity, ...(await kpEnvelopeExtra(b64)) });
-        messages.value.push(systemMsg("🔑 MLS group changed — sent a fresh key package."));
+        messages.value.push(sysMsg("chat.sys.groupChanged", "🔑 MLS group changed — sent a fresh key package."));
       } else {
         mlsStatus.value = "error";
-        messages.value.push(systemMsg("Could not recover MLS session.", "system_error"));
+        messages.value.push(sysMsg("chat.sys.recoverFailed", "Could not recover MLS session.", undefined, "system_error"));
       }
     } catch (e) {
       mlsStatus.value = "error";
       mlsError.value = errorMessage(e);
-      messages.value.push(systemMsg(`Could not recover MLS session: ${errorMessage(e)}`, "system_error"));
+      messages.value.push(sysMsg("chat.sys.recoverFailedWhy", "Could not recover MLS session: {why}", { why: errorMessage(e) }, "system_error"));
     } finally {
       pendingRecoveryRooms.delete(recoveryKey);
     }
@@ -758,12 +818,12 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     log("status →", status);
     wsStatus.value = status;
     if (status === "connected") {
-      messages.value.push(systemMsg(`Connected to ${currentRoom.value?.name ?? "room"}.`));
+      messages.value.push(sysMsg("chat.sys.connected", "Connected to {room}.", { room: currentRoom.value?.name ?? "room" }));
       void startMls();
     } else if (status === "disconnected") {
-      messages.value.push(systemMsg("Disconnected."));
+      messages.value.push(sysMsg("chat.sys.disconnected", "Disconnected."));
     } else if (status === "error") {
-      messages.value.push(systemMsg("Connection error.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.connectionError", "Connection error.", undefined, "system_error"));
     }
   });
 
@@ -811,6 +871,21 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       // (HMAC over the kp bytes) before anyone here even considers it.
       if (options.admissionCheck && !(await options.admissionCheck(data))) return;
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
+      // Nobody gets in off the topic. Ever.
+      //
+      // This used to be a captain-set flag; it is now the only mode, which is why
+      // there is no longer anything to read. A redeemed invitation is the sole way
+      // into a room, and it never rides gossip at all — `admitInvited` calls
+      // `cryptoService.addMember` directly — so this closes the door without
+      // touching the one path that is supposed to open it.
+      //
+      // Placed ABOVE the admin split below on purpose: a guard placed after it
+      // would close the branch that ADDS while leaving the branch that DEFERS
+      // still answering a stranger with our own key package — a half-closed door.
+      //
+      // Headless channels (devlink, peer sync) carry their own `admissionCheck`
+      // and have no room meta of their own, so they are exempt.
+      if (!options.headless) return;
       // Banned (kicked) identities are refused re-admission: the acting admin
       // never adds them, and nobody defers to them with a counter key package.
       // Bans key by user part, so every linked device of a kicked user is out.
@@ -836,7 +911,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           mlsStatus.value = "ready";
           send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
           send({ type: "mls_welcome", welcome: bytesToBase64(result.welcome), target_channel: data.sender_channel });
-          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
           void refreshP2pRoster();
         } else {
           pendingInvites.delete(deviceId);
@@ -848,15 +923,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (type === "mls_welcome" && data.welcome) {
       if (mlsStatus.value === "key_exchange" && currentRoom.value) {
         clearCreatorTimer();
-        messages.value.push(systemMsg("🔑 Received group invitation — joining encrypted group…"));
+        messages.value.push(sysMsg("chat.sys.gotWelcome", "🔑 Received group invitation — joining encrypted group…"));
         const ok = await cryptoService.joinFromWelcome(currentRoom.value.slug, mlsIdentity.value, base64ToBytes(data.welcome as string));
         if (ok) {
           mlsStatus.value = "ready";
-          messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
         } else {
           mlsStatus.value = "error";
-          mlsError.value = "Failed to join encrypted group.";
-          messages.value.push(systemMsg("Failed to join encrypted group.", "system_error"));
+          mlsError.value = t("chat.sys.joinGroupFailed", "Failed to join encrypted group.");
+          messages.value.push(sysMsg("chat.sys.joinGroupFailed", "Failed to join encrypted group.", undefined, "system_error"));
         }
       }
       return;
@@ -873,7 +948,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           } else {
             mlsStatus.value = "error";
             mlsError.value = errorMessage(e);
-            messages.value.push(systemMsg(`Could not process MLS commit: ${errorMessage(e)}`, "system_error"));
+            messages.value.push(sysMsg("chat.sys.commitFailed", "Could not process MLS commit: {why}", { why: errorMessage(e) }, "system_error"));
           }
         }
       }
@@ -882,6 +957,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
 
     if (type === "mls_app" && data.ciphertext) {
       if (data.device_id === mlsIdentity.value) return;
+      // Somebody else is talking in here. Noted even when we cannot read it —
+      // especially then, because being unable to read it is the whole point.
+      sawForeignTraffic = true;
       const senderName = (data.sender_name as string) || (data.user as string) || (data.device_id as string) || "Unknown";
       const sender = participantForName(senderName);
       if (mlsStatus.value === "ready" && currentRoom.value) {
@@ -892,7 +970,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           if (isGroupMismatch(e)) { await requestFreshMlsInvite(errorMessage(e)); }
           else {
             mlsStatus.value = "error"; mlsError.value = errorMessage(e);
-            messages.value.push(systemMsg(`Could not decrypt incoming message: ${errorMessage(e)}`, "system_error"));
+            messages.value.push(sysMsg("chat.sys.decryptFailedWhy", "Could not decrypt incoming message: {why}", { why: errorMessage(e) }, "system_error"));
           }
           return;
         }
@@ -965,7 +1043,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
                 // Targets are user parts from new builds, full ids from old ones
                 // — sameUser covers both against our leaf identity.
                 const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
-                messages.value.push(systemMsg(`🔇 ${who} muted for ${formatRemaining(until, Date.now())}.`));
+                messages.value.push(sysMsg("chat.sys.mutedShort", "🔇 {who} muted for {time}.", { who, time: formatRemaining(until, Date.now()) }));
                 void refreshP2pRoster();
               }
             }
@@ -978,7 +1056,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
               mutes.value = next;
               persistRoomMod();
               const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
-              messages.value.push(systemMsg(`🔊 ${who} unmuted.`));
+              messages.value.push(sysMsg("chat.sys.unmutedShort", "🔊 {who} unmuted.", { who }));
               void refreshP2pRoster();
             }
             return;
@@ -994,7 +1072,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
                 for (const leaf of [...presenceById.keys()]) {
                   if (leaf === inner.target || userPartOf(leaf) === inner.target) presenceById.delete(leaf);
                 }
-                messages.value.push(systemMsg(`🚫 ${nameFor(inner.target)} was removed from the room.`));
+                messages.value.push(sysMsg("chat.sys.removed", "🚫 {who} was removed from the room.", { who: nameFor(inner.target) }));
                 void refreshP2pRoster();
               }
             }
@@ -1042,7 +1120,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             pushMessage({ id: rxId, type: "mls_app", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: text, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           }
         } else {
-          messages.value.push(systemMsg("⚠ Could not decrypt an incoming message.", "system_error"));
+          messages.value.push(sysMsg("chat.sys.decryptFailed", "⚠ Could not decrypt an incoming message.", undefined, "system_error"));
         }
       } else {
         // Transient "arrived before MLS was ready" placeholder — pushed straight
@@ -1086,22 +1164,60 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       if (kp) {
         const b64 = bytesToBase64(kp);
         send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
-        messages.value.push(systemMsg("🔑 Setting up encryption…"));
+        messages.value.push(sysMsg("chat.sys.settingUp", "🔑 Setting up encryption…"));
         mlsStatus.value = "key_exchange";
         clearCreatorTimer();
         creatorTimer = setTimeout(() => {
           creatorTimer = null;
-          if (mlsStatus.value === "key_exchange") {
-            mlsStatus.value = "ready";
-            messages.value.push(systemMsg("🔒 End-to-end encryption active."));
+          if (mlsStatus.value !== "key_exchange") return;
+          if (sawForeignTraffic) {
+            // Other members are here and none of them has admitted us. Declaring
+            // a group of one would be worse than saying nothing: it would show a
+            // green lock over a group that cannot read us, and let the composer
+            // send into the void (technology.md §9.5). Wait, then say so.
+            armAdmissionTimeout();
+            return;
           }
+          // Nobody else is here — a fresh room with one member really is
+          // encrypted, and this is the case the timer was written for.
+          mlsStatus.value = "ready";
+          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
         }, 5000);
       }
     } catch (e) {
       mlsStatus.value = "error";
       mlsError.value = (e as Error).message;
-      messages.value.push(systemMsg(`Encryption init failed: ${(e as Error).message}`, "system_error"));
+      messages.value.push(sysMsg("chat.sys.initFailed", "Encryption init failed: {why}", { why: (e as Error).message }, "system_error"));
     }
+  }
+
+  /**
+   * Give admission the user's own connect deadline, then say plainly that it did
+   * not happen.
+   *
+   * Nothing is sent to anyone: the message is local, produced by a timeout. No
+   * member has to confirm to a stranger that a room exists and is closed, and
+   * there is no unauthenticated frame for anyone to forge. It replaces an
+   * indefinite "Setting up encryption…", which is indistinguishable from a bug.
+   *
+   * Bounded by the user-set connect timeout like every other deadline in the app
+   * (technology.md §15) — never a literal — so a slow but succeeding handshake
+   * still wins: the Welcome sets `ready` and the check below finds nothing to say.
+   */
+  function armAdmissionTimeout() {
+    if (admissionTimer) clearTimeout(admissionTimer);
+    void getConnectTimeoutSecs().then((secs) => {
+      admissionTimer = setTimeout(() => {
+        admissionTimer = null;
+        if (mlsStatus.value !== "key_exchange") return;
+        messages.value.push(
+          systemMsg(
+            "No one admitted you to this room. It may require an invitation — ask whoever shared it for one.",
+            "system_error",
+          ),
+        );
+      }, secs * 1000);
+    });
   }
 
   // ── identity / lifecycle ─────────────────────────────────────────────────────
@@ -1136,9 +1252,48 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     try {
       const raw = await kvGet("p2p:rooms", "default", "");
       p2pRooms.value = raw ? (JSON.parse(raw) as P2pRoomEntry[]) : [];
+      await backfillLegacyTickets();
     } catch {
       p2pRooms.value = [];
     }
+  }
+
+  /**
+   * Read every legacy room ticket once, then delete it.
+   *
+   * Rooms saved before invitations became the only way in carry a permanent
+   * ticket, and for two kinds of room it is the only record of how to get back:
+   * an iroh room whose address book was never filled, and — the case that would
+   * otherwise be lost for good — a Tor room we JOINED, whose captain onion lives
+   * nowhere else. `openP2pRoom` no longer reads tickets, so without this pass
+   * those rooms would open into an error on the first launch after upgrading.
+   *
+   * Runs once: the field is gone afterwards, so the next load has nothing to do.
+   * A ticket that will not decode is dropped anyway — it could not have been used.
+   */
+  async function backfillLegacyTickets(): Promise<void> {
+    const stale = p2pRooms.value.filter((r) => typeof r.ticket === "string" && r.ticket);
+    if (!stale.length) return;
+    for (const entry of stale) {
+      try {
+        const info = await chatTransport.decodeLegacyTicket(entry.ticket as string);
+        if (info) {
+          if (info.tor) {
+            entry.tor = true;
+            if (!entry.captainOnion && info.captain_onion) entry.captainOnion = info.captain_onion;
+          }
+          // Union rather than overwrite: the live address book is fresher than a
+          // ticket minted once at room creation.
+          if (info.peers?.length) {
+            entry.peers = Array.from(new Set([...(entry.peers ?? []), ...info.peers]));
+          }
+        }
+      } catch {
+        /* undecodable — it could not have been used either; drop it below */
+      }
+      delete entry.ticket;
+    }
+    persistP2pRooms();
   }
 
   function persistP2pRooms() {
@@ -1210,16 +1365,24 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (wsStatus.value === "connected") void startMls();
   }
 
+  /**
+   * Create a room and enter it. Returns its slug, or null on failure.
+   *
+   * It used to return a permanent ticket — the thing you then handed out. Creating
+   * a room now yields no shareable credential at all: the transport reports which
+   * transport it landed on (a non-empty onion means Tor), and letting anyone else
+   * in is a separate, deliberate act of minting an invitation.
+   */
   async function createRoom(name: string): Promise<string | null> {
     error.value = null;
     teardown();
     clearMessages();
     try {
       const res = await chatTransport.createRoom(name.trim());
-      const tor = isTorTicket(res.ticket);
+      // Only the Tor backend hosts an onion, so its presence IS the transport.
+      const tor = !!res.onion;
       rememberP2pRoom({
-        room: res.room, name: res.name, ticket: res.ticket, host: true, tor,
-        onion: res.onion, ...(res.code ? { code: res.code } : {}),
+        room: res.room, name: res.name, host: true, tor, onion: res.onion || undefined,
       });
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = tor;
@@ -1227,34 +1390,18 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       // Run the election now so the sole-member creator is marked captain (★) over
       // Tor immediately — before any joiner arrives.
       void refreshP2pRoster();
-      messages.value.push(systemMsg(`Created “${res.name}”. Share the QR / ticket to invite peers.`));
-      return res.ticket;
+      messages.value.push(
+        sysMsg("chat.sys.created", "Created “{name}”. Invite someone to let them in.", {
+          name: res.name,
+        }),
+      );
+      return res.room;
     } catch (e) {
       error.value = errorMessage(e);
       return null;
     }
   }
 
-  async function joinByTicket(ticket: string) {
-    error.value = null;
-    teardown();
-    clearMessages();
-    try {
-      const res = await chatTransport.joinRoom(ticket.trim());
-      const tor = isTorTicket(ticket.trim());
-      // A DHT code join stores the code as the entry's "ticket" too — reopening
-      // by it routes back through the code path (tag-sniffed), which never goes
-      // stale the way a ticket's embedded addresses can.
-      const code = isDhtCode(ticket.trim()) ? { code: ticket.trim() } : {};
-      rememberP2pRoom({ room: res.room, name: res.name, ticket: ticket.trim(), tor, onion: res.onion, ...code });
-      enterP2pRoom(res.room, res.name);
-      currentRoomIsTor.value = tor;
-      myOnion.value = res.onion;
-      messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
-    } catch (e) {
-      error.value = errorMessage(e);
-    }
-  }
 
   // Abort an in-flight Tor join (the join modal's "Cancel" button). Frees the
   // half-launched onion's lock in Rust so a retry doesn't hit "resource already in
@@ -1275,9 +1422,131 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       enterP2pRoom(res.room, res.name);
       currentRoomIsTor.value = false; // ticketless reconnect is the iroh path
       myOnion.value = "";
-      messages.value.push(systemMsg(`Joined “${res.name}”. Connecting to peers…`));
+      messages.value.push(
+        sysMsg("chat.sys.joined", "Joined “{name}”. Connecting to peers…", { name: res.name }),
+      );
     } catch (e) {
       error.value = errorMessage(e);
+    }
+  }
+
+  // ── invitations (technology.md §18) ─────────────────────────────────────────
+  // Redemption is driven by Rust, but the two MLS halves belong here, with every
+  // other MLS operation in this app. The admission also has to BROADCAST its
+  // commit over this room's transport, and `send` is this module's — exposing it
+  // so a store could do the group work outside would be the wrong seam.
+
+  /**
+   * Admit someone who redeemed an invitation: add their key package to this
+   * room's group, tell the existing members, and hand back the Welcome for the
+   * newcomer.
+   *
+   * Requires the room to be OPEN and its group ready — the commit has nowhere to
+   * go otherwise, and a member added to a group nobody else knows about would be
+   * invisible to everyone. `null` means "could not admit", and the caller must
+   * pass that on so Rust releases the invitation's lease rather than burning it.
+   */
+  async function admitInvited(
+    roomSlug: string,
+    keyPackageB64: string,
+  ): Promise<{ welcome: string; roomName: string; peers: string[]; onion: string } | null> {
+    if (!currentRoom.value || currentRoom.value.slug !== roomSlug) return null;
+    if (mlsStatus.value !== "ready") return null;
+    try {
+      const result = await cryptoService.addMember(
+        roomSlug,
+        mlsIdentity.value,
+        base64ToBytes(keyPackageB64),
+      );
+      if (!result) return null;
+      // Existing members first: they must be able to process the commit before
+      // the newcomer starts sending, or their group state diverges from his.
+      send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
+      void refreshP2pRoster();
+
+      // Where the newcomer should connect. Read from the ROOM's transport, not
+      // from a global setting — a room opened before the Tor switch moved is
+      // still on the transport it was opened with.
+      //
+      // This is the room's address, which every member necessarily has; it is
+      // not a credential. Nothing here re-admits anybody: the group is closed
+      // again the moment this commit lands.
+      const onion = currentRoomIsTor.value ? myOnion.value : "";
+      const peers = currentRoomIsTor.value ? [] : [(await ensureNode()) ?? ""].filter(Boolean);
+      return {
+        welcome: bytesToBase64(result.welcome),
+        roomName: currentRoom.value.name,
+        peers,
+        onion,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The redeemer's half: join the group from the Welcome the inviter granted,
+   * then join the room's transport.
+   *
+   * MLS first, transport second — the reverse of an ordinary join. A normal
+   * joiner arrives on the topic and negotiates; here the negotiation already
+   * happened over the authenticated redemption stream, so the group membership
+   * is settled before the first gossip frame.
+   */
+  async function joinByInvite(
+    grant: { roomName: string; welcome: string; peers: string[]; onion: string },
+    /** The scratch room key the redeemer's KeyPackage was built under. It has to
+     *  move onto the real room before the Welcome can be processed there — that
+     *  session is the one holding the KeyPackage's private init key. */
+    scratchRoom: string,
+  ): Promise<boolean> {
+    error.value = null;
+    try {
+      // `joinByNode` routes on both transports (realtime_join_room_by_node).
+      // Over Tor it re-hosts this room's name as an onion of our own, so the
+      // captain has to be pointed at explicitly afterwards — the same two-step
+      // a Tor reconnect already performs.
+      await joinByNode(grant.roomName, grant.peers);
+      if (grant.onion && currentRoom.value) {
+        chatTransport.setCaptain(currentRoom.value.slug, grant.onion);
+      }
+      if (!currentRoom.value) return false;
+      const slug = currentRoom.value.slug;
+      // SAVE the room. Without this an invited member holds the room only for the
+      // life of the process: it is absent from the saved list, `updateRoomEntry`
+      // no-ops so meta/mutes/bans never persist, and `rememberPeerForRoom` bails
+      // so the address book that ticketless reconnect depends on never fills. It
+      // went unnoticed while everyone also held a ticket; with invitations the
+      // only way in, this call is what makes membership survive a restart.
+      rememberP2pRoom({
+        room: slug,
+        name: grant.roomName,
+        peers: grant.peers,
+        tor: currentRoomIsTor.value,
+        onion: myOnion.value || undefined,
+        captainOnion: grant.onion || undefined,
+      });
+      if (!(await cryptoService.adoptSession(scratchRoom, slug, mlsIdentity.value))) {
+        mlsStatus.value = "error";
+        mlsError.value = t("chat.sys.adoptFailed", "Could not take up the invitation's encrypted session.");
+        return false;
+      }
+      const ok = await cryptoService.joinFromWelcome(
+        slug,
+        mlsIdentity.value,
+        base64ToBytes(grant.welcome),
+      );
+      if (!ok) {
+        mlsStatus.value = "error";
+        mlsError.value = t("chat.sys.joinGroupFailed", "Failed to join encrypted group.");
+        return false;
+      }
+      mlsStatus.value = "ready";
+      messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
+      return true;
+    } catch (e) {
+      error.value = errorMessage(e);
+      return false;
     }
   }
 
@@ -1292,23 +1561,36 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
   }
 
-  /** Open a saved room. iroh: rejoin by ticket, seeding the persisted peer NodeIds
-   *  so stale ticket addresses don't strand us. Tor: the host re-launches its onion
-   *  (same nickname ⇒ same `.onion`, idempotent), a joiner re-dials the saved onion.
-   *  The transport is inferred from the ticket, so iroh rooms are unaffected. */
+  /**
+   * Open a saved room, with no ticket anywhere in the path.
+   *
+   * The transport comes from the record's own `tor` flag rather than from sniffing
+   * a ticket's tag byte — the flag has always been written at create/join time, it
+   * just was not the thing consulted.
+   *
+   * Tor, hosted: re-launch our own onion (same nickname ⇒ same `.onion`, so this is
+   * idempotent). Tor, joined: re-host under the room name and then point at the
+   * captain's saved onion, the same two-step a Tor reconnect already performs.
+   * iroh: re-subscribe by name and seed the persisted peer NodeIds, letting n0
+   * discovery resolve their current addresses.
+   */
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
     teardown();
     clearMessages();
     try {
-      const tor = isTorTicket(entry.ticket);
+      const tor = entry.tor === true;
       const res = tor && entry.host
         ? await chatTransport.createRoom(entry.name)
-        : await chatTransport.joinRoom(entry.ticket, entry.peers ?? []);
+        : await chatTransport.joinRoomByNode(entry.name, entry.peers ?? []);
       enterP2pRoom(entry.room, entry.name);
       currentRoomIsTor.value = tor;
       myOnion.value = res.onion;
+      // A joiner has no route back into a Tor room without the captain's address.
+      if (tor && !entry.host && entry.captainOnion) {
+        chatTransport.setCaptain(entry.room, entry.captainOnion);
+      }
     } catch (e) {
       error.value = errorMessage(e);
     }
@@ -1341,7 +1623,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
    *  all local data for the room — MLS group state, the persisted entry, and (Tor) the
    *  onion identity — and close its connections. Kicking peers only reaches them while
    *  we are connected to the room with MLS ready (i.e. deleting the open room). */
-  async function deleteRoom(entry: P2pRoomEntry) {
+  /** Returns the bytes of stored history that went away, so the caller can claim
+   *  the Privacy HP data-deletion credit. 0 when there was nothing stored. */
+  async function deleteRoom(entry: P2pRoomEntry): Promise<number> {
     const slug = entry.room;
     const identity = mlsIdentity.value;
     const isCurrent = currentRoom.value?.slug === slug;
@@ -1352,11 +1636,18 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     // Wipe local data (MLS state, saved entry, stored timeline).
     await cryptoService.clearState(slug, identity).catch(() => {});
     if (entry.tor) chatTransport.forgetTorOnion(entry.name); // stops the service + drops the key
-    if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
+    let freed = 0;
+    if (!headless) {
+      logAppender.drop(slug);
+      // Awaited now (it used to be fire-and-forget) so the byte count is real
+      // rather than a guess; the wipe was already ordered before this line.
+      freed = await wipeLog(slug).catch(() => 0);
+    }
     forgetP2pRoom(slug);
     // Close connections / reset the view.
-    if (isCurrent) clearLocalChatState("Room deleted.");
+    if (isCurrent) clearLocalChatState(t("chat.sys.roomDeleted", "Room deleted."));
     else chatTransport.leaveRoom(slug); // stop hosting/dialing a non-open room
+    return freed;
   }
 
   /** A room's host broadcast `room_closed` — tear down + wipe it on our side, per the
@@ -1372,7 +1663,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
     // Resets the channel + leaves the notice as the sole system message.
-    clearLocalChatState("This room was deleted by the host.");
+    clearLocalChatState(t("chat.sys.roomDeletedByHost", "This room was deleted by the host."));
   }
 
   // ── sending ──────────────────────────────────────────────────────────────────
@@ -1401,7 +1692,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   function blockedByMute(): boolean {
     const until = mutedUntilFor(mlsIdentity.value, Date.now());
     if (!until) return false;
-    messages.value.push(systemMsg(`🔇 You are muted for another ${formatRemaining(until, Date.now())}.`, "system_error"));
+    messages.value.push(
+      sysMsg("chat.sys.mutedSelf", "🔇 You are muted for another {time}.", {
+        time: formatRemaining(until, Date.now()),
+      }, "system_error"),
+    );
     return true;
   }
 
@@ -1410,7 +1705,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
       return;
     }
     try {
@@ -1430,7 +1725,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
       return;
     }
     try {
@@ -1445,7 +1740,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (blockedByMute()) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
-      messages.value.push(systemMsg("Encryption not ready yet — try again in a moment.", "system_error"));
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
       return;
     }
     try {
@@ -1472,7 +1767,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: myAvatarOrNull(), msg_id: msgId });
         pushMessage({ id: msgId, type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
       } else {
-        messages.value.push(systemMsg("Encryption failed — message not sent.", "system_error"));
+        messages.value.push(sysMsg("chat.sys.encryptFailed", "Encryption failed — message not sent.", undefined, "system_error"));
       }
     } else {
       // Pre-MLS fallback (plaintext over the gossip topic; QUIC still encrypts hops).
@@ -1494,7 +1789,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     mlsError.value = null;
     pendingInvites.clear();
     pendingRecoveryRooms.clear();
-    messages.value = [systemMsg("🔄 Session reset — history cleared.")];
+    messages.value = [sysMsg("chat.sys.sessionReset", "🔄 Session reset — history cleared.")];
     try {
       await cryptoService.clearState(room, identity);
       await cryptoService.initSession(room, identity);
@@ -1503,21 +1798,23 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         const b64 = bytesToBase64(kp);
         send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
         mlsStatus.value = "key_exchange";
-        messages.value.push(systemMsg("🔑 Fresh key package sent."));
+        messages.value.push(sysMsg("chat.sys.freshKp", "🔑 Fresh key package sent."));
         setTimeout(() => {
           if (mlsStatus.value === "key_exchange") {
             mlsStatus.value = "ready";
-            messages.value.push(systemMsg("🔒 New encryption group created."));
+            messages.value.push(sysMsg("chat.sys.newGroup", "🔒 New encryption group created."));
           }
         }, 5000);
       } else {
         mlsStatus.value = "error";
-        messages.value.push(systemMsg("Failed to generate key package.", "system_error"));
+        messages.value.push(sysMsg("chat.sys.kpFailed", "Failed to generate key package.", undefined, "system_error"));
       }
     } catch (e) {
       mlsStatus.value = "error";
       mlsError.value = (e as Error).message;
-      messages.value.push(systemMsg(`Reset failed: ${(e as Error).message}`, "system_error"));
+      messages.value.push(
+        sysMsg("chat.sys.resetFailed", "Reset failed: {err}", { err: (e as Error).message }, "system_error"),
+      );
     }
   }
 
@@ -1567,7 +1864,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendAudio, sendMapShare, forceResetMls,
-    p2pRooms, loadP2pRooms, createRoom, joinByTicket, joinByNode, openP2pRoom,
+    p2pRooms, loadP2pRooms, createRoom, joinByNode, openP2pRoom,
+    admitInvited, joinByInvite,
     cancelJoin, deleteRoom,
     ensureNode,
     onSync, sendSync, postSystemNotice,
