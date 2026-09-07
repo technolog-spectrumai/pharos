@@ -15,6 +15,7 @@ export * from "./theme";
 export * from "./files";
 export * from "./primitives";
 export { createAppI18n, type SupportedLocale } from "./i18n";
+export { installVueErrorHandler } from "./errorOverlay";
 export { default as ModalPanel } from "./components/ModalPanel.vue";
 export { default as SelectMenu } from "./components/SelectMenu.vue";
 export { default as FileTree } from "./components/FileTree.vue";
