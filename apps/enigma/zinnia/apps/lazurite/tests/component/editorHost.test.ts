@@ -18,7 +18,6 @@ function mountHost(kind: EditorKind) {
 }
 
 const EDITOR_FOR: Record<EditorKind, string> = {
-  sketch: "SketchEditor",
   document: "DocumentEditor",
   deck: "PresentationEditor",
   // ACE, with its language picker on. Not typechecked here (vitest transpiles
@@ -49,11 +48,11 @@ describe("the editor host", () => {
   it("publishes dirty when the editor reports changes", async () => {
     // The dot is drawn by the app header now; what the host is responsible for
     // is telling the truth about the file it owns.
-    const w = mountHost("sketch");
+    const w = mountHost("document");
     await flushPromises();
     const host = w.vm as unknown as { dirty: boolean };
     expect(host.dirty).toBe(false);
-    w.findComponent({ name: "SketchEditor" }).vm.$emit("update:dirty", true);
+    w.findComponent({ name: "DocumentEditor" }).vm.$emit("update:dirty", true);
     await flushPromises();
     expect(host.dirty).toBe(true);
   });
@@ -87,7 +86,7 @@ describe("the editor host", () => {
 
 describe("the discard prompt", () => {
   it("asks before New throws away unsaved work, and cancel keeps it", async () => {
-    const w = mountHost("sketch");
+    const w = mountHost("document");
     await flushPromises();
     const vm = w.vm as unknown as {
       openRemote(name: string, text: string): void;

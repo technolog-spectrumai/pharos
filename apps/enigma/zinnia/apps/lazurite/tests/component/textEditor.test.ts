@@ -206,20 +206,6 @@ describe("a picture in the code view", () => {
 });
 
 describe("host routing", () => {
-  it("a refused svg can be reopened as plain text", async () => {
-    const w = mount(EditorHost, {
-      props: { kind: "sketch" },
-      global: { plugins: [i18n], stubs: { teleport: true } },
-    });
-    await flushPromises();
-    // Force a refusing document through the seam the real flow uses.
-    const sketchEditor = w.findComponent({ name: "SketchEditor" });
-    expect(sketchEditor.exists()).toBe(true);
-    sketchEditor.vm.$emit("open-as-text");
-    await flushPromises();
-    expect(w.findComponent({ name: "SketchEditor" }).exists()).toBe(false);
-    expect(w.find('[data-testid="ace-host"]').exists()).toBe(true);
-  });
 
   it("refuses to save a picture, so its bytes cannot be written back as text", async () => {
     // Save As would write the `data:` URI out as text — a corrupt copy of the

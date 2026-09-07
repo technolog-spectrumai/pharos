@@ -17,7 +17,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import ModalPanel from "petalite/ModalPanel.vue";
 import { useI18n } from "vue-i18n";
-import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
 import PresentationEditor from "../editors/PresentationEditor.vue";
@@ -46,7 +45,6 @@ function seedFor(k: EditorKind): { name: string; text: string } {
   switch (k) {
     case "document": return { name, text: dumps(newDocument("")) };
     case "deck":     return { name, text: dumpsDeck(newPresentation("")) };
-    case "sketch":   return { name, text: "" }; // the SVG editor starts from empty
     case "code":     return { name, text: "" }; // ACE parses nothing on open
   }
 }
@@ -56,7 +54,6 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 /** Only used by the browser build's download fallback — a Tauri save writes the
  *  path the dialog returned and never needs a type. */
 const MIME: Record<EditorKind, string> = {
-  sketch: "image/svg+xml",
   document: "application/xml",
   deck: "application/xml",
   code: "text/plain",
@@ -284,21 +281,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <input ref="browserInput" type="file" :accept="acceptAttr" class="hidden" @change="onBrowserFile" />
 
     <!-- keyed by generation: a fresh file gets a fresh editor instance -->
-    <SketchEditor
-      v-if="kind === 'sketch'"
-      :key="generation"
-      ref="editorRef"
-      :path="path"
-      :name="name"
-      :content="content"
-      :busy="busy"
-      :error="fileError"
-      :active="active !== false"
-      class="min-h-0 flex-1"
-      @save="saveFile($event)"
-      @update:dirty="dirty = $event"
-      @open-as-text="openAsText"
-    />
 
     <DocumentEditor
       v-if="kind === 'document'"

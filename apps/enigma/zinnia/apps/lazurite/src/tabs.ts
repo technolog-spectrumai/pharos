@@ -23,7 +23,7 @@
 
 /** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
  *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
-export type EditorKind = "document" | "sketch" | "deck" | "code";
+export type EditorKind = "document" | "deck" | "code";
 export type AppTabId = EditorKind | "security" | "settings";
 
 export interface AppTab {
@@ -39,7 +39,6 @@ export interface AppTab {
 
 export const APP_TABS: readonly AppTab[] = [
   { id: "document", path: "/write",         labelKey: "nav.write",         icon: "file-lines",      kind: "document" },
-  { id: "sketch",   path: "/sketch",        labelKey: "nav.sketch",        icon: "pencil",          kind: "sketch" },
   { id: "deck",     path: "/presentations", labelKey: "nav.presentations", icon: "file-powerpoint", kind: "deck" },
   { id: "code",     path: "/code",          labelKey: "nav.code",          icon: "code",            kind: "code" },
   { id: "security", path: "/security",      labelKey: "nav.security",      icon: "shield-halved",   kind: null },
@@ -61,7 +60,6 @@ export const KIND_FILES: Record<EditorKind, {
   filterKey: string;
 }> = {
   document: { untitledKey: "file.untitledDoc",   extensions: ["xml"],  filterKey: "nav.write" },
-  sketch:   { untitledKey: "file.untitled",      extensions: ["svg"],  filterKey: "nav.sketch" },
   // pxml FIRST: extensions[0] is what Save As defaults to. "xml" stays as a
   // second entry so the Open dialog still shows the decks already on disk.
   deck:     { untitledKey: "file.untitledDeck",  extensions: ["pxml", "xml"], filterKey: "nav.presentations" },

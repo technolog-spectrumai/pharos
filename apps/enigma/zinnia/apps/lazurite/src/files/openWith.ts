@@ -27,7 +27,6 @@ import type { EditorKind } from "../tabs";
  *  `tsconfig.json` — which used to be handed to Univer and rendered as garbage
  *  because the extension was the only thing anyone asked. */
 const BY_EXTENSION: Record<string, EditorKind> = {
-  svg: "sketch",
   pxml: "deck",
   json: "code",
   txt: "code",
@@ -81,7 +80,6 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
   if (content !== undefined) {
     if (sniffIsPresentation(content)) return "deck";
     if (sniffIsDocument(content)) return "document";
-    if (ext === "svg") return "sketch"; // no sniffer; the extension is the claim
     // Fall back to the name rather than giving up: a `.pxml` whose bytes did
     // not sniff (an empty deck, say) is still a deck, and returning null here
     // would make it unopenable precisely when its content WAS available.

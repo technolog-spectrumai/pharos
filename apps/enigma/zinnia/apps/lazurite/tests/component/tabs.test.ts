@@ -18,7 +18,7 @@ describe("the tab bar", () => {
       expect(w.find(`[data-testid="nav-${tab.id}"]`).exists(), tab.id).toBe(true);
     }
     expect(APP_TABS.map((t) => t.id))
-      .toEqual(["document", "sketch", "deck", "code", "security", "settings"]);
+      .toEqual(["document", "deck", "code", "security", "settings"]);
   });
 
   it("opens on the default tab and mounts nothing else yet", async () => {
@@ -54,11 +54,9 @@ describe("the tab bar", () => {
     // call, so comparing the proxies compares wrappers, not instances.
     const uid = (doc.vm as unknown as { $: { uid: number } }).$.uid;
 
-    await w.get('[data-testid="nav-sketch"]').trigger("click");
     await flushPromises();
     // Still mounted, just hidden.
     expect(w.findComponent({ name: "DocumentEditor" }).exists()).toBe(true);
-    expect(w.findComponent({ name: "SketchEditor" }).exists()).toBe(true);
 
     await w.get('[data-testid="nav-document"]').trigger("click");
     await flushPromises();

@@ -159,7 +159,9 @@ describe("the files panel", () => {
     await settle();
 
     const opened = w.emitted("open")?.[0][0] as { kind: string; name: string };
-    expect(opened.kind).toBe("sketch");
+    // An .svg has no editor here — the drawing board is its own app now — so
+    // it opens as source text rather than being refused.
+    expect(opened.kind).toBe("code");
     expect(opened.name).toBe("drawing.svg");
   });
 

@@ -52,18 +52,18 @@ describe("the file menu", () => {
     await flushPromises();
     expect((write.vm as unknown as { dirty: boolean }).dirty).toBe(true);
 
-    await w.get('[data-testid="nav-sketch"]').trigger("click");
+    await w.get('[data-testid="nav-deck"]').trigger("click");
     await flushPromises();
 
-    // New, on the sketch tab.
+    // New, on the deck tab.
     await w.get('[data-testid="app-menu"]').trigger("click");
     await w.get('[data-testid="menu-new"]').trigger("click");
     await flushPromises();
 
     // The write tab's unsaved work survived: New did not reach it.
     expect((write.vm as unknown as { dirty: boolean }).dirty).toBe(true);
-    // …and the header is showing the sketch tab's file.
-    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.svg$/);
+    // …and the header is showing the deck tab's file.
+    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.pxml$/);
   });
 
   it("closes after running a command", async () => {
@@ -121,39 +121,31 @@ describe("keyboard shortcuts across tabs", () => {
     // keydown listener. The flag is what stops the off-screen ones answering.
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="nav-sketch"]').trigger("click");
+    await w.get('[data-testid="nav-deck"]').trigger("click");
     await flushPromises();
 
     const doc = w.findComponent({ name: "DocumentEditor" });
-    const sketch = w.findComponent({ name: "SketchEditor" });
+    const deck = w.findComponent({ name: "PresentationEditor" });
     expect(doc.exists()).toBe(true); // still alive, just not on screen
     expect(doc.props("active")).toBe(false);
-    expect(sketch.props("active")).toBe(true);
+    expect(deck.props("active")).toBe(true);
   });
 });
 
 describe("the export command", () => {
-  it("appears only for a tab that offers one", async () => {
-    // Export is per-editor: the sketch has PNG, the writer has nothing. An
-    // entry that was always there and usually inert would be worse than one
-    // that arrives with the tab it belongs to.
+  it("is absent while no editor here offers one", async () => {
+    // Export is per-editor, and Lazurite ships none today: the PNG export
+    // left with the drawing board, and the writer's PDF is not wired yet. An
+    // entry that was always there and always inert would be worse than none.
     const w = mountApp();
     await flushPromises();
     await w.get('[data-testid="app-menu"]').trigger("click");
     expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);
 
     await w.get('[data-testid="app-menu"]').trigger("click"); // close
-    await w.get('[data-testid="nav-sketch"]').trigger("click");
+    await w.get('[data-testid="nav-deck"]').trigger("click");
     await flushPromises();
     await w.get('[data-testid="app-menu"]').trigger("click");
-    expect(w.find('[data-testid="menu-export"]').exists()).toBe(true);
-  });
-
-  it("is gone from the sketch's own toolbar", async () => {
-    const w = mountApp();
-    await flushPromises();
-    await w.get('[data-testid="nav-sketch"]').trigger("click");
-    await flushPromises();
-    expect(w.find('[data-testid="svg-export-png"]').exists()).toBe(false);
+    expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);
   });
 });

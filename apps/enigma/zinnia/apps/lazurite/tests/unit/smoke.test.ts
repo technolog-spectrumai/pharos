@@ -5,7 +5,7 @@ import { brand, dev } from "../../src/config";
 import { i18n } from "../../src/i18n";
 
 describe("the shell", () => {
-  it("mounts the shell with the sketch editor inside", async () => {
+  it("mounts the shell with the writer inside", async () => {
     const w = mount(App, { global: { plugins: [i18n] } });
     // The host registers itself through a template ref, so its file name only
     // reaches the header on the following tick.

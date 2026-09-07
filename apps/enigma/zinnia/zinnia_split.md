@@ -29,7 +29,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 7 | padova package owns the sealing surface | **done** |
 | 8 | lazurite becomes an app under apps ← **first irreversible** | **done** |
 | 9 | primula becomes an app under apps | **done** |
-| 10 | sketch becomes an app under apps | todo |
+| 10 | sketch becomes an app under apps | **done** |
 | 11 | csv export from the active worksheet | todo |
 | 12 | register only detection where sealing is not offered | todo |
 

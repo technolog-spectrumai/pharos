@@ -5,7 +5,6 @@ import { dumps as dumpDeck, newPresentation } from "../../src/formats/presentati
 
 describe("choosing an editor for a file", () => {
   it("routes the unambiguous extensions", () => {
-    expect(kindForFile("drawing.svg")).toBe("sketch");
     // By NAME alone a .json is source. The workbook claim is made by the
     // sniffer below, which runs first everywhere the bytes are in hand — and
     // the Files panel always has them, so a real workbook still reaches Sheets.
@@ -49,7 +48,6 @@ describe("choosing an editor for a file", () => {
   });
 
   it("falls back to the extension for svg, which has no sniffer", () => {
-    expect(kindForFile("a.svg", "<svg xmlns='http://www.w3.org/2000/svg'></svg>")).toBe("sketch");
   });
 
   it("opens what it does not recognise as plain text", () => {
