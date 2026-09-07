@@ -297,7 +297,12 @@ blocks anything. The `exports` refactor it carried landed separately (`40c11ab`,
 the mechanism Primula's CSV export builds on, and it removes the stale
 `appMenu.test.ts:137` comment.
 
-### Deferred: PDF export (todo, not abandoned)
+**Rollback point:** steps 1-7 are reversible in place and leave one app. The
+directory move (8) is the first irreversible commit.
+
+## PDF, deferred
+
+### The current state (todo, not abandoned)
 
 The renderer is committed at `b8cb6da` and **works** — `pdf.rs`'s three tests
 pass, including a real render against WeasyPrint 69.0 via
@@ -315,14 +320,83 @@ Wiring waits for the pure-Rust **printpdf** backend behind the same three
 commands, so the first PDF path zinnia actually ships carries no Python
 dependency. Lazurite owns all of it; nothing here affects Primula or Sketch.
 
-**Rollback point:** steps 1-7 are reversible in place and leave one app. The
-directory move (8) is the first irreversible commit.
+**This happens after the split**, not during it. The split's 12 commits leave a
+clean tree; PDF then lands inside one app rather than against a moving target.
+
+### Replacing WeasyPrint with a native renderer
+
+**printpdf is not a drop-in for WeasyPrint, and the gap is not drawing — it is
+paged media.** printpdf 0.12 does have an HTML path (`PdfDocument::from_html`,
+azul's `solver3`), and it does wrap lines, break pages and lay out tables. But
+its supported-CSS list is a **closed allowlist**, and cross-referencing it
+against what the documents actually use, every paged-media feature is absent:
+
+| Needed | printpdf | Used at |
+|---|---|---|
+| `target-counter` | **no** — no counters at all | `document.css:481,484`, `documentHtml.ts:62` |
+| `counter()` / `counter-reset` | **no** | `document.css:382-388` section numbering |
+| `@page` size/margin, `@page :first` | **no** | `document.css:428-447`, `documentHtml.ts:54-57` |
+| margin boxes (`@top-center`) | **no** — only `<header>`/`<footer>` | `document.css:431-447` |
+| `string-set` / `string()` | **no** | `document.css:476` running title |
+| `break-before/after/inside` | **no** | `document.css:465-473` |
+| `orphans` / `widows` | **no** | `document.css:473` |
+| `leader(".")` | **no** | `document.css:484` |
+| `@font-face`, `data:` URIs | **no** | every image; KaTeX's 20 faces |
+
+`target-counter` is the hard one and it is inherently a **fixed-point problem**:
+lay out to learn which page each heading lands on, fill in the TOC, which
+reflows the TOC, which can shift every later page. WeasyPrint does multi-pass
+layout. Replicating it means writing that fixpoint yourself.
+
+**Decision: printpdf with a reduced contract**, ~2-3 weeks. What is knowingly
+given up, and must be stated in the UI rather than discovered:
+
+* No TOC page numbers, no running headers, no section counters.
+* Approximate page breaks — **this breaks the pagination contract**
+  (`document.css:415-426`), so the editor's on-screen page markers stop matching
+  the PDF. That contract is load-bearing; if it cannot hold, the markers should
+  say so rather than lie.
+* Formulas degrade to `.cy-formula-source` text. KaTeX's output is dozens of
+  absolutely-positioned spans — replaying it needs an inline formatting context,
+  i.e. most of a CSS engine. The `katex.ts` inlining strategy does not carry
+  over at all, since printpdf has neither `@font-face` nor `data:` URIs.
+* AVIF and ICO images need decoders the `image` crate does not bring.
+
+**Fonts must be bundled, not discovered.** printpdf takes font *bytes*
+(`ParsedFont::from_bytes`), and `document.css:99-106` names DejaVu families
+precisely so a missing family cannot substitute silently. Ship the faces; do not
+depend on fontconfig. KaTeX's woff2 would need decompressing to TTF first.
+
+**One thing gets better.** `render.py:36-46`'s `refuse_fetch` — the policy that
+took a proven exploit to get right, after `base_url=None` turned out to govern
+only *relative* URLs — becomes free. A Rust renderer has no fetcher to disable.
+
+**The documented upgrade path is Typst** (`typst-as-lib`, Apache-2.0, fonts
+baked in, no runtime deps), ~3-4 weeks, where TOC page numbers, widow control,
+spanning tables and real math typesetting all come free — math from the
+`data-latex` source rather than replayed KaTeX HTML. Its cost was that
+`document.css` would stop driving the PDF, and **that objection has been
+accepted**: divergence is allowed where quality wins. So if the reduced contract
+proves too thin in practice, Typst is the next step, not a restart.
+
+### PDF build order: decks first
+
+Decks need **none** of the hard features — fixed 1280×720 box, one page per
+slide, no TOC, no counters, no reflow. `slide.css:5` was written for it
+(*"──► the PDF export   one @page per slide"*) and `:621-632` already carries
+the rules. That is ~1 week on printpdf, and it proves the Rust backend behind
+the existing three commands with zero Python before the document case commits to
+an engine. `src/pdf/deckHtml.ts` does not exist yet; `usePdf.ts:5` anticipates it.
 
 ## Verification
 
 * `npm test` per app and at the root (`npm run test --workspaces`).
 * `npx vue-tsc --noEmit` per app; `cargo check --workspace`; `cargo test`.
 * All three `run_dev.sh` start simultaneously, on three port pairs.
+* PDF (when it lands): a deck export opens with **one page per slide** at
+  1280×720. Run `cargo test` **without** `ZINNIA_PDF_PYTHON` and confirm the
+  render test is reported as skipped, not passed — it self-skips
+  (`pdf.rs:354`), which is a silent pass if nobody looks.
 * Seal a file in one app; confirm the others **badge and refuse** it, and that
   their `generate_handler!` has no `unlock_file`.
 * Sketch: open a drawing, export PNG, and confirm the raster still carries text
