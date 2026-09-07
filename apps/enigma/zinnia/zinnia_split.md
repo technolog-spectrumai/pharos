@@ -1,5 +1,39 @@
 # Splitting Zinnia
 
+## Status
+
+**Groundwork done, structural work not started.** The tree is clean and every
+test green; nothing has moved yet.
+
+| # | Step | State |
+|---|---|---|
+| 0 | groundwork — plan, `exports` list, PDF parked unwired | **done** |
+| 1 | extract shared preflight into scripts lib | todo |
+| 2 | workspace store takes an injected seal probe | todo |
+| 3 | cargo workspace with substrate crate | todo |
+| 4 | padova crate owns sealing and secrets | todo |
+| 5 | npm workspaces with petalite package | todo |
+| 6 | one file tree for panel and security tab | todo |
+| 7 | padova package owns the sealing surface | todo |
+| 8 | lazurite becomes an app under apps ← **first irreversible** | todo |
+| 9 | primula becomes an app under apps | todo |
+| 10 | sketch becomes an app under apps | todo |
+| 11 | csv export from the active worksheet | todo |
+| 12 | register only detection where sealing is not offered | todo |
+
+Deferred, after the split: deck PDF on printpdf, then the title-page template.
+Both are Lazurite-only and neither blocks any step above.
+
+Step detail is in [Migration order](#migration-order) — this table is the state,
+that section is the content. **Keep this table current as work lands**: mark a
+step done in the same commit that completes it, and when reality diverges from
+the plan, correct the plan rather than leaving it aspirational. A stale plan is
+worse than none, because it is trusted.
+
+Commits so far: `2dd4751` plan · `40c11ab` exports list · `b8cb6da` pdf renderer
+· `0fa82c7` pdf deferral · `e07f60d` native pdf plan · `4f03c99` title-page todo
+· `0bfd0a9` weasyprint stays in zenobia.
+
 ## Context
 
 Zinnia is one Tauri 2 + Vue 3 desktop app holding a writer, a spreadsheet, a
@@ -296,6 +330,31 @@ blocks anything. The `exports` refactor it carried landed separately (`40c11ab`,
 `export menu takes a list of commands`) because it is not PDF-specific — it is
 the mechanism Primula's CSV export builds on, and it removes the stale
 `appMenu.test.ts:137` comment.
+
+### Done-conditions
+
+A step is done when its commit is green **and** its own check passes. The
+generic gate (`npm test`, `vue-tsc`, `cargo check`) catches almost nothing here
+— every one of these refactors can be green and still wrong.
+
+| # | Its own check |
+|---|---|
+| 1 | Both current scripts still start; `lib.sh` sourced, not copied. |
+| 2 | Sealed badges still appear. Then remove the probe: badges vanish, nothing throws. |
+| 3 | `cargo build` does not OOM (trap 1), and `gen/schemas/` is still ignored (trap 2). |
+| 4 | `recall()` is `pub(crate)`; grep confirms no command returns a passphrase. |
+| 5 | rakotis components still **styled** — trap 6 fails silently, so look at them. |
+| 6 | Panel and Security tab render the same tree with different row actions. |
+| 7 | `lockErrors.test.ts` still binds `LOCK_ERRORS` to both catalogues. |
+| 8 | App starts on its own port; `icons.test.ts` floor recalibrated, not deleted. |
+| 9 | Sheets gone from Lazurite; `.json` still opens as code there (`openWith.ts:33`). |
+| 10 | PNG export still renders **text** (trap: silent blank); `open-as-text` works. |
+| 11 | Round-trip a comma, quote, newline, formula, merged range through CSV. |
+| 12 | `generate_handler!` in Sketch and Primula has no `unlock_file`. |
+
+**Two failure modes to watch**, both silent: a test that passes because it now
+asserts nothing (traps 3, 11, 12), and a stylesheet that renders unstyled with no
+error (trap 6). Neither shows up in a green run.
 
 **Rollback point:** steps 1-7 are reversible in place and leave one app. The
 directory move (8) is the first irreversible commit.
