@@ -9,6 +9,10 @@ Rust tests plus padova's `compile_fail` doctest green; clippy clean; all three
 apps typecheck and build; three distinct dev-port pairs (1430/1432/1434) so
 they run at once.
 
+**Steps 13-16 are a new phase, not part of that completion**: the shared
+component library `rakotis` exists in three places that have drifted apart, and
+this puts it back under one canonical repo.
+
 Commands run from the REPO ROOT and fan out through npm workspaces: `npm test`,
 `npm run typecheck`, `npm run build`, `npm run test:rust`. The app's own scripts
 are `apps/lazurite/{run_dev,build}.sh`, and they source `scripts/lib.sh` from
@@ -34,9 +38,29 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 10 | sketch becomes an app under apps | **done** |
 | 11 | csv export from the active worksheet | **done** |
 | 12 | per-app IPC surface, asserted | **done** |
+| 13 | rakotis canonical adopts enigma's version | todo |
+| 14 | drop parked sync exports from rakotis | todo |
+| 15 | enigma re-points rakotis as a subtree | todo |
+| 16 | zinnia pulls the updated rakotis subtree | todo |
+| 17 | crypto_rotor becomes its own repo, history intact | todo |
+| 18 | build scripts take a rotor path | todo |
+| 19 | one gervasius: merge the two forks | todo |
+| 20 | restore the parked sketch CRDT | todo |
+| 21 | collab crate hosts and joins a gossip topic | todo |
+| 22 | sketch pairs by QR and draws with one peer | todo |
+| 23 | MLS seals every collab frame | todo |
+| 24 | multi-person sync: N peers on a topic | todo |
+
+Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
+shared component library back under one canonical repo, so the next drift is a
+`subtree pull` rather than a manual diff. Steps 17-19 do the same for the
+crypto crates. Steps 20-24 are collaboration — the long-run goal is **every app
+collaborative except presentations**.
 
 Deferred, after the split: deck PDF on printpdf, then the title-page template.
-Both are Lazurite-only and neither blocks any step above.
+Both are Lazurite-only and neither blocks any step above. Deferred beyond
+steps 13-16: moving `packages/rakotis/crates/` out to the rotor repo, the
+`cryptorotor` extraction, and merging the two forked copies of `gervasius`.
 
 Step detail is in [Migration order](#migration-order) — this table is the state,
 that section is the content. **Keep this table current as work lands**: mark a
@@ -540,6 +564,168 @@ Commit messages: max 8 words, single line, no AI mentions.
     `padova::Locker::recall`'s `compile_fail` doctest already holds shut.
     Mutation-checked: adding `secrets::secret_recall` to Sketch's surface fails
     two assertions.
+
+### Rakotis, back under one repo (13-16)
+
+`rakotis` — the shared Vue component library — exists in three places that have
+drifted apart. Investigated 2026-09-08; the finding that shapes these steps is
+that **it is not a fork**:
+
+| where | commits | HEAD | state |
+|---|---|---|---|
+| `dev/rakotis` (canonical, own GitLab remote) | 237 | `556408d` **2026-08-16** *"import rakotis from enigma with history"* | **frozen — 0 commits since** |
+| `enigma/packages/rakotis` | 119 touching it | `65cb16c` **2026-08-24** | **ahead by 10+ commits**, edited in place |
+| `zinnia/packages/rakotis` | subtree `d469d95` from `556408d` | — | **`src/` byte-identical to canonical** |
+
+So zinnia is tracking the real upstream correctly and **enigma is the one that
+drifted**. Canonical is a snapshot *of* enigma, not an independently developed
+library. 23 entries differ, and every one is explained by direction of travel:
+enigma added privacy-HP, i18n formatting and the invite-only rework; canonical
+still carries five files enigma **deliberately parked**
+(`f0c8126 Park device linking and file sync to limbo`, `7a2fbca Park peer links
+to limbo`) and **still exports them** at `index.ts:15-22` — a shared library
+publishing retired code as live API.
+
+Two shared files matter to zinnia, and enigma's versions are strictly better:
+`OyaModal` gained a `z` prop with the app's z-ladder documented, `100dvh`
+instead of `100vh` (which counts the mobile URL bar) and safe-area insets;
+`OyaQrCode` now generates at a fixed 640 px because *"generating at the CSS size
+and then scaling up is what makes a phone-width code blurry, which costs more
+scans than being small does."* Adopting canonical as-is would hand zinnia the
+**pre-fix** QR component.
+
+13. `rakotis canonical adopts enigma's version` — `git subtree split --prefix=
+    packages/rakotis` in enigma, fetched into canonical and merged.
+    **The histories are UNRELATED** (canonical's `556408d` does not exist in
+    enigma and vice versa — the "import with history" copied the tree, not the
+    ancestry), so this needs `--allow-unrelated-histories` and a file-by-file
+    review rather than a trusted three-way resolve. Baseline before starting:
+    canonical has **no `node_modules`**; after `npm install` its suite is
+    **236 tests / 20 files green**.
+14. `drop parked sync exports from rakotis` — remove `deviceSyncModel`,
+    `fileSyncModel`, `peerSyncModel`, `useDeviceSync`, `usePeerSync`, their
+    five tests and the `index.ts:15-22` exports. They are parked in
+    `enigma/limbo/frontend/{devices,peers}` with restore notes, which is where
+    they belong; recoverable from git and from limbo. A separate commit so the
+    removal is reviewable on its own. Three further canonical-only tests
+    (`dhtCode`, `multiDeviceChannel`, `torTicket`) cover features enigma also
+    retired — **adjudicate each individually, do not assume.**
+    Test delta overall: **+7 arriving, −5 leaving, 12 shared, 3 to decide.**
+15. `enigma re-points rakotis as a subtree` — replacing 119 commits of in-place
+    editing with a tracked relationship, so the next drift is a `subtree pull`.
+    Content must not change; `git diff` on `packages/rakotis` proves it.
+16. `zinnia pulls the updated rakotis subtree` — gains the fixed `OyaModal` and
+    `OyaQrCode`. Zinnia imports exactly four primitives (`OyaButton`,
+    `OyaIconButton`, `OyaModal`, `OyaTextField`) and **none** of the diverging
+    feature files, so the blast radius is one file. Expect component tests that
+    assert on modal markup to need updating: enigma's `OyaModal` adds a wrapper
+    div and a `data-testid`.
+
+    **`crates/` complication:** zinnia tracks 9 files under
+    `packages/rakotis/crates/` (`gervasius`, `protasius`) that canonical has
+    never had — they were added locally, and are why the "never write to the
+    subtree" contract is already broken. A `subtree pull` will not remove them.
+    They stay put here; moving them to the rotor repo and merging the gervasius
+    fork (zinnia has `gervazy.rs`, enigma has `seal.rs`, neither a superset) is
+    separate work, kept apart so a crypto mistake cannot hide inside a subtree
+    mistake. `protasius` is byte-identical in both — no work there.
+
+### The crypto crates, back under one repo (17-19)
+
+Same disease as rakotis, different organ. `gervasius` and `protasius` reach the
+two repos by **completely different routes**: enigma keeps them at
+`cryptorotor/gervasius` and `protasius/` as ordinary directories it develops in;
+zinnia gets both as passengers inside the rakotis subtree
+(`packages/rakotis/crates/`), which canonical rakotis has never contained.
+
+17. `crypto_rotor becomes its own repo, history intact` — `cryptorotor/` is
+    tracked inside enigma with **8 commits of its own** (`37ec6e3 move
+    cryptorotor inside enigma` … `d02bc89 Add X25519 public-key sealing to
+    gervasius`), so `git subtree split` extracts it to
+    `/home/janek/Desktop/dev/rotor/crypto_rotor` with authorship and dates
+    intact. Consumers to repoint: `apps/enigma/src-tauri/Cargo.toml:38,44`,
+    `protasius/Cargo.toml:12`, `.gitlab-ci.yml:157-196` (the wasm job) and the
+    builder GUI's help text (`tools/enigma_builder/{yaml_gen.py:134,
+    expert_tab.py:204}`). Keep enigma's copy until the build is green.
+18. `build scripts take a rotor path` — `build_desktop.sh`, `run_dev.sh`,
+    `scripts/build_android.sh` and `tools/enigma_builder/` gain a `ROTOR_PATH`
+    (env or `--rotor-path`), defaulting to a sibling checkout. **Cargo path
+    deps are static**, so the mechanism is either a generated `[patch]` section
+    or a documented checkout layout — decide at implementation time and record
+    which.
+19. `one gervasius: merge the two forks` — zinnia's copy has `gervazy.rs` (the
+    legacy sniffer `substrate::is_sealed_file` depends on), enigma's has
+    `seal.rs` (X25519 sealing, `d02bc89`), and `lib.rs` differs. **Neither is a
+    superset**; the union goes to the rotor repo and both apps pin it.
+    `protasius` is byte-identical in both — no work. Only after this does
+    `packages/rakotis/crates/` leave zinnia's subtree, restoring the
+    "never write to the subtree" contract.
+
+### Collaboration (20-24)
+
+Goal: **every app collaborative except presentations.** Investigated
+2026-09-08; three findings decide the shape.
+
+**The feature already exists, parked.** Sketch's own `sketchModel.ts:7-10`
+says so: *"This board was once a per-room collaborative surface backed by an
+LWW-element-set CRDT with a hybrid logical clock, tombstones and a clear
+register. That machinery is parked in `limbo/frontend/sketch-collab/`."*
+86 KB across an engine, a CRDT model and a spec with CRDT-law proofs, plus a
+six-step restore recipe. An adversarial review proved a from-scratch merge
+design diverges under four ordinary interleavings that the parked code already
+handles — so **restore it, do not re-derive it**.
+
+**Cost of iroh, measured** (scratch crate, warm cache, this machine):
+469 crates, **42 s** clean build, **1.8 s** to re-link after a one-line edit,
+1.0 GB peak RSS, 61 MB debug binary. Zinnia is 521 crates today. Cheap — and
+`split-debuginfo = "unpacked"` is already in the root `Cargo.toml`, which is
+the linker-OOM guard enigma added for exactly iroh's DWARF.
+
+**MLS vs TLS, measured.** iroh's QUIC is end-to-end *through* a relay (a relay
+sees IPs, NodeIds and timing, never content), so for **two** peers TLS is
+complete and MLS adds only post-compromise security: **2.4 ms** handshake,
+**116 µs** per message, +146 B, ~2.9 ms CPU/s at 20 Hz. But gossip is
+multi-hop — with **three or more** peers a forwarding peer decrypts and
+re-broadcasts, so MLS becomes *required*. Hence MLS lands with multi-person
+sync, not before.
+
+20. `restore the parked sketch CRDT` — port `sketchModel.crdt.ts` and its spec
+    back into `apps/sketch`. The drift is symmetric and measured: the live
+    model must **regain** `author`/`createdAt`/`updatedAt`/`tombstones`/
+    `clearedAt` and ten functions (all at **zero** references today), and the
+    parked wire format must **gain `rot`** (20 references live, zero parked —
+    rotation was added after parking). Its CRDT-law tests are the acceptance
+    criteria.
+21. `collab crate hosts and joins a gossip topic` — `crates/collab` over
+    `iroh 0.98` + `iroh-gossip 0.98`, behind a Cargo feature **off by default**,
+    so a default build links no iroh. Cribs ~280 lines from enigma's
+    `p2p_iroh.rs`; ephemeral identity per session (`file_xfer.rs:33-35`);
+    `presets::N0` with relays on, direct path preferred; ticket is
+    base32(postcard(topic, addr, nonce, issued_at)), **single-use and
+    TTL-bounded, enforced in Rust**. Surfaces `Lagged` rather than swallowing
+    it (`p2p_iroh.rs:637` ignores it, and MLS ratchets are order-sensitive).
+22. `sketch pairs by QR and draws with one peer` — `packages/collab` with the
+    session composable and a QR panel using the **fixed** `OyaQrCode` from step
+    16; a 6-digit short-auth-string on both screens with the host accepting,
+    since a QR on screen can be photographed. Two peers, either can save.
+    Three blockers found in review must land here: the
+    `capabilities.test.ts` regex is **blinded by `#[cfg]`** inside
+    `generate_handler!` and must be fixed *before* any gated command is added;
+    the **frontend** needs gating too or a default build ships a tab whose
+    commands do not exist; and `Snapshot` must carry board width/height and
+    paint order, sent **after** Accept rather than on `Hello`.
+23. `MLS seals every collab frame` — vendor `rotor_core` from the rotor repo
+    (step 17); the `vox.rs:322-347` two-party pattern with **the host as group
+    creator before the QR is shown**, which removes the group-formation race
+    entirely for a pair. Sessions in-memory only: enigma re-exports and
+    vault-seals full MLS state after every op, which at stroke rates would be
+    an Argon2-gated AEAD to disk per message.
+24. `multi-person sync: N peers on a topic` — where the race returns and needs
+    enigma's deterministic admin election (`ourId < theirId`) plus its
+    reset/recovery path. **Primula fits** — cell-level LWW is the same shape as
+    shape-level LWW. **Lazurite's writer does not**: rich text is not
+    LWW-mergeable and needs a text CRDT (Yjs/Loro), which is its own project.
+    Presentations are out of scope by decision.
 
 **Order note:** the PDF work that was mid-flight is now committed and no longer
 blocks anything. The `exports` refactor it carried landed separately (`40c11ab`,
