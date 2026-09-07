@@ -1,4 +1,4 @@
-// Rakotis — reusable app primitives for Enigma: the non-crypto foundation
+// Rakotis — reusable app primitives for Enigma26: the non-crypto foundation
 // (services, i18n, Oya UI components) plus the P2P chat orchestration
 // (Rotor-backed crypto bridge, iroh transport bridge, chat channel composable +
 // MLS envelope state machine). Crypto is delegated to the Rotor-backed `mls_*`
@@ -12,14 +12,12 @@ export * from "./services/contacts";
 export * from "./services/moderation";
 export * from "./services/mapData";
 export * from "./mapModel";
-export * from "./deviceSyncModel";
-export * from "./fileSyncModel";
+export * from "./chatHistoryModel";
+// Privacy HP: the pure policy model (types, prices, meter derivation, copy) and
+// the bridge to the Rust ledger. technology.md §17.
+export * from "./privacyHp";
+export * from "./services/hp";
 export * from "./services/chatLog";
-export { useDeviceSync, registryMac, kpProof } from "./useDeviceSync";
-export type { DeviceSync } from "./useDeviceSync";
-export * from "./peerSyncModel";
-export { usePeerSync, peerKpProof } from "./usePeerSync";
-export type { PeerSync, PeerSyncSources } from "./usePeerSync";
 export type { Participant, Room } from "./services/types";
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
@@ -32,6 +30,18 @@ export {
   createAppI18n,
 } from "./i18n";
 export type { Locale, AppI18n } from "./i18n";
+// The seam the app uses to translate notices rakotis emits (see chatText.ts).
+export { setChatTranslator, clearChatTranslator } from "./i18n/chatText";
+export {
+  formatDate,
+  formatTime,
+  formatNumber,
+  formatBytes,
+  currentLocale,
+  resetDateFormatCache,
+} from "./i18n/dateFormat";
+export type { DateStyle, DateInput } from "./i18n/dateFormat";
+export type { ChatTranslator } from "./i18n/chatText";
 
 // ── UI components (Oya primitives) ────────────────────────────────────────────
 // Explicit single-level re-exports (NOT `export *` through a sub-barrel): WebKit's
@@ -50,6 +60,8 @@ export { default as OyaAvatar } from "./components/primitives/OyaAvatar.vue";
 export { default as OyaEmptyState } from "./components/primitives/OyaEmptyState.vue";
 export { default as OyaSectionHeader } from "./components/primitives/OyaSectionHeader.vue";
 export { default as OyaModal } from "./components/primitives/OyaModal.vue";
+export { default as OyaHpPrice } from "./components/primitives/OyaHpPrice.vue";
+export { default as OyaHpMeter } from "./components/primitives/OyaHpMeter.vue";
 
 // ── Crypto bridge (Rotor-backed MLS) ──────────────────────────────────────────
 export { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
@@ -59,7 +71,7 @@ export { chatTransport } from "./chatTransport";
 export type { ChatTransport, CreatedRoom, JoinedRoom, WsStatus, WsMessage } from "./chatTransport";
 
 // ── Chat channel composable + MLS envelope state machine ──────────────────────
-export { useChatChannel, isTorTicket, isDhtCode, downscaleImageToDataUrl } from "./useChatChannel";
+export { useChatChannel, isInviteTicket, downscaleImageToDataUrl } from "./useChatChannel";
 export type {
   ChatChannel,
   ChatChannelOptions,

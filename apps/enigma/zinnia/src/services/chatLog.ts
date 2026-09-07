@@ -12,7 +12,7 @@ import { kvGet, kvPut, kvDelete, kvClearNamespace } from "./localDb";
 import {
   CHAT_LOG_SEG_MAX_MSGS, mergeMessages, validatePersistedMessage,
   type PersistedMessage,
-} from "../deviceSyncModel";
+} from "../chatHistoryModel";
 
 const NS = "chat:log";
 const INDEX_KEY = "index";
@@ -167,9 +167,28 @@ export function mergeIntoLog(
   });
 }
 
-/** Drop a room's entire stored history (room deleted / kicked / closed). */
-export function wipeLog(slug: string): Promise<void> {
-  return serialize(() => kvClearNamespace(NS, slug));
+/** Drop a room's entire stored history (room deleted / kicked / closed).
+ *
+ *  Returns how many bytes of stored history went away, so the caller can claim
+ *  the Privacy HP data-deletion credit. Measured as the JSON length of what was
+ *  actually there — an approximation of the sealed size, and deliberately the
+ *  conservative direction (the sealed form is larger). Zero when the room had no
+ *  stored log, which is what keeps the credit idempotent. */
+export function wipeLog(slug: string): Promise<number> {
+  return serialize(async () => {
+    let freed = 0;
+    try {
+      const index = await loadIndex(slug);
+      for (const seg of index.segs) {
+        const raw = await kvGet(NS, slug, `seg-${seg.n}`);
+        freed += raw ? raw.length : 0;
+      }
+    } catch {
+      /* an unreadable log still gets wiped; it just earns nothing */
+    }
+    await kvClearNamespace(NS, slug);
+    return freed;
+  });
 }
 
 /** Buffered appender: batches pushMessage-rate writes into one kv write per

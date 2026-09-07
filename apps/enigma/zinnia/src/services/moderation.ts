@@ -8,6 +8,8 @@
 // dropped on receive and blocked on send; a kicked (banned) identity is removed
 // from the MLS group and refused re-admission by whoever is admin.
 
+import { t } from "../i18n/chatText";
+
 /** id → mute-expiry epoch ms. Expired entries are pruned lazily. */
 export type MuteMap = Record<string, number>;
 
@@ -48,15 +50,24 @@ export function pruneMutes(mutes: MuteMap, now: number): MuteMap {
   return next;
 }
 
-/** "4h 05m" / "12m" / "45s" — compact remaining-time label for mute badges. */
+/**
+ * "4h 05m" / "12m" / "45s" — compact remaining-time label for mute badges.
+ *
+ * The unit suffixes are translated: Polish abbreviates hours as "godz." and puts a
+ * space before its units, so a hard-coded "h" read as English inside an otherwise
+ * Polish badge. They go through the chat translator seam because this module is in
+ * rakotis, which holds no catalog of its own (see ../i18n/chatText.ts).
+ */
 export function formatRemaining(untilMs: number, now: number): string {
   const left = Math.max(0, untilMs - now);
   const mins = Math.ceil(left / 60_000);
   if (mins >= 60) {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
-    return m ? `${h}h ${String(m).padStart(2, "0")}m` : `${h}h`;
+    return m
+      ? t("chat.dur.hoursMinutes", "{h}h {m}m", { h, m: String(m).padStart(2, "0") })
+      : t("chat.dur.hours", "{h}h", { h });
   }
-  if (mins > 1) return `${mins}m`;
-  return `${Math.max(1, Math.ceil(left / 1000))}s`;
+  if (mins > 1) return t("chat.dur.minutes", "{m}m", { m: mins });
+  return t("chat.dur.seconds", "{s}s", { s: Math.max(1, Math.ceil(left / 1000)) });
 }

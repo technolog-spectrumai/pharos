@@ -1,6 +1,6 @@
 # Rakotis
 
-Reusable app primitives for Enigma (and any other Vite + Vue 3 app).
+Reusable app primitives for Enigma26 (and any other Vite + Vue 3 app).
 One package, two layers:
 
 - **Foundation** (non-crypto):
@@ -21,7 +21,7 @@ Everything is exported from the single entry point `src/index.ts`.
 
 ## Consumption
 
-rakotis is an **in-repo workspace package** of the Enigma monorepo
+rakotis is an **in-repo workspace package** of the Enigma26 monorepo
 (`packages/rakotis`). Each app depends on it as `"rakotis": "*"`; a root
 `npm install` symlinks it into `node_modules/rakotis`, so source edits are picked
 up with no build or repin step.

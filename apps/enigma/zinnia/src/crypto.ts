@@ -63,6 +63,19 @@ class CryptoService {
     }
   }
 
+  /** Re-file a session under a different room (see `mls_adopt_session`): a
+   *  redeemer builds its KeyPackage before it knows which room the invitation
+   *  is for, so the session has to move once the grant names one. */
+  async adoptSession(fromRoom: string, toRoom: string, identity: string): Promise<boolean> {
+    try {
+      await _invoke("mls_adopt_session", { fromRoom, toRoom, identity });
+      return true;
+    } catch (e) {
+      console.error("[crypto] adoptSession failed:", e);
+      return false;
+    }
+  }
+
   async joinFromWelcome(
     room: string,
     identity: string,
