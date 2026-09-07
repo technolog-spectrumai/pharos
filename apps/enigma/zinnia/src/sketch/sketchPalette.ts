@@ -10,8 +10,8 @@
 // can be either paper, and "the plain one" has to be reachable for both without
 // being a mode-dependent value. They are not configurable and never change.
 import { computed } from "vue";
-import { DEFAULT_PALETTE, SYSTEM_ROLES, type SystemPalette, type SystemRole } from "../systemColors";
-import { useSystemColors } from "../useSystemColors";
+import { DEFAULT_PALETTE, SYSTEM_ROLES, type SystemPalette, type SystemRole } from "petalite/theme";
+import { useSystemColors } from "petalite/theme";
 
 export type ColorRole = SystemRole | "black" | "white";
 

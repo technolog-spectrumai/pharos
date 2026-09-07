@@ -18,6 +18,14 @@ import { APP_TABS } from "../../src/tabs";
 import { SKETCH_TOOLS } from "../../src/sketch/tools";
 
 const SRC = join(__dirname, "../../src");
+/** Shared components ship templates too, and their icons fail the same silent
+ *  way. Scanning only `src/` is how two files stopped being checked the moment
+ *  they moved into Petalite — the suite stayed green and the coverage left. */
+const PETALITE = join(__dirname, "../../packages/petalite/src");
+const ROOTS = [
+  ["src", SRC],
+  ["petalite", PETALITE],
+] as const;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -44,15 +52,30 @@ function iconNamesIn(source: string): string[] {
 }
 
 describe("icon registration", () => {
-  const files = walk(SRC).filter((f) => f.endsWith(".vue"));
+  const files = ROOTS.flatMap(([label, root]) =>
+    walk(root)
+      .filter((f) => f.endsWith(".vue"))
+      .map((f) => [`${label}/${f.slice(root.length + 1)}`, f] as const),
+  );
 
   it("finds icons to check (the scanner itself still works)", () => {
     // Without this the suite would pass vacuously if the regex ever broke.
-    const all = files.flatMap((f) => iconNamesIn(readFileSync(f, "utf8")));
+    const all = files.flatMap(([, f]) => iconNamesIn(readFileSync(f, "utf8")));
     expect(all.length).toBeGreaterThan(20);
   });
 
-  it.each(files.map((f) => [f.slice(SRC.length + 1), f] as const))(
+  // Per ROOT, not just in total: a root that goes empty — a path that stopped
+  // matching after a move — would otherwise be covered by the other root's
+  // count and vanish in silence. That is exactly what happened to Petalite's
+  // two components in step 5.
+  it.each(ROOTS.map(([label, root]) => [label, root] as const))(
+    "%s still has templates to scan",
+    (_label, root) => {
+      expect(walk(root).filter((f) => f.endsWith(".vue")).length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(files)(
     "%s names only registered icons",
     (_label, file) => {
       const missing = [...new Set(iconNamesIn(readFileSync(file, "utf8")))]

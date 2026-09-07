@@ -16,9 +16,9 @@
 // to get wrong.
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import OyaButton from "rakotis/components/primitives/OyaButton.vue";
 import { dumps, isSheet, loads, newWorkbook, type Workbook } from "../formats/sheet";
-import { isDark, watchDark } from "../theme";
+import { isDark, watchDark } from "petalite/theme";
+import { OyaButton } from "petalite/primitives";
 
 const props = defineProps<{
   path: string | null;

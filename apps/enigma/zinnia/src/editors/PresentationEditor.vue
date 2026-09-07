@@ -13,14 +13,10 @@
 // when it arrives.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import OyaButton from "rakotis/components/primitives/OyaButton.vue";
-import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
-import OyaModal from "rakotis/components/primitives/OyaModal.vue";
-import ModalPanel from "../components/ModalPanel.vue";
-import SelectMenu from "../components/SelectMenu.vue";
+import ModalPanel from "petalite/ModalPanel.vue";
+import SelectMenu from "petalite/SelectMenu.vue";
 import FormulaPreview from "../components/FormulaPreview.vue";
-import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
-import { toDataUri } from "../files/images";
+import { toDataUri } from "petalite/files";
 import SlideBlock from "./SlideBlock.vue";
 import DeckPlayer from "./DeckPlayer.vue";
 import RichPayloadEditor from "./RichPayloadEditor.vue";
@@ -29,6 +25,7 @@ import {
   columnsOf, dumps, loads, newBlock, newPresentation, newSlide,
   slotsFor, type Block, type Presentation, type Slide,
 } from "../formats/presentation";
+import { OyaButton, OyaIconButton, OyaModal, OyaTextField } from "petalite/primitives";
 
 const props = defineProps<{
   path: string | null;

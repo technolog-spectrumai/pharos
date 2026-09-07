@@ -10,13 +10,9 @@
 // editor uses and for the same reason: re-serialising normalises the markup, so
 // comparing against the bytes we read marks every opened document unsaved.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
-import OyaButton from "rakotis/components/primitives/OyaButton.vue";
-import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
-import OyaModal from "rakotis/components/primitives/OyaModal.vue";
-import OyaTextField from "rakotis/components/primitives/OyaTextField.vue";
 import { useI18n } from "vue-i18n";
 import { TONE_ICONS } from "../icons";
-import ModalPanel from "../components/ModalPanel.vue";
+import ModalPanel from "petalite/ModalPanel.vue";
 import FormulaPreview from "../components/FormulaPreview.vue";
 import { Editor, EditorContent } from "@tiptap/vue-3";
 import { cyprianExtensions, INKS } from "./cyprianSchema";
@@ -24,6 +20,7 @@ import {
   DocumentParseError, dumps, loads, newDocument,
   FONTS, MARGINS, TONES, outline, type CyDocument,
 } from "../formats/document";
+import { OyaButton, OyaIconButton, OyaModal, OyaTextField } from "petalite/primitives";
 
 const props = defineProps<{
   path: string | null;

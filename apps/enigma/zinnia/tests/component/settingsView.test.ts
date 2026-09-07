@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsView from "../../src/views/SettingsView.vue";
-import { DEFAULT_PALETTE, SYSTEM_ROLES } from "../../src/systemColors";
+import { DEFAULT_PALETTE, SYSTEM_ROLES } from "petalite/theme";
 import { i18n } from "../../src/i18n";
 
 const openDialog = vi.fn();

@@ -10,8 +10,8 @@
 // nothing else, because it is the one colour every document's legibility rests
 // on. The row at the bottom states it rather than offering it.
 import { useI18n } from "vue-i18n";
-import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "../systemColors";
-import { useSystemColors } from "../useSystemColors";
+import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "petalite/theme";
+import { useSystemColors } from "petalite/theme";
 import { useMarkupSafety, type MarkupSwitch } from "../security/useMarkupSafety";
 
 const { t } = useI18n({ useScope: "global" });

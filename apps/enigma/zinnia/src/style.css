@@ -3,8 +3,12 @@
 /* Class-based dark mode: `.dark` on <html> drives every `dark:` utility. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Scan the rakotis subtree so its components' utility classes are generated. */
+/* Scan the shared packages so THEIR components' utility classes are generated
+ * too. Tailwind only emits a class it has seen in a scanned file, and a path
+ * that stops matching is SILENT — no error, just components rendering unstyled.
+ * These are relative to this file; they change when this file moves. */
 @source "../packages/rakotis/src";
+@source "../packages/petalite/src";
 
 @theme {
   --color-primary-bg-light: #f2f3f5;

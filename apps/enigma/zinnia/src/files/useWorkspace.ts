@@ -28,7 +28,7 @@
 // behaviour: the picked folder can be a home directory, and reading all of it
 // to draw a panel that shows twelve rows is a stall with nothing to show for it.
 import { computed, ref } from "vue";
-import { toDataUri } from "./images";
+import { toDataUri } from "petalite/files";
 
 export interface Entry {
   name: string;

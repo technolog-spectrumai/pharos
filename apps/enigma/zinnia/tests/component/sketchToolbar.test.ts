@@ -4,7 +4,7 @@ import SketchToolbar from "../../src/sketch/SketchToolbar.vue";
 import { createSketch, type Sketch } from "../../src/sketch/useSketch";
 import { ZOOM_STEPS } from "../../src/sketch/sketchModel";
 import { COLOR_ROLES, NEUTRALS, offeredColors } from "../../src/sketch/sketchPalette";
-import { DEFAULT_PALETTE } from "../../src/systemColors";
+import { DEFAULT_PALETTE } from "petalite/theme";
 import { i18n } from "../../src/i18n";
 
 // The toolbar's settings live behind titled pickers, and its colours are

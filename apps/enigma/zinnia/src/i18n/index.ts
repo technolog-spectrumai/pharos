@@ -1,29 +1,22 @@
-// Minimal per-app i18n. Deliberately not rakotis's createAppI18n: that module
-// persists under "enigma:locale", and zinnia keeps its own key.
-import { createI18n } from "vue-i18n";
+// This app's i18n: its catalogue, its storage key, Petalite's mechanism.
+//
+// The words are the app's — they name its editors and its errors — so they stay
+// here. Everything that is not words (which locales exist, how the first one is
+// chosen, the `<html lang>` side effect) is `petalite/i18n`, shared so three
+// apps cannot drift on it.
+import { createAppI18n, type SupportedLocale } from "petalite/i18n";
 import en from "./en";
 import pl from "./pl";
 
-const KEY = "zinnia:locale";
-export const SUPPORTED_LOCALES = ["en", "pl"] as const;
-export type Locale = (typeof SUPPORTED_LOCALES)[number];
+export { SUPPORTED_LOCALES } from "petalite/i18n";
+/** Kept as the app's own name for the type: most callers say `Locale`. */
+export type Locale = SupportedLocale;
 
-function initialLocale(): Locale {
-  const stored = localStorage.getItem(KEY);
-  if (stored === "en" || stored === "pl") return stored;
-  return navigator.language?.toLowerCase().startsWith("pl") ? "pl" : "en";
-}
-
-export const i18n = createI18n({
-  legacy: false,
-  globalInjection: true,
-  locale: initialLocale(),
-  fallbackLocale: "en",
+const { i18n, setLocale } = createAppI18n({
+  // Zinnia's own key. Not rakotis's "enigma:locale", and not shared with a
+  // sibling app.
+  storageKey: "zinnia:locale",
   messages: { en, pl },
 });
 
-export function setLocale(locale: Locale) {
-  i18n.global.locale.value = locale;
-  document.documentElement.setAttribute("lang", locale);
-  localStorage.setItem(KEY, locale);
-}
+export { i18n, setLocale };

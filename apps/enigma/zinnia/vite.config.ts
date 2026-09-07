@@ -9,9 +9,14 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
 
-  // rakotis is a git subtree shipping raw TS/Vue (no prebuild): alias it to its
-  // entry file and keep it out of esbuild's dependency pre-bundling so the Vue
-  // plugin compiles it like app source. Same arrangement enigma uses.
+  // petalite and rakotis both ship raw TS/Vue (no prebuild): alias them to
+  // source and keep them out of esbuild's dependency pre-bundling, so the Vue
+  // plugin compiles them like app source. Same arrangement enigma uses.
+  //
+  // The app imports PETALITE; only petalite imports rakotis. The rakotis alias
+  // is still needed because it is petalite's own specifier, but nothing under
+  // src/ should name it — `npm run lint:imports` is not a thing here, so the
+  // guard is tests/unit/imports.test.ts.
   //
   // Deep imports only ("rakotis/components/primitives/OyaButton.vue"), never the
   // barrel: rakotis/src/index.ts re-exports the whole P2P/MLS/chat surface plus
@@ -19,10 +24,17 @@ export default defineConfig({
   // not in the package. Taking pieces keeps zinnia's graph to what it uses.
   resolve: {
     alias: [
+      // Order matters — Vite takes the first match. The `.vue` rule is first
+      // because the components live one directory deeper than the subpaths:
+      // "petalite/ModalPanel.vue" is src/components/ModalPanel.vue, while
+      // "petalite/theme" is src/theme/. Both mirror package.json's `exports`.
+      { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("./packages/petalite/src/components/$1", import.meta.url)) },
+      { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("./packages/petalite/src/$1", import.meta.url)) },
+      { find: /^petalite$/, replacement: fileURLToPath(new URL("./packages/petalite/src/index.ts", import.meta.url)) },
       { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("./packages/rakotis/src/$1", import.meta.url)) },
     ],
   },
-  optimizeDeps: { exclude: ["rakotis"] },
+  optimizeDeps: { exclude: ["rakotis", "petalite"] },
 
   // Don't let Vite's overlay hide Rust compiler errors during `tauri dev`.
   clearScreen: false,

@@ -15,9 +15,7 @@
 // app with a Sheets tab and an app with a generic "open anything" window, and
 // it is why `kind` is a prop rather than sniffed from the filename.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import OyaButton from "rakotis/components/primitives/OyaButton.vue";
-import OyaModal from "rakotis/components/primitives/OyaModal.vue";
-import ModalPanel from "../components/ModalPanel.vue";
+import ModalPanel from "petalite/ModalPanel.vue";
 import { useI18n } from "vue-i18n";
 import SketchEditor from "../editors/SketchEditor.vue";
 import TextEditor from "../editors/TextEditor.vue";
@@ -29,7 +27,8 @@ import { dumps, newDocument } from "../formats/document";
 import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
 import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
 import { KIND_FILES, type EditorKind } from "../tabs";
-import { isImageName } from "../files/images";
+import { isImageName } from "petalite/files";
+import { OyaButton, OyaModal } from "petalite/primitives";
 
 const props = defineProps<{
   kind: EditorKind;

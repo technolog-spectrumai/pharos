@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COLOR_ROLES, DEFAULT_INK, NEUTRALS, offeredColors } from "../../src/sketch/sketchPalette";
-import { DEFAULT_PALETTE, SYSTEM_ROLES } from "../../src/systemColors";
+import { DEFAULT_PALETTE, SYSTEM_ROLES } from "petalite/theme";
 
 describe("the sketch palette", () => {
   it("is the system roles plus two fixed neutrals, and nothing else", () => {

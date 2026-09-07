@@ -13,7 +13,6 @@
 // in every viewer — so the shade that reads on the other paper has to be
 // reachable, not inferred from whichever theme happens to be on now.
 import { computed, ref, watch } from "vue";
-import OyaIconButton from "rakotis/components/primitives/OyaIconButton.vue";
 import SketchPickerModal from "./SketchPickerModal.vue";
 import { SKETCH_TOOLS } from "./tools";
 import { DEFAULT_HEAD_WIDTH } from "./sketchModel";
@@ -29,6 +28,7 @@ import {
 import { useSketchColors } from "./sketchPalette";
 import type { Sketch } from "./useSketch";
 import type { Tool } from "./SketchCanvas.vue";
+import { OyaIconButton } from "petalite/primitives";
 
 const props = defineProps<{
   sketch: Sketch;

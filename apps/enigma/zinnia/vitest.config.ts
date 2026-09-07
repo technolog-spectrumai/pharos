@@ -12,11 +12,18 @@ const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 const univerStub = new URL("./tests/stubs/univer.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("./packages/rakotis/src", import.meta.url).pathname;
+const petaliteSrc = new URL("./packages/petalite/src", import.meta.url).pathname;
 
 export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: [
+      // Mirrors vite.config.ts, and the ORDER is load-bearing for the same
+      // reason: the `.vue` components sit one directory deeper than the
+      // subpath exports, and Vite takes the first alias that matches.
+      { find: /^petalite\/(.*\.vue)$/, replacement: `${petaliteSrc}/components/$1` },
+      { find: /^petalite\/(.*)/, replacement: `${petaliteSrc}/$1` },
+      { find: /^petalite$/, replacement: `${petaliteSrc}/index.ts` },
       // The package ROOT stays real: aceSetup calls ace.config.setModuleUrl,
       // which the stub does not implement — and the root loads fine in jsdom.
       { find: /^rakotis\/(.*)/, replacement: `${rakotisSrc}/$1` },

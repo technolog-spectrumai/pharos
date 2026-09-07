@@ -11,9 +11,9 @@
 // next person at the keyboard.
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import OyaModal from "rakotis/components/primitives/OyaModal.vue";
-import ModalPanel from "../components/ModalPanel.vue";
+import ModalPanel from "petalite/ModalPanel.vue";
 import { lockErrorKey } from "../security/lock";
+import { OyaModal } from "petalite/primitives";
 
 const props = defineProps<{
   open: boolean;

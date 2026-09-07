@@ -10,7 +10,7 @@ import {
   PRIMARY_TEXT,
   savePalette,
   SYSTEM_ROLES,
-} from "../../src/systemColors";
+} from "petalite/theme";
 
 describe("the system palette", () => {
   beforeEach(() => localStorage.clear());
@@ -124,7 +124,7 @@ describe("following the theme", () => {
     // `isDark()` reads a DOM class, which a computed cannot depend on: written
     // that way, mode caches its first answer forever and the editors keep
     // offering the outgoing theme's shades after a toggle.
-    const { useSystemColors } = await import("../../src/useSystemColors");
+    const { useSystemColors } = await import("petalite/theme");
     document.documentElement.classList.remove("dark");
     const { mode } = useSystemColors();
     expect(mode.value).toBe("light");

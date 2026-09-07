@@ -2,10 +2,10 @@
 
 ## Status
 
-**Steps 1-4 done.** The tree is clean; 458 frontend tests and 24 Rust tests
+**Steps 1-5 done.** The tree is clean; 460 frontend tests and 24 Rust tests
 (padova 12, substrate 8, zinnia 3) plus padova's `compile_fail` doctest green,
-clippy clean. Nothing has moved into `apps/` yet — steps 1-7 are in-place
-refactors.
+clippy clean, `npm run build` succeeds. Nothing has moved into `apps/` yet —
+steps 1-7 are in-place refactors.
 
 Run the Rust side with **`npm run test:rust`** (`cargo test --workspace`), never
 `cargo test` from inside `src-tauri/` — that compiles only the app and silently
@@ -19,7 +19,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 2 | workspace store takes an injected seal probe | **done** |
 | 3 | cargo workspace with substrate crate | **done** |
 | 4 | padova crate owns sealing and secrets | **done** |
-| 5 | npm workspaces with petalite package | todo |
+| 5 | npm workspaces with petalite package | **done** |
 | 6 | one file tree for panel and security tab | todo |
 | 7 | padova package owns the sealing surface | todo |
 | 8 | lazurite becomes an app under apps ← **first irreversible** | todo |
@@ -210,6 +210,20 @@ i18n *mechanism*, the shared catalogue sections (`files.`, `common.`,
 `settings.colors.`), and the workspace store. Re-exports `OyaModal`,
 `OyaButton`, `OyaTextField`, `OyaIconButton`.
 
+*Built in step 5* as `packages/petalite`, an npm workspace linked into
+`node_modules/` by symlink. Four subpath exports mirrored in three places that
+must stay in step — `package.json`'s `exports`, the Vite/Vitest aliases, and
+`tsconfig.json`'s `paths`. **Alias order is load-bearing**: `petalite/*.vue`
+resolves into `src/components/`, one directory deeper than `petalite/theme`, so
+the `.vue` rule must come first or every shared component 404s.
+
+The i18n split landed as **mechanism here, catalogue there**: `createAppI18n({
+storageKey, messages })` owns locale choice, the fallback chain and the
+`<html lang>` side effect, while `en.ts`/`pl.ts` and the key `"zinnia:locale"`
+stay with the app. Each app keeps its own stored locale for the same reason it
+keeps its own keyring entry. The `localStorage` reads are now wrapped — a
+blocked store must not stop an app from starting.
+
 **Petalite also owns the file tree.** The survey found `SecurityView.vue` is
 largely a re-render of what `FilesPanel.vue` already draws — same rows,
 chevrons, padlock, depth indent, filter box. That becomes one `FileTree`
@@ -325,14 +339,31 @@ filter from `KIND_FILES[kind].extensions` (`["json"]` for sheets).
    `it.each` over an empty file list is itself a silent pass. Each app needs its
    own floor. Its four indirect assertions (`TONE_ICONS`, `APP_TABS`,
    `SKETCH_TOOLS`, heading digits) each follow the app that owns the symbol.
+
+   **This fired in step 5, exactly as predicted.** `ModalPanel.vue` and
+   `SelectMenu.vue` moved to Petalite, the scanner walked only `src/`, and their
+   two cases *silently stopped existing* — 458 → 456 with a green suite. Caught
+   by diffing test NAMES before and after, not counts. The scanner now walks a
+   `ROOTS` list and asserts **per root** that it still finds templates, so a
+   root going empty fails instead of being covered by another root's total.
+   **Diff the test names at every step from here on**; a shrinking suite is the
+   failure mode this whole plan is most exposed to.
 4. **The dev port lives in five places**, including the `devCsp` string
    (`ws://localhost:1431`). `smoke.test.ts` guards three; all its reads are
    CWD-relative, so each app needs its own vitest root.
 5. **`tabs.test.ts:20-22` hard-codes the tab id list** — a literal enumeration
    of the union across apps.
-6. **`style.css:7`'s `@source "../packages/rakotis/src"`** is relative to `src/`
-   and breaks when the stylesheet moves. Tailwind silently renders rakotis
-   components unstyled — no error.
+6. **`style.css`'s `@source` is relative to `src/`** and breaks when the
+   stylesheet moves. ~~Tailwind silently renders rakotis components unstyled~~ —
+   **overstated, corrected in step 5 by experiment.** Tailwind v4's *automatic
+   source detection* already scans the whole project tree, skipping only
+   gitignored paths, and neither `packages/rakotis` nor `packages/petalite` is
+   gitignored. Breaking the path deliberately and rebuilding still emitted
+   `z-[60]` (the one class used by rakotis and nowhere in `src/`). So `@source`
+   is insurance, not the mechanism. It still matters for a path Tailwind would
+   NOT reach on its own — anything gitignored, or outside the project root — so
+   keep the directives correct, but the silent-unstyled failure is not the
+   hazard it was written up as.
 7. **Five Tauri crates share one cargo build dir** and serialise behind an
    exclusive lock. Enigma solved this with per-profile target dirs
    (`scripts/dev_target.sh`) and documents the disk cost; borrow it.
@@ -366,7 +397,13 @@ filter from `KIND_FILES[kind].extensions` (`["json"]` for sheets).
     app — and separate app processes do not share it — but a future in-process
     multi-app host would leak a remembered passphrase between apps on a machine
     with no secret service. Documented in `padova/src/secrets.rs`.
-16. **substrate-only apps still link OpenSSL.** `is_sealed_file` calls
+16. **Side-effect imports (`import "./x"`, no bindings) are invisible to a
+    binding-shaped search, and only the BUILD catches them.** `main.ts` had
+    `import "./useSystemColors"` purely for its side effect; the step-5 rewrite
+    missed it, and `vue-tsc` and all 460 tests still passed — `npm run build`
+    was the only gate that failed. Grep `'^import "'` separately when moving
+    modules, and never treat a green test run as proof the app still builds.
+17. **substrate-only apps still link OpenSSL.** `is_sealed_file` calls
     `gervazy::is_sealed` for a 6-byte legacy prefix compare, and gervasius pulls
     `fernet` → `openssl-sys`. Sketch and Primula would carry native OpenSSL for
     one memcmp. Inlining that prefix check into substrate would drop gervasius

@@ -18,13 +18,13 @@
 // prop comes from the HOST, like `kind`: the tab decides, never the file.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import SelectMenu from "../components/SelectMenu.vue";
+import SelectMenu from "petalite/SelectMenu.vue";
 import ace, {
   languageForFilename, LANGUAGES, modeForFilename, THEME_DARK, THEME_LIGHT,
   type CodeLanguage,
 } from "./aceSetup";
-import { isDark, watchDark } from "../theme";
-import { isImageName } from "../files/images";
+import { isDark, watchDark } from "petalite/theme";
+import { isImageName } from "petalite/files";
 
 const props = defineProps<{
   path: string | null;

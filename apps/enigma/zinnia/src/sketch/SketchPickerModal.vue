@@ -6,7 +6,7 @@
 // own purpose — pen colour, fill colour and board colour all look identical as
 // a grid of chips — so each picker says which of them it is choosing.
 import { nextTick, ref, watch } from "vue";
-import OyaModal from "rakotis/components/primitives/OyaModal.vue";
+import { OyaModal } from "petalite/primitives";
 
 const props = defineProps<{ open: boolean; title: string }>();
 const emit = defineEmits<{ close: [] }>();

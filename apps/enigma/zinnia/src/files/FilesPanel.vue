@@ -15,9 +15,9 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { filterRows, useWorkspace, type Entry, type Row } from "./useWorkspace";
-import { baseName, formatSize } from "./format";
+import { baseName, formatSize } from "petalite/files";
 import { kindForFile } from "./openWith";
-import { isImageName } from "./images";
+import { isImageName } from "petalite/files";
 import type { EditorKind } from "../tabs";
 
 const { t } = useI18n({ useScope: "global" });
