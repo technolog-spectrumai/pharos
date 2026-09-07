@@ -522,8 +522,24 @@ Commit messages: max 8 words, single line, no AI mentions.
     `appMenu`, `smoke` and `editorHost` tests on each app's own editor.
 11. `csv export from the active worksheet` — the writer, a formula fixture, the
     stub extension.
-12. `register only detection where sealing is not offered` — the capability
-    reduction, once all three apps exist.
+12. `per-app IPC surface, asserted` — **done, but not as planned.** The step was
+    written as "register only detection where sealing is not offered". Two facts
+    made that the wrong change: the user's decision was **sealing UI in every
+    app**, so all three legitimately need all six commands; and every app ships
+    `script-src 'self'` with no `unsafe-inline` and no `unsafe-eval`, so the
+    injected-script path the argument rested on is already closed at the CSP.
+    Removing a tab the user asked for, to defend against something the CSP
+    already prevents, would have been worse than the problem.
+
+    What shipped instead **makes the boundary verifiable**: each app has
+    `tests/unit/capabilities.test.ts`, which parses its own `generate_handler!`
+    and asserts an explicit per-app allowlist. Lazurite's admits the three
+    `pdf_*` commands (it alone links `pdf.rs`); the others do not. A separate
+    assertion refuses any command whose NAME suggests reading the secret back
+    (`recall`, `reveal`, `get_pass`, `read_secret`) — a second lock on the door
+    `padova::Locker::recall`'s `compile_fail` doctest already holds shut.
+    Mutation-checked: adding `secrets::secret_recall` to Sketch's surface fails
+    two assertions.
 
 **Order note:** the PDF work that was mid-flight is now committed and no longer
 blocks anything. The `exports` refactor it carried landed separately (`40c11ab`,
