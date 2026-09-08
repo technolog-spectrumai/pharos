@@ -1,0 +1,51 @@
+# The cargo workspace — the ZINNIA app set only.
+#
+# Members are named EXPLICITLY, and enigma is EXCLUDED. Both are load-bearing,
+# and a glob here would be a silent regression:
+#
+#   * `members = ["apps/*/src-tauri"]` would swallow `apps/enigma/src-tauri`.
+#     Cargo unifies features across a workspace, and zinnia's crates ask for
+#     `gervasius/gervazy` — which pulls fernet and then openssl-sys, the exact
+#     dependency the gervasius fork merge went to trouble to keep out of
+#     enigma. Enigma would start linking OpenSSL because of a glob.
+#   * Cargo also auto-adopts any path dependency living inside the workspace
+#     root, so `protasius/` needs the exclude too — absence from `members` is
+#     not enough. Same reason `packages/rakotis` is excluded: it is a git
+#     subtree with its own tracked lock and must never be written to.
+#
+# Enigma's app crate and protasius therefore stay what they were before the
+# annexation: independent crates, each with its own gitignored lock. That is
+# what their MSRV pin comments assume (`typed-index-collections = "=3.3.0"`),
+# and folding them in here would silently re-resolve the arti tree.
+[workspace]
+resolver = "2"
+members = [
+    "apps/sketch/src-tauri",
+    "apps/lazurite/src-tauri",
+    "apps/primula/src-tauri",
+    "crates/substrate",
+    "crates/padova",
+    "crates/collab",
+]
+exclude = [
+    "apps/enigma/src-tauri",
+    "protasius",
+    "packages/rakotis",
+    # crypto_rotor is its OWN workspace (crates/rotor/Cargo.toml), imported
+    # whole with its history and its committed lock. Without this exclude cargo
+    # auto-adopts gervasius as a member of THIS workspace — observed, not
+    # theorised — and then unifies its features across everything here, which is
+    # how `gervazy` (fernet, openssl-sys) would reach enigma. Excluded, it is
+    # compiled as a plain path dependency and each consumer picks its own
+    # features: zinnia's crates ask for `gervazy`, enigma does not.
+    "crates/rotor",
+]
+
+# ── the linker ──────────────────────────────────────────────────────────────
+# THIS MUST LIVE AT THE ROOT. `[profile.*]` in a workspace MEMBER is ignored
+# with only a warning, so leaving this in `src-tauri/Cargo.toml` would silently
+# restore the problem it was written to prevent: tauri + webkit2gtk produce
+# enough DWARF that the GNU linker can OOM-kill the build on a modest machine.
+# Unpacked debuginfo keeps it out of the link step.
+[profile.dev]
+split-debuginfo = "unpacked"

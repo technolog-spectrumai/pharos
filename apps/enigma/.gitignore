@@ -12,9 +12,11 @@ target-*/
 **/target-*/
 *.wasm
 Cargo.lock
-# ...except the vendored cryptorotor workspace, which commits its own lock (upstream does).
-# The app crate's own Cargo.lock (apps/enigma/src-tauri) stays ignored.
-!cryptorotor/Cargo.lock
+# ...except the ROOT workspace lock. The zinnia app set is one cargo workspace
+# (see the root Cargo.toml) and commits its resolution deliberately; enigma's
+# own app crate and protasius are outside that workspace and stay ignored, which
+# is what their MSRV pin comments assume.
+!/Cargo.lock
 
 # Enigma Builder (tools/enigma_builder) local output — the generated `custom`
 # edition config. light/plus/pro stay checked in; this one never is.

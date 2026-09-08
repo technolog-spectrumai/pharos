@@ -2,7 +2,7 @@
   "name": "enigma-workspace",
   "private": true,
   "version": "0.1.10",
-  "description": "Monorepo for Enigma26 — a serverless P2P chat (iroh + MLS, QR-code pairing). Shared primitives live in the in-repo rakotis workspace package (packages/rakotis).",
+  "description": "Monorepo for Enigma26 (serverless P2P chat, iroh + MLS) and the Zinnia app set (sketch, lazurite, primula). Shared primitives in packages/, shared Rust in crates/.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -12,6 +12,13 @@
     "build": "bash build_desktop.sh",
     "build:debug": "bash build_desktop.sh --debug",
     "build:android": "bash scripts/build_android.sh enigma",
-    "test": "npm run test --workspaces"
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:zinnia": "bash scripts/zinnia/run_dev.sh",
+    "build:zinnia": "bash scripts/zinnia/build.sh",
+    "build:frontends": "npm run build --workspaces --if-present",
+    "test:rust": "cargo test --workspace",
+    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo check -p sketch --features collab",
+    "test:all": "npm run test && npm run test:rust && npm run test:rust:net"
   }
 }

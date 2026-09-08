@@ -11,11 +11,11 @@ rust-version = "1.88"
 # `VaultHeader` and `gervazy::is_sealed`; it does NOT seal or open anything —
 # that stays in the padova crate, which is what keeps the key material and the
 # keyring on one side of this line.
-# crypto_rotor is a SIBLING checkout (dev/rotor/crypto_rotor beside dev/zinnia),
-# the single source of truth for the crypto crates since 2026-09-08. It carries
+# crypto_rotor lives IN THIS REPO at crates/rotor, the single source of truth
+# for the crypto crates. It carries
 # both halves of what used to be two forked copies: `seal.rs` (X25519) and
 # `gervazy` (the platform vault this crate's detection needs).
-gervasius = { path = "../../../rotor/crypto_rotor/gervasius", features = ["gervazy"] }
+gervasius = { path = "../rotor/gervasius", features = ["gervazy"] }
 
 # No `tauri` dependency, on purpose. Substrate exports plain functions and each
 # app expands its own `#[tauri::command]` shims over them, so the command names

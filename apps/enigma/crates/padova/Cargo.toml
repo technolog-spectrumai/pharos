@@ -25,11 +25,11 @@ substrate = { path = "../substrate" }
 # the only reason native OpenSSL is linked into an app that depends on padova.
 # It is READ-ONLY legacy: nothing writes that format, and src/lock.rs refuses
 # those files outright now that their salt source is parked.
-# crypto_rotor is a SIBLING checkout (dev/rotor/crypto_rotor beside dev/zinnia),
-# the single source of truth for the crypto crates since 2026-09-08. It carries
+# crypto_rotor lives IN THIS REPO at crates/rotor, the single source of truth
+# for the crypto crates. It carries
 # both halves of what used to be two forked copies: `seal.rs` (X25519) and
 # `gervazy` (the platform vault this crate's detection needs).
-gervasius = { path = "../../../rotor/crypto_rotor/gervasius", features = ["gervazy"] }
+gervasius = { path = "../rotor/gervasius", features = ["gervazy"] }
 
 # ── remembering one passphrase ──────────────────────────────────────────────
 # The OS secret store, so sealing a second file need not mean typing it again.
