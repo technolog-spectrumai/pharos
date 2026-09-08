@@ -45,7 +45,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 17 | crypto_rotor becomes its own repo, history intact | **done** |
 | 18 | build scripts take a rotor path | **done** |
 | 19 | one gervasius: merge the two forks | **done** |
-| 20 | restore the parked sketch CRDT | todo |
+| 20 | restore the parked sketch CRDT | **done** |
 | 21 | collab crate hosts and joins a gossip topic | todo |
 | 22 | sketch pairs by QR and draws with one peer | todo |
 | 23 | MLS seals every collab frame | todo |
@@ -810,13 +810,41 @@ multi-hop — with **three or more** peers a forwarding peer decrypts and
 re-broadcasts, so MLS becomes *required*. Hence MLS lands with multi-person
 sync, not before.
 
-20. `restore the parked sketch CRDT` — port `sketchModel.crdt.ts` and its spec
-    back into `apps/sketch`. The drift is symmetric and measured: the live
-    model must **regain** `author`/`createdAt`/`updatedAt`/`tombstones`/
-    `clearedAt` and ten functions (all at **zero** references today), and the
-    parked wire format must **gain `rot`** (20 references live, zero parked —
-    rotation was added after parking). Its CRDT-law tests are the acceptance
-    criteria.
+20. `restore the parked sketch CRDT` — **done** (`ba92c1e`), as
+    `apps/sketch/src/sketch/sketchCrdt.ts` + 28 tests.
+
+    **Not a wholesale restore, and the plan was wrong to imply one.** The
+    parked `sketchModel.crdt.ts` (842 lines) is a *complete alternate model* —
+    it duplicates all the geometry. The live `sketchModel.ts` is **975 lines
+    and strictly ahead** on exactly that: `shapePivot`, `rotateShape`,
+    `rotatePoint`, `normDeg`, `DEFAULT_HEAD_WIDTH` are all live-only. Replacing
+    it would have been a regression.
+
+    So only the **CRDT layer** was lifted — the parts the live model genuinely
+    lacks — into a new module that `import`s `Shape` rather than redeclaring
+    it. Two consequences fall out for free:
+    * **`rot` rides along**, because a Shape *is* the live Shape. A verbatim
+      restore would have silently dropped rotation on every shape crossing the
+      wire; the parked NOTES.md flags this and it is now structurally
+      impossible.
+    * The collaboration metadata (`author`/`createdAt`/`updatedAt`) lives in a
+      **`ShapeMeta` beside** the shape, not inside it — the saved `.svg` has
+      nowhere to put it and a local session should not have to invent an
+      author.
+
+    `roomSlug` was dropped from the snapshot (enigma scoped a board to a chat
+    room; here the session *is* the scope), and `width`/`height` added — the
+    review's finding that a joiner starting from an empty 1920×1080 document
+    would otherwise draw on a different-sized board than the host.
+
+    **Verified by mutation, not just by passing.** Four sabotages, each a bug
+    that produces silently divergent boards with no error: removing `createdAt`
+    immutability (paint order becomes remotely rewritable) fails 1; making a
+    delete lose the same-clock tie (undo can no longer resurrect) fails 1;
+    making the clock non-monotonic fails 2; applying a snapshot as a **replace**
+    instead of a merge fails 3. All caught.
+
+    Sketch: 253 → **281 tests**; typecheck clean; three builds.
 21. `collab crate hosts and joins a gossip topic` — `crates/collab` over
     `iroh 0.98` + `iroh-gossip 0.98`, behind a Cargo feature **off by default**,
     so a default build links no iroh. Cribs ~280 lines from enigma's
