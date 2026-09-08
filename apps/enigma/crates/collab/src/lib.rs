@@ -36,6 +36,8 @@
 //! never links the keyring.
 
 pub mod frame;
+#[cfg(feature = "mls")]
+pub mod mls;
 pub mod ticket;
 
 pub use frame::{Frame, SeqTracker, PROTO_V};

@@ -53,7 +53,13 @@ collab = { path = "../../../crates/collab", optional = true }
 
 [features]
 default = []
+# The transport alone: two peers over QUIC, already end to end.
 collab = ["dep:collab", "collab/net"]
+# The transport plus the group key. What this adds over `collab` is
+# post-compromise security now, and the ability to have a THIRD peer later —
+# on a gossip topic a forwarding peer decrypts and re-broadcasts, so transport
+# encryption cannot carry N peers but one group key can. See crates/collab/src/mls.rs.
+collab-mls = ["collab", "collab/mls"]
 
 # `[profile.dev]` used to be here. It lives in the ROOT Cargo.toml now: a
 # profile in a workspace member is ignored with only a warning, and the one

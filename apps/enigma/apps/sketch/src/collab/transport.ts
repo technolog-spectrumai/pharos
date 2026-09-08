@@ -71,6 +71,18 @@ export const COLLAB_ERRORS = [
   "bad_frame",
   "no_session",
   "not_joined",
+  // The group key (crates/collab/src/mls.rs), behind the `collab-mls` build.
+  // All eight are grouped as one message to the user: the distinction between
+  // a failed key package and a failed commit is a log-level detail, and what
+  // they can DO about any of them is the same — start the pairing again.
+  "mls_init",
+  "mls_create",
+  "mls_key_package",
+  "mls_add_member",
+  "mls_join",
+  "mls_encrypt",
+  "mls_decrypt",
+  "mls_missing",
 ] as const;
 
 /** The catalogue key for a Rust error, or null when the message is more

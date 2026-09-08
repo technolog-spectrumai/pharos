@@ -165,6 +165,9 @@ pub enum Admission {
         /// Echoed in `Hello` when the host comes up — and again on every
         /// reconnect, which admission tolerates for the holder.
         nonce: [u8; 16],
+        /// This side's MLS key package, empty without the `mls` feature. It
+        /// rides in every `Hello` because a reconnect re-runs the handshake.
+        key_package: Vec<u8>,
     },
 }
 
@@ -193,7 +196,7 @@ pub fn gate(admission: &mut Admission, from: &str, frame: &Frame, now_ms: u64) -
             if from == host { Gate::Deliver } else { Gate::Drop }
         }
         Admission::Host { pending, accepted } => match frame {
-            Frame::Hello { proto, nonce } => {
+            Frame::Hello { proto, nonce, .. } => {
                 if *proto != PROTO_V {
                     return Gate::Refused(format!(
                         "bad_version: peer speaks v{proto}, this is v{PROTO_V}"
@@ -226,6 +229,15 @@ pub struct Session {
     /// The joiner's host, kept outside the lock so the auth string can be
     /// read synchronously from inside an async command.
     host_id: Option<String>,
+    /// The group key. `None` without the `mls` feature, in which case the
+    /// transport's own encryption is all there is — which for two peers is
+    /// genuinely end to end. See `mls.rs` for why it is worth turning on.
+    #[cfg(feature = "mls")]
+    group: Arc<Mutex<crate::mls::Group>>,
+    /// Host only: the MLS Welcome for the admitted peer, sent when the human
+    /// taps Accept. See `send`.
+    #[cfg(feature = "mls")]
+    pending_welcome: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 impl Session {
@@ -275,8 +287,20 @@ impl Session {
             pending: PendingTicket::new(nonce, issued_at_ms),
             accepted: false,
         };
-        let session =
-            Self::start(endpoint, cfg, TopicId::from_bytes(topic_bytes), vec![], admission).await?;
+        // The group exists BEFORE the QR is shown: by the time anyone can
+        // scan the code, there is something for them to be admitted to.
+        #[cfg(feature = "mls")]
+        let group = crate::mls::Group::host(&topic_bytes, &endpoint.id().to_string())?;
+        let session = Self::start(
+            endpoint,
+            cfg,
+            TopicId::from_bytes(topic_bytes),
+            vec![],
+            admission,
+            #[cfg(feature = "mls")]
+            group,
+        )
+        .await?;
         Ok((session, ticket))
     }
 
@@ -297,8 +321,23 @@ impl Session {
         let lookup = MemoryLookup::new();
         lookup.add_endpoint_info(addr);
         let endpoint = Self::endpoint(cfg, lookup).await?;
-        let admission = Admission::Joiner { host: host_id, nonce: ticket.nonce };
-        Self::start(endpoint, cfg, TopicId::from_bytes(ticket.topic), bootstrap, admission).await
+        #[cfg(feature = "mls")]
+        let (group, key_package) =
+            crate::mls::Group::joiner(&ticket.topic, &endpoint.id().to_string())?;
+        #[cfg(not(feature = "mls"))]
+        let key_package = Vec::new();
+        let admission =
+            Admission::Joiner { host: host_id, nonce: ticket.nonce, key_package };
+        Self::start(
+            endpoint,
+            cfg,
+            TopicId::from_bytes(ticket.topic),
+            bootstrap,
+            admission,
+            #[cfg(feature = "mls")]
+            group,
+        )
+        .await
     }
 
     async fn start(
@@ -307,6 +346,7 @@ impl Session {
         topic: TopicId,
         bootstrap: Vec<iroh::EndpointId>,
         admission: Admission,
+        #[cfg(feature = "mls")] group: crate::mls::Group,
     ) -> Result<Self, String> {
         let gossip = Gossip::builder()
             .max_message_size(cfg.max_message_size)
@@ -325,6 +365,17 @@ impl Session {
             Admission::Joiner { host, .. } => Some(host.clone()),
             Admission::Host { .. } => None,
         };
+        #[cfg(feature = "mls")]
+        let group = Arc::new(Mutex::new(group));
+        #[cfg(feature = "mls")]
+        let loop_group = group.clone();
+        // Host only: the Welcome minted when a peer was admitted, waiting for
+        // the human to tap Accept. Held rather than sent immediately, because
+        // admission is not acceptance.
+        #[cfg(feature = "mls")]
+        let pending_welcome: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+        #[cfg(feature = "mls")]
+        let loop_pending = pending_welcome.clone();
         let admission = Arc::new(Mutex::new(admission));
         let local_id = endpoint.id().to_string();
         let (tx, rx) = mpsc::channel(256);
@@ -347,12 +398,60 @@ impl Session {
                         let decision = gate(&mut *loop_admission.lock().await, &from, &f, now_ms());
                         match decision {
                             Gate::Drop => continue,
-                            Gate::Admitted => Event::Admitted {
-                                sas: short_auth_string(local_id.as_bytes(), from.as_bytes()),
-                                peer: from,
-                            },
+                            Gate::Admitted => {
+                                // The admitted peer's key package is the FIRST
+                                // thing any crypto code sees: a stranger's
+                                // bytes never reach OpenMLS, because the gate
+                                // runs before this.
+                                #[cfg(feature = "mls")]
+                                if let Frame::Hello { key_package, .. } = &f {
+                                    match loop_group.lock().await.admit(key_package) {
+                                        Ok(w) => *loop_pending.lock().await = Some(w),
+                                        Err(reason) => {
+                                            let _ = tx
+                                                .send(Event::Refused { peer: from, reason })
+                                                .await;
+                                            continue;
+                                        }
+                                    }
+                                }
+                                Event::Admitted {
+                                    sas: short_auth_string(local_id.as_bytes(), from.as_bytes()),
+                                    peer: from,
+                                }
+                            }
                             Gate::Refused(reason) => Event::Refused { peer: from, reason },
                             Gate::Deliver => {
+                                #[cfg(feature = "mls")]
+                                let f = {
+                                    // The Welcome is what makes us a member;
+                                    // everything after it is sealed to the
+                                    // group and has to be opened.
+                                    if let Frame::Welcome { welcome, .. } = &f {
+                                        if let Err(reason) =
+                                            loop_group.lock().await.accept(welcome)
+                                        {
+                                            let _ = tx
+                                                .send(Event::Refused { peer: from, reason })
+                                                .await;
+                                            continue;
+                                        }
+                                        f
+                                    } else {
+                                        match loop_group.lock().await.open(f) {
+                                            Ok(open) => open,
+                                            Err(reason) => {
+                                                // Not noise to skip: a frame
+                                                // that will not decrypt is a
+                                                // peer outside this group.
+                                                let _ = tx
+                                                    .send(Event::Refused { peer: from, reason })
+                                                    .await;
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                };
                                 if let Some(seq) = f.seq() {
                                     if tracker.observe(seq) {
                                         let _ = tx.send(Event::Lagged).await;
@@ -368,8 +467,12 @@ impl Session {
                         // subscribe time, when there is no neighbour yet and a
                         // broadcast goes nowhere — and again after a reconnect.
                         let hello = match &*loop_admission.lock().await {
-                            Admission::Joiner { host, nonce } if *host == peer => {
-                                Some(Frame::Hello { proto: PROTO_V, nonce: *nonce })
+                            Admission::Joiner { host, nonce, key_package } if *host == peer => {
+                                Some(Frame::Hello {
+                                    proto: PROTO_V,
+                                    nonce: *nonce,
+                                    key_package: key_package.clone(),
+                                })
                             }
                             _ => None,
                         };
@@ -399,6 +502,10 @@ impl Session {
             seq: Arc::new(Mutex::new(0)),
             admission,
             host_id,
+            #[cfg(feature = "mls")]
+            group,
+            #[cfg(feature = "mls")]
+            pending_welcome,
         })
     }
 
@@ -425,6 +532,18 @@ impl Session {
             if let Admission::Host { accepted, .. } = &mut *self.admission.lock().await {
                 *accepted = true;
             }
+            // Accepting IS admitting to the group: the Welcome the handshake
+            // produced goes out inside this frame, so the group forms at the
+            // moment a human confirmed the six digits.
+            #[cfg(feature = "mls")]
+            if let Frame::Welcome { welcome, .. } = &mut f {
+                *welcome = self
+                    .pending_welcome
+                    .lock()
+                    .await
+                    .take()
+                    .ok_or_else(|| "mls_missing: nobody has been admitted yet".to_string())?;
+            }
         }
         if f.is_committed() {
             let mut guard = self.seq.lock().await;
@@ -434,6 +553,8 @@ impl Session {
                 _ => {}
             }
         }
+        #[cfg(feature = "mls")]
+        let f = self.group.lock().await.seal(f)?;
         let bytes = frame::encode(&f)?;
         self.sender
             .broadcast(bytes.into())
@@ -541,7 +662,7 @@ mod tests {
     fn host() -> Admission {
         Admission::Host { pending: PendingTicket::new(NONCE, T0), accepted: false }
     }
-    const HELLO: Frame = Frame::Hello { proto: PROTO_V, nonce: NONCE };
+    fn hello() -> Frame { Frame::Hello { proto: PROTO_V, nonce: NONCE, key_package: vec![] } }
     fn op() -> Frame {
         Frame::Op { seq: 1, bytes: vec![1] }
     }
@@ -557,7 +678,7 @@ mod tests {
     #[test]
     fn the_right_hello_is_admitted_and_the_frame_itself_is_not_delivered() {
         let mut a = host();
-        assert_eq!(gate(&mut a, "peer-a", &HELLO, T0), Gate::Admitted);
+        assert_eq!(gate(&mut a, "peer-a", &hello(), T0), Gate::Admitted);
     }
 
     #[test]
@@ -565,7 +686,7 @@ mod tests {
         // The document must not move before the human says yes: an admitted
         // peer's ops are dropped until the host has sent Welcome.
         let mut a = host();
-        gate(&mut a, "peer-a", &HELLO, T0);
+        gate(&mut a, "peer-a", &hello(), T0);
         assert_eq!(gate(&mut a, "peer-a", &op(), T0), Gate::Drop, "before Accept");
         if let Admission::Host { accepted, .. } = &mut a { *accepted = true; }
         assert_eq!(gate(&mut a, "peer-a", &op(), T0), Gate::Deliver, "after Accept");
@@ -574,8 +695,8 @@ mod tests {
     #[test]
     fn a_second_joiner_is_refused_with_a_reason() {
         let mut a = host();
-        gate(&mut a, "peer-a", &HELLO, T0);
-        match gate(&mut a, "peer-b", &HELLO, T0) {
+        gate(&mut a, "peer-a", &hello(), T0);
+        match gate(&mut a, "peer-b", &hello(), T0) {
             Gate::Refused(r) => assert!(r.starts_with("ticket_spent"), "{r}"),
             other => panic!("expected Refused, got {other:?}"),
         }
@@ -584,7 +705,7 @@ mod tests {
     #[test]
     fn a_version_skew_is_refused_before_the_nonce_is_even_checked() {
         let mut a = host();
-        let old = Frame::Hello { proto: PROTO_V + 1, nonce: NONCE };
+        let old = Frame::Hello { proto: PROTO_V + 1, nonce: NONCE, key_package: vec![] };
         match gate(&mut a, "peer-a", &old, T0) {
             Gate::Refused(r) => assert!(r.starts_with("bad_version"), "{r}"),
             other => panic!("expected Refused, got {other:?}"),
@@ -594,7 +715,7 @@ mod tests {
 
     #[test]
     fn a_joiner_believes_only_the_host() {
-        let mut a = Admission::Joiner { host: "the-host".into(), nonce: NONCE };
+        let mut a = Admission::Joiner { host: "the-host".into(), nonce: NONCE, key_package: vec![] };
         assert_eq!(gate(&mut a, "the-host", &op(), T0), Gate::Deliver);
         assert_eq!(gate(&mut a, "someone-else", &op(), T0), Gate::Drop);
     }
@@ -691,7 +812,7 @@ mod live {
         assert_eq!(peer, joiner.endpoint_id(), "admitted the peer that actually joined");
 
         // Accept.
-        host.send(Frame::Welcome { proto: PROTO_V, width: 1920, height: 1080 })
+        host.send(Frame::Welcome { proto: PROTO_V, width: 1920, height: 1080, welcome: vec![] })
             .await
             .expect("welcome");
         (host, host_rx, joiner, joiner_rx)
@@ -709,6 +830,10 @@ mod live {
         assert_eq!(from, host.endpoint_id(), "the sender is kept, not discarded");
         assert!(matches!(frame, Frame::Welcome { width: 1920, height: 1080, .. }));
 
+        // With `mls` on, this payload must not appear on the wire in the
+        // clear — the assertion below reads the DECRYPTED frame, so a bypass
+        // would look identical. `mls_seals_the_payload_on_the_wire` is what
+        // pins that separately.
         host.send(Frame::Op { seq: 0, bytes: vec![7, 7, 7] }).await.expect("op");
         let op = wait_for(&mut joiner_rx, "Op", |e| {
             matches!(e, Event::Frame { frame: Frame::Op { .. }, .. })
@@ -746,6 +871,44 @@ mod live {
         host.send(Frame::Op { seq: 0, bytes: vec![3] }).await.expect("op 3");
 
         wait_for(&mut joiner_rx, "Lagged", |e| matches!(e, Event::Lagged)).await;
+
+        joiner.close().await;
+        host.close().await;
+    }
+
+    /// With the feature on, a live pair really does end up in one MLS group —
+    /// not merely "the frames arrived", which a bypassed seal would also
+    /// satisfy. Both sides report ready, and the payload the host puts on the
+    /// wire is ciphertext by the time it leaves `send`.
+    #[cfg(feature = "mls")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_live_pair_negotiates_a_real_group() {
+        let (host, _host_rx, joiner, mut joiner_rx) = paired().await;
+        wait_for(&mut joiner_rx, "Welcome", |e| {
+            matches!(e, Event::Frame { frame: Frame::Welcome { .. }, .. })
+        })
+        .await;
+
+        assert!(host.group.lock().await.ready(), "the host created the group");
+        assert!(joiner.group.lock().await.ready(), "the joiner was welcomed into it");
+
+        // Seal the same bytes by hand: if `send` were bypassing the group this
+        // would still work, but `open` on the far side would then be handed
+        // plaintext and fail — which the round trip below would catch.
+        let sealed = host
+            .group
+            .lock()
+            .await
+            .seal(Frame::Op { seq: 9, bytes: b"shape".to_vec() })
+            .expect("seal");
+        match &sealed {
+            Frame::Op { bytes, .. } => assert_ne!(bytes.as_slice(), b"shape"),
+            other => panic!("expected Op, got {other:?}"),
+        }
+        assert_eq!(
+            joiner.group.lock().await.open(sealed).expect("open"),
+            Frame::Op { seq: 9, bytes: b"shape".to_vec() },
+        );
 
         joiner.close().await;
         host.close().await;

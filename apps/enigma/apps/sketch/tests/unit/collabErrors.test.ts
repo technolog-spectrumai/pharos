@@ -41,6 +41,10 @@ describe("the collab error prefixes", () => {
       "../../crates/collab/src/session.rs": "ticket_spent",
       "../../crates/collab/src/ticket.rs": "bad_ticket",
       "../../crates/collab/src/frame.rs": "bad_frame",
+      // Behind the `mls` feature, and read anyway: a prefix that only appears
+      // in a feature-gated build is exactly the one that reaches a user with
+      // no catalogue entry and renders as raw Rust.
+      "../../crates/collab/src/mls.rs": "mls_decrypt",
     } as const;
     const found = new Set<string>();
     for (const [file, sentinel] of Object.entries(CHAIN)) {

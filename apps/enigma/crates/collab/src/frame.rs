@@ -36,6 +36,20 @@ pub enum Frame {
     Hello {
         proto: u16,
         nonce: [u8; 16],
+        /// The joiner's MLS key package, empty when the `mls` feature is off.
+        ///
+        /// It rides HERE rather than in a frame of its own because the host
+        /// must not create a group for a peer it is about to refuse: the
+        /// admission gate reads the nonce first, and only an admitted joiner's
+        /// key package is ever fed to OpenMLS. A stranger's bytes reach no
+        /// crypto code at all.
+        ///
+        /// `#[serde(default)]` so a v1 peer that predates this field still
+        /// decodes — postcard is not self-describing, so this is a wire break
+        /// guarded by PROTO_V rather than a compatible addition; the default
+        /// is what keeps the struct decodable in tests and future migrations.
+        #[serde(default)]
+        key_package: Vec<u8>,
     },
     /// Host → joiner, once it has accepted. Carries the board so the joiner
     /// draws on the same canvas — a joiner that assumed a default size would
@@ -44,6 +58,14 @@ pub enum Frame {
         proto: u16,
         width: u32,
         height: u32,
+        /// The MLS Welcome that admits the joiner to the group, empty when the
+        /// `mls` feature is off.
+        ///
+        /// Sending it IS the host's Accept, so the group is formed at exactly
+        /// the moment a human confirmed the six digits — the SAS authenticates
+        /// the MLS handshake rather than sitting beside it.
+        #[serde(default)]
+        welcome: Vec<u8>,
     },
     /// A committed change. `seq` is per author and monotonic; a gap is a lost
     /// frame, which the receiver answers with `Resync`.
@@ -160,8 +182,8 @@ mod tests {
     #[test]
     fn every_frame_round_trips() {
         let frames = vec![
-            Frame::Hello { proto: PROTO_V, nonce: [3u8; 16] },
-            Frame::Welcome { proto: PROTO_V, width: 1920, height: 1080 },
+            Frame::Hello { proto: PROTO_V, nonce: [3u8; 16], key_package: vec![] },
+            Frame::Welcome { proto: PROTO_V, width: 1920, height: 1080, welcome: vec![] },
             Frame::Op { seq: 7, bytes: vec![1, 2, 3] },
             Frame::Snapshot { seq: 9, width: 800, height: 600, bytes: vec![4] },
             Frame::Live { bytes: vec![5, 6] },
