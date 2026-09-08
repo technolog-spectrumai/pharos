@@ -44,7 +44,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 16 | zinnia pulls the updated rakotis subtree | **done** |
 | 17 | crypto_rotor becomes its own repo, history intact | **done** |
 | 18 | build scripts take a rotor path | **done** |
-| 19 | one gervasius: merge the two forks | todo |
+| 19 | one gervasius: merge the two forks | **done** |
 | 20 | restore the parked sketch CRDT | todo |
 | 21 | collab crate hosts and joins a gossip topic | todo |
 | 22 | sketch pairs by QR and draws with one peer | todo |
@@ -746,13 +746,41 @@ zinnia gets both as passengers inside the rakotis subtree
 
     The builder GUI (`tools/enigma_builder/`) needed no change beyond the help
     text already fixed in step 17 — it does not invoke cargo directly.
-19. `one gervasius: merge the two forks` — zinnia's copy has `gervazy.rs` (the
-    legacy sniffer `substrate::is_sealed_file` depends on), enigma's has
-    `seal.rs` (X25519 sealing, `d02bc89`), and `lib.rs` differs. **Neither is a
-    superset**; the union goes to the rotor repo and both apps pin it.
-    `protasius` is byte-identical in both — no work. Only after this does
-    `packages/rakotis/crates/` leave zinnia's subtree, restoring the
-    "never write to the subtree" contract.
+19. `one gervasius: merge the two forks` — **done.** crypto_rotor `872c793` ·
+    `5f71122`; zinnia `d56ab4a` · `707c724`.
+
+    **The merge was mechanical, because the forks never overlapped.**
+    `aead.rs`, `kdf.rs` and `vault.rs` are **byte-identical** in both copies;
+    `lib.rs` differs only in which module each declares. Each side had exactly
+    one module the other lacked — `seal.rs` (X25519, enigma) and `gervazy.rs`
+    (the platform Argon2id→Fernet vault, zinnia) — with its own dependencies.
+    So the union is both modules, both dep sets, both export lines: no
+    conflicting logic to adjudicate anywhere.
+
+    All 33 existing tests carried across and pass. **Three new tests pin the
+    merge itself**, which nothing else covered: that both halves are still
+    exported (a future tidy-up dropping one `mod` line would go missing only
+    for the consumer that uses it); that **the two formats never claim each
+    other's bytes** — the property `substrate::is_sealed_file` rests on, since
+    it asks both detectors and must get exactly one yes; and that the shared
+    primitives remain one implementation. Mutation-checked: removing either
+    half fails the build (8 and 3 errors respectively).
+
+    **A cost the merge introduced, found and fixed rather than shipped.**
+    `fernet` pulls `openssl-sys`, and `cargo tree` showed it entering enigma
+    for the first time — enigma had **no** OpenSSL by any other route.
+    `gervazy` is legacy detection enigma never uses, so it is now an **optional
+    feature, off by default**: enigma's tree has no `openssl-sys` at all
+    (`cargo tree -i` reports the package does not exist), and zinnia opts in
+    with `features = ["gervazy"]`. Verified in both configurations — 23 tests
+    default, 32 with the feature.
+
+    `packages/rakotis/crates/` is **gone from zinnia's subtree** (9 files), so
+    the "never write to the subtree" contract holds again and the subtree now
+    matches canonical exactly. `protasius` went with it: it was byte-identical
+    to enigma's and had **no consumer in zinnia** — a passenger all along.
+
+    Gates: crypto_rotor 23/32, enigma 886, zinnia 591 + 3 builds.
 
 ### Collaboration (20-24)
 
