@@ -31,9 +31,12 @@ import {
 } from "../sketchModel";
 import type { Sketch } from "../useSketch";
 
-export type Tool =
-  | "select" | "draw" | "rect" | "ellipse" | "triangle" | "line" | "arrow"
-  | "text" | "eraser";
+// `Tool` moved to ../tools.ts — a plain .ts module cannot import a type out of
+// an SFC (vue-tsc resolves *.vue through the shim), and tools.ts is where the
+// tool LIST already lives. Re-exported so `import { type Tool } from
+// ".../SketchCanvas.vue"` keeps working for every existing call site.
+export type { Tool } from "../tools";
+import type { Tool } from "../tools";
 
 const props = defineProps<{ sketch: Sketch; tool: Tool; zoom?: number }>();
 
