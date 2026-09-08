@@ -6,6 +6,12 @@
 #   ./build.sh --debug         debug bundle — builds far faster, runs slower
 #   ./build.sh --no-test       skip the test suite
 #   ./build.sh --frontend      frontend only, no Rust (quick check of the bundle)
+#   ./build.sh --bundles deb,rpm   which package formats to produce
+#
+# `--bundles` passes straight through to `tauri build --bundles`. Left off, the
+# targets in src-tauri/tauri.conf.json apply, which is what a plain build has
+# always done. Tauri compiles for the machine it runs on — asking a Linux host
+# for a .dmg fails, it does not cross-compile.
 #
 # The order is deliberate and each step is a gate: dependencies, then types,
 # then tests, then the frontend bundle, then Rust. A failure stops the build
@@ -19,13 +25,19 @@ cd "$HERE"
 DEBUG=0
 RUN_TESTS=1
 FRONTEND_ONLY=0
+BUNDLES=""
+NEED_BUNDLES=0
 for arg in "$@"; do
   case "$arg" in
     --debug)    DEBUG=1 ;;
     --no-test)  RUN_TESTS=0 ;;
     --frontend) FRONTEND_ONLY=1 ;;
+    --bundles) NEED_BUNDLES=1 ;;
+    --bundles=*) BUNDLES="${arg#*=}" ;;
     -h|--help)  sed -n '2,9p' "$HERE/build.sh" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
+    *)
+      if [ "$NEED_BUNDLES" -eq 1 ]; then BUNDLES="$arg"; NEED_BUNDLES=0
+      else echo "unknown option: $arg (try --help)" >&2; exit 2; fi ;;
   esac
 done
 
@@ -82,10 +94,13 @@ step "Building the desktop app$([ "$DEBUG" -eq 1 ] && echo ' (debug)')"
 PROFILE_DIR="release"; [ "$DEBUG" -eq 1 ] && PROFILE_DIR="debug"
 rm -rf "src-tauri/target/$PROFILE_DIR/bundle"
 
+BUNDLE_ARGS=()
+[ -n "$BUNDLES" ] && BUNDLE_ARGS=(--bundles "$BUNDLES")
+
 if [ "$DEBUG" -eq 1 ]; then
-  npx tauri build --debug
+  npx tauri build --debug "${BUNDLE_ARGS[@]}"
 else
-  npx tauri build
+  npx tauri build "${BUNDLE_ARGS[@]}"
 fi
 
 # ── report ──────────────────────────────────────────────────────────────────
