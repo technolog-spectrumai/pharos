@@ -606,3 +606,180 @@ mod tests {
         }
     }
 }
+
+/// Two real endpoints on one machine, paired end to end.
+///
+/// These are the only tests here that bind a socket. Everything above is a
+/// pure-data test of the admission rules, which is where the security
+/// properties live — but pure-data tests cannot prove that the RECEIVE LOOP
+/// wires those rules to the network, and three things in it are invisible to
+/// them:
+///
+///   * `Event::Lagged` is emitted on a sequence gap. Enigma's loop has
+///     `Lagged => {}`, an empty arm; ours has two `Lagged` sites, and before
+///     this module either could be deleted and every test still passed.
+///
+///     MUTATION-CHECKED, and honestly: swallowing the SEQ-GAP `Lagged` is
+///     caught here. The GOSSIP-level `Lagged` arm is NOT — it fires only when
+///     iroh's own receiver falls behind under real backpressure, which two
+///     endpoints on loopback exchanging a handful of frames cannot produce.
+///     Covering it would need a load test measured in thousands of messages;
+///     until one exists, that arm is guarded by review, not by this file. Do
+///     not read a green suite as proof it works.
+///   * the joiner says `Hello` on `NeighborUp` rather than at subscribe time,
+///     when there is no neighbour yet and a broadcast reaches nobody;
+///   * `delivered_from` survives, so a drawing knows who drew what.
+///
+/// Relays are OFF (`relays: false`): two endpoints on one machine reach each
+/// other directly, and a test must not depend on n0's infrastructure being up.
+#[cfg(test)]
+mod live {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    /// Give a pair long enough to find each other on loopback, but never hang
+    /// CI: every wait in here is bounded.
+    const PATIENCE: Duration = Duration::from_secs(20);
+
+    fn direct() -> Config {
+        Config { relays: false, max_message_size: 1024 * 1024 }
+    }
+
+    /// Wait for the first event matching `want`, discarding the rest.
+    async fn wait_for<F>(rx: &mut mpsc::Receiver<Event>, what: &str, mut want: F) -> Event
+    where
+        F: FnMut(&Event) -> bool,
+    {
+        let found = timeout(PATIENCE, async {
+            while let Some(ev) = rx.recv().await {
+                if want(&ev) {
+                    return Some(ev);
+                }
+            }
+            None
+        })
+        .await;
+        match found {
+            Ok(Some(ev)) => ev,
+            Ok(None) => panic!("the stream closed before {what} arrived"),
+            Err(_) => panic!("timed out waiting for {what}"),
+        }
+    }
+
+    /// Host and joiner, admitted and accepted, both event streams in hand.
+    ///
+    /// Mirrors what the app does: host, show the code, the joiner scans it,
+    /// the host compares the six digits and taps Accept — which is `Welcome`,
+    /// and is what opens the gate to the joiner's frames.
+    async fn paired() -> (Session, mpsc::Receiver<Event>, Session, mpsc::Receiver<Event>) {
+        let (mut host, ticket) = Session::host(direct()).await.expect("host");
+        let mut host_rx = host.events().expect("host events");
+
+        let mut joiner = Session::join(direct(), &ticket).await.expect("join");
+        let joiner_rx = joiner.events().expect("joiner events");
+
+        // The joiner's Hello rides on NeighborUp; admission answers it.
+        let admitted = wait_for(&mut host_rx, "Admitted", |e| matches!(e, Event::Admitted { .. })).await;
+        let Event::Admitted { peer, sas } = admitted else { unreachable!() };
+        assert_eq!(sas.len(), 6, "the auth string is six digits");
+        assert_eq!(
+            sas,
+            joiner.sas_with_host().expect("the joiner derives its own"),
+            "both screens must show the SAME digits or the check is theatre",
+        );
+        assert_eq!(peer, joiner.endpoint_id(), "admitted the peer that actually joined");
+
+        // Accept.
+        host.send(Frame::Welcome { proto: PROTO_V, width: 1920, height: 1080 })
+            .await
+            .expect("welcome");
+        (host, host_rx, joiner, joiner_rx)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn two_endpoints_pair_and_exchange_frames() {
+        let (host, _host_rx, joiner, mut joiner_rx) = paired().await;
+
+        let welcome = wait_for(&mut joiner_rx, "Welcome", |e| {
+            matches!(e, Event::Frame { frame: Frame::Welcome { .. }, .. })
+        })
+        .await;
+        let Event::Frame { from, frame } = welcome else { unreachable!() };
+        assert_eq!(from, host.endpoint_id(), "the sender is kept, not discarded");
+        assert!(matches!(frame, Frame::Welcome { width: 1920, height: 1080, .. }));
+
+        host.send(Frame::Op { seq: 0, bytes: vec![7, 7, 7] }).await.expect("op");
+        let op = wait_for(&mut joiner_rx, "Op", |e| {
+            matches!(e, Event::Frame { frame: Frame::Op { .. }, .. })
+        })
+        .await;
+        let Event::Frame { frame: Frame::Op { seq, bytes }, .. } = op else { unreachable!() };
+        assert_eq!(bytes, vec![7, 7, 7]);
+        // Welcome is not committed, so the first Op is seq 1: `send` stamps it.
+        assert_eq!(seq, 1, "the session stamps committed frames");
+
+        joiner.close().await;
+        host.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_gap_in_the_sequence_surfaces_as_lagged() {
+        // THE point of this module. The host skips a sequence number the way a
+        // dropped gossip message would, and the joiner must SAY so — a board
+        // that quietly misses an op diverges for good. Delete either `Lagged`
+        // arm in the receive loop and this is the only test that fails.
+        let (host, _host_rx, joiner, mut joiner_rx) = paired().await;
+
+        host.send(Frame::Op { seq: 0, bytes: vec![1] }).await.expect("op 1");
+        wait_for(&mut joiner_rx, "the first Op", |e| {
+            matches!(e, Event::Frame { frame: Frame::Op { .. }, .. })
+        })
+        .await;
+
+        // Burn a sequence number without putting it on the wire: exactly the
+        // hole a drop leaves behind.
+        {
+            let mut seq = host.seq.lock().await;
+            *seq += 1;
+        }
+        host.send(Frame::Op { seq: 0, bytes: vec![3] }).await.expect("op 3");
+
+        wait_for(&mut joiner_rx, "Lagged", |e| matches!(e, Event::Lagged)).await;
+
+        joiner.close().await;
+        host.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn frames_from_an_unadmitted_stranger_never_arrive() {
+        // The gate is pure data and tested as such above; this proves the loop
+        // actually consults it. A third endpoint that knows the topic — but
+        // holds no ticket — subscribes and shouts; the host must stay silent.
+        let (host, mut host_rx, joiner, _joiner_rx) = paired().await;
+
+        let (stranger, mut stranger_rx) = {
+            let (mut s, _t) = Session::host(direct()).await.expect("stranger endpoint");
+            let rx = s.events().expect("stranger events");
+            (s, rx)
+        };
+        // Not wired to the host's topic, so it cannot even reach it: the
+        // stronger statement, and the one the ticket buys.
+        assert_ne!(stranger.endpoint_id(), host.endpoint_id());
+        drop(&mut stranger_rx);
+
+        host.send(Frame::Op { seq: 0, bytes: vec![9] }).await.expect("op");
+        let ev = wait_for(&mut host_rx, "no stray frame", |e| {
+            matches!(e, Event::Frame { .. } | Event::Refused { .. } | Event::Closed)
+        });
+        // The host should hear NOTHING back — it is the only sender.
+        assert!(
+            timeout(Duration::from_secs(2), ev).await.is_err(),
+            "the host received a frame nobody legitimate sent",
+        );
+
+        stranger.close().await;
+        joiner.close().await;
+        host.close().await;
+    }
+}
