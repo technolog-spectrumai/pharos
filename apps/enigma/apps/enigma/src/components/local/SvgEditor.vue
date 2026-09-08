@@ -12,17 +12,18 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { OyaButton, OyaIconButton, OyaModal, OyaTextField } from "rakotis";
 import { useI18n } from "vue-i18n";
-import SketchCanvas, { type Tool } from "../sketch/SketchCanvas.vue";
-import SketchToolbar from "../sketch/SketchToolbar.vue";
-import { createSketch, type Sketch } from "../sketch/useSketch";
+import SketchCanvas from "wisteria/SketchCanvas.vue";
+import type { Tool } from "wisteria/tools";
+import SketchToolbar from "wisteria/SketchToolbar.vue";
+import { createSketch, type Sketch } from "wisteria/useSketch";
 import {
   emptySvgDocument,
   parseSvgDocument,
   type ParseRefusal,
   type MeasureText,
-} from "../sketch/svgDocument";
-import { SVG_FONT_STACK } from "../sketch/sketchModel";
-import { backgroundImageFromFile, exportPng } from "../sketch/sketchExport";
+} from "wisteria/svgDocument";
+import { SVG_FONT_STACK } from "wisteria/sketchModel";
+import { backgroundImageFromFile, exportPng } from "wisteria/sketchExport";
 
 const props = defineProps<{
   /** null while the drawing has never been saved (awaiting Save As). */
@@ -69,7 +70,6 @@ function open(text: string) {
   // An empty buffer is a brand-new drawing, not a parse failure.
   if (!text.trim()) {
     sketch.value = createSketch(emptySvgDocument());
-    void sketch.value.loadPalette();
     baseline();
     return;
   }
@@ -80,7 +80,6 @@ function open(text: string) {
     return;
   }
   sketch.value = createSketch(res.doc);
-  void sketch.value.loadPalette();
   baseline();
 }
 
@@ -132,6 +131,14 @@ watch(
 
 const tool = ref<Tool>("draw");
 const textSize = ref(24);
+/** Display only — never persisted and never part of the document, so a reopen
+ *  starts at 1 again. Owned here because the toolbar is shared and cannot keep
+ *  per-editor state. */
+const zoom = ref(1);
+/** A picker's buttons are not INPUT/TEXTAREA, so the window shortcut guard
+ *  below does not cover them: without this, Delete inside the colour picker
+ *  deletes the selected shape. */
+const pickerOpen = ref(false);
 
 // ── background image + PNG export ───────────────────────────────────────────
 // These are the two things that reach outside the document: an image is read
@@ -229,7 +236,7 @@ function confirmText() {
 // ── keyboard ────────────────────────────────────────────────────────────────
 function onKey(e: KeyboardEvent) {
   const s = sketch.value;
-  if (!s || textModal.value) return;
+  if (!s || textModal.value || pickerOpen.value) return;
   const target = e.target as HTMLElement | null;
   if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
 
@@ -330,10 +337,13 @@ defineExpose({
         :sketch="sketch"
         :tool="tool"
         :text-size="textSize"
+        :zoom="zoom"
         :busy="busy"
         :dark-mode="isDark()"
         @update:tool="tool = $event"
         @update:text-size="textSize = $event"
+        @update:zoom="zoom = $event"
+        @picker-open="pickerOpen = $event"
         @clear="sketch.clearBoard()"
         @choose-image="chooseImage"
       />
@@ -365,7 +375,7 @@ defineExpose({
         {{ $t('sketch.opaqueNotice', { n: opaqueCount }) }}
       </p>
 
-      <SketchCanvas :sketch="sketch" :tool="tool" class="min-h-0 flex-1" @request-text="requestText" />
+      <SketchCanvas :sketch="sketch" :tool="tool" :zoom="zoom" class="min-h-0 flex-1" @request-text="requestText" />
     </template>
 
     <OyaModal :open="textModal !== null" @close="textModal = null">

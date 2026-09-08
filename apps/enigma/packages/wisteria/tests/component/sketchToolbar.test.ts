@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
-import SketchToolbar from "wisteria/SketchToolbar.vue";
-import { createSketch, type Sketch } from "wisteria/useSketch";
-import { ZOOM_STEPS } from "wisteria/sketchModel";
-import { COLOR_ROLES, NEUTRALS, offeredColors } from "wisteria/sketchPalette";
+import SketchToolbar from "../../src/components/SketchToolbar.vue";
+import { createSketch, type Sketch } from "../../src/useSketch";
+import { ZOOM_STEPS } from "../../src/sketchModel";
+import { COLOR_ROLES, NEUTRALS, offeredColors } from "../../src/sketchPalette";
 import { DEFAULT_PALETTE } from "petalite/theme";
-import { i18n } from "../../src/i18n";
+import { i18n } from "../i18n";
 
 // The toolbar's settings live behind titled pickers, and its colours are
 // exactly what Settings holds plus black and white — no assignable slots, no

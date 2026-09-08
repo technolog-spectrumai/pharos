@@ -6,21 +6,15 @@ import {
   BOARD_W,
   boardWidth,
   boardWidthFor,
-  COLOR_NAME_KEYS,
-  DEFAULT_SLOT_COLORS,
   distToShape,
   distToShapeRotated,
   emptyDoc,
-  EXTRA_COLORS,
   hitTest,
   MAX_BG_IMAGE_CHARS,
   MAX_BOARD_W,
   MIN_BOARD_W,
-  normalizeSlots,
   normDeg,
-  PALETTE_SLOTS,
   pathD,
-  PICKER_COLORS,
   rotatePoint,
   rotateShape,
   scaleShape,
@@ -35,7 +29,12 @@ import {
   type PathShape,
   type Shape,
   type SketchCaps,
-} from "../../src/components/sketch/sketchModel";
+  nearestSnap,
+  snapPoints,
+  snapPointsOf,
+  DEFAULT_HEAD_WIDTH,
+  DEFAULT_CAPS,
+} from "../../src/sketchModel";
 
 const CAPS: SketchCaps = { maxShapes: 1000, maxTextLen: 200 };
 
@@ -628,99 +627,7 @@ describe("toSvg", () => {
 // because DEFAULT_SLOT_COLORS and EXTRA_COLORS are concatenated into
 // PICKER_COLORS: moving a colour between the two lists without deleting it from
 // the other silently duplicates it in the picker.
-describe("palette invariants", () => {
-  it("has seven slots and ten extras", () => {
-    expect(PALETTE_SLOTS).toBe(7);
-    expect(DEFAULT_SLOT_COLORS).toHaveLength(7);
-    expect(EXTRA_COLORS).toHaveLength(10);
-    expect(PICKER_COLORS).toHaveLength(17);
-  });
 
-  it("never offers the same colour twice", () => {
-    expect(new Set(PICKER_COLORS).size).toBe(PICKER_COLORS.length);
-  });
-
-  it("offers only colours validateShape would accept", () => {
-    // Same shape as COLOR_RE, lowercase — a slot colour becomes shape.color, and a
-    // value that failed validation would vanish on the next load.
-    for (const c of PICKER_COLORS) expect(c).toMatch(/^#[0-9a-f]{6}$/);
-  });
-
-  it("names every pickable colour", () => {
-    // A missing entry renders `sketch.colorNames.undefined` as the aria-label.
-    for (const c of PICKER_COLORS) expect(COLOR_NAME_KEYS[c]).toBeTruthy();
-    expect(Object.keys(COLOR_NAME_KEYS)).toHaveLength(PICKER_COLORS.length);
-  });
-
-  it("names the board backgrounds too, which share the same label helper", () => {
-    // The background row is white/black/transparent/image; the two COLOURS are
-    // labelled through COLOR_NAME_KEYS, so adding one that is not a slot colour
-    // would need an entry here as well.
-    for (const c of BACKGROUND_COLORS) expect(COLOR_NAME_KEYS[c]).toBeTruthy();
-  });
-});
-
-describe("normalizeSlots", () => {
-  it("keeps the good entries and falls back only the bad one", () => {
-    // The whole reason the function exists: a single corrupt entry must not cost
-    // the user their other six.
-    const out = normalizeSlots(["#ef4444", "#zzzzzz", "#3b82f6"]);
-    expect(out[0]).toBe("#ef4444");
-    expect(out[1]).toBe(DEFAULT_SLOT_COLORS[1]);
-    expect(out[2]).toBe("#3b82f6");
-    expect(out.slice(3)).toEqual([...DEFAULT_SLOT_COLORS].slice(3));
-  });
-
-  it("pads a short palette and truncates an over-long one", () => {
-    expect(normalizeSlots(["#8b5cf6"])).toEqual(["#8b5cf6", ...[...DEFAULT_SLOT_COLORS].slice(1)]);
-    expect(normalizeSlots(Array(20).fill("#06b6d4"))).toEqual(Array(7).fill("#06b6d4"));
-  });
-
-  it("preserves duplicates", () => {
-    // A behavioural contract, not an accident: setSlot's follow rule is written
-    // around two slots being allowed to hold the same colour.
-    const dup = ["#ef4444", "#ef4444", ...[...DEFAULT_SLOT_COLORS].slice(2)];
-    expect(normalizeSlots(dup)).toEqual(dup);
-  });
-
-  it("rejects anything that is not an array", () => {
-    const def = [...DEFAULT_SLOT_COLORS];
-    expect(normalizeSlots("#ef4444")).toEqual(def);
-    expect(normalizeSlots(42)).toEqual(def);
-    expect(normalizeSlots({})).toEqual(def);
-    expect(normalizeSlots(null)).toEqual(def);
-    expect(normalizeSlots(undefined)).toEqual(def);
-    // Array-LIKE: would pass a typeof/length check, so pin that Array.isArray gates it.
-    expect(normalizeSlots({ 0: "#ef4444", length: 7 })).toEqual(def);
-  });
-
-  it("rejects a colour that is not offered, including a differently-cased one", () => {
-    expect(normalizeSlots(["#123456"])[0]).toBe(DEFAULT_SLOT_COLORS[0]);
-    expect(normalizeSlots(["#EF4444"])[0]).toBe(DEFAULT_SLOT_COLORS[0]);
-  });
-
-  it("always returns exactly PALETTE_SLOTS offered colours", () => {
-    for (const input of [null, [], ["#ef4444"], Array(20).fill("#06b6d4"), ["x", 1, {}, null]]) {
-      const out = normalizeSlots(input);
-      expect(out).toHaveLength(PALETTE_SLOTS);
-      for (const c of out) expect(PICKER_COLORS).toContain(c);
-    }
-  });
-
-  it("returns a fresh array, never the caller's", () => {
-    // Guards a future "fast path: return x when already valid", which would hand
-    // the caller a live reference to the parsed kv array.
-    const input = [...DEFAULT_SLOT_COLORS];
-    expect(normalizeSlots(input)).not.toBe(input);
-    expect(normalizeSlots(null)).not.toBe(normalizeSlots(null));
-  });
-
-  it("does not pollute Object.prototype", () => {
-    normalizeSlots(JSON.parse('{"__proto__":{"polluted":1}}'));
-    normalizeSlots(["__proto__", "constructor"]);
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-  });
-});
 
 // The board is BOARD_H tall and elastic in width so it fills its container instead
 // of letterboxing a fixed 16:9 sheet. These pin the two things that makes safe:
@@ -809,5 +716,138 @@ describe("elastic board width", () => {
     const svg = toSvg(emptyDoc(), { image: img, width: 2296 });
     expect(svg).toContain('preserveAspectRatio="xMidYMid slice"');
     expect(svg).toContain('width="2296" height="1080"');
+  });
+});
+
+describe("sticky snap points", () => {
+  const base = { color: "#111111", sw: 2, opacity: 1, fill: null, rot: 0 };
+  const near = (pts: [number, number][], x: number, y: number) =>
+    pts.some(([px, py]) => Math.hypot(px - x, py - y) < 0.001);
+
+  it("offers a rect its four corners and four edge centres", () => {
+    const pts = snapPointsOf({ ...base, id: "r", kind: "rect", x: 0, y: 0, w: 100, h: 40 } as Shape);
+    expect(pts).toHaveLength(8);
+    for (const [x, y] of [[0, 0], [100, 0], [100, 40], [0, 40]]) {
+      expect(near(pts, x, y)).toBe(true);          // corners
+    }
+    for (const [x, y] of [[50, 0], [100, 20], [50, 40], [0, 20]]) {
+      expect(near(pts, x, y)).toBe(true);          // edge centres
+    }
+  });
+
+  it("offers a triangle three vertices and three edge centres", () => {
+    const pts = snapPointsOf({ ...base, id: "t", kind: "triangle", x: 0, y: 0, w: 100, h: 100 } as Shape);
+    expect(pts).toHaveLength(6);
+  });
+
+  it("offers a line both ends and its middle", () => {
+    const pts = snapPointsOf({
+      ...base, id: "l", kind: "arrow", x1: 0, y1: 0, x2: 100, y2: 0, head: false,
+    } as Shape);
+    expect(pts).toHaveLength(3);
+    expect(near(pts, 50, 0)).toBe(true);
+  });
+
+  it("offers a circle its four quadrant points and no edge centres", () => {
+    // A circle has no corners and no edges to halve.
+    const pts = snapPointsOf({ ...base, id: "c", kind: "ellipse", cx: 50, cy: 50, rx: 10, ry: 10 } as Shape);
+    expect(pts).toHaveLength(4);
+    expect(near(pts, 40, 50)).toBe(true);
+    expect(near(pts, 50, 60)).toBe(true);
+  });
+
+  it("offers a freehand path only its two ends", () => {
+    // Every sample point would be hundreds of targets a millimetre apart.
+    const pts = snapPointsOf({
+      ...base, id: "p", kind: "path", pts: [0, 0, 5, 5, 10, 0, 20, 30],
+    } as Shape);
+    expect(pts).toEqual([[0, 0], [20, 30]]);
+  });
+
+  it("offers text nothing", () => {
+    const pts = snapPointsOf({
+      ...base, id: "x", kind: "text", x: 0, y: 0, text: "hi", size: 12, tw: 20, th: 14,
+    } as Shape);
+    expect(pts).toEqual([]);
+  });
+
+  it("follows a rotated shape", () => {
+    // Snapping to where a shape ISN'T is worse than not snapping at all.
+    const upright = snapPointsOf({ ...base, id: "r", kind: "rect", x: 0, y: 0, w: 100, h: 40 } as Shape);
+    const turned = snapPointsOf({ ...base, id: "r", kind: "rect", x: 0, y: 0, w: 100, h: 40, rot: 90 } as Shape);
+    expect(turned).toHaveLength(8);
+    expect(turned).not.toEqual(upright);
+    // A 90° turn about the centre (50,20) carries the top-left corner (0,0)
+    // to (70,-30) — outside the upright box, which is the point.
+    expect(near(turned, 70, -30)).toBe(true);
+  });
+
+  it("takes the nearest point inside the radius and nothing outside it", () => {
+    const pts: [number, number][] = [[0, 0], [100, 0]];
+    expect(nearestSnap(4, 3, pts, 12)).toEqual({ x: 0, y: 0 });
+    expect(nearestSnap(96, 0, pts, 12)).toEqual({ x: 100, y: 0 });
+    expect(nearestSnap(50, 0, pts, 12)).toBeNull();
+  });
+
+  it("is stable when two points coincide", () => {
+    // Two shapes sharing a corner must not make the snap flicker between them.
+    const pts: [number, number][] = [[10, 10], [10, 10]];
+    expect(nearestSnap(11, 11, pts)).toEqual({ x: 10, y: 10 });
+  });
+
+  it("collects every shape's points for the board", () => {
+    const shapes = [
+      { ...base, id: "r", kind: "rect", x: 0, y: 0, w: 10, h: 10 },
+      { ...base, id: "l", kind: "arrow", x1: 0, y1: 0, x2: 10, y2: 0 },
+    ] as Shape[];
+    expect(snapPoints(shapes)).toHaveLength(8 + 3);
+  });
+});
+
+describe("arrow head width", () => {
+  const arrow = (over: Record<string, unknown> = {}) => ({
+    id: "a", kind: "arrow", x1: 0, y1: 0, x2: 100, y2: 0,
+    color: "#111111", sw: 4, opacity: 1, fill: null, rot: 0, ...over,
+  }) as Shape;
+
+  const widthOf = (s: Shape) => {
+    const [, b, c] = arrowHead(s as never);
+    return Math.hypot(b[0] - c[0], b[1] - c[1]);
+  };
+
+  it("defaults to the head being 3.6x the line's thickness", () => {
+    expect(widthOf(arrow())).toBeCloseTo(4 * DEFAULT_HEAD_WIDTH, 6);
+  });
+
+  it("is 50% wider than the head this replaced", () => {
+    // The old geometry was half-width = size * 0.4 with size = sw * 3, so a
+    // full width of 2.4 * sw. This is that, one half again.
+    expect(DEFAULT_HEAD_WIDTH).toBeCloseTo(2.4 * 1.5, 6);
+  });
+
+  it("follows the setting", () => {
+    expect(widthOf(arrow({ headWidth: 2.4 }))).toBeCloseTo(4 * 2.4, 6);
+    expect(widthOf(arrow({ headWidth: 5.4 }))).toBeCloseTo(4 * 5.4, 6);
+  });
+
+  it("scales with the line's thickness, not with its length", () => {
+    // Tying the width to the head's LENGTH would make it grow sideways
+    // whenever the head was clamped short on a stubby arrow.
+    expect(widthOf(arrow({ sw: 8 }))).toBeCloseTo(2 * widthOf(arrow({ sw: 4 })), 6);
+    expect(widthOf(arrow({ x2: 12 }))).toBeCloseTo(widthOf(arrow()), 6);
+  });
+
+  it("keeps a non-default width across a save and reopen", () => {
+    // The head polygon is regenerated from the shaft on open, so without the
+    // hint every arrow would be re-cut to the CURRENT setting.
+    const wide = validateShape({ ...(arrow({ headWidth: 5.4 }) as object) }, DEFAULT_CAPS);
+    expect((wide as { headWidth?: number }).headWidth).toBe(5.4);
+  });
+
+  it("refuses a nonsense width rather than drawing a spike", () => {
+    for (const bad of [0, -3, 99, Number.NaN]) {
+      const out = validateShape({ ...(arrow({ headWidth: bad }) as object) }, DEFAULT_CAPS);
+      expect((out as { headWidth?: number }).headWidth).toBeUndefined();
+    }
   });
 });

@@ -6,6 +6,8 @@
 // apps cannot drift on it.
 import { createAppI18n, type SupportedLocale } from "petalite/i18n";
 import { padovaMessages } from "padova/i18n";
+// The drawing engine ships the words its canvas and toolbar render.
+import { wisteriaMessages } from "wisteria/i18n";
 import en from "./en";
 import pl from "./pl";
 
@@ -21,8 +23,8 @@ const { i18n, setLocale } = createAppI18n({
   // level. A package that owns a feature owns the strings that feature shows —
   // otherwise an app could adopt the Security tab and get a screen of raw keys.
   messages: {
-    en: { ...en, ...padovaMessages.en },
-    pl: { ...pl, ...padovaMessages.pl },
+    en: { ...en, ...padovaMessages.en, ...wisteriaMessages.en },
+    pl: { ...pl, ...padovaMessages.pl, ...wisteriaMessages.pl },
   },
 });
 

@@ -71,7 +71,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 30 | MLS seals every collab frame | **done** |
 | 31 | N peers: seats, group key, admin election | **done** |
 | 32 | split the maps app out of enigma | todo |
-| 33 | one sketch editor, not two | todo |
+| 33 | one sketch editor, not two | **done** |
 | 34 | one file-sealing frame | todo |
 | 35 | one theme and one i18n mechanism | todo |
 
