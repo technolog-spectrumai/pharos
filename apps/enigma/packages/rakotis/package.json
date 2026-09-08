@@ -2,7 +2,7 @@
   "name": "rakotis",
   "version": "0.1.10",
   "type": "module",
-  "description": "Reusable app primitives for Enigma: non-crypto foundation (UI primitives, Tauri helpers, profile storage, local kv cache, i18n) plus P2P chat orchestration (Rotor-backed crypto bridge, iroh transport bridge, chat-channel composable, MLS envelope state machine). Crypto is delegated to the Rotor-backed mls_* Tauri commands — never reimplemented here.",
+  "description": "Reusable app primitives for Enigma: non-crypto foundation (UI primitives, Tauri helpers, profile storage, local kv cache, i18n) plus P2P chat orchestration (Rotor-backed crypto bridge, iroh transport bridge, chat-channel composable, MLS envelope state machine). Crypto is delegated to the Rotor-backed mls_* Tauri commands \u2014 never reimplemented here.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -27,7 +27,7 @@
     "@vitejs/plugin-vue": "^6.0.7",
     "jsdom": "^29.1.1",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3",
+    "vite": "^8.0.16",
     "vitest": "^4.1.10",
     "vue-tsc": "^2.1.10",
     "yaml": "^2.9.0"
