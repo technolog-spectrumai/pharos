@@ -19,6 +19,7 @@ members = [
     "apps/*/src-tauri",
     "crates/substrate",
     "crates/padova",
+    "crates/collab",
 ]
 exclude = [
     "packages/rakotis",
