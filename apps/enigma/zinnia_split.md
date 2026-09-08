@@ -69,7 +69,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 28 | annex: separate build scripts and CI | **done** |
 | 29 | live endpoint test and session ownership | **done** |
 | 30 | MLS seals every collab frame | **done** |
-| 31 | multi-person sync: N peers on a topic | todo |
+| 31 | N peers: seats, group key, admin election | **done** |
 | 32 | split the maps app out of enigma | todo |
 | 33 | one sketch editor, not two | todo |
 | 34 | one file-sealing frame | todo |

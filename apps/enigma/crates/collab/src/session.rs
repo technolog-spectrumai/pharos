@@ -18,6 +18,16 @@
 //     because a chat message carries its own author. A drawing needs to know
 //     who drew what — per-author undo depends on it.
 //
+// N PEERS, AND WHAT IS AND IS NOT DONE. The admission rules, the group key and
+// the merge all carry N: a code seats `Config::seats` joiners, MLS is a group
+// protocol by construction, `admin_of` elects a redraw owner with no round
+// trip, and the CRDT's laws are proven for three authors
+// (apps/sketch/tests/unit/crdtNPeers.test.ts). What is NOT yet built is the
+// frontend for it: the panel still speaks of "the other side", tracks one
+// `peer`, and the host still accepts one at a time. So a three-peer board is
+// reachable from Rust today and not yet from the UI — say so rather than
+// implying the feature is finished.
+//
 // THE ADMISSION RULES live here rather than in the frontend, because a rule the
 // UI enforces is a rule an attacker skips. `PendingTicket` is the state machine
 // and `gate` is the per-frame decision; both are pure data, so every property
@@ -58,6 +68,10 @@ fn now_ms() -> u64 {
 /// What a session is allowed to reach.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    /// How many joiners one code may seat. 1 is the two-peer board; higher
+    /// puts N people on one drawing. Not unbounded on purpose — a code that
+    /// seats everyone forever is a code worth stealing.
+    pub seats: usize,
     /// n0's relays and discovery. On, a peer behind NAT can still be reached
     /// and the relay forwards QUIC packets it cannot read. Off, it is direct
     /// connections only — no third party, and two home routers will not meet.
@@ -69,7 +83,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { relays: true, max_message_size: 1024 * 1024 }
+        Self { relays: true, max_message_size: 1024 * 1024, seats: 1 }
     }
 }
 
@@ -101,39 +115,54 @@ pub enum Event {
 
 /// The host's side of the pairing bargain.
 ///
-/// Pure data, no network — which is why single-use, TTL and nonce-echo are all
+/// Pure data, no network — which is why capacity, TTL and nonce-echo are all
 /// testable offline. Enigma's file offers enforced none of these: its header
 /// admits *"the host does not authenticate the dialer, so anyone holding
 /// {addr, offer_id} can complete the handshake."* That was safe there because
 /// the offer travelled inside an encrypted chat. A QR has no such envelope.
+///
+/// N PEERS. One code now admits up to `capacity` joiners rather than exactly
+/// one, because a board with four people on it should not need four codes.
+/// Everything that made the single-use version safe is unchanged and simply
+/// counts: the nonce must match, the window still closes after
+/// `TICKET_TTL_MS`, a refusal still costs nothing, and a peer already admitted
+/// is re-admitted idempotently so a reconnect never locks anyone out. What a
+/// bearer gains is a seat, not the room: the human still compares digits with
+/// each arrival, and `capacity` bounds how many strangers a photographed code
+/// can seat before it is worthless.
 #[derive(Debug)]
 pub struct PendingTicket {
     nonce: [u8; 16],
     issued_at_ms: u64,
-    /// Set by the first successful admission. A second joiner is refused even
-    /// with the right nonce inside the window.
-    consumed: Option<String>,
+    /// How many joiners this code may seat in total.
+    capacity: usize,
+    /// Everyone admitted so far, in arrival order. A `Vec` and not a `Set`:
+    /// the order is what the admin election reads, and N is small.
+    admitted: Vec<String>,
 }
 
 impl PendingTicket {
+    /// A code that seats exactly one — the two-peer board.
     pub fn new(nonce: [u8; 16], issued_at_ms: u64) -> Self {
-        Self { nonce, issued_at_ms, consumed: None }
+        Self::with_capacity(nonce, issued_at_ms, 1)
+    }
+
+    /// A code that seats up to `capacity` joiners. Zero is meaningless and is
+    /// clamped to one rather than silently admitting nobody.
+    pub fn with_capacity(nonce: [u8; 16], issued_at_ms: u64, capacity: usize) -> Self {
+        Self { nonce, issued_at_ms, capacity: capacity.max(1), admitted: Vec::new() }
     }
 
     /// Decide whether a joiner may be admitted.
     ///
-    /// Three refusals, each with its own prefix so the UI can say which:
-    /// a wrong nonce (a stale or foreign ticket), an expired one, or a ticket
-    /// already spent.
+    /// Four refusals, each with its own prefix so the UI can say which: a
+    /// wrong nonce (a stale or foreign ticket), an expired one, a code whose
+    /// seats are gone, or a board that is full.
     pub fn admit(&mut self, nonce: &[u8; 16], peer: &str, now_ms: u64) -> Result<(), String> {
-        if let Some(taken) = &self.consumed {
-            // Idempotent for the peer that already holds it: a re-sent Hello
-            // after a reconnect must not lock out the legitimate peer.
-            return if taken == peer {
-                Ok(())
-            } else {
-                Err("ticket_spent: someone has already joined with this code".into())
-            };
+        // Idempotent for a peer already seated: a re-sent Hello after a
+        // reconnect must not cost a second seat, nor lock out its holder.
+        if self.admitted.iter().any(|p| p == peer) {
+            return Ok(());
         }
         if nonce != &self.nonce {
             return Err("bad_nonce: that code is not for this session".into());
@@ -141,13 +170,27 @@ impl PendingTicket {
         if now_ms < self.issued_at_ms || now_ms - self.issued_at_ms > TICKET_TTL_MS {
             return Err("ticket_expired: that code has run out — show a new one".into());
         }
-        self.consumed = Some(peer.to_string());
+        if self.admitted.len() >= self.capacity {
+            return Err("ticket_spent: that code has no seats left".into());
+        }
+        self.admitted.push(peer.to_string());
         Ok(())
     }
 
-    /// Who holds it, if anyone.
+    /// The first peer admitted, if any. Kept for the two-peer paths, which
+    /// speak of "the" holder.
     pub fn holder(&self) -> Option<&str> {
-        self.consumed.as_deref()
+        self.admitted.first().map(String::as_str)
+    }
+
+    /// Whether this peer holds a seat.
+    pub fn seated(&self, peer: &str) -> bool {
+        self.admitted.iter().any(|p| p == peer)
+    }
+
+    /// Everyone admitted, in arrival order.
+    pub fn members(&self) -> &[String] {
+        &self.admitted
     }
 }
 
@@ -211,10 +254,26 @@ pub fn gate(admission: &mut Admission, from: &str, frame: &Frame, now_ms: u64) -
                 // Only the admitted holder may speak, and only once accepted.
                 // Before Accept its ops are dropped: the human has not yet said
                 // this is the right person, and the document must not move.
-                if pending.holder() == Some(from) && *accepted { Gate::Deliver } else { Gate::Drop }
+                if pending.seated(from) && *accepted { Gate::Deliver } else { Gate::Drop }
             }
         },
     }
+}
+
+/// Who redraws the board after a reset, decided with no round trip.
+///
+/// The lowest endpoint id among the host and everyone seated. Every peer sees
+/// the same membership and sorts it the same way, so all of them reach the
+/// same answer independently — which is the point: an election that needed
+/// messages would need a tie-break for the messages themselves.
+pub fn admin_of(members: &[String], local: &str) -> String {
+    members
+        .iter()
+        .map(String::as_str)
+        .chain(std::iter::once(local))
+        .min()
+        .unwrap_or(local)
+        .to_string()
 }
 
 /// A live session. Dropping it closes the endpoint.
@@ -284,7 +343,7 @@ impl Session {
         let issued_at_ms = now_ms();
         let ticket = TicketV1 { topic: topic_bytes, addr_bytes, nonce, issued_at_ms };
         let admission = Admission::Host {
-            pending: PendingTicket::new(nonce, issued_at_ms),
+            pending: PendingTicket::with_capacity(nonce, issued_at_ms, cfg.seats),
             accepted: false,
         };
         // The group exists BEFORE the QR is shown: by the time anyone can
@@ -657,6 +716,95 @@ mod tests {
         assert!(p.admit(&NONCE, "peer-a", T0).is_ok());
     }
 
+    // ── N peers ────────────────────────────────────────────────────────────
+    // A capacity of one is the two-peer board and is covered above. These pin
+    // what changes when a code seats more than one, and — more importantly —
+    // what does NOT change: every bound that made a single-use code safe still
+    // holds, it just counts.
+
+    #[test]
+    fn a_code_seats_up_to_its_capacity_and_no_further() {
+        let mut p = PendingTicket::with_capacity(NONCE, T0, 3);
+        for who in ["peer-a", "peer-b", "peer-c"] {
+            assert!(p.admit(&NONCE, who, T0).is_ok(), "{who} should get a seat");
+        }
+        let err = p.admit(&NONCE, "peer-d", T0).unwrap_err();
+        assert!(err.starts_with("ticket_spent"), "{err}");
+        assert_eq!(p.members(), ["peer-a", "peer-b", "peer-c"], "in arrival order");
+    }
+
+    #[test]
+    fn a_reconnect_does_not_cost_a_second_seat() {
+        // The bug this prevents is nasty and silent: a peer whose link blips
+        // re-sends Hello, and on a full board that would refuse the very
+        // person already drawing on it.
+        let mut p = PendingTicket::with_capacity(NONCE, T0, 2);
+        p.admit(&NONCE, "peer-a", T0).unwrap();
+        p.admit(&NONCE, "peer-b", T0).unwrap();
+        assert!(p.admit(&NONCE, "peer-a", T0 + 5_000).is_ok(), "already seated");
+        assert_eq!(p.members().len(), 2, "and still only two seats taken");
+    }
+
+    #[test]
+    fn the_window_still_closes_with_seats_to_spare() {
+        // Capacity and TTL are independent bounds; an unused seat does not
+        // keep a stale code alive.
+        let mut p = PendingTicket::with_capacity(NONCE, T0, 5);
+        p.admit(&NONCE, "peer-a", T0).unwrap();
+        let err = p.admit(&NONCE, "peer-b", T0 + TICKET_TTL_MS + 1).unwrap_err();
+        assert!(err.starts_with("ticket_expired"), "{err}");
+    }
+
+    #[test]
+    fn a_wrong_nonce_never_takes_a_seat() {
+        let mut p = PendingTicket::with_capacity(NONCE, T0, 3);
+        for _ in 0..10 {
+            let _ = p.admit(&[0u8; 16], "attacker", T0);
+        }
+        assert!(p.members().is_empty(), "a refusal must not consume a seat");
+        assert!(p.admit(&NONCE, "peer-a", T0).is_ok());
+    }
+
+    #[test]
+    fn a_zero_capacity_code_still_seats_one() {
+        // Rather than a code that admits nobody, which reads as a broken QR.
+        let mut p = PendingTicket::with_capacity(NONCE, T0, 0);
+        assert!(p.admit(&NONCE, "peer-a", T0).is_ok());
+        assert!(p.admit(&NONCE, "peer-b", T0).is_err());
+    }
+
+    #[test]
+    fn every_seated_peer_may_speak_once_accepted() {
+        // The gate asks "are you seated", not "are you THE holder" — that
+        // one-word change is what carries the whole feature.
+        let mut a = Admission::Host {
+            pending: PendingTicket::with_capacity(NONCE, T0, 3),
+            accepted: false,
+        };
+        for who in ["peer-a", "peer-b"] {
+            assert_eq!(gate(&mut a, who, &hello(), T0), Gate::Admitted);
+        }
+        if let Admission::Host { accepted, .. } = &mut a { *accepted = true; }
+        assert_eq!(gate(&mut a, "peer-a", &op(), T0), Gate::Deliver);
+        assert_eq!(gate(&mut a, "peer-b", &op(), T0), Gate::Deliver);
+        assert_eq!(gate(&mut a, "gatecrasher", &op(), T0), Gate::Drop);
+    }
+
+    #[test]
+    fn the_admin_is_the_lowest_endpoint_id_among_the_members() {
+        // Who redraws the snapshot after a reset must be agreed WITHOUT a
+        // round trip, or two peers both do it and the board flickers. Lowest
+        // id wins: every peer sees the same set and sorts it the same way, so
+        // they all reach the same answer with no message at all.
+        let mut p = PendingTicket::with_capacity(NONCE, T0, 4);
+        for who in ["zeta", "alpha", "mid"] {
+            p.admit(&NONCE, who, T0).unwrap();
+        }
+        assert_eq!(admin_of(p.members(), "host"), "alpha");
+        // The host counts too, and wins when its own id sorts first.
+        assert_eq!(admin_of(p.members(), "aaa"), "aaa");
+    }
+
     // ── the per-frame gate ─────────────────────────────────────────────────
 
     fn host() -> Admission {
@@ -764,7 +912,7 @@ mod live {
     const PATIENCE: Duration = Duration::from_secs(20);
 
     fn direct() -> Config {
-        Config { relays: false, max_message_size: 1024 * 1024 }
+        Config { relays: false, max_message_size: 1024 * 1024, seats: 1 }
     }
 
     /// Wait for the first event matching `want`, discarding the rest.
