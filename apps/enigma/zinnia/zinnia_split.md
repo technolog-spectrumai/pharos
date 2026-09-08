@@ -60,14 +60,14 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 19 | one gervasius: merge the two forks | **done** |
 | 20 | restore the parked sketch CRDT | **done** |
 | 21 | collab crate hosts and joins a gossip topic | **done** |
-| 22 | annex: commit sketch collab as work in progress | todo |
+| 22 | sketch pairs by QR and draws with one peer | **done** |
 | 23 | annex: import zinnia history into enigma | todo |
 | 24 | annex: move the app set into place | todo |
 | 25 | annex: reconcile the monorepo root | todo |
 | 26 | annex: crypto_rotor comes in-repo | todo |
 | 27 | annex: all four apps green | todo |
 | 28 | annex: separate build scripts and CI | todo |
-| 29 | sketch pairs by QR and draws with one peer | todo |
+| 29 | live endpoint test and session ownership | todo |
 | 30 | MLS seals every collab frame | todo |
 | 31 | multi-person sync: N peers on a topic | todo |
 | 32 | one sketch editor, not two | todo |
@@ -893,12 +893,17 @@ taking an app argument, the way enigma's already-generic
 does change behaviour without being edited: `node:vitest` runs
 `--workspaces` and will start covering zinnia's tests, which is intended.
 
-**Step 29 is the old step 22**, moved after the annexation on purpose: sketch's
-QR pairing is half-built, and finishing it here would mean polishing a repo
-about to be dissolved. It is committed as work-in-progress (step 22), travels
-with the import, and is made green in the monorepo — three failing convergence
-tests, a live two-endpoint test proving `Lagged` is surfaced, and session
-ownership above `EditorHost`.
+**Step 22 landed green before the import**, which the plan had not assumed.
+Two bugs surfaced while making it so, both worth recording. Deleting the last
+shape on a board emitted a CLEAR rather than a delete, and since the CRDT's
+clear is a grow-only register that voids everything created before it, undoing
+your own delete was impossible; `clear` is now an explicit `CommitReason`, not
+inferred from "the list came back empty". And a convergence test asserted a
+fixed paint order for two shapes drawn in the same millisecond, which the
+author tiebreak decides — it flaked about one run in five and now asserts what
+it meant: both boards agree. What remains for step 29 is the live two-endpoint
+test proving `Lagged` is really surfaced (a sabotage of that arm still compiles
+and passes) and session ownership above `EditorHost`.
 
 **Nothing is pushed, and no old repo is written to.** Every rewrite happens in
 a throwaway clone under `/tmp` made with `--no-local`, so the filter cannot
