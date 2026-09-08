@@ -28,12 +28,14 @@ iroh = { version = "0.98", optional = true }
 iroh-gossip = { version = "0.98", optional = true }
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"], optional = true }
 futures-lite = { version = "2", optional = true }
+# iroh's own RNG path; avoids a second CSPRNG dependency.
+rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 
 [features]
 default = []
 # The live transport. Without it this crate is the ticket format and the frame
 # codec — pure data, no network, and still worth compiling and testing.
-net = ["dep:iroh", "dep:iroh-gossip", "dep:tokio", "dep:futures-lite"]
+net = ["dep:iroh", "dep:iroh-gossip", "dep:tokio", "dep:futures-lite", "dep:rand_core"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

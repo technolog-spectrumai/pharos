@@ -698,6 +698,7 @@ dependencies = [
  "iroh",
  "iroh-gossip",
  "postcard",
+ "rand_core 0.6.4",
  "serde",
  "tokio",
 ]
