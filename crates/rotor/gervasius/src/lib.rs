@@ -18,6 +18,8 @@ mod vault;
 
 pub use aead::{open, seal, AEAD_NAME};
 pub use kdf::{KDF_NAME, KDF_OUT_LEN};
+pub mod gervazy;
+
 pub use seal::{
     open_sealed, seal_to, x25519_from_ed25519_pk, x25519_from_ed25519_sk, x25519_public,
     X25519_PK_LEN,
@@ -134,5 +136,67 @@ mod tests {
         assert_eq!(back.version, header.version);
         assert_eq!(back.salt, header.salt);
         assert_eq!(back.wrapped_dek, header.wrapped_dek);
+    }
+
+    // ── the union of the two forks ─────────────────────────────────────────
+    //
+    // `gervasius` lived in two diverged copies until 2026-09-08: enigma's had
+    // `seal.rs` (X25519 public-key sealing), zinnia's had `gervazy.rs` (the
+    // toto platform's Argon2id -> Fernet vault, which zinnia's sealed-file
+    // DETECTION depends on). Neither was a superset. These tests pin what the
+    // merge is supposed to guarantee — that both halves are present, and that
+    // sharing one crate did not let either change the other's behaviour.
+
+    #[test]
+    fn both_forks_export_their_own_surface() {
+        // The regression this catches: a future tidy-up drops one `mod` line
+        // from lib.rs and the crate still compiles for whichever consumer does
+        // not use it, going silently missing for the other.
+        //
+        // enigma's half — public-key sealing.
+        let sk = x25519_from_ed25519_sk(&[7u8; 32]);
+        let pk = x25519_public(&sk);
+        let blob = seal_to(&pk, b"aad", b"hello").unwrap();
+        assert_eq!(open_sealed(&sk, b"aad", &blob).unwrap(), b"hello");
+        assert_eq!(X25519_PK_LEN, 32);
+
+        // zinnia's half — the platform vault, reached as a public module.
+        assert!(gervazy::is_sealed(gervazy::FERNET_PREFIX));
+        assert!(!gervazy::is_sealed(b"plain text"));
+    }
+
+    #[test]
+    fn the_two_formats_never_claim_each_others_bytes() {
+        // The property zinnia's substrate::is_sealed_file rests on: it asks
+        // BOTH detectors and must get exactly one yes. If a merge ever made
+        // the magics collide, a file would be routed to the wrong opener.
+        let (header, dek) = create_vault("pw").unwrap();
+        let vault_bytes = seal(&dek, b"aad", b"payload").unwrap();
+        assert!(!gervazy::is_sealed(&vault_bytes),
+            "the enigma vault's ciphertext must not read as platform-sealed");
+
+        // And the reverse: a platform frame must not be mistaken for ours.
+        // Same costs its own tests use; the params are part of the key.
+        let platform = gervazy::seal("pw", &[9u8; 16], 19456, 2, 1, b"aad", b"payload").unwrap();
+        assert!(gervazy::is_sealed(&platform));
+        assert!(gervazy::is_current(&platform));
+        // The vault header is JSON; a platform frame is not, so parsing it as
+        // one must fail rather than half-succeed.
+        assert!(serde_json::from_slice::<VaultHeader>(&platform).is_err());
+        let _ = header;
+    }
+
+    #[test]
+    fn the_shared_primitives_are_one_implementation() {
+        // aead.rs and kdf.rs were byte-identical in both forks, which is why
+        // the merge was safe. This asserts they still serve both halves: a
+        // key derived through the vault path and used through the raw AEAD
+        // path must interoperate, so nobody can fork them again by accident.
+        let (_h, dek) = create_vault("shared").unwrap();
+        let ct = seal(&dek, b"a", b"m").unwrap();
+        assert_eq!(open(&dek, b"a", &ct).unwrap(), b"m");
+        assert_eq!(AEAD_NAME, "xchacha20-poly1305");
+        assert_eq!(KDF_NAME, "argon2id");
+        assert_eq!(KDF_OUT_LEN, 32);
     }
 }
