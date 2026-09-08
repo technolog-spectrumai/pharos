@@ -6,6 +6,13 @@ dist/
 build/
 target/
 **/target/
+
+# Tauri's generated capability schemas. Globbed, not anchored: four apps carry
+# a src-tauri now, and an anchored path would silently stop matching the moment
+# one moved. Came from the zinnia root ignore when its app set was annexed.
+**/gen/schemas/
+dist-ssr/
+*.local
 # Per-profile dev build dirs (scripts/dev_target.sh) — one per running instance
 # so two dev instances never queue behind one another's Cargo lock.
 target-*/
