@@ -1,0 +1,17 @@
+# Rust
+target/
+
+# wasm-pack outputs
+rotor_wasm/build/
+rotor_wasm/build_web/
+rotor_wasm/pkg/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.so
+*.whl
+dist/
