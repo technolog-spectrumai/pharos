@@ -19,20 +19,32 @@
 //     who drew what — per-author undo depends on it.
 //
 // THE ADMISSION RULES live here rather than in the frontend, because a rule the
-// UI enforces is a rule an attacker skips: `PendingTicket` below is the state
-// machine, and it is pure data, so every one of its properties is tested with
-// no network at all.
+// UI enforces is a rule an attacker skips. `PendingTicket` is the state machine
+// and `gate` is the per-frame decision; both are pure data, so every property
+// is tested with no network at all, and the receive loop merely applies them.
+//
+// Two gates, in order, and the difference between them is the point:
+//
+//   ADMITTED — the joiner presented THIS ticket's nonce, inside the window,
+//              before anyone else. Decided by Rust, no human involved.
+//   ACCEPTED — the host compared the short-auth-string on both screens and
+//              tapped Accept, which sends `Welcome`. A human act, by design.
+//
+// Until ACCEPTED, the joiner's ops are dropped and no snapshot is sent. That
+// is the review's finding made structural: the document must not leave the
+// host before the person holding it has agreed to who is on the other end.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh::{protocol::Router, Endpoint, EndpointAddr, RelayMode};
 use iroh_gossip::{api::Event as GossipEvent, net::Gossip, proto::TopicId, ALPN as GOSSIP_ALPN};
+use serde::Serialize;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::frame::{self, Frame, SeqTracker};
-use crate::ticket::{TicketV1, TICKET_TTL_MS};
+use crate::frame::{self, Frame, SeqTracker, PROTO_V};
+use crate::ticket::{short_auth_string, TicketV1, TICKET_TTL_MS};
 
 /// Milliseconds since the epoch. The host's clock is the authority for
 /// admission; see `ticket.rs`.
@@ -42,10 +54,6 @@ fn now_ms() -> u64 {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
-
-/// How long to wait for a joiner's `Hello` after it lands on the topic. Past
-/// this it is a peer that subscribed without pairing, and it is dropped.
-const HELLO_WAIT: Duration = Duration::from_secs(20);
 
 /// What a session is allowed to reach.
 #[derive(Debug, Clone, Copy)]
@@ -67,13 +75,23 @@ impl Default for Config {
 
 /// What the caller learns. Deliberately not Tauri events: the app decides how
 /// these reach a window, and a library that emitted them could only serve one.
-#[derive(Debug, Clone)]
+///
+/// `Serialize` with a `kind` tag, so a shim can hand it straight to a channel
+/// and the frontend switches on one string.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
-    /// A peer completed the handshake. Carries its endpoint id so the caller
-    /// can derive the short-auth-string.
+    /// A peer is on the topic. NOT yet admitted or accepted — see below.
     PeerUp { peer: String },
     PeerDown { peer: String },
-    /// A frame from a peer. `from` is kept — enigma drops it.
+    /// HOST ONLY. A joiner presented the right nonce inside the window. What
+    /// follows is the human half: both screens show `sas`, and the host taps
+    /// Accept, which sends `Welcome`. Until then this peer's frames are still
+    /// dropped — admission is not acceptance.
+    Admitted { peer: String, sas: String },
+    /// HOST ONLY. A joiner was turned away, and why (`prefix: prose`).
+    Refused { peer: String, reason: String },
+    /// A frame from the accepted peer. `from` is kept — enigma drops it.
     Frame { from: String, frame: Frame },
     /// The receiver fell behind and messages were DROPPED. Answer with a
     /// resync; do not treat as informational.
@@ -102,7 +120,7 @@ impl PendingTicket {
         Self { nonce, issued_at_ms, consumed: None }
     }
 
-    /// Decide whether a joiner may have the board.
+    /// Decide whether a joiner may be admitted.
     ///
     /// Three refusals, each with its own prefix so the UI can say which:
     /// a wrong nonce (a stale or foreign ticket), an expired one, or a ticket
@@ -133,6 +151,69 @@ impl PendingTicket {
     }
 }
 
+/// Which side of the pairing this session is, and how far it has got.
+#[derive(Debug)]
+pub enum Admission {
+    Host {
+        pending: PendingTicket,
+        /// Set by `send(Welcome)` — the human said yes.
+        accepted: bool,
+    },
+    Joiner {
+        /// The only peer whose frames are believed: the one the ticket named.
+        host: String,
+        /// Echoed in `Hello` when the host comes up — and again on every
+        /// reconnect, which admission tolerates for the holder.
+        nonce: [u8; 16],
+    },
+}
+
+/// What the receive loop does with one inbound frame.
+#[derive(Debug, PartialEq)]
+pub enum Gate {
+    /// Hand it to the caller.
+    Deliver,
+    /// Say nothing. Not from a peer this session trusts, or trusted but not
+    /// yet accepted.
+    Drop,
+    /// HOST: this `Hello` passed admission. Emit `Admitted` — and still drop
+    /// the frame itself, which carried nothing but the nonce.
+    Admitted,
+    /// HOST: this `Hello` failed admission, with the reason.
+    Refused(String),
+}
+
+/// The per-frame decision, as a pure function so it is testable offline.
+pub fn gate(admission: &mut Admission, from: &str, frame: &Frame, now_ms: u64) -> Gate {
+    match admission {
+        Admission::Joiner { host, .. } => {
+            // A joiner believes exactly one peer. Anything else on the topic —
+            // a stranger who guessed it, a second joiner the host refused — is
+            // noise.
+            if from == host { Gate::Deliver } else { Gate::Drop }
+        }
+        Admission::Host { pending, accepted } => match frame {
+            Frame::Hello { proto, nonce } => {
+                if *proto != PROTO_V {
+                    return Gate::Refused(format!(
+                        "bad_version: peer speaks v{proto}, this is v{PROTO_V}"
+                    ));
+                }
+                match pending.admit(nonce, from, now_ms) {
+                    Ok(()) => Gate::Admitted,
+                    Err(reason) => Gate::Refused(reason),
+                }
+            }
+            _ => {
+                // Only the admitted holder may speak, and only once accepted.
+                // Before Accept its ops are dropped: the human has not yet said
+                // this is the right person, and the document must not move.
+                if pending.holder() == Some(from) && *accepted { Gate::Deliver } else { Gate::Drop }
+            }
+        },
+    }
+}
+
 /// A live session. Dropping it closes the endpoint.
 pub struct Session {
     endpoint: Endpoint,
@@ -141,6 +222,10 @@ pub struct Session {
     events: Option<mpsc::Receiver<Event>>,
     /// Per-author sequence, for the frames that claim reliability.
     seq: Arc<Mutex<u64>>,
+    admission: Arc<Mutex<Admission>>,
+    /// The joiner's host, kept outside the lock so the auth string can be
+    /// read synchronously from inside an async command.
+    host_id: Option<String>,
 }
 
 impl Session {
@@ -184,17 +269,19 @@ impl Session {
 
         let addr = endpoint.addr();
         let addr_bytes = postcard::to_stdvec(&addr).map_err(|e| format!("bad_addr: {e}"))?;
-        let ticket = TicketV1 {
-            topic: topic_bytes,
-            addr_bytes,
-            nonce,
-            issued_at_ms: now_ms(),
+        let issued_at_ms = now_ms();
+        let ticket = TicketV1 { topic: topic_bytes, addr_bytes, nonce, issued_at_ms };
+        let admission = Admission::Host {
+            pending: PendingTicket::new(nonce, issued_at_ms),
+            accepted: false,
         };
-        let session = Self::start(endpoint, cfg, TopicId::from_bytes(topic_bytes), vec![]).await?;
+        let session =
+            Self::start(endpoint, cfg, TopicId::from_bytes(topic_bytes), vec![], admission).await?;
         Ok((session, ticket))
     }
 
-    /// Join the session a ticket describes.
+    /// Join the session a ticket describes. Sends `Hello` itself once the host
+    /// is a neighbour, so the frontend never touches the nonce.
     pub async fn join(cfg: Config, ticket: &TicketV1) -> Result<Self, String> {
         // Advice, not enforcement: the host checks again on admission, because
         // a bearer can edit its own copy of this field.
@@ -203,13 +290,15 @@ impl Session {
         }
         let addr: EndpointAddr =
             postcard::from_bytes(&ticket.addr_bytes).map_err(|_| "bad_ticket: damaged".to_string())?;
+        let host_id = addr.id.to_string();
         let bootstrap = vec![addr.id];
         // Hand the host's address to the endpoint BEFORE binding, so the dial
         // resolves from the ticket rather than needing discovery.
         let lookup = MemoryLookup::new();
         lookup.add_endpoint_info(addr);
         let endpoint = Self::endpoint(cfg, lookup).await?;
-        Self::start(endpoint, cfg, TopicId::from_bytes(ticket.topic), bootstrap).await
+        let admission = Admission::Joiner { host: host_id, nonce: ticket.nonce };
+        Self::start(endpoint, cfg, TopicId::from_bytes(ticket.topic), bootstrap, admission).await
     }
 
     async fn start(
@@ -217,6 +306,7 @@ impl Session {
         cfg: Config,
         topic: TopicId,
         bootstrap: Vec<iroh::EndpointId>,
+        admission: Admission,
     ) -> Result<Self, String> {
         let gossip = Gossip::builder()
             .max_message_size(cfg.max_message_size)
@@ -231,7 +321,15 @@ impl Session {
             .map_err(|e| format!("subscribe_failed: {e}"))?
             .split();
 
+        let host_id = match &admission {
+            Admission::Joiner { host, .. } => Some(host.clone()),
+            Admission::Host { .. } => None,
+        };
+        let admission = Arc::new(Mutex::new(admission));
+        let local_id = endpoint.id().to_string();
         let (tx, rx) = mpsc::channel(256);
+        let loop_admission = admission.clone();
+        let hello_sender = sender.clone();
         tokio::spawn(async move {
             use futures_lite::StreamExt;
             let mut tracker = SeqTracker::new();
@@ -241,8 +339,20 @@ impl Session {
                         // `delivered_from` is KEPT. Enigma discards it; a
                         // drawing needs to know who drew what.
                         let from = msg.delivered_from.to_string();
-                        match frame::decode(&msg.content) {
-                            Ok(f) => {
+                        // A frame we cannot parse is a version skew or a
+                        // corrupt message; dropping it silently would hide a
+                        // real incompatibility, but there is no peer-level
+                        // channel to say so yet. Skip it.
+                        let Ok(f) = frame::decode(&msg.content) else { continue };
+                        let decision = gate(&mut *loop_admission.lock().await, &from, &f, now_ms());
+                        match decision {
+                            Gate::Drop => continue,
+                            Gate::Admitted => Event::Admitted {
+                                sas: short_auth_string(local_id.as_bytes(), from.as_bytes()),
+                                peer: from,
+                            },
+                            Gate::Refused(reason) => Event::Refused { peer: from, reason },
+                            Gate::Deliver => {
                                 if let Some(seq) = f.seq() {
                                     if tracker.observe(seq) {
                                         let _ = tx.send(Event::Lagged).await;
@@ -250,13 +360,24 @@ impl Session {
                                 }
                                 Event::Frame { from, frame: f }
                             }
-                            // A frame we cannot parse is a version skew or a
-                            // corrupt message; dropping it silently would hide
-                            // a real incompatibility.
-                            Err(_) => continue,
                         }
                     }
-                    Ok(GossipEvent::NeighborUp(id)) => Event::PeerUp { peer: id.to_string() },
+                    Ok(GossipEvent::NeighborUp(id)) => {
+                        let peer = id.to_string();
+                        // The joiner says Hello when the host APPEARS — not at
+                        // subscribe time, when there is no neighbour yet and a
+                        // broadcast goes nowhere — and again after a reconnect.
+                        let hello = match &*loop_admission.lock().await {
+                            Admission::Joiner { host, nonce } if *host == peer => {
+                                Some(Frame::Hello { proto: PROTO_V, nonce: *nonce })
+                            }
+                            _ => None,
+                        };
+                        if let Some(bytes) = hello.and_then(|h| frame::encode(&h).ok()) {
+                            let _ = hello_sender.broadcast(bytes.into()).await;
+                        }
+                        Event::PeerUp { peer }
+                    }
                     Ok(GossipEvent::NeighborDown(id)) => Event::PeerDown { peer: id.to_string() },
                     // NOT an empty arm. Messages were dropped; the caller must
                     // resync or the two boards diverge in silence.
@@ -276,6 +397,8 @@ impl Session {
             sender,
             events: Some(rx),
             seq: Arc::new(Mutex::new(0)),
+            admission,
+            host_id,
         })
     }
 
@@ -284,8 +407,25 @@ impl Session {
         self.endpoint.id().to_string()
     }
 
+    /// The joiner's auth string: its own id against the host's from the
+    /// ticket. `None` on the host side, where the string is per-joiner and
+    /// arrives with `Event::Admitted`.
+    pub fn sas_with_host(&self) -> Option<String> {
+        let host = self.host_id.as_ref()?;
+        Some(short_auth_string(self.endpoint_id().as_bytes(), host.as_bytes()))
+    }
+
     /// Broadcast a frame. Committed frames get the next sequence number.
+    ///
+    /// Sending `Welcome` is the host's Accept: from here the admitted peer's
+    /// frames are delivered. There is no other way to flip that flag, so a
+    /// frontend cannot accept by omission.
     pub async fn send(&self, mut f: Frame) -> Result<(), String> {
+        if let Frame::Welcome { .. } = f {
+            if let Admission::Host { accepted, .. } = &mut *self.admission.lock().await {
+                *accepted = true;
+            }
+        }
         if f.is_committed() {
             let mut guard = self.seq.lock().await;
             *guard += 1;
@@ -325,8 +465,6 @@ fn fill_random(buf: &mut [u8]) {
     let mut out = blake3::Hasher::new_keyed(seed.as_bytes()).finalize_xof();
     out.fill(buf);
 }
-
-pub const HELLO_TIMEOUT: Duration = HELLO_WAIT;
 
 #[cfg(test)]
 mod tests {
@@ -396,5 +534,75 @@ mod tests {
             let _ = p.admit(&[0u8; 16], "attacker", T0);
         }
         assert!(p.admit(&NONCE, "peer-a", T0).is_ok());
+    }
+
+    // ── the per-frame gate ─────────────────────────────────────────────────
+
+    fn host() -> Admission {
+        Admission::Host { pending: PendingTicket::new(NONCE, T0), accepted: false }
+    }
+    const HELLO: Frame = Frame::Hello { proto: PROTO_V, nonce: NONCE };
+    fn op() -> Frame {
+        Frame::Op { seq: 1, bytes: vec![1] }
+    }
+
+    #[test]
+    fn a_stranger_on_the_topic_is_dropped_by_the_host() {
+        // Landing on the topic is not membership. Enigma states the same for
+        // its rooms: "Landing on the topic is not membership."
+        let mut a = host();
+        assert_eq!(gate(&mut a, "stranger", &op(), T0), Gate::Drop);
+    }
+
+    #[test]
+    fn the_right_hello_is_admitted_and_the_frame_itself_is_not_delivered() {
+        let mut a = host();
+        assert_eq!(gate(&mut a, "peer-a", &HELLO, T0), Gate::Admitted);
+    }
+
+    #[test]
+    fn admitted_is_not_accepted() {
+        // The document must not move before the human says yes: an admitted
+        // peer's ops are dropped until the host has sent Welcome.
+        let mut a = host();
+        gate(&mut a, "peer-a", &HELLO, T0);
+        assert_eq!(gate(&mut a, "peer-a", &op(), T0), Gate::Drop, "before Accept");
+        if let Admission::Host { accepted, .. } = &mut a { *accepted = true; }
+        assert_eq!(gate(&mut a, "peer-a", &op(), T0), Gate::Deliver, "after Accept");
+    }
+
+    #[test]
+    fn a_second_joiner_is_refused_with_a_reason() {
+        let mut a = host();
+        gate(&mut a, "peer-a", &HELLO, T0);
+        match gate(&mut a, "peer-b", &HELLO, T0) {
+            Gate::Refused(r) => assert!(r.starts_with("ticket_spent"), "{r}"),
+            other => panic!("expected Refused, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_version_skew_is_refused_before_the_nonce_is_even_checked() {
+        let mut a = host();
+        let old = Frame::Hello { proto: PROTO_V + 1, nonce: NONCE };
+        match gate(&mut a, "peer-a", &old, T0) {
+            Gate::Refused(r) => assert!(r.starts_with("bad_version"), "{r}"),
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert_eq!(a_holder(&a), None, "and the ticket is not spent on it");
+    }
+
+    #[test]
+    fn a_joiner_believes_only_the_host() {
+        let mut a = Admission::Joiner { host: "the-host".into(), nonce: NONCE };
+        assert_eq!(gate(&mut a, "the-host", &op(), T0), Gate::Deliver);
+        assert_eq!(gate(&mut a, "someone-else", &op(), T0), Gate::Drop);
+    }
+
+    fn a_holder(a: &Admission) -> Option<&str> {
+        match a {
+            Admission::Host { pending, .. } => pending.holder(),
+            _ => None,
+        }
     }
 }
