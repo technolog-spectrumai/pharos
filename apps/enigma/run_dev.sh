@@ -15,6 +15,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 
+# The crypto crates live in their own repo (sibling checkout by default).
+. "$SCRIPT_DIR/scripts/rotor_path.sh"
+resolve_rotor "$SCRIPT_DIR"
+
 # Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
 # switch still defaults OFF). Override: ENIGMA_EDITION=basic ./run_dev.sh
 # Note: build.rs re-runs on an edition switch, so the first run after changing

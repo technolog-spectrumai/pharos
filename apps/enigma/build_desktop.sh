@@ -18,6 +18,12 @@ cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/scripts/edition_conf.sh"
 edition_conf_args CONF_ARGS
 
+# The crypto crates live in their own repo (sibling checkout by default).
+# Fails here with an actionable message rather than deep inside cargo.
+. "$SCRIPT_DIR/scripts/rotor_path.sh"
+resolve_rotor "$SCRIPT_DIR"
+echo "==> crypto_rotor: $ROTOR_PATH"
+
 echo "==> npm install (workspace root)"
 npm install
 
