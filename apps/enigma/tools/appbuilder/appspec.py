@@ -66,12 +66,26 @@ class AppSpec:
     def dist_dir(self) -> Path:
         return self.app_dir / "dist"
 
+    def target_root(self) -> Path:
+        """Where cargo puts artefacts for this app.
+
+        The three office apps are members of the repo-root workspace, and a
+        workspace shares ONE target directory at its root — so the bundle is in
+        `<repo>/target/`, not beside the crate. `build.sh` resolves this the
+        same way; the two must agree or the builder reports "no bundle" for a
+        build that produced one.
+        """
+        root_manifest = self.root / "Cargo.toml"
+        if root_manifest.is_file() and "[workspace]" in root_manifest.read_text():
+            return self.root / "target"
+        return self.app_dir / "src-tauri" / "target"
+
     @property
     def bundle_dir(self) -> Path:
-        return self.app_dir / "src-tauri" / "target" / "release" / "bundle"
+        return self.target_root() / "release" / "bundle"
 
     def debug_bundle_dir(self) -> Path:
-        return self.app_dir / "src-tauri" / "target" / "debug" / "bundle"
+        return self.target_root() / "debug" / "bundle"
 
 
 #: The apps this builder family covers. Enigma is deliberately absent: it has

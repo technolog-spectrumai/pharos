@@ -92,7 +92,22 @@ fi
 step "Building the desktop app$([ "$DEBUG" -eq 1 ] && echo ' (debug)')"
 # Stale bundles from a previous run would be reported as this build's output.
 PROFILE_DIR="release"; [ "$DEBUG" -eq 1 ] && PROFILE_DIR="debug"
-rm -rf "src-tauri/target/$PROFILE_DIR/bundle"
+
+# WHERE the bundle lands is not `src-tauri/target/` any more. These apps are
+# members of the repo-root cargo workspace, and a workspace shares ONE target
+# directory at its root — so the artefact appears in `<repo>/target/`, not
+# beside the crate. Asked rather than assumed: CARGO_TARGET_DIR wins if it is
+# set (run_dev.sh sets a per-profile one), then the workspace root, then the
+# old per-crate path for a checkout where this app is standalone.
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  TARGET_ROOT="$CARGO_TARGET_DIR"
+elif [ -f "$HERE/../../Cargo.toml" ] && grep -q '^\[workspace\]' "$HERE/../../Cargo.toml"; then
+  TARGET_ROOT="$HERE/../../target"
+else
+  TARGET_ROOT="$HERE/src-tauri/target"
+fi
+BUNDLE_DIR="$TARGET_ROOT/$PROFILE_DIR/bundle"
+rm -rf "$BUNDLE_DIR"
 
 BUNDLE_ARGS=()
 [ -n "$BUNDLES" ] && BUNDLE_ARGS=(--bundles "$BUNDLES")
@@ -109,10 +124,13 @@ FOUND=0
 while IFS= read -r artefact; do
   printf '    %-9s %s\n' "$(du -h "$artefact" | cut -f1)" "$artefact"
   FOUND=1
-done < <(find "src-tauri/target/$PROFILE_DIR/bundle" -type f \
+done < <(find "$BUNDLE_DIR" -type f \
   \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) 2>/dev/null | sort)
 
 [ "$FOUND" -eq 1 ] || die "the build reported success but produced no bundle"
 
-printf '\n\033[1;32mBuilt Zinnia %s\033[0m\n' \
+# The product name comes from the config, not from a copy in this script —
+# all three of these were cloned and all three said "Zinnia".
+printf '\n\033[1;32mBuilt %s %s\033[0m\n' \
+  "$(node -p "require('./src-tauri/tauri.conf.json').productName")" \
   "$(node -p "require('./src-tauri/tauri.conf.json').version")"

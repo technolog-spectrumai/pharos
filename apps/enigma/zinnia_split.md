@@ -103,6 +103,8 @@ With one repo, de-duplication became an ordinary refactor, which is what steps
 | 33 | one sketch editor, not two | **done** |
 | 34 | one file-sealing frame | **done** |
 | 35 | one theme; i18n stays two, deliberately | **done** |
+| 36 | rakotis absorbed: no longer a subtree | **done** |
+| 37 | shared builder core, zinnia builder with a gui | **done** |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
 shared component library back under one canonical repo, so the next drift is a
@@ -964,6 +966,50 @@ from "the list came back empty". And a convergence test asserted a fixed paint
 order for two shapes drawn in the same millisecond, which the author tiebreak
 decides — it flaked about one run in five and now asserts what it meant: both
 boards agree.
+
+### The builders (37)
+
+Enigma's builder is ~8,400 lines across 24 modules, and most of it is genuinely
+enigma's — feature editions, a signing pipeline, an icon-set editor, a price
+table. But five of its modules never mentioned enigma at all, and those carry
+the knowledge worth keeping: a build worker that can actually CANCEL a cargo
+run (a plain terminate leaves a multi-gigabyte build going), an environment
+scrubber without which an app launched from a snap-poisoned parent dies at
+exec, and a bundle table honest enough to say an .rpm built on Ubuntu will not
+run on Fedora.
+
+Those five moved to `tools/appbuilder`, imported by both builders. Everything
+enigma-specific stayed exactly where it was: `git diff pre_annex -- tools/enigma_builder`
+is otherwise empty, and `main.py --check` still passes.
+
+`tools/zinnia_builder` is new and deliberately small — a window with an app
+picker, package-format checkboxes, three buttons and a log, plus a CLI where
+every button has an equivalent subcommand. Both assemble argv through
+`appbuilder.commands`, which is the one rule enigma's `buildcmd.py` states and
+the reason it exists: the moment each surface builds its own command list they
+drift, and the drift is invisible until someone diffs two build logs.
+
+**Multiplatform, and honest about it.** Tauri compiles for the machine it runs
+on, so `platforms.py` marks each format with the hosts that can produce it. The
+window greys out the impossible ones with the reason in the tooltip; the CLI
+refuses before starting rather than failing minutes into a cargo build. macOS
+and Windows formats are listed and unavailable on Linux, which is more useful
+than pretending otherwise.
+
+**Three real bugs surfaced by actually running it**, none of which any test
+would have caught:
+
+* `build.sh` looked for its bundle in `src-tauri/target/`, but these apps are
+  workspace members and cargo puts artefacts in the ROOT `target/`. Every build
+  ended "the build reported success but produced no bundle" while a perfectly
+  good 20 MB .deb sat elsewhere. All three scripts now resolve the target root
+  the same way `AppSpec` does — and they must agree, or the builder reports
+  nothing for a build that worked.
+* All three scripts printed **"Built Zinnia"** regardless of app, having been
+  cloned from Lazurite's. They read `productName` from the config now.
+* Both builders had a module called `window`, and putting the shared directory
+  first on `sys.path` made enigma import the wrong one. It only showed when the
+  tool was run from the repo root rather than its own directory.
 
 ### Consolidation (32-35)
 
