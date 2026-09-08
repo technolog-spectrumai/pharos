@@ -15,11 +15,33 @@ import { join } from "node:path";
 
 const LIB = join(__dirname, "../../src-tauri/src/lib.rs");
 
-function registered(): string[] {
-  const rust = readFileSync(LIB, "utf8");
-  const block = rust.match(/generate_handler!\[([\s\S]*?)\]/);
+/** Every `module::command` inside `generate_handler![ ... ]`.
+ *
+ *  Three things this must survive, each found the hard way:
+ *  * The block ends at the macro's `])`, NOT at the first `]`. A lazy match
+ *    stopped at the `]` of an `#[cfg(feature = "…")]` attribute INSIDE the
+ *    block and silently dropped that command and every one after it — the
+ *    guard got weaker without failing.
+ *  * Attributes and comments are stripped before scanning, so `#[cfg(...)]`
+ *    cannot contribute a false name and `// padova::recall is never …` cannot
+ *    trip the forbidden-name test.
+ *  * A floor on the count, because an empty list passes every "nothing
+ *    unexpected" assertion vacuously. */
+export function registeredIn(rust: string): string[] {
+  const block = rust.match(/generate_handler!\[([\s\S]*?)\]\s*\)/);
   if (!block) throw new Error("no generate_handler! in lib.rs — the surface moved");
-  return [...block[1].matchAll(/(\w+)::(\w+)/g)].map((m) => m[2]);
+  const body = block[1]
+    .replace(/#\[[^\]]*\]/g, " ")   // attributes: #[cfg(...)], #[allow(...)]
+    .replace(/\/\/[^\n]*/g, " ");    // line comments
+  return [...body.matchAll(/(\w+)::(\w+)/g)].map((m) => m[2]);
+}
+
+function registered(): string[] {
+  const names = registeredIn(readFileSync(LIB, "utf8"));
+  // The six sealing commands are the floor every app has; fewer means the
+  // parser broke, not that the surface shrank.
+  if (names.length < 6) throw new Error(`only ${names.length} commands parsed — the scanner is broken`);
+  return names;
 }
 
 describe("this app's IPC surface", () => {
@@ -60,5 +82,35 @@ describe("this app's IPC surface", () => {
     // whatever the Rust side allows.
     const forbidden = registered().filter((n) => /recall|reveal|get_pass|read_secret/i.test(n));
     expect(forbidden).toEqual([]);
+  });
+});
+
+describe("the surface scanner itself", () => {
+  // The scanner is what every assertion above rests on, so its own failure
+  // modes are pinned against a fixture rather than trusted.
+  const FIXTURE = `
+    .invoke_handler(tauri::generate_handler![
+        lock::lock_file,
+        // padova::recall is never registered — a comment, not a command
+        #[cfg(feature = "collab")]
+        collab::collab_host,
+        #[cfg(feature = "collab")]
+        collab::collab_join,
+        secrets::secret_status,
+    ])
+    .setup(|app| {`;
+
+  it("sees past a #[cfg] attribute to the commands after it", () => {
+    expect(registeredIn(FIXTURE)).toEqual([
+      "lock_file", "collab_host", "collab_join", "secret_status",
+    ]);
+  });
+
+  it("does not read a comment as a registration", () => {
+    expect(registeredIn(FIXTURE)).not.toContain("recall");
+  });
+
+  it("does not read an attribute's own text as a command", () => {
+    expect(registeredIn(FIXTURE).every((n) => !n.includes("cfg"))).toBe(true);
   });
 });
