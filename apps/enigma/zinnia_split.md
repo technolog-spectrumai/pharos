@@ -8,33 +8,62 @@ be shared. Everything after that happens there.
 
 ## Status
 
-**The split is COMPLETE — all twelve steps done.** Three apps
-(`apps/{lazurite,primula,sketch}`) over three shared packages and two shared
-crates. **591 frontend tests** (lazurite 283, primula 55, sketch 253) and 24
-Rust tests plus padova's `compile_fail` doctest green; clippy clean; all three
-apps typecheck and build; three distinct dev-port pairs (1430/1432/1434) so
-they run at once.
+**Everything through step 35 is done except the maps split (32).** The three
+office apps live in the enigma repo as one monorepo, beside `apps/enigma`:
 
-**Steps 13-16 were a new phase, not part of that completion**: the shared
-component library `rakotis` existed in three places that had drifted apart, and
-those steps put it back under one canonical repo.
+```
+apps/      enigma  lazurite  primula  sketch
+packages/  rakotis  petalite  padova  wisteria
+crates/    substrate  padova  collab  rotor
+protasius/           (enigma's encrypted store, at the root)
+tools/enigma_builder (untouched)
+```
 
-**Steps 22-28 REVERSE THE SPLIT'S DIRECTION.** Zinnia's three apps are annexed
-into the enigma repo as a monorepo. The un-forking of steps 13-19 kept running
-into the same wall — every shared thing needed a subtree split, a manual diff
-and a reconciliation commit *because the code lived in two repos*. With one
-repo, de-duplication is an ordinary refactor. Collaboration (29-31) and the
-remaining consolidation (32-34) then happen there, not here.
+**1,435 frontend tests** — rakotis 230, wisteria 182, enigma 522, lazurite 291,
+primula 63, sketch 147 — plus 48 Rust tests in the zinnia workspace, 50 in
+`collab` with the transport and the group key both on, 25 in `crates/rotor` and
+16 for enigma's sealing. All four apps typecheck and build; four distinct dev
+port pairs (enigma 1420/1421, lazurite 1430/1431, primula 1432/1433, sketch
+1434/1435) so all four run at once.
+
+**The repo is self-contained.** crypto_rotor came in-repo at `crates/rotor`
+with its history, so no path reaches outside the checkout and a fresh clone
+builds everything.
+
+**Two containment rules hold the Rust side together**, and both are asserted
+rather than trusted:
+
+* enigma's app crate and `protasius` are EXCLUDED from the root cargo
+  workspace, so zinnia's `gervazy` feature cannot unify onto them and drag
+  `openssl-sys` into enigma. `cargo tree -p enigma | grep -c openssl-sys` is
+  **0**, and CI checks it.
+* the collaboration transport and the group key are off by default, so a
+  default sketch build links no iroh at all
+  (`cargo tree -p sketch | grep -c iroh` is 0).
 
 Commands run from the REPO ROOT and fan out through npm workspaces: `npm test`,
-`npm run typecheck`, `npm run build`, `npm run test:rust`. The app's own scripts
-are `apps/lazurite/{run_dev,build}.sh`, and they source `scripts/lib.sh` from
-the root.
+`npm run typecheck`, `npm run build:frontends`. **`npm run test:rust`** is
+`cargo test --workspace` — never `cargo test` from inside a `src-tauri/`, which
+compiles only that app and silently skips padova's doctest, the one guarding
+the passphrase property. `npm run test:rust:net` covers the feature-gated code
+that a default build does not even type-check.
 
-Run the Rust side with **`npm run test:rust`** (`cargo test --workspace`), never
-`cargo test` from inside `src-tauri/` — that compiles only the app and silently
-skips padova's doctest, which is the one guarding the passphrase property.
-`npm run test:all` runs both suites; `build.sh` now runs both too.
+**The build processes are separate, deliberately.** `build_desktop.sh`,
+`run_dev.sh`, `run2.sh` and `tools/enigma_builder` are enigma's and were not
+touched; the office apps use `scripts/zinnia/{build,run_dev}.sh <app>`, which
+source `scripts/zinnia/lib.sh`. CI gives them their own matrix and cache key.
+
+**Steps 13-16 were a new phase, not part of the split**: the shared component
+library `rakotis` existed in three places that had drifted apart, and those
+steps put it back under one canonical repo. It is still a git SUBTREE — changes
+go to `/home/janek/Desktop/dev/rakotis` and come back by `subtree pull`, never
+edited in place.
+
+**Steps 22-28 REVERSED THE SPLIT'S DIRECTION.** The un-forking of steps 13-19
+kept hitting the same wall — every shared thing needed a subtree split, a
+manual diff and a reconciliation commit *because the code lived in two repos*.
+With one repo, de-duplication became an ordinary refactor, which is what steps
+33-35 then were.
 
 | # | Step | State |
 |---|---|---|
@@ -727,7 +756,7 @@ zinnia gets both as passengers inside the rakotis subtree
     against the sibling checkout *before* `cryptorotor/` was removed, and again
     after. Enigma: `e005083`, 886 tests green (rakotis 230 + app 656).
 
-    Paths are relative to a **sibling layout** (`dev/rotor/crypto_rotor` beside
+    Paths were relative to a **sibling layout** (`dev/rotor/crypto_rotor` beside
     `dev/enigma`), which is why they climb five levels from
     `apps/enigma/src-tauri`. That fragility is what step 18 addresses.
 
@@ -1021,7 +1050,8 @@ re-broadcasts, so MLS becomes *required*. Hence MLS lands with multi-person
 sync, not before.
 
 20. `restore the parked sketch CRDT` — **done** (`ba92c1e`), as
-    `apps/sketch/src/sketch/sketchCrdt.ts` + 28 tests.
+    `packages/wisteria/src/sketchCrdt.ts` + 28 tests (it moved into the
+    shared engine in step 33).
 
     **Not a wholesale restore, and the plan was wrong to imply one.** The
     parked `sketchModel.crdt.ts` (842 lines) is a *complete alternate model* —
@@ -1112,6 +1142,20 @@ generic gate (`npm test`, `vue-tsc`, `cargo check`) catches almost nothing here
 | 10 | PNG export still renders **text** (trap: silent blank); `open-as-text` works. |
 | 11 | Round-trip a comma, quote, newline, formula, merged range through CSV. |
 | 12 | `generate_handler!` in Sketch and Primula has no `unlock_file`. |
+
+| 22 | Two boards converge over the fake bus; undo reverts only your own. |
+| 23 | `merge-base` is empty before the merge; `apps/enigma` still 320 files after. |
+| 24 | `git log --follow` still reaches a moved file's history. |
+| 25 | `cargo metadata` lists neither enigma nor protasius as members. |
+| 26 | No `path =` in any manifest escapes the repo; `protasius` builds standalone. |
+| 27 | Test NAMES diffed, not counts — a vanished name is a test that stopped running. |
+| 28 | `git diff pre_annex -- tools build_desktop.sh run_dev.sh` is empty. |
+| 29 | Sabotage each `Lagged` arm: the seq-gap one must fail a test (the gossip one does not — see below). |
+| 30 | A foreign group cannot decrypt; `openssl-sys` still absent from enigma. |
+| 31 | The CRDT laws hold for THREE authors, not two. |
+| 33 | Enigma's SVG editor still opens, exports a PNG, and a plain line stays headless. |
+| 34 | Enigma's 16 sealing tests pass — every file already on disk still opens. |
+| 35 | Compare the BUILT css bundles, not the sources: same hex for every shared token. |
 
 **Two failure modes to watch**, both silent: a test that passes because it now
 asserts nothing (traps 3, 11, 12), and a stylesheet that renders unstyled with no
@@ -1279,19 +1323,55 @@ should be — the same string is what the PDF renders, and what Zenobia would).
 
 ## Verification
 
-* `npm test` per app and at the root (`npm run test --workspaces`).
-* `npx vue-tsc --noEmit` per app; `cargo check --workspace`; `cargo test`.
-* All three `run_dev.sh` start simultaneously, on three port pairs.
+From the REPO ROOT, which is now `dev/enigma/enigma`:
+
+* `npm test` (all six workspaces), `npm run typecheck`, `npm run build:frontends`.
+* `npm run test:rust` (`cargo test --workspace`) and `npm run test:rust:net`,
+  which is the ONLY thing that type-checks the feature-gated collaboration
+  code — a `#[cfg(feature)]` type error compiles clean in a default build.
+* Enigma's Rust is outside that workspace by design:
+  `cd apps/enigma/src-tauri && cargo test`. So is `crates/rotor`.
+* **The two containment checks**, which no ordinary test would catch:
+  `cargo tree -p enigma -e normal --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys`
+  must be **0**, and `cargo metadata --no-deps` must list neither `enigma` nor
+  `protasius` as workspace members. CI asserts the first.
+* All four `run_dev.sh` start simultaneously, on four port pairs, and each
+  `build.sh` produces a bundle with the right identifier.
+* Enigma untouched: `git diff pre_annex -- tools build_desktop.sh run_dev.sh
+  run2.sh scripts/rotor_path.sh` is empty.
+
+Per feature:
+
+* Seal a file in one app; confirm the others **badge and refuse** it, and that
+  their `generate_handler!` has no `unlock_file`. A file sealed by enigma must
+  read as "not mine" in an office app and vice versa — different magic, by
+  design, because both apps have sealed files on disk already.
+* Sketch: open a drawing, export PNG, and confirm the raster still carries text
+  (the WebKit font trap above fails *silently* — a blank spot, not an error).
+  Open a refused `.svg` — one with a script or a DOCTYPE — and confirm the
+  `open-as-text` fallback still lands in the text editor from Petalite. Draw a
+  plain LINE, save, reopen: it must still be a line, not an arrow.
+* Collaboration, two machines on different networks: pair by QR, the six digits
+  match, strokes appear live both ways, either side saves a valid `.svg`. Close
+  one laptop mid-stroke → the other's canvas has no artefact. Photograph the QR
+  and try to join after the real peer paired → refused, with a reason.
+* CSV: export a sheet containing a formula, a merged range, a comma, a quote
+  and a newline; open the result in another spreadsheet.
 * PDF (when it lands): a deck export opens with **one page per slide** at
   1280×720. Run `cargo test` **without** `ZINNIA_PDF_PYTHON` and confirm the
   render test is reported as skipped, not passed — it self-skips
   (`pdf.rs:354`), which is a silent pass if nobody looks.
-* Seal a file in one app; confirm the others **badge and refuse** it, and that
-  their `generate_handler!` has no `unlock_file`.
-* Sketch: open a drawing, export PNG, and confirm the raster still carries text
-  (the WebKit font trap above fails *silently* — a blank spot, not an error).
-  Open a refused `.svg` — one with a script or a DOCTYPE — and confirm the
-  `open-as-text` fallback still lands in the text editor from Petalite.
-* CSV: export a sheet containing a formula, a merged range, a comma, a quote
-  and a newline; open the result in another spreadsheet.
-* `./build.sh` per app produces a bundle with the right identifier.
+
+## What is left
+
+* **Step 32, the maps split.** Designed, not built — see the Consolidation
+  section for why the shape changed once the coupling was measured.
+* **i18n stays two mechanisms**, deliberately; the reasoning is recorded with
+  step 35 and the fix belongs in rakotis upstream.
+* **The gossip-level `Lagged` arm is not covered by a test.** Two endpoints on
+  loopback cannot produce the backpressure that fires it. Guarded by review,
+  not by the suite — do not read a green run as proof it works.
+* **Nothing is pushed.** Four repos, all local: this one on `annex_zinnia` with
+  `pre_annex` as the rollback tag, and the three stale sources
+  (`dev/zinnia`, `dev/rakotis`, `dev/rotor/crypto_rotor`) left untouched until
+  you say they can go.
