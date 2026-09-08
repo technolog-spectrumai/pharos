@@ -75,11 +75,14 @@ async function leave() {
       <!-- idle: pick a side -->
       <template v-if="phase === 'idle'">
         <p class="text-sm opacity-70">{{ t("collab.intro") }}</p>
+        <p v-if="!session.attached.value" class="text-xs text-warn-dark" data-testid="collab-noboard">
+          {{ t("collab.noBoard") }}
+        </p>
         <div v-if="!joining" class="flex flex-col gap-2">
-          <OyaButton data-testid="collab-share" @click="session.host()">
+          <OyaButton data-testid="collab-share" :disabled="!session.attached.value" @click="session.host()">
             <font-awesome-icon icon="qrcode" class="mr-2" />{{ t("collab.share") }}
           </OyaButton>
-          <OyaButton variant="secondary" data-testid="collab-join" @click="joining = true">
+          <OyaButton variant="secondary" data-testid="collab-join" :disabled="!session.attached.value" @click="joining = true">
             <font-awesome-icon icon="user-group" class="mr-2" />{{ t("collab.join") }}
           </OyaButton>
         </div>

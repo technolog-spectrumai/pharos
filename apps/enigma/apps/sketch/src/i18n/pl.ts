@@ -106,6 +106,7 @@ export default {
     live: "Rysujecie razem",
     peerOffline: "Druga strona jest niedostępna",
     truncated: "Tablica była za duża, by przesłać ją w całości; brakuje tu najstarszych kształtów.",
+    noBoard: "Najpierw otwórz rysunek, żeby go udostępnić.",
     leave: "Opuść",
     scanQr: "Skieruj aparat na kod na drugim ekranie.",
     cameraDenied: "Aparat jest niedostępny.",

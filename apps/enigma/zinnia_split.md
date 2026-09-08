@@ -67,7 +67,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 26 | annex: crypto_rotor comes in-repo | **done** |
 | 27 | annex: all four apps green | **done** |
 | 28 | annex: separate build scripts and CI | **done** |
-| 29 | live endpoint test and session ownership | todo |
+| 29 | live endpoint test and session ownership | **done** |
 | 30 | MLS seals every collab frame | todo |
 | 31 | multi-person sync: N peers on a topic | todo |
 | 32 | split the maps app out of enigma | todo |

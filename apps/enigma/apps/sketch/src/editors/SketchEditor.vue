@@ -230,7 +230,9 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
-  collab.attach(null);
+  // By identity: on New/Open a fresh editor has already attached ITS drawing
+  // by the time this runs, and an unconditional detach would undo it.
+  collab.detach(sketch.value);
 });
 
 defineExpose({

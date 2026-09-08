@@ -106,6 +106,7 @@ export default {
     live: "Drawing together",
     peerOffline: "The other side is away",
     truncated: "The board was too large to send whole; the oldest shapes are missing here.",
+    noBoard: "A drawing has to be open before you can share it.",
     leave: "Leave",
     scanQr: "Point the camera at the code on the other screen.",
     cameraDenied: "The camera is not available.",

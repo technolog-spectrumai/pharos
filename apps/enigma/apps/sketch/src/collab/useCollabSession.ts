@@ -508,14 +508,34 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
 
   // ── the API ────────────────────────────────────────────────────────────────
 
+  /** Whether a drawing is bound. Read by the panel — a Share button with no
+   *  board behind it can only fail — and by the ownership tests, which cannot
+   *  probe this through `host()` because the real transport needs Tauri. */
+  const attached = ref(false);
+
   /** Bind to the drawing on screen. A new drawing (New, Open) ENDS a running
    *  session: the board the peer paired with is gone, and silently carrying
-   *  the pairing over to another file would share something nobody agreed to. */
+   *  the pairing over to another file would share something nobody agreed to.
+   *
+   *  Detaching goes through `detach`, which is by IDENTITY. Vue's keyed
+   *  remount currently tears the old editor down before mounting the new one
+   *  (verified), so an unconditional detach happens to be safe today — but it
+   *  is safe by accident, and the opposite order is what Vue does for
+   *  `<Transition>` and what a future refactor could reintroduce. Detaching
+   *  only what you still own costs one comparison and cannot go wrong either
+   *  way. */
   function attach(s: Sketch | null) {
     if (s === sketch) return;
     if (phase.value !== "idle") void leave();
     unhook();
     sketch = s;
+    attached.value = s !== null;
+  }
+
+  /** Release `s`, but only if it is still the bound drawing. See `attach`. */
+  function detach(s: Sketch | null) {
+    if (s !== null && s !== sketch) return; // a later editor already took over
+    attach(null);
   }
 
   async function host() {
@@ -578,7 +598,9 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
     peerOnline,
     error,
     truncated,
+    attached,
     attach,
+    detach,
     host,
     join,
     accept,
