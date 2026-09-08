@@ -35,9 +35,9 @@
 //! gates them — they will seal anything they are handed. The only caller
 //! offers rows from the picked workspace; keep it that way.
 
-use gervasius::{create_vault_with_params, gervazy, open, seal, KdfParams, VaultHeader};
+use gervasius::{create_vault_with_params, open, seal, KdfParams, VaultHeader};
 use serde::Serialize;
-use substrate::{atomic_write, is_current, name_of, read_capped, MAGIC, PREFIX_LEN, VERSION};
+use substrate::{atomic_write, is_current, is_legacy, name_of, read_capped, MAGIC, PREFIX_LEN, VERSION};
 
 use crate::Locker;
 
@@ -100,7 +100,7 @@ impl Locker {
     pub fn lock_file(&self, path: &str, password: Option<String>) -> Result<LockedInfo, String> {
         let password = self.password_for(password)?;
         let plain = read_capped(path)?;
-        if is_current(&plain) || gervazy::is_sealed(&plain) {
+        if is_current(&plain) || is_legacy(&plain) {
             return Err("already_locked: that file is already encrypted".into());
         }
         // A fresh salt and a fresh DEK for THIS file. Two files sealed under one
@@ -135,7 +135,7 @@ impl Locker {
         // lived on the server's strongbox row, which is parked — so it cannot
         // be opened here at all, and saying which format it is beats "wrong
         // password".
-        if !is_current(&bytes) && gervazy::is_sealed(&bytes) {
+        if !is_current(&bytes) && is_legacy(&bytes) {
             return Err("legacy_format: that file was encrypted by the platform".into());
         }
         let (header, body) = parse_frame(&bytes)?;

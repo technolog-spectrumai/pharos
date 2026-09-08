@@ -15,6 +15,7 @@
 //! expands its own `#[tauri::command]` shims over them, so command *names* stay
 //! identical across apps and the frontend's invoke strings never change.
 
+#[cfg(feature = "legacy-detect")]
 use gervasius::gervazy;
 
 /// The frame this build writes:
@@ -57,7 +58,35 @@ pub fn is_sealed_file(path: &str) -> bool {
         Ok(n) => n,
         Err(_) => return false,
     };
-    is_current(&buf[..read]) || gervazy::is_sealed(&buf[..read])
+    if is_current(&buf[..read]) {
+        return true;
+    }
+    // The platform's older Fernet frames, when this build was asked to know
+    // about them. Without the feature a legacy file simply is not recognised —
+    // which is correct for a build that could never open one anyway.
+    #[cfg(feature = "legacy-detect")]
+    {
+        return gervazy::is_sealed(&buf[..read]);
+    }
+    #[cfg(not(feature = "legacy-detect"))]
+    false
+}
+
+/// Whether these bytes are one of the PLATFORM's older Fernet frames.
+///
+/// Always `false` without `legacy-detect`, which is the honest answer for a
+/// build that has no way to recognise — or open — one. Callers use it to say
+/// "that file was encrypted by the platform" instead of "wrong password".
+pub fn is_legacy(bytes: &[u8]) -> bool {
+    #[cfg(feature = "legacy-detect")]
+    {
+        return gervazy::is_sealed(bytes);
+    }
+    #[cfg(not(feature = "legacy-detect"))]
+    {
+        let _ = bytes;
+        false
+    }
 }
 
 /// Write bytes, or leave the file exactly as it was.

@@ -15,7 +15,17 @@ rust-version = "1.88"
 # for the crypto crates. It carries
 # both halves of what used to be two forked copies: `seal.rs` (X25519) and
 # `gervazy` (the platform vault this crate's detection needs).
-gervasius = { path = "../rotor/gervasius", features = ["gervazy"] }
+gervasius = { path = "../rotor/gervasius" }
+
+[features]
+default = []
+# Recognise the PLATFORM's older Fernet-sealed files as sealed, so a listing
+# badges one rather than handing ciphertext to an editor. Off by default and
+# opt-in per consumer, because it reaches gervasius's `gervazy` half, which
+# pulls fernet and so `openssl-sys` — native OpenSSL, in a tree whose whole
+# point is being pure Rust. Zinnia's apps opened those files once and turn it
+# on; enigma never produced them and does not pay for it.
+legacy-detect = ["gervasius/gervazy"]
 
 # No `tauri` dependency, on purpose. Substrate exports plain functions and each
 # app expands its own `#[tauri::command]` shims over them, so the command names

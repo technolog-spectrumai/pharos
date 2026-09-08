@@ -29,7 +29,7 @@ substrate = { path = "../substrate" }
 # for the crypto crates. It carries
 # both halves of what used to be two forked copies: `seal.rs` (X25519) and
 # `gervazy` (the platform vault this crate's detection needs).
-gervasius = { path = "../rotor/gervasius", features = ["gervazy"] }
+gervasius = { path = "../rotor/gervasius" }
 
 # ── remembering one passphrase ──────────────────────────────────────────────
 # The OS secret store, so sealing a second file need not mean typing it again.
@@ -41,3 +41,10 @@ keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
 
 # No `tauri`. Padova exports plain functions on a `Locker`; each app expands
 # its own `#[tauri::command]` shims over them, and decides which to register.
+
+[features]
+default = []
+# Recognise the platform's older Fernet files, so `unlock_file` can say which
+# format a file is instead of "wrong password". Off by default: it reaches
+# gervasius's `gervazy` half and so `openssl-sys`. See crates/substrate.
+legacy-detect = ["substrate/legacy-detect"]

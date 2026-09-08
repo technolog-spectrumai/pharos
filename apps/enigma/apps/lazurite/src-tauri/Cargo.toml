@@ -38,8 +38,11 @@ tauri-plugin-opener = "2"
 # and therefore the OS keyring. This app offers sealing, so it depends on both;
 # an app that does not depends on substrate alone and never links libsecret.
 # Neither `gervasius` nor `keyring` is named here any more: they are padova's.
-substrate = { path = "../../../crates/substrate" }
-padova = { path = "../../../crates/padova" }
+substrate = { path = "../../../crates/substrate", features = ["legacy-detect"] }
+# `legacy-detect`: these apps opened the platform's older Fernet files once,
+# so they badge and name that format rather than saying "wrong password". It
+# costs openssl-sys, which is why it is opt-in — enigma does not take it.
+padova = { path = "../../../crates/padova", features = ["legacy-detect"] }
 
 # `[profile.dev]` used to be here. It lives in the ROOT Cargo.toml now: a
 # profile in a workspace member is ignored with only a warning, and the one
