@@ -6,10 +6,11 @@
 // rakotis lives — which is what makes the alias a per-app build detail instead
 // of a string repeated across every editor.
 //
-// FOUR components, not the barrel. `rakotis/src/index.ts` re-exports the whole
-// P2P/MLS/chat surface plus OyaQrCode, which needs `qrcode` — a dependency that
-// lives in enigma's app, not in the package. Taking pieces keeps the graph to
-// what is actually used.
+// FIVE components, not the barrel. `rakotis/src/index.ts` re-exports the whole
+// P2P/MLS/chat surface; taking pieces keeps the graph to what is actually used.
+// OyaQrCode lazy-imports `qrcode`, which the subtree declares but nothing
+// installs — an app that shows a QR must declare `qrcode` ITSELF (Sketch does,
+// for pairing), or the import fails at the moment a code is first shown.
 //
 // Re-exported as `.vue` default exports, so a consumer writes
 // `import { OyaButton } from "petalite/primitives"` and the Vue plugin still
@@ -18,3 +19,4 @@ export { default as OyaButton } from "rakotis/components/primitives/OyaButton.vu
 export { default as OyaIconButton } from "rakotis/components/primitives/OyaIconButton.vue";
 export { default as OyaModal } from "rakotis/components/primitives/OyaModal.vue";
 export { default as OyaTextField } from "rakotis/components/primitives/OyaTextField.vue";
+export { default as OyaQrCode } from "rakotis/components/primitives/OyaQrCode.vue";
