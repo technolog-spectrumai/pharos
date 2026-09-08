@@ -1,0 +1,35 @@
+# The cargo workspace.
+#
+# One workspace, so the apps that come out of the split share a target
+# directory, a lockfile and a dependency resolution rather than each rebuilding
+# the same tauri tree. Members are GLOBBED: every app carries its own
+# `src-tauri`, and adding an app should not mean remembering to add a line here
+# for it to be built and tested with the others.
+#
+# `packages/rakotis` is a git subtree with its own tracked `Cargo.lock`, and it
+# must stay OUT of the workspace. Being absent from `members` is not enough:
+# cargo automatically adopts any path dependency that sits inside the workspace
+# root directory, and `packages/rakotis/crates/gervasius` does. Without the
+# `exclude`, `cargo test --workspace` ran the subtree's own tests and a future
+# `cargo update` would have treated its crates as ours. Excluded, gervasius is
+# compiled as a plain dependency and the subtree is never written to.
+[workspace]
+resolver = "2"
+members = [
+    "apps/*/src-tauri",
+    "crates/substrate",
+    "crates/padova",
+    "crates/collab",
+]
+exclude = [
+    "packages/rakotis",
+]
+
+# ── the linker ──────────────────────────────────────────────────────────────
+# THIS MUST LIVE AT THE ROOT. `[profile.*]` in a workspace MEMBER is ignored
+# with only a warning, so leaving this in `src-tauri/Cargo.toml` would silently
+# restore the problem it was written to prevent: tauri + webkit2gtk produce
+# enough DWARF that the GNU linker can OOM-kill the build on a modest machine.
+# Unpacked debuginfo keeps it out of the link step.
+[profile.dev]
+split-debuginfo = "unpacked"

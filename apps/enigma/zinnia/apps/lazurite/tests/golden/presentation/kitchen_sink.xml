@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<presentation version="2" title="Q3 &quot;Review&quot; &amp; &lt;notes&gt;" theme="white" font="mono">
+  <slide id="s-aaaa1111" layout="title-content">
+    <title>Welcome</title>
+    <block id="b-aaaa0001" type="heading" level="2"><![CDATA[Where we landed]]></block>
+    <block id="b-aaaa0002" type="text"><![CDATA[<p>Revenue is <strong>up</strong>.</p>]]></block>
+    <block id="b-aaaa0003" type="list" ordered="true">
+      <item><![CDATA[EMEA grew]]></item>
+      <item><![CDATA[APAC flat]]></item>
+    </block>
+  </slide>
+  <slide id="s-aaaa2222" layout="two-column">
+    <title>Before and after</title>
+    <block id="b-bbbb0001" type="image" slot="left" alt="Render" fit="contain"><![CDATA[data:image/png;base64,iVBORw0KGgo=]]></block>
+    <block id="b-bbbb0002" type="code" slot="right" language="python"><![CDATA[print(1)]]></block>
+    <block id="b-bbbb0003" type="formula" slot="right">
+      <source><![CDATA[e^{i\pi}+1=0]]></source>
+      <render><![CDATA[<span class="katex">RENDERED</span>]]></render>
+    </block>
+    <block id="b-bbbb0004" type="quote" slot="left" cite="A. Lovelace"><![CDATA[Ship it]]></block>
+    <block id="b-bbbb0005" type="svg" slot="right"><![CDATA[<svg viewBox="0 0 1 1"></svg>]]></block>
+  </slide>
+</presentation>

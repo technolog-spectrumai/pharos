@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<presentation version="2" title="Trap" theme="black" font="sans">
+  <slide id="s-cccc1111" layout="title-content">
+    <title>T</title>
+    <block id="b-cccc0001" type="text"><![CDATA[<p>before ]]]]><![CDATA[> after</p>]]></block>
+  </slide>
+</presentation>

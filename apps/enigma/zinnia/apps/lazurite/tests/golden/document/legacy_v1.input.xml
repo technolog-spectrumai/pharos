@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<document version="1" title="Old">
+  <section id="s-1" level="1">
+    <heading>First</heading>
+    <block id="b-1" type="text"><![CDATA[<p>hello</p>]]></block>
+    <block id="b-2" type="list" ordered="true"><item><![CDATA[one]]></item><item><![CDATA[two]]></item></block>
+  </section>
+</document>

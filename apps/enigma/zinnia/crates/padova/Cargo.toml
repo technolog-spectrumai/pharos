@@ -1,0 +1,43 @@
+[package]
+name = "padova"
+version = "0.1.0"
+description = "Sealing files and remembering the passphrase — the half of zinnia that needs a password"
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version = "1.88"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# The frame's shape, its detection, and the atomic write. Padova WRITES frames;
+# recognising one is substrate's, so every app can badge a sealed file without
+# depending on this crate at all.
+substrate = { path = "../substrate" }
+
+# ── sealing ─────────────────────────────────────────────────────────────────
+# Argon2id wraps a random per-file DEK, which seals the bytes with
+# XChaCha20-Poly1305; the salt and costs ride along in the file's own header, so
+# a sealed file needs nothing but its password. See src/lock.rs for why that
+# replaced deriving the key from a salt the server owned.
+#
+# `fernet` comes in through gervasius and drags `openssl-sys` with it, which is
+# the only reason native OpenSSL is linked into an app that depends on padova.
+# It is READ-ONLY legacy: nothing writes that format, and src/lock.rs refuses
+# those files outright now that their salt source is parked.
+# crypto_rotor is a SIBLING checkout (dev/rotor/crypto_rotor beside dev/zinnia),
+# the single source of truth for the crypto crates since 2026-09-08. It carries
+# both halves of what used to be two forked copies: `seal.rs` (X25519) and
+# `gervazy` (the platform vault this crate's detection needs).
+gervasius = { path = "../../../rotor/crypto_rotor/gervasius", features = ["gervazy"] }
+
+# ── remembering one passphrase ──────────────────────────────────────────────
+# The OS secret store, so sealing a second file need not mean typing it again.
+# `vendored` builds libsecret's dependency rather than trusting whatever the
+# build host has; `sync-secret-service` keeps the API blocking, which is what
+# the sealing functions are. This crate is the ONLY one that names keyring: an
+# app that does not depend on padova does not link libsecret.
+keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
+
+# No `tauri`. Padova exports plain functions on a `Locker`; each app expands
+# its own `#[tauri::command]` shims over them, and decides which to register.

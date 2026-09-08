@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+
+# Rust build output. Globbed, not anchored: the crates move under apps/ in the
+# split, and an anchored `src-tauri/gen/schemas/` would silently stop matching.
+**/target/
+**/gen/schemas/
+
+# Test/build artefacts
+coverage/
+test-results/
