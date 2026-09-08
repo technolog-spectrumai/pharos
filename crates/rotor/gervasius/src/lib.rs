@@ -18,6 +18,7 @@ mod vault;
 
 pub use aead::{open, seal, AEAD_NAME};
 pub use kdf::{KDF_NAME, KDF_OUT_LEN};
+#[cfg(feature = "gervazy")]
 pub mod gervazy;
 
 pub use seal::{
@@ -147,6 +148,7 @@ mod tests {
     // merge is supposed to guarantee — that both halves are present, and that
     // sharing one crate did not let either change the other's behaviour.
 
+    #[cfg(feature = "gervazy")]
     #[test]
     fn both_forks_export_their_own_surface() {
         // The regression this catches: a future tidy-up drops one `mod` line
@@ -165,6 +167,7 @@ mod tests {
         assert!(!gervazy::is_sealed(b"plain text"));
     }
 
+    #[cfg(feature = "gervazy")]
     #[test]
     fn the_two_formats_never_claim_each_others_bytes() {
         // The property zinnia's substrate::is_sealed_file rests on: it asks
