@@ -73,7 +73,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 32 | split the maps app out of enigma | todo |
 | 33 | one sketch editor, not two | **done** |
 | 34 | one file-sealing frame | **done** |
-| 35 | one theme and one i18n mechanism | todo |
+| 35 | one theme; i18n stays two, deliberately | **done** |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
 shared component library back under one canonical repo, so the next drift is a
@@ -935,6 +935,61 @@ from "the list came back empty". And a convergence test asserted a fixed paint
 order for two shapes drawn in the same millisecond, which the author tiebreak
 decides — it flaked about one run in five and now asserts what it meant: both
 boards agree.
+
+### Consolidation (32-35)
+
+What the annexation made cheap. Each was a genuine duplicate, and each was
+measured before it was merged rather than assumed.
+
+**One drawing engine (33).** Two copies had drifted since Sketch left enigma —
+six shared files, every one diverged, `SketchToolbar.vue` effectively a rewrite.
+Zinnia's was ahead on all six, and enigma's carried a bug the fork had hidden:
+a plain line grew an arrowhead the first time a file was saved, so a triangle
+drawn from three lines came back as three arrows, permanently. The engine moved
+to `packages/wisteria` and **3,153 lines of duplicate went**. Two things differ
+per app and are therefore INJECTED rather than imported: the file writer
+(enigma has no `@tauri-apps/plugin-fs` and writes through its own Rust command)
+and the palette, which is petalite's. The engine's own tests moved with it —
+182 of them — instead of belonging to whichever app happened to import it.
+
+**One sealed-file frame (34).** Both apps built the same frame from the same
+gervasius primitives; only the magic, the AAD and the KDF cost differed, and
+those are baked into every file already on a user's disk. So the layout became
+`substrate::FrameSpec` and the constants became a PARAMETER —
+`FrameSpec::ENIGMA` and `FrameSpec::ZINNIA` — with a test proving neither app
+can read the other's files. The blocker was that `substrate` and `padova`
+hardcoded `gervasius/gervazy`, which pulls fernet and so `openssl-sys`; that is
+now the opt-in `legacy-detect` feature, which only the office apps take because
+only they ever opened a platform-sealed file. Enigma shares the crate and still
+links **zero** OpenSSL.
+
+**One theme (35).** Every colour token the two sides shared held the same value
+— checked token by token — and enigma's set was a strict superset, so
+`packages/petalite/src/theme/tokens.css` changed no pixel in any app. Verified
+in the BUILT bundles, not the sources: all 21 shared tokens identical across
+the four apps.
+
+**i18n stays two, and that is the finding.** Petalite's `createAppI18n` takes a
+`storageKey`; rakotis's hardcodes `"enigma:locale"` — so petalite's looks like
+the generalisation. It is not a superset: rakotis also exports `LOCALE_NAMES`,
+`normalizeLocale`, `getStoredLocale` and `hasExplicitLocale`, all of which
+enigma uses. Unifying would mean either editing `packages/rakotis` in place —
+it is a git SUBTREE tracking canonical `39f5eca`, and writing to it breaks the
+one contract that keeps it pullable — or dropping helpers enigma depends on.
+The honest answer is that the duplication here is a two-line storage key, and
+the fix costs a cross-repo round trip; it is left for whenever rakotis is next
+updated upstream, with the generalisation going INTO rakotis rather than around
+it.
+
+**Step 32, the maps split, is deferred with its design done.** The survey found
+the coupling is not where it looked: every chat dependency is in the SHARING
+layer, and the map core — tiles, pins, regions, storage — has none. But
+`maps.rs` has six intra-app dependencies rather than the one that was visible
+(`file_xfer` among them, which is P2P), and a standalone maps app would need
+sealed storage, which means padova, which means the OpenSSL question again. The
+recommendation is a `packages/cartesia` + `crates/cartesia` core with sharing
+left in enigma — roughly 700-900 lines moving, not 2,981 — and it is written up
+rather than half-built.
 
 ### Collaboration (20-21, 29-31)
 
