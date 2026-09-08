@@ -44,6 +44,13 @@ protasius = { path = "../../../protasius" }
 # Reused directly (not just via protasius) for passphrase-protected local files
 # (local_lock.rs): per-file vault + seal/open over the chosen file's bytes.
 gervasius = { path = "../../../crates/rotor/gervasius" }
+# The sealed-file FRAME, shared with the office apps. Deliberately WITHOUT
+# `legacy-detect`: that feature reaches gervasius's gervazy half and so
+# openssl-sys, and enigma never wrote a Fernet file to recognise. The layout is
+# shared; the magic and AAD are not — every file already on a user's disk
+# carries `ENIGLOCK`, so `FrameSpec::ENIGMA` keeps reading exactly what this
+# app has always written.
+substrate = { path = "../../../crates/substrate" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"

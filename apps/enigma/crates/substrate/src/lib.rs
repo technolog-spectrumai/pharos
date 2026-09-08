@@ -31,6 +31,73 @@ pub const VERSION: u8 = 1;
 /// magic + version + the u32 that gives the header's length.
 pub const PREFIX_LEN: usize = 8 + 1 + 4;
 
+/// Which frame an app reads and writes.
+///
+/// The LAYOUT is shared — magic, version, header length, header, sealed body —
+/// and so are the primitives underneath it. What differs between apps is three
+/// constants, and they differ IRREVERSIBLY: every file already on a user's disk
+/// carries them, so this is not a thing to unify by picking a winner. Enigma
+/// writes `ENIGLOCK`/`enigma:localfile:v1`, zinnia `ZINNLOCK`/`zinnia:file:v1`,
+/// and each keeps reading what it wrote.
+///
+/// The KDF cost is here too because enigma takes it from its build config
+/// (editions tune it) while zinnia uses the default.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameSpec {
+    pub magic: &'static [u8; 8],
+    pub version: u8,
+    /// AEAD associated data. A CONSTANT, never the filename — a sealed file has
+    /// to survive being renamed or moved.
+    pub aad: &'static [u8],
+}
+
+impl FrameSpec {
+    /// Zinnia's frame: what the office apps have written since 8/2026.
+    pub const ZINNIA: FrameSpec =
+        FrameSpec { magic: MAGIC, version: VERSION, aad: b"zinnia:file:v1" };
+
+    /// Enigma's frame: `ENIGLOCK`, and the AAD its files carry.
+    pub const ENIGMA: FrameSpec =
+        FrameSpec { magic: b"ENIGLOCK", version: 1, aad: b"enigma:localfile:v1" };
+
+    /// Whether these bytes are a frame THIS spec wrote.
+    pub fn is_current(&self, bytes: &[u8]) -> bool {
+        bytes.len() > PREFIX_LEN && bytes.starts_with(self.magic) && bytes[8] == self.version
+    }
+
+    /// Wrap a sealed body and its header into a frame.
+    pub fn frame(&self, header_json: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(PREFIX_LEN + header_json.len() + body.len());
+        out.extend_from_slice(self.magic);
+        out.push(self.version);
+        out.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
+        out.extend_from_slice(header_json);
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// Split a frame into its header bytes and its sealed body.
+    ///
+    /// Every length is checked before it is used as an index: this parses a
+    /// file that arrived from anywhere, and a truncated one must be an error
+    /// rather than a panic.
+    pub fn split<'a>(&self, bytes: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), String> {
+        if !self.is_current(bytes) {
+            return Err("not_locked: that file is not encrypted".into());
+        }
+        let len_at = 9;
+        let header_len = u32::from_le_bytes(
+            bytes[len_at..len_at + 4].try_into().map_err(|_| "crypto: truncated frame")?,
+        ) as usize;
+        let start = PREFIX_LEN;
+        let end = start.checked_add(header_len).ok_or("crypto: header length overflows")?;
+        if bytes.len() <= end {
+            return Err("crypto: truncated frame".into());
+        }
+        Ok((&bytes[start..end], &bytes[end..]))
+    }
+}
+
 /// Refuse to slurp something enormous into memory; the platform's own editable
 /// ceiling is 2 MB, and a locked binary can be bigger but not unbounded.
 pub const MAX_LOCK_BYTES: u64 = 256 * 1024 * 1024;
@@ -125,6 +192,76 @@ pub fn name_of(path: &str) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string())
+}
+
+/// The frame layout, once, for both apps.
+#[cfg(test)]
+mod frame_spec_tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_round_trips_through_split() {
+        for spec in [FrameSpec::ZINNIA, FrameSpec::ENIGMA] {
+            let framed = spec.frame(b"{\"kdf\":1}", b"sealed-body");
+            assert!(spec.is_current(&framed));
+            let (header, body) = spec.split(&framed).expect("splits");
+            assert_eq!(header, b"{\"kdf\":1}");
+            assert_eq!(body, b"sealed-body");
+        }
+    }
+
+    #[test]
+    fn neither_app_reads_the_other_s_files() {
+        // The reason the magic is a PARAMETER and not a value to unify: both
+        // apps have files on disk already. A zinnia build meeting an enigma
+        // file must say "not mine", not misparse it.
+        let z = FrameSpec::ZINNIA.frame(b"{}", b"body");
+        let e = FrameSpec::ENIGMA.frame(b"{}", b"body");
+        assert!(!FrameSpec::ENIGMA.is_current(&z));
+        assert!(!FrameSpec::ZINNIA.is_current(&e));
+        assert!(FrameSpec::ENIGMA.split(&z).is_err());
+        assert!(FrameSpec::ZINNIA.split(&e).is_err());
+    }
+
+    #[test]
+    fn the_aads_differ_so_a_swapped_body_cannot_verify() {
+        // Even if a frame were re-magicked by hand, the AEAD's associated data
+        // still binds it to the app that wrote it.
+        assert_ne!(FrameSpec::ZINNIA.aad, FrameSpec::ENIGMA.aad);
+    }
+
+    #[test]
+    fn a_frame_cut_inside_its_header_is_an_error_not_a_panic() {
+        // Bounds safety is what `split` owns. A file cut short INSIDE the
+        // header cannot be parsed at all and must say so rather than index
+        // past the end.
+        let framed = FrameSpec::ZINNIA.frame(b"{\"kdf\":1}", b"sealed");
+        for cut in [0, 1, PREFIX_LEN, PREFIX_LEN + 2] {
+            assert!(FrameSpec::ZINNIA.split(&framed[..cut]).is_err(), "cut at {cut}");
+        }
+    }
+
+    #[test]
+    fn a_frame_cut_inside_its_body_still_parses_and_fails_later() {
+        // Deliberate, and worth stating: losing a byte of CIPHERTEXT is not the
+        // parser's to catch. The frame is structurally intact, `split` hands
+        // back a short body, and the AEAD tag refuses it when it is opened —
+        // which is the layer that can actually tell corruption from truncation.
+        let framed = FrameSpec::ZINNIA.frame(b"{\"kdf\":1}", b"sealed");
+        let (header, body) = FrameSpec::ZINNIA
+            .split(&framed[..framed.len() - 1])
+            .expect("structurally still a frame");
+        assert_eq!(header, b"{\"kdf\":1}");
+        assert_eq!(body, b"seale", "one byte short, for the AEAD to reject");
+    }
+
+    #[test]
+    fn a_header_length_that_overruns_the_file_is_refused() {
+        // A hostile file claiming a 4 GB header must not index past the end.
+        let mut framed = FrameSpec::ZINNIA.frame(b"{}", b"body");
+        framed[9..13].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(FrameSpec::ZINNIA.split(&framed).is_err());
+    }
 }
 
 #[cfg(test)]

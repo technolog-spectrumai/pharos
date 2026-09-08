@@ -37,14 +37,17 @@
 
 use gervasius::{create_vault_with_params, open, seal, KdfParams, VaultHeader};
 use serde::Serialize;
-use substrate::{atomic_write, is_current, is_legacy, name_of, read_capped, MAGIC, PREFIX_LEN, VERSION};
+use substrate::{atomic_write, is_legacy, name_of, read_capped, FrameSpec};
 
 use crate::Locker;
 
 /// What a file's ciphertext is bound to. A CONSTANT, never the file name, so a
 /// sealed file survives being renamed or moved. It no longer matches the
 /// platform's `sealed.VAULT_AAD`, and should not: this frame is zinnia's own.
-const AAD: &[u8] = b"zinnia:file:v1";
+/// Zinnia's frame — magic, version and AAD in one place, shared with enigma's
+/// by shape but never by value: both apps have sealed files on disk already.
+const SPEC: FrameSpec = FrameSpec::ZINNIA;
+const AAD: &[u8] = SPEC.aad;
 
 /// What a caller is told about a file it just sealed or opened: its name and
 /// its plaintext size. Nothing about the key.
@@ -55,21 +58,14 @@ pub struct LockedInfo {
 }
 
 /// Split a frame into its header and its sealed body.
+/// The layout lives in `substrate::FrameSpec` — one implementation for both
+/// apps, each with its own magic and AAD. All this adds is decoding the header
+/// JSON, which is padova's business rather than the frame's.
 fn parse_frame(bytes: &[u8]) -> Result<(VaultHeader, &[u8]), String> {
-    if !is_current(bytes) {
-        return Err("not_locked: that file is not encrypted".into());
-    }
-    let len = u32::from_le_bytes([bytes[9], bytes[10], bytes[11], bytes[12]]) as usize;
-    let start = PREFIX_LEN + len;
-    // Checked against the ACTUAL length before slicing: the header length is
-    // four bytes off a disk that may be truncated or hostile, and an unchecked
-    // slice would panic the command rather than refuse the file.
-    if len == 0 || start > bytes.len() {
-        return Err("crypto: that encrypted file is damaged".into());
-    }
-    let header: VaultHeader = serde_json::from_slice(&bytes[PREFIX_LEN..start])
+    let (header_bytes, body) = SPEC.split(bytes)?;
+    let header: VaultHeader = serde_json::from_slice(header_bytes)
         .map_err(|_| "crypto: that encrypted file is damaged".to_string())?;
-    Ok((header, &bytes[start..]))
+    Ok((header, body))
 }
 
 impl Locker {
@@ -100,7 +96,7 @@ impl Locker {
     pub fn lock_file(&self, path: &str, password: Option<String>) -> Result<LockedInfo, String> {
         let password = self.password_for(password)?;
         let plain = read_capped(path)?;
-        if is_current(&plain) || is_legacy(&plain) {
+        if SPEC.is_current(&plain) || is_legacy(&plain) {
             return Err("already_locked: that file is already encrypted".into());
         }
         // A fresh salt and a fresh DEK for THIS file. Two files sealed under one
@@ -111,14 +107,7 @@ impl Locker {
         let body = seal(&dek, AAD, &plain).map_err(|e| format!("crypto: {e:?}"))?;
         let header_json = serde_json::to_vec(&header).map_err(|e| format!("crypto: {e}"))?;
 
-        let mut frame = Vec::with_capacity(PREFIX_LEN + header_json.len() + body.len());
-        frame.extend_from_slice(MAGIC);
-        frame.push(VERSION);
-        frame.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
-        frame.extend_from_slice(&header_json);
-        frame.extend_from_slice(&body);
-
-        atomic_write(path, &frame)?;
+        atomic_write(path, &SPEC.frame(&header_json, &body))?;
         Ok(LockedInfo { name: name_of(path), size: plain.len() as u64 })
     }
 
@@ -135,7 +124,7 @@ impl Locker {
         // lived on the server's strongbox row, which is parked — so it cannot
         // be opened here at all, and saying which format it is beats "wrong
         // password".
-        if !is_current(&bytes) && is_legacy(&bytes) {
+        if !SPEC.is_current(&bytes) && is_legacy(&bytes) {
             return Err("legacy_format: that file was encrypted by the platform".into());
         }
         let (header, body) = parse_frame(&bytes)?;
@@ -168,7 +157,7 @@ mod tests {
         LOCKER.lock_file(&path, Some("pw".into())).unwrap();
 
         let sealed = std::fs::read(&path).unwrap();
-        assert!(is_current(&sealed), "not this build's frame");
+        assert!(SPEC.is_current(&sealed), "not this build's frame");
         assert!(is_sealed_file(&path), "substrate must recognise what padova wrote");
         assert_ne!(sealed, b"some local bytes", "the bytes must actually change");
 
@@ -260,6 +249,10 @@ mod tests {
     /// because its salt lived on a strongbox row that is parked. Saying which
     /// format it is beats reporting a wrong password.
     #[test]
+    /// Only meaningful with `legacy-detect`: without it this build genuinely
+    /// cannot recognise a Fernet file, which is the honest answer for one that
+    /// could never open it either. The three zinnia apps opt the feature in.
+    #[cfg(feature = "legacy-detect")]
     fn a_platform_sealed_file_is_seen_but_refused() {
         let fernet = tmp("legacy-fernet", b"gAAAAAxyz-not-really-a-token");
         assert!(is_sealed_file(&fernet), "must still be badged");
@@ -275,7 +268,7 @@ mod tests {
         let path = tmp("truncated", b"x");
         LOCKER.lock_file(&path, Some("pw".into())).unwrap();
         let mut sealed = std::fs::read(&path).unwrap();
-        sealed.truncate(PREFIX_LEN + 4);
+        sealed.truncate(substrate::PREFIX_LEN + 4);
         std::fs::write(&path, &sealed).unwrap();
 
         let err = LOCKER.unlock_file(&path, Some("pw".into())).unwrap_err();

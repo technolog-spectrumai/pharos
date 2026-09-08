@@ -22,8 +22,11 @@ use gervasius::{create_vault_with_params, open, seal, unlock, CryptoError, Vault
 use serde::Serialize;
 
 /// Marks a locked file and lets us detect one without a passphrase.
-const MAGIC: &[u8; 8] = b"ENIGLOCK";
-const VERSION: u8 = 1;
+/// This app's frame. The LAYOUT is `substrate::FrameSpec`, shared with the
+/// office apps; the magic and the AAD are enigma's own and must never change —
+/// every locked file a user already has carries them.
+const SPEC: substrate::FrameSpec = substrate::FrameSpec::ENIGMA;
+const MAGIC: &[u8; 8] = SPEC.magic;
 /// AEAD associated data — a constant (not the filename), so a locked file can be
 /// renamed or moved without breaking decryption.
 const AAD: &[u8] = b"enigma:localfile:v1";
@@ -71,36 +74,18 @@ fn has_magic(bytes: &[u8]) -> bool {
 /// Parse a locked-file frame into its `VaultHeader` and the sealed body (borrowed from
 /// `bytes`). Frame: `MAGIC || VERSION || header_len(u32 LE) || header || sealed`.
 fn parse_frame(bytes: &[u8]) -> Result<(VaultHeader, &[u8]), String> {
-    let head = MAGIC.len() + 1 + 4;
-    if bytes.len() < head || &bytes[..MAGIC.len()] != MAGIC {
-        return Err("not a locked file".to_string());
-    }
-    if bytes[MAGIC.len()] != VERSION {
-        return Err("unsupported locked-file version".to_string());
-    }
-    let hl_off = MAGIC.len() + 1;
-    let header_len =
-        u32::from_le_bytes([bytes[hl_off], bytes[hl_off + 1], bytes[hl_off + 2], bytes[hl_off + 3]])
-            as usize;
-    let header_end = head + header_len;
-    if bytes.len() < header_end {
-        return Err("locked file is truncated".to_string());
-    }
+    // The bounds checks live in substrate now — one implementation of this
+    // layout for both apps, rather than two that drift.
+    let (header_bytes, body) = SPEC.split(bytes)?;
     let header: VaultHeader =
-        serde_json::from_slice(&bytes[head..header_end]).map_err(|e| e.to_string())?;
-    Ok((header, &bytes[header_end..]))
+        serde_json::from_slice(header_bytes).map_err(|e| e.to_string())?;
+    Ok((header, body))
 }
 
 /// Build a locked-file frame from a header + already-sealed body.
 fn build_frame(header: &VaultHeader, sealed: &[u8]) -> Result<Vec<u8>, String> {
     let header_json = serde_json::to_vec(header).map_err(|e| e.to_string())?;
-    let mut out = Vec::with_capacity(MAGIC.len() + 1 + 4 + header_json.len() + sealed.len());
-    out.extend_from_slice(MAGIC);
-    out.push(VERSION);
-    out.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
-    out.extend_from_slice(&header_json);
-    out.extend_from_slice(sealed);
-    Ok(out)
+    Ok(SPEC.frame(&header_json, sealed))
 }
 
 /// Encrypt `path` in place under `passphrase`. Errors if the file is already

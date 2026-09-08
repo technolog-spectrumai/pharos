@@ -72,7 +72,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 31 | N peers: seats, group key, admin election | **done** |
 | 32 | split the maps app out of enigma | todo |
 | 33 | one sketch editor, not two | **done** |
-| 34 | one file-sealing frame | todo |
+| 34 | one file-sealing frame | **done** |
 | 35 | one theme and one i18n mechanism | todo |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
