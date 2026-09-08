@@ -33,7 +33,7 @@ done
 # The shared preflight lives at the REPO root, not in this app: node/cargo
 # checks, the system libraries and the snap trap are identical for every app,
 # and three copies would mean fixing the next toolchain problem three times.
-. "$HERE/../../scripts/lib.sh"
+. "$HERE/../../scripts/zinnia/lib.sh"
 
 # ── preflight ───────────────────────────────────────────────────────────────
 step "Checking the toolchain"
