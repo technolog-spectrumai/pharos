@@ -29,7 +29,7 @@ substrate = { path = "../substrate" }
 # the single source of truth for the crypto crates since 2026-09-08. It carries
 # both halves of what used to be two forked copies: `seal.rs` (X25519) and
 # `gervazy` (the platform vault this crate's detection needs).
-gervasius = { path = "../../../rotor/crypto_rotor/gervasius" }
+gervasius = { path = "../../../rotor/crypto_rotor/gervasius", features = ["gervazy"] }
 
 # ── remembering one passphrase ──────────────────────────────────────────────
 # The OS secret store, so sealing a second file need not mean typing it again.

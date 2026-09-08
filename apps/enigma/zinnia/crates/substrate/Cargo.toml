@@ -15,7 +15,7 @@ rust-version = "1.88"
 # the single source of truth for the crypto crates since 2026-09-08. It carries
 # both halves of what used to be two forked copies: `seal.rs` (X25519) and
 # `gervazy` (the platform vault this crate's detection needs).
-gervasius = { path = "../../../rotor/crypto_rotor/gervasius" }
+gervasius = { path = "../../../rotor/crypto_rotor/gervasius", features = ["gervazy"] }
 
 # No `tauri` dependency, on purpose. Substrate exports plain functions and each
 # app expands its own `#[tauri::command]` shims over them, so the command names
