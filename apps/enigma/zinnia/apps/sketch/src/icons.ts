@@ -19,6 +19,8 @@ import {
   faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faShieldHalved, faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
+  // collaboration: the tab, the code, the scanner, the copy button, the accept
+  faUserGroup, faQrcode, faCamera, faCopy, faCheck,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
@@ -30,5 +32,6 @@ library.add(
   faEraser, faFileCode, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faShieldHalved, faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
+  faUserGroup, faQrcode, faCamera, faCopy, faCheck,
 );
 

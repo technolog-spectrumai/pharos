@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
@@ -12,6 +12,9 @@ import SecurityView from "padova/SecurityView.vue";
 // the same singleton the files sidepanel drives — one tree, two views.
 import { filterRows, useWorkspace } from "petalite/files";
 import SettingsView from "./views/SettingsView.vue";
+import CollabPanel from "./collab/CollabPanel.vue";
+import { collab } from "./collab";
+import { collabAvailable } from "./collab/transport";
 
 const { t } = useI18n({ useScope: "global" });
 
@@ -53,6 +56,17 @@ function show(id: AppTabId) {
 }
 
 const editorTabs = computed(() => APP_TABS.filter((tab) => tab.kind !== null));
+
+// ── the one gated tab ───────────────────────────────────────────────────────
+// Collaboration is a Cargo feature, off by default, and a build without it has
+// none of the commands the Collab tab calls. The tab list cannot know what the
+// backend was built with, so it asks — one probe at start-up — and the tab is
+// simply absent otherwise, rather than present with every button failing.
+const collabOn = ref(false);
+onMounted(async () => {
+  collabOn.value = await collabAvailable();
+});
+const visibleTabs = computed(() => APP_TABS.filter((tab) => tab.id !== "collab" || collabOn.value));
 
 // ── the files sidepanel ─────────────────────────────────────────────────────
 // Beside the editor rather than instead of it. Remembered, because whether you
@@ -231,9 +245,15 @@ function isDisabled(id: string): boolean {
         <span class="truncate text-sm font-semibold" data-testid="file-name">{{ activeHost.name }}</span>
         <span v-if="activeHost.dirty" class="shrink-0 opacity-60" :title="t('file.unsavedTitle')">•</span>
       </p>
+      <!-- The session runs on whichever tab is showing; say so where the file
+           name is, so nobody draws for a while without knowing it is shared. -->
+      <span v-if="collab.phase.value === 'live'" class="shrink-0 text-xs opacity-70"
+            :title="t('collab.live')" data-testid="collab-badge">
+        <font-awesome-icon icon="user-group" />
+      </span>
 
       <nav class="flex flex-1 flex-wrap items-center gap-1 pl-3">
-        <button v-for="tab in APP_TABS" :key="tab.id" type="button"
+        <button v-for="tab in visibleTabs" :key="tab.id" type="button"
                 :data-testid="`nav-${tab.id}`"
                 class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm font-semibold transition"
                 :class="active === tab.id
@@ -279,6 +299,9 @@ function isDisabled(id: string): boolean {
                       :ref="setterFor(tab.id)"
                       :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
         </template>
+
+        <CollabPanel v-if="visited.has('collab')" v-show="active === 'collab'"
+                     :session="collab" class="min-h-0 flex-1" />
 
         <SecurityView v-if="visited.has('security')" v-show="active === 'security'"
                       :workspace="securityWorkspace" :filter-rows="filterRows"

@@ -18,6 +18,10 @@ import {
 import { SVG_FONT_STACK } from "../sketch/sketchModel";
 import { backgroundImageFromFile, exportPng } from "../sketch/sketchExport";
 import { OyaButton, OyaModal, OyaTextField } from "petalite/primitives";
+// The collaboration session follows the drawing on screen: it is attached to
+// each new orchestrator and detached when this editor goes, and a change of
+// drawing ends a running session (see useCollabSession.attach).
+import { collab } from "../collab";
 
 const props = defineProps<{
   path: string | null;
@@ -79,6 +83,7 @@ function open(text: string) {
   refusal.value = null;
   if (!text.trim()) {
     sketch.value = createSketch(emptySvgDocument());
+    collab.attach(sketch.value);
     baseline();
     return;
   }
@@ -86,9 +91,11 @@ function open(text: string) {
   if (!res.ok) {
     refusal.value = { reason: res.reason, detail: res.detail };
     sketch.value = null;
+    collab.attach(null);
     return;
   }
   sketch.value = createSketch(res.doc);
+  collab.attach(sketch.value);
   baseline();
 }
 
@@ -221,7 +228,10 @@ onMounted(() => {
   open(props.content);
   window.addEventListener("keydown", onKey);
 });
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  collab.attach(null);
+});
 
 defineExpose({
   markSaved() {

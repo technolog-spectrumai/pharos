@@ -57,14 +57,27 @@ const UNDO_LIMIT = 100;
 const ERASE_STEP = 4;
 
 /** The in-progress freehand stroke. Local preview only — it becomes a real shape on
- *  pointer release, so it is never persisted mid-drag. */
-interface LiveStroke {
+ *  pointer release, so it is never persisted mid-drag. Exported because a
+ *  collaboration session streams it to the peer, whose canvas draws it the same way. */
+export interface LiveStroke {
   id: string;
   pts: number[];
   color: string;
   sw: number;
   opacity: number;
 }
+
+/** Why a commit happened.
+ *
+ *  `clear` is deliberately its own reason and NOT inferred from "the list came
+ *  back empty": erasing the last shape leaves an empty board too, and the two
+ *  are different acts. A clear voids everything drawn before it — including the
+ *  peer's work, and irreversibly, because the CRDT's clear is a grow-only
+ *  register — while erasing one shape leaves a tombstone an undo can outrank.
+ *  Inferring one from the other made undoing your own delete impossible. */
+export type CommitReason = "edit" | "history" | "clear";
+/** What a collaboration session installs; see "the collaboration seam". */
+export type CommitObserver = (prev: Shape[], next: Shape[], reason: CommitReason) => Shape[] | void;
 
 /** One editing session over one file. `source` is the parsed document the file
  *  was opened from — its root attributes, prologue and opaque nodes ride along
@@ -78,6 +91,15 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
   /** Board-cropped data URL, or null. Kept beside the document, not inside it. */
   const backgroundImage = ref<string | null>(null);
   const selfLive = ref<LiveStroke | null>(null);
+  /** The PEER's stroke in progress, while a collaboration session is live.
+   *  Display only, exactly like `selfLive`: it becomes a shape when the peer's
+   *  commit arrives, and that commit — or the peer leaving — clears it. */
+  const peerLive = ref<LiveStroke | null>(null);
+  /** Where the peer's pointer is, in board units; null when off its board. */
+  const peerCursor = ref<{ x: number; y: number } | null>(null);
+  /** Where OUR pointer is, in board units, written by the canvas on every move
+   *  and read by a session to stream a cursor. Nothing else reads it. */
+  const pointer = ref<{ x: number; y: number } | null>(null);
   const selectedId = ref<string | null>(null);
   const boardFull = ref(false);
 
@@ -187,7 +209,31 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     redoStack.value = []; // a fresh action forks the timeline
   }
 
-  function applyShapes(next: Shape[]) {
+  // ── the collaboration seam ─────────────────────────────────────────────────
+  // Every COMMITTED change to the shape list lands in `applyShapes`. The
+  // provisional ones — `selfLive`, a drag's `replaceSelected` — do not, and
+  // that split is what a session needs: committed goes on the wire and merges,
+  // provisional streams and is never persisted. A session installs ONE
+  // observer here and is told, for every commit, what the board showed, what
+  // it is about to show, and why. It may answer with the list to show instead
+  // — the merged view, once its own state has absorbed the change — so the
+  // document never drifts from what was actually agreed with the peer.
+  //
+  // `reason` tells undo apart from an edit, and the session needs the
+  // difference: an edit may touch anything on the board, the peer's shapes
+  // included (erasing them is a decision); undo may not, or Ctrl+Z silently
+  // throws away the other person's work. This file only says which is which.
+  let commitObserver: CommitObserver | null = null;
+
+  function observeCommits(fn: CommitObserver | null) {
+    commitObserver = fn;
+  }
+
+  /** Put `next` on the board. The one write to the shape list that records no
+   *  history and tells no observer — it is either the observer's own answer or
+   *  a remote change that has already been merged, and in both cases the
+   *  session has already accounted for it. */
+  function applyRemote(next: Shape[]) {
     doc.value.shapes = next;
     if (selectedId.value && !next.some((s) => s.id === selectedId.value)) {
       selectedId.value = null;
@@ -195,10 +241,15 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     boardFull.value = next.length >= caps.maxShapes;
   }
 
+  function applyShapes(next: Shape[], reason: CommitReason = "edit") {
+    const projected = commitObserver?.(doc.value.shapes, next, reason);
+    applyRemote(projected ?? next);
+  }
+
   function applyState(next: DocState) {
     doc.value.background = next.background;
     backgroundImage.value = next.image;
-    applyShapes(next.shapes);
+    applyShapes(next.shapes, "history");
     // The image rides in the document now (it is serialized into the file on
     // save), so undoing one needs no separate write.
   }
@@ -509,7 +560,7 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
   function clearBoard() {
     if (!doc.value.shapes.length) return;
     snapshot();
-    applyShapes([]);
+    applyShapes([], "clear");
     boardFull.value = false;
   }
 
@@ -518,6 +569,9 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     doc,
     shapes,
     selfLive,
+    peerLive,
+    peerCursor,
+    pointer,
     boardFull,
     envelope,
     opaqueCount,
@@ -571,6 +625,9 @@ export function useSketch(source: SvgDocument = emptySvgDocument()) {
     canRedo,
     undo,
     redo,
+    // collaboration
+    observeCommits,
+    applyRemote,
     // lifecycle
     toText,
   };

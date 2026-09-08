@@ -2,9 +2,11 @@
 //
 // Modelled on enigma's tabs.ts, with two deliberate differences.
 //
-// There are no build gates and no per-user hiding yet. Zinnia ships every
-// editor, so the AND of "compiled in" and "user wants it" has nothing to
-// evaluate — this is a plain list until one of those exists.
+// There is ONE build gate, and it is not evaluated here. `collab` exists only
+// in a build made with the `collab` Cargo feature; App.vue asks the Rust side
+// (`collabAvailable`) and hides the tab when the answer is no, because a list
+// compiled into the frontend cannot know what the backend was built with.
+// There is still no per-user hiding.
 //
 // And these tabs do NOT route. Enigma's are views a router mounts and unmounts;
 // an office tab owns an open FILE with an unsaved buffer in it, and unmounting
@@ -24,7 +26,7 @@
 /** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
  *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
 export type EditorKind = "sketch" | "code";
-export type AppTabId = EditorKind | "security" | "settings";
+export type AppTabId = EditorKind | "collab" | "security" | "settings";
 
 export interface AppTab {
   id: AppTabId;
@@ -40,6 +42,7 @@ export interface AppTab {
 export const APP_TABS: readonly AppTab[] = [
   { id: "sketch",   path: "/sketch",        labelKey: "nav.sketch",        icon: "pencil",          kind: "sketch" },
   { id: "code",     path: "/code",          labelKey: "nav.code",          icon: "code",            kind: "code" },
+  { id: "collab",   path: "/collab",        labelKey: "nav.collab",        icon: "user-group",      kind: null },
   { id: "security", path: "/security",      labelKey: "nav.security",      icon: "shield-halved",   kind: null },
   { id: "settings", path: "/settings",      labelKey: "nav.settings",      icon: "gear",            kind: null },
 ];

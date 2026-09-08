@@ -1,4 +1,10 @@
-# Splitting Zinnia
+# Splitting Zinnia, then annexing it
+
+Steps 0-21 split one app into three over shared packages and crates, and put
+the shared libraries back under one canonical repo each. **Steps 22-28 reverse
+the direction**: the three apps are annexed into the enigma repo as a monorepo,
+because the un-forking work kept paying a two-repo tax for code that wants to
+be shared. Everything after that happens there.
 
 ## Status
 
@@ -9,9 +15,16 @@ Rust tests plus padova's `compile_fail` doctest green; clippy clean; all three
 apps typecheck and build; three distinct dev-port pairs (1430/1432/1434) so
 they run at once.
 
-**Steps 13-16 are a new phase, not part of that completion**: the shared
-component library `rakotis` exists in three places that have drifted apart, and
-this puts it back under one canonical repo.
+**Steps 13-16 were a new phase, not part of that completion**: the shared
+component library `rakotis` existed in three places that had drifted apart, and
+those steps put it back under one canonical repo.
+
+**Steps 22-28 REVERSE THE SPLIT'S DIRECTION.** Zinnia's three apps are annexed
+into the enigma repo as a monorepo. The un-forking of steps 13-19 kept running
+into the same wall — every shared thing needed a subtree split, a manual diff
+and a reconciliation commit *because the code lived in two repos*. With one
+repo, de-duplication is an ordinary refactor. Collaboration (29-31) and the
+remaining consolidation (32-34) then happen there, not here.
 
 Commands run from the REPO ROOT and fan out through npm workspaces: `npm test`,
 `npm run typecheck`, `npm run build`, `npm run test:rust`. The app's own scripts
@@ -46,16 +59,31 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 18 | build scripts take a rotor path | **done** |
 | 19 | one gervasius: merge the two forks | **done** |
 | 20 | restore the parked sketch CRDT | **done** |
-| 21 | collab crate hosts and joins a gossip topic | todo |
-| 22 | sketch pairs by QR and draws with one peer | todo |
-| 23 | MLS seals every collab frame | todo |
-| 24 | multi-person sync: N peers on a topic | todo |
+| 21 | collab crate hosts and joins a gossip topic | **done** |
+| 22 | annex: commit sketch collab as work in progress | todo |
+| 23 | annex: import zinnia history into enigma | todo |
+| 24 | annex: move the app set into place | todo |
+| 25 | annex: reconcile the monorepo root | todo |
+| 26 | annex: crypto_rotor comes in-repo | todo |
+| 27 | annex: all four apps green | todo |
+| 28 | annex: separate build scripts and CI | todo |
+| 29 | sketch pairs by QR and draws with one peer | todo |
+| 30 | MLS seals every collab frame | todo |
+| 31 | multi-person sync: N peers on a topic | todo |
+| 32 | one sketch editor, not two | todo |
+| 33 | one file-sealing frame | todo |
+| 34 | one theme and one i18n mechanism | todo |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
 shared component library back under one canonical repo, so the next drift is a
 `subtree pull` rather than a manual diff. Steps 17-19 do the same for the
-crypto crates. Steps 20-24 are collaboration — the long-run goal is **every app
-collaborative except presentations**.
+crypto crates. Steps 20-21 restored the CRDT and built the collab crate.
+
+**Steps 22-28 are the annexation** — see [Annexation into enigma](#annexation-into-enigma).
+After it, the repo root is `/home/janek/Desktop/dev/enigma/enigma` and this
+document travels with it. Steps 29-31 finish collaboration in the monorepo; the
+long-run goal is still **every app collaborative except presentations**. Steps
+32-34 remove the duplication the annexation makes visible and cheap to fix.
 
 Deferred, after the split: deck PDF on printpdf, then the title-page template.
 Both are Lazurite-only and neither blocks any step above. Deferred beyond
@@ -782,10 +810,107 @@ zinnia gets both as passengers inside the rakotis subtree
 
     Gates: crypto_rotor 23/32, enigma 886, zinnia 591 + 3 builds.
 
-### Collaboration (20-24)
+### Annexation into enigma (22-28)
+
+Investigated 2026-09-08. **This reverses the split.** Zinnia's three apps become
+apps in the enigma repo, beside `apps/enigma`; rakotis, rotor/MLS and gervasius
+all land inside that one repo.
+
+**Why, and why now.** Steps 13-19 were an un-forking exercise, and every one of
+them cost more than it should have *because the code lived in two repos*: a
+subtree split, a manual file-by-file diff, a reconciliation commit, and a
+standing risk of drifting again. What remains duplicated is not small — the
+sketch editor is forked (six shared files, all diverged, `SketchToolbar.vue`
+effectively rewritten), the file-sealing frame is implemented twice with the
+same construction and different magic strings, and the theme and i18n
+mechanisms are parallel. In one repo each of those is an ordinary refactor.
+Enigma is already a monorepo (`workspaces: ["packages/*","apps/*"]`), so the
+apps are picked up with no root edit at all.
+
+**Measured before committing to it.** Of zinnia's 391 tracked files against
+enigma's 601, exactly **64 paths collide** — 59 of them `packages/rakotis/*`,
+byte-identical at the same subtree commit, plus five real ones: `.gitignore`,
+`package.json`, `package-lock.json`, `README.md`, `limbo/README.md`. Bundle
+identifiers are already distinct and the dev ports do not overlap (enigma
+1420/1421, zinnia 1430-1435), because step 10 chose them that way.
+
+**The trap, and it is a bad one.** The two histories are NOT unrelated: enigma's
+lineage entered zinnia through the rakotis subtree import, and `git merge-base`
+returns `ce2a44f5` (2026-07-12). From that base zinnia's branch shows **169
+files under `apps/enigma` deleted** plus `.gitlab-ci.yml`. A plain merge would
+replay those deletions and silently remove enigma's product. Three rewrites
+were rehearsed in throwaway clones before one was trusted:
+
+* a `--path` allowlist keeps only **35 of 346 commits** — the `apps/` layout is
+  21 commits old, and 325 commits touch `src/` and `src-tauri/` at paths that
+  no longer exist;
+* renaming rakotis aside, or deleting it, produces rename/rename and
+  rename/delete conflicts against enigma's own history;
+* renaming `src/` into a prefix makes git pair zinnia's Tauri scaffold with
+  enigma's and yields **33 phantom conflicts** across `apps/enigma`.
+
+What works is the uniform prefix: `git filter-repo --to-subdirectory-filter
+zinnia` keeps **all 346 commits**, rewrites every hash (which severs the shared
+ancestry), and merges with `--allow-unrelated-histories` into **zero
+conflicts** — 786 commits, enigma's 320 app files and 84 builder files intact.
+The `--allow-unrelated-histories` is correct here rather than a workaround:
+after the rewrite the histories genuinely share nothing, which is exactly what
+makes the merge a pure union.
+
+**Two hazards that would bite silently, both contained by design.**
+
+*The gervazy leak.* Zinnia's crates enable `gervasius/features=["gervazy"]`;
+enigma deliberately does not, because it pulls fernet and then `openssl-sys` —
+the dependency step 19 went to trouble to remove. Cargo unifies features per
+workspace, so a root workspace globbing `apps/*/src-tauri` would re-introduce
+it into enigma. The root `Cargo.toml` therefore names its members explicitly
+and **excludes** `apps/enigma/src-tauri` and `protasius`, which keep their
+present independent-crate arrangement, their gitignored locks and enigma's MSRV
+pin. `protasius` stays at the repo root. Asserted by
+`cargo tree -p enigma | grep -c openssl-sys` being 0.
+
+*The workspace test script.* Enigma's root `test` is `npm run test
+--workspaces` with **no `--if-present`**, and `packages/petalite` and
+`packages/padova` have no `scripts` key at all — so that command breaks the
+moment they join the workspace. It gains `--if-present`, as zinnia's already
+has.
+
+**crypto_rotor comes back in-repo** (step 26), history intact, at
+`crates/rotor/`. It was extracted in step 17 for a reason that the monorepo
+dissolves: a dependency living outside the repo means a fresh clone cannot
+build and CI has nothing to fetch. `scripts/rotor_path.sh` survives as the
+`ROTOR_PATH` override; only its default moves in-repo. This also fixes a
+pre-existing bug found on the way — `protasius/Cargo.toml` names gervasius with
+one `../` too few, and builds today only because enigma's app crate declares
+its own correct path.
+
+**Separate build processes, as required.** `build_desktop.sh`, `run_dev.sh`,
+`run2.sh`, every existing `scripts/*.sh` and all of `tools/enigma_builder` are
+**not touched**. The zinnia apps get `scripts/zinnia/{build,run_dev,lib}.sh`
+taking an app argument, the way enigma's already-generic
+`scripts/build_android.sh` resolves `apps/${APP}`. CI gains its own matrix
+(`APP: [sketch, lazurite, primula]`) and its own cache key. One existing job
+does change behaviour without being edited: `node:vitest` runs
+`--workspaces` and will start covering zinnia's tests, which is intended.
+
+**Step 29 is the old step 22**, moved after the annexation on purpose: sketch's
+QR pairing is half-built, and finishing it here would mean polishing a repo
+about to be dissolved. It is committed as work-in-progress (step 22), travels
+with the import, and is made green in the monorepo — three failing convergence
+tests, a live two-endpoint test proving `Lagged` is surfaced, and session
+ownership above `EditorHost`.
+
+**Nothing is pushed, and no old repo is written to.** Every rewrite happens in
+a throwaway clone under `/tmp` made with `--no-local`, so the filter cannot
+reach the source through hardlinks. Zinnia, canonical rakotis and crypto_rotor
+are left in place, stale, to be deleted only when the user says so. `annex_zinnia`
+is tagged before the merge, so one `git reset --hard` returns to a named point.
+
+### Collaboration (20-21, 29-31)
 
 Goal: **every app collaborative except presentations.** Investigated
-2026-09-08; three findings decide the shape.
+2026-09-08; three findings decide the shape. Steps 20-21 landed here, in zinnia;
+steps 29-31 land in the monorepo, after the annexation.
 
 **The feature already exists, parked.** Sketch's own `sketchModel.ts:7-10`
 says so: *"This board was once a per-room collaborative surface backed by an

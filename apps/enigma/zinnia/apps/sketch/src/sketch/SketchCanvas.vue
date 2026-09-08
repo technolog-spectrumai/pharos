@@ -231,6 +231,7 @@ function onDown(e: PointerEvent) {
 
 function onMove(e: PointerEvent) {
   cursor.value = toBoard(e);
+  sketch.value.pointer.value = cursor.value;
   const d = drag.value;
   if (d.mode === "none") return;
 
@@ -404,6 +405,12 @@ const selfLiveD = computed(() => {
   return l ? pathD(l.pts) : "";
 });
 
+/** The peer's stroke in progress, arriving over a collaboration session. */
+const peerLiveD = computed(() => {
+  const l = sketch.value.peerLive.value;
+  return l ? pathD(l.pts) : "";
+});
+
 /** Selection chrome is drawn inside the shape's own rotate transform, so the box
  *  and handles turn with it. */
 const selectionTransform = computed(() => {
@@ -442,7 +449,7 @@ const boardSurfaceClass = computed(() =>
       @pointermove="onMove"
       @pointerup="onUp"
       @pointercancel="onUp"
-      @pointerleave="cursor = null"
+      @pointerleave="cursor = null; sketch.pointer.value = null"
     >
       <!-- A transparent board paints NOTHING here AND carries no surface class,
            so the widget's own background shows through untouched — drawing
@@ -555,6 +562,32 @@ const boardSurfaceClass = computed(() =>
         :opacity="sketch.currentOpacity.value"
         stroke-linecap="round"
         stroke-linejoin="round"
+      />
+
+      <!-- The peer's stroke in progress: ephemeral, never in the document. Drawn
+           a shade lighter, so it reads as "arriving" rather than "already there" -->
+      <path
+        v-if="peerLiveD"
+        :d="peerLiveD"
+        fill="none"
+        :stroke="sketch.peerLive.value!.color"
+        :stroke-width="sketch.peerLive.value!.sw"
+        :opacity="sketch.peerLive.value!.opacity * 0.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        data-testid="peer-live"
+      />
+      <!-- The peer's pointer -->
+      <circle
+        v-if="sketch.peerCursor.value"
+        :cx="sketch.peerCursor.value.x"
+        :cy="sketch.peerCursor.value.y"
+        r="7"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        opacity="0.5"
+        data-testid="peer-cursor"
       />
 
       <!-- Shape being dragged out -->
