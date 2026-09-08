@@ -21,9 +21,16 @@
 //! The `cloud` module — sign-in and the pinned-certificate TLS stack — used to
 //! be a third. It is parked in limbo/cloud; reviving it means putting back the
 //! crates its LIMBO.md lists, not just the file.
+//!
+//! `collab` is the second genuine case: a QUIC endpoint and a gossip topic are
+//! not things a webview can hold. It is behind the `collab` Cargo feature, off
+//! by default, so a build that does not collaborate links no iroh at all — and
+//! its five commands appear on the IPC surface only in a build that does.
 
 mod lock;
 mod secrets;
+#[cfg(feature = "collab")]
+mod collab;
 
 /// This app's locker. The service name is what the OS keyring files the
 /// passphrase under, and it is per app by decision — see `padova::Locker`.
@@ -32,10 +39,13 @@ pub(crate) const LOCKER: padova::Locker = padova::Locker::new("com.spectrumaipl.
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(feature = "collab")]
+    let builder = builder.manage(collab::CollabState::default());
+    builder
         .invoke_handler(tauri::generate_handler![
             lock::lock_file,
             lock::unlock_file,
@@ -43,6 +53,16 @@ pub fn run() {
             secrets::secret_remember,
             secrets::secret_forget,
             secrets::secret_status,
+            #[cfg(feature = "collab")]
+            collab::collab_host,
+            #[cfg(feature = "collab")]
+            collab::collab_join,
+            #[cfg(feature = "collab")]
+            collab::collab_send,
+            #[cfg(feature = "collab")]
+            collab::collab_close,
+            #[cfg(feature = "collab")]
+            collab::collab_status,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

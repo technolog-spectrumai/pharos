@@ -15,7 +15,7 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test:rust": "cargo test --workspace",
-    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net",
+    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo check -p sketch --features collab",
     "test:all": "npm run test && npm run test:rust && npm run test:rust:net"
   }
 }
