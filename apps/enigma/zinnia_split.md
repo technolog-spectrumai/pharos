@@ -61,18 +61,19 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 20 | restore the parked sketch CRDT | **done** |
 | 21 | collab crate hosts and joins a gossip topic | **done** |
 | 22 | sketch pairs by QR and draws with one peer | **done** |
-| 23 | annex: import zinnia history into enigma | todo |
-| 24 | annex: move the app set into place | todo |
-| 25 | annex: reconcile the monorepo root | todo |
-| 26 | annex: crypto_rotor comes in-repo | todo |
-| 27 | annex: all four apps green | todo |
-| 28 | annex: separate build scripts and CI | todo |
+| 23 | annex: import zinnia history into enigma | **done** |
+| 24 | annex: move the app set into place | **done** |
+| 25 | annex: reconcile the monorepo root | **done** |
+| 26 | annex: crypto_rotor comes in-repo | **done** |
+| 27 | annex: all four apps green | **done** |
+| 28 | annex: separate build scripts and CI | **done** |
 | 29 | live endpoint test and session ownership | todo |
 | 30 | MLS seals every collab frame | todo |
 | 31 | multi-person sync: N peers on a topic | todo |
-| 32 | one sketch editor, not two | todo |
-| 33 | one file-sealing frame | todo |
-| 34 | one theme and one i18n mechanism | todo |
+| 32 | split the maps app out of enigma | todo |
+| 33 | one sketch editor, not two | todo |
+| 34 | one file-sealing frame | todo |
+| 35 | one theme and one i18n mechanism | todo |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
 shared component library back under one canonical repo, so the next drift is a
@@ -893,23 +894,47 @@ taking an app argument, the way enigma's already-generic
 does change behaviour without being edited: `node:vitest` runs
 `--workspaces` and will start covering zinnia's tests, which is intended.
 
-**Step 22 landed green before the import**, which the plan had not assumed.
-Two bugs surfaced while making it so, both worth recording. Deleting the last
-shape on a board emitted a CLEAR rather than a delete, and since the CRDT's
-clear is a grow-only register that voids everything created before it, undoing
-your own delete was impossible; `clear` is now an explicit `CommitReason`, not
-inferred from "the list came back empty". And a convergence test asserted a
-fixed paint order for two shapes drawn in the same millisecond, which the
-author tiebreak decides — it flaked about one run in five and now asserts what
-it meant: both boards agree. What remains for step 29 is the live two-endpoint
-test proving `Lagged` is really surfaced (a sabotage of that arm still compiles
-and passes) and session ownership above `EditorHost`.
-
 **Nothing is pushed, and no old repo is written to.** Every rewrite happens in
 a throwaway clone under `/tmp` made with `--no-local`, so the filter cannot
 reach the source through hardlinks. Zinnia, canonical rakotis and crypto_rotor
 are left in place, stale, to be deleted only when the user says so. `annex_zinnia`
 is tagged before the merge, so one `git reset --hard` returns to a named point.
+
+**What actually happened, and where it diverged from the plan.** The import
+went as rehearsed: 348 commits under a `zinnia/` prefix, merge base NONE, zero
+conflicts, enigma's 320 app files and 53 builder files untouched. Five things
+were not foreseen:
+
+* **cargo auto-adopted gervasius.** With crypto_rotor imported to
+  `crates/rotor`, cargo pulled gervasius into the root workspace as a member —
+  the very mechanism that would unify features and hand enigma the `gervazy`
+  dependency. Observed, not theorised, and fixed by excluding `crates/rotor`,
+  which is its own workspace with its own committed lock. `cargo tree -p enigma
+  | grep -c openssl-sys` is asserted as 0 in CI now, not just checked once.
+* **vite 6 and 8 could not share one lockfile.** `vue-router@5.3.1` requires
+  vite 7 or 8, so enigma's own `^5.0.7` range already conflicted with its vite
+  6 — a latent problem the shared lockfile surfaced rather than caused. Enigma
+  and rakotis moved to vite 8; all four frontends build and all 1,547 tests
+  pass on it.
+* **`protasius` built standalone for the first time.** Its gervasius path had
+  one `../` too few and worked only because enigma's app crate declared its own
+  correct path. The in-repo import fixed it as a side effect.
+* **Six app scripts pointed at a `scripts/lib.sh` that had moved.** The shared
+  preflight now lives at `scripts/zinnia/lib.sh`, beside the two dispatchers.
+* **Zinnia's root `.gitignore` was nearly lost.** Three of its rules —
+  `**/gen/schemas/`, `dist-ssr/`, `*.local` — had no equivalent in enigma's and
+  were carried over deliberately; the first would otherwise have started
+  committing generated Tauri schemas.
+
+**Step 22 landed green before the import**, which the plan had not assumed. Two
+bugs surfaced while making it so, both worth recording. Deleting the last shape
+on a board emitted a CLEAR rather than a delete, and since the CRDT's clear is a
+grow-only register that voids everything created before it, undoing your own
+delete was impossible; `clear` is now an explicit `CommitReason`, not inferred
+from "the list came back empty". And a convergence test asserted a fixed paint
+order for two shapes drawn in the same millisecond, which the author tiebreak
+decides — it flaked about one run in five and now asserts what it meant: both
+boards agree.
 
 ### Collaboration (20-21, 29-31)
 
