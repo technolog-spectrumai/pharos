@@ -43,7 +43,7 @@ skips padova's doctest, which is the one guarding the passphrase property.
 | 15 | enigma re-points rakotis as a subtree | **done** |
 | 16 | zinnia pulls the updated rakotis subtree | **done** |
 | 17 | crypto_rotor becomes its own repo, history intact | **done** |
-| 18 | build scripts take a rotor path | todo |
+| 18 | build scripts take a rotor path | **done** |
 | 19 | one gervasius: merge the two forks | todo |
 | 20 | restore the parked sketch CRDT | todo |
 | 21 | collab crate hosts and joins a gossip topic | todo |
@@ -714,12 +714,38 @@ zinnia gets both as passengers inside the rakotis subtree
     Left alone deliberately: historical notes in `technology.md` §1297 and
     `map.md`, and `limbo/frontend/devices/sync.md` — parked docs describe the
     world as it was.
-18. `build scripts take a rotor path` — `build_desktop.sh`, `run_dev.sh`,
-    `scripts/build_android.sh` and `tools/enigma_builder/` gain a `ROTOR_PATH`
-    (env or `--rotor-path`), defaulting to a sibling checkout. **Cargo path
-    deps are static**, so the mechanism is either a generated `[patch]` section
-    or a documented checkout layout — decide at implementation time and record
-    which.
+18. `build scripts take a rotor path` — **done** (`b53c734`).
+    `scripts/rotor_path.sh` is sourced by `build_desktop.sh`, `run_dev.sh` and
+    `scripts/build_android.sh`; `resolve_rotor "$REPO_ROOT"` sets `ROTOR_PATH`
+    or exits 1 with an actionable message (clone URL, expected layout, the
+    override to use).
+
+    **The mechanism, decided by experiment rather than assumption.** Two
+    candidates were tested in a scratch crate and both results matter:
+
+    * **`[patch.crates-io]` does NOT work.** It patches *registry* sources;
+      these are *path* sources, so the dependency resolved to the original
+      crate and the patch was silently ignored. A plausible design that would
+      have failed quietly.
+    * **Environment variables are NOT expanded** in a manifest — a
+      `path = "${ROTOR_PATH}/…"` fails with "No such file or directory". So the
+      path cannot be parameterised in `Cargo.toml` at all.
+    * **`paths = [...]` in `.cargo/config.toml` DOES work** — it is the
+      documented override for path dependencies, and it redirected the build.
+
+    So: the **committed relative paths are the contract** (sibling layout, zero
+    configuration, what CI and a fresh clone get), and `ROTOR_PATH` is the
+    escape hatch that generates a gitignored `.cargo/config.toml`.
+
+    Four behaviours verified end to end: the default resolves and writes **no**
+    override; a custom `ROTOR_PATH` writes one and `cargo check` genuinely
+    compiles from there; **unsetting it removes the stale override** — which
+    matters, because a leftover file would silently win over the default; and a
+    wrong path fails with the message rather than a confusing cargo error deep
+    in the dependency graph. Enigma: 886 tests green.
+
+    The builder GUI (`tools/enigma_builder/`) needed no change beyond the help
+    text already fixed in step 17 — it does not invoke cargo directly.
 19. `one gervasius: merge the two forks` — zinnia's copy has `gervazy.rs` (the
     legacy sniffer `substrate::is_sealed_file` depends on), enigma's has
     `seal.rs` (X25519 sealing, `d02bc89`), and `lib.rs` differs. **Neither is a
