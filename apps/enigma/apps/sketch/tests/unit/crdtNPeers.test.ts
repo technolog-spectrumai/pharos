@@ -19,8 +19,8 @@ import {
   upsertShape,
   type SketchCrdt,
   type WireShape,
-} from "../../src/sketch/sketchCrdt";
-import type { Shape } from "../../src/sketch/sketchModel";
+} from "wisteria/sketchCrdt";
+import type { Shape } from "wisteria/sketchModel";
 
 function rect(id: string, x = 0): Shape {
   return { id, kind: "rect", color: "#000", sw: 2, opacity: 1, fill: null, rot: 0,

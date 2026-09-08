@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
-import SketchToolbar from "../../src/sketch/SketchToolbar.vue";
-import { createSketch, type Sketch } from "../../src/sketch/useSketch";
-import { ZOOM_STEPS } from "../../src/sketch/sketchModel";
-import { COLOR_ROLES, NEUTRALS, offeredColors } from "../../src/sketch/sketchPalette";
+import SketchToolbar from "wisteria/SketchToolbar.vue";
+import { createSketch, type Sketch } from "wisteria/useSketch";
+import { ZOOM_STEPS } from "wisteria/sketchModel";
+import { COLOR_ROLES, NEUTRALS, offeredColors } from "wisteria/sketchPalette";
 import { DEFAULT_PALETTE } from "petalite/theme";
 import { i18n } from "../../src/i18n";
 

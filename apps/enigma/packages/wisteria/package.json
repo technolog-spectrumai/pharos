@@ -1,0 +1,16 @@
+{
+  "name": "wisteria",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The drawing engine — the SVG model, the canvas, the toolbar and the codec, shared by every app that edits a drawing",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.vue": "./src/components/*.vue",
+    "./*": "./src/*"
+  },
+  "peerDependencies": {
+    "petalite": "*",
+    "vue": "^3.5.38"
+  }
+}

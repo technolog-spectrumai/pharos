@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLOR_ROLES, DEFAULT_INK, NEUTRALS, offeredColors } from "../../src/sketch/sketchPalette";
+import { COLOR_ROLES, DEFAULT_INK, NEUTRALS, offeredColors } from "wisteria/sketchPalette";
 import { DEFAULT_PALETTE, SYSTEM_ROLES } from "petalite/theme";
 
 describe("the sketch palette", () => {

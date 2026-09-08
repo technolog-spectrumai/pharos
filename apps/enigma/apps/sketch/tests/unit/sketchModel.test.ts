@@ -34,7 +34,7 @@ import {
   snapPointsOf,
   DEFAULT_HEAD_WIDTH,
   DEFAULT_CAPS,
-} from "../../src/sketch/sketchModel";
+} from "wisteria/sketchModel";
 
 const CAPS: SketchCaps = { maxShapes: 1000, maxTextLen: 200 };
 

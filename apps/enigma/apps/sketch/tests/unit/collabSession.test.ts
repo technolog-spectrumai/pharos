@@ -2,7 +2,7 @@
 // network — the bus models what crates/collab enforces (tests/helpers/fakeBus.ts),
 // and these are the properties the plan asked for, one test each.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSketch, type Sketch } from "../../src/sketch/useSketch";
+import { createSketch, type Sketch } from "wisteria/useSketch";
 import { createCollabSession } from "../../src/collab/useCollabSession";
 import { makeFakeNet, SAS } from "../helpers/fakeBus";
 

@@ -14,8 +14,8 @@
 // reachable, not inferred from whichever theme happens to be on now.
 import { computed, ref, watch } from "vue";
 import SketchPickerModal from "./SketchPickerModal.vue";
-import { SKETCH_TOOLS } from "./tools";
-import { DEFAULT_HEAD_WIDTH } from "./sketchModel";
+import { SKETCH_TOOLS } from "../tools";
+import { DEFAULT_HEAD_WIDTH } from "../sketchModel";
 import SketchPickerTrigger from "./SketchPickerTrigger.vue";
 import {
   BACKGROUND_COLORS,
@@ -24,9 +24,9 @@ import {
   STROKE_SIZES,
   TEXT_SIZES,
   ZOOM_STEPS,
-} from "./sketchModel";
-import { useSketchColors } from "./sketchPalette";
-import type { Sketch } from "./useSketch";
+} from "../sketchModel";
+import { useSketchColors } from "../sketchPalette";
+import type { Sketch } from "../useSketch";
 import type { Tool } from "./SketchCanvas.vue";
 import { OyaIconButton } from "petalite/primitives";
 

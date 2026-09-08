@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import "../../src/icons"; // performs library.add as a side effect
 import { APP_TABS } from "../../src/tabs";
-import { SKETCH_TOOLS } from "../../src/sketch/tools";
+import { SKETCH_TOOLS } from "wisteria/tools";
 
 const SRC = join(__dirname, "../../src");
 /** The repo root is two levels above the app now. */

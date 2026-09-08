@@ -44,6 +44,15 @@
       ],
       "padova": [
         "../../packages/padova/src/index.ts"
+      ],
+      "wisteria/*.vue": [
+        "../../packages/wisteria/src/components/*.vue"
+      ],
+      "wisteria/*": [
+        "../../packages/wisteria/src/*"
+      ],
+      "wisteria": [
+        "../../packages/wisteria/src/index.ts"
       ]
     }
   },

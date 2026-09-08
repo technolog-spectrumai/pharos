@@ -28,6 +28,11 @@ export default defineConfig({
       // because the components live one directory deeper than the subpaths:
       // "petalite/ModalPanel.vue" is src/components/ModalPanel.vue, while
       // "petalite/theme" is src/theme/. Both mirror package.json's `exports`.
+      // The `.vue` rule FIRST, for the reason petalite documents: components
+      // sit one directory deeper than the subpath exports.
+      { find: /^wisteria\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/components/$1", import.meta.url)) },
+      { find: /^wisteria\/(.*)/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/$1", import.meta.url)) },
+      { find: /^wisteria$/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/index.ts", import.meta.url)) },
       { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/petalite/src/components/$1", import.meta.url)) },
       { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("../../packages/petalite/src/$1", import.meta.url)) },
       { find: /^petalite$/, replacement: fileURLToPath(new URL("../../packages/petalite/src/index.ts", import.meta.url)) },
@@ -37,7 +42,7 @@ export default defineConfig({
       { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("../../packages/rakotis/src/$1", import.meta.url)) },
     ],
   },
-  optimizeDeps: { exclude: ["rakotis", "petalite", "padova"] },
+  optimizeDeps: { exclude: ["rakotis", "petalite", "padova", "wisteria"] },
 
   // Don't let Vite's overlay hide Rust compiler errors during `tauri dev`.
   clearScreen: false,

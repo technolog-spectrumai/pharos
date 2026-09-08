@@ -17,7 +17,14 @@
     /* Shared workspace packages resolved as source */
     "baseUrl": ".",
     "paths": {
-      "rakotis": ["../../node_modules/rakotis/src/index.ts"]
+      "rakotis": ["../../node_modules/rakotis/src/index.ts"],
+      "rakotis/*": ["../../packages/rakotis/src/*"],
+      "wisteria/*.vue": ["../../packages/wisteria/src/components/*.vue"],
+      "wisteria/*": ["../../packages/wisteria/src/*"],
+      "wisteria": ["../../packages/wisteria/src/index.ts"],
+      "petalite/*.vue": ["../../packages/petalite/src/components/*.vue"],
+      "petalite/*": ["../../packages/petalite/src/*"],
+      "petalite": ["../../packages/petalite/src/index.ts"]
     },
 
     /* Linting */

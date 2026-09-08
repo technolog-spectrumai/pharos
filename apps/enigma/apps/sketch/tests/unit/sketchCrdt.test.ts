@@ -3,8 +3,8 @@ import {
   authorOf, clearAll, compareEntries, deleteShapes, emptyCrdt, gcTombstones,
   liveShapes, makeClock, mergeSnapshot, truncateSnapshot, upsertShape,
   type SketchCrdt, type SnapshotWire, type WireShape,
-} from "../../src/sketch/sketchCrdt";
-import type { Shape } from "../../src/sketch/sketchModel";
+} from "wisteria/sketchCrdt";
+import type { Shape } from "wisteria/sketchModel";
 
 // The CRDT laws, restored with the engine from
 // `enigma/limbo/frontend/sketch-collab/sketchModel.crdt.spec.ts`.

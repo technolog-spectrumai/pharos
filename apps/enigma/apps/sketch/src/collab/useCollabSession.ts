@@ -28,8 +28,8 @@
 // is not synchronised at all: a data URL of up to 9 MB has no place in a
 // gossip message, and the peer sees a plain board where the host sees a photo.
 import { ref, watch, type Ref, type WatchStopHandle } from "vue";
-import type { Shape } from "../sketch/sketchModel";
-import type { CommitReason, LiveStroke, Sketch } from "../sketch/useSketch";
+import type { Shape } from "wisteria/sketchModel";
+import type { CommitReason, LiveStroke, Sketch } from "wisteria/useSketch";
 import {
   clearAll,
   deleteShapes,
@@ -43,7 +43,7 @@ import {
   type SketchCrdt,
   type SnapshotWire,
   type WireShape,
-} from "../sketch/sketchCrdt";
+} from "wisteria/sketchCrdt";
 import {
   collabErrorKey,
   fromBytes,

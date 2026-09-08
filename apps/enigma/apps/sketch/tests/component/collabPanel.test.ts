@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import CollabPanel from "../../src/collab/CollabPanel.vue";
 import { createCollabSession } from "../../src/collab/useCollabSession";
-import { createSketch } from "../../src/sketch/useSketch";
+import { createSketch } from "wisteria/useSketch";
 import { i18n } from "../../src/i18n";
 import { makeFakeNet, SAS } from "../helpers/fakeBus";
 

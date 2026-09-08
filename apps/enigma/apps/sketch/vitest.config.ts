@@ -10,6 +10,7 @@ const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 // contract is snapshot-in/snapshot-out, which the stub honours exactly.
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("../../packages/rakotis/src", import.meta.url).pathname;
+const wisteriaSrc = new URL("../../packages/wisteria/src", import.meta.url).pathname;
 const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
 const padovaSrc = new URL("../../packages/padova/src", import.meta.url).pathname;
 
@@ -20,6 +21,9 @@ export default defineConfig({
       // Mirrors vite.config.ts, and the ORDER is load-bearing for the same
       // reason: the `.vue` components sit one directory deeper than the
       // subpath exports, and Vite takes the first alias that matches.
+      { find: /^wisteria\/(.*\.vue)$/, replacement: `${wisteriaSrc}/components/$1` },
+      { find: /^wisteria\/(.*)/, replacement: `${wisteriaSrc}/$1` },
+      { find: /^wisteria$/, replacement: `${wisteriaSrc}/index.ts` },
       { find: /^petalite\/(.*\.vue)$/, replacement: `${petaliteSrc}/components/$1` },
       { find: /^petalite\/(.*)/, replacement: `${petaliteSrc}/$1` },
       { find: /^petalite$/, replacement: `${petaliteSrc}/index.ts` },

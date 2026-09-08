@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
-import SketchCanvas from "../../src/sketch/SketchCanvas.vue";
-import { createSketch, type Sketch } from "../../src/sketch/useSketch";
+import SketchCanvas from "wisteria/SketchCanvas.vue";
+import { createSketch, type Sketch } from "wisteria/useSketch";
 import { i18n } from "../../src/i18n";
 
 let sketch: Sketch;

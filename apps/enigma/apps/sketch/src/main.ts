@@ -1,3 +1,9 @@
+// The engine writes files through whatever the app gives it — this app has
+// the fs plugin, enigma does not. See packages/wisteria/README.md.
+import { setWriteFile } from "wisteria/sketchExport";
+import { writeFile } from "@tauri-apps/plugin-fs";
+setWriteFile((path, bytes) => writeFile(path, bytes));
+
 // FIRST: registers the fatal-error handlers before anything else evaluates.
 import { installVueErrorHandler } from "petalite";
 import { createApp } from "vue";

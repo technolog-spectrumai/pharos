@@ -1,7 +1,18 @@
 // Sketch export and image import — everything that needs a canvas, the DOM, or
 // Tauri. Kept out of sketchModel.ts so that stays a pure, testable module.
 
-import { writeFile } from "@tauri-apps/plugin-fs";
+// How a file reaches the disk is the APP's business, not this engine's, and
+// the two consumers genuinely differ: zinnia has `@tauri-apps/plugin-fs`,
+// enigma has no such plugin and writes through its own Rust command. Injected
+// rather than imported, the same way `petalite/files` takes a seal probe.
+export type WriteFile = (path: string, bytes: Uint8Array) => Promise<void>;
+
+let writeFileImpl: WriteFile | null = null;
+
+/** Install the app's file writer. Called once, at startup. */
+export function setWriteFile(fn: WriteFile | null) {
+  writeFileImpl = fn;
+}
 import {
   arrowHead,
   BOARD_H,
@@ -132,13 +143,12 @@ export async function exportPng(
   const { save } = await import("@tauri-apps/plugin-dialog");
   const path = await save({ defaultPath: defaultName, filters: [{ name: "PNG", extensions: ["png"] }] });
   if (!path) return false;
-  // Decode here and hand plugin-fs real bytes — enigma instead shipped the
-  // base64 to a custom Rust command, which zinnia deliberately does not have.
+  if (!writeFileImpl) throw new Error("no writer installed — call setWriteFile at startup");
   const b64 = stripDataUrl(dataUrl);
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  await writeFile(path, bytes);
+  await writeFileImpl(path, bytes);
   return true;
 }
 

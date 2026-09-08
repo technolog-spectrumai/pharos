@@ -6,8 +6,8 @@ import {
   shapesOf,
   withShapes,
   type MeasureText,
-} from "../../src/sketch/svgDocument";
-import { emptyDoc, toSvg, type Shape } from "../../src/sketch/sketchModel";
+} from "wisteria/svgDocument";
+import { emptyDoc, toSvg, type Shape } from "wisteria/sketchModel";
 
 // The editor opens REAL .svg files, so this module is both a round-trip
 // guarantee and an untrusted-input boundary.

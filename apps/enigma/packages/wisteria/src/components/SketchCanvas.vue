@@ -28,8 +28,8 @@ import {
   type ArrowShape,
   nearestSnap,
   snapPoints,
-} from "./sketchModel";
-import type { Sketch } from "./useSketch";
+} from "../sketchModel";
+import type { Sketch } from "../useSketch";
 
 export type Tool =
   | "select" | "draw" | "rect" | "ellipse" | "triangle" | "line" | "arrow"

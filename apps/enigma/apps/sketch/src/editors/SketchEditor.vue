@@ -6,17 +6,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import ModalPanel from "petalite/ModalPanel.vue";
 import { useI18n } from "vue-i18n";
-import SketchCanvas, { type Tool } from "../sketch/SketchCanvas.vue";
-import SketchToolbar from "../sketch/SketchToolbar.vue";
-import { createSketch, type Sketch } from "../sketch/useSketch";
+import SketchCanvas, { type Tool } from "wisteria/SketchCanvas.vue";
+import SketchToolbar from "wisteria/SketchToolbar.vue";
+import { createSketch, type Sketch } from "wisteria/useSketch";
 import {
   emptySvgDocument,
   parseSvgDocument,
   type MeasureText,
   type ParseRefusal,
-} from "../sketch/svgDocument";
-import { SVG_FONT_STACK } from "../sketch/sketchModel";
-import { backgroundImageFromFile, exportPng } from "../sketch/sketchExport";
+} from "wisteria/svgDocument";
+import { SVG_FONT_STACK } from "wisteria/sketchModel";
+import { backgroundImageFromFile, exportPng } from "wisteria/sketchExport";
 import { OyaButton, OyaModal, OyaTextField } from "petalite/primitives";
 // The collaboration session follows the drawing on screen: it is attached to
 // each new orchestrator and detached when this editor goes, and a change of
