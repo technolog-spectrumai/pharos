@@ -26,6 +26,10 @@ if [[ -z "${APP}" ]]; then
 fi
 
 APP_DIR="$(realpath "${SCRIPT_DIR}/../apps/${APP}" 2>/dev/null || true)"
+
+# The crypto crates live in their own repo (sibling checkout by default).
+. "${SCRIPT_DIR}/rotor_path.sh"
+resolve_rotor "$(cd "${SCRIPT_DIR}/.." && pwd)"
 if [[ -z "${APP_DIR}" || ! -d "${APP_DIR}/src-tauri" ]]; then
   echo "ERROR: no Tauri app '${APP}' under apps/ (expected ${APP_DIR}/src-tauri)" >&2
   exit 1
