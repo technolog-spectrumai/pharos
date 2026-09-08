@@ -1372,6 +1372,18 @@ Per feature:
   loopback cannot produce the backpressure that fires it. Guarded by review,
   not by the suite — do not read a green run as proof it works.
 * **Nothing is pushed.** Four repos, all local: this one on `annex_zinnia` with
-  `pre_annex` as the rollback tag, and the three stale sources
-  (`dev/zinnia`, `dev/rakotis`, `dev/rotor/crypto_rotor`) left untouched until
-  you say they can go.
+  `pre_annex` as the rollback tag; `dev/zinnia` and `dev/rotor/crypto_rotor`
+  marked CLOSED in their READMEs and awaiting deletion; and `dev/rakotis`,
+  which is **not** closed — it is still the subtree's upstream.
+
+**The subtree contract was broken once, and it is worth knowing how.** Step 25
+bumped vite to 8 across the workspace with a script that walked every
+`package.json`, and `packages/rakotis/package.json` is one — so the change
+landed *downstream*, where a `subtree pull` would have silently reverted it.
+The same script's `json.dumps` also escaped an em-dash in that file's
+description to `\u2014`. Both were caught by diffing the subtree against
+canonical (`git rev-parse HEAD:packages/rakotis` against the upstream tree
+hash) rather than by any test — nothing here would have failed. The em-dash was
+restored, the vite bump was replayed onto canonical as `1adbb7b`, and the trees
+are identical again. **A tree-hash comparison is the only thing that catches
+this**; add it to any sweep that edits files by glob.
