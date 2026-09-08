@@ -16,7 +16,7 @@ import { FALLBACK_HP_POLICY as MIRROR } from "../../src/services/hp";
 /** Walk up from the working directory to the monorepo root and take the YAML
  *  from there. `import.meta.url` is not a file: URL under the jsdom environment
  *  these tests run in, so the lookup is done by path instead. */
-function findPolicyYaml(): string | null {
+function findPolicyYaml(): string {
   const rel = "apps/enigma/src-tauri/privacy_hp.yaml";
   let dir = process.cwd();
   for (let i = 0; i < 6; i++) {
@@ -26,23 +26,17 @@ function findPolicyYaml(): string | null {
     if (up === dir) break;
     dir = up;
   }
-  return null;
+  // NOT a skip any more. This package used to be a git subtree with a life of
+  // its own outside enigma, and a standalone checkout had no price table to
+  // check against — so the suite skipped, and twelve real assertions with it.
+  // It is an ordinary in-repo package now: the YAML is always two directories
+  // up, and its absence is a broken checkout, not a supported configuration.
+  throw new Error(`${rel} not found from ${process.cwd()} — is this a full checkout?`);
 }
 
-/** The YAML lives in the APP that owns the price table, not in this package.
- *  Inside enigma's monorepo it is found and every value is checked; in a
- *  standalone checkout of this library there is nothing to check against, so
- *  the suite skips rather than fails. It must never skip inside enigma — the
- *  guard at the end of this file makes that impossible to do by accident. */
+/** The YAML lives in the APP that owns the price table, not in this package —
+ *  but both are in this repo, so it is always reachable. */
 const YAML_PATH = findPolicyYaml();
-
-/** Stands in when the app's YAML is not reachable, so the module can load and
- *  the suite can skip. Never reaches an assertion — the skip sees to that. */
-const EMPTY_YAML = {
-  version: 0, confirm_at_hp: 0, scale: {}, meters: {}, actions: [],
-  recovery: { daily_cap: 0, window_days: 0, window_cap: 0, fixed: [],
-    data: { per_mib: 0, min_award: 0, max_per_event: 0, daily_cap: 0, window_cap: 0, sources: [] } },
-};
 
 interface RawAction {
   id: string;
@@ -54,7 +48,7 @@ interface RawAction {
   explain_key: string;
 }
 
-const yaml = (YAML_PATH ? parse(readFileSync(YAML_PATH, "utf8")) : EMPTY_YAML) as {
+const yaml = parse(readFileSync(YAML_PATH, "utf8")) as {
   version: number;
   confirm_at_hp: number;
   scale: Record<string, number>;
@@ -83,7 +77,7 @@ const centi = (hp: number) => Math.round(hp * 100);
 const costCenti = (cost: number | string) =>
   typeof cost === "number" ? centi(cost) : centi(yaml.scale[cost]);
 
-describe.skipIf(!YAML_PATH)("the mirror matches privacy_hp.yaml", () => {
+describe("the mirror matches privacy_hp.yaml", () => {
   it("agrees on the meters", () => {
     expect(MIRROR.version).toBe(yaml.version);
     expect(MIRROR.confirmAtCenti).toBe(centi(yaml.confirm_at_hp));
@@ -133,7 +127,7 @@ describe.skipIf(!YAML_PATH)("the mirror matches privacy_hp.yaml", () => {
   });
 });
 
-describe.skipIf(!YAML_PATH)("the YAML holds to its own rules", () => {
+describe("the YAML holds to its own rules", () => {
   it("keeps the ladder fixed", () => {
     // Halved 2026-08-24. Pinned as literals because the RATIOS between rungs
     // are what make prices comparable — re-tuning one silently is the thing this
@@ -208,12 +202,12 @@ describe.skipIf(!YAML_PATH)("the YAML holds to its own rules", () => {
 });
 
 describe("the drift guard itself", () => {
-  it("is not skipped inside the app that owns the price table", () => {
-    // A skip is correct in a standalone checkout of this library and WRONG in
-    // enigma: there, a silently skipped drift check is the same as no check.
-    const insideEnigma = existsSync(resolve(process.cwd(), "apps/enigma"))
-      || existsSync(resolve(process.cwd(), "../../apps/enigma"));
-    if (insideEnigma) expect(YAML_PATH).not.toBeNull();
-    else expect(YAML_PATH).toBeNull();
+  it("actually found the price table", () => {
+    // These twelve assertions used to skip themselves whenever the YAML was
+    // not reachable, which was every run outside enigma — and a silently
+    // skipped drift check is the same as no check. Now the lookup throws
+    // instead, and this is the belt to that brace.
+    expect(YAML_PATH).toContain("privacy_hp.yaml");
+    expect(existsSync(YAML_PATH)).toBe(true);
   });
 });

@@ -1,14 +1,15 @@
 // The rakotis primitives, re-exported.
 //
-// `packages/rakotis` is a git SUBTREE: it is pulled from its own remote and
-// never edited here. Apps import these four from Petalite rather than reaching
-// into the subtree by path, so there is exactly one place that knows where
-// rakotis lives — which is what makes the alias a per-app build detail instead
-// of a string repeated across every editor.
+// `packages/rakotis` is an ordinary package in this repo. It WAS a git subtree
+// pulled from its own remote, and that stopped being true once its code could
+// only be tested here: twelve of its own assertions read enigma's price table
+// and skipped themselves everywhere else. Apps still import these five through
+// Petalite rather than by path, so there is exactly one place that knows where
+// rakotis lives — a build detail, not a string repeated across every editor.
 //
 // FIVE components, not the barrel. `rakotis/src/index.ts` re-exports the whole
 // P2P/MLS/chat surface; taking pieces keeps the graph to what is actually used.
-// OyaQrCode lazy-imports `qrcode`, which the subtree declares but nothing
+// OyaQrCode lazy-imports `qrcode`, which rakotis declares but nothing
 // installs — an app that shows a QR must declare `qrcode` ITSELF (Sketch does,
 // for pairing), or the import fails at the moment a code is first shown.
 //

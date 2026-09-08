@@ -1,3 +1,13 @@
+> **Part of this repo.** Rakotis was a git subtree pulled from its own remote
+> until 2026-09-08. That stopped being honest once its code could only be
+> exercised here: twelve of its own assertions read
+> `apps/enigma/src-tauri/privacy_hp.yaml` and skipped themselves in every
+> standalone checkout, so the library's suite reported green while a third of
+> its price-table coverage never ran. Edit it here, like any other package.
+>
+> The old upstream at `dev/rakotis` is closed. Its history is this directory's
+> history — nothing was lost.
+
 # Rakotis
 
 Reusable app primitives for Enigma26 (and any other Vite + Vue 3 app).

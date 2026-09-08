@@ -28,8 +28,11 @@ const PACKAGES = join(__dirname, "../../../../packages");
  *  `SecurityView.vue` proved that twice, moving into Petalite and then into
  *  Padova; both times the suite stayed green and two cases quietly vanished.
  *
- *  `rakotis` is excluded: it is a git subtree with its own tests, and its icon
- *  set is its own concern. */
+ *  `rakotis` is excluded, and the reason has changed: it used to be a git
+ *  subtree with a life of its own. It is an ordinary package here now, but its
+ *  icons are still registered by ENIGMA's library rather than by these apps —
+ *  scanning it would demand names none of these three has any reason to carry.
+ *  Enigma's own icons.test.ts is what covers it. */
 const ROOTS: ReadonlyArray<readonly [string, string]> = [
   ["src", SRC] as const,
   ...readdirSync(PACKAGES)
