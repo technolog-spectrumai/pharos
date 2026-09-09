@@ -75,6 +75,13 @@ describe("this app's IPC surface", () => {
       // six-digit auth string, or a status — the document itself only ever
       // moves as frames the session's admission gate has passed.
       "collab_host", "collab_join", "collab_send", "collab_close", "collab_status",
+      // Persistence, behind the `persist` Cargo feature (off by default). Three
+      // shims over crates/hoard. None of them reads or writes anything but a
+      // board: `board_save` takes an id and opaque document bytes, so this
+      // surface cannot put a key, a ticket or a peer id on disk even by
+      // accident — which is what keeps the collaboration layer's "no group key
+      // persisted, no stable identity" decisions true.
+      "board_save", "board_load", "board_forget",
     ]);
     const unexpected = registered().filter((n) => !ALLOWED.has(n));
     expect(unexpected).toEqual([]);

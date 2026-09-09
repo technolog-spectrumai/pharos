@@ -85,6 +85,12 @@ export default {
     browserNote: "Działa w przeglądarce — pliki otwierają się z dysku, a zapis trafia do pobranych.",
     rawView: "Ten plik otwarto jako czysty tekst, żeby niczego nie zgubić. Edycja w tym widoku jeszcze nie działa.",
   },
+  persist: {
+    errors: {
+      store_failed: "Nie udało się zapisać rysunku na tym komputerze.",
+      board_damaged: "Nie udało się odczytać zapisanej kopii rysunku.",
+    },
+  },
   collab: {
     title: "Rysujcie razem",
     intro: "Połącz ten rysunek z jedną drugą osobą. Rysujecie na tej samej tablicy i każde z was może ją zapisać.",

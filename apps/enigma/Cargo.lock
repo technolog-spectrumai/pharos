@@ -6288,6 +6288,7 @@ name = "sketch"
 version = "0.1.0"
 dependencies = [
  "collab",
+ "hoard",
  "log",
  "padova",
  "serde",

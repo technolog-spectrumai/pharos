@@ -85,6 +85,12 @@ export default {
     browserNote: "Running in a browser — files open from and save to downloads.",
     rawView: "This file opened as raw text so nothing gets lost. Editing it here is not supported yet.",
   },
+  persist: {
+    errors: {
+      store_failed: "Could not save the drawing to this computer.",
+      board_damaged: "The saved copy of this drawing could not be read.",
+    },
+  },
   collab: {
     title: "Draw together",
     intro: "Pair this drawing with one other person. You both draw on the same board, and either of you can save it.",

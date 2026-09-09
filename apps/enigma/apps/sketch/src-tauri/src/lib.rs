@@ -31,6 +31,8 @@ mod lock;
 mod secrets;
 #[cfg(feature = "collab")]
 mod collab;
+#[cfg(feature = "persist")]
+mod persist;
 
 /// This app's locker. The service name is what the OS keyring files the
 /// passphrase under, and it is per app by decision — see `padova::Locker`.
@@ -45,6 +47,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init());
     #[cfg(feature = "collab")]
     let builder = builder.manage(collab::CollabState::default());
+    #[cfg(feature = "persist")]
+    let builder = builder.manage(persist::PersistState::default());
     builder
         .invoke_handler(tauri::generate_handler![
             lock::lock_file,
@@ -63,6 +67,12 @@ pub fn run() {
             collab::collab_close,
             #[cfg(feature = "collab")]
             collab::collab_status,
+            #[cfg(feature = "persist")]
+            persist::board_save,
+            #[cfg(feature = "persist")]
+            persist::board_load,
+            #[cfg(feature = "persist")]
+            persist::board_forget,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

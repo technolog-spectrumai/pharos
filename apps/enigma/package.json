@@ -18,7 +18,7 @@
     "build:zinnia": "bash scripts/zinnia/build.sh",
     "build:frontends": "npm run build --workspaces --if-present",
     "test:rust": "cargo test --workspace",
-    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\" && cargo check -p sketch --features collab && cargo check -p sketch --features collab-mls",
+    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\" && cargo check -p sketch --features collab && cargo check -p sketch --features collab-mls && cargo check -p sketch --features persist",
     "test:all": "npm run test && npm run test:rust && npm run test:rust:net",
     "builder:zinnia": "bash scripts/zinnia/builder.sh"
   }
