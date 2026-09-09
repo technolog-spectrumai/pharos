@@ -44,6 +44,7 @@ import {
   type SnapshotWire,
   type WireShape,
 } from "wisteria/sketchCrdt";
+import { persistErrorKey, type BoardStore } from "./persist";
 import {
   collabErrorKey,
   fromBytes,
@@ -141,7 +142,18 @@ function same(a: Shape, b: Shape): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export function createCollabSession(transport: CollabTransport, opts: { me?: string } = {}) {
+/** How long after the last change the board is written.
+ *
+ *  A whole drag, a burst of erases and a paste all settle into ONE write. The
+ *  store batches and fsyncs once per call — 19.5 µs batched against 3.4 ms
+ *  fsynced per key, measured — so the debounce is not about the cost of a
+ *  write, it is about not doing two hundred of them for one gesture. */
+export const SAVE_DEBOUNCE_MS = 500;
+
+export function createCollabSession(
+  transport: CollabTransport,
+  opts: { me?: string; store?: BoardStore | null; boardId?: () => string } = {},
+) {
   /** This peer's author id — the LWW tie-break and the undo boundary. Random
    *  per session rather than the endpoint id, which is not known until the
    *  transport is up and would tie authorship to a network identity. */
@@ -183,7 +195,10 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
 
   function fail(err: unknown) {
     const message = (err as Error)?.message ?? String(err);
-    error.value = collabErrorKey(message) ?? message;
+    // Two catalogues reach this: the transport's and the store's. A prefix in
+    // neither is shown verbatim, because a filesystem message names the actual
+    // problem better than "something failed" would.
+    error.value = collabErrorKey(message) ?? persistErrorKey(message) ?? message;
   }
 
   async function send(frame: WireFrame) {
@@ -245,7 +260,10 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
         }
       }
     }
+    // Outside a session there is nobody to send to; `send` no-ops and the
+    // ops still land in the CRDT, which is what gets written.
     for (const op of ops) void sendOp(op);
+    if (ops.length) scheduleSave();
     return liveShapes(crdt);
   }
 
@@ -286,12 +304,81 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
         return; // no shape changed
     }
     sketch.applyRemote(liveShapes(crdt));
+    // A peer's change is as much a reason to write as our own.
+    scheduleSave();
   }
 
   function setBoard(width: number, height: number) {
     if (!sketch) return;
     if (sketch.envelope.value.width === width && sketch.envelope.value.height === height) return;
     sketch.envelope.value = { ...sketch.envelope.value, width, height };
+  }
+
+  // ── the board on disk ──────────────────────────────────────────────────
+  // Only the DOCUMENT is written: the same `SnapshotBody` that goes on the
+  // wire, carrying the shapes, the tombstones, the clear cutoff, the board
+  // size and the background colour. Nothing else may be stored — no group key,
+  // no ticket, no endpoint or author id — because the MLS layer declines to
+  // persist a group key and the transport keeps its identity ephemeral on
+  // purpose, and writing either here would quietly reverse both.
+  const store = opts.store ?? null;
+  const boardId = opts.boardId ?? (() => "current");
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The document as it would go on the wire, which is also how it is stored. */
+  function documentBody(): SnapshotBody {
+    return {
+      snap: {
+        v: SKETCH_WIRE_V,
+        entries: crdt.entries,
+        tombs: Object.entries(crdt.tombstones),
+        clearedAt: crdt.clearedAt,
+        truncated: false,
+        width: sketch?.boardW.value ?? 0,
+        height: sketch?.boardH.value ?? 0,
+      },
+      // Read from the board rather than from `bg`, which is only maintained
+      // while a session is running — its watcher lives in `hook()`. Outside a
+      // session the board itself is the truth, and inside one the two agree.
+      bg: sketch ? { ...bg, color: sketch.doc.value.background } : bg,
+    };
+  }
+
+  async function saveNow() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    if (!store || !sketch) return;
+    try {
+      await store.save(boardId(), JSON.stringify(documentBody()));
+    } catch (err) {
+      // A failed autosave must not take the session down with it — the board
+      // is still on screen and still shared. Surfaced, not swallowed.
+      fail(err);
+    }
+  }
+
+  /** Ask for a save; the last request in a burst is the one that lands. */
+  function scheduleSave() {
+    if (!store) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void saveNow(), SAVE_DEBOUNCE_MS);
+  }
+
+  /** Restore what was stored for this board, MERGED rather than replacing, so
+   *  a board drawn on since the last write keeps that work. */
+  async function restore(): Promise<boolean> {
+    if (!store || !sketch) return false;
+    try {
+      const raw = await store.load(boardId());
+      if (!raw) return false;
+      applySnapshot(JSON.parse(raw) as SnapshotBody);
+      return true;
+    } catch (err) {
+      fail(err);
+      return false;
+    }
   }
 
   async function sendSnapshot() {
@@ -530,6 +617,12 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
     unhook();
     sketch = s;
     attached.value = s !== null;
+    // Autosave does NOT wait for a session. `hook()` installs the commit
+    // observer when pairing starts, which would mean a drawing nobody is
+    // sharing never gets written — and a solo drawing is the common case. With
+    // a store present the observer goes on at attach, and `hook()` re-installs
+    // the same one when a session begins.
+    if (s && store && phase.value === "idle") s.observeCommits(onCommit);
   }
 
   /** Release `s`, but only if it is still the bound drawing. See `attach`. */
@@ -580,6 +673,9 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
 
   async function leave() {
     if (phase.value === "idle") return;
+    // Before the session state goes: a pending debounce would otherwise lose
+    // whatever was drawn in the last half second.
+    await saveNow();
     try {
       await transport.close();
     } catch {
@@ -601,6 +697,8 @@ export function createCollabSession(transport: CollabTransport, opts: { me?: str
     attached,
     attach,
     detach,
+    restore,
+    saveNow,
     host,
     join,
     accept,
