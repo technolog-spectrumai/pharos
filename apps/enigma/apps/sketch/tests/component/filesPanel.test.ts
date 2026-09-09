@@ -163,9 +163,10 @@ describe("the files panel", () => {
     expect(opened.name).toBe("drawing.svg");
   });
 
-  it("opens a file no editor claims as plain text", async () => {
-    // Nothing is unopenable any more. Refusing would be the app deciding a
-    // file is none of the user's business, and the Code tab reads anything.
+  it("says so for a file no editor here claims", async () => {
+    // This app used to open anything as source text. With the Code tab gone it
+    // has no editor for a `.log`, and the row says "cannot open that kind of
+    // file" rather than routing it into a drawing canvas.
     tree({ [ROOT]: [["server.log", false]] });
     readTextFile.mockResolvedValue("started");
     const workspace = await withRoot();
@@ -176,9 +177,8 @@ describe("the files panel", () => {
 
     await w.get('[data-testid="files-row-server.log"]').trigger("click");
     await settle();
-    const opened = w.emitted("open")?.[0][0] as { kind: string; name: string };
-    expect(opened.kind).toBe("code");
-    expect(opened.name).toBe("server.log");
+    expect(w.emitted("open")).toBeUndefined();
+    expect(w.text()).toContain(i18n.global.t("files.cannotOpen"));
   });
 
   it("reads a picture as bytes, not as text", async () => {
@@ -198,8 +198,11 @@ describe("the files panel", () => {
     expect(readFile).toHaveBeenCalledWith(`${ROOT}/photo.png`);
     expect(readTextFile).not.toHaveBeenCalled();
 
+    // Routed to the SKETCH tab now — the only one left. Its host shows a
+    // picture through the viewer that outlived the Code tab rather than
+    // handing PNG bytes to the SVG parser.
     const opened = w.emitted("open")?.[0][0] as { kind: string; content: string };
-    expect(opened.kind).toBe("code");
+    expect(opened.kind).toBe("sketch");
     expect(opened.content).toBe("data:image/png;base64,iVBORw==");
   });
 

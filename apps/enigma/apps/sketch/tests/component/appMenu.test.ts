@@ -127,7 +127,9 @@ describe("keyboard shortcuts across tabs", () => {
     await flushPromises();
 
     // Switch away, then check the one left behind is still mounted and inert.
-    await w.get('[data-testid="nav-code"]').trigger("click");
+    // Settings, not the Code tab — that one was removed, and any tab that is
+    // not the sketch serves to move it off screen.
+    await w.get('[data-testid="nav-settings"]').trigger("click");
     await flushPromises();
     const sketch = w.findComponent({ name: "SketchEditor" });
     expect(sketch.exists()).toBe(true); // still alive, just not on screen
@@ -137,12 +139,12 @@ describe("keyboard shortcuts across tabs", () => {
 
 describe("the export command", () => {
   it("appears only for a tab that offers one", async () => {
-    // Export is per-editor: the sketch has PNG, the code editor has nothing.
+    // Export is per-editor: the sketch has PNG, Settings has no editor at all.
     // An entry always present and usually inert would be worse than one that
     // arrives with the tab it belongs to.
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="nav-code"]').trigger("click");
+    await w.get('[data-testid="nav-settings"]').trigger("click");
     await flushPromises();
     await w.get('[data-testid="app-menu"]').trigger("click");
     expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);

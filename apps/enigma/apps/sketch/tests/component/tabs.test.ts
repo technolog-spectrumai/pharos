@@ -26,7 +26,11 @@ beforeEach(() => {
 
 describe("the tab bar", () => {
   it("lists the tabs in this order", () => {
-    expect(APP_TABS.map((t) => t.id)).toEqual(["sketch", "code", "collab", "security", "settings"]);
+    // No `code`: the Code tab was removed. This app draws, and a general text
+    // editor beside the canvas is what made the Files panel route sixteen
+    // extensions into it. The editor itself survives as a viewer for images
+    // and for a refused `.svg` — see EditorHost — but it has no tab.
+    expect(APP_TABS.map((t) => t.id)).toEqual(["sketch", "collab", "security", "settings"]);
   });
 
   it("hides Collab when the build cannot collaborate", async () => {
@@ -34,7 +38,7 @@ describe("the tab bar", () => {
     // is worse than no tab. Everything else is there.
     const w = mountApp();
     await flushPromises();
-    for (const id of ["sketch", "code", "security", "settings"]) {
+    for (const id of ["sketch", "security", "settings"]) {
       expect(w.find(`[data-testid="nav-${id}"]`).exists(), id).toBe(true);
     }
     expect(w.find('[data-testid="nav-collab"]').exists()).toBe(false);

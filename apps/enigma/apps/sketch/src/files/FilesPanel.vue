@@ -63,7 +63,11 @@ async function activate(row: Row) {
     const content = image
       ? await workspace.readImage(row as Entry)
       : await workspace.readText(row as Entry);
-    const kind = image ? "code" as const : kindForFile(row.name, content);
+    // An image goes to the SKETCH tab, the only one left. Its host shows a
+    // picture through the text editor that outlived the Code tab — EditorHost
+    // picks the viewer, not this panel. This said `"code"` until that tab was
+    // removed, and `"code"` no longer names anything.
+    const kind = image ? ("sketch" as const) : kindForFile(row.name, content);
     if (!kind) {
       openError.value = "files.cannotOpen";
       return;

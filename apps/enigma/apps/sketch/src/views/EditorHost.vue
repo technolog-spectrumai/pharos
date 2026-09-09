@@ -41,7 +41,6 @@ function seedFor(k: EditorKind): { name: string; text: string } {
   const name = t(spec.untitledKey);
   switch (k) {
     case "sketch":   return { name, text: "" }; // the SVG editor starts from empty
-    case "code":     return { name, text: "" }; // ACE parses nothing on open
   }
 }
 
@@ -51,7 +50,6 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
  *  path the dialog returned and never needs a type. */
 const MIME: Record<EditorKind, string> = {
   sketch: "image/svg+xml",
-  code: "text/plain",
 };
 
 // ── the open file ───────────────────────────────────────────────────────────
@@ -79,9 +77,21 @@ const editorRef = ref<EditorHandle | null>(null);
  *  text" — forces ACE for that one open, without renaming the file. */
 const forceText = ref(false);
 
-/** This tab's editor, unless its editor refused the file and the user asked to
- *  see it as plain text. */
-const kind = computed<EditorKind | "text">(() => (forceText.value ? "text" : props.kind));
+/** This tab's editor, unless the file is one the drawing editor cannot take.
+ *
+ *  `text` is not a tab any more — the Code tab was removed — but the editor
+ *  behind it is still mounted for the two files that need it:
+ *
+ *    * an IMAGE, which is shown rather than parsed. Handing a PNG to the SVG
+ *      editor would be a parse failure over bytes that were never markup.
+ *    * a `.svg` the editor refused (a script, a DOCTYPE) where the user asked
+ *      to see the source anyway.
+ *
+ *  Without this an image opened from the Files panel would reach SketchEditor
+ *  and be refused — the app would have stopped showing pictures the moment the
+ *  Code tab went. */
+const kind = computed<EditorKind | "text">(() =>
+  forceText.value || isImageName(name.value) ? "text" : props.kind);
 
 function openAsText() {
   forceText.value = true;
@@ -295,21 +305,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
 
 
-    <TextEditor
-      v-if="kind === 'code'"
-      :key="'c' + generation"
-      ref="editorRef"
-      :path="path"
-      :name="name"
-      :content="content"
-      :busy="busy"
-      :error="fileError"
-      :active="active !== false"
-      with-picker
-      class="min-h-0 flex-1"
-      @save="saveFile($event)"
-      @update:dirty="dirty = $event"
-    />
 
     <TextEditor
       v-if="kind === 'text'"

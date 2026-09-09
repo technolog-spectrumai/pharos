@@ -15,17 +15,26 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("drawing.svg", "not markup at all")).toBe("sketch");
   });
 
-  it("opens everything else as code rather than refusing it", () => {
-    // Refusing would be the app deciding a file is none of the user's business.
+  it("refuses everything that is not a drawing", () => {
+    // These all opened as source text until the Code tab was removed. With no
+    // text editor of its own, this app says so rather than routing a `.py`
+    // into a drawing canvas — the panel shows "cannot open that kind of file",
+    // which is true, and Lazurite is where those belong.
     for (const name of ["notes.txt", "server.log", "main.py", "data.json", "README.md", "noext"]) {
-      expect(kindForFile(name, "anything"), name).toBe("code");
+      expect(kindForFile(name, "anything"), name).toBeNull();
     }
   });
 
   it("does not claim a document or a deck — those are Lazurite's", () => {
-    // The split's point: this app has no writer, so an .xml opens as source
-    // text here instead of being routed to an editor that does not exist.
-    expect(kindForFile("talk.pxml", "<presentation/>")).toBe("code");
-    expect(kindForFile("paper.xml", "<document/>")).toBe("code");
+    // Unchanged in spirit and now stricter: this app has no writer, so it
+    // declines rather than offering to show the source.
+    expect(kindForFile("talk.pxml", "<presentation/>")).toBeNull();
+    expect(kindForFile("paper.xml", "<document/>")).toBeNull();
+  });
+
+  it("still claims a drawing, by name and with bytes", () => {
+    // The one thing that must keep working.
+    expect(kindForFile("plan.svg")).toBe("sketch");
+    expect(kindForFile("plan.svg", "<svg/>")).toBe("sketch");
   });
 });

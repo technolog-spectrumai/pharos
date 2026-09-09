@@ -23,9 +23,18 @@
 // a file meant leaving the editor. It is a sidepanel now (src/files/FilesPanel
 // .vue), on screen beside whichever editor is showing.
 
-/** Which editor a tab drives. `text` is not a tab — it is the fallback a tab
- *  falls into when its own editor refuses a file (see EditorHost.openAsText). */
-export type EditorKind = "sketch" | "code";
+/** Which editor a tab drives.
+ *
+ *  ONE, and `text` is not among them: the text editor is still mounted, but as
+ *  a FALLBACK rather than a tab — it shows an image, and it shows a `.svg` this
+ *  app refused to parse, so "cannot edit" never means "cannot look at". See
+ *  EditorHost.openAsText.
+ *
+ *  The Code tab was removed deliberately. This is a drawing app, and a general
+ *  text editor beside the canvas invited the Files panel to route sixteen
+ *  extensions into it — which made Sketch quietly the app that opens your
+ *  Python. Lazurite is where text belongs. */
+export type EditorKind = "sketch";
 export type AppTabId = EditorKind | "collab" | "security" | "settings";
 
 export interface AppTab {
@@ -41,7 +50,6 @@ export interface AppTab {
 
 export const APP_TABS: readonly AppTab[] = [
   { id: "sketch",   path: "/sketch",        labelKey: "nav.sketch",        icon: "pencil",          kind: "sketch" },
-  { id: "code",     path: "/code",          labelKey: "nav.code",          icon: "code",            kind: "code" },
   { id: "collab",   path: "/collab",        labelKey: "nav.collab",        icon: "user-group",      kind: null },
   { id: "security", path: "/security",      labelKey: "nav.security",      icon: "shield-halved",   kind: null },
   { id: "settings", path: "/settings",      labelKey: "nav.settings",      icon: "gear",            kind: null },
@@ -62,17 +70,4 @@ export const KIND_FILES: Record<EditorKind, {
   filterKey: string;
 }> = {
   sketch:   { untitledKey: "file.untitled",      extensions: ["svg"],  filterKey: "nav.sketch" },
-  // `txt` first, so a new Code file is born plain text — the language is a
-  // choice nobody has made yet, and `untitled.py` would make it for them. The
-  // rest widen the Open dialog only.
-  //
-  // `xml` is here although the Files panel never routes one to this tab: the
-  // panel decides from the bytes, and a deck's XML belongs to Presentations.
-  // Opening that same file HERE, on purpose, to look at the source is a
-  // different request — and this editor refuses nothing, so the filter can
-  // afford to offer it.
-  code:     { untitledKey: "file.untitledText",
-              extensions: ["txt", "py", "js", "mjs", "cjs", "ts", "json",
-                           "html", "htm", "css", "md", "yml", "yaml", "sh", "tex", "sty", "xml"],
-              filterKey: "nav.code" },
 };

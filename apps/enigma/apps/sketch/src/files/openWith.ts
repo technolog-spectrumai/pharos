@@ -16,32 +16,15 @@
 // would strand every deck already sitting on a user's disk as a `.xml`.
 import type { EditorKind } from "../tabs";
 
-/** The unambiguous extensions. `.xml` is deliberately absent — both the writer
- *  and the deck claim it, and the sniffers settle it below.
+/** What this app can open, which since the Code tab was removed is drawings.
  *
- *  `json` names CODE, not the sheet, and that is not a demotion: `isSheet` runs
- *  BEFORE this table on every path that has the bytes, so a real workbook still
- *  reaches the grid. What changes is the other JSON — a `package.json`, a
- *  `tsconfig.json` — which used to be handed to Univer and rendered as garbage
- *  because the extension was the only thing anyone asked. */
+ *  The table used to route sixteen text extensions to that tab. They return
+ *  null now and the Files panel says so — a drawing app claiming `.py` was
+ *  never honest, and Lazurite opens those. IMAGES are not here and are not
+ *  refused either: the panel routes them itself, to the viewer that survived
+ *  the tab (see FilesPanel, and EditorHost's text fallback). */
 const BY_EXTENSION: Record<string, EditorKind> = {
   svg: "sketch",
-  json: "code",
-  txt: "code",
-  py: "code",
-  js: "code",
-  mjs: "code",
-  cjs: "code",
-  ts: "code",
-  html: "code",
-  htm: "code",
-  css: "code",
-  md: "code",
-  yml: "code",
-  yaml: "code",
-  sh: "code",
-  tex: "code",
-  sty: "code",
 };
 
 /** Own properties only. A bracket lookup on an object literal also resolves
@@ -82,14 +65,13 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
     // would make it unopenable precisely when its content WAS available.
     const byName = byExtension(ext);
     if (byName) return byName;
-    // Nothing claimed it, so it is text until proven otherwise — an `.xml` no
-    // sniffer wanted, a `.log`, a `.csv`, a file with no extension at all. The
-    // Code tab opens it as plain text, and its language picker is there if the
-    // guess was wrong. Refusing would be the app deciding a file is none of the
-    // user's business, which it never is.
-    return "code";
+    // Nothing claimed it. With the Code tab gone there is no editor to fall
+    // back on, so this says so rather than opening a `.log` in a drawing
+    // canvas — and the panel's "cannot open that kind of file" is a better
+    // answer than an editor that refuses the file after being handed one.
+    return null;
   }
 
-  return byExtension(ext) ?? "code";
+  return byExtension(ext);
 }
 

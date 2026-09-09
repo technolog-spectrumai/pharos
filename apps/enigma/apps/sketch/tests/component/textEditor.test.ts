@@ -224,8 +224,12 @@ describe("host routing", () => {
   it("refuses to save a picture, so its bytes cannot be written back as text", async () => {
     // Save As would write the `data:` URI out as text — a corrupt copy of the
     // file it came from. The whole save path is closed for a picture.
+    //
+    // `kind: "sketch"` and not `"code"`: that tab is gone, and an image now
+    // reaches the same viewer through the drawing tab's host, which switches
+    // to it rather than handing PNG bytes to the SVG parser.
     const w = mount(EditorHost, {
-      props: { kind: "code" },
+      props: { kind: "sketch" },
       global: { plugins: [i18n] },
     });
     await flushPromises();
@@ -246,27 +250,27 @@ describe("host routing", () => {
     expect(vm.canSave).toBe(true);
   });
 
-  it("the code tab opens a buffer the files panel handed it", async () => {
-    // The whole panel walk in one place: a .py is routed to this tab, the host
-    // remounts the editor for it, the picker detects Python from the name, and
-    // the buffer arrives dirty because nothing on disk holds it yet.
+  it("shows a picture the files panel handed it", async () => {
+    // What is left of the panel walk now the Code tab is gone: a `.py` is no
+    // longer routed anywhere here, but an IMAGE still is — to the sketch tab,
+    // whose host detects it and mounts the viewer instead of the SVG editor.
+    // Handing PNG bytes to the SVG parser would be a parse error over
+    // something that was never markup.
     const w = mount(EditorHost, {
-      props: { kind: "code" },
+      props: { kind: "sketch" },
       global: { plugins: [i18n] },
     });
     await flushPromises();
-    expect(w.find('[data-testid="ace-host"]').exists()).toBe(true);
-    const trigger = '[data-testid="language-select"] [data-testid="select-trigger"]';
-    // A new Code file is born plain text — the language is nobody's choice yet.
-    expect(w.get(trigger).text()).toBe("Plain text");
-
     const vm = w.vm as unknown as {
       openRemote(name: string, text: string): void;
       dirty: boolean;
     };
-    vm.openRemote("script.py", "print(1)");
+
+    vm.openRemote("photo.png", "data:image/png;base64,iVBORw0KGgo=");
     await flushPromises();
-    expect(w.get(trigger).text()).toBe("Python");
-    expect(vm.dirty).toBe(true);
+
+    expect(w.find('[data-testid="image-preview"]').exists()).toBe(true);
+    // A picture was not edited by arriving, so nothing is unsaved.
+    expect(vm.dirty).toBe(false);
   });
 });
