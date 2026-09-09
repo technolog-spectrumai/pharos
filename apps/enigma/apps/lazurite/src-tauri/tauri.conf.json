@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Zinnia",
+        "title": "Lazurite",
         "width": 1200,
         "height": 800,
         "resizable": true,

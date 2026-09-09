@@ -13,7 +13,7 @@ describe("the shell", () => {
     // The wordmark gave way to the menu button, which stands in its place and
     // keeps the brand as its tooltip.
     expect(w.find('[data-testid="app-menu"]').exists()).toBe(true);
-    expect(w.get('[data-testid="app-menu"]').attributes("title")).toBe("Zinnia");
+    expect(w.get('[data-testid="app-menu"]').attributes("title")).toBe("Lazurite");
     // A named file proves a real editor host mounted, not a placeholder.
     expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.\w+$/);
   });
@@ -81,5 +81,30 @@ describe("the shell", () => {
     const fs = await import("node:fs/promises");
     const conf = JSON.parse(await fs.readFile("src-tauri/tauri.conf.json", "utf8"));
     expect(conf.identifier).toBe(brand.bundleId);
+  });
+
+  it("keeps the display name and the identity as separate things", async () => {
+    // The app is called Lazurite and its data lives under
+    // `com.spectrumaipl.zinnia`. That looks like an oversight and is not: this
+    // app was carved out of the original single-app Zinnia, and the identifier
+    // is what the OS files saved documents and keyring entries under. Renaming
+    // it would orphan every installed copy — the files stay on disk and the
+    // app stops looking where they are.
+    //
+    // So the two are pinned TOGETHER. A future rename that moves the
+    // identifier to match the name has to fail here and read this first.
+    const fs = await import("node:fs/promises");
+    const conf = JSON.parse(await fs.readFile("src-tauri/tauri.conf.json", "utf8"));
+    const html = await fs.readFile("index.html", "utf8");
+
+    expect(brand.name).toBe("Lazurite");
+    expect(conf.app.windows[0].title).toBe("Lazurite");
+    expect(html).toContain("<title>Lazurite</title>");
+
+    // Unchanged, and load-bearing.
+    expect(conf.identifier).toBe("com.spectrumaipl.zinnia");
+    // `productName` is the BUNDLE name — the .deb filename and the install
+    // path. Left alone so an upgrade lands on top of what is installed.
+    expect(conf.productName).toBe("Zinnia");
   });
 });
