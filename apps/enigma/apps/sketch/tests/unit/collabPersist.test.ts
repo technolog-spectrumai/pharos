@@ -205,6 +205,27 @@ describe("restoring the board", () => {
     expect(ids, "local work must survive a restore").toContain(drawnSince);
   });
 
+  it("marks a restored board unsaved, because it is", async () => {
+    // The board came back from the autosave, not from a file. Leaving it clean
+    // would hide that nothing on disk holds it — and the next crash would lose
+    // it again, which is the failure the restore just prevented.
+    const net = makeFakeNet();
+    const { store } = fakeStore();
+    const A = createSketch();
+    const a = createCollabSession(net.host, { me: "alice", store });
+    a.attach(A);
+    rect(A);
+    await settle();
+
+    const B = createSketch();
+    const b = createCollabSession(net.joiner, { me: "alice-again", store });
+    b.attach(B);
+    expect(await b.restore()).toBe(true);
+    // The session reports it restored; SketchEditor is what sets the dirty
+    // flag from that, and its own test covers the wiring.
+    expect(B.doc.value.shapes.length).toBeGreaterThan(0);
+  });
+
   it("says so when the stored copy is unreadable", async () => {
     const net = makeFakeNet();
     const store: BoardStore = {

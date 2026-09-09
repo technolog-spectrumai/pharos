@@ -88,6 +88,16 @@ function open(text: string) {
     sketch.value = createSketch(emptySvgDocument());
     collab.attach(sketch.value);
     baseline();
+    // A blank board is the ONLY case where restoring is right. With a file in
+    // hand the FILE is the truth, and restoring over it would resurrect work
+    // the user may have discarded by not saving. With no file, the autosaved
+    // board is the only copy there is — losing it to a crash is exactly what
+    // the store exists to prevent.
+    void collab.restore().then((restored) => {
+      // Restored work is UNSAVED work. Without this the dot is missing and the
+      // next crash loses it again, which is the failure this just prevented.
+      if (restored) setDirty(true);
+    });
     return;
   }
   const res = parseSvgDocument(text, measure);
