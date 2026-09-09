@@ -11,5 +11,24 @@
 // in-memory bus (tests/helpers/fakeBus.ts) and never touch this.
 import { createCollabSession } from "./useCollabSession";
 import { tauriTransport } from "./transport";
+import { tauriBoardStore } from "./persist";
 
-export const collab = createCollabSession(tauriTransport());
+/** Which drawing is being autosaved.
+ *
+ *  The file path when there is one, so reopening the same file finds its board.
+ *  A never-saved drawing shares one slot: it is the scratch board, and there is
+ *  only ever one of it on screen. Set by the editor as files open and close. */
+let board = "untitled";
+
+export function setBoardId(path: string | null) {
+  board = path ?? "untitled";
+}
+
+// The store is the real one. It is behind a Cargo feature that is off by
+// default, so on a build without it every call rejects — `saveNow` catches
+// that and surfaces it once rather than throwing into the editor, and nothing
+// else changes. Persistence is a capability, not a requirement.
+export const collab = createCollabSession(tauriTransport(), {
+  store: tauriBoardStore(),
+  boardId: () => board,
+});

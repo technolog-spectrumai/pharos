@@ -21,7 +21,7 @@ import { OyaButton, OyaModal, OyaTextField } from "petalite/primitives";
 // The collaboration session follows the drawing on screen: it is attached to
 // each new orchestrator and detached when this editor goes, and a change of
 // drawing ends a running session (see useCollabSession.attach).
-import { collab } from "../collab";
+import { collab, setBoardId } from "../collab";
 
 const props = defineProps<{
   path: string | null;
@@ -81,6 +81,9 @@ function baseline() {
 
 function open(text: string) {
   refusal.value = null;
+  // Before attaching, so the first autosave — and any restore — uses this
+  // file's slot rather than the previous drawing's.
+  setBoardId(props.path);
   if (!text.trim()) {
     sketch.value = createSketch(emptySvgDocument());
     collab.attach(sketch.value);
