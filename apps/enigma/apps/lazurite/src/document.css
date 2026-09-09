@@ -180,6 +180,30 @@
 .cy-doc p:last-child { margin-bottom: 0; }
 .cy-doc ul, .cy-doc ol { margin: 0 0 0.85em; padding-left: 1.4em; }
 .cy-doc li { margin-bottom: 0.25em; }
+
+/* THE MARKERS. `style.css` imports Tailwind, whose preflight sets
+ * `list-style: none` on every ul and ol — so the rules above gave a list its
+ * indent and its spacing while nothing drew a bullet or a number, and a
+ * bulleted list rendered as a column of bare lines. The only `list-style` in
+ * this file was `.cy-toc ol`'s deliberate `none`, further down.
+ *
+ * Set for BOTH surfaces together, on purpose: `.cy-doc` is the editor canvas
+ * and `.cy-content` is the paginated body that `pdf/documentHtml.ts` inlines
+ * this same stylesheet into. They are two views of one definition, and fixing
+ * one without the other is exactly how they drift apart.
+ *
+ * `outside` rather than the browser default `inside` so a wrapped second line
+ * aligns under the first word instead of under the marker — what every word
+ * processor does, and what makes a multi-line item readable.
+ *
+ * Nested levels change marker the way a word processor does, so depth is
+ * visible without counting indents. */
+.cy-doc ul, .cy-content ul { list-style: disc outside; }
+.cy-doc ol, .cy-content ol { list-style: decimal outside; }
+.cy-doc ul ul, .cy-content ul ul { list-style-type: circle; }
+.cy-doc ul ul ul, .cy-content ul ul ul { list-style-type: square; }
+.cy-doc ol ol, .cy-content ol ol { list-style-type: lower-alpha; }
+.cy-doc ol ol ol, .cy-content ol ol ol { list-style-type: lower-roman; }
 .cy-doc a { color: var(--cy-accent); text-decoration: underline; }
 
 .cy-doc code {
