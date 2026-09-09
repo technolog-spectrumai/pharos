@@ -201,6 +201,57 @@ describe("drawing on a yrs board", () => {
   });
 });
 
+describe("adopting the board", () => {
+  it("seeds the board with a drawing opened from a file", async () => {
+    // A file is edited long before anyone pairs. An edit diffed against an
+    // EMPTY board would send the peer an update adding one shape to a document
+    // missing every other one.
+    const A = createSketch();
+    const first = rect(A, 10);
+    const a = createCollabSession(makeFakeNet().host, { me: "alice", doc: board() });
+    a.attach(A);
+    await settle();
+    const second = rect(A, 60);
+    await settle();
+
+    const net = makeFakeNet();
+    const B = createSketch();
+    const b = createCollabSession(net.joiner, { me: "bob", doc: board() });
+    b.attach(B);
+    // Pair a fresh host over the same drawing to see what it would send.
+    const host = createCollabSession(net.host, { me: "alice", doc: board() });
+    host.attach(A);
+    await settle();
+    await host.host();
+    await b.join(host.ticket.value!);
+    await net.settle();
+    await host.accept();
+    await settle(net);
+    expect(ids(B), "the whole drawing crosses, not just the last edit").toEqual([first, second]);
+  });
+
+  it("takes a document backend after construction, before anything runs", async () => {
+    // The app probes for the Cargo feature asynchronously while the session is
+    // created at import time, so the handle always arrives late.
+    const A = createSketch();
+    const a = createCollabSession(makeFakeNet().host, { me: "alice" });
+    a.attach(A);
+    expect(a.useDocument(board())).toBe(true);
+    a.attach(null);
+    a.attach(A);
+    const id = rect(A, 10);
+    await settle();
+    expect(ids(A)).toEqual([id]);
+  });
+
+  it("refuses to swap the document under a live session", async () => {
+    // Two boards sharing no history: every later update would land in the gap.
+    const { a } = await pair();
+    expect(a.phase.value).toBe("live");
+    expect(a.useDocument(board())).toBe(false);
+  });
+});
+
 describe("what the yrs path no longer needs", () => {
   it("never reports a truncated board", async () => {
     // 1000 shapes encode to ~123 KB where the JSON snapshot had to be cut at

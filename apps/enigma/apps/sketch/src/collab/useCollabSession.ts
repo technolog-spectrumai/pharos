@@ -517,7 +517,7 @@ export function createCollabSession(
    *  below still answers synchronously from the local CRDT and reconciles
    *  afterwards: `observeCommits` must return the board to draw NOW, and a
    *  round trip to Rust cannot happen inside it. */
-  const yboard = opts.doc ?? null;
+  let yboard = opts.doc ?? null;
   /** Board work, run strictly in the order it was queued.
    *
    *  `onFrame` is synchronous — the transport hands frames over one at a time
@@ -567,8 +567,11 @@ export function createCollabSession(
       // peer would receive, base64'd because the store's surface is text. No
       // re-encoding between the CRDT and the disk, which is the whole reason
       // the document lives in Rust beside the store.
-      const body = yboard
-        ? JSON.stringify({ y: bytesToB64((await queueBoard(() => yboard.snapshot())) as number[]) })
+      // Captured before the await: `yboard` can be reassigned by
+      // `useDocument`, so the closure must hold the board this save is about.
+      const doc = yboard;
+      const body = doc
+        ? JSON.stringify({ y: bytesToB64((await queueBoard(() => doc.snapshot())) as number[]) })
         : JSON.stringify(documentBody());
       await store.save(boardId(), body);
     } catch (err) {
@@ -583,6 +586,22 @@ export function createCollabSession(
     if (!store) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => void saveNow(), SAVE_DEBOUNCE_MS);
+  }
+
+  /** Adopt a document backend after construction.
+   *
+   *  The app probes for the `document` Cargo feature asynchronously and the
+   *  session is created at import time, so the handle arrives late. Refused
+   *  once a session is running: swapping the document under a live peer would
+   *  leave the two boards sharing no history, and every subsequent update
+   *  would land in the gap. Nothing calls it that late — the probe settles
+   *  before the editor has mounted — and this is what makes that a rule rather
+   *  than an assumption. */
+  function useDocument(next: BoardDoc | null): boolean {
+    if (phase.value !== "idle") return false;
+    yboard = next;
+    lastSeen = new Map();
+    return true;
   }
 
   /** Restore what was stored for this board, MERGED rather than replacing, so
@@ -608,7 +627,8 @@ export function createCollabSession(
 
   async function sendSnapshot() {
     if (!sketch) return;
-    if (yboard) {
+    const board = yboard;
+    if (board) {
       // The whole board as one update. Not truncated, and it cannot need to
       // be: 1000 shapes encode to ~123 KB where the JSON snapshot had to be
       // cut at 700 KB — which is why `truncated` and its warning are dead on
@@ -617,7 +637,7 @@ export function createCollabSession(
       // Queued like everything else, so a joiner is sent the board INCLUDING
       // whatever `seed()` was still writing when the snapshot was asked for.
       try {
-        const bytes = (await queueBoard(() => yboard.snapshot())) as number[];
+        const bytes = (await queueBoard(() => board.snapshot())) as number[];
         await send({
           Snapshot: {
             seq: 0,
@@ -674,7 +694,8 @@ export function createCollabSession(
    *  host's starting point, in the paint order the file had. */
   function seed() {
     if (!sketch) return;
-    if (yboard) {
+    const board = yboard;
+    if (board) {
       const shapes = sketch.doc.value.shapes.map((sh) => plain(sh));
       for (const sh of shapes) {
         lastWriter.set(sh.id, me);
@@ -682,9 +703,9 @@ export function createCollabSession(
       }
       void queueBoard(async () => {
         try {
-          await yboard.setSize(sketch!.boardW.value, sketch!.boardH.value);
-          await yboard.setBackground(sketch!.doc.value.background);
-          if (shapes.length) await yboard.putMany(shapes);
+          await board.setSize(sketch!.boardW.value, sketch!.boardH.value);
+          await board.setBackground(sketch!.doc.value.background);
+          if (shapes.length) await board.putMany(shapes);
         } catch (err) {
           fail(err);
         }
@@ -718,8 +739,9 @@ export function createCollabSession(
         () => s.doc.value.background,
         (color) => {
           if (applying) return;
-          if (yboard) {
-            void commitToBoard(() => yboard.setBackground(color));
+          const board = yboard;
+          if (board) {
+            void commitToBoard(() => board.setBackground(color));
             return;
           }
           bg = { color, at: clock.now(), by: me };
@@ -797,7 +819,8 @@ export function createCollabSession(
       lastWriter = new Map();
       created = new Map();
       lastSeen = new Map();
-      if (yboard) void queueBoard(() => yboard.reset().catch(fail));
+      const fresh = yboard;
+      if (fresh) void queueBoard(() => fresh.reset().catch(fail));
       setBoard(frame.Welcome.width, frame.Welcome.height);
       sketch.applyRemote([]);
       phase.value = "live";
@@ -900,7 +923,16 @@ export function createCollabSession(
     // sharing never gets written — and a solo drawing is the common case. With
     // a store present the observer goes on at attach, and `hook()` re-installs
     // the same one when a session begins.
-    if (s && store && phase.value === "idle") s.observeCommits(onCommit);
+    if (s && (store || yboard) && phase.value === "idle") s.observeCommits(onCommit);
+    // With a yrs board the document must START as what is on screen. `host()`
+    // seeds too, but a drawing opened from a file is edited long before anyone
+    // pairs — and an edit diffed against an EMPTY board would send the peer an
+    // update that adds one shape to a document missing every other one.
+    if (s && yboard) {
+      void queueBoard(() => yboard!.reset());
+      lastSeen = new Map();
+      seed();
+    }
   }
 
   /** Release `s`, but only if it is still the bound drawing. See `attach`. */
@@ -914,7 +946,9 @@ export function createCollabSession(
     error.value = null;
     try {
       role.value = "host";
-      seed();
+      // The yrs board was seeded at attach and has been taking edits since;
+      // seeding again would re-put every shape for no reason.
+      if (!yboard) seed();
       hook();
       ticket.value = await transport.host(onEvent);
       phase.value = "hosting";
@@ -975,6 +1009,7 @@ export function createCollabSession(
     attached,
     attach,
     detach,
+    useDocument,
     restore,
     saveNow,
     host,

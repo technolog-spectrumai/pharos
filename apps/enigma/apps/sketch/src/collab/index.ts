@@ -12,6 +12,7 @@
 import { createCollabSession } from "./useCollabSession";
 import { tauriTransport } from "./transport";
 import { tauriBoardStore } from "./persist";
+import { documentAvailable, tauriBoardDoc } from "./document";
 
 /** Which drawing is being autosaved.
  *
@@ -28,7 +29,24 @@ export function setBoardId(path: string | null) {
 // default, so on a build without it every call rejects — `saveNow` catches
 // that and surfaces it once rather than throwing into the editor, and nothing
 // else changes. Persistence is a capability, not a requirement.
+// The document is the yrs board in Rust, and it is PROBED rather than passed
+// unconditionally. It sits behind a Cargo feature that is off by default, and
+// unlike the store it is not optional to the session: with a board handle
+// every stroke goes through Rust, so handing one to a build that has no
+// `doc_*` commands would fail on every commit instead of degrading. Probing
+// makes the older in-memory path the honest fallback.
+//
+// The probe is asynchronous and the session is created at import time, so the
+// handle starts null and is filled in when the answer arrives. That is safe
+// because nothing can have drawn yet: the editor mounts, opens a file and only
+// then commits, all of which are later than an already-resolved import.
 export const collab = createCollabSession(tauriTransport(), {
   store: tauriBoardStore(),
   boardId: () => board,
+});
+
+/** Resolves once the document backend has been settled either way. */
+export const documentReady = documentAvailable().then((ok) => {
+  if (ok) collab.useDocument(tauriBoardDoc());
+  return ok;
 });

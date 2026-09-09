@@ -34,6 +34,27 @@ describe("the Collab panel", () => {
     expect(w.find('[data-testid="collab-sas"]').exists()).toBe(false);
   });
 
+  it("encodes the QR uppercase and shows the text lowercase", async () => {
+    // Two different jobs for one string. A QR code has a compact alphanumeric
+    // mode covering digits and uppercase only, and the ticket is base32 — so
+    // uppercasing drops this code from version 11 (61x61) to version 9 (53x53),
+    // which is what a phone camera at arm's length needs. The text stays
+    // lowercase because that is what a person reads aloud or types, and the
+    // Rust decoder uppercases whatever it receives either way.
+    const { a, mountFor } = setup();
+    const w = mountFor(a);
+    await w.get('[data-testid="collab-share"]').trigger("click");
+    await flushPromises();
+
+    const shown = w.get('[data-testid="collab-ticket"]').text();
+    expect(shown, "the readable text is not shouted").toBe(shown.toLowerCase());
+
+    const qr = w.findComponent({ name: "OyaQrCode" });
+    expect(qr.exists()).toBe(true);
+    const encoded = qr.props("value") as string;
+    expect(encoded, "the code is uppercase").toBe(shown.toUpperCase());
+  });
+
   it("shows the code when sharing, then the digits and Accept when someone scans it", async () => {
     const { net, a, b, mountFor } = setup();
     const w = mountFor(a);

@@ -48,6 +48,21 @@ async function copy() {
   }
 }
 
+/** The ticket as the QR encodes it: UPPERCASE.
+ *
+ *  A QR code has a compact alphanumeric mode that covers digits and uppercase
+ *  letters only; anything lowercase falls back to byte mode at 8 bits per
+ *  character. The ticket is base32, so it fits alphanumeric mode exactly —
+ *  and uppercasing it drops this code from version 11 (61x61 modules) to
+ *  version 9 (53x53). Bigger modules for the same panel, which is what a phone
+ *  camera at arm's length actually needs. Measured, not assumed.
+ *
+ *  Only the CODE changes. The text below it stays lowercase because that is
+ *  what someone reads aloud or types, and `decode` uppercases and trims
+ *  whatever it is given — pinned by `the_encoding_survives_a_qr_reader_
+ *  upcasing_it` in crates/collab. */
+const qrValue = computed(() => props.session.ticket.value?.toUpperCase() ?? null);
+
 async function join(text = code.value) {
   const value = text.trim();
   if (!value) return;
@@ -104,7 +119,7 @@ async function leave() {
       <!-- hosting: the code is on screen, nobody has scanned it yet -->
       <template v-else-if="phase === 'hosting'">
         <p class="text-sm opacity-70">{{ t("collab.showHint") }}</p>
-        <OyaQrCode v-if="session.ticket.value" :value="session.ticket.value" :size="280" :alt="t('collab.share')" />
+        <OyaQrCode v-if="qrValue" :value="qrValue" :size="280" :alt="t('collab.share')" />
         <p class="select-all break-all rounded-lg border border-current/10 px-3 py-2 font-mono text-xs" data-testid="collab-ticket">
           {{ session.ticket.value }}
         </p>
