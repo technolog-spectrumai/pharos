@@ -33,6 +33,8 @@ mod secrets;
 mod collab;
 #[cfg(feature = "persist")]
 mod persist;
+#[cfg(feature = "document")]
+mod document;
 
 /// This app's locker. The service name is what the OS keyring files the
 /// passphrase under, and it is per app by decision — see `padova::Locker`.
@@ -49,6 +51,8 @@ pub fn run() {
     let builder = builder.manage(collab::CollabState::default());
     #[cfg(feature = "persist")]
     let builder = builder.manage(persist::PersistState::default());
+    #[cfg(feature = "document")]
+    let builder = builder.manage(document::DocState::default());
     builder
         .invoke_handler(tauri::generate_handler![
             lock::lock_file,
@@ -73,6 +77,32 @@ pub fn run() {
             persist::board_load,
             #[cfg(feature = "persist")]
             persist::board_forget,
+            #[cfg(feature = "document")]
+            document::doc_reset,
+            #[cfg(feature = "document")]
+            document::doc_put,
+            #[cfg(feature = "document")]
+            document::doc_put_many,
+            #[cfg(feature = "document")]
+            document::doc_remove,
+            #[cfg(feature = "document")]
+            document::doc_clear,
+            #[cfg(feature = "document")]
+            document::doc_set_background,
+            #[cfg(feature = "document")]
+            document::doc_set_size,
+            #[cfg(feature = "document")]
+            document::doc_read,
+            #[cfg(feature = "document")]
+            document::doc_apply,
+            #[cfg(feature = "document")]
+            document::doc_snapshot,
+            #[cfg(feature = "document")]
+            document::doc_state_vector,
+            #[cfg(feature = "document")]
+            document::doc_diff,
+            #[cfg(feature = "document")]
+            document::doc_compact,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

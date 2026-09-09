@@ -65,6 +65,13 @@ collab = { path = "../../../crates/collab", optional = true }
 # write at all until a passphrase unlocks it, which sketch has never asked for.
 hoard = { path = "../../../crates/hoard", optional = true }
 
+# ── the document, OPT-IN ────────────────────────────────────────────────────
+# The board as a yrs CRDT, replacing a hand-rolled LWW-element-set that lived
+# in the frontend. Rust rather than JS so that the CRDT and the store sit on
+# the same side of the IPC boundary: `hoard` writes the yrs update bytes
+# straight through, with no re-encoding between them.
+board = { path = "../../../crates/board", optional = true }
+
 [features]
 default = []
 # The transport alone: two peers over QUIC, already end to end.
@@ -77,6 +84,9 @@ collab-mls = ["collab", "collab/mls"]
 # The board survives a crash. Independent of `collab`: a drawing is worth
 # keeping whether or not anyone else is looking at it.
 persist = ["dep:hoard"]
+# The board itself. Independent of both the others: a drawing is a CRDT
+# whether it is being shared, saved, or neither.
+document = ["dep:board"]
 
 # `[profile.dev]` used to be here. It lives in the ROOT Cargo.toml now: a
 # profile in a workspace member is ignored with only a warning, and the one
