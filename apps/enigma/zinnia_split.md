@@ -105,6 +105,9 @@ With one repo, de-duplication became an ordinary refactor, which is what steps
 | 35 | one theme; i18n stays two, deliberately | **done** |
 | 36 | rakotis absorbed: no longer a subtree | **done** |
 | 37 | shared builder core, zinnia builder with a gui | **done** |
+| 38 | the board survives a crash: fjall persistence | **done** |
+| 36 | rakotis absorbed: no longer a subtree | **done** |
+| 37 | shared builder core, zinnia builder with a gui | **done** |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
 shared component library back under one canonical repo, so the next drift is a
@@ -1010,6 +1013,68 @@ would have caught:
 * Both builders had a module called `window`, and putting the shared directory
   first on `sys.path` made enigma import the wrong one. It only showed when the
   tool was run from the repo root rather than its own directory.
+
+### Persistence (38)
+
+Sketch had **no persistence of any kind**. The session was a
+`Mutex<Option<Session>>`, the merged board an in-memory object, and closing the
+app — or opening another file — lost everything not already saved as `.svg` by
+hand. The request was "use yrs and fjall"; investigating it found that the CRDT
+already works and is tested, and the thing actually missing was the store.
+
+**fjall, not protasius, and the reason is mechanical.** Enigma keeps all its
+state in fjall through `protasius`, so reuse was the obvious move. It is the
+wrong one twice over: `protasius::put_enc` ends in
+`keyspace.persist(PersistMode::SyncAll)` — a full fsync per key, with no batch
+API anywhere in the crate — and it returns `Locked` for every read and write
+until a passphrase unlocks it. Measured on this machine: **3.4 ms fsynced per
+update against 19.5 µs batched**, a 175× difference. A drawing that autosaves
+cannot pay the first number, and sketch has never had a vault to unlock.
+`crates/hoard` therefore takes fjall directly: one batch, one fsync, no
+passphrase. At-rest encryption stays available separately through padova, which
+sketch already depends on and which owns the keyring.
+
+**What is stored is the rule, and it is a test.** Only the converged document —
+the same `SnapshotBody` that goes on the wire, carrying shapes, tombstones, the
+clear cutoff, board size and background. Nothing else, because two deliberate
+security choices depend on it: the MLS layer declines `export_state` ("a group
+key persisted to disk outlives the reason it existed") and the transport keeps
+its identity ephemeral ("a stable id would let two sessions be tied to one
+machine"). Writing either here would reverse both silently, so
+`stores the document and nothing else` asserts the stored JSON contains no
+ticket, no auth string, no peer id and no `nonce`/`welcome`/`key_package`/
+`endpoint`/`secret` — mutation-checked by leaking the ticket and watching it
+fail.
+
+**Two bugs the tests caught, both from the same root.** The commit observer and
+the background watcher were installed by `hook()`, which only runs when a
+session starts — so a drawing nobody was sharing never autosaved, and a
+background colour changed outside a session was never captured. The observer
+now goes on at `attach` when a store is present, and the document reads the
+background off the board rather than from the session-only register. A solo
+drawing is the common case; coupling its persistence to pairing was wrong.
+
+**Bounded by design.** Live strokes and cursors are never written — they hang
+off `selfLive`/`pointer`, not `applyShapes`, so they cannot reach the store.
+Writes are debounced 500 ms, so a whole drag settles into one, and flushed
+synchronously on `leave()` so the last half-second is not lost.
+
+Gated like everything else: `persist` is off by default,
+`cargo tree -p sketch | grep -c fjall` is 0 without it, and the check line is
+in `test:rust:net` because a `#[cfg]`'d type error compiles clean.
+
+**yrs is deferred, with its case written down.** Its real win is not
+convergence — the CRDT already converges — but that `truncateSnapshot`,
+`gcTombstones`, the `truncated` warning, its panel line and its strings in two
+locales would all delete with nothing replacing them, because yrs encodes 1000
+shapes in 123 KB where the JSON snapshot needed truncating at 700 KB. Measured
+alongside: 5,000 drag rewrites grow a yrs document by 1 KB, since it GCs
+overwritten values and tracks live state rather than edit history. The cost is
+35 property tests traded for trust in a library, changed clear semantics (a
+peer's concurrent shape survives a clear, where today it is voided), and
+`UndoManager` pulling *local* undo into Rust as part of a *collaboration*
+change. Worth doing; not worth coupling to a persistence gap that needed
+neither.
 
 ### Consolidation (32-35)
 
