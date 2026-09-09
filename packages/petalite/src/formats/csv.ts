@@ -37,7 +37,7 @@ function stripBom(text: string): string {
  */
 export function sniffDelimiter(text: string): string {
   const sample = stripBom(text).split(/\r?\n/).slice(0, 20).join("\n");
-  let best = CANDIDATES[0];
+  let best: string = CANDIDATES[0];
   let bestCount = 0;
   for (const candidate of CANDIDATES) {
     let count = 0;
