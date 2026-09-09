@@ -106,8 +106,7 @@ With one repo, de-duplication became an ordinary refactor, which is what steps
 | 36 | rakotis absorbed: no longer a subtree | **done** |
 | 37 | shared builder core, zinnia builder with a gui | **done** |
 | 38 | the board survives a crash: fjall persistence | **done** |
-| 36 | rakotis absorbed: no longer a subtree | **done** |
-| 37 | shared builder core, zinnia builder with a gui | **done** |
+| 39 | the drawing becomes a yrs CRDT in Rust | **done** |
 
 Steps 0-12 are the split itself and are **complete**. Steps 13-16 put the
 shared component library back under one canonical repo, so the next drift is a
@@ -1473,8 +1472,93 @@ Per feature:
   render test is reported as skipped, not passed — it self-skips
   (`pdf.rs:354`), which is a silent pass if nobody looks.
 
+## Step 39 — the drawing becomes a yrs CRDT in Rust
+
+The hand-rolled LWW-element-set that ran in TypeScript is replaced by `yrs`
+(the Rust port of Yjs) in a new `crates/board`, behind an off-by-default
+`document` Cargo feature. The document and the store now sit on the same side
+of the IPC boundary, so `hoard` writes the yrs update bytes with no
+re-encoding between them.
+
+**What it bought.** Not convergence — the old CRDT had that, pinned by 35
+property tests. Three things it could not do:
+
+* `truncateSnapshot`, `gcTombstones`, the `truncated` flag and its
+  user-visible "your board is incomplete" warning all become dead code. 1000
+  shapes encode to ~123 KB where the JSON snapshot had to be cut at 700 KB.
+* **Delta sync.** A state vector asks for exactly what is missing; the old
+  design answered every resync with the whole board.
+* **The hybrid logical clock disappears**, and with it the failure where a
+  peer with a slow wall clock silently lost every race it took part in.
+
+**A measurement in the plan was wrong, and the correction matters.** The plan
+recorded that "yrs garbage-collects overwritten values", on the strength of one
+shape rewritten 5000 times growing by 32 bytes. That generalises wrongly: yrs
+merges a run of overwrites only when they are *contiguous* in the writer's item
+list, which rewriting a single key in a loop trivially is. A real session
+round-robins across many shapes and those overwrites interleave, so each costs
+about ten bytes and they never settle:
+
+| | |
+|---|---|
+| 300 shapes, live | 25 KB |
+| + 9000 gestures (30 edits each) | 107 KB (4.2x) |
+| + 210000 rewrites | 2110 KB, linear, forever |
+| the same board compacted | 26 KB |
+
+Growth is bounded by **session length**, not by board size. The conclusion the
+plan drew still holds — a heavy session lands well inside the old 700 KB
+truncation point — but `Board::compacted` is the answer to a board left open
+all week, not a claim that the problem cannot arise. Compaction is only safe
+with no live peers: a compacted document shares no history with a peer's copy,
+so merging the two duplicates the paint order and resurrects deletes. Both are
+pinned by tests.
+
+**Three bugs found by building it**, each invisible to review:
+
+* **Racing board writes.** `onFrame` is synchronous while every board call is a
+  round trip, so three `void`-ed calls raced on one document — a `reset` from
+  `Welcome` overtaking the `Snapshot` that follows it wiped the board a joiner
+  had just received, with no error anywhere. Everything touching the board now
+  goes through one serial queue.
+* **The background never crossed.** `applyRemote` moves shapes and nothing
+  else, so a peer's background had no way to reach the screen. `Committed` now
+  carries the board's whole document state on every answer.
+* **A file's shapes never reached the board.** Only `host()` seeded it, so a
+  drawing opened from a file was edited against an empty document — and the
+  first edit would have sent a peer an update adding one shape to a board
+  missing every other one. `attach` seeds now.
+
+**Clear semantics changed, deliberately.** A peer's concurrent stroke survives
+your clear, where the old `clearedAt` cutoff voided it. Destroying someone's
+work because it raced your clear is hard to defend, and the cutoff existed to
+make a hand-rolled merge converge rather than because anyone chose it.
+
+**The QR code got smaller.** The ticket is base32, so encoding it uppercase
+puts it in a QR code's compact alphanumeric mode: version 11 (61x61 modules)
+becomes version 9 (53x53). Bigger modules for the same panel, which is what a
+phone camera at arm's length needs. Only the code changes — the text below it
+stays lowercase for reading aloud and typing, and `decode` already uppercased
+whatever it received, pinned by `the_encoding_survives_a_qr_reader_upcasing_it`.
+
+**Verification.** 20 tests in `crates/board` including a lifecycle test that
+draws, pairs, edits on both sides, restarts and rejoins; 17 frontend tests that
+drive the **real** crate through a helper process rather than a JavaScript
+lookalike, because a second implementation would converge with itself and prove
+nothing about the one that ships. Containment unchanged: no `yrs`, `fjall` or
+`iroh` in a default sketch build, no `openssl-sys` in enigma.
+
+**What is not done.** The old `sketchCrdt.ts` and its 28 tests are still in the
+tree and still exercised by the sessions that run without a document handle.
+Deleting them is a separate step, and the right time is after the yrs path has
+run in the real app.
+
 ## What is left
 
+* **`sketchCrdt.ts` is still in the tree.** Step 39 replaced it for any session
+  with a document handle, but the module and its 28 tests remain, and a build
+  without the `document` feature still uses them. Deleting it is a deliberate
+  later step.
 * **Step 32, the maps split.** Designed, not built — see the Consolidation
   section for why the shape changed once the coupling was measured.
 * **i18n stays two mechanisms**, deliberately; the reasoning is recorded with
