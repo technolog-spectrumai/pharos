@@ -45,6 +45,7 @@ import {
   type WireShape,
 } from "wisteria/sketchCrdt";
 import { persistErrorKey, type BoardStore } from "./persist";
+import { documentErrorKey, type BoardDoc, type Committed } from "./document";
 import {
   collabErrorKey,
   fromBytes,
@@ -138,6 +139,29 @@ function plain<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+/** yrs updates are binary and the store's surface is text.
+ *
+ *  Base64 rather than a number array: a 123 KB update is ~164 KB base64 and
+ *  ~500 KB as JSON digits, and this is the one place the document is written
+ *  repeatedly. Chunked because `String.fromCharCode(...bytes)` on a large
+ *  array overflows the call stack. */
+const B64_CHUNK = 8192;
+
+export function bytesToB64(bytes: number[]): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += B64_CHUNK) {
+    out += String.fromCharCode(...bytes.slice(i, i + B64_CHUNK));
+  }
+  return btoa(out);
+}
+
+export function b64ToBytes(text: string): number[] {
+  const raw = atob(text);
+  const out = new Array<number>(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
 function same(a: Shape, b: Shape): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -152,7 +176,20 @@ export const SAVE_DEBOUNCE_MS = 500;
 
 export function createCollabSession(
   transport: CollabTransport,
-  opts: { me?: string; store?: BoardStore | null; boardId?: () => string } = {},
+  opts: {
+    me?: string;
+    store?: BoardStore | null;
+    boardId?: () => string;
+    /** The yrs board in Rust. When present the document lives THERE and the
+     *  in-memory CRDT below is not used: ops on the wire are yrs updates and
+     *  the merge is the library's.
+     *
+     *  Injected rather than imported so this file has no Tauri dependency —
+     *  the same reason the transport and the store are. A build without the
+     *  `document` Cargo feature passes null and keeps the older path, which is
+     *  what every existing test exercises. */
+    doc?: BoardDoc | null;
+  } = {},
 ) {
   /** This peer's author id — the LWW tie-break and the undo boundary. Random
    *  per session rather than the endpoint id, which is not known until the
@@ -181,6 +218,13 @@ export function createCollabSession(
   /** id → first createdAt seen, so an undo that resurrects a shape keeps its
    *  place in the paint order rather than jumping to the top. */
   let created = new Map<string, number>();
+  /** id → the shape as the board last knew it, for the yrs path.
+   *
+   *  The old path could diff against `crdt.entries` because the CRDT was right
+   *  here; the board is a round trip away, so what it holds is mirrored as it
+   *  is written. Only used to decide WHAT CHANGED — never as a source of
+   *  truth for what to draw, which is always the board's answer. */
+  let lastSeen = new Map<string, Shape>();
   let bg: BgRegister = { color: null, at: 0, by: "" };
   /** The peer we sent `Welcome` to. A reconnecting holder is admitted again
    *  by Rust and accepted again here without a second human confirmation —
@@ -198,7 +242,8 @@ export function createCollabSession(
     // Two catalogues reach this: the transport's and the store's. A prefix in
     // neither is shown verbatim, because a filesystem message names the actual
     // problem better than "something failed" would.
-    error.value = collabErrorKey(message) ?? persistErrorKey(message) ?? message;
+    error.value =
+      collabErrorKey(message) ?? persistErrorKey(message) ?? documentErrorKey(message) ?? message;
   }
 
   async function send(frame: WireFrame) {
@@ -213,6 +258,57 @@ export function createCollabSession(
     return send({ Op: { seq: 0, bytes: toBytes(JSON.stringify(op)) } });
   }
 
+  /** A yrs update on the wire.
+   *
+   *  The frame is the same `Frame::Op` the JSON ops used — `crates/collab`
+   *  moves opaque bytes and does not care which they are — so the transport,
+   *  the sequence tracking and the resync logic are untouched by the change of
+   *  document. */
+  function sendUpdate(update: number[]) {
+    return send({ Op: { seq: 0, bytes: update } });
+  }
+
+  /** Push a change into the yrs board and broadcast whatever it produced.
+   *
+   *  Failures surface and are otherwise swallowed: a board that cannot reach
+   *  Rust is a broken app, but dropping the peer or freezing the canvas would
+   *  make it worse than it needs to be. */
+  function commitToBoard(change: () => Promise<Committed>) {
+    if (!yboard || !sketch) return Promise.resolve();
+    return queueBoard(() => runCommit(change));
+  }
+
+  async function runCommit(change: () => Promise<Committed>) {
+    if (!yboard || !sketch) return;
+    try {
+      const answer = await change();
+      showBoard(answer);
+      if (answer.update) await sendUpdate(answer.update);
+      scheduleSave();
+    } catch (err) {
+      applying = false;
+      fail(err);
+    }
+  }
+
+  /** Put the board's answer on screen.
+   *
+   *  The background travels HERE rather than as its own op: it is document
+   *  state the board already holds, and a peer's background has no other way
+   *  to arrive — `applyRemote` moves shapes and nothing else. `applying`
+   *  guards the watcher so writing it back does not echo as a new local
+   *  change. */
+  function showBoard(answer: Committed) {
+    if (!sketch) return;
+    applying = true;
+    sketch.applyRemote(answer.shapes);
+    if (sketch.doc.value.background !== answer.background) {
+      sketch.doc.value.background = answer.background;
+    }
+    applying = false;
+    if (answer.width > 0 && answer.height > 0) setBoard(answer.width, answer.height);
+  }
+
   // ── the engine side ────────────────────────────────────────────────────────
 
   /** May this user's UNDO touch a shape? An edit may touch anything; undo may
@@ -221,9 +317,66 @@ export function createCollabSession(
     return reason !== "history" || (lastWriter.get(id) ?? me) === me;
   }
 
+  /** The commit observer, yrs edition.
+   *
+   *  Answers SYNCHRONOUSLY with the engine's own list and reconciles with the
+   *  board afterwards, because `observeCommits` must return the shapes to draw
+   *  now and the board is a round trip away. That is not a compromise on
+   *  convergence: what the peer receives, and what is written to disk, is
+   *  whatever the board says once the write lands. The only thing the local
+   *  screen does is show the user's own edit immediately, which it must.
+   *
+   *  What the old path needed and this does not: a hybrid logical clock, a
+   *  `created` map to hold paint order across a resurrect, and `lastWriter` as
+   *  a separate structure — yrs keeps the order in its array, stamps its own
+   *  Lamport clocks, and `authorOfShape` reads authorship back off the board.
+   *
+   *  The one thing still tracked here is the UNDO boundary: `mayTouch` is
+   *  policy about who may revert what, not a CRDT concern, so it stays.
+   */
+  function onCommitYrs(next: Shape[], reason: CommitReason): Shape[] {
+    const known = lastSeen;
+    const nextIds = new Set(next.map((s) => s.id));
+
+    if (reason === "clear" && known.size > 0) {
+      for (const id of known.keys()) lastWriter.set(id, me);
+      lastSeen = new Map();
+      void commitToBoard(() => yboard!.clear());
+      return next;
+    }
+
+    const gone = [...known.keys()].filter((id) => !nextIds.has(id) && mayTouch(id, reason));
+    const changed = next.filter((sh) => {
+      const before = known.get(sh.id);
+      return (!before || !same(before, sh)) && mayTouch(sh.id, reason);
+    });
+    if (!gone.length && !changed.length) return next;
+
+    for (const id of gone) {
+      lastWriter.set(id, me);
+      lastSeen.delete(id);
+    }
+    for (const sh of changed) {
+      lastWriter.set(sh.id, me);
+      lastSeen.set(sh.id, plain(sh));
+    }
+
+    // Deletes and edits go as ONE update when both happened, so the peer never
+    // renders a half-applied gesture.
+    void commitToBoard(async () => {
+      if (gone.length) {
+        const r = await yboard!.remove(gone);
+        if (!changed.length) return r;
+      }
+      return yboard!.putMany(changed.map((sh) => plain(sh)));
+    });
+    return next;
+  }
+
   /** The commit observer: diff the engine's new list against the CRDT, turn
    *  the difference into ops, answer with the merged view. */
   function onCommit(_prev: Shape[], next: Shape[], reason: CommitReason): Shape[] {
+    if (yboard) return onCommitYrs(next, reason);
     const ops: Op[] = [];
     const nextIds = new Set(next.map((s) => s.id));
 
@@ -269,6 +422,42 @@ export function createCollabSession(
 
   function bgWins(next: BgRegister): boolean {
     return next.at > bg.at || (next.at === bg.at && next.by > bg.by);
+  }
+
+  /** Merge a yrs update from a peer or the store.
+   *
+   *  Always a merge, never a replace — anything drawn while the update was in
+   *  flight survives. The old path had to implement that property by hand in
+   *  `applySnapshot`; here it is what the library does.
+   *
+   *  Authorship is NOT carried in the update. The old ops named an author on
+   *  every shape because the CRDT needed one to break ties; yrs breaks ties on
+   *  its own client ids, so the only remaining use for authorship is the undo
+   *  boundary — and for that, "the peer touched it" is exactly right. */
+  async function applyUpdate(update: number[]) {
+    if (!yboard || !sketch) return;
+    try {
+      const before = new Set(lastSeen.keys());
+      const answer = await yboard.apply(update);
+      const { shapes } = answer;
+      showBoard(answer);
+      const now = new Map<string, Shape>();
+      for (const sh of shapes) now.set(sh.id, sh);
+      // Whatever the peer's update changed is theirs for undo purposes.
+      for (const [id, sh] of now) {
+        const was = lastSeen.get(id);
+        if (!was || !same(was, sh)) lastWriter.set(id, peer.value ?? "peer");
+      }
+      for (const id of before) if (!now.has(id)) lastWriter.set(id, peer.value ?? "peer");
+      lastSeen = now;
+      // The peer's stroke has landed as a shape; the preview has done its job.
+      const live = sketch.peerLive.value;
+      if (live && now.has(live.id)) sketch.peerLive.value = null;
+      scheduleSave();
+    } catch (err) {
+      applying = false;
+      fail(err);
+    }
   }
 
   function applyOp(op: Op) {
@@ -322,6 +511,29 @@ export function createCollabSession(
   // persist a group key and the transport keeps its identity ephemeral on
   // purpose, and writing either here would quietly reverse both.
   const store = opts.store ?? null;
+  /** The yrs board in Rust, or null to use the in-memory CRDT above.
+   *
+   *  Everything about it is asynchronous, which is why the commit observer
+   *  below still answers synchronously from the local CRDT and reconciles
+   *  afterwards: `observeCommits` must return the board to draw NOW, and a
+   *  round trip to Rust cannot happen inside it. */
+  const yboard = opts.doc ?? null;
+  /** Board work, run strictly in the order it was queued.
+   *
+   *  `onFrame` is synchronous — the transport hands frames over one at a time
+   *  and cannot await — while every board call is a round trip. Firing them
+   *  off with `void` lets a later frame's write land before an earlier one's,
+   *  and the failure is silent: a `reset` from `Welcome` overtaking the
+   *  `Snapshot` that follows it wipes the board the joiner just received, with
+   *  no error anywhere. Found exactly that way.
+   *
+   *  So everything that touches the board goes through here, and ordering is a
+   *  property of the session rather than of how fast Rust answers. */
+  let boardWork: Promise<unknown> = Promise.resolve();
+  function queueBoard(job: () => Promise<unknown>): Promise<unknown> {
+    boardWork = boardWork.then(job, job);
+    return boardWork;
+  }
   const boardId = opts.boardId ?? (() => "current");
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -351,7 +563,14 @@ export function createCollabSession(
     }
     if (!store || !sketch) return;
     try {
-      await store.save(boardId(), JSON.stringify(documentBody()));
+      // With a yrs board the stored bytes ARE the document — the same update a
+      // peer would receive, base64'd because the store's surface is text. No
+      // re-encoding between the CRDT and the disk, which is the whole reason
+      // the document lives in Rust beside the store.
+      const body = yboard
+        ? JSON.stringify({ y: bytesToB64((await queueBoard(() => yboard.snapshot())) as number[]) })
+        : JSON.stringify(documentBody());
+      await store.save(boardId(), body);
     } catch (err) {
       // A failed autosave must not take the session down with it — the board
       // is still on screen and still shared. Surfaced, not swallowed.
@@ -373,7 +592,13 @@ export function createCollabSession(
     try {
       const raw = await store.load(boardId());
       if (!raw) return false;
-      applySnapshot(JSON.parse(raw) as SnapshotBody);
+      const parsed = JSON.parse(raw) as SnapshotBody | { y: string };
+      if (yboard && "y" in parsed) {
+        await queueBoard(() => applyUpdate(b64ToBytes(parsed.y)));
+        return true;
+      }
+      if ("y" in parsed) return false; // a yrs board with no yrs to read it
+      applySnapshot(parsed);
       return true;
     } catch (err) {
       fail(err);
@@ -383,6 +608,29 @@ export function createCollabSession(
 
   async function sendSnapshot() {
     if (!sketch) return;
+    if (yboard) {
+      // The whole board as one update. Not truncated, and it cannot need to
+      // be: 1000 shapes encode to ~123 KB where the JSON snapshot had to be
+      // cut at 700 KB — which is why `truncated` and its warning are dead on
+      // this path.
+      //
+      // Queued like everything else, so a joiner is sent the board INCLUDING
+      // whatever `seed()` was still writing when the snapshot was asked for.
+      try {
+        const bytes = (await queueBoard(() => yboard.snapshot())) as number[];
+        await send({
+          Snapshot: {
+            seq: 0,
+            width: sketch.boardW.value,
+            height: sketch.boardH.value,
+            bytes,
+          },
+        });
+      } catch (err) {
+        fail(err);
+      }
+      return;
+    }
     const tombs = Object.entries(crdt.tombstones);
     const cut = truncateSnapshot(crdt.entries, tombs, crdt.clearedAt, MAX_SNAPSHOT_BYTES);
     const width = sketch.boardW.value;
@@ -426,6 +674,23 @@ export function createCollabSession(
    *  host's starting point, in the paint order the file had. */
   function seed() {
     if (!sketch) return;
+    if (yboard) {
+      const shapes = sketch.doc.value.shapes.map((sh) => plain(sh));
+      for (const sh of shapes) {
+        lastWriter.set(sh.id, me);
+        lastSeen.set(sh.id, sh);
+      }
+      void queueBoard(async () => {
+        try {
+          await yboard.setSize(sketch!.boardW.value, sketch!.boardH.value);
+          await yboard.setBackground(sketch!.doc.value.background);
+          if (shapes.length) await yboard.putMany(shapes);
+        } catch (err) {
+          fail(err);
+        }
+      });
+      return;
+    }
     for (const s of sketch.doc.value.shapes) {
       const at = clock.now();
       const e: WireShape = { shape: plain(s), meta: { author: me, createdAt: at, updatedAt: at } };
@@ -453,6 +718,10 @@ export function createCollabSession(
         () => s.doc.value.background,
         (color) => {
           if (applying) return;
+          if (yboard) {
+            void commitToBoard(() => yboard.setBackground(color));
+            return;
+          }
           bg = { color, at: clock.now(), by: me };
           void sendOp({ k: "bg", ...bg });
         },
@@ -491,6 +760,7 @@ export function createCollabSession(
     crdt = emptyCrdt();
     lastWriter = new Map();
     created = new Map();
+    lastSeen = new Map();
     bg = { color: null, at: 0, by: "" };
     acceptedPeer = null;
     phase.value = "idle";
@@ -526,18 +796,26 @@ export function createCollabSession(
       crdt = emptyCrdt();
       lastWriter = new Map();
       created = new Map();
+      lastSeen = new Map();
+      if (yboard) void queueBoard(() => yboard.reset().catch(fail));
       setBoard(frame.Welcome.width, frame.Welcome.height);
       sketch.applyRemote([]);
       phase.value = "live";
       return;
     }
     if ("Snapshot" in frame) {
-      applySnapshot(JSON.parse(fromBytes(frame.Snapshot.bytes)) as SnapshotBody);
+      if (yboard) {
+        setBoard(frame.Snapshot.width, frame.Snapshot.height);
+        void queueBoard(() => applyUpdate(frame.Snapshot.bytes));
+      } else {
+        applySnapshot(JSON.parse(fromBytes(frame.Snapshot.bytes)) as SnapshotBody);
+      }
       if (phase.value === "pairing") phase.value = "live";
       return;
     }
     if ("Op" in frame) {
-      applyOp(JSON.parse(fromBytes(frame.Op.bytes)) as Op);
+      if (yboard) void queueBoard(() => applyUpdate(frame.Op.bytes));
+      else applyOp(JSON.parse(fromBytes(frame.Op.bytes)) as Op);
       return;
     }
     if ("Live" in frame) {

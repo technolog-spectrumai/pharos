@@ -52,6 +52,11 @@ async function invoke<T>(cmd: string, args: Record<string, unknown> = {}): Promi
 export interface Committed {
   shapes: Shape[];
   update: number[] | null;
+  /** The background colour, carried on every answer — a background arriving
+   *  in a peer's update has no other way to reach the screen. */
+  background: string | null;
+  width: number;
+  height: number;
 }
 
 export interface DocView {
@@ -83,13 +88,21 @@ export interface BoardDoc {
 }
 
 /** Rust answers with `{shapes: string[]}`; the session wants `Shape[]`. */
-function parse(raw: { shapes: string[]; update: number[] | null }): Committed {
-  return { shapes: raw.shapes.map((s) => JSON.parse(s) as Shape), update: raw.update };
+interface RawCommitted {
+  shapes: string[];
+  update: number[] | null;
+  background: string | null;
+  width: number;
+  height: number;
+}
+
+function parse(raw: RawCommitted): Committed {
+  return { ...raw, shapes: raw.shapes.map((s) => JSON.parse(s) as Shape) };
 }
 
 export function tauriBoardDoc(): BoardDoc {
   const commit = (cmd: string, args: Record<string, unknown> = {}) =>
-    invoke<{ shapes: string[]; update: number[] | null }>(cmd, args).then(parse);
+    invoke<RawCommitted>(cmd, args).then(parse);
   return {
     reset: () => invoke<void>("doc_reset"),
     put: (shape) => commit("doc_put", { id: shape.id, shape: JSON.stringify(shape) }),

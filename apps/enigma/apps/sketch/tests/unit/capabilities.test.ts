@@ -82,6 +82,16 @@ describe("this app's IPC surface", () => {
       // accident — which is what keeps the collaboration layer's "no group key
       // persisted, no stable identity" decisions true.
       "board_save", "board_load", "board_forget",
+      // The document, behind the `document` Cargo feature (off by default).
+      // Thirteen shims over crates/board, the yrs CRDT that replaced a
+      // hand-rolled one in the frontend. Every one of them moves SHAPES: a
+      // shape body as JSON in, the merged board out, and yrs update bytes for
+      // the peer. None takes a key, a passphrase or a path, and the crate
+      // behind them does not know what a rectangle is — so this surface can
+      // no more leak key material than `board_save` can.
+      "doc_reset", "doc_put", "doc_put_many", "doc_remove", "doc_clear",
+      "doc_set_background", "doc_set_size", "doc_read", "doc_apply",
+      "doc_snapshot", "doc_state_vector", "doc_diff", "doc_compact",
     ]);
     const unexpected = registered().filter((n) => !ALLOWED.has(n));
     expect(unexpected).toEqual([]);

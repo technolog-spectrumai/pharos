@@ -51,6 +51,17 @@ pub struct Committed {
     pub shapes: Vec<String>,
     /// The yrs update carrying just this change, for `Frame::Op`.
     pub update: Option<Vec<u8>>,
+    /// The background colour, or `None` for transparent.
+    ///
+    /// Carried on EVERY answer rather than only when it changed, because the
+    /// caller applies whatever it is given and a background that arrives in a
+    /// peer's update has no other way to reach the screen — the shapes list
+    /// cannot express it, and the frontend keeps no second copy to diff
+    /// against. Found by a test where a peer's background never arrived.
+    pub background: Option<String>,
+    /// The board size, which travels for the same reason.
+    pub width: u32,
+    pub height: u32,
 }
 
 fn with<T>(state: &DocState, f: impl FnOnce(&Board) -> T) -> Result<T, String> {
@@ -74,8 +85,20 @@ fn commit(state: &DocState, f: impl FnOnce(&Board)) -> Result<Committed, String>
         let before = doc.state_vector();
         f(doc);
         let update = doc.diff(&before).ok().filter(|u| !is_empty_update(u));
-        Committed { shapes: doc.shapes(), update }
+        committed(doc, update)
     })
+}
+
+/// The board's whole document state, plus whatever bytes produced it.
+fn committed(doc: &Board, update: Option<Vec<u8>>) -> Committed {
+    let (width, height) = doc.size();
+    Committed {
+        shapes: doc.shapes(),
+        update,
+        background: doc.background(),
+        width,
+        height,
+    }
 }
 
 /// An update that carries no changes still encodes to a couple of framing
@@ -198,7 +221,7 @@ pub async fn doc_read(state: State<'_, DocState>) -> Result<DocView, String> {
 pub async fn doc_apply(state: State<'_, DocState>, update: Vec<u8>) -> Result<Committed, String> {
     let applied = with(&state, |doc| doc.apply(&update))?;
     applied.map_err(|e| e.to_string())?;
-    with(&state, |doc| Committed { shapes: doc.shapes(), update: None })
+    with(&state, |doc| committed(doc, None))
 }
 
 /// Everything, as one update — what a joiner is sent, and what goes to disk.
@@ -234,7 +257,7 @@ pub async fn doc_compact(state: State<'_, DocState>) -> Result<Committed, String
         .map_err(|_| "document_failed: lock poisoned".to_string())?;
     let doc = guard.get_or_insert_with(Board::new);
     let small = doc.compacted();
-    let shapes = small.shapes();
+    let answer = committed(&small, None);
     *guard = Some(small);
-    Ok(Committed { shapes, update: None })
+    Ok(answer)
 }
