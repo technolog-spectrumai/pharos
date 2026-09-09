@@ -8,3 +8,7 @@ description = "The drawing, as a yrs CRDT"
 # Pinned at 0.19 rather than tracking latest: `yrs-kvstore` requires it, and if
 # the store adapter is ever wanted, a version bump here would rule it out.
 yrs = "0.19"
+
+[dev-dependencies]
+hoard = { path = "../hoard" }
+tempfile = "3"
