@@ -91,6 +91,12 @@ export default {
       board_damaged: "The saved copy of this drawing could not be read.",
     },
   },
+  document: {
+    errors: {
+      document_failed: "Something went wrong with this drawing's board.",
+      bad_update: "A change from the other person could not be read.",
+    },
+  },
   collab: {
     title: "Draw together",
     intro: "Pair this drawing with one other person. You both draw on the same board, and either of you can save it.",

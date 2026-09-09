@@ -91,6 +91,12 @@ export default {
       board_damaged: "Nie udało się odczytać zapisanej kopii rysunku.",
     },
   },
+  document: {
+    errors: {
+      document_failed: "Coś poszło nie tak z tablicą tego rysunku.",
+      bad_update: "Nie udało się odczytać zmiany od drugiej osoby.",
+    },
+  },
   collab: {
     title: "Rysujcie razem",
     intro: "Połącz ten rysunek z jedną drugą osobą. Rysujecie na tej samej tablicy i każde z was może ją zapisać.",
