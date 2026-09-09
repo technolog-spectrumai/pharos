@@ -13,6 +13,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vu
 import { useI18n } from "vue-i18n";
 import { TONE_ICONS } from "../icons";
 import ModalPanel from "petalite/ModalPanel.vue";
+import CsvTableModal from "./CsvTableModal.vue";
 import FormulaPreview from "../components/FormulaPreview.vue";
 import { Editor, EditorContent } from "@tiptap/vue-3";
 import { cyprianExtensions, INKS } from "./cyprianSchema";
@@ -196,6 +197,7 @@ const headings = computed(() => outline(editor.value?.getHTML() ?? doc.value.con
 
 // ── formula ─────────────────────────────────────────────────────────────────
 const formulaOpen = ref(false);
+const csvOpen = ref(false);
 const formulaInput = ref("");
 
 async function confirmFormula() {
@@ -219,6 +221,31 @@ async function confirmFormula() {
 
 // ── toolbar commands ────────────────────────────────────────────────────────
 const chain = () => editor.value?.chain().focus();
+
+/** Insert a table and fill it from parsed CSV.
+ *
+ *  Built as ONE node tree and inserted in a single command rather than
+ *  creating a grid and then writing N cells: one undo step, and no half-filled
+ *  intermediate document for the paginator to react to. */
+function insertCsvTable({ rows, withHeaderRow }: { rows: string[][]; withHeaderRow: boolean }) {
+  if (!editor.value || rows.length === 0) return;
+  const width = Math.max(...rows.map((r) => r.length));
+  const cell = (text: string, header: boolean) => ({
+    type: header ? "tableHeader" : "tableCell",
+    // An empty cell still needs an empty paragraph: a cell with no child is
+    // invalid in the table schema, and TipTap drops the whole node rather than
+    // complaining.
+    content: [{ type: "paragraph", content: text ? [{ type: "text", text }] : [] }],
+  });
+  editor.value.chain().focus().insertContent({
+    type: "table",
+    content: rows.map((row, r) => ({
+      type: "tableRow",
+      content: Array.from({ length: width }, (_unused, c) =>
+        cell(row[c] ?? "", withHeaderRow && r === 0)),
+    })),
+  }).run();
+}
 const isActive = (name: string, attrs?: Record<string, unknown>) =>
   editor.value?.isActive(name, attrs) ?? false;
 
@@ -353,7 +380,7 @@ defineExpose({
         <OyaIconButton size="sm" icon="square-root-variable" :label="t('doc.formula')" class="oya-tip" :data-tip="t('doc.formula')"
                        data-testid="doc-formula" @click="formulaOpen = true" />
         <OyaIconButton size="sm" icon="table" :label="t('doc.table')" class="oya-tip" :data-tip="t('doc.table')"
-                       @click="chain()?.insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()" />
+                       data-testid="doc-table" @click="csvOpen = true" />
         <OyaIconButton size="sm" icon="scissors" :label="t('doc.pageBreak')" class="oya-tip" :data-tip="t('doc.pageBreak')"
                        @click="chain()?.insertContent({ type: 'pageBreak' }).run()" />
 
@@ -459,6 +486,8 @@ defineExpose({
         </div>
       </div>
     </OyaModal>
+
+    <CsvTableModal v-model:open="csvOpen" @insert="insertCsvTable" />
 
     <OyaModal :open="formulaOpen" @close="formulaOpen = false">
       <ModalPanel :title="t('doc.formula')">
