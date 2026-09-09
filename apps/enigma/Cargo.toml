@@ -26,6 +26,7 @@ members = [
     "crates/substrate",
     "crates/padova",
     "crates/collab",
+    "crates/hoard",
 ]
 exclude = [
     "apps/enigma/src-tauri",

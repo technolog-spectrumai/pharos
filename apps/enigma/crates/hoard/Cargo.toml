@@ -1,0 +1,23 @@
+[package]
+name = "hoard"
+version = "0.1.0"
+description = "Where a drawing survives a crash — the board on disk, and nothing else"
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version = "1.88"
+
+[dependencies]
+# The same embedded LSM store enigma keeps all its state in, through protasius.
+# Taken DIRECTLY rather than through protasius, and the reason is mechanical:
+# protasius ends every write with `keyspace.persist(PersistMode::SyncAll)` — a
+# full fsync per key, with no batch API anywhere in the crate. Measured on this
+# machine: 3.4 ms fsynced per update against 19.5 µs batched, a 175x difference.
+# A drawing that autosaves cannot pay the first number. Protasius also refuses
+# every read and write until a passphrase unlocks it, and sketch has never
+# asked for one — you open it and draw.
+fjall = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3"
