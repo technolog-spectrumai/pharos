@@ -1,14 +1,22 @@
 // How the API client reaches the server.
 //
-// It cannot use the webview's `fetch`. The session token lives in the OS secret
-// store and is never handed to JavaScript — that is the whole point of the sign
-// -in design — so nothing here can build an `Authorization` header. Rust makes
-// the call and attaches it.
+// It cannot use the webview's `fetch`, for TWO independent reasons and either
+// one alone would be enough:
+//
+//   1. The token lives in the OS secret store and is never handed to
+//      JavaScript, so nothing here can build an `Authorization` header. Rust
+//      makes the call and attaches it.
+//   2. The app's CSP is `connect-src 'self' ipc: http://ipc.localhost`. A
+//      `fetch()` at a remote host is BLOCKED by the webview before it reaches
+//      the network — silently, as CSP violations are. Widening the CSP to
+//      permit an arbitrary user-supplied origin would mean widening it to
+//      `https:`, which is the whole protection gone. Going through `ipc:` is
+//      already allowed and needs no exception.
 //
 // `createClient` already takes a `fetchImpl`, so this slots in underneath the
 // typed layer without changing a line of it: `errors.ts`'s status→kind
 // taxonomy and `vault.ts`'s DTOs work exactly as they do over a real fetch.
-import type { CloudSettings } from "../cloud/cloudSettings";
+import type { PlatformSettings } from "../platform/settings";
 
 interface ApiReply {
   status: number;
@@ -36,7 +44,7 @@ function isTauri(): boolean {
  *  the base address (it is the key the token is filed under) and refuses paths
  *  outside its allowlist, so handing it a full URL would invite a caller to
  *  point it somewhere else. */
-export function tauriFetch(settings: () => CloudSettings): typeof fetch {
+export function tauriFetch(settings: () => PlatformSettings): typeof fetch {
   return async (input, init) => {
     if (!isTauri()) throw new Error("desktop_only: the platform needs the desktop app");
     const { server, fingerprint } = settings();

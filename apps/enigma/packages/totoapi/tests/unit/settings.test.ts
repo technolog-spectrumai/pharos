@@ -1,25 +1,34 @@
+// @vitest-environment jsdom
+//
+// The ONE file in this package that needs a DOM, and only for `localStorage`.
+// Everything else here is logic over an injected `fetchImpl` and runs in node —
+// see vitest.config.ts. A per-file environment beats switching the whole
+// package to jsdom for one Storage object.
 import { beforeEach, describe, expect, it } from "vitest";
-import { EMPTY, isFingerprint, load, normalize, save } from "../../src/cloud/cloudSettings";
+import { EMPTY, isFingerprint, load, normalize, save } from "../../src/platform/settings";
+
+const KEY = "totoapi:test";
 
 const FP = "A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90:"
   + "A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90";
 
-describe("what the Cloud tab remembers", () => {
+describe("what a platform-backed app remembers", () => {
   beforeEach(() => localStorage.clear());
 
   it("never holds a token", () => {
-    // The whole point of the split. This app renders untrusted .svg and deck
-    // HTML with no CSP, so anything here is reachable by an opened document —
-    // the token lives in the OS secret store, written only by Rust.
-    save({ server: "https://s.test", fingerprint: FP });
-    const raw = localStorage.getItem("zinnia:cloud")!;
+    // The whole point of the split. An editor opens files whose contents the
+    // user did not write, so anything here should be assumed reachable by an
+    // opened document — the token lives in the OS secret store, written only
+    // by Rust.
+    save(KEY, { server: "https://s.test", fingerprint: FP });
+    const raw = localStorage.getItem(KEY)!;
     expect(raw).not.toMatch(/token/i);
     expect(Object.keys(JSON.parse(raw)).sort()).toEqual(["fingerprint", "server"]);
   });
 
   it("round-trips a server and its accepted fingerprint", () => {
-    save({ server: "https://s.test", fingerprint: FP });
-    expect(load()).toEqual({ server: "https://s.test", fingerprint: FP });
+    save(KEY, { server: "https://s.test", fingerprint: FP });
+    expect(load(KEY)).toEqual({ server: "https://s.test", fingerprint: FP });
   });
 
   describe("the fingerprint", () => {
@@ -63,8 +72,8 @@ describe("what the Cloud tab remembers", () => {
     });
 
     it("falls back to empty on unparseable storage", () => {
-      localStorage.setItem("zinnia:cloud", "{not json");
-      expect(load()).toEqual(EMPTY);
+      localStorage.setItem(KEY, "{not json");
+      expect(load(KEY)).toEqual(EMPTY);
     });
   });
 
@@ -73,5 +82,23 @@ describe("what the Cloud tab remembers", () => {
     // under, and a second normalizer here that drifted would orphan the
     // credential while leaving it on disk.
     expect(normalize({ server: "https://S.TEST/x/" }).server).toBe("https://S.TEST/x/");
+  });
+});
+
+describe("the key is per app", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("two apps pointed at two servers do not overwrite each other", () => {
+    // py_editor and tex_editor are separate bundles a person may point at
+    // different servers. One shared constant — which is what this was in
+    // limbo — would make signing one in silently move the other.
+    save("totoapi:py", { server: "https://one.test", fingerprint: "" });
+    save("totoapi:tex", { server: "https://two.test", fingerprint: "" });
+    expect(load("totoapi:py").server).toBe("https://one.test");
+    expect(load("totoapi:tex").server).toBe("https://two.test");
+  });
+
+  it("an unknown key reads as empty rather than throwing", () => {
+    expect(load("totoapi:never-written")).toEqual(EMPTY);
   });
 });

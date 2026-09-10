@@ -27,15 +27,27 @@ const PACKAGES = join(__dirname, "../../../../packages");
  *  `SecurityView.vue` proved that twice, moving into Petalite and then into
  *  Padova; both times the suite stayed green and two cases quietly vanished.
  *
- *  `rakotis` is excluded, and the reason has changed: it used to be a git
- *  subtree with a life of its own. It is an ordinary package here now, but its
- *  icons are still registered by ENIGMA's library rather than by these apps —
- *  scanning it would demand names none of these three has any reason to carry.
- *  Enigma's own icons.test.ts is what covers it. */
+ *  Packages that ship no templates are named in `NO_TEMPLATES`. */
+/** Packages this scan has no business walking.
+ *
+ *  Named, not detected. The per-root guard below exists to catch a root that
+ *  WENT empty after a move — `LockModal.vue` and `SecurityView.vue` did that
+ *  twice — so "skip any root with no .vue files" would disarm the very check
+ *  it is meant to satisfy. A package that ships no templates has to say so.
+ *
+ *  `rakotis` — its icons are registered by ENIGMA's library rather than by
+ *  these apps, so scanning it would demand names none of these three carries.
+ *  Enigma's own icons.test.ts covers it.
+ *
+ *  `totoapi` — the platform client. Pure TypeScript over an injected fetch:
+ *  no components, no templates, and none planned. What it renders is nothing;
+ *  the apps render its data. */
+const NO_TEMPLATES = new Set(["rakotis", "totoapi"]);
+
 const ROOTS: ReadonlyArray<readonly [string, string]> = [
   ["src", SRC] as const,
   ...readdirSync(PACKAGES)
-    .filter((name) => name !== "rakotis")
+    .filter((name) => !NO_TEMPLATES.has(name))
     .map((name) => [name, join(PACKAGES, name, "src")] as const)
     .filter(([, dir]) => existsSync(dir)),
 ];

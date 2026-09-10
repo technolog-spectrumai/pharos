@@ -1,5 +1,32 @@
 # the cloud — sign-in, the vault, and the client under both, parked (8/2026)
 
+> **PARTIALLY REVIVED 2026-09-10.** Five files left this directory for
+> `packages/totoapi`, because `py_editor` and `tex_editor` are remote by
+> definition and needed exactly the half that was parked for being remote:
+>
+> | Left for | Was |
+> |---|---|
+> | `packages/totoapi/src/api/client.ts` | `src/api/client.ts` |
+> | `packages/totoapi/src/api/errors.ts` | `src/api/errors.ts` |
+> | `packages/totoapi/src/api/transport.ts` | `src/api/transport.ts` |
+> | `packages/totoapi/src/platform/settings.ts` | `src/cloud/cloudSettings.ts` |
+> | `packages/totoapi/tests/unit/*` | `tests/unit/{apiClient,cloudSettings}.test.ts` |
+>
+> What CHANGED in the lift is listed in `packages/totoapi/src/index.ts`. The
+> short version: `auth.ts` was rewritten around capsule API tokens rather than
+> `POST /api/login/` — its own header predicted that swap and said the call
+> sites would not change, and they did not — and `normalizeServerUrl` is
+> **still frozen**, for the reason this file gives below.
+>
+> **What is still here is still parked**, and most of it is the VAULT half:
+> `vault.ts`, `cloudTree.ts`, `useCloudFiles.ts`, `useCloud.ts`, `CloudView.vue`
+> and the old `auth.ts`. The new apps browse WORKSPACES (`/api/v1/workspaces`),
+> which is a different surface with a different permission model, so none of it
+> was reusable as it stood. `src-tauri/src/cloud.rs` is still here too and is
+> the next thing to lift — see "To lift it back", which still applies to it
+> verbatim, including the Cargo features a fresh `cargo add` will not pick.
+
+
 UNUSED. This is everything zinnia said to a toto platform server: a Cloud tab
 that signed in over a pinned TLS connection, a vault browser in the Files tab,
 an editor buffer that remembered which vault row it came from and saved itself

@@ -3,6 +3,16 @@
 // what keeps a server-side wording change from breaking client logic.
 export type ApiError =
   | { kind: "unauthorized" }
+  // A REFUSAL THE SERVER NAMED. `/api/v1/` answers `{error, code}` for every
+  // refusal it can explain — no capsule held, quota spent, a generated file,
+  // the wrong workspace kind. The sentence is for the person; `code` is what
+  // the UI branches on, and it is stable where the sentence is not.
+  //
+  // Added when the capsule API landed: 409 used to mean one thing (a save
+  // conflict, carrying `content_hash`) and now means "refused, because". Both
+  // shapes arrive on 409, so `classify` tells them apart by which field is
+  // present rather than by status alone.
+  | { kind: "refused"; code: string; message: string }
   | { kind: "payment-required"; entitlement: string; plansUrl: string }
   | { kind: "forbidden"; message: string }
   | { kind: "not-found" }
@@ -25,6 +35,7 @@ export class ApiFailure extends Error {
 function describe(e: ApiError): string {
   switch (e.kind) {
     case "unauthorized": return "Not signed in.";
+    case "refused": return e.message;
     case "payment-required": return `Requires the ${e.entitlement} entitlement.`;
     case "forbidden": return e.message;
     case "not-found": return "Not found.";
@@ -52,6 +63,11 @@ export function classify(status: number, body: unknown): ApiError {
       plansUrl: typeof b.plans_url === "string" ? b.plans_url : "",
     };
     case 403: return { kind: "forbidden", message: msg || "Not allowed." };
+    case 501: return {
+      kind: "refused",
+      code: typeof b.code === "string" ? b.code : "unsupported",
+      message: msg || "This deployment cannot do that.",
+    };
     case 404: return { kind: "not-found" };
     case 400: return { kind: "bad-request", message: msg || "Bad request." };
     case 423: return {
@@ -59,10 +75,23 @@ export function classify(status: number, body: unknown): ApiError {
       holder: typeof b.locked_by === "string" ? b.locked_by
         : typeof b.holder === "string" ? b.holder : "",
     };
-    case 409: return {
-      kind: "conflict",
-      contentHash: typeof b.content_hash === "string" ? b.content_hash : "",
-    };
+    case 409: {
+      // TWO DIFFERENT 409s, told apart by shape rather than by status.
+      //
+      // The vault's save conflict carries `content_hash` — the file changed on
+      // the server and the client must reconcile. Everything on `/api/v1/`
+      // carries `code` — the server refused and said why, and there is nothing
+      // to reconcile. Reading them as one would make a quota refusal look like
+      // a stale buffer and offer the user a merge.
+      if (typeof b.content_hash === "string") {
+        return { kind: "conflict", contentHash: b.content_hash };
+      }
+      return {
+        kind: "refused",
+        code: typeof b.code === "string" ? b.code : "",
+        message: msg || "Refused.",
+      };
+    }
     case 413: return { kind: "too-large", message: msg || "Too large." };
     case 415: return { kind: "unsupported-type", message: msg || "Unsupported file type." };
     default: return { kind: "server", status, message: msg };
