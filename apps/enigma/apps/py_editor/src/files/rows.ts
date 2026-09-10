@@ -19,9 +19,18 @@ export interface Row {
   isDirectory: boolean;
   depth: number;
   /** The server's id — what every file endpoint is addressed by. `path` is for
-   *  the UI; this is for the API, and confusing them is the bug this comment
-   *  exists to prevent. */
+   *  the UI; this is for the API, and confusing them is one bug this comment
+   *  exists to prevent.
+   *
+   *  THE OTHER ONE: an id is only unique WITHIN ITS KIND. It is the primary
+   *  key of `VaultFile` or of `VaultDirectory` — two tables, two sequences —
+   *  so a directory and a file routinely share a number. Never build a
+   *  `{id: row}` map over a mixed list, and never look a row up by id without
+   *  also checking `isDirectory`. `key` below is the safe handle. */
   id: number;
+  /** Unique across the whole tree: `"file:7"`, `"dir:7"`. Use this to compare
+   *  rows; use `id` only when calling an endpoint that already knows the kind. */
+  key: string;
   /** Produced by a run: openable, never writable. */
   readonly: boolean;
   /** Cannot be opened at all — the vault holds it encrypted. */
@@ -67,6 +76,7 @@ export function toRows(items: TreeItem[]): Row[] {
   return items.map((item) => ({
     name: item.name,
     path: pathFor(item),
+    key: `${item.t}:${item.id}`,
     isDirectory: item.t === "dir",
     depth: item.depth,
     id: item.id,

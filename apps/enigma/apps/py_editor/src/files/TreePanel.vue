@@ -24,8 +24,13 @@ const expanded = ref(new Set<string>());
 const rows = computed(() => toRows([...props.items]));
 const shown = computed(() => visible(rows.value, expanded.value));
 
+// `!r.isDirectory` is load-bearing, not defensive. Directory and file ids are
+// separate sequences on the server, so `dir 7` and `file 7` both exist — an id
+// lookup alone would highlight a FOLDER as the open file whenever the numbers
+// happened to line up, which is often.
 const activePath = computed(
-  () => rows.value.find((r) => r.id === props.activeId)?.path ?? "",
+  () => rows.value.find((r) => !r.isDirectory && r.id === props.activeId)
+    ?.path ?? "",
 );
 
 // A workspace change resets the expansion, or folders from the last one stay

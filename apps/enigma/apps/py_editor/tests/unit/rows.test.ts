@@ -140,3 +140,48 @@ describe("isOpenable", () => {
     expect(isOpenable(row)).toBe(true);
   });
 });
+
+
+describe("an id is only unique within its kind", () => {
+  // THE TRAP THIS TREE CARRIES. `id` is the primary key of VaultFile OR of
+  // VaultDirectory — two tables, two sequences — so a directory and a file
+  // routinely share a number. Found by printing a real tree from the server:
+  //   t=dir  id=2 pid=1 name=outer
+  //   t=file id=2 pid=2 name=deep.py
+  //
+  // A `{id: row}` map loses one of them, and "find the row with this id"
+  // matches whichever comes first. It was a live bug in TreePanel: the active
+  // FILE highlight matched a folder whenever the numbers lined up.
+  const COLLIDING: TreeItem[] = [
+    dir(1, "outer", null, 0),
+    dir(2, "inner", 1, 1),
+    file(2, "deep.py", 2, 2),
+    file(1, "top.py", null, 0),
+  ];
+
+  it("the fixture really does collide (or this proves nothing)", () => {
+    const ids = COLLIDING.map((i) => i.id);
+    expect(new Set(ids).size).toBeLessThan(ids.length);
+  });
+
+  it("`key` is unique across the whole tree where `id` is not", () => {
+    const rows = toRows(COLLIDING);
+    expect(new Set(rows.map((r) => r.id)).size).toBeLessThan(rows.length);
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+  });
+
+  it("keys name the kind, so a reader can see which table a row came from", () => {
+    const rows = toRows(COLLIDING);
+    expect(rows.find((r) => r.name === "inner")!.key).toBe("dir:2");
+    expect(rows.find((r) => r.name === "deep.py")!.key).toBe("file:2");
+  });
+
+  it("paths stay right despite the collision", () => {
+    // The walk keys `nameOf`/`parentOf` on DIRECTORY ids only, which is what
+    // makes it safe. A map built over the mixed list would resolve `pid: 2` to
+    // the file and produce a path with a filename in the middle of it.
+    const byName = Object.fromEntries(toRows(COLLIDING).map((r) => [r.name, r.path]));
+    expect(byName["deep.py"]).toBe("outer/inner/deep.py");
+    expect(byName["top.py"]).toBe("top.py");
+  });
+});

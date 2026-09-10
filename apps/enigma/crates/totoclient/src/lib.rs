@@ -834,10 +834,15 @@ mod tests {
     fn the_store_and_the_service_name() {
         // -- the service name is whatever the app set ----------------------
         //
-        // Two apps share this crate and must not share a credential. The
-        // default exists so a missing `init()` is a visible name in a keyring
-        // browser rather than a crash on launch.
-        assert_eq!(service(), "totoclient.unconfigured");
+        // Two apps share this crate and must not share a credential.
+        //
+        // NOT ASSERTED: that `service()` starts as the unconfigured
+        // placeholder. It is a process-wide `OnceLock`, so ANY test that calls
+        // `init()` first makes that false — and one does, in the guard test
+        // below. Asserting it made this fail intermittently depending on which
+        // test cargo scheduled first, which is the worst shape of failure.
+        // The fallback is one `unwrap_or` and is visible in a keyring browser
+        // by design; what is worth pinning is the part with a decision in it.
         init("com.example.totoclient-tests");
         assert_eq!(service(), "com.example.totoclient-tests");
         // Idempotent and last-write-LOSES: a second name must not swap the
@@ -882,6 +887,72 @@ mod tests {
         // whatever string it was; refusing would strand the person tidying up.
         assert!(forget("not a url".into()).is_ok());
         assert!(forget("".into()).is_ok());
+    }
+
+    /// `request`'s GUARDS, which run before any socket is opened.
+    ///
+    /// The whole function is reachable from page script — a hostile document
+    /// cannot read the token but CAN invoke — so what it refuses is the
+    /// security boundary, and every refusal below happens before the network.
+    ///
+    /// One test again, and for the same reason as the store test above: these
+    /// need a session in the process-wide store, so running them beside the
+    /// one that clears it would race.
+    #[tokio::test]
+    async fn request_refuses_before_it_reaches_the_network() {
+        init("com.example.totoclient-tests");
+        let server = "https://guards.test";
+        clear_session(server);
+
+        // -- no session: refused before anything is built ------------------
+        let err = request(server.into(), "GET".into(), "/api/v1/pool".into(),
+                          None, None).await.unwrap_err();
+        assert!(err.starts_with("unauthorized"), "{err}");
+
+        save_session(server, &Session {
+            token: "t".into(), username: "ada".into(), label: "l".into(),
+        });
+
+        // -- a path outside the allowlist ----------------------------------
+        for bad in ["/admin/", "/vault/api/files/", "/api/v1/../../admin/"] {
+            let err = request(server.into(), "GET".into(), bad.into(), None, None)
+                .await.unwrap_err();
+            assert!(err.starts_with("forbidden_path"), "{bad} gave {err}");
+        }
+
+        // -- a method nobody should be able to reach for -------------------
+        //
+        // TRACE and CONNECT in particular: neither is something this API
+        // offers, and both are the kind of verb a proxy is asked for when
+        // somebody is probing what it will forward.
+        for bad in ["TRACE", "CONNECT", "OPTIONS", "HEAD", "BREW"] {
+            let err = request(server.into(), bad.into(), "/api/v1/pool".into(),
+                              None, None).await.unwrap_err();
+            assert!(err.starts_with("bad_method"), "{bad} gave {err}");
+        }
+
+        // -- case does not smuggle one past ---------------------------------
+        // The verb is upper-cased before the match, so "get" is a GET rather
+        // than a refusal — and "trace" is still refused.
+        let err = request(server.into(), "trace".into(), "/api/v1/pool".into(),
+                          None, None).await.unwrap_err();
+        assert!(err.starts_with("bad_method"), "{err}");
+
+        // -- an unbounded body ----------------------------------------------
+        //
+        // Refused BEFORE anything is sent. The IPC channel would otherwise
+        // carry whatever a caller handed it straight into memory here.
+        let huge = serde_json::json!({ "x": "y".repeat(MAX_BODY_BYTES + 1) });
+        let err = request(server.into(), "POST".into(), "/api/v1/pool".into(),
+                          Some(huge), None).await.unwrap_err();
+        assert!(err.starts_with("too_large"), "{err}");
+
+        // -- a scheme that is not https --------------------------------------
+        let err = request("http://guards.test".into(), "GET".into(),
+                          "/api/v1/pool".into(), None, None).await.unwrap_err();
+        assert!(err.starts_with("insecure_scheme"), "{err}");
+
+        clear_session(server);
     }
 
     #[test]

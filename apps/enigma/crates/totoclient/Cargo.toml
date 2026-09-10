@@ -36,3 +36,10 @@ keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
 # crate exports plain functions and each app expands its own
 # `#[tauri::command]` shims over them, so the command names stay the app's own
 # and the frontend's invoke strings never change.
+
+[dev-dependencies]
+# For the async guard tests only. `request` is `async fn`, and its refusals —
+# the allowlist, the method set, the body ceiling — all happen before a socket
+# is opened, so they are worth testing and need a runtime to await on. Minimal
+# features: no I/O driver, nothing here ever reaches the network.
+tokio = { version = "1", features = ["macros", "rt"] }
