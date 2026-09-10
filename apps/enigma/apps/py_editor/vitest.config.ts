@@ -12,7 +12,6 @@ const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const rakotisSrc = new URL("../../packages/rakotis/src", import.meta.url).pathname;
 const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
-const padovaSrc = new URL("../../packages/padova/src", import.meta.url).pathname;
 const totoapiSrc = new URL("../../packages/totoapi/src", import.meta.url).pathname;
 
 export default defineConfig({
@@ -25,9 +24,6 @@ export default defineConfig({
       { find: /^petalite\/(.*\.vue)$/, replacement: `${petaliteSrc}/components/$1` },
       { find: /^petalite\/(.*)/, replacement: `${petaliteSrc}/$1` },
       { find: /^petalite$/, replacement: `${petaliteSrc}/index.ts` },
-      { find: /^padova\/(.*\.vue)$/, replacement: `${padovaSrc}/components/$1` },
-      { find: /^padova\/(.*)/, replacement: `${padovaSrc}/$1` },
-      { find: /^padova$/, replacement: `${padovaSrc}/index.ts` },
       { find: /^totoapi\/(.*)/, replacement: `${totoapiSrc}/$1` },
       { find: /^totoapi$/, replacement: `${totoapiSrc}/index.ts` },
       // The package ROOT stays real: aceSetup calls ace.config.setModuleUrl,

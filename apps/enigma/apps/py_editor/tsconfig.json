@@ -36,15 +36,6 @@
       "petalite": [
         "../../packages/petalite/src/index.ts"
       ],
-      "padova/*.vue": [
-        "../../packages/padova/src/components/*.vue"
-      ],
-      "padova/*": [
-        "../../packages/padova/src/*"
-      ],
-      "padova": [
-        "../../packages/padova/src/index.ts"
-      ],
       "totoapi/*": [
         "../../packages/totoapi/src/*"
       ],
@@ -59,8 +50,6 @@
     "src/**/*.vue",
     "packages/petalite/src/**/*.ts",
     "packages/petalite/src/**/*.vue",
-    "packages/padova/src/**/*.ts",
-    "packages/padova/src/**/*.vue",
     "packages/totoapi/src/**/*.ts",
     "tests/**/*.ts"
   ],

@@ -36,7 +36,7 @@ export interface RunEntry {
   stdout: string;
   error: string;
   exitCode: number | null;
-  files: string[];
+  files: readonly string[];
 }
 
 export interface WorkspaceState {
@@ -134,7 +134,11 @@ export function edit(pk: number, text: string): void {
 
 export function close(pk: number): void {
   state.buffers = state.buffers.filter((b) => b.pk !== pk);
-  if (state.activePk === pk) state.activePk = state.buffers.at(-1)?.pk ?? null;
+  if (state.activePk === pk) {
+    // `.at(-1)` would be clearer and needs ES2022; this app targets ES2020.
+    const last = state.buffers[state.buffers.length - 1];
+    state.activePk = last ? last.pk : null;
+  }
 }
 
 /** Why this buffer cannot be saved, or "" when it can.
@@ -209,6 +213,13 @@ export function clearTranscript(): void {
 function slug(): string {
   if (!state.current) throw new Error("no workspace is open");
   return state.current.slug;
+}
+
+/** Test seam. `workspaceState` is `readonly`, so a component test cannot put
+ *  the store into an edited state by assigning to it — Vue refuses the write
+ *  and warns, which is easy to miss in a wall of output. */
+export function __setStateForTests(patch: Partial<WorkspaceState>): void {
+  Object.assign(state, patch);
 }
 
 /** Test seam. */
