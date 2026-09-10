@@ -22,6 +22,15 @@ import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 // The seal probe: it answers "is this file on disk encrypted", and this app's
 // files are on a server. The vault's own `encrypted` flag travels in the tree
 // row instead, which is the only answer that could be right here.
+// The offline cache, attached before the first render. The workspace store
+// takes it by injection rather than importing it, so this line is the only
+// place the desktop store and the pure logic meet — and the unit tests attach
+// a Map here instead.
+import { cacheStore } from "./platform/cache";
+import { useCache } from "./platform/workspace";
+
+useCache(cacheStore);
+
 const app = createApp(App)
   .use(i18n)
   .component("font-awesome-icon", FontAwesomeIcon);

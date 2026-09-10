@@ -9,8 +9,12 @@ import {
   ApiFailure,
   listWorkspaces, workspace as fetchWorkspace, tree as fetchTree,
   readFile, writeFile, run as runWorkspace, isQueued, pollRun,
+  foldFile, isConflict, pending, pushRefusal,
+  readWorkspace as readCached, recordEdit, summarise,
+  writeWorkspace as writeCached,
   type ApiClient, type Workspace, type WorkspaceDetail,
   type TreeItem, type FileContent, type RunResult, type RunDetail,
+  type CacheStore, type CachedWorkspace,
 } from "totoapi";
 
 /** One editor buffer. `pk` addresses it on the server; `path` is only a label. */
@@ -56,11 +60,20 @@ export interface WorkspaceState {
   entries: RunEntry[];
   busy: boolean;
   error: string;
+  /** True when the last server call failed for want of a network. What the UI
+   *  branches on to say "editing locally" instead of showing an error. */
+  offline: boolean;
+  /** Files edited while offline and not yet pushed. */
+  pendingCount: number;
+  /** Files the server changed underneath a local edit, named for the person to
+   *  resolve. Never resolved automatically — see `syncPending`. */
+  conflicts: string[];
 }
 
 const state = reactive<WorkspaceState>({
   list: [], current: null, items: [], buffers: [],
   activePk: null, entries: [], busy: false, error: "",
+  offline: false, pendingCount: 0, conflicts: [],
 });
 
 export const workspaceState = readonly(state);
@@ -90,6 +103,123 @@ function fail(err: unknown): never {
   throw err;
 }
 
+// ---------------------------------------------------------------------------
+// Offline
+// ---------------------------------------------------------------------------
+
+/** Where the cache lives, when one has been attached.
+ *
+ *  INJECTED, never imported: this module is tested with a fake server and no
+ *  Tauri, and importing the desktop store here would end that. `main.ts`
+ *  attaches the real one; tests attach a Map. */
+let store: CacheStore | null = null;
+
+export function useCache(next: CacheStore | null): void {
+  store = next;
+}
+
+/** Whether this failure means "no network" rather than "the server said no".
+ *
+ *  THE DISTINCTION THE WHOLE OFFLINE PATH RESTS ON. A 403 must NOT put the
+ *  editor into offline mode — the server is right there and is refusing, and
+ *  quietly switching to a local copy would hide a permission problem behind a
+ *  cache. Only a transport failure counts. */
+function isOffline(err: unknown): boolean {
+  return err instanceof ApiFailure && err.error.kind === "network";
+}
+
+/** Snapshot the open workspace into the cache. Best effort: a cache that will
+ *  not write must never break a session that is working. */
+async function remember(): Promise<void> {
+  if (!store || !state.current) return;
+  const existing = await readCached(store, state.current.slug);
+  const files: CachedWorkspace["files"] = { ...(existing?.files ?? {}) };
+  for (const buffer of state.buffers) {
+    const key = String(buffer.pk);
+    const prior = files[key];
+    files[key] = {
+      pk: buffer.pk,
+      name: buffer.name,
+      saved: buffer.saved,
+      text: buffer.text,
+      truncated: buffer.truncated,
+      readonly: buffer.readonly,
+      fetchedAt: prior?.fetchedAt ?? Date.now(),
+      editedAt: buffer.text === buffer.saved ? 0 : (prior?.editedAt || Date.now()),
+    };
+  }
+  const snapshot: CachedWorkspace = {
+    slug: state.current.slug,
+    detail: state.current,
+    items: [...state.items],
+    files,
+    cachedAt: Date.now(),
+  };
+  await writeCached(store, snapshot);
+  state.pendingCount = summarise(snapshot).files;
+}
+
+/** Open a workspace from the cache. Returns false when nothing is cached, so
+ *  the caller can report the network failure rather than an empty screen. */
+async function openFromCache(slug: string): Promise<boolean> {
+  if (!store) return false;
+  const cached = await readCached(store, slug);
+  if (!cached) return false;
+  state.current = cached.detail;
+  state.items = cached.items;
+  state.buffers = Object.values(cached.files).map((f) => ({
+    pk: f.pk, name: f.name, text: f.text, saved: f.saved,
+    truncated: f.truncated, readonly: f.readonly,
+  }));
+  state.activePk = null;
+  state.entries = [];
+  state.offline = true;
+  state.pendingCount = summarise(cached).files;
+  state.error = "";
+  return true;
+}
+
+/** Push everything edited offline, oldest edit first.
+ *
+ *  A CONFLICT IS REPORTED, NEVER RESOLVED. If the server's copy moved while we
+ *  were away, this leaves the file pending and names it. Merging automatically
+ *  would mean guessing which of two people's afternoons matters more, and
+ *  overwriting is the same guess with the answer hidden. */
+export async function syncPending(client: ApiClient): Promise<string[]> {
+  if (!store || !state.current) return [];
+  const cached = await readCached(store, state.current.slug);
+  if (!cached) return [];
+
+  const conflicts: string[] = [];
+  for (const file of pending(cached)) {
+    if (pushRefusal(file)) continue;
+    try {
+      const fresh = await readFile(client, state.current.slug, file.pk);
+      if (isConflict(file, fresh.content)) {
+        conflicts.push(file.name);
+        continue;
+      }
+      await writeFile(client, state.current.slug, file.pk, file.text);
+      cached.files[String(file.pk)] = { ...file, saved: file.text, editedAt: 0 };
+      const buffer = state.buffers.find((b) => b.pk === file.pk);
+      if (buffer) buffer.saved = file.text;
+    } catch (err) {
+      if (isOffline(err)) break;   // still away; keep the queue for later
+      conflicts.push(file.name);
+    }
+  }
+  await writeCached(store, cached);
+  state.conflicts = conflicts;
+  state.pendingCount = summarise(cached).files;
+  if (conflicts.length === 0) state.offline = false;
+  return conflicts;
+}
+
+/** What is waiting to be pushed, for the UI. */
+export function pendingCount(): number {
+  return state.pendingCount;
+}
+
 export async function loadList(client: ApiClient): Promise<void> {
   state.busy = true;
   try {
@@ -106,8 +236,15 @@ export async function open(client: ApiClient, slug: string): Promise<void> {
     state.buffers = [];
     state.activePk = null;
     state.entries = [];
+    state.offline = false;
     state.error = "";
-  } catch (err) { fail(err); } finally { state.busy = false; }
+    await remember();
+  } catch (err) {
+    // The network is what is missing, so try the copy. Anything else — a 403,
+    // a 404 — is the server answering and must surface as itself.
+    if (isOffline(err) && await openFromCache(slug)) return;
+    fail(err);
+  } finally { state.busy = false; }
 }
 
 /** Open a file into a buffer, or focus the one already open.
@@ -124,20 +261,57 @@ export async function openFile(client: ApiClient, pk: number): Promise<Buffer> {
   state.busy = true;
   try {
     const file: FileContent = await readFile(client, slug(), pk);
+    const cached = store ? await readCached(store, slug()) : null;
+    // Through `foldFile`, never straight from the response: it is what keeps
+    // an edit made offline when the same file is re-read online.
+    const folded = foldFile(cached?.files[String(pk)], file, Date.now());
     const buffer: Buffer = {
-      pk: file.pk, name: file.name, text: file.content, saved: file.content,
-      truncated: file.truncated, readonly: file.readonly,
+      pk: folded.pk, name: folded.name, text: folded.text, saved: folded.saved,
+      truncated: folded.truncated, readonly: folded.readonly,
     };
     state.buffers.push(buffer);
     state.activePk = pk;
     state.error = "";
+    await remember();
     return buffer;
-  } catch (err) { fail(err); } finally { state.busy = false; }
+  } catch (err) {
+    if (isOffline(err) && store) {
+      const cached = await readCached(store, slug());
+      const hit = cached?.files[String(pk)];
+      if (hit) {
+        const buffer: Buffer = {
+          pk: hit.pk, name: hit.name, text: hit.text, saved: hit.saved,
+          truncated: hit.truncated, readonly: hit.readonly,
+        };
+        state.buffers.push(buffer);
+        state.activePk = pk;
+        state.offline = true;
+        state.error = "";
+        return buffer;
+      }
+    }
+    fail(err);
+  } finally { state.busy = false; }
 }
 
 export function edit(pk: number, text: string): void {
   const buffer = state.buffers.find((b) => b.pk === pk);
-  if (buffer) buffer.text = text;
+  if (!buffer || buffer.text === text) return;
+  buffer.text = text;
+  // Fire and forget: a keystroke must not wait on a disk write, and a cache
+  // that failed is already handled as a miss everywhere it is read.
+  void cacheEdit(pk, text);
+}
+
+/** Record one edit in the cache, so closing the laptop does not lose it. */
+async function cacheEdit(pk: number, text: string): Promise<void> {
+  if (!store || !state.current) return;
+  const cached = await readCached(store, state.current.slug);
+  const existing = cached?.files[String(pk)];
+  if (!cached || !existing) return;
+  cached.files[String(pk)] = recordEdit(existing, text, Date.now());
+  await writeCached(store, cached);
+  state.pendingCount = summarise(cached).files;
 }
 
 export function close(pk: number): void {
@@ -178,8 +352,21 @@ export async function save(client: ApiClient, pk: number): Promise<void> {
     // The text AS SENT, not the current text: a keystroke that landed while the
     // request was in flight must stay dirty rather than be marked saved.
     buffer.saved = text;
+    state.offline = false;
     state.error = "";
-  } catch (err) { fail(err); } finally { state.busy = false; }
+    await remember();
+  } catch (err) {
+    // OFFLINE IS NOT A FAILED SAVE. The text is already in the cache, so the
+    // honest report is "kept here, waiting for the server" — and `saved` must
+    // NOT move, because the file genuinely is not on the server yet.
+    if (isOffline(err)) {
+      state.offline = true;
+      await cacheEdit(pk, buffer.text);
+      state.error = "";
+      return;
+    }
+    fail(err);
+  } finally { state.busy = false; }
 }
 
 /** Run the workspace, and put the answer in the transcript.
@@ -237,8 +424,10 @@ export function __resetForTests(): void {
   Object.assign(state, {
     list: [], current: null, items: [], buffers: [],
     activePk: null, entries: [], busy: false, error: "",
+    offline: false, pendingCount: 0, conflicts: [],
   });
   seq = 0;
+  store = null;
 }
 
 
