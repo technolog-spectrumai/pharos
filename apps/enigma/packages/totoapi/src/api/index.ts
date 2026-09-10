@@ -7,4 +7,6 @@ export { tauriFetch } from "./transport";
 export { TOKEN_PREFIX, looksLikeToken, verify } from "./auth";
 export type { Dimensions, PoolReading } from "./auth";
 export * from "./capsules";
+export * from "./offline";
+export * from "./readiness";
 export * from "./workspaces";
