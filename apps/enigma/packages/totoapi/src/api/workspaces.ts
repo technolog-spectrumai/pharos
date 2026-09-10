@@ -41,11 +41,27 @@ export interface WorkspaceDetail extends Workspace {
  *  the room renders it directly and a client that rebuilt a hierarchy would be
  *  maintaining a second model of the same bucket. */
 export interface TreeItem {
+  /** `"file"` or `"dir"`. The server's own key is `t`, one character, because
+   *  it repeats once per row — transcribed rather than renamed, since the
+   *  contract test freezes it. */
+  t: "file" | "dir" | (string & {});
   id: number;
-  kind: "file" | "dir" | (string & {});
-  name: string;
+  /** Parent directory id, or null at the root. */
+  pid: number | null;
   depth: number;
-  parent: number | null;
+  name: string;
+  /** Files only. */
+  file_type?: string;
+  editable?: boolean;
+  viewable?: boolean;
+  encrypted?: boolean;
+  size?: number;
+  runnable?: boolean;
+  /** Produced by a run. Openable — a failed compile's log is worth reading —
+   *  and never writable. */
+  readonly?: boolean;
+  /** The one `.tex` that compiles, for a LaTeX workspace. */
+  main?: boolean;
   [extra: string]: unknown;
 }
 

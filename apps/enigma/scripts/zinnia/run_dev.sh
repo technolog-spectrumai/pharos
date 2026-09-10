@@ -4,16 +4,16 @@
 #
 #   scripts/zinnia/run_dev.sh <app> [--web] [--reset] [--reset-only]
 #
-# <app> is sketch, lazurite or primula. Enigma has its own run_dev.sh at the
+# <app> is sketch, lazurite, primula or py_editor. Enigma has its own run_dev.sh at the
 # repo root, which this must never touch.
 #
-# The four apps hold four distinct dev-port pairs (enigma 1420/1421, lazurite
-# 1430/1431, primula 1432/1433, sketch 1434/1435) and four distinct bundle
-# identifiers, so all four run at once without colliding.
+# Each app holds a distinct dev-port pair (enigma 1420/1421, lazurite
+# 1430/1431, primula 1432/1433, sketch 1434/1435, py_editor 1436/1437) and a
+# distinct bundle identifier, so they all run at once without colliding.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ZINNIA_APPS=(sketch lazurite primula)
+ZINNIA_APPS=(sketch lazurite primula py_editor)
 
 usage() { sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 

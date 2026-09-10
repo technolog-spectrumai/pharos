@@ -1,0 +1,72 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": [
+      "vite/client"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "rakotis/*": [
+        "../../packages/rakotis/src/*"
+      ],
+      "petalite/*.vue": [
+        "../../packages/petalite/src/components/*.vue"
+      ],
+      "petalite/*": [
+        "../../packages/petalite/src/*"
+      ],
+      "petalite": [
+        "../../packages/petalite/src/index.ts"
+      ],
+      "padova/*.vue": [
+        "../../packages/padova/src/components/*.vue"
+      ],
+      "padova/*": [
+        "../../packages/padova/src/*"
+      ],
+      "padova": [
+        "../../packages/padova/src/index.ts"
+      ],
+      "totoapi/*": [
+        "../../packages/totoapi/src/*"
+      ],
+      "totoapi": [
+        "../../packages/totoapi/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.vue",
+    "packages/petalite/src/**/*.ts",
+    "packages/petalite/src/**/*.vue",
+    "packages/padova/src/**/*.ts",
+    "packages/padova/src/**/*.vue",
+    "packages/totoapi/src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    }
+  ]
+}

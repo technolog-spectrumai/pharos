@@ -1,0 +1,34 @@
+[package]
+name = "py_editor"
+version = "0.1.0"
+description = "Python Editor — edit and run Python in a Compute Capsule"
+authors = ["SpectrumAI"]
+license = ""
+repository = "https://gitlab.com/janhagit-group/zinnia"
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+# The `_lib` suffix avoids a bin/lib name clash on Windows (rust-lang/cargo#8519).
+name = "py_editor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-log = "2"
+# Native file dialogs and opening a link in the user's browser. NO
+# tauri-plugin-fs: this app edits files on a SERVER, and a local filesystem
+# permission it never uses is surface for nothing.
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+# Everything that reaches the platform: pinned TLS, the OS keyring, the
+# `/api/v1/` allowlist. See crates/totoclient — it takes no tauri dependency,
+# so src/platform.rs is the shim that names this app's commands.
+totoclient = { path = "../../../crates/totoclient" }
