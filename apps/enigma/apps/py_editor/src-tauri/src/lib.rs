@@ -22,8 +22,17 @@
 //! NO `lock`/`secrets` here. This app edits files that live on a server, not
 //! sealed files on this disk — adding the sealing surface would mean linking
 //! libsecret and Argon2 for a feature the app does not offer.
+//!
+//! `cache` is the second shim, over `hoard`. It keeps a copy of the workspace
+//! so the editor still opens with the network gone — text is local, work is
+//! remote. It is NOT a filesystem permission: the store lives at one path this
+//! code picks under the app data directory, and the page cannot name another.
 
+mod cache;
 mod platform;
+
+// For `app.manage` in `setup`.
+use tauri::Manager;
 
 /// The keyring service this app files its token under.
 ///
@@ -51,8 +60,16 @@ pub fn run() {
             platform::platform_forget,
             platform::platform_request,
             platform::platform_status,
+            cache::cache_get,
+            cache::cache_set,
+            cache::cache_remove,
+            cache::cache_keys,
         ])
         .setup(|app| {
+            // Opened here rather than lazily on first use: a store that cannot
+            // be opened must be discovered at start, when the app can say so,
+            // not in the middle of somebody's first offline save.
+            app.manage(cache::open(app.handle()));
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

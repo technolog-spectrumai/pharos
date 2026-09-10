@@ -5470,6 +5470,7 @@ dependencies = [
 name = "py_editor"
 version = "0.1.0"
 dependencies = [
+ "hoard",
  "log",
  "serde",
  "serde_json",
@@ -7217,6 +7218,7 @@ dependencies = [
 name = "tex_editor"
 version = "0.1.0"
 dependencies = [
+ "hoard",
  "log",
  "serde",
  "serde_json",
