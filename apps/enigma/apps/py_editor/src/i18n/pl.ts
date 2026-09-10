@@ -30,6 +30,23 @@ export default {
       + "odcisk poniżej zgadza się z tym, który podał administrator.",
     accept: "Sprawdziłem — akceptuję",
   },
+  capsule: {
+    test: "Sprawdź kapsułę",
+    testing: "Sprawdzanie…",
+    unknown: "Jeszcze nie sprawdzono.",
+    hint: "Pyta serwer, czy kod wykona się teraz. Nie zleca żadnej "
+      + "pracy i nic nie kosztuje.",
+  },
+  offline: {
+    editing: "Edycja offline — zmiany są zapisane na tym komputerze.",
+    pending: "{count} plik czeka na synchronizację | {count} pliki czekają na "
+      + "synchronizację | {count} plików czeka na synchronizację",
+    sync: "Synchronizuj teraz",
+    syncing: "Synchronizowanie…",
+    conflict: "Zmienione także na serwerze: {files}. Otwórz każdy i zdecyduj.",
+    noCompile: "Uruchomienie wymaga serwera — twój tekst jest tu bezpieczny, "
+      + "dopóki serwer nie wróci.",
+  },
   workspaces: {
     title: "Przestrzenie robocze",
     empty: "Nie masz na tym serwerze żadnych przestrzeni Pythona.",

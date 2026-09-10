@@ -30,6 +30,27 @@ export default {
       + "fingerprint below matches the one your administrator gave you.",
     accept: "I have checked it — accept",
   },
+  capsule: {
+    test: "Test capsule",
+    testing: "Checking…",
+    // Shown before anybody has asked. Deliberately not a guess in either
+    // direction: claiming "ready" unasked is how a person trusts a broken
+    // setup, and claiming "not ready" unasked is how they stop trying.
+    unknown: "Not checked yet.",
+    hint: "Asks the server whether a compile would run right now. Submits no "
+      + "work and costs nothing.",
+  },
+  offline: {
+    editing: "Editing offline — changes are kept on this computer.",
+    pending: "{count} file waiting to sync | {count} files waiting to sync",
+    sync: "Sync now",
+    syncing: "Syncing…",
+    // Never resolved automatically: picking a winner would throw away one of
+    // two people's work without telling anybody it existed.
+    conflict: "Changed on the server too: {files}. Open each one and decide.",
+    noCompile: "Compiling needs the server — your text is safe here until it "
+      + "comes back.",
+  },
   workspaces: {
     title: "Workspaces",
     empty: "You have no LaTeX workspaces on this server.",

@@ -7,8 +7,8 @@
 import { reactive, readonly } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  createClient, tauriFetch, load, save, EMPTY,
-  type ApiClient, type PlatformSettings,
+  checkReadiness, createClient, tauriFetch, load, save, EMPTY,
+  type ApiClient, type PlatformSettings, type ReadinessReport,
 } from "totoapi";
 
 /** This app's own localStorage key. Per app by decision — tex_editor and
@@ -130,6 +130,38 @@ export async function connect(
   }
 }
 
+/** Ask whether work would actually RUN, and say so in one sentence.
+ *
+ *  WHY THIS IS NOT `probe` OR `connect`. `probe` answers "is there a server and
+ *  do we trust its certificate"; `connect` answers "does this token work".
+ *  Neither asks the question a person has, which is whether their compile will
+ *  run — and until this existed the first honest answer arrived when a real
+ *  document failed, minutes and one piece of real work later.
+ *
+ *  It submits NO job. A readiness check that ran a compile would bill somebody
+ *  for asking whether they could compile.
+ *
+ *  Never throws: every failure it can meet is a legitimate answer, and the
+ *  report carries the sentence to show. */
+export async function readiness(): Promise<ReadinessReport> {
+  state.busy = true;
+  try {
+    const report = await checkReadiness(client());
+    lastReadiness = report;
+    return report;
+  } finally {
+    state.busy = false;
+  }
+}
+
+/** The last answer, for a chip in the corner. `null` until asked once — the UI
+ *  shows nothing rather than guessing either way. */
+let lastReadiness: ReadinessReport | null = null;
+
+export function lastReadinessReport(): ReadinessReport | null {
+  return lastReadiness;
+}
+
 /** Forget the token on THIS machine.
  *
  *  NOT revocation, and the UI must not call it that: the token stays valid
@@ -153,6 +185,7 @@ export function __resetForTests(): void {
     server: "", username: "", label: "", connected: false,
     storage: "", fingerprint: "", busy: false, error: "",
   });
+  lastReadiness = null;
   try { localStorage.removeItem(SETTINGS_KEY); } catch { /* no store in node */ }
 }
 

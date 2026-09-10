@@ -12,15 +12,34 @@ import ConnectView from "./views/ConnectView.vue";
 import TreePanel from "./files/TreePanel.vue";
 import CodeEditor from "./editors/CodeEditor.vue";
 import OutputPanel from "./views/OutputPanel.vue";
-import { session, restore, refresh, client, forget } from "./platform/session";
+import {
+  session, restore, refresh, client, forget, readiness,
+} from "./platform/session";
 import {
   workspaceState, loadList, open, openFile, edit, save, saveRefusal,
-  execute, active, isDirty, canWrite, clearTranscript, poll, isPolling,
+  execute, active, isDirty, canWrite, clearTranscript, syncPending, poll, isPolling,
 } from "./platform/workspace";
 import type { Row } from "./files/rows";
 
 const { t } = useI18n({ useScope: "global" });
 const failure = ref("");
+
+/** The capsule readiness answer, and whether we are asking. `null` means
+ *  nobody has asked yet — see the i18n note on why that is not a guess. */
+const capsule = ref<Awaited<ReturnType<typeof readiness>> | null>(null);
+const testing = ref(false);
+
+async function testCapsule() {
+  testing.value = true;
+  try { capsule.value = await readiness(); } finally { testing.value = false; }
+}
+
+const syncing = ref(false);
+
+async function syncNow() {
+  syncing.value = true;
+  try { await syncPending(client()); } finally { syncing.value = false; }
+}
 
 // Dark mode as a plain ref plus the `.dark` class — the class is what every
 // `dark:` utility reacts to. Persisted under this app's OWN key; the initial
@@ -142,6 +161,33 @@ const runWorkspace = () => guarded(async () => {
        data-testid="save-refusal">
       {{ refusal }}
     </p>
+    <!-- OFFLINE IS NOT AN ERROR, so it is not in the red row below. The text
+         is safe on this machine; what is missing is the server, and the
+         sentence says which. -->
+    <div v-if="workspaceState.offline"
+         class="flex items-center gap-3 border-b bg-sky-500/10 px-3 py-1.5 text-xs"
+         data-testid="offline-banner">
+      <span>{{ t("offline.editing") }}</span>
+      <span v-if="workspaceState.pendingCount" data-testid="pending-count">
+        {{ t("offline.pending",
+              { count: workspaceState.pendingCount },
+              workspaceState.pendingCount) }}
+      </span>
+      <span class="flex-1"></span>
+      <OyaButton variant="secondary" data-testid="sync"
+                 :disabled="syncing || !workspaceState.pendingCount"
+                 @click="syncNow">
+        {{ syncing ? t("offline.syncing") : t("offline.sync") }}
+      </OyaButton>
+    </div>
+
+    <!-- A conflict is NAMED and left for the person. Resolving it here would
+         mean choosing whose afternoon to discard. -->
+    <p v-if="workspaceState.conflicts.length"
+       class="border-b bg-amber-500/10 px-3 py-1.5 text-xs" data-testid="conflicts">
+      {{ t("offline.conflict", { files: workspaceState.conflicts.join(", ") }) }}
+    </p>
+
     <p v-if="failure || workspaceState.error"
        class="border-b bg-red-500/10 px-3 py-1.5 text-xs" data-testid="failure">
       {{ failure || workspaceState.error }}
@@ -181,6 +227,24 @@ const runWorkspace = () => guarded(async () => {
             {{ t("connect.forget") }}
           </OyaButton>
           <p class="mt-1 text-xs opacity-60">{{ t("connect.forgetHint") }}</p>
+        </div>
+
+        <!-- WILL MY WORK ACTUALLY RUN? `probe` answers "is the server there",
+             `connect` answers "does the token work"; neither answers this, and
+             until now the first honest answer arrived when a real document
+             failed. Submits no job, so asking costs nothing. -->
+        <div class="mt-4 border-t pt-3">
+          <OyaButton variant="secondary" data-testid="test-capsule"
+                     :disabled="testing" @click="testCapsule">
+            {{ testing ? t("capsule.testing") : t("capsule.test") }}
+          </OyaButton>
+          <p class="mt-2 text-sm" data-testid="capsule-result"
+             :class="capsule
+               ? (capsule.state === 'ready' ? 'text-emerald-600' : 'text-amber-600')
+               : 'opacity-60'">
+            {{ capsule ? capsule.message : t("capsule.unknown") }}
+          </p>
+          <p class="mt-1 text-xs opacity-60">{{ t("capsule.hint") }}</p>
         </div>
       </section>
 
