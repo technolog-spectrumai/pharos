@@ -32,6 +32,21 @@ function placeholders(text: string): string[] {
   return [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 }
 
+/** The placeholders of EACH PLURAL FORM, deduplicated.
+ *
+ *  vue-i18n separates plural forms with `|`, and languages do not agree on how
+ *  many they have: English has two ("1 file" / "2 files"), Polish has three.
+ *  Comparing whole strings therefore fails on a correct translation — the
+ *  Polish carries `{count}` three times because it has three forms, not
+ *  because anything is wrong.
+ *
+ *  What must hold is that every FORM offers the same placeholders, so no form
+ *  in either language can render with a hole. That is what this compares. */
+function formPlaceholders(text: string): string[] {
+  const forms = text.split("|").map((f) => placeholders(f.trim()));
+  return [...new Set(forms.flat())].sort();
+}
+
 describe("the catalogues", () => {
   const enPaths = paths(en as unknown as Tree);
   const plPaths = paths(pl as unknown as Tree);
@@ -54,9 +69,27 @@ describe("the catalogues", () => {
 
   it("placeholders match, so no sentence renders with a hole", () => {
     for (const path of enPaths) {
-      const a = placeholders(String(at(en as unknown as Tree, path)));
-      const b = placeholders(String(at(pl as unknown as Tree, path)));
+      const a = formPlaceholders(String(at(en as unknown as Tree, path)));
+      const b = formPlaceholders(String(at(pl as unknown as Tree, path)));
       expect(b, `placeholders differ at ${path}`).toEqual(a);
+    }
+  });
+
+  it("no plural form drops its placeholder", () => {
+    // The looser comparison above (a SET of placeholders across forms) would
+    // pass a Polish plural whose third form forgot `{count}`. This is the part
+    // that check gives up, asserted directly.
+    for (const path of enPaths) {
+      for (const [lang, tree] of [["en", en], ["pl", pl]] as const) {
+        const text = String(at(tree as unknown as Tree, path));
+        if (!text.includes("|")) continue;
+        const forms = text.split("|").map((f) => f.trim());
+        const wanted = formPlaceholders(text);
+        for (const form of forms) {
+          expect(placeholders(form), `${lang} ${path}: "${form}"`)
+            .toEqual(wanted);
+        }
+      }
     }
   });
 
