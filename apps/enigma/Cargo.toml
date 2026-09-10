@@ -24,6 +24,7 @@ members = [
     "apps/lazurite/src-tauri",
     "apps/primula/src-tauri",
     "apps/py_editor/src-tauri",
+    "apps/tex_editor/src-tauri",
     "crates/totoclient",
     "crates/substrate",
     "crates/padova",

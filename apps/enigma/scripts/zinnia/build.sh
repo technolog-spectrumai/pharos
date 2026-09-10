@@ -5,7 +5,8 @@
 #   scripts/zinnia/build.sh <app> [--debug] [--no-test] [--frontend]
 #   scripts/zinnia/build.sh all   [...]      every zinnia app in turn
 #
-# <app> is sketch, lazurite, primula or py_editor. Enigma is NOT built by this script —
+# <app> is sketch, lazurite, primula, py_editor or tex_editor. Enigma is NOT
+# built by this script —
 # it has its own build_desktop.sh, which this must never touch.
 #
 # This is a dispatcher, not a second build. Each app already carries a build.sh
@@ -15,7 +16,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ZINNIA_APPS=(sketch lazurite primula py_editor)
+ZINNIA_APPS=(sketch lazurite primula py_editor tex_editor)
 
 usage() { sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 

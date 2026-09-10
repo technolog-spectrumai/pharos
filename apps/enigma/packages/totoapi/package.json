@@ -2,7 +2,7 @@
   "name": "totoapi",
   "version": "0.1.0",
   "private": true,
-  "description": "The typed client for a toto platform server — capsules, jobs, workspaces and files over a capsule API token",
+  "description": "The typed client for a toto platform server \u2014 capsules, jobs, workspaces and files over a capsule API token",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@tauri-apps/api": "^2",
+    "@types/node": "^22",
     "typescript": "~5.6.3",
     "vitest": "^4.1.10"
   }

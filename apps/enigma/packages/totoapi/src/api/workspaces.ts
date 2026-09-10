@@ -189,3 +189,43 @@ export function run(
 ) {
   return client.post<RunResult>(`/api/v1/workspaces/${slug}/run`, payload);
 }
+
+/** What became of a queued run.
+ *
+ *  THE OTHER HALF OF `run`, and a LaTeX client cannot work without it: `run`
+ *  answers with a receipt and a compile takes tens of seconds, so a client that
+ *  could not ask what became of the id would start builds and never learn
+ *  whether they worked.
+ *
+ *  404 with `code: "no_poll_verb"` where the language answers immediately — a
+ *  Python workspace's Run IS the result, so there is nothing to come back for.
+ *  Branch on the code, not on the status.
+ */
+export function pollRun(client: ApiClient, slug: string, runId: number) {
+  return client.get<RunDetail>(`/api/v1/workspaces/${slug}/runs/${runId}`);
+}
+
+/** One compile, as the server reports it.
+ *
+ *  Transcribed from texlab's `_run_payload`. `status` is deliberately the same
+ *  key a synchronous run uses so a transcript can render both through one path;
+ *  `state` is the run's own lifecycle value underneath it. */
+export interface RunDetail {
+  id: number;
+  state: string;
+  /** Stop polling when this is true. */
+  finished: boolean;
+  status: string;
+  /** Empty until finished — a half-written log is worse than none. */
+  stdout: string;
+  error: string;
+  passes: number;
+  artifacts: string[];
+  pdf_pk: number | null;
+  main: string;
+  duration: number | null;
+  /** THE TREE, and only on a finished run. A successful compile creates
+   *  `build/`, and a client that had to guess when to refetch would either miss
+   *  the new files or poll the tree forever. */
+  items?: TreeItem[];
+}
