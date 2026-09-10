@@ -1,14 +1,27 @@
-//! Signing in to a toto platform server.
+//! Talking to a toto platform server.
 //!
-//! This is zinnia's only custom Rust, and it exists for reasons the frontend
-//! cannot cover:
+//! Lifted out of `limbo/cloud/src-tauri/src/cloud.rs` on 2026-09-10 and made a
+//! crate, because `py_editor` and `tex_editor` both need it and `LIMBO.md` is
+//! explicit that `normalize()` here and `normalizeServerUrl` in the TypeScript
+//! client must keep agreeing — two copies is how that stops being true.
 //!
-//! * **The token must not be reachable from page JavaScript.** Zinnia opens
-//!   arbitrary `.svg` files and renders `trust-html` deck payloads, and the
-//!   webview runs with no CSP. A session token in `localStorage` could be read
-//!   and sent away by a document the user merely opened. Here it goes into the
-//!   OS secret store and is only ever read back in this file, to be attached as
-//!   `Authorization: Bearer …`. No command returns it.
+//! **No `tauri` dependency**, the rule `substrate` states: this exports plain
+//! functions and each app expands its own `#[tauri::command]` shims over them.
+//!
+//! This exists for three reasons a frontend cannot cover.
+//!
+//! * **The token must not be reachable from page JavaScript.** An editor opens
+//!   files whose contents the user did not write. A token in `localStorage`
+//!   could be read and sent away by a document somebody merely opened. Here it
+//!   goes into the OS secret store and is only ever read back in this file, to
+//!   be attached as `Authorization: Bearer …`. No function returns it.
+//!
+//! * **The webview cannot make the call at all.** The apps ship
+//!   `connect-src 'self' ipc: http://ipc.localhost`, so a `fetch()` at a remote
+//!   host is blocked before it reaches the network — silently, as CSP
+//!   violations are. Widening that for a user-supplied origin means widening it
+//!   to `https:`, which is the protection gone. Going out through `ipc:` into
+//!   Rust is already allowed.
 //!
 //! * **A webview `fetch` cannot reach a server with an untrusted certificate,
 //!   and cannot be told to.** WebKitGTK fails the request opaquely with no
@@ -26,6 +39,17 @@
 //! The pin itself is not a secret and is not stored here — the frontend keeps
 //! it and passes it in. This module holds no persistent state of its own except
 //! the token, which keeps the "what is stored where" question answerable.
+//!
+//! # What changed in the lift
+//!
+//! * **A pasted token replaced a username and password.** `connect()` verifies
+//!   it against `/api/v1/me` and stores it; there is no password anywhere on
+//!   this path, so a compromised editor has none to replay. Revoking on the
+//!   server is immediate — the next call is a 401 and the session is cleared.
+//! * **The keyring service is set by the app**, not a constant, so two editors
+//!   pointed at two servers keep separate credentials.
+//! * **`ALLOWED_PREFIXES` names `/api/v1/`**, the surface these apps actually
+//!   use. It named the vault's routes before.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -36,23 +60,60 @@ use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Keyring service name. A constant, never anything the user typed — the
-/// service and account of a keyring entry are stored in the clear, so only the
-/// server address (not a secret) ends up visible there.
-const KEYRING_SERVICE: &str = "com.spectrumaipl.zinnia";
+/// Keyring service name, set once by the app at startup.
+///
+/// A CONSTANT PER APP, never anything the user typed — the service and account
+/// of a keyring entry are stored in the clear, so only the server address (not
+/// a secret) ends up visible there.
+///
+/// Set rather than hardcoded because two apps share this crate and must not
+/// share a credential: `py_editor` and `tex_editor` are separate bundles a
+/// person may point at different servers, and one shared service name would
+/// make connecting one silently move the other.
+///
+/// **Changing an app's service name orphans anything a previous build stored** —
+/// the entry stays on disk with nothing able to enumerate it. Pick it once,
+/// from the bundle identifier, and leave it alone.
+static KEYRING_SERVICE: OnceLock<String> = OnceLock::new();
+
+/// Name this app's keyring service. Call once, before anything else.
+///
+/// Idempotent and last-write-loses: a second call with a different name is
+/// ignored rather than swapping the store underneath a live session, which
+/// would strand the first name's credential.
+pub fn init(service: &str) {
+    let _ = KEYRING_SERVICE.set(service.to_string());
+}
+
+fn service() -> &'static str {
+    // A default rather than a panic: a library that aborts the app because a
+    // startup line is missing turns a wiring mistake into a crash on launch.
+    // The name is deliberately obvious in a keyring browser, so the mistake is
+    // visible rather than silent.
+    KEYRING_SERVICE.get().map(String::as_str).unwrap_or("totoclient.unconfigured")
+}
 
 /// Every request carries this, so a hung server cannot wedge the sign-in form.
 const TIMEOUT_SECS: u64 = 20;
 
 // ── the session ─────────────────────────────────────────────────────────────
 
-/// What is kept for a signed-in server. Serialised as one JSON secret so the
+/// What is kept for a connected server. Serialised as one JSON secret so the
 /// username travels with the token it belongs to — two separate stores would be
 /// two things to keep in step, and a username without its token is a lie.
+///
+/// `username` and `label` are what the SERVER said when the token was verified
+/// (`GET /api/v1/me`), not anything the user typed. They exist so a connection
+/// screen can say "janek, via the token you called Laptop" rather than showing
+/// a bare URL — two machines signed into one account are otherwise
+/// indistinguishable, and "revoke the one that says laptop" needs the label to
+/// have travelled.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Session {
     token: String,
     username: String,
+    #[serde(default)]
+    label: String,
 }
 
 /// Where the token ended up. The distinction is shown to the user: a session
@@ -82,7 +143,7 @@ fn save_session(scope: &str, session: &Session) -> Storage {
         Ok(s) => s,
         Err(_) => return Storage::Memory,
     };
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, scope) {
+    if let Ok(entry) = keyring::Entry::new(service(), scope) {
         if entry.set_password(&encoded).is_ok() {
             // Drop any memory copy so the two cannot disagree.
             memory_store().lock().ok().map(|mut m| m.retain(|(s, _)| s != scope));
@@ -97,7 +158,7 @@ fn save_session(scope: &str, session: &Session) -> Storage {
 }
 
 fn load_session(scope: &str) -> Option<(Session, Storage)> {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, scope) {
+    if let Ok(entry) = keyring::Entry::new(service(), scope) {
         if let Ok(raw) = entry.get_password() {
             if let Ok(session) = serde_json::from_str::<Session>(&raw) {
                 return Some((session, Storage::Keychain));
@@ -113,7 +174,7 @@ fn load_session(scope: &str) -> Option<(Session, Storage)> {
 /// Clears both stores unconditionally. Called on sign-out AND on any 401: a
 /// session the server has already discarded must never be reported as live.
 fn clear_session(scope: &str) {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, scope) {
+    if let Ok(entry) = keyring::Entry::new(service(), scope) {
         let _ = entry.delete_credential();
     }
     if let Ok(mut mem) = memory_store().lock() {
@@ -131,8 +192,16 @@ fn clear_session(scope: &str) {
 /// what was orphaned. The frontend does not compute this; it stores whatever
 /// this function returned, so the two can never drift apart.
 ///
-/// Matches `normalizeServerUrl` in src/api/client.ts: lowercase scheme and
-/// host, the port only when it is not the scheme's default, no trailing slash.
+/// Matches `normalizeServerUrl` in `packages/totoapi/src/api/client.ts` on the
+/// SHAPE of the output — host, port only when non-default, no trailing slash —
+/// so the string this returns is the one that keys the credential.
+///
+/// It is STRICTER in one way, and that asymmetry is deliberate rather than a
+/// drift: this refuses anything but `https`, and the TypeScript does not. The
+/// gate belongs here because this is the side that makes the connection; a
+/// check that lived only in the frontend would be bypassed by anything else
+/// that called in. The TypeScript one runs in tests against `http://` fixtures
+/// and never opens a socket.
 pub fn normalize(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -351,6 +420,8 @@ pub struct Probe {
 pub struct SessionInfo {
     signed_in: bool,
     username: Option<String>,
+    /// Which token this is, as the person labelled it when they minted it.
+    label: Option<String>,
     server: String,
     storage: Option<Storage>,
 }
@@ -362,12 +433,16 @@ pub struct SessionInfo {
 /// This is what runs before the password field is worth showing: it says
 /// whether the address answers at all and whether its certificate is trusted,
 /// and — when it is not — hands back the fingerprint for the user to check.
-#[tauri::command]
-pub async fn cloud_probe(server_url: String) -> Result<Probe, String> {
+pub async fn probe(server_url: String) -> Result<Probe, String> {
     let scope = normalize(&server_url)?;
     let verifier = InspectingVerifier::new();
     let client = client_with(verifier.clone())?;
 
+    // `/api/health/` is the framework's own unauthenticated endpoint and is
+    // NOT under `/api/v1/`. Deliberate: a probe runs before there is a token,
+    // so it must reach something that does not need one. It also does not go
+    // through `request()`, so the allowlist does not apply to it — which is
+    // why the URL is built here from a normalised scope and a literal.
     let result = client.get(format!("{scope}/api/health/")).send().await;
     let fingerprint = verifier.seen.lock().ok().and_then(|s| s.clone());
     let trusted = verifier.trusted.lock().map(|t| *t).unwrap_or(false);
@@ -398,24 +473,42 @@ pub async fn cloud_probe(server_url: String) -> Result<Probe, String> {
     }
 }
 
-/// Exchange a username and password for a session.
+/// Verify a pasted capsule API token and remember it.
 ///
-/// The password is a parameter and nothing else: it is never written anywhere,
-/// and the caller clears its own field as soon as this returns.
-#[tauri::command]
-pub async fn cloud_login(
+/// THE TOKEN IS A PARAMETER AND NOTHING ELSE on the way in: it is written
+/// straight to the OS secret store and never returned by any function here.
+/// The caller clears its own field as soon as this returns.
+///
+/// **Verified before it is stored**, by the call that also identifies it. A
+/// connect screen that accepted a token without asking the server would show a
+/// signed-in state it loses on the very next call, and the user would have no
+/// idea whether they mistyped or the server is down. `/api/v1/me` answers both
+/// questions in one round trip — 401 means the token is wrong, a transport
+/// error means the server is unreachable, and they need different actions.
+pub async fn connect(
     server_url: String,
-    username: String,
-    password: String,
+    token: String,
     fingerprint: Option<String>,
 ) -> Result<SessionInfo, String> {
     let scope = normalize(&server_url)?;
-    let client = client_with(PinnedVerifier::new(fingerprint))?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err("no_token: paste the token from the Compute Capsules desk".into());
+    }
+    // Shape only, and shallow on purpose: the SERVER decides whether a token is
+    // live. A stricter check here would be a second rule that could disagree
+    // with `tokens.py`, which is the one that matters. What this catches is the
+    // ordinary mistake — a pasted URL, a truncated copy — before a round trip.
+    if !token.starts_with("capsule.") || token.split('.').count() != 3 {
+        return Err("bad_token_shape: that does not look like a capsule token — \
+                    it should start with `capsule.`".into());
+    }
 
+    let client = client_with(PinnedVerifier::new(fingerprint))?;
     let res = client
-        .post(format!("{scope}/api/login/"))
+        .get(format!("{scope}/api/v1/me"))
+        .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/json")
-        .json(&serde_json::json!({ "username": username, "password": password }))
         .send()
         .await
         .map_err(|e| classify_transport(&e))?;
@@ -424,39 +517,56 @@ pub async fn cloud_login(
     let body: serde_json::Value = res.json().await.unwrap_or(serde_json::Value::Null);
 
     if status == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("bad_credentials: that username and password did not match".into());
+        return Err("bad_token: that token is not valid, or it has been revoked \
+                    or has expired".into());
     }
     if !status.is_success() {
         let detail = body.get("error").and_then(|e| e.as_str()).unwrap_or("");
         return Err(format!("server_{}: {}", status.as_u16(), detail));
     }
 
-    let token = body
+    let username = body
+        .get("username")
+        .and_then(|u| u.as_str())
+        .unwrap_or("")
+        .to_string();
+    let label = body
         .get("token")
-        .and_then(|t| t.as_str())
-        .filter(|t| !t.is_empty())
-        .ok_or("bad_response: the server did not return a session")?;
+        .and_then(|t| t.get("label"))
+        .and_then(|l| l.as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let storage = save_session(&scope, &Session { token: token.to_string(), username: username.clone() });
-    Ok(SessionInfo { signed_in: true, username: Some(username), server: scope, storage: Some(storage) })
+    let storage = save_session(
+        &scope,
+        &Session { token, username: username.clone(), label: label.clone() },
+    );
+    Ok(SessionInfo {
+        signed_in: true,
+        username: Some(username),
+        label: Some(label),
+        server: scope,
+        storage: Some(storage),
+    })
 }
 
-/// Sign out. Tells the server if it can, and clears the local session either
-/// way — an unreachable server must not leave someone stuck signed in.
-#[tauri::command]
-pub async fn cloud_logout(server_url: String, fingerprint: Option<String>) -> Result<(), String> {
-    let scope = normalize(&server_url)?;
-    if let Some((session, _)) = load_session(&scope) {
-        if let Ok(client) = client_with(PinnedVerifier::new(fingerprint)) {
-            let _ = client
-                .post(format!("{scope}/api/logout/"))
-                .header("Authorization", format!("Bearer {}", session.token))
-                .header("Accept", "application/json")
-                .send()
-                .await;
-        }
+/// Forget the stored token. Local only, and the wording matters.
+///
+/// **This is not revocation and must not be presented as one.** A capsule token
+/// lives until somebody revokes it on the server's Compute Capsules desk; all
+/// this does is stop THIS machine holding a copy. Telling a user they had
+/// "signed out" when the credential is still valid elsewhere would be a lie in
+/// exactly the direction that matters.
+///
+/// The old `POST /api/logout/` call went with the password flow: it discarded a
+/// Django session key, which is a thing that can be discarded. A token is not.
+pub fn forget(server_url: String) -> Result<(), String> {
+    // Normalise leniently: an address that no longer parses still has a stored
+    // credential under whatever string it was, and refusing to clear it would
+    // strand exactly the person trying to tidy up.
+    if let Ok(scope) = normalize(&server_url) {
+        clear_session(&scope);
     }
-    clear_session(&scope);
     Ok(())
 }
 
@@ -472,12 +582,18 @@ pub struct ApiReply {
 /// The only paths this proxy will carry.
 ///
 /// This is NOT a general-purpose HTTP client, and the difference matters. Page
-/// script cannot read the token, but it can `invoke` — and this app renders
-/// deck HTML with no CSP, so a hostile document can reach any command. An
-/// allowlist keeps the worst case to the user's own vault rather than every
-/// endpoint on the server, and makes "what can this command touch?" answerable
-/// by reading four lines.
-const ALLOWED_PREFIXES: &[&str] = &["/api/me/", "/api/apps/", "/vault/api/"];
+/// script cannot read the token, but it CAN `invoke` — an editor opens files
+/// whose contents the user did not write, so a hostile document reaching this
+/// command is the case to bound. An allowlist keeps the worst case to the
+/// user's own workspaces rather than every endpoint on the server, and makes
+/// "what can this command touch?" answerable by reading one line.
+///
+/// `/api/v1/` and nothing else. It named the vault's routes when this was
+/// zinnia's Cloud tab; those endpoints are a different surface with a different
+/// permission model and these apps do not use them. Adding a prefix here is
+/// widening the blast radius of every document either app opens — do it
+/// deliberately or not at all.
+const ALLOWED_PREFIXES: &[&str] = &["/api/v1/"];
 
 /// Bodies bigger than this are refused before anything is sent. The vault's own
 /// editable-file ceiling is 2 MB; this leaves room for JSON overhead without
@@ -502,8 +618,7 @@ fn check_path(path: &str) -> Result<(), String> {
 /// body. A 401 means the server has discarded the session, so it is cleared
 /// centrally — the same rule `cloud_logout` follows, so a dead session can
 /// never keep being reported as live.
-#[tauri::command]
-pub async fn cloud_request(
+pub async fn request(
     server_url: String,
     method: String,
     path: String,
@@ -562,24 +677,30 @@ pub async fn cloud_request(
 /// Local only on purpose: this runs on every launch and every tab switch, and
 /// a version that called the server would make the UI depend on reachability
 /// to answer a question about local state.
-#[tauri::command]
-pub fn cloud_status(server_url: String) -> Result<SessionInfo, String> {
+pub fn status(server_url: String) -> Result<SessionInfo, String> {
     let scope = match normalize(&server_url) {
         Ok(scope) => scope,
         // An unusable stored address is simply "not signed in" — reporting it
         // as an error would put the tab in a failure state on every launch.
         Err(_) => {
-            return Ok(SessionInfo { signed_in: false, username: None, server: String::new(), storage: None })
+            return Ok(SessionInfo {
+                signed_in: false, username: None, label: None,
+                server: String::new(), storage: None,
+            })
         }
     };
     match load_session(&scope) {
         Some((session, storage)) => Ok(SessionInfo {
             signed_in: true,
             username: Some(session.username),
+            label: Some(session.label),
             server: scope,
             storage: Some(storage),
         }),
-        None => Ok(SessionInfo { signed_in: false, username: None, server: scope, storage: None }),
+        None => Ok(SessionInfo {
+            signed_in: false, username: None, label: None,
+            server: scope, storage: None,
+        }),
     }
 }
 
@@ -670,7 +791,62 @@ mod tests {
     }
 
     #[test]
-    fn a_session_round_trips_and_clears() {
+    fn the_proxy_carries_only_allowlisted_paths() {
+        // The command is reachable by any page script — a hostile document
+        // cannot read the token but can still invoke. The allowlist is what
+        // keeps that to the user's own workspaces instead of the whole server.
+        for ok in [
+            "/api/v1/me", "/api/v1/pool", "/api/v1/capsules",
+            "/api/v1/workspaces/notebook/tree",
+            "/api/v1/workspaces/notebook/files/7/save",
+            "/api/v1/jobs/abc/logs?offset=0",
+        ] {
+            assert!(check_path(ok).is_ok(), "{ok} should be allowed");
+        }
+        for bad in [
+            "/admin/", "/sso/api/register/", "/api/login/", "/api/logout/",
+            // The VAULT's routes. Allowed when this was zinnia's Cloud tab and
+            // deliberately not now: a different surface with a different
+            // permission model, which these apps do not use. Listed here so a
+            // revival cannot quietly re-widen the proxy.
+            "/vault/api/files/", "/api/me/", "/api/apps/",
+            "api/v1/pool",                 // unanchored
+            "/api/v1/../../admin/",        // traversal past the prefix
+            "//evil.test/api/v1/",         // protocol-relative
+            "",
+        ] {
+            assert!(check_path(bad).is_err(), "{bad} should be refused");
+        }
+    }
+
+    /// EVERYTHING THAT TOUCHES THE GLOBAL STORE, IN ONE TEST, ON PURPOSE.
+    ///
+    /// `KEYRING_SERVICE` is a process-wide `OnceLock` and the keyring is a
+    /// process-wide side effect, so a separate `#[test]` calling `init()` races
+    /// the ones that save and load: cargo runs tests in parallel, the service
+    /// name changes between a save and its load, and the load misses. That is
+    /// exactly what happened when these were three tests — intermittently,
+    /// which is the worst way to find out.
+    ///
+    /// Merged rather than serialised with a mutex because the ordering is the
+    /// point: `init()` must come first, and a reader should see that.
+    #[test]
+    fn the_store_and_the_service_name() {
+        // -- the service name is whatever the app set ----------------------
+        //
+        // Two apps share this crate and must not share a credential. The
+        // default exists so a missing `init()` is a visible name in a keyring
+        // browser rather than a crash on launch.
+        assert_eq!(service(), "totoclient.unconfigured");
+        init("com.example.totoclient-tests");
+        assert_eq!(service(), "com.example.totoclient-tests");
+        // Idempotent and last-write-LOSES: a second name must not swap the
+        // store underneath a live session and strand the first one's entry.
+        init("com.example.other");
+        assert_eq!(service(), "com.example.totoclient-tests");
+
+        // -- a session round trips and clears ------------------------------
+        //
         // Exercises whichever store is available on this machine; on a runner
         // with no secret service that is the in-memory one, which is the point
         // of it existing.
@@ -678,40 +854,41 @@ mod tests {
         clear_session(scope);
         assert!(load_session(scope).is_none());
 
-        let storage = save_session(scope, &Session { token: "t0ken".into(), username: "ada".into() });
+        let storage = save_session(scope, &Session {
+            token: "t0ken".into(), username: "ada".into(), label: "laptop".into(),
+        });
         let (loaded, back) = load_session(scope).expect("session present after save");
         assert_eq!(loaded.token, "t0ken");
         assert_eq!(loaded.username, "ada");
+        assert_eq!(loaded.label, "laptop");
         assert_eq!(storage, back);
 
         clear_session(scope);
-        assert!(load_session(scope).is_none(), "sign-out must leave nothing behind");
-    }
+        assert!(load_session(scope).is_none(), "clearing must leave nothing behind");
 
-    #[test]
-    fn the_proxy_carries_only_allowlisted_paths() {
-        // The command is reachable by any page script — a hostile document
-        // cannot read the token but can still invoke. The allowlist is what
-        // keeps that to the user's own vault instead of the whole server.
-        for ok in ["/api/me/", "/api/apps/", "/vault/api/files/", "/vault/api/buckets/"] {
-            assert!(check_path(ok).is_ok(), "{ok} should be allowed");
-        }
-        for bad in [
-            "/admin/", "/sso/api/register/", "/api/login/", "/api/logout/",
-            "vault/api/files/",            // unanchored
-            "/vault/api/../../admin/",     // traversal past the prefix
-            "//evil.test/vault/api/",      // protocol-relative
-            "",
-        ] {
-            assert!(check_path(bad).is_err(), "{bad} should be refused");
-        }
+        // -- forget() is local only ----------------------------------------
+        //
+        // A capsule token lives until somebody revokes it on the server's desk;
+        // this stops THIS machine holding a copy. It must never be presented
+        // as revocation.
+        save_session(scope, &Session {
+            token: "t".into(), username: "ada".into(), label: "l".into(),
+        });
+        assert!(load_session(scope).is_some());
+        forget("https://round-trip.test/".into()).unwrap();
+        assert!(load_session(scope).is_none());
+
+        // An address that no longer parses still has a credential under
+        // whatever string it was; refusing would strand the person tidying up.
+        assert!(forget("not a url".into()).is_ok());
+        assert!(forget("".into()).is_ok());
     }
 
     #[test]
     fn status_reports_an_unusable_address_as_signed_out() {
         // Not as an error: this runs on every launch, and a stored address that
         // no longer parses should not put the tab into a failure state.
-        let info = cloud_status("http://not-https.test".into()).unwrap();
+        let info = status("http://not-https.test".into()).unwrap();
         assert!(!info.signed_in);
         assert!(info.username.is_none());
     }
