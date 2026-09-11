@@ -126,6 +126,111 @@ export function jobOutput(client: ApiClient, uuid: string) {
     `/api/v1/jobs/${uuid}/output`);
 }
 
+// ---------------------------------------------------------------------------
+// The files area
+// ---------------------------------------------------------------------------
+//
+// A capsule's one place a person can put a file or take one out without
+// running a job. KEPT, NOT DURABLE: it outlives a job, an unmount and a
+// remount, and it does not outlive a host reboot or releasing the capsule —
+// the server holds it on a tmpfs. An app that offers it as storage is lying
+// on the server's behalf; `filesAreKept` is the sentence to show.
+//
+// THE NAME TRAVELS IN THE BODY, never the path, for all four verbs including
+// the reads. A file name is a path — slashes, dots, unicode — and putting one
+// in a URL means a name that is legal in the area and not in a URL, or worse
+// one legal in both that means different things. That is why `capsuleFileRead`
+// is a POST.
+
+/** One entry in the files area. Relative to the area's root, so it carries
+ *  its directories: `out/report/final.pdf`, not a name plus a parent. */
+export interface CapsuleFile {
+  name: string;
+  size: number;
+  /** Unix seconds. 0 for anything the server could not stat. */
+  modified: number;
+  is_dir: boolean;
+}
+
+export interface CapsuleFiles {
+  uuid: string;
+  files: CapsuleFile[];
+  /** False when the walk stopped early OR the runtime did not answer. A
+   *  listing that silently truncated reads as "this is everything", which is
+   *  how somebody concludes a file was lost — SAY so rather than drawing the
+   *  short list plain. */
+  complete: boolean;
+}
+
+export function capsuleFiles(client: ApiClient, uuid: string) {
+  return client.get<CapsuleFiles>(`/api/v1/capsules/${uuid}/files`);
+}
+
+/** One file's bytes, base64. A POST because the name is in the body. */
+export function capsuleFileRead(client: ApiClient, uuid: string, name: string) {
+  return client.post<{ name: string; bytes: number; data_b64: string }>(
+    `/api/v1/capsules/${uuid}/files/get`, { name });
+}
+
+/** Write one file. Without `replace` an existing name is REFUSED (409) rather
+ *  than overwritten — a client that means to replace says so, and one that
+ *  does not cannot lose somebody's afternoon to a name collision. */
+export function capsuleFileWrite(client: ApiClient, uuid: string, name: string,
+                                 dataB64: string, replace = false) {
+  return client.post<{ name: string; size: number; bytes: number }>(
+    `/api/v1/capsules/${uuid}/files/put`,
+    { name, data_b64: dataB64, replace });
+}
+
+export function capsuleFileDelete(client: ApiClient, uuid: string, name: string) {
+  return client.post<{ name: string; deleted: boolean }>(
+    `/api/v1/capsules/${uuid}/files/delete`, { name });
+}
+
+/** Copy a file the caller owns in the Vault INTO the capsule.
+ *
+ *  `key`, not an id: a client outside the server's database has no id to use.
+ *  The bytes never pass through here — the server has both ends, and a client
+ *  that downloaded and re-uploaded would move them twice over the network and
+ *  hold them in a webview's memory in between.
+ *
+ *  FREE. Nothing durable is created; the bytes land in capacity already
+ *  reserved. `name` defaults to the vault file's title. */
+export function capsuleFileFromVault(
+  client: ApiClient, uuid: string,
+  from: { key: string; name?: string; replace?: boolean }) {
+  return client.post<{ name: string; bytes: number;
+                       from: { key: string; title: string } }>(
+    `/api/v1/capsules/${uuid}/files/from-vault`, from);
+}
+
+/** Copy one file OUT of the capsule into one of the caller's buckets.
+ *
+ *  METERED AND VIRUS-SCANNED exactly like an upload, because it is the same
+ *  resource through a third door — an app that offers this without saying so
+ *  lets somebody discover the charge on an invoice. `filesCostToKeep` is the
+ *  sentence. */
+export function capsuleFileToVault(
+  client: ApiClient, uuid: string,
+  to: { name: string; bucket: string; title?: string }) {
+  return client.post<{ key: string; title: string; file_type: string;
+                       size: number; bucket: string }>(
+    `/api/v1/capsules/${uuid}/files/to-vault`, to);
+}
+
+/** WHAT THE AREA IS, for an app to show beside it. A constant rather than a
+ *  comment because every app that draws the area has to say it, and three
+ *  apps writing their own sentence is three chances to imply permanence. */
+export const filesAreKept =
+  "Files here survive a job and an unmount. They are held in memory on the " +
+  "server, so they do not survive a reboot or releasing the Capsule — keep " +
+  "anything you want to keep in the Vault.";
+
+/** WHAT COPYING OUT COSTS. Same reason. */
+export const filesCostToKeep =
+  "This stores the file in your Vault, and is charged and virus-scanned " +
+  "exactly like uploading it.";
+
 /** Base64 in the shape `inputs` wants, from text. */
 export function encodeText(text: string): string {
   const bytes = new TextEncoder().encode(text);
