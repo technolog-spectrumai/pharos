@@ -116,3 +116,9 @@ wiring in `stores/chat.ts`.
   `vox_*` family), and call by DHT nickname / saved contact (`dht_find_nick` /
   Contacts phone button). Gated on airplane + Tor-exclusive mode with a `shutdown`
   hook; the voice-message mic button is disabled during a live call.
+
+- **Zenbia desktop editors** (2026-09-16) — `apps/py_editor` and
+  `apps/tex_editor` moved to `limbo/apps/`. Zenbia will not support the remote
+  Python and TeX editor clients for now; they are parked whole so they can come
+  back later if the portal API is revived for them. They are no longer Cargo
+  workspace members or Zinnia build/dev targets.

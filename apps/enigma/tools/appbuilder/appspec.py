@@ -91,7 +91,7 @@ class AppSpec:
 #: The apps this builder family covers. Enigma is deliberately absent: it has
 #: its own builder with editions, signing and Android, and folding it in here
 #: would mean either losing that or forcing it on three apps that have none.
-ZINNIA_APPS = ("sketch", "lazurite", "primula", "py_editor", "tex_editor")
+ZINNIA_APPS = ("sketch", "lazurite", "primula")
 
 
 def load(root: Path, slug: str) -> AppSpec:
