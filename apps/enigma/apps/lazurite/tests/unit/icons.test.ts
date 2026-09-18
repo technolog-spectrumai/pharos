@@ -14,7 +14,8 @@ import { describe, expect, it } from "vitest";
 import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { TONE_ICONS } from "../../src/icons";
 import "../../src/icons"; // performs library.add as a side effect
-import { APP_TABS } from "../../src/tabs";
+import { NEW_FILE_KINDS } from "../../src/kinds";
+import { SKETCH_TOOLS } from "wisteria/tools";
 
 const SRC = join(__dirname, "../../src");
 /** The repo root is two levels above the app now. */
@@ -120,9 +121,25 @@ describe("icon registration", () => {
     }
   });
 
-  it("registers every tab's icon", () => {
-    for (const tab of APP_TABS) {
-      expect(registered(tab.icon), `tab ${tab.id} → ${tab.icon}`).toBe(true);
+  it("registers every drawing tool's icon", () => {
+    // `:icon="t.icon"` in wisteria's toolbar — a table the scanner cannot see.
+    for (const tool of SKETCH_TOOLS) {
+      expect(registered(tool.icon), `tool ${tool.id} → ${tool.icon}`).toBe(true);
+    }
+  });
+
+  it("registers every export command's icon", () => {
+    // Menu entries built from an editor's exposed `exports`, never a template.
+    for (const icon of ["file-csv", "file-image"]) {
+      expect(registered(icon), icon).toBe(true);
+    }
+  });
+
+  it("registers every New entry's icon", () => {
+    // `:icon="item.icon"` in the menu and the start screen: read from a table,
+    // so the template scanner cannot see these names.
+    for (const item of NEW_FILE_KINDS) {
+      expect(registered(item.icon), `new ${item.kind} → ${item.icon}`).toBe(true);
     }
   });
 

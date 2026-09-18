@@ -3,11 +3,11 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { brand } from "./config";
 import { i18n, setLocale, type Locale } from "./i18n";
-import { APP_TABS, DEFAULT_TAB, type AppTabId, type EditorKind } from "./tabs";
+import { NEW_FILE_KINDS, type EditorKind } from "./kinds";
 import EditorHost from "./views/EditorHost.vue";
 import FilesPanel from "./files/FilesPanel.vue";
 import SecurityView from "padova/SecurityView.vue";
-// Padova's Security tab is app-agnostic: it takes the workspace it should list
+// Padova's Security view is app-agnostic: it takes the workspace it should list
 // rather than importing one, so the app decides which store it sees. This is
 // the same singleton the files sidepanel drives — one tree, two views.
 import { filterRows, useWorkspace } from "petalite/files";
@@ -31,143 +31,133 @@ function switchLocale() {
   setLocale((i18n.global.locale.value === "en" ? "pl" : "en") as Locale);
 }
 
-// ── tabs ────────────────────────────────────────────────────────────────────
-// No router, and that is the point: each editor tab holds an open file with an
-// unsaved buffer in it, and a router would unmount the losing tab on every
-// switch. Enigma can route because its views are re-derivable; a half-written
-// document is not.
+// ── views ───────────────────────────────────────────────────────────────────
+// There are no editor tabs. The editor host is ONE component that picks its
+// editor from whatever file is open (see views/EditorHost.vue), so the only
+// thing left to switch between is what is on screen instead of it: Security
+// or Settings, both reached from the menu.
 //
-// Two pieces of state, and the pair is what makes this cheap AND safe:
-//   `active`  — what you see now;
-//   `visited` — which tabs have ever been opened, so a tab is CREATED lazily
-//               (Univer alone is ~5 MB and mounts a React tree) and never
-//               destroyed afterwards.
-const active = ref<AppTabId>(DEFAULT_TAB);
-const visited = ref<Set<AppTabId>>(new Set([DEFAULT_TAB]));
+// The host is mounted once and never destroyed — a half-written document must
+// survive a look at Settings — and the two views are created the first time
+// they are asked for, then kept, exactly as the old tabs were.
+type View = "editor" | "security" | "settings";
+const view = ref<View>("editor");
+const visited = ref<Set<View>>(new Set(["editor"]));
 
-function show(id: AppTabId) {
+function showView(id: View) {
   const next = new Set(visited.value); // a Set mutated in place is not reactive
   next.add(id);
   visited.value = next;
-  active.value = id;
+  view.value = id;
 }
 
-const editorTabs = computed(() => APP_TABS.filter((tab) => tab.kind !== null));
+const VIEW_LABELS: Record<Exclude<View, "editor">, { labelKey: string; icon: string }> = {
+  security: { labelKey: "nav.security", icon: "shield-halved" },
+  settings: { labelKey: "nav.settings", icon: "gear" },
+};
 
 // ── the files sidepanel ─────────────────────────────────────────────────────
 // Beside the editor rather than instead of it. Remembered, because whether you
 // want a file browser on screen is a working habit, not a per-session decision;
-// hidden on Settings, which holds no file for the panel to hand it.
+// hidden behind Security and Settings, which hold no file for it to hand over.
 const filesOpen = ref(localStorage.getItem("zinnia:files") !== "0");
 watch(filesOpen, (on) => localStorage.setItem("zinnia:files", on ? "1" : "0"));
 
-/** The one workspace, handed to Padova's tab. Resolved once here rather than
- *  inside the tab, because the store is the app's and the tab is a package's. */
+/** The one workspace, handed to Padova's view. Resolved once here rather than
+ *  inside it, because the store is the app's and the view is a package's. */
 const securityWorkspace = useWorkspace();
 
-const showFiles = computed(() =>
-  filesOpen.value && APP_TABS.some((tab) => tab.id === active.value && tab.kind !== null));
+const showFiles = computed(() => filesOpen.value && view.value === "editor");
 
 // ── the file menu ───────────────────────────────────────────────────────────
-// New/Open/Save/Save As belong to the OPEN FILE, and every editor tab has its
-// own. So the menu does not hold any file state — it finds the host of the tab
-// currently on screen and calls into it. One menu, N files, no third copy of
-// "is this dirty" to keep in step.
+// New/Open/Save/Save As belong to the open file, and the host owns it. So the
+// menu holds no file state: it calls into the host.
 type ExportCommand = { labelKey: string; icon: string; run: () => void };
 
 type Host = {
-  newFile: () => void;
+  newFile: (kind: EditorKind) => void;
   openFile: () => void;
   saveFile: () => void;
   saveAs: () => void;
   /** Extra file commands the mounted editor offers — a PNG, a PDF. Zero or
-   *  more, so a tab that has none adds nothing to the menu. */
+   *  more, so an editor that has none adds nothing to the menu. */
   exports: ExportCommand[];
-  openRemote: (name: string, content: string) => void;
+  openLocal: (name: string, path: string, content: string) => void;
   name: string;
   dirty: boolean;
   busy: boolean;
   canSave: boolean;
+  hasFile: boolean;
   notice: string;
   fileError: string;
 };
 
-// The registry is a PLAIN object and the reactive part is a counter, because
-// what the menu needs to react to is "a host mounted or unmounted", not every
-// keystroke inside one. Storing component instances in a ref would make Vue
-// walk them, and reassigning that ref during render is what turns a template
-// ref into an infinite update loop.
-const hostRegistry: Record<string, Host | null> = {};
-const hostVersion = ref(0);
+/** A plain template ref — one host, mounted once, so none of the per-tab
+ *  registry the tabs needed. Exposed refs arrive unwrapped on the instance. */
+const hostEl = ref<unknown>(null);
+const host = computed<Host | null>(() => (hostEl.value as Host | null) ?? null);
 
-function setHost(id: AppTabId, el: unknown) {
-  const next = (el as Host | null) ?? null;
-  if (hostRegistry[id] === next) return; // idempotent: refs fire on re-render too
-  hostRegistry[id] = next;
-  hostVersion.value++;
+const filesPanel = ref<{ focusSearch(): void } | null>(null);
+
+/** A file picked in the sidepanel or a search hit. The host routes it. */
+function openFromFiles(payload: { kind: EditorKind; name: string; path: string; content: string }) {
+  showView("editor");
+  host.value?.openLocal(payload.name, payload.path, payload.content);
 }
 
-/** One stable callback per tab.
- *
- *  An inline `:ref="(el) => …"` is a NEW function every render, and Vue treats
- *  a changed ref function as a different ref: it calls the old one with null
- *  and the new one with the instance, on every single update. With a write in
- *  there, the render mutates its own dependency and never settles — which is
- *  exactly the "Maximum recursive updates exceeded" this first shipped as. */
-const hostSetters = new Map<AppTabId, (el: unknown) => void>();
-function setterFor(id: AppTabId) {
-  let fn = hostSetters.get(id);
-  if (!fn) {
-    fn = (el: unknown) => setHost(id, el);
-    hostSetters.set(id, fn);
-  }
-  return fn;
-}
-
-const activeHost = computed<Host | null>(() => {
-  void hostVersion.value; // the dependency; the registry itself is not reactive
-  return hostRegistry[active.value] ?? null;
-});
-
-/** A file picked in the sidepanel, routed to the editor that understands it.
- *
- *  The tab it belongs to has to be MOUNTED before its host exists — hosts
- *  register through a template ref — so this shows the tab first and hands the
- *  buffer over on the next tick. */
-async function openFromFiles(payload: { kind: EditorKind; name: string; content: string }) {
-  show(payload.kind);
+/** The start screen's "Search notes": the box lives in the files panel. */
+async function startSearch() {
+  filesOpen.value = true;
   await nextTick();
-  hostRegistry[payload.kind]?.openRemote(payload.name, payload.content);
+  filesPanel.value?.focusSearch();
 }
 
 const menuOpen = ref(false);
+/** Whether New's four kinds are unfolded inside the menu. */
+const newOpen = ref(false);
+watch(menuOpen, (open) => { if (!open) newOpen.value = false; });
 
 const MENU_ITEMS = [
-  { id: "new", labelKey: "file.new", icon: "file-circle-plus", run: (h: Host) => h.newFile() },
   { id: "open", labelKey: "file.open", icon: "folder-open", run: (h: Host) => h.openFile() },
   { id: "save", labelKey: "file.save", icon: "floppy-disk", run: (h: Host) => h.saveFile() },
   { id: "saveAs", labelKey: "file.saveAs", icon: "file-pen", run: (h: Host) => h.saveAs() },
 ] as const;
 
-/** Shown only when the tab on screen offers any — the sketch's PNG, the
- *  writer's PDF. An entry that was always present and usually inert would be
- *  worse than one that arrives with the tab it belongs to. */
-const exportItems = computed<ExportCommand[]>(() => activeHost.value?.exports ?? []);
+/** Shown only when the mounted editor offers any. An entry that was always
+ *  present and usually inert would be worse than one that arrives with the
+ *  editor it belongs to. */
+const exportItems = computed<ExportCommand[]>(() => host.value?.exports ?? []);
 
+/** A file command always acts on the editor, so it brings the editor back on
+ *  screen first — Open from Settings means "open a file", not "open one out of
+ *  sight". */
 function runCommand(item: (typeof MENU_ITEMS)[number]) {
-  const host = activeHost.value;
   menuOpen.value = false;
-  if (!host) return;
-  item.run(host);
+  if (!host.value) return;
+  showView("editor");
+  item.run(host.value);
+}
+
+function runNew(kind: EditorKind) {
+  menuOpen.value = false;
+  if (!host.value) return;
+  showView("editor");
+  host.value.newFile(kind);
+}
+
+function openView(id: Exclude<View, "editor">) {
+  menuOpen.value = false;
+  showView(id);
 }
 
 /** Save is the one command that can be a no-op: an unchanged file that has
- *  already been written has nothing to write. The others always apply. */
+ *  already been written has nothing to write. Save As needs a file to exist. */
 function isDisabled(id: string): boolean {
-  const host = activeHost.value;
-  if (!host) return true; // Settings has no file
-  if (host.busy) return true;
-  return id === "save" && !host.canSave;
+  const h = host.value;
+  if (!h || h.busy) return true;
+  if (id === "save") return !h.canSave;
+  if (id === "saveAs") return !h.hasFile;
+  return false;
 }
 </script>
 
@@ -177,7 +167,8 @@ function isDisabled(id: string): boolean {
     <header class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 border-accent-2 dark:border-accent-1">
       <!-- The menu button stands where the wordmark used to. Escape closes it;
            the backdrop below catches an outside click without a document-level
-           listener to leak. -->
+           listener to leak. It is also the only way to Security and Settings:
+           the top bar belongs to the open file. -->
       <div class="relative shrink-0" @keydown.esc="menuOpen = false">
         <button type="button" data-testid="app-menu"
                 class="relative z-50 inline-flex h-8 w-8 items-center justify-center rounded-lg
@@ -190,8 +181,30 @@ function isDisabled(id: string): boolean {
 
         <div v-if="menuOpen" class="fixed inset-0 z-40" @click="menuOpen = false" />
         <div v-if="menuOpen" role="menu" data-testid="app-menu-panel"
-             class="absolute left-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border shadow-xl
+             class="absolute left-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border shadow-xl
                     border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark">
+          <!-- New unfolds in place: the file's kind is the one thing a file
+               that does not exist yet cannot tell the app. -->
+          <button type="button" role="menuitem" data-testid="menu-new"
+                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition
+                         hover:bg-accent-light/10 disabled:opacity-40 disabled:hover:bg-transparent"
+                  :aria-expanded="newOpen" :disabled="isDisabled('new')"
+                  @click="newOpen = !newOpen">
+            <font-awesome-icon icon="file-circle-plus" class="w-4 opacity-70" />
+            <span class="flex-1">{{ t("file.new") }}</span>
+            <font-awesome-icon :icon="newOpen ? 'chevron-down' : 'chevron-right'" class="w-3 opacity-50" />
+          </button>
+          <template v-if="newOpen">
+            <button v-for="item in NEW_FILE_KINDS" :key="item.kind" type="button" role="menuitem"
+                    :data-testid="`menu-new-${item.kind}`"
+                    class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition
+                           hover:bg-accent-light/10"
+                    @click="runNew(item.kind)">
+              <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
+              {{ t(item.labelKey) }}
+            </button>
+          </template>
+
           <button v-for="item in MENU_ITEMS" :key="item.id" type="button" role="menuitem"
                   class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition
                          hover:bg-accent-light/10 disabled:opacity-40 disabled:hover:bg-transparent"
@@ -206,10 +219,19 @@ function isDisabled(id: string): boolean {
                          transition hover:bg-accent-light/10 disabled:opacity-40"
                   :class="i === 0 ? 'border-t border-current/10' : ''"
                   :data-testid="i === 0 ? 'menu-export' : `menu-export-${i}`"
-                  :disabled="activeHost?.busy"
+                  :disabled="host?.busy"
                   @click="menuOpen = false; item.run()">
             <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
             {{ t(item.labelKey) }}
+          </button>
+
+          <div class="border-t border-current/10" />
+          <button v-for="(spec, id) in VIEW_LABELS" :key="id" type="button" role="menuitem"
+                  :data-testid="`menu-${id}`"
+                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition hover:bg-accent-light/10"
+                  @click="openView(id)">
+            <font-awesome-icon :icon="spec.icon" class="w-4 opacity-70" />
+            {{ t(spec.labelKey) }}
           </button>
         </div>
       </div>
@@ -226,28 +248,28 @@ function isDisabled(id: string): boolean {
         <font-awesome-icon icon="folder-open" />
       </button>
 
-      <!-- The open file, which the deleted file bar used to show. -->
-      <p v-if="activeHost" class="flex min-w-0 items-center gap-1.5">
-        <span class="truncate text-sm font-semibold" data-testid="file-name">{{ activeHost.name }}</span>
-        <span v-if="activeHost.dirty" class="shrink-0 opacity-60" :title="t('file.unsavedTitle')">•</span>
+      <!-- What is on screen: the open file with its unsaved marker, or the
+           view that is standing in front of it and the way back. -->
+      <p v-if="view !== 'editor'" class="flex min-w-0 items-center gap-1.5" data-testid="view-title">
+        <font-awesome-icon :icon="VIEW_LABELS[view].icon" class="opacity-70" />
+        <span class="truncate text-sm font-semibold">{{ t(VIEW_LABELS[view].labelKey) }}</span>
+        <button type="button" data-testid="view-close"
+                class="ml-1 inline-flex h-6 w-6 items-center justify-center rounded opacity-60 transition hover:opacity-100"
+                :title="t('common.close')" :aria-label="t('common.close')"
+                @click="showView('editor')">
+          <font-awesome-icon icon="xmark" />
+        </button>
+      </p>
+      <p v-else-if="host?.hasFile" class="flex min-w-0 items-center gap-1.5">
+        <span class="truncate text-sm font-semibold" data-testid="file-name">{{ host.name }}</span>
+        <span v-if="host.dirty" class="shrink-0 opacity-60" :title="t('file.unsavedTitle')">•</span>
       </p>
 
-      <nav class="flex flex-1 flex-wrap items-center gap-1 pl-3">
-        <button v-for="tab in APP_TABS" :key="tab.id" type="button"
-                :data-testid="`nav-${tab.id}`"
-                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm font-semibold transition"
-                :class="active === tab.id
-                  ? 'bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
-                  : 'opacity-60 hover:opacity-100'"
-                @click="show(tab.id)">
-          <font-awesome-icon :icon="tab.icon" />
-          <span class="hidden sm:inline">{{ t(tab.labelKey) }}</span>
-        </button>
-      </nav>
+      <span class="flex-1" />
 
-      <p v-if="activeHost?.notice" class="shrink-0 text-xs opacity-60">{{ activeHost.notice }}</p>
-      <p v-if="activeHost?.fileError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="file-error">
-        {{ activeHost.fileError }}
+      <p v-if="view === 'editor' && host?.notice" class="shrink-0 text-xs opacity-60">{{ host.notice }}</p>
+      <p v-if="view === 'editor' && host?.fileError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="file-error">
+        {{ host.fileError }}
       </p>
 
       <button type="button" @click="switchLocale"
@@ -270,21 +292,18 @@ function isDisabled(id: string): boolean {
       <!-- The panel is MOUNTED once and hidden, not destroyed: it holds the
            loaded tree and which folders are open, and rebuilding that on every
            toggle would re-read the disk to show what was just on screen. -->
-      <FilesPanel v-show="showFiles" class="min-h-0" @open="openFromFiles" />
+      <FilesPanel ref="filesPanel" v-show="showFiles" class="min-h-0" @open="openFromFiles" />
 
       <div class="flex min-w-0 min-h-0 flex-1 flex-col">
-        <!-- v-if on `visited`, v-show on `active`: created once, then kept alive. -->
-        <template v-for="tab in editorTabs" :key="tab.id">
-          <EditorHost v-if="visited.has(tab.id)" v-show="active === tab.id"
-                      :ref="setterFor(tab.id)"
-                      :kind="tab.kind!" :active="active === tab.id" class="min-h-0 flex-1" />
-        </template>
+        <!-- One host, always mounted; hidden, not destroyed, behind a view. -->
+        <EditorHost ref="hostEl" v-show="view === 'editor'" :active="view === 'editor'"
+                    class="min-h-0 flex-1" @search="startSearch" />
 
-        <SecurityView v-if="visited.has('security')" v-show="active === 'security'"
+        <SecurityView v-if="visited.has('security')" v-show="view === 'security'"
                       :workspace="securityWorkspace" :filter-rows="filterRows"
                       class="min-h-0 flex-1" />
 
-        <SettingsView v-if="visited.has('settings')" v-show="active === 'settings'"
+        <SettingsView v-if="visited.has('settings')" v-show="view === 'settings'"
                       class="min-h-0 flex-1" />
       </div>
     </div>

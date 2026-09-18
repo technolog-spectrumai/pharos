@@ -5,16 +5,19 @@ import { brand, dev } from "../../src/config";
 import { i18n } from "../../src/i18n";
 
 describe("the shell", () => {
-  it("mounts the shell with the writer inside", async () => {
+  it("mounts the shell with the editor host inside", async () => {
     const w = mount(App, { global: { plugins: [i18n] } });
-    // The host registers itself through a template ref, so its file name only
-    // reaches the header on the following tick.
     await flushPromises();
     // The wordmark gave way to the menu button, which stands in its place and
     // keeps the brand as its tooltip.
     expect(w.find('[data-testid="app-menu"]').exists()).toBe(true);
     expect(w.get('[data-testid="app-menu"]').attributes("title")).toBe("Lazurite");
-    // A named file proves a real editor host mounted, not a placeholder.
+    // No file yet, so the host shows its start screen — which proves a real
+    // host mounted, not a placeholder, since only the host draws it.
+    expect(w.find('[data-testid="start"]').exists()).toBe(true);
+    // …and a new file reaches the header through the host's exposed name.
+    await w.get('[data-testid="start-new-code"]').trigger("click");
+    await flushPromises();
     expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.\w+$/);
   });
 

@@ -4,6 +4,7 @@ import { createPinia } from "pinia";
 import App from "../../src/App.vue";
 import EditorHost from "../../src/views/EditorHost.vue";
 import { i18n } from "../../src/i18n";
+import { NEW_FILE_KINDS } from "../../src/kinds";
 
 function mountApp() {
   return mount(App, {
@@ -11,141 +12,175 @@ function mountApp() {
   });
 }
 
+async function openMenu(w: ReturnType<typeof mountApp>) {
+  await w.get('[data-testid="app-menu"]').trigger("click");
+}
+
+/** New, then a kind — the two clicks the menu asks for. */
+async function newFrom(w: ReturnType<typeof mountApp>, kind: string) {
+  await openMenu(w);
+  await w.get('[data-testid="menu-new"]').trigger("click");
+  await w.get(`[data-testid="menu-new-${kind}"]`).trigger("click");
+  await flushPromises();
+}
+
 beforeEach(() => {
   localStorage.clear();
   i18n.global.locale.value = "en";
 });
 
-describe("the file menu", () => {
+describe("the app menu", () => {
   it("stands where the wordmark was and stays closed until asked", async () => {
     const w = mountApp();
     await flushPromises();
     expect(w.find('[data-testid="app-menu-panel"]').exists()).toBe(false);
     expect(w.get('[data-testid="app-menu"]').attributes("aria-expanded")).toBe("false");
 
-    await w.get('[data-testid="app-menu"]').trigger("click");
+    await openMenu(w);
     expect(w.find('[data-testid="app-menu-panel"]').exists()).toBe(true);
     expect(w.get('[data-testid="app-menu"]').attributes("aria-expanded")).toBe("true");
   });
 
-  it("offers exactly new, open, save and save as", async () => {
+  it("offers the file commands, then Security and Settings", async () => {
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="app-menu"]').trigger("click");
-    for (const id of ["new", "open", "save", "saveAs"]) {
-      expect(w.find(`[data-testid="menu-${id}"]`).exists(), id).toBe(true);
-    }
-    expect(w.findAll('[data-testid="app-menu-panel"] [role="menuitem"]')).toHaveLength(4);
+    await openMenu(w);
+    const ids = w.findAll('[data-testid="app-menu-panel"] [role="menuitem"]')
+      .map((item) => item.attributes("data-testid"));
+    expect(ids).toEqual(["menu-new", "menu-open", "menu-save", "menu-saveAs", "menu-security", "menu-settings"]);
   });
 
-  it("runs the command on the tab that is on screen, not another one", async () => {
-    // The whole reason the menu holds no file state: four tabs, four open
-    // files. A command that reached the wrong one would discard the wrong
-    // buffer. Asserted through the effect rather than a spy — the menu calls
-    // the exposed closure, which patching `vm` does not intercept.
+  it("unfolds New into one entry per kind", async () => {
     const w = mountApp();
     await flushPromises();
-
-    // Dirty the WRITE tab, then leave it.
-    const write = w.findComponent(EditorHost);
-    write.findComponent({ name: "DocumentEditor" }).vm.$emit("update:dirty", true);
-    await flushPromises();
-    expect((write.vm as unknown as { dirty: boolean }).dirty).toBe(true);
-
-    await w.get('[data-testid="nav-deck"]').trigger("click");
-    await flushPromises();
-
-    // New, on the deck tab.
-    await w.get('[data-testid="app-menu"]').trigger("click");
+    await openMenu(w);
+    expect(w.find('[data-testid="menu-new-deck"]').exists()).toBe(false);
     await w.get('[data-testid="menu-new"]').trigger("click");
-    await flushPromises();
+    for (const item of NEW_FILE_KINDS) {
+      expect(w.find(`[data-testid="menu-new-${item.kind}"]`).exists(), item.kind).toBe(true);
+    }
+    // Unfolding is not a command, so the menu stays open for the pick.
+    expect(w.find('[data-testid="app-menu-panel"]').exists()).toBe(true);
+  });
 
-    // The write tab's unsaved work survived: New did not reach it.
-    expect((write.vm as unknown as { dirty: boolean }).dirty).toBe(true);
-    // …and the header is showing the deck tab's file.
+  it("creates the chosen kind and shows it in the header", async () => {
+    const w = mountApp();
+    await flushPromises();
+    await newFrom(w, "deck");
+    expect(w.findComponent({ name: "PresentationEditor" }).exists()).toBe(true);
     expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.pxml$/);
-  });
-
-  it("closes after running a command", async () => {
-    const w = mountApp();
-    await flushPromises();
-    await w.get('[data-testid="app-menu"]').trigger("click");
-    await w.get('[data-testid="menu-new"]').trigger("click");
+    // …and closes after running it.
     expect(w.find('[data-testid="app-menu-panel"]').exists()).toBe(false);
+
+    await newFrom(w, "markdown");
+    expect(w.findComponent({ name: "PresentationEditor" }).exists()).toBe(false);
+    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.md$/);
   });
 
-  it("disables every command on Settings, which has no file", async () => {
+  it("disables Save and Save As while no file is open", async () => {
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="nav-settings"]').trigger("click");
-    await flushPromises();
-    await w.get('[data-testid="app-menu"]').trigger("click");
-
-    for (const id of ["new", "open", "save", "saveAs"]) {
-      expect(w.get(`[data-testid="menu-${id}"]`).attributes("disabled"), id).toBeDefined();
-    }
-    expect(w.find('[data-testid="file-name"]').exists()).toBe(false);
+    await openMenu(w);
+    expect(w.get('[data-testid="menu-save"]').attributes("disabled")).toBeDefined();
+    expect(w.get('[data-testid="menu-saveAs"]').attributes("disabled")).toBeDefined();
+    expect(w.get('[data-testid="menu-new"]').attributes("disabled")).toBeUndefined();
+    expect(w.get('[data-testid="menu-open"]').attributes("disabled")).toBeUndefined();
   });
 
   it("leaves Save enabled for a file that has never been written", async () => {
     // A never-saved file is always savable even when untouched — there is no
-    // path on disk yet, so Save means Save As. The greyed-out case is the
-    // file that exists and has not changed, which needs a real write to set up
-    // and is covered where saving is tested.
+    // path on disk yet, so Save means Save As.
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="app-menu"]').trigger("click");
+    await newFrom(w, "document");
+    await openMenu(w);
     expect(w.get('[data-testid="menu-save"]').attributes("disabled")).toBeUndefined();
+    expect(w.get('[data-testid="menu-saveAs"]').attributes("disabled")).toBeUndefined();
   });
 
   it("shows the open file's name and its unsaved marker", async () => {
     const w = mountApp();
     await flushPromises();
-    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.\w+$/);
+    await newFrom(w, "document");
+    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.xml$/);
     expect(w.find('[title="Unsaved changes"]').exists()).toBe(false);
 
-    const host = w.findComponent(EditorHost);
-    host.vm.$emit("update:dirty", true);
-    // The host owns dirty; poke the editor the way a real edit would.
-    const inner = host.findComponent({ name: "DocumentEditor" });
-    if (inner.exists()) inner.vm.$emit("update:dirty", true);
+    w.findComponent({ name: "DocumentEditor" }).vm.$emit("update:dirty", true);
     await flushPromises();
     expect(w.find('[title="Unsaved changes"]').exists()).toBe(true);
   });
-});
 
-describe("keyboard shortcuts across tabs", () => {
-  it("passes the on-screen flag down to the editors", async () => {
-    // The mechanism: every visited tab stays MOUNTED so a half-written document
-    // survives a switch, which also leaves every editor holding a live window
-    // keydown listener. The flag is what stops the off-screen ones answering.
+  it("brings the editor back when a file command is chosen from Settings", async () => {
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="nav-deck"]').trigger("click");
+    await openMenu(w);
+    await w.get('[data-testid="menu-settings"]').trigger("click");
     await flushPromises();
+    expect((w.findComponent(EditorHost).element as HTMLElement).style.display).toBe("none");
 
-    const doc = w.findComponent({ name: "DocumentEditor" });
-    const deck = w.findComponent({ name: "PresentationEditor" });
-    expect(doc.exists()).toBe(true); // still alive, just not on screen
-    expect(doc.props("active")).toBe(false);
-    expect(deck.props("active")).toBe(true);
+    await newFrom(w, "code");
+    expect((w.findComponent(EditorHost).element as HTMLElement).style.display).not.toBe("none");
+    expect(w.find('[data-testid="view-title"]').exists()).toBe(false);
+    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.txt$/);
+  });
+});
+
+describe("keyboard shortcuts behind a view", () => {
+  it("tells the editor when it is not on screen", async () => {
+    // The host stays mounted behind Settings so the buffer survives, which
+    // leaves its editor holding a live window keydown listener. The flag is
+    // what stops Ctrl+S in Settings saving a file nobody is looking at.
+    const w = mountApp();
+    await flushPromises();
+    await newFrom(w, "deck");
+    expect(w.findComponent({ name: "PresentationEditor" }).props("active")).toBe(true);
+
+    await openMenu(w);
+    await w.get('[data-testid="menu-settings"]').trigger("click");
+    await flushPromises();
+    expect(w.findComponent({ name: "PresentationEditor" }).props("active")).toBe(false);
   });
 });
 
 describe("the export command", () => {
-  it("is absent while no editor here offers one", async () => {
-    // Export is per-editor, and Lazurite ships none today: the PNG export
-    // left with the drawing board, and the writer's PDF is not wired yet. An
-    // entry that was always there and always inert would be worse than none.
+  it("arrives with the sheet, which offers CSV, and leaves with it", async () => {
     const w = mountApp();
     await flushPromises();
-    await w.get('[data-testid="app-menu"]').trigger("click");
+    await newFrom(w, "sheet");
+    expect(w.findComponent({ name: "SheetEditor" }).exists()).toBe(true);
+    await openMenu(w);
+    expect(w.get('[data-testid="menu-export"]').text()).toContain("CSV");
+    await openMenu(w); // close
+
+    await newFrom(w, "markdown");
+    await openMenu(w);
+    expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);
+  });
+
+  it("arrives with a drawing, which offers PNG", async () => {
+    const w = mountApp();
+    await flushPromises();
+    await newFrom(w, "sketch");
+    expect(w.findComponent({ name: "SketchEditor" }).exists()).toBe(true);
+    expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.svg$/);
+    await openMenu(w);
+    expect(w.get('[data-testid="menu-export"]').text()).toContain("PNG");
+  });
+
+  it("is absent while the editor on screen offers none", async () => {
+    // Export is per-editor. An entry that was always there and always inert
+    // would be worse than none.
+    const w = mountApp();
+    await flushPromises();
+    await openMenu(w);
     expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);
 
-    await w.get('[data-testid="app-menu"]').trigger("click"); // close
-    await w.get('[data-testid="nav-deck"]').trigger("click");
-    await flushPromises();
-    await w.get('[data-testid="app-menu"]').trigger("click");
-    expect(w.find('[data-testid="menu-export"]').exists()).toBe(false);
+    await openMenu(w); // close
+    for (const kind of ["document", "deck"]) {
+      await newFrom(w, kind);
+      await openMenu(w);
+      expect(w.find('[data-testid="menu-export"]').exists(), kind).toBe(false);
+      await openMenu(w); // close
+    }
   });
 });
