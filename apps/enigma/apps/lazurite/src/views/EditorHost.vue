@@ -11,15 +11,26 @@
 // ONE INSTANCE FOR THE APP, and the FILE decides which editor it mounts. It
 // used to be one host per tab, each pinned to a kind by a prop, so the user
 // had to pick the right tab before opening anything. Now every way in — the
-// Open dialog, a Files-panel row, a notes-search hit — ends in `show`, which
+// Open dialog, a Files-panel row, a search hit — ends in `show`, which
 // asks `kindForFile` (../files/openWith) and mounts that editor. New is the one
 // place a kind is chosen by hand, because a file that does not exist yet has
 // nothing to be read from.
 //
 // With no file open there is no editor at all, only the start screen: the
 // app does not pretend an untitled document of some default kind exists.
+//
+// ENCRYPTED FILES open here too. Rust decrypts one into memory under a
+// session (src-tauri/src/sealed.rs) and this host keeps only the token; every
+// save of that file goes back through the session, so the disk never sees
+// plaintext. The passphrase is asked for by padova's modal, handed to Rust
+// once, and not kept. The shield in the header reads `isSealed` from here.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import ModalPanel from "petalite/ModalPanel.vue";
+import LockModal from "padova/LockModal.vue";
+import { lockErrorKey, passphraseStatus, rememberPassphrase, sealFile, unsealFile } from "padova";
+import { sealedClose, sealedOpen, sealedOpenBytes, sealedWrite } from "../security/sealed";
+import ManaCost from "../security/ManaCost.vue";
+import { askMana, manaCharge, manaQuote, manaRecord, type ManaQuote } from "../security/mana";
 import { useI18n } from "vue-i18n";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
@@ -33,7 +44,8 @@ import { dumps as dumpsDeck, newPresentation } from "../formats/presentation";
 import { dumps as dumpsSheet, newWorkbook } from "../formats/sheet";
 import { ALL_EXTENSIONS, KIND_FILES, type EditorKind } from "../kinds";
 import { kindForFile } from "../files/openWith";
-import { isImageName } from "petalite/files";
+import { dialogErrorKey, errorText, fsErrorKey, readText, writeText } from "../files/fs";
+import { isImageName, toDataUri, useWorkspace } from "petalite/files";
 import { OyaButton, OyaModal } from "petalite/primitives";
 
 const props = defineProps<{
@@ -50,6 +62,29 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n({ useScope: "global" });
+
+/** The workspace: where Open looks, where Save As offers to write, and the
+ *  boundary Rust holds every read and write to. Without one there is nothing
+ *  to open from or save into, and the commands say so. */
+const workspace = useWorkspace();
+const hasWorkspace = computed(() => Boolean(workspace.root.value));
+
+/** A Rust refusal as a sentence: a known prefix through the catalogue, anything
+ *  else (a filesystem message) as it came. */
+function explain(err: unknown): string {
+  const message = errorText(err);
+  const key = fsErrorKey(message) ?? lockErrorKey(message);
+  return key ? t(key) : message;
+}
+
+/** For an action run inside padova's passphrase dialog, which only knows the
+ *  sealing sentences: a workspace refusal ("not a text file", "outside the
+ *  workspace") is turned into its own sentence here, so the dialog shows that
+ *  rather than raw Rust or a sealing sentence that does not fit. */
+function inDialog(err: unknown, mode: "lock" | "unlock" | "open"): unknown {
+  const key = dialogErrorKey(errorText(err), mode);
+  return key ? new Error(t(key)) : err;
+}
 
 /** The new-file seed for a kind. Structured kinds are seeded rather than left
  *  empty because their editors parse on open — a blank buffer would arrive as
@@ -105,6 +140,239 @@ const editorRef = ref<EditorHandle | null>(null);
  *  text" — forces ACE for that one open, without renaming the file. */
 const forceText = ref(false);
 
+// ── encryption ──────────────────────────────────────────────────────────────
+/** The Rust session holding this file's key, while an encrypted text file is
+ *  open. Null for a plain file. */
+const sealedToken = ref<number | null>(null);
+/** An encrypted picture, shown from memory: no session, nothing to save. */
+const sealedImage = ref(false);
+/** The file was encrypted on disk while it was open here — from its row in
+ *  the pane, or by a folder run. The buffer is still the plaintext; the next
+ *  save asks for the passphrase and writes it back encrypted. */
+const sealedPending = ref(false);
+/** Whether the open file is encrypted on disk. */
+const isSealed = computed(() => sealedToken.value !== null || sealedImage.value || sealedPending.value);
+/** Whether the file exists on disk at all — a never-saved file cannot be
+ *  encrypted yet. */
+const hasPath = computed(() => path.value !== null);
+
+function dropSession() {
+  const token = sealedToken.value;
+  sealedToken.value = null;
+  sealedImage.value = false;
+  sealedPending.value = false;
+  if (token !== null) void sealedClose(token).catch(() => undefined);
+}
+
+// The passphrase prompt: one modal, three uses (open into memory, encrypt,
+// decrypt permanently). The action it runs is set per use; the password it
+// collects goes to that action and nowhere else.
+const lockOpen = ref(false);
+const lockMode = ref<"lock" | "unlock" | "open">("open");
+const lockName = ref("");
+const lockAction = ref<(password: string, remember: boolean) => Promise<void>>(async () => undefined);
+/** The Mana price shown inside the passphrase modal, when the action it
+ *  guards costs any — one dialog, not two. */
+const lockQuote = ref<ManaQuote | null>(null);
+const lockConsequence = ref("");
+/** Resolves when the modal closes, with whether the action ran. */
+let lockSettle: ((ok: boolean) => void) | null = null;
+
+function askPassphrase(mode: "lock" | "unlock" | "open", fileName: string,
+                       action: (password: string, remember: boolean) => Promise<void>,
+                       quote: ManaQuote | null = null, consequence = ""): Promise<boolean> {
+  lockQuote.value = quote;
+  lockConsequence.value = consequence;
+  lockMode.value = mode;
+  lockName.value = fileName;
+  lockAction.value = action;
+  lockOpen.value = true;
+  return new Promise((resolve) => { lockSettle = resolve; });
+}
+function lockDone(ran: boolean) {
+  lockOpen.value = false;
+  lockSettle?.(ran);
+  lockSettle = null;
+}
+
+/** Whether a passphrase is remembered, so a file can be opened without
+ *  asking. Off the desktop, or if the question fails, the answer is no. */
+async function remembered(): Promise<boolean> {
+  try {
+    return (await passphraseStatus()).remembered;
+  } catch {
+    return false;
+  }
+}
+
+/** Decrypt into memory and show. `password` null uses the remembered one. */
+async function adoptSealed(fileName: string, filePath: string, password: string | null) {
+  if (isImageName(fileName)) {
+    const bytes = await sealedOpenBytes(filePath, password);
+    show(fileName, filePath, toDataUri(fileName, bytes));
+    sealedImage.value = true;
+    return;
+  }
+  const opened = await sealedOpen(filePath, password);
+  show(fileName, filePath, opened.text);
+  sealedToken.value = opened.token;
+}
+
+/** The pane changed a file's encryption behind this host's back (a row
+ *  shield, a folder run). Ask the disk again about the open file and follow
+ *  it: decrypted there means the session goes and saves are plain; encrypted
+ *  there means the next save asks for the passphrase. The buffer is never
+ *  replaced — unsaved edits survive either way. */
+async function resync(): Promise<void> {
+  const target = path.value;
+  if (target === null || !hasFile.value) return;
+  await workspace.reprobe(target);
+  const onDisk = workspace.isSealed(target);
+  const held = sealedToken.value !== null || sealedImage.value;
+  if (!onDisk) {
+    // Plain on disk: whatever this host thought — a session, a picture, or
+    // "encrypted while open" — the file is plain now, and so are its saves.
+    if (held || sealedPending.value) dropSession();
+  } else if (!held) {
+    if (readOnly.value) sealedImage.value = true;
+    else sealedPending.value = true;
+  }
+}
+
+/** The key for saving a file that was encrypted while open. Not a new
+ *  exposure — the plaintext is already on screen — so it costs no Mana. */
+async function adoptSessionForSave(target: string): Promise<boolean> {
+  const take = async (password: string | null) => {
+    const opened = await sealedOpen(target, password);
+    sealedToken.value = opened.token;
+    sealedPending.value = false;
+  };
+  if (await remembered()) {
+    try {
+      await take(null);
+      return true;
+    } catch (err) {
+      if (!/^(wrong_password|no_passphrase)/.test(errorText(err))) throw err;
+    }
+  }
+  return askPassphrase("open", name.value, async (password, remember) => {
+    try {
+      await take(password);
+    } catch (err) {
+      throw inDialog(err, "open");
+    }
+    if (remember) await rememberPassphrase(password);
+  }, null, "shield.encryptedWhileOpen");
+}
+
+/** Open an encrypted file: with the remembered passphrase if there is one,
+ *  otherwise by asking. The file on disk stays encrypted throughout.
+ *
+ *  Its plaintext is in memory and on screen while it is open, which costs
+ *  Security Mana: the price is shown first (in the passphrase dialog, or on
+ *  its own when no passphrase has to be typed) and charged only once the file
+ *  has opened. A cancel or a wrong passphrase costs nothing. */
+async function openSealed(fileName: string, filePath: string, confirmed = false): Promise<boolean> {
+  if (!confirmed && !(await confirmDiscard())) return false;
+  fileError.value = "";
+  if (await remembered()) {
+    if (!(await askMana("unlock_temp", 1, fileName, "mana.consequence.unlock_temp"))) return false;
+    try {
+      await adoptSealed(fileName, filePath, null);
+      await manaCharge("unlock_temp", 1, filePath);
+      return true;
+    } catch (err) {
+      // The remembered passphrase is not this file's: ask. Anything else is
+      // a real refusal and is reported.
+      if (!/^(wrong_password|no_passphrase)/.test(errorText(err))) {
+        fileError.value = `${t("file.openFailed")} ${explain(err)}`;
+        return false;
+      }
+    }
+  }
+  const quote = await manaQuote("unlock_temp", 1);
+  return askPassphrase("open", fileName, async (password, remember) => {
+    try {
+      await adoptSealed(fileName, filePath, password);
+    } catch (err) {
+      throw inDialog(err, "open");
+    }
+    await manaCharge("unlock_temp", 1, filePath);
+    if (remember) await rememberPassphrase(password);
+  }, quote, "mana.consequence.unlock_temp");
+}
+
+/** Encrypt the open file on disk with a passphrase, and keep editing it
+ *  through a session. Needs a saved, clean file: the bytes on disk are what
+ *  get encrypted, and an unsaved edit would be silently left out. */
+async function encryptFile(): Promise<boolean> {
+  const target = path.value;
+  if (target === null || dirty.value || isSealed.value) return false;
+  fileError.value = "";
+  return askPassphrase("lock", name.value, async (password, remember) => {
+    try {
+      await sealFile(target, password);
+    } catch (err) {
+      throw inDialog(err, "lock");
+    }
+    // The file IS encrypted from here on. Keep editing it through a session;
+    // if that cannot be had now, the next save asks for the passphrase —
+    // either way the dialog must not report a failure that did not happen.
+    if (readOnly.value) {
+      sealedImage.value = true;
+    } else {
+      try {
+        const opened = await sealedOpen(target, password);
+        sealedToken.value = opened.token;
+      } catch {
+        sealedPending.value = true;
+      }
+    }
+    if (remember) await rememberPassphrase(password);
+    await workspace.reprobe(target);
+    // Encrypting reduces exposure; it earns nothing and costs nothing, and it
+    // is kept in the history.
+    await manaRecord("encrypt_file", target);
+  });
+}
+
+/** Decrypt the open file on disk, permanently. The buffer is already the
+ *  plaintext, so nothing reloads: the session is dropped and saves go plain. */
+async function decryptFile(): Promise<boolean> {
+  const target = path.value;
+  if (target === null || dirty.value || !isSealed.value) return false;
+  fileError.value = "";
+  const finish = async () => {
+    dropSession();
+    await workspace.reprobe(target);
+    await manaCharge("decrypt_file", 1, target);
+  };
+  if (await remembered()) {
+    if (!(await askMana("decrypt_file", 1, name.value, "mana.consequence.decrypt_file"))) return false;
+    try {
+      await unsealFile(target, null);
+      await finish();
+      return true;
+    } catch (err) {
+      if (!/^(wrong_password|no_passphrase)/.test(errorText(err))) {
+        fileError.value = explain(err);
+        return false;
+      }
+    }
+  }
+  const quote = await manaQuote("decrypt_file", 1);
+  return askPassphrase("unlock", name.value, async (password, remember) => {
+    try {
+      await unsealFile(target, password);
+    } catch (err) {
+      throw inDialog(err, "unlock");
+    }
+    await finish();
+    // Remembered only once it proved to be this file's passphrase.
+    if (remember) await rememberPassphrase(password);
+  }, quote, "mana.consequence.decrypt_file");
+}
+
 /** The file's editor, unless that editor refused it and the user asked to see
  *  it as plain text; null is the start screen. */
 const kind = computed<EditorKind | "text" | null>(() =>
@@ -138,6 +406,7 @@ function answerDiscard(ok: boolean) {
  *  opened file is routed by its name and bytes. */
 function show(fileName: string, filePath: string | null, text: string,
               as: EditorKind = kindForFile(fileName, text) ?? "code") {
+  dropSession();
   fileKind.value = as;
   path.value = filePath;
   name.value = fileName;
@@ -187,14 +456,27 @@ async function openFile() {
     browserInput.value?.click();
     return;
   }
+  if (!hasWorkspace.value) {
+    fileError.value = t("workspace.errors.no_workspace");
+    return;
+  }
   try {
     const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({ multiple: false, filters: openFilters() });
+    // The dialog opens on the workspace; a file picked elsewhere is refused by
+    // Rust, which is the boundary, not the dialog.
+    const picked = await open({ multiple: false, defaultPath: workspace.root.value, filters: openFilters() });
     if (typeof picked !== "string") return;
-    const { readTextFile } = await import("@tauri-apps/plugin-fs");
-    show(picked.split("/").pop() ?? picked, picked, await readTextFile(picked));
+    const fileName = picked.split("/").pop() ?? picked;
+    try {
+      show(fileName, picked, await readText(picked));
+    } catch (err) {
+      // Encrypted: the same file, through the passphrase. The discard
+      // question was already answered above.
+      if (!/^locked/.test(errorText(err))) throw err;
+      await openSealed(fileName, picked, true);
+    }
   } catch (err) {
-    fileError.value = `${t("file.openFailed")} ${(err as Error)?.message ?? err}`;
+    fileError.value = `${t("file.openFailed")} ${explain(err)}`;
   }
 }
 
@@ -210,14 +492,22 @@ async function onBrowserFile(e: Event) {
 // ── save ────────────────────────────────────────────────────────────────────
 async function writeTo(target: string, text: string): Promise<boolean> {
   try {
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-    await writeTextFile(target, text);
+    // Encrypted while it was open: get its key first, or write nothing — and
+    // say so, rather than leaving a save that silently did not happen.
+    if (sealedPending.value && !(await adoptSessionForSave(path.value ?? target))) {
+      fileError.value = t("shield.saveCancelled");
+      return false;
+    }
+    // An encrypted file goes back through its session and is re-sealed in
+    // Rust; a plain one is written as it is.
+    if (sealedToken.value !== null) await sealedWrite(sealedToken.value, target, text);
+    else await writeText(target, text);
     editorRef.value?.markSaved();
     dirty.value = false;
     notice.value = t("file.saved");
     return true;
   } catch (err) {
-    fileError.value = `${t("file.saveFailed")} ${(err as Error)?.message ?? err}`;
+    fileError.value = `${t("file.saveFailed")} ${explain(err)}`;
     return false;
   }
 }
@@ -236,12 +526,21 @@ async function saveAs(): Promise<boolean> {
     notice.value = t("file.saved");
     return true;
   }
+  if (!hasWorkspace.value) {
+    fileError.value = t("workspace.errors.no_workspace");
+    return false;
+  }
   const { save } = await import("@tauri-apps/plugin-dialog");
-  const picked = await save({ defaultPath: name.value, filters: saveFilters() });
+  // Offered where the file is, or in the workspace root for one never saved.
+  const defaultPath = path.value ?? `${workspace.root.value}/${name.value}`;
+  const picked = await save({ defaultPath, filters: saveFilters() });
   if (!picked) return false;
-  path.value = picked;
-  name.value = picked.split("/").pop() ?? picked;
-  return writeTo(picked, text);
+  const ok = await writeTo(picked, text);
+  if (ok) {
+    path.value = picked;
+    name.value = picked.split("/").pop() ?? picked;
+  }
+  return ok;
 }
 
 async function saveFile(text?: string) {
@@ -297,20 +596,22 @@ const exports = computed(() =>
  *  rather than the Open dialog.
  *
  *  It ends in the same `show` the dialog does, path included, so Save writes
- *  the file back where it came from. The panel reads inside the folder the
- *  user picked, and the dialog plugin's grant for that folder covers the
- *  write too. */
+ *  the file back where it came from, through the same Rust workspace
+ *  boundary that read it. */
 function openLocal(fileName: string, filePath: string, text: string) {
   show(fileName, filePath, text);
 }
 
 defineExpose({
-  newFile, openFile, saveFile, saveAs, exports, openLocal,
-  name, dirty, busy, canSave, hasFile, notice, fileError,
+  newFile, openFile, saveFile, saveAs, exports, openLocal, openSealed, encryptFile, decryptFile, resync,
+  name, path, generation, dirty, busy, canSave, hasFile, hasPath, hasWorkspace, isSealed, notice, fileError,
 });
 
 onMounted(() => window.addEventListener("keydown", onKey));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  dropSession();
+});
 </script>
 
 <template>
@@ -318,8 +619,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <input ref="browserInput" type="file" :accept="acceptAttr" class="hidden" @change="onBrowserFile" />
 
     <!-- No file: no editor, only the ways to get one. -->
-    <StartView v-if="kind === null" :busy="busy" class="min-h-0 flex-1"
-               @new="newFile" @open="openFile" @search="emit('search')" />
+    <StartView v-if="kind === null" :busy="busy" :workspace="workspace.root.value" class="min-h-0 flex-1"
+               @new="newFile" @open="openFile" @search="emit('search')"
+               @pick-workspace="workspace.pickRoot()" />
 
     <!-- keyed by generation: a fresh file gets a fresh editor instance -->
 
@@ -441,6 +743,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       @save="saveFile($event)"
       @update:dirty="dirty = $event"
     />
+
+    <LockModal :open="lockOpen" :mode="lockMode" :name="lockName" :action="lockAction"
+               :offer-remember="isTauri"
+               @update:open="(v: boolean) => { if (!v && lockOpen) lockDone(false); }"
+               @done="lockDone(true)">
+      <template #notice>
+        <p v-if="lockConsequence" class="text-xs" data-testid="lock-consequence">{{ t(lockConsequence) }}</p>
+        <ManaCost v-if="lockQuote" :quote="lockQuote" />
+      </template>
+    </LockModal>
 
     <OyaModal :open="discardOpen" @close="answerDiscard(false)">
       <ModalPanel>

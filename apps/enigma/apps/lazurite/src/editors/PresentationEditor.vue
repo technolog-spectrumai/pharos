@@ -11,6 +11,8 @@
 // STRUCTURE (slides, order, layouts, block types, slots) faithfully. Rich-text
 // editing inside a text block is the next step, and the format does not change
 // when it arrives.
+import { useWorkspace } from "petalite/files";
+import { errorText, fsErrorKey, readBytes, readText } from "../files/fs";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import ModalPanel from "petalite/ModalPanel.vue";
@@ -157,6 +159,8 @@ function addBlock(type: string, slot: string) {
  *  embedded rather than referenced — a path would break the moment the deck
  *  was moved or sent to someone. */
 const importing = ref(false);
+/** Where the import dialog starts, and the boundary a picked file must be in. */
+const workspace = useWorkspace();
 const importError = ref("");
 const importInput = ref<HTMLInputElement | null>(null);
 
@@ -172,6 +176,7 @@ async function importPayload() {
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
     multiple: false,
+    defaultPath: workspace.root.value || undefined,
     filters: type === "svg"
       ? [{ name: "SVG", extensions: ["svg"] }]
       : [{ name: t("deck.blockTypes.image"), extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
@@ -180,15 +185,18 @@ async function importPayload() {
 
   importing.value = true;
   try {
-    const { readFile, readTextFile } = await import("@tauri-apps/plugin-fs");
+    // Through the workspace: a file outside it is refused, and an encrypted
+    // one is refused rather than embedded as ciphertext.
     if (type === "svg") {
-      draftPayload.value = await readTextFile(picked);
+      draftPayload.value = await readText(picked);
     } else {
-      const bytes = await readFile(picked);
+      const bytes = await readBytes(picked);
       draftPayload.value = `<img src="${toDataUri(picked, bytes)}" alt="" />`;
     }
   } catch (err) {
-    importError.value = (err as Error)?.message ?? String(err);
+    const message = errorText(err);
+    const key = fsErrorKey(message);
+    importError.value = key ? t(key) : message;
   } finally {
     importing.value = false;
   }

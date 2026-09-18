@@ -13,6 +13,7 @@ import { useI18n } from "vue-i18n";
 import { SYSTEM_ROLES, PRIMARY_TEXT, isHexColor, type SystemRole } from "petalite/theme";
 import { useSystemColors } from "petalite/theme";
 import { useMarkupSafety, type MarkupSwitch } from "../security/useMarkupSafety";
+import { SEARCH_MODES, useSearchMode } from "../files/searchSettings";
 
 const { t } = useI18n({ useScope: "global" });
 const { palette, mode, set, reset } = useSystemColors();
@@ -25,6 +26,9 @@ const markup = useMarkupSafety();
 /** The three switches, in the order they escalate: where the markup goes, then
  *  what is taken out of it. Rendered from a list so a fourth is one entry. */
 const SWITCHES: readonly MarkupSwitch[] = ["isolate", "blockStyles", "blockScripts"];
+
+// How the search box asks: names and tags only, text too, or both ranked.
+const search = useSearchMode();
 
 /** A colour input can only ever produce `#rrggbb`, but it is still a value
  *  arriving from outside — validate rather than trust the widget. */
@@ -75,6 +79,30 @@ function onPick(role: SystemRole, event: Event) {
               @click="reset()">
         <font-awesome-icon icon="rotate-left" /> {{ t("settings.colors.reset") }}
       </button>
+
+      <!-- ── how the search box asks ────────────────────────────────────── -->
+      <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">
+        <font-awesome-icon icon="magnifying-glass" class="opacity-60" />
+        {{ t("settings.search.title") }}
+      </h2>
+      <p class="mt-1 text-sm opacity-70">{{ t("settings.search.help") }}</p>
+
+      <div class="mt-5 overflow-hidden rounded-xl border border-accent-2 dark:border-accent-1"
+           data-testid="search-modes" role="radiogroup">
+        <label v-for="which in SEARCH_MODES" :key="which"
+               class="flex cursor-pointer items-start gap-3 border-b border-current/10 px-4 py-3 last:border-0"
+               :data-testid="`search-mode-row-${which}`">
+          <input type="radio" name="search-mode" class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-accent-light dark:accent-accent-dark"
+                 :data-testid="`search-mode-${which}`" :value="which"
+                 :checked="search.mode.value === which"
+                 @change="search.set(which)" />
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold">{{ t(`settings.search.modes.${which}.label`) }}</span>
+            <span class="mt-0.5 block text-sm opacity-70">{{ t(`settings.search.modes.${which}.note`) }}</span>
+          </span>
+        </label>
+      </div>
+      <p class="mt-2 text-xs opacity-60" data-testid="search-privacy-note">{{ t("settings.search.privacy") }}</p>
 
       <!-- ── isolating what a file brings with it ──────────────────────── -->
       <h2 class="mt-10 flex items-center gap-2 text-lg font-bold">

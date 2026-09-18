@@ -230,8 +230,8 @@ describe("the files panel", () => {
     // the same payload a row click would.
     tree({ [ROOT]: [["deep", true]] });
     invoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "notes_search") {
-        return [{ path: `${ROOT}/deep/found.md`, rel_path: "deep/found.md", name: "found.md", snippet: "the needle" }];
+      if (cmd === "workspace_search") {
+        return [{ path: `${ROOT}/deep/found.md`, relPath: "deep/found.md", name: "found.md", tags: [], matched: ["text"], snippet: "the needle", score: 20, sealed: false }];
       }
       return false; // is_file_locked
     });
@@ -244,12 +244,12 @@ describe("the files panel", () => {
       await workspace.refresh();
       await settle();
 
-      await w.get('[data-testid="notes-search"]').setValue("needle");
+      await w.get('[data-testid="workspace-search"]').setValue("needle");
       await vi.advanceTimersByTimeAsync(250);
       await settle();
-      expect(invoke).toHaveBeenCalledWith("notes_search", { root: ROOT, query: "needle" });
+      expect(invoke).toHaveBeenCalledWith("workspace_search", { query: "needle", mode: "hybrid" });
 
-      await w.get('[data-testid="notes-result-0"]').trigger("click");
+      await w.get('[data-testid="search-result-0"]').trigger("click");
       await settle();
       expect(invoke).toHaveBeenCalledWith("is_file_locked", { path: `${ROOT}/deep/found.md` });
       expect(readTextFile).toHaveBeenCalledWith(`${ROOT}/deep/found.md`);
@@ -264,11 +264,11 @@ describe("the files panel", () => {
     }
   });
 
-  it("refuses a sealed search hit exactly as it refuses a sealed row", async () => {
+  it("routes a sealed search hit to the passphrase flow exactly as it does a sealed row", async () => {
     tree({ [ROOT]: [] });
     invoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "notes_search") {
-        return [{ path: `${ROOT}/vault.md`, rel_path: "vault.md", name: "vault.md", snippet: "" }];
+      if (cmd === "workspace_search") {
+        return [{ path: `${ROOT}/vault.md`, relPath: "vault.md", name: "vault.md", tags: [], matched: ["name"], snippet: "", score: 100, sealed: true }];
       }
       return true; // is_file_locked
     });
@@ -280,22 +280,22 @@ describe("the files panel", () => {
       await workspace.refresh();
       await settle();
 
-      await w.get('[data-testid="notes-search"]').setValue("vault");
+      await w.get('[data-testid="workspace-search"]').setValue("vault");
       await vi.advanceTimersByTimeAsync(250);
       await settle();
-      await w.get('[data-testid="notes-result-0"]').trigger("click");
+      await w.get('[data-testid="search-result-0"]').trigger("click");
       await settle();
       expect(readTextFile).not.toHaveBeenCalled();
       expect(w.emitted("open")).toBeUndefined();
-      expect(w.get('[data-testid="files-open-error"]').text()).toContain("encrypted");
+      expect(w.emitted("open-sealed")?.[0][0]).toEqual({ name: "vault.md", path: `${ROOT}/vault.md` });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("refuses a sealed Markdown note like any other sealed file", async () => {
-    // Markdown changed nothing about locking: a sealed .md is badged and
-    // refused by the same probe, and never read.
+  it("hands a sealed Markdown note to the passphrase flow without reading it", async () => {
+    // Markdown changed nothing about locking: a sealed .md is badged by the
+    // same probe, never read here, and opened through the host's passphrase.
     tree({ [ROOT]: [["secret.md", false]] });
     invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
     const workspace = await withRoot();
@@ -308,10 +308,85 @@ describe("the files panel", () => {
     await settle();
     expect(readTextFile).not.toHaveBeenCalled();
     expect(w.emitted("open")).toBeUndefined();
-    expect(w.get('[data-testid="files-open-error"]').text()).toContain("encrypted");
+    expect(w.emitted("open-sealed")?.[0][0]).toEqual({ name: "secret.md", path: `${ROOT}/secret.md` });
+    expect(w.find('[data-testid="files-open-error"]').exists()).toBe(false);
   });
 
-  it("still refuses a sealed file — the one thing that does not open", async () => {
+  it("offers a shield on every file row: encrypt a plain one, decrypt a sealed one", async () => {
+    tree({ [ROOT]: [["plain.pdf", false], ["vault.md", false]] });
+    invoke.mockImplementation(async (cmd: string, args: { path?: string }) => {
+      if (cmd === "is_file_locked") return args.path === `${ROOT}/vault.md`;
+      if (cmd === "secret_status") return { remembered: false, storage: null };
+      if (cmd === "lock_file" || cmd === "unlock_file") return { name: "x", size: 1 };
+      return null;
+    });
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    // A PDF is not something an editor here opens, and it can still be encrypted.
+    expect(w.get('[data-testid="row-shield-plain.pdf"]').attributes("title")).toBe("Encrypt this file");
+    await w.get('[data-testid="row-shield-plain.pdf"]').trigger("click");
+    await settle();
+    // The click did not open the row.
+    expect(w.emitted("open")).toBeUndefined();
+    await w.get('[data-testid="lock-password"]').setValue("pw");
+    await w.get('[data-testid="lock-confirm"]').setValue("pw");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+    expect(invoke).toHaveBeenCalledWith("lock_file", { path: `${ROOT}/plain.pdf`, password: "pw" });
+    // …and the row was asked again, so the padlock follows the disk.
+    expect(invoke.mock.calls.filter(([c, a]) => c === "is_file_locked" && (a as { path: string }).path === `${ROOT}/plain.pdf`).length)
+      .toBeGreaterThan(1);
+
+    expect(w.get('[data-testid="row-shield-vault.md"]').attributes("title")).toBe("Decrypt this file permanently");
+    await w.get('[data-testid="row-shield-vault.md"]').trigger("click");
+    await settle();
+    expect(w.find('[data-testid="lock-confirm"]').exists()).toBe(false); // decrypting asks once
+    expect(w.get('[data-testid="lock-unlock-hint"]').text()).toContain("plain text on disk");
+    await w.get('[data-testid="lock-password"]').setValue("pw");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+    expect(invoke).toHaveBeenCalledWith("unlock_file", { path: `${ROOT}/vault.md`, password: "pw" });
+  });
+
+  it("puts a shield on every folder row that opens the folder modal, not the folder", async () => {
+    tree({ [ROOT]: [["notes", true]], [`${ROOT}/notes`]: [["a.md", false]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "secret_status") return { remembered: false, storage: null };
+      if (cmd === "folder_preview") return { files: 1, plain: 1, sealed: 0, links: 0, truncated: false };
+      return false;
+    });
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="folder-shield-notes"]').trigger("click");
+    await settle();
+    // The folder did not expand; the modal opened for it.
+    expect(readDir).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("folder_preview", { dir: `${ROOT}/notes` });
+    expect(w.get('[data-testid="folder-preview"]').text()).toContain("1 files here");
+  });
+
+  it("says why a file would not open, in words", async () => {
+    tree({ [ROOT]: [["data.bin", false]] });
+    readTextFile.mockRejectedValue("not_text: that file is not a text file");
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+    await w.get('[data-testid="files-row-data.bin"]').trigger("click");
+    await settle();
+    expect(w.get('[data-testid="files-open-error"]').text()).toBe("That file is not a text file.");
+  });
+
+  it("never reads a sealed file itself, whatever its kind", async () => {
     tree({ [ROOT]: [["secret.log", false]] });
     invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
     const workspace = await withRoot();
@@ -323,42 +398,44 @@ describe("the files panel", () => {
     await w.get('[data-testid="files-row-secret.log"]').trigger("click");
     await settle();
     expect(readTextFile).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
     expect(w.emitted("open")).toBeUndefined();
+    expect(w.emitted("open-sealed")).toHaveLength(1);
   });
 
-  it("filters the tree and keeps the folders that lead to a match", async () => {
-    tree({
-      [ROOT]: [["notes", true], ["budget.json", false]],
-      [`${ROOT}/notes`]: [["talk.pxml", false]],
+  it("stands search results where the tree was while a query is typed, and brings the tree back", async () => {
+    tree({ [ROOT]: [["notes", true], ["budget.json", false]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "workspace_search") {
+        return [{ path: `${ROOT}/notes/deep/talk.pxml`, relPath: "notes/deep/talk.pxml", name: "talk.pxml",
+                  tags: [], matched: ["name"], snippet: "", score: 80, sealed: false }];
+      }
+      return false;
     });
-    const workspace = await withRoot();
-    const w = mountPanel();
-    await settle();
-    await workspace.refresh();
-    await settle();
-    await w.get('[data-testid="files-row-notes"]').trigger("click");
-    await settle();
+    vi.useFakeTimers();
+    try {
+      const workspace = await withRoot();
+      const w = mountPanel();
+      await settle();
+      await workspace.refresh();
+      await settle();
+      expect(w.get('[data-testid="files-tree"]').isVisible()).toBe(true);
 
-    await w.get('[data-testid="files-filter"]').setValue("talk");
-    await settle();
-    expect(w.get('[data-testid="files-row-talk.pxml"]').exists()).toBe(true);
-    // Kept although its own name does not match: without it the hit would sit
-    // indented under nothing.
-    expect(w.get('[data-testid="files-row-notes"]').exists()).toBe(true);
-    expect(w.find('[data-testid="files-row-budget.json"]').exists()).toBe(false);
-  });
+      await w.get('[data-testid="workspace-search"]').setValue("talk");
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+      // Whole-workspace results, including a folder nobody expanded…
+      expect(w.get('[data-testid="search-result-0"]').text()).toContain("notes/deep/talk.pxml");
+      // …in place of the tree, not above it.
+      expect((w.get('[data-testid="files-tree"]').element as HTMLElement).style.display).toBe("none");
 
-  it("says when a filter matches nothing", async () => {
-    tree({ [ROOT]: [["budget.json", false]] });
-    const workspace = await withRoot();
-    const w = mountPanel();
-    await settle();
-    await workspace.refresh();
-    await settle();
-
-    await w.get('[data-testid="files-filter"]').setValue("zzz");
-    await settle();
-    expect(w.get('[data-testid="files-nothing"]').text()).toBe("Nothing matches that.");
+      await w.get('[data-testid="workspace-search"]').setValue("");
+      await settle();
+      expect((w.get('[data-testid="files-tree"]').element as HTMLElement).style.display).not.toBe("none");
+      expect(w.get('[data-testid="files-row-budget.json"]').exists()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says there is no workspace before one is chosen", async () => {
@@ -475,7 +552,7 @@ describe("the files panel", () => {
     expect(probed).toContain(`${ROOT}/notes/deep.svg`);
   });
 
-  it("badges a sealed file and refuses to open it", async () => {
+  it("badges a sealed file and sends it to the passphrase flow rather than an editor", async () => {
     tree({ [ROOT]: [["secret.svg", false]] });
     invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
     const workspace = await withRoot();
@@ -489,12 +566,12 @@ describe("the files panel", () => {
 
     await row.trigger("click");
     await settle();
-    // Encrypted, so nothing was read and nothing was handed to an editor —
-    // and the reason given is the encryption, not the file type.
+    // Encrypted, so nothing was read and nothing was handed to an editor as
+    // ciphertext: the host is asked to open it through the passphrase.
     expect(readTextFile).not.toHaveBeenCalled();
     expect(w.emitted("open")).toBeUndefined();
-    expect(w.get('[data-testid="files-open-error"]').text())
-      .toBe("This file is encrypted. Decrypt it in the Security tab.");
+    expect(w.emitted("open-sealed")?.[0][0]).toEqual({ name: "secret.svg", path: `${ROOT}/secret.svg` });
+    expect(row.html()).toContain("opens with a passphrase");
   });
 
   it("does not probe at all in a browser build", async () => {

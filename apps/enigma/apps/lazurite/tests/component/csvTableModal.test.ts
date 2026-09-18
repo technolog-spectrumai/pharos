@@ -8,6 +8,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import CsvTableModal from "../../src/editors/CsvTableModal.vue";
 import { i18n } from "../../src/i18n";
+import { useWorkspace } from "petalite/files";
+
+// Rust, mocked once and hoisted: the app's call bridge caches the module it
+// first imports, so a per-test doMock of it would only ever reach the first
+// test. Each test sets what the call answers instead.
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 
 afterEach(() => {
   // doMock is per-module-registry; reset so one test's stub cannot leak into
@@ -15,6 +22,7 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock("@tauri-apps/plugin-dialog");
   vi.doUnmock("@tauri-apps/plugin-fs");
+  invoke.mockReset();
 });
 
 function open() {
@@ -115,20 +123,36 @@ describe("the CSV table modal", () => {
     expect((w.get('[data-testid="csv-input"]').element as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("loads a file into the box", async () => {
-    // The dialog and fs plugins are MOCKED rather than left to fail in jsdom.
-    // An earlier version of this test leaned on the real import rejecting and
-    // waited for it with a timer — which passed alone and failed in the full
-    // run, because a dynamic import settles on a macrotask and the race is not
-    // ours to win. Mocking states the intent instead of timing it.
-    vi.doMock("@tauri-apps/plugin-dialog", () => ({ open: async () => "/tmp/x.csv" }));
-    vi.doMock("@tauri-apps/plugin-fs", () => ({ readTextFile: async () => "a,b\n1,2" }));
+  it("loads a file into the box, through the workspace", async () => {
+    // The dialog and the Rust call are MOCKED rather than left to fail in
+    // jsdom. An earlier version of this test leaned on the real import
+    // rejecting and waited for it with a timer — which passed alone and
+    // failed in the full run, because a dynamic import settles on a macrotask
+    // and the race is not ours to win. Mocking states the intent instead.
+    const dialogOpen = vi.fn(async () => "/w/x.csv");
+    invoke.mockResolvedValue("a,b\n1,2");
+    vi.doMock("@tauri-apps/plugin-dialog", () => ({ open: dialogOpen }));
+    useWorkspace().root.value = "/w";
     const w = open();
     await w.get('[data-testid="csv-load"]').trigger("click");
     await vi.waitFor(() =>
       expect((w.get('[data-testid="csv-input"]').element as HTMLTextAreaElement).value)
         .toBe("a,b\n1,2"));
     expect(w.find('[data-testid="csv-preview"]').exists()).toBe(true);
+    // The dialog starts in the workspace, and the read goes through Rust's
+    // boundary rather than the fs plugin.
+    expect((dialogOpen.mock.calls[0] as unknown as [{ defaultPath: string }])[0].defaultPath).toBe("/w");
+    expect(invoke).toHaveBeenCalledWith("workspace_read_text", { path: "/w/x.csv" });
+  });
+
+  it("refuses an encrypted file, or one outside the workspace, in words", async () => {
+    vi.doMock("@tauri-apps/plugin-dialog", () => ({ open: async () => "/w/secret.csv" }));
+    invoke.mockRejectedValue("locked: that file is encrypted");
+    const w = open();
+    await w.get('[data-testid="csv-load"]').trigger("click");
+    await vi.waitFor(() => expect(w.find('[data-testid="csv-error"]').exists()).toBe(true));
+    expect(w.get('[data-testid="csv-error"]').text()).toBe("That file is encrypted.");
+    expect((w.get('[data-testid="csv-input"]').element as HTMLTextAreaElement).value).toBe("");
   });
 
   it("says why loading a file failed rather than doing nothing", async () => {

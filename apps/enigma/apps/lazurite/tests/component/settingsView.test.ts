@@ -139,3 +139,26 @@ describe("SettingsView — what a file may bring with it", () => {
     expect(text).toContain("will come out plain");
   });
 });
+
+describe("SettingsView — the search algorithm", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("offers the three algorithms, hybrid by default, and says what each looks at", async () => {
+    const w = mountSettings();
+    const checked = (which: string) => (w.get(`[data-testid="search-mode-${which}"]`).element as HTMLInputElement).checked;
+    expect(w.findAll('[data-testid^="search-mode-row-"]')).toHaveLength(3);
+    expect(checked("hybrid")).toBe(true);
+    expect(w.get('[data-testid="search-mode-row-quick"]').text()).toContain("Never reads what is inside a file");
+    expect(w.get('[data-testid="search-mode-row-full"]').text()).toContain("contents of plain text files");
+    expect(w.get('[data-testid="search-mode-row-hybrid"]').text()).toContain("ranked");
+    expect(w.get('[data-testid="search-privacy-note"]').text()).toContain("never read");
+  });
+
+  it("remembers the choice", async () => {
+    const w = mountSettings();
+    await w.get('[data-testid="search-mode-quick"]').trigger("change");
+    expect(localStorage.getItem("zinnia:searchMode")).toBe("quick");
+    const { useSearchMode } = await import("../../src/files/searchSettings");
+    expect(useSearchMode().mode.value).toBe("quick");
+  });
+});

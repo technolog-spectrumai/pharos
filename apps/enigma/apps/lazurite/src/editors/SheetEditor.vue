@@ -225,10 +225,10 @@ watch(() => props.path, () => undefined);
  *  COMPUTED ones; the snapshot is the fallback for a sheet that has not
  *  finished mounting. Lossy by nature — one sheet, no styles, no formulas —
  *  which is why it is an export and not a save. */
-async function runExportCsv(): Promise<void> {
+async function runExportCsv(): Promise<boolean> {
   const wb = api.value?.getActiveWorkbook();
   const snapshot = wb ? wb.save() : pending;
-  if (!snapshot) return;
+  if (!snapshot) return false;
   let values: Array<Array<unknown>> | undefined;
   try {
     values = wb?.getActiveSheet?.()?.getDataRange().getValues();
@@ -245,16 +245,17 @@ async function runExportCsv(): Promise<void> {
     a.download = `${stem}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    return;
+    return true;
   }
   const { save } = await import("@tauri-apps/plugin-dialog");
   const target = await save({
     defaultPath: `${stem}.csv`,
     filters: [{ name: "CSV", extensions: ["csv"] }],
   });
-  if (typeof target !== "string") return;
+  if (typeof target !== "string") return false;
   const { writeTextFile } = await import("@tauri-apps/plugin-fs");
   await writeTextFile(target, text);
+  return true;
 }
 
 defineExpose({

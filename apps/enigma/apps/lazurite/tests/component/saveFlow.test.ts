@@ -7,19 +7,28 @@ import { dumps as dumpDeck, newPresentation } from "../../src/formats/presentati
 
 // The file lifecycle end to end at the host: open → edit → Save writes the
 // same path → reopen shows what was written → Save As moves it. The disk is a
-// map behind mocked fs/dialog plugins; the editor is the real ACE.
+// map behind the mocked workspace commands (Rust holds the boundary; here it
+// is a map) and the dialog plugin; the editor is the real ACE.
 const disk = new Map<string, string>();
-const writeTextFile = vi.fn(async (path: string, text: string) => { disk.set(path, text); });
-const readTextFile = vi.fn(async (path: string) => {
-  if (!disk.has(path)) throw new Error(`no such file: ${path}`);
-  return disk.get(path)!;
+const invoke = vi.fn(async (cmd: string, args: Record<string, string>) => {
+  switch (cmd) {
+    case "workspace_read_text":
+      if (!disk.has(args.path)) throw `not_found: no such file in the workspace: ${args.path}`;
+      return disk.get(args.path)!;
+    case "workspace_write_text":
+      disk.set(args.path, args.text);
+      return null;
+    case "workspace_open":
+      return { root: args.root, name: "w" };
+    case "is_file_locked":
+      return false;
+    default:
+      throw new Error(`unexpected command ${cmd}`);
+  }
 });
 const openDialog = vi.fn();
 const saveDialog = vi.fn();
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeTextFile: (...a: [string, string]) => writeTextFile(...a),
-  readTextFile: (...a: [string]) => readTextFile(...a),
-}));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: [string, Record<string, string>]) => invoke(...a) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: (...a: unknown[]) => openDialog(...a),
   save: (...a: unknown[]) => saveDialog(...a),
@@ -45,12 +54,15 @@ async function aceOf(w: ReturnType<typeof mountHost>) {
   return ace.edit(w.get('[data-testid="ace-host"]').element as HTMLElement);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   disk.clear();
-  for (const fn of [writeTextFile, readTextFile, openDialog, saveDialog]) fn.mockClear();
+  invoke.mockClear();
   openDialog.mockReset();
   saveDialog.mockReset();
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  // A workspace is open: Open looks in it and Save As writes into it.
+  const { useWorkspace } = await import("petalite/files");
+  useWorkspace().root.value = "/w";
 });
 
 afterEach(() => {
@@ -81,7 +93,9 @@ describe("the file lifecycle", () => {
 
     await vm.saveFile();
     await flushPromises();
-    expect(writeTextFile).toHaveBeenCalledWith("/notes/idea.md", "# Idea\n\nMore.");
+    expect(invoke).toHaveBeenCalledWith("workspace_write_text", { path: "/notes/idea.md", text: "# Idea\n\nMore." });
+    // …and it opened on the workspace.
+    expect(openDialog.mock.calls[0][0].defaultPath).toBe("/w");
     expect(saveDialog).not.toHaveBeenCalled(); // it had a path: no Save As
     expect(vm.dirty).toBe(false);
     expect(vm.canSave).toBe(false);
@@ -102,7 +116,7 @@ describe("the file lifecycle", () => {
     (await aceOf(w)).session.insert({ row: 0, column: 1 }, "b");
     await flushPromises();
     await vm.saveFile();
-    expect(writeTextFile).toHaveBeenCalledWith("/w/todo.txt", "ab");
+    expect(invoke).toHaveBeenCalledWith("workspace_write_text", { path: "/w/todo.txt", text: "ab" });
     expect(saveDialog).not.toHaveBeenCalled();
   });
 
@@ -119,9 +133,10 @@ describe("the file lifecycle", () => {
     await vm.saveFile(); // never written, so Save is Save As
     await flushPromises();
     const opts = saveDialog.mock.calls[0][0] as { defaultPath: string; filters: Array<{ extensions: string[] }> };
-    expect(opts.defaultPath).toMatch(/\.md$/);
+    // A never-saved file is offered in the workspace root, under its name.
+    expect(opts.defaultPath).toBe("/w/untitled.md");
     expect(opts.filters[0].extensions).toEqual(["md", "markdown"]);
-    expect(writeTextFile).toHaveBeenCalledWith("/notes/fresh.md", "# Fresh");
+    expect(invoke).toHaveBeenCalledWith("workspace_write_text", { path: "/notes/fresh.md", text: "# Fresh" });
     expect(vm.name).toBe("fresh.md");
     expect(vm.dirty).toBe(false);
   });

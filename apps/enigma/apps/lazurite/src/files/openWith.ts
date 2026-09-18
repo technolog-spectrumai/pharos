@@ -1,7 +1,7 @@
 // Which editor opens a given file.
 //
 // This is THE router. There are no editor tabs: every file — from the Open
-// dialog, a click in the Files panel, a notes-search hit — is opened, handed
+// dialog, a click in the Files panel, a search hit — is opened, handed
 // to this function, and the one editor host mounts what it answers.
 //
 // A `.pxml` deck says what it is in its name, and so does a `.svg` or a `.json`.

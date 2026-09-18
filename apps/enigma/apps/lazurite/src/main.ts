@@ -31,10 +31,14 @@ import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 // Wiring the two together HERE, rather than importing one from the other, is
 // what lets an app ship the tree without the sealing commands on its IPC
 // surface. Before `mount`, because the panel reads a folder as it appears.
-import { setSealProbe } from "petalite/files";
+import { setFileBackend, setSealProbe } from "petalite/files";
 import { probeSealed } from "padova";
+import { rustBackend } from "./files/fs";
 
 setSealProbe((path) => probeSealed(path));
+// Every workspace read goes through Rust, which holds the boundary — see
+// src-tauri/src/workspace.rs. Listings arrive with `sealed` already answered.
+setFileBackend(rustBackend);
 
 const app = createApp(App)
   .use(createPinia())

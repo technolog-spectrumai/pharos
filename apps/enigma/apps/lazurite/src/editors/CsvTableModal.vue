@@ -14,6 +14,8 @@
 // The parsing is `petalite/formats`, shared with whatever imports CSV next —
 // a field may hold the delimiter, a doubled quote or a literal newline, and
 // that is not a thing to re-solve per app.
+import { useWorkspace } from "petalite/files";
+import { errorText, fsErrorKey, readText } from "../files/fs";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { OyaButton, OyaModal } from "petalite/primitives";
@@ -77,22 +79,28 @@ watch(() => props.open, (open) => {
   }
 });
 
+/** Where the file dialog starts, and the boundary a picked file must be in. */
+const workspace = useWorkspace();
+
 async function loadFile() {
   loadError.value = "";
   try {
-    // The same pair EditorHost uses to open a document; nothing new is granted.
+    // Picked in the dialog, read through the workspace: a file outside it is
+    // refused, and an encrypted one is refused rather than read as ciphertext.
     const { open } = await import("@tauri-apps/plugin-dialog");
     const picked = await open({
       multiple: false,
+      defaultPath: workspace.root.value || undefined,
       filters: [{ name: "CSV", extensions: ["csv", "tsv", "txt"] }],
     });
     if (typeof picked !== "string") return;
-    const { readTextFile } = await import("@tauri-apps/plugin-fs");
-    text.value = await readTextFile(picked);
+    text.value = await readText(picked);
   } catch (err) {
     // A browser build has no dialog plugin, and a denied read is ordinary.
     // Say so rather than leaving a button that appears to do nothing.
-    loadError.value = (err as Error)?.message ?? String(err);
+    const message = errorText(err);
+    const key = fsErrorKey(message);
+    loadError.value = key ? t(key) : message;
   }
 }
 

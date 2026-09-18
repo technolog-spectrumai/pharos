@@ -22,9 +22,13 @@ const { i18n, setLocale } = createAppI18n({
   // level. A package that owns a feature owns the strings that feature shows —
   // otherwise an app could adopt the Security tab and get a screen of raw keys.
   // Wisteria, the drawing engine, brings `sketch.*` the same way.
+  // `security` is shared: padova's words for its own components, and the
+  // app's for the workspace view. Merged one level deep so neither loses keys.
   messages: {
-    en: { ...en, ...padovaMessages.en, ...wisteriaMessages.en },
-    pl: { ...pl, ...padovaMessages.pl, ...wisteriaMessages.pl },
+    en: { ...en, ...padovaMessages.en, ...wisteriaMessages.en,
+          security: { ...padovaMessages.en.security, ...en.security } },
+    pl: { ...pl, ...padovaMessages.pl, ...wisteriaMessages.pl,
+          security: { ...padovaMessages.pl.security, ...pl.security } },
   },
 });
 

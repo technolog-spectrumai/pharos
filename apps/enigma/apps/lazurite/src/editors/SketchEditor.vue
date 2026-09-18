@@ -152,9 +152,11 @@ async function onImagePicked(e: Event) {
   }
 }
 
-async function runExportPng() {
+/** Answers whether a PNG was written — false for a cancelled dialog or a
+ *  failure, so the app never charges for an export that did not happen. */
+async function runExportPng(): Promise<boolean> {
   const s = sketch.value;
-  if (!s || exportBusy.value) return;
+  if (!s || exportBusy.value) return false;
   exportBusy.value = true;
   localError.value = "";
   notice.value = "";
@@ -162,8 +164,10 @@ async function runExportPng() {
     const stem = props.name.replace(/\.svg$/i, "") || "drawing";
     const ok = await exportPng(s.doc.value, `${stem}.png`, s.backgroundImage.value, s.boardW.value, s.boardH.value);
     if (ok) notice.value = t("sketch.exportDone");
+    return Boolean(ok);
   } catch (err) {
     localError.value = (err as Error)?.message ?? String(err);
+    return false;
   } finally {
     exportBusy.value = false;
   }

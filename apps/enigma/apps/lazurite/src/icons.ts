@@ -12,23 +12,23 @@
 import { library } from "@fortawesome/fontawesome-svg-core";
 import type { Tone } from "./formats/document";
 import {
-  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faChevronRight, faFile, faCircle, faCircleInfo, faCode, faLock, faLockOpen,
+  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faChevronRight, faClockRotateLeft, faFile, faCircle, faCircleInfo, faCode, faLock, faLockOpen,
   faMagnifyingGlass,
   fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
-  faSquarePlus, faSquareRootVariable, faTable, faUnderline,
-  faEraser, faFileCode, faFileCsv, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
+  faSquarePlus, faSquareRootVariable, faTable, faTag, faUnderline,
+  faDroplet, faEraser, faFileCode, faFileCsv, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faShieldHalved, faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
 library.add(
-  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faChevronRight, faFile, faCircle, faCircleInfo, faCode, faLock, faLockOpen,
+  faAlignLeft, faArrowPointer, faArrowRight, faBan, faBars, faBold, faBroom, faChevronDown, faChevronRight, faClockRotateLeft, faFile, faCircle, faCircleInfo, faCode, faLock, faLockOpen,
   faMagnifyingGlass,
   fa1, fa2, fa3, faArrowDown, faArrowLeft, faArrowUp, faFileLines, faFilePowerpoint, faGear,
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
-  faSquarePlus, faSquareRootVariable, faTable, faUnderline,
-  faEraser, faFileCode, faFileCsv, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
+  faSquarePlus, faSquareRootVariable, faTable, faTag, faUnderline,
+  faDroplet, faEraser, faFileCode, faFileCsv, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
   faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faShieldHalved, faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
 );

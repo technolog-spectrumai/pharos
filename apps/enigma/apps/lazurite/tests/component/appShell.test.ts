@@ -4,6 +4,7 @@ import { createPinia } from "pinia";
 import App from "../../src/App.vue";
 import { KIND_FILES, NEW_FILE_KINDS } from "../../src/kinds";
 import { i18n } from "../../src/i18n";
+import { useWorkspace } from "petalite/files";
 
 // The shell after the tabs: one editor host that picks its editor from the
 // file, a start screen when there is none, and Security and Settings behind
@@ -27,6 +28,7 @@ async function openMenu(w: ReturnType<typeof mountApp>) {
 beforeEach(() => {
   localStorage.clear();
   i18n.global.locale.value = "en";
+  useWorkspace().root.value = "/home/u/work";
 });
 
 describe("the shell", () => {
@@ -54,6 +56,33 @@ describe("the shell", () => {
     expect(w.find('[data-testid="start-search"]').exists()).toBe(true);
   });
 
+  it("puts the workspace first on the start screen: named when open, explained when not", async () => {
+    const w = mountApp();
+    await flushPromises();
+    expect(w.get('[data-testid="start-workspace-name"]').text()).toBe("work");
+    expect(w.get('[data-testid="start-workspace-pick"]').text()).toContain("Change folder");
+    expect(w.get('[data-testid="start-open"]').attributes("disabled")).toBeUndefined();
+
+    useWorkspace().root.value = "";
+    await flushPromises();
+    expect(w.get('[data-testid="start-workspace-none"]').text()).toBe("No workspace open");
+    expect(w.get('[data-testid="start-workspace"]').text()).toContain("nothing is imported, copied or uploaded");
+    expect(w.get('[data-testid="start-workspace-pick"]').text()).toContain("Choose a folder");
+    // The browser build opens through a file input and needs no workspace…
+    expect(w.get('[data-testid="start-open"]').attributes("disabled")).toBeUndefined();
+    w.unmount();
+
+    // …the desktop has nowhere to open from without one.
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    try {
+      const d = mountApp();
+      await flushPromises();
+      expect(d.get('[data-testid="start-open"]').attributes("disabled")).toBeDefined();
+    } finally {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    }
+  });
+
   it("mounts the editor the new file's kind needs, from the start screen", async () => {
     const w = mountApp();
     await flushPromises();
@@ -64,7 +93,7 @@ describe("the shell", () => {
     expect(w.get('[data-testid="file-name"]').text()).toMatch(/\.pxml$/);
   });
 
-  it("reaches Security and Settings from the menu, and comes back to the same file", async () => {
+  it("reaches Settings from the menu and workspace security from the pane, and comes back to the same file", async () => {
     const w = mountApp();
     await flushPromises();
     await w.get('[data-testid="start-new-document"]').trigger("click");
@@ -72,13 +101,21 @@ describe("the shell", () => {
     const doc = w.findComponent({ name: "DocumentEditor" });
     const uid = (doc.vm as unknown as { $: { uid: number } }).$.uid;
 
+    const open = {
+      settings: async () => {
+        await openMenu(w);
+        await w.get('[data-testid="menu-settings"]').trigger("click");
+      },
+      security: async () => {
+        await w.get('[data-testid="files-security"]').trigger("click");
+      },
+    };
     for (const view of ["security", "settings"] as const) {
-      await openMenu(w);
-      await w.get(`[data-testid="menu-${view}"]`).trigger("click");
+      await open[view]();
       await flushPromises();
-      const component = view === "security" ? "SecurityView" : "SettingsView";
+      const component = view === "security" ? "WorkspaceSecurity" : "SettingsView";
       expect(w.findComponent({ name: component }).exists(), view).toBe(true);
-      expect(w.get('[data-testid="view-title"]').text()).toContain(view === "security" ? "Security" : "Settings");
+      expect(w.get('[data-testid="view-title"]').text()).toContain(view === "security" ? "Workspace security" : "Settings");
       // The file is not on screen, so neither is its name…
       expect(w.find('[data-testid="file-name"]').exists()).toBe(false);
       // …nor the files panel, which has nothing to hand a settings page.
@@ -96,7 +133,7 @@ describe("the shell", () => {
   it("does not mount a view before it is asked for", async () => {
     const w = mountApp();
     await flushPromises();
-    expect(w.findComponent({ name: "SecurityView" }).exists()).toBe(false);
+    expect(w.findComponent({ name: "WorkspaceSecurity" }).exists()).toBe(false);
     expect(w.findComponent({ name: "SettingsView" }).exists()).toBe(false);
   });
 
