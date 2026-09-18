@@ -32,10 +32,27 @@
 //! left exactly as it was.
 //!
 //! These functions take a PATH and use `std::fs` directly, so no plugin scope
-//! gates them — they will seal anything they are handed. The only caller
-//! offers rows from the picked workspace; keep it that way.
+//! gates them — they will seal anything they are handed. The caller decides
+//! the boundary: Lazurite resolves every path against its workspace first.
+//!
+//! ## Editing without decrypting the disk
+//!
+//! A [`SealSession`] is the third way in. `open_sealed` verifies the password,
+//! decrypts the file INTO MEMORY and keeps the file's own key; `write` seals a
+//! new body under that same key and header and writes it atomically, so the
+//! file on disk is ciphertext before, during and after an edit. Nothing
+//! unencrypted is ever written, and the password is not kept — only the DEK,
+//! which zeroizes when the session is dropped. That is enigma's
+//! `local_note_read`/`local_note_write` pair, with the passphrase held once in
+//! Rust instead of being handed back to the page on every save.
+//!
+//! ## Two frames, one reader
+//!
+//! Enigma writes `ENIGLOCK` with its own AAD; this crate writes `ZINNLOCK`.
+//! The layout and the cryptography are identical, so a reader that picks the
+//! spec by the magic opens either. New files are always written as ZINNLOCK.
 
-use gervasius::{create_vault_with_params, open, seal, KdfParams, VaultHeader};
+use gervasius::{create_vault_with_params, open, seal, Dek, KdfParams, VaultHeader};
 use serde::Serialize;
 use substrate::{atomic_write, is_legacy, name_of, read_capped, FrameSpec};
 
@@ -57,15 +74,77 @@ pub struct LockedInfo {
     size: u64,
 }
 
-/// Split a frame into its header and its sealed body.
+/// Split a frame into its spec, its header and its sealed body.
 /// The layout lives in `substrate::FrameSpec` — one implementation for both
-/// apps, each with its own magic and AAD. All this adds is decoding the header
-/// JSON, which is padova's business rather than the frame's.
-fn parse_frame(bytes: &[u8]) -> Result<(VaultHeader, &[u8]), String> {
-    let (header_bytes, body) = SPEC.split(bytes)?;
+/// apps, each with its own magic and AAD. The magic says which one wrote the
+/// file, and with it which AAD opens the body. All this adds is decoding the
+/// header JSON, which is padova's business rather than the frame's.
+fn parse_frame(bytes: &[u8]) -> Result<(FrameSpec, VaultHeader, &[u8]), String> {
+    let spec = FrameSpec::detect(bytes)
+        .ok_or_else(|| "not_locked: that file is not encrypted".to_string())?;
+    let (header_bytes, body) = spec.split(bytes)?;
     let header: VaultHeader = serde_json::from_slice(header_bytes)
         .map_err(|_| "crypto: that encrypted file is damaged".to_string())?;
-    Ok((header, body))
+    Ok((spec, header, body))
+}
+
+/// A file opened for editing: its key, held in Rust for as long as the file is
+/// open, so saves re-seal without the password and the page never holds
+/// either. Dropping it zeroizes the key.
+pub struct SealSession {
+    /// The frame the file was found in — and will be written back in, so an
+    /// enigma-locked file stays an enigma-locked file.
+    spec: FrameSpec,
+    header: VaultHeader,
+    dek: Dek,
+    /// The file this session edits, as the caller spelled it: the one it was
+    /// opened from, then whichever file a Save As last wrote. Writing back
+    /// THERE requires the file still to be this vault; writing anywhere else
+    /// is Save As, after which the session follows the new file.
+    origin: String,
+}
+
+impl std::fmt::Debug for SealSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The key is deliberately not printable.
+        f.debug_struct("SealSession").field("magic", &self.spec.magic).finish()
+    }
+}
+
+impl SealSession {
+    /// Re-seal `plain` under this session's key and write it to `path`
+    /// atomically — the same header, a fresh nonce.
+    ///
+    /// Writing back to the file this session edits (the one it was opened
+    /// from, or the last Save As target) fails closed if that file no longer
+    /// carries this session's header: a file re-keyed by something else in
+    /// the meantime, or decrypted in place, must not be overwritten under a
+    /// key it no longer has.
+    ///
+    /// Any other path is Save As. It is written with this session's header,
+    /// so the same password opens the copy — over an existing file too,
+    /// because the user chose that target in a save dialog that asked — and
+    /// from then on the session edits the copy, with the same check.
+    pub fn write(&mut self, path: &str, plain: &[u8]) -> Result<LockedInfo, String> {
+        if path == self.origin && std::path::Path::new(path).exists() {
+            let current = read_capped(path)?;
+            match parse_frame(&current) {
+                Ok((_, header, _)) if same_header(&header, &self.header) => {}
+                _ => return Err("changed_on_disk: that file changed on disk; open it again".into()),
+            }
+        }
+        let body = seal(&self.dek, self.spec.aad, plain).map_err(|e| format!("crypto: {e:?}"))?;
+        let header_json = serde_json::to_vec(&self.header).map_err(|e| format!("crypto: {e}"))?;
+        atomic_write(path, &self.spec.frame(&header_json, &body))?;
+        self.origin = path.to_string();
+        Ok(LockedInfo { name: name_of(path), size: plain.len() as u64 })
+    }
+}
+
+/// Whether two headers are the same vault: same salt, same wrapped key. The
+/// wrapped DEK is what a re-key changes, so it is the comparison that matters.
+fn same_header(a: &VaultHeader, b: &VaultHeader) -> bool {
+    a.salt == b.salt && a.wrapped_dek == b.wrapped_dek && a.kdf == b.kdf
 }
 
 impl Locker {
@@ -127,13 +206,32 @@ impl Locker {
         if !SPEC.is_current(&bytes) && is_legacy(&bytes) {
             return Err("legacy_format: that file was encrypted by the platform".into());
         }
-        let (header, body) = parse_frame(&bytes)?;
+        let (spec, header, body) = parse_frame(&bytes)?;
         let dek = gervasius::unlock(&header, &password)
             .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
-        let plain = open(&dek, AAD, body)
+        let plain = open(&dek, spec.aad, body)
             .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
         atomic_write(path, &plain)?;
         Ok(LockedInfo { name: name_of(path), size: plain.len() as u64 })
+    }
+
+    /// Decrypt `path` into memory and keep its key for the edit.
+    ///
+    /// Nothing on disk changes. The plaintext goes to the caller; the session
+    /// is what a later `write` needs, and it holds the DEK rather than the
+    /// password — the password is checked here, once, and forgotten.
+    pub fn open_sealed(&self, path: &str, password: Option<String>) -> Result<(SealSession, Vec<u8>), String> {
+        let password = self.password_for(password)?;
+        let bytes = read_capped(path)?;
+        if !substrate::is_known_frame(&bytes) && is_legacy(&bytes) {
+            return Err("legacy_format: that file was encrypted by the platform".into());
+        }
+        let (spec, header, body) = parse_frame(&bytes)?;
+        let dek = gervasius::unlock(&header, &password)
+            .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
+        let plain = open(&dek, spec.aad, body)
+            .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
+        Ok((SealSession { spec, header, dek, origin: path.to_string() }, plain))
     }
 }
 
@@ -177,8 +275,8 @@ mod tests {
         LOCKER.lock_file(&b, Some("pw".into())).unwrap();
         assert_ne!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
 
-        let (ha, _) = parse_frame(&std::fs::read(&a).unwrap()).unwrap();
-        let (hb, _) = parse_frame(&std::fs::read(&b).unwrap()).unwrap();
+        let (_, ha, _) = parse_frame(&std::fs::read(&a).unwrap()).unwrap();
+        let (_, hb, _) = parse_frame(&std::fs::read(&b).unwrap()).unwrap();
         assert_ne!(ha.salt, hb.salt, "each file gets a fresh salt");
         assert_eq!(ha.salt.len(), 16);
         std::fs::remove_file(&a).ok();
@@ -259,6 +357,123 @@ mod tests {
         let err = LOCKER.unlock_file(&fernet, Some("pw".into())).unwrap_err();
         assert!(err.starts_with("legacy_format"), "{err}");
         std::fs::remove_file(&fernet).ok();
+    }
+
+    // ── sessions: decrypt in memory, re-seal on save ─────────────────────
+
+    /// The editing path: the disk is ciphertext before, during and after.
+    #[test]
+    fn a_session_edits_a_sealed_file_without_ever_writing_plaintext() {
+        let path = tmp("session", b"classified");
+        LOCKER.lock_file(&path, Some("pw".into())).unwrap();
+        let sealed_before = std::fs::read(&path).unwrap();
+
+        let (mut session, plain) = LOCKER.open_sealed(&path, Some("pw".into())).unwrap();
+        assert_eq!(plain, b"classified");
+        assert_eq!(std::fs::read(&path).unwrap(), sealed_before, "opening wrote nothing");
+
+        session.write(&path, b"classified, edited").unwrap();
+        let on_disk = std::fs::read(&path).unwrap();
+        assert!(SPEC.is_current(&on_disk));
+        assert!(!on_disk.windows(10).any(|w| w == b"classified"), "plaintext leaked into the frame");
+        // The same password still opens it — the header travelled unchanged.
+        let (_, again) = LOCKER.open_sealed(&path, Some("pw".into())).unwrap();
+        assert_eq!(again, b"classified, edited");
+        // …and a plain unlock recovers the edit, so nothing about the file is
+        // session-specific.
+        LOCKER.unlock_file(&path, Some("pw".into())).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"classified, edited");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_session_fails_closed_on_a_wrong_password_or_a_damaged_file() {
+        let path = tmp("session-wrong", b"secret");
+        LOCKER.lock_file(&path, Some("right".into())).unwrap();
+        let sealed = std::fs::read(&path).unwrap();
+        let err = LOCKER.open_sealed(&path, Some("wrong".into())).unwrap_err();
+        assert!(err.starts_with("wrong_password"), "{err}");
+
+        let mut damaged = sealed.clone();
+        let last = damaged.len() - 1;
+        damaged[last] ^= 0x01;
+        std::fs::write(&path, &damaged).unwrap();
+        let err = LOCKER.open_sealed(&path, Some("right".into())).unwrap_err();
+        assert!(err.starts_with("wrong_password"), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), damaged, "nothing was written");
+
+        let plain = tmp("session-plain", b"not sealed");
+        let err = LOCKER.open_sealed(&plain, Some("x".into())).unwrap_err();
+        assert!(err.starts_with("not_locked"), "{err}");
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_file(&plain).ok();
+    }
+
+    /// The file was re-keyed (or decrypted) while an editor held it open. The
+    /// session's key no longer belongs to that file, so the save refuses
+    /// rather than clobbering the newer bytes under a stale key.
+    #[test]
+    fn a_session_refuses_to_write_over_a_file_that_changed_on_disk() {
+        let path = tmp("session-changed", b"original");
+        LOCKER.lock_file(&path, Some("one".into())).unwrap();
+        let (mut session, _) = LOCKER.open_sealed(&path, Some("one".into())).unwrap();
+
+        LOCKER.unlock_file(&path, Some("one".into())).unwrap();
+        LOCKER.lock_file(&path, Some("two".into())).unwrap();
+        let rekeyed = std::fs::read(&path).unwrap();
+        let err = session.write(&path, b"edited").unwrap_err();
+        assert!(err.starts_with("changed_on_disk"), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), rekeyed);
+
+        // Decrypted in place is a change too.
+        LOCKER.unlock_file(&path, Some("two".into())).unwrap();
+        let err = session.write(&path, b"edited").unwrap_err();
+        assert!(err.starts_with("changed_on_disk"), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+
+        // A path that does not exist yet is Save As: written fresh, same key.
+        let copy = format!("{path}-copy");
+        session.write(&copy, b"a copy").unwrap();
+        let (_, plain) = LOCKER.open_sealed(&copy, Some("one".into())).unwrap();
+        assert_eq!(plain, b"a copy");
+        // …and the session now edits the copy, checked like the original was:
+        // re-keyed underneath, it is refused.
+        LOCKER.unlock_file(&copy, Some("one".into())).unwrap();
+        LOCKER.lock_file(&copy, Some("three".into())).unwrap();
+        assert!(session.write(&copy, b"late").unwrap_err().starts_with("changed_on_disk"));
+        LOCKER.unlock_file(&copy, Some("three".into())).unwrap();
+        LOCKER.lock_file(&copy, Some("one".into())).unwrap();
+        session.write(&format!("{path}-copy2"), b"x").unwrap();
+        std::fs::remove_file(format!("{path}-copy2")).ok();
+        // Save As over an EXISTING other file — plain or sealed under another
+        // key — is the user's choice in the save dialog, and is written.
+        let other = tmp("session-changed-other", b"some other file");
+        session.write(&other, b"over it").unwrap();
+        let (_, plain) = LOCKER.open_sealed(&other, Some("one".into())).unwrap();
+        assert_eq!(plain, b"over it");
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_file(&copy).ok();
+        std::fs::remove_file(&other).ok();
+    }
+
+    /// A file enigma locked opens here with its password, and a session keeps
+    /// it in enigma's frame — moving a file between the apps changes nothing.
+    #[test]
+    fn enigmas_frame_opens_and_stays_enigmas() {
+        let spec = FrameSpec::ENIGMA;
+        let (header, dek) = create_vault_with_params("pw", KdfParams::default()).unwrap();
+        let body = seal(&dek, spec.aad, b"from enigma").unwrap();
+        let path = tmp("enigma", &spec.frame(&serde_json::to_vec(&header).unwrap(), &body));
+
+        let (mut session, plain) = LOCKER.open_sealed(&path, Some("pw".into())).unwrap();
+        assert_eq!(plain, b"from enigma");
+        session.write(&path, b"edited here").unwrap();
+        let on_disk = std::fs::read(&path).unwrap();
+        assert!(spec.is_current(&on_disk), "still ENIGLOCK");
+        assert!(!SPEC.is_current(&on_disk));
+        LOCKER.unlock_file(&path, Some("pw".into())).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"edited here");
+        std::fs::remove_file(&path).ok();
     }
 
     /// Four bytes of length off a disk that may be truncated or hostile. An

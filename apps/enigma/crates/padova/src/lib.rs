@@ -29,7 +29,7 @@
 mod lock;
 mod secrets;
 
-pub use lock::LockedInfo;
+pub use lock::{LockedInfo, SealSession};
 pub use secrets::{SecretStatus, Storage};
 
 /// One app's locker: the sealing functions, bound to the keyring entry they
