@@ -1,8 +1,8 @@
 // Which editor opens a given file.
 //
-// The app has never needed this before: the tab you are in decides the editor,
-// and the file is assumed to comply. A file browser inverts that — you click a
-// file and the app has to work out where it goes.
+// This is THE router. There are no editor tabs: every file — from the Open
+// dialog, a click in the Files panel, a notes-search hit — is opened, handed
+// to this function, and the one editor host mounts what it answers.
 //
 // A `.pxml` deck says what it is in its name, and so does a `.svg` or a `.json`.
 // A `.xml` does not: cyprian documents still use it, and every deck written
@@ -16,16 +16,17 @@
 // would strand every deck already sitting on a user's disk as a `.xml`.
 import { sniffIsDocument } from "../formats/document";
 import { sniffIsPresentation } from "../formats/presentation";
-import type { EditorKind } from "../tabs";
+import { isSheet } from "../formats/sheet";
+import type { EditorKind } from "../kinds";
 
 /** The unambiguous extensions. `.xml` is deliberately absent — both the writer
  *  and the deck claim it, and the sniffers settle it below.
  *
  *  `json` names CODE, not the sheet, and that is not a demotion: `isSheet` runs
  *  BEFORE this table on every path that has the bytes, so a real workbook still
- *  reaches the grid. What changes is the other JSON — a `package.json`, a
- *  `tsconfig.json` — which used to be handed to Univer and rendered as garbage
- *  because the extension was the only thing anyone asked. */
+ *  reaches the grid. What that protects is the other JSON — a `package.json`, a
+ *  `tsconfig.json` — which would otherwise be handed to Univer and rendered as
+ *  garbage because the extension was the only thing anyone asked. */
 const BY_EXTENSION: Record<string, EditorKind> = {
   pxml: "deck",
   json: "code",
@@ -38,7 +39,12 @@ const BY_EXTENSION: Record<string, EditorKind> = {
   html: "code",
   htm: "code",
   css: "code",
-  md: "code",
+  // A drawing. No sniffer: an SVG's root element is the claim, and the
+  // drawing editor itself refuses one it cannot open safely, offering text.
+  svg: "sketch",
+  // Markdown notes: the same ACE, in markdown mode, without the picker.
+  md: "markdown",
+  markdown: "markdown",
   yml: "code",
   yaml: "code",
   sh: "code",
@@ -80,6 +86,7 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
   if (content !== undefined) {
     if (sniffIsPresentation(content)) return "deck";
     if (sniffIsDocument(content)) return "document";
+    if (isSheet(content)) return "sheet";
     // Fall back to the name rather than giving up: a `.pxml` whose bytes did
     // not sniff (an empty deck, say) is still a deck, and returning null here
     // would make it unopenable precisely when its content WAS available.
@@ -87,7 +94,7 @@ export function kindForFile(name: string, content?: string): EditorKind | null {
     if (byName) return byName;
     // Nothing claimed it, so it is text until proven otherwise — an `.xml` no
     // sniffer wanted, a `.log`, a `.csv`, a file with no extension at all. The
-    // Code tab opens it as plain text, and its language picker is there if the
+    // code editor opens it as plain text, and its language picker is there if the
     // guess was wrong. Refusing would be the app deciding a file is none of the
     // user's business, which it never is.
     return "code";

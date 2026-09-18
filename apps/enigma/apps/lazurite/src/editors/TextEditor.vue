@@ -4,9 +4,12 @@
 // and the vault half (locked/encrypt) is gone. The header moved to the host's
 // file bar with everything else file-shaped.
 //
-// It serves TWO tabs, told apart by one prop:
+// It serves THREE tabs, told apart by two props:
 //
-//   withPicker  — the Code tab. A language dropdown above the buffer.
+//   withPicker  — the Code tab. Undo/redo and a language dropdown above the
+//                 buffer.
+//   toolbar     — the Markdown tab. Undo/redo, no dropdown: the file name has
+//                 already said what the language is.
 //   (default)   — the refusal fallback. A file whose own editor turned it away
 //                 (see EditorHost.openAsText) opens here as plain text, and
 //                 stays deliberately bare: nothing was chosen about it, so
@@ -32,8 +35,10 @@ const props = defineProps<{
   content: string;
   busy?: boolean;
   error?: string;
-  /** The Code tab sets this; the fallback leaves it off. */
+  /** The Code tab sets this; the fallback leaves it off. Implies `toolbar`. */
   withPicker?: boolean;
+  /** The undo/redo strip without the language picker — the Markdown tab. */
+  toolbar?: boolean;
 }>();
 
 const { t } = useI18n({ useScope: "global" });
@@ -183,7 +188,7 @@ defineExpose({
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div v-if="withPicker"
+    <div v-if="withPicker || toolbar"
          class="flex flex-wrap items-center gap-2 border-b border-current/10 px-3 py-1.5">
       <template v-if="!isImage">
       <button type="button" data-testid="editor-undo"
@@ -199,11 +204,11 @@ defineExpose({
         <font-awesome-icon icon="rotate-right" />
       </button>
 
-      <span class="mx-1 h-4 w-px bg-current opacity-20" />
+      <span v-if="withPicker" class="mx-1 h-4 w-px bg-current opacity-20" />
 
       </template>
-      <label v-if="!isImage" class="text-xs opacity-70">{{ t("code.language") }}</label>
-      <SelectMenu v-if="!isImage" data-testid="language-select" :label="t('code.language')"
+      <label v-if="withPicker && !isImage" class="text-xs opacity-70">{{ t("code.language") }}</label>
+      <SelectMenu v-if="withPicker && !isImage" data-testid="language-select" :label="t('code.language')"
                   :model-value="currentLabel" :options="languageLabels"
                   :empty-label="t('code.plainText')"
                   @update:model-value="pickLanguage($event)" />

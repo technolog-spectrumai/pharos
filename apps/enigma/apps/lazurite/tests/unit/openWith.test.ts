@@ -2,18 +2,35 @@ import { describe, expect, it } from "vitest";
 import { extensionOf, kindForFile } from "../../src/files/openWith";
 import { dumps as dumpDoc, newDocument } from "../../src/formats/document";
 import { dumps as dumpDeck, newPresentation } from "../../src/formats/presentation";
+import { dumps as dumpSheet, newWorkbook } from "../../src/formats/sheet";
 
 describe("choosing an editor for a file", () => {
   it("routes the unambiguous extensions", () => {
     // By NAME alone a .json is source. The workbook claim is made by the
-    // sniffer below, which runs first everywhere the bytes are in hand — and
-    // the Files panel always has them, so a real workbook still reaches Sheets.
+    // sniffer, which runs first everywhere the bytes are in hand — and every
+    // open path has them, so a real workbook still reaches the sheet.
     expect(kindForFile("budget.json")).toBe("code");
     expect(kindForFile("talk.pxml")).toBe("deck");
     expect(kindForFile("script.py")).toBe("code");
     expect(kindForFile("paper.tex")).toBe("code");
     expect(kindForFile("mystyle.sty")).toBe("code");
     expect(kindForFile("notes.txt")).toBe("code");
+  });
+
+  it("sends a Univer workbook to the sheet and every other JSON to code", () => {
+    // `.json` is the one extension two editors share, so the bytes decide.
+    expect(kindForFile("budget.json", dumpSheet(newWorkbook("budget")))).toBe("sheet");
+    expect(kindForFile("renamed.txt", dumpSheet(newWorkbook("b")))).toBe("sheet");
+    expect(kindForFile("package.json", '{"name":"x"}')).toBe("code");
+    expect(kindForFile("broken.json", "{not json")).toBe("code");
+  });
+
+  it("routes Markdown to its own editor by either spelling of the extension", () => {
+    expect(kindForFile("note.md")).toBe("markdown");
+    expect(kindForFile("note.markdown")).toBe("markdown");
+    expect(kindForFile("NOTE.MD", "# hi")).toBe("markdown");
+    // The name is a claim; the bytes are the fact. A deck renamed .md is a deck.
+    expect(kindForFile("talk.md", dumpDeck(newPresentation()))).toBe("deck");
   });
 
   it("opens a .pxml with no content at all", () => {
@@ -47,7 +64,12 @@ describe("choosing an editor for a file", () => {
     expect(kindForFile("mystery.txt", dumpDeck(newPresentation()))).toBe("deck");
   });
 
-  it("falls back to the extension for svg, which has no sniffer", () => {
+  it("routes an .svg to the drawing editor by its name, which has no sniffer", () => {
+    expect(kindForFile("floorplan.svg")).toBe("sketch");
+    expect(kindForFile("floorplan.SVG", "<svg xmlns='http://www.w3.org/2000/svg'/>")).toBe("sketch");
+    // An SVG the drawing editor cannot open safely is still routed there: it
+    // is the editor that refuses, with the offer to open it as text.
+    expect(kindForFile("evil.svg", "<svg><script/></svg>")).toBe("sketch");
   });
 
   it("opens what it does not recognise as plain text", () => {

@@ -1,5 +1,5 @@
-// Catalogue sections carried over from enigma with the sketch editor —
-// the toolbar's keys must keep their names or its $t() calls go blank.
+// The app's own words. The drawing toolbar's `sketch.*` and the Security
+// view's `lock.*`/`security.*` come from their packages (see ./index.ts).
 export default {
   nav: {
     files: "Pliki",
@@ -10,6 +10,8 @@ export default {
     sheets: "Arkusze",
     presentations: "Prezentacje",
     code: "Kod",
+    markdown: "Markdown",
+    sketch: "Rysunek",
     security: "Bezpieczeństwo",
     settings: "Ustawienia",
   },
@@ -27,6 +29,9 @@ export default {
     pickWorkspaceHint: "Wybierz folder do pracy. Lazurite będzie mógł czytać tylko ten folder i nic więcej na tym komputerze.",
     changeWorkspace: "Zmień folder",
     desktopOnly: "To wymaga aplikacji na komputer.",
+    searchNotes: "Szukaj w notatkach…",
+    searchNoHits: "Żadna notatka nie pasuje.",
+    searchFailed: "Wyszukiwanie nie powiodło się.",
   },
   code: {
     undo: "Cofnij",
@@ -96,6 +101,7 @@ export default {
     empty: "Na razie pusto. Motyw i język trafią tutaj.",
   },
   sheet: {
+    exportCsv: "Eksportuj arkusz jako CSV…",
     noRoom: "Arkusz nie ma tu miejsca na rysowanie.",
     notASheet: "To nie jest arkusz",
     notASheetBody: "Plik jest JSON-em, ale nie skoroszytem Univer. Otwórz go jako czysty tekst, żeby zobaczyć zawartość.",
@@ -190,9 +196,12 @@ export default {
     untitledDoc: "bez-nazwy.xml",
     newText: "Nowy tekst",
     untitledText: "bez-nazwy.txt",
+    newMd: "Nowa notatka Markdown",
+    untitledMd: "bez-nazwy.md",
     openAsText: "Otwórz jako czysty tekst",
     newDrawing: "Nowy",
     open: "Otwórz…",
+    supported: "Obsługiwane pliki",
     save: "Zapisz",
     saveAs: "Zapisz jako…",
     saved: "Zapisano",
@@ -205,6 +214,10 @@ export default {
     saveFailed: "Nie udało się zapisać.",
     browserNote: "Działa w przeglądarce — pliki otwierają się z dysku, a zapis trafia do pobranych.",
     rawView: "Ten plik otwarto jako czysty tekst, żeby niczego nie zgubić. Edycja w tym widoku jeszcze nie działa.",
+  },
+  start: {
+    hint: "Otwórz plik, utwórz nowy albo znajdź notatkę.",
+    searchNotes: "Szukaj notatek",
   },
   common: {
     preview: "Podgląd",

@@ -178,6 +178,76 @@ describe("the undo stack", () => {
   });
 });
 
+describe("the Markdown tab", () => {
+  async function mountMarkdown(name = "notes.md", content = "# Title") {
+    const w = mount(TextEditor, {
+      props: { path: "/tmp/notes.md", name, content, toolbar: true },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    return w;
+  }
+  async function aceOf(w: ReturnType<typeof mount>) {
+    const ace = (await import("../../src/editors/aceSetup")).default;
+    return ace.edit(w.get('[data-testid="ace-host"]').element as HTMLElement);
+  }
+
+  it("opens a .md in ACE's markdown mode", async () => {
+    // `$modeId` is the mode the session was ASKED for. The mode modules
+    // themselves are stubbed under vitest (vitest.config.ts aliases every
+    // src-noconflict import), so `getMode()` would report the text fallback
+    // regardless of what the editor requested — and the request is what this
+    // component owns.
+    const w = await mountMarkdown();
+    const editor = await aceOf(w);
+    expect((editor.session as unknown as { $modeId: string }).$modeId).toBe("ace/mode/markdown");
+    expect(editor.getValue()).toBe("# Title");
+  });
+
+  it("has undo and redo but no language picker — a note is Markdown", async () => {
+    const w = await mountMarkdown();
+    expect(w.find('[data-testid="editor-undo"]').exists()).toBe(true);
+    expect(w.find('[data-testid="editor-redo"]').exists()).toBe(true);
+    expect(w.find('[data-testid="language-select"]').exists()).toBe(false);
+  });
+
+  it("reports edits as dirty and re-baselines on save", async () => {
+    // The whole edit → save → reopen path from the editor's side: the host
+    // reads getContent() to write, then calls markSaved() to clean the flag.
+    const w = await mountMarkdown();
+    const editor = await aceOf(w);
+    const vm = w.vm as unknown as { markSaved(): void; getContent(): string; isDirty(): boolean };
+
+    editor.session.insert({ row: 0, column: 7 }, "\n\nbody");
+    await flushPromises();
+    expect(vm.isDirty()).toBe(true);
+    expect(vm.getContent()).toBe("# Title\n\nbody");
+
+    vm.markSaved();
+    expect(vm.isDirty()).toBe(false);
+  });
+
+  it("is what the host mounts for a new note, and a reopen replaces the buffer", async () => {
+    const w = mount(EditorHost, { global: { plugins: [i18n] } });
+    await flushPromises();
+    const vm = w.vm as unknown as {
+      newFile(kind: string): Promise<void>;
+      openLocal(name: string, path: string, text: string): void; name: string; dirty: boolean;
+    };
+    await vm.newFile("markdown");
+    await flushPromises();
+    expect(vm.name).toMatch(/\.md$/);
+    expect(w.find('[data-testid="language-select"]').exists()).toBe(false);
+    expect((await aceOf(w)).getValue()).toBe("");
+
+    vm.openLocal("todo.md", "/w/todo.md", "- [ ] one");
+    await flushPromises();
+    expect(vm.name).toBe("todo.md");
+    expect(vm.dirty).toBe(false);
+    expect((await aceOf(w)).getValue()).toBe("- [ ] one");
+  });
+});
+
 describe("a picture in the code view", () => {
   const PNG = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -210,49 +280,50 @@ describe("host routing", () => {
   it("refuses to save a picture, so its bytes cannot be written back as text", async () => {
     // Save As would write the `data:` URI out as text — a corrupt copy of the
     // file it came from. The whole save path is closed for a picture.
-    const w = mount(EditorHost, {
-      props: { kind: "code" },
-      global: { plugins: [i18n] },
-    });
+    const w = mount(EditorHost, { global: { plugins: [i18n] } });
     await flushPromises();
     const vm = w.vm as unknown as {
-      openRemote(name: string, text: string): void;
+      openLocal(name: string, path: string, text: string): void;
       canSave: boolean; dirty: boolean;
     };
-    vm.openRemote("photo.png", "data:image/png;base64,iVBORw0KGgo=");
+    vm.openLocal("photo.png", "/w/photo.png", "data:image/png;base64,iVBORw0KGgo=");
     await flushPromises();
     expect(w.find('[data-testid="image-preview"]').exists()).toBe(true);
     expect(vm.canSave).toBe(false);
     // …and no unsaved dot beside something that cannot be saved.
     expect(vm.dirty).toBe(false);
 
-    // A text file handed over the same way is still savable.
-    vm.openRemote("notes.txt", "hello");
+    // A text file handed over the same way is savable once edited: it opens
+    // clean, being the file on disk, so Save has nothing to write yet.
+    vm.openLocal("notes.txt", "/w/notes.txt", "hello");
+    await flushPromises();
+    expect(vm.canSave).toBe(false);
+    w.findComponent({ name: "TextEditor" }).vm.$emit("update:dirty", true);
     await flushPromises();
     expect(vm.canSave).toBe(true);
   });
 
-  it("the code tab opens a buffer the files panel handed it", async () => {
-    // The whole panel walk in one place: a .py is routed to this tab, the host
-    // remounts the editor for it, the picker detects Python from the name, and
-    // the buffer arrives dirty because nothing on disk holds it yet.
-    const w = mount(EditorHost, {
-      props: { kind: "code" },
-      global: { plugins: [i18n] },
-    });
+  it("the code editor opens a buffer the files panel handed it", async () => {
+    // The whole panel walk in one place: a .py is routed to the code editor,
+    // the host remounts it, the picker detects Python from the name, and the
+    // buffer arrives clean with its path, so Save writes it back in place.
+    const w = mount(EditorHost, { global: { plugins: [i18n] } });
+    await flushPromises();
+    const vm = w.vm as unknown as {
+      newFile(kind: string): Promise<void>;
+      openLocal(name: string, path: string, text: string): void;
+      dirty: boolean;
+    };
+    await vm.newFile("code");
     await flushPromises();
     expect(w.find('[data-testid="ace-host"]').exists()).toBe(true);
     const trigger = '[data-testid="language-select"] [data-testid="select-trigger"]';
-    // A new Code file is born plain text — the language is nobody's choice yet.
+    // A new code file is born plain text — the language is nobody's choice yet.
     expect(w.get(trigger).text()).toBe("Plain text");
 
-    const vm = w.vm as unknown as {
-      openRemote(name: string, text: string): void;
-      dirty: boolean;
-    };
-    vm.openRemote("script.py", "print(1)");
+    vm.openLocal("script.py", "/w/script.py", "print(1)");
     await flushPromises();
     expect(w.get(trigger).text()).toBe("Python");
-    expect(vm.dirty).toBe(true);
+    expect(vm.dirty).toBe(false);
   });
 });

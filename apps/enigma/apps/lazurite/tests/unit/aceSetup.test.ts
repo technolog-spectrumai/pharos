@@ -30,6 +30,7 @@ describe("ACE offline setup", () => {
       // The fallback when a deck is opened as text: without this it lands in
       // plain_text and silently loses XML highlighting.
       "talk.pxml": "xml",
+      "notes.markdown": "markdown",
       "main.js": "javascript",
       "main.ts": "typescript",
       "script.py": "python",

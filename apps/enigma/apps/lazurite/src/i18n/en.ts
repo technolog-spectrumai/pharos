@@ -1,5 +1,5 @@
-// Catalogue sections carried over from enigma with the sketch editor —
-// the toolbar's keys must keep their names or its $t() calls go blank.
+// The app's own words. The drawing toolbar's `sketch.*` and the Security
+// view's `lock.*`/`security.*` come from their packages (see ./index.ts).
 export default {
   nav: {
     files: "Files",
@@ -10,6 +10,8 @@ export default {
     sheets: "Sheets",
     presentations: "Presentations",
     code: "Code",
+    markdown: "Markdown",
+    sketch: "Drawing",
     security: "Security",
     settings: "Settings",
   },
@@ -27,6 +29,9 @@ export default {
     pickWorkspaceHint: "Pick a folder to work in. Lazurite will be able to read that folder and nothing else on this machine.",
     changeWorkspace: "Change folder",
     desktopOnly: "This needs the desktop app.",
+    searchNotes: "Search notes…",
+    searchNoHits: "No notes match.",
+    searchFailed: "Search failed.",
   },
   code: {
     undo: "Undo",
@@ -96,6 +101,7 @@ export default {
     empty: "Nothing here yet. Theme and language will move here.",
   },
   sheet: {
+    exportCsv: "Export sheet as CSV…",
     noRoom: "The grid has no room to draw here.",
     notASheet: "This is not a spreadsheet",
     notASheetBody: "The file is JSON, but not a Univer workbook. Open it as plain text to see what it holds.",
@@ -190,9 +196,12 @@ export default {
     untitledDoc: "untitled.xml",
     newText: "New text",
     untitledText: "untitled.txt",
+    newMd: "New Markdown note",
+    untitledMd: "untitled.md",
     openAsText: "Open as plain text",
     newDrawing: "New",
     open: "Open…",
+    supported: "Supported files",
     save: "Save",
     saveAs: "Save As…",
     saved: "Saved",
@@ -205,6 +214,10 @@ export default {
     saveFailed: "Could not save.",
     browserNote: "Running in a browser — files open from and save to downloads.",
     rawView: "This file opened as raw text so nothing gets lost. Editing it here is not supported yet.",
+  },
+  start: {
+    hint: "Open a file, start a new one, or find a note.",
+    searchNotes: "Search notes",
   },
   common: {
     preview: "Preview",
