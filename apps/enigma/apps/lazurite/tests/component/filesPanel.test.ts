@@ -159,9 +159,8 @@ describe("the files panel", () => {
     await settle();
 
     const opened = w.emitted("open")?.[0][0] as { kind: string; name: string };
-    // An .svg has no editor here — the drawing board is its own app now — so
-    // it opens as source text rather than being refused.
-    expect(opened.kind).toBe("code");
+    // An .svg is a drawing: it opens in the drawing editor, as SVG.
+    expect(opened.kind).toBe("sketch");
     expect(opened.name).toBe("drawing.svg");
   });
 
@@ -203,6 +202,113 @@ describe("the files panel", () => {
     const opened = w.emitted("open")?.[0][0] as { kind: string; content: string };
     expect(opened.kind).toBe("code");
     expect(opened.content).toBe("data:image/png;base64,iVBORw==");
+  });
+
+  it("hands a Markdown note to the Markdown tab", async () => {
+    tree({ [ROOT]: [["idea.md", false]] });
+    readTextFile.mockResolvedValue("# idea");
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="files-row-idea.md"]').trigger("click");
+    await settle();
+    const opened = w.emitted("open")?.[0][0] as
+      { kind: string; name: string; path: string; content: string };
+    expect(opened.kind).toBe("markdown");
+    expect(opened.name).toBe("idea.md");
+    // The path travels with the bytes, so Save can write them back in place.
+    expect(opened.path).toBe(`${ROOT}/idea.md`);
+    expect(opened.content).toBe("# idea");
+  });
+
+  it("opens a search hit the way it opens a clicked row", async () => {
+    // The hit sits in a folder the tree never expanded, so nothing was probed
+    // or listed for it; the panel asks the probe, reads the file, and emits
+    // the same payload a row click would.
+    tree({ [ROOT]: [["deep", true]] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "notes_search") {
+        return [{ path: `${ROOT}/deep/found.md`, rel_path: "deep/found.md", name: "found.md", snippet: "the needle" }];
+      }
+      return false; // is_file_locked
+    });
+    readTextFile.mockResolvedValue("# found\nthe needle");
+    vi.useFakeTimers();
+    try {
+      const workspace = await withRoot();
+      const w = mountPanel();
+      await settle();
+      await workspace.refresh();
+      await settle();
+
+      await w.get('[data-testid="notes-search"]').setValue("needle");
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+      expect(invoke).toHaveBeenCalledWith("notes_search", { root: ROOT, query: "needle" });
+
+      await w.get('[data-testid="notes-result-0"]').trigger("click");
+      await settle();
+      expect(invoke).toHaveBeenCalledWith("is_file_locked", { path: `${ROOT}/deep/found.md` });
+      expect(readTextFile).toHaveBeenCalledWith(`${ROOT}/deep/found.md`);
+      const opened = w.emitted("open")?.[0][0] as
+        { kind: string; name: string; path: string; content: string };
+      expect(opened.kind).toBe("markdown");
+      expect(opened.name).toBe("found.md");
+      expect(opened.path).toBe(`${ROOT}/deep/found.md`);
+      expect(opened.content).toBe("# found\nthe needle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a sealed search hit exactly as it refuses a sealed row", async () => {
+    tree({ [ROOT]: [] });
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "notes_search") {
+        return [{ path: `${ROOT}/vault.md`, rel_path: "vault.md", name: "vault.md", snippet: "" }];
+      }
+      return true; // is_file_locked
+    });
+    vi.useFakeTimers();
+    try {
+      const workspace = await withRoot();
+      const w = mountPanel();
+      await settle();
+      await workspace.refresh();
+      await settle();
+
+      await w.get('[data-testid="notes-search"]').setValue("vault");
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+      await w.get('[data-testid="notes-result-0"]').trigger("click");
+      await settle();
+      expect(readTextFile).not.toHaveBeenCalled();
+      expect(w.emitted("open")).toBeUndefined();
+      expect(w.get('[data-testid="files-open-error"]').text()).toContain("encrypted");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a sealed Markdown note like any other sealed file", async () => {
+    // Markdown changed nothing about locking: a sealed .md is badged and
+    // refused by the same probe, and never read.
+    tree({ [ROOT]: [["secret.md", false]] });
+    invoke.mockImplementation(async (cmd: string) => cmd === "is_file_locked");
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    await w.get('[data-testid="files-row-secret.md"]').trigger("click");
+    await settle();
+    expect(readTextFile).not.toHaveBeenCalled();
+    expect(w.emitted("open")).toBeUndefined();
+    expect(w.get('[data-testid="files-open-error"]').text()).toContain("encrypted");
   });
 
   it("still refuses a sealed file — the one thing that does not open", async () => {

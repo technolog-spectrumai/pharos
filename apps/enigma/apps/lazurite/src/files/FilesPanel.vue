@@ -9,20 +9,25 @@
 // reason, and this is the same arrangement in a desktop window.
 //
 // It holds no file and no buffer. Clicking a row reads the bytes and emits
-// them; App decides which editor tab gets them, and that tab's host owns them
-// from there. Nothing here can save, delete or rename — a panel that could
-// would be a second, quieter path to writing over your work.
+// them with the path they came from; the editor host owns them from there and
+// picks the editor from the file. Nothing here can save, delete or rename — a
+// panel that could would be a second, quieter path to writing over your work.
+//
+// The notes search sits in the same panel and ends in the same place: a hit
+// is a path, and a path opens through `openEntry` exactly as a clicked row
+// does. One way into an editor.
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { filterRows, useWorkspace, type Entry, type Row } from "petalite/files";
 import { baseName, formatSize, isImageName } from "petalite/files";
 import FileTree from "petalite/FileTree.vue";
+import NotesSearch from "./NotesSearch.vue";
 import { kindForFile } from "./openWith";
-import type { EditorKind } from "../tabs";
+import type { EditorKind } from "../kinds";
 
 const { t } = useI18n({ useScope: "global" });
 const emit = defineEmits<{
-  open: [{ kind: EditorKind; name: string; content: string }];
+  open: [{ kind: EditorKind; name: string; path: string; content: string }];
 }>();
 
 const workspace = useWorkspace();
@@ -47,35 +52,57 @@ async function activate(row: Row) {
     await workspace.toggle(row.path);
     return;
   }
-  // Sealed is the ONE reason a row will not open now. Anything else opens —
+  await openEntry(row);
+}
+
+/** Open one file — a clicked row or a search hit, the same way. */
+async function openEntry(file: { name: string; path: string }) {
+  // Sealed is the ONE reason a file will not open now. Anything else opens —
   // as plain text if nothing better claims it.
-  if (workspace.isSealed(row.path)) {
+  if (workspace.isSealed(file.path)) {
     openError.value = "files.encrypted";
     return;
   }
+  const entry: Entry = { name: file.name, path: file.path, isDirectory: false };
   busy.value = true;
   openError.value = "";
   try {
     // A picture is read as BYTES and handed over as a data: URI. Reading it as
     // text would decode UTF-8 over a PNG and hand the editor mojibake — which
     // is what used to happen, and is why images were unopenable before.
-    const image = isImageName(row.name);
+    const image = isImageName(entry.name);
     const content = image
-      ? await workspace.readImage(row as Entry)
-      : await workspace.readText(row as Entry);
-    const kind = image ? "code" as const : kindForFile(row.name, content);
+      ? await workspace.readImage(entry)
+      : await workspace.readText(entry);
+    const kind = image ? "code" as const : kindForFile(entry.name, content);
     if (!kind) {
       openError.value = "files.cannotOpen";
       return;
     }
-    openedPath.value = row.path;
-    emit("open", { kind, name: row.name, content });
+    openedPath.value = entry.path;
+    emit("open", { kind, name: entry.name, path: entry.path, content });
   } catch (err) {
     openError.value = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
   } finally {
     busy.value = false;
   }
 }
+
+/** A search hit was never probed by the tree (it may sit in a folder that was
+ *  never expanded), so ask before opening — the tree's cached answer is used
+ *  when it has one. */
+async function openHit(hit: { name: string; path: string }) {
+  if (!workspace.sealed.value.has(hit.path)) await workspace.reprobe(hit.path);
+  await openEntry(hit);
+}
+
+const search = ref<InstanceType<typeof NotesSearch> | null>(null);
+defineExpose({
+  /** Put the cursor in the notes search, for a caller that wants to start there. */
+  focusSearch() {
+    search.value?.focus();
+  },
+});
 
 /** The hover text. The padlock must not be an icon-only affordance — someone
  *  who cannot tell the glyphs apart still needs to know why a row will not
@@ -159,6 +186,9 @@ function shown(message: string): string {
       <p v-if="workspace.error.value" class="px-2 pb-1.5 text-xs text-warn-dark" data-testid="files-error">
         {{ shown(workspace.error.value) }}
       </p>
+
+      <!-- The notes search, over the same folder the tree shows. -->
+      <NotesSearch ref="search" :root="workspace.root.value" @open="openHit" />
 
       <!-- Flat rows, indented by depth: no recursion, and a folder twelve deep
            costs the same as one at the top. The rendering is Petalite's, shared
