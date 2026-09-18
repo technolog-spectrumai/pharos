@@ -27,6 +27,7 @@ export const LOCK_ERRORS = [
   "too_large",
   "legacy_format",
   "crypto",
+  "changed_on_disk",
 ] as const;
 
 /** The catalogue key for a Rust error, or null when the message is more useful

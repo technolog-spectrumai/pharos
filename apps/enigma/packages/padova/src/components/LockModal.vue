@@ -17,7 +17,9 @@ import { OyaModal } from "petalite/primitives";
 
 const props = defineProps<{
   open: boolean;
-  mode: "lock" | "unlock";
+  /** `open` is decrypting INTO MEMORY for an edit — the file on disk stays
+   *  encrypted — as opposed to `unlock`, which rewrites it plain. */
+  mode: "lock" | "unlock" | "open";
   name: string;
   action: (password: string, remember: boolean) => Promise<void>;
   /** Offer to keep the passphrase in the OS secret store. Absent where there is
@@ -81,9 +83,14 @@ async function submit() {
 
 <template>
   <OyaModal :open="open" @close="!busy && emit('update:open', false)">
-    <ModalPanel :title="t(mode === 'lock' ? 'lock.lockTitle' : 'lock.unlockTitle')">
+    <ModalPanel :title="t(mode === 'lock' ? 'lock.lockTitle' : mode === 'open' ? 'lock.openTitle' : 'lock.unlockTitle')">
       <p class="truncate text-xs opacity-60">{{ name }}</p>
       <p v-if="mode === 'lock'" class="text-xs opacity-70">{{ t("lock.lockHint") }}</p>
+      <p v-else-if="mode === 'open'" class="text-xs opacity-70" data-testid="lock-open-hint">{{ t("lock.openHint") }}</p>
+      <p v-else class="text-xs opacity-70" data-testid="lock-unlock-hint">{{ t("lock.unlockHint") }}</p>
+      <!-- Whatever the app wants said before the password is typed: a price,
+           a warning. The modal does not know what it is. -->
+      <slot name="notice" />
 
       <input v-model="password" type="password" autocomplete="off"
              :placeholder="t('lock.password')" data-testid="lock-password"
@@ -112,7 +119,7 @@ async function submit() {
                        transition hover:opacity-90 disabled:opacity-40 dark:bg-accent-dark dark:text-primary-bg-dark"
                 :disabled="busy || !password" @click="submit">
           <font-awesome-icon :icon="busy ? 'spinner' : mode === 'lock' ? 'lock' : 'lock-open'" :spin="busy" />
-          {{ t(mode === "lock" ? "lock.lock" : "lock.unlock") }}
+          {{ t(mode === "lock" ? "lock.lock" : mode === "open" ? "lock.open" : "lock.unlock") }}
         </button>
       </div>
     </ModalPanel>

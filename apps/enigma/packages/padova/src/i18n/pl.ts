@@ -3,8 +3,12 @@
 export default {
   lock: {
     lockTitle: "Zaszyfruj ten plik",
-    unlockTitle: "Odszyfruj ten plik",
-    lockHint: "Hasło nie jest nigdzie zapisywane ani przenoszone między plikami. Wszystko, co potrzebne do ponownego otwarcia tego pliku — poza hasłem — zapisujemy w samym pliku.",
+    openTitle: "Otwórz zaszyfrowany plik",
+    openHint: "Plik jest odszyfrowywany tylko w pamięci. Zapis zapisuje go z powrotem zaszyfrowany; nic nieszyfrowanego nie trafia na dysk.",
+    unlockHint: "To zapisze plik na dysku jako zwykły tekst. Aby edytować bez tego, po prostu go otwórz.",
+    open: "Otwórz",
+    unlockTitle: "Odszyfruj ten plik na stałe",
+    lockHint: "Hasło nigdy nie trafia do pliku, a każdy plik dostaje własny klucz. Wszystko, co potrzebne do ponownego otwarcia tego pliku, poza hasłem, jest zapisane w nim samym.",
     password: "Hasło",
     confirm: "Powtórz hasło",
     lock: "Zaszyfruj",
@@ -20,6 +24,7 @@ export default {
       too_large: "Ten plik jest za duży, by go zaszyfrować.",
       legacy_format: "Ten plik został zaszyfrowany przez platformę. Ustawienia jego klucza były na serwerze, więc nie da się go tutaj otworzyć.",
       crypto: "Ten zaszyfrowany plik jest uszkodzony. Nic nie zostało zmienione.",
+      changed_on_disk: "Ten plik zmienił się na dysku, gdy był otwarty. Nic nie zapisano; otwórz go ponownie.",
     },
   },
   security: {

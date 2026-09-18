@@ -10,8 +10,12 @@
 export default {
   lock: {
     lockTitle: "Encrypt this file",
-    unlockTitle: "Decrypt this file",
-    lockHint: "The password is never stored, and it is not kept between two files. Everything needed to open this file again — except the password — is written into the file itself.",
+    unlockTitle: "Decrypt this file permanently",
+    openTitle: "Open encrypted file",
+    openHint: "The file is decrypted in memory only. Saving writes it back encrypted; nothing unencrypted is written to disk.",
+    unlockHint: "This rewrites the file as plain text on disk. To edit it without that, open it instead.",
+    open: "Open",
+    lockHint: "The password is never written into the file, and each file gets its own key. Everything needed to open this file again, except the password, travels inside it.",
     password: "Password",
     confirm: "Repeat the password",
     lock: "Encrypt",
@@ -27,6 +31,7 @@ export default {
       too_large: "That file is too big to encrypt.",
       legacy_format: "This file was encrypted by the platform. Its key settings lived on the server, so it cannot be opened here.",
       crypto: "That encrypted file is damaged. Nothing was changed.",
+      changed_on_disk: "That file changed on disk while it was open. Nothing was written; open it again.",
     },
   },
   security: {
