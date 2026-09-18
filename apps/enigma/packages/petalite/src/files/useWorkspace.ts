@@ -1,17 +1,14 @@
 // A folder on this machine, browsed inside the app.
 //
-// One root, chosen through the folder picker and remembered. That choice is
-// what makes this legal without weakening the app's permissions: the dialog
-// plugin widens the fs runtime scope to exactly the directory the user picked
-// (`allow_directory(path, recursive)`), and the fs plugin accepts a path if
-// EITHER the runtime scope or the static one allows it. So the app can read
-// inside that folder and nowhere else, and no static filesystem scope has to be
-// granted at build time.
-//
-// A consequence worth knowing: the grant lives in the running process. After a
-// restart the remembered path is still shown, but the first read will fail
-// until the user picks it again — so a failure here offers the picker rather
-// than reporting a broken folder.
+// One root, chosen through the folder picker and remembered. HOW the folder is
+// read is injected (`setFileBackend`), the way the sealed-file probe is: this
+// store is generic browsing, and the rule about where an app may read is that
+// app's. Without a backend the fs plugin is used directly, and the dialog
+// plugin's runtime grant is what makes that legal — a grant that lives in the
+// running process, so after a restart the first read fails until the folder
+// is picked again, and the panel offers the picker. An app that installs a
+// backend with `open` (Lazurite: a Rust workspace with its own boundary) has
+// no such gap: the remembered folder is reopened on the first refresh.
 //
 // ── the tree ────────────────────────────────────────────────────────────────
 // This was one-directory-at-a-time — a listing plus breadcrumbs — which is what
@@ -36,7 +33,70 @@ export interface Entry {
   isDirectory: boolean;
   size?: number;
   modified?: number;
+  /** Known at listing time when the backend reads the first bytes itself;
+   *  absent, the probe is asked. */
+  sealed?: boolean;
 }
+
+/** How the store reaches the disk. Every method takes a path the store got
+ *  from a listing (or the root). `open` is called with the root before the
+ *  first read of it and answers the root's canonical spelling; a backend
+ *  without one reads wherever it is pointed. */
+export interface FileBackend {
+  open?(root: string): Promise<string>;
+  list(dir: string): Promise<Entry[]>;
+  readText(path: string): Promise<string>;
+  readBytes(path: string): Promise<Uint8Array>;
+}
+
+let backend: FileBackend | null = null;
+
+/** Give the store its backend. Call before the first read — `main.ts`. */
+export function setFileBackend(next: FileBackend | null): void {
+  backend = next;
+  openedRoot = "";
+}
+
+/** The fs-plugin backend, used when an app installs none. */
+const pluginBackend: FileBackend = {
+  async list(dir) {
+    const { readDir, stat } = await import("@tauri-apps/plugin-fs");
+    const raw = await readDir(dir);
+    // DirEntry carries a name and nothing else — no size, no date — so each row
+    // needs its own stat. Failures per entry are tolerated: one unreadable file
+    // should not blank the whole listing.
+    return Promise.all(
+      raw.map(async (entry): Promise<Entry> => {
+        const path = join(dir, entry.name);
+        let size: number | undefined;
+        let modified: number | undefined;
+        try {
+          const info = await stat(path);
+          size = info.size;
+          modified = info.mtime ? new Date(info.mtime).getTime() : undefined;
+        } catch {
+          /* keep the row; it just has no size or date */
+        }
+        return { name: entry.name, path, isDirectory: entry.isDirectory, size, modified };
+      }),
+    );
+  },
+  async readText(path) {
+    const { readTextFile } = await import("@tauri-apps/plugin-fs");
+    return readTextFile(path);
+  },
+  async readBytes(path) {
+    const { readFile } = await import("@tauri-apps/plugin-fs");
+    return readFile(path);
+  },
+};
+
+function fs(): FileBackend {
+  return backend ?? pluginBackend;
+}
+
+/** The root the backend has been told to open, so it is told once per root. */
+let openedRoot = "";
 
 /** An entry placed in the tree: same fields, plus how deep it sits. */
 export interface Row extends Entry {
@@ -44,8 +104,12 @@ export interface Row extends Entry {
 }
 
 const STORAGE_KEY = "zinnia:workspace";
+/** The folders opened before this one, most recent first. Paths only. */
+const RECENT_KEY = "zinnia:workspaces:recent";
+const RECENT_MAX = 6;
 
 const root = ref<string>(loadRoot());
+const recent = ref<string[]>(loadRecent());
 /** Directory path -> its listing. The root's own listing is filed under the
  *  root path, so the walk below needs no special case for depth 0. */
 const children = ref<Map<string, Entry[]>>(new Map());
@@ -91,9 +155,10 @@ export function setSealProbe(next: SealProbe | null): void {
  *  sub-folder read can also set: this one means the whole tree is unavailable,
  *  and the panel answers it with the picker rather than an empty listing.
  *
- *  The ordinary cause is not a broken folder. The read grant lives in the
- *  running process, so after a restart the remembered path is still known and
- *  no longer readable until it is picked again. */
+ *  With the fs-plugin backend the ordinary cause is not a broken folder: the
+ *  read grant lives in the running process, so after a restart the remembered
+ *  path is no longer readable until it is picked again. With a backend that
+ *  opens the root itself it means the folder is gone or was refused. */
 const unreadable = ref(false);
 
 function loadRoot(): string {
@@ -110,6 +175,26 @@ function loadRoot(): string {
 function saveRoot(value: string) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ root: value }));
+  } catch {
+    /* a full or blocked store must not break the panel */
+  }
+}
+
+function loadRecent(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Put `value` at the front of the recent list, once. */
+function remember(value: string) {
+  const next = [value, ...recent.value.filter((p) => p !== value)].slice(0, RECENT_MAX);
+  recent.value = next;
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
   } catch {
     /* a full or blocked store must not break the panel */
   }
@@ -190,8 +275,8 @@ export function useWorkspace() {
       return;
     }
     const { open } = await import("@tauri-apps/plugin-dialog");
-    // `recursive: true` is what extends the grant to subfolders — without it
-    // the picked folder would open and every folder inside it would refuse.
+    // `recursive: true` is what extends the plugin grant to subfolders — the
+    // fs-plugin backend needs it; a Rust backend ignores the grant entirely.
     const picked = await open({ directory: true, multiple: false, recursive: true });
     // Cancelled. Clear any complaint left over from the folder they came to
     // change — it is about to be re-tested, or it is no longer the subject.
@@ -199,36 +284,39 @@ export function useWorkspace() {
       error.value = "";
       return;
     }
-    root.value = picked;
+    await switchRoot(picked);
+  }
+
+  /** Make `path` the workspace: a folder picked just now, or one from the
+   *  recent list. The backend's `open` settles its canonical spelling and can
+   *  refuse it (gone, not a folder); a refusal leaves the current workspace
+   *  as it was and reports through `error`. */
+  async function switchRoot(path: string): Promise<boolean> {
+    let canonical = path;
+    const fsb = fs();
+    if (fsb.open) {
+      try {
+        canonical = await fsb.open(path);
+        openedRoot = canonical;
+      } catch (err) {
+        error.value = (err as Error)?.message ?? String(err);
+        return false;
+      }
+    }
+    root.value = canonical;
     children.value = new Map();
     expanded.value = new Set();
-    saveRoot(picked);
+    sealed.value = new Map();
+    saveRoot(canonical);
+    remember(canonical);
     await refresh();
+    return true;
   }
 
   /** Read one folder into the cache. Throws; every caller decides what a
    *  failure means for the row it was opening. */
   async function read(dir: string): Promise<void> {
-    const { readDir, stat } = await import("@tauri-apps/plugin-fs");
-    const raw = await readDir(dir);
-    // DirEntry carries a name and nothing else — no size, no date — so each row
-    // needs its own stat. Failures per entry are tolerated: one unreadable file
-    // should not blank the whole listing.
-    const rowsHere = await Promise.all(
-      raw.map(async (entry): Promise<Entry> => {
-        const path = join(dir, entry.name);
-        let size: number | undefined;
-        let modified: number | undefined;
-        try {
-          const info = await stat(path);
-          size = info.size;
-          modified = info.mtime ? new Date(info.mtime).getTime() : undefined;
-        } catch {
-          /* keep the row; it just has no size or date */
-        }
-        return { name: entry.name, path, isDirectory: entry.isDirectory, size, modified };
-      }),
-    );
+    const rowsHere = await fs().list(dir);
     // Folders first, then files, each alphabetical — what every file manager
     // does, and what makes a long listing scannable.
     rowsHere.sort((a, b) =>
@@ -250,9 +338,17 @@ export function useWorkspace() {
    *  that adds rows — both `refresh()` and `toggle()` route through it, so
    *  filling the map anywhere else would leave a hole. */
   async function probeAll(entries: Entry[]): Promise<void> {
+    // A listing that already read the first bytes answers for its own rows;
+    // only the rest are asked.
+    const known = entries.filter((e) => !e.isDirectory && e.sealed !== undefined);
+    if (known.length) {
+      const next = new Map(sealed.value);
+      for (const entry of known) next.set(entry.path, entry.sealed === true);
+      sealed.value = next;
+    }
     if (!probe) return;
     const ask = probe;
-    const files = entries.filter((e) => !e.isDirectory);
+    const files = entries.filter((e) => !e.isDirectory && e.sealed === undefined);
     if (!files.length) return;
     const answers = await Promise.all(
       files.map(async (entry) => {
@@ -282,6 +378,18 @@ export function useWorkspace() {
     error.value = "";
     children.value = new Map();
     try {
+      // A backend with `open` is told the root once per root — on the first
+      // refresh after launch, which is how the remembered workspace comes
+      // back without a dialog. It may answer a canonical spelling.
+      const fsb = fs();
+      if (fsb.open && openedRoot !== root.value) {
+        const canonical = await fsb.open(root.value);
+        openedRoot = canonical;
+        if (canonical !== root.value) {
+          root.value = canonical;
+          saveRoot(canonical);
+        }
+      }
       await read(root.value);
       unreadable.value = false;
       const open = [...expanded.value].sort((a, b) => a.length - b.length);
@@ -333,12 +441,12 @@ export function useWorkspace() {
 
   /** Forget the folder entirely, so the app is back to having none.
    *
-   *  It does NOT withdraw the read grant — that lives in the running process
-   *  and there is no API to hand it back — so this is "stop showing me this
-   *  folder", not "stop being able to read it". Restarting is what actually
-   *  drops the grant. Said plainly here because the difference matters. */
+   *  With the fs-plugin backend it does NOT withdraw the read grant — that
+   *  lives in the running process and there is no API to hand it back — so it
+   *  means "stop showing me this folder", not "stop being able to read it". */
   function clearRoot(): void {
     root.value = "";
+    openedRoot = "";
     children.value = new Map();
     expanded.value = new Set();
     // A different workspace shares no paths with this one.
@@ -368,8 +476,7 @@ export function useWorkspace() {
   }
 
   async function readText(entry: Entry): Promise<string> {
-    const { readTextFile } = await import("@tauri-apps/plugin-fs");
-    return readTextFile(entry.path);
+    return fs().readText(entry.path);
   }
 
   /** A picture as a `data:` URI, ready for an <img>.
@@ -378,13 +485,12 @@ export function useWorkspace() {
    *  through that comes back as replacement characters — a lossy copy of the
    *  file that could then be saved over the real one. */
   async function readImage(entry: Entry): Promise<string> {
-    const { readFile } = await import("@tauri-apps/plugin-fs");
-    return toDataUri(entry.name, await readFile(entry.path));
+    return toDataUri(entry.name, await fs().readBytes(entry.path));
   }
 
   return {
-    root, rows, loading, error, expanded, unreadable, sealed,
-    isExpanded, isSealed, reprobe, pickRoot, clearRoot, refresh, toggle, readText,
+    root, recent, rows, loading, error, expanded, unreadable, sealed,
+    isExpanded, isSealed, reprobe, pickRoot, switchRoot, clearRoot, refresh, toggle, readText,
     readImage,
   };
 }
