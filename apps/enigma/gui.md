@@ -173,6 +173,7 @@ widths. Left to right:
 
 | Control | Label, tooltip | `data-testid` | What it does | When shown | Source |
 |---|---|---|---|---|---|
+| App mark (the blue Morion helmet, 28 px) | `alt` and native tooltip are the brand name "Morion" | `app-icon` | Nothing: it names the app. It is the same file every desktop and Android icon is generated from, `apps/morion/app-icon.png` (see `apps/morion/scripts/make_icons.py`), so the bar and the launcher cannot disagree. Brightened in dark mode, where this blue on the near-black background would read as a shadow. | Always, first in the bar | `App.vue` (the `appIcon` import and the first `<img>` of the header) |
 | ☰ button (icon `bars`) | native tooltip is the brand name "Morion"; aria-label "Menu" (`nav.menu`) | `app-menu` | Toggles the app menu panel. `aria-haspopup="menu"`, `aria-expanded` mirrors the open state. | Always | `App.vue:295-302`; `config.ts:7` (the same `brand.name` is the window and page title, `index.html:6`) |
 | Folder button (icon `folder-open`) | "Files panel" (`files.toggle`), `aria-pressed` | `files-toggle` | Toggles the Files sidepanel and writes `zinnia:files`. Filled with the accent colour when on, outlined when off. The panel is only visible in the editor view, but the toggle still flips and persists from Workspace security or Settings. The start screen's "Search the workspace" also switches it on (`App.vue:185-189`), so the button can turn filled without being clicked. | Always | `App.vue:401-411, 78-79, 87` |
 | View title (icon + "Workspace security" or "Settings", bold, truncated) | `security.workspace.title` / `nav.settings`; icons `shield-halved` and `gear` | `view-title` | Read-only name of the view standing in front of the editor. | Only while Workspace security or Settings is up | `App.vue:415-417, 65-68` |
@@ -3053,6 +3054,7 @@ Grouped by region. `{…}` marks a variable part.
 
 | `data-testid` | Element |
 |---|---|
+| `app-icon` | the app mark, first in the header |
 | `app-menu` | the ☰ button |
 | `app-menu-panel` | the open menu panel |
 | `files-toggle` | the Files panel button |

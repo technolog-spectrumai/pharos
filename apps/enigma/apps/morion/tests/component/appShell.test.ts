@@ -32,6 +32,18 @@ beforeEach(() => {
 });
 
 describe("the shell", () => {
+  it("shows the app's mark first in the bar, named for screen readers", async () => {
+    const w = mountApp();
+    await flushPromises();
+    const icon = w.get('[data-testid="app-icon"]');
+    expect(icon.element.tagName).toBe("IMG");
+    expect(icon.attributes("alt")).toBe("Morion");
+    expect(icon.attributes("src")).toMatch(/app-icon\.png/);
+    // First in the header: nothing stands before the mark.
+    const header = w.get("header").element;
+    expect(header.firstElementChild).toBe(icon.element);
+  });
+
   it("has no editor tabs, and no Security or Settings on the top bar", async () => {
     const w = mountApp();
     await flushPromises();

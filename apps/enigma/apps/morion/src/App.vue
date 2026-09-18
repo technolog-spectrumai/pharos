@@ -2,6 +2,9 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { brand } from "./config";
+// The app's mark — the same file every desktop and Android icon is generated
+// from (scripts/make_icons.py), so the bar and the launcher cannot disagree.
+import appIcon from "../app-icon.png";
 import { i18n, setLocale, type Locale } from "./i18n";
 import { NEW_FILE_KINDS, type EditorKind } from "./kinds";
 import EditorHost from "./views/EditorHost.vue";
@@ -287,10 +290,14 @@ function isDisabled(id: string): boolean {
   <div class="flex h-screen flex-col bg-primary-bg-light text-text-main-light
               dark:bg-primary-bg-dark dark:text-text-main-dark transition-colors">
     <header class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 border-accent-2 dark:border-accent-1">
-      <!-- The menu button stands where the wordmark used to. Escape closes it;
+      <!-- The menu button stands where the wordmark used to, beside the mark. Escape closes it;
            the backdrop below catches an outside click without a document-level
            listener to leak. It is also the only way to Security and Settings:
            the top bar belongs to the open file. -->
+      <!-- The mark, first in the bar. Brighter in dark mode: this blue on the
+           near-black background would otherwise read as a shadow. -->
+      <img :src="appIcon" :alt="brand.name" :title="brand.name" data-testid="app-icon"
+           class="h-7 w-7 shrink-0 select-none dark:brightness-150" draggable="false" />
       <div class="relative shrink-0" @keydown.esc="menuOpen = false">
         <button type="button" data-testid="app-menu"
                 class="relative z-50 inline-flex h-8 w-8 items-center justify-center rounded-lg
