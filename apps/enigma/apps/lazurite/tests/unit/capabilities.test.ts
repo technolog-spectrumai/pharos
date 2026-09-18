@@ -70,10 +70,28 @@ describe("this app's IPC surface", () => {
       // writer and a deck to print. Primula and Sketch do not link pdf.rs at
       // all, so these three cannot appear on their surfaces.
       "pdf_status", "pdf_render", "pdf_cancel",
-      // The notes search: a walk of the picked folder that matches names,
-      // paths and plain bodies. It never decrypts — a sealed file is matched
-      // by name only — and it returns nothing but paths and one line each.
-      "notes_search",
+      // The workspace search: one walk that matches names, paths, tags and,
+      // when the setting says so, plain bodies. It never decrypts — a sealed
+      // file is matched by name, path and tags only — and it returns nothing
+      // but paths and one line each.
+      "workspace_search",
+      // The workspace: the folder the user chose, and the boundary Rust holds
+      // around every read, write and listing (src-tauri/src/workspace.rs).
+      "workspace_open", "workspace_list",
+      "workspace_read_text", "workspace_read_bytes", "workspace_write_text",
+      // Editing an encrypted file: decrypted into memory under a Rust-held
+      // session, re-sealed on every save, never written plain
+      // (src-tauri/src/sealed.rs).
+      "sealed_open", "sealed_open_bytes", "sealed_write", "sealed_close",
+      // A folder at a time, one passphrase: preview the counts, then run
+      // (src-tauri/src/folder.rs).
+      "folder_preview", "folder_lock",
+      // Tags: plain-text words in .lazurite/metadata.json, by path
+      // (src-tauri/src/meta.rs).
+      "tags_get", "tags_set", "tags_all",
+      // Security Mana: the page names an action, Rust prices it and keeps
+      // the ledger in .lazurite/metadata.json (src-tauri/src/mana.rs).
+      "mana_status", "mana_quote", "mana_charge", "mana_record", "mana_ledger", "mana_prices",
     ]);
     const unexpected = registered().filter((n) => !ALLOWED.has(n));
     expect(unexpected).toEqual([]);

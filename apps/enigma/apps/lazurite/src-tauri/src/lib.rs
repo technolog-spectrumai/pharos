@@ -16,9 +16,32 @@
 //! must not reach the network; four things a webview cannot promise about a
 //! process it merely asked for.
 //!
-//! `search` walks the notes folder for a query — a read of every note's first
-//! bytes next to the disk, which the fs plugin could only do as one IPC round
-//! trip per file. It keeps no index; see its header.
+//! `workspace` is the folder the user chose and the boundary around it: every
+//! read, write and listing resolves its path against the canonical root and
+//! refuses `..`, symbolic links and anything outside. The fs plugin's runtime
+//! scope could not express that rule and does not survive a restart; see the
+//! module header.
+//!
+//! `search` walks the workspace for a query — names, paths, tags and, when
+//! asked, the bodies of plain text files, read next to the disk rather than
+//! one IPC round trip per file. It keeps no index and never reads an
+//! encrypted body; see its header.
+//!
+//! `sealed` is how an encrypted file is edited: decrypted into memory under a
+//! session whose key stays in Rust, re-sealed on every save, never written
+//! plain. The page holds a token, not a key.
+//!
+//! `folder` encrypts or decrypts everything under a folder with one
+//! passphrase: same walk rules as the search, one padova seal per file,
+//! failures recorded and never undoing a success.
+//!
+//! `meta` is `.lazurite/metadata.json`: tags (plain text, by design, and
+//! said so) and the Security Mana ledger. Never a passphrase, never a byte
+//! of a file body.
+//!
+//! `mana` is the Security Mana budget: a price table, two rolling meters
+//! derived from the ledger, a quote before and a charge after. Advisory
+//! only — it warns, it never blocks.
 //!
 //! `lock` and `secrets` are SHIMS. The sealing itself lives in the padova crate
 //! and the frame in substrate (`crates/`), because more than one app comes out
@@ -31,10 +54,15 @@
 //! be a third. It is parked in limbo/cloud; reviving it means putting back the
 //! crates its LIMBO.md lists, not just the file.
 
+mod folder;
 mod lock;
+mod mana;
+mod meta;
 mod pdf;
+mod sealed;
 mod search;
 mod secrets;
+mod workspace;
 
 /// This app's locker. The service name is what the OS keyring files the
 /// passphrase under, and it is per app by decision — see `padova::Locker`.
@@ -44,6 +72,8 @@ pub(crate) const LOCKER: padova::Locker = padova::Locker::new("com.spectrumaipl.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(workspace::WorkspaceState::new())
+        .manage(sealed::SealSessions::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
@@ -57,7 +87,27 @@ pub fn run() {
             pdf::pdf_status,
             pdf::pdf_render,
             pdf::pdf_cancel,
-            search::notes_search,
+            search::workspace_search,
+            workspace::workspace_open,
+            workspace::workspace_list,
+            workspace::workspace_read_text,
+            workspace::workspace_read_bytes,
+            workspace::workspace_write_text,
+            sealed::sealed_open,
+            sealed::sealed_open_bytes,
+            sealed::sealed_write,
+            sealed::sealed_close,
+            folder::folder_preview,
+            folder::folder_lock,
+            meta::tags_get,
+            meta::tags_set,
+            meta::tags_all,
+            mana::mana_status,
+            mana::mana_quote,
+            mana::mana_charge,
+            mana::mana_record,
+            mana::mana_ledger,
+            mana::mana_prices,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
