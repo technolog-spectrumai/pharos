@@ -65,6 +65,15 @@ impl FrameSpec {
         bytes.len() > PREFIX_LEN && bytes.starts_with(self.magic) && bytes[8] == self.version
     }
 
+    /// Every frame this build knows the layout of: its own and enigma's.
+    pub const KNOWN: [FrameSpec; 2] = [FrameSpec::ZINNIA, FrameSpec::ENIGMA];
+
+    /// Which known spec wrote these bytes, if any. The magic decides; the AAD
+    /// that comes with the spec is what a reader then has to use.
+    pub fn detect(bytes: &[u8]) -> Option<FrameSpec> {
+        Self::KNOWN.into_iter().find(|spec| spec.is_current(bytes))
+    }
+
     /// Wrap a sealed body and its header into a frame.
     pub fn frame(&self, header_json: &[u8], body: &[u8]) -> Vec<u8> {
         let mut out = Vec::with_capacity(PREFIX_LEN + header_json.len() + body.len());
@@ -107,6 +116,13 @@ pub fn is_current(bytes: &[u8]) -> bool {
     bytes.len() > PREFIX_LEN && bytes.starts_with(MAGIC) && bytes[8] == VERSION
 }
 
+/// Whether bytes are a frame ANY known spec wrote — this build's or enigma's.
+/// A file enigma locked is still a locked file: badged, never handed to an
+/// editor as ciphertext, skipped by a folder encryption.
+pub fn is_known_frame(bytes: &[u8]) -> bool {
+    FrameSpec::detect(bytes).is_some()
+}
+
 /// Whether a file on disk is sealed — a cheap sniff of its first bytes, so a
 /// listing can badge sealed files without asking for anything.
 ///
@@ -125,7 +141,7 @@ pub fn is_sealed_file(path: &str) -> bool {
         Ok(n) => n,
         Err(_) => return false,
     };
-    if is_current(&buf[..read]) {
+    if is_known_frame(&buf[..read]) {
         return true;
     }
     // The platform's older Fernet frames, when this build was asked to know
@@ -273,6 +289,19 @@ mod tests {
             .join(format!("substrate-{}-{name}", std::process::id()))
             .to_string_lossy()
             .into_owned()
+    }
+
+    #[test]
+    fn enigmas_frame_is_recognised_as_sealed_too() {
+        let framed = FrameSpec::ENIGMA.frame(b"{}", b"body");
+        assert!(!is_current(&framed), "not this build's own frame");
+        assert!(is_known_frame(&framed));
+        assert_eq!(FrameSpec::detect(&framed).map(|s| s.magic), Some(b"ENIGLOCK"));
+        assert_eq!(FrameSpec::detect(b"plain text file").map(|s| s.magic), None);
+        let path = tmp("enigma-frame");
+        std::fs::write(&path, &framed).unwrap();
+        assert!(is_sealed_file(&path));
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
