@@ -16,6 +16,10 @@
 //! must not reach the network; four things a webview cannot promise about a
 //! process it merely asked for.
 //!
+//! `search` walks the notes folder for a query — a read of every note's first
+//! bytes next to the disk, which the fs plugin could only do as one IPC round
+//! trip per file. It keeps no index; see its header.
+//!
 //! `lock` and `secrets` are SHIMS. The sealing itself lives in the padova crate
 //! and the frame in substrate (`crates/`), because more than one app comes out
 //! of this tree and each decides which commands it registers. `secrets` is
@@ -29,6 +33,7 @@
 
 mod lock;
 mod pdf;
+mod search;
 mod secrets;
 
 /// This app's locker. The service name is what the OS keyring files the
@@ -52,6 +57,7 @@ pub fn run() {
             pdf::pdf_status,
             pdf::pdf_render,
             pdf::pdf_cancel,
+            search::notes_search,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

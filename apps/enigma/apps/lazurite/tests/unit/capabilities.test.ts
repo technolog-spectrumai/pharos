@@ -70,6 +70,10 @@ describe("this app's IPC surface", () => {
       // writer and a deck to print. Primula and Sketch do not link pdf.rs at
       // all, so these three cannot appear on their surfaces.
       "pdf_status", "pdf_render", "pdf_cancel",
+      // The notes search: a walk of the picked folder that matches names,
+      // paths and plain bodies. It never decrypts — a sealed file is matched
+      // by name only — and it returns nothing but paths and one line each.
+      "notes_search",
     ]);
     const unexpected = registered().filter((n) => !ALLOWED.has(n));
     expect(unexpected).toEqual([]);
