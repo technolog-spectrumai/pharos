@@ -7,7 +7,7 @@
 // plugin's runtime grant is what makes that legal — a grant that lives in the
 // running process, so after a restart the first read fails until the folder
 // is picked again, and the panel offers the picker. An app that installs a
-// backend with `open` (Lazurite: a Rust workspace with its own boundary) has
+// backend with `open` (Morion: a Rust workspace with its own boundary) has
 // no such gap: the remembered folder is reopened on the first refresh.
 //
 // ── the tree ────────────────────────────────────────────────────────────────

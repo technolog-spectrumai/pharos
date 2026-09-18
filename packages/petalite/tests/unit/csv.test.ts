@@ -126,11 +126,11 @@ describe("guessing the delimiter", () => {
 describe("agreeing with the writer", () => {
   it("round-trips everything the sheet's exporter can produce", async () => {
     // The strongest statement available: the repo's CSV WRITER already exists
-    // (apps/lazurite/src/formats/csv.ts) and quotes to RFC 4180. If the reader
+    // (apps/morion/src/formats/csv.ts) and quotes to RFC 4180. If the reader
     // and the writer ever disagree, a sheet exported as CSV and pasted into the
     // writer comes back wrong — so they are tested against each other rather
     // than each against its own idea of the format.
-    const { rowsToCsv } = await import("../../../../apps/lazurite/src/formats/csv");
+    const { rowsToCsv } = await import("../../../../apps/morion/src/formats/csv");
     const rows = [
       ["name", "note", "qty"],
       ["Smith, John", 'he said "no"', "3"],
