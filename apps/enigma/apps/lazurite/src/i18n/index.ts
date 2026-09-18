@@ -6,6 +6,7 @@
 // apps cannot drift on it.
 import { createAppI18n, type SupportedLocale } from "petalite/i18n";
 import { padovaMessages } from "padova/i18n";
+import { wisteriaMessages } from "wisteria/i18n";
 import en from "./en";
 import pl from "./pl";
 
@@ -20,9 +21,10 @@ const { i18n, setLocale } = createAppI18n({
   // Padova brings its own `lock.*` and `security.*` words, merged in at the top
   // level. A package that owns a feature owns the strings that feature shows —
   // otherwise an app could adopt the Security tab and get a screen of raw keys.
+  // Wisteria, the drawing engine, brings `sketch.*` the same way.
   messages: {
-    en: { ...en, ...padovaMessages.en },
-    pl: { ...pl, ...padovaMessages.pl },
+    en: { ...en, ...padovaMessages.en, ...wisteriaMessages.en },
+    pl: { ...pl, ...padovaMessages.pl, ...wisteriaMessages.pl },
   },
 });
 
