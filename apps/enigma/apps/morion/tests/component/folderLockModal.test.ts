@@ -40,7 +40,7 @@ describe("the folder shield's modal", () => {
     expect(w.get('[data-testid="folder-preview"]').text()).toContain("5 files here: 4 plain, 1 encrypted");
     expect(w.get('[data-testid="folder-preview"]').text()).toContain("2 symbolic links are left alone");
     expect((w.get('[data-testid="folder-mode-lock"]').element as HTMLInputElement).checked).toBe(true);
-    expect(w.get('[data-testid="folder-note"]').text()).toContain(".lazurite folder is not touched");
+    expect(w.get('[data-testid="folder-note"]').text()).toContain(".morion folder is not touched");
     expect(w.get('[data-testid="folder-note"]').text()).toContain("does not undo the others");
 
     // Nothing runs until the passphrase is typed twice and matches, and a
@@ -143,13 +143,13 @@ describe("a decrypt run that stopped at a wrong passphrase", () => {
   it("says a preview refusal as a sentence", async () => {
     invoke.mockImplementation(async (cmd: string) => {
       if (cmd === "secret_status") return { remembered: false, storage: null };
-      if (cmd === "folder_preview") throw "metadata: that is Lazurite's own metadata folder";
+      if (cmd === "folder_preview") throw "metadata: that is Morion's own metadata folder";
       return null;
     });
-    const w = mountModal("/w/.lazurite");
+    const w = mountModal("/w/.morion");
     await w.setProps({ open: true });
     await settle();
-    expect(w.get('[data-testid="folder-preview-error"]').text()).toBe("That is Lazurite’s own metadata folder.");
+    expect(w.get('[data-testid="folder-preview-error"]').text()).toBe("That is Morion’s own metadata folder.");
   });
 });
 

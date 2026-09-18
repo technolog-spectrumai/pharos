@@ -17,7 +17,7 @@ const FILES = {
 
 describe("the workspace error prefixes", () => {
   it("maps a known prefix and leaves anything else raw", () => {
-    expect(fsErrorKey("symlink: Lazurite does not follow symbolic links")).toBe("workspace.errors.symlink");
+    expect(fsErrorKey("symlink: Morion does not follow symbolic links")).toBe("workspace.errors.symlink");
     expect(fsErrorKey("EACCES: permission denied")).toBe(null);
   });
 

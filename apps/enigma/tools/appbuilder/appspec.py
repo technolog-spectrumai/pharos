@@ -31,7 +31,7 @@ class AppSpec:
 
     identifier: str
     """The bundle identifier — what the OS files user data under. Changing it
-    orphans everything the installed app has saved, which is why Lazurite's is
+    orphans everything the installed app has saved, which is why Morion's is
     still `com.spectrumaipl.zinnia` after the rename."""
 
     version: str
@@ -93,9 +93,10 @@ class AppSpec:
 #: would mean either losing that or forcing it on apps that have none.
 #:
 #: One app now. Sketch and Primula were the other two; their editors moved into
-#: Lazurite, which opens drawings and sheets itself, and the apps were deleted.
+#: Morion (formerly Lazurite), which opens drawings and sheets itself, and the
+#: apps were deleted.
 #: Kept a tuple so `--all`, the choices lists and the root check read the same.
-ZINNIA_APPS = ("lazurite",)
+ZINNIA_APPS = ("morion",)
 
 
 def load(root: Path, slug: str) -> AppSpec:

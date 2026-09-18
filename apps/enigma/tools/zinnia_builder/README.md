@@ -1,15 +1,15 @@
 # Zinnia Builder
 
-A window — and a set of subcommands — for building **lazurite**, the Zinnia
+A window — and a set of subcommands — for building **morion**, the Zinnia
 file editor. (Sketch and Primula used to be built here too; their editors now
-live in Lazurite.)
+live in Morion.)
 
 ```
 scripts/zinnia/builder.sh                       the window
 scripts/zinnia/builder.sh targets               what this machine can package
-scripts/zinnia/builder.sh build lazurite        headless, one app
+scripts/zinnia/builder.sh build morion        headless, one app
 scripts/zinnia/builder.sh build --all --debug   every app, fast
-scripts/zinnia/builder.sh dev lazurite          hot reload
+scripts/zinnia/builder.sh dev morion          hot reload
 ```
 
 ## What it is, and is not
@@ -62,6 +62,6 @@ tools/zinnia_builder/
 
 `appspec` reads the product name, identifier, version and dev port out of each
 app's `tauri.conf.json`. Nothing here carries a second copy that can drift —
-which matters most for Lazurite, whose identifier is still
+which matters most for Morion, whose identifier is still
 `com.spectrumaipl.zinnia` and must stay that way or every installed copy
 orphans its stored data.

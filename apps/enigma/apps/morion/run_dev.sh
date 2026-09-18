@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run Lazurite in development.
+# Run Morion in development.
 #
 #   ./run_dev.sh               desktop window (Tauri) with hot reload
 #   ./run_dev.sh --web         browser only at http://localhost:1430, no Rust
@@ -75,5 +75,5 @@ fi
 # ── desktop ─────────────────────────────────────────────────────────────────
 need_cargo "or use --web"
 
-step "Starting Lazurite (desktop)"
+step "Starting Morion (desktop)"
 exec npx tauri dev

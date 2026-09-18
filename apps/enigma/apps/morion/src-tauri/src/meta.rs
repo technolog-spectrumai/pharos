@@ -1,4 +1,4 @@
-//! Workspace metadata: `.lazurite/metadata.json` at the root of the workspace.
+//! Workspace metadata: `.morion/metadata.json` at the root of the workspace.
 //!
 //! One small JSON file, plain text by design, holding two things:
 //!
@@ -71,7 +71,7 @@ pub fn load(root: &Path) -> Result<Metadata, String> {
     let path = meta_path(root);
     match std::fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|e| format!("meta_damaged: .lazurite/metadata.json is damaged ({e}); nothing was changed")),
+            .map_err(|e| format!("meta_damaged: .morion/metadata.json is damaged ({e}); nothing was changed")),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Metadata::default()),
         Err(e) => Err(format!("meta: {e}")),
     }

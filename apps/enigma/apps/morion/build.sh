@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build the Lazurite desktop app.
+# Build the Morion desktop app.
 #
 #   ./build.sh                 release bundle (deb + rpm)
 #   ./build.sh --debug         debug bundle — builds far faster, runs slower

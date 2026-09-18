@@ -1,6 +1,6 @@
 // File tags, as the page reaches src-tauri/src/meta.rs.
 //
-// Plain text in `.lazurite/metadata.json`, on purpose and said so in the UI:
+// Plain text in `.morion/metadata.json`, on purpose and said so in the UI:
 // a tag is one word about a file that stays readable when the file does not.
 import { invoke } from "../ipc";
 

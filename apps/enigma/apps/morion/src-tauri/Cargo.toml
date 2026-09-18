@@ -1,7 +1,7 @@
 [package]
-name = "lazurite"
+name = "morion"
 version = "0.1.0"
-description = "Lazurite — the writer: documents, decks and code"
+description = "Morion — the writer: documents, decks and code"
 authors = ["SpectrumAI"]
 license = ""
 repository = "https://gitlab.com/janhagit-group/zinnia"
@@ -10,7 +10,7 @@ rust-version = "1.88"
 
 [lib]
 # The `_lib` suffix avoids a bin/lib name clash on Windows (rust-lang/cargo#8519).
-name = "lazurite_lib"
+name = "morion_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -1,6 +1,6 @@
 //! The workspace: one folder the user chose, and the boundary around it.
 //!
-//! A workspace is nothing more than a directory. Lazurite reads and writes the
+//! A workspace is nothing more than a directory. Morion reads and writes the
 //! files inside it and never imports or copies them anywhere. What this module
 //! adds is the BOUNDARY: every path a command is handed is resolved against the
 //! canonical root, and a path that would leave the folder — through `..`, an
@@ -19,7 +19,7 @@
 //! that cannot be argued around, and it is the same rule the folder
 //! encryption and the search apply.
 //!
-//! A `.lazurite/` folder is Lazurite's own metadata (tags, the Mana ledger):
+//! A `.morion/` folder is Morion's own metadata (tags, the Mana ledger):
 //! this workspace's at the root, a nested workspace's further down. At any
 //! depth it is refused to every path-taking command and hidden from listings,
 //! walks and every bulk operation.
@@ -30,8 +30,8 @@ use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
 
-/// Lazurite's metadata directory, at the root of a workspace.
-pub const META_DIR: &str = ".lazurite";
+/// Morion's metadata directory, at the root of a workspace.
+pub const META_DIR: &str = ".morion";
 
 /// The most a text or byte read hands to the page. An editor buffer larger
 /// than this is not something this app can usefully show.
@@ -118,7 +118,7 @@ fn is_symlink(path: &Path) -> bool {
 ///    path whose PREFIX resolves into the root (the dialog handed back a
 ///    symlinked spelling of the workspace itself) is accepted in canonical
 ///    form;
-/// 3. nothing inside a `.lazurite/` folder, at any depth: that is Lazurite's
+/// 3. nothing inside a `.morion/` folder, at any depth: that is Morion's
 ///    own metadata — this workspace's at the root, and a nested workspace's
 ///    further down — written only by `meta.rs`. No editor, encryption or tag
 ///    may reach it through a path, and listings and walks never show it;
@@ -168,7 +168,7 @@ pub fn resolve(root: &Path, given: &str, may_create: bool) -> Result<PathBuf, St
         .filter(|c| !matches!(c, Component::CurDir))
         .collect();
     if components.iter().any(|c| matches!(c, Component::Normal(part) if *part == META_DIR)) {
-        return Err("metadata: that is Lazurite's own metadata folder".into());
+        return Err("metadata: that is Morion's own metadata folder".into());
     }
     let mut walked = root.to_path_buf();
     for (i, component) in components.iter().enumerate() {
@@ -178,7 +178,7 @@ pub fn resolve(root: &Path, given: &str, may_create: bool) -> Result<PathBuf, St
         walked.push(part);
         let last = i + 1 == components.len();
         if is_symlink(&walked) {
-            return Err("symlink: Lazurite does not follow symbolic links".into());
+            return Err("symlink: Morion does not follow symbolic links".into());
         }
         if !walked.exists() && !(last && may_create) {
             return Err(format!("not_found: no such file in the workspace: {}", rel.display()));
@@ -197,7 +197,7 @@ pub fn relative(root: &Path, path: &Path) -> String {
 }
 
 /// List one folder inside the workspace: folders first, then files, each
-/// alphabetical. Symbolic links and `.lazurite` are left out.
+/// alphabetical. Symbolic links and `.morion` are left out.
 pub fn list_dir(root: &Path, dir: &Path) -> Result<Vec<EntryDto>, String> {
     if !dir.is_dir() {
         return Err("not_found: that is not a folder in the workspace".into());
@@ -319,7 +319,7 @@ pub(crate) mod tests {
 
     /// A fresh workspace per test, canonical, keyed by pid and name.
     pub(crate) fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lazurite-ws-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("morion-ws-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::canonicalize(dir).unwrap()
@@ -397,7 +397,7 @@ pub(crate) mod tests {
         use std::os::unix::fs::symlink;
         let real = scratch("linked-real");
         put(&real, "a.txt", b"a");
-        let link = std::env::temp_dir().join(format!("lazurite-ws-link-{}", std::process::id()));
+        let link = std::env::temp_dir().join(format!("morion-ws-link-{}", std::process::id()));
         let _ = std::fs::remove_file(&link);
         symlink(&real, &link).unwrap();
         // Opening canonicalises, so the root is the real folder…
@@ -409,7 +409,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn lazuritess_own_metadata_folder_is_out_of_reach() {
+    fn morionss_own_metadata_folder_is_out_of_reach() {
         let root = scratch("metadata");
         put(&root, &format!("{META_DIR}/metadata.json"), b"{}");
         for given in [
@@ -424,11 +424,11 @@ pub(crate) mod tests {
         assert!(write_text(&root, &format!("{META_DIR}/metadata.json"), "{}").unwrap_err().starts_with("metadata"));
         assert!(read_text(&root, &format!("{META_DIR}/metadata.json")).unwrap_err().starts_with("metadata"));
         // A folder that merely starts with the name is an ordinary folder.
-        put(&root, ".lazurite-notes/a.md", b"a");
-        assert!(resolve(&root, ".lazurite-notes/a.md", false).is_ok());
+        put(&root, ".morion-notes/a.md", b"a");
+        assert!(resolve(&root, ".morion-notes/a.md", false).is_ok());
         // A nested workspace's metadata is metadata too, and just as hidden.
-        put(&root, "sub/.lazurite/metadata.json", b"{}");
-        assert!(resolve(&root, "sub/.lazurite/metadata.json", false).unwrap_err().starts_with("metadata"));
+        put(&root, "sub/.morion/metadata.json", b"{}");
+        assert!(resolve(&root, "sub/.morion/metadata.json", false).unwrap_err().starts_with("metadata"));
         let names: Vec<_> = list_dir(&root, &root.join("sub")).unwrap().into_iter().map(|e| e.name).collect();
         assert!(names.is_empty(), "{names:?}");
     }

@@ -2,11 +2,11 @@
 // can read them without pulling Vue in.
 export const brand = {
   /** What the app CALLS itself: the window title, the page title, the menu
-   *  tooltip. This app was carved out of the original single-app Zinnia and
-   *  kept its old name on screen long after it became Lazurite. */
-  name: "Lazurite",
+   *  tooltip. This app was carved out of the original single-app Zinnia, was
+   *  called Lazurite for a while, and is Morion now. */
+  name: "Morion",
   org: "SpectrumAI",
-  /** The bundle identifier, and NOT `com.spectrumaipl.lazurite`.
+  /** The bundle identifier, and NOT `com.spectrumaipl.morion`.
    *
    *  It is what the OS files user data and keyring entries under, so changing
    *  it orphans every installed copy: saved documents keep existing, and the

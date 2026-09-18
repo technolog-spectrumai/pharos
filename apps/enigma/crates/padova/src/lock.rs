@@ -33,7 +33,7 @@
 //!
 //! These functions take a PATH and use `std::fs` directly, so no plugin scope
 //! gates them — they will seal anything they are handed. The caller decides
-//! the boundary: Lazurite resolves every path against its workspace first.
+//! the boundary: Morion resolves every path against its workspace first.
 //!
 //! ## Editing without decrypting the disk
 //!

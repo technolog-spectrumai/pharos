@@ -11,7 +11,7 @@ describe("the shell", () => {
     // The wordmark gave way to the menu button, which stands in its place and
     // keeps the brand as its tooltip.
     expect(w.find('[data-testid="app-menu"]').exists()).toBe(true);
-    expect(w.get('[data-testid="app-menu"]').attributes("title")).toBe("Lazurite");
+    expect(w.get('[data-testid="app-menu"]').attributes("title")).toBe("Morion");
     // No file yet, so the host shows its start screen — which proves a real
     // host mounted, not a placeholder, since only the host draws it.
     expect(w.find('[data-testid="start"]').exists()).toBe(true);
@@ -87,7 +87,7 @@ describe("the shell", () => {
   });
 
   it("keeps the display name and the identity as separate things", async () => {
-    // The app is called Lazurite and its data lives under
+    // The app is called Morion and its data lives under
     // `com.spectrumaipl.zinnia`. That looks like an oversight and is not: this
     // app was carved out of the original single-app Zinnia, and the identifier
     // is what the OS files saved documents and keyring entries under. Renaming
@@ -100,9 +100,9 @@ describe("the shell", () => {
     const conf = JSON.parse(await fs.readFile("src-tauri/tauri.conf.json", "utf8"));
     const html = await fs.readFile("index.html", "utf8");
 
-    expect(brand.name).toBe("Lazurite");
-    expect(conf.app.windows[0].title).toBe("Lazurite");
-    expect(html).toContain("<title>Lazurite</title>");
+    expect(brand.name).toBe("Morion");
+    expect(conf.app.windows[0].title).toBe("Morion");
+    expect(html).toContain("<title>Morion</title>");
 
     // Unchanged, and load-bearing.
     expect(conf.identifier).toBe("com.spectrumaipl.zinnia");

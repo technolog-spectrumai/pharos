@@ -1,6 +1,6 @@
 // Reading CSV.
 //
-// Lazurite's sheet already WRITES it (`apps/lazurite/src/formats/csv.ts`, RFC
+// Morion's sheet already WRITES it (`apps/morion/src/formats/csv.ts`, RFC
 // 4180 with proper quoting). Nothing in the repo read it until the writer needed to build
 // a table from a pasted spreadsheet, and reading is the harder direction:
 //

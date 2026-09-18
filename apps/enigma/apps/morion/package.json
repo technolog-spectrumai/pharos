@@ -1,9 +1,9 @@
 {
-  "name": "lazurite",
+  "name": "morion",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Lazurite — the writer: documents, decks, notes, sheets and code, on the toto platform. Tauri 2 desktop app.",
+  "description": "Morion — the writer: documents, decks, notes, sheets and code, on the toto platform. Tauri 2 desktop app.",
   "scripts": {
     "dev": "vite",
     "dev:tauri": "node scripts/tauri-dev-server.mjs",

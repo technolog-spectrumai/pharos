@@ -12,5 +12,5 @@ fn main() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
-    lazurite_lib::run();
+    morion_lib::run();
 }

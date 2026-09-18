@@ -1,7 +1,7 @@
 //! Encrypting or decrypting every file under a folder, with one passphrase.
 //!
 //! One walk, one rule set, shared with the search: symbolic links are never
-//! followed, `.lazurite/` is never touched, and the walk stays inside the
+//! followed, `.morion/` is never touched, and the walk stays inside the
 //! workspace because it starts from a resolved path and only ever descends.
 //!
 //! Each file is sealed on its own — its own salt, its own key — by padova's
@@ -70,7 +70,7 @@ pub(crate) struct Walk {
 }
 
 /// Every regular file under `dir`, in a stable order. Links are counted,
-/// never followed; `.lazurite` is never entered. The search walks the same
+/// never followed; `.morion` is never entered. The search walks the same
 /// way, so what one operation sees the other sees.
 pub(crate) fn walk(dir: &Path) -> Walk {
     let mut out = Walk { files: Vec::new(), links: 0, truncated: false };

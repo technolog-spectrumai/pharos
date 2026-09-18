@@ -10,7 +10,7 @@ import { join } from "node:path";
 // `generate_handler!` names it. That list is the whole capability boundary, and
 // it is one line of Rust away from silently widening.
 //
-// Lazurite renders deck HTML and opened documents — content that arrived in a
+// Morion renders deck HTML and opened documents — content that arrived in a
 // file — so its surface is asserted for the same reason Sketch's is.
 
 const LIB = join(__dirname, "../../src-tauri/src/lib.rs");
@@ -66,7 +66,7 @@ describe("this app's IPC surface", () => {
     const ALLOWED = new Set([
       "lock_file", "unlock_file", "is_file_locked",
       "secret_remember", "secret_forget", "secret_status",
-      // Lazurite alone supervises the PDF renderer: it is the app with a
+      // Morion alone supervises the PDF renderer: it is the app with a
       // writer and a deck to print. Primula and Sketch do not link pdf.rs at
       // all, so these three cannot appear on their surfaces.
       "pdf_status", "pdf_render", "pdf_cancel",
@@ -86,11 +86,11 @@ describe("this app's IPC surface", () => {
       // A folder at a time, one passphrase: preview the counts, then run
       // (src-tauri/src/folder.rs).
       "folder_preview", "folder_lock",
-      // Tags: plain-text words in .lazurite/metadata.json, by path
+      // Tags: plain-text words in .morion/metadata.json, by path
       // (src-tauri/src/meta.rs).
       "tags_get", "tags_set", "tags_all",
       // Security Mana: the page names an action, Rust prices it and keeps
-      // the ledger in .lazurite/metadata.json (src-tauri/src/mana.rs).
+      // the ledger in .morion/metadata.json (src-tauri/src/mana.rs).
       "mana_status", "mana_quote", "mana_charge", "mana_record", "mana_ledger", "mana_prices",
     ]);
     const unexpected = registered().filter((n) => !ALLOWED.has(n));

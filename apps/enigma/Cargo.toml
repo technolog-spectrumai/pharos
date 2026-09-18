@@ -20,9 +20,10 @@
 [workspace]
 resolver = "2"
 members = [
-    # Sketch and Primula were members too. Their editors now live in Lazurite,
-    # which picks the editor from the file it opens, and the two apps are gone.
-    "apps/lazurite/src-tauri",
+    # Sketch and Primula were members too. Their editors now live in Morion
+    # (formerly Lazurite), which picks the editor from the file it opens, and
+    # the two apps are gone.
+    "apps/morion/src-tauri",
     "crates/totoclient",
     "crates/substrate",
     "crates/padova",

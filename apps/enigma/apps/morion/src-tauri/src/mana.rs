@@ -23,7 +23,7 @@
 //! so nothing is written when Mana comes back, and offline use, restarts and
 //! closed-app time need no reconciliation because there is no counter to
 //! reconcile — the ledger is the whole state, and it lives with the workspace
-//! in `.lazurite/metadata.json`. Two windows rather than one so that a burst
+//! in `.morion/metadata.json`. Two windows rather than one so that a burst
 //! and a habit are both visible: the day catches the burst, the week the
 //! habit.
 //!
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!((q.cost, q.daily_left, q.daily_after, q.weekly_after, q.exhausted), (5, 100, 95, 695, false));
         assert!(quote(&[], T0, "nope", 1).is_err());
         // Quoting wrote nothing.
-        assert!(!root.join(".lazurite").exists());
+        assert!(!root.join(".morion").exists());
 
         let s = charge(&root, T0, "unlock_temp", 1, Some(&root.join("secret.md").to_string_lossy())).unwrap();
         assert_eq!(s.daily_left, 95);
@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(m.ledger[0].path.as_deref(), Some("secret.md"), "relative, never absolute");
         assert_eq!(m.ledger[0].cost, 5);
         assert_eq!(m.ledger[0].note, "mana.notes.unlock_temp");
-        let text = std::fs::read_to_string(root.join(".lazurite/metadata.json")).unwrap();
+        let text = std::fs::read_to_string(root.join(".morion/metadata.json")).unwrap();
         assert!(!text.contains(&root.to_string_lossy().into_owned()));
 
         // A folder decrypt charges by what actually happened.

@@ -44,7 +44,7 @@ pub const MAX_HITS: usize = 50;
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
 /// Characters of the matching line handed back.
 const SNIPPET_CHARS: usize = 120;
-/// What full-text search reads: the kinds Lazurite itself opens as text.
+/// What full-text search reads: the kinds Morion itself opens as text.
 /// Anything else is matched by name, path and tags, never by contents.
 const TEXT_EXTENSIONS: &[&str] = &[
     "md", "markdown", "txt", "json", "xml", "pxml", "svg", "csv", "py", "js", "mjs", "cjs", "ts",
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn skips_the_metadata_folder_and_links_and_stops_at_the_limit() {
         let root = scratch("search-limits");
-        put(&root, ".lazurite/metadata.json", b"{\"tags\":{\"x\":[\"needle\"]}}");
+        put(&root, ".morion/metadata.json", b"{\"tags\":{\"x\":[\"needle\"]}}");
         for i in 0..(MAX_HITS + 5) {
             put(&root, &format!("needle-{i:03}.md"), b"");
         }
@@ -333,7 +333,7 @@ mod tests {
         }
         let hits = search(&root, "needle", Mode::Quick, MAX_HITS).unwrap();
         assert_eq!(hits.len(), MAX_HITS);
-        assert!(hits.iter().all(|h| !h.rel_path.contains("link") && !h.rel_path.starts_with(".lazurite")));
+        assert!(hits.iter().all(|h| !h.rel_path.contains("link") && !h.rel_path.starts_with(".morion")));
         assert_eq!(search(&root, "needle", Mode::Hybrid, 3).unwrap().len(), 3);
         assert!(search(&root, "   ", Mode::Full, MAX_HITS).unwrap().is_empty());
         assert!(Mode::parse("fuzzy").is_err());

@@ -1,6 +1,6 @@
-// The workspace store, with Lazurite's Rust backend injected.
+// The workspace store, with Morion's Rust backend injected.
 //
-// The store is petalite's and reads however it is told to; Lazurite tells it
+// The store is petalite's and reads however it is told to; Morion tells it
 // to go through the workspace commands, which hold the boundary. What is
 // pinned here is the seam: listings arrive with `sealed` already answered so
 // no probe is asked, the root is opened once and its canonical spelling

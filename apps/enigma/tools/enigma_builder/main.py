@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 # The app-agnostic half of this tool lives in ../appbuilder, shared with the
-# builders for sketch, lazurite and primula. Putting it on the path here keeps
+# zinnia builder (morion; once sketch, lazurite and primula). Putting it on the path here keeps
 # every existing flat import in this package working unchanged — `import
 # widgets` still finds the same module, it just is not stored here any more.
 # APPENDED, not inserted at 0: this package has its own `window` module and so

@@ -10,8 +10,9 @@ Active scope:
 
 - Enigma26 desktop app: `apps/enigma`
 - Enigma crypto/storage crates: `crates/rotor`, `protasius`
-- Active Zinnia app and shared file-locking crates: `apps/lazurite` (which
-  absorbed the Sketch and Primula editors), `crates/padova`, `crates/substrate`
+- Active Zinnia app and shared file-locking crates: `apps/morion` (formerly
+  Lazurite, which absorbed the Sketch and Primula editors), `crates/padova`,
+  `crates/substrate`
 - Orphaned remote-editor support libraries still present in the root workspaces:
   `packages/totoapi` and `crates/totoclient`
 
@@ -40,7 +41,7 @@ Out of active scope:
 | P2P transport | iroh QUIC and iroh-gossip; optional hosted relays/discovery | Normal Enigma rooms, direct invites, file transfer, calls | `apps/enigma/src-tauri/src/p2p_iroh.rs`. Relays should see MLS ciphertext for room payloads. |
 | Tor transport | Arti onion services and streams | Tor-mode Enigma rooms | `apps/enigma/src-tauri/src/p2p_tor.rs`. The elected captain forwards MLS ciphertext and should not have other members' group keys beyond its own membership. |
 | Topic derivation | BLAKE3 hash of room name | iroh gossip topics and Tor room naming helpers | `apps/enigma/src-tauri/src/p2p_iroh.rs`, `apps/enigma/src-tauri/src/p2p_tor.rs`. This is deterministic and not a secret by itself. |
-| Zinnia sealed files | `ZINNLOCK` frame with Argon2id + XChaCha20-Poly1305 | Sketch/Lazurite/Primula local locking through Padova/Substrate | `crates/padova/src/lock.rs`, `crates/substrate/src/lib.rs`. |
+| Zinnia sealed files | `ZINNLOCK` frame with Argon2id + XChaCha20-Poly1305 | Morion (formerly Sketch/Lazurite/Primula) local locking through Padova/Substrate; Morion also opens enigma's `ENIGLOCK` files | `crates/padova/src/lock.rs`, `crates/substrate/src/lib.rs`. |
 | Legacy platform files | Fernet read/detect path: AES-128-CBC + HMAC | Historical Toto/Zinnia sealed files only | `crates/rotor/gervasius/src/gervazy.rs`, `crates/substrate/src/lib.rs`. Current sealing writes XChaCha20-Poly1305. Treat legacy OpenSSL/Fernet support as migration scope only. |
 | Remote Toto support | HTTPS with rustls, WebPKI, optional SHA-256 cert fingerprint TOFU; bearer token in OS keyring or memory fallback | `crates/totoclient` and `packages/totoapi`, now orphaned after retiring the editors | No active app should depend on these today; decide whether to retire them too or audit them as supported libraries. |
 

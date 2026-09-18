@@ -35,7 +35,7 @@
 //! passphrase: same walk rules as the search, one padova seal per file,
 //! failures recorded and never undoing a success.
 //!
-//! `meta` is `.lazurite/metadata.json`: tags (plain text, by design, and
+//! `meta` is `.morion/metadata.json`: tags (plain text, by design, and
 //! said so) and the Security Mana ledger. Never a passphrase, never a byte
 //! of a file body.
 //!

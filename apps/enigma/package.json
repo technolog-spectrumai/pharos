@@ -2,7 +2,7 @@
   "name": "enigma-workspace",
   "private": true,
   "version": "0.1.10",
-  "description": "Monorepo for Enigma26 (serverless P2P chat, iroh + MLS) and Lazurite, the Zinnia file editor. Shared primitives in packages/, shared Rust in crates/.",
+  "description": "Monorepo for Enigma26 (serverless P2P chat, iroh + MLS) and Morion, the Zinnia file editor. Shared primitives in packages/, shared Rust in crates/.",
   "workspaces": [
     "packages/*",
     "apps/*"
