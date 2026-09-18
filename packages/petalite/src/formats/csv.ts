@@ -1,7 +1,7 @@
 // Reading CSV.
 //
-// Primula already WRITES it (`apps/primula/src/formats/csv.ts`, RFC 4180 with
-// proper quoting). Nothing in the repo read it until the writer needed to build
+// Lazurite's sheet already WRITES it (`apps/lazurite/src/formats/csv.ts`, RFC
+// 4180 with proper quoting). Nothing in the repo read it until the writer needed to build
 // a table from a pasted spreadsheet, and reading is the harder direction:
 //
 //   name,note
@@ -15,7 +15,7 @@
 // tracks whether it is inside quotes can tell those from real separators.
 //
 // So this is a character scan, not a split. It lives in petalite rather than in
-// one app because the moment Primula grows an importer there would otherwise be
+// one app because the moment the sheet grows an importer there would otherwise be
 // a second parser, and two parsers disagree at exactly these edges.
 
 /** Delimiters worth guessing between. A spreadsheet in a European locale
