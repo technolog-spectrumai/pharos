@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Lazurite — the writer: documents, decks, drawing and code, on the toto platform. Tauri 2 desktop app.",
+  "description": "Lazurite — the writer: documents, decks, notes, sheets and code, on the toto platform. Tauri 2 desktop app.",
   "scripts": {
     "dev": "vite",
     "dev:tauri": "node scripts/tauri-dev-server.mjs",
@@ -35,6 +35,8 @@
     "@tiptap/pm": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "@tiptap/vue-3": "^2.27.2",
+    "@univerjs/preset-sheets-core": "^0.25.1",
+    "@univerjs/presets": "^0.25.1",
     "ace-builds": "^1.44.0",
     "katex": "^0.16.47",
     "nanoid": "^5.1.16",

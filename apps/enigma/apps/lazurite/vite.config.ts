@@ -34,10 +34,14 @@ export default defineConfig({
       { find: /^padova\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/padova/src/components/$1", import.meta.url)) },
       { find: /^padova\/(.*)/, replacement: fileURLToPath(new URL("../../packages/padova/src/$1", import.meta.url)) },
       { find: /^padova$/, replacement: fileURLToPath(new URL("../../packages/padova/src/index.ts", import.meta.url)) },
+      // The drawing engine (the .svg editor's model, codec, canvas and toolbar).
+      { find: /^wisteria\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/components/$1", import.meta.url)) },
+      { find: /^wisteria\/(.*)/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/$1", import.meta.url)) },
+      { find: /^wisteria$/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/index.ts", import.meta.url)) },
       { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("../../packages/rakotis/src/$1", import.meta.url)) },
     ],
   },
-  optimizeDeps: { exclude: ["rakotis", "petalite", "padova"] },
+  optimizeDeps: { exclude: ["rakotis", "petalite", "padova", "wisteria"] },
 
   // Don't let Vite's overlay hide Rust compiler errors during `tauri dev`.
   clearScreen: false,
