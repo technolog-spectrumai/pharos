@@ -90,8 +90,12 @@ class AppSpec:
 
 #: The apps this builder family covers. Enigma is deliberately absent: it has
 #: its own builder with editions, signing and Android, and folding it in here
-#: would mean either losing that or forcing it on three apps that have none.
-ZINNIA_APPS = ("sketch", "lazurite", "primula")
+#: would mean either losing that or forcing it on apps that have none.
+#:
+#: One app now. Sketch and Primula were the other two; their editors moved into
+#: Lazurite, which opens drawings and sheets itself, and the apps were deleted.
+#: Kept a tuple so `--all`, the choices lists and the root check read the same.
+ZINNIA_APPS = ("lazurite",)
 
 
 def load(root: Path, slug: str) -> AppSpec:

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# The Zinnia Builder — a window for building sketch, lazurite and primula.
+# The Zinnia Builder — a window for building lazurite.
 #
 #   scripts/zinnia/builder.sh              open the window
 #   scripts/zinnia/builder.sh --check      report what it resolved, then exit
 #   scripts/zinnia/builder.sh targets      what this machine can package
-#   scripts/zinnia/builder.sh build sketch --bundles=deb,rpm
+#   scripts/zinnia/builder.sh build lazurite --bundles=deb,rpm
 #
 # Every argument is passed straight through to tools/zinnia_builder/main.py.
 # The GUI is a convenience over the same commands the build scripts run; it is
@@ -34,7 +34,7 @@ elif ! python3 -c "import PyQt6" >/dev/null 2>&1; then
     *)
       echo "The window needs PyQt6, which is not installed."
       echo "Either:  python3 -m venv $VENV && $VENV/bin/pip install -r $ROOT/tools/zinnia_builder/requirements.txt"
-      echo "Or use a subcommand, which needs no Qt:  $0 build sketch"
+      echo "Or use a subcommand, which needs no Qt:  $0 build lazurite"
       exit 1 ;;
   esac
 fi

@@ -10,8 +10,8 @@ Active scope:
 
 - Enigma26 desktop app: `apps/enigma`
 - Enigma crypto/storage crates: `crates/rotor`, `protasius`
-- Active Zinnia apps and shared file-locking crates: `apps/sketch`,
-  `apps/lazurite`, `apps/primula`, `crates/padova`, `crates/substrate`
+- Active Zinnia app and shared file-locking crates: `apps/lazurite` (which
+  absorbed the Sketch and Primula editors), `crates/padova`, `crates/substrate`
 - Orphaned remote-editor support libraries still present in the root workspaces:
   `packages/totoapi` and `crates/totoclient`
 

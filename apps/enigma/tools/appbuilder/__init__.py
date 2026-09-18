@@ -12,8 +12,7 @@ those are the ones that carry the hard-won knowledge:
 * which Linux package format the host can actually produce, and saying so
   rather than implying an .rpm built on Ubuntu will run on Fedora.
 
-Duplicating that three times for sketch, lazurite and primula would mean three
-copies of each fix. So it lives here, imported by all four builders.
+Duplicating that per app would mean a copy of each fix for every builder. So it lives here, imported by all four builders.
 
 **What is NOT here**: anything that knows what an app IS. The zinnia apps have
 no editions, no feature matrix and no signing story, and inventing one for them

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Zinnia Builder — build sketch, lazurite and primula, from a GUI or a script.
+"""Zinnia Builder — build lazurite, from a GUI or a script.
 
     python3 tools/zinnia_builder/main.py                 the window
     python3 tools/zinnia_builder/main.py --check         report what it resolved
-    python3 tools/zinnia_builder/main.py build sketch    headless, one app
-    python3 tools/zinnia_builder/main.py build --all     headless, all three
+    python3 tools/zinnia_builder/main.py build lazurite  headless, one app
+    python3 tools/zinnia_builder/main.py build --all     headless, every app
     python3 tools/zinnia_builder/main.py dev lazurite    run with hot reload
-    python3 tools/zinnia_builder/main.py android sketch  an APK
+    python3 tools/zinnia_builder/main.py android lazurite  an APK
 
 Both surfaces assemble their commands through `appbuilder.commands`, so the
 button and the flag run byte-identical builds. That is the whole reason the

@@ -1,13 +1,14 @@
 # Zinnia Builder
 
-A window — and a set of subcommands — for building **sketch**, **lazurite** and
-**primula**.
+A window — and a set of subcommands — for building **lazurite**, the Zinnia
+file editor. (Sketch and Primula used to be built here too; their editors now
+live in Lazurite.)
 
 ```
 scripts/zinnia/builder.sh                       the window
 scripts/zinnia/builder.sh targets               what this machine can package
-scripts/zinnia/builder.sh build sketch          headless, one app
-scripts/zinnia/builder.sh build --all --debug   all three, fast
+scripts/zinnia/builder.sh build lazurite        headless, one app
+scripts/zinnia/builder.sh build --all --debug   every app, fast
 scripts/zinnia/builder.sh dev lazurite          hot reload
 ```
 
