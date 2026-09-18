@@ -2,7 +2,7 @@
   "name": "enigma-workspace",
   "private": true,
   "version": "0.1.10",
-  "description": "Monorepo for Enigma26 (serverless P2P chat, iroh + MLS) and the Zinnia app set (sketch, lazurite, primula). Shared primitives in packages/, shared Rust in crates/.",
+  "description": "Monorepo for Enigma26 (serverless P2P chat, iroh + MLS) and Lazurite, the Zinnia file editor. Shared primitives in packages/, shared Rust in crates/.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -18,7 +18,7 @@
     "build:zinnia": "bash scripts/zinnia/build.sh",
     "build:frontends": "npm run build --workspaces --if-present",
     "test:rust": "cargo test --workspace",
-    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\" && cargo check -p sketch --features collab && cargo check -p sketch --features collab-mls && cargo check -p sketch --features persist && cargo check -p sketch --features document && cargo check -p sketch --features \"document persist collab-mls\"",
+    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\"",
     "test:all": "npm run test && npm run test:rust && npm run test:rust:net",
     "builder:zinnia": "bash scripts/zinnia/builder.sh"
   }
