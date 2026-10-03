@@ -1,14 +1,18 @@
 //! Workspace metadata: `.morion/metadata.json` at the root of the workspace.
 //!
-//! One small JSON file, plain text by design, holding two things:
+//! One small JSON file, plain text by design, holding three things:
 //!
 //! * **tags** — up to three short words per file, keyed by the file's path
 //!   relative to the root. They work for encrypted files exactly as for plain
 //!   ones, because they are about the path, not the contents; and for the same
 //!   reason they are NOT encrypted and the UI says so. A tag on an encrypted
 //!   file is a deliberate leak of one word about it.
-//! * **ledger** — the Security Mana ledger (see `mana.rs`): when, which action,
-//!   which file, what it cost, why.
+//! * **ledger** — the Security Mana history (see `mana.rs`): when, which
+//!   security action, which file, what it earned (or, for rows written by the
+//!   earlier price-per-action budget, what it cost), why.
+//! * **mana** — the Security Mana checkpoint: a level, the moment it was
+//!   true, and how many plain bytes the workspace held then. Everything else
+//!   about Mana is derived from it.
 //!
 //! What is never here: a passphrase, a decrypted byte, a search snippet, or
 //! anything else read out of a file body. The file is written atomically, and
@@ -27,11 +31,11 @@ pub const META_VERSION: u32 = 1;
 /// Tags per file. Three is the product decision: a label, not a taxonomy.
 pub const MAX_TAGS: usize = 3;
 pub const MAX_TAG_CHARS: usize = 32;
-/// Ledger rows kept. Old rows drop off the end; the meters only ever look a
-/// week back, and a history view wants recent, not everything.
+/// Ledger rows kept. Old rows drop off the end; the budget only ever looks a
+/// day back, and a history view wants recent, not everything.
 pub const MAX_LEDGER: usize = 500;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LedgerEntry {
     /// Milliseconds since the epoch.
     pub ts: u64,
@@ -40,24 +44,47 @@ pub struct LedgerEntry {
     /// Workspace-relative path, when the action was about one file or folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// Mana spent. Zero for an action that merely happened.
+    /// Mana spent. Only the earlier price-per-action budget spent any; its
+    /// rows keep what they cost, and every new row writes zero.
+    #[serde(default)]
     pub cost: u32,
+    /// Mana earned: a passphrase change. Absent when nothing was.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub gain: f64,
     /// One short sentence, a catalogue key the UI renders.
     pub note: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+fn is_zero(n: &f64) -> bool {
+    *n == 0.0
+}
+
+/// Where Security Mana stood at one moment. See `mana.rs` for what is derived
+/// from it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ManaCheckpoint {
+    pub level: f64,
+    /// Milliseconds since the epoch.
+    pub at: u64,
+    /// Bytes of plaintext in the workspace when it was taken: the drain from
+    /// then until the next checkpoint.
+    pub plain_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Metadata {
     pub version: u32,
     #[serde(default)]
     pub tags: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub ledger: Vec<LedgerEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mana: Option<ManaCheckpoint>,
 }
 
 impl Default for Metadata {
     fn default() -> Self {
-        Self { version: META_VERSION, tags: BTreeMap::new(), ledger: Vec::new() }
+        Self { version: META_VERSION, tags: BTreeMap::new(), ledger: Vec::new(), mana: None }
     }
 }
 
@@ -75,6 +102,19 @@ pub fn load(root: &Path) -> Result<Metadata, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Metadata::default()),
         Err(e) => Err(format!("meta: {e}")),
     }
+}
+
+/// Read, change and write back under one process-wide lock, so two commands
+/// running at once (a tag saved while the Mana checkpoint moves) cannot each
+/// write back a copy missing the other's change. Nothing is written when `f`
+/// fails.
+pub fn update<T>(root: &Path, f: impl FnOnce(&mut Metadata) -> Result<T, String>) -> Result<T, String> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _held = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut meta = load(root)?;
+    let out = f(&mut meta)?;
+    save(root, &meta)?;
+    Ok(out)
 }
 
 pub fn save(root: &Path, meta: &Metadata) -> Result<(), String> {
@@ -124,13 +164,14 @@ pub fn tags_of(root: &Path, given: &str) -> Result<Vec<String>, String> {
 pub fn set_tags(root: &Path, given: &str, tags: &[String]) -> Result<Vec<String>, String> {
     let key = key_for(root, given)?;
     let tags = normalise_tags(tags)?;
-    let mut meta = load(root)?;
-    if tags.is_empty() {
-        meta.tags.remove(&key);
-    } else {
-        meta.tags.insert(key, tags.clone());
-    }
-    save(root, &meta)?;
+    update(root, |meta| {
+        if tags.is_empty() {
+            meta.tags.remove(&key);
+        } else {
+            meta.tags.insert(key, tags.clone());
+        }
+        Ok(())
+    })?;
     Ok(tags)
 }
 

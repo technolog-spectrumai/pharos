@@ -28,9 +28,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import ModalPanel from "petalite/ModalPanel.vue";
 import LockModal from "padova/LockModal.vue";
 import { lockErrorKey, passphraseStatus, rememberPassphrase, sealFile, unsealFile } from "padova";
-import { sealedClose, sealedOpen, sealedOpenBytes, sealedWrite } from "../security/sealed";
+import { rekeyFile, sealedClose, sealedOpen, sealedOpenBytes, sealedWrite } from "../security/sealed";
 import ManaCost from "../security/ManaCost.vue";
-import { askMana, manaCharge, manaQuote, manaRecord, type ManaQuote } from "../security/mana";
+import { askMana, formatMana, manaRate, manaRecord, refreshMana } from "../security/mana";
 import { useI18n } from "vue-i18n";
 import TextEditor from "../editors/TextEditor.vue";
 import DocumentEditor from "../editors/DocumentEditor.vue";
@@ -164,24 +164,26 @@ function dropSession() {
   if (token !== null) void sealedClose(token).catch(() => undefined);
 }
 
-// The passphrase prompt: one modal, three uses (open into memory, encrypt,
-// decrypt permanently). The action it runs is set per use; the password it
-// collects goes to that action and nowhere else.
+// The passphrase prompt: one modal, four uses (open into memory, encrypt,
+// decrypt permanently, change the passphrase). The action it runs is set per
+// use; the passwords it collects go to that action and nowhere else.
+type LockMode = "lock" | "unlock" | "open" | "rekey";
+type LockAction = (password: string, remember: boolean, next?: string) => Promise<void>;
 const lockOpen = ref(false);
-const lockMode = ref<"lock" | "unlock" | "open">("open");
+const lockMode = ref<LockMode>("open");
 const lockName = ref("");
-const lockAction = ref<(password: string, remember: boolean) => Promise<void>>(async () => undefined);
-/** The Mana price shown inside the passphrase modal, when the action it
- *  guards costs any — one dialog, not two. */
-const lockQuote = ref<ManaQuote | null>(null);
+const lockAction = ref<LockAction>(async () => undefined);
+/** What the act does to Security Mana, shown inside the passphrase modal —
+ *  one dialog, not two. */
+const lockRate = ref<{ perHour: number; direction: "adds" | "saves" } | null>(null);
 const lockConsequence = ref("");
 /** Resolves when the modal closes, with whether the action ran. */
 let lockSettle: ((ok: boolean) => void) | null = null;
 
-function askPassphrase(mode: "lock" | "unlock" | "open", fileName: string,
-                       action: (password: string, remember: boolean) => Promise<void>,
-                       quote: ManaQuote | null = null, consequence = ""): Promise<boolean> {
-  lockQuote.value = quote;
+function askPassphrase(mode: LockMode, fileName: string, action: LockAction,
+                       rate: { perHour: number; direction: "adds" | "saves" } | null = null,
+                       consequence = ""): Promise<boolean> {
+  lockRate.value = rate;
   lockConsequence.value = consequence;
   lockMode.value = mode;
   lockName.value = fileName;
@@ -266,20 +268,15 @@ async function adoptSessionForSave(target: string): Promise<boolean> {
 }
 
 /** Open an encrypted file: with the remembered passphrase if there is one,
- *  otherwise by asking. The file on disk stays encrypted throughout.
- *
- *  Its plaintext is in memory and on screen while it is open, which costs
- *  Security Mana: the price is shown first (in the passphrase dialog, or on
- *  its own when no passphrase has to be typed) and charged only once the file
- *  has opened. A cancel or a wrong passphrase costs nothing. */
+ *  otherwise by asking. The file on disk stays encrypted throughout, so it
+ *  costs no Security Mana — Mana is spent by plain files on disk, not by what
+ *  is on screen. */
 async function openSealed(fileName: string, filePath: string, confirmed = false): Promise<boolean> {
   if (!confirmed && !(await confirmDiscard())) return false;
   fileError.value = "";
   if (await remembered()) {
-    if (!(await askMana("unlock_temp", 1, fileName, "mana.consequence.unlock_temp"))) return false;
     try {
       await adoptSealed(fileName, filePath, null);
-      await manaCharge("unlock_temp", 1, filePath);
       return true;
     } catch (err) {
       // The remembered passphrase is not this file's: ask. Anything else is
@@ -290,16 +287,14 @@ async function openSealed(fileName: string, filePath: string, confirmed = false)
       }
     }
   }
-  const quote = await manaQuote("unlock_temp", 1);
   return askPassphrase("open", fileName, async (password, remember) => {
     try {
       await adoptSealed(fileName, filePath, password);
     } catch (err) {
       throw inDialog(err, "open");
     }
-    await manaCharge("unlock_temp", 1, filePath);
     if (remember) await rememberPassphrase(password);
-  }, quote, "mana.consequence.unlock_temp");
+  });
 }
 
 /** Encrypt the open file on disk with a passphrase, and keep editing it
@@ -309,6 +304,7 @@ async function encryptFile(): Promise<boolean> {
   const target = path.value;
   if (target === null || dirty.value || isSealed.value) return false;
   fileError.value = "";
+  const rate = await manaRate(target);
   return askPassphrase("lock", name.value, async (password, remember) => {
     try {
       await sealFile(target, password);
@@ -330,10 +326,11 @@ async function encryptFile(): Promise<boolean> {
     }
     if (remember) await rememberPassphrase(password);
     await workspace.reprobe(target);
-    // Encrypting reduces exposure; it earns nothing and costs nothing, and it
-    // is kept in the history.
+    // Encrypting earns nothing: it stops this file's drain, and it is kept
+    // in the history.
     await manaRecord("encrypt_file", target);
-  });
+    await refreshMana();
+  }, rate ? { perHour: rate.plainPerHour, direction: "saves" } : null);
 }
 
 /** Decrypt the open file on disk, permanently. The buffer is already the
@@ -345,10 +342,15 @@ async function decryptFile(): Promise<boolean> {
   const finish = async () => {
     dropSession();
     await workspace.reprobe(target);
-    await manaCharge("decrypt_file", 1, target);
+    await manaRecord("decrypt_file", target);
+    await refreshMana();
   };
+  // What the plain file will cost an hour, said before it is written. When
+  // Rust cannot say (no workspace, off the desktop), a remembered passphrase
+  // decrypts without a word, as it always did.
+  const adds = (await manaRate(target))?.sealedPerHour ?? null;
   if (await remembered()) {
-    if (!(await askMana("decrypt_file", 1, name.value, "mana.consequence.decrypt_file"))) return false;
+    if (adds !== null && !(await askMana(name.value, "mana.consequence.decrypt_file", adds))) return false;
     try {
       await unsealFile(target, null);
       await finish();
@@ -360,7 +362,6 @@ async function decryptFile(): Promise<boolean> {
       }
     }
   }
-  const quote = await manaQuote("decrypt_file", 1);
   return askPassphrase("unlock", name.value, async (password, remember) => {
     try {
       await unsealFile(target, password);
@@ -370,7 +371,29 @@ async function decryptFile(): Promise<boolean> {
     await finish();
     // Remembered only once it proved to be this file's passphrase.
     if (remember) await rememberPassphrase(password);
-  }, quote, "mana.consequence.decrypt_file");
+  }, adds === null ? null : { perHour: adds, direction: "adds" }, "mana.consequence.decrypt_file");
+}
+
+/** Change the open encrypted file's passphrase. Rust re-encrypts it on disk
+ *  under a new key and moves this host's session along with it, so saves
+ *  carry on and the buffer — unsaved edits too — is never touched. It earns
+ *  Security Mana, which the notice beside the file name says. */
+async function changePassphrase(): Promise<boolean> {
+  const target = path.value;
+  if (target === null || !isSealed.value) return false;
+  fileError.value = "";
+  return askPassphrase("rekey", name.value, async (password, remember, next) => {
+    if (!next) return;
+    let gained = 0;
+    try {
+      ({ gained } = await rekeyFile(target, password, next));
+    } catch (err) {
+      throw inDialog(err, "open");
+    }
+    if (remember) await rememberPassphrase(next);
+    await refreshMana();
+    notice.value = gained > 0 ? t("mana.rekeyEarned", { gained: formatMana(gained) }) : t("mana.rekeyNoReward");
+  });
 }
 
 /** The file's editor, unless that editor refused it and the user asked to see
@@ -603,7 +626,7 @@ function openLocal(fileName: string, filePath: string, text: string) {
 }
 
 defineExpose({
-  newFile, openFile, saveFile, saveAs, exports, openLocal, openSealed, encryptFile, decryptFile, resync,
+  newFile, openFile, saveFile, saveAs, exports, openLocal, openSealed, encryptFile, decryptFile, changePassphrase, resync,
   name, path, generation, dirty, busy, canSave, hasFile, hasPath, hasWorkspace, isSealed, notice, fileError,
 });
 
@@ -750,7 +773,7 @@ onBeforeUnmount(() => {
                @done="lockDone(true)">
       <template #notice>
         <p v-if="lockConsequence" class="text-xs" data-testid="lock-consequence">{{ t(lockConsequence) }}</p>
-        <ManaCost v-if="lockQuote" :quote="lockQuote" />
+        <ManaCost v-if="lockRate" :per-hour="lockRate.perHour" :direction="lockRate.direction" />
       </template>
     </LockModal>
 

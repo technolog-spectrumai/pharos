@@ -20,7 +20,9 @@ const readOnlyName = isImageName;
 import SettingsView from "./views/SettingsView.vue";
 import TagModal from "./files/TagModal.vue";
 import ManaConfirm from "./security/ManaConfirm.vue";
-import { askMana, manaCharge } from "./security/mana";
+import ManaBar from "./security/ManaBar.vue";
+import ManaPrompt from "./security/ManaPrompt.vue";
+import { askMana, formatMana, manaRate } from "./security/mana";
 import { errorText } from "./files/fs";
 import { tagsGet } from "./files/tags";
 
@@ -108,6 +110,7 @@ type Host = {
   openSealed: (name: string, path: string) => Promise<boolean>;
   encryptFile: () => Promise<boolean>;
   decryptFile: () => Promise<boolean>;
+  changePassphrase: () => Promise<boolean>;
   resync: () => Promise<void>;
   name: string;
   path: string | null;
@@ -129,7 +132,14 @@ type Host = {
 const hostEl = ref<unknown>(null);
 const host = computed<Host | null>(() => (hostEl.value as Host | null) ?? null);
 
-const filesPanel = ref<{ focusSearch(): void } | null>(null);
+const filesPanel = ref<{ focusSearch(): void; reread(): Promise<void> } | null>(null);
+
+/** The Security Mana prompt encrypted some files: the tree, the search and
+ *  the open file all follow. */
+async function afterPrompt() {
+  await filesPanel.value?.reread();
+  await host.value?.resync();
+}
 
 /** A file picked in the sidepanel or a search hit. The host routes it. */
 function openFromFiles(payload: { kind: EditorKind; name: string; path: string; content: string }) {
@@ -146,9 +156,20 @@ async function openSealedFromFiles(payload: { name: string; path: string }) {
 
 // ── the file shield ─────────────────────────────────────────────────────────
 // Encryption is contextual: a shield beside the open file's name says whether
-// it is encrypted and offers to encrypt it, or to decrypt it permanently.
+// it is encrypted and offers to encrypt it, or to decrypt it permanently, or
+// to change its passphrase — and, for a plain file, what it costs in Security
+// Mana an hour.
 const shieldOpen = ref(false);
 watch(() => host.value?.name, () => { shieldOpen.value = false; });
+
+/** The open plain file's Security Mana an hour, read when the panel opens. */
+const shieldRate = ref<number | null>(null);
+watch(shieldOpen, async (isOpen) => {
+  shieldRate.value = null;
+  const h = host.value;
+  if (!isOpen || !h?.path || h.isSealed) return;
+  shieldRate.value = (await manaRate(h.path))?.plainPerHour ?? null;
+});
 
 /** Why encrypting is not offered right now, as a catalogue key; "" when it is. */
 const shieldBlocker = computed(() => {
@@ -166,6 +187,10 @@ async function shieldEncrypt() {
 async function shieldDecrypt() {
   shieldOpen.value = false;
   await host.value?.decryptFile();
+}
+async function shieldRekey() {
+  shieldOpen.value = false;
+  await host.value?.changePassphrase();
 }
 
 // ── the file tags ───────────────────────────────────────────────────────────
@@ -234,11 +259,13 @@ async function runExport(item: ExportCommand) {
       await item.run();
       return;
     }
-    if (!(await askMana("export_plain", 1, h.name, "mana.consequence.export_plain"))) return;
-    if ((await item.run()) === true) await manaCharge("export_plain", 1, h.path);
+    // Plaintext out of an encrypted file: said first. It costs Mana only if
+    // it lands in the workspace, where the next look counts it.
+    if (!(await askMana(h.name, "mana.consequence.export_plain", null))) return;
+    await item.run();
   } catch (err) {
     // A failed write (a full disk, a refused location) is said beside the
-    // file name, not left to the fatal-error overlay. Nothing was charged.
+    // file name, not left to the fatal-error overlay.
     exportError.value = `${t("file.exportFailed")} ${errorText(err)}`;
   }
 }
@@ -289,236 +316,265 @@ function isDisabled(id: string): boolean {
 <template>
   <div class="flex h-screen flex-col bg-primary-bg-light text-text-main-light
               dark:bg-primary-bg-dark dark:text-text-main-dark transition-colors">
-    <header class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 border-accent-2 dark:border-accent-1">
-      <!-- The menu button stands where the wordmark used to, beside the mark. Escape closes it;
-           the backdrop below catches an outside click without a document-level
-           listener to leak. It is also the only way to Security and Settings:
-           the top bar belongs to the open file. -->
-      <!-- The mark, first in the bar. Brighter in dark mode: this blue on the
-           near-black background would otherwise read as a shadow. -->
-      <img :src="appIcon" :alt="brand.name" :title="brand.name" data-testid="app-icon"
-           class="h-7 w-7 shrink-0 select-none dark:brightness-150" draggable="false" />
-      <div class="relative shrink-0" @keydown.esc="menuOpen = false">
-        <button type="button" data-testid="app-menu"
-                class="relative z-50 inline-flex h-8 w-8 items-center justify-center rounded-lg
-                       border border-accent-2 transition hover:opacity-80 dark:border-accent-1"
-                :title="brand.name" :aria-label="t('nav.menu')"
-                aria-haspopup="menu" :aria-expanded="menuOpen"
-                @click="menuOpen = !menuOpen">
-          <font-awesome-icon icon="bars" />
-        </button>
+    <!-- Three parts: the open file's controls on the left, the mark in the
+         centre, the notices and the two toggles on the right. The halves are
+         flex-1 from a zero basis, so they are always equal and the mark sits
+         in the exact centre whatever either side holds; a long file name
+         truncates inside its half instead of pushing the mark aside. -->
+    <header class="flex shrink-0 items-center gap-2 border-b px-4 py-2 border-accent-2 dark:border-accent-1">
+      <div class="flex min-w-0 flex-1 items-center gap-2" data-testid="header-left">
+        <!-- The menu button opens the bar. Escape closes it; the backdrop below
+             catches an outside click without a document-level listener to
+             leak. It is also the only way to Settings: the top bar belongs to
+             the open file, and workspace security lives beside the files. -->
+        <div class="relative shrink-0" @keydown.esc="menuOpen = false">
 
-        <div v-if="menuOpen" class="fixed inset-0 z-40" @click="menuOpen = false" />
-        <div v-if="menuOpen" role="menu" data-testid="app-menu-panel"
-             class="absolute left-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border shadow-xl
-                    border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark">
-          <!-- The workspace: the folder everything below happens in. Unfolds
-               to the current folder, the recent ones, and one line saying what
-               a workspace is. -->
-          <button type="button" role="menuitem" data-testid="menu-workspace"
-                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition hover:bg-accent-light/10"
-                  :aria-expanded="workspaceOpen" @click="workspaceOpen = !workspaceOpen">
-            <font-awesome-icon icon="folder" class="w-4 opacity-70" />
-            <span class="min-w-0 flex-1 truncate">
-              {{ t("workspace.title") }}
-              <span class="opacity-60" data-testid="menu-workspace-name">
-                {{ workspace.root.value ? baseName(workspace.root.value) : t("workspace.none") }}
+          <button type="button" data-testid="app-menu"
+                  class="relative z-50 inline-flex h-8 w-8 items-center justify-center rounded-lg
+                         border border-accent-2 transition hover:opacity-80 dark:border-accent-1"
+                  :title="brand.name" :aria-label="t('nav.menu')"
+                  aria-haspopup="menu" :aria-expanded="menuOpen"
+                  @click="menuOpen = !menuOpen">
+            <font-awesome-icon icon="bars" />
+          </button>
+
+          <div v-if="menuOpen" class="fixed inset-0 z-40" @click="menuOpen = false" />
+          <div v-if="menuOpen" role="menu" data-testid="app-menu-panel"
+               class="absolute left-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border shadow-xl
+                      border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark">
+            <!-- The workspace: the folder everything below happens in. Unfolds
+                 to the current folder, the recent ones, and one line saying what
+                 a workspace is. -->
+            <button type="button" role="menuitem" data-testid="menu-workspace"
+                    class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition hover:bg-accent-light/10"
+                    :aria-expanded="workspaceOpen" @click="workspaceOpen = !workspaceOpen">
+              <font-awesome-icon icon="folder" class="w-4 opacity-70" />
+              <span class="min-w-0 flex-1 truncate">
+                {{ t("workspace.title") }}
+                <span class="opacity-60" data-testid="menu-workspace-name">
+                  {{ workspace.root.value ? baseName(workspace.root.value) : t("workspace.none") }}
+                </span>
               </span>
-            </span>
-            <font-awesome-icon :icon="workspaceOpen ? 'chevron-down' : 'chevron-right'" class="w-3 opacity-50" />
-          </button>
-          <template v-if="workspaceOpen">
-            <p v-if="workspace.root.value" class="truncate py-1 pl-9 pr-3 text-[11px] opacity-50"
-               :title="workspace.root.value" data-testid="menu-workspace-path">{{ workspace.root.value }}</p>
-            <button type="button" role="menuitem" data-testid="menu-workspace-pick"
-                    class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition hover:bg-accent-light/10"
-                    @click="pickWorkspace">
-              <font-awesome-icon icon="folder-open" class="w-4 opacity-70" />
-              {{ t(workspace.root.value ? "workspace.change" : "workspace.pick") }}
+              <font-awesome-icon :icon="workspaceOpen ? 'chevron-down' : 'chevron-right'" class="w-3 opacity-50" />
             </button>
-            <p v-if="recentWorkspaces.length" class="pb-0.5 pl-9 pr-3 pt-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-50">
-              {{ t("workspace.recent") }}
-            </p>
-            <button v-for="(path, i) in recentWorkspaces" :key="path" type="button" role="menuitem"
-                    :data-testid="`menu-workspace-recent-${i}`" :title="path"
-                    class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition hover:bg-accent-light/10"
-                    @click="switchWorkspace(path)">
-              <font-awesome-icon icon="clock-rotate-left" class="w-4 opacity-70" />
-              <span class="truncate">{{ baseName(path) }}</span>
-            </button>
-            <p class="px-3 pb-2 pt-1.5 text-[11px] leading-snug opacity-60" data-testid="menu-workspace-hint">
-              {{ t("workspace.hint") }}
-            </p>
-          </template>
-          <div class="border-t border-current/10" />
+            <template v-if="workspaceOpen">
+              <p v-if="workspace.root.value" class="truncate py-1 pl-9 pr-3 text-[11px] opacity-50"
+                 :title="workspace.root.value" data-testid="menu-workspace-path">{{ workspace.root.value }}</p>
+              <button type="button" role="menuitem" data-testid="menu-workspace-pick"
+                      class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition hover:bg-accent-light/10"
+                      @click="pickWorkspace">
+                <font-awesome-icon icon="folder-open" class="w-4 opacity-70" />
+                {{ t(workspace.root.value ? "workspace.change" : "workspace.pick") }}
+              </button>
+              <p v-if="recentWorkspaces.length" class="pb-0.5 pl-9 pr-3 pt-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+                {{ t("workspace.recent") }}
+              </p>
+              <button v-for="(path, i) in recentWorkspaces" :key="path" type="button" role="menuitem"
+                      :data-testid="`menu-workspace-recent-${i}`" :title="path"
+                      class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition hover:bg-accent-light/10"
+                      @click="switchWorkspace(path)">
+                <font-awesome-icon icon="clock-rotate-left" class="w-4 opacity-70" />
+                <span class="truncate">{{ baseName(path) }}</span>
+              </button>
+              <p class="px-3 pb-2 pt-1.5 text-[11px] leading-snug opacity-60" data-testid="menu-workspace-hint">
+                {{ t("workspace.hint") }}
+              </p>
+            </template>
+            <div class="border-t border-current/10" />
 
-          <!-- New unfolds in place: the file's kind is the one thing a file
-               that does not exist yet cannot tell the app. -->
-          <button type="button" role="menuitem" data-testid="menu-new"
-                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition
-                         hover:bg-accent-light/10 disabled:opacity-40 disabled:hover:bg-transparent"
-                  :aria-expanded="newOpen" :disabled="isDisabled('new')"
-                  @click="newOpen = !newOpen">
-            <font-awesome-icon icon="file-circle-plus" class="w-4 opacity-70" />
-            <span class="flex-1">{{ t("file.new") }}</span>
-            <font-awesome-icon :icon="newOpen ? 'chevron-down' : 'chevron-right'" class="w-3 opacity-50" />
-          </button>
-          <template v-if="newOpen">
-            <button v-for="item in NEW_FILE_KINDS" :key="item.kind" type="button" role="menuitem"
-                    :data-testid="`menu-new-${item.kind}`"
-                    class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition
-                           hover:bg-accent-light/10"
-                    @click="runNew(item.kind)">
+            <!-- New unfolds in place: the file's kind is the one thing a file
+                 that does not exist yet cannot tell the app. -->
+            <button type="button" role="menuitem" data-testid="menu-new"
+                    class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition
+                           hover:bg-accent-light/10 disabled:opacity-40 disabled:hover:bg-transparent"
+                    :aria-expanded="newOpen" :disabled="isDisabled('new')"
+                    @click="newOpen = !newOpen">
+              <font-awesome-icon icon="file-circle-plus" class="w-4 opacity-70" />
+              <span class="flex-1">{{ t("file.new") }}</span>
+              <font-awesome-icon :icon="newOpen ? 'chevron-down' : 'chevron-right'" class="w-3 opacity-50" />
+            </button>
+            <template v-if="newOpen">
+              <button v-for="item in NEW_FILE_KINDS" :key="item.kind" type="button" role="menuitem"
+                      :data-testid="`menu-new-${item.kind}`"
+                      class="flex w-full items-center gap-2.5 py-1.5 pl-9 pr-3 text-left text-sm transition
+                             hover:bg-accent-light/10"
+                      @click="runNew(item.kind)">
+                <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
+                {{ t(item.labelKey) }}
+              </button>
+            </template>
+
+            <button v-for="item in MENU_ITEMS" :key="item.id" type="button" role="menuitem"
+                    class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition
+                           hover:bg-accent-light/10 disabled:opacity-40 disabled:hover:bg-transparent"
+                    :data-testid="`menu-${item.id}`"
+                    :disabled="isDisabled(item.id)"
+                    @click="runCommand(item)">
               <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
               {{ t(item.labelKey) }}
             </button>
-          </template>
+            <button v-for="(item, i) in exportItems" :key="item.labelKey" type="button" role="menuitem"
+                    class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm
+                           transition hover:bg-accent-light/10 disabled:opacity-40"
+                    :class="i === 0 ? 'border-t border-current/10' : ''"
+                    :data-testid="i === 0 ? 'menu-export' : `menu-export-${i}`"
+                    :disabled="host?.busy"
+                    @click="runExport(item)">
+              <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
+              {{ t(item.labelKey) }}
+            </button>
 
-          <button v-for="item in MENU_ITEMS" :key="item.id" type="button" role="menuitem"
-                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition
-                         hover:bg-accent-light/10 disabled:opacity-40 disabled:hover:bg-transparent"
-                  :data-testid="`menu-${item.id}`"
-                  :disabled="isDisabled(item.id)"
-                  @click="runCommand(item)">
-            <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
-            {{ t(item.labelKey) }}
-          </button>
-          <button v-for="(item, i) in exportItems" :key="item.labelKey" type="button" role="menuitem"
-                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm
-                         transition hover:bg-accent-light/10 disabled:opacity-40"
-                  :class="i === 0 ? 'border-t border-current/10' : ''"
-                  :data-testid="i === 0 ? 'menu-export' : `menu-export-${i}`"
-                  :disabled="host?.busy"
-                  @click="runExport(item)">
-            <font-awesome-icon :icon="item.icon" class="w-4 opacity-70" />
-            {{ t(item.labelKey) }}
-          </button>
-
-          <div class="border-t border-current/10" />
-          <button v-for="(spec, id) in MENU_VIEWS" :key="id" type="button" role="menuitem"
-                  :data-testid="`menu-${id}`"
-                  class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition hover:bg-accent-light/10"
-                  @click="openView(id)">
-            <font-awesome-icon :icon="spec.icon" class="w-4 opacity-70" />
-            {{ t(spec.labelKey) }}
-          </button>
+            <div class="border-t border-current/10" />
+            <button v-for="(spec, id) in MENU_VIEWS" :key="id" type="button" role="menuitem"
+                    :data-testid="`menu-${id}`"
+                    class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition hover:bg-accent-light/10"
+                    @click="openView(id)">
+              <font-awesome-icon :icon="spec.icon" class="w-4 opacity-70" />
+              {{ t(spec.labelKey) }}
+            </button>
+          </div>
         </div>
-      </div>
 
-      <button type="button" data-testid="files-toggle"
-              class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border
-                     transition hover:opacity-80"
-              :class="filesOpen
-                ? 'border-transparent bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
-                : 'border-accent-2 dark:border-accent-1'"
-              :title="t('files.toggle')" :aria-label="t('files.toggle')"
-              :aria-pressed="filesOpen"
-              @click="filesOpen = !filesOpen">
-        <font-awesome-icon icon="folder-open" />
-      </button>
-
-      <!-- What is on screen: the open file with its unsaved marker, or the
-           view that is standing in front of it and the way back. -->
-      <p v-if="view !== 'editor'" class="flex min-w-0 items-center gap-1.5" data-testid="view-title">
-        <font-awesome-icon :icon="VIEW_LABELS[view].icon" class="opacity-70" />
-        <span class="truncate text-sm font-semibold">{{ t(VIEW_LABELS[view].labelKey) }}</span>
-        <button type="button" data-testid="view-close"
-                class="ml-1 inline-flex h-6 w-6 items-center justify-center rounded opacity-60 transition hover:opacity-100"
-                :title="t('common.close')" :aria-label="t('common.close')"
-                @click="showView('editor')">
-          <font-awesome-icon icon="xmark" />
-        </button>
-      </p>
-      <p v-else-if="host?.hasFile" class="flex min-w-0 items-center gap-1.5">
-        <span class="truncate text-sm font-semibold" data-testid="file-name">{{ host.name }}</span>
-        <span v-if="host.dirty" class="shrink-0 opacity-60" :title="t('file.unsavedTitle')">•</span>
-      </p>
-      <!-- The shield: whether THIS file is encrypted, and the two things you
-           can do about that. Beside the name, because that is what it is
-           about; the folder's shield sits in the pane, beside the folder. -->
-      <div v-if="view === 'editor' && host?.hasFile" class="relative shrink-0" @keydown.esc="shieldOpen = false">
-        <button type="button" data-testid="file-shield"
-                class="inline-flex h-7 w-7 items-center justify-center rounded-lg border transition hover:opacity-80"
-                :class="host.isSealed
+        <button type="button" data-testid="files-toggle"
+                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border
+                       transition hover:opacity-80"
+                :class="filesOpen
                   ? 'border-transparent bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
                   : 'border-accent-2 dark:border-accent-1'"
-                :title="t(host.isSealed ? 'shield.statusSealedShort' : 'shield.statusPlain')"
-                :aria-label="t('shield.title')" aria-haspopup="dialog" :aria-expanded="shieldOpen"
-                :data-sealed="host.isSealed ? '1' : '0'"
-                @click="shieldOpen = !shieldOpen">
-          <font-awesome-icon icon="shield-halved" />
+                :title="t('files.toggle')" :aria-label="t('files.toggle')"
+                :aria-pressed="filesOpen"
+                @click="filesOpen = !filesOpen">
+          <font-awesome-icon icon="folder-open" />
         </button>
-        <div v-if="shieldOpen" class="fixed inset-0 z-40" @click="shieldOpen = false" />
-        <div v-if="shieldOpen" role="dialog" data-testid="file-shield-panel"
-             class="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border p-3 shadow-xl
-                    border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark">
-          <p class="flex items-center gap-2 text-sm font-semibold">
-            <font-awesome-icon :icon="host.isSealed ? 'lock' : 'lock-open'" class="opacity-70" />
-            {{ t("shield.title") }}
-          </p>
-          <p class="mt-1 text-xs opacity-80" data-testid="file-shield-status">
-            {{ t(!host.isSealed ? 'shield.statusPlain' : readOnlyName(host.name) ? 'shield.statusSealedImage' : 'shield.statusSealed') }}
-          </p>
-          <div class="mt-3 flex flex-col gap-1.5">
-            <button v-if="!host.isSealed" type="button" data-testid="file-shield-encrypt"
-                    class="rounded-lg border border-accent-2 px-3 py-1.5 text-left text-sm transition
-                           hover:bg-accent-light/10 disabled:opacity-40 dark:border-accent-1"
-                    :disabled="Boolean(shieldBlocker) || host.busy" @click="shieldEncrypt">
-              <font-awesome-icon icon="lock" class="mr-1.5 w-4 opacity-70" />{{ t("shield.encrypt") }}
-            </button>
-            <button v-else type="button" data-testid="file-shield-decrypt"
-                    class="rounded-lg border border-accent-2 px-3 py-1.5 text-left text-sm transition
-                           hover:bg-accent-light/10 disabled:opacity-40 dark:border-accent-1"
-                    :disabled="Boolean(shieldBlocker) || host.busy" @click="shieldDecrypt">
-              <font-awesome-icon icon="lock-open" class="mr-1.5 w-4 opacity-70" />{{ t("shield.decrypt") }}
-            </button>
-            <p v-if="shieldBlocker" class="text-xs opacity-60" data-testid="file-shield-blocker">{{ t(shieldBlocker) }}</p>
+
+        <!-- What is on screen: the open file with its unsaved marker, or the
+             view that is standing in front of it and the way back. -->
+        <p v-if="view !== 'editor'" class="flex min-w-0 items-center gap-1.5" data-testid="view-title">
+          <font-awesome-icon :icon="VIEW_LABELS[view].icon" class="opacity-70" />
+          <span class="truncate text-sm font-semibold">{{ t(VIEW_LABELS[view].labelKey) }}</span>
+          <button type="button" data-testid="view-close"
+                  class="ml-1 inline-flex h-6 w-6 items-center justify-center rounded opacity-60 transition hover:opacity-100"
+                  :title="t('common.close')" :aria-label="t('common.close')"
+                  @click="showView('editor')">
+            <font-awesome-icon icon="xmark" />
+          </button>
+        </p>
+        <p v-else-if="host?.hasFile" class="flex min-w-0 items-center gap-1.5">
+          <span class="truncate text-sm font-semibold" data-testid="file-name">{{ host.name }}</span>
+          <span v-if="host.dirty" class="shrink-0 opacity-60" :title="t('file.unsavedTitle')">•</span>
+        </p>
+        <!-- The shield: whether THIS file is encrypted, and the two things you
+             can do about that. Beside the name, because that is what it is
+             about; the folder's shield sits in the pane, beside the folder. -->
+        <div v-if="view === 'editor' && host?.hasFile" class="relative shrink-0" @keydown.esc="shieldOpen = false">
+          <button type="button" data-testid="file-shield"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded-lg border transition hover:opacity-80"
+                  :class="host.isSealed
+                    ? 'border-transparent bg-accent-light text-primary-bg-light dark:bg-accent-dark dark:text-primary-bg-dark'
+                    : 'border-accent-2 dark:border-accent-1'"
+                  :title="t(host.isSealed ? 'shield.statusSealedShort' : 'shield.statusPlain')"
+                  :aria-label="t('shield.title')" aria-haspopup="dialog" :aria-expanded="shieldOpen"
+                  :data-sealed="host.isSealed ? '1' : '0'"
+                  @click="shieldOpen = !shieldOpen">
+            <font-awesome-icon icon="shield-halved" />
+          </button>
+          <div v-if="shieldOpen" class="fixed inset-0 z-40" @click="shieldOpen = false" />
+          <div v-if="shieldOpen" role="dialog" data-testid="file-shield-panel"
+               class="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border p-3 shadow-xl
+                      border-accent-2 bg-bubble-bg-light dark:border-accent-1 dark:bg-bubble-bg-dark">
+            <p class="flex items-center gap-2 text-sm font-semibold">
+              <font-awesome-icon :icon="host.isSealed ? 'lock' : 'lock-open'" class="opacity-70" />
+              {{ t("shield.title") }}
+            </p>
+            <p class="mt-1 text-xs opacity-80" data-testid="file-shield-status">
+              {{ t(!host.isSealed ? 'shield.statusPlain' : readOnlyName(host.name) ? 'shield.statusSealedImage' : 'shield.statusSealed') }}
+            </p>
+            <p v-if="!host.isSealed && shieldRate !== null" class="mt-1 text-xs" data-testid="file-shield-rate">
+              <font-awesome-icon icon="droplet" class="mr-1 opacity-60" />{{ t("mana.rowRate", { rate: formatMana(shieldRate) }) }}
+            </p>
+            <p v-else-if="host.isSealed" class="mt-1 text-xs opacity-70" data-testid="file-shield-rate">
+              <font-awesome-icon icon="droplet" class="mr-1 opacity-60" />{{ t("mana.sealedFree") }}
+            </p>
+            <div class="mt-3 flex flex-col gap-1.5">
+              <button v-if="!host.isSealed" type="button" data-testid="file-shield-encrypt"
+                      class="rounded-lg border border-accent-2 px-3 py-1.5 text-left text-sm transition
+                             hover:bg-accent-light/10 disabled:opacity-40 dark:border-accent-1"
+                      :disabled="Boolean(shieldBlocker) || host.busy" @click="shieldEncrypt">
+                <font-awesome-icon icon="lock" class="mr-1.5 w-4 opacity-70" />{{ t("shield.encrypt") }}
+              </button>
+              <button v-else type="button" data-testid="file-shield-decrypt"
+                      class="rounded-lg border border-accent-2 px-3 py-1.5 text-left text-sm transition
+                             hover:bg-accent-light/10 disabled:opacity-40 dark:border-accent-1"
+                      :disabled="Boolean(shieldBlocker) || host.busy" @click="shieldDecrypt">
+                <font-awesome-icon icon="lock-open" class="mr-1.5 w-4 opacity-70" />{{ t("shield.decrypt") }}
+              </button>
+              <!-- Unsaved edits are no reason to wait: the buffer is not
+                   touched, and the session follows the new key. -->
+              <button v-if="host.isSealed" type="button" data-testid="file-shield-rekey"
+                      class="rounded-lg border border-accent-2 px-3 py-1.5 text-left text-sm transition
+                             hover:bg-accent-light/10 disabled:opacity-40 dark:border-accent-1"
+                      :disabled="!host.hasPath || host.busy" @click="shieldRekey">
+                <font-awesome-icon icon="key" class="mr-1.5 w-4 opacity-70" />{{ t("shield.rekey") }}
+              </button>
+              <p v-if="shieldBlocker" class="text-xs opacity-60" data-testid="file-shield-blocker">{{ t(shieldBlocker) }}</p>
+            </div>
+            <p class="mt-3 border-t border-current/10 pt-2 text-[11px] leading-snug opacity-60" data-testid="file-shield-limits">
+              {{ t("shield.limits") }}
+            </p>
           </div>
-          <p class="mt-3 border-t border-current/10 pt-2 text-[11px] leading-snug opacity-60" data-testid="file-shield-limits">
-            {{ t("shield.limits") }}
-          </p>
         </div>
+        <!-- The tags: three words at most, shown as chips, edited in a modal.
+             Only for a file that exists on disk — a tag is filed by path. -->
+        <button v-if="view === 'editor' && host?.hasPath" type="button" data-testid="file-tags"
+                class="inline-flex h-7 min-w-0 max-w-64 items-center gap-1.5 rounded-lg border border-accent-2 px-2
+                       text-xs transition hover:opacity-80 dark:border-accent-1"
+                :title="t('tags.title')" :aria-label="t('tags.title')" @click="tagsOpen = true">
+          <font-awesome-icon icon="tag" class="opacity-60" />
+          <span v-if="!tags.length" class="opacity-50">{{ t("tags.none") }}</span>
+          <span v-for="(tag, i) in tags" :key="tag" :data-testid="`file-tag-${i}`"
+                class="truncate rounded bg-accent-light/15 px-1.5 py-0.5">{{ tag }}</span>
+        </button>
       </div>
-      <!-- The tags: three words at most, shown as chips, edited in a modal.
-           Only for a file that exists on disk — a tag is filed by path. -->
-      <button v-if="view === 'editor' && host?.hasPath" type="button" data-testid="file-tags"
-              class="inline-flex h-7 max-w-64 items-center gap-1.5 rounded-lg border border-accent-2 px-2
-                     text-xs transition hover:opacity-80 dark:border-accent-1"
-              :title="t('tags.title')" :aria-label="t('tags.title')" @click="tagsOpen = true">
-        <font-awesome-icon icon="tag" class="opacity-60" />
-        <span v-if="!tags.length" class="opacity-50">{{ t("tags.none") }}</span>
-        <span v-for="(tag, i) in tags" :key="tag" :data-testid="`file-tag-${i}`"
-              class="truncate rounded bg-accent-light/15 px-1.5 py-0.5">{{ tag }}</span>
-      </button>
-      <ManaConfirm />
-      <TagModal v-if="host?.path" :open="tagsOpen" :name="host.name" :path="host.path" :sealed="host.isSealed"
-                @update:open="tagsOpen = $event" @saved="tags = $event" />
 
-      <span class="flex-1" />
+      <!-- The mark, in the centre. Brighter in dark mode: this blue on the
+           near-black background would otherwise read as a shadow. -->
+      <img :src="appIcon" :alt="brand.name" :title="brand.name" data-testid="app-icon"
+           class="h-7 w-7 shrink-0 select-none dark:brightness-150" draggable="false" />
 
-      <p v-if="view === 'editor' && host?.notice" class="shrink-0 text-xs opacity-60">{{ host.notice }}</p>
-      <p v-if="view === 'editor' && host?.fileError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="file-error">
-        {{ host.fileError }}
-      </p>
-      <p v-if="view === 'editor' && exportError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="export-error">
-        {{ exportError }}
-      </p>
+      <div class="flex min-w-0 flex-1 items-center justify-end gap-2" data-testid="header-right">
+        <p v-if="view === 'editor' && host?.notice" class="shrink-0 text-xs opacity-60">{{ host.notice }}</p>
+        <p v-if="view === 'editor' && host?.fileError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="file-error">
+          {{ host.fileError }}
+        </p>
+        <p v-if="view === 'editor' && exportError" class="min-w-0 truncate text-xs text-warn-dark" data-testid="export-error">
+          {{ exportError }}
+        </p>
 
-      <button type="button" @click="switchLocale"
-              class="rounded-lg border px-2.5 py-1 text-xs border-accent-2 dark:border-accent-1">
-        {{ i18n.global.locale.value === "en" ? "PL" : "EN" }}
-      </button>
-      <!-- Icon, not a word: zenobia's header shows the CURRENT mode (moon while
-           dark, sun while light) and this should read the same way across the
-           two apps. The label stays for screen readers and the tooltip. -->
-      <button type="button" data-testid="dark-toggle" @click="dark = !dark"
-              :title="dark ? t('nav.themeDark') : t('nav.themeLight')"
-              :aria-label="dark ? t('nav.themeDark') : t('nav.themeLight')"
-              class="inline-flex h-7 w-7 items-center justify-center rounded-lg border
-                     border-accent-2 transition hover:opacity-80 dark:border-accent-1">
-        <font-awesome-icon :icon="dark ? 'moon' : 'sun'" />
-      </button>
+        <!-- Security Mana: one health bar for the plain files on disk.
+             Opens workspace security, where it is explained. -->
+        <ManaBar @open="showView('security')" />
+
+        <button type="button" @click="switchLocale"
+                class="shrink-0 rounded-lg border px-2.5 py-1 text-xs border-accent-2 dark:border-accent-1">
+          {{ i18n.global.locale.value === "en" ? "PL" : "EN" }}
+        </button>
+        <!-- Icon, not a word: zenobia's header shows the CURRENT mode (moon while
+             dark, sun while light) and this should read the same way across the
+             two apps. The label stays for screen readers and the tooltip. -->
+        <button type="button" data-testid="dark-toggle" @click="dark = !dark"
+                :title="dark ? t('nav.themeDark') : t('nav.themeLight')"
+                :aria-label="dark ? t('nav.themeDark') : t('nav.themeLight')"
+                class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border
+                       border-accent-2 transition hover:opacity-80 dark:border-accent-1">
+          <font-awesome-icon :icon="dark ? 'moon' : 'sun'" />
+        </button>
+      </div>
     </header>
+
+    <ManaConfirm />
+    <ManaPrompt @done="afterPrompt" />
+    <TagModal v-if="host?.path" :open="tagsOpen" :name="host.name" :path="host.path" :sealed="host.isSealed"
+              @update:open="tagsOpen = $event" @saved="tags = $event" />
 
     <div class="flex min-h-0 flex-1">
       <!-- The panel is MOUNTED once and hidden, not destroyed: it holds the

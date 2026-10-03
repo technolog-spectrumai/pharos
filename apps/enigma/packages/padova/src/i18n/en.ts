@@ -23,6 +23,15 @@ export default {
     remember: "Remember this passphrase, so I am not asked again",
     passwordRequired: "Enter the password.",
     passwordMismatch: "Those two do not match.",
+    rekeyTitle: "Change this file’s passphrase",
+    rekeyHint: "The file is encrypted again under a new key, and only the new passphrase opens it. Its contents are decrypted in memory for a moment and never written to disk unencrypted.",
+    currentPassword: "Current password",
+    newPassword: "New password",
+    confirmNew: "Repeat the new password",
+    rekey: "Change passphrase",
+    rememberNew: "Remember the new passphrase, so I am not asked again",
+    newRequired: "Enter the new password.",
+    samePassword: "The new password is the same as the current one.",
     errors: {
       no_passphrase: "No password was given, and none is remembered.",
       wrong_password: "Wrong password, or the file is damaged. Nothing was changed.",
@@ -32,6 +41,7 @@ export default {
       legacy_format: "This file was encrypted by the platform. Its key settings lived on the server, so it cannot be opened here.",
       crypto: "That encrypted file is damaged. Nothing was changed.",
       changed_on_disk: "That file changed on disk while it was open. Nothing was written; open it again.",
+      same_passphrase: "The new password is the same as the current one. Nothing was changed.",
     },
   },
   security: {

@@ -13,12 +13,17 @@
 // picks the editor from the file. Nothing here can save, delete or rename — a
 // panel that could would be a second, quieter path to writing over your work.
 //
+// Each plain file shows what it costs in Security Mana an hour, beside its
+// size: the price is Rust's (`mana_prices`), the size the listing's. An
+// encrypted file costs nothing, and shows a key to change its passphrase
+// instead.
+//
 // The workspace search sits in the same panel and ends in the same place: a
 // hit is a path, and a path opens through `openEntry` exactly as a clicked
 // row does. One way into an editor. While a query is typed the results stand
 // where the tree was — they cover the whole workspace, not the folders that
 // happen to be open.
-import { ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useWorkspace, type Entry, type Row } from "petalite/files";
 import { baseName, formatSize, isImageName } from "petalite/files";
@@ -28,7 +33,8 @@ import FolderLockModal from "../security/FolderLockModal.vue";
 import { lockErrorKey, passphraseStatus, rememberPassphrase, sealFile, unsealFile } from "padova";
 import { dialogErrorKey, errorText, fsErrorKey } from "./fs";
 import ManaCost from "../security/ManaCost.vue";
-import { askMana, manaCharge, manaQuote, manaRecord, type ManaQuote } from "../security/mana";
+import { rekeyFile } from "../security/sealed";
+import { askMana, formatMana, loadManaPrices, manaRate, manaRecord, perHour, refreshMana } from "../security/mana";
 import WorkspaceSearch from "./WorkspaceSearch.vue";
 import { kindForFile } from "./openWith";
 import type { EditorKind } from "../kinds";
@@ -116,33 +122,49 @@ async function openHit(hit: { name: string; path: string }) {
   await openEntry(hit);
 }
 
+// ── what a row costs ────────────────────────────────────────────────────────
+onMounted(() => { void loadManaPrices(); });
+
+/** A plain file's Security Mana an hour, for its row; null for an encrypted
+ *  one, a folder, or before the price is known. */
+function rowRate(row: Row): number | null {
+  if (row.isDirectory || workspace.isSealed(row.path)) return null;
+  return perHour(row.size ?? 0);
+}
+
 // ── the row shields ─────────────────────────────────────────────────────────
 // A shield beside each file: encrypt it, or decrypt it permanently, from the
 // pane — for files no editor here opens (a PDF, say) as much as for notes.
+// An encrypted row also has a key: change its passphrase.
 const lockOpen = ref(false);
-const lockMode = ref<"lock" | "unlock">("lock");
+const lockMode = ref<"lock" | "unlock" | "rekey">("lock");
 const lockTarget = ref<{ name: string; path: string } | null>(null);
-/** The price of a permanent decrypt, shown inside the passphrase dialog. */
-const lockQuote = ref<ManaQuote | null>(null);
+/** What the act does to Security Mana, shown inside the passphrase dialog. */
+const lockRate = ref<{ perHour: number; direction: "adds" | "saves" } | null>(null);
 
 async function shieldFile(row: { name: string; path: string }) {
   openError.value = "";
+  rekeyNote.value = "";
   const sealed = workspace.isSealed(row.path);
   lockTarget.value = row;
   lockMode.value = sealed ? "unlock" : "lock";
-  lockQuote.value = null;
+  const rate = await manaRate(row.path);
+  lockRate.value = !rate ? null
+    : sealed ? { perHour: rate.sealedPerHour, direction: "adds" }
+    : { perHour: rate.plainPerHour, direction: "saves" };
   // Decrypting with a remembered passphrase needs no passphrase dialog, only
-  // the price; encrypting always asks, because a passphrase typed twice is
-  // one you can type again.
+  // a word on what it leaves behind; encrypting always asks, because a
+  // passphrase typed twice is one you can type again.
   if (sealed) {
     let known = false;
     try { known = (await passphraseStatus()).remembered; } catch { /* ask instead */ }
     if (known) {
-      if (!(await askMana("decrypt_file", 1, row.name, "mana.consequence.decrypt_file"))) return;
+      if (rate && !(await askMana(row.name, "mana.consequence.decrypt_file", rate.sealedPerHour))) return;
       try {
         await unsealFile(row.path, null);
         await workspace.reprobe(row.path);
-        await manaCharge("decrypt_file", 1, row.path);
+        await manaRecord("decrypt_file", row.path);
+        await refreshMana();
         emit("security-changed");
         return;
       } catch (err) {
@@ -153,28 +175,49 @@ async function shieldFile(row: { name: string; path: string }) {
         }
       }
     }
-    lockQuote.value = await manaQuote("decrypt_file", 1);
   }
   lockOpen.value = true;
 }
 
-async function lockAction(password: string, remember: boolean): Promise<void> {
+/** The key on an encrypted row. Rust moves the editor's session along if
+ *  this file is the one open, so nothing else needs telling. */
+function rekeyRow(row: { name: string; path: string }) {
+  openError.value = "";
+  rekeyNote.value = "";
+  lockTarget.value = row;
+  lockMode.value = "rekey";
+  lockRate.value = null;
+  lockOpen.value = true;
+}
+
+/** What the last passphrase change earned, said under the tree. */
+const rekeyNote = ref("");
+
+async function lockAction(password: string, remember: boolean, next?: string): Promise<void> {
   const target = lockTarget.value;
   if (!target) return;
   const mode = lockMode.value;
+  let gained = 0;
   try {
     if (mode === "lock") await sealFile(target.path, password);
-    else await unsealFile(target.path, password);
+    else if (mode === "unlock") await unsealFile(target.path, password);
+    else if (next) ({ gained } = await rekeyFile(target.path, password, next));
   } catch (err) {
     // The dialog has words for sealing refusals only; a workspace refusal
     // gets its own sentence here.
-    const key = dialogErrorKey(errorText(err), mode);
+    const key = dialogErrorKey(errorText(err), mode === "rekey" ? "open" : mode);
     throw key ? new Error(t(key)) : err;
   }
+  if (mode === "rekey") {
+    // Remembered only once it proved to work on this file — the new one.
+    if (remember && next) await rememberPassphrase(next);
+    rekeyNote.value = gained > 0 ? t("mana.rekeyEarned", { gained: formatMana(gained) }) : t("mana.rekeyNoReward");
+    await refreshMana();
+    return;
+  }
   await workspace.reprobe(target.path);
-  if (mode === "lock") await manaRecord("encrypt_file", target.path);
-  else await manaCharge("decrypt_file", 1, target.path);
-  // Remembered only once it proved to work on this file.
+  await manaRecord(mode === "lock" ? "encrypt_file" : "decrypt_file", target.path);
+  await refreshMana();
   if (remember) await rememberPassphrase(password);
   emit("security-changed");
 }
@@ -192,9 +235,14 @@ function shieldFolder(row: { name: string; path: string }) {
 /** A run changed files on disk; read the tree again so every padlock is
  *  right, and re-run the search so no stale line survives an encryption. */
 async function folderDone() {
+  await reread();
+  await refreshMana();
+  emit("security-changed");
+}
+
+async function reread() {
   await workspace.refresh();
   search.value?.refresh();
-  emit("security-changed");
 }
 
 const search = ref<InstanceType<typeof WorkspaceSearch> | null>(null);
@@ -203,13 +251,17 @@ defineExpose({
   focusSearch() {
     search.value?.focus();
   },
+  /** Files were encrypted elsewhere (the Security Mana prompt): read again. */
+  reread,
 });
 
 /** The hover text. The padlock must not be an icon-only affordance — someone
  *  who cannot tell the glyphs apart still needs to know why a row will not
- *  open. */
+ *  open — and neither is the rate. */
 function rowTitle(row: Row): string {
-  return workspace.isSealed(row.path) ? `${row.name} — ${t("files.encryptedRow")}` : row.name;
+  if (workspace.isSealed(row.path)) return `${row.name} — ${t("files.encryptedRow")}`;
+  const rate = rowRate(row);
+  return rate === null || row.isDirectory ? row.name : `${row.name} — ${t("mana.rowRate", { rate: formatMana(rate) })}`;
 }
 
 /** Errors are i18n keys where we have one and raw text otherwise (a filesystem
@@ -316,6 +368,18 @@ function shown(message: string): string {
             </span>
             <template v-if="!row.isDirectory">
               <span class="shrink-0 text-[10px] opacity-40">{{ formatSize((row as Row).size) }}</span>
+              <span v-if="rowRate(row as Row) !== null" :data-testid="`row-rate-${row.name}`"
+                    class="ml-1 shrink-0 text-[10px] tabular-nums opacity-60"
+                    :title="t('mana.rowRate', { rate: formatMana(rowRate(row as Row)!) })">
+                {{ t("mana.perHour", { rate: formatMana(rowRate(row as Row)!) }) }}
+              </span>
+              <span v-if="workspace.isSealed(row.path)" role="button" tabindex="0" :data-testid="`row-rekey-${row.name}`"
+                    class="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40
+                           transition hover:opacity-100"
+                    :title="t('shield.rowRekey')" :aria-label="t('shield.rowRekey')"
+                    @click.stop="rekeyRow(row)" @keydown.enter.stop="rekeyRow(row)">
+                <font-awesome-icon icon="key" class="text-[10px]" />
+              </span>
               <!-- A span with a role, not a button: the row itself is one. -->
               <span role="button" tabindex="0" :data-testid="`row-shield-${row.name}`"
                     class="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40
@@ -341,14 +405,16 @@ function shown(message: string): string {
        data-testid="files-open-error">
       {{ shown(openError) }}
     </p>
+    <p v-else-if="rekeyNote" class="border-t border-current/10 px-2 py-1.5 text-xs opacity-70"
+       data-testid="files-rekey-note">
+      {{ rekeyNote }}
+    </p>
 
     <LockModal :open="lockOpen" :mode="lockMode" :name="lockTarget?.name ?? ''" :action="lockAction"
                offer-remember @update:open="lockOpen = $event">
       <template #notice>
-        <template v-if="lockMode === 'unlock' && lockQuote">
-          <p class="text-xs" data-testid="lock-consequence">{{ t("mana.consequence.decrypt_file") }}</p>
-          <ManaCost :quote="lockQuote" />
-        </template>
+        <p v-if="lockMode === 'unlock'" class="text-xs" data-testid="lock-consequence">{{ t("mana.consequence.decrypt_file") }}</p>
+        <ManaCost v-if="lockRate && lockMode !== 'rekey'" :per-hour="lockRate.perHour" :direction="lockRate.direction" />
       </template>
     </LockModal>
     <FolderLockModal :open="folderOpen" :name="folderTarget?.name ?? ''" :path="folderTarget?.path ?? ''"

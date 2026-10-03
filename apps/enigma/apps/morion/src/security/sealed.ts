@@ -36,3 +36,11 @@ export async function sealedWrite(token: number, path: string, text: string): Pr
 export async function sealedClose(token: number): Promise<void> {
   await invoke("sealed_close", { token });
 }
+
+/** Change an encrypted file's passphrase: a new key, the same contents. Rust
+ *  moves any open session on the file to the new key, so a token held here
+ *  keeps saving, and answers the Security Mana it earned. `password` null
+ *  means the remembered one. */
+export function rekeyFile(path: string, password: string | null, newPassword: string): Promise<{ gained: number }> {
+  return invoke<{ gained: number }>("rekey_file", { path, password, newPassword });
+}

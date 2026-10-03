@@ -56,6 +56,30 @@ impl SealSessions {
         f(session)
     }
 
+    /// A file's passphrase just changed: every session editing it holds the
+    /// old key and would refuse to save (`changed_on_disk`). Re-open each one
+    /// under the new passphrase, keeping its token, so the page saves on as
+    /// before. A session that cannot be re-opened is dropped — its next save
+    /// says the file is no longer open, rather than writing under a key the
+    /// file no longer has. Answers how many followed.
+    pub fn follow_rekey(&self, path: &str, new_password: &str) -> usize {
+        let Ok(mut map) = self.map.lock() else { return 0 };
+        let tokens: Vec<u64> = map.iter().filter(|(_, s)| s.origin() == path).map(|(t, _)| *t).collect();
+        let mut followed = 0;
+        for token in tokens {
+            match LOCKER.open_sealed(path, Some(new_password.to_string())) {
+                Ok((session, _plain)) => {
+                    map.insert(token, session);
+                    followed += 1;
+                }
+                Err(_) => {
+                    map.remove(&token);
+                }
+            }
+        }
+        followed
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.map.lock().map(|m| m.len()).unwrap_or(0)

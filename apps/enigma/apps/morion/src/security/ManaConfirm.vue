@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// The one "this will cost Mana" dialog. Mounted once by App; opened through
-// `askMana` in ./mana. Continue is never disabled — the budget warns, it does
-// not decide.
+// The one "this leaves plaintext behind" confirmation. Mounted once by App;
+// opened through `askMana` in ./mana, for an act with no dialog of its own.
+// Continue is never disabled — the budget informs, it does not decide.
 import { useI18n } from "vue-i18n";
 import ModalPanel from "petalite/ModalPanel.vue";
 import { OyaModal } from "petalite/primitives";
@@ -16,7 +16,7 @@ const { t } = useI18n({ useScope: "global" });
     <ModalPanel v-if="manaAsk" :title="t('mana.confirmTitle')">
       <p class="truncate text-xs opacity-60">{{ manaAsk.name }}</p>
       <p class="text-sm" data-testid="mana-consequence">{{ t(manaAsk.consequenceKey) }}</p>
-      <ManaCost :quote="manaAsk.quote" />
+      <ManaCost v-if="manaAsk.adds !== null" :per-hour="manaAsk.adds" direction="adds" />
       <div class="flex justify-end gap-2">
         <button type="button" data-testid="mana-cancel"
                 class="rounded-lg border border-accent-2 px-3 py-1.5 text-sm dark:border-accent-1"

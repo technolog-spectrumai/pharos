@@ -39,6 +39,8 @@ pub struct FolderPreview {
     pub links: usize,
     /// True when the file cap stopped the walk early.
     pub truncated: bool,
+    /// True when folders below the depth limit were left unentered.
+    pub deep: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -61,19 +63,24 @@ pub struct FolderReport {
     pub failed: Vec<FolderFailure>,
     pub links: usize,
     pub truncated: bool,
+    pub deep: bool,
 }
 
 pub(crate) struct Walk {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) links: usize,
+    /// The file cap stopped the walk: running again would reach more.
     pub(crate) truncated: bool,
+    /// Folders deeper than MAX_DEPTH exist and were not entered: running
+    /// again never reaches them, so it is said apart from `truncated`.
+    pub(crate) deep: bool,
 }
 
 /// Every regular file under `dir`, in a stable order. Links are counted,
 /// never followed; `.morion` is never entered. The search walks the same
 /// way, so what one operation sees the other sees.
 pub(crate) fn walk(dir: &Path) -> Walk {
-    let mut out = Walk { files: Vec::new(), links: 0, truncated: false };
+    let mut out = Walk { files: Vec::new(), links: 0, truncated: false, deep: false };
     let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::from([(dir.to_path_buf(), 0)]);
     while let Some((here, depth)) = queue.pop_front() {
         let Ok(entries) = std::fs::read_dir(&here) else { continue };
@@ -93,6 +100,10 @@ pub(crate) fn walk(dir: &Path) -> Walk {
             if kind.is_dir() {
                 if depth < MAX_DEPTH {
                     queue.push_back((path, depth + 1));
+                } else {
+                    // Not entered, and said: a whole-workspace export or a
+                    // folder run must not look complete when it is not.
+                    out.deep = true;
                 }
                 continue;
             }
@@ -122,6 +133,7 @@ pub fn preview(root: &Path, given: &str) -> Result<FolderPreview, String> {
         sealed,
         links: walked.links,
         truncated: walked.truncated,
+        deep: walked.deep,
     })
 }
 
@@ -139,9 +151,45 @@ pub fn run(root: &Path, given: &str, password: Option<String>, unlock: bool) -> 
         failed: Vec::new(),
         links: walked.links,
         truncated: walked.truncated,
+        deep: walked.deep,
     };
+    each(root, &walked.files, password, unlock, &mut report);
+    Ok(report)
+}
+
+/// Encrypt a chosen handful of files with one passphrase — what the Security
+/// Mana prompt offers when the bar is empty. The same rules as a folder run,
+/// file by file; a path that is not a file in the workspace is a failure in
+/// the report, not a reason to stop.
+pub fn lock_files(root: &Path, given: &[String], password: Option<String>) -> FolderReport {
+    let mut report = FolderReport {
+        done: Vec::new(),
+        skipped: Vec::new(),
+        untried: Vec::new(),
+        failed: Vec::new(),
+        links: 0,
+        truncated: false,
+        deep: false,
+    };
+    let mut files = Vec::new();
+    for path in given {
+        match workspace::resolve(root, path, false) {
+            Ok(p) if p.is_file() => files.push(p),
+            Ok(p) => report.failed.push(FolderFailure {
+                path: workspace::relative(root, &p),
+                error: "not_found: that is not a file in the workspace".into(),
+            }),
+            // Named by the error alone: a path from outside is not echoed.
+            Err(error) => report.failed.push(FolderFailure { path: String::new(), error }),
+        }
+    }
+    each(root, &files, password, false, &mut report);
+    report
+}
+
+fn each(root: &Path, files: &[PathBuf], password: Option<String>, unlock: bool, report: &mut FolderReport) {
     let mut stop = false;
-    for path in &walked.files {
+    for path in files {
         let rel = workspace::relative(root, path);
         let path_str = path.to_string_lossy().into_owned();
         let sealed = substrate::is_sealed_file(&path_str);
@@ -170,10 +218,15 @@ pub fn run(root: &Path, given: &str, password: Option<String>, unlock: bool) -> 
             }
         }
     }
-    Ok(report)
 }
 
 // ── the commands ────────────────────────────────────────────────────────────
+
+/// `async`: one Argon2id derivation per file.
+#[tauri::command(async)]
+pub fn files_lock(ws: tauri::State<'_, workspace::WorkspaceState>, paths: Vec<String>, password: Option<String>) -> Result<FolderReport, String> {
+    Ok(lock_files(&ws.root()?, &paths, password))
+}
 
 #[tauri::command]
 pub fn folder_preview(ws: tauri::State<'_, workspace::WorkspaceState>, dir: String) -> Result<FolderPreview, String> {
@@ -282,6 +335,32 @@ mod tests {
         assert!(substrate::is_sealed_file(&root.join("a.md").to_string_lossy()));
         assert!(substrate::is_sealed_file(&root.join("c.md").to_string_lossy()));
         std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    #[test]
+    fn a_chosen_list_is_encrypted_file_by_file_and_nothing_outside_is_touched() {
+        let root = scratch("files-lock");
+        put(&root, "a.md", b"a");
+        put(&root, "d/b.md", b"b");
+        put(&root, "sealed.md", b"s");
+        put(&root, "d/leave.md", b"not chosen");
+        LOCKER.lock_file(&root.join("sealed.md").to_string_lossy(), Some("pw".into())).unwrap();
+        let given = [
+            root.join("a.md").to_string_lossy().into_owned(),
+            "d/b.md".to_string(),
+            "sealed.md".to_string(),
+            "d".to_string(),
+            "/etc/hostname".to_string(),
+        ];
+        let report = lock_files(&root, &given, Some("pw".into()));
+        assert_eq!(report.done, ["a.md", "d/b.md"]);
+        assert_eq!(report.skipped, ["sealed.md"]);
+        assert_eq!(report.failed.len(), 2);
+        assert_eq!(report.failed[0].path, "d");
+        assert!(report.failed[1].error.starts_with("outside_workspace"));
+        assert_eq!(report.failed[1].path, "", "a path from outside is not echoed");
+        assert!(substrate::is_sealed_file(&root.join("d/b.md").to_string_lossy()));
+        assert_eq!(std::fs::read(root.join("d/leave.md")).unwrap(), b"not chosen");
     }
 
     #[test]

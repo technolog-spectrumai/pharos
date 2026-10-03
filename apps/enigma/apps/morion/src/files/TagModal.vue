@@ -12,8 +12,6 @@ import ModalPanel from "petalite/ModalPanel.vue";
 import { OyaModal } from "petalite/primitives";
 import { errorText, fsErrorKey } from "./fs";
 import { MAX_TAGS, tagsGet, tagsSet } from "./tags";
-import ManaCost from "../security/ManaCost.vue";
-import { manaCharge, manaQuote, type ManaQuote } from "../security/mana";
 
 const props = defineProps<{
   open: boolean;
@@ -33,10 +31,6 @@ const { t } = useI18n({ useScope: "global" });
 const fields = ref<string[]>(Array.from({ length: MAX_TAGS }, () => ""));
 const busy = ref(false);
 const error = ref("");
-/** The tags as they were when the modal opened: only a NEW word written about
- *  an encrypted file is new exposure. Removing tags costs nothing. */
-let before: string[] = [];
-const quote = ref<ManaQuote | null>(null);
 
 /** A Rust refusal ("at most 3 tags") as its sentence; anything else as it came. */
 function sentence(err: unknown): string {
@@ -51,9 +45,7 @@ watch(() => props.open, async (isOpen) => {
   busy.value = true;
   try {
     const current = await tagsGet(props.path);
-    before = current.map((tag) => tag.toLowerCase());
     fields.value = Array.from({ length: MAX_TAGS }, (_, i) => current[i] ?? "");
-    quote.value = props.sealed ? await manaQuote("tag_sealed", 1) : null;
   } catch (err) {
     error.value = sentence(err);
   } finally {
@@ -67,9 +59,6 @@ async function save() {
   error.value = "";
   try {
     const saved = await tagsSet(props.path, fields.value);
-    if (props.sealed && saved.some((tag) => !before.includes(tag.toLowerCase()))) {
-      await manaCharge("tag_sealed", 1, props.path);
-    }
     emit("saved", saved);
     emit("update:open", false);
   } catch (err) {
@@ -95,10 +84,6 @@ async function save() {
         {{ t("tags.note") }}
         <span v-if="sealed" class="text-warn-dark" data-testid="tags-sealed-note">{{ t("tags.sealedNote") }}</span>
       </p>
-      <template v-if="sealed && quote">
-        <p class="text-xs" data-testid="tags-consequence">{{ t("mana.consequence.tag_sealed") }}</p>
-        <ManaCost :quote="quote" />
-      </template>
       <p v-if="error" class="text-sm text-warn-dark" data-testid="tags-error">{{ error }}</p>
       <div class="flex justify-end gap-2">
         <button type="button" class="rounded-lg border border-accent-2 px-3 py-1.5 text-sm dark:border-accent-1"

@@ -16,6 +16,15 @@ export default {
     remember: "Zapami\u0119taj to has\u0142o, \u017ceby wi\u0119cej nie pyta\u0107",
     passwordRequired: "Podaj hasło.",
     passwordMismatch: "Te dwa nie są takie same.",
+    rekeyTitle: "Zmień hasło tego pliku",
+    rekeyHint: "Plik zostaje zaszyfrowany ponownie nowym kluczem i otwiera go już tylko nowe hasło. Jego treść jest na chwilę odszyfrowana w pamięci i nigdy nie trafia na dysk nieszyfrowana.",
+    currentPassword: "Obecne hasło",
+    newPassword: "Nowe hasło",
+    confirmNew: "Powtórz nowe hasło",
+    rekey: "Zmień hasło",
+    rememberNew: "Zapamiętaj nowe hasło, żeby więcej nie pytać",
+    newRequired: "Podaj nowe hasło.",
+    samePassword: "Nowe hasło jest takie samo jak obecne.",
     errors: {
       no_passphrase: "Nie podano has\u0142a i \u017cadne nie jest zapami\u0119tane.",
       wrong_password: "Złe hasło albo plik jest uszkodzony. Nic nie zostało zmienione.",
@@ -25,6 +34,7 @@ export default {
       legacy_format: "Ten plik został zaszyfrowany przez platformę. Ustawienia jego klucza były na serwerze, więc nie da się go tutaj otworzyć.",
       crypto: "Ten zaszyfrowany plik jest uszkodzony. Nic nie zostało zmienione.",
       changed_on_disk: "Ten plik zmienił się na dysku, gdy był otwarty. Nic nie zapisano; otwórz go ponownie.",
+      same_passphrase: "Nowe hasło jest takie samo jak obecne. Nic nie zostało zmienione.",
     },
   },
   security: {

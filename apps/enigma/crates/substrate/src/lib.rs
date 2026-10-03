@@ -155,6 +155,22 @@ pub fn is_sealed_file(path: &str) -> bool {
     false
 }
 
+/// Roughly how many bytes a sealed file would be once decrypted: its length
+/// less the frame prefix and header, read from the first bytes alone. The
+/// sealed body still carries its nonce and tag, a few dozen bytes, so this is
+/// an upper bound — for estimates ("decrypting this adds about…"), never for
+/// anything that must be exact. `None` when the file is not a known frame.
+pub fn sealed_body_len(path: &str) -> Option<u64> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let total = f.metadata().ok()?.len();
+    let mut prefix = [0u8; PREFIX_LEN + 1];
+    let read = f.read(&mut prefix).ok()?;
+    FrameSpec::detect(&prefix[..read])?;
+    let header_len = u32::from_le_bytes(prefix[9..13].try_into().ok()?) as u64;
+    Some(total.saturating_sub(PREFIX_LEN as u64 + header_len))
+}
+
 /// Whether these bytes are one of the PLATFORM's older Fernet frames.
 ///
 /// Always `false` without `legacy-detect`, which is the honest answer for a
@@ -320,6 +336,19 @@ mod tests {
         assert!(!is_current(b"plain text"));
         // The prefix alone is not a frame: there must be something after it.
         assert!(!is_current(&framed[..PREFIX_LEN]));
+    }
+
+    #[test]
+    fn a_sealed_files_body_length_comes_from_its_prefix() {
+        let path = tmp("body-len");
+        std::fs::write(&path, FrameSpec::ZINNIA.frame(b"{\"h\":1}", &[7u8; 100])).unwrap();
+        assert_eq!(sealed_body_len(&path), Some(100));
+        std::fs::write(&path, FrameSpec::ENIGMA.frame(b"{}", &[7u8; 40])).unwrap();
+        assert_eq!(sealed_body_len(&path), Some(40));
+        std::fs::write(&path, b"plain text, long enough to have a prefix").unwrap();
+        assert_eq!(sealed_body_len(&path), None);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(sealed_body_len(&tmp("body-len-missing")), None);
     }
 
     #[test]

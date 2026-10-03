@@ -352,6 +352,78 @@ describe("the files panel", () => {
     expect(invoke).toHaveBeenCalledWith("unlock_file", { path: `${ROOT}/vault.md`, password: "pw" });
   });
 
+  it("shows what each plain file costs in Security Mana an hour, and nothing for a sealed one", async () => {
+    tree({ [ROOT]: [["a.md", false], ["big.png", false], ["vault.md", false], ["notes", true]] });
+    stat.mockImplementation(async (p: string) => ({
+      size: p.endsWith("a.md") ? 4096 : p.endsWith("big.png") ? 2 * 1024 * 1024 : 900, mtime: null,
+    }));
+    invoke.mockImplementation(async (cmd: string, args: { path?: string }) => {
+      if (cmd === "is_file_locked") return args.path === `${ROOT}/vault.md`;
+      if (cmd === "mana_prices") return { max: 100, perKbHour: 0.01, regenPerHour: 1, rekeyReward: 10, rekeyCooldownHours: 24, rekeyDailyCap: 30 };
+      return null;
+    });
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    // The price is Rust's; the size is the listing's.
+    expect(invoke.mock.calls.some(([c]) => c === "mana_prices")).toBe(true);
+    expect(w.get('[data-testid="row-rate-a.md"]').text()).toBe("0.04/h");
+    expect(w.get('[data-testid="row-rate-big.png"]').text()).toBe("20.5/h");
+    expect(w.get('[data-testid="row-rate-a.md"]').attributes("title"))
+      .toBe("Uses 0.04 Security Mana an hour while it is not encrypted");
+    expect(w.get('[data-testid="files-row-a.md"]').find("[title]").attributes("title")).toContain("Uses 0.04 Security Mana an hour");
+    // An encrypted file costs nothing and says so by showing none; a folder
+    // has no rate of its own.
+    expect(w.find('[data-testid="row-rate-vault.md"]').exists()).toBe(false);
+    expect(w.find('[data-testid="row-rate-notes"]').exists()).toBe(false);
+  });
+
+  it("puts a key on an encrypted row that changes its passphrase and says what it earned", async () => {
+    tree({ [ROOT]: [["plain.md", false], ["vault.md", false]] });
+    invoke.mockImplementation(async (cmd: string, args: { path?: string; password?: string }) => {
+      if (cmd === "is_file_locked") return args.path === `${ROOT}/vault.md`;
+      if (cmd === "rekey_file") {
+        if (args.password !== "old") throw "wrong_password: wrong password or corrupt file";
+        return { gained: 10 };
+      }
+      return null;
+    });
+    const workspace = await withRoot();
+    const w = mountPanel();
+    await settle();
+    await workspace.refresh();
+    await settle();
+
+    expect(w.find('[data-testid="row-rekey-plain.md"]').exists()).toBe(false);
+    const key = w.get('[data-testid="row-rekey-vault.md"]');
+    expect(key.attributes("title")).toBe("Change this file’s passphrase");
+    await key.trigger("click");
+    await settle();
+    expect(w.emitted("open-sealed")).toBeUndefined(); // the key does not open the row
+    expect(w.get('[data-testid="lock-rekey-hint"]').exists()).toBe(true);
+
+    await w.get('[data-testid="lock-password"]').setValue("nope");
+    await w.get('[data-testid="lock-new"]').setValue("new");
+    await w.get('[data-testid="lock-confirm"]').setValue("new");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+    expect(w.get('[data-testid="lock-error"]').text()).toContain("Wrong password");
+    expect(w.find('[data-testid="files-rekey-note"]').exists()).toBe(false);
+
+    await w.get('[data-testid="lock-password"]').setValue("old");
+    await w.get('[data-testid="lock-new"]').setValue("new");
+    await w.get('[data-testid="lock-confirm"]').setValue("new");
+    await w.get('[data-testid="lock-submit"]').trigger("click");
+    await settle();
+    expect(invoke).toHaveBeenCalledWith("rekey_file", { path: `${ROOT}/vault.md`, password: "old", newPassword: "new" });
+    expect(w.get('[data-testid="files-rekey-note"]').text()).toBe("Passphrase changed: +10 Security Mana.");
+    // Still encrypted: a key change is not a decrypt.
+    expect(workspace.isSealed(`${ROOT}/vault.md`)).toBe(true);
+  });
+
   it("puts a shield on every folder row that opens the folder modal, not the folder", async () => {
     tree({ [ROOT]: [["notes", true]], [`${ROOT}/notes`]: [["a.md", false]] });
     invoke.mockImplementation(async (cmd: string) => {

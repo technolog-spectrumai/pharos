@@ -991,6 +991,12 @@ every button has an equivalent subcommand. Both assemble argv through
 the reason it exists: the moment each surface builds its own command list they
 drift, and the drift is invisible until someone diffs two build logs.
 
+> **Since replaced.** Once Morion was the only zinnia app left, the Zinnia
+> Builder was removed and `tools/morion_builder` (launched by
+> `scripts/morion_builder.sh`) took its place: the same design without the app
+> picker, plus an Android APK button. `tools/appbuilder` is still what it and
+> enigma's builder share.
+
 **Multiplatform, and honest about it.** Tauri compiles for the machine it runs
 on, so `platforms.py` marks each format with the hosts that can produce it. The
 window greys out the impossible ones with the reason in the tooltip; the CLI

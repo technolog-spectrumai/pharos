@@ -4,7 +4,7 @@ import { FS_ERRORS, fsErrorKey } from "../../src/files/fs";
 import { LOCK_ERRORS } from "padova";
 import { i18n } from "../../src/i18n";
 
-// The workspace, sealed-editing and folder commands answer `prefix: prose`,
+// The workspace, sealed-editing, folder and archive commands answer `prefix: prose`,
 // like the lock chain. A prefix with no catalogue key renders as raw Rust,
 // which reads as a crash — so every prefix these files can return must be
 // one the page knows, and every one it knows must have words in both locales.
@@ -13,6 +13,7 @@ const FILES = {
   "src-tauri/src/sealed.rs": "no_session",
   "src-tauri/src/folder.rs": "not_found",
   "src-tauri/src/meta.rs": "too_many_tags",
+  "src-tauri/src/archive.rs": "archive_wrong_password",
 } as const;
 
 describe("the workspace error prefixes", () => {

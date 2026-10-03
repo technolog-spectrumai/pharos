@@ -18,7 +18,7 @@ import {
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquarePlus, faSquareRootVariable, faTable, faTag, faUnderline,
   faDroplet, faEraser, faFileCode, faFileCsv, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
-  faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
+  faFileExport, faFileImport, faImage, faKey, faPalette, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faShieldHalved, faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 
@@ -29,7 +29,7 @@ library.add(
   faHeading, faLightbulb, faPenNib, faQuoteLeft, faItalic, faListOl, faListUl, faQuoteRight, faScissors,
   faSquarePlus, faSquareRootVariable, faTable, faTag, faUnderline,
   faDroplet, faEraser, faFileCode, faFileCsv, faFileCirclePlus, faFileImage, faFilePen, faFloppyDisk, faFolder, faFolderOpen, faFont,
-  faImage, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
+  faFileExport, faFileImport, faImage, faKey, faPalette, faPencil, faPlay, faRotate, faRotateLeft, faRotateRight, faMoon, faSpinner, faSun, faTableCells,
   faShieldHalved, faSlash, faSquare, faTrash, faTriangleExclamation, faXmark,
 );
 

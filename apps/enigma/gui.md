@@ -3,8 +3,9 @@
 This describes what Morion shows and does, control by control, as of
 2026-09-18. It covers the shell (header, ☰ menu, start screen), the workspace
 and its Files sidepanel, the one workspace search, file and folder encryption
-with in-memory editing of encrypted files, tags, Security Mana, the Workspace
-security view, every editor, and Settings. It is written for people who will
+with in-memory editing of encrypted files and passphrase changes, tags,
+Security Mana, the Workspace security view, every editor, and Settings with its
+workspace archive. It is written for people who will
 change or test the interface, so every control carries the source file that
 draws it and the `data-testid` a test would use. Where a catalogue string is
 quoted, it is quoted exactly as `apps/morion/src/i18n/en.ts` (or a package's
@@ -36,15 +37,15 @@ Morion; the Linux bundles are `deb` and `rpm` (`tauri.conf.json:29-31`).
 
 There is one screen. `apps/morion/src/App.vue` is a full-height column: a
 header bar, and below it the Files sidepanel beside a content column
-(`App.vue:287-537`). The content column holds one `EditorHost`
+(`App.vue:317-599`). The content column holds one `EditorHost`
 (`apps/morion/src/views/EditorHost.vue`) and, once visited, the Workspace
 security and Settings views. Nothing is ever unmounted: the host, the panel
 and both views are hidden with `v-show`, so a half-written document survives a
 visit to Settings and a loaded folder tree survives toggling the panel
-(`App.vue:516-535`). Hidden is not the same as inert by accident: App passes
-the host `active` = (the editor view is on screen) (`App.vue:526`), the host
-hands it to whichever editor is mounted (`EditorHost.vue:621-738`) and reads it
-itself before Ctrl+O (`EditorHost.vue:566-578`). That flag is what every
+(`App.vue:579-598`). Hidden is not the same as inert by accident: App passes
+the host `active` = (the editor view is on screen) (`App.vue:589`), the host
+hands it to whichever editor is mounted (`EditorHost.vue:651-768`) and reads it
+itself before Ctrl+O (`EditorHost.vue:596-608`). That flag is what every
 shortcut marked "gated by active" in Keyboard shortcuts consults, so a
 document behind Settings keeps its state but answers no keys.
 
@@ -54,26 +55,27 @@ user chose, which Rust holds as the boundary for every file operation
 handed against that folder and refuses, before it reads or writes anything, a
 path that climbs out with `..`, an absolute path elsewhere, a path with a
 symbolic link anywhere in it, or anything inside a folder named `.morion`,
-Morion's own metadata folder, at any depth (`workspace.rs:109-186`). The page
+Morion's own metadata folder, at any depth (`workspace.rs:111-188`). The page
 never decides what is inside: every listing, read, write, encryption, search,
-tag and Mana charge is a Rust command against the one open workspace
-(`apps/morion/src/files/fs.ts:1-11`, `apps/morion/src/main.ts:39-41`).
-Morion's own metadata (tags and the Mana ledger) lives inside the workspace
-in a hidden `.morion/` folder. Choosing a workspace, the recent list,
-reopening at launch and the full boundary rules are under Workspaces.
+tag, Security Mana reading and archive is a Rust command against the one open
+workspace (`apps/morion/src/files/fs.ts:1-11`, `apps/morion/src/main.ts:39-41`).
+Morion's own metadata (tags, the Security Mana history and the Mana
+checkpoint) lives inside the workspace in a hidden `.morion/` folder. Choosing
+a workspace, the recent list, reopening at launch and the full boundary rules
+are under Workspaces.
 
 The host reads the same store as the Files panel, the ☰ menu's Workspace
-section, the start screen and the Workspace security view (`App.vue:81-85`,
+section, the start screen and the Workspace security view (`App.vue:86-90`,
 `EditorHost.vue:66-70`). With no workspace open on the desktop, Open… and Save
-As… are greyed in the menu (`App.vue:273-283`), the start screen's Open… is
+As… are greyed in the menu (`App.vue:303-313`), the start screen's Open… is
 disabled (`StartView.vue:70`), and the keyboard's Ctrl+O sets the header error
 to "Choose a workspace folder first." (`workspace.errors.no_workspace`,
-`EditorHost.vue:452-455`); a Save As that gets that far says the same
-(`EditorHost.vue:522-525`). New needs no workspace, although the new file's
+`EditorHost.vue:482-485`); a Save As that gets that far says the same
+(`EditorHost.vue:552-555`). New needs no workspace, although the new file's
 first Save does, since it falls through to Save As. The browser build needs
 none at all: it keeps its file-input and download fallback. The Open dialog
 opens on the workspace root and Save As offers `<root>/<name>` for a
-never-saved file (`EditorHost.vue:460, 528`).
+never-saved file (`EditorHost.vue:490, 558`).
 
 There are no editor tabs. The file decides the editor. When a file is opened,
 `kindForFile` (`apps/morion/src/files/openWith.ts:81-104`) reads its name and
@@ -81,25 +83,26 @@ bytes and the host mounts whichever editor that answer names. An encrypted
 file is no exception: Rust decrypts it into memory first and the plaintext is
 routed the same way, so an encrypted note opens in the Markdown editor, an
 encrypted deck in Presentations and an encrypted picture in the image viewer
-(`EditorHost.vue:209-219`; see Encryption). The only time the user names an
+(`EditorHost.vue:211-221`; see Encryption). The only time the user names an
 editor is New, which passes the kind explicitly. With no file open the host
 shows the start screen instead of any editor; there is no default untitled
 document. Nothing closes a file: once one is open, only another open replaces
 it: New, Open, a row clicked in the Files panel, or a search hit
-(`EditorHost.vue:400-412, 594-596`; `App.vue:132-142`).
+(`EditorHost.vue:430-442, 624-626`; `App.vue:145-155`).
 
 Two views can stand in front of the editor, and neither is an editor: Settings,
 behind the ☰ menu, and Workspace security, behind the shield in the Files
-sidepanel's header (`App.vue:70-72, 522`). Choosing one puts that view in front
-of the editor; the × next to the view title in the header, New, Open, Save or
-Save As, or choosing or switching the workspace from the menu brings the editor
-back (`App.vue:199-209, 251-263, 421`). An editor's export command (CSV, PNG)
-does not: it runs without changing the view (`App.vue:225-241`).
+sidepanel's header or the Security Mana bar in the header's right half
+(`App.vue:70-73, 555, 585`). Choosing one puts that view in front of the
+editor; the × next to the view title in the header, New, Open, Save or Save As,
+or choosing or switching the workspace from the menu brings the editor back
+(`App.vue:227-237, 281-293, 458`). An editor's export command (CSV, PNG) does
+not: it runs without changing the view (`App.vue:253-271`).
 
 `kindForFile` runs these steps in order and never returns null
 (`openWith.ts:81-104`). Called without content, which nothing in the app does
 today, it answers by extension alone and `code` for anything unlisted, so a
-bare `.xml` name is `code`; the `?? "code"` fallback in `EditorHost.vue:401` is
+bare `.xml` name is `code`; the `?? "code"` fallback in `EditorHost.vue:431` is
 unreachable. With content:
 
 1. If the first 2048 characters, after stripping the XML prolog, comments and
@@ -139,11 +142,11 @@ The complete file to editor table (`apps/morion/src/kinds.ts`,
 | `text` (not a kind) | keeps the file's own name and filter | reached only by "Open as plain text" after a refusal | bare `TextEditor.vue` (no strip, no picker) | not offered by New | unchanged |
 
 The filter names and default names are catalogue strings (`file.untitled*`,
-`nav.*`; `EditorHost.vue:94, 437`). In Polish they read `bez-nazwy.xml`,
+`nav.*`; `EditorHost.vue:94, 467`). In Polish they read `bez-nazwy.xml`,
 `bez-nazwy-prezentacja.pxml`, `bez-nazwy-arkusz.json`, `bez-nazwy.svg`,
 `bez-nazwy.md`, `bez-nazwy.txt` and the filters "Pisanie", "Prezentacje",
 "Arkusze", "Rysunek", "Markdown", "Kod" (`apps/morion/src/i18n/pl.ts:9-14,
-200-216`); a new spreadsheet's workbook name is the localised file name minus
+229-245`); a new spreadsheet's workbook name is the localised file name minus
 its extension, so `bez-nazwy-arkusz` in Polish (`EditorHost.vue:100`).
 
 Three consequences worth knowing. A `package.json` opens in the Code editor,
@@ -156,7 +159,7 @@ blank board, but an empty `.xml` opens in the Code editor, not in Write, since
 use New.
 
 Every open remounts the editor: the host keys it by a generation counter
-(`EditorHost.vue:125-128, 411`), so undo history never carries from one file to
+(`EditorHost.vue:125-128, 441`), so undo history never carries from one file to
 the next. Save does not remount, and neither does encrypting or decrypting the
 open file.
 
@@ -168,97 +171,113 @@ server and inline scripts (`tauri.conf.json:24`).
 
 ## The header
 
-The header is `App.vue:289-514`, a shrink-to-fit bar that wraps on narrow
-widths. Left to right:
+The header is `App.vue:324-572`, one row in three parts: the open file's
+controls in the left half (`header-left`), the app mark in the centre, and the
+notices, the Security Mana bar and the two toggles in the right half
+(`header-right`, pushed to the right edge). The halves are equal and never
+wrap; what does not fit truncates or shrinks inside its half. Left to right:
 
 | Control | Label, tooltip | `data-testid` | What it does | When shown | Source |
 |---|---|---|---|---|---|
-| App mark (the blue Morion helmet, 28 px) | `alt` and native tooltip are the brand name "Morion" | `app-icon` | Nothing: it names the app. It is the same file every desktop and Android icon is generated from, `apps/morion/app-icon.png` (see `apps/morion/scripts/make_icons.py`), so the bar and the launcher cannot disagree. Brightened in dark mode, where this blue on the near-black background would read as a shadow. | Always, first in the bar | `App.vue` (the `appIcon` import and the first `<img>` of the header) |
-| ☰ button (icon `bars`) | native tooltip is the brand name "Morion"; aria-label "Menu" (`nav.menu`) | `app-menu` | Toggles the app menu panel. `aria-haspopup="menu"`, `aria-expanded` mirrors the open state. | Always | `App.vue:295-302`; `config.ts:7` (the same `brand.name` is the window and page title, `index.html:6`) |
-| Folder button (icon `folder-open`) | "Files panel" (`files.toggle`), `aria-pressed` | `files-toggle` | Toggles the Files sidepanel and writes `zinnia:files`. Filled with the accent colour when on, outlined when off. The panel is only visible in the editor view, but the toggle still flips and persists from Workspace security or Settings. The start screen's "Search the workspace" also switches it on (`App.vue:185-189`), so the button can turn filled without being clicked. | Always | `App.vue:401-411, 78-79, 87` |
-| View title (icon + "Workspace security" or "Settings", bold, truncated) | `security.workspace.title` / `nav.settings`; icons `shield-halved` and `gear` | `view-title` | Read-only name of the view standing in front of the editor. | Only while Workspace security or Settings is up | `App.vue:415-417, 65-68` |
-| × button (icon `xmark`) | "Close" (`common.close`) | `view-close` | Returns to the editor view, and so to the open file or the start screen. | Only while a view is up | `App.vue:418-423` |
-| File name (bold, truncated) | none | `file-name` | The open file's name, for example `email.txt`. Updated on every open, on New, and by Save As to the picked path's basename. "Open as plain text" does not rename. | Editor view with a file open | `App.vue:425-426`; `EditorHost.vue:405, 534` |
-| "•" | "Unsaved changes" (`file.unsavedTitle`) | none | The unsaved dot. Appears beside the name while the host's `dirty` flag is set, which the mounted editor drives through `update:dirty`; cleared by a successful save and by every open or New. | Editor view, file open, buffer dirty | `App.vue:427`; `EditorHost.vue:133, 408, 499, 518` |
-| File shield (icon `shield-halved`, a 28px square) | tooltip "Encrypted" (`shield.statusSealedShort`) or "Not encrypted" (`shield.statusPlain`); aria-label "Encryption" (`shield.title`); `aria-haspopup="dialog"`, `aria-expanded`; `data-sealed` is "1" or "0" | `file-shield` | Toggles the shield panel described below. Filled with the accent colour while the open file is encrypted, outlined while it is plain. | Editor view with a file open, saved or not | `App.vue:432-443` |
-| Tags button (icon `tag`, then "No tags" at 50% opacity or up to three chips; at most 16rem wide) | tooltip and aria-label "Tags" (`tags.title`) | `file-tags`; each chip `file-tag-{i}`, 0-based | Opens the tag dialog (see Tags). | Editor view, and only for a file that has a path on disk: never for a new, unsaved file, and never in the browser build | `App.vue:477-485` |
-| Spacer | | | | | `App.vue:490` |
-| Notice (small, 60% opacity) | today only "Saved" (`file.saved`) | none | Set after a successful write or a browser download; cleared when Save starts or a file is opened or created. Save As from the menu and Open do not clear it first, so a stale "Saved" can outlive a cancelled Save As. Editing does not clear it, so "Saved" can sit beside a fresh dot. | Editor view, notice non-empty | `App.vue:492`; `EditorHost.vue:410, 500, 519, 543` |
-| File error (small, warn colour, truncated) | "Could not open the file. <sentence>" (`file.openFailed`), "Could not save. <sentence>" (`file.saveFailed`), "Choose a workspace folder first." (`workspace.errors.no_workspace`) when Open… or Save As… runs without a workspace, "Not saved: the file is encrypted and its passphrase was not given." (`shield.saveCancelled`) when the passphrase asked for at Save was not given, or the bare sentence of a permanent decrypt that failed from the file shield | `file-error` | The host's last file error. `<sentence>` is Rust's refusal put through the catalogue (see Opening, saving and discarding). Cleared at the start of Open, Save, an encrypted open, Encrypt and Decrypt, and on any open or New; Save As from the menu does not clear it first, a new failure overwrites it. While an editor is mounted the same text is also handed to it, which draws it as a warn strip above its body. | Editor view, error non-empty | `App.vue:493-495`; `EditorHost.vue:277, 288, 311, 337, 351, 409, 447, 453, 472, 491, 503, 523, 542` |
-| Export error (small, warn colour, truncated) | "Could not export. <reason>" (`file.exportFailed`), the reason being the error's own text, not a catalogue sentence | `export-error` | Set when an export command throws past its editor, which today means a CSV write that failed (a refused or full location). Nothing is charged. Cleared at the start of the next export and whenever another file is put on screen: App watches the host's `generation`, which every open, New and "Open as plain text" bumps, so reopening a file of the same name clears it too, while a Save As rename leaves it (`App.vue:243-246`; `EditorHost.vue:128, 379, 411`). The drawing's PNG export catches its own failures and shows them in the editor instead, so it never reaches this line. | Editor view, non-empty | `App.vue:225-246, 496-498` |
-| Locale button (text "PL" or "EN") | none | none | Shows the language you would switch TO ("PL" while English). Flips en and pl through `setLocale`, which sets the vue-i18n locale, `<html lang>` and `zinnia:locale`. The write is try/caught, so with storage blocked the switch still takes effect for the session and is simply not remembered (`packages/petalite/src/i18n/index.ts:54-58`). | Always | `App.vue:41-43, 500-503`; `packages/petalite/src/i18n/index.ts:51-59` |
-| Dark toggle (icon `moon` while dark, `sun` while light) | "Dark mode" (`nav.themeDark`) while dark, "Light mode" (`nav.themeLight`) while light | `dark-toggle` | Shows the CURRENT mode. Toggles the `.dark` class on `<html>` and writes `zinnia:dark`. | Always | `App.vue:31-39, 507-513` |
+| ☰ button (icon `bars`) | native tooltip is the brand name "Morion"; aria-label "Menu" (`nav.menu`) | `app-menu` | Toggles the app menu panel. `aria-haspopup="menu"`, `aria-expanded` mirrors the open state. | Always | `App.vue:332-339`; `config.ts:7` (the same `brand.name` is the window and page title, `index.html:6`) |
+| Folder button (icon `folder-open`) | "Files panel" (`files.toggle`), `aria-pressed` | `files-toggle` | Toggles the Files sidepanel and writes `zinnia:files`. Filled with the accent colour when on, outlined when off. The panel is only visible in the editor view, but the toggle still flips and persists from Workspace security or Settings. The start screen's "Search the workspace" also switches it on (`App.vue:213-217`), so the button can turn filled without being clicked. | Always | `App.vue:438-448, 83-84, 92` |
+| View title (icon + "Workspace security" or "Settings", bold, truncated) | `security.workspace.title` / `nav.settings`; icons `shield-halved` and `gear` | `view-title` | Read-only name of the view standing in front of the editor. | Only while Workspace security or Settings is up | `App.vue:452-454, 70-73` |
+| × button (icon `xmark`) | "Close" (`common.close`) | `view-close` | Returns to the editor view, and so to the open file or the start screen. | Only while a view is up | `App.vue:455-460` |
+| File name (bold, truncated) | none | `file-name` | The open file's name, for example `email.txt`. Updated on every open, on New, and by Save As to the picked path's basename. "Open as plain text" does not rename. | Editor view with a file open | `App.vue:462-463`; `EditorHost.vue:435, 564` |
+| "•" | "Unsaved changes" (`file.unsavedTitle`) | none | The unsaved dot. Appears beside the name while the host's `dirty` flag is set, which the mounted editor drives through `update:dirty`; cleared by a successful save and by every open or New. | Editor view, file open, buffer dirty | `App.vue:464`; `EditorHost.vue:133, 438, 529, 548` |
+| File shield (icon `shield-halved`, a 28px square) | tooltip "Encrypted" (`shield.statusSealedShort`) or "Not encrypted" (`shield.statusPlain`); aria-label "Encryption" (`shield.title`); `aria-haspopup="dialog"`, `aria-expanded`; `data-sealed` is "1" or "0" | `file-shield` | Toggles the shield panel described below. Filled with the accent colour while the open file is encrypted, outlined while it is plain. | Editor view with a file open, saved or not | `App.vue:469-480` |
+| Tags button (icon `tag`, then "No tags" at 50% opacity or up to three chips; at most 16rem wide) | tooltip and aria-label "Tags" (`tags.title`) | `file-tags`; each chip `file-tag-{i}`, 0-based | Opens the tag dialog (see Tags). | Editor view, and only for a file that has a path on disk: never for a new, unsaved file, and never in the browser build | `App.vue:528-536` |
+| App mark (the blue Morion helmet, 28 px) | `alt` and native tooltip are the brand name "Morion" | `app-icon` | Nothing: it names the app. It sits in the exact centre of the bar: `header-left` and `header-right` either side of it are both `flex-1 min-w-0`, so the halves are always equal whatever they hold, a long file name truncates inside the left half, and the Mana bar shrinks inside the right half, instead of either pushing the mark. It is the same file every desktop and Android icon is generated from, `apps/morion/app-icon.png` (see `apps/morion/scripts/make_icons.py`), so the bar and the launcher cannot disagree. Brightened in dark mode, where this blue on the near-black background would read as a shadow. | Always, in the centre | `App.vue:7, 541-542` |
+| Notice (small, 60% opacity) | "Saved" (`file.saved`) after a save; after a passphrase change from the file shield, "Passphrase changed: +{gained} Security Mana." (`mana.rekeyEarned`) or "Passphrase changed. No Mana this time: the bar is full, or this file or today’s passphrase changes already earned some." (`mana.rekeyNoReward`) | none | "Saved" is set after a successful write or a browser download; the passphrase sentences after a successful change (see Encryption). Cleared when Save starts or a file is opened or created. Save As from the menu and Open do not clear it first, so a stale notice can outlive a cancelled Save As. Editing does not clear it, so "Saved" can sit beside a fresh dot. | Editor view, notice non-empty | `App.vue:545`; `EditorHost.vue:395, 440, 530, 549, 573` |
+| File error (small, warn colour, truncated) | "Could not open the file. <sentence>" (`file.openFailed`), "Could not save. <sentence>" (`file.saveFailed`), "Choose a workspace folder first." (`workspace.errors.no_workspace`) when Open… or Save As… runs without a workspace, "Not saved: the file is encrypted and its passphrase was not given." (`shield.saveCancelled`) when the passphrase asked for at Save was not given, or the bare sentence of a permanent decrypt with the remembered passphrase that failed from the file shield | `file-error` | The host's last file error. `<sentence>` is Rust's refusal put through the catalogue (see Opening, saving and discarding). Cleared at the start of Open, Save, an encrypted open, Encrypt, Decrypt and Change passphrase, and on any open or New; Save As from the menu does not clear it first, a new failure overwrites it. While an editor is mounted the same text is also handed to it, which draws it as a warn strip above its body. | Editor view, error non-empty | `App.vue:546-548`; `EditorHost.vue:276, 285, 306, 341, 360, 384, 439, 477, 483, 502, 521, 533, 553, 572` |
+| Export error (small, warn colour, truncated) | "Could not export. <reason>" (`file.exportFailed`), the reason being the error's own text, not a catalogue sentence | `export-error` | Set when an export command throws past its editor, which today means a CSV write that failed (a refused or full location). Cleared at the start of the next export and whenever another file is put on screen: App watches the host's `generation`, which every open, New and "Open as plain text" bumps, so reopening a file of the same name clears it too, while a Save As rename leaves it (`App.vue:275-276`; `EditorHost.vue:128, 409, 441`). The drawing's PNG export catches its own failures and shows them in the editor instead, so it never reaches this line. | Editor view, non-empty | `App.vue:253-276, 549-551` |
+| Security Mana bar (a droplet, a thin bar, a trend arrow, the level) | tooltip and aria-label "Security Mana: {level} of {max}. Plain files use {drain} an hour; {regen} comes back an hour. Opens workspace security." (`mana.bar.label`) | `mana-bar` and its parts (see Security Mana) | Shows where the workspace's Security Mana stands and which way it is moving. A click puts Workspace security in front of the editor, as the Files panel's shield does. Described under Security Mana, The header bar. | Whenever Rust answered the Mana status: a workspace is open on the desktop and Rust could read its metadata file (a missing one is fine; a folder that cannot be written still gets its bar). In every view, not only the editor. | `App.vue:555`; `apps/morion/src/security/ManaBar.vue` |
+| Locale button (text "PL" or "EN") | none | none | Shows the language you would switch TO ("PL" while English). Flips en and pl through `setLocale`, which sets the vue-i18n locale, `<html lang>` and `zinnia:locale`. The write is try/caught, so with storage blocked the switch still takes effect for the session and is simply not remembered (`packages/petalite/src/i18n/index.ts:54-58`). | Always | `App.vue:46-48, 557-560`; `packages/petalite/src/i18n/index.ts:51-59` |
+| Dark toggle (icon `moon` while dark, `sun` while light) | "Dark mode" (`nav.themeDark`) while dark, "Light mode" (`nav.themeLight`) while light | `dark-toggle` | Shows the CURRENT mode. Toggles the `.dark` class on `<html>` and writes `zinnia:dark`. | Always | `App.vue:36-44, 564-570` |
 
-The header also mounts two dialogs that draw nothing in the bar: the one Mana
-confirmation (`ManaConfirm`) and the tag dialog (`TagModal`, present only
-while the open file has a path). Both are teleported to `<body>` when they open
-(`App.vue:486-488`).
+The mark is the header's middle child, between the last control of the left
+half and the first of the right. There is no spacer: the right half pushes its
+contents to the right edge itself (`justify-end`). When the right half is
+short of room the file and export errors truncate and the Mana bar's bar
+narrows, down to 1.5rem; the notice and the two toggles never shrink. The mark
+stays in the exact centre at window widths from 1200 down to 360 px.
+
+The header also mounts three dialogs that draw nothing in the bar: the Mana
+confirmation (`ManaConfirm`), the prompt that opens when Security Mana runs
+out (`ManaPrompt`) and the tag dialog (`TagModal`, present only while the open
+file has a path). All three are teleported to `<body>` when they open
+(`App.vue:574-577`).
 
 ### The file shield
 
-The shield says whether the OPEN file is encrypted and offers the one thing
-that can be done about it. Its state is the host's own `isSealed`: true while
-the host holds a Rust session for the open file, shows an encrypted picture
-from memory, or knows the file was encrypted on disk while it was open and has
-not yet been saved back through its passphrase (`EditorHost.vue:146-154`). The
-host does not watch the disk, but the Files panel tells it after every
-successful row shield action and every folder run, and it then asks Rust about
-the open file again (`resync`, `EditorHost.vue:221-240`; `App.vue:522`), so the
-shield follows those changes (see Encryption).
+The shield says whether the OPEN file is encrypted and offers what can be done
+about it. Its state is the host's own `isSealed`: true while the host holds a
+Rust session for the open file, shows an encrypted picture from memory, or
+knows the file was encrypted on disk while it was open and has not yet been
+saved back through its passphrase (`EditorHost.vue:146-154`). The host does not
+watch the disk, but the Files panel tells it after every successful row shield
+action and every folder run, and it then asks Rust about the open file again
+(`resync`, `EditorHost.vue:228-242`; `App.vue:585`), so the shield follows
+those changes (see Encryption).
 
-The panel (`App.vue:445-473`, `data-testid="file-shield-panel"`,
+The panel (`App.vue:482-524`, `data-testid="file-shield-panel"`,
 `role="dialog"`, 18rem wide) opens below the shield over a transparent
-full-window backdrop that closes it on click (`App.vue:444`). Escape closes it
-while focus is inside the shield's wrapper (`App.vue:432`), which it is right
+full-window backdrop that closes it on click (`App.vue:481`). Escape closes it
+while focus is inside the shield's wrapper (`App.vue:469`), which it is right
 after the shield was clicked; focus is not moved into the panel. It also
-closes when either button is pressed and whenever the open file's name changes,
-that is on every open, New or Save As rename (`App.vue:147-148`). Top to
-bottom:
+closes when any of its buttons is pressed and whenever the open file's name
+changes, that is on every open, New or Save As rename (`App.vue:162-163`). Top
+to bottom:
 
 | Element | Text | Key | `data-testid` | Notes |
 |---|---|---|---|---|
 | Title (icon `lock` while encrypted, `lock-open` while plain) | "Encryption" | `shield.title` | none | |
-| Status | "Not encrypted"; for an encrypted file "Encrypted on disk. It is decrypted in memory only; saving writes it back encrypted."; for an encrypted picture "Encrypted on disk. Shown from memory; nothing is written." | `shield.statusPlain`, `shield.statusSealed`, `shield.statusSealedImage` | `file-shield-status` | `App.vue:452-454` |
-| Encrypt button (icon `lock`) | "Encrypt with a passphrase…" | `shield.encrypt` | `file-shield-encrypt` | Only while the file is plain. Closes the panel and runs `encryptFile` (see Encryption). `App.vue:456-461, 159-162` |
-| Decrypt button (icon `lock-open`) | "Decrypt permanently…" | `shield.decrypt` | `file-shield-decrypt` | Only while the file is encrypted. Closes the panel and runs `decryptFile`. `App.vue:462-467, 163-166` |
-| Blocker line | "Save the file first." while the file has never been saved (no path), else "Save your changes first." while it has unsaved changes | `shield.saveFirst`, `shield.cleanFirst` | `file-shield-blocker` | While it shows, the button above is disabled. The button is also disabled, with no line, while a Save is in flight. In the browser build a file never has a path, so Encrypt is always blocked there. `App.vue:151-157, 468` |
-| Limits (under a rule, 11px) | "Encryption protects the contents of a file. Its name, its folder, its size and dates, and any tags stay visible." | `shield.limits` | `file-shield-limits` | `App.vue:470-472` |
+| Status | "Not encrypted"; for an encrypted file "Encrypted on disk. It is decrypted in memory only; saving writes it back encrypted."; for an encrypted picture "Encrypted on disk. Shown from memory; nothing is written." | `shield.statusPlain`, `shield.statusSealed`, `shield.statusSealedImage` | `file-shield-status` | `App.vue:489-491` |
+| Rate (icon `droplet`) | plain file: "Uses {rate} Security Mana an hour while it is not encrypted"; encrypted file: "Encrypted: uses no Security Mana." (70% opacity) | `mana.rowRate`, `mana.sealedFree` | `file-shield-rate` | For a plain file the rate is asked of Rust (`mana_rate`) each time the panel opens, for the file as it is on disk, not the unsaved buffer; the line is absent until Rust answers, and absent for a never-saved file and wherever Rust cannot say (no workspace, the browser build). The encrypted line always shows. `App.vue:165-172, 492-497` |
+| Encrypt button (icon `lock`) | "Encrypt with a passphrase…" | `shield.encrypt` | `file-shield-encrypt` | Only while the file is plain. Closes the panel and runs `encryptFile` (see Encryption). `App.vue:499-504, 183-186` |
+| Decrypt button (icon `lock-open`) | "Decrypt permanently…" | `shield.decrypt` | `file-shield-decrypt` | Only while the file is encrypted. Closes the panel and runs `decryptFile`. `App.vue:505-510, 187-190` |
+| Change passphrase button (icon `key`) | "Change passphrase…" | `shield.rekey` | `file-shield-rekey` | Only while the file is encrypted, under Decrypt. Closes the panel and runs `changePassphrase` (see Encryption). Not blocked by unsaved changes: the buffer is not touched and the editing session follows the new key. Disabled only while a Save is in flight (or, defensively, for a file with no path, which an encrypted file never is). `App.vue:513-518, 191-194` |
+| Blocker line | "Save the file first." while the file has never been saved (no path), else "Save your changes first." while it has unsaved changes | `shield.saveFirst`, `shield.cleanFirst` | `file-shield-blocker` | While it shows, Encrypt or Decrypt is disabled; Change passphrase is not. Encrypt and Decrypt are also disabled, with no line, while a Save is in flight. In the browser build a file never has a path, so Encrypt is always blocked there. `App.vue:175-181, 519` |
+| Limits (under a rule, 11px) | "Encryption protects the contents of a file. Its name, its folder, its size and dates, and any tags stay visible." | `shield.limits` | `file-shield-limits` | `App.vue:521-523` |
 
 ### Tags in the header
 
 The chips are read from Rust (`tags_get`) whenever the open file's path
 changes, including Save As to a new path, and replaced by whatever the tag
 dialog saved; off the desktop nothing is read, and a failed read shows no
-chips (`App.vue:171-182, 488`). Switching the workspace does not change the
+chips (`App.vue:199-210, 576-577`). Switching the workspace does not change the
 path, so the chips of a file left open from the previous workspace stay as they
 were read.
 
-With the panel open and a dirty `email.txt` opened from the Files panel, the
-left of the bar reads: ☰, the filled folder button, "email.txt •", the outlined
-shield, and a tags button reading "No tags".
+With the panel open, a workspace open and a dirty `email.txt` opened from the
+Files panel, the bar reads from the left: ☰, the filled folder button,
+"email.txt •", the outlined shield, a tags button reading "No tags", the mark
+in the centre, then the Mana bar, "PL" and the dark toggle at the right edge.
 
 Four header states:
 
-* Editor view, no file: ☰, folder button, locale and dark buttons; the content
-  column shows the start screen. If Open… (menu, start screen or Ctrl+O) fails,
-  the `file-error` line still appears here: `openFile()` sets the error whether
-  or not a file is open (`EditorHost.vue:471-473`) and the notice and error
-  lines are not gated on a file (`App.vue:492-495`), and since no editor is
-  mounted the header is the only place it shows.
+* Editor view, no file: ☰, folder button, the Mana bar when a workspace is
+  open, locale and dark buttons; the content column shows the start screen. If
+  Open… (menu, start screen or Ctrl+O) fails, the `file-error` line still
+  appears here: `openFile()` sets the error whether or not a file is open
+  (`EditorHost.vue:501-503`) and the notice and error lines are not gated on a
+  file (`App.vue:545-548`), and since no editor is mounted the header is the
+  only place it shows.
 * Editor view, file open: name and dot, then the shield and, for a file on
   disk, the tags button; notice, file error and export error on the right when
-  present.
+  present, before the Mana bar.
 * Editor view, file open, Open… failed after a save: "Saved" and "Could not
   open the file. <sentence>" sit side by side, because `openFile()` clears only
-  the error (`EditorHost.vue:447`) and the notice is cleared only by a
-  successful open or the next Save (`EditorHost.vue:410, 543`).
+  the error (`EditorHost.vue:477`) and the notice is cleared only by a
+  successful open or the next Save (`EditorHost.vue:440, 573`).
 * Workspace security or Settings up: the view title and × replace the name,
   the shield and the tags; the notice, the file error and the export error are
-  suppressed by the `view === 'editor'` guard; the Files panel is hidden.
+  suppressed by the `view === 'editor'` guard; the Mana bar stays; the Files
+  panel is hidden.
 
 Dark mode: when `zinnia:dark` is absent the initial value follows the OS
 (`matchMedia("(prefers-color-scheme: dark)")`), and when `matchMedia` is
-unavailable the default is dark (`App.vue:31-35`). The watcher is immediate, so
+unavailable the default is dark (`App.vue:36-40`). The watcher is immediate, so
 the key is written at startup. Locale: read at startup from `zinnia:locale`;
 absent, unsupported, or unreadable storage falls back to `navigator.language`
 starting with "pl", else "en" (`packages/petalite/src/i18n/index.ts:31-41`; the
@@ -271,87 +290,88 @@ button is pressed.
 
 ## The ☰ menu
 
-The panel (`App.vue:305-398`, `data-testid="app-menu-panel"`, `role="menu"`,
+The panel (`App.vue:342-435`, `data-testid="app-menu-panel"`, `role="menu"`,
 14rem wide) opens below the ☰ button over a fixed full-window backdrop
-(`App.vue:304`). It closes on a backdrop click, on Escape while focus is inside
-the menu wrapper (`App.vue:294`), and after any command is chosen; unfolding
+(`App.vue:341`). It closes on a backdrop click, on Escape while focus is inside
+the menu wrapper (`App.vue:330`), and after any command is chosen; unfolding
 Workspace or New is not a command and leaves it open. Disabled items are drawn
 at 40% opacity; New, Open, Save and Save As also lose their hover tint while
-disabled (`App.vue:352, 372`), whereas a disabled export entry keeps it
-(`App.vue:381`).
+disabled (`App.vue:389, 409`), whereas a disabled export entry keeps it
+(`App.vue:418`).
 
 While the menu is open the backdrop sits above everything but the ☰ button
-(`App.vue:296, 304`), so a click on the folder button, the file shield, the
+(`App.vue:333, 341`), so a click on the folder button, the file shield, the
 PL/EN or dark toggles, the Files panel or the editor only closes the menu; it
 does not also press what was clicked. A second click on ☰ closes it through the
 button. Every row is a `role="menuitem"` button, and the Workspace and New
-parents carry `aria-expanded` (`App.vue:311-313, 350-353`). Opening the menu
+parents carry `aria-expanded` (`App.vue:348-350, 387-390`). Opening the menu
 moves focus nowhere and there is no arrow-key navigation or focus trap: rows
 are reached with Tab like ordinary buttons, and the only key the menu answers
 is Escape. No row shows a shortcut hint, although Open… has Ctrl+O. The rows
 under the two parents are indented (`pl-9`) and slightly shorter (`py-1.5`,
-`App.vue:327, 337, 362`).
+`App.vue:364, 374, 399`).
 
 Top to bottom, with Workspace and New unfolded, the menu reads:
 
 | Item | Icon | Catalogue key | `data-testid` | Disabled when | What it does | Source |
 |---|---|---|---|---|---|---|
-| "Workspace" and, at 60% opacity, the folder's base name or "No workspace open" | `folder`; chevron right (folded) or down (unfolded) | `workspace.title`, `workspace.none` | `menu-workspace` (the row), `menu-workspace-name` (the name) | never | Toggles the Workspace fold-out in place. It re-folds whenever the menu closes (`App.vue:197`). | `App.vue:311-322` |
-| Full path line (11px, 50% opacity, truncated, tooltip the path) | | | `menu-workspace-path` | | The open folder's canonical path. Only while a folder is open. | `App.vue:324-325` |
-| "Choose a folder…" while none is open, "Change folder…" while one is | `folder-open` | `workspace.pick` / `workspace.change` | `menu-workspace-pick` | never | Closes the menu, shows the editor view, then `workspace.pickRoot()`: the native folder picker (see Workspaces). | `App.vue:199-203, 326-331` |
-| "Recent" caption (10px, uppercase), then one row per recent folder by base name, tooltip the full path | `clock-rotate-left` | `workspace.recent` | `menu-workspace-recent-{i}`, 0-based | never | The recent list (six kept) minus the folder that is open now; caption and rows are absent when that leaves none. A click closes the menu, shows the editor view and switches to that folder through `workspace.switchRoot(path)`, with no dialog. A folder that has gone is refused and the current workspace stays; the refusal shows only in the Files panel. | `App.vue:85, 205-209, 332-341` |
-| Hint (11px, 60% opacity, not indented) | | `workspace.hint` | `menu-workspace-hint` | | "A workspace is an ordinary folder on this computer. Morion works on the files inside it and nowhere else: nothing is imported, copied or uploaded." | `App.vue:342-344` |
-| (rule) | | | | | Always drawn under the Workspace section, folded or not. | `App.vue:346` |
-| New ▾ | `file-circle-plus`; chevron right (folded) or down (unfolded) | `file.new` | `menu-new` | the host is busy | Toggles the New fold-out in place. The fold-out re-folds every time the menu closes (`App.vue:197`). | `App.vue:350-358` |
-| New document | `file-lines` | `file.newDoc` | `menu-new-document` | never on its own (only the parent greys out) | `runNew('document')`: closes the menu, shows the editor view, seeds `untitled.xml`. Discard prompt first if dirty. | `App.vue:258-263, 359-368`; `kinds.ts:54` |
+| "Workspace" and, at 60% opacity, the folder's base name or "No workspace open" | `folder`; chevron right (folded) or down (unfolded) | `workspace.title`, `workspace.none` | `menu-workspace` (the row), `menu-workspace-name` (the name) | never | Toggles the Workspace fold-out in place. It re-folds whenever the menu closes (`App.vue:225`). | `App.vue:348-359` |
+| Full path line (11px, 50% opacity, truncated, tooltip the path) | | | `menu-workspace-path` | | The open folder's canonical path. Only while a folder is open. | `App.vue:361-362` |
+| "Choose a folder…" while none is open, "Change folder…" while one is | `folder-open` | `workspace.pick` / `workspace.change` | `menu-workspace-pick` | never | Closes the menu, shows the editor view, then `workspace.pickRoot()`: the native folder picker (see Workspaces). | `App.vue:227-231, 363-368` |
+| "Recent" caption (10px, uppercase), then one row per recent folder by base name, tooltip the full path | `clock-rotate-left` | `workspace.recent` | `menu-workspace-recent-{i}`, 0-based | never | The recent list (six kept) minus the folder that is open now; caption and rows are absent when that leaves none. A click closes the menu, shows the editor view and switches to that folder through `workspace.switchRoot(path)`, with no dialog. A folder that has gone is refused and the current workspace stays; the refusal shows only in the Files panel. | `App.vue:90, 233-237, 369-378` |
+| Hint (11px, 60% opacity, not indented) | | `workspace.hint` | `menu-workspace-hint` | | "A workspace is an ordinary folder on this computer. Morion works on the files inside it and nowhere else: nothing is imported, copied or uploaded." | `App.vue:379-381` |
+| (rule) | | | | | Always drawn under the Workspace section, folded or not. | `App.vue:383` |
+| New ▾ | `file-circle-plus`; chevron right (folded) or down (unfolded) | `file.new` | `menu-new` | the host is busy | Toggles the New fold-out in place. The fold-out re-folds every time the menu closes (`App.vue:225`). | `App.vue:387-395` |
+| New document | `file-lines` | `file.newDoc` | `menu-new-document` | never on its own (only the parent greys out) | `runNew('document')`: closes the menu, shows the editor view, seeds `untitled.xml`. Discard prompt first if dirty. | `App.vue:288-293, 396-405`; `kinds.ts:54` |
 | New presentation | `file-powerpoint` | `file.newDeck` | `menu-new-deck` | never | `runNew('deck')`, `untitled-deck.pxml` | `kinds.ts:55` |
 | New spreadsheet | `table-cells` | `file.newSheet` | `menu-new-sheet` | never | `runNew('sheet')`, `untitled-sheet.json` | `kinds.ts:56` |
 | New drawing | `pen-nib` | `sketch.newDrawing` (wisteria catalogue, `packages/wisteria/src/i18n/index.ts:107`) | `menu-new-sketch` | never | `runNew('sketch')`, `untitled.svg` | `kinds.ts:57` |
 | New Markdown note | `file-pen` | `file.newMd` | `menu-new-markdown` | never | `runNew('markdown')`, `untitled.md` | `kinds.ts:58` |
 | New text | `code` | `file.newText` | `menu-new-code` | never | `runNew('code')`, `untitled.txt` | `kinds.ts:59` |
-| Open… | `folder-open` | `file.open` | `menu-open` | the host is busy; on the desktop, also while no workspace is open | Closes the menu, shows the editor view, `host.openFile()`. | `App.vue:212, 251-256, 281` |
-| Save | `floppy-disk` | `file.save` | `menu-save` | unless `host.canSave` | `host.saveFile()`: writes to the file's path, or falls through to Save As for a never-saved file. | `App.vue:213, 279` |
-| Save As… | `file-pen` | `file.saveAs` | `menu-saveAs` | the host is busy, no file is open, or (desktop) no workspace is open | `host.saveAs()`. | `App.vue:214, 280` |
-| (rule) | | | | | Drawn only above the first export entry, as its top border. | `App.vue:382` |
-| Export entries | per editor | per editor | `menu-export` for the first, `menu-export-{i}` for later ones | the host is busy | Closes the menu and runs the mounted editor's export through `runExport`, without changing the view. From an encrypted file the Mana confirmation comes first and the charge follows only if a file was written (see Security Mana). A failure the editor did not catch itself appears in the header as "Could not export. <reason>". | `App.vue:220, 225-241, 379-388` |
-| (rule) | | | | | Divides the file commands from Settings. | `App.vue:390` |
-| Settings | `gear` | `nav.settings` | `menu-settings` | never | Closes the menu, mounts `SettingsView` on first visit, shows it in front of the editor. | `App.vue:70-72, 265-268, 391-397` |
+| Open… | `folder-open` | `file.open` | `menu-open` | the host is busy; on the desktop, also while no workspace is open | Closes the menu, shows the editor view, `host.openFile()`. | `App.vue:240, 281-286, 311` |
+| Save | `floppy-disk` | `file.save` | `menu-save` | unless `host.canSave` | `host.saveFile()`: writes to the file's path, or falls through to Save As for a never-saved file. | `App.vue:241, 309` |
+| Save As… | `file-pen` | `file.saveAs` | `menu-saveAs` | the host is busy, no file is open, or (desktop) no workspace is open | `host.saveAs()`. | `App.vue:242, 310` |
+| (rule) | | | | | Drawn only above the first export entry, as its top border. | `App.vue:419` |
+| Export entries | per editor | per editor | `menu-export` for the first, `menu-export-{i}` for later ones | the host is busy | Closes the menu and runs the mounted editor's export through `runExport`, without changing the view. From an encrypted file the confirmation "This leaves plaintext behind" comes first (see Security Mana); nothing is charged for an export. A failure the editor did not catch itself appears in the header as "Could not export. <reason>". | `App.vue:248, 253-271, 416-425` |
+| (rule) | | | | | Divides the file commands from Settings. | `App.vue:427` |
+| Settings | `gear` | `nav.settings` | `menu-settings` | never | Closes the menu, mounts `SettingsView` on first visit, shows it in front of the editor. | `App.vue:77, 295-298, 428-434` |
 
 There is no Security row any more. Workspace security is about the folder, not
-the app, so it is reached from the shield in the Files sidepanel's header
-(`App.vue:9-12, 70-72`; `FilesPanel.vue:240-245`).
+the app, so it is reached from the shield in the Files sidepanel's header or
+from the Security Mana bar in the header (`App.vue:12-15, 75-77, 555`;
+`FilesPanel.vue:294-299`).
 
-`isDisabled` (`App.vue:273-283`) decides New, Open, Save and Save As.
+`isDisabled` (`App.vue:303-313`) decides New, Open, Save and Save As.
 Everything is greyed while there is no host or the host is busy; then Save
 follows `canSave`, Save As needs an open file and a workspace, and Open needs a
 workspace. The workspace rule applies only on the desktop: the browser build
 has no workspace and needs none, because it opens through a file input and
-saves by download (`isTauri`, `App.vue:27, 276-278`), so there Open… is always
+saves by download (`isTauri`, `App.vue:32, 306-308`), so there Open… is always
 available and Save As… needs only an open file. The New fold-out's six rows
 carry no `:disabled` of their own; only the New parent greys out while busy
-(`App.vue:353, 360-367`). "No host" is a guard, not a state you can reach: the
-host is mounted once with the app and only ever hidden (`App.vue:126-127,
-526`), so in practice the rows grey out for busy, `canSave`, an open file and
+(`App.vue:390, 397-404`). "No host" is a guard, not a state you can reach: the
+host is mounted once with the app and only ever hidden (`App.vue:132-133,
+589`), so in practice the rows grey out for busy, `canSave`, an open file and
 the workspace alone.
 
-`busy` is the host's save-in-flight flag (`EditorHost.vue:130, 539-551`): it
+`busy` is the host's save-in-flight flag (`EditorHost.vue:130, 569-581`): it
 is set only by Save, and for a never-saved file it stays set while the native
 Save As dialog that Save falls through to is open. Save As… chosen from the
-menu does not set it, and neither does encrypting, decrypting or opening an
-encrypted file. The drawing's PNG export keeps its own busy flag
-(`SketchEditor.vue:125, 159`) that the menu does not show, so a second "Export
-as PNG" while one is rendering looks enabled, writes nothing and answers that
-nothing was written.
+menu does not set it, and neither does encrypting, decrypting, changing the
+passphrase of or opening an encrypted file. The drawing's PNG export keeps its
+own busy flag (`SketchEditor.vue:125, 159`) that the menu does not show, so a
+second "Export as PNG" while one is rendering looks enabled, writes nothing and
+answers that nothing was written.
 
 `canSave` is `hasFile && !busy && !readOnly && (dirty || path === null)`
-(`EditorHost.vue:562-563`). So a brand-new untitled file has Save enabled at
+(`EditorHost.vue:592-593`). So a brand-new untitled file has Save enabled at
 once, an already-saved file only once it has changed, and an opened image,
 plain or encrypted, never. Save As looks enabled for an opened image, because
 `isDisabled` only checks for a file and a workspace, but `saveAs()` returns
-false without doing anything (`EditorHost.vue:509`).
+false without doing anything (`EditorHost.vue:539`).
 
 Export entries exist only while an editor that offers them is mounted
-(`EditorHost.vue:584-586` reads `exports` off the editor):
+(`EditorHost.vue:614-616` reads `exports` off the editor):
 
 | Editor | Entry | Icon | Key | Source |
 |---|---|---|---|---|
@@ -361,28 +381,29 @@ Export entries exist only while an editor that offers them is mounted
 Each export's `run` answers whether it wrote a file: `true` after a written
 file (or a browser download), `false` for a cancelled save dialog, a failure it
 caught itself, or nothing to export (`SheetEditor.vue:228-259`,
-`SketchEditor.vue:155-174`; the type is `App.vue:92-93`). The menu uses that
-answer only to decide whether an export from an encrypted file is charged. It
-shows nothing on success, and it catches a failure the editor let through (in
-practice a CSV write that failed): the header's `export-error` line then reads
-"Could not export." (`file.exportFailed`) and the error's own text, and nothing
-is charged (`App.vue:225-246`). "Export as PNG" is the one dialog-opening
-command written without the trailing "…" the others carry
-(`packages/wisteria/src/i18n/index.ts:93`). The entry is exposed by the editor
-component, not by a successful parse, so it is still listed and enabled while
-the Sheet or Drawing editor is showing its refusal panel; choosing it then
-writes nothing (`SheetEditor.vue:229-231` finds no snapshot,
-`SketchEditor.vue:158-159` finds no session), after the Mana confirmation if
-the file is encrypted, and nothing is charged. A sheet whose grid failed to
-start still exports, from the snapshot it read. Once "Open as plain text" has
-remounted the file in the bare text editor the entry is gone.
+`SketchEditor.vue:155-174`; the type is `App.vue:97-98`). The menu no longer
+uses that answer: an export is not charged, and a plaintext copy costs
+Security Mana only if it is saved inside the workspace, where it drains like
+any plain file from the next look on. The menu shows nothing on success, and it
+catches a failure the editor let through (in practice a CSV write that failed):
+the header's `export-error` line then reads "Could not export."
+(`file.exportFailed`) and the error's own text (`App.vue:253-276`). "Export as
+PNG" is the one dialog-opening command written without the trailing "…" the
+others carry (`packages/wisteria/src/i18n/index.ts:93`). The entry is exposed
+by the editor component, not by a successful parse, so it is still listed and
+enabled while the Sheet or Drawing editor is showing its refusal panel;
+choosing it then writes nothing (`SheetEditor.vue:229-231` finds no snapshot,
+`SketchEditor.vue:158-159` finds no session), after the confirmation if the
+file is encrypted. A sheet whose grid failed to start still exports, from the
+snapshot it read. Once "Open as plain text" has remounted the file in the bare
+text editor the entry is gone.
 
 With the header's PL/EN button on Polish the same rows read Obszar roboczy
 ("Nie otwarto obszaru roboczego" while none is open), Wybierz folder… or Zmień
 folder…, Ostatnie, Nowy, Nowy dokument, Nowa prezentacja, Nowy arkusz, Nowy
 rysunek, Nowa notatka Markdown, Nowy tekst, Otwórz…, Zapisz, Zapisz jako…,
 Eksportuj arkusz jako CSV…, Eksportuj jako PNG, Ustawienia
-(`apps/morion/src/i18n/pl.ts:15, 112, 198-214, 228-232`;
+(`apps/morion/src/i18n/pl.ts:15, 141, 227-243, 257-261`;
 `packages/wisteria/src/i18n/index.ts:192, 206`).
 
 The Write, Presentations, Markdown, Code and bare text editors offer none, so
@@ -391,26 +412,26 @@ wired: `en.ts` carries the `pdf.*` strings and `apps/morion/src/pdf/` can
 build a document, but `DocumentEditor.vue` exposes no `exports`
 (`DocumentEditor.vue:287-298`) and nothing outside `src/pdf/` imports it. The
 "Export as PDF…" and "Export slides as PDF…" strings never reach the menu.
-Likewise `file.newDrawing` ("New", `en.ts:210`) is a leftover the New drawing
+Likewise `file.newDrawing` ("New", `en.ts:239`) is a leftover the New drawing
 row does not use, and wisteria's "Export as SVG" (`sketch.exportSvg`,
 `packages/wisteria/src/i18n/index.ts:91`) and "Open as XML instead"
 (`sketch.openAsXml`, `:106`) are rendered nowhere in this app: there is no SVG
 export entry because Save already writes the drawing as plain SVG.
 
 Every file command (New, Open, Save, Save As) first switches back to the editor
-view (`App.vue:251-263`), so Open from Settings means "open a file", not "open
+view (`App.vue:281-293`), so Open from Settings means "open a file", not "open
 one out of sight". An export entry does not: it runs where it is
-(`App.vue:225-241`), so "Export sheet as CSV…" or "Export as PNG" chosen from
+(`App.vue:253-271`), so "Export sheet as CSV…" or "Export as PNG" chosen from
 Workspace security or Settings still opens the native save dialog and writes
 the file, while the drawing's "Saved." notice or error line lands in the
 editor's strip behind the view, and a CSV failure's "Could not export." line
-waits in the header until the editor view is back (`App.vue:496`), unseen until
+waits in the header until the editor view is back (`App.vue:549`), unseen until
 the × is pressed.
 
 ## The start screen
 
 `apps/morion/src/views/StartView.vue:30-88`, rendered by
-`EditorHost.vue:615-617` whenever no file is open (`kind === null`) and the
+`EditorHost.vue:645-647` whenever no file is open (`kind === null`) and the
 editor view is on screen. A centred column, `max-w-md`, root
 `data-testid="start"`, centred vertically and horizontally inside 24px padding;
 the region scrolls if the window is shorter than the column
@@ -421,11 +442,11 @@ sit at 70% opacity (`:63`). Top to bottom:
 | Control | Text | Key | `data-testid` | Does | Disabled when | Source |
 |---|---|---|---|---|---|---|
 | Heading and hint | "Morion", "Open a file, start a new one, or find a note." | `brand.name` (`config.ts:7`, a constant, not an i18n key: it does not change with the PL/EN toggle), `start.hint` | none | static | | `StartView.vue:34-35` |
-| Workspace card (bordered) | caption "Workspace" (small, uppercase); the folder's base name in bold (tooltip the full path) or "No workspace open"; the `workspace.hint` sentence "A workspace is an ordinary folder on this computer. Morion works on the files inside it and nowhere else: nothing is imported, copied or uploaded."; a small button "Choose a folder…" or "Change folder…" (icon `folder-open`) | `workspace.title`, `workspace.none`, `workspace.hint`, `workspace.pick`, `workspace.change` | `start-workspace` (card), `start-workspace-name` (folder set), `start-workspace-none` (no folder), `start-workspace-pick` (button) | The button emits `pickWorkspace`, which the host answers with `workspace.pickRoot()`: the same native folder picker as the menu and the Files panel. The card comes first because Open and Save have nowhere to look without a workspace. | never | `StartView.vue:40-53`; `EditorHost.vue:617` |
+| Workspace card (bordered) | caption "Workspace" (small, uppercase); the folder's base name in bold (tooltip the full path) or "No workspace open"; the `workspace.hint` sentence "A workspace is an ordinary folder on this computer. Morion works on the files inside it and nowhere else: nothing is imported, copied or uploaded."; a small button "Choose a folder…" or "Change folder…" (icon `folder-open`) | `workspace.title`, `workspace.none`, `workspace.hint`, `workspace.pick`, `workspace.change` | `start-workspace` (card), `start-workspace-name` (folder set), `start-workspace-none` (no folder), `start-workspace-pick` (button) | The button emits `pickWorkspace`, which the host answers with `workspace.pickRoot()`: the same native folder picker as the menu and the Files panel. The card comes first because Open and Save have nowhere to look without a workspace. | never | `StartView.vue:40-53`; `EditorHost.vue:647` |
 | Section caption | "New" (small, uppercase) | `file.new` | none | labels the grid | | `StartView.vue:56` |
 | Six kind buttons, 2-column grid in `NEW_FILE_KINDS` order | "New document", "New presentation" / "New spreadsheet", "New drawing" / "New Markdown note", "New text", each with its icon | `file.newDoc`, `file.newDeck`, `file.newSheet`, `sketch.newDrawing`, `file.newMd`, `file.newText` | `start-new-document`, `start-new-deck`, `start-new-sheet`, `start-new-sketch`, `start-new-markdown`, `start-new-code` | `emit('new', kind)`, then `EditorHost.newFile(kind)`: seeds an untitled file of that kind and mounts its editor. No workspace is needed. | busy | `StartView.vue:57-66`; `kinds.ts:53-60` |
 | "Open…" (accent-filled, bold, icon `folder-open`) | | `file.open` | `start-open` | `EditorHost.openFile()`: the native dialog on the workspace under Tauri, a hidden file input in a browser | busy; on the desktop, also while no workspace is open | `StartView.vue:70-77` |
-| "Search the workspace" (outlined, icon `magnifying-glass`) | | `start.searchNotes` | `start-search` | `App.startSearch()`: forces the Files panel open (if it was collapsed, `zinnia:files` becomes "1") and focuses its workspace search box | never | `StartView.vue:78-84`; relayed by `EditorHost.vue:58-62, 616`; `App.vue:185-189, 527` |
+| "Search the workspace" (outlined, icon `magnifying-glass`) | | `start.searchNotes` | `start-search` | `App.startSearch()`: forces the Files panel open (if it was collapsed, `zinnia:files` becomes "1") and focuses its workspace search box | never | `StartView.vue:78-84`; relayed by `EditorHost.vue:58-62, 646`; `App.vue:213-217, 590` |
 
 Open… is disabled for a reason you can see: on the desktop with no workspace
 open it stays greyed (`busy || (isTauri && !workspace)`, `StartView.vue:70`)
@@ -433,32 +454,32 @@ until a folder is chosen in the card above it. In the browser build it is never
 greyed for that reason, since the browser opens through a file input. While
 busy the kind buttons and Open… would sit at 40% opacity, but that state is
 unreachable here: `busy` is only ever set by `saveFile`
-(`EditorHost.vue:539-551`), which refuses to run without an open file, and an
+(`EditorHost.vue:569-581`), which refuses to run without an open file, and an
 open file means the start screen is no longer mounted. The `:disabled="busy"`
 wiring is defensive.
 
 Neither the kind buttons nor Open… can raise the discard prompt from here. Both
-go through `confirmDiscard` (`EditorHost.vue:416, 446`), but with no file open
+go through `confirmDiscard` (`EditorHost.vue:446, 476`), but with no file open
 there is no editor to mark anything dirty, so the prompt resolves silently and
 the new or opened file appears at once.
 
 Cancelling the Open dialog leaves the start screen exactly as it was
-(`EditorHost.vue:461`). If the picked file cannot be read, the start screen
+(`EditorHost.vue:491`). If the picked file cannot be read, the start screen
 also stays, and "Could not open the file. <sentence>" (`file.openFailed`,
-`en.ts:221`) appears in the header's `file-error` slot (`App.vue:493-495`, see
+`en.ts:250`) appears in the header's `file-error` slot (`App.vue:546-548`, see
 The header); no editor is mounted. The error is cleared on the next Open…
-(`EditorHost.vue:447`). A file Rust reports as encrypted goes to the passphrase
+(`EditorHost.vue:477`). A file Rust reports as encrypted goes to the passphrase
 dialog instead (see Encryption); cancelling that also leaves the start screen.
 
 If no folder has been chosen yet, or the remembered folder is currently
 unreadable (the `files-unreadable` state), "Search the workspace" opens the
 panel but focuses nothing: the search box is only rendered in the panel's
-tree branch (`FilesPanel.vue:288-336`), so `focusSearch()` (`:201-206`) finds
+tree branch (`FilesPanel.vue:342-402`), so `focusSearch()` (`:251-253`) finds
 nothing to focus. `App.startSearch` waits one tick after opening the panel
-before trying (`App.vue:185-189`).
+before trying (`App.vue:213-217`).
 
 There is no way back to this screen. `fileKind` is set only by `show`
-(`EditorHost.vue:403`) and nothing ever clears it, and the menu has no Close
+(`EditorHost.vue:433`) and nothing ever clears it, and the menu has no Close
 command, so the start screen is seen once per session: the first New or Open
 replaces it with an editor for good. Switching the workspace does not bring it
 back either. To "start over" the user opens or creates another file.
@@ -473,7 +494,7 @@ petalite's store (`packages/petalite/src/files/useWorkspace.ts`), one singleton
 read by the menu, the start screen, the Files panel, the search box, the host
 and the Workspace security view; Rust keeps the same folder, canonicalised, as
 the boundary every command checks (`WorkspaceState`,
-`apps/morion/src-tauri/src/workspace.rs:38-54`). Rust holds it in process
+`apps/morion/src-tauri/src/workspace.rs:40-56`). Rust holds it in process
 memory only; the page's copy in `zinnia:workspace` is what survives a restart.
 
 ### Choosing one
@@ -514,7 +535,8 @@ editor, but its path now lies outside the workspace, so Save answers "Could not
 save. That path is outside the workspace.", the same for an encrypted file's
 session. Save As can still put it into the new workspace. The Files panel's
 search box is emptied, the Workspace security view reloads for the new folder,
-and the Mana meters become the new folder's (see Security Mana).
+and the Security Mana bar becomes the new folder's, read from that folder's
+own metadata (see Security Mana).
 
 ### The recent list
 
@@ -522,7 +544,7 @@ and the Mana meters become the new folder's (see Security Mana).
 most recent first, at most six, no duplicates (`useWorkspace.ts:107-112,
 183-201`). Only a successful switch is added. The ☰ menu's Workspace fold-out
 lists them minus the folder open now, by base name with the full path as the
-tooltip (`App.vue:85, 332-341`), and a click switches through `switchRoot`
+tooltip (`App.vue:90, 369-378`), and a click switches through `switchRoot`
 without a dialog. Nothing removes an entry: a folder deleted since stays listed
 until newer folders push it off the end, and choosing it is refused as in
 step 1.
@@ -532,7 +554,7 @@ step 1.
 The store reads `zinnia:workspace` when it loads (`useWorkspace.ts:111,
 164-173`). The Files panel is mounted at startup whether or not it is shown,
 and it calls `refresh()` as soon as it sees a root with no rows
-(`FilesPanel.vue:61-63`). The first refresh hands the path to Rust
+(`FilesPanel.vue:67-69`). The first refresh hands the path to Rust
 (`workspace_open`) before reading anything (`useWorkspace.ts:381-392`), so the
 remembered workspace comes back after a restart without a dialog; if Rust
 answers a different canonical spelling, the store and `zinnia:workspace` take
@@ -546,7 +568,7 @@ reopened: the app always starts on the start screen.
 ### The boundary
 
 Every command resolves the path it is handed against the canonical root
-(`resolve`, `workspace.rs:109-186`), applying these rules in this order, which
+(`resolve`, `workspace.rs:111-188`), applying these rules in this order, which
 is also the order the comment above `resolve` lists them in:
 
 1. no `..` anywhere: "outside_workspace: that path climbs out of the
@@ -560,7 +582,7 @@ is also the order the comment above `resolve` lists them in:
    included: "metadata: that is Morion's own metadata folder". That is this
    workspace's metadata at the root, and a nested workspace's further down. A
    folder whose name merely starts with `.morion`, such as `.morion-notes`,
-   is ordinary (`workspace.rs:119-122, 168-170`);
+   is ordinary (`workspace.rs:121-124, 170-172`);
 4. no component under the root may be a symbolic link, whatever it points at:
    "symlink: Morion does not follow symbolic links";
 5. every component must exist, except the last one of a file about to be
@@ -573,84 +595,101 @@ Beyond resolving:
   here") and an encrypted file ("locked: that file is encrypted"), which opens
   only through the encrypted path. Text must be valid UTF-8 ("not_text: that
   file is not a text file"); it is never decoded lossily
-  (`workspace.rs:239-263`).
+  (`workspace.rs:241-265`).
 * A write creates the file if it does not exist, but never a missing folder,
   and never writes plaintext over an encrypted file ("locked: that file is
-  encrypted on disk; save it through its passphrase", `workspace.rs:268-277`).
+  encrypted on disk; save it through its passphrase", `workspace.rs:270-279`).
   Every write, plain or encrypted, goes through a sibling temporary
   `<name>.zlock.tmp` that is flushed and renamed over the target, so a failed
-  write leaves the file as it was (`crates/substrate/src/lib.rs:175-194`).
+  write leaves the file as it was (`crates/substrate/src/lib.rs:191-210`).
 * A listing leaves out symbolic links and any entry named `.morion`, in
   every folder and not only at the root, puts folders first and compares names
-  case-insensitively (`workspace.rs:197-237`).
+  case-insensitively (`workspace.rs:199-239`).
 * With no workspace open, every command answers "no_workspace: choose a
-  workspace folder first" (`workspace.rs:47-53`).
+  workspace folder first" (`workspace.rs:48-55`).
 
-The same resolution guards the encryption commands (`lock.rs:15-17`), in-memory
-editing (`sealed.rs:81, 94, 110`), folder runs (`folder.rs:113, 130`), tags
-(`meta.rs:111-117`) and the Mana ledger (`mana.rs:164-170`). The search and
-folder runs walk down from their starting folder, never follow a link and never
-enter a folder named `.morion`, at any depth (`folder.rs:72-110`). So a
-`.morion` folder anywhere in the workspace is neither listed nor walked, and
-no path into it is accepted. The sentences the app shows for these refusals are
-listed under Opening, saving and discarding.
+The same resolution guards the encryption commands, a passphrase change
+included (`lock.rs:19-21, 61`), in-memory editing (`sealed.rs:105, 118, 134`),
+folder runs and the Mana prompt's list of files (`folder.rs:117, 134, 166`),
+tags (`meta.rs:151-157`), the Mana rate of a file or folder (`mana.rs:283`) and
+the paths the Mana history keeps (`mana.rs:245-251`). The search, folder runs,
+the Mana walk and the archive export walk down from their starting folder,
+never follow a link and never enter a folder named `.morion`, at any depth
+(`folder.rs:72-114`). So a `.morion` folder anywhere in the workspace is
+neither listed nor walked, and no path into it is accepted. An archive import
+does not take paths from the page at all; it checks each entry's name by its
+own rules (see Settings, Workspace archive). The sentences the app shows for
+these refusals are listed under Opening, saving and discarding.
 
 ### `.morion/`
 
 Each workspace carries Morion's own metadata at its root:
-`.morion/metadata.json`, a small, pretty-printed JSON file holding the tags
-and the Security Mana ledger in plain text (`meta.rs:1-16, 49-56`). It is
-created the first time a tag is saved or a Mana charge or event is recorded,
-and written atomically. The folder is hidden from the tree, the search, folder
-encryption and the Workspace security counts, and every command that takes a
-path refuses anything inside it, as it does inside any other folder of that
-name further down (rule 3 above): picked in the Open dialog,
-`.morion/metadata.json` gives "Could not open the file. That is Morion’s
-own metadata folder." (`workspace.errors.metadata`), and Save As into it gives
-"Could not save. That is Morion’s own metadata folder.". Only Rust's own
-metadata code writes there (`meta.rs:64-85`). A file there that does not parse
-is refused rather than overwritten, so a stray edit cannot erase every tag.
-What it may and may never contain is under What is remembered.
+`.morion/metadata.json`, a small, pretty-printed JSON file holding the tags,
+the Security Mana history and the Security Mana checkpoint in plain text
+(`meta.rs:1-20, 74-83`). On the desktop it is created as soon as a workspace
+is opened: the Mana bar asks Rust where Mana stands right after the first read
+of the folder, and the first answer for a workspace writes its first
+checkpoint (see Security Mana). Opening a folder in Morion therefore adds this
+file to it even if nothing else is ever done there, unless the folder cannot
+be written (read-only media, no permission): then nothing is created and the
+bar still shows (`mana.rs:176-196`). Every write is atomic and
+made under one process-wide lock, so a tag saved while the Mana checkpoint
+moves cannot undo either change (`meta.rs:107-125`). The folder is hidden from
+the tree, the search, folder encryption, the Mana walk and the Workspace
+security counts, and every command that takes a path refuses anything inside
+it, as it does inside any other folder of that name further down (rule 3
+above): picked in the Open dialog, `.morion/metadata.json` gives "Could not
+open the file. That is Morion’s own metadata folder."
+(`workspace.errors.metadata`), and Save As into it gives "Could not save. That
+is Morion’s own metadata folder.". Only Rust's own metadata code writes there.
+The workspace archive is the one thing that reads it as a file: an export
+packs the root's `metadata.json` along with the files, and an import merges an
+archive's copy into it rather than writing it as it came (see Settings,
+Workspace archive). A file there that does not parse is refused rather than
+overwritten, so a stray edit cannot erase every tag. What it may and may never
+contain is under What is remembered.
 
 ## The files sidepanel
 
-`apps/morion/src/files/FilesPanel.vue:222-355`, rendered from
-`App.vue:520-522`. A 16rem-wide `<aside data-testid="files-panel">` mounted
+`apps/morion/src/files/FilesPanel.vue:276-423`, rendered from
+`App.vue:583-585`. A 16rem-wide `<aside data-testid="files-panel">` mounted
 once beside the content column and hidden with `v-show` when `filesOpen` is off
-or a view stands in front of the editor (`App.vue:87`). It shows the workspace
+or a view stands in front of the editor (`App.vue:92`). It shows the workspace
 as a lazily expanded tree with the one workspace search above it, and a shield
 at the right of every row. It hands files to the host to open and cannot save,
 rename or delete anything. The one thing it changes on disk is encryption: each
-file row's shield encrypts or permanently decrypts that file, and each folder
-row's shield opens the folder dialog (both described under Encryption). After a
-row shield's action succeeds, and after every folder run, the panel emits
+file row's shield encrypts or permanently decrypts that file, each encrypted
+row's key changes that file's passphrase, and each folder row's shield opens
+the folder dialog (all described under Encryption). After a row shield's
+action succeeds, and after every folder run, the panel emits
 `security-changed` and App has the host ask Rust again about the file it holds
 open, so the header's shield and the next save follow the disk
-(`FilesPanel.vue:146, 179, 197`; `App.vue:522`).
+(`FilesPanel.vue:168, 222, 240`; `App.vue:585`). A passphrase change needs no
+such message: Rust moves the host's editing session to the new key itself.
 
 ### Header
 
 | Control | Text, tooltip | Key | `data-testid` | Does | Shown | Source |
 |---|---|---|---|---|---|---|
-| Folder name (uppercase, truncated) | base name of the workspace, or "Files"; tooltip is the full path, or "Files" | `nav.files` | `files-root` | nothing | always | `FilesPanel.vue:227-230` |
-| Refresh (icon `rotate-right`, spinning `spinner` while loading) | "Refresh" | `files.refresh` | `files-refresh` | Drops every cached listing, re-reads the root and every expanded folder in order of path length, so a folder is always read after its parent. An expanded folder that can no longer be read is silently collapsed. If the root fails, the panel switches to the unreadable state. The padlocks come back with the listings. | only while a folder is set and readable; disabled while loading | `FilesPanel.vue:231-237`; `packages/petalite/src/files/useWorkspace.ts:375-417` |
-| Workspace security (icon `shield-halved`) | "Workspace security" | `security.workspace.open` | `files-security` | Emits `security`; App puts the Workspace security view in front of the editor, which hides this panel (`App.vue:522`). This is the only way to that view. | only while a folder is set and readable | `FilesPanel.vue:240-245` |
-| Change folder (icon `folder-open`) | "Change folder" | `files.changeWorkspace` | `files-change` | `workspace.pickRoot()`: the native folder picker, then `switchRoot` (see Workspaces). | always | `FilesPanel.vue:246-251` |
+| Folder name (uppercase, truncated) | base name of the workspace, or "Files"; tooltip is the full path, or "Files" | `nav.files` | `files-root` | nothing | always | `FilesPanel.vue:281-284` |
+| Refresh (icon `rotate-right`, spinning `spinner` while loading) | "Refresh" | `files.refresh` | `files-refresh` | Drops every cached listing, re-reads the root and every expanded folder in order of path length, so a folder is always read after its parent. An expanded folder that can no longer be read is silently collapsed. If the root fails, the panel switches to the unreadable state. The padlocks come back with the listings. | only while a folder is set and readable; disabled while loading | `FilesPanel.vue:285-291`; `packages/petalite/src/files/useWorkspace.ts:375-417` |
+| Workspace security (icon `shield-halved`) | "Workspace security" | `security.workspace.open` | `files-security` | Emits `security`; App puts the Workspace security view in front of the editor, which hides this panel (`App.vue:585`). The header's Security Mana bar is the other way to that view. | only while a folder is set and readable | `FilesPanel.vue:294-299` |
+| Change folder (icon `folder-open`) | "Change folder" | `files.changeWorkspace` | `files-change` | `workspace.pickRoot()`: the native folder picker, then `switchRoot` (see Workspaces). | always | `FilesPanel.vue:300-305` |
 
 ### States
 
 | State | `data-testid` | What shows | Source |
 |---|---|---|---|
-| No folder chosen | `files-empty` | Centred faded `folder-open` icon, "No workspace yet." (`files.noWorkspace`), and the accent-filled button "Choose a folder" (`files.pickWorkspace`, `files-pick`). Header reads "Files"; Refresh and the security shield hidden. No search box, no tree. | `FilesPanel.vue:263-278` |
-| Folder remembered but unreadable | `files-empty` and `files-unreadable` | Shown when Rust refuses to open or list the remembered folder at launch or on Refresh (deleted, renamed, not a folder). "Can’t read this folder." (`files.unreadable`), the remembered path in 10px faded text, "Choose it again to let Morion read it." (`files.unreadableHint`), and "Choose a folder". The Rust reason is kept in the store's `error` but not displayed in this branch. Header shows the folder's base name; Refresh and the security shield hidden; expanded folders forgotten. Only Choose a folder and Change folder lead out. | `FilesPanel.vue:263-286`; `useWorkspace.ts:406-413` |
-| Pick error | `files-pick-error` | Under the button, only in the no-folder branch (not the unreadable one): "This needs the desktop app." (`files.desktopOnly`) off Tauri, or, for a picked folder Rust refuses, "That folder cannot be opened. It may have been moved or deleted." (`workspace.errors.cannot_open`). While a folder is open the same refusal appears as `files-error` instead and the current folder stays. | `FilesPanel.vue:282-285`; `useWorkspace.ts:273-276, 301-304` |
-| Tree with folder | `files-tree` | The search box, an optional error line, then the scrollable tree. On first mount with a remembered folder and no rows the panel calls `refresh()` itself; that is what reopens the remembered workspace at launch. | `FilesPanel.vue:61-63, 288-336` |
-| Searching | none | While the search box holds text the tree is hidden and the results stand in its place; emptying the box brings the tree back exactly as it was (see Search). | `FilesPanel.vue:52, 291-292, 302` |
-| Loading | none | During a Refresh the tree area is empty (cached listings are dropped before the re-read) and `files-nothing` is suppressed; the only sign is the Refresh icon spinning at 25% opacity. | `FilesPanel.vue:231-237, 331`; `useWorkspace.ts:377-379` |
-| Error line | `files-error` | Warn-coloured line under the search box with the store's error, as its sentence when Rust's prefix has one (`workspace.errors.*`, through `shown` in `FilesPanel.vue`) and verbatim otherwise: a sub-folder that could not be read (it stays collapsed), or a folder switch Rust refused while a folder was open, whether from a picker or from the ☰ menu's Recent list. Cleared by Refresh, by a successful switch, or by expanding a folder that has not been read yet; collapsing a folder or reopening a cached one leaves it. It stays visible while searching. | `FilesPanel.vue:294-296`; `useWorkspace.ts:301-304, 378, 433-439` |
-| Nothing to list | `files-nothing` | "Nothing here." (`files.emptyFolder`), centred and faded, when the tree has no rows and is not loading. | `FilesPanel.vue:331-334` |
-| Open error | `files-open-error` | Warn line pinned at the panel's bottom with a top border, in any state. Rust's refusal of a clicked file or hit as its sentence (`workspace.errors.*`, as the host's Open… shows them): "That file is not a text file." (not UTF-8), "That file is too big to open here." (over 64 MB), "That file is not in the workspace.", or "That file is encrypted." for a file encrypted by something else since its row was listed; a message without a known prefix shows as it came (`FilesPanel.vue:101-105`). A row shield's decrypt that failed with the remembered passphrase shows a sentence here too, from `workspace.errors.*` or `lock.errors.*`. "Morion cannot open that kind of file." (`files.cannotOpen`) is unreachable, since the router never answers null when it has the bytes. Cleared when the next open or shield action starts. | `FilesPanel.vue:74-109, 128-159, 186-190, 217-219, 338-341` |
-| Busy | none | While a clicked plain file is being read every tree row is disabled with no visual change (no `disabled:` style, no spinner); the search box, its hits, Refresh, the security shield and Change folder stay usable, so a second file can be requested through a search hit. | `FilesPanel.vue:53, 84, 107, 305` |
+| No folder chosen | `files-empty` | Centred faded `folder-open` icon, "No workspace yet." (`files.noWorkspace`), and the accent-filled button "Choose a folder" (`files.pickWorkspace`, `files-pick`). Header reads "Files"; Refresh and the security shield hidden. No search box, no tree. | `FilesPanel.vue:317-332` |
+| Folder remembered but unreadable | `files-empty` and `files-unreadable` | Shown when Rust refuses to open or list the remembered folder at launch or on Refresh (deleted, renamed, not a folder). "Can’t read this folder." (`files.unreadable`), the remembered path in 10px faded text, "Choose it again to let Morion read it." (`files.unreadableHint`), and "Choose a folder". The Rust reason is kept in the store's `error` but not displayed in this branch. Header shows the folder's base name; Refresh and the security shield hidden; expanded folders forgotten. Only Choose a folder and Change folder lead out. | `FilesPanel.vue:317-340`; `useWorkspace.ts:406-413` |
+| Pick error | `files-pick-error` | Under the button, only in the no-folder branch (not the unreadable one): "This needs the desktop app." (`files.desktopOnly`) off Tauri, or, for a picked folder Rust refuses, "That folder cannot be opened. It may have been moved or deleted." (`workspace.errors.cannot_open`). While a folder is open the same refusal appears as `files-error` instead and the current folder stays. | `FilesPanel.vue:336-339`; `useWorkspace.ts:273-276, 301-304` |
+| Tree with folder | `files-tree` | The search box, an optional error line, then the scrollable tree. On first mount with a remembered folder and no rows the panel calls `refresh()` itself; that is what reopens the remembered workspace at launch. | `FilesPanel.vue:67-69, 342-402` |
+| Searching | none | While the search box holds text the tree is hidden and the results stand in its place; emptying the box brings the tree back exactly as it was (see Search). | `FilesPanel.vue:58, 345-346, 356` |
+| Loading | none | During a Refresh the tree area is empty (cached listings are dropped before the re-read) and `files-nothing` is suppressed; the only sign is the Refresh icon spinning at 25% opacity. | `FilesPanel.vue:285-291, 397`; `useWorkspace.ts:377-379` |
+| Error line | `files-error` | Warn-coloured line under the search box with the store's error, as its sentence when Rust's prefix has one (`workspace.errors.*`, through `shown` in `FilesPanel.vue`) and verbatim otherwise: a sub-folder that could not be read (it stays collapsed), or a folder switch Rust refused while a folder was open, whether from a picker or from the ☰ menu's Recent list. Cleared by Refresh, by a successful switch, or by expanding a folder that has not been read yet; collapsing a folder or reopening a cached one leaves it. It stays visible while searching. | `FilesPanel.vue:348-350`; `useWorkspace.ts:301-304, 378, 433-439` |
+| Nothing to list | `files-nothing` | "Nothing here." (`files.emptyFolder`), centred and faded, when the tree has no rows and is not loading. | `FilesPanel.vue:397-400` |
+| Open error | `files-open-error` | Warn line pinned at the panel's bottom with a top border, in any state. Rust's refusal of a clicked file or hit as its sentence (`workspace.errors.*`, as the host's Open… shows them): "That file is not a text file." (not UTF-8), "That file is too big to open here." (over 64 MB), "That file is not in the workspace.", or "That file is encrypted." for a file encrypted by something else since its row was listed; a message without a known prefix shows as it came (`FilesPanel.vue:107-112`). A row shield's decrypt that failed with the remembered passphrase shows a sentence here too, from `workspace.errors.*` or `lock.errors.*`. "Morion cannot open that kind of file." (`files.cannotOpen`) is unreachable, since the router never answers null when it has the bytes. Cleared when the next open, shield action or passphrase change from a row's key starts. While it shows, the passphrase-change note (`files-rekey-note`) that shares its place is hidden. | `FilesPanel.vue:80-115, 145-180, 184-191, 205-210, 269-273, 404-407` |
+| Busy | none | While a clicked plain file is being read every tree row is disabled with no visual change (no `disabled:` style, no spinner); the search box, its hits, Refresh, the security shield and Change folder stay usable, so a second file can be requested through a search hit. | `FilesPanel.vue:59, 90, 113, 359` |
 
 In a browser build with `zinnia:workspace` set, `refresh()` is a no-op
 (`useWorkspace.ts:376`), so the tree branch appears with "Nothing here." and
@@ -668,12 +707,12 @@ The tree is `packages/petalite/src/components/FileTree.vue:72-107`, one
 `<button>` per entry, folders first then files. Indent is
 `depth × 0.75rem + 0.5rem`. Each row's `data-testid` is `files-row-{name}`, the
 bare NAME, not the path, so two same-named files in different folders share an
-id (`FileTree.vue:82`); the shields' ids follow the same rule. The listing
-comes from Rust and never contains symbolic links or an entry named
-`.morion` (`workspace.rs:197-237`); a link cannot be expanded or opened from
-here because Rust refuses it. Rust sorts case-insensitively, then the store
-re-sorts each group with `localeCompare` (`useWorkspace.ts:318-333`), which is
-the order shown.
+id (`FileTree.vue:82`); the ids of the shields, the rate and the key follow the
+same rule. The listing comes from Rust and never contains symbolic links or an
+entry named `.morion` (`workspace.rs:199-239`); a link cannot be expanded or
+opened from here because Rust refuses it. Rust sorts case-insensitively, then
+the store re-sorts each group with `localeCompare` (`useWorkspace.ts:318-333`),
+which is the order shown.
 
 * Folder row: a `chevron-right` that rotates 90° when expanded, a folder icon
   in the accent colour, the name, and at the right edge the folder shield
@@ -681,24 +720,41 @@ the order shown.
   hover, title and aria-label "Encrypt or decrypt this folder"
   (`folder.shield`). A click on the shield, or Enter while it has focus, opens
   the folder dialog for that folder and does not toggle the row
-  (`FilesPanel.vue:308-314`). A click anywhere else on the row toggles it. The
+  (`FilesPanel.vue:362-368`). A click anywhere else on the row toggles it. The
   first expand reads the folder; the listing is cached until Refresh, so
   collapse and reopen is instant.
 * File row: a blank spacer, then a `file` icon at 40% opacity, or a `lock`
-  padlock at 70% when the file is encrypted; the name; the size via
-  `formatSize` ("0 B", "512 B", "1.5 KB", "12.0 MB"; one decimal from KB up,
-  units to TB; a file Rust could not stat also reads "0 B", because Rust then
-  sends no size and `formatSize` counts that as zero,
-  `packages/petalite/src/files/format.ts:7-13`); and at the right edge the row
-  shield (`row-shield-{name}`): a 10px `shield-halved` at 40% opacity for a
-  plain file, titled "Encrypt this file" (`shield.rowEncrypt`), or a `lock` in
-  the accent colour for an encrypted one, titled "Decrypt this file
-  permanently" (`shield.rowDecrypt`), the title doubling as aria-label. A click
-  on it, or Enter while it has focus, runs it without opening the row
-  (`FilesPanel.vue:315-326`).
-* The name's hover title is the name, or "{name} — encrypted — opens with a
-  passphrase" (`files.encryptedRow`) for an encrypted file
-  (`FilesPanel.vue:211-213`).
+  padlock at 70% when the file is encrypted; the name; then at the right edge,
+  in this order (`FilesPanel.vue:369-393`):
+  * the size via `formatSize` ("0 B", "512 B", "1.5 KB", "12.0 MB"; one decimal
+    from KB up, units to TB; a file Rust could not stat also reads "0 B",
+    because Rust then sends no size and `formatSize` counts that as zero,
+    `packages/petalite/src/files/format.ts:7-13`);
+  * for a plain file only, its Security Mana rate (`row-rate-{name}`): "{rate}/h"
+    (`mana.perHour`) in 10px tabular figures at 60% opacity, for example
+    "0.04/h" for a 4 KB note, "<0.01/h" for a file under about a kilobyte and
+    "0/h" for an empty one; its tooltip is "Uses {rate} Security Mana an hour
+    while it is not encrypted" (`mana.rowRate`). The page computes it from the
+    listing's size and the price Rust gives once per session (`mana_prices`):
+    size in KB × 0.01, the same sum Rust makes (`FilesPanel.vue:126-133`;
+    `mana.ts:84-110`). It is absent until that price has arrived, so it never
+    shows in the browser build, and absent for an encrypted file, which costs
+    nothing;
+  * for an encrypted file only, a key (`row-rekey-{name}`): a 10px
+    `key` at 40% opacity, full on hover, titled "Change this file’s passphrase"
+    (`shield.rowRekey`), the title doubling as aria-label. A click on it, or
+    Enter while it has focus, opens the passphrase dialog in `rekey` mode
+    without opening the row (see Encryption, Row shields);
+  * the row shield (`row-shield-{name}`): a 10px `shield-halved` at 40%
+    opacity for a plain file, titled "Encrypt this file" (`shield.rowEncrypt`),
+    or a `lock` in the accent colour for an encrypted one, titled "Decrypt this
+    file permanently" (`shield.rowDecrypt`), the title doubling as aria-label.
+    A click on it, or Enter while it has focus, runs it without opening the
+    row.
+* The name's hover title is "{name} — encrypted — opens with a passphrase"
+  (`files.encryptedRow`) for an encrypted file, "{name} — Uses {rate} Security
+  Mana an hour while it is not encrypted" for a plain file once the price is
+  known, and the bare name otherwise and for a folder (`FilesPanel.vue:261-265`).
 * The last opened row is bold in the accent colour. It is set when a plain
   file's read succeeds, or at once when an encrypted row or hit is handed to
   the host, before any passphrase is typed and whether or not the open then
@@ -706,53 +762,63 @@ the order shown.
   read keeps the previous one. The panel is never told what the host opened by
   other means, so after Open…, New or Save As the bold row can name a file that
   is no longer the one in the header. Change folder leaves it set, but no row
-  of the new tree matches it (`FilesPanel.vue:57, 78, 99, 305`).
+  of the new tree matches it (`FilesPanel.vue:63, 84, 105, 359`).
+* Under the tree, pinned to the panel's bottom with a top border like the
+  open-error line, `files-rekey-note` reports what the last passphrase change
+  made from a row earned: "Passphrase changed: +{gained} Security Mana." or
+  "Passphrase changed. No Mana this time: the bar is full, or this file or
+  today’s passphrase changes already earned some." (`mana.rekeyEarned`,
+  `mana.rekeyNoReward`), at 70% opacity. It is hidden while an open error
+  shows, and cleared when the next row shield or key is used; opening a file
+  does not clear it (`FilesPanel.vue:147, 186, 194, 214, 404-411`).
 
 The padlock comes with the listing: `workspace_list` reads each file's first
-bytes in Rust and returns `sealed` on the row (`workspace.rs:227`), and
+bytes in Rust and returns `sealed` on the row (`workspace.rs:229`), and
 `probeAll` copies those answers into the cache in one step
-(`useWorkspace.ts:340-348`), so the padlock appears together with the row. The
-`is_file_locked` probe (`setSealProbe`, `main.ts:38`) is asked only for a path
-the listing did not answer for: a search hit that was never listed
-(`FilesPanel.vue:114-117`), and a file just encrypted or decrypted by a shield
-(`reprobe`, `useWorkspace.ts:472-476`). Answers are cached by path; Refresh
-refreshes them from the new listings, a workspace switch empties the cache
+(`useWorkspace.ts:340-348`), so the padlock, and with it the choice between a
+rate and a key, appears together with the row. The `is_file_locked` probe
+(`setSealProbe`, `main.ts:38`) is asked only for a path the listing did not
+answer for: a search hit that was never listed (`FilesPanel.vue:120-123`), and
+a file just encrypted or decrypted by a shield (`reprobe`,
+`useWorkspace.ts:472-476`). Answers are cached by path; Refresh refreshes them
+from the new listings, a workspace switch empties the cache
 (`useWorkspace.ts:309`). Off Tauri the probe answers false, so the browser
 build never shows padlocks.
 
-What a click on a file does (`FilesPanel.vue:65-109`). A plain file's `open`
-event is handled by `App.openFromFiles` (`App.vue:132-135`), which switches to
+What a click on a file does (`FilesPanel.vue:71-115`). A plain file's `open`
+event is handled by `App.openFromFiles` (`App.vue:145-148`), which switches to
 the editor view first, then calls `EditorHost.openLocal`; an encrypted one goes
-out as `open-sealed` to `App.openSealedFromFiles` (`App.vue:139-142`) instead.
+out as `open-sealed` to `App.openSealedFromFiles` (`App.vue:152-155`) instead.
 
 | File | Action |
 |---|---|
-| Encrypted (padlock) | Nothing is read here. The row is emitted as `open-sealed`; the host asks the discard question if the buffer is dirty, then decrypts the file into memory with the remembered passphrase (after the Mana confirmation) or through the passphrase dialog (`EditorHost.openSealed`, `EditorHost.vue:275-303`; see Encryption). Any kind opens: text in the editor its plaintext calls for, a picture in the image viewer. The open-error line is cleared. |
-| Picture (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `ico`, `avif`; `.svg` is deliberately not a picture, `packages/petalite/src/files/images.ts:14-33`) | Case-insensitive; a name that is only an extension, such as `.png`, is not treated as a picture and opens as text. Bytes are read through Rust (`workspace_read_bytes`, `files/fs.ts:73-78`) and turned into a `data:` URI; kind forced to `code`. The text editor shows an `<img>` instead of a buffer and the host treats the file as read-only. |
-| Anything else | `workspace_read_text` (`files/fs.ts:69-71`), which refuses a file that is not UTF-8 (`not_text`), larger than 64 MB (`too_large`), encrypted on disk (`locked`, only if it was encrypted after the listing), reached through a symbolic link, or outside the workspace, instead of decoding it; then the host re-routes with `kindForFile(name, content)` and opens it WITH its path (`App.vue:132-135`, `EditorHost.openLocal`), so Save writes back to the same file. The panel computes a kind itself, but the host ignores it. |
+| Encrypted (padlock) | Nothing is read here. The row is emitted as `open-sealed`; the host asks the discard question if the buffer is dirty, then decrypts the file into memory with the remembered passphrase, asking nothing more, or through the passphrase dialog (`EditorHost.openSealed`, `EditorHost.vue:274-298`; see Encryption). Opening costs no Security Mana. Any kind opens: text in the editor its plaintext calls for, a picture in the image viewer. The open-error line is cleared. |
+| Picture (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `ico`, `avif`; `.svg` is deliberately not a picture, `packages/petalite/src/files/images.ts:14-33`) | Case-insensitive; a name that is only an extension, such as `.png`, is not treated as a picture and opens as text. Bytes are read through Rust (`workspace_read_bytes`, `files/fs.ts:83-88`) and turned into a `data:` URI; kind forced to `code`. The text editor shows an `<img>` instead of a buffer and the host treats the file as read-only. |
+| Anything else | `workspace_read_text` (`files/fs.ts:79-81`), which refuses a file that is not UTF-8 (`not_text`), larger than 64 MB (`too_large`), encrypted on disk (`locked`, only if it was encrypted after the listing), reached through a symbolic link, or outside the workspace, instead of decoding it; then the host re-routes with `kindForFile(name, content)` and opens it WITH its path (`App.vue:145-148`, `EditorHost.openLocal`), so Save writes back to the same file. The panel computes a kind itself, but the host ignores it. |
 
 There is NO discard prompt for a plain file on this path: opening a row or a
 search hit goes through `openLocal` straight to `show()`, and unsaved changes
-in the current buffer are silently replaced (`EditorHost.vue:594-596`). An
+in the current buffer are silently replaced (`EditorHost.vue:624-626`). An
 encrypted row or hit is the exception, since `openSealed` asks first
-(`EditorHost.vue:276`).
+(`EditorHost.vue:275`).
 
-There are no keyboard handlers in the panel beyond Enter on a shield. Rows are
-native buttons, so Tab moves between them and Enter or Space activates one;
-there is no arrow-key or type-ahead navigation. Each shield is a focusable
-`<span role="button" tabindex="0">` inside its row, reached with Tab after the
-row, and answers Enter only; Space on it does nothing. With focus in the search
-box, Ctrl+O is ignored (`EditorHost.vue:572-573`).
+There are no keyboard handlers in the panel beyond Enter on a shield or a key.
+Rows are native buttons, so Tab moves between them and Enter or Space
+activates one; there is no arrow-key or type-ahead navigation. Each shield and
+each key is a focusable `<span role="button" tabindex="0">` inside its row,
+reached with Tab after the row (the key before the shield), and answers Enter
+only; Space on it does nothing. With focus in the search box, Ctrl+O is
+ignored (`EditorHost.vue:602-603`).
 
 ### Remembering open and closed
 
 `zinnia:files` holds "1" or "0"; anything other than "0" counts as open, so the
-default is open (`App.vue:78-79`). Written on every toggle and forced on by the
+default is open (`App.vue:83-84`). Written on every toggle and forced on by the
 start screen's "Search the workspace". The workspace path and the recent list
 are described under Workspaces. The tree's expansion state is not persisted,
 but it survives toggling the panel and visiting a view, because the panel is
 never unmounted. The store is one singleton: the panel, the ☰ menu's Workspace
-section (`App.vue:81-85`), the start screen's card (`EditorHost.vue:615`), the
+section (`App.vue:86-90`), the start screen's card (`EditorHost.vue:645`), the
 search box, the Workspace security view and the host's `hasWorkspace` gate on
 Open… and Save As (`EditorHost.vue:66-70`) all read it, so changing the folder
 here changes what Open… defaults to and what the menu names.
@@ -760,38 +826,39 @@ here changes what Open… defaults to and what the menu names.
 ## Search
 
 One search box covers the whole workspace:
-`apps/morion/src/files/WorkspaceSearch.vue:128-161`, mounted at the top of the
-Files panel by `FilesPanel.vue:291-292`, above the error line and the tree, and
+`apps/morion/src/files/WorkspaceSearch.vue:131-164`, mounted at the top of the
+Files panel by `FilesPanel.vue:345-346`, above the error line and the tree, and
 only while a folder is set and readable. It replaced both the old name filter
 over loaded rows and the notes search. The block is
 `data-testid="workspace-search-panel"`, with a rule under it.
 
 The box is an `<input type="search">` with placeholder and aria-label "Search
 the workspace…" (`search.placeholder`), `data-testid="workspace-search"`
-(`WorkspaceSearch.vue:130-132`).
+(`WorkspaceSearch.vue:133-135`).
 
 * It asks 200 ms after the last keystroke, with the text trimmed. An empty or
   whitespace query clears the results at once, and a sequence number drops any
   answer still in flight for an older question; the Rust walk itself is not
-  interrupted (`WorkspaceSearch.vue:38, 59-96`).
+  interrupted (`WorkspaceSearch.vue:39, 60-99`).
 * From the first character the tree is hidden and the results stand in its
   place: the box tells the panel on every change whether it holds text
-  (`update:active`, `:84`; `FilesPanel.vue:52, 302`). Emptying the box brings
+  (`update:active`, `:87`; `FilesPanel.vue:58, 346, 356`). Emptying the box brings
   the tree back exactly as it was. The panel's error line stays visible above
   the results.
-* The same text is asked again when the algorithm changes in Settings (`:106`),
+* The same text is asked again when the algorithm changes in Settings (`:109`),
   whenever the padlock cache is replaced (any folder read, Refresh included, a
-  shield's re-probe, or a workspace switch, `:110`), and after a folder run
-  (`FilesPanel.vue:194-198`), so a line read from a body that has since been
+  shield's re-probe, or a workspace switch, `:113`), and after a folder run or
+  a run of the Security Mana prompt (`FilesPanel.vue:237-246`; `App.vue:139-142`),
+  so a line read from a body that has since been
   encrypted does not stay on screen.
-* The query and results are cleared when the workspace changes (`:100-103`).
+* The query and results are cleared when the workspace changes (`:103-106`).
   They are kept while the panel is merely hidden (toggle, Workspace security,
   Settings), since the panel is mounted once, and lost when the folder becomes
   unreadable, since the box lives in the tree branch; a pending debounce is
-  then cancelled (`:112-115`).
+  then cancelled (`:115-118`).
 * Nothing is persisted, and results live only in the list on screen.
 * The start screen's "Search the workspace" opens the panel and focuses the box
-  (`App.vue:185-189`; `FilesPanel.vue:201-206`).
+  (`App.vue:213-217`; `FilesPanel.vue:251-253`).
 
 ### What Rust does
 
@@ -799,12 +866,12 @@ Each search is one Rust command, `workspace_search(query, mode)`
 (`apps/morion/src-tauri/src/search.rs:226-229`), which walks the workspace
 afresh every time and keeps nothing between calls: no index, no cache, no
 background work. The walk is the one folder encryption uses
-(`folder.rs:72-110`): every regular file under the root, breadth first, each
+(`folder.rs:72-114`): every regular file under the root, breadth first, each
 folder's entries in bytewise name order (so capitals sort before lower case);
 symbolic links are never followed or listed; any entry named `.morion` is
 skipped; dotfiles and dotfolders are included; folders deeper than 32 levels
-are not entered; and the walk stops after 20,000 files, with no sign of it on
-screen. For every file walked, in every mode, Rust reads the first 16 bytes to
+are not entered; and the walk stops after 20,000 files. The search shows no
+sign of either limit on screen. For every file walked, in every mode, Rust reads the first 16 bytes to
 tell whether it is encrypted (`search.rs:197`;
 `crates/substrate/src/lib.rs:134-156`). Tags come from
 `.morion/metadata.json`, read once per search; a damaged metadata file means
@@ -840,7 +907,7 @@ search, because nothing from an earlier search was kept.
 
 ### The three algorithms
 
-Chosen in Settings → Search algorithm and kept in `zinnia:searchMode`; Hybrid
+Chosen in Settings → System → Search algorithm and kept in `zinnia:searchMode`; Hybrid
 is the default (`apps/morion/src/files/searchSettings.ts:7-34`).
 
 | Setting | Mode | Matches on | Order | At most |
@@ -859,7 +926,7 @@ file's first 16 bytes to tell whether the file is encrypted.
 | What | `data-testid` | Shows |
 |---|---|---|
 | Idle | none | The box alone, the tree below it. |
-| Waiting | none | No spinner. From the first character the tree is hidden; until the first answer arrives nothing stands in its place, and after that the previous list stays until the new answer lands. A previous error line disappears as soon as a new search starts (`WorkspaceSearch.vue:67`). An answer or failure for a query since superseded is dropped without touching the list or the error. |
+| Waiting | none | No spinner. From the first character the tree is hidden; until the first answer arrives nothing stands in its place, and after that the previous list stays until the new answer lands. A previous error line disappears as soon as a new search starts (`WorkspaceSearch.vue:68`). An answer or failure for a query since superseded is dropped without touching the list or the error. |
 | Results list | `workspace-search-results` (the `<ul>`, capped at 60% of the window height and scrolling); each hit's `<button>`, inside a bare `<li>`, is `search-result-{i}`, 0-based | Per hit: a `lock` (encrypted) or `file` icon; the file name, bold and truncated; a small badge, `search-matched-{i}`, naming how it matched in the order name, tag, path, text, joined by " · " ("name", "tag", "path", "text", shown in capitals by CSS; Polish "nazwa", "tag", "ścieżka", "tekst"); the relative path in 10px when it differs from the name; the file's tags as small chips; and the snippet, `search-snippet-{i}`, in 11px at 70% opacity when there is one. The button's tooltip is the relative path. |
 | No matches | `workspace-search-empty` | "Nothing in the workspace matches." (`files.searchNoHits`), centred and faded, when a search finished with no hits and no error. |
 | Error | `workspace-search-error` | "Search failed." (`files.searchFailed`), a space, and the sentence for Rust's prefix (for example "Search failed. Choose a workspace folder first."), or Rust's text verbatim when the prefix has none. The list is cleared. |
@@ -867,7 +934,7 @@ file's first 16 bytes to tell whether the file is encrypted.
 Clicking a hit emits `open`; `FilesPanel.openHit` first asks the probe about
 that path if the padlock cache has no answer for it (a hit may sit in a folder
 the tree never expanded), then opens it exactly like a clicked row
-(`FilesPanel.vue:114-117`): an encrypted hit goes to the passphrase flow, a
+(`FilesPanel.vue:120-123`): an encrypted hit goes to the passphrase flow, a
 picture to the preview, anything else is read and routed through `kindForFile`.
 A plain hit replaces the buffer without the discard prompt, as a row does. A
 hit that opens becomes the tree's active row, which shows once the query is
@@ -896,7 +963,7 @@ encrypted, the token of the Rust session that holds its key
 `markSaved` / `getContent` / `isDirty`
 (`apps/morion/src/editors/types.ts:11-34`). The host binds `path`, `name`,
 `content`, `busy`, `error` and `active` into whichever editor is mounted
-(`types.ts:11-19`; `EditorHost.vue:621-738`) and listens for `save` (with the
+(`types.ts:11-19`; `EditorHost.vue:651-768`) and listens for `save` (with the
 serialised buffer), `update:dirty` and `open-as-text` (`types.ts:29-34`). The
 Code, Markdown and bare text faces never emit `open-as-text`: plain text has
 nothing to refuse (`TextEditor.vue:46-49`). No editor knows whether its file is
@@ -906,7 +973,7 @@ saves.
 Every read and write here goes through Rust and its workspace boundary (see
 Workspaces): `workspace_read_text`, `workspace_read_bytes` and
 `workspace_write_text` for a plain file
-(`apps/morion/src/files/fs.ts:69-82`), `sealed_open`, `sealed_open_bytes` and
+(`apps/morion/src/files/fs.ts:79-92`), `sealed_open`, `sealed_open_bytes` and
 `sealed_write` for an encrypted one
 (`apps/morion/src/security/sealed.ts:18-34`). The native dialogs only choose
 a path; whether it may be read or written is Rust's answer. The same holds for
@@ -922,14 +989,14 @@ write through it wherever their save dialog points.
 ### Open
 
 Open… from the menu, the start screen's Open…, and Ctrl+O all call `openFile()`
-(`EditorHost.vue:445-474`). The discard prompt comes first; only once it is
+(`EditorHost.vue:475-504`). The discard prompt comes first; only once it is
 passed is the header's file error cleared, and that happens before the dialog
-opens (`:446-447`), so cancelling the dialog still wipes a previous "Could not
+opens (`:476-477`), so cancelling the dialog still wipes a previous "Could not
 open the file." or "Could not save.". Cancelling the discard prompt leaves the
 error in place. Without a workspace nothing opens: the error reads "Choose a
-workspace folder first." (`:452-455`); the menu and the start screen grey their
+workspace folder first." (`:482-485`); the menu and the start screen grey their
 Open… in that case, so only Ctrl+O gets this far. Under Tauri the dialog is the
-native single-file dialog, opened on the workspace root (`:460`), with two
+native single-file dialog, opened on the workspace root (`:490`), with two
 filters:
 
 | Filter | Extensions |
@@ -941,15 +1008,15 @@ The dialog can wander anywhere; a file picked outside the workspace is refused
 by Rust ("Could not open the file. That path is outside the workspace."), not
 by the dialog. The picked file is read through Rust (`workspace_read_text`) and
 routed by `kindForFile`. A file Rust reports as encrypted (`locked`) is handed
-to `openSealed` instead (`:463-470`), which decrypts it into memory after the
+to `openSealed` instead (`:493-500`), which decrypts it into memory after the
 passphrase or the remembered one (see Encryption); the discard question already
-answered is not asked again (`openSealed(…, true)`, `:469`; `:275-276`). A file
+answered is not asked again (`openSealed(…, true)`, `:499`; `:275-276`). A file
 inside a folder named `.morion`, at any depth, is refused with "Could not
 open the file. That is Morion’s own metadata folder.". The name shown in the
-header is the picked path's last `/`-separated segment (`:462`, and `:534` for
+header is the picked path's last `/`-separated segment (`:492`, and `:564` for
 Save As); nothing splits on backslashes. Cancel returns silently. A refusal or
 a thrown error sets the header's `file-error` to "Could not open the file.
-<sentence>" (`:471-473`). Plain pictures are not in the "Supported files"
+<sentence>" (`:501-503`). Plain pictures are not in the "Supported files"
 filter, and one picked through "All" is refused as `not_text` ("That file is
 not a text file."), so a plain picture reaches the editor only from the Files
 panel or a search hit. An encrypted picture picked there does open, because it
@@ -957,61 +1024,61 @@ goes the encrypted way and is decrypted to bytes.
 
 ### Save and Save As
 
-`saveFile()` (`EditorHost.vue:539-551`) is a no-op when busy, when no file is
+`saveFile()` (`EditorHost.vue:569-581`) is a no-op when busy, when no file is
 open, or when the file is a picture. It sets busy, clears the error and the
 notice, then writes the buffer to the file's path through `writeTo`
-(`:486-506`): a plain file through `workspace_write_text`, an encrypted one
+(`:516-536`): a plain file through `workspace_write_text`, an encrypted one
 through `sealed_write` with its session token, which re-encrypts it in Rust
-(`:496-497`; see Encryption). A file that was encrypted on disk while it was
+(`:526-527`; see Encryption). A file that was encrypted on disk while it was
 open, by its row shield or a folder run, first gets its key back: the
 remembered passphrase is tried silently, otherwise the passphrase dialog asks
 for it; cancelling that dialog writes nothing, and the header's error line says
 "Not saved: the file is encrypted and its passphrase was not given."
-(`shield.saveCancelled`; `:488-493`; `adoptSessionForSave`, `:242-266`). The
+(`shield.saveCancelled`; `:520-523`; `adoptSessionForSave`, `:246-268`). The
 buffer is the text the editor's own Ctrl+S emitted with `save` (every editor
-emits its serialised content, `EditorHost.vue:632-736`), or, for Save from the
+emits its serialised content, `EditorHost.vue:662-766`), or, for Save from the
 menu, `editor.getContent()`; the last fallback is the content the file was
-opened with (`:545`). A file whose path is null (never saved) falls through to
+opened with (`:575`). A file whose path is null (never saved) falls through to
 `saveAs()`, which ignores the emitted text and re-reads `getContent()` itself
-(`:510`). On success the editor's `markSaved()` runs, the dot clears and the
+(`:540`). On success the editor's `markSaved()` runs, the dot clears and the
 notice reads "Saved". On failure the header shows "Could not save. <sentence>"
 and the same text appears as a warn strip inside the editor.
 
-While Save is in flight `busy` is true (`EditorHost.vue:540-550`), and for a
+While Save is in flight `busy` is true (`EditorHost.vue:570-580`), and for a
 never-saved file that covers the whole time the Save As dialog is open. During
 it New, Open…, Save, Save As… and the export entries are greyed in the menu
-(`App.vue:273-283, 384`), the file shield's buttons are disabled
-(`App.vue:459, 465`), the start screen's kind buttons and Open… would sit at
+(`App.vue:303-313, 421`), the file shield's buttons are disabled
+(`App.vue:502, 508, 516`), the start screen's kind buttons and Open… would sit at
 40% (`StartView.vue:59, 70`), and every editor's Ctrl+S is ignored. `canSave`
 is also false, so Save cannot be triggered twice.
 
-`saveAs()` (`EditorHost.vue:508-537`) refuses when no file is open or the file
+`saveAs()` (`EditorHost.vue:538-567`) refuses when no file is open or the file
 is a picture. Under Tauri it also refuses without a workspace (the header
-error, `:522-525`), then opens the native save dialog with `defaultPath` the
-file's own path, or `<workspace root>/<name>` for a never-saved file (`:528`),
+error, `:552-555`), then opens the native save dialog with `defaultPath` the
+file's own path, or `<workspace root>/<name>` for a never-saved file (`:558`),
 and two filters: the open kind's own name and extensions (see the kinds table;
 `[0]` is the default), then "All". The buffer is written to the picked path;
 only on a successful write do the path and the header name change to the picked
-path and its basename (`:531-535`), so a failed write leaves the old target in
+path and its basename (`:561-565`), so a failed write leaves the old target in
 place and shows "Could not save. <sentence>". A path outside the workspace is
 refused like any other write. Cancel returns false with no change. Save As does
 not remount the editor. A file forced to plain text keeps the ORIGINAL kind's
-filter, since `openAsText` (`EditorHost.vue:377-380`) never touches `fileKind`
-and `saveFilters()` (`:434-440`) reads it. For an encrypted file Save As writes
+filter, since `openAsText` (`EditorHost.vue:407-410`) never touches `fileKind`
+and `saveFilters()` (`:464-470`) reads it. For an encrypted file Save As writes
 an encrypted copy under the same key, onto any other path, existing or not, and
 from then on the session edits the copy (see Encryption). Tags are filed by
 path, so the copy starts with none, and the header's tags follow it.
 
-Save As from the menu calls `saveAs()` directly (`App.vue:214`), which, unlike
+Save As from the menu calls `saveAs()` directly (`App.vue:242`), which, unlike
 Save, neither sets busy nor clears the error and the notice, and `writeTo()`
 only sets "Saved" on success without clearing the error
-(`EditorHost.vue:486-506`). So after a failed Save, a successful Save As shows
+(`EditorHost.vue:516-536`). So after a failed Save, a successful Save As shows
 "Saved" and the old "Could not save. <sentence>" side by side until the next
 Save, Open or New. Because busy stays false, the menu and the editors' Ctrl+S
 remain live while the Save As dialog is open.
 
 Files opened from the Files panel or a search hit arrive with their path
-(`openLocal`, `EditorHost.vue:594-596`), so Save writes them back in place
+(`openLocal`, `EditorHost.vue:624-626`), so Save writes them back in place
 without a dialog; Rust's workspace boundary is what permits the write.
 
 ### What the refusals say
@@ -1019,8 +1086,8 @@ without a dialog; Rust's workspace boundary is what permits the write.
 The host turns a Rust refusal into a sentence through its prefix: first the
 workspace catalogue, then the encryption catalogue, and anything else (an
 operating-system message such as a permission error) is shown as it came
-(`explain`, `EditorHost.vue:74-78`; `fs.ts:18-37`;
-`packages/padova/src/lock.ts:22-41`). These sentences follow "Could not open
+(`explain`, `EditorHost.vue:74-78`; `fs.ts:18-47`;
+`packages/padova/src/lock.ts:22-42`). These sentences follow "Could not open
 the file." or "Could not save." in the header and the editor's strip.
 
 | Rust prefix | Sentence | Key | Typical cause |
@@ -1041,9 +1108,12 @@ Elsewhere the mapping differs by place. The passphrase dialog turns the
 encryption prefixes into sentences, and every action run in it, the host's and
 the row shields', turns a workspace refusal into its sentence first; where a
 prefix has both, encrypting keeps the encryption sentence and opening and
-decrypting take the workspace one (`dialogErrorKey`, `fs.ts:39-47`). The folder
+decrypting take the workspace one (`dialogErrorKey`, `fs.ts:54-57`). The folder
 dialog turns both families into sentences, workspace first, for its preview, a
-run and each failure. The Files panel's open-error line shows a workspace
+run and each failure, and the Security Mana prompt does the same for its run.
+The archive dialog turns workspace refusals, the archive's own `archive_*`
+prefixes among them, into sentences (see Settings, Workspace archive). The
+Files panel's open-error line shows a workspace
 sentence for an open, and a sentence from either family after a row shield's
 decrypt with the remembered passphrase. Insert a table's "Load file…" and the
 deck's "Import from file…" turn workspace refusals into sentences, and the tag
@@ -1052,15 +1122,15 @@ error show the text as it came.
 
 ### The discard prompt
 
-`confirmDiscard()` (`EditorHost.vue:386-390`) runs before New (any kind, from
+`confirmDiscard()` (`EditorHost.vue:416-420`) runs before New (any kind, from
 the menu or the start screen), before Open (menu, start screen, Ctrl+O) and
-before opening an encrypted file from a row or a search hit (`:276`); an
+before opening an encrypted file from a row or a search hit (`:275`); an
 encrypted file picked through Open… is asked about once, by Open. It only asks
 while the buffer is dirty. The guard reads the host's `dirty` flag, which the
 editor drives through `update:dirty`; the handle's `isDirty()` is never
-consulted (`EditorHost.vue:387`, `types.ts:25`). A brand-new untitled file that
+consulted (`EditorHost.vue:417`, `types.ts:25`). A brand-new untitled file that
 has not been typed in is therefore replaced by New or Open without any prompt,
-even though Save is enabled for it. The modal (`EditorHost.vue:750-759`) is an
+even though Save is enabled for it. The modal (`EditorHost.vue:780-789`) is an
 `OyaModal` with:
 
 * title "Discard unsaved changes?" (`file.discardTitle`);
@@ -1078,7 +1148,7 @@ ms, and draws on a `max-w-sm` `ModalPanel` card
 `packages/petalite/src/components/ModalPanel.vue:16-19`). The title is small
 bold text and the body sits at 70% opacity; the two buttons are right-aligned.
 Ctrl+O while the prompt is up is not blocked: it calls `openFile()` again,
-which replaces the pending resolver (`EditorHost.vue:388-389, 574-577`); the
+which replaces the pending resolver (`EditorHost.vue:418-419, 604-607`); the
 first request is dropped silently, and Cancel or Discard then answers only the
 latest one. The ☰ menu cannot be reached meanwhile because the overlay covers
 it. Opening a plain Files-panel row or search hit never shows this prompt;
@@ -1092,38 +1162,39 @@ the file it was routed to, it replaces its body with a centred refusal panel: a
 button "Open as plain text" (`file.openAsText`). Clicking it emits
 `open-as-text`; the host sets `forceText` and bumps the generation, so the same
 name, path and content remount in the bare `TextEditor` (no toolbar, no
-picker) (`EditorHost.vue:141, 371-380, 725-738`). The header name, path and
+picker) (`EditorHost.vue:141, 401-410, 755-768`). The header name, path and
 Save As filter stay those of the original kind, and Save writes the text
 buffer back over the original file; for an encrypted file the session is kept,
 so that save still re-encrypts. The forced-text state lasts for that one open
 only: `show()` resets `forceText`, the dirty flag, the error and the notice and
 remounts on every Open, New, Files-panel row or search hit
-(`EditorHost.vue:400-412`). The catalogue's `file.rawView` ("This file opened
+(`EditorHost.vue:430-442`). The catalogue's `file.rawView` ("This file opened
 as raw text so nothing gets lost. Editing it here is not supported yet.",
-`en.ts:225`) is rendered nowhere; the bare text editor shows no notice about
+`en.ts:254`) is rendered nowhere; the bare text editor shows no notice about
 why it is there, and the buffer IS editable and saveable. Each editor's title
 and detail are given in its own section below.
 
 ### Read-only images
 
-`readOnly` is `isImageName(name)` (`EditorHost.vue:558`). For a picture,
+`readOnly` is `isImageName(name)` (`EditorHost.vue:588`). For a picture,
 plain or encrypted, `canSave` is false and `saveFile()` and `saveAs()` return
-at once, so Save is greyed in the menu and Save As looks enabled (`App.vue:280`
+at once, so Save is greyed in the menu and Save As looks enabled (`App.vue:310`
 gates it only on a file and a workspace) but is a silent no-op: `saveAs`
-returns before any dialog (`EditorHost.vue:509`). The dot can never appear,
+returns before any dialog (`EditorHost.vue:539`). The dot can never appear,
 because there is no buffer. An encrypted picture has no session at all; its
 bytes were decrypted once, into memory, for display.
 
 ### Ctrl+O and Ctrl+S
 
 Ctrl+O (Cmd+O on macOS) is the host's one window listener
-(`EditorHost.vue:566-578, 603`). It is ignored while Workspace security or
+(`EditorHost.vue:596-608, 633`). It is ignored while Workspace security or
 Settings is on screen (`props.active === false`) and when the event target is
 an `INPUT` or `TEXTAREA`. In practice that means Ctrl+O does nothing while the
 cursor is in a Code, Markdown or plain-text buffer, because ACE types through a
 hidden `<textarea>` (`ace_text-input`) and the editor focuses it on mount
 (`TextEditor.vue:147`); it also does nothing while the workspace search box or
-a field of the passphrase, folder or tag dialog has focus. It works from the
+a field of the passphrase, folder, tag, Mana prompt or archive dialog has
+focus. It works from the
 Write, Presentations, Sheet and Drawing editors and from the start screen.
 There is no shell-level Ctrl+S: saving from the keyboard is each editor's own
 `save` emit, with the gating described per editor and summarised in "Keyboard
@@ -1135,25 +1206,26 @@ shortcuts".
 it:
 
 * No workspace exists or is needed. The menu's Open… and Save As… and the start
-  screen's Open… ignore the workspace rule (`App.vue:276-281`;
+  screen's Open… ignore the workspace rule (`App.vue:306-311`;
   `StartView.vue:70`).
 * Open…, Ctrl+O and the start screen's Open… click a hidden
   `<input type="file">` whose `accept` list is every editor extension
-  (`EditorHost.vue:443, 448-451, 476-483, 612`). There are no filters. A
+  (`EditorHost.vue:473, 478-481, 506-513, 642`). There are no filters. A
   browser `File` has no path, so the file is treated as never saved. The input
-  is reset after every pick (`:479`), so choosing the same file twice in a row
+  is reset after every pick (`:509`), so choosing the same file twice in a row
   reopens it. Cancelling the picker does nothing. A failure in `file.text()` is
   not caught, so it never reaches `file-error`.
 * Save and Save As never show a dialog. `saveAs()` builds a `Blob` typed by
   kind (`document` and `deck` `application/xml`, `code` `text/plain`,
   `markdown` `text/markdown`, `sheet` `application/json`, `sketch`
   `image/svg+xml`), clicks an `<a download="{name}">`, marks the buffer saved
-  and shows "Saved" (`EditorHost.vue:109-116, 511-521`). Because the path stays
+  and shows "Saved" (`EditorHost.vue:109-116, 541-551`). Because the path stays
   null, Save is enabled for as long as a file is open and every Save is another
   download.
-* Nothing is encrypted, tagged or charged: the file shield appears but Encrypt
-  is always blocked with "Save the file first.", the tags button never
-  appears, there are no padlocks, and the search finds nothing.
+* Nothing is encrypted or tagged and there is no Security Mana: the file
+  shield appears but Encrypt is always blocked with "Save the file first.",
+  the tags button and the Mana bar never appear, there are no padlocks, and
+  the search finds nothing.
 * The catalogue's `file.browserNote` ("Running in a browser — files open from
   and save to downloads.") exists but is rendered nowhere.
 * `main.ts` wires the drawing engine's PNG writer to the Tauri fs plugin
@@ -1162,13 +1234,16 @@ it:
 
 ## Encryption
 
-Morion encrypts files in place, each with a passphrase. There are three
-places to do it, all beside the thing they act on: the file shield in the
-header for the open file, the row shield at the right of every file row, and
-the folder shield on every folder row, which encrypts or decrypts everything
-under that folder. The Workspace security view only summarises; nothing there
-encrypts anything. An encrypted file can be opened and edited in its own
-editor without ever being decrypted on disk.
+Morion encrypts files in place, each with a passphrase. There are four places
+to do it, all beside the thing they act on: the file shield in the header for
+the open file, the row shield at the right of every file row, the key beside
+every encrypted file row, which changes that file's passphrase, and the folder
+shield on every folder row, which encrypts or decrypts everything under that
+folder. The one other place is the Security Mana prompt, which encrypts a
+chosen few of the workspace's costliest plain files at once (see Security
+Mana); the Workspace security view can open that prompt but otherwise only
+summarises. An encrypted file can be opened and edited in its own editor, and
+its passphrase changed, without ever being decrypted on disk.
 
 What a user can rely on (`crates/padova/src/lock.rs:1-53`):
 
@@ -1179,73 +1254,95 @@ What a user can rely on (`crates/padova/src/lock.rs:1-53`):
 * Everything needed to open the file except the passphrase travels inside it,
   so it opens on any machine that has the passphrase and survives being
   renamed or moved.
+* Changing a passphrase encrypts the file again under a fresh salt and a fresh
+  key, exactly as if it were being encrypted for the first time; the old key is
+  not merely re-wrapped, so someone who knew the old passphrase and kept the
+  key it unwrapped cannot read the file as it now is. The plaintext exists only
+  in memory between the two steps, the file keeps the format it was in (a file
+  encrypted by Enigma stays in Enigma's), and the change costs two Argon2id
+  derivations, the current passphrase's and the new one's
+  (`crates/padova/src/lock.rs:224-264`).
 * Whether a file is encrypted is read from its first bytes, by Rust: the
-  listing's `sealed` flag, the `is_file_locked` probe, the search and the
-  host's `locked` refusal all ask the same function
+  listing's `sealed` flag, the `is_file_locked` probe, the search, the Mana
+  walk and the host's `locked` refusal all ask the same function
   (`crates/substrate/src/lib.rs:134-156`). The page never inspects bytes.
 * A wrong passphrase changes nothing on disk.
-* Encrypting, decrypting or opening a file over 256 MB is refused, and an
-  encrypted file that decrypts to more than 64 MB cannot be opened
-  (`crates/substrate/src/lib.rs:112, 196-203`; `sealed.rs:84-86`). Opening or
-  decrypting says "That file is too big to open here."
-  (`workspace.errors.too_large`), in the passphrase dialog as in the header or
-  the Files panel; encrypting a single file says "That file is too big to
-  encrypt." (`lock.errors.too_large`). A folder run words it by its
-  direction in the same way: an encrypt run "too big to encrypt", a decrypt
-  run "too big to open here" (see the folder dialog).
+* Encrypting, decrypting, changing the passphrase of or opening a file over
+  256 MB is refused, and an encrypted file that decrypts to more than 64 MB
+  cannot be opened (`crates/substrate/src/lib.rs:112, 212-219`;
+  `sealed.rs:108-110, 120-122`). Opening, decrypting or changing a passphrase
+  says "That file is too big to open here." (`workspace.errors.too_large`), in
+  the passphrase dialog as in the header or the Files panel; encrypting a
+  single file says "That file is too big to encrypt." (`lock.errors.too_large`).
+  A folder run words it by its direction in the same way: an encrypt run "too
+  big to encrypt", a decrypt run "too big to open here" (see the folder
+  dialog).
 * Files encrypted by Enigma open with their passphrase and are written back in
   Enigma's own format; files encrypted by the old platform are shown with a
   padlock but refused ("This file was encrypted by the platform. Its key
   settings lived on the server, so it cannot be opened here.").
+* No encryption action is charged in Security Mana. What moves the bar is what
+  lies plain on disk: encrypting a file stops its drain, decrypting one
+  permanently starts it, and changing a passphrase earns some (see Security
+  Mana).
 
 ### The passphrase dialog
 
 One dialog serves every single-file action: padova's `LockModal`
-(`packages/padova/src/components/LockModal.vue:84-127`), in `open` mode
-(decrypt into memory for editing), `lock` mode (encrypt) or `unlock` mode
-(decrypt permanently). The host mounts one for the open file
-(`EditorHost.vue:740-748`) and the Files panel another for its row shields
-(`FilesPanel.vue:343-351`). It is an `OyaModal` on a `max-w-sm` card, closed by
-a backdrop click unless a run is in flight; Escape does nothing. The password
-field does not take focus by itself. Top to bottom:
+(`packages/padova/src/components/LockModal.vue:110-158`), in `open` mode
+(decrypt into memory for editing), `lock` mode (encrypt), `unlock` mode
+(decrypt permanently) or `rekey` mode (change the passphrase). The host mounts
+one for the open file (`EditorHost.vue:770-778`) and the Files panel another
+for its row shields and keys (`FilesPanel.vue:413-419`). It is an `OyaModal`
+on a `max-w-sm` card, closed by a backdrop click unless a run is in flight;
+Escape does nothing. The password field does not take focus by itself. Top to
+bottom:
 
-| Element | `open` | `lock` | `unlock` | `data-testid` |
-|---|---|---|---|---|
-| Title | "Open encrypted file" (`lock.openTitle`) | "Encrypt this file" (`lock.lockTitle`) | "Decrypt this file permanently" (`lock.unlockTitle`) | none |
-| File name | small, dim, truncated, no tooltip | same | same | none |
-| Hint | "The file is decrypted in memory only. Saving writes it back encrypted; nothing unencrypted is written to disk." (`lock.openHint`) | "The password is never written into the file, and each file gets its own key. Everything needed to open this file again, except the password, travels inside it." (`lock.lockHint`) | "This rewrites the file as plain text on disk. To edit it without that, open it instead." (`lock.unlockHint`) | `lock-open-hint`, none, `lock-unlock-hint` |
-| Notice (the `#notice` slot) | what opening does and what it costs (see Security Mana); when the key is fetched to save a file that was encrypted while open, "This file was encrypted while it was open. Enter its passphrase to save your changes encrypted." (`shield.encryptedWhileOpen`) and no price | nothing: encrypting is free | what decrypting does and what it costs | `lock-consequence`, `mana-cost` |
-| Password | placeholder "Password" (`lock.password`), `type="password"`, autocomplete off, Enter submits | same | same | `lock-password` |
-| Repeat | none | placeholder "Repeat the password" (`lock.confirm`), Enter submits | none | `lock-confirm` |
-| Remember checkbox | "Remember this passphrase, so I am not asked again" (`lock.remember`); the whole label is clickable | same | same | `lock-remember` |
-| Error line (warn colour) | | | | `lock-error` |
-| Cancel | "Cancel" (`common.cancel`), disabled while running | same | same | none |
-| Submit | "Open" (`lock.open`), icon `lock-open` | "Encrypt" (`lock.lock`), icon `lock` | "Decrypt" (`lock.unlock`), icon `lock-open` | `lock-submit` |
+| Element | `open` | `lock` | `unlock` | `rekey` | `data-testid` |
+|---|---|---|---|---|---|
+| Title | "Open encrypted file" (`lock.openTitle`) | "Encrypt this file" (`lock.lockTitle`) | "Decrypt this file permanently" (`lock.unlockTitle`) | "Change this file’s passphrase" (`lock.rekeyTitle`) | none |
+| File name | small, dim, truncated, no tooltip | same | same | same | none |
+| Hint | "The file is decrypted in memory only. Saving writes it back encrypted; nothing unencrypted is written to disk." (`lock.openHint`) | "The password is never written into the file, and each file gets its own key. Everything needed to open this file again, except the password, travels inside it." (`lock.lockHint`) | "This rewrites the file as plain text on disk. To edit it without that, open it instead." (`lock.unlockHint`) | "The file is encrypted again under a new key, and only the new passphrase opens it. Its contents are decrypted in memory for a moment and never written to disk unencrypted." (`lock.rekeyHint`) | `lock-open-hint`, none, `lock-unlock-hint`, `lock-rekey-hint` |
+| Notice (the `#notice` slot) | nothing when opening; when the key is fetched to save a file that was encrypted while open, "This file was encrypted while it was open. Enter its passphrase to save your changes encrypted." (`shield.encryptedWhileOpen`) | the Mana block "Saves {rate} Mana an hour." for the file (see Security Mana) | "The file is rewritten unencrypted on disk and stays readable until you encrypt it again." (`mana.consequence.decrypt_file`), then the Mana block "Adds about {rate} Mana an hour, for as long as it stays unencrypted." | nothing | `lock-consequence`, `mana-cost` |
+| Password | placeholder "Password" (`lock.password`), `type="password"`, autocomplete off, Enter submits | same | same | placeholder "Current password" (`lock.currentPassword`) | `lock-password` |
+| New password | none | none | none | placeholder "New password" (`lock.newPassword`), Enter submits | `lock-new` |
+| Repeat | none | placeholder "Repeat the password" (`lock.confirm`), Enter submits | none | placeholder "Repeat the new password" (`lock.confirmNew`), Enter submits | `lock-confirm` |
+| Remember checkbox | "Remember this passphrase, so I am not asked again" (`lock.remember`); the whole label is clickable | same | same | "Remember the new passphrase, so I am not asked again" (`lock.rememberNew`) | `lock-remember` |
+| Error line (warn colour) | | | | | `lock-error` |
+| Cancel | "Cancel" (`common.cancel`), disabled while running | same | same | same | none |
+| Submit | "Open" (`lock.open`), icon `lock-open` | "Encrypt" (`lock.lock`), icon `lock` | "Decrypt" (`lock.unlock`), icon `lock-open` | "Change passphrase" (`lock.rekey`), icon `key` | `lock-submit` |
 
-The price appears only when Rust could quote one (a workspace is open and its
-metadata is readable); in the host's dialog the consequence line shows even
-without a price, while the row shields' dialog shows neither without one
-(`EditorHost.vue:744-747`; `FilesPanel.vue:345-350`). The submit button shows a
-spinner while running and is disabled while running or while the password field
-is empty. Every field resets each time the dialog opens. Before any call, an
-empty password gives "Enter the password." (`lock.passwordRequired`; Enter
-still reaches the check although the button is disabled) and, when encrypting,
-fields that differ give "Those two do not match." (`lock.passwordMismatch`). A
-second Enter or click while a run is in flight is ignored, the error line
-clears when a new attempt starts, and both password fields are emptied after
-every attempt, success or failure (`LockModal.vue:40-81`). Success closes the
-dialog. A failure keeps it open with the error: an encryption prefix becomes
-its sentence, anything else is shown verbatim. The dialog itself knows only the
-encryption sentences, so every action run in it, the host's four (opening,
-fetching the key for a save, encrypting, decrypting) and both row-shield
-actions, first turns a workspace refusal into its own sentence (`inDialog`,
-`EditorHost.vue:80-87, 258-265, 294-299, 313-317, 358-362`;
-`FilesPanel.vue:165-173`; `dialogErrorKey`,
-`apps/morion/src/files/fs.ts:39-47`). So an encrypted file that is not text
+The Mana block appears only when Rust could say what the file costs (a
+workspace is open on the desktop; `mana_rate`), and never in `open` or `rekey`
+mode, since neither leaves plaintext on disk. The decrypt consequence line
+shows with or without it (`EditorHost.vue:774-777`; `FilesPanel.vue:415-418`).
+The submit button shows a spinner while running and is disabled while running,
+while the password field is empty, and in `rekey` mode while the new-password
+field is empty. Every field resets each time the dialog opens
+(`LockModal.vue:49-60`). Before any call, an empty password gives "Enter the
+password." (`lock.passwordRequired`; Enter still reaches the check although the
+button is disabled); when encrypting, fields that differ give "Those two do not
+match." (`lock.passwordMismatch`); when changing the passphrase, an empty new
+password gives "Enter the new password." (`lock.newRequired`), a repeat that
+differs from the new password "Those two do not match.", and a new password
+equal to the current one "The new password is the same as the current one."
+(`lock.samePassword`). All of these are checked on submit, not as the fields
+are typed. A second Enter or click while a run is in flight is ignored, the
+error line clears when a new attempt starts, and every password field is
+emptied after every attempt, success or failure (`LockModal.vue:62-107`).
+Success closes the dialog. A failure keeps it open with the error: an
+encryption prefix becomes its sentence, anything else is shown verbatim. The
+dialog itself knows only the encryption sentences, so every action run in it,
+the host's five (opening, fetching the key for a save, encrypting, decrypting,
+changing the passphrase) and the Files panel's three (encrypting, decrypting,
+changing the passphrase), first turns a workspace refusal into its own
+sentence (`inDialog`, `EditorHost.vue:84-87, 263-265, 293-295, 311-313,
+368-370, 390-392`; `FilesPanel.vue:205-210`; `dialogErrorKey`,
+`apps/morion/src/files/fs.ts:54-57`). So an encrypted file that is not text
 says "That file is not a text file.", and a file left open from a previous
 workspace "That path is outside the workspace.". Where a prefix has a sentence
-in both catalogues (`too_large`), encrypting keeps the encryption one and
-opening and decrypting take the workspace one.
+in both catalogues (`too_large`), encrypting keeps the encryption one, and
+opening, decrypting and changing a passphrase take the workspace one.
 
 | Rust prefix | Sentence (`lock.errors.*`) |
 |---|---|
@@ -1257,170 +1354,220 @@ opening and decrypting take the workspace one.
 | `crypto` | "That encrypted file is damaged. Nothing was changed." |
 | `no_passphrase` | "No password was given, and none is remembered." |
 | `changed_on_disk` | "That file changed on disk while it was open. Nothing was written; open it again." |
+| `same_passphrase` | "The new password is the same as the current one. Nothing was changed." |
 
-(`packages/padova/src/lock.ts:22-41`; `packages/padova/src/i18n/en.ts:26-35`.)
+(`packages/padova/src/lock.ts:22-42`; `packages/padova/src/i18n/en.ts:35-45`.)
+Rust refuses a new passphrase equal to the current one (`same_passphrase`) or
+an empty one (`no_passphrase`) as well, but the dialog's own checks stop both
+first (`crates/padova/src/lock.rs:241-248`).
 
 The Remember box is shown by the host's dialog on the desktop
-(`offer-remember="isTauri"`, `EditorHost.vue:741`) and always by the row
-shields' dialog (`FilesPanel.vue:344`), and it is honoured in every use:
-opening, encrypting, decrypting, fetching the key for a save, and both row
-shield actions. The passphrase goes to the keyring only after the action
-succeeded, so one that did not open the file is never remembered
-(`EditorHost.vue:264, 301, 324, 365`; `FilesPanel.vue:177-178`).
+(`offer-remember="isTauri"`, `EditorHost.vue:771`) and always by the Files
+panel's (`FilesPanel.vue:414`), and it is honoured in every use: opening,
+encrypting, decrypting, fetching the key for a save, changing the passphrase,
+and the Files panel's three actions. In `rekey` mode it is the NEW passphrase
+that is remembered. The passphrase goes to the keyring only after the action
+succeeded, so one that did not work is never remembered (`EditorHost.vue:266,
+296, 327, 373, 393`; `FilesPanel.vue:213, 221`).
 
 ### Opening an encrypted file
 
 An encrypted file is opened by clicking its row or its search hit, or by
 picking it in the Open dialog (Rust's `locked` answer redirects it). All three
-end in `openSealed` (`EditorHost.vue:275-303`):
+end in `openSealed` (`EditorHost.vue:274-298`):
 
 1. The discard prompt, if the buffer is dirty. Through Open… it was answered
-   there already and is not asked again (`EditorHost.vue:446, 469, 276`).
+   there already and is not asked again (`EditorHost.vue:476, 499, 275`).
 2. The header error is cleared.
-3. If a passphrase is remembered, the Mana confirmation for opening comes
-   first; Cancel stops here and costs nothing. Continue decrypts with the
-   remembered passphrase and no dialog. If that passphrase is not this file's
+3. If a passphrase is remembered, the file is decrypted with it, with no
+   dialog and no question. If that passphrase is not this file's
    (`wrong_password`), or none is actually held (`no_passphrase`), the flow
    falls through to step 4; any other refusal ends with "Could not open the
-   file. <sentence>" in the header.
-4. Otherwise the passphrase dialog in `open` mode, carrying the consequence
-   "The file is decrypted into memory while it is open. Nothing unencrypted is
-   written to disk." and the price. A wrong passphrase keeps the dialog open
-   with its sentence; Cancel or the backdrop ends it and costs nothing.
-5. On success (`adoptSealed`, `EditorHost.vue:209-219`): a text file is
+   file. <sentence>" in the header (`EditorHost.vue:277-289`).
+4. Otherwise the passphrase dialog in `open` mode, with nothing in its notice
+   slot. A wrong passphrase keeps the dialog open with its sentence; Cancel or
+   the backdrop ends it.
+5. On success (`adoptSealed`, `EditorHost.vue:211-221`): a text file is
    decrypted by Rust into memory, and the host receives the plaintext and a
    session token, routes the text through `kindForFile` and mounts that
    editor, exactly as for a plain file. A picture is decrypted to bytes and
    shown read-only in the image viewer, with no session. Nothing on disk
-   changes. The Mana charge follows the successful open, and a ticked Remember
-   box hands the passphrase to the keyring after that.
+   changes, and a ticked Remember box then hands the passphrase to the
+   keyring.
 
-Any kind opens: a note in Markdown, a `.pxml` or `<presentation>` in
-Presentations, a workbook `.json` in Sheet, an `.svg` in Drawing, a document
-in Write, anything else in Code, and the same refusal panels and "Open as
-plain text" apply after decryption. A file that is not UTF-8 text once
-decrypted, and not a picture (an encrypted PDF, say), cannot be opened: with a
-remembered passphrase the header reads "Could not open the file. That file is
-not a text file."; in the dialog the error line reads "That file is not a text
-file.". Either way nothing is charged.
+Opening costs no Security Mana and asks nothing about it: the file on disk
+stays encrypted, and Mana is spent by plain files on disk, not by what is on
+screen (`EditorHost.vue:270-273`). Any kind opens: a note in Markdown, a
+`.pxml` or `<presentation>` in Presentations, a workbook `.json` in Sheet, an
+`.svg` in Drawing, a document in Write, anything else in Code, and the same
+refusal panels and "Open as plain text" apply after decryption. A file that is
+not UTF-8 text once decrypted, and not a picture (an encrypted PDF, say),
+cannot be opened: with a remembered passphrase the header reads "Could not
+open the file. That file is not a text file."; in the dialog the error line
+reads "That file is not a text file.".
 
 The header then shows the file's name and a filled shield, and the shield
 panel reads "Encrypted on disk. It is decrypted in memory only; saving writes
 it back encrypted." (or, for a picture, "Encrypted on disk. Shown from memory;
-nothing is written.").
+nothing is written.") and "Encrypted: uses no Security Mana.".
 
 ### Editing and saving in memory
 
 While an encrypted text file is open, Rust keeps its key, never the
 passphrase, in a session the page knows only by a number
-(`apps/morion/src-tauri/src/sealed.rs:25-63`), and the plaintext exists only
+(`apps/morion/src-tauri/src/sealed.rs:25-87`), and the plaintext exists only
 in the editor.
 
 * Save hands the text and the token to Rust (`sealed_write`), which re-encrypts
   it under the same key and header with a fresh nonce and writes it through a
   temporary that holds only ciphertext. Nothing unencrypted reaches the disk,
-  no passphrase is asked, and no Mana is spent (`EditorHost.vue:486-506`;
-  `sealed.rs:102-112`; `crates/padova/src/lock.rs:114-140`).
+  no passphrase is asked, and no Security Mana moves (`EditorHost.vue:516-536`;
+  `sealed.rs:127-136`; `crates/padova/src/lock.rs:128-141`).
 * Save As writes an encrypted copy under the same key, so the same passphrase
   opens it. Picked onto the file the session edits, it is an ordinary save;
   onto any other path it is a copy, and an existing file there is replaced,
   plain or encrypted, since the save dialog has already asked about it. From
   then on the session edits the copy: later saves go to it and are checked as
   below, and the original stays as it was (`crates/padova/src/lock.rs:100-104,
-  123-126, 138`).
+  124-127, 139`).
 * Writing to the file the session edits (the one it was opened from, or the
   last Save As target) checks first that the file on disk still carries the
   session's key. If it does not, because it was encrypted again with another
   passphrase, decrypted or replaced behind Morion's back, Save refuses and
   writes nothing: "Could not save. That file changed on disk while it was open.
-  Nothing was written; open it again." (`lock.rs:128-134`). A change made from
-  the Files panel does not end here, because the host follows it (see The open
-  file follows the pane).
+  Nothing was written; open it again." (`crates/padova/src/lock.rs:129-135`). A
+  change made from the Files panel does not end here, because the host follows
+  it (see The open file follows the pane).
+* Neither does a passphrase change made in Morion, from the header's shield or
+  from the file's row: Rust re-opens every session on that file under the new
+  passphrase, keeping its token, so the page's saves carry on under the new
+  key and the buffer, unsaved edits included, is never touched. A session that
+  cannot be re-opened is dropped, and its next save says the file is no longer
+  open for editing (`SealSessions::follow_rekey`, `sealed.rs:59-81`;
+  `apps/morion/src-tauri/src/lock.rs:53-66`).
 * "Could not save. That file is no longer open for editing. Open it again."
   (`no_session`) means the token no longer names a session. The host drops
   token and session together, so the UI does not normally reach it.
 * The session ends, and the key is dropped, when another file is opened or New
   replaces this one, when the file is decrypted permanently (from the header's
   shield, or from the Files panel, which the host then follows), and when the
-  app closes (`EditorHost.vue:159-165, 221-240, 402, 603-607`). "Open as plain
+  app closes (`EditorHost.vue:159-165, 228-242, 432, 634-637`). "Open as plain
   text" keeps it.
-* An export from an encrypted file (CSV, PNG) writes plaintext outside the
-  workspace and costs Mana (see Security Mana).
+* An export from an encrypted file (CSV, PNG) writes plaintext wherever the
+  user saves it. The confirmation "This leaves plaintext behind" comes first;
+  the copy costs Security Mana only if it is saved inside the workspace, where
+  it is a plain file like any other (see Security Mana).
 
 ### The file shield
 
-The shield panel's two buttons act on the open file (`App.vue:159-166`):
+The shield panel's buttons act on the open file (`App.vue:183-194`):
 
 * "Encrypt with a passphrase…", for a plain file that has a path and no
   unsaved changes, since the bytes on disk are what get encrypted
-  (`encryptFile`, `EditorHost.vue:308-330`). It always opens the dialog in
-  `lock` mode: the remembered passphrase is never used to encrypt, and the
+  (`encryptFile`, `EditorHost.vue:303-334`). It always opens the dialog in
+  `lock` mode, with the Mana block "Saves {rate} Mana an hour." when Rust could
+  rate the file: the remembered passphrase is never used to encrypt, and the
   passphrase is always typed twice. On success Rust encrypts the file in
   place; for a text file the host then opens a session on it with the same
   passphrase, a second derivation of about a second, so editing continues
   encrypted without a reload; for a picture it simply marks it as shown from
   memory. The file is encrypted from the moment Rust answers, so if that
   session cannot be had the dialog still closes as a success and the file is
-  marked encrypted while open: the next save asks for the passphrase. A ticked Remember box is honoured, the padlock is refreshed, and the
-  history records "Encrypted a file" at no cost.
+  marked encrypted while open: the next save asks for the passphrase. A ticked
+  Remember box is honoured, the padlock is refreshed, the history records
+  "Encrypted a file", and the Mana bar is read again.
 * "Decrypt permanently…", for an encrypted file with no unsaved changes
-  (`decryptFile`, `EditorHost.vue:334-367`). With a remembered passphrase the
-  Mana confirmation comes first and no dialog follows; otherwise, or if the
-  remembered passphrase is not the file's, the dialog in `unlock` mode with the
-  price. On success the file on disk is rewritten as plaintext, the session is
-  dropped (the editor already holds the plaintext, so nothing reloads), later
-  saves are plain again, the padlock goes, the Mana charge follows, and a
-  ticked Remember box is honoured. With the remembered passphrase, a refusal
-  other than a wrong passphrase shows its bare sentence in the header error.
+  (`decryptFile`, `EditorHost.vue:338-375`). The host first asks Rust what the
+  file will cost plain (`mana_rate`). With a remembered passphrase the
+  confirmation "This leaves plaintext behind" comes first, with the Mana block
+  "Adds about {rate} Mana an hour…", and no dialog follows; when Rust could not
+  rate the file there is no confirmation either and the decrypt simply runs
+  (`EditorHost.vue:348-364`). Otherwise, or if the remembered passphrase is not
+  the file's, the dialog in `unlock` mode, with the consequence line and, when
+  rated, the same Mana block. On success the file on disk is rewritten as
+  plaintext, the session is dropped (the editor already holds the plaintext,
+  so nothing reloads), later saves are plain again, the padlock goes, the
+  history records "Decrypted a file permanently", the Mana bar is read again,
+  and a ticked Remember box is honoured. With the remembered passphrase, a
+  refusal other than a wrong passphrase shows its bare sentence in the header
+  error.
+* "Change passphrase…", for an encrypted file, unsaved changes or not
+  (`changePassphrase`, `EditorHost.vue:381-397`). It always opens the dialog in
+  `rekey` mode: the current passphrase must be typed (the remembered one is
+  never used here), then the new one twice. Rust's `rekey_file`
+  (`apps/morion/src-tauri/src/lock.rs:53-79`) resolves the path inside the
+  workspace, encrypts the file again under the new passphrase, moves any
+  editing session on it to the new key, and then credits Security Mana. The
+  header's notice then reads "Passphrase changed: +{gained} Security Mana."
+  (`mana.rekeyEarned`) or, when nothing was earned, "Passphrase changed. No
+  Mana this time: the bar is full, or this file or today’s passphrase changes
+  already earned some." (`mana.rekeyNoReward`); the Mana bar is read again. A
+  ticked Remember box keeps the new passphrase. The buffer is not touched:
+  unsaved edits stay unsaved and are saved under the new key. A reward that
+  cannot be written (a damaged metadata file) does not undo the change; it
+  earns nothing.
 
-Either button is disabled while its blocker line shows ("Save the file first."
-or "Save your changes first.") and while a Save is in flight.
+Encrypt and Decrypt are disabled while their blocker line shows ("Save the
+file first." or "Save your changes first.") and while a Save is in flight;
+Change passphrase only while a Save is in flight.
 
 ### Row shields
 
-Every file row carries a shield (`FilesPanel.vue:318-326`), so any file can be
-encrypted or decrypted from the pane, including files no editor here opens,
-such as a PDF (`shieldFile`, `FilesPanel.vue:128-159`):
+Every file row carries a shield, and every encrypted row a key besides
+(`FilesPanel.vue:376-392`), so any file can be encrypted, decrypted or given a
+new passphrase from the pane, including files no editor here opens, such as a
+PDF (`shieldFile`, `FilesPanel.vue:145-180`; `rekeyRow`, `:184-191`):
 
 * A plain file's shield ("Encrypt this file") always opens the dialog in `lock`
-  mode, passphrase typed twice. On success the file is encrypted in place, its
-  padlock is re-probed and the history records "Encrypted a file"
-  (`lockAction`, `FilesPanel.vue:161-166, 174-175`).
+  mode, passphrase typed twice, with the Mana block "Saves {rate} Mana an
+  hour." when Rust could rate the file. On success the file is encrypted in
+  place, its padlock is re-probed, the history records "Encrypted a file" and
+  the Mana bar is read again (`lockAction`, `FilesPanel.vue:196-223`).
 * An encrypted file's shield ("Decrypt this file permanently"): with a
-  remembered passphrase, the Mana confirmation, then the decrypt with no
-  dialog; a refusal other than a wrong passphrase appears in the panel's
-  `files-open-error` line as its sentence. Without one, or when it is not the
-  file's, the dialog in `unlock` mode with the price inside it. On success the
-  file is plaintext on disk, its padlock goes and the Mana charge follows
-  (`FilesPanel.vue:137-159, 161-167, 174-176`).
-* In either dialog a ticked Remember box is honoured once the action succeeded
-  (`FilesPanel.vue:177-178`).
+  remembered passphrase, the confirmation with the "Adds about…" block when
+  Rust could rate the file (and no confirmation when it could not), then the
+  decrypt with no dialog; a refusal other than a wrong passphrase appears in
+  the panel's `files-open-error` line as its sentence. Without one, or when it
+  is not the file's, the dialog in `unlock` mode with the consequence line and,
+  when rated, the Mana block. On success the file is plaintext on disk, its
+  padlock goes, the history records "Decrypted a file permanently" and the Mana
+  bar is read again (`FilesPanel.vue:158-178`).
+* An encrypted file's key ("Change this file’s passphrase") opens the dialog
+  in `rekey` mode, with no Mana block. On success Rust has moved the host's
+  session along if this file is the one open, so nothing else needs telling;
+  the line `files-rekey-note` under the tree says what the change earned, in
+  the same words as the header's notice, and the Mana bar is read again
+  (`FilesPanel.vue:211-217`).
+* In every case a ticked Remember box is honoured once the action succeeded,
+  the new passphrase after a change (`FilesPanel.vue:213, 221`).
 
 ### The open file follows the pane
 
 After every successful row shield action, and after every folder run, the panel
 emits `security-changed` and App calls the host's `resync`, which asks Rust
-again whether the open file is encrypted on disk (`FilesPanel.vue:146, 179,
-197`; `App.vue:522`; `EditorHost.vue:221-240`). The editor's buffer is never
-replaced, so unsaved edits survive either way:
+again whether the open file is encrypted on disk (`FilesPanel.vue:168, 222,
+240`; `App.vue:585`; `EditorHost.vue:228-242`). A passphrase change from a
+row's key emits nothing: the file stays encrypted, and Rust has already moved
+any session on it to the new key (see Editing and saving in memory). The
+editor's buffer is never replaced, so unsaved edits survive either way:
 
 * Plain on disk now: whatever the host held for the file, a session, an
   encrypted picture or the mark of a file encrypted while open, is dropped; the
   header shield turns to "Not encrypted" and later saves are plain. So a file
   encrypted from its row and decrypted again before any save simply ends plain
-  (`EditorHost.vue:232-235`).
+  (`EditorHost.vue:234-237`).
 * Encrypted underneath while the host held it as plain: the header shield turns
   to encrypted at once. A picture is then shown as an encrypted picture from
   memory, with its status line. For a text file the status line is the ordinary
   encrypted one, and the next Save first fetches the file's key: the remembered
   passphrase is tried silently; otherwise the dialog opens in `open` mode, with
   the notice "This file was encrypted while it was open. Enter its passphrase
-  to save your changes encrypted." (`shield.encryptedWhileOpen`) and no price,
-  since the plaintext was already on screen. Then the buffer, unsaved edits
+  to save your changes encrypted." (`shield.encryptedWhileOpen`) and no Mana
+  block, since nothing new is left on disk. Then the buffer, unsaved edits
   included, is written back encrypted. Cancelling the dialog writes nothing,
   the header's error line says "Not saved: the file is encrypted and its
   passphrase was not given." (`shield.saveCancelled`), and the file stays
-  marked encrypted (`adoptSessionForSave`, `EditorHost.vue:242-266, 488-493`).
+  marked encrypted (`adoptSessionForSave`, `EditorHost.vue:246-268, 520-523`).
   Save As fetches the key from the original file in the same way and writes an
   encrypted copy.
 * A change to some other file leaves the open file as it was.
@@ -1429,27 +1576,29 @@ replaced, so unsaved edits survive either way:
 
 A folder row's shield (`folder-shield-{name}`, "Encrypt or decrypt this
 folder") opens `FolderLockModal` (`apps/morion/src/security/FolderLockModal.vue`,
-mounted by `FilesPanel.vue:352-353`) for that folder. The folder is not
-expanded. On opening, the dialog asks Rust what is there
-(`folder_preview`) and whether a passphrase is remembered, and offers the
-direction that has something to do: "Decrypt all" when nothing under the
-folder is plain and something is encrypted, otherwise "Encrypt all"
-(`FolderLockModal.vue:45-67`). It is an `OyaModal` on a `max-w-sm` card; the
-backdrop closes it unless a run is in flight; Escape does nothing.
+mounted by `FilesPanel.vue:420-421`) for that folder. The folder is not
+expanded. On opening, the dialog asks Rust what is there (`folder_preview`),
+whether a passphrase is remembered, and what the folder costs in Security Mana
+now and would cost decrypted (`mana_rate`), and offers the direction that has
+something to do: "Decrypt all" when nothing under the folder is plain and
+something is encrypted, otherwise "Encrypt all" (`FolderLockModal.vue:45-68`).
+It is an `OyaModal` on a `max-w-sm` card; the backdrop closes it unless a run
+is in flight; Escape does nothing.
 
 | Element | Text | Key | `data-testid` | Notes |
 |---|---|---|---|---|
 | Title | "Encrypt or decrypt everything in “{name}”" | `folder.title` | none | |
 | Folder path | the full path, truncated, tooltip the path | | none | |
-| Preview | "Loading…" (`common.loading`) until Rust answers, then "{files} files here: {plain} plain, {sealed} encrypted.", followed when relevant by "{n} symbolic links are left alone." (60% opacity) and, in warn colour, "The folder is larger than one run covers; run again afterwards." | `folder.preview`, `folder.links`, `folder.truncated` | `folder-preview` | A failed preview shows its sentence in `folder-preview-error` (a workspace or encryption prefix; anything else as it came), and no form follows (`FolderLockModal.vue:64-66`). |
+| Preview | "Loading…" (`common.loading`) until Rust answers, then "{files} files here: {plain} plain, {sealed} encrypted.", followed when relevant by "{n} symbolic links are left alone." (60% opacity) and, in warn colour, "The folder is larger than one run covers; run again afterwards." when the walk stopped at 20,000 files, or "Folders more than 32 levels down are not entered; nothing in them is counted or changed." (`folder-deep`) when a folder 32 levels down has subfolders the walk does not enter — said apart, because no run reaches those however often it is repeated (`folder.rs:82-120`). | `folder.preview`, `folder.links`, `folder.truncated`, `folder.deep` | `folder-preview`, `folder-deep` | A failed preview shows its sentence in `folder-preview-error` (a workspace or encryption prefix; anything else as it came), and no form follows (`FolderLockModal.vue:65-67`). |
 | Direction | two radio buttons, "Encrypt all" and "Decrypt all" | `folder.encryptAll`, `folder.decryptAll` | `folder-mode-lock`, `folder-mode-unlock` | disabled while running |
 | Note | encrypting: "Every plain file below this folder is encrypted with this one passphrase, each with its own key; files already encrypted are skipped." decrypting: "Every encrypted file below this folder is decrypted permanently with this passphrase; plain files are skipped. If a file does not open with it, the run stops there: files already decrypted stay decrypted and the rest are left as they were." Both then: "Symbolic links are not followed and Morion’s own .morion folder is not touched. A file that fails is reported and does not undo the others. Each file takes about a second." | `folder.noteLock`, `folder.noteUnlock`, `folder.noteCommon` | `folder-note` | |
-| Price | decrypting only, and only when something is encrypted: "Every encrypted file in this folder is rewritten unencrypted on disk. The cost follows how many files are actually decrypted." and the price quoted for every encrypted file under the folder | `mana.consequence.decrypt_folder` | `folder-consequence`, `mana-cost` | |
+| Consequence | decrypting only: "Every encrypted file in this folder is rewritten unencrypted on disk, and each then uses Security Mana until it is encrypted again." | `mana.consequence.decrypt_folder` | `folder-consequence` | Shown whenever "Decrypt all" is chosen. |
+| Mana block | decrypting: "Adds about {rate} Mana an hour…" for every encrypted file under the folder; encrypting: "Saves {rate} Mana an hour." for every plain one (see Security Mana) | `mana.adds`, `mana.saves` | `mana-cost` | Only when Rust could rate the folder and it holds files of the kind the run would change (`FolderLockModal.vue:145-147`). |
 | Password | placeholder "Password", or, when decrypting with a remembered passphrase, "Remembered passphrase (or type another)"; Enter runs | `lock.password`, `folder.rememberedPlaceholder` | `folder-password` | |
 | Repeat | "Repeat the password"; encrypting only; Enter runs | `lock.confirm` | `folder-confirm` | |
 | Mismatch line (warn colour) | "Those two do not match." | `lock.passwordMismatch` | `folder-mismatch` | encrypting only, shown while the repeat field holds something that differs from the first |
 | Error line | a workspace or encryption prefix as its sentence, the workspace one first, anything else verbatim | `workspace.errors.*`, `lock.errors.*` | `folder-error` | the form stays for another try |
-| Report (replaces the form after a run) | "{n} files changed.", then "{n} files were already as requested and were skipped." (70% opacity), then, in warn colour, "{n} files were not tried after the wrong passphrase and are still encrypted." and "{n} files failed and were left as they were:" with one line per failure, "relative/path: sentence", in a list that scrolls past 8rem. A failure's sentence follows the run's direction as the passphrase dialog does (`dialogErrorKey`): an encrypt run says "That file is too big to encrypt.", a decrypt run "That file is too big to open here."; anything without a known prefix shows verbatim | `folder.reportDone`, `folder.reportSkipped`, `folder.reportUntried`, `folder.reportFailed` | `folder-report`, the untried line `folder-untried`, each failure `folder-failure` | The untried line shows only when a run stopped early, which only a decrypt run with a wrong passphrase does. |
+| Report (replaces the form after a run) | "{n} files changed.", then "{n} files were already as requested and were skipped." (70% opacity), then, in warn colour, the file-cap sentence (`folder-report-truncated`) and the depth sentence (`folder-report-deep`) when the run met either, then "{n} files were not tried after the wrong passphrase and are still encrypted." and "{n} files failed and were left as they were:" with one line per failure, "relative/path: sentence", in a list that scrolls past 8rem. A failure's sentence follows the run's direction as the passphrase dialog does (`dialogErrorKey`): an encrypt run says "That file is too big to encrypt.", a decrypt run "That file is too big to open here."; anything without a known prefix shows verbatim | `folder.reportDone`, `folder.reportSkipped`, `folder.reportUntried`, `folder.reportFailed` | `folder-report`, the untried line `folder-untried`, each failure `folder-failure` | The untried line shows only when a run stopped early, which only a decrypt run with a wrong passphrase does. |
 | Cancel, then Close | "Cancel" before a run, "Close" after it; disabled while running | `common.cancel`, `common.close` | `folder-close` | |
 | Run | "Encrypt all" (icon `lock`) or "Decrypt all" (icon `lock-open`), spinner while running | | `folder-run` | Enabled only once the preview has loaded and, to encrypt, both fields hold the same passphrase, or, to decrypt, a passphrase is typed or one is remembered. Hidden after the run. |
 
@@ -1458,10 +1607,10 @@ and decrypting may leave the field empty to use the remembered one. Enter in a
 field runs only when the button would be enabled. While encrypting, "Those two
 do not match." appears under the fields as soon as the repeat field holds
 something different from the first, and goes once the two agree; the button
-stays disabled meanwhile (`FolderLockModal.vue:71-79, 157`). Both fields are
-emptied after every run, success or failure (`FolderLockModal.vue:101-104`).
+stays disabled meanwhile (`FolderLockModal.vue:72-80, 159`). Both fields are
+emptied after every run, success or failure (`FolderLockModal.vue:104-107`).
 
-What a run does (`apps/morion/src-tauri/src/folder.rs:72-174`): every regular
+What a run does (`apps/morion/src-tauri/src/folder.rs:72-211`): every regular
 file below the folder, walked breadth first as the search walks, with links
 counted and never followed, `.morion` never entered, folders deeper than 32
 levels not entered, and at most 20,000 files per run. Each file is encrypted or
@@ -1472,37 +1621,39 @@ decrypting, the first wrong passphrase (or a missing remembered one) stops the
 run: that file is reported as failed, and every encrypted file after it is
 reported as not tried, in its own line of the report, while plain files met
 after it still count as skipped. Files decrypted before that point stay
-decrypted, as the note says (`folder.rs:143-171`).
+decrypted, as the note says (`folder.rs:180-211`). The report's own
+"truncated" flag, set by either limit, is not shown after the run.
 
 After a run the report stays until Close, the Files panel re-reads the tree so
-every padlock is right, the search asks again, and the open file follows as it
-does after a row shield (`FilesPanel.vue:194-198`). Decrypting is charged by
-the number of files actually decrypted, nothing when none were; encrypting
-records "Encrypted a folder" at no cost when at least one file was encrypted
-(`FolderLockModal.vue:88-106`).
+every padlock is right, the search asks again, the Mana bar is read again, and
+the open file follows as it does after a row shield (`FilesPanel.vue:237-246`).
+When at least one file changed, the history records "Decrypted a folder
+permanently" or "Encrypted a folder" for the folder (`FolderLockModal.vue:91-109`).
 
 ### The remembered passphrase
 
 One passphrase can be remembered for the whole app, so that opening and
 decrypting stop asking.
 
-* It is set only by ticking "Remember this passphrase, so I am not asked again"
-  in a passphrase dialog whose action then succeeded: opening an encrypted
-  file, encrypting or decrypting from the file shield or a row shield, or
-  fetching the key to save a file encrypted while open. The host's dialog
-  offers the box on the desktop only; the folder dialog has none. A new one
-  replaces the old.
-* It is used to open an encrypted file (no dialog, only the Mana
-  confirmation), to decrypt from the file shield or a row shield (the same),
-  and for a folder decrypt whose field is left empty. It is never used to
-  encrypt.
+* It is set only by ticking the Remember box in a dialog whose action then
+  succeeded: a passphrase dialog opening an encrypted file, encrypting or
+  decrypting from the file shield or a row shield, fetching the key to save a
+  file encrypted while open, or changing a passphrase (which remembers the new
+  one), and the Security Mana prompt, once it encrypted at least one file. The
+  host's dialog offers the box on the desktop only; the folder dialog has none.
+  A new one replaces the old.
+* It is used to open an encrypted file (no dialog at all), to decrypt from the
+  file shield or a row shield (no dialog; only the confirmation, when Rust
+  could say what the plain file will cost), and for a folder decrypt whose
+  field is left empty. It is never used to encrypt, and never to change a
+  passphrase: the current one is always typed.
 * If it is not the file's passphrase, opening and single-file decrypting fall
   back to the dialog; a folder decrypt stops at the first such file.
 * It is kept in the system keyring (service `com.spectrumaipl.zinnia`, account
   `file-passphrase`, one entry for the whole app), or, where no keyring is
   available, in the app's memory until it closes. The page can ask only
   whether one is remembered and where, and forget it; nothing hands it back
-  (`packages/padova/src/lock.ts:79-118`;
+  (`packages/padova/src/lock.ts:94-119`;
   `apps/morion/src-tauri/src/secrets.rs:9-29`;
   `crates/padova/src/secrets.rs:60-118`).
 * Its status, and "Forget it", are in the Workspace security view.
@@ -1516,9 +1667,13 @@ any tags stay visible." (`shield.limits`). In practice:
 * The tree lists an encrypted file by name, size and folder like any other.
 * The search finds encrypted files by name, path and tag.
 * Tags are plain text in `.morion/metadata.json`, and the Security Mana
-  ledger there records, with the time, the workspace-relative path of every
-  encrypted file opened, exported or given a new tag, and of every file or
-  folder encrypted or decrypted.
+  history there records, with the time, the workspace-relative path of every
+  file or folder encrypted or decrypted and of every file whose passphrase was
+  changed. Rows written by the earlier price-per-action budget may also name
+  encrypted files that were opened, exported or tagged. The Mana checkpoint
+  there holds how many bytes of the workspace were plain at the last look.
+* A workspace archive keeps the names, sizes and dates of every file in it
+  readable without its password (see Settings, Workspace archive).
 * The keyring entry's name reveals only that the app is installed.
 
 ## Tags
@@ -1526,22 +1681,24 @@ any tags stay visible." (`shield.limits`). In practice:
 A file can carry up to three tags: short words about it, kept in plain text
 beside it and never encrypted, so a tag on an encrypted file is a deliberate
 word about it in the clear. They are filed by the file's path relative to the
-workspace root in `.morion/metadata.json` (`apps/morion/src-tauri/src/meta.rs:1-16`).
+workspace root in `.morion/metadata.json` (`apps/morion/src-tauri/src/meta.rs:1-20`).
+Tags cost no Security Mana, on a plain file or on an encrypted one.
 
 The header's tags button (`file-tags`, see The header) shows the open file's
 tags as chips, or "No tags", and opens the tag dialog. It exists only in the
 editor view and only for a file with a path, so a new, unsaved file cannot be
 tagged until it is saved. Folders cannot be tagged, and there is no other
 place in the UI to add or remove a tag. Tags show again as chips in search
-results, and every search mode matches them.
+results, and every search mode matches them. A workspace archive carries them
+along with their files (see Settings, Workspace archive).
 
 ### The tag dialog
 
-`apps/morion/src/files/TagModal.vue:83-117`, mounted by `App.vue:487-488`. An
+`apps/morion/src/files/TagModal.vue:72-102`, mounted by `App.vue:576-577`. An
 `OyaModal` on a `max-w-sm` card titled "Tags" (`tags.title`); a backdrop click
 closes it unless it is loading or saving, and Escape does nothing. On opening
-it reads the file's current tags from Rust (`tags_get`) into the fields and,
-for an encrypted file, asks Rust for the price (`TagModal.vue:48-62`).
+it reads the file's current tags from Rust (`tags_get`) into the fields
+(`TagModal.vue:42-54`).
 
 | Element | Text | Key | `data-testid` | Notes |
 |---|---|---|---|---|
@@ -1550,9 +1707,7 @@ for an encrypted file, asks Rust for the price (`TagModal.vue:48-62`).
 | Three fields | placeholders "Tag 1", "Tag 2", "Tag 3"; at most 32 characters each (`maxlength`); disabled while loading or saving; Enter saves | `tags.placeholder` | `tag-field-0`, `tag-field-1`, `tag-field-2` | filled with the current tags in order |
 | Note | "Up to three tags. They are kept in plain text in the workspace’s .morion/metadata.json, beside the file, and are never encrypted." | `tags.note` | `tags-note` | always |
 | Sharper note (warn colour, inside the same line) | "This file is encrypted; a tag is one word about it that stays readable." | `tags.sealedNote` | `tags-sealed-note` | only for an encrypted file |
-| Consequence | "A new tag on an encrypted file is a word about it in plain text." | `mana.consequence.tag_sealed` | `tags-consequence` | only for an encrypted file, when Rust could quote; directly above the price (`TagModal.vue:98-101`) |
-| Price | "Costs 3 Mana" and what would be left (see Security Mana) | `mana.*` | `mana-cost` | only for an encrypted file, when Rust could quote |
-| Error line (warn colour) | a Rust refusal as its sentence, anything else as it came (`TagModal.vue:41-46`) | `workspace.errors.*` | `tags-error` | the dialog stays open; shown for a failed read on opening as well as for a failed save |
+| Error line (warn colour) | a Rust refusal as its sentence, anything else as it came (`TagModal.vue:36-40`) | `workspace.errors.*` | `tags-error` | the dialog stays open; shown for a failed read on opening as well as for a failed save |
 | Cancel | "Cancel" | `common.cancel` | none | disabled while loading or saving |
 | Save | "Save" | `common.save` | `tags-save` | disabled while loading or saving |
 
@@ -1561,228 +1716,402 @@ empty ones and repeats (compared case-insensitively for ASCII letters), and
 refuses a tag over 32 characters ("A tag can have at most 32 characters.",
 `tag_too_long`), more than three tags ("A file can have at most three tags.",
 `too_many_tags`) and a folder ("Only files can be tagged, not folders.",
-`tag_folder`); a refusal writes nothing (`meta.rs:87-135`). The dialog's three
+`tag_folder`); a refusal writes nothing (`meta.rs:127-176`). The dialog's three
 32-character fields cannot produce the first two, and the header offers tags
 only for a file, so in practice the sentences met here are "The workspace’s
 .morion/metadata.json is damaged, so tags cannot be changed. Nothing was
 changed." (`meta_damaged`) when the metadata file does not parse, and "That
 path is outside the workspace." for a file left open from a previous workspace.
 Saving three empty fields removes the file's entry. On success the header's
-chips become the saved tags and the dialog closes (`App.vue:488`).
-
-For an encrypted file the price is shown whenever the dialog opens, but Mana
-is charged only after a successful save that contains at least one tag that
-was not there when the dialog opened (compared without regard to case).
-Keeping or removing tags costs nothing, and so does tagging a plain file
-(`TagModal.vue:64-80`).
+chips become the saved tags and the dialog closes (`TagModal.vue:56-69`;
+`App.vue:576-577`). Nothing is recorded in the Security Mana history.
 
 Because tags are keyed by path, they do not follow a file: one renamed or
 moved outside Morion loses them (the old entry stays behind in the metadata
 file), and a Save As copy starts with none. The header reads a file's tags
-again whenever the open file's path changes (`App.vue:174-182`).
+again whenever the open file's path changes (`App.vue:202-210`).
 
 ## Security Mana
 
-Security Mana is an advisory budget for plaintext exposure: a number the user
-can read, spent when they deliberately make encrypted content readable. It is
-not a security score and not an enforcement mechanism: nothing is gated,
-delayed or weakened by it, an exhausted budget only warns, and encrypting earns
-nothing, so there is no credit to farm, only spending and time
-(`apps/morion/src-tauri/src/mana.rs:1-33`). The words on screen say the same:
-"Mana is an advisory budget for plaintext exposure, not a security score. It
-never blocks anything, and it comes back with time." (`mana.advisory`).
+Security Mana is an advisory health bar for plaintext at rest in the
+workspace. Every file that is not encrypted drains it for every hour it stays
+that way, by size; it comes back slowly on its own; and changing an encrypted
+file's passphrase earns some back. It is not a security score and not an
+enforcement mechanism: nothing is gated, delayed or weakened by it, and at
+zero the app asks the user to encrypt some files and every action still runs
+(`apps/morion/src-tauri/src/mana.rs:1-35`). The words on screen say the same:
+"Mana is an advisory health bar for plaintext on disk, not a security score.
+It never blocks anything." (`mana.advisory`).
 
-The prices live in Rust and only there: the page names an action and a count,
-never an amount (`apps/morion/src/security/mana.ts:1-10`). Everything needs
-the desktop and an open workspace; without either there is no price to show,
-no confirmation and no charge.
+The numbers live in Rust and only there (`mana.rs:48-62`): the page reads the
+constants once per session (`mana_prices`) to put a rate beside each file row,
+asks Rust where the bar stands (`mana_status`) and what a file or folder costs
+(`mana_rate`), and never sends an amount (`apps/morion/src/security/mana.ts:1-12`).
+Everything needs the desktop and an open workspace; without either there is
+no bar, no rate and no Mana line in any dialog. No action is charged: the
+earlier price-per-action budget (per-action prices, a daily and a weekly
+window, a quote before and a charge after) is gone, and with it the commands
+`mana_quote` and `mana_charge`. Rust's Mana commands are now `mana_status`,
+`mana_rate`, `mana_record`, `mana_ledger` and `mana_prices`
+(`apps/morion/src-tauri/src/lib.rs:115-119`); a reward is credited only inside
+`rekey_file`, and the prompt encrypts through `files_lock`.
 
-### The meters
+### What drains it
 
-Two meters, shown in the Workspace security view: "Today", out of 100, and
-"This week", out of 700 (`mana.rs:42-45`). Each is a rolling window derived
-from the ledger, never a stored counter: today's meter is 100 minus what was
-spent in the last 24 hours, the week's is 700 minus what was spent in the last
-7 days, neither going below zero (`mana.rs:88-118`). A charge simply ages out
-of each window, so nothing is written when Mana comes back, and time with the
-app closed counts like any other. A charge dated in the future (a clock set
-back) counts as now rather than escaping the window. The budget is exhausted
-when either meter reaches zero. The ledger lives in the workspace's
-`.morion/metadata.json`, so each workspace has its own meters and switching
-workspace switches them.
+Every regular file in the workspace that is not encrypted, whatever its kind
+(a PDF or a photo as much as a note), costs `PRICE_PER_KB_HOUR`, 0.01 Mana per
+kilobyte (1024 bytes) per hour, with no rounding to whole kilobytes
+(`mana.rs:50-52, 74-78`). A 4 KB note costs 0.04 an hour, a 2 MB photo about
+20, and 100 KB of plain files together cancel the regeneration out. Encrypted
+files cost nothing, open for editing or not: opening decrypts into memory,
+never onto the disk. The drain is the sum over all plain files.
 
-### The price table
+What counts is found by walking the workspace the way a folder run does: links
+are not followed, `.morion` is skipped at every depth, folders deeper than 32
+levels are not entered, and the walk stops after 20,000 files; what it does
+not reach does not count, and the status says when either limit cut the walk
+short (`measure`, `mana.rs:111-139`; `folder.rs:72-114`). Whether a file is
+encrypted is the padlock's first-bytes test, so a file whose first bytes
+cannot be read counts as plain.
 
-(`mana.rs:59-72`)
+### Regeneration
 
-| Action id | What it is | Price | Charged after | The price is shown in |
+`REGEN_PER_HOUR`: 1 Mana an hour, whatever the workspace holds
+(`mana.rs:53-55`). From empty to full, with nothing plain, takes about four
+days. The net rate is regeneration less drain, negative while the bar falls.
+The bar never goes above its maximum, `MANA_MAX` 100 (`mana.rs:48-49`), and
+never below zero.
+
+### A passphrase change earns some
+
+Changing an encrypted file's passphrase (see Encryption) earns
+`REKEY_REWARD`, 10 Mana, at most once per file in 24 hours
+(`REKEY_COOLDOWN_MS`), at most 30 from all passphrase changes in 24 hours
+(`REKEY_DAILY_CAP`, so a folder of tiny files cannot be cycled into a full
+bar), and never past full: a bar at 95 gains 5 (`mana.rs:56-62, 206-240`). The
+credit is given by Rust inside `rekey_file`, after the change succeeded; the
+page has no command that earns Mana (`apps/morion/src-tauri/src/lock.rs:47-66`).
+Every change is recorded, earning or not, and the history's note says which
+(`mana.rs:227-235`): "Changed a file’s passphrase" when it earned, "Changed a
+file’s passphrase (the bar was full)" when there was no room, "Changed a file’s
+passphrase (already rewarded today)" when the same file already earned within
+24 hours, and "Changed a file’s passphrase (today’s passphrase rewards are used
+up)" when the day's cap left nothing to offer (`mana.notes.rekey_file`,
+`.rekey_full`, `.rekey_cooldown`, `.rekey_cap`). Only a change that earned
+starts the file's cooldown, and a history row
+dated in the future (a clock set back) counts as recent. Encrypting a plain
+file earns nothing directly: it stops that file's drain, which is the point.
+
+### Nothing ticks
+
+There is no timer and no background work in Rust. The state is one checkpoint
+in the workspace's `.morion/metadata.json`, the `mana` field: `level`, the
+moment `at` which it was true, and `plain_bytes`, how many bytes were plain then
+(`meta.rs:62-72, 81-82`). The level at any later moment is derived:
+`level + (regeneration − drain) × hours since at`, the drain being that of the
+checkpoint's plain bytes, clamped to 0…100 (`level_at`, `mana.rs:80-85`). A
+clock set back before `at` gives the checkpoint's own level.
+
+Each `mana_status` walks the workspace, derives the level, and writes a new
+checkpoint only when the plain bytes differ from the checkpoint's; otherwise
+nothing is written (`settle`, `mana.rs:176-196`). A workspace seen for the
+first time starts full and gets its first checkpoint then, which is what
+creates `.morion/metadata.json` in a workspace that had none. A checkpoint
+that cannot be written (read-only media, no permission) is held in memory
+instead, for as long as Morion runs: the bar still falls and fills there, no
+`.morion/` folder is created, and the status says `kept: false`, which the
+workspace security view turns into "This folder cannot be written, so Mana is
+kept only while Morion is open." (`mana.notKept`, `mana-not-kept`). Once the
+folder can be written again, the next change is kept on disk and the held
+checkpoint is dropped (`settle` and `volatile`, `mana.rs:187-226`). The drain
+between two looks is taken to be what the earlier look saw: a file encrypted
+five hours after the last look pays those five hours at the old rate, and a
+file decrypted permanently drains from the next look on. Time with the app
+closed counts like any other, because the plain files sat on the disk just the
+same. Each workspace has its own checkpoint, so switching workspace switches
+the bar. The command is asynchronous, so the walk never stalls the window.
+
+The status Rust answers (`ManaStatus`, `mana.rs:141-174`) carries the maximum,
+the level (rounded to hundredths), the drain, the regeneration and the net rate
+an hour, the number and total size of plain files, whether the bar is
+exhausted (at zero), whether the walk stopped at its file cap or its depth
+limit, and the ten
+costliest non-empty plain files, largest first, each with its workspace-relative
+path, size and rate (`mana.rs:63-65, 124-137`). The page keeps one copy of it
+that everything showing Mana reads (`manaStatus`, `mana.ts:72-82`), and asks
+again: on the header bar's own schedule (below); after every encryption,
+decryption, passphrase change, folder run, prompt run and archive import; and
+whenever Workspace security loads.
+
+Levels and rates on screen go through one formatter: two decimals under 10,
+one under 100, whole numbers above; anything above zero but under a hundredth
+reads "<0.01" rather than rounding to 0; a negative number carries a real
+minus sign "−" (`formatMana`, `mana.ts:112-122`). The exceptions are the header
+bar's number, the level rounded down to a whole number, and the price table,
+which shows Rust's constants as they are.
+
+### The header bar
+
+`apps/morion/src/security/ManaBar.vue`, mounted in the header's right half
+before the PL/EN button (`App.vue:555`). One button, in this order:
+
+| Part | What it shows | `data-testid` | Notes |
+|---|---|---|---|
+| The button | the whole bar; tooltip and aria-label "Security Mana: {level} of {max}. Plain files use {drain} an hour; {regen} comes back an hour. Opens workspace security." (`mana.bar.label`), followed at zero by "It is at zero; encrypting some files stops the drain. This is advice, not a lock." (`mana.bar.exhausted`) | `mana-bar`, with `data-level` "ok", "low" or "empty" and `data-trend` "up", "down" or "flat" | A click puts Workspace security in front of the editor. Tinted on hover. May shrink with the window (`ManaBar.vue:81-101`). |
+| Droplet | a `droplet` icon in the helmet's blue (`.mana-ink`), or in the warn colour while the level is low or empty | `mana-bar-icon` | From the `sm` width (640 px) up (`ManaBar.vue:86-89`). |
+| Track | holds the meter; 2.5rem wide, 4rem from `sm` up, 6rem from `lg` (1024 px) up, and it can shrink to 1.5rem | `mana-bar-track` | `ManaBar.vue:90-93` |
+| Meter | one native `<progress>`, value the level, max the maximum, aria-label "Security Mana" (`mana.title`); 6px high and rounded, filled in the helmet's blue (`#164eaf`, `#4d8df5` in dark mode) and in red (`#d94a4a`, `#ff4455` in dark mode) while low or empty, over a grey track | `mana-bar-meter`, with the same `data-level` | `ManaBar.vue:91-92`; `apps/morion/src/style.css:105-137` |
+| Trend arrow | `arrow-up` while the bar rises, `arrow-down` while it falls, 10px at 60% opacity | `mana-bar-trend` | Absent while flat. From `sm` up (`ManaBar.vue:94-97`). |
+| Level | the level as a whole number, rounded down, bold, in tabular figures | `mana-bar-value` | From `lg` up (`ManaBar.vue:98-100`). |
+
+The level is "ok" above a quarter of the maximum, and at or below it "low", or
+"empty" once exhausted (`ManaBar.vue:27-36`). The trend is "down" while the net
+rate is negative and the bar is above zero, "up" while it is positive and the
+bar is below full, and "flat" otherwise, so a bar resting at zero or at 100
+shows no arrow (`ManaBar.vue:38-45`).
+
+The bar asks Rust when it is mounted, after every full read of the workspace
+(the first read at launch, which is what opens the workspace in Rust,
+Refresh, a folder run, the prompt's run, an import), whenever the workspace
+changes, whenever the window becomes visible again, and every 60 seconds while
+it is not hidden (`ManaBar.vue:56-78`). It is absent whenever there is no
+status: before the first read at launch, with an unreadable remembered folder,
+in the browser build, and when the workspace's metadata file exists but does
+not parse. A folder that cannot be written still shows the bar, held in
+memory while Morion runs (see Nothing ticks).
+
+### When the bar runs out
+
+`apps/morion/src/security/ManaPrompt.vue`, mounted once by App
+(`App.vue:575`). It opens by itself when a status says the bar is exhausted,
+there are plain files and at least one is listed, and no prompt is already
+open; once per run-out: it opens again only after a status that is not
+exhausted (or no status at all) or a workspace change
+(`ManaPrompt.vue:30-45`). It is also opened on purpose by "Encrypt some files…"
+in Workspace security. An `OyaModal` on a `max-w-sm` card; the backdrop and
+"Not now" close it unless a run is in flight; Escape does nothing.
+
+| Element | Text | Key | `data-testid` | Notes |
 |---|---|---|---|---|
-| `unlock_temp` | opening an encrypted file (text or picture): its plaintext is in memory and on screen while it is open | 5 | the file opened | the passphrase dialog "Open encrypted file", or, with a remembered passphrase, the confirmation |
-| `decrypt_file` | decrypting one file permanently, from the file shield or a row shield | 15 | the file was decrypted | the passphrase dialog "Decrypt this file permanently", or, with a remembered passphrase, the confirmation |
-| `decrypt_folder` | decrypting everything under a folder | 15, plus 5 for each file after the first, at most 100 | the run, for the number of files actually decrypted; nothing when none were | the folder dialog, quoted for every encrypted file under the folder |
-| `export_plain` | an export (CSV, PNG) from an encrypted file: plaintext written outside the workspace's protection | 10 | a file was written | the confirmation |
-| `tag_sealed` | a new plain-text tag on an encrypted file | 3 | tags were saved including at least one new one | the tag dialog |
+| Title | "Out of Security Mana" when it opened by itself, "Encrypt the costliest plain files" when asked for | `mana.prompt.titleEmpty`, `mana.prompt.title` | none | |
+| Why | "Plain files here use {drain} Mana an hour, and it comes back at {regen} an hour. Encrypting a file stops its drain. The ticked files are the fewest that turn the bar around." | `mana.prompt.why` | `mana-prompt-why` | While a status is known. |
+| File list | one row per file of Rust's ten costliest plain files, most expensive first, in a bordered list that scrolls past 14rem: a checkbox, the workspace-relative path (truncated, tooltip the path), the size (50% opacity) and the rate "{rate}/h" in bold tabular figures; the whole row is a label | `mana.perHour` | each checkbox `mana-prompt-file-{i}`, each rate `mana-prompt-rate-{i}`, 0-based | Checkboxes are disabled while running. |
+| More | "…and {n} more plain files, each costing less." (60% opacity) | `mana.prompt.more` | none | Only when the workspace has more plain files than are listed. |
+| Saving | "{n} file chosen: saves {rate} an hour." / "{n} files chosen: saves {rate} an hour.", bold | `mana.prompt.saving` | `mana-prompt-saving` | The ticked files' rates added up. |
+| Password | placeholder "Password"; Enter runs | `lock.password` | `mana-prompt-password` | |
+| Repeat | placeholder "Repeat the password"; Enter runs | `lock.confirm` | `mana-prompt-confirm` | |
+| Mismatch line (warn colour) | "Those two do not match." | `lock.passwordMismatch` | `mana-prompt-mismatch` | While the repeat field holds something that differs from the first. |
+| Remember checkbox | "Remember this passphrase, so I am not asked again" | `lock.remember` | `mana-prompt-remember` | Honoured only when at least one file was encrypted. |
+| Note (60% opacity) | "Nothing is blocked if you say not now. Each file gets its own key; the passphrase is not stored unless you tick Remember." | `mana.prompt.advisory` | none | |
+| Error line (warn colour) | a workspace or encryption prefix as its sentence, anything else as it came | `workspace.errors.*`, `lock.errors.*` | `mana-prompt-error` | For a run that failed as a whole; the form stays. |
+| Report (replaces the list and the fields after a run) | "{n} files changed.", "{n} files were already as requested and were skipped." (70% opacity), and in warn colour "{n} files failed and were left as they were:" with one line per failure, "relative/path: sentence" (a path from outside the workspace is not repeated) | `folder.reportDone`, `folder.reportSkipped`, `folder.reportFailed` | `mana-prompt-report` | |
+| Not now, then Close | "Not now" before a run, "Close" after it; disabled while running | `mana.prompt.later`, `common.close` | `mana-prompt-later` | Closing asks for nothing and holds nothing back. |
+| Run (icon `lock`, spinner while running) | "Encrypt {n} file" / "Encrypt {n} files" | `mana.prompt.run` | `mana-prompt-run` | Enabled when at least one file is ticked and both fields hold the same non-empty passphrase. Hidden after the run. |
 
-Two further actions cost nothing and are only recorded, so the history shows
-them: encrypting a file ("Encrypted a file", from the file shield or a row
-shield) and encrypting a folder ("Encrypted a folder", a folder run that
-encrypted at least one file) (`mana.rs:74-75`).
+On opening, the fields are emptied and files are ticked from the top of the
+list until what would be left drains less than comes back, at least one
+either way; if the ten listed files cannot turn the bar around, all ten are
+ticked (`ManaPrompt.vue:58-83`). The user can change the ticks. A run hands the
+ticked paths and the passphrase to Rust's `files_lock`
+(`apps/morion/src-tauri/src/folder.rs:151-178, 215-219`), which encrypts each
+file on its own under that passphrase, with the folder run's rules: a file
+already encrypted is skipped, one that fails is reported and undoes nothing, a
+path that is not a file in the workspace is a failure. Afterwards the history
+records "Encrypted a file" for each file that was encrypted, a ticked Remember
+box is honoured, the bar is read again, and App re-reads the tree and the
+search and has the host follow the open file (`ManaPrompt.vue:110-129`;
+`App.vue:137-142`). Both fields are emptied after every run.
 
-### Quote before, charge after
+### The confirmation
 
-Every priced action shows its price before it runs and is charged only after it
-succeeded (`mana.ts:59-80`). The quote says what the action costs now, the two
-maxima, what is left, and what would be left after paying (`mana.rs:120-152`).
-The charge is written to the ledger by Rust after the fact; if writing it fails
-(a damaged metadata file) the action is not undone and nothing is shown.
+`apps/morion/src/security/ManaConfirm.vue`, mounted once by App
+(`App.vue:574`) and opened by `askMana(name, consequenceKey, adds)`
+(`mana.ts:150-180`), for an act that leaves plaintext behind and has no dialog
+of its own:
 
-One action never needs two dialogs. Where a dialog is already on screen for the
-action, the price goes inside it: the passphrase dialog when opening or
-decrypting with a typed passphrase, the folder dialog, the tag dialog. Where no
-dialog would otherwise appear, the one confirmation dialog asks first: opening
-or decrypting with a remembered passphrase, and exporting from an encrypted
-file. The exception is a remembered passphrase that turns out not to be the
-file's: the price was confirmed, then the passphrase dialog shows it again, and
-still only one charge follows a success.
+* decrypting a file permanently with the remembered passphrase, from the file
+  shield or a row shield, and only when Rust could say what the plain file
+  will cost; when it could not, the decrypt runs without it
+  (`EditorHost.vue:351-353`; `FilesPanel.vue:151-162`);
+* exporting (CSV, PNG) from an encrypted file, always, on the desktop
+  (`App.vue:253-271`).
 
-Never charged:
-
-* anything cancelled, at the confirmation or in a dialog;
-* anything that failed: a wrong passphrase, a refusal, a cancelled save
-  dialog, an export that wrote nothing or failed, a folder run that decrypted
-  nothing;
-* encrypting a file or a folder;
-* saving an encrypted file, or Save As from one (the copy is encrypted too);
-* fetching the key to save a file that was encrypted while it was open, since
-  its plaintext was already on screen (`EditorHost.vue:242-266`);
-* exports from a plain file, which was never protected (`App.vue:225-241`);
-* removing or keeping tags, and any tag on a plain file;
-* searching, which never reads an encrypted body.
-
-An exhausted budget warns and never blocks: every button stays enabled.
-
-### The confirmation dialog
-
-`apps/morion/src/security/ManaConfirm.vue`, mounted once in the header
-(`App.vue:486`) and opened by `askMana` (`mana.ts:97-128`). An `OyaModal` on a
-`max-w-sm` card; a backdrop click is Cancel; Escape does nothing.
+Opening an encrypted file asks nothing. An `OyaModal` on a `max-w-sm` card; a
+backdrop click is Cancel; Escape does nothing. If a second ask arrived while
+one was open, the first would be answered Cancel (`mana.ts:167-173`); the UI
+never does that.
 
 | Element | Text | Key | `data-testid` |
 |---|---|---|---|
-| Title | "This uses Security Mana" | `mana.confirmTitle` | none |
+| Title | "This leaves plaintext behind" | `mana.confirmTitle` | none |
 | Subtitle | the file's name, small and dim | | none |
-| Consequence | opening: "The file is decrypted into memory while it is open. Nothing unencrypted is written to disk."; decrypting: "The file is rewritten unencrypted on disk and stays readable until you encrypt it again."; exporting: "An unencrypted copy of this encrypted file is written wherever you choose, outside the workspace’s protection." | `mana.consequence.unlock_temp`, `.decrypt_file`, `.export_plain` | `mana-consequence` |
-| The price block | see below | | `mana-cost` |
+| Consequence | decrypting: "The file is rewritten unencrypted on disk and stays readable until you encrypt it again."; exporting: "An unencrypted copy of this encrypted file is written wherever you choose. Inside the workspace it uses Security Mana like any plain file; outside, Morion no longer sees it." | `mana.consequence.decrypt_file`, `.export_plain` | `mana-consequence` |
+| The Mana block | decrypting only: "Adds about {rate} Mana an hour…" and the level now (see below). An export shows none: what its copy will cost cannot be known before it is written. | | `mana-cost` |
 | Cancel | "Cancel" | `common.cancel` | `mana-cancel` |
 | Continue | "Continue", never disabled | `mana.continue` | `mana-continue` |
 
-The consequences for a folder decrypt ("Every encrypted file in this folder is
-rewritten unencrypted on disk. The cost follows how many files are actually
-decrypted.") and for a tag ("A new tag on an encrypted file is a word about it
-in plain text.") are never shown in the confirmation: the first is shown inside
-the folder dialog, the second inside the tag dialog, each above its price.
+The folder's consequence ("Every encrypted file in this folder is rewritten
+unencrypted on disk, and each then uses Security Mana until it is encrypted
+again.", `mana.consequence.decrypt_folder`) is never shown here: it is shown
+inside the folder dialog.
 
-### The price block
+### The Mana block
 
-`apps/morion/src/security/ManaCost.vue:12-24`, the same block in the
-confirmation and inside the passphrase, folder and tag dialogs
-(`data-testid="mana-cost"`, a bordered box of small text):
+`apps/morion/src/security/ManaCost.vue`, one bordered box of small text
+(`data-testid="mana-cost"`) that says what an act does to Security Mana, shown
+inside the dialog that already asks for something, so one act never needs two
+dialogs. Top to bottom:
 
-1. a `droplet` icon and "Costs {cost} Mana" (`mana.cost`), bold;
-2. "Leaves {daily} of {dailyMax} for today and {weekly} of {weeklyMax} for the
-   week." (`mana.after`, `data-testid="mana-after"`), with what would be left
-   after paying, never below zero, and the two maxima as the quote carries them
-   (today 100, the week 700);
-3. in the warn colour, when the budget is already exhausted or paying would
-   bring either meter to zero: "Your exposure budget is used up. You can still
-   go ahead; this is a warning, not a lock." (`mana.exhausted`,
-   `data-testid="mana-exhausted"`);
+1. a `droplet` icon and, bold (`data-testid="mana-rate"`), "Adds about {rate}
+   Mana an hour, for as long as it stays unencrypted." (`mana.adds`) for an act
+   that leaves plaintext on disk, or "Saves {rate} Mana an hour."
+   (`mana.saves`) for one that removes some;
+2. while a status is known, at 70% opacity (`data-testid="mana-now"`): "Now
+   {level} of {max}. Plain files use {drain} an hour; Mana comes back at
+   {regen} an hour." (`mana.now`);
+3. for an act that adds, while the bar is at zero, in the warn colour
+   (`data-testid="mana-exhausted"`): "Security Mana is at zero. You can still
+   go ahead; this is advice, not a lock." (`mana.exhausted`);
 4. at 50% opacity, the advisory sentence (`mana.advisory`).
 
-### The ledger
+The rate comes from Rust's `mana_rate` (`mana.rs:266-300, 317-320`), asked for
+the file or folder when the dialog opens: its plain files and their rate,
+which encrypting saves, and its encrypted files, their plaintext size and the
+rate decrypting would add. The plaintext size of an encrypted file is read
+from its frame, the sealed body less its header, so it runs a few dozen bytes
+over (`substrate::sealed_body_len`, `crates/substrate/src/lib.rs:158-172`).
+When Rust cannot answer, no block is shown.
 
-The ledger is the list `ledger` in `.morion/metadata.json`, appended by Rust
-on every charge and every recorded event (`mana.rs:161-209`;
-`meta.rs:34-47`). Each row holds:
+| Act | Where the block appears | What it says |
+|---|---|---|
+| Encrypting a file, from the file shield or a row shield | the passphrase dialog, `lock` mode | "Saves" the file's rate |
+| Decrypting a file with a typed passphrase | the passphrase dialog, `unlock` mode | "Adds" the file's rate once plain |
+| Decrypting a file with the remembered passphrase | the confirmation | "Adds" the file's rate once plain |
+| Encrypting a folder | the folder dialog | "Saves" the rate of its plain files, when it has any |
+| Decrypting a folder | the folder dialog | "Adds" the rate of its encrypted files, when it has any |
+| Exporting from an encrypted file | the confirmation | no block |
+| Opening, saving or Save As of an encrypted file, fetching its key for a save, changing its passphrase, tagging, searching | nowhere | none of these leaves plaintext on disk |
+
+Besides the block, each plain file's rate stands beside its row in the Files
+panel and in the file shield's panel (see Tree rows and The file shield).
+
+### What moves the bar
+
+Only three things: what lies plain on disk, which drains it from the next look
+on; time, which regenerates it; and a passphrase change, which earns. So
+decrypting a file moves the bar only by leaving a plain file behind, encrypting
+one only by removing a drain, and an export only if its copy is saved inside
+the workspace. Opening an encrypted file, editing and saving it, Save As from
+it (the copy is encrypted too), fetching its key for a save, tagging and
+searching do not move it at all. An exhausted bar warns and asks, and never
+blocks: every button stays enabled.
+
+### The history
+
+The history is the list `ledger` in `.morion/metadata.json` (`meta.rs:38-56`),
+appended by Rust (`mana.rs:198-204, 237, 253-264`). Each row holds:
 
 * `ts`: when, in milliseconds since the epoch;
-* `action`: one of the five priced action ids or the two events;
+* `action`: one of the events below;
 * `path`: the file's or folder's path relative to the workspace root, with
   forward slashes, or nothing; a path that does not resolve inside the
-  workspace is dropped rather than kept;
-* `cost`: the Mana spent, 0 for an event;
-* `note`: a catalogue key, `mana.notes.{action}`, which the view renders
-  ("Opened an encrypted file for editing", "Decrypted a file permanently",
-  "Decrypted a folder permanently", "Exported an encrypted file as plaintext",
-  "Added a plain-text tag to an encrypted file", "Encrypted a file",
-  "Encrypted a folder").
+  workspace is dropped rather than kept (`mana.rs:242-251`);
+* `cost`: 0 for every new row; rows written by the earlier price-per-action
+  budget keep what they cost;
+* `gain`: the Mana a passphrase change earned, written only when it earned
+  something;
+* `note`: a catalogue key, `mana.notes.*`, which the view renders.
+
+The page may record four events, and Rust refuses any other
+(`mana_record`, `mana.rs:69-72, 253-264`): `encrypt_file` ("Encrypted a file",
+from the file shield, a row shield or the prompt, once per file),
+`encrypt_folder` ("Encrypted a folder"), `decrypt_file` ("Decrypted a file
+permanently") and `decrypt_folder` ("Decrypted a folder permanently"), a
+folder row only when the run changed at least one file. A history row moves no
+Mana: the drain it changes is seen by the next look. Rust itself writes
+`rekey_file` rows, with the gain and one of the four notes above. Rows from
+the earlier budget still read, with their notes: "Opened an encrypted file for
+editing" (`unlock_temp`), "Exported an encrypted file as plaintext"
+(`export_plain`), "Added a plain-text tag to an encrypted file" (`tag_sealed`),
+and the decrypt rows with their costs.
 
 It never contains a passphrase, a byte of a file's contents, a search result
 or snippet, or an absolute path. The newest 500 rows are kept and older ones
-drop off; the Workspace security view shows the newest 100 (`meta.rs:30-32`;
-`mana.rs:46-47, 251-258`).
+drop off; the Workspace security view shows the newest 100 (`meta.rs:34-36`;
+`mana.rs:66-67, 352-359`).
 
 ## Workspace security
 
-`apps/morion/src/views/WorkspaceSecurity.vue:89-211`, mounted by
-`App.vue:529-530` (`v-if="visited.has('security')"` plus `v-show`) the first
-time it is asked for and kept afterwards. It is reached only from the shield
-in the Files sidepanel's header (`files-security`, "Workspace security",
-`FilesPanel.vue:240-245`), which exists only while a workspace is open and
-readable and the panel is showing; it is no longer in the ☰ menu. While it is
-up the header shows a `shield-halved` icon and "Workspace security"
+`apps/morion/src/views/WorkspaceSecurity.vue:102-253`, mounted by
+`App.vue:592-593` (`v-if="visited.has('security')"` plus `v-show`) the first
+time it is asked for and kept afterwards. It is reached from the shield in the
+Files sidepanel's header (`files-security`, "Workspace security",
+`FilesPanel.vue:294-299`), which exists only while a workspace is open and
+readable and the panel is showing, and from the Security Mana bar in the
+header (`App.vue:555`); it is not in the ☰ menu. While it is up the header
+shows a `shield-halved` icon and "Workspace security"
 (`security.workspace.title`) with the × that returns to the editor, and the
 Files panel is hidden. It is a summary of the open workspace and changes
-nothing but the remembered passphrase: every control that encrypts or decrypts
-sits beside the files. The view scrolls; its content is a centred column of at
-most 42rem with 24px padding and 32px between sections
-(`WorkspaceSecurity.vue:90-91`).
+nothing itself but the remembered passphrase: every control that encrypts or
+decrypts sits beside the files, and its one other button opens the Security
+Mana prompt, which does encrypt. The view scrolls; its content is a centred
+column of at most 42rem with 24px padding and 32px between sections
+(`WorkspaceSecurity.vue:103-104`).
 
 Top to bottom:
 
 | Element | Text | Key | `data-testid` | Does | Source |
 |---|---|---|---|---|---|
-| Heading (`shield-halved` icon, 60% opacity) | "Workspace security" | `security.workspace.title` | none | | `WorkspaceSecurity.vue:93-96` |
-| Workspace name | the folder's base name, or "No workspace open" | `workspace.none` | `security-workspace-name` | | `:97-99` |
-| No workspace | "Choose a workspace folder first." | `workspace.errors.no_workspace` | `security-no-workspace` | Replaces every section below. Unreachable in practice: the shield that opens the view needs a workspace, and nothing in the UI ever empties the store's root once set. | `:102-104` |
-| "Files" (uppercase heading) and three counts, each in its own bordered box: the number of encrypted files ("encrypted"), plain files ("not encrypted") and all files ("files in all") | "Files", "encrypted", "not encrypted", "files in all" | `security.workspace.filesTitle`, `.sealed`, `.plain`, `.total` | `security-summary` (section), `security-count-sealed`, `security-count-plain`, `security-count-files` | Counted by Rust over the whole workspace with the folder-run walk (`folder_preview` of the root): links not followed, `.morion` skipped in every folder, at most 20,000 files and 32 levels. A failure shows its sentence (`workspace.errors.*`) in place of the boxes, or Rust's text when the prefix has none. | `:108-124`; `folder.rs:112-126` |
-| Links line (small, 60%) | "{n} symbolic links are left alone." | `folder.links` | none | Only when the walk met any. | `:125` |
-| Count stopped early (small, warn colour) | "The workspace is larger than one count covers; these numbers are for its first 20,000 files." | `security.workspace.truncated` | `security-truncated` | Only when the walk reached 20,000 files and stopped. | `:126-128` |
-| Where to act (small, 60%) | "Encrypt or decrypt with the shields beside each file and folder in the file pane, or beside the open file’s name." | `security.workspace.where` | none | | `:129` |
-| "Passphrase" heading and a bordered row with a `lock-open` icon (remembered) or `lock` (not) | remembered: "A passphrase is remembered. Opening and decrypting use it without asking; encrypting always asks for one." then, dimmed, "Kept in the system keyring." or "Kept until this app closes — no system keyring was available."; otherwise "No passphrase is remembered. You will be asked each time." | `security.workspace.passphraseTitle`, `security.workspace.secretHeld`; `security.secret.keychain`, `.memory`, `.none` (padova's catalogue) | `security-passphrase` (section), `security-secret-status` (sentence) | Read from Rust (`secret_status`) each time the view loads; a failed read shows the "not remembered" sentence. Only the fact and the place are ever read, never the passphrase. | `:133-142`; `packages/padova/src/i18n/en.ts:48-54` |
-| "Forget it" (small bordered button) | | `security.secret.forget` | `security-forget` | Asks Rust to forget the passphrase, from the keyring and from memory, with no confirmation, then reads the status again, so the row turns to "No passphrase is remembered. You will be asked each time." and the button goes. | `:143-146, 68-71` |
-| "Security Mana" heading and explanation | "Mana is an advisory budget for plaintext exposure, not a security score. It never blocks anything, and it comes back with time. It is spent when you deliberately make encrypted content readable; encrypting never earns any. Each charge counts against today for 24 hours and against the week for 7 days." | `mana.title`, `mana.advisory`, `security.workspace.manaHow` | `security-mana` (section) | | `:151-153` |
-| Two meters: "Today" and "This week", each "{left} / {max}" above a bar filled in proportion | "Today", "This week" | `security.workspace.meter.daily`, `.weekly` | `mana-meter-daily`, `mana-meter-weekly` | From Rust's `mana_status`, shared with every charge made anywhere in the app (see Security Mana). Absent when the status could not be read. | `:154-165, 73-80`; `mana.ts:47-57` |
-| Exhausted warning (warn colour) | "Your exposure budget is used up. You can still go ahead; this is a warning, not a lock." | `mana.exhausted` | `security-mana-exhausted` | When either meter is at zero. | `:166-168` |
-| Price table, one row per priced action in Rust's order | labels "Opened an encrypted file for editing", "Decrypted a file permanently", "Decrypted a folder permanently", "Exported an encrypted file as plaintext", "Added a plain-text tag to an encrypted file"; prices "5", "15", "15 + 5 per file, at most 100", "10", "3" | `mana.notes.*` for the labels, `security.workspace.pricePerItem` for a per-file price | `mana-prices` (table), `mana-price-{id}` (each price cell) | Read from Rust (`mana_prices`), so the numbers on screen are the numbers charged. The labels are the history's past-tense notes reused. | `:170-179`; `mana.rs:244-249` |
-| "Recent security actions" heading and list | "Nothing yet." when empty; otherwise one row per ledger entry, newest first: the time, the note, the relative path beneath it when there is one, and the cost as "−15" (a minus sign) or "0" | `security.workspace.historyTitle`, `.historyEmpty`, `mana.notes.*` | `security-history` (section), `security-history-empty`, `security-history-{i}` (0-based) | The newest 100 ledger rows (`mana_ledger`). The time is `toLocaleString` in the app's current language (EN or PL), so it follows the header's language button. | `:183-199, 82-84` |
-| "What encryption does not hide" (dashed box) | "Encryption protects the contents of a file. Its name, its folder, its size and dates, and any tags stay visible." then "Morion keeps tags and this history in .morion/metadata.json inside the workspace, in plain text. It never keeps a passphrase, decrypted contents or search results there." | `security.workspace.limitsTitle`, `shield.limits`, `security.workspace.limitsMore` | `security-limits` | | `:202-207` |
+| Heading (`shield-halved` icon, 60% opacity) | "Workspace security" | `security.workspace.title` | none | | `WorkspaceSecurity.vue:106-109` |
+| Workspace name | the folder's base name, or "No workspace open" | `workspace.none` | `security-workspace-name` | | `:110-112` |
+| No workspace | "Choose a workspace folder first." | `workspace.errors.no_workspace` | `security-no-workspace` | Replaces every section below. Unreachable in practice: both ways into the view need a workspace, and nothing in the UI ever empties the store's root once set. | `:115-117` |
+| "Files" (uppercase heading) and three counts, each in its own bordered box: the number of encrypted files ("encrypted"), plain files ("not encrypted") and all files ("files in all") | "Files", "encrypted", "not encrypted", "files in all" | `security.workspace.filesTitle`, `.sealed`, `.plain`, `.total` | `security-summary` (section), `security-count-sealed`, `security-count-plain`, `security-count-files` | Counted by Rust over the whole workspace with the folder-run walk (`folder_preview` of the root): links not followed, `.morion` skipped in every folder, at most 20,000 files and 32 levels. A failure shows its sentence (`workspace.errors.*`) in place of the boxes, or Rust's text when the prefix has none. | `:121-137`; `folder.rs:116-130` |
+| Links line (small, 60%) | "{n} symbolic links are left alone." | `folder.links` | none | Only when the walk met any. | `:138` |
+| Count stopped early (small, warn colour) | "The workspace is larger than one count covers; these numbers are for its first 20,000 files." | `security.workspace.truncated` | `security-truncated` | When the walk reached 20,000 files and stopped. | `:139-141`; `folder.rs:82-120` |
+| Deep folders (small, warn colour) | "Folders more than 32 levels down are not entered, so what is in them is not counted here." | `security.workspace.deep` | `security-deep` | When the walk met folders deeper than 32 levels; said apart from the file cap. The same two lines appear under the Mana bar when its own walk met either. | `WorkspaceSecurity.vue:142-144` |
+| Where to act (small, 60%) | "Encrypt or decrypt with the shields beside each file and folder in the file pane, or beside the open file’s name." | `security.workspace.where` | none | | `:142` |
+| "Passphrase" heading and a bordered row with a `lock-open` icon (remembered) or `lock` (not) | remembered: "A passphrase is remembered. Opening and decrypting use it without asking; encrypting always asks for one." then, dimmed, "Kept in the system keyring." or "Kept until this app closes — no system keyring was available."; otherwise "No passphrase is remembered. You will be asked each time." | `security.workspace.passphraseTitle`, `security.workspace.secretHeld`; `security.secret.keychain`, `.memory`, `.none` (padova's catalogue) | `security-passphrase` (section), `security-secret-status` (sentence) | Read from Rust (`secret_status`) each time the view loads; a failed read shows the "not remembered" sentence. Only the fact and the place are ever read, never the passphrase. | `:146-155`; `packages/padova/src/i18n/en.ts:58-64` |
+| "Forget it" (small bordered button) | | `security.secret.forget` | `security-forget` | Asks Rust to forget the passphrase, from the keyring and from memory, with no confirmation, then reads the status again, so the row turns to "No passphrase is remembered. You will be asked each time." and the button goes. | `:156-159, 66-69` |
+| "Security Mana" heading and explanation | "Mana is an advisory health bar for plaintext on disk, not a security score. It never blocks anything. Plain files on disk use it for every hour they stay unencrypted, by size; encrypted files use none, open or not. It comes back slowly on its own, and changing an encrypted file’s passphrase earns some. At zero Morion asks you to encrypt some files; it never refuses anything." | `mana.title`, `mana.advisory`, `security.workspace.manaHow` | `security-mana` (section) | | `:164-166` |
+| The bar: "Security Mana" and "{level} / {max}" above a native `<progress>` drawn like the header's, blue, or red at a quarter or below | "Security Mana" | `mana.title` | `mana-level` (block), `mana-level-value` (the numbers); the progress has no id | From the shared status (see Security Mana). The block is absent while there is no status. | `:167-175, 81-85` |
+| Flow | "{files} plain files use {drain} an hour; {regen} comes back an hour. Net: {net} an hour." | `mana.flow` | `mana-flow` | The net rate carries a minus sign while the bar falls. | `:176-179` |
+| Where it is heading (70%) | "Empty in about {hours} h at this rate." while it falls, "Full in about {hours} h at this rate." while it rises; the hours rounded, or "<1" under an hour | `mana.etaEmpty`, `mana.etaFull` | `mana-eta` | Absent while the bar cannot move: at zero and still draining, full and still gaining, or with a net rate of zero. | `:180-182, 71-79` |
+| Not kept (70%) | "This folder cannot be written, so Mana is kept only while Morion is open." | `mana.notKept` | `mana-not-kept` | Only in a folder that cannot be written, where the checkpoint is held in memory (see Nothing ticks). | `:188` |
+| Walk stopped early (warn colour) | "The workspace is larger than one count covers; these numbers are for its first 20,000 files." | `security.workspace.truncated` | none | When the Mana walk hit its file cap or its depth limit, so the drain counts only what it saw. | `:183` |
+| Exhausted warning (warn colour) | "Security Mana is at zero. You can still go ahead; this is advice, not a lock." | `mana.exhausted` | `security-mana-exhausted` | While the bar is at zero. | `:185-187` |
+| Costliest plain files: a caption and one row per file of Rust's top ten, the relative path (truncated, tooltip the path) and its rate "{rate}/h" | "Costliest plain files" | `mana.topTitle`, `mana.perHour` | `mana-top` (block), `mana-top-{i}` (a row, 0-based) | Only while the workspace holds a plain file that is not empty. | `:190-198` |
+| "Encrypt some files…" (small bordered button, icon `lock`) | | `mana.prompt.open` | `security-encrypt-some` | Opens the Security Mana prompt on purpose, titled "Encrypt the costliest plain files" (see Security Mana). | `:199-203` |
+| Price table, three rows | "Each KB of an unencrypted file, per hour" `0.01`; "Comes back on its own, per hour" `+1`; "Changing an encrypted file’s passphrase (once per file every 24 h, at most 30 a day)" `+10` | `mana.prices.perKbHour`, `.regen`, `.rekey` | `mana-prices` (table), `mana-price-per-kb-hour`, `mana-price-regen`, `mana-price-rekey` (the value cells) | Read from Rust (`mana_prices`, `mana.rs:327-350`), so the numbers on screen are the numbers used, including the cooldown and the cap in the third label. | `:206-221` |
+| "Recent security actions" heading and list | "Nothing yet." when empty; otherwise one row per history row, newest first: the time, the note, the relative path beneath it when there is one, and what the row did to the bar: "+10" in the helmet's blue for a gain, "−5" (a minus sign) for a cost from the earlier budget, "0" otherwise | `security.workspace.historyTitle`, `.historyEmpty`, `mana.notes.*` | `security-history` (section), `security-history-empty`, `security-history-{i}` (0-based) | The newest 100 history rows (`mana_ledger`). The time is `toLocaleString` in the app's current language (EN or PL), so it follows the header's language button. | `:225-241, 87-97` |
+| "What encryption does not hide" (dashed box) | "Encryption protects the contents of a file. Its name, its folder, its size and dates, and any tags stay visible." then "Morion keeps tags and this history in .morion/metadata.json inside the workspace, in plain text. It never keeps a passphrase, decrypted contents or search results there." | `security.workspace.limitsTitle`, `shield.limits`, `security.workspace.limitsMore` | `security-limits` | | `:244-249` |
 
-The view reads everything (counts, passphrase status, ledger, prices, meters)
-when it is first mounted, every time it is shown again (App passes `active`,
-true while the view is on screen), when the workspace changes, and whenever the
-padlock cache is replaced: after any encryption or decryption from a shield,
-after a folder run, and on any folder read in the Files panel, Refresh or
-expanding a folder included (`WorkspaceSecurity.vue:41-66`; `App.vue:529-530`).
-The one charge that can happen while the view is on screen is an export chosen
-from the ☰ menu, which runs without leaving the view (see The ☰ menu): the
-meters move at once, because the status is shared, but its history row appears
-the next time the view is shown. The view does not poll either: meters that
-regenerate while it stays on screen show it the next time it is shown.
+The view reads everything (counts, passphrase status, history, prices once,
+Mana status) when it is first mounted, every time it is shown again (App
+passes `active`, true while the view is on screen), when the workspace
+changes, and whenever the padlock cache is replaced: after any encryption or
+decryption from a shield, after a folder run or a prompt run, and on any
+folder read in the Files panel, Refresh or expanding a folder included
+(`WorkspaceSecurity.vue:41-64`; `App.vue:592-593`). The Mana block reads the
+shared status, which the header bar refreshes every minute, so the level, the
+flow and the estimate move while the view stays on screen; the counts and the
+history do not. An export chosen from the ☰ menu while the view is up runs
+without leaving it (see The ☰ menu); a copy saved into the workspace shows in
+the bar from its next look.
 
 Padova's `security.title`, `security.intro`, `security.files.*` and
 `security.secret.held` strings belong to its own Security view, which Morion
 no longer mounts, and are rendered nowhere; the passphrase row uses Morion's
 own `security.workspace.secretHeld` with padova's storage and "none" sentences.
 In the browser build the shield that opens this view shows only with a stale
-`zinnia:workspace`; the view then reads nothing, so it shows the name, the
-"where" line, "No passphrase is remembered. You will be asked each time.", the
-explanation, "Nothing yet." and the limits, with no counts, meters or prices.
+`zinnia:workspace`, and the Mana bar never shows; the view then reads nothing,
+so it shows the name, the "where" line, "No passphrase is remembered. You will
+be asked each time.", the explanation, "Nothing yet." and the limits, with no
+counts, bar, costliest files or prices.
 
 ## The Write editor
 
 `apps/morion/src/editors/DocumentEditor.vue`, mounted by
-`EditorHost.vue:621-635` when the kind is `document`: the bytes sniff as
+`EditorHost.vue:651-665` when the kind is `document`: the bytes sniff as
 `<document …>`, or New document was chosen. An encrypted document opens here
 too: the host decrypts it into memory first and the editor never knows (see
 Encryption). A Cyprian document is an envelope (title, font, margins, contents
@@ -1807,7 +2136,7 @@ aria-label (`DocumentEditor.vue:401-416`). No control uses the right-aligned
 can be clipped at the window's right edge. The toolbar wraps onto further rows
 when the window is narrow (`flex-wrap`, `:319`). Any host `fileError` shows as
 a warn line above the toolbar (`DocumentEditor.vue:303-305`;
-`EditorHost.vue:629`): "Could not save. …" after a failed write, but also
+`EditorHost.vue:659`): "Could not save. …" after a failed write, but also
 "Could not open the file. …" or the no-workspace message when an Open…
 attempted from this document fails, or the sentence of a permanent decrypt
 that failed from the file shield. It stays until the next Open, Save or
@@ -2014,7 +2343,7 @@ preserved through a save (`:95-106, 128-131, 148-161`).
 ## The Presentations editor
 
 `apps/morion/src/editors/PresentationEditor.vue`, mounted by
-`EditorHost.vue:637-651` when the kind is `deck` (`src/files/openWith.ts:31,
+`EditorHost.vue:667-681` when the kind is `deck` (`src/files/openWith.ts:31,
 87`): a `.pxml`, any file whose bytes sniff as `<presentation …>`, or New
 presentation. An encrypted deck opens here too, decrypted into memory first.
 A deck is an ordered list of slides; a slide has a title, a LAYOUT (a fixed
@@ -2029,9 +2358,10 @@ An empty or whitespace-only file opens as a new one-slide deck, not as an error
 shows each slide's non-empty body as a single `html` block (a slide with an
 empty or missing `<body>` opens with no blocks, `presentation.ts:394`) and is
 written back in v2 form on the first save (`presentation.ts:282-285,
-377-406`). A host file error (an open that failed, a save that failed, a
-permanent decrypt that failed, or no workspace) shows as a warn strip above
-the toolbar (`:375-377`; `EditorHost.vue:288, 351, 453, 472, 503, 523`).
+377-406`). A host file error (an open that failed, a save that failed or was not given
+its passphrase, a permanent decrypt that failed, or no workspace) shows as a
+warn strip above the toolbar (`:375-377`; `EditorHost.vue:285, 360, 483, 502,
+521, 533, 553`).
 
 ### Toolbar
 
@@ -2259,7 +2589,7 @@ isolated. Only `svg` and `html` payloads pass through `scrub` and
 ## The Sheet editor
 
 `apps/morion/src/editors/SheetEditor.vue`, mounted by
-`EditorHost.vue:691-705` when the kind is `sheet`: a file whose bytes pass
+`EditorHost.vue:721-735` when the kind is `sheet`: a file whose bytes pass
 `isSheet` regardless of extension (an encrypted one after decryption into
 memory), or New spreadsheet. It mounts a Univer workbook
 (`UniverSheetsCorePreset`, `en-US` locale) into
@@ -2327,7 +2657,7 @@ next file (`:207-217`).
 "Export sheet as CSV…" (`sheet.exportCsv`, icon `file-csv`) is the editor's
 one export (`SheetEditor.vue:274`), rendered in the ☰ menu as `menu-export`
 while this editor is mounted and disabled while the host is busy
-(`App.vue:379-388`); the command itself is `SheetEditor.vue:228-259`. It
+(`App.vue:416-425`); the command itself is `SheetEditor.vue:228-259`. It
 takes the ACTIVE worksheet only: computed values from Univer's facade
 `getActiveSheet().getDataRange().getValues()` when the grid is up, else
 `sheetOrder[0]` of the pending snapshot. The CSV
@@ -2350,17 +2680,18 @@ the dialog allows and needs no workspace to be open (the entry is never
 disabled for lack of one). In a browser it downloads a `text/csv` blob named
 "<stem>.csv" with no dialog. The command answers whether it wrote a file:
 `true` after the write (or the download), `false` when the dialog was cancelled
-or there was nothing to export (`:231, 248, 255, 258`). The menu uses that
-answer only for Security Mana: from an encrypted workbook the Mana confirmation
-for a plaintext export (10) comes first, and the charge follows only a written
-file (`App.vue:225-241`). A successful write shows no "Saved" notice. A failed
+or there was nothing to export (`:231, 248, 255, 258`). The menu does not use
+that answer. From an encrypted workbook the confirmation "This leaves
+plaintext behind" comes first (see Security Mana); the CSV costs Security Mana
+only if it is saved inside the workspace, where it is a plain file like any
+other (`App.vue:253-271`). A successful write shows no "Saved" notice. A failed
 write (a read-only folder, say) is not caught by the editor: the menu's handler
 catches it and the header shows "Could not export." (`file.exportFailed`)
-followed by the error's own text in its `export-error` line, and nothing is
-charged (`App.vue:225-246`). The entry stays in the menu while a refusal panel
-is up: on the not-a-sheet panel it writes nothing (no dialog, no message, since
-`pending` was never set, `:110-112, 116, 229-231`), after the Mana confirmation
-if the file is encrypted, and costs nothing; on the grid-failed panel it still
+followed by the error's own text in its `export-error` line
+(`App.vue:266-270`). The entry stays in the menu while a refusal panel is up:
+on the not-a-sheet panel it writes nothing (no dialog, no message, since
+`pending` was never set, `:110-112, 116, 229-231`), after the confirmation if
+the file is encrypted; on the grid-failed panel it still
 exports the first sheet of the snapshot that was read. Styles, other sheets and
 formulas are lost; the open file and its dirty state are untouched.
 
@@ -2382,7 +2713,7 @@ grid.
 ## The Drawing editor
 
 `apps/morion/src/editors/SketchEditor.vue`, mounted by
-`apps/morion/src/views/EditorHost.vue:673-687` when the kind is `sketch` (a
+`apps/morion/src/views/EditorHost.vue:703-717` when the kind is `sketch` (a
 `.svg`, `files/openWith.ts:44`, or New drawing; an encrypted `.svg` opens here
 too, decrypted into memory first). The toolbar and canvas come from wisteria
 (`packages/wisteria/src/components/SketchToolbar.vue`, `SketchCanvas.vue`) over
@@ -2603,7 +2934,7 @@ nothing is stripped.
 
 "Export as PNG" (`sketch.exportPng`, icon `file-image`) is the editor's one
 export (`SketchEditor.vue:254`), rendered in the ☰ menu as `menu-export` and
-disabled while the host is busy (`App.vue:220, 379-388`); the handler is
+disabled while the host is busy (`App.vue:248, 416-425`); the handler is
 `SketchEditor.vue:155-174`. It rasterises the board through Canvas2D at 1×
 (`sketchExport.ts:184-310`; a transparent board gives a transparent PNG),
 except that the PNG width is clamped to at least 540 and at most 6480 units
@@ -2618,9 +2949,10 @@ unavailable."), so a failed PNG export never reaches the header's
 `export-error` line. Re-entry while an export is running is ignored. The
 handler answers whether a PNG was written: `true` only when the writer reports
 a file, `false` for a cancelled dialog, a caught error, a re-entry or the
-refusal panel (`:157-174`). From an encrypted drawing the menu shows the Mana
-confirmation for a plaintext export (10) first and charges only when the answer
-is `true` (`App.vue:225-241`); from a plain drawing the export is free.
+refusal panel (`:157-174`). From an encrypted drawing the menu shows the
+confirmation "This leaves plaintext behind" first (`App.vue:253-271`); the
+answer is not used, and the PNG costs Security Mana only if it is saved inside
+the workspace, where it is a plain file like any other.
 
 ### What Save writes
 
@@ -2669,9 +3001,9 @@ mounts in three faces, chosen by the HOST's props, never by the file:
 
 | Face | Host mounts it as | When | Toolbar | Source |
 |---|---|---|---|---|
-| Code | `<TextEditor with-picker>` | kind `code`: every extension the table maps to code, anything unclaimed, New text, and a picture (from the Files panel or a search hit, or an encrypted one decrypted into memory) | undo/redo strip, a divider, "Language" label and dropdown | `EditorHost.vue:654-668` |
-| Markdown | `<TextEditor toolbar>` | kind `markdown`: `.md`, `.markdown` (unless the bytes sniff as a deck, document or workbook, which win first: `openWith.ts:86-94`), New Markdown note | undo/redo strip only; the name already said Markdown | `EditorHost.vue:709-723` |
-| Bare | `<TextEditor>` | kind `text`: only after "Open as plain text" from a refusal | none; ACE's own Ctrl+Z and Ctrl+Shift+Z still work, there are just no buttons | `EditorHost.vue:725-738` |
+| Code | `<TextEditor with-picker>` | kind `code`: every extension the table maps to code, anything unclaimed, New text, and a picture (from the Files panel or a search hit, or an encrypted one decrypted into memory) | undo/redo strip, a divider, "Language" label and dropdown | `EditorHost.vue:684-698` |
+| Markdown | `<TextEditor toolbar>` | kind `markdown`: `.md`, `.markdown` (unless the bytes sniff as a deck, document or workbook, which win first: `openWith.ts:86-94`), New Markdown note | undo/redo strip only; the name already said Markdown | `EditorHost.vue:739-753` |
+| Bare | `<TextEditor>` | kind `text`: only after "Open as plain text" from a refusal | none; ACE's own Ctrl+Z and Ctrl+Shift+Z still work, there are just no buttons | `EditorHost.vue:755-768` |
 
 Encrypted files of any of these kinds open in the same faces, decrypted into
 memory first; the editor cannot tell (see Encryption).
@@ -2695,7 +3027,7 @@ the header dot, and a save re-baselines to the buffer as it was at that moment
 The buffer takes focus the moment it mounts (`TextEditor.vue:147`), so a
 freshly opened or New file is ready to type into and Ctrl+S works at once.
 Because ACE reads keys through a hidden `<textarea>`, the host's Ctrl+O is
-ignored while the buffer has focus (`EditorHost.vue:572-573`); click the
+ignored while the buffer has focus (`EditorHost.vue:602-603`); click the
 toolbar or header first, or use the ☰ menu. The host also passes `active`, but
 this editor declares no such prop (`TextEditor.vue:32-42`); Ctrl+S is gated by
 ACE focus alone, which is enough because the editor view is hidden with
@@ -2751,17 +3083,17 @@ larger than the area is shrunk to fit with 1rem padding; a smaller one is
 shown at its natural size, never enlarged. The undo and redo buttons, divider,
 label and dropdown are all omitted, but the toolbar strip itself still renders
 as an empty bordered bar in the code face. The host marks the file read-only
-(`EditorHost.vue:558`), so Save is greyed in the menu and Ctrl+S does nothing;
-Save As stays enabled in the menu (`App.vue:280` gates it only on a file and a
+(`EditorHost.vue:588`), so Save is greyed in the menu and Ctrl+S does nothing;
+Save As stays enabled in the menu (`App.vue:310` gates it only on a file and a
 workspace) but is a silent no-op, since `saveAs` returns before any dialog
-(`EditorHost.vue:509`). On the desktop build a plain picture reaches this view
+(`EditorHost.vue:539`). On the desktop build a plain picture reaches this view
 only from the Files panel or a search hit: the Open dialog's "All" filter can
-select one, but Rust refuses to read it as text (`workspace.rs:261-263`,
+select one, but Rust refuses to read it as text (`workspace.rs:261-265`,
 `not_text`). An encrypted picture picked there does open, because Rust's
 `locked` answer sends it through the passphrase and it is decrypted to bytes
-(`EditorHost.vue:463-470, 209-215`); the header's shield then reads
+(`EditorHost.vue:493-500, 212-217`); the header's shield then reads
 "Encrypted on disk. Shown from memory; nothing is written.". The browser
-build's Open input (`EditorHost.vue:476-483`) has no such guard and would show
+build's Open input (`EditorHost.vue:506-513`) has no such guard and would show
 a broken image whose `src` is the decoded text.
 
 ### Shortcuts
@@ -2795,26 +3127,54 @@ English only, and carry no test ids.
 
 ## Settings
 
-`apps/morion/src/views/SettingsView.vue:41-132`, mounted by
-`App.vue:532-533` (`showView`, `:58-63`) on the first ☰ → Settings
-(`menu-settings`, `App.vue:391-397`) and kept afterwards. The header shows a
+`apps/morion/src/views/SettingsView.vue:108-253`, mounted by
+`App.vue:595-596` (`showView`, `:63-68`) on the first ☰ → Settings
+(`menu-settings`, `App.vue:428-434`) and kept afterwards. The header shows a
 `gear` icon and "Settings" (`nav.settings`) with the ×. Every change applies
 immediately; there is no Save or Apply button. While it is up the Files panel
 is hidden (its toggle still works and persists), and the editor stays mounted
-underneath with its `active` flag off (`App.vue:87, 520, 526, 532-533`). The
+underneath with its `active` flag off (`App.vue:92, 583, 589, 595-596`). The
 view scrolls vertically; its content sits in a centred column of at most 42rem
-with 24px padding: System colours first, then Search algorithm, then the markup
-switches, each heading 40px below the section before it
-(`SettingsView.vue:42-43, 84, 108`).
+with 24px padding (`SettingsView.vue:109-110`), under a row of three tabs.
 
-### System colours
+### The tabs
+
+| Tab | Icon | Label | Key | Holds | `data-testid` (tab, panel) |
+|---|---|---|---|---|---|
+| Colours | `palette` | "Colours" | `settings.tabs.colors` | System colours | `settings-tab-colors`, `settings-panel-colors` |
+| System | `gear` | "System" | `settings.tabs.system` | Search algorithm, then Workspace archive | `settings-tab-system`, `settings-panel-system` |
+| Protection | `shield-halved` | "Protection" | `settings.tabs.protection` | What a file may bring with it (the three markup switches) | `settings-tab-protection`, `settings-panel-protection` |
+
+The row is an ARIA tab list: `role="tablist"` with the aria-label "Settings"
+(`settings.tabs.label`) and `data-testid="settings-tabs"`, over a bottom rule
+(`SettingsView.vue:111-125`). Each tab is a button with `role="tab"`, the id
+`settings-tab-{id}`, `aria-selected`, and `aria-controls` naming its panel. The
+selected tab is bold with a 2px accent underline; the others sit at 60%
+opacity, full on hover. Only the selected tab is in the Tab order (`tabindex`
+0, the others −1). A click selects a tab. With focus on a tab, → and ← move to
+the next and the previous one, wrapping at either end, and Home and End jump to
+the first and the last; the key's default is prevented and focus follows the
+selection, found by the tab's element id (`settings-tab-{id}`); any other key
+is left alone (`SettingsView.vue:83-98`). Each panel
+is a `<section role="tabpanel">` with the id `settings-panel-{id}` and
+`aria-labelledby` naming its tab, shown with `v-show`: all three stay mounted,
+so switching tabs loses nothing (`:128-129, 171-172, 225-226`).
+
+The tab last shown is remembered in `zinnia:settingsTab` ("colors", "system"
+or "protection"). It is read when Settings is first opened; a missing, unknown
+or unreadable value opens Colours. It is written on every change, by click or
+key, and a blocked store only loses the memory (`SettingsView.vue:60-81`). In
+Polish the tabs read "Kolory", "System" and "Ochrona"
+(`apps/morion/src/i18n/pl.ts:100-105`).
+
+### System colours (Colours tab)
 
 | Control | Text | Key | `data-testid` | Does | Source |
 |---|---|---|---|---|---|
-| Heading (`gear` icon, dimmed) and help | "System colours"; "The five colours documents, drawings and slides use for emphasis. One value each — pick shades that read on light and dark alike, because whatever you choose is stored in the file exactly as it is." | `settings.colors.title`, `.help` | none | | `SettingsView.vue:44-48` |
-| Five colour rows, in order accent, warning, success, highlight, mute | an `<input type="color">` (aria-label the role name, tooltip the hex), the bold role name "Accent", "Warning", "Success", "Highlight", "Muted", and the hex in `<code>` | `settings.colors.roles.*` | `role-{role}` (row), `color-{role}` (input) | A pick is validated as `#rgb` or `#rrggbb`, then sets `--sys-{role}` on `<html>` and saves the palette to `zinnia:systemColors`. Applied on every `input` event, so the swatch, the hex and every open editor recolour live while a shade is being dragged in the native picker, and each step is saved; a value that fails validation is ignored silently and nothing changes (`SettingsView.vue:35-38, 60`). Defaults: accent `#3b82f6`, warning `#ef4444`, success `#10b981`, highlight `#f59e0b`, mute `#6b7280`. | `:35-38, 50-66`; `packages/petalite/src/theme/systemColors.ts:21, 33-39, 44, 50-54, 91-104`; `useSystemColors.ts:30-34` |
-| "Body text" row (dashed box) | "Always black on light and white on dark — not adjustable." with a small round swatch | `settings.colors.primaryText`, `.primaryTextNote` | `primary-text` | Read-only. The swatch is `#000000` in light mode and `#ffffff` in dark, following the header toggle live through a MutationObserver on the `.dark` class. | `:69-75`; `systemColors.ts:42`; `useSystemColors.ts:28`; `theme.ts:20-34, 43-47` |
-| "Restore defaults" (`rotate-left`) | | `settings.colors.reset` | `colors-reset` | Resets the five roles, re-applies the properties and saves. Colours only; the switches below are untouched. | `:77-81` |
+| Heading (`palette` icon, dimmed) and help | "System colours"; "The five colours documents, drawings and slides use for emphasis. One value each — pick shades that read on light and dark alike, because whatever you choose is stored in the file exactly as it is." | `settings.colors.title`, `.help` | none | | `SettingsView.vue:130-134` |
+| Five colour rows, in order accent, warning, success, highlight, mute | an `<input type="color">` (aria-label the role name, tooltip the hex), the bold role name "Accent", "Warning", "Success", "Highlight", "Muted", and the hex in `<code>` | `settings.colors.roles.*` | `role-{role}` (row), `color-{role}` (input) | A pick is validated as `#rgb` or `#rrggbb`, then sets `--sys-{role}` on `<html>` and saves the palette to `zinnia:systemColors`. Applied on every `input` event, so the swatch, the hex and every open editor recolour live while a shade is being dragged in the native picker, and each step is saved; a value that fails validation is ignored silently and nothing changes (`SettingsView.vue:102-105, 146`). Defaults: accent `#3b82f6`, warning `#ef4444`, success `#10b981`, highlight `#f59e0b`, mute `#6b7280`. | `:136-152`; `packages/petalite/src/theme/systemColors.ts:21, 33-39, 44, 50-54, 91-104`; `useSystemColors.ts:30-34` |
+| "Body text" row (dashed box) | "Always black on light and white on dark — not adjustable." with a small round swatch | `settings.colors.primaryText`, `.primaryTextNote` | `primary-text` | Read-only. The swatch is `#000000` in light mode and `#ffffff` in dark, following the header toggle live through a MutationObserver on the `.dark` class. | `:155-161`; `systemColors.ts:42`; `useSystemColors.ts:28`; `theme.ts:20-34, 43-47` |
+| "Restore defaults" (`rotate-left`) | | `settings.colors.reset` | `colors-reset` | Resets the five roles, re-applies the properties and saves. Colours only; the switches on the Protection tab are untouched. | `:163-167` |
 
 The roles have one value each, no light or dark variant. They feed the Write
 editor's three ink swatches (accent, success, warning; `DocumentEditor.vue:45-49`,
@@ -2824,35 +3184,221 @@ the literal hex; a Write document stores a `cy-ink-*` class that resolves to
 the current palette when rendered (`cyprianSchema.ts:69`). `--sys-highlight`
 and `--sys-mute` have no consumer outside the drawing palette.
 
-### Search algorithm
+### Search algorithm (System tab)
 
 What the search box in the Files panel looks at. The three algorithms
 themselves are described under Search.
 
 | Control | Text | Key | `data-testid` | Does | Source |
 |---|---|---|---|---|---|
-| Heading (`magnifying-glass` icon, dimmed) and help | "Search algorithm"; "What the search box looks at. Every algorithm walks the workspace on each search; nothing is indexed or kept." | `settings.search.title`, `.help` | none | | `SettingsView.vue:84-88` |
-| Three radio rows in a bordered card, in the order Quick, Full text, Hybrid, each a bold label over a note | "Quick": "File names, paths and tags. Never reads what is inside a file."; "Full text": "Names, paths and tags, plus the contents of plain text files, in folder order."; "Hybrid": "Both, ranked: a matching name or tag comes before a matching path, and a line of text comes last." | `settings.search.modes.{quick,full,hybrid}.label`, `.note` | `search-modes` (the card, `role="radiogroup"`), `search-mode-row-{quick,full,hybrid}` (a row), `search-mode-{quick,full,hybrid}` (its radio, `name="search-mode"`) | Picking one sets the shared mode and writes `zinnia:searchMode`; a query on screen in the Files panel is asked again at once with the new algorithm (`WorkspaceSearch.vue:106`). Hybrid is checked on a fresh install, and a stored value that is not one of the three reads as Hybrid. Each row is one `<label>`, so a click anywhere on it picks. | `SettingsView.vue:90-104`; `apps/morion/src/files/searchSettings.ts:7-34` |
-| Privacy note (small, dimmed) | "An encrypted file is found by its name, path and tags only. Its contents are never read for a search, and no passphrase is ever asked for one." | `settings.search.privacy` | `search-privacy-note` | | `SettingsView.vue:105` |
+| Heading (`magnifying-glass` icon, dimmed) and help | "Search algorithm"; "What the search box looks at. Every algorithm walks the workspace on each search; nothing is indexed or kept." | `settings.search.title`, `.help` | none | | `SettingsView.vue:174-178` |
+| Three radio rows in a bordered card, in the order Quick, Full text, Hybrid, each a bold label over a note | "Quick": "File names, paths and tags. Never reads what is inside a file."; "Full text": "Names, paths and tags, plus the contents of plain text files, in folder order."; "Hybrid": "Both, ranked: a matching name or tag comes before a matching path, and a line of text comes last." | `settings.search.modes.{quick,full,hybrid}.label`, `.note` | `search-modes` (the card, `role="radiogroup"`), `search-mode-row-{quick,full,hybrid}` (a row), `search-mode-{quick,full,hybrid}` (its radio, `name="search-mode"`) | Picking one sets the shared mode and writes `zinnia:searchMode`; a query on screen in the Files panel is asked again at once with the new algorithm (`WorkspaceSearch.vue:106`). Hybrid is checked on a fresh install, and a stored value that is not one of the three reads as Hybrid. Each row is one `<label>`, so a click anywhere on it picks. | `SettingsView.vue:180-194`; `apps/morion/src/files/searchSettings.ts:7-34` |
+| Privacy note (small, dimmed) | "An encrypted file is found by its name, path and tags only. Its contents are never read for a search, and no passphrase is ever asked for one." | `settings.search.privacy` | `search-privacy-note` | | `SettingsView.vue:195` |
 
 Quick's "Never reads what is inside a file" holds for what a file says, not for
 its first bytes: every algorithm, Quick included, reads each file's first 16
 bytes to tell whether it is encrypted (see Search). In Polish the three read
 "Szybki", "Pełnotekstowy" and "Hybrydowy", and Quick's note "Nazwy plików,
 ścieżki i tagi. Nigdy nie czyta zawartości pliku."
-(`apps/morion/src/i18n/pl.ts:96-98`).
+(`apps/morion/src/i18n/pl.ts:125-127`).
 
-### What a file may bring with it
+### Workspace archive (System tab)
+
+The whole workspace as one password-protected `.zip`, to keep a copy or to
+move it to another machine, and such a zip unpacked back into a workspace
+(`archive_export` and `archive_import`, `apps/morion/src-tauri/src/archive.rs`,
+registered at `lib.rs:120-121`; the page's side
+`apps/morion/src/files/archive.ts` and `ArchiveModal.vue`). It sits under the
+search algorithm, its heading 40px below the privacy note
+(`SettingsView.vue:197-221`).
 
 | Control | Text | Key | `data-testid` | Does | Source |
 |---|---|---|---|---|---|
-| Heading (`shield-halved` icon, dimmed) and help | "What a file may bring with it"; "A presentation can carry raw markup — a drawing, or a legacy HTML block. These decide what happens to it. All three are off to begin with: the first costs a little to draw, and the other two change how somebody else's document looks." | `settings.markup.title`, `.help` | none | | `:108-112` |
-| Checkbox "Render a file’s own markup in isolation" | note: "Puts those blocks in a scope of their own, so a stylesheet inside one cannot restyle the app around it. An inline drawing does not scope its own styles, so without this it reaches the whole window. Costs a little to draw, which is why it is off to begin with." | `settings.markup.isolate.label`, `.note` | `switch-isolate` (row `switch-row-isolate`, card `markup-safety`) | Writes `zinnia:sandbox` = "1" on, "0" off. On, a deck's `svg` and `html` payloads are painted inside an open shadow root (`ShadowHtml`, `data-testid="shadow-host"`) with a tiny reset: `:host { display: contents }` plus `img, svg { max-width: 100%; max-height: 100%; height: auto }`; inherited properties (font, colour, block scale) still cross the boundary. The root is attached once per block and its contents replaced whenever the payload or a switch changes (`ShadowHtml.vue:28-31, 33-53`). If `attachShadow` throws, the block renders as nothing rather than falling back. An `html` block is only isolated, or painted at all, when the surface also passes `trust-html` (both the editor canvas and the player do); a surface that does not shows the hard-coded placeholder "Legacy HTML slide" whatever the switch says (`SlideBlock.vue:107-109`). | `:114-128`; `useMarkupSafety.ts:30-34, 62-69`; `SlideBlock.vue:84-85, 107-108` |
+| Heading (`file-export` icon, dimmed) and help | "Workspace archive"; "The whole workspace as one password-protected .zip — to keep a copy, or to move it to another machine — and back in." | `archive.title`, `.help` | none | | `SettingsView.vue:198-202` |
+| "Export workspace…" (small bordered button, icon `file-export`) | | `archive.export` | `archive-export` | Opens the archive dialog to export. | `:204-209, 48-51` |
+| "Import archive…" (small bordered button, icon `file-import`) | | `archive.import` | `archive-import` | Opens the archive dialog to import. | `:210-215` |
+| No-workspace hint (small, 60%) | "Choose a workspace folder first." | `workspace.errors.no_workspace` | `archive-no-workspace` | Shown, and both buttons disabled at 40% opacity, while no workspace is set; the dialog is not mounted then. | `:217-221` |
+
+The two buttons sit in one row (`archive-actions`). In both directions the
+page sends Rust only the password: Rust opens the native save or open dialog
+itself (`tauri_plugin_dialog`, blocking, on a worker thread) and never takes a
+path from the page, because a page that renders markup from files must not be
+able to write a zip anywhere or read one from anywhere. Cancelling that native
+dialog is not an error: the command answers nothing, and the archive dialog
+stays on its form with the password fields emptied (`archive.rs:499-531`;
+`archive.ts:24-31`). The password is never stored, not in the archive, not on
+this machine.
+
+### The archive dialog
+
+`apps/morion/src/files/ArchiveModal.vue:90-152`, mounted by
+`SettingsView.vue:220-221` while a workspace is set. An `OyaModal` on a
+`max-w-sm` card; the backdrop closes it unless a run is in flight; Escape does
+nothing. Every field and report resets each time it opens
+(`ArchiveModal.vue:42-50`). Top to bottom:
+
+| Element | Export | Import | `data-testid` |
+|---|---|---|---|
+| Title | "Export the workspace" (`archive.exportTitle`) | "Import an archive" (`archive.importTitle`) | none |
+| Workspace name | the folder's base name, small and dim, tooltip the full path | same | none |
+| What happens | "Every file in this workspace goes into one .zip exactly as it is: encrypted files stay encrypted inside it, plain ones stay plain. The archive is sealed with AES-256 under the password you type here." (`archive.exportWhat`) | "The archive’s files are unpacked into this workspace. A file that is already here is kept as it is, never overwritten; tags come along with the files they belong to." (`archive.importWhat`) | `archive-what` |
+| Limits (dashed box) | "What a zip does not hide: the names, sizes and dates of the files inside it are readable without the password. It opens in AES-capable tools such as 7-Zip, WinZip, Keka or PeaZip; some built-in unzippers cannot open it." (`archive.limits`) | none | `archive-limits` |
+| Mana note (70%) | none | "Plain files that come in use Security Mana like any other plain file." (`archive.importMana`) | `archive-mana` |
+| Password | placeholder "Archive password" (`archive.password`); Enter runs | placeholder "Archive password (empty for a zip without one)" (`archive.passwordOptional`); Enter runs | `archive-password` |
+| Repeat | placeholder "Repeat the archive password" (`archive.confirm`); Enter runs | none | `archive-confirm` |
+| Mismatch line (warn colour) | "Those two do not match." (`lock.passwordMismatch`), while the repeat field holds something that differs from the first | none | `archive-mismatch` |
+| Not-stored note (60%) | "The password is not stored anywhere — not in the archive, not on this machine. Without it the archive cannot be opened." (`archive.notStored`) | none | none |
+| Error line (warn colour) | Rust's refusal as its sentence (`workspace.errors.*`), anything else as it came | same | `archive-error` |
+| Report (replaces everything from "What happens" down) | see below | see below | `archive-exported`, `archive-imported` |
+| Cancel, then Close | "Cancel" before a run, "Close" after it; disabled while running | same | `archive-close` |
+| Run | "Choose where and export" (`archive.exportRun`), icon `file-export` | "Choose an archive and import" (`archive.importRun`), icon `file-import` | `archive-run` |
+
+The run button shows a spinner while running and is hidden once there is a
+report. To export it is enabled when the password is not empty and both fields
+agree; to import it is always enabled, since a zip may have no password. Enter
+in a field runs only when the button would be enabled. Both fields are emptied
+after every attempt, success, failure or a cancelled native dialog
+(`ArchiveModal.vue:52-87`).
+
+**Export.** The native save dialog offers `<folder name>-<YYYY-MM-DD>.zip`
+(the date in UTC) with a "Zip" filter. Then Rust (`export_to`,
+`archive.rs:149-208`):
+
+* refuses a destination inside the workspace, which would be packed into
+  itself ("Save the archive outside the workspace — inside, it would be packed
+  into itself.", `archive_inside`);
+* walks the workspace with the folder-run walk: symbolic links are left out
+  and counted, and `.morion` is skipped at every depth. A workspace the walk
+  cannot see whole is refused rather than archived in part, with the reason
+  that applies: more than 20,000 files ("This workspace has more files than
+  one archive takes. Nothing was written.", `archive_too_many`) or folders
+  deeper than 32 levels ("This workspace has folders more than 32 levels deep,
+  which Morion does not enter, so an archive would be incomplete. Nothing was
+  written.", `archive_too_deep`) (`archive.rs:160-166`; `folder.rs:82-120`);
+* adds the root's `.morion/metadata.json` (tags, the Mana history and
+  checkpoint) when it is a regular file;
+* writes every file AS IT IS, an encrypted file still encrypted, nothing
+  decrypted or converted, each entry compressed with Deflate and sealed with
+  the zip format's own AES-256 (WinZip AE-2, the `zip` crate), under its
+  workspace-relative path, with its modification date (to the zip format's two
+  seconds; a file dated before 1980 goes without one);
+* builds the archive as `.<name>.part` beside the destination, flushes it to
+  disk, and only then renames it into place, so a failure leaves no
+  half-written zip under the chosen name ("The archive could not be written or
+  read.", `archive_io`).
+
+The report (`archive-exported`) reads "Exported {files} files ({sealed} of
+them encrypted), {size}." (`archive.exported`), where the files include the
+metadata file and the size is what was read from the workspace, before
+compression; then the archive's full path (70%), and "{n} symbolic links are
+left alone." when any were.
+
+**Import.** The native open dialog, with a "Zip" filter; the archive may sit
+anywhere, the workspace included, since it is only read. Then Rust
+(`import_from`, `archive.rs:333-485`):
+
+* refuses an archive of more than 100,000 entries ("Too big to unpack here.",
+  `archive_too_large`) and anything that is not a zip ("That archive is damaged
+  or is not a zip. What was already checked and unpacked stays.",
+  `archive_damaged`);
+* checks the password on the first encrypted entry before anything is
+  written, against the password verifier AES keeps beside each entry's salt:
+  none given for an encrypted archive is "An archive needs a password."
+  (`archive_no_password`), a wrong one "Wrong password for this archive.
+  Nothing was unpacked." (`archive_wrong_password`). The verifier lets about
+  one wrong password in 65,536 through; that one then fails the first entry's
+  authentication code as it is read, and is reported as damage (see below). A
+  zip without a password needs none (`archive.rs:340-354`). These refusals,
+  the two above and an archive file that cannot be opened at all
+  (`archive_io`) are the only ones that end an import as an error, and all of
+  them come before any file is written;
+* from then on never stops with an error, because files may already be in:
+  every failure is a line in the report (`archive.rs:359-452`). An entry whose
+  header cannot be read is reported by its position, `#<index>`, and ends the
+  import; an entry that cannot be opened is reported by its name, and ends the
+  import when the reason is damage, while a password that does not open that one
+  entry (an archive whose entries carry different passwords — the archive's
+  own password already opened its first encrypted entry) only skips it, with
+  "This file has a different password from the rest of the archive and was
+  skipped." (`archive_entry_password`), never the whole-archive sentence;
+* takes each entry on its own merits, refusing it with a reason and going on:
+  a symbolic-link entry; a name that is absolute or climbs with `..`; anything
+  under `.morion/` except the root's `metadata.json`, and a `.morion` folder
+  anywhere further down; an entry over 4 GiB, or one that would take the
+  total over 32 GiB; a path through a symbolic link already in the workspace;
+  a path where a file stands in the place of a folder the entry needs ("A file
+  here is in the way of a folder the archive needs.", `archive_blocked`)
+  (`entry_target`, `prepare_parent`, `archive.rs:212-264`);
+* keeps any file that already exists, never overwriting it;
+* creates the folders an entry needs, writes the entry to a temporary
+  `.<name>.morion-import` beside its target, reads it to the end (which is
+  when AES-256's authentication code is checked), requires the size the
+  archive declared, restores its modification date, and only then renames it
+  into place, again never over an existing file. An entry whose data fails its
+  check (or is not the size declared) stops the import there: what was already
+  verified and written stays, and nothing of the failed entry is left. An entry
+  that cannot be written is refused and the import goes on. Either way the
+  folders created for a refused entry are taken away again, innermost first,
+  as long as they are still empty, so no empty folder is left behind
+  (`write_entry`, `remove_made`, `archive.rs:266-331, 426-451`);
+* reads the archive's `metadata.json` rather than writing it; one that cannot
+  be read or does not parse is a report line, "The archive’s tags and history
+  are damaged and were left out; its files are unaffected." (`archive_meta`),
+  and the files come in without it (`archive.rs:403-419`);
+* merges a readable one: the tags of the files actually written join the
+  workspace's; a workspace that had no metadata file yet also takes the
+  archive's Mana history and checkpoint, while one that had keeps its own. If
+  the workspace's own metadata cannot be updated (it is damaged, say), the
+  files stay in, no tags are counted as having come along, and the report
+  carries a line for `.morion/metadata.json` with the reason
+  (`archive.rs:454-483`).
+
+The report (`archive-imported`) reads "{n} files unpacked."
+(`archive.written`), then at 70% "{n} files were already here and were kept as
+they are." (`archive.kept`, `archive-kept`) and "Tags came along for {n}
+files." (`archive.tagged`) when there are any, then in warn colour "{n} entries
+were refused:" (`archive.skipped`) with one line per refusal, "name: sentence"
+(`archive-skipped-{i}`, 0-based), the name being the entry's name in the
+archive, `#<index>` for an entry whose header could not be read, or
+`.morion/metadata.json` for a merge that failed; each reason is put through
+`workspace.errors.*` and shown as it came when it has no sentence. After an
+import the Files panel re-reads the tree, with its padlocks, and the Mana bar
+is read again (`SettingsView.vue:53-57`); the plain files that came in drain
+Mana like any others.
+
+| Rust prefix | Sentence (`workspace.errors.*`) |
+|---|---|
+| `archive_no_password` | "An archive needs a password." |
+| `archive_wrong_password` | "Wrong password for this archive. Nothing was unpacked." |
+| `archive_inside` | "Save the archive outside the workspace — inside, it would be packed into itself." |
+| `archive_too_many` | "This workspace has more files than one archive takes. Nothing was written." |
+| `archive_too_deep` | "This workspace has folders more than 32 levels deep, which Morion does not enter, so an archive would be incomplete. Nothing was written." |
+| `archive_too_large` | "Too big to unpack here." |
+| `archive_damaged` | "That archive is damaged or is not a zip. What was already checked and unpacked stays." |
+| `archive_io` | "The archive could not be written or read." |
+| `archive_blocked` | "A file here is in the way of a folder the archive needs." |
+| `archive_meta` | "The archive’s tags and history are damaged and were left out; its files are unaffected." |
+| `archive_entry_password` | "This file has a different password from the rest of the archive and was skipped." |
+
+(`apps/morion/src/files/fs.ts:18-44`; `apps/morion/src/i18n/en.ts:278-288`.)
+The wrong-password sentence is the same when it names one skipped entry in a
+report, although other entries may have been unpacked.
+
+In the browser build the buttons are enabled only with a stale
+`zinnia:workspace`, and a run then fails with the bridge's own error text,
+since there is no Rust to answer.
+
+### What a file may bring with it (Protection tab)
+
+| Control | Text | Key | `data-testid` | Does | Source |
+|---|---|---|---|---|---|
+| Heading (`shield-halved` icon, dimmed) and help | "What a file may bring with it"; "A presentation can carry raw markup — a drawing, or a legacy HTML block. These decide what happens to it. All three are off to begin with: the first costs a little to draw, and the other two change how somebody else's document looks." | `settings.markup.title`, `.help` | none | | `SettingsView.vue:228-232` |
+| Checkbox "Render a file’s own markup in isolation" | note: "Puts those blocks in a scope of their own, so a stylesheet inside one cannot restyle the app around it. An inline drawing does not scope its own styles, so without this it reaches the whole window. Costs a little to draw, which is why it is off to begin with." | `settings.markup.isolate.label`, `.note` | `switch-isolate` (row `switch-row-isolate`, card `markup-safety`) | Writes `zinnia:sandbox` = "1" on, "0" off. On, a deck's `svg` and `html` payloads are painted inside an open shadow root (`ShadowHtml`, `data-testid="shadow-host"`) with a tiny reset: `:host { display: contents }` plus `img, svg { max-width: 100%; max-height: 100%; height: auto }`; inherited properties (font, colour, block scale) still cross the boundary. The root is attached once per block and its contents replaced whenever the payload or a switch changes (`ShadowHtml.vue:28-31, 33-53`). If `attachShadow` throws, the block renders as nothing rather than falling back. An `html` block is only isolated, or painted at all, when the surface also passes `trust-html` (both the editor canvas and the player do); a surface that does not shows the hard-coded placeholder "Legacy HTML slide" whatever the switch says (`SlideBlock.vue:107-109`). | `SettingsView.vue:234-248`; `useMarkupSafety.ts:30-34, 62-69`; `SlideBlock.vue:84-85, 107-108` |
 | Checkbox "Block style sheets" | note: "Takes stylesheets out of that markup before it is drawn at all. A deck that styles itself will come out plain." | `settings.markup.blockStyles.label`, `.note` | `switch-blockStyles` (row `switch-row-blockStyles`) | Writes `zinnia:blockStyles` = "1" on, "0" off. On, `<style>` elements and `<link rel=stylesheet>` are removed from `svg` and `html` payloads before drawing; style attributes are kept. The file is never changed. | `apps/morion/src/security/scrub.ts:40-60` |
 | Checkbox "Block scripts" | note: "Takes scripts, event handlers and javascript: links out of it. They already cannot run — the window only executes the app’s own files — so this is for keeping them out of the page entirely." | `settings.markup.blockScripts.label`, `.note` | `switch-blockScripts` (row `switch-row-blockScripts`) | Writes `zinnia:blockScripts` = "1" on, "0" off. On, `<script>` elements are dropped, every attribute whose name starts with `on` is removed, and `href`, `src` and `xlink:href` are removed when their value is `javascript:` after any leading whitespace or control characters (so `java\tscript:` is caught). Other attributes are never inspected. | `scrub.ts:25-28, 62-74` |
 
 Each row is one `<label>`, so a click anywhere on the row, the bold label or
-the note, toggles its checkbox (`SettingsView.vue:116-127`). The three switches
+the note, toggles its checkbox (`SettingsView.vue:236-247`). The three switches
 reach only `svg` and `html` blocks. A deck's `heading`, `text`, `list` and
 `quote` payloads are rich HTML from the file too, but they are rendered with
 `v-html` in the page itself, unscrubbed and outside any shadow root, whatever
@@ -2872,9 +3418,10 @@ string "1" reads as off. They are module-level refs shared with every
 storage is blocked or full, a pick or a toggle still takes effect for the
 session (the property is set and the switch ref flips before the write) and is
 only not remembered (`systemColors.ts:91-97`; `useMarkupSafety.ts:62-69`).
-Nothing in Settings has a key binding, and Settings behaves the same in a
-browser, where the search setting is kept too although the browser build's
-search finds nothing.
+The only keys Settings answers are the tab row's arrows, Home and End (see The
+tabs). Settings behaves the same in a browser, where the search setting and
+the tab are kept too although the browser build's search finds nothing and the
+archive has no Rust to run in.
 
 ## Keyboard shortcuts
 
@@ -2886,15 +3433,15 @@ The window handlers test only Ctrl/Cmd plus the letter, never Shift or Alt:
 Ctrl+Shift+S and Ctrl+Alt+S save, Ctrl+Shift+O opens, and in the Drawing
 editor Ctrl+Shift+Y redoes (`DocumentEditor.vue:281`,
 `PresentationEditor.vue:340`, `SheetEditor.vue:196`, `SketchEditor.vue:215,
-222`, `EditorHost.vue:574`). In the Write body Ctrl+Shift+S also toggles
+222`, `EditorHost.vue:604`). In the Write body Ctrl+Shift+S also toggles
 TipTap's strike-through (no toolbar button) on the way to saving. Only ACE's
 Ctrl+S is exact.
 
 | Keys | Action | Where it applies | Gated by active | Other gates | Source |
 |---|---|---|---|---|---|
-| Escape | Close the ☰ menu | focus inside the menu wrapper | no | not stopped: with a drawing open the same Escape also clears the shape selection | `App.vue:294` |
-| Escape | Close the file shield's panel | focus inside the shield's wrapper, as it is right after the shield was clicked | no | same drawing note | `App.vue:432` |
-| Ctrl+O / Cmd+O | Open… (discard prompt first if dirty) | window, any editor or the start screen | yes | not when focus is in an `INPUT` or `TEXTAREA`, which includes ACE's hidden input textarea (so in the Code, Markdown and bare text editors it only works after focus has left the buffer, which is focused on open), the workspace search box and the fields of the passphrase, folder and tag dialogs; with no workspace it shows "Choose a workspace folder first." in the header instead, although the menu's Open… is greyed then; in the browser build it opens the hidden file input; not gated by the discard prompt (pressed while the prompt is open it re-arms the prompt for Open and the action that first raised it is abandoned) or by the other dialogs; works during Present | `EditorHost.vue:566-578, 603` |
+| Escape | Close the ☰ menu | focus inside the menu wrapper | no | not stopped: with a drawing open the same Escape also clears the shape selection | `App.vue:330` |
+| Escape | Close the file shield's panel | focus inside the shield's wrapper, as it is right after the shield was clicked | no | same drawing note | `App.vue:469` |
+| Ctrl+O / Cmd+O | Open… (discard prompt first if dirty) | window, any editor or the start screen | yes | not when focus is in an `INPUT` or `TEXTAREA`, which includes ACE's hidden input textarea (so in the Code, Markdown and bare text editors it only works after focus has left the buffer, which is focused on open), the workspace search box and the fields of the passphrase, folder, tag, Mana prompt and archive dialogs; with no workspace it shows "Choose a workspace folder first." in the header instead, although the menu's Open… is greyed then; in the browser build it opens the hidden file input; not gated by the discard prompt (pressed while the prompt is open it re-arms the prompt for Open and the action that first raised it is abandoned) or by the other dialogs; works during Present | `EditorHost.vue:596-608, 633` |
 | Ctrl+S / Cmd+S | Save the document | Write editor, window | yes | not while busy; fires from dialog inputs (including the passphrase, folder and tag dialogs), the workspace search box and the header too; NOT gated on the "not a document" panel: there it emits a serialised blank document and the host writes it over the file (the menu's Save is disabled on that panel, Ctrl+S is not) | `DocumentEditor.vue:277-285, 147-152, 163-181` |
 | Enter | Insert the formula | Write editor, Formula dialog field | n/a | on key release (`OyaTextField`'s keyup), with any modifier held; an empty field is ignored | `DocumentEditor.vue:495`; `OyaTextField.vue:30` |
 | Mod-Z, Mod-Shift-Z, Mod-Y, Mod-B, Mod-I, Mod-U, Mod-Alt-1 to 3, Mod-Shift-8, Mod-Shift-7, Mod-Shift-B, Mod-Alt-C, Mod-Shift-S, Mod-E, Shift-Enter / Mod-Enter | TipTap defaults: undo, redo, bold, italic, underline, headings, bullet list, numbered list, blockquote, code block, strikethrough, inline code, hard line break | Write editor body, focus inside | n/a | | `cyprianSchema.ts:164-175` |
@@ -2923,26 +3470,31 @@ Ctrl+S is exact.
 | Escape | Clear the selection; inside a picker, close the picker | Drawing editor | yes | same gates as Undo; picker panel overrides | `SketchEditor.vue:228-230`; `SketchPickerModal.vue:40` |
 | Shift (held) | Snap rotation to 15° | Drawing canvas, rotate drag | n/a | read on every pointer move, so pressing or releasing Shift mid-drag changes snapping from the next movement | `SketchCanvas.vue:275-279`; `sketchModel.ts:144` |
 | Enter | Confirm Add text | Drawing editor, Add text field | n/a | on key release (`OyaTextField`'s keyup), with any modifier held; an empty field is ignored | `SketchEditor.vue:309`; `OyaTextField.vue:30` |
-| Enter | Submit the passphrase dialog | the passphrase dialog in any mode (open, encrypt, decrypt), either password field | n/a | ignored while busy; with an empty password it shows "Enter the password." rather than staying inert (the button is disabled, the key is not); when encrypting a mismatch shows the mismatch error | `LockModal.vue:52-62, 98, 102` |
-| Enter | Run the folder dialog | the folder dialog, either password field | n/a | only when the run button would be enabled; otherwise nothing happens (a mismatch between the two fields is already shown as they are typed) | `FolderLockModal.vue:71-79, 88-89, 151, 155` |
-| Enter | Save the tags | the tag dialog, any of the three fields | n/a | ignored while loading or saving | `TagModal.vue:64-66, 92` |
-| Enter | Run a row shield or open the folder dialog from a folder shield | the shield focused (Tab reaches it right after its row) | n/a | the row itself is not opened or toggled; Space does nothing on a shield | `FilesPanel.vue:312, 324` |
+| Enter | Submit the passphrase dialog | the passphrase dialog in any mode (open, encrypt, decrypt, change passphrase), any of its password fields | n/a | ignored while busy; with an empty password it shows "Enter the password." rather than staying inert (the button is disabled, the key is not); when encrypting a mismatch shows the mismatch error; when changing the passphrase an empty new password, a mismatch or a new password equal to the current one shows its sentence | `LockModal.vue:62-107, 125, 129, 133` |
+| Enter | Run the folder dialog | the folder dialog, either password field | n/a | only when the run button would be enabled; otherwise nothing happens (a mismatch between the two fields is already shown as they are typed) | `FolderLockModal.vue:72-80, 91-92, 153, 157` |
+| Enter | Save the tags | the tag dialog, any of the three fields | n/a | ignored while loading or saving | `TagModal.vue:56-57, 81` |
+| Enter | Encrypt the ticked files | the Security Mana prompt, either password field | n/a | only when the run button would be enabled (a file ticked, both fields equal and not empty); otherwise nothing happens | `ManaPrompt.vue:97-98, 110-111, 165, 169` |
+| Enter | Run the archive dialog | the archive dialog, either password field | n/a | only when the run button would be enabled: always for an import, for an export once both fields agree and are not empty | `ArchiveModal.vue:56-60, 67-68, 109, 113` |
+| Enter | Run a row shield, open the passphrase dialog from a row's key, or open the folder dialog from a folder shield | the shield or key focused (Tab reaches it after its row) | n/a | the row itself is not opened or toggled; Space does nothing on a shield or key | `FilesPanel.vue:366, 380, 390` |
+| → / ←, Home, End | Next or previous Settings tab, wrapping; first or last tab | Settings, focus on a tab | no | focus follows the selected tab; any other key is left alone | `SettingsView.vue:83-98, 112` |
 
 Ctrl+S on a refusal panel is safe only in the Drawing editor, whose handler
 returns while `sketch` is null. In Write and Presentations the handler still
 runs and saves the editor's empty seed document over the file; in Sheet it
 re-writes the bytes that were read.
 
-The dialogs that encryption, tags and Mana brought (passphrase, folder, tag,
-Mana confirmation) do not hold the editors' window shortcuts. Ctrl+S typed in
+The dialogs that encryption, tags, Security Mana and the archive brought
+(passphrase, folder, tag, the Mana confirmation and prompt, the archive
+dialog) do not hold the editors' window shortcuts. Ctrl+S typed in
 one of their fields still saves the document behind it in Write and Sheet,
 whose handlers do not look at the focus target; Presentations and Drawing
 ignore it inside an input.
 
 There is no shortcut for the Files panel, the workspace search, Workspace
 security, Settings, New, Save As, the export commands, the file shield,
-encrypting or decrypting, tags, the language or dark-mode toggles, the
-workspace picker or the recent list, or any dialog's buttons (Ctrl+N is
+encrypting, decrypting or changing a passphrase, tags, the Mana bar, the
+workspace archive, the language or dark-mode toggles, the workspace picker or
+the recent list, or any dialog's buttons (Ctrl+N is
 unbound, and Ctrl+Shift+S is plain Save, see above). No modal in the app
 closes on Escape except the drawing pickers and the deck player; `OyaModal`
 closes only on a backdrop click or its own buttons
@@ -2954,8 +3506,9 @@ shield's panel is a popover, not a modal, and does close on Escape.
 Three places hold anything across a restart: the app's `localStorage`, the
 system keyring (one remembered passphrase), and each workspace's own
 `.morion/metadata.json`. Apart from these, the app writes only the files the
-user saves, encrypts, decrypts or exports, each through a short-lived sibling
-temporary (see Workspaces).
+user saves, encrypts, decrypts, gives a new passphrase or exports, the
+archives the user exports and the files an import unpacks, each through a
+short-lived sibling temporary (see Workspaces and Settings, Workspace archive).
 
 ### Browser storage
 
@@ -2965,28 +3518,33 @@ noted, so a blocked store only loses persistence.
 
 | Key | Values | Meaning | Written when | Source |
 |---|---|---|---|---|
-| `zinnia:dark` | "1" dark, "0" light | Dark mode. Absent: follows the OS; dark if `matchMedia` is unavailable. Not try/caught. | every change, including startup (immediate watcher) | `App.vue:31-39` |
-| `zinnia:files` | "0" closed, anything else (or absent) open | Whether the Files panel is toggled on. Default on. Not try/caught. | every toggle (no write at startup); the start screen's "Search the workspace" forces it on | `App.vue:78-79, 185-189` |
+| `zinnia:dark` | "1" dark, "0" light | Dark mode. Absent: follows the OS; dark if `matchMedia` is unavailable. Not try/caught. | every change, including startup (immediate watcher) | `App.vue:36-44` |
+| `zinnia:files` | "0" closed, anything else (or absent) open | Whether the Files panel is toggled on. Default on. Not try/caught. | every toggle (no write at startup); the start screen's "Search the workspace" forces it on | `App.vue:83-84, 213-217` |
 | `zinnia:locale` | "en", "pl" | UI language. Absent or unsupported: `navigator.language` starting "pl", else en. Try/caught. | the PL/EN button | `apps/morion/src/i18n/index.ts:17-33`; `packages/petalite/src/i18n/index.ts:31-59` |
 | `zinnia:workspace` | JSON `{"root": "<absolute path>"}` | The open workspace. Only the path is kept, and that is enough: the first refresh after launch hands it to Rust (`workspace_open`), which reopens it without a dialog and may answer a canonical spelling that is then stored back. Rust holds the open workspace in process memory only, so this key is what survives a restart. "Can’t read this folder." appears only when Rust refuses the remembered path (moved, deleted, not a folder). Removed only by `clearRoot()`, which no UI calls, so a workspace can be replaced but not forgotten. Try/caught. | every successful switch (a pick or the ☰ menu's Recent list), plus a re-write when the first refresh after launch gets a different canonical spelling back | `useWorkspace.ts:106, 164-181, 294-314, 381-392, 447-461` |
-| `zinnia:workspaces:recent` | JSON array of absolute paths, most recent first, at most 6, no duplicates | The folders that have been the workspace; the ☰ menu's Recent list shows them minus the open one. Read once at module load, try/caught; a non-array, or non-string entries, are dropped. Never pruned: `clearRoot()` leaves it alone and no UI clears it, so a folder deleted since stays listed, and choosing it is refused while the current workspace stays. | every successful switch; a refused folder is not added | `useWorkspace.ts:107-112, 183-201, 311`; `App.vue:85, 332-341` |
-| `zinnia:searchMode` | "quick", "full" or "hybrid" | The search algorithm (Settings → Search algorithm). Absent, unreadable or any other value: "hybrid". Read once at module load. Try/caught on read and write. | every pick in Settings | `apps/morion/src/files/searchSettings.ts:7-34` |
+| `zinnia:workspaces:recent` | JSON array of absolute paths, most recent first, at most 6, no duplicates | The folders that have been the workspace; the ☰ menu's Recent list shows them minus the open one. Read once at module load, try/caught; a non-array, or non-string entries, are dropped. Never pruned: `clearRoot()` leaves it alone and no UI clears it, so a folder deleted since stays listed, and choosing it is refused while the current workspace stays. | every successful switch; a refused folder is not added | `useWorkspace.ts:107-112, 183-201, 311`; `App.vue:90, 369-378` |
+| `zinnia:searchMode` | "quick", "full" or "hybrid" | The search algorithm (Settings → System → Search algorithm). Absent, unreadable or any other value: "hybrid". Read once at module load. Try/caught on read and write. | every pick in Settings | `apps/morion/src/files/searchSettings.ts:7-34` |
+| `zinnia:settingsTab` | "colors", "system" or "protection" | The Settings tab last shown. Read when Settings is first opened; absent, unreadable or any other value opens Colours. Try/caught on read and write. | every tab change, by click or by key | `apps/morion/src/views/SettingsView.vue:66-81` |
 | `zinnia:systemColors` | JSON `{accent, warning, success, highlight, mute}` of hex strings | The five system colours. Read once at module import; an older `{light, dark}` per-role shape is accepted, taking the light value; unparseable storage falls back to defaults silently. Merged per role, not all-or-nothing: a role that is missing (older build) or not a `#rgb`/`#rrggbb` string takes its default while the other stored roles are kept; only unreadable or unparseable JSON resets all five. | every pick and Restore defaults | `systemColors.ts:44, 50-54, 65-97`; `useSystemColors.ts:19-40` |
 | `zinnia:sandbox` | "1" on; written as "1"/"0"; anything else off | "Render a file's own markup in isolation". Read once at module load. Try/caught on read and write. | every toggle | `useMarkupSafety.ts:30-34, 40-46, 62-69` |
 | `zinnia:blockStyles` | "1" on; written as "1"/"0" | "Block style sheets". Try/caught. | every toggle | same |
 | `zinnia:blockScripts` | "1" on; written as "1"/"0" | "Block scripts". Try/caught. | every toggle | same |
 
+Nothing about Security Mana is kept in the browser: the bar, the rates and the
+history are read from Rust each time they are shown.
+
 ### The remembered passphrase
 
-Not in browser storage. When a passphrase dialog's Remember box is ticked and
-the dialog's action then succeeds (opening an encrypted file, encrypting or
-decrypting one from the file shield or a row shield, or fetching the key to
-save a file encrypted while open; see Encryption), the passphrase goes to Rust
-(`secret_remember`) and lives in the OS keyring, or in process memory until the
-app closes when no keyring is available. The front end can only ask whether one
-is remembered and where (`secret_status`) and forget it (`secret_forget`, the
-Workspace security view's "Forget it"); nothing returns it
-(`packages/padova/src/lock.ts:93-118`;
+Not in browser storage. When a Remember box is ticked and its dialog's action
+then succeeds (opening an encrypted file, encrypting or decrypting one from
+the file shield or a row shield, fetching the key to save a file encrypted
+while open, or changing a passphrase, which remembers the new one; and the
+Security Mana prompt once it encrypted at least one file; see Encryption), the
+passphrase goes to Rust (`secret_remember`) and lives in the OS keyring, or in
+process memory until the app closes when no keyring is available. The front
+end can only ask whether one is remembered and where (`secret_status`) and
+forget it (`secret_forget`, the Workspace security view's "Forget it");
+nothing returns it (`packages/padova/src/lock.ts:94-119`;
 `apps/morion/src-tauri/src/secrets.rs:9-29`). The keyring entry is one slot
 per app: service `com.spectrumaipl.zinnia` (the bundle identifier), account
 `file-passphrase`, so a keyring listing reveals only that the app is installed,
@@ -2995,20 +3553,27 @@ the passphrase, empties the memory slot so the two cannot disagree; only when
 the keyring refuses does the process-memory slot hold it. `secret_forget`
 clears both unconditionally. The read-back (`Locker::recall`) is `pub(crate)`,
 used only by the sealing functions inside Rust
-(`apps/morion/src-tauri/src/lib.rs:67-70`;
-`crates/padova/src/secrets.rs:31-118`).
+(`apps/morion/src-tauri/src/lib.rs:75-78`;
+`crates/padova/src/secrets.rs:31-118`). An archive's password is never
+remembered anywhere.
 
 ### `.morion/metadata.json`
 
 Each workspace keeps its own metadata file at
 `<workspace>/.morion/metadata.json` (`apps/morion/src-tauri/src/meta.rs`),
-created on the first tag save or the first Mana charge or event, written
-atomically and pretty-printed, hidden from the tree, the search, folder runs
-and the Workspace security counts, and refused by every command that takes a
-path ("That is Morion’s own metadata folder.", see Workspaces). It travels
-with the folder: copy the workspace and its tags and Mana history come along.
+written atomically, under one lock, and pretty-printed; hidden from the tree,
+the search, folder runs, the Mana walk and the Workspace security counts; and
+refused by every command that takes a path ("That is Morion’s own metadata
+folder.", see Workspaces). On the desktop it is created as soon as a workspace
+is opened, by the Mana bar's first look, which writes the first checkpoint; a
+tag save or a history row would create it too. In a folder that cannot be
+written it is never created, and the bar shows without it. It travels with
+the folder: copy the workspace and its tags, Security Mana history and
+checkpoint come along, and so the bar carries on from where it stood, counting
+the time in between. A workspace archive carries it too, and
+an import merges it (see Settings, Workspace archive).
 
-Morion writes three fields into it (`meta.rs:34-56`):
+Morion writes four fields into it (`meta.rs:38-89`):
 
 * `version`: 1.
 * `tags`: for each tagged file, keyed by its path relative to the workspace
@@ -3017,44 +3582,61 @@ Morion writes three fields into it (`meta.rs:34-56`):
   by design, including the tags of encrypted files. A file whose tags are all
   removed loses its entry.
 * `ledger`: the Security Mana history, at most 500 rows, oldest dropped first,
-  each with `ts`, `action`, an optional workspace-relative `path`, `cost` and
-  `note` (see Security Mana).
+  each with `ts`, `action`, an optional workspace-relative `path`, `cost` (0 on
+  every new row), `gain` (only on a passphrase change that earned something)
+  and `note` (see Security Mana).
+* `mana`: the Security Mana checkpoint, `level`, `at` (milliseconds since the
+  epoch) and `plain_bytes`, the bytes that were plain in the workspace at that
+  moment; absent until the first look (see Security Mana, Nothing ticks).
 
 It may never contain a passphrase, any byte read from a file's contents,
 decrypted or not, a search query, result or snippet, or an absolute path from
-anywhere (`meta.rs:13-16`; `mana.rs:30-33, 161-170`). A file there that does
-not parse is refused rather than overwritten: the header shows no tags, the tag
-dialog says "The workspace’s .morion/metadata.json is damaged, so tags cannot
-be changed. Nothing was changed." (`workspace.errors.meta_damaged`) when it
-opens and when it saves, Mana quietly shows no price and no confirmation and
-charges nothing, the Workspace security meters disappear and its history reads
-"Nothing yet." (its price table, which does not read the file, stays), and the
-search finds no tags, until the file is repaired or removed (`meta.rs:68-78`;
-`mana.rs:212-258`).
+anywhere (`meta.rs:17-20`; `mana.rs:32-35, 242-251`). What it does say in the
+clear: every tag, which files and folders were encrypted, decrypted or given a
+new passphrase and when, and how many bytes of the workspace were plain at the
+last look.
+
+A file there that does not parse is refused rather than overwritten
+(`meta.rs:95-105`): the header shows no tags, the tag dialog says "The
+workspace’s .morion/metadata.json is damaged, so tags cannot be changed.
+Nothing was changed." (`workspace.errors.meta_damaged`) when it opens and when
+it saves, and the search finds no tags. Security Mana has no status then
+(`settle`, `mana.rs:179-196`): the header bar is gone, the Mana blocks lose
+their "Now…" line, the prompt never opens by itself, and Workspace security
+shows no bar, flow or costliest files. Rates, which do not read the file,
+still show beside rows, in the file shield and in the Mana blocks, and so does
+the price table. History rows are silently not recorded and the history reads
+"Nothing yet." (`mana.rs:253-264, 352-359`); a passphrase change still happens
+but earns nothing. An archive import still writes its files; when the archive
+carries tags, they do not come along, and the report's line for
+`.morion/metadata.json` gives the damaged-file sentence. All of this
+lasts until the file is repaired or removed.
 
 ### Nothing else
 
 The search query and its results, the tree's expansion, the shield panel,
-zoom, tools, colours, language picks, undo stacks and the Source/Editor choice
-all live in mounted components or in the page's store and are lost on remount
-or restart; the tree's expansion is also lost on a workspace switch. The open
-file is not remembered: the app always starts on the start screen, with the
-remembered workspace reopened. Rust keeps the open workspace and the keys of
-open encrypted files only in process memory (`WorkspaceState`,
-`workspace.rs:38-54`; `SealSessions`, `sealed.rs:25-63`), so every such key is
+zoom, tools, colours, language picks, undo stacks, the Source/Editor choice,
+the Mana prompt's ticks and whether it already asked this time all live in
+mounted components or in the page's store and are lost on remount or restart;
+the tree's expansion is also lost on a workspace switch. The open file is not
+remembered: the app always starts on the start screen, with the remembered
+workspace reopened. Rust keeps the open workspace and the keys of open
+encrypted files only in process memory (`WorkspaceState`,
+`workspace.rs:40-56`; `SealSessions`, `sealed.rs:25-87`), so every such key is
 gone when the app closes. It registers no settings or window-state plugin
-(`lib.rs:74-111`), so window size and position are not restored either. Every
+(`lib.rs:80-135`), so window size and position are not restored either. Every
 editor persists only the file it writes.
 
 ## Test ids
 
 Grouped by region. `{…}` marks a variable part.
 
-### Header and shell (`App.vue`)
+### Header and shell (`App.vue`, `ManaBar.vue`)
 
 | `data-testid` | Element |
 |---|---|
-| `app-icon` | the app mark, first in the header |
+| `app-icon` | the app mark, in the centre of the header |
+| `header-left`, `header-right` | the header's two equal halves either side of the mark |
 | `app-menu` | the ☰ button |
 | `app-menu-panel` | the open menu panel |
 | `files-toggle` | the Files panel button |
@@ -3064,13 +3646,21 @@ Grouped by region. `{…}` marks a variable part.
 | `file-shield` | the encryption shield beside the file name (`data-sealed` is "1" or "0") |
 | `file-shield-panel` | its panel |
 | `file-shield-status` | the panel's status sentence |
+| `file-shield-rate` | the panel's Security Mana line: "Uses {rate} Security Mana an hour while it is not encrypted" (plain file, once Rust has rated it) or "Encrypted: uses no Security Mana." |
 | `file-shield-encrypt`, `file-shield-decrypt` | "Encrypt with a passphrase…" (plain file) and "Decrypt permanently…" (encrypted file); only one is present |
+| `file-shield-rekey` | "Change passphrase…" (encrypted file only) |
 | `file-shield-blocker` | "Save the file first." / "Save your changes first." |
 | `file-shield-limits` | what encryption does not hide |
 | `file-tags` | the tags button (only for a file with a path) |
 | `file-tag-{i}` | a tag chip in it, 0-based |
 | `file-error` | the host's file error: "Could not open the file. {sentence}", "Could not save. {sentence}", "Choose a workspace folder first.", "Not saved: the file is encrypted and its passphrase was not given.", or a failed decrypt's sentence |
 | `export-error` | "Could not export. {reason}" after an export that failed past its editor (editor view only) |
+| `mana-bar` | the Security Mana bar, a button (only while Rust answered a status); `data-level` is "ok", "low" or "empty", `data-trend` "up", "down" or "flat" |
+| `mana-bar-icon` | its droplet (from the `sm` width up) |
+| `mana-bar-track` | the box that holds the meter |
+| `mana-bar-meter` | the `<progress>` itself, with the same `data-level` |
+| `mana-bar-trend` | the up or down arrow (from `sm` up; absent while flat) |
+| `mana-bar-value` | the level as a whole number (from `lg` up) |
 | `dark-toggle` | the sun/moon button |
 | (none) | the unsaved dot, the notice and the PL/EN button carry no id |
 
@@ -3109,8 +3699,8 @@ Grouped by region. `{…}` marks a variable part.
 | `data-testid` | Element |
 |---|---|
 | `discard-cancel`, `discard-confirm` | the discard prompt's buttons |
-| `lock-consequence` | the consequence line in the host's passphrase dialog: what opening or decrypting permanently does (shown with or without a price), or "This file was encrypted while it was open. …" when the key is fetched for a save |
-| `oya-modal-overlay` | the overlay of every `OyaModal` (discard prompt, passphrase, folder and tag dialogs, Mana confirmation, Page setup, Formula, Insert a table, block editor, deck settings, Add text, pickers) |
+| `lock-consequence` | the consequence line in the host's passphrase dialog: what decrypting permanently does (with or without a Mana block), or "This file was encrypted while it was open. …" when the key is fetched for a save |
+| `oya-modal-overlay` | the overlay of every `OyaModal` (discard prompt, passphrase, folder and tag dialogs, Mana confirmation and prompt, archive dialog, Page setup, Formula, Insert a table, block editor, deck settings, Add text, pickers) |
 
 ### Files sidepanel (`FilesPanel.vue`, `FileTree.vue`)
 
@@ -3129,10 +3719,13 @@ Grouped by region. `{…}` marks a variable part.
 | `files-tree` | the scrollable tree (hidden while a query is typed) |
 | `files-row-{name}` | a tree row, by bare name |
 | `folder-shield-{name}` | a folder row's shield, by bare name |
+| `row-rate-{name}` | a plain file row's Security Mana rate, "{rate}/h", by bare name (once the price has arrived) |
+| `row-rekey-{name}` | an encrypted file row's key, "Change this file’s passphrase", by bare name |
 | `row-shield-{name}` | a file row's encrypt/decrypt shield, by bare name |
 | `files-nothing` | "Nothing here." |
 | `files-open-error` | the open-error line at the bottom |
-| `lock-consequence` | the consequence line in the row shields' passphrase dialog (decrypting, with a price) |
+| `files-rekey-note` | the line at the bottom saying what the last passphrase change from a row earned (hidden while an open error shows) |
+| `lock-consequence` | the consequence line in the Files panel's passphrase dialog (decrypting, with or without a Mana block) |
 
 The old name filter (`files-filter`) is gone; the search box replaced it.
 
@@ -3158,11 +3751,13 @@ The notes search's ids (`notes-search-panel`, `notes-search`, `notes-results`,
 |---|---|
 | `lock-open-hint` | the hint in `open` mode |
 | `lock-unlock-hint` | the hint in `unlock` mode (the `lock` mode hint has none) |
-| `lock-password` | the password field |
-| `lock-confirm` | the repeat field (`lock` mode only) |
+| `lock-rekey-hint` | the hint in `rekey` mode |
+| `lock-password` | the password field ("Current password" in `rekey` mode) |
+| `lock-new` | the new-password field (`rekey` mode only) |
+| `lock-confirm` | the repeat field (`lock` and `rekey` modes) |
 | `lock-remember` | the Remember checkbox |
 | `lock-error` | the error line |
-| `lock-submit` | Open / Encrypt / Decrypt (disabled until a password is typed); Cancel has no id |
+| `lock-submit` | Open / Encrypt / Decrypt / Change passphrase (disabled until a password, and in `rekey` mode a new one, is typed); Cancel has no id |
 
 ### Folder dialog (`FolderLockModal.vue`)
 
@@ -3172,11 +3767,13 @@ The notes search's ids (`notes-search-panel`, `notes-search`, `notes-results`,
 | `folder-preview-error` | a failed preview |
 | `folder-mode-lock`, `folder-mode-unlock` | the "Encrypt all" and "Decrypt all" radios |
 | `folder-note` | the explanation under them |
-| `folder-consequence` | the decrypt consequence line (with a price) |
+| `folder-consequence` | the decrypt consequence line (whenever "Decrypt all" is chosen); the Mana block under it is `mana-cost` |
 | `folder-password`, `folder-confirm` | the password and repeat fields (repeat only when encrypting) |
 | `folder-mismatch` | "Those two do not match." while the repeat field differs (encrypting only) |
 | `folder-error` | the error line |
+| `folder-deep` | the preview's note that folders more than 32 levels down are not entered |
 | `folder-report` | the report after a run |
+| `folder-report-truncated`, `folder-report-deep` | the report's lines when the run stopped at the file cap, or met folders it does not enter |
 | `folder-untried` | the report's line for files not tried after a wrong passphrase (only when a decrypt run stopped early) |
 | `folder-failure` | one failed file in the report |
 | `folder-close` | Cancel, then Close |
@@ -3189,19 +3786,36 @@ The notes search's ids (`notes-search-panel`, `notes-search`, `notes-results`,
 | `tag-field-0`, `tag-field-1`, `tag-field-2` | the three fields |
 | `tags-note` | the plain-text note |
 | `tags-sealed-note` | the sharper note for an encrypted file |
-| `tags-consequence` | "A new tag on an encrypted file is a word about it in plain text." above the price (encrypted file, with a price) |
 | `tags-error` | the error line |
 | `tags-save` | Save; Cancel has no id |
 
-### Security Mana (`ManaConfirm.vue`, `ManaCost.vue`)
+### Security Mana (`ManaConfirm.vue`, `ManaCost.vue`, `ManaPrompt.vue`)
+
+The header bar's ids are under Header and shell.
 
 | `data-testid` | Element |
 |---|---|
 | `mana-consequence` | the confirmation's consequence sentence |
 | `mana-cancel`, `mana-continue` | the confirmation's buttons |
-| `mana-cost` | the price block, wherever it appears (confirmation, passphrase, folder and tag dialogs) |
-| `mana-after` | "Leaves … of 100 for today and … of 700 for the week." |
-| `mana-exhausted` | the used-up warning inside a price block |
+| `mana-cost` | the Mana block, wherever it appears (confirmation, passphrase and folder dialogs) |
+| `mana-rate` | its first line: "Adds about {rate} Mana an hour…" or "Saves {rate} Mana an hour." |
+| `mana-now` | its "Now {level} of {max}…" line (while a status is known) |
+| `mana-exhausted` | its at-zero warning (an act that adds, with the bar at zero) |
+| `mana-prompt` | the body of the prompt that opens when the bar runs out, or from "Encrypt some files…" |
+| `mana-prompt-why` | its opening sentence |
+| `mana-prompt-file-{i}` | a file's checkbox, 0-based, most expensive first |
+| `mana-prompt-rate-{i}` | that file's rate, "{rate}/h" |
+| `mana-prompt-saving` | "{n} files chosen: saves {rate} an hour." |
+| `mana-prompt-password`, `mana-prompt-confirm` | the password and repeat fields |
+| `mana-prompt-mismatch` | "Those two do not match." while the fields differ |
+| `mana-prompt-remember` | the Remember checkbox |
+| `mana-prompt-error` | the error line |
+| `mana-prompt-report` | the report after a run |
+| `mana-prompt-later` | "Not now", then "Close" |
+| `mana-prompt-run` | "Encrypt {n} files" |
+
+The earlier budget's ids (`mana-after`, `mana-meter-daily`, `mana-meter-weekly`,
+`mana-price-{action}`, `tags-consequence`) are gone.
 
 ### Workspace security (`WorkspaceSecurity.vue`)
 
@@ -3213,14 +3827,22 @@ The notes search's ids (`notes-search-panel`, `notes-search`, `notes-results`,
 | `security-summary` | the Files section |
 | `security-count-sealed`, `security-count-plain`, `security-count-files` | the three counts |
 | `security-truncated` | the note that the count stopped at 20,000 files |
+| `security-deep` | the note that folders more than 32 levels down were not counted |
+| `mana-not-kept` | the Mana section's note that a folder that cannot be written keeps Mana only while Morion runs |
 | `security-passphrase` | the Passphrase section |
 | `security-secret-status` | its sentence |
 | `security-forget` | Forget it (only while one is remembered) |
 | `security-mana` | the Security Mana section |
-| `mana-meter-daily`, `mana-meter-weekly` | the two meters |
-| `security-mana-exhausted` | the used-up warning under them |
+| `mana-level` | the bar block (the `<progress>` inside it has no id) |
+| `mana-level-value` | "{level} / {max}" |
+| `mana-flow` | "{files} plain files use {drain} an hour; …" |
+| `mana-eta` | "Empty in about {hours} h…" / "Full in about {hours} h…" (absent while the bar cannot move) |
+| `security-mana-exhausted` | the at-zero warning |
+| `mana-top` | the costliest plain files block |
+| `mana-top-{i}` | one of those files, 0-based, most expensive first |
+| `security-encrypt-some` | "Encrypt some files…", which opens the Mana prompt |
 | `mana-prices` | the price table |
-| `mana-price-{id}` | a price cell: `unlock_temp`, `decrypt_file`, `decrypt_folder`, `export_plain`, `tag_sealed` |
+| `mana-price-per-kb-hour`, `mana-price-regen`, `mana-price-rekey` | its three value cells: 0.01, +1, +10 |
 | `security-history` | the Recent security actions section |
 | `security-history-empty` | "Nothing yet." |
 | `security-history-{i}` | a history row, newest first, 0-based |
@@ -3318,18 +3940,38 @@ uses them.
 | `ace-host` | the ACE buffer |
 | `image-view`, `image-preview` | the image viewer container and its `<img>` |
 
-### Settings (`SettingsView.vue`)
+### Settings (`SettingsView.vue`, `ArchiveModal.vue`)
 
 | `data-testid` | Element |
 |---|---|
-| `role-{role}` for `accent`, `warning`, `success`, `highlight`, `mute` | a colour row |
+| `settings-tabs` | the tab row (`role="tablist"`) |
+| `settings-tab-{tab}` for `colors`, `system`, `protection` | a tab (`role="tab"`, `aria-selected`) |
+| `settings-panel-{tab}` | that tab's panel (`role="tabpanel"`; all three stay mounted, only one is visible) |
+| `role-{role}` for `accent`, `warning`, `success`, `highlight`, `mute` | a colour row (Colours) |
 | `color-{role}` | its `<input type="color">` |
 | `primary-text` | the Body text row |
 | `colors-reset` | Restore defaults |
-| `search-modes` | the search algorithm card |
+| `search-modes` | the search algorithm card (System) |
 | `search-mode-row-{mode}` for `quick`, `full`, `hybrid` | an algorithm row |
 | `search-mode-{mode}` | its radio |
 | `search-privacy-note` | the note under the card |
-| `markup-safety` | the switches card |
+| `archive-actions` | the row holding the two archive buttons (System) |
+| `archive-export`, `archive-import` | "Export workspace…" and "Import archive…" |
+| `archive-no-workspace` | "Choose a workspace folder first." while no workspace is set |
+| `archive-export-modal`, `archive-import-modal` | the archive dialog's body, by direction |
+| `archive-what` | what the run will do |
+| `archive-limits` | what a zip does not hide (export only) |
+| `archive-mana` | the Security Mana note (import only) |
+| `archive-password` | the password field |
+| `archive-confirm` | the repeat field (export only) |
+| `archive-mismatch` | "Those two do not match." while the fields differ (export only) |
+| `archive-error` | the error line |
+| `archive-exported` | the export report |
+| `archive-imported` | the import report |
+| `archive-kept` | its line for files that were already there |
+| `archive-skipped-{i}` | one refused entry, 0-based |
+| `archive-close` | Cancel, then Close |
+| `archive-run` | "Choose where and export" / "Choose an archive and import" |
+| `markup-safety` | the switches card (Protection) |
 | `switch-row-{which}` for `isolate`, `blockStyles`, `blockScripts` | a switch row |
 | `switch-{which}` | its checkbox |

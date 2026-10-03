@@ -88,15 +88,15 @@ class AppSpec:
         return self.target_root() / "debug" / "bundle"
 
 
-#: The apps this builder family covers. Enigma is deliberately absent: it has
-#: its own builder with editions, signing and Android, and folding it in here
-#: would mean either losing that or forcing it on apps that have none.
+#: The apps built from this family's builders — today Morion alone, built by
+#: tools/morion_builder. Enigma is deliberately absent: it has its own builder
+#: with editions, signing and Android, and folding it in here would mean either
+#: losing that or forcing it on apps that have none.
 #:
-#: One app now. Sketch and Primula were the other two; their editors moved into
-#: Morion (formerly Lazurite), which opens drawings and sheets itself, and the
-#: apps were deleted.
-#: Kept a tuple so `--all`, the choices lists and the root check read the same.
-ZINNIA_APPS = ("morion",)
+#: Sketch and Primula were once here too; their editors moved into Morion
+#: (formerly Lazurite), which opens drawings and sheets itself, and the apps
+#: were deleted — as was the Zinnia Builder that built them.
+APPS = ("morion",)
 
 
 def load(root: Path, slug: str) -> AppSpec:
@@ -128,7 +128,7 @@ def load(root: Path, slug: str) -> AppSpec:
     )
 
 
-def load_all(root: Path, slugs: tuple[str, ...] = ZINNIA_APPS) -> list[AppSpec]:
+def load_all(root: Path, slugs: tuple[str, ...] = APPS) -> list[AppSpec]:
     """Every app that is actually present. A slug whose directory is missing is
     skipped rather than fatal, so the tool still runs in a partial checkout."""
     out: list[AppSpec] = []
@@ -150,6 +150,6 @@ def find_repo_root(start: Path | None = None) -> Path | None:
     here = (start or Path(__file__).resolve()).resolve()
     for candidate in (here, *here.parents):
         if (candidate / "package.json").is_file() and (candidate / "apps").is_dir():
-            if any((candidate / "apps" / a / "src-tauri").is_dir() for a in ZINNIA_APPS):
+            if any((candidate / "apps" / a / "src-tauri").is_dir() for a in APPS):
                 return candidate
     return None

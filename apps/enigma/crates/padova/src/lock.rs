@@ -139,6 +139,12 @@ impl SealSession {
         self.origin = path.to_string();
         Ok(LockedInfo { name: name_of(path), size: plain.len() as u64 })
     }
+
+    /// The file this session writes back to: the one it was opened from, or
+    /// the last Save As target.
+    pub fn origin(&self) -> &str {
+        &self.origin
+    }
 }
 
 /// Whether two headers are the same vault: same salt, same wrapped key. The
@@ -212,6 +218,48 @@ impl Locker {
         let plain = open(&dek, spec.aad, body)
             .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
         atomic_write(path, &plain)?;
+        Ok(LockedInfo { name: name_of(path), size: plain.len() as u64 })
+    }
+
+    /// Change the passphrase of a sealed file: re-encrypt it, in place, under
+    /// a NEW key.
+    ///
+    /// Not a re-wrap of the old key, although the two-tier frame would allow
+    /// one: a new passphrase is most often wanted because the old one may be
+    /// known to someone, and whoever knew it could have kept the key it
+    /// unwrapped. So the file gets a fresh salt and a fresh DEK, exactly as if
+    /// it had been encrypted for the first time — `create_vault_with_params`
+    /// and `seal`, nothing new — and the plaintext exists only in memory
+    /// between the open and the seal. The frame the file was in is kept, so
+    /// an enigma-locked file stays one.
+    ///
+    /// `password` is the current passphrase (`None`: the remembered one);
+    /// `new_password` must be given and must differ. A wrong current
+    /// passphrase fails before anything is written. An open [`SealSession`]
+    /// on the file is left with the old key and will refuse to write back
+    /// (`changed_on_disk`), as for any re-key — its owner opens it again.
+    pub fn rekey_file(&self, path: &str, password: Option<String>, new_password: String) -> Result<LockedInfo, String> {
+        let password = self.password_for(password)?;
+        if new_password.is_empty() {
+            return Err("no_passphrase: a new passphrase is needed".into());
+        }
+        if new_password == password {
+            return Err("same_passphrase: the new passphrase is the current one".into());
+        }
+        let bytes = read_capped(path)?;
+        if !substrate::is_known_frame(&bytes) && is_legacy(&bytes) {
+            return Err("legacy_format: that file was encrypted by the platform".into());
+        }
+        let (spec, header, body) = parse_frame(&bytes)?;
+        let old = gervasius::unlock(&header, &password)
+            .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
+        let plain = open(&old, spec.aad, body)
+            .map_err(|_| "wrong_password: wrong password or corrupt file".to_string())?;
+        let (header, dek) = create_vault_with_params(&new_password, KdfParams::default())
+            .map_err(|e| format!("crypto: {e:?}"))?;
+        let body = seal(&dek, spec.aad, &plain).map_err(|e| format!("crypto: {e:?}"))?;
+        let header_json = serde_json::to_vec(&header).map_err(|e| format!("crypto: {e}"))?;
+        atomic_write(path, &spec.frame(&header_json, &body))?;
         Ok(LockedInfo { name: name_of(path), size: plain.len() as u64 })
     }
 
@@ -473,6 +521,65 @@ mod tests {
         assert!(!SPEC.is_current(&on_disk));
         LOCKER.unlock_file(&path, Some("pw".into())).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"edited here");
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A new passphrase is a new key: the old passphrase stops opening the
+    /// file, the new one opens the same bytes, and the frame keeps its kind.
+    #[test]
+    fn a_rekey_changes_the_passphrase_and_the_key_but_not_the_contents() {
+        let path = tmp("rekey", b"the same words");
+        LOCKER.lock_file(&path, Some("old".into())).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let (before_header, _) = parse_frame(&before).map(|(_, h, b)| (h, b.to_vec())).unwrap();
+
+        let info = LOCKER.rekey_file(&path, Some("old".into()), "new".into()).unwrap();
+        assert_eq!(info.size, 14);
+        let after = std::fs::read(&path).unwrap();
+        let (_, after_header, _) = parse_frame(&after).unwrap();
+        assert!(!same_header(&before_header, &after_header), "a fresh vault, not the old one");
+        assert_ne!(before_header.salt, after_header.salt);
+        assert!(LOCKER.open_sealed(&path, Some("old".into())).unwrap_err().starts_with("wrong_password"));
+        let (_, plain) = LOCKER.open_sealed(&path, Some("new".into())).unwrap();
+        assert_eq!(plain, b"the same words");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_rekey_refuses_a_wrong_or_repeated_passphrase_and_leaves_the_file_alone() {
+        let path = tmp("rekey-refused", b"keep me");
+        LOCKER.lock_file(&path, Some("old".into())).unwrap();
+        let sealed = std::fs::read(&path).unwrap();
+        let wrong = LOCKER.rekey_file(&path, Some("guess".into()), "new".into()).unwrap_err();
+        assert!(wrong.starts_with("wrong_password"), "{wrong}");
+        let same = LOCKER.rekey_file(&path, Some("old".into()), "old".into()).unwrap_err();
+        assert!(same.starts_with("same_passphrase"), "{same}");
+        let empty = LOCKER.rekey_file(&path, Some("old".into()), String::new()).unwrap_err();
+        assert!(empty.starts_with("no_passphrase"), "{empty}");
+        assert_eq!(std::fs::read(&path).unwrap(), sealed, "untouched by every refusal");
+
+        let plain = tmp("rekey-plain", b"not sealed");
+        assert!(LOCKER.rekey_file(&plain, Some("old".into()), "new".into()).unwrap_err().starts_with("not_locked"));
+        assert_eq!(std::fs::read(&plain).unwrap(), b"not sealed");
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_file(&plain).ok();
+    }
+
+    #[test]
+    fn a_rekey_keeps_enigmas_frame_and_strands_an_open_session() {
+        let spec = FrameSpec::ENIGMA;
+        let (header, dek) = create_vault_with_params("pw", KdfParams::default()).unwrap();
+        let body = seal(&dek, spec.aad, b"from enigma").unwrap();
+        let path = tmp("rekey-enigma", &spec.frame(&serde_json::to_vec(&header).unwrap(), &body));
+        let (mut session, _) = LOCKER.open_sealed(&path, Some("pw".into())).unwrap();
+        assert_eq!(session.origin(), path);
+
+        LOCKER.rekey_file(&path, Some("pw".into()), "pw2".into()).unwrap();
+        assert!(spec.is_current(&std::fs::read(&path).unwrap()), "still ENIGLOCK");
+        // The session's key no longer opens the file: it must not write it.
+        assert!(session.write(&path, b"stale").unwrap_err().starts_with("changed_on_disk"));
+        let (_, plain) = LOCKER.open_sealed(&path, Some("pw2".into())).unwrap();
+        assert_eq!(plain, b"from enigma");
         std::fs::remove_file(&path).ok();
     }
 

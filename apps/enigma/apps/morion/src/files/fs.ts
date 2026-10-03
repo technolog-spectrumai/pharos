@@ -30,6 +30,17 @@ export const FS_ERRORS = [
   "tag_too_long",
   "tag_folder",
   "meta_damaged",
+  "archive_no_password",
+  "archive_wrong_password",
+  "archive_inside",
+  "archive_too_many",
+  "archive_too_large",
+  "archive_damaged",
+  "archive_io",
+  "archive_blocked",
+  "archive_meta",
+  "archive_too_deep",
+  "archive_entry_password",
 ] as const;
 
 export function fsErrorKey(message: string): string | null {

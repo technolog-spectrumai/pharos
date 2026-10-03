@@ -13,7 +13,7 @@ import { lockErrorKey, passphraseStatus } from "padova";
 import { dialogErrorKey, errorText } from "../files/fs";
 import { folderLock, folderPreview, type FolderPreview, type FolderReport } from "./folder";
 import ManaCost from "./ManaCost.vue";
-import { manaCharge, manaQuote, manaRecord, type ManaQuote } from "./mana";
+import { manaRate, manaRecord, refreshMana, type ManaRate } from "./mana";
 
 const props = defineProps<{
   open: boolean;
@@ -38,9 +38,9 @@ const remembered = ref(false);
 const busy = ref(false);
 const error = ref("");
 const report = ref<FolderReport | null>(null);
-/** What decrypting everything encrypted here would cost; shown in unlock
- *  mode, before the run. Charged afterwards by what was actually decrypted. */
-const quote = ref<ManaQuote | null>(null);
+/** What the folder costs in Security Mana now, and would cost decrypted:
+ *  encrypting says what it saves, decrypting what it adds. */
+const rate = ref<ManaRate | null>(null);
 
 watch(() => props.open, async (isOpen) => {
   if (!isOpen) return;
@@ -50,6 +50,7 @@ watch(() => props.open, async (isOpen) => {
   confirm.value = "";
   error.value = "";
   report.value = null;
+  rate.value = null;
   busy.value = false;
   try {
     remembered.value = (await passphraseStatus()).remembered;
@@ -60,7 +61,7 @@ watch(() => props.open, async (isOpen) => {
     preview.value = await folderPreview(props.path);
     // Offer the direction that has something to do.
     mode.value = preview.value.plain === 0 && preview.value.sealed > 0 ? "unlock" : "lock";
-    quote.value = preview.value.sealed > 0 ? await manaQuote("decrypt_folder", preview.value.sealed) : null;
+    rate.value = await manaRate(props.path);
   } catch (err) {
     previewError.value = sentence(errorText(err));
   }
@@ -94,9 +95,9 @@ async function run() {
   try {
     const result = await folderLock(props.path, password.value || null, mode.value === "unlock");
     report.value = result;
-    // Paid, or recorded, for what happened — not for what was asked.
-    if (mode.value === "unlock") await manaCharge("decrypt_folder", result.done.length, props.path);
-    else if (result.done.length) await manaRecord("encrypt_folder", props.path);
+    // Recorded for what happened — not for what was asked.
+    if (result.done.length) await manaRecord(mode.value === "unlock" ? "decrypt_folder" : "encrypt_folder", props.path);
+    await refreshMana();
     emit("done", result, mode.value);
   } catch (err) {
     error.value = sentence(errorText(err));
@@ -123,6 +124,7 @@ function failureText(failure: { path: string; error: string }): string {
         {{ t("folder.preview", { files: preview.files, plain: preview.plain, sealed: preview.sealed }) }}
         <span v-if="preview.links" class="opacity-60"> {{ t("folder.links", { n: preview.links }) }}</span>
         <span v-if="preview.truncated" class="text-warn-dark"> {{ t("folder.truncated") }}</span>
+        <span v-if="preview.deep" class="text-warn-dark" data-testid="folder-deep"> {{ t("folder.deep") }}</span>
       </p>
 
       <template v-if="preview && !report">
@@ -141,10 +143,9 @@ function failureText(failure: { path: string; error: string }): string {
           {{ t(mode === "lock" ? "folder.noteLock" : "folder.noteUnlock") }}
           {{ t("folder.noteCommon") }}
         </p>
-        <template v-if="mode === 'unlock' && quote">
-          <p class="text-xs" data-testid="folder-consequence">{{ t("mana.consequence.decrypt_folder") }}</p>
-          <ManaCost :quote="quote" />
-        </template>
+        <p v-if="mode === 'unlock'" class="text-xs" data-testid="folder-consequence">{{ t("mana.consequence.decrypt_folder") }}</p>
+        <ManaCost v-if="rate && mode === 'unlock' && rate.sealedFiles" :per-hour="rate.sealedPerHour" direction="adds" />
+        <ManaCost v-if="rate && mode === 'lock' && rate.plainFiles" :per-hour="rate.plainPerHour" direction="saves" />
 
         <input v-model="password" type="password" autocomplete="off"
                :placeholder="mode === 'unlock' && remembered ? t('folder.rememberedPlaceholder') : t('lock.password')"
@@ -167,6 +168,8 @@ function failureText(failure: { path: string; error: string }): string {
           {{ t("folder.reportUntried", { n: report.untried.length }) }}
         </p>
         <p v-if="report.failed.length" class="text-warn-dark">{{ t("folder.reportFailed", { n: report.failed.length }) }}</p>
+        <p v-if="report.truncated" class="text-warn-dark" data-testid="folder-report-truncated">{{ t("folder.truncated") }}</p>
+        <p v-if="report.deep" class="text-warn-dark" data-testid="folder-report-deep">{{ t("folder.deep") }}</p>
         <ul v-if="report.failed.length" class="max-h-32 overflow-y-auto text-xs opacity-80">
           <li v-for="f in report.failed" :key="f.path" data-testid="folder-failure">{{ failureText(f) }}</li>
         </ul>

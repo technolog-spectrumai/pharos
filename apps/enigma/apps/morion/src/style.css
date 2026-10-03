@@ -101,3 +101,37 @@ html, body, #app { min-height: 100%; }
   outline-offset: -1px;
   border-radius: 0.25rem;
 }
+
+/* ── Security Mana in the app bar ────────────────────────────────────────────
+   Native <progress> elements, restyled. WebKit — the desktop webview — draws
+   ::-webkit-progress-*; Gecko, for a browser build in Firefox, draws
+   ::-moz-progress-bar. The fill is the helmet's blue (brightened in dark mode,
+   as the mark is) and the warning red of the theme tokens when the bar is at a
+   quarter or below. Literal colours rather than theme variables: Tailwind only
+   emits the variables a utility uses, and these are read from plain CSS. */
+progress.mana-meter {
+  --mana-fill: #164eaf;
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  background-color: rgb(127 127 127 / 0.25);
+}
+.dark progress.mana-meter { --mana-fill: #4d8df5; }
+progress.mana-meter[data-level="low"],
+progress.mana-meter[data-level="empty"] { --mana-fill: #d94a4a; }
+.dark progress.mana-meter[data-level="low"],
+.dark progress.mana-meter[data-level="empty"] { --mana-fill: #ff4455; }
+progress.mana-meter::-webkit-progress-bar { background-color: transparent; }
+progress.mana-meter::-webkit-progress-value {
+  background-color: var(--mana-fill);
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+progress.mana-meter::-moz-progress-bar { background-color: var(--mana-fill); border-radius: 9999px; }
+.mana-ink { color: #164eaf; }
+.dark .mana-ink { color: #4d8df5; }

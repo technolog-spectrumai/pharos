@@ -52,7 +52,7 @@ def dev(app: AppSpec, *, web_only: bool = False, reset: bool = False) -> list[st
 
 
 def android(app: AppSpec, *, build_type: str = "release",
-            abi_spec: str = "arm64") -> list[str]:
+            abi_spec: str = "aarch64") -> list[str]:
     """An Android build, through the repo's already-generic script.
 
     `scripts/build_android.sh <app> <type> <abi>` resolves `apps/<app>` itself

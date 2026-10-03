@@ -12,10 +12,12 @@ those are the ones that carry the hard-won knowledge:
 * which Linux package format the host can actually produce, and saying so
   rather than implying an .rpm built on Ubuntu will run on Fedora.
 
-Duplicating that per app would mean a copy of each fix for every builder. So it lives here, imported by all four builders.
+Duplicating that per app would mean a copy of each fix for every builder. So it
+lives here, imported by both builders: `tools/enigma_builder` and
+`tools/morion_builder`.
 
-**What is NOT here**: anything that knows what an app IS. The zinnia apps have
-no editions, no feature matrix and no signing story, and inventing one for them
-to fit enigma's shape would be worse than the duplication. Each builder brings
+**What is NOT here**: anything that knows what an app IS. Morion has no
+editions, no feature matrix and no signing story, and inventing one for it to
+fit enigma's shape would be worse than the duplication. Each builder brings
 its own idea of what it is building; this package only knows how to run it.
 """

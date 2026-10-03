@@ -20,6 +20,6 @@
     "test:rust": "cargo test --workspace",
     "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\"",
     "test:all": "npm run test && npm run test:rust && npm run test:rust:net",
-    "builder:zinnia": "bash scripts/zinnia/builder.sh"
+    "builder:morion": "bash scripts/morion_builder.sh"
   }
 }

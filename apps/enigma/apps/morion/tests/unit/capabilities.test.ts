@@ -65,6 +65,10 @@ describe("this app's IPC surface", () => {
     // widen the list.
     const ALLOWED = new Set([
       "lock_file", "unlock_file", "is_file_locked",
+      // A passphrase change: re-encrypted under a new key, any open session
+      // moved along, and the Security Mana it earns credited by Rust itself
+      // (src-tauri/src/lock.rs) — there is no command that merely earns.
+      "rekey_file",
       "secret_remember", "secret_forget", "secret_status",
       // Morion alone supervises the PDF renderer: it is the app with a
       // writer and a deck to print. Primula and Sketch do not link pdf.rs at
@@ -86,12 +90,22 @@ describe("this app's IPC surface", () => {
       // A folder at a time, one passphrase: preview the counts, then run
       // (src-tauri/src/folder.rs).
       "folder_preview", "folder_lock",
+      // A chosen list of files, one passphrase: what the Security Mana
+      // prompt offers when the bar is empty.
+      "files_lock",
       // Tags: plain-text words in .morion/metadata.json, by path
       // (src-tauri/src/meta.rs).
       "tags_get", "tags_set", "tags_all",
-      // Security Mana: the page names an action, Rust prices it and keeps
-      // the ledger in .morion/metadata.json (src-tauri/src/mana.rs).
-      "mana_status", "mana_quote", "mana_charge", "mana_record", "mana_ledger", "mana_prices",
+      // Security Mana: plain files drain it by the kilobyte-hour, Rust
+      // derives the level from one checkpoint and keeps the history in
+      // .morion/metadata.json (src-tauri/src/mana.rs). The page reads; it
+      // never sends an amount.
+      "mana_status", "mana_rate", "mana_record", "mana_ledger", "mana_prices",
+      // The workspace as one AES-256 zip, out and back in
+      // (src-tauri/src/archive.rs). Each takes a password and nothing else:
+      // Rust opens the native dialog itself, so the page never names a path
+      // to write or read outside the workspace.
+      "archive_export", "archive_import",
     ]);
     const unexpected = registered().filter((n) => !ALLOWED.has(n));
     expect(unexpected).toEqual([]);

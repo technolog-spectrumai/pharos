@@ -117,6 +117,28 @@ describe("the folder shield's modal", () => {
   });
 });
 
+describe("what a run could not reach", () => {
+  it("says deep folders apart from the file cap, before the run and in its report", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "secret_status") return { remembered: false, storage: null };
+      if (cmd === "folder_preview") return { files: 2, plain: 2, sealed: 0, links: 0, truncated: false, deep: true };
+      if (cmd === "folder_lock") return { done: ["a.md", "b.md"], skipped: [], untried: [], failed: [], links: 0, truncated: true, deep: true };
+      throw new Error(cmd);
+    });
+    const w = mountModal();
+    await w.setProps({ open: true });
+    await settle();
+    expect(w.get('[data-testid="folder-deep"]').text()).toContain("more than 32 levels down are not entered");
+    expect(w.get('[data-testid="folder-preview"]').text()).not.toContain("run again");
+    await w.get('[data-testid="folder-password"]').setValue("pw");
+    await w.get('[data-testid="folder-confirm"]').setValue("pw");
+    await w.get('[data-testid="folder-run"]').trigger("click");
+    await settle();
+    expect(w.get('[data-testid="folder-report-truncated"]').text()).toContain("run again afterwards");
+    expect(w.get('[data-testid="folder-report-deep"]').exists()).toBe(true);
+  });
+});
+
 describe("a decrypt run that stopped at a wrong passphrase", () => {
   it("says which files were never tried and are still encrypted", async () => {
     invoke.mockImplementation(async (cmd: string) => {

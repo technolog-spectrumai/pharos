@@ -32,16 +32,27 @@ beforeEach(() => {
 });
 
 describe("the shell", () => {
-  it("shows the app's mark first in the bar, named for screen readers", async () => {
+  it("centres the app's mark in the bar, between two equal halves", async () => {
     const w = mountApp();
     await flushPromises();
     const icon = w.get('[data-testid="app-icon"]');
     expect(icon.element.tagName).toBe("IMG");
     expect(icon.attributes("alt")).toBe("Morion");
     expect(icon.attributes("src")).toMatch(/app-icon\.png/);
-    // First in the header: nothing stands before the mark.
-    const header = w.get("header").element;
-    expect(header.firstElementChild).toBe(icon.element);
+    // The header is exactly three parts, the mark in the middle.
+    const parts = [...w.get("header").element.children];
+    expect(parts.map((el) => el.getAttribute("data-testid"))).toEqual(["header-left", "app-icon", "header-right"]);
+    // Both halves grow equally from nothing, so their width never depends on
+    // what they hold — which is what keeps the mark centred. jsdom lays nothing
+    // out, so the classes are the thing to pin.
+    for (const half of [parts[0], parts[2]]) {
+      expect(half.classList.contains("flex-1"), half.getAttribute("data-testid")!).toBe(true);
+      expect(half.classList.contains("min-w-0"), half.getAttribute("data-testid")!).toBe(true);
+    }
+    expect(parts[2].classList.contains("justify-end")).toBe(true);
+    // The controls sit in their halves: the menu on the left, the toggles on the right.
+    expect(w.get('[data-testid="header-left"]').find('[data-testid="app-menu"]').exists()).toBe(true);
+    expect(w.get('[data-testid="header-right"]').find('[data-testid="dark-toggle"]').exists()).toBe(true);
   });
 
   it("has no editor tabs, and no Security or Settings on the top bar", async () => {

@@ -39,9 +39,16 @@
 //! said so) and the Security Mana ledger. Never a passphrase, never a byte
 //! of a file body.
 //!
-//! `mana` is the Security Mana budget: a price table, two rolling meters
-//! derived from the ledger, a quote before and a charge after. Advisory
-//! only — it warns, it never blocks.
+//! `mana` is the Security Mana budget: plain files drain it by the
+//! kilobyte-hour, it regenerates slowly, and changing an encrypted file's
+//! passphrase earns some back. One checkpoint in the metadata file; nothing
+//! ticks. Advisory only — it asks, it never blocks.
+//!
+//! `archive` exports the whole workspace as one password-protected zip (the
+//! zip format's own AES-256; files go in as they are, encrypted ones still
+//! encrypted) and unpacks one back, never overwriting and never leaving the
+//! workspace. Rust opens the save and open dialogs itself: the page never
+//! hands it a path.
 //!
 //! `lock` and `secrets` are SHIMS. The sealing itself lives in the padova crate
 //! and the frame in substrate (`crates/`), because more than one app comes out
@@ -54,6 +61,7 @@
 //! be a third. It is parked in limbo/cloud; reviving it means putting back the
 //! crates its LIMBO.md lists, not just the file.
 
+mod archive;
 mod folder;
 mod lock;
 mod mana;
@@ -81,6 +89,7 @@ pub fn run() {
             lock::lock_file,
             lock::unlock_file,
             lock::is_file_locked,
+            lock::rekey_file,
             secrets::secret_remember,
             secrets::secret_forget,
             secrets::secret_status,
@@ -99,15 +108,17 @@ pub fn run() {
             sealed::sealed_close,
             folder::folder_preview,
             folder::folder_lock,
+            folder::files_lock,
             meta::tags_get,
             meta::tags_set,
             meta::tags_all,
             mana::mana_status,
-            mana::mana_quote,
-            mana::mana_charge,
+            mana::mana_rate,
             mana::mana_record,
             mana::mana_ledger,
             mana::mana_prices,
+            archive::archive_export,
+            archive::archive_import,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

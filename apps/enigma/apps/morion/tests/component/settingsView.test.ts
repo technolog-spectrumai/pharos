@@ -162,3 +162,82 @@ describe("SettingsView — the search algorithm", () => {
     expect(useSearchMode().mode.value).toBe("quick");
   });
 });
+
+describe("SettingsView — three tabs", () => {
+  beforeEach(() => localStorage.clear());
+
+  const visible = (w: ReturnType<typeof mountSettings>, id: string) =>
+    (w.get(`[data-testid="settings-panel-${id}"]`).element as HTMLElement).style.display !== "none";
+
+  it("splits the page into Colours, System and Protection, and opens on Colours", () => {
+    const w = mountSettings();
+    const tabs = w.findAll('[role="tab"]');
+    expect(tabs.map((b) => b.text())).toEqual(["Colours", "System", "Protection"]);
+    expect(w.get('[role="tablist"]').attributes("aria-label")).toBe("Settings");
+    expect(w.get('[data-testid="settings-tab-colors"]').attributes("aria-selected")).toBe("true");
+    expect(visible(w, "colors")).toBe(true);
+    expect(visible(w, "system")).toBe(false);
+    expect(visible(w, "protection")).toBe(false);
+  });
+
+  it("puts each setting under its tab", () => {
+    const w = mountSettings();
+    const inside = (panel: string, testid: string) =>
+      w.get(`[data-testid="settings-panel-${panel}"]`).find(`[data-testid="${testid}"]`).exists();
+    expect(inside("colors", "color-accent")).toBe(true);
+    expect(inside("colors", "colors-reset")).toBe(true);
+    expect(inside("system", "search-modes")).toBe(true);
+    expect(inside("protection", "markup-safety")).toBe(true);
+    expect(inside("colors", "markup-safety")).toBe(false);
+    expect(inside("protection", "search-modes")).toBe(false);
+  });
+
+  it("shows one tab at a time, each tied to its panel for assistive tech", async () => {
+    const w = mountSettings();
+    await w.get('[data-testid="settings-tab-protection"]').trigger("click");
+    expect(visible(w, "protection")).toBe(true);
+    expect(visible(w, "colors")).toBe(false);
+    const tab = w.get('[data-testid="settings-tab-protection"]');
+    expect(tab.attributes("aria-selected")).toBe("true");
+    expect(tab.attributes("tabindex")).toBe("0");
+    expect(w.get('[data-testid="settings-tab-colors"]').attributes("tabindex")).toBe("-1");
+    const panel = w.get('[data-testid="settings-panel-protection"]');
+    expect(panel.attributes("role")).toBe("tabpanel");
+    expect(tab.attributes("aria-controls")).toBe(panel.attributes("id"));
+    expect(panel.attributes("aria-labelledby")).toBe(tab.attributes("id"));
+  });
+
+  it("moves along with the arrow keys, wrapping, and Home and End jump", async () => {
+    const w = mountSettings();
+    const list = w.get('[role="tablist"]');
+    await list.trigger("keydown", { key: "ArrowRight" });
+    expect(visible(w, "system")).toBe(true);
+    await list.trigger("keydown", { key: "ArrowRight" });
+    await list.trigger("keydown", { key: "ArrowRight" });
+    expect(visible(w, "colors")).toBe(true);
+    await list.trigger("keydown", { key: "ArrowLeft" });
+    expect(visible(w, "protection")).toBe(true);
+    await list.trigger("keydown", { key: "Home" });
+    expect(visible(w, "colors")).toBe(true);
+    await list.trigger("keydown", { key: "End" });
+    expect(visible(w, "protection")).toBe(true);
+  });
+
+  it("keeps a switched-away tab's state, and remembers the tab for next time", async () => {
+    const w = mountSettings();
+    await w.get('[data-testid="settings-tab-protection"]').trigger("click");
+    await w.get('[data-testid="switch-isolate"]').setValue(true);
+    await w.get('[data-testid="settings-tab-system"]').trigger("click");
+    await w.get('[data-testid="settings-tab-protection"]').trigger("click");
+    expect((w.get('[data-testid="switch-isolate"]').element as HTMLInputElement).checked).toBe(true);
+    await w.get('[data-testid="settings-tab-system"]').trigger("click");
+    w.unmount();
+
+    const again = mountSettings();
+    expect(visible(again, "system")).toBe(true);
+    // A value that is not a tab is ignored rather than trusted.
+    localStorage.setItem("zinnia:settingsTab", "nonsense");
+    const fresh = mountSettings();
+    expect(visible(fresh, "colors")).toBe(true);
+  });
+});
