@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Build Enigma as build.yaml says.
+# Build Enigma26 from a preset.
 #
-#   ./build.sh                 what build.yaml describes
-#   ./build.sh --dry-run       print the commands it resolves to, run none
-#   ./build.sh --config FILE   read another config instead of build.yaml
+#   ./build.sh                 Professional (pro.yaml)
+#   ./build.sh std.yaml        Standard — or any other config of the same shape
+#   ./build.sh --dry-run       print the commands the config resolves to, run none
 #
-# What is built — edition, debug or release, package formats, Android, tests —
-# is set in build.yaml and nowhere else. The build itself is Rutile's
-# (rutile/scripts/build.sh); this only finds it.
+# What is built — which features, debug or release, package formats, Android,
+# tests — is set in the config and nowhere else. The build itself is Rutile's
+# (rutile/scripts/build.sh); this only finds it and names the default.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,4 +20,4 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   exit 1
 }
 
-REPO_ROOT="$ROOT" exec bash "$ROOT/rutile/scripts/build.sh" "$@"
+REPO_ROOT="$ROOT" BUILD_CONFIG_DEFAULT=pro.yaml exec bash "$ROOT/rutile/scripts/build.sh" "$@"
