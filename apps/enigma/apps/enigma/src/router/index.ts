@@ -37,7 +37,7 @@ const router = createRouter({
     { path: "/chat", component: EnigmaChatView, name: "chat", beforeEnter: tabGuard("chat") },
     { path: "/files", component: EnigmaFilesView, name: "files", beforeEnter: tabGuard("files") },
     // Vox (voice calls) / calendar / contacts / map — build-gated editions
-    // (pland.md) on top of the per-user switch. The tab is called Vox; the build
+    // (technology.md §20) on top of the per-user switch. The tab is called Vox; the build
     // flag stays `calls_enabled`, matching build_config.yaml's section.
     { path: "/vox", component: EnigmaVoxView, name: "vox", beforeEnter: tabGuard("vox") },
     { path: "/calendar", component: EnigmaCalendarView, name: "calendar", beforeEnter: tabGuard("calendar") },

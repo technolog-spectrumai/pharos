@@ -1,6 +1,6 @@
 // Maps — imported offline PMTiles regions, private pins, and share
 // handoff, bridged through the `map_*` Tauri commands (src-tauri/src/maps.rs).
-// The app never downloads tiles (map.md Part II): region packages come from
+// The app never downloads tiles (technology.md §25): region packages come from
 // the standalone tools/map_packager and enter via import / P2P share only.
 // Desktop-only for anything touching tiles/blobs: every invoke is gated by
 // isTauri(); pins ride the kv layer (rakotis mapData) and therefore

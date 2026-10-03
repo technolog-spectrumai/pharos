@@ -3,7 +3,7 @@
 #
 # Selected with `ENIGMA_EDITION=basic` (build.rs reads this file instead of
 # ../build_config.yaml). Product rationale + the full feature matrix live in
-# pland.md; the per-key semantics are documented in ../build_config.yaml, which
+# technology.md §20; the per-key semantics are documented in ../build_config.yaml, which
 # stays the annotated reference copy.
 #
 # IN:  contacts, calendar, PIN unlock, device linking — plus everything that
@@ -14,7 +14,7 @@
 # INVARIANT: only the feature gates differ between editions. crypto:, network:
 # and settings: are byte-identical across basic/standard/professional —
 # network.max_frame_bytes in particular is wire-interop sensitive (a Basic peer
-# must be able to share a room with a Professional peer). See pland.md §3.
+# must be able to share a room with a Professional peer). See technology.md §20.3.
 # ─────────────────────────────────────────────────────────────────────────────
 
 app:

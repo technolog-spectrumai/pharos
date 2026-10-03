@@ -40,7 +40,7 @@ APP_DIR="$SCRIPT_DIR/apps/enigma"
 # Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
 # switch still defaults OFF). Both launch() subshells inherit the export.
 # Override: ENIGMA_EDITION=basic ./run2.sh   (first run after a switch = full
-# Rust rebuild, see build.md).
+# Rust rebuild, see technology.md §19).
 export ENIGMA_EDITION="${ENIGMA_EDITION:-professional}"
 
 # Per-edition identity (own bundle id ⇒ own data dir). Both launch()

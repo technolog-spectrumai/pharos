@@ -104,7 +104,7 @@ test.describe("Offline basemap assets", () => {
   });
 });
 
-// The app promises "no geolocation, no tracking" (technology.md §10, map.md).
+// The app promises "no geolocation, no tracking" (technology.md §10).
 // Location SHARING deliberately does not change that: the user taps a point,
 // the app never asks the device where it is. This makes the promise executable
 // rather than a sentence in a doc — a stray navigator.geolocation call, from

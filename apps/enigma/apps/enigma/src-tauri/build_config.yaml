@@ -26,7 +26,7 @@ dht:
   # no ticketless join-by-room-code, no nickname directory, no presence. The
   # Settings→Connections DHT card is hidden, the Contacts nickname/find-people
   # surfaces go with it, and dht_presence / dht_publish_nick / dht_find_nick /
-  # dht_apply fail fast with DHT_DISABLED. Pro only (pland.md).
+  # dht_apply fail fast with DHT_DISABLED. Pro only (technology.md §20).
   #
   # Requires p2p.allow_hosted_relays — build.rs rejects the combination, since
   # the rendezvous rides the iroh endpoint's hosted discovery.
@@ -75,7 +75,7 @@ maps:
   # false = this build has no Maps: no Map tab, /map redirects, and every map_*
   # command fails fast with MAPS_DISABLED. Default true ships the feature.
   # The app NEVER fetches tiles itself — region packages are produced by the
-  # standalone tools/map_packager and imported from the device (map.md Part II).
+  # standalone tools/map_packager and imported from the device (technology.md §25).
   enabled: true
 
 # PIN unlock: after an idle lock, re-open the vault with a short PIN on an

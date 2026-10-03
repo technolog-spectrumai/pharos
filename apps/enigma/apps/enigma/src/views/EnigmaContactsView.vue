@@ -44,10 +44,10 @@ defineProps<{ darkMode: boolean }>();
 
 const router = useRouter();
 const chatStore = useChatStore();
-// Non-null: the /contacts route is build-gated (pland.md), so this view only
+// Non-null: the /contacts route is build-gated (technology.md §20), so this view only
 // ever mounts in an edition where the composable exists.
 const invites = chatStore.invites!;
-// The DHT is its own build gate (Pro only — pland.md). When it is off there is
+// The DHT is its own build gate (Pro only — technology.md §20). When it is off there is
 // no Settings→Connections DHT card, so the surfaces below HIDE rather than
 // showing an "enable DHT discovery in Settings" hint that points nowhere.
 const dhtAllowed =
@@ -283,7 +283,7 @@ function openInviteFor(contact: ContactEntry) {
   inviteOpen.value = true;
 }
 
-// Calls are their own build gate (pland.md) — Contacts can ship without them,
+// Calls are their own build gate (technology.md §20) — Contacts can ship without them,
 // so the ring button is hidden and this is a no-op in a calls-off edition. The
 // button follows the Vox TAB (isTabVisible, src/tabs.ts) rather than the build
 // flag alone: ringing jumps to /vox, and a user who hid Vox would just be

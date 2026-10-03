@@ -353,7 +353,7 @@ const TOR_BLOCKED: &str = "Voice calls are unavailable in Tor mode.";
 /// Returned by every vox command in a build with calls.enabled: false.
 pub(crate) const CALLS_DISABLED: &str = "Voice calls are disabled in this build.";
 
-/// Compile-time feature gate (pland.md): a calls-off edition never registers the
+/// Compile-time feature gate (technology.md §20): a calls-off edition never registers the
 /// vox ALPN either, so this only backstops a frontend that asks anyway.
 fn ensure_calls_enabled() -> Result<(), String> {
     if !crate::build_config::calls::ENABLED {

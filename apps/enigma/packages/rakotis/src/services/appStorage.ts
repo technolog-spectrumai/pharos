@@ -78,23 +78,23 @@ export interface BuildConfig {
    *  false regardless of the stored setting, the Settings→Connections DHT card
    *  and the Contacts nickname/find surfaces are hidden, and dht_presence /
    *  dht_publish_nick / dht_find_nick / dht_apply error with DHT_DISABLED.
-   *  Pairing falls back to QR/ticket. (pland.md — Pro only.) */
+   *  Pairing falls back to QR/ticket. (technology.md §20 — Pro only.) */
   dht_enabled: boolean;
   /** false = this build has no 1:1 voice calls: no Vox tab, /vox redirects,
    *  useVoxCall is never instantiated, the vox ALPN is not accepted, and every
-   *  vox_* command errors with CALLS_DISABLED. (pland.md — Plus and up.) */
+   *  vox_* command errors with CALLS_DISABLED. (technology.md §20 — Plus and up.) */
   calls_enabled: boolean;
   /** false = this build has no Contacts: no Contacts tab, /contacts redirects,
    *  useRoomInvites is never instantiated and the invite ALPN is not accepted.
-   *  (pland.md — Pro only.) */
+   *  (technology.md §20 — Pro only.) */
   contacts_enabled: boolean;
   /** false = this build has no Calendar: no Calendar tab, /calendar redirects,
    *  useMeetings is never instantiated (no meetings, polls or reminder tick).
-   *  (pland.md — Pro only.) */
+   *  (technology.md §20 — Pro only.) */
   calendar_enabled: boolean;
   /** false = this build has no peer sync: the `enigma/plink/0` ALPN is not
    *  registered, usePeerSync is never instantiated, and every peer_* command
-   *  errors with PEERS_DISABLED. (peer.md; pland.md — Pro only.) */
+   *  errors with PEERS_DISABLED. (peer.md; technology.md §20 — Pro only.) */
   /** false = this build has no Maps: no Map tab, /map redirects, map_* commands
    *  error. The app never fetches tiles — region packages come from the
    *  standalone tools/map_packager and are imported from the device. */
@@ -427,7 +427,7 @@ export async function setMeetingReminderMins(mins: number): Promise<number> {
 
 // ── Maps (MapLibre + PMTiles — imported offline regions) ──────────────────────
 // The app never fetches tiles; region packages are produced by the standalone
-// tools/map_packager and imported from the device (map.md Part II).
+// tools/map_packager and imported from the device (technology.md §25).
 
 // Total on-disk budget for imported map regions, enforced in Rust before every
 // region import.

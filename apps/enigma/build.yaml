@@ -19,7 +19,7 @@ apps:
     # apps/enigma/src-tauri/configs/build_config.<edition>.yaml, and THAT file
     # is where the features, limits and crypto parameters are set (build.rs
     # validates it and bakes it into the binary). basic | standard |
-    # professional are the product line (pland.md); `custom` is a gitignored
+    # professional are the product line (technology.md §20); `custom` is a gitignored
     # file of your own. Remove the line to build the plain
     # src-tauri/build_config.yaml.
     edition: professional
@@ -39,7 +39,7 @@ apps:
 
     android:
       enabled: false
-      profile: debug            # debug | release (release needs a signing key — build.md)
+      profile: debug            # debug | release (release needs a signing key — technology.md §19)
       abis: [aarch64]           # aarch64 (phones) | x86_64 (emulator) | armv7 | i686, or [all]
       # A release that is deliberately NOT signed. It installs nowhere and
       # must never be distributed.

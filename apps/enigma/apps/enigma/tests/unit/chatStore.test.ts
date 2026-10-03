@@ -35,7 +35,7 @@ function makeP2pStub() {
 let p2pStub: ReturnType<typeof makeP2pStub>;
 
 // Per-test build-config overrides, layered over the real fallback config so a
-// test can simulate a product edition (pland.md) without a rebuild. The store
+// test can simulate a product edition (technology.md §20) without a rebuild. The store
 // reads getBuildConfig() at creation, hence the freshStore() argument.
 let buildFlags: Partial<Record<string, unknown>> = {};
 
@@ -108,7 +108,7 @@ describe("chat store — serverless P2P bootstrap", () => {
   });
 
   it("a Light edition instantiates none of the gated singletons", async () => {
-    // pland.md: Light ships chat + files only. The flags being off must mean the
+    // technology.md §20: Light ships chat + files only. The flags being off must mean the
     // composables are never created — not merely that their tabs are hidden — so
     // no sync handler for calls / meetings is registered at all and an
     // offer from a higher-edition peer lands as an unhandled sync type.
@@ -133,7 +133,7 @@ describe("chat store — serverless P2P bootstrap", () => {
   });
 
   it("a Plus edition instantiates vox and nothing else", async () => {
-    // pland.md: Plus is Light + Vox, full stop — Contacts, device linking and
+    // technology.md §20: Plus is Light + Vox, full stop — Contacts, device linking and
     // the DHT are all Pro. This pins the shape of that middle tier, which is
     // otherwise only expressed in a YAML no test reads.
     const store = await freshStore({

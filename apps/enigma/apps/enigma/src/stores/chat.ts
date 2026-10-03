@@ -28,7 +28,7 @@ function createChatStore() {
   // 1:1 voice calls — same lifetime rationale: an incoming ring (and its nav dot)
   // must be caught wherever the user is, and room-peer call offers ride this
   // channel's MLS group (onSync/sendSync seam) like file offers.
-  // Gated by the compile-time build flag (pland.md: Plus and up) — the same
+  // Gated by the compile-time build flag (technology.md §20: Plus and up) — the same
   // pattern as the other gated composables. A flag-off build never instantiates
   // it,
   // so it registers no sync handler at all: a call offer from a higher-edition

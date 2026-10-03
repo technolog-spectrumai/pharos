@@ -237,7 +237,7 @@ describe("MapShareCard — shared location", () => {
     expect(w.text()).toContain("Gate B");
     expect(w.text()).toContain("by the kiosk");
     expect(w.text()).toContain("10 min ago");
-    // Nothing happens until the button is pressed (map.md's rule for cards).
+    // Nothing happens until the button is pressed (the rule for cards, technology.md §10).
     expect(routerPush).not.toHaveBeenCalled();
     await w.findAll("button").find((b) => b.text().includes("Open in Maps"))!.trigger("click");
     expect(useMapStore().pendingFocus).toMatchObject({ type: "map_loc", lat: 52.4 });

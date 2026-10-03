@@ -47,7 +47,7 @@ describe("DHT discovery toggle", () => {
 // The build gate is checked BEFORE the kv read, mirroring the order in Rust's
 // p2p_dht::discovery_enabled. That order is what makes a profile carrying
 // `dht_discovery: "on"` from a Pro build read as OFF in a Light/Plus binary —
-// without the stored choice being destroyed. (pland.md — dht.enabled is Pro.)
+// without the stored choice being destroyed. (technology.md §20 — dht.enabled is Pro.)
 describe("DHT build gate (dht.enabled: false)", () => {
   it("reads OFF despite a stored 'on', and does not discard the setting", async () => {
     await setDhtDiscovery(true);

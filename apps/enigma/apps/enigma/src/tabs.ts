@@ -3,7 +3,7 @@
 //
 // Two independent gates decide whether a tab exists for the user, and they AND:
 //
-//   1. the BUILD gate (pland.md editions) — was the feature compiled in at all;
+//   1. the BUILD gate (technology.md §20 editions) — was the feature compiled in at all;
 //   2. this per-user switch — does the user want to see it.
 //
 // The build gate is the OUTER one, exactly as rakotis' getDhtDiscovery orders

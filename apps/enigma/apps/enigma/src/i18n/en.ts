@@ -416,7 +416,7 @@ export default {
     desktopOnlyTitle: "Maps require the desktop or mobile app",
     desktopOnlyHint: "Tiles, offline regions and sharing run through the app's encrypted backend.",
     noWebglTitle: "WebGL is unavailable",
-    noWebglHint: "The map canvas needs WebGL. On Linux WebKit, see build.md → Troubleshooting.",
+    noWebglHint: "The map canvas needs WebGL. On Linux WebKit, see technology.md §19 → Troubleshooting.",
     addPin: "Add pin",
     clickToPlace: "Click the map to place the pin",
     namePinTitle: "Name this pin",

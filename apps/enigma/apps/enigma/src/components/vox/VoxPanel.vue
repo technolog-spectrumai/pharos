@@ -18,7 +18,7 @@ const network = useNetworkStore();
 const canCall = computed(() => network.canCall);
 onMounted(() => { void network.refresh(); });
 // Non-null: this panel is only reachable through the build-gated /vox route
-// (pland.md), so it never renders in a calls-off edition.
+// (technology.md §20), so it never renders in a calls-off edition.
 const vox = chat.vox!;
 // Calling by nickname resolves through the DHT directory, which is its own
 // build gate (Pro only). Read here rather than in useVoxCall: the composable's

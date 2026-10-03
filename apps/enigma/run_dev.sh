@@ -29,7 +29,7 @@ APP_DIR="$SCRIPT_DIR/apps/enigma"
 # Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
 # switch still defaults OFF). Override: ENIGMA_EDITION=basic ./run_dev.sh
 # Note: build.rs re-runs on an edition switch, so the first run after changing
-# this triggers a full Rust rebuild (build.md).
+# this triggers a full Rust rebuild (technology.md §19).
 export ENIGMA_EDITION="${ENIGMA_EDITION:-professional}"
 
 APP_PROFILE="${APP_PROFILE:-default}"

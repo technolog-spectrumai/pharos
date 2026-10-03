@@ -152,7 +152,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         .max_message_size(crate::build_config::network::MAX_FRAME_BYTES)
         .spawn(endpoint.clone());
     // Gossip is the chat channel itself and is always accepted. The invite and
-    // vox ALPNs belong to build-gated features (pland.md): an edition without
+    // vox ALPNs belong to build-gated features (technology.md §20): an edition without
     // Contacts / Calls does not merely hide their UI — it never advertises the
     // protocol, so a dial from a higher-edition peer is refused at the ALPN
     // negotiation rather than ringing a surface that isn't there.

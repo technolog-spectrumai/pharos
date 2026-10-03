@@ -45,7 +45,7 @@ const SETTINGS_NS: &str = "p2p:settings";
 const SETTINGS_SCOPE: &str = "default";
 
 /// Returned by the `dht_*` commands that would otherwise do real work in a
-/// build with `dht.enabled: false` (Pro-only — pland.md). Mirrors MAPS_DISABLED
+/// build with `dht.enabled: false` (Pro-only — technology.md §20). Mirrors MAPS_DISABLED
 /// / PEERS_DISABLED. `dht_status` and `dht_room_code` deliberately do NOT use
 /// it: both already have a total "nothing here" value in their own return type.
 pub(crate) const DHT_DISABLED: &str = "DHT discovery is disabled in this build.";

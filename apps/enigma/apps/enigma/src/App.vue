@@ -261,7 +261,7 @@ watch(avatarDataUrl, (avatar) => {
 //
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
-// Calls / Contacts / Calendar (compile-time gated — pland.md): each is null in
+// Calls / Contacts / Calendar (compile-time gated — technology.md §20): each is null in
 // an edition without the feature, so every consumer below is null-guarded.
 const vox = chatStore.vox;
 const invites = chatStore.invites;

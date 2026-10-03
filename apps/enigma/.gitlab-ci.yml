@@ -164,7 +164,7 @@ tauri:desktop:
 
 # Android needs an SDK/NDK image plus signing configuration; the host-provisioning
 # scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)
-# and build.md documents the requirements. Not wired to a CI image yet.
+# and technology.md §19 documents the requirements. Not wired to a CI image yet.
 android:build:
   stage: build
   image: rust:1-bookworm
@@ -173,5 +173,5 @@ android:build:
   script:
     - echo "Android CI is not provisioned. Build locally:"
     - echo "  set android.enabled to true in build.yaml, then ./build.sh"
-    - echo "See build.md for SDK/NDK setup."
+    - echo "See technology.md §19 for SDK/NDK setup."
     - exit 1

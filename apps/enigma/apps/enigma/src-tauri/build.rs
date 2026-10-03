@@ -8,7 +8,7 @@
 //! WHICH yaml is chosen by the `ENIGMA_EDITION` env var (basic / standard /
 //! professional → `configs/build_config.<edition>.yaml`); unset keeps the
 //! historical `build_config.yaml`. A build sets it from `edition:` in the
-//! repo-root build.yaml (`./build.sh`). See pland.md for the product line.
+//! repo-root build.yaml (`./build.sh`). See technology.md §20 for the product line.
 
 use std::env;
 use std::fmt::Write as _;
@@ -529,7 +529,7 @@ const _: () = assert!(
     o
 }
 
-/// Product editions (pland.md). Each maps to `configs/build_config.<name>.yaml`;
+/// Product editions (technology.md §20). Each maps to `configs/build_config.<name>.yaml`;
 /// an unset ENIGMA_EDITION keeps the historical top-level build_config.yaml.
 /// `custom` is a local feature set of the developer's own: that file is
 /// gitignored, so a fresh checkout has no `custom` config and building one
@@ -545,7 +545,7 @@ fn resolve_config_path(manifest_dir: &Path) -> std::path::PathBuf {
         _ => return manifest_dir.join("build_config.yaml"),
     };
     if !EDITIONS.contains(&edition.as_str()) {
-        panic!("\n\nENIGMA_EDITION='{edition}' is not a known edition (valid: {EDITIONS:?}) — see pland.md\n");
+        panic!("\n\nENIGMA_EDITION='{edition}' is not a known edition (valid: {EDITIONS:?}) — see technology.md §20\n");
     }
     manifest_dir.join("configs").join(format!("build_config.{edition}.yaml"))
 }
@@ -560,7 +560,7 @@ fn generate_build_config() {
 
     let raw = std::fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
         panic!(
-            "\n\nbuild config not found at {} ({e}) — this file is required (see build.md, pland.md)\n",
+            "\n\nbuild config not found at {} ({e}) — this file is required (see technology.md §19, technology.md §20)\n",
             yaml_path.display()
         )
     });

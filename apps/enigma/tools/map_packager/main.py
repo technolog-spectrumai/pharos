@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enigma Map Packager — PyQt6 GUI producing offline map region packages for the
-Enigma app (see enigma/map.md Part II).
+Enigma app (see technology.md §25).
 
 A package is `<name>.pmtiles` (a bbox/zoom subset extracted from any PMTiles
 archive over HTTP range requests) plus `<name>.manifest.json` (the BLAKE3

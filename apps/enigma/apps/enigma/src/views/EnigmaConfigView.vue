@@ -282,7 +282,7 @@ async function saveMaxFileSize() {
 
 // ── Maps: on-disk storage budget for imported regions ──────────────────────────
 // Hidden entirely in maps-disabled builds. The app never downloads tiles —
-// region packages come from the standalone map_packager tool (map.md Part II).
+// region packages come from the standalone map_packager tool (technology.md §25).
 const mapsEnabled = buildCfg.maps_enabled;
 const mapStorageLimitMb = ref(buildCfg.map_storage_limit_mb.default);
 const mapStorageSaved = ref(false);
@@ -1056,7 +1056,7 @@ async function clearSelectedOfflineData() {
 
     <!-- DHT discovery — Mainline/Kademlia rendezvous + presence (technology.md §12). Opt-in;
          on → rooms get a ticketless join code and Contacts presence works.
-         Absent in a build without dht.enabled (Pro only — pland.md) or without
+         Absent in a build without dht.enabled (Pro only — technology.md §20) or without
          p2p.allow_hosted_relays, in both cases because Rust reports the DHT
          disabled regardless of the kv toggle. Also HIDDEN in Tor mode: the
          DHT rides the iroh endpoint, which Tor-exclusive mode shuts down, so

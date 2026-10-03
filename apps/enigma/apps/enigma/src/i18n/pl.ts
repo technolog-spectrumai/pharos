@@ -413,7 +413,7 @@ export default {
     desktopOnlyTitle: "Mapy wymagają aplikacji desktopowej lub mobilnej",
     desktopOnlyHint: "Kafelki, regiony offline i udostępnianie działają przez szyfrowany backend aplikacji.",
     noWebglTitle: "WebGL jest niedostępny",
-    noWebglHint: "Mapa wymaga WebGL. Na Linux WebKit zobacz build.md → Troubleshooting.",
+    noWebglHint: "Mapa wymaga WebGL. Na Linux WebKit zobacz technology.md §19 → Troubleshooting.",
     addPin: "Dodaj pinezkę",
     clickToPlace: "Kliknij mapę, aby umieścić pinezkę",
     namePinTitle: "Nazwij pinezkę",

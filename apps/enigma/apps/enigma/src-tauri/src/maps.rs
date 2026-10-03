@@ -1,7 +1,7 @@
 // Maps — the PMTiles backend for the Map tab: serves vector tiles to MapLibre
 // from imported local region blobs, and imports/exports/shares those blobs.
 //
-// The app NEVER talks to tile servers (Part II pivot, see map.md): region
+// The app NEVER talks to tile servers (see technology.md §25): region
 // packages (`<name>.pmtiles` + `<name>.manifest.json`) are produced offline by
 // the standalone companion tool (tools/map_packager) and imported from the
 // device — `map_region_import` is the single entry point and re-verifies

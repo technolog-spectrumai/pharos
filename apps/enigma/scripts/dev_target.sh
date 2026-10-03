@@ -13,7 +13,7 @@
 # worth more than the disk. `dev_target_guard` below refuses to start a cold
 # build that would fill the disk, because the failure mode otherwise is a
 # `ld: No space left on device` at the very end of a long link, which reads like
-# a code bug and is not one (build.md).
+# a code bug and is not one (technology.md §19).
 #
 # LAYOUT:
 #   profile "default"  -> src-tauri/target          (unchanged; the plain path)
