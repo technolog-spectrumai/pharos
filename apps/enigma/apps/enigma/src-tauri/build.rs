@@ -5,9 +5,10 @@
 //! code against the vendored crypto crates, so drift in either direction
 //! (YAML edited, or rotor_core/gervasius changed) is a compile error.
 //!
-//! WHICH yaml is chosen by the `ENIGMA_EDITION` env var (light/plus/pro →
-//! `configs/build_config.<edition>.yaml`); unset keeps the historical
-//! `build_config.yaml`. See pland.md for the product line.
+//! WHICH yaml is chosen by the `ENIGMA_EDITION` env var (basic / standard /
+//! professional → `configs/build_config.<edition>.yaml`); unset keeps the
+//! historical `build_config.yaml`. A build sets it from `edition:` in the
+//! repo-root build.yaml (`./build.sh`). See pland.md for the product line.
 
 use std::env;
 use std::fmt::Write as _;
@@ -165,7 +166,7 @@ const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.enigma26";
 /// The active edition's `tauri.<edition>.conf.json`, if it has one.
 ///
 /// Keep this in lockstep with what the launchers pass to `--config`
-/// (`run_dev.sh`, `run2.sh`, `build_desktop.sh`): if the two ever disagree, the
+/// (`run_dev.sh`, `run2.sh`, `scripts/build_plan.mjs`): if the two ever disagree, the
 /// bundle would carry one identity and this assertion would check another —
 /// exactly the class of drift the assertion exists to catch.
 fn edition_conf_overlay(manifest_dir: &Path) -> Option<serde_json::Value> {
@@ -219,9 +220,9 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
             // tauri.conf.json; apply the same merge here so this assertion sees
             // the EFFECTIVE identity rather than the base file's.
             //
-            // `custom` deliberately has no overlay: the Enigma Builder writes
-            // tauri.conf.json itself (tools/enigma_builder/identity.py), so the
-            // base file already IS its effective identity.
+            // `custom` deliberately has no overlay: it is a local feature set
+            // under the same fixed identity, so the base file already IS its
+            // effective identity.
             if let Some(overlay) = edition_conf_overlay(manifest_dir) {
                 if let (Some(base), Some(over)) = (conf.as_object_mut(), overlay.as_object()) {
                     for (k, v) in over {
@@ -530,9 +531,9 @@ const _: () = assert!(
 
 /// Product editions (pland.md). Each maps to `configs/build_config.<name>.yaml`;
 /// an unset ENIGMA_EDITION keeps the historical top-level build_config.yaml.
-/// `custom` is the local Enigma Builder's output (tools/enigma_builder): that
-/// file is generated and gitignored, so a fresh checkout has no `custom` config
-/// and building one without running the Builder first fails with "not found".
+/// `custom` is a local feature set of the developer's own: that file is
+/// gitignored, so a fresh checkout has no `custom` config and building one
+/// without writing it first fails with "not found".
 const EDITIONS: &[&str] = &["basic", "standard", "professional", "custom"];
 
 /// Resolve which YAML to bake in. Unknown names FAIL — never silently fall back

@@ -36,7 +36,8 @@ serde_json = "1"
 # Crypto layer (OpenMLS via Rotor). Its own repo since 2026-09-08, checked out
 # IN THIS REPO at crates/rotor (imported with history 2026-09-08) and
 # consumed by path, so building enigma still needs no GitLab access. The layout
-# is the contract; see that repo's README, and scripts/lib.sh for the override.
+# is the contract; see that repo's README, and scripts/rotor_path.sh for the
+# override.
 rotor-core = { path = "../../../crates/rotor/rotor_core" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.

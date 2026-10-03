@@ -10,8 +10,8 @@
 # in lockstep, or the bundle would carry one identity while the assertion checks
 # another.
 #
-# `custom` deliberately has no overlay: the Enigma Builder writes
-# build_config.custom.yaml and uses the fixed identity from tauri.conf.json.
+# `custom` deliberately has no overlay: it is a local, gitignored
+# build_config.custom.yaml that uses the fixed identity from tauri.conf.json.
 
 # Prints the --config path (relative to apps/enigma, the tauri CLI's cwd), or
 # nothing when the edition has no overlay. Requires $APP_DIR.
