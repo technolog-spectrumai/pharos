@@ -91,7 +91,7 @@ npm run build -w enigma
 ( cd apps/enigma/src-tauri && cargo test )
 ( cd rutile/crates/rotor/gervasius && cargo test )
 ( cd protasius && cargo test )
-python apps/enigma/e2e.py
+npm run test:e2e -w apps/enigma
 ```
 
 For Android, also smoke-test on at least one real phone or emulator:

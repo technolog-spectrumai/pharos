@@ -22,8 +22,8 @@ use gervasius::{create_vault_with_params, open, seal, unlock, CryptoError, Vault
 use serde::Serialize;
 
 /// Marks a locked file and lets us detect one without a passphrase.
-/// This app's frame. The LAYOUT is `substrate::FrameSpec`, shared with the
-/// office apps; the magic and the AAD are enigma's own and must never change —
+/// This app's frame. The LAYOUT is `substrate::FrameSpec`, shared with
+/// Morion; the magic and the AAD are enigma's own and must never change —
 /// every locked file a user already has carries them.
 const SPEC: substrate::FrameSpec = substrate::FrameSpec::ENIGMA;
 const MAGIC: &[u8; 8] = SPEC.magic;

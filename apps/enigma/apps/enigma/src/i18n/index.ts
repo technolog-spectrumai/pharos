@@ -1,13 +1,13 @@
 // Enigma26's i18n instance: the framework (locale resolution + persistence) lives
-// in Euclid; this module supplies Enigma26's own message catalogs and re-exports
+// in rakotis; this module supplies Enigma26's own message catalogs and re-exports
 // the shared helpers so existing call sites (`../i18n`) are unchanged.
 
 import en from "./en";
 import pl from "./pl";
 import { createAppI18n } from "rakotis";
-// The drawing engine ships the words its canvas and toolbar render, the way
-// padova ships the sealing surface's. Both copies of these strings used to
-// live in two apps, and only one was ever updated.
+// The drawing engine (wisteria, from Rutile) ships the words its canvas and
+// toolbar render. Both copies of these strings used to live in two apps, and
+// only one was ever updated.
 import { wisteriaMessages } from "wisteria/i18n";
 
 export {

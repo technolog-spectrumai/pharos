@@ -14,7 +14,7 @@
 /* The colour tokens are shared — see rutile/packages/petalite/src/theme/tokens.css. */
 @import "../../../rutile/packages/petalite/src/theme/tokens.css";
 
-/* Enigma's own brand face, which the office apps do not use. */
+/* Enigma's own brand face, which Morion does not use. */
 @theme {
   --font-sans: "Orbitron", sans-serif;
 }

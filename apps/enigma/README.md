@@ -172,7 +172,7 @@ npm test                    # all workspaces
 npm test -w rakotis         # transport bridge, storage, i18n, localDb
 npm test -w enigma          # chat store bootstrap, components, i18n
 ( cd apps/enigma/src-tauri && cargo test )   # tickets, DHT, Tor, kv, maps, …
-python apps/enigma/e2e.py   # Playwright smoke tier (no backend — there is none)
+npm run test:e2e -w apps/enigma   # Playwright smoke tier (no backend — there is none)
 ```
 
 ## Pairing quick-start

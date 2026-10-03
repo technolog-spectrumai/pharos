@@ -26,7 +26,6 @@
     "@tauri-apps/plugin-opener": "^2",
     "ace-builds": "^1.44.0",
     "html5-qrcode": "^2.3.8",
-    "leaflet": "^1.9.4",
     "maplibre-gl": "^5.24.0",
     "nanoid": "^5.1.11",
     "petalite": "*",
@@ -41,10 +40,8 @@
     "wisteria": "*"
   },
   "devDependencies": {
-    "@pinia/testing": "^1.0.3",
     "@playwright/test": "^1.60.0",
     "@tauri-apps/cli": "^2",
-    "@types/leaflet": "^1.9.21",
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/coverage-v8": "^4.1.10",
@@ -52,7 +49,6 @@
     "jsdom": "^29.1.1",
     "typescript": "~5.6.2",
     "vite": "^8.0.16",
-    "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.10",
     "vue-tsc": "^2.1.10"
   }

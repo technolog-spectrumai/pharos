@@ -65,7 +65,7 @@ P2P requires the Tauri runtime (desktop/Android); the plain-browser build
 npm run build -w enigma                 # vue-tsc + vite
 ( cd src-tauri && cargo build )         # Rust
 npm test -w enigma                      # vitest (unit/component)
-python e2e.py                           # Playwright smoke tier (no backend)
+npm run test:e2e -w enigma              # Playwright smoke tier (no backend)
 ```
 
 Android build helpers live in the workspace `scripts/` directory; see
