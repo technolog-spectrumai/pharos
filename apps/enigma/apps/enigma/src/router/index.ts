@@ -2,11 +2,7 @@ import { watch } from "vue";
 import { createRouter, createMemoryHistory } from "vue-router";
 import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
-import EnigmaVoxView from "../views/EnigmaVoxView.vue";
-import EnigmaCalendarView from "../views/EnigmaCalendarView.vue";
-import EnigmaContactsView from "../views/EnigmaContactsView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
-import EnigmaMapView from "../views/EnigmaMapView.vue";
 import EnigmaWelcomeView from "../views/EnigmaWelcomeView.vue";
 import EnigmaPrivacyView from "../views/EnigmaPrivacyView.vue";
 import { APP_TABS, firstVisiblePath, isTabVisible, visibleTabs, type AppTabId } from "../tabs";
@@ -36,13 +32,24 @@ const router = createRouter({
     { path: "/", redirect: () => firstVisiblePath() },
     { path: "/chat", component: EnigmaChatView, name: "chat", beforeEnter: tabGuard("chat") },
     { path: "/files", component: EnigmaFilesView, name: "files", beforeEnter: tabGuard("files") },
-    // Vox (voice calls) / calendar / contacts / map — build-gated editions
-    // (technology.md §20) on top of the per-user switch. The tab is called Vox; the build
-    // flag stays `calls_enabled`, matching build_config.yaml's section.
-    { path: "/vox", component: EnigmaVoxView, name: "vox", beforeEnter: tabGuard("vox") },
-    { path: "/calendar", component: EnigmaCalendarView, name: "calendar", beforeEnter: tabGuard("calendar") },
-    { path: "/map", component: EnigmaMapView, name: "map", beforeEnter: tabGuard("map") },
-    { path: "/contacts", component: EnigmaContactsView, name: "contacts", beforeEnter: tabGuard("contacts") },
+    // Vox (voice calls) / calendar / contacts / map — build features
+    // (technology.md §20) on top of the per-user switch. Each is registered
+    // only in a build that has the feature, and loaded lazily: the import sits
+    // behind the build-time literal, so a build without the feature does not
+    // contain the view — or anything only the view pulls in (the map library,
+    // the call UI). The tab is called Vox; its feature id is `calls`.
+    ...(__FEATURE_CALLS__
+      ? [{ path: "/vox", component: () => import("../views/EnigmaVoxView.vue"), name: "vox", beforeEnter: tabGuard("vox") }]
+      : []),
+    ...(__FEATURE_CALENDAR__
+      ? [{ path: "/calendar", component: () => import("../views/EnigmaCalendarView.vue"), name: "calendar", beforeEnter: tabGuard("calendar") }]
+      : []),
+    ...(__FEATURE_MAPS__
+      ? [{ path: "/map", component: () => import("../views/EnigmaMapView.vue"), name: "map", beforeEnter: tabGuard("map") }]
+      : []),
+    ...(__FEATURE_CONTACTS__
+      ? [{ path: "/contacts", component: () => import("../views/EnigmaContactsView.vue"), name: "contacts", beforeEnter: tabGuard("contacts") }]
+      : []),
     // Privacy HP — reached from the header's HP chip, not from the nav, so it is
     // ungated like Settings and the welcome page.
     { path: "/privacy", component: EnigmaPrivacyView, name: "privacy" },
@@ -57,6 +64,9 @@ const router = createRouter({
     { path: "/welcome", component: EnigmaWelcomeView, name: "welcome" },
     // Profile now lives inside Settings (as a tab) — keep the old path working.
     { path: "/profile", redirect: "/config?tab=profile" },
+    // Anything else — including the path of a tab this build was made without —
+    // goes where "/" goes, rather than to a blank page.
+    { path: "/:pathMatch(.*)*", redirect: () => firstVisiblePath() },
   ],
 });
 

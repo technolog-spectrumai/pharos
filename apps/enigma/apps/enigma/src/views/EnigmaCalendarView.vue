@@ -23,7 +23,7 @@ defineProps<{ darkMode?: boolean }>();
 
 const chatStore = useChatStore();
 // Non-null: the /calendar route is build-gated (technology.md §20), so this view only
-// ever mounts in an edition where the composable exists.
+// ever mounts in a build where the composable exists.
 const meetings = chatStore.meetings!;
 const p2p = chatStore.p2p;
 

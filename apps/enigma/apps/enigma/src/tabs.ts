@@ -3,13 +3,13 @@
 //
 // Two independent gates decide whether a tab exists for the user, and they AND:
 //
-//   1. the BUILD gate (technology.md §20 editions) — was the feature compiled in at all;
+//   1. the BUILD gate (technology.md §20) — was the feature compiled in at all;
 //   2. this per-user switch — does the user want to see it.
 //
 // The build gate is the OUTER one, exactly as rakotis' getDhtDiscovery orders
-// the same pair: a Light build must never resurrect Vox because a profile
-// carries it ticked from a Plus build (useVoxCall is null there, so the view
-// would throw), and a feature the binary lacks offers no checkbox — the user
+// the same pair: a build without calls must never resurrect Vox because a
+// profile carries it ticked from a build that had it (the view is not even in
+// the bundle there), and a feature the binary lacks offers no checkbox — the user
 // cannot enable what was not compiled in. The stored choice is deliberately not
 // rewritten in that case, so reopening the profile with a capable build restores
 // what the user actually picked.
@@ -41,7 +41,9 @@ export interface AppTab {
    *  it hides, so the two never drift apart. */
   labelKey: string;
   icon: string;
-  /** Compile-time gate; `null` = always compiled in (chat, files). */
+  /** Build gate; `null` = always compiled in (chat, files). Read at run time
+   *  from the build config the Rust side reports — which a build without the
+   *  feature reports as false. The compile-time half is the list below. */
   gate: ((cfg: BuildConfig) => boolean) | null;
 }
 
@@ -51,11 +53,21 @@ export interface AppTab {
 export const APP_TABS: readonly AppTab[] = [
   { id: "chat", path: "/chat", labelKey: "nav.chat", icon: "comments", gate: null },
   { id: "files", path: "/files", labelKey: "nav.files", icon: "file-arrow-up", gate: null },
-  // The tab is called Vox; the build flag stays `calls_enabled` (build_config.yaml).
-  { id: "vox", path: "/vox", labelKey: "nav.calls", icon: "phone", gate: (c) => c.calls_enabled },
-  { id: "calendar", path: "/calendar", labelKey: "nav.calendar", icon: "calendar", gate: (c) => c.calendar_enabled },
-  { id: "map", path: "/map", labelKey: "nav.map", icon: "map", gate: (c) => c.maps_enabled },
-  { id: "contacts", path: "/contacts", labelKey: "nav.contacts", icon: "address-book", gate: (c) => c.contacts_enabled },
+  // A tab whose feature the build left out is not in the list at all — the
+  // same build-time literal the router uses, so the two cannot disagree.
+  // The tab is called Vox; its feature id is `calls`.
+  ...(__FEATURE_CALLS__
+    ? [{ id: "vox", path: "/vox", labelKey: "nav.calls", icon: "phone", gate: (c: BuildConfig) => c.calls_enabled } as const]
+    : []),
+  ...(__FEATURE_CALENDAR__
+    ? [{ id: "calendar", path: "/calendar", labelKey: "nav.calendar", icon: "calendar", gate: (c: BuildConfig) => c.calendar_enabled } as const]
+    : []),
+  ...(__FEATURE_MAPS__
+    ? [{ id: "map", path: "/map", labelKey: "nav.map", icon: "map", gate: (c: BuildConfig) => c.maps_enabled } as const]
+    : []),
+  ...(__FEATURE_CONTACTS__
+    ? [{ id: "contacts", path: "/contacts", labelKey: "nav.contacts", icon: "address-book", gate: (c: BuildConfig) => c.contacts_enabled } as const]
+    : []),
 ];
 
 /** Settings — the tab that can never be hidden, and therefore the terminal

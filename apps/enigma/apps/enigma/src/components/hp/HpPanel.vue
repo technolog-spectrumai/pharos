@@ -157,7 +157,7 @@ const GROUPS: { key: string; ids: string[] }[] = [
   },
 ];
 
-/** Only the actions this BUILD actually has. An edition compiled without Vox has
+/** Only the actions this BUILD actually has. A build compiled without Vox has
  *  no vox price to show, and a table listing prices for absent features would be
  *  worse than no table. */
 const groups = computed(() =>

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
+import { featureDefines } from "./buildFeatures";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -9,6 +10,12 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [vue(), tailwindcss()],
+
+  // One literal per build feature (see buildFeatures.ts). The list comes from
+  // the root build config through `./build.sh` / `./run_dev.sh`; with nothing
+  // set — plain `npm run dev`, Playwright — every feature is on.
+  // @ts-expect-error process is a nodejs global
+  define: featureDefines(process.env.ENIGMA_FEATURES),
 
   // The shared rakotis package ships TypeScript/Vue source (no prebuild): alias it
   // to its entry file and keep it out of esbuild dependency pre-bundling so the

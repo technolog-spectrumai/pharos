@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { ref } from "vue";
 import { initBuildConfig, getDhtDiscovery, setDhtDiscovery } from "rakotis";
 
-// A build with `dht.enabled: false` (Light/Plus — technology.md §20) must not merely
+// A build without the `dht` feature (Standard — technology.md §20) must not merely
 // disable the DHT: every surface that mentions it has to GO. The off-state copy
 // for each one ("Enable DHT discovery in Settings…", "Turn on DHT discovery…")
 // points at a Settings→Connections card that does not exist in such a build, so

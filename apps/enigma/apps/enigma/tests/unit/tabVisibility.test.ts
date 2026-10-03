@@ -15,7 +15,7 @@ import {
 } from "../../src/tabs";
 
 // Per-user tab visibility: the user picks which tabs the app presents, on top of
-// the compile-time edition gates. The two rules that must never break are that
+// the build-feature gates. The two rules that must never break are that
 // Settings stays reachable (it is the only route back to the checkboxes) and
 // that a hidden tab is hidden EVERYWHERE — nav, router, and the "/" landing.
 //
@@ -209,7 +209,7 @@ describe("a build without Vox", () => {
   });
 
   it("does not rewrite the stored choice, so a capable build restores it", async () => {
-    // The user hid Vox on a Plus build; this Light build must not touch that
+    // The user hid Vox on a build that had calls; this one, without, must not touch that
     // record (same rule as rakotis' getDhtDiscovery).
     await resetTabs(["vox"]);
     expect(await getHiddenTabs()).toEqual(["vox"]);

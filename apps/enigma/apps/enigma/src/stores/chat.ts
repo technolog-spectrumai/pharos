@@ -31,13 +31,13 @@ function createChatStore() {
   // Gated by the compile-time build flag (technology.md §20: Plus and up) — the same
   // pattern as the other gated composables. A flag-off build never instantiates
   // it,
-  // so it registers no sync handler at all: a call offer from a higher-edition
+  // so it registers no sync handler at all: a call offer from a better-equipped
   // peer is an unhandled sync type and is dropped, not merely hidden.
-  const callsEnabled = getBuildConfig().calls_enabled;
+  const callsEnabled = __FEATURE_CALLS__ && getBuildConfig().calls_enabled;
   const vox = callsEnabled ? useVoxCall(p2p) : null;
   // Direct room invites (Contacts) — same lifetime rationale: an incoming
   // invite must be caught (and the Contacts nav dot lit) wherever the user is.
-  const contactsEnabled = getBuildConfig().contacts_enabled;
+  const contactsEnabled = __FEATURE_CONTACTS__ && getBuildConfig().contacts_enabled;
   const invites = contactsEnabled ? useRoomInvites(p2p) : null;
   // Invitation redemptions (technology.md §18). App-lifetime and NOT build-gated:
   // someone redeeming an invitation we issued must be admitted wherever the user
@@ -46,7 +46,7 @@ function createChatStore() {
   const inviteAdmit = useInviteAdmit(p2p);
   // Meeting scheduling — rides the same seam; app-lifetime so incoming invites
   // land (Calendar nav dot) and the reminder tick runs regardless of the view.
-  const calendarEnabled = getBuildConfig().calendar_enabled;
+  const calendarEnabled = __FEATURE_CALENDAR__ && getBuildConfig().calendar_enabled;
   const meetings = calendarEnabled ? useMeetings(p2p) : null;
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent

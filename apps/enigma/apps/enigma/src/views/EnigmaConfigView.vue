@@ -88,7 +88,7 @@ defineProps<{ darkMode: boolean }>();
 // Compile-time build config (fetched at boot): allow flags decide which
 // sections exist at all; the clamps drive the number inputs' min/max.
 const buildCfg = getBuildConfig();
-// The DHT needs both: its own edition gate, and the hosted discovery it rides on.
+// The DHT needs both: its own build feature, and the hosted discovery it rides on.
 const dhtAllowed = buildCfg.p2p_allow_hosted_relays && buildCfg.dht_enabled;
 
 const router = useRouter();

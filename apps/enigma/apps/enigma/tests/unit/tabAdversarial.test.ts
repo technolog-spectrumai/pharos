@@ -62,8 +62,9 @@ describe("cold boot with everything hidden", () => {
     await router.isReady();
 
     await tabs.loadTabVisibility();
-    await settle();
-    expect(router.currentRoute.value.path).toBe("/vox");
+    // The Vox view is a feature tab, so its route is lazy: the redirect lands
+    // once the view's chunk has loaded, which is later than a flushed tick.
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe("/vox"));
   });
 });
 

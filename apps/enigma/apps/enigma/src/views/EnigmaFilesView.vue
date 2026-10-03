@@ -2,15 +2,17 @@
 import { ref } from "vue";
 import { getBuildConfig } from "rakotis";
 import FilePanel from "../components/chat/FilePanel.vue";
-import KeyringPanel from "../components/local/KeyringPanel.vue";
+import KeyringPanelImpl from "../components/local/KeyringPanel.vue";
 import LocalPanel from "../components/local/LocalPanel.vue";
 
 // darkMode is class-based (`.dark` on <html>); the prop also drives the
 // segmented pill borders (mirroring EnigmaConfigView's tab pill).
 defineProps<{ darkMode?: boolean }>();
 
-// Same rule for the key ring: keyring.enabled off = no Keys tab, no dormant UI.
-const keyringAllowed = getBuildConfig().keyring_enabled;
+// The key ring is a build feature: without it there is no Keys tab, and — the
+// import being used only behind the build-time literal — no panel in the bundle.
+const KeyringPanel = (__FEATURE_KEYRING__ ? KeyringPanelImpl : null) as typeof KeyringPanelImpl;
+const keyringAllowed = __FEATURE_KEYRING__ && getBuildConfig().keyring_enabled;
 
 // P2P (direct peer transfer) vs Local (passphrase-protected files encrypted on
 // this device) vs Keys (the device-local key ring). There is no server-backed

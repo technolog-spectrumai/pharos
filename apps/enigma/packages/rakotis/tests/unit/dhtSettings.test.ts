@@ -48,7 +48,7 @@ describe("DHT discovery toggle", () => {
 // p2p_dht::discovery_enabled. That order is what makes a profile carrying
 // `dht_discovery: "on"` from a Pro build read as OFF in a Light/Plus binary —
 // without the stored choice being destroyed. (technology.md §20 — dht.enabled is Pro.)
-describe("DHT build gate (dht.enabled: false)", () => {
+describe("DHT build gate (a build without the dht feature)", () => {
   it("reads OFF despite a stored 'on', and does not discard the setting", async () => {
     await setDhtDiscovery(true);
     await setDhtNickPublish(true);

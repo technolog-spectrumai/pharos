@@ -332,6 +332,17 @@ setHpTranslator({
 void initBuildConfig({
   app_name: brand.name,
   app_identifier: brand.bundleId,
+  // What this bundle was built with. In the desktop app the Rust side reports
+  // the same list (it was compiled from it); in the browser shell there is no
+  // Rust to ask, so the literals are the answer.
+  p2p_allow_hosted_relays: __FEATURE_HOSTED_RELAYS__,
+  dht_enabled: __FEATURE_DHT__,
+  calls_enabled: __FEATURE_CALLS__,
+  contacts_enabled: __FEATURE_CONTACTS__,
+  calendar_enabled: __FEATURE_CALENDAR__,
+  maps_enabled: __FEATURE_MAPS__,
+  keyring_enabled: __FEATURE_KEYRING__,
+  pin_unlock: __FEATURE_PIN_UNLOCK__,
   use_tor_default: policy.featureDefaults.useTor,
   stable_onion_default: policy.featureDefaults.stableOnion,
   max_file_size_mb: {

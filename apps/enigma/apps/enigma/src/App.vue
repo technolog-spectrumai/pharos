@@ -11,7 +11,7 @@ import HpChip from "./components/hp/HpChip.vue";
 import HpFlash from "./components/hp/HpFlash.vue";
 import HpConfirmModal from "./components/hp/HpConfirmModal.vue";
 import { startHp, stopHp } from "./components/hp/useHp";
-import PinPad from "./components/PinPad.vue";
+import PinPadImpl from "./components/PinPad.vue";
 import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, useHideLock, type IdleLockHandle, type HideLockHandle } from "./idleLock";
@@ -21,6 +21,11 @@ import {
   vaultStatus, vaultSetup, vaultUnlock, vaultLock, vaultTouch,
   vaultPinStatus, vaultPinUnlock,
 } from "rakotis";
+
+// The PIN keypad is a build feature. Used only behind the build-time literal,
+// so a build without `pin_unlock` does not carry it; the gate never reaches
+// 'pin' mode there (no command can enrol one), so it is never rendered.
+const PinPad = (__FEATURE_PIN_UNLOCK__ ? PinPadImpl : null) as typeof PinPadImpl;
 
 const darkMode = ref(true);
 const menuOpen = ref(false);
@@ -224,7 +229,7 @@ onMounted(async () => {
     else if (!s.unlocked) {
       // A PIN exists only if this process enrolled one earlier, so its presence
       // is exactly the "locked within the same session" signal.
-      const pin = getBuildConfig().pin_unlock ? await vaultPinStatus().catch(() => null) : null;
+      const pin = __FEATURE_PIN_UNLOCK__ && getBuildConfig().pin_unlock ? await vaultPinStatus().catch(() => null) : null;
       if (pin?.enrolled) {
         pinDigits.value = pin.digits;
         gateMode.value = "pin";
@@ -262,7 +267,7 @@ watch(avatarDataUrl, (avatar) => {
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
 // Calls / Contacts / Calendar (compile-time gated — technology.md §20): each is null in
-// an edition without the feature, so every consumer below is null-guarded.
+// a build without the feature, so every consumer below is null-guarded.
 const vox = chatStore.vox;
 const invites = chatStore.invites;
 // Calendar tab attention dot: meeting invites awaiting an RSVP.

@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
+import { featureDefines } from "./buildFeatures";
 
 // A dedicated Vitest config (no Tailwind plugin needed for tests). ace-builds
 // subpaths are aliased to a lightweight stub so jsdom never loads the real
@@ -18,6 +19,10 @@ const rakotisSrc = new URL("../../node_modules/rakotis/src/index.ts", import.met
 
 export default defineConfig({
   plugins: [vue()],
+  // The suite always runs with EVERY build feature compiled in, whatever
+  // ENIGMA_FEATURES says: the tests cover the whole app, and they exercise the
+  // gates by flipping the runtime build config instead.
+  define: featureDefines(undefined),
   resolve: {
     alias: [
       { find: /^wisteria\/(.*\.vue)$/, replacement: `${wisteriaSrc}/components/$1` },
