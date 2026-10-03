@@ -12,9 +12,9 @@ output_dir: dist/std
 
 apps:
   enigma:
-    # Not in this build, and therefore not in its binary: dht, calls, calendar,
-    # maps. A Standard user can still sit in a room with a Professional one —
-    # what they cannot do is receive a call, a meeting or a map from it.
+    # Not in this build, and therefore not in its binary: dht, calls, calendar.
+    # A Standard user can still sit in a room with a Professional one — what
+    # they cannot do is receive a call or a meeting from it.
     features:
       - hosted_relays   # iroh's n0 relays and pkarr/DNS discovery
       - contacts        # Contacts and direct room invites

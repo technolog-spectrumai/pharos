@@ -48,7 +48,7 @@ tests_step rust  "builds with Standard's features"            "RUSTFLAGS='-D war
 # Omitted means not linked: Standard has none of the optional crates, Pro all.
 # (Here-strings, not `echo | grep -q`: under pipefail a grep that stops at its
 # first match fails the pipeline it was meant to pass.)
-tests_step rust  "Standard links no optional crate"           "t=\$(cargo tree -e normal $CRATE --features \"$STD\"); for c in pmtiles mainline rustfft; do if grep -q \" \$c v\" <<<\"\$t\"; then echo \"\$c is linked into a Standard build\"; exit 1; fi; done; t=\$(cargo tree -e normal $CRATE --features \"$PRO\"); for c in pmtiles mainline rustfft; do grep -q \" \$c v\" <<<\"\$t\" || { echo \"\$c is missing from a Pro build\"; exit 1; }; done"
+tests_step rust  "Standard links no optional crate"           "t=\$(cargo tree -e normal $CRATE --features \"$STD\"); for c in mainline rustfft; do if grep -q \" \$c v\" <<<\"\$t\"; then echo \"\$c is linked into a Standard build\"; exit 1; fi; done; t=\$(cargo tree -e normal $CRATE --features \"$PRO\"); for c in mainline rustfft; do grep -q \" \$c v\" <<<\"\$t\" || { echo \"\$c is missing from a Pro build\"; exit 1; }; done"
 tests_step rust  "protasius (encrypted store)"                'cargo test --manifest-path protasius/Cargo.toml'
 # The gate the crate layout exists to hold: Morion turns on gervasius's
 # `gervazy` half, which pulls fernet and then OpenSSL. Enigma must never —
@@ -57,10 +57,11 @@ tests_step rust  "no OpenSSL in the enigma tree"              "test \"\$(cargo t
 # Enigma's Gradle signing block, pin file and ignores against Rutile's checker.
 tests_step py    "Android signing contract (pytest)"          'python3 -m pytest -q scripts/android_signing/tests -p no:cacheprovider'
 tests_step build "frontend bundle, Pro (vue-tsc + vite)"      "ENIGMA_FEATURES=\"$PRO\" npm run build -w apps/enigma"
-# The frontend half of "omitted means absent": a Standard bundle carries no map
-# library, no call UI and no map commands. (Scripts only: a few shared style
-# rules name the map library's classes and are inert without it.)
-tests_step build "Standard bundle omits calls and maps"       "rm -rf test-results/std-bundle && (cd apps/enigma && ENIGMA_FEATURES=\"$STD\" npx vite build --outDir ../../test-results/std-bundle --emptyOutDir >/dev/null) && if grep -rlE --include='*.js' 'maplibre|vox_create|map_get_tile' test-results/std-bundle/assets; then echo 'omitted feature code found in a Standard bundle'; exit 1; fi"
+# The frontend half of "omitted means absent": a Standard bundle carries no
+# call UI. And no bundle carries a map library or a map command: maps moved to
+# Morion, and this is what would notice one coming back with a merge.
+tests_step build "Standard bundle omits calls"                "rm -rf test-results/std-bundle && (cd apps/enigma && ENIGMA_FEATURES=\"$STD\" npx vite build --outDir ../../test-results/std-bundle --emptyOutDir >/dev/null) && if grep -rlE --include='*.js' 'vox_create' test-results/std-bundle/assets; then echo 'omitted feature code found in a Standard bundle'; exit 1; fi"
+tests_step build "no bundle carries maps"                     "if grep -rlE --include='*.js' 'maplibre|map_get_tile|map_region_import' apps/enigma/dist/assets test-results/std-bundle/assets; then echo 'map code found in a bundle'; exit 1; fi"
 tests_step build "both presets resolve"                       './build.sh --dry-run && ./build.sh std.yaml --dry-run'
 # Needs Playwright's browsers: npx playwright install chromium
 tests_step e2e   "Playwright smoke"                           'npm run test:e2e -w apps/enigma'

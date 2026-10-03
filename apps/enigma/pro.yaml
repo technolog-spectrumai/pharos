@@ -30,7 +30,6 @@ apps:
       - calls           # 1:1 voice calls (the Vox tab)
       - contacts        # Contacts and direct room invites
       - calendar        # meetings and polls
-      - maps            # offline maps
       - keyring         # one passphrase locking many local files
       - pin_unlock      # re-unlock with a PIN after an idle lock
 
