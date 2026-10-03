@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Headless Android-signing commands — the CLI half of signing.py.
 
-Two ways in, by design:
+    python3 scripts/android_signing/signing_cli.py status --gen DIR
+    python3 scripts/android_signing/signing_cli.py verify --gen DIR --pin FILE
+    python3 scripts/android_signing/signing_cli.py create
+    python3 scripts/android_signing/signing_cli.py pin --pin-file FILE --from APK
 
-- ``enigma-builder signing android <action>`` — main.py resolves the repository
-  (with the remembered QSettings choice available) and calls the functions here
-  with the resolved gen/android directory.
-- ``python3 signing_cli.py <action> --gen DIR`` — no Qt, no venv, stdlib only.
-  This is what scripts/build_android.sh calls, so a release build's signing
-  checks cannot depend on the GUI's environment.
+``status`` and ``verify`` are what scripts/build_android.sh calls around a
+release build; ``create`` and ``pin`` are run by hand, once per key.
 
-Everything here prints to stdout and returns an exit code; nothing imports
-PyQt6. Keeping this module Qt-free is load-bearing: it must run under the bare
-system python3 that a build machine has anyway.
+Everything here prints to stdout and returns an exit code. Keeping this module
+stdlib-only is load-bearing: it must run under the bare system python3 that a
+build machine has anyway — no venv, nothing to install.
 """
 
 from __future__ import annotations
@@ -266,7 +265,7 @@ def create(
 
     print(WARNING_BANNER)
     print("record the fingerprint after your first release build:")
-    print("  enigma-builder signing android pin --from <apk>")
+    print(f"  {signing.PIN_COMMAND}")
     return 0
 
 

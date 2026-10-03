@@ -3,7 +3,7 @@
 #
 #   bash scripts/build_android.sh <app> [debug|release] [abi-spec]
 #
-#   <app>      enigma  (any dir under apps/ with a src-tauri/)
+#   <app>      enigma | morion  (any dir under apps/ with a src-tauri/)
 #   build type debug (default) | release
 #   abi-spec   comma-separated ABIs, or "all".  Default: aarch64
 #              valid ABIs: aarch64 (modern phones) · x86_64 (emulator) ·
@@ -27,7 +27,8 @@ fi
 
 APP_DIR="$(realpath "${SCRIPT_DIR}/../apps/${APP}" 2>/dev/null || true)"
 
-# The crypto crates live in their own repo (sibling checkout by default).
+# The crypto crates: the in-repo copy at crates/rotor, unless ROTOR_PATH says
+# otherwise.
 . "${SCRIPT_DIR}/rotor_path.sh"
 resolve_rotor "$(cd "${SCRIPT_DIR}/.." && pwd)"
 if [[ -z "${APP_DIR}" || ! -d "${APP_DIR}/src-tauri" ]]; then
@@ -169,12 +170,12 @@ KEYSTORE_PROPS="${GEN_DIR}/keystore.properties"
 # gen/android/app/build.gradle.kts is the authority and fails the build closed
 # on its own. This runs the same check early, because by the time Gradle sees
 # the task graph the frontend has already been rebuilt — no reason to spend
-# that to learn there is no key. One implementation, not three: the check IS
-# tools/enigma_builder/signing.py (stdlib-only), so this script and the GUI
-# cannot drift apart. `env -u` scrubs the vars a frozen PyInstaller Builder
-# leaks into its children, which would otherwise poison the system python.
+# that to learn there is no key. One implementation, not two: the check IS
+# scripts/android_signing/signing.py (stdlib-only), so nothing here re-parses
+# keystore.properties. `env -u` scrubs the vars a caller that carries its own
+# Python leaks into its children, which would otherwise poison the system one.
 
-SIGNING_CLI="${SCRIPT_DIR}/../tools/enigma_builder/signing_cli.py"
+SIGNING_CLI="${SCRIPT_DIR}/android_signing/signing_cli.py"
 
 run_signing_cli() {  # run_signing_cli <action> [args…]
   if ! command -v python3 >/dev/null 2>&1; then

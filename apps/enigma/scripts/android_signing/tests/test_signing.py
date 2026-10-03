@@ -22,8 +22,12 @@ from pathlib import Path
 
 import pytest
 
-import paths
 import signing
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+APP_DIR = REPO_ROOT / "apps" / "enigma"
+ANDROID_GEN = APP_DIR / "src-tauri" / "gen" / "android"
+ANDROID_OUTPUTS = ANDROID_GEN / "app" / "build" / "outputs"
 
 # Every SDK-generated debug certificate carries this common name; apksigner
 # prints the rest of the DN in whatever order it likes.
@@ -47,7 +51,7 @@ def gen_android(tmp_path: Path) -> Path:
     """
     root = tmp_path / "gen" / "android"
     (root / "app").mkdir(parents=True)
-    real = paths.ANDROID_GEN / "app" / "build.gradle.kts"
+    real = ANDROID_GEN / "app" / "build.gradle.kts"
     (root / "app" / "build.gradle.kts").write_text(
         real.read_text(encoding="utf-8"), encoding="utf-8"
     )
@@ -163,7 +167,7 @@ def test_a_regenerated_gradle_file_loses_signing_and_is_caught(gen_android, tmp_
 
 def test_the_repo_gradle_file_wires_release_signing():
     """The shipped file, not a fixture — the mirror must not outlive it."""
-    text = (paths.ANDROID_GEN / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+    text = (ANDROID_GEN / "app" / "build.gradle.kts").read_text(encoding="utf-8")
     assert signing.check_gradle(text) == []
 
 
@@ -171,22 +175,22 @@ def test_the_real_filename_stays_gitignored():
     """Credentials must not be committable; the template must be."""
     def ignored(name: str) -> bool:
         result = subprocess.run(
-            ["git", "check-ignore", "-q", str(paths.ANDROID_GEN / name)],
-            cwd=paths.REPO_ROOT,
+            ["git", "check-ignore", "-q", str(ANDROID_GEN / name)],
+            cwd=REPO_ROOT,
             capture_output=True,
         )
         return result.returncode == 0
 
     if subprocess.run(
         ["git", "rev-parse", "--is-inside-work-tree"],
-        cwd=paths.REPO_ROOT,
+        cwd=REPO_ROOT,
         capture_output=True,
     ).returncode != 0:
         pytest.skip("not a git checkout; nothing to ask git about")
 
     assert ignored(signing.KEYSTORE_PROPERTIES)
     assert not ignored(signing.EXAMPLE_PROPERTIES)
-    assert (paths.ANDROID_GEN / signing.EXAMPLE_PROPERTIES).is_file()
+    assert (ANDROID_GEN / signing.EXAMPLE_PROPERTIES).is_file()
 
 
 def test_signing_material_is_ignored_repo_wide():
@@ -196,14 +200,14 @@ def test_signing_material_is_ignored_repo_wide():
     def ignored(rel: str) -> bool:
         result = subprocess.run(
             ["git", "check-ignore", "-q", rel],
-            cwd=paths.REPO_ROOT,
+            cwd=REPO_ROOT,
             capture_output=True,
         )
         return result.returncode == 0
 
     if subprocess.run(
         ["git", "rev-parse", "--is-inside-work-tree"],
-        cwd=paths.REPO_ROOT,
+        cwd=REPO_ROOT,
         capture_output=True,
     ).returncode != 0:
         pytest.skip("not a git checkout; nothing to ask git about")
@@ -272,9 +276,9 @@ def test_comments_and_blank_lines_are_ignored(gen_android, tmp_path):
 # ----- the debug key is refused ---------------------------------------------
 
 
-def test_the_sdk_debug_keystore_is_refused_by_path(gen_android, isolate_app_data):
+def test_the_sdk_debug_keystore_is_refused_by_path(gen_android, isolate_signing_config):
     """~/.android/debug.keystore, named outright."""
-    debug_dir = isolate_app_data / ".android"
+    debug_dir = isolate_signing_config / ".android"
     debug_dir.mkdir()
     debug_store = make_keystore(
         debug_dir / "debug.keystore", alias="androiddebugkey", password="android"
@@ -324,7 +328,7 @@ def test_the_debug_alias_is_refused_whatever_the_file_is_called(gen_android, tmp
 
 def test_the_gradle_file_carries_the_same_refusal():
     """Python refusing it is worthless if the build itself does not."""
-    text = (paths.ANDROID_GEN / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+    text = (ANDROID_GEN / "app" / "build.gradle.kts").read_text(encoding="utf-8")
     assert signing.DEBUG_ALIAS in text
     assert signing.DEBUG_KEYSTORE_NAME in text
     assert "releaseSigningProblem" in text
@@ -658,7 +662,7 @@ def test_classification_is_a_three_way_verdict(tmp_path):
 
 
 def test_badging_reads_the_repo_debug_apk():
-    apk = paths.ANDROID_OUTPUTS / "apk" / "universal" / "debug" / "app-universal-debug.apk"
+    apk = ANDROID_OUTPUTS / "apk" / "universal" / "debug" / "app-universal-debug.apk"
     if not apk.is_file():
         pytest.skip("no built debug APK in this checkout")
     if signing.find_build_tool("aapt2") is None:
@@ -729,7 +733,7 @@ def test_missing_and_empty_pin_read_the_same(tmp_path):
 def test_no_pin_is_a_notice_never_a_failure():
     problem = signing.check_pin(signing.Pin(), ("aa" * 32,))
     assert problem is not None and problem.code == signing.NO_PIN
-    assert "pin --from" in problem.message  # tells you HOW to record it
+    assert signing.PIN_COMMAND in problem.message  # tells you HOW to record it
 
 
 def test_a_matching_fingerprint_passes_whatever_the_case_or_colons():
@@ -764,7 +768,7 @@ def test_write_pin_round_trips_and_documents_rotation(tmp_path):
 
 
 def test_the_committed_pin_file_exists_and_parses():
-    pin_file = paths.APP_DIR / "deploy" / "android-release-key.properties"
+    pin_file = APP_DIR / "deploy" / "android-release-key.properties"
     assert pin_file.is_file(), "the pin file must ship with the repo"
     signing.read_pin(pin_file)  # must parse whether or not it is recorded yet
 

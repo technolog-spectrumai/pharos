@@ -14,10 +14,12 @@ from pathlib import Path
 
 import pytest
 
-import paths
 import signing
 
-SCRIPT = paths.REPO_ROOT / "scripts" / "build_android.sh"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ANDROID_GEN = REPO_ROOT / "apps" / "enigma" / "src-tauri" / "gen" / "android"
+SCRIPT = REPO_ROOT / "scripts" / "build_android.sh"
+
 TOOL_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -45,9 +47,10 @@ def test_the_duplicate_preflight_is_really_gone():
 
 
 def test_the_python_is_launched_with_a_scrubbed_environment():
-    """The frozen PyInstaller Builder leaks LD_LIBRARY_PATH etc. into children;
-    launching the system python3 inside that environment loads the bundle's
-    libraries. The env -u scrub is load-bearing, not decorative."""
+    """A caller that carries its own Python (a venv, a frozen tool) leaks
+    LD_LIBRARY_PATH etc. into children; launching the system python3 inside
+    that environment loads the wrong libraries. The env -u scrub is
+    load-bearing, not decorative."""
     text = script_text()
     assert "env -u LD_LIBRARY_PATH" in text
     assert "PYTHONHOME" in text and "PYTHONPATH" in text
@@ -71,7 +74,7 @@ def test_cli_exit_codes_match_inspect(tmp_path):
     # Unconfigured tree -> non-zero, like inspect().signed_release == False.
     root = tmp_path / "gen" / "android"
     (root / "app").mkdir(parents=True)
-    real = paths.ANDROID_GEN / "app" / "build.gradle.kts"
+    real = ANDROID_GEN / "app" / "build.gradle.kts"
     (root / "app" / "build.gradle.kts").write_text(
         real.read_text(encoding="utf-8"), encoding="utf-8"
     )
