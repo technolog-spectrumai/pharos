@@ -4,9 +4,9 @@
 ``keystore.properties`` from the gen/android root, refuses to produce a release
 artifact when that file is missing or incomplete, and refuses outright when the
 key it points at is the Android SDK's debug key. This module mirrors those
-rules so the Builder (and its test suite) can say *before* a build what a
-release would produce, and so the two stay in lockstep — like
-:mod:`validation` mirrors ``build.rs``.
+rules so ``scripts/build_android.sh`` (and the test suite here) can say
+*before* a build what a release would produce, and so the two stay in
+lockstep.
 
 Two things make the mirror worth having rather than a duplicate:
 
@@ -96,6 +96,14 @@ PLACEHOLDER_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 LOCAL_CONFIG_NAME = "signing.properties"
 
+#: How to record (or, with --rotate, replace) the pinned release fingerprint.
+#: Printed wherever a report tells the developer to do it, and written into the
+#: pin file's own header, so the instruction cannot drift from the command.
+PIN_COMMAND = (
+    "python3 scripts/android_signing/signing_cli.py pin "
+    "--pin-file apps/enigma/deploy/android-release-key.properties --from <apk>"
+)
+
 
 def local_config_path(environ: dict[str, str] | None = None) -> Path:
     """``$XDG_CONFIG_HOME/enigma-builder/signing.properties`` (or ~/.config)."""
@@ -151,7 +159,7 @@ class SigningStatus:
         return any(p.code == code for p in self.problems)
 
     def report(self) -> str:
-        """A human-readable summary, for a build log or the GUI.
+        """A human-readable summary, for a build log.
 
         Provenance only, never values: this string ends up in build logs, and
         a log that can leak a password is worse than no report at all.
@@ -901,7 +909,7 @@ def write_pin(path: Path, fingerprint: str, alias: str, subject: str,
         "# this one — do not \"fix\" this file by pinning that fingerprint.",
         "#",
         "# Deliberate rotation:",
-        "#   enigma-builder signing android pin --from <apk> --rotate",
+        f"#   {PIN_COMMAND} --rotate",
         f"sha256={normalize_fingerprint(fingerprint)}",
         f"alias={alias}",
         f"subject={subject}",
@@ -925,7 +933,7 @@ def check_pin(pin: Pin, fingerprints: tuple[str, ...]) -> Problem | None:
             NO_PIN,
             "no release-key fingerprint is pinned yet. After confirming this "
             "build was signed with the right key, record it:\n"
-            "  enigma-builder signing android pin --from <apk>",
+            f"  {PIN_COMMAND}",
         )
     normalized = tuple(normalize_fingerprint(f) for f in fingerprints)
     if pin.sha256 in normalized:
@@ -940,7 +948,7 @@ def check_pin(pin: Pin, fingerprints: tuple[str, ...]) -> Problem | None:
         f"Shipping it would strand every existing install "
         f"(INSTALL_FAILED_UPDATE_INCOMPATIBLE). If this rotation is "
         f"deliberate:\n"
-        f"  enigma-builder signing android pin --from <apk> --rotate",
+        f"  {PIN_COMMAND} --rotate",
     )
 
 
