@@ -44,11 +44,16 @@ cargo:check:
     # tauri-build validates that frontendDist ("../dist") exists
     - mkdir -p apps/$APP/dist
   script:
-    - (cd apps/$APP/src-tauri && cargo check)
+    # The crate's optional features are an allowlist (Cargo.toml [features],
+    # chosen per build by pro.yaml / std.yaml), so it has to build at both
+    # ends: the core alone, and with everything. `./tests.sh` also checks
+    # Standard's exact list; this image has no node to read the preset with.
+    - (cd apps/$APP/src-tauri && cargo check --no-default-features)
+    - (cd apps/$APP/src-tauri && cargo check --all-features)
     # The gate the crate layout exists to hold: Morion turns on gervasius's
     # `gervazy` feature, which pulls fernet and then OpenSSL. Enigma shares the
     # crate through Rutile and must never inherit that.
-    - 'test "$(cargo tree -p enigma -e normal --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys)" = 0 || { echo "ERROR: openssl-sys reached enigma"; exit 1; }'
+    - 'test "$(cargo tree -p enigma -e normal --all-features --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys)" = 0 || { echo "ERROR: openssl-sys reached enigma"; exit 1; }'
 
 # Frontend build gate: `vue-tsc --noEmit && vite build` per app. This is the ONLY
 # place the app frontends are actually built in CI — node:vitest runs unit tests
@@ -97,7 +102,7 @@ playwright:smoke:
     paths: [apps/$APP/test-results/]
     expire_in: 7 days
 
-# Shared desktop-build definition. `./build.sh` builds what build.yaml
+# Shared desktop-build definition. `./build.sh` builds what pro.yaml
 # says — the same route a developer uses, so CI cannot build something a local
 # build would not. It runs the frontend build first (tauri's beforeBuildCommand
 # -> npm run build), compiles the Rust release binary, then bundles it to
@@ -172,6 +177,6 @@ android:build:
   allow_failure: true
   script:
     - echo "Android CI is not provisioned. Build locally:"
-    - echo "  set android.enabled to true in build.yaml, then ./build.sh"
+    - echo "  set android.enabled to true in pro.yaml, then ./build.sh"
     - echo "See technology.md §19 for SDK/NDK setup."
     - exit 1

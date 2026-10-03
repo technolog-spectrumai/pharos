@@ -23,23 +23,45 @@ REPO_ROOT="$ROOT"
 . "$ROOT/rutile/scripts/lib.sh"
 . "$ROOT/rutile/scripts/tests_lib.sh"
 
-# Built with the edition the dev runners use, so this run and `./run_dev.sh`
-# share one compiled tree instead of rebuilding it each time they alternate.
-# Override like the runners: ENIGMA_EDITION=basic ./tests.sh rust
-export ENIGMA_EDITION="${ENIGMA_EDITION:-professional}"
+# The feature list of a preset, as the build driver validates it. Evaluated
+# when a step runs (it needs the `yaml` package, which ensure_deps installs),
+# so --list works on a bare checkout.
+export REPO_ROOT BUILD_CONFIG_DEFAULT=pro.yaml
+PRO='$(node rutile/scripts/build.mjs pro.yaml --print-features enigma)'
+STD='$(node rutile/scripts/build.mjs std.yaml --print-features enigma)'
+CRATE='--manifest-path apps/enigma/src-tauri/Cargo.toml --no-default-features'
 
-# The app, rakotis, and the Rutile packages as THIS app resolves them.
+# The app, rakotis, and the Rutile packages as THIS app resolves them. The
+# suites always run with every feature compiled in, and exercise the gates by
+# flipping the run-time build config.
 tests_step js    "vitest: enigma, rakotis + shared packages"  'npm run test --workspaces --if-present'
 tests_step js    "typecheck (rakotis)"                        'npm run typecheck --workspaces --if-present'
-tests_step rust  "enigma app crate"                           'cargo test --manifest-path apps/enigma/src-tauri/Cargo.toml'
+
+# With Professional's features — every one — which is also what the dev runner
+# builds, so this run and `./run_dev.sh` share one compiled tree.
+tests_step rust  "enigma app crate (Pro's features)"          "cargo test $CRATE --features \"$PRO\""
+# A feature list is only an allowlist if every subset builds: the core alone,
+# and Standard's. Warnings fail it — an unused item behind a missing feature is
+# how a half-gated module shows up.
+tests_step rust  "builds with no optional features"           "RUSTFLAGS='-D warnings' cargo check --tests $CRATE"
+tests_step rust  "builds with Standard's features"            "RUSTFLAGS='-D warnings' cargo check --tests $CRATE --features \"$STD\""
+# Omitted means not linked: Standard has none of the optional crates, Pro all.
+# (Here-strings, not `echo | grep -q`: under pipefail a grep that stops at its
+# first match fails the pipeline it was meant to pass.)
+tests_step rust  "Standard links no optional crate"           "t=\$(cargo tree -e normal $CRATE --features \"$STD\"); for c in pmtiles mainline rustfft; do if grep -q \" \$c v\" <<<\"\$t\"; then echo \"\$c is linked into a Standard build\"; exit 1; fi; done; t=\$(cargo tree -e normal $CRATE --features \"$PRO\"); for c in pmtiles mainline rustfft; do grep -q \" \$c v\" <<<\"\$t\" || { echo \"\$c is missing from a Pro build\"; exit 1; }; done"
 tests_step rust  "protasius (encrypted store)"                'cargo test --manifest-path protasius/Cargo.toml'
 # The gate the crate layout exists to hold: Morion turns on gervasius's
-# `gervazy` half, which pulls fernet and then OpenSSL. Enigma must never.
-tests_step rust  "no OpenSSL in the enigma tree"              'test "$(cargo tree -p enigma -e normal --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys)" = 0'
+# `gervazy` half, which pulls fernet and then OpenSSL. Enigma must never —
+# checked with every feature on, the widest tree there is.
+tests_step rust  "no OpenSSL in the enigma tree"              "test \"\$(cargo tree -e normal $CRATE --features \"$PRO\" | grep -c openssl-sys)\" = 0"
 # Enigma's Gradle signing block, pin file and ignores against Rutile's checker.
 tests_step py    "Android signing contract (pytest)"          'python3 -m pytest -q scripts/android_signing/tests -p no:cacheprovider'
-tests_step build "frontend bundle (vue-tsc + vite)"           'npm run build -w apps/enigma'
-tests_step build "build.yaml resolves"                        './build.sh --dry-run'
+tests_step build "frontend bundle, Pro (vue-tsc + vite)"      "ENIGMA_FEATURES=\"$PRO\" npm run build -w apps/enigma"
+# The frontend half of "omitted means absent": a Standard bundle carries no map
+# library, no call UI and no map commands. (Scripts only: a few shared style
+# rules name the map library's classes and are inert without it.)
+tests_step build "Standard bundle omits calls and maps"       "rm -rf test-results/std-bundle && (cd apps/enigma && ENIGMA_FEATURES=\"$STD\" npx vite build --outDir ../../test-results/std-bundle --emptyOutDir >/dev/null) && if grep -rlE --include='*.js' 'maplibre|vox_create|map_get_tile' test-results/std-bundle/assets; then echo 'omitted feature code found in a Standard bundle'; exit 1; fi"
+tests_step build "both presets resolve"                       './build.sh --dry-run && ./build.sh std.yaml --dry-run'
 # Needs Playwright's browsers: npx playwright install chromium
 tests_step e2e   "Playwright smoke"                           'npm run test:e2e -w apps/enigma'
 
