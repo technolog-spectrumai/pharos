@@ -24,7 +24,7 @@ const PROFILES = ["release", "debug"];
 
 const KEYS = {
   root: ["output_dir", "apps"],
-  app: ["edition", "test", "desktop", "android"],
+  app: ["features", "test", "desktop", "android"],
   desktop: ["enabled", "profile", "bundles"],
   android: ["enabled", "profile", "abis", "allow_unsigned_release"],
 };
@@ -36,10 +36,11 @@ const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
  *
  * `facts` is what the checkout says, gathered by the caller:
  *   platform  process.platform
- *   apps      { <name>: { editions: [..], overlays: [..] } } — every directory
- *             under apps/ that has a src-tauri/, the editions it has a
- *             configs/build_config.<edition>.yaml for, and the editions that
- *             also have a tauri.<edition>.conf.json overlay.
+ *   apps      { <name>: { features: { <id>: [required ids] } } } — every
+ *             directory under apps/ that has a src-tauri/, with the app's
+ *             feature CATALOGUE: the `[features]` table of its Cargo.toml,
+ *             which is the one authority for which ids exist and what each
+ *             requires. Empty for an app that has no optional features.
  *
  * Returns { config, errors }. Every problem is reported, not just the first,
  * and each names the path of the key at fault.
@@ -110,22 +111,40 @@ export function loadConfig(text, facts) {
     }
     unknown(`${at}.`, section, KEYS.app);
 
-    let edition = null;
-    if (section.edition !== undefined && section.edition !== null) {
-      if (known.editions.length === 0) {
-        err(`${at}.edition`, `${name} has no editions (no src-tauri/configs/build_config.<edition>.yaml)`);
-      } else if (!known.editions.includes(section.edition)) {
-        err(
-          `${at}.edition`,
-          `${JSON.stringify(section.edition)} has no src-tauri/configs/build_config.${section.edition}.yaml ` +
-            `(have: ${known.editions.join(", ")})`,
-        );
-      } else {
-        edition = section.edition;
+    // The allowlist. `null` = this app has no optional features at all.
+    //
+    // Nothing here is a default: an app with a catalogue must say which
+    // features it wants, every id must exist, and the list must be CLOSED
+    // under requirements — a feature that needs another is refused, never
+    // quietly widened, so the file always says exactly what is built.
+    const catalogue = known.features ?? {};
+    const ids = Object.keys(catalogue);
+    let features = null;
+    if (ids.length === 0) {
+      if (section.features !== undefined) {
+        err(`${at}.features`, `${name} has no optional features (no [features] in its Cargo.toml)`);
+      }
+    } else if (section.features === undefined) {
+      err(`${at}.features`, `required — list the features to build ([] for none; available: ${ids.join(", ")})`);
+    } else {
+      features = [];
+      for (const id of list(`${at}.features`, section.features)) {
+        if (!ids.includes(id)) {
+          err(`${at}.features`, `unknown feature ${JSON.stringify(id)} (available: ${ids.join(", ")})`);
+        } else if (features.includes(id)) {
+          err(`${at}.features`, `${id} is listed twice`);
+        } else {
+          features.push(id);
+        }
+      }
+      for (const id of features) {
+        for (const needs of catalogue[id]) {
+          if (!features.includes(needs)) err(`${at}.features`, `${id} requires ${needs}, which is not listed`);
+        }
       }
     }
 
-    const app = { edition, test: bool(`${at}.test`, section.test, false), desktop: null, android: null };
+    const app = { features, test: bool(`${at}.test`, section.test, false), desktop: null, android: null };
 
     if (section.desktop !== undefined) {
       const d = section.desktop;
@@ -202,11 +221,15 @@ export function planApp(name, app, known) {
   const steps = [];
   const appDir = `apps/${name}`;
 
-  // The edition travels as an environment variable because build.rs is what
-  // reads it: `ENIGMA_EDITION=professional` selects the YAML that is compiled
-  // in. Set on EVERY step — the test run and the Android build must bake in
-  // the same feature set as the desktop bundle.
-  const env = app.edition ? { [`${name.toUpperCase()}_EDITION`]: app.edition } : {};
+  // The allowlist reaches the build twice, and both halves must get the same
+  // list. Cargo takes it as `--features`, so an omitted feature's Rust code
+  // and optional dependencies are not compiled. The frontend takes it from
+  // `<APP>_FEATURES` in the environment (the app's vite.config reads it), so
+  // the bundler drops the omitted feature's code too. Set on EVERY step — the
+  // test run and the Android build must be the same build as the desktop one.
+  const list = app.features;
+  const env = list ? { [`${name.toUpperCase()}_FEATURES`]: list.join(",") } : {};
+  const featureArgs = list && list.length ? ["--features", list.join(",")] : [];
 
   if (app.test) {
     steps.push({ title: `${name}: frontend tests`, cwd: ".", argv: ["npm", "run", "test", "-w", appDir], env });
@@ -216,9 +239,16 @@ export function planApp(name, app, known) {
       // A workspace member is tested through the WORKSPACE: `cargo test -p`
       // compiles one crate and silently skips the doctests of the crates it
       // shares — padova's `compile_fail` guard among them.
+      //
+      // A crate with features is tested with exactly the listed ones:
+      // `--no-default-features` because a bare `cargo test` would otherwise
+      // add whatever the manifest's `default` says.
       argv: known.inWorkspace
         ? ["cargo", "test", "--workspace"]
-        : ["cargo", "test", "--manifest-path", `${appDir}/src-tauri/Cargo.toml`],
+        : [
+            "cargo", "test", "--manifest-path", `${appDir}/src-tauri/Cargo.toml`,
+            ...(list ? ["--no-default-features", ...featureArgs] : []),
+          ],
       env,
     });
   }
@@ -228,13 +258,7 @@ export function planApp(name, app, known) {
     const argv = ["npx", "tauri", "build"];
     if (profile === "debug") argv.push("--debug");
     if (bundles.length) argv.push("--bundles", bundles.join(","));
-    // The edition's partial tauri config, deep-merged over tauri.conf.json.
-    // build.rs applies the same merge before asserting the app identity, so
-    // the two must stay in lockstep — which is why it is passed whenever the
-    // file exists and never otherwise.
-    if (app.edition && known.overlays.includes(app.edition)) {
-      argv.push("--config", `src-tauri/tauri.${app.edition}.conf.json`);
-    }
+    argv.push(...featureArgs);
     // Stale bundles from a previous run would be reported as this build's.
     steps.push({ title: `${name}: clear old ${profile} bundles`, cleanBundles: profile });
     // `tauri build` runs the frontend build itself (beforeBuildCommand: the
@@ -247,6 +271,7 @@ export function planApp(name, app, known) {
     const { profile, abis, allowUnsigned } = app.android;
     const argv = ["bash", known.androidScript, name, profile, abis.join(",")];
     if (allowUnsigned) argv.push("--allow-unsigned-release");
+    if (featureArgs.length) argv.push(`--features=${list.join(",")}`);
     steps.push({ title: `${name}: Android ${profile} (${abis.join(", ")})`, cwd: ".", argv, env });
     steps.push({ title: `${name}: Android packages`, collect: "android", profile });
   }

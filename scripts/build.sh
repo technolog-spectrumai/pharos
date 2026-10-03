@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# Build this repo's apps as its build.yaml says.
+# Build this repo's apps as a build config says.
 #
-#   ./build.sh                 every app in build.yaml
-#   ./build.sh enigma          one app (or several, by name)
+#   ./build.sh                 the repo's default config
+#   ./build.sh FILE.yaml       another config of the same shape
+#   ./build.sh APP [APP...]    only these apps from the config
 #   ./build.sh --dry-run       print the commands the config resolves to, run none
-#   ./build.sh --config FILE   read another config instead of build.yaml
 #
-# What is built — edition, debug or release, package formats, Android, tests —
-# is set in build.yaml and nowhere else: there are no build flags.
+# What is built — features, debug or release, package formats, Android, tests —
+# is set in the config and nowhere else: there are no build flags.
 #
 # Run through the app repo's own ./build.sh, a wrapper that checks this
-# submodule is there and execs this file. This is the preflight; build.mjs does
-# the building. The split is forced: reading YAML takes an npm package, so
-# something has to check the toolchain and install dependencies before node can
-# be handed the config.
+# submodule is there, names the repo's default config and execs this file. This
+# is the preflight; build.mjs does the building. The split is forced: reading
+# YAML takes an npm package, so something has to check the toolchain and install
+# dependencies before node can be handed the config.
 set -euo pipefail
 
 case "${1:-}" in

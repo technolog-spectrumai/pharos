@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the apps an app repo's build.yaml names, the way it says. Run through
+// Builds the apps an app repo's build config names, the way it says. Run through
 // build.sh, which checks the toolchain and installs dependencies first — this
 // file needs the `yaml` package and so cannot do that part itself.
 //
@@ -20,15 +20,20 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // explicitly, so this default only matters when the file is run by hand.
 const ROOT = path.resolve(process.env.REPO_ROOT ?? path.join(HERE, "..", ".."));
 
-const USAGE = `Build this repo's apps as build.yaml says.
+// The config a bare `./build.sh` reads. An app repo with presets names its
+// default (Enigma: pro.yaml); otherwise it is build.yaml.
+const DEFAULT_CONFIG = process.env.BUILD_CONFIG_DEFAULT || "build.yaml";
 
-  ./build.sh                 every app in build.yaml
-  ./build.sh enigma          one app (or several, by name)
+const USAGE = `Build this repo's apps as a build config says.
+
+  ./build.sh                 what ${DEFAULT_CONFIG} describes
+  ./build.sh FILE.yaml       what another config describes
+  ./build.sh APP [APP...]    only these apps from the config
   ./build.sh --dry-run       print the commands the config resolves to, run none
-  ./build.sh --config FILE   read another config instead of build.yaml
 
-What is built — edition, debug or release, package formats, Android, tests —
-is set in build.yaml and nowhere else.`;
+What is built — features, debug or release, package formats, Android, tests —
+is set in the config and nowhere else. (--config FILE is the same as naming the
+file.)`;
 
 const step = (msg) => console.log(`\n\x1b[1;36m==> ${msg}\x1b[0m`);
 const die = (msg) => {
@@ -39,7 +44,11 @@ const die = (msg) => {
 // ── arguments ───────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const args = { config: null, dryRun: false, apps: [] };
+  const args = { config: null, dryRun: false, apps: [], printFeatures: null };
+  const setConfig = (file) => {
+    if (args.config) die(`two configs given: ${args.config} and ${file}`);
+    args.config = file;
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") {
@@ -48,13 +57,20 @@ function parseArgs(argv) {
     } else if (a === "--dry-run") {
       args.dryRun = true;
     } else if (a === "--config") {
-      args.config = argv[++i] ?? die("--config needs a file");
+      setConfig(argv[++i] ?? die("--config needs a file"));
     } else if (a.startsWith("--config=")) {
-      args.config = a.slice("--config=".length);
+      setConfig(a.slice("--config=".length));
+    } else if (a === "--print-features") {
+      // For the dev runner and tests.sh: the validated allowlist of one app,
+      // comma-separated, and nothing else on stdout.
+      args.printFeatures = argv[++i] ?? die("--print-features needs an app name");
     } else if (a.startsWith("-")) {
       // Deliberately no --debug, --bundles and friends: a flag that overrides
       // the file is a second place a build can be configured.
-      die(`unknown option ${a} — what is built is set in build.yaml (try --help)`);
+      die(`unknown option ${a} — what is built is set in the config (try --help)`);
+    } else if (/\.ya?ml$/.test(a)) {
+      // A config, not an app: `./build.sh std.yaml`.
+      setConfig(a);
     } else {
       args.apps.push(a);
     }
@@ -64,40 +80,47 @@ function parseArgs(argv) {
 
 // ── what the checkout says ──────────────────────────────────────────────────
 
-/** Every app under apps/ with a src-tauri/, and the editions each one has. */
+/** Every app under apps/ with a src-tauri/, and what cargo says about it.
+ *
+ *  Asked of cargo rather than assumed, for three things:
+ *    * where it builds — Morion is a member of the repo-root workspace and so
+ *      builds into <repo>/target, Enigma stands outside it and builds beside
+ *      its crate, and CARGO_TARGET_DIR overrides both;
+ *    * whether it is a workspace member, which decides how it is tested;
+ *    * its feature catalogue — the `[features]` table of its Cargo.toml. */
 function discoverApps() {
   const apps = {};
   for (const name of fs.readdirSync(path.join(ROOT, "apps")).sort()) {
-    const srcTauri = path.join(ROOT, "apps", name, "src-tauri");
-    if (!fs.existsSync(path.join(srcTauri, "tauri.conf.json"))) continue;
-    const names = (dir, pattern) =>
-      fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => pattern.exec(f)?.[1]).filter(Boolean).sort() : [];
+    const manifest = path.join(ROOT, "apps", name, "src-tauri", "Cargo.toml");
+    if (!fs.existsSync(path.join(path.dirname(manifest), "tauri.conf.json"))) continue;
+    const out = spawnSync(
+      "cargo",
+      ["metadata", "--no-deps", "--format-version", "1", "--manifest-path", manifest],
+      { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    );
+    if (out.status !== 0) die(`cargo metadata failed for ${name}:\n${out.stderr}`);
+    const meta = JSON.parse(out.stdout);
+    const pkg = meta.packages.find((p) => path.resolve(p.manifest_path) === manifest);
     apps[name] = {
-      editions: names(path.join(srcTauri, "configs"), /^build_config\.(.+)\.yaml$/),
-      overlays: names(srcTauri, /^tauri\.(.+)\.conf\.json$/),
+      features: catalogueOf(pkg?.features ?? {}),
+      inWorkspace: path.resolve(meta.workspace_root) === ROOT,
+      targetDir: meta.target_directory,
+      // Rutile's own script, as the app repo sees it.
+      androidScript: path.relative(ROOT, path.join(HERE, "build_android.sh")),
     };
   }
   return apps;
 }
 
-/** Asked of cargo rather than assumed: Morion is a member of the repo-root
- *  workspace and so builds into <repo>/target, Enigma stands outside it and
- *  builds beside its crate, and CARGO_TARGET_DIR overrides both. */
-function cargoFacts(name) {
-  const manifest = path.join(ROOT, "apps", name, "src-tauri", "Cargo.toml");
-  const out = spawnSync(
-    "cargo",
-    ["metadata", "--no-deps", "--format-version", "1", "--manifest-path", manifest],
-    { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (out.status !== 0) die(`cargo metadata failed for ${name}:\n${out.stderr}`);
-  const meta = JSON.parse(out.stdout);
-  return {
-    inWorkspace: path.resolve(meta.workspace_root) === ROOT,
-    targetDir: meta.target_directory,
-    // Rutile's own script, as the app repo sees it.
-    androidScript: path.relative(ROOT, path.join(HERE, "build_android.sh")),
-  };
+/** A Cargo `[features]` table as { id: [ids it requires] }.
+ *
+ *  `default` is not a feature anyone lists — it is what a bare `cargo build`
+ *  gets. Of each feature's entries, only the ones naming ANOTHER feature are
+ *  requirements; `dep:crate` and `crate/feature` are what the feature pulls
+ *  in, which is cargo's business. */
+function catalogueOf(table) {
+  const ids = Object.keys(table).filter((id) => id !== "default");
+  return Object.fromEntries(ids.map((id) => [id, table[id].filter((entry) => ids.includes(entry))]));
 }
 
 // ── artefacts ───────────────────────────────────────────────────────────────
@@ -205,16 +228,26 @@ function runApp(name, app, known, config, dryRun) {
 // ── main ────────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv.slice(2));
-// The repo's own build.yaml unless told otherwise; a path given by hand is
-// relative to where it was typed.
-const configPath = args.config ? path.resolve(process.cwd(), args.config) : path.join(ROOT, "build.yaml");
+// The repo's default config unless one was named. A name given by hand is
+// looked for where it was typed first, then at the repo root — so
+// `./build.sh std.yaml` works from any directory.
+const wanted = args.config ?? DEFAULT_CONFIG;
+const configPath =
+  [path.resolve(process.cwd(), wanted), path.resolve(ROOT, wanted)].find((p) => fs.existsSync(p)) ??
+  die(`no build config ${wanted} (looked in ${process.cwd()} and ${ROOT})`);
 const configName = path.relative(process.cwd(), configPath) || configPath;
-if (!fs.existsSync(configPath)) die(`no build config at ${configPath}`);
 
 const facts = { platform: process.platform, apps: discoverApps() };
 const { config, errors } = loadConfig(fs.readFileSync(configPath, "utf8"), facts);
 if (errors.length) {
   die(`${configName} is invalid:\n${errors.map((e) => `  - ${e}`).join("\n")}`);
+}
+
+if (args.printFeatures) {
+  const app = config.apps[args.printFeatures];
+  if (!app) die(`'${args.printFeatures}' is not in ${configName} (it has: ${Object.keys(config.apps).join(", ")})`);
+  console.log((app.features ?? []).join(","));
+  process.exit(0);
 }
 
 const names = args.apps.length ? args.apps : Object.keys(config.apps);
@@ -229,7 +262,7 @@ for (const name of names) {
     console.log(`\n${name}: nothing enabled in ${configName} — skipped`);
     continue;
   }
-  built.push(...runApp(name, app, { ...facts.apps[name], ...cargoFacts(name) }, config, args.dryRun));
+  built.push(...runApp(name, app, facts.apps[name], config, args.dryRun));
 }
 
 if (args.dryRun) {

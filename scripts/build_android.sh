@@ -4,7 +4,7 @@
 # Normally reached through ./build.sh, from `android:` in build.yaml. By hand,
 # from the app repo's root:
 #
-#   bash rutile/scripts/build_android.sh <app> [debug|release] [abi-spec]
+#   bash rutile/scripts/build_android.sh <app> [debug|release] [abi-spec] [--features=a,b]
 #
 #   <app>      enigma | morion  (any dir under apps/ with a src-tauri/)
 #   build type debug (default) | release
@@ -48,18 +48,25 @@ fi
 # --allow-unsignd silently ignored as an unused $4 would be the worst possible
 # failure mode for exactly this feature.
 ALLOW_UNSIGNED=0
+FEATURE_ARGS=()
 shift $(( $# < 3 ? $# : 3 ))
 for arg in "$@"; do
   case "${arg}" in
     --allow-unsigned-release)
       ALLOW_UNSIGNED=1
       ;;
+    --features=*)
+      # The app's build-feature allowlist, from its build config. Cargo gets
+      # exactly this list; the frontend gets it from <APP>_FEATURES, which
+      # build.mjs has already put in the environment.
+      FEATURE_ARGS=(--features "${arg#--features=}")
+      ;;
     --signed)
       # The default for release; accepted so intent can be explicit.
       ;;
     *)
       echo "ERROR: unknown argument '${arg}'" >&2
-      echo "  known: --allow-unsigned-release, --signed" >&2
+      echo "  known: --allow-unsigned-release, --signed, --features=LIST" >&2
       exit 1
       ;;
   esac
@@ -205,10 +212,10 @@ fi
 
 if [[ "${BUILD_TYPE}" == "release" ]]; then
   echo "==> Building release APK + AAB"
-  npx tauri android build --apk --aab "${TAURI_TARGET[@]}"
+  npx tauri android build --apk --aab "${TAURI_TARGET[@]}" "${FEATURE_ARGS[@]}"
 else
   echo "==> Building debug APK"
-  npx tauri android build --debug --apk "${TAURI_TARGET[@]}"
+  npx tauri android build --debug --apk "${TAURI_TARGET[@]}" "${FEATURE_ARGS[@]}"
 fi
 
 # ── Output ────────────────────────────────────────────────────────────────────
