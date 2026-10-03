@@ -19,12 +19,12 @@
     "paths": {
       "rakotis": ["../../node_modules/rakotis/src/index.ts"],
       "rakotis/*": ["../../packages/rakotis/src/*"],
-      "wisteria/*.vue": ["../../packages/wisteria/src/components/*.vue"],
-      "wisteria/*": ["../../packages/wisteria/src/*"],
-      "wisteria": ["../../packages/wisteria/src/index.ts"],
-      "petalite/*.vue": ["../../packages/petalite/src/components/*.vue"],
-      "petalite/*": ["../../packages/petalite/src/*"],
-      "petalite": ["../../packages/petalite/src/index.ts"]
+      "wisteria/*.vue": ["../../rutile/packages/wisteria/src/components/*.vue"],
+      "wisteria/*": ["../../rutile/packages/wisteria/src/*"],
+      "wisteria": ["../../rutile/packages/wisteria/src/index.ts"],
+      "petalite/*.vue": ["../../rutile/packages/petalite/src/components/*.vue"],
+      "petalite/*": ["../../rutile/packages/petalite/src/*"],
+      "petalite": ["../../rutile/packages/petalite/src/index.ts"]
     },
 
     /* Linting */

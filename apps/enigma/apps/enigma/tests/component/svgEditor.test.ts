@@ -15,7 +15,7 @@ import { i18n } from "../../src/i18n";
 const invokeMock = vi.fn(async () => null);
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invokeMock(...(a as [])) }));
 const exportPngMock = vi.fn(async () => true);
-// The engine moved to packages/wisteria; this editor is enigma's wrapper
+// The engine is wisteria (Rutile); this editor is enigma's wrapper
 // around it, and the export is still mocked because jsdom has no canvas.
 vi.mock("wisteria/sketchExport", () => ({
   exportPng: (...a: unknown[]) => exportPngMock(...(a as [])),
