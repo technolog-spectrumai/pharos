@@ -2,8 +2,8 @@
 #
 # Sourced after lib.sh. A tests.sh is then just its list of steps:
 #
-#   step js   "frontend tests"  'npm run test --workspaces --if-present'
-#   step rust "app crate"       'cargo test --manifest-path apps/x/src-tauri/Cargo.toml'
+#   tests_step js   "frontend tests"  'npm run test --workspaces --if-present'
+#   tests_step rust "app crate"       'cargo test --manifest-path apps/x/src-tauri/Cargo.toml'
 #   tests_main "$@"
 #
 # Each step is a group, a title and one command line, run with bash from the
@@ -12,11 +12,13 @@
 # step 2" would waste it. The table at the end says what passed, what failed
 # and how long each took; the exit status is non-zero if anything failed.
 
+# Named tests_step, not step: lib.sh already has a `step` that prints a
+# heading, and ensure_deps calls it.
 TESTS_GROUPS=()
 TESTS_TITLES=()
 TESTS_COMMANDS=()
 
-step() {
+tests_step() {
   TESTS_GROUPS+=("$1")
   TESTS_TITLES+=("$2")
   TESTS_COMMANDS+=("$3")
