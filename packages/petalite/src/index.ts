@@ -1,9 +1,8 @@
-// Petalite — zinnia's shared front end.
+// Petalite — the shared front end.
 //
 // What lives here is what more than one app needs and none of them should own:
 // the theme and the system palette, the i18n mechanism, file-display helpers,
-// the two shared components, and the rakotis primitives re-exported so no app
-// reaches into the subtree by path.
+// the two shared components, and the five Oya primitives.
 //
 // What deliberately does NOT live here: anything that identifies one app.
 // `tabs.ts`, `openWith.ts`, `main.ts`, `icons.ts` registration and the i18n
