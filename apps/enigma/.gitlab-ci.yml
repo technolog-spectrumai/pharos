@@ -3,6 +3,13 @@ workflow:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
+# Rutile — the crypto crates, the shared packages and the build tooling — is a
+# git submodule, and nothing here builds without it. Its URL is an SSH one on
+# GitHub, so the runner needs credentials for that repository (a deploy key, or
+# a `url.<https-with-token>.insteadOf` rewrite) before any job can clone.
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
 stages: [test, check, e2e, build]
 
 node:vitest:
@@ -37,7 +44,11 @@ cargo:check:
     # tauri-build validates that frontendDist ("../dist") exists
     - mkdir -p apps/$APP/dist
   script:
-    - cd apps/$APP/src-tauri && cargo check
+    - (cd apps/$APP/src-tauri && cargo check)
+    # The gate the crate layout exists to hold: Morion turns on gervasius's
+    # `gervazy` feature, which pulls fernet and then OpenSSL. Enigma shares the
+    # crate through Rutile and must never inherit that.
+    - 'test "$(cargo tree -p enigma -e normal --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys)" = 0 || { echo "ERROR: openssl-sys reached enigma"; exit 1; }'
 
 # Frontend build gate: `vue-tsc --noEmit && vite build` per app. This is the ONLY
 # place the app frontends are actually built in CI — node:vitest runs unit tests
@@ -59,63 +70,6 @@ frontend:build:
     - npm ci
     - npm run build -w apps/$APP
     # assert the build actually produced a frontend bundle (not just exit 0)
-    - 'test -f "apps/$APP/dist/index.html" || { echo "ERROR: frontend build emitted no apps/$APP/dist/index.html"; exit 1; }'
-  artifacts:
-    paths: [apps/$APP/dist/]
-    expire_in: 1 week
-
-# ── the zinnia workspace (Morion) ───────────────────────────────────────────
-# Separate jobs, not an extra entry in enigma's matrices, and deliberately so.
-# Morion and the shared crates are ONE cargo workspace (see the root
-# Cargo.toml) while enigma's app crate stands outside it, so the workspace has
-# its own target directory and shares none with enigma. It also builds with a
-# different toolchain gate: the workspace commits its Cargo.lock, enigma's does
-# not.
-#
-# `node:vitest` is NOT duplicated here: it runs `npm run test --workspaces
-# --if-present` from the root and already covers both apps plus the shared
-# packages.
-
-cargo:zinnia:
-  stage: check
-  image: rust:1-bookworm
-  variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo
-  cache:
-    key: cargo-zinnia
-    paths:
-      - .cargo/registry
-      - target/
-  before_script:
-    - apt-get update && apt-get install -y --no-install-recommends
-      libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
-      librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential
-    # tauri-build validates that frontendDist ("../dist") exists
-    - mkdir -p apps/morion/dist
-  script:
-    - cargo test --workspace
-    # The collab transport lives behind an off-by-default feature, and code
-    # behind a `#[cfg(feature)]` is NOT type-checked by a default build — a
-    # cfg'd type error compiles clean. This is the only thing that checks it.
-    - npm run test:rust:net
-    # The gate the whole workspace layout exists to hold: enigma must not
-    # inherit zinnia's `gervazy` feature, which pulls fernet and then OpenSSL.
-    - 'test "$(cargo tree -p enigma -e normal --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys)" = 0 || { echo "ERROR: openssl-sys reached enigma"; exit 1; }'
-
-frontend:build:zinnia:
-  stage: check
-  image: node:22-bookworm
-  parallel:
-    matrix:
-      - APP: [morion]
-  variables:
-    npm_config_cache: $CI_PROJECT_DIR/.npm
-  cache:
-    key: npm
-    paths: [.npm/]
-  script:
-    - npm ci
-    - npm run build -w apps/$APP
     - 'test -f "apps/$APP/dist/index.html" || { echo "ERROR: frontend build emitted no apps/$APP/dist/index.html"; exit 1; }'
   artifacts:
     paths: [apps/$APP/dist/]
@@ -143,7 +97,7 @@ playwright:smoke:
     paths: [apps/$APP/test-results/]
     expire_in: 7 days
 
-# Shared desktop-build definition. `./build.sh enigma` builds what build.yaml
+# Shared desktop-build definition. `./build.sh` builds what build.yaml
 # says — the same route a developer uses, so CI cannot build something a local
 # build would not. It runs the frontend build first (tauri's beforeBuildCommand
 # -> npm run build), compiles the Rust release binary, then bundles it to
@@ -172,7 +126,7 @@ playwright:smoke:
     # stale old-version installers would linger in release/bundle/ and get
     # re-uploaded inside the artifacts. build.sh clears that directory before
     # it builds and fails if the build leaves no package in it.
-    - bash build.sh enigma
+    - bash build.sh
 
 # Every-commit build verification: proves enigma still builds end-to-end
 # (frontend -> Rust release -> bundle) on every branch push. A full release build
@@ -205,11 +159,8 @@ tauri:desktop:
     paths: [apps/enigma/src-tauri/target/release/bundle/]
     expire_in: 30 days
 
-# There is no Rotor WASM build gate here. The crypto crates are consumed from
-# the copy at crates/rotor; the job that ran build_wasm.sh and stamped
-# provenance into rotor_wasm/build{,_web}/ is not part of this pipeline.
-# Consumers were never pulling these artifacts anyway — toto vendors a static
-# copy of the build_wasm.sh output.
+# There is no Rotor WASM build gate here: the crypto crates are Rutile's
+# (rutile/crates/rotor), and building its bindings is that repo's business.
 
 # Android needs an SDK/NDK image plus signing configuration; the host-provisioning
 # scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)
@@ -221,6 +172,6 @@ android:build:
   allow_failure: true
   script:
     - echo "Android CI is not provisioned. Build locally:"
-    - echo "  set android.enabled to true in build.yaml, then ./build.sh enigma"
+    - echo "  set android.enabled to true in build.yaml, then ./build.sh"
     - echo "See build.md for SDK/NDK setup."
     - exit 1
