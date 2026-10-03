@@ -33,25 +33,23 @@ tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Crypto layer (OpenMLS via Rotor). Its own repo since 2026-09-08, checked out
-# IN THIS REPO at crates/rotor (imported with history 2026-09-08) and
-# consumed by path, so building enigma still needs no GitLab access. The layout
-# is the contract; see that repo's README, and scripts/rotor_path.sh for the
-# override.
-rotor-core = { path = "../../../crates/rotor/rotor_core" }
+# Crypto layer (OpenMLS via Rotor). The crypto crates live in Rutile, the base
+# repo mounted at rutile/ as a git submodule, and are consumed by path — so
+# building enigma fetches nothing but crates.io.
+rotor-core = { path = "../../../rutile/crates/rotor/rotor_core" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
 protasius = { path = "../../../protasius" }
 # Reused directly (not just via protasius) for passphrase-protected local files
 # (local_lock.rs): per-file vault + seal/open over the chosen file's bytes.
-gervasius = { path = "../../../crates/rotor/gervasius" }
-# The sealed-file FRAME, shared with the office apps. Deliberately WITHOUT
+gervasius = { path = "../../../rutile/crates/rotor/gervasius" }
+# The sealed-file FRAME, shared with Morion (Rutile's substrate). Deliberately WITHOUT
 # `legacy-detect`: that feature reaches gervasius's gervazy half and so
 # openssl-sys, and enigma never wrote a Fernet file to recognise. The layout is
 # shared; the magic and AAD are not — every file already on a user's disk
 # carries `ENIGLOCK`, so `FrameSpec::ENIGMA` keeps reading exactly what this
 # app has always written.
-substrate = { path = "../../../crates/substrate" }
+substrate = { path = "../../../rutile/crates/substrate" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"
