@@ -62,9 +62,6 @@ export const APP_TABS: readonly AppTab[] = [
   ...(__FEATURE_CALENDAR__
     ? [{ id: "calendar", path: "/calendar", labelKey: "nav.calendar", icon: "calendar", gate: (c: BuildConfig) => c.calendar_enabled } as const]
     : []),
-  ...(__FEATURE_MAPS__
-    ? [{ id: "map", path: "/map", labelKey: "nav.map", icon: "map", gate: (c: BuildConfig) => c.maps_enabled } as const]
-    : []),
   ...(__FEATURE_CONTACTS__
     ? [{ id: "contacts", path: "/contacts", labelKey: "nav.contacts", icon: "address-book", gate: (c: BuildConfig) => c.contacts_enabled } as const]
     : []),

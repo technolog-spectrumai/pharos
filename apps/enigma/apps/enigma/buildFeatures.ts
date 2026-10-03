@@ -4,7 +4,7 @@
 // `[features]` — the catalogue). A build picks from them in a root config
 // (pro.yaml / std.yaml), and `./build.sh` hands the SAME list to cargo
 // (`--features`) and to this file (`ENIGMA_FEATURES`). Here it becomes one
-// literal per feature — `__FEATURE_MAPS__` and so on — which Vite substitutes
+// literal per feature — `__FEATURE_CALLS__` and so on — which Vite substitutes
 // before bundling, so a branch guarded by a feature the build left out is
 // dead code and is dropped, together with everything only that branch imports.
 //
@@ -27,7 +27,7 @@ export function catalogue(): string[] {
   return [...section[1].matchAll(/^([a-z][a-z0-9_]*)\s*=/gm)].map((m) => m[1]).filter((id) => id !== "default");
 }
 
-/** `{ __FEATURE_MAPS__: "true", … }` for Vite's `define`.
+/** `{ __FEATURE_CALLS__: "true", … }` for Vite's `define`.
  *  `list` is ENIGMA_FEATURES: undefined = everything, otherwise comma-separated. */
 export function featureDefines(list: string | undefined): Record<string, string> {
   const ids = catalogue();

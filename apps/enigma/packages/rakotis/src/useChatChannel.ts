@@ -19,17 +19,10 @@ import {
   activeMuteUntil, clampRules, formatRemaining, pruneMutes, sanitizeMuteUntil,
   type MuteMap,
 } from "./services/moderation";
-import {
-  validateLocationShare, validatePinShare, validateRegionShare,
-  type MapLocationShare, type MapPinShare, type MapRegionShare,
-} from "./mapModel";
-import { sameUser, userPartOf, type PersistedMessage } from "./chatHistoryModel";
+import { isMapShareType, sameUser, userPartOf, type MapShareType, type PersistedMessage } from "./chatHistoryModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
 import { getChatHistoryCapMsgs, getConnectTimeoutSecs } from "./services/appStorage";
 import { nanoid } from "nanoid";
-
-/** A validated map share riding a chat-timeline card (mapModel wire shapes). */
-export type MapShare = MapPinShare | MapLocationShare | MapRegionShare;
 
 /** A locally-known P2P room: topic id, display name, join ticket, and the peer
  *  NodeIds seen in it (the address book for ticketless reconnects). */
@@ -120,9 +113,9 @@ export interface Message {
     | "mls_app"
     | "image_message"
     | "voice_message"
-    | "map_pin"
-    | "map_loc"
-    | "map_region"
+    // A map share from the Map tab that is gone: kept as a card that says it
+    // cannot be shown (see chatHistoryModel's MAP_SHARE_TYPES).
+    | MapShareType
     | "system_error"
     | "system_info";
   user: string;
@@ -131,8 +124,6 @@ export interface Message {
   content: string;
   image_data?: string;
   audio_data?: string;
-  /** Validated map share payload (map_pin / map_loc / map_region cards). */
-  map?: MapShare;
   participant_type: "human" | "system";
   self: boolean;
   encrypted: boolean;
@@ -336,7 +327,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (senderLeafId) pm.deviceId = senderLeafId;
     if (msg.image_data) pm.image_data = msg.image_data;
     if (msg.audio_data) pm.audio_data = msg.audio_data;
-    if (msg.map) pm.map = msg.map;
     return pm;
   }
 
@@ -349,7 +339,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       avatar_url: null, content: pm.content,
       ...(pm.image_data ? { image_data: pm.image_data } : {}),
       ...(pm.audio_data ? { audio_data: pm.audio_data } : {}),
-      ...(pm.map ? { map: pm.map } : {}),
       participant_type: "human", self, encrypted: pm.encrypted,
       timestamp: new Date(pm.ts),
     };
@@ -419,7 +408,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   // registry/kv/history sync — consumed by `useDeviceSync` on its HEADLESS
   // devlink channel only). Each handler ignores the prefixes it does not own.
   // `map_*` (map_pin / map_loc / map_region) is deliberately NOT
-  // routed here: map shares are human content rendered as timeline cards
+  // routed here: map shares were human content rendered as timeline cards
   // (handled inline after the mute check), not control traffic. Adding the
   // prefix "for consistency" would make this gate `return` before the mute
   // check and swallow every card — no handler owns `map_`, so nothing would
@@ -1098,23 +1087,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           } else if (inner?.type === "voice_message" && inner.audio_data) {
             pushMessage({ id: rxId, type: "voice_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", audio_data: inner.audio_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           } else if (typeof inner?.type === "string" && inner.type.startsWith("map_")) {
-            // Map shares (mapModel wire shapes) become timeline cards; anything
-            // that fails validation — junk, unknown map_* kinds, newer `v` — is
-            // dropped silently, never rendered as a raw-JSON bubble. Deliberately
-            // NOT a sync family: cards are human content, so they sit after the
-            // mute check above (control traffic they are not).
-            //
-            // `map_loc` (a shared location) rides here too and MUST NOT be given
-            // its own prefix in the gate above — see that comment. Its expiry is
-            // a render decision; the validator is time-independent so a stale
-            // card still reloads intact.
-            const share =
-              inner.type === "map_pin" ? validatePinShare(inner)
-                      : inner.type === "map_loc" ? validateLocationShare(inner)
-              : inner.type === "map_region" ? validateRegionShare(inner)
-              : null;
-            if (share) {
-              pushMessage({ id: rxId, type: share.type, user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", map: share, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
+            // A map share from a peer on a build that still has the Map tab.
+            // This one has no maps, so the payload is not read; a known kind
+            // becomes a card saying it cannot be shown, and anything else
+            // `map_*` is dropped — never rendered as a raw-JSON bubble.
+            // Deliberately NOT a sync family: it is human content, so it sits
+            // after the mute check above, and must not be given a prefix in
+            // the routing gate (see that comment).
+            if (isMapShareType(inner.type)) {
+              pushMessage({ id: rxId, type: inner.type, user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
             }
           } else {
             pushMessage({ id: rxId, type: "mls_app", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: text, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
@@ -1717,24 +1698,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     } catch (e) { error.value = errorMessage(e); }
   }
 
-  /** Send a validated map share (pin / route / region offer) as a chat card.
-   *  Payloads are the compact mapModel wire shapes — map BYTES never ride MLS
-   *  (regions transfer over the file_xfer QUIC path). */
-  async function sendMapShare(share: MapShare) {
-    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
-    if (blockedByMute()) return;
-    error.value = null;
-    if (mlsStatus.value !== "ready") {
-      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
-      return;
-    }
-    try {
-      const msgId = nanoid();
-      await sendEncryptedMedia(share.type, { ...share }, msgId);
-      pushMessage({ id: msgId, type: share.type, user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", map: share, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
-    } catch (e) { error.value = errorMessage(e); }
-  }
-
   async function sendAudio(audioBlob: Blob) {
     if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
     if (blockedByMute()) return;
@@ -1863,7 +1826,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     isParticipant, currentUserName, mlsIdentity, myAvatar,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendAudio, sendMapShare, forceResetMls,
+    sendMessage, sendImage, sendAudio, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByNode, openP2pRoom,
     admitInvited, joinByInvite,
     cancelJoin, deleteRoom,

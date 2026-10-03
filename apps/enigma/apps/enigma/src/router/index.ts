@@ -44,9 +44,6 @@ const router = createRouter({
     ...(__FEATURE_CALENDAR__
       ? [{ path: "/calendar", component: () => import("../views/EnigmaCalendarView.vue"), name: "calendar", beforeEnter: tabGuard("calendar") }]
       : []),
-    ...(__FEATURE_MAPS__
-      ? [{ path: "/map", component: () => import("../views/EnigmaMapView.vue"), name: "map", beforeEnter: tabGuard("map") }]
-      : []),
     ...(__FEATURE_CONTACTS__
       ? [{ path: "/contacts", component: () => import("../views/EnigmaContactsView.vue"), name: "contacts", beforeEnter: tabGuard("contacts") }]
       : []),

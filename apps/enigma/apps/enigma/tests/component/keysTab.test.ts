@@ -4,8 +4,8 @@ import { createPinia, setActivePinia } from "pinia";
 import { i18n } from "../../src/i18n";
 import KeyringPanel from "../../src/components/local/KeyringPanel.vue";
 
-// The Keys sub-tab rides the `keyring.enabled` build gate (the maps/devices
-// pattern): a build without it has no pill and no dormant panel. What is
+// The Keys sub-tab rides the `keyring` build feature: a build without it has
+// no pill and no dormant panel. What is
 // pinned here is the panel's own jsdom-visible surface — the gate itself is a
 // one-line `v-if` on the same const the Rust side enforces with
 // KEYRING_DISABLED, and EnigmaFilesView is not mounted by any test in this

@@ -6,8 +6,6 @@ import {
   setUseTor,
   getProfileState,
   getRuntimeConfig,
-  getMapActiveRegion,
-  setMapActiveRegion,
 } from "../../src/services/appStorage";
 
 // In jsdom there is no Tauri runtime, so appStorage uses its localStorage backend —
@@ -54,27 +52,5 @@ describe("appStorage — browser fallbacks", () => {
     const runtime = await getRuntimeConfig();
     expect(runtime.profile).toBe("browser");
     expect(runtime.identity).toBe("browser");
-  });
-});
-
-describe("appStorage — active map region (localStorage backend)", () => {
-  it("defaults to none when unset", async () => {
-    expect(await getMapActiveRegion()).toBe("");
-  });
-
-  it("round-trips an id and clears via the empty string", async () => {
-    await setMapActiveRegion("region-1");
-    expect(await getMapActiveRegion()).toBe("region-1");
-    await setMapActiveRegion("");
-    expect(await getMapActiveRegion()).toBe("");
-  });
-
-  it("pins the exact kv coordinates Rust reads (maps.rs KEY_ACTIVE_REGION)", async () => {
-    // Drift in ns/scope/key silently breaks tile priority — the Rust side
-    // reads this same triple raw.
-    await setMapActiveRegion("region-1");
-    expect(localStorage.getItem("enigma:db:p2p:settings:default:map_active_region")).toBe(
-      "region-1",
-    );
   });
 });

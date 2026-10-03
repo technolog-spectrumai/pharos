@@ -20,6 +20,5 @@ declare const __FEATURE_DHT__: boolean;
 declare const __FEATURE_CALLS__: boolean;
 declare const __FEATURE_CONTACTS__: boolean;
 declare const __FEATURE_CALENDAR__: boolean;
-declare const __FEATURE_MAPS__: boolean;
 declare const __FEATURE_KEYRING__: boolean;
 declare const __FEATURE_PIN_UNLOCK__: boolean;

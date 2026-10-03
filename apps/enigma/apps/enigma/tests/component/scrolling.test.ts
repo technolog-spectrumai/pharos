@@ -16,7 +16,7 @@ import { initBuildConfig } from "rakotis";
 //   footer  auto
 // `min-h-0` is the load-bearing half: a flex child's automatic minimum size is
 // its content, so without it <main> grows past the shell and never scrolls.
-// Views that own their scrolling (chat log, map canvas) fill main with `h-full`
+// Views that own their scrolling (the chat log, the file panels) fill main with `h-full`
 // and keep it inside — never with a hard-coded `100vh - 8rem` guess.
 
 const fileShare = { state: ref("idle") };
@@ -39,7 +39,6 @@ vi.mock("../../src/stores/chat", () => ({
 import App from "../../src/App.vue";
 import EnigmaChatView from "../../src/views/EnigmaChatView.vue";
 import EnigmaFilesView from "../../src/views/EnigmaFilesView.vue";
-import EnigmaMapView from "../../src/views/EnigmaMapView.vue";
 import EnigmaVoxView from "../../src/views/EnigmaVoxView.vue";
 import MessageList from "../../src/components/chat/MessageList.vue";
 import router from "../../src/router";
@@ -133,7 +132,7 @@ describe("the app shell", () => {
 });
 
 describe("the views that fill the pane", () => {
-  // Chat / Files / Map / Calls hand their scrolling to a panel inside them, so
+  // Chat / Files / Calls hand their scrolling to a panel inside them, so
   // they must be exactly as tall as <main> — `h-full`, never a `100vh - 8rem`
   // guess at the chrome's height (wrong on desktop, badly wrong on Android).
   const stubs = {
@@ -142,13 +141,10 @@ describe("the views that fill the pane", () => {
     KeyringPanel: true,
     LocalPanel: true,
     VoxPanel: true,
-    MapPanel: true,
-    RegionsPanel: true,
   };
   const views = [
     ["chat", EnigmaChatView],
     ["files", EnigmaFilesView],
-    ["map", EnigmaMapView],
     ["vox", EnigmaVoxView],
   ] as const;
 

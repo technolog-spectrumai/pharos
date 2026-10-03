@@ -340,7 +340,6 @@ void initBuildConfig({
   calls_enabled: __FEATURE_CALLS__,
   contacts_enabled: __FEATURE_CONTACTS__,
   calendar_enabled: __FEATURE_CALENDAR__,
-  maps_enabled: __FEATURE_MAPS__,
   keyring_enabled: __FEATURE_KEYRING__,
   pin_unlock: __FEATURE_PIN_UNLOCK__,
   use_tor_default: policy.featureDefaults.useTor,

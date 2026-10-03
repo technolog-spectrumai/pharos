@@ -3,7 +3,7 @@ import { flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setHiddenTabs } from "rakotis";
 
-const ALL = ["chat", "files", "vox", "calendar", "map", "contacts"] as const;
+const ALL = ["chat", "files", "vox", "calendar", "contacts"] as const;
 
 async function settle() {
   await nextTick();
@@ -80,7 +80,7 @@ describe("no redirect loop", () => {
 
     await store.initBuildConfig({
       calls_enabled: false, calendar_enabled: false,
-      maps_enabled: false, contacts_enabled: false,
+      contacts_enabled: false,
     });
     try {
       expect(tabs.firstVisiblePath()).toBe("/config");
@@ -90,7 +90,7 @@ describe("no redirect loop", () => {
     } finally {
       await store.initBuildConfig({
         calls_enabled: true, calendar_enabled: true,
-        maps_enabled: true, contacts_enabled: true,
+        contacts_enabled: true,
       });
     }
   });
@@ -135,11 +135,11 @@ describe("stored value abuse", () => {
   it("does not choke on a huge / duplicated hidden list", async () => {
     localStorage.setItem(
       "enigma:db:p2p:settings:default:hidden_tabs",
-      JSON.stringify(["map", "map", "map", ...Array.from({ length: 500 }, (_, i) => `x${i}`)]),
+      JSON.stringify(["calendar", "calendar", "calendar", ...Array.from({ length: 500 }, (_, i) => `x${i}`)]),
     );
     const { tabs } = await coldBoot();
     await tabs.loadTabVisibility();
-    expect(tabs.isTabVisible("map")).toBe(false);
+    expect(tabs.isTabVisible("calendar")).toBe(false);
     expect(tabs.isTabVisible("chat")).toBe(true);
   });
 

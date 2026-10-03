@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { OyaAvatar, formatTime } from "rakotis";
 import type { Message } from "../stores/chat";
-import MapShareCard from "./map/MapShareCard.vue";
 
 defineProps<{ message: Message }>();
 </script>
@@ -44,16 +43,13 @@ defineProps<{ message: Message }>();
         controls
         class="mt-2 w-full max-w-xs rounded"
       />
-      <!-- Map shares (pin / route / location / region offer) — open/download
-           only on user action. -->
-      <MapShareCard
-        v-else-if="message.type.startsWith('map_') && message.map"
-        :message="message"
-      />
-      <!-- A map-typed card whose payload failed re-validation on load: say so
-           instead of rendering an empty bubble (map shares carry no content). -->
-      <p v-else-if="message.type.startsWith('map_')" class="mt-1 text-xs italic opacity-50">
-        {{ $t('map.shareUnavailable') }}
+      <!-- A map share (pin / location / region) from the Map tab, which this
+           app no longer has — in an old history, or from a peer on an older
+           build. Say so instead of rendering an empty bubble: it carries no
+           text of its own. -->
+      <p v-else-if="message.type.startsWith('map_')" class="mt-1 text-xs italic opacity-50"
+         data-testid="map-share-unavailable">
+        {{ $t('chat.mapShareUnavailable') }}
       </p>
       <p v-else class="mt-1 whitespace-pre-wrap break-words text-sm opacity-90 [overflow-wrap:anywhere]">
         {{ message.content }}

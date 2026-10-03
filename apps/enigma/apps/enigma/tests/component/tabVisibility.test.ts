@@ -77,19 +77,19 @@ const linksTo = (wrapper: ReturnType<typeof mount>, path: string) =>
 describe("the nav", () => {
   it("shows every tab by default, in both lists", async () => {
     const wrapper = await mountApp();
-    for (const path of ["/chat", "/files", "/vox", "/calendar", "/map", "/contacts", "/config"]) {
+    for (const path of ["/chat", "/files", "/vox", "/calendar", "/contacts", "/config"]) {
       expect(linksTo(wrapper, path), path).toBe(2);
     }
   });
 
   it("drops a hidden tab from the desktop bar AND the mobile drawer", async () => {
-    await setTabVisible("map", false);
+    await setTabVisible("calendar", false);
     await setTabVisible("chat", false);
     const wrapper = await mountApp();
 
-    expect(linksTo(wrapper, "/map")).toBe(0);
+    expect(linksTo(wrapper, "/calendar")).toBe(0);
     expect(linksTo(wrapper, "/chat")).toBe(0);
-    expect(wrapper.text()).not.toContain("Map");
+    expect(wrapper.text()).not.toContain("Calendar");
     // Everything else is untouched, Settings above all.
     expect(linksTo(wrapper, "/files")).toBe(2);
     expect(linksTo(wrapper, "/config")).toBe(2);
@@ -109,7 +109,7 @@ describe("the nav", () => {
   });
 
   it("keeps Settings even when the user has hidden everything else", async () => {
-    for (const id of ["chat", "files", "vox", "calendar", "map", "contacts"] as const) {
+    for (const id of ["chat", "files", "vox", "calendar", "contacts"] as const) {
       await setTabVisible(id, false);
     }
     const wrapper = await mountApp();
@@ -118,7 +118,9 @@ describe("the nav", () => {
   });
 
   it("still lights the attention dots on the tabs that remain", async () => {
-    await setTabVisible("map", false);
+    // Chat is the one tab with no dot of its own, so hiding it leaves every
+    // badge below something to be checked on.
+    await setTabVisible("chat", false);
     const wrapper = await mountApp();
 
     // Hiding one tab must not disturb the badges of the others: the composables
@@ -161,7 +163,7 @@ describe("the Settings checkboxes", () => {
 
   it("offers one ticked box per tab this build contains", async () => {
     const wrapper = await mountSettings();
-    for (const id of ["chat", "files", "vox", "calendar", "map", "contacts"]) {
+    for (const id of ["chat", "files", "vox", "calendar", "contacts"]) {
       expect(box(wrapper, id).exists(), id).toBe(true);
       expect((box(wrapper, id).element as HTMLInputElement).checked, id).toBe(true);
     }
@@ -176,17 +178,17 @@ describe("the Settings checkboxes", () => {
 
   it("unticking one hides the tab and writes the choice through", async () => {
     const wrapper = await mountSettings();
-    await box(wrapper, "map").trigger("change");
+    await box(wrapper, "calendar").trigger("change");
     await flushPromises();
 
-    expect((box(wrapper, "map").element as HTMLInputElement).checked).toBe(false);
+    expect((box(wrapper, "calendar").element as HTMLInputElement).checked).toBe(false);
     // Same source the nav reads, so the two can never disagree.
     const nav = await mountApp();
-    expect(linksTo(nav, "/map")).toBe(0);
+    expect(linksTo(nav, "/calendar")).toBe(0);
 
     // And it is the persisted state, not just this session's.
     await loadTabVisibility();
-    expect((await mountSettings()).find('input[data-testid="tab-visible-map"]').element).toHaveProperty("checked", false);
+    expect((await mountSettings()).find('input[data-testid="tab-visible-calendar"]').element).toHaveProperty("checked", false);
   });
 
   it("offers no checkbox for a tab the build does not contain", async () => {

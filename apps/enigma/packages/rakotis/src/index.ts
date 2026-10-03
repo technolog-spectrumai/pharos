@@ -10,8 +10,6 @@ export * from "./services/appStorage";
 export * from "./services/localDb";
 export * from "./services/contacts";
 export * from "./services/moderation";
-export * from "./services/mapData";
-export * from "./mapModel";
 export * from "./chatHistoryModel";
 // Privacy HP: the pure policy model (types, prices, meter derivation, copy) and
 // the bridge to the Rust ledger. technology.md §17.
@@ -82,7 +80,6 @@ export type {
   ChatChannel,
   ChatChannelOptions,
   Message,
-  MapShare,
   MlsStatus,
   P2pRoomEntry,
 } from "./useChatChannel";

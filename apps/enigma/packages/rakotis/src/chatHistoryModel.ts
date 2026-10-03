@@ -1,5 +1,5 @@
 // Chat-history model — pure types, leaf-identity helpers and validation for
-// PERSISTED chat messages. No Vue/Tauri imports (mapModel.ts pattern):
+// PERSISTED chat messages. No Vue/Tauri imports:
 // storage-shape logic shared by the chat log, the chat channel and peer sync.
 //
 // This was `deviceSyncModel.ts` until device linking was parked (2026-08-18,
@@ -15,13 +15,6 @@
 //
 // Wire safety: a persisted message can arrive over an MLS seam, so it is
 // re-validated on receive — never trust a wire object.
-
-import type {
-  MapLocationShare, MapPinShare, MapRegionShare,
-} from "./mapModel";
-import {
-  validateLocationShare, validatePinShare, validateRegionShare,
-} from "./mapModel";
 
 /** Segment size of the persisted chat log (bounds the sealed value rewritten
  *  per append — never one giant blob per room). */
@@ -65,23 +58,30 @@ function isNonEmptyString(x: unknown, max: number): x is string {
 
 // ── Persisted chat messages (the chat:log kv namespace) ──────────────────────
 
+/** The three `map_*` types are what the Map tab used to put in a room: a
+ *  shared pin, location or region. Maps left the app (2026-10-03), but those
+ *  messages are in stored histories and can still arrive from a peer on an
+ *  older build — so the TYPES stay known, and such a message is kept as a
+ *  card that says it cannot be shown, rather than silently vanishing. Its
+ *  payload is not read or stored any more. */
+export const MAP_SHARE_TYPES = ["map_pin", "map_loc", "map_region"] as const;
+export type MapShareType = (typeof MAP_SHARE_TYPES)[number];
+
+export function isMapShareType(type: unknown): type is MapShareType {
+  return typeof type === "string" && (MAP_SHARE_TYPES as readonly string[]).includes(type);
+}
+
 export type PersistedMessageType =
   | "chat_message"
   | "mls_app"
   | "image_message"
   | "voice_message"
-  | "map_pin"
-  | "map_loc"
-  | "map_region";
+  | MapShareType;
 
 const PERSISTED_TYPES: readonly string[] = [
   "chat_message", "mls_app", "image_message", "voice_message",
-  "map_pin", "map_loc", "map_region",
+  ...MAP_SHARE_TYPES,
 ];
-
-/** A validated map share on a persisted card (re-narrowed on every receive). */
-export type PersistedMapShare =
-  | MapPinShare | MapLocationShare | MapRegionShare;
 
 /** One stored timeline message. `self`/initials/avatar are NOT stored — they
  *  are presentation, recomputed from the viewer's identity on load. System
@@ -99,23 +99,14 @@ export interface PersistedMessage {
   content: string;
   image_data?: string;
   audio_data?: string;
-  map?: PersistedMapShare;
   encrypted: boolean;
   /** Unix ms. */
   ts: number;
 }
 
-function validateMapShareByType(x: unknown): PersistedMapShare | null {
-  if (!isRecord(x)) return null;
-  if (x.type === "map_pin") return validatePinShare(x);
-  if (x.type === "map_loc") return validateLocationShare(x);
-  if (x.type === "map_region") return validateRegionShare(x);
-  return null;
-}
-
 export function validatePersistedMessage(x: unknown): PersistedMessage | null {
   if (!isRecord(x)) return null;
-  const { id, type, user, deviceId, content, image_data, audio_data, map, encrypted, ts } = x;
+  const { id, type, user, deviceId, content, image_data, audio_data, encrypted, ts } = x;
   if (!isNonEmptyString(id, MSG_ID_MAX_LEN)) return null;
   if (typeof type !== "string" || !PERSISTED_TYPES.includes(type)) return null;
   if (!isNonEmptyString(user, 300)) return null;
@@ -128,8 +119,6 @@ export function validatePersistedMessage(x: unknown): PersistedMessage | null {
   if (isNonEmptyString(deviceId, 300)) msg.deviceId = deviceId;
   if (isNonEmptyString(image_data, MSG_MEDIA_MAX_LEN)) msg.image_data = image_data;
   if (isNonEmptyString(audio_data, MSG_MEDIA_MAX_LEN)) msg.audio_data = audio_data;
-  const share = validateMapShareByType(map);
-  if (share) msg.map = share;
   return msg;
 }
 

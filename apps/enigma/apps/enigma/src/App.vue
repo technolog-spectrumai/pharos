@@ -5,7 +5,6 @@ import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
-import { useMapStore } from "./stores/map";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
 import HpChip from "./components/hp/HpChip.vue";
 import HpFlash from "./components/hp/HpFlash.vue";
@@ -41,7 +40,6 @@ watch(darkMode, (on) => {
 
 const userStore = useUserStore();
 const chatStore = useChatStore();
-const mapStore = useMapStore();
 const { displayName, avatarDataUrl } = storeToRefs(userStore);
 
 // ── Encryption-at-rest gate ──────────────────────────────────────────────────
@@ -94,15 +92,10 @@ let hideLock: HideLockHandle | null = null;
 const lockWarn = ref(false);
 
 /** Background work that should hold the countdown off: nothing here involves the
- *  keyboard, but the user is still mid-task and locking would abort it. Outbound
- *  map-region offers ride file_xfer without their own store row, so they're only
- *  covered while the shared fileShare state reflects them. */
+ *  keyboard, but the user is still mid-task and locking would abort it. */
 function isBusy(): boolean {
   if (chatStore.vox && chatStore.vox.phase.value !== "idle") return true;
   if (["offering", "incoming", "transferring"].includes(chatStore.fileShare.state.value)) return true;
-  for (const rx of mapStore.receives.values()) {
-    if (rx.state === "transferring" || rx.state === "importing") return true;
-  }
   return false;
 }
 

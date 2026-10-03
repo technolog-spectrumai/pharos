@@ -13,6 +13,7 @@ import {
 } from "rakotis";
 import ChatBubble from "../../src/components/ChatBubble.vue";
 import type { Message } from "../../src/stores/chat";
+import { i18n } from "../../src/i18n";
 
 // Dark mode is now class-based (`.dark` on <html>); components carry `light + dark:`
 // class pairs instead of a `darkMode` prop.
@@ -183,6 +184,19 @@ describe("ChatBubble", () => {
       props: { message: msg({ type: "voice_message", audio_data: "data:audio/webm;base64,yy" }) },
     });
     expect(wrapper.find("audio").exists()).toBe(true);
+  });
+
+  it("says a map share cannot be shown, rather than rendering an empty bubble", () => {
+    // Maps left the app; such a message is still in old histories and can
+    // still arrive from a peer on an older build. It carries no text.
+    for (const type of ["map_pin", "map_loc", "map_region"] as const) {
+      const wrapper = mount(ChatBubble, {
+        props: { message: msg({ type, content: "" }) },
+        global: { plugins: [i18n] },
+      });
+      expect(wrapper.get('[data-testid="map-share-unavailable"]').text()).toContain("no maps");
+      expect(wrapper.text()).toContain("Bob");
+    }
   });
 
   it("right-aligns the author's own messages", () => {

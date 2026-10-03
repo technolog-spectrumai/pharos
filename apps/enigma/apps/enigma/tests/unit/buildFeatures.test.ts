@@ -9,7 +9,7 @@ import { catalogue, featureDefines } from "../../buildFeatures";
 describe("the build-feature catalogue", () => {
   it("is read from Cargo.toml, without `default`", () => {
     const ids = catalogue();
-    expect(ids).toContain("maps");
+    expect(ids).toContain("calendar");
     expect(ids).toContain("hosted_relays");
     expect(ids).not.toContain("default");
   });
@@ -34,7 +34,7 @@ describe("turning ENIGMA_FEATURES into literals", () => {
     const defs = featureDefines("hosted_relays,contacts");
     expect(defs.__FEATURE_HOSTED_RELAYS__).toBe("true");
     expect(defs.__FEATURE_CONTACTS__).toBe("true");
-    expect(defs.__FEATURE_MAPS__).toBe("false");
+    expect(defs.__FEATURE_CALENDAR__).toBe("false");
     expect(defs.__FEATURE_CALLS__).toBe("false");
   });
 
@@ -43,6 +43,6 @@ describe("turning ENIGMA_FEATURES into literals", () => {
   });
 
   it("refuses an id the catalogue does not have", () => {
-    expect(() => featureDefines("maps,mapz")).toThrow(/unknown feature\(s\) mapz/);
+    expect(() => featureDefines("calls,callz")).toThrow(/unknown feature\(s\) callz/);
   });
 });

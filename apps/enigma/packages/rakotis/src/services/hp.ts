@@ -122,7 +122,6 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
   ],
   dataSources: [
     { id: "data.delete.chat", explainKey: "hp.explain.dataDeleteChat" },
-    { id: "data.delete.maps", explainKey: "hp.explain.dataDeleteMaps" },
     { id: "data.delete.files", explainKey: "hp.explain.dataDeleteFiles" },
   ],
 };

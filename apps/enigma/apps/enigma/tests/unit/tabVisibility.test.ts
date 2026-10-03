@@ -45,7 +45,7 @@ beforeEach(async () => {
 describe("defaults", () => {
   it("shows every tab the build contains, in nav order", () => {
     expect(visibleTabs.value.map((t) => t.id)).toEqual([
-      "chat", "files", "vox", "calendar", "map", "contacts",
+      "chat", "files", "vox", "calendar", "contacts",
     ]);
     expect(availableTabs().map((t) => t.id)).toEqual(APP_TABS.map((t) => t.id));
   });
@@ -65,48 +65,48 @@ describe("defaults", () => {
 
 describe("hiding a tab", () => {
   it("takes it out of the visible set and persists the choice", async () => {
-    await setTabVisible("map", false);
-    expect(isTabVisible("map")).toBe(false);
-    expect(visibleTabs.value.map((t) => t.id)).not.toContain("map");
-    expect(await getHiddenTabs()).toEqual(["map"]);
+    await setTabVisible("calendar", false);
+    expect(isTabVisible("calendar")).toBe(false);
+    expect(visibleTabs.value.map((t) => t.id)).not.toContain("calendar");
+    expect(await getHiddenTabs()).toEqual(["calendar"]);
 
     // Survives the next unlock (the only time the choice is read).
     await loadTabVisibility();
-    expect(isTabVisible("map")).toBe(false);
+    expect(isTabVisible("calendar")).toBe(false);
   });
 
   it("makes its route unreachable — a deep link redirects like a build gate", async () => {
-    await setTabVisible("map", false);
-    await router.push("/map");
+    await setTabVisible("calendar", false);
+    await router.push("/calendar");
     await settle();
     expect(router.currentRoute.value.path).toBe("/chat");
   });
 
   it("moves the user off it when they are looking at it", async () => {
-    await router.push("/map");
-    expect(router.currentRoute.value.path).toBe("/map");
+    await router.push("/calendar");
+    expect(router.currentRoute.value.path).toBe("/calendar");
 
-    await setTabVisible("map", false);
+    await setTabVisible("calendar", false);
     await settle();
     expect(router.currentRoute.value.path).toBe("/chat");
   });
 
   it("leaves a tab the user is NOT on alone", async () => {
     await router.push("/files");
-    await setTabVisible("map", false);
+    await setTabVisible("calendar", false);
     await settle();
     expect(router.currentRoute.value.path).toBe("/files");
   });
 
   it("turning it back on restores the tab and its route", async () => {
-    await setTabVisible("map", false);
-    await setTabVisible("map", true);
+    await setTabVisible("calendar", false);
+    await setTabVisible("calendar", true);
     await settle();
-    expect(isTabVisible("map")).toBe(true);
+    expect(isTabVisible("calendar")).toBe(true);
 
-    await router.push("/map");
+    await router.push("/calendar");
     await settle();
-    expect(router.currentRoute.value.path).toBe("/map");
+    expect(router.currentRoute.value.path).toBe("/calendar");
   });
 });
 
@@ -159,7 +159,7 @@ describe("the stored value", () => {
   });
 
   it("falls back to everything visible when it is garbage", async () => {
-    for (const junk of ["not json", '{"map":true}', "null", "17"]) {
+    for (const junk of ["not json", '{"calendar":true}', "null", "17"]) {
       localStorage.clear();
       localStorage.setItem(KV_KEY, junk);
       await loadTabVisibility();
@@ -169,14 +169,14 @@ describe("the stored value", () => {
 
   it("ignores non-string entries but keeps ids it does not know", async () => {
     localStorage.clear();
-    localStorage.setItem(KV_KEY, JSON.stringify(["map", 7, null, "sketch"]));
+    localStorage.setItem(KV_KEY, JSON.stringify(["calendar", 7, null, "sketch"]));
     await loadTabVisibility();
-    expect(isTabVisible("map")).toBe(false);
+    expect(isTabVisible("calendar")).toBe(false);
 
     // "sketch" belongs to a newer build; hiding another tab must not silently
     // un-hide it when that build reopens the profile.
     await setTabVisible("files", false);
-    expect(await getHiddenTabs()).toEqual(["map", "sketch", "files"]);
+    expect(await getHiddenTabs()).toEqual(["calendar", "sketch", "files"]);
   });
 });
 
@@ -194,7 +194,7 @@ describe("a build without Vox", () => {
   it("offers no checkbox for it — the user cannot enable what is not there", () => {
     expect(availableTabs().map((t) => t.id)).not.toContain("vox");
     expect(availableTabs().map((t) => t.id)).toEqual([
-      "chat", "files", "calendar", "map", "contacts",
+      "chat", "files", "calendar", "contacts",
     ]);
   });
 

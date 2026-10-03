@@ -56,18 +56,6 @@ export const policy = {
      *  fallback to `initBuildConfig`. */
     defaultMaxFileSizeMb: 16,
   },
-  /** Maps UI policy. */
-  map: {
-    /** Initial view when NO region is active: whole-world. When the user has
-     *  explicitly activated a region, the map deliberately opens spread to it
-     *  (their own choice, stored sealed per profile) — that is the one
-     *  sanctioned "stored location" in the app. */
-    defaultCenter: [10, 30] as [number, number], // [lng, lat]
-    defaultZoom: 1.5,
-    /** Source maxzoom used until map_source_info answers (protomaps builds
-     *  are z15; overzoom renders beyond it either way). */
-    fallbackSourceMaxZoom: 15,
-  },
 } as const;
 
 /** Dev-tooling constants. `vitePort` MUST agree with vite.config.ts `server.port`,
