@@ -728,6 +728,8 @@ export default {
       roomRekey: "Reset a room's encryption",
       roomLeave: "Leave a room",
       dataDeleteChat: "Delete stored messages",
+      // Retired with the Map tab; kept so an old ledger row still has its name.
+      dataDeleteMaps: "Remove a map region",
       dataDeleteFiles: "Remove a locked file",
     },
     explain: {

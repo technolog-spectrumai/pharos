@@ -2661,7 +2661,7 @@ Presets differ **only in features**. Everything else is identical, deliberately:
   on it, and a Standard user must be able to sit in a room with a Professional
   user.
 - **Settings.** Same defaults and bounds for every user-tunable setting,
-  including ones whose feature a preset leaves out (`map_storage_limit_mb` is
+  including ones whose feature a preset leaves out (`dht_room_publish_secs` is
   still a required, validated field — a Standard build simply never reads it).
   They live in `build_config.yaml`, which no preset can override.
 - **App identity.** One name, one identifier (`com.spectrumaipl.enigma26`), one

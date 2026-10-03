@@ -807,7 +807,10 @@ pub fn hp_data_credit(
 /// The award behind `hp_data_credit`. Swallows its own errors: a credit is
 /// never worth failing a deletion the user asked for.
 pub fn award_data(app: &AppHandle, source_id: &str, bytes_freed: u64) -> HpDelta {
-    let ids: Vec<&str> = hp_policy::DATA_SOURCES.iter().map(|d| d.id).collect();
+    // The retired map source still counts toward the data caps: a ledger
+    // from before the Map tab left can hold credits under it.
+    let mut ids: Vec<&str> = hp_policy::DATA_SOURCES.iter().map(|d| d.id).collect();
+    ids.push("data.delete.maps");
     award(app, source_id, data_award(bytes_freed), None, Some(&ids))
         .unwrap_or(HpDelta { applied: 0, code: source_id.to_string() })
 }
