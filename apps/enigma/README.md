@@ -1,185 +1,79 @@
 # Enigma26
 
 A **serverless, peer-to-peer, end-to-end-encrypted chat** — a Tauri 2 + Vue 3
-desktop/mobile app. There is no app server: peers meet by **sharing a QR code**
-and talk directly over [iroh](https://iroh.computer) (QUIC), with all message
-content encrypted by **MLS** (OpenMLS via the Rotor crate) and all local state
-**encrypted at rest** behind a passphrase.
+desktop and Android app. There is no app server: peers meet by **sharing a QR
+code** and talk directly over [iroh](https://iroh.computer) (QUIC), with all
+message content encrypted by **MLS** (OpenMLS) and all local state **encrypted
+at rest** behind a passphrase.
 
-**Docs:** this README (orientation) · [build.md](build.md) (run in dev, desktop +
-Android builds, CI, troubleshooting) · [technology.md](technology.md) (the deep
-dive: architecture, transports, crypto, privacy posture, conventions, config
-sources of truth, rework history) · [pland.md](pland.md) (the Basic / Standard /
-Professional product line and how an edition is built) ·
-[build.yaml](build.yaml) (what `./build.sh` builds — the one file to edit for a
-build of either app) · [icons.md](icons.md) (the one
-shipped app mark, `enigma`, and how to change it).
-
-## How it works
-
-- **Rooms are iroh-gossip topics** (`blake3(room name)`). Creating a room mints
-  a **ticket** (topic + name + your `EndpointAddr`, postcard + base32) which the
-  app renders as a **QR code**.
-- **Pairing**: the other person scans the QR (camera or image file) or pastes
-  the ticket — both peers subscribe to the same topic and the **MLS handshake
-  runs over the topic itself** (key package → welcome/commit). No server ever
-  sees anything but ciphertext.
-- **Invitations (optional, cheaper)**: instead of handing out the permanent room
-  ticket, mint a **private QR** sealed to one contact's public key — nobody else
-  who photographs it can read it, it expires, it is one-use, and you can withdraw
-  it. A transferable **shareable QR** is offered too, clearly labelled as not
-  secret. Redemption connects to you and proves the capability before anything
-  about the room is revealed; the QR itself carries no room name and no topic.
-  A room can also be marked **invite only**, after which its ticket admits nobody
-  and a redeemed invitation is the only way in — enforced by every member, so it
-  holds as long as they are all running this app.
-  See [technology.md §18](technology.md#18-invitations--encrypted-expiring-revocable).
-- **Reconnecting**: each peer's stable **NodeId** is persisted per room; on
-  restart the app rejoins its last room and resolves current addresses through
-  iroh's built-in n0 discovery — pair once, reconnect forever. Only a full cold
-  start (everyone offline, all addresses changed) needs a fresh QR.
-- **NAT traversal** uses iroh's public n0 relays (`RelayMode::Default`); the
-  relay only ever carries MLS ciphertext.
-- **Tor (optional)**: flip **"use Tor"** in Settings and rooms run over
-  peer-hosted onion services — the QR then carries a `.onion`, and the relaying
-  **captain** is auto-elected with failover (gold ★ in the roster; iroh is off
-  while on). See [technology.md](technology.md) §11.
-- **DHT discovery (optional)**: an opt-in toggle adds ticketless room joins by
-  a short **room code**, plus presence and search-by-nickname in the
-  **Contacts** tab (which exists either way) — all over the community-run
-  BitTorrent Mainline DHT. §12.
-- **Beyond chat**: 1:1 **voice calls**, P2P **file transfer**, per-file
-  **local locking**, a room **calendar** (meetings + polls), and offline
-  **maps** — including a location you share into a room by tapping the spot
-  (never from the device's GPS). §10.
-- **Privacy HP**: a game-like *safety budget* that puts one fixed, comparable
-  price beside every exposing action — a private invitation costs −1.5 HP where
-  exporting a room ticket costs −5 — so the relative cost of a choice is visible
-  before the tap. Two meters (100/day, 700/week) that regenerate on their own, and
-  **three times faster while Tor is on**. Advisory only: it never blocks anything,
-  and it measures rather than protects. See
-  [technology.md §17](technology.md#17-privacy-hp--the-exposure-budget).
-- **Build policy is compiled in**: `build_config.yaml` bakes allow flags
-  (hosted relays, the DHT), per-feature kill switches (calls, contacts,
-  calendar, maps, key ring, PIN unlock), crypto declarations, and setting
-  defaults/clamps into the binary at build time. Which file is used is chosen
-  by `ENIGMA_EDITION` — see [pland.md](pland.md) and [build.md](build.md).
-
-| Package | What it is |
-|---------|-----------|
-| **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar, maps. |
-| **[packages/rakotis](packages/rakotis)** | Enigma's app library (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
-| **[rutile/](rutile)** | **Rutile**, the base this app is built on — a git submodule shared with Morion. It brings the crypto layer (`crates/rotor`: `rotor_core`, the OpenMLS engine, and `gervasius`, the at-rest primitives — **all MLS crypto stays there**), `substrate` (the sealed-file frame), the shared front end (`petalite`, `wisteria`) and the build tooling. Consumed by path; nothing is fetched at build time. |
-| **[protasius/](protasius)** | The per-profile **encrypted-at-rest store** (fjall + gervasius): all app state persists as sealed values behind the launch passphrase gate. |
-
-### Dependency layering
-
-```
-Rotor (crypto, Rust)   protasius/gervasius     iroh (P2P)  arti (Tor)
-   ▲                    (at-rest, Rust)           ▲            ▲
-   │  mls_* commands       ▲  vault_*/kv_*        │  realtime_*/dht_*/…
-   │                       │                      │
-Rakotis (non-crypto foundation + P2P chat orchestration, TS)
-   ▲
-   │
-apps/enigma (Vue 3 UI)
-```
+- **Rooms and pairing** — a room is an iroh-gossip topic; creating one mints a
+  ticket shown as a QR. Scan it (or redeem a sealed, expiring invitation) and
+  the MLS handshake runs over the topic itself. Pair once, reconnect forever.
+- **Transports** — direct QUIC with relay-assisted NAT traversal, or peer-hosted
+  **Tor** onion services with an auto-elected relaying captain. Optional
+  ticketless joins, presence and nicknames over the Mainline **DHT**.
+- **Beyond chat** — voice calls, P2P file transfer, per-file locking, a room
+  calendar, and fully offline maps.
+- **Privacy HP** — a budget that puts one comparable price beside every
+  exposing action, so the cost of a choice is visible before the tap.
+- **Editions** — Basic / Standard / Professional are the same source built with
+  a different compile-time config: a feature outside an edition is not in that
+  binary.
 
 ## Layout
 
 ```
 enigma/
-├── rutile/                   # the base: a git submodule (crypto, substrate, petalite,
-│                             #   wisteria, build tooling) — see rutile/README.md
-├── apps/
-│   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma26)
-├── packages/
-│   └── rakotis/              # Enigma's app library + P2P chat orchestration
-├── protasius/                # encrypted-at-rest store (Rust)
-├── tools/                    # map_packager
-├── limbo/                    # parked features (restore playbook) + limbo/removed/ (records of deleted ones)
-├── package.json              # workspace root: packages/* + rutile/packages/* + apps/*
-├── run_dev.sh · run2.sh      # dev instance launchers (profile-isolated)
-├── build.yaml · build.sh     # what to build, and the one command that builds it
-├── tests.sh                  # the full test run
-├── scripts/                  # dev-run helpers (profiles, editions) + the signing tests
-├── build.md                  # run in dev + desktop/Android build guide
-└── technology.md             # architecture, crypto, privacy, conventions, config
+├── rutile/            the base — a git submodule shared with Morion (crypto crates,
+│                      sealed-file frame, shared front end, build tooling)
+├── apps/enigma/       the app: Vue 3 frontend (src/) and Rust backend (src-tauri/)
+├── packages/rakotis/  Enigma's app library and P2P chat orchestration
+├── protasius/         the encrypted-at-rest store
+├── tools/map_packager/  makes offline map region packages
+├── scripts/           dev-run helpers (profiles, editions), the signing tests
+├── limbo/             parked features, each with a restore playbook
+└── build.yaml  build.sh  run_dev.sh  run2.sh  tests.sh
 ```
 
-Clone with the submodule, or fetch it afterwards:
+## Getting started
 
 ```bash
-git clone --recurse-submodules <this repo>
-git submodule update --init          # in a clone made without it
+git clone --recurse-submodules <this repo>   # or, afterwards: git submodule update --init
+
+./run_dev.sh                 # one dev instance (installs dependencies on first run)
+./run2.sh                    # two instances side by side, to pair on one machine
+./run_dev.sh --reset         # start over with a fresh profile and passphrase
 ```
 
-Naming, colour palette, and where each config value canonically lives:
-[technology.md](technology.md) §14–§15 — brand / policy / dev constants live in
-[`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts), compile-time
-build properties in
-[`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml).
-
-## Install
-
-```bash
-npm install        # once, at the repo root — sets up the workspace + all packages
-```
-
-rakotis is an in-repo workspace package (`packages/rakotis`): npm symlinks it into
-the app's `node_modules`, so edits to its source are picked up immediately.
-
-## Run (dev)
-
-```bash
-./run_dev.sh                                  # or: npm run dev
-# two instances side by side (separate storage + MLS identities):
-APP_PROFILE=alice CHAT_USER=alice ./run_dev.sh
-APP_PROFILE=bob   CHAT_USER=bob   ./run_dev.sh
-```
-
-See [build.md](build.md) for profiles, browser-only mode, and the Android emulator.
+Prerequisites: Node 20+, Rust stable, and on Linux the WebKitGTK development
+libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
 
 ## Build
 
 ```bash
-./build.sh                  # builds what build.yaml says: by default a release .deb/.rpm
-./build.sh --dry-run        # show the commands, run none
-# edition, debug/release, package formats, Android and tests are all set in
-# build.yaml — there are no build flags (Android SDK setup: build.md)
-
-# piecemeal:
-npm run build -w rakotis    # vue-tsc typecheck
-npm run build -w enigma     # vue-tsc + vite build (frontend)
-( cd apps/enigma/src-tauri && cargo build )
+./build.sh                   # what build.yaml says — by default a release .deb and .rpm
+./build.sh --dry-run         # show the commands, run none
 ```
+
+Edition, debug or release, package formats, Android and tests are all set in
+[build.yaml](build.yaml); there are no build flags. Packages land in
+`dist/enigma/`.
 
 ## Test
 
 ```bash
-./tests.sh                  # everything: vitest, Rust, signing checks, the bundle, Playwright
-./tests.sh rust             # one group (js | rust | py | build | e2e)
-./tests.sh --list           # what it would run
+./tests.sh                   # everything: vitest, Rust, signing checks, the bundle, Playwright
+./tests.sh rust              # one group (js | rust | py | build | e2e)
+./tests.sh --list            # what it would run
 ```
 
 Every step runs even if an earlier one fails, and the run ends with a pass/fail
-table; each step's output is kept under `test-results/tests/`.
+table.
 
-## Test
+## Documentation
 
-```bash
-npm test                    # all workspaces
-npm test -w rakotis         # transport bridge, storage, i18n, localDb
-npm test -w enigma          # chat store bootstrap, components, i18n
-( cd apps/enigma/src-tauri && cargo test )   # tickets, DHT, Tor, kv, maps, …
-npm run test:e2e -w apps/enigma   # Playwright smoke tier (no backend — there is none)
-```
-
-## Pairing quick-start
-
-1. **A**: Chat → *New chat* → name it → **Create**. A modal spins up the room,
-   then shows **You're the room host** with the QR to share (gold ★ host badge
-   over Tor). Every saved room keeps a **QR** button to reopen its code later.
-2. **B**: Chat → *Join a chat* → scan the QR (camera / image) or paste the ticket.
-3. Both sides show **Encrypted** once the MLS handshake completes — that's it.
-   From now on the app reconnects automatically; no server, no accounts.
+Everything else is in **[technology.md](technology.md)**: architecture and
+message flow, transports, the cryptography and its known weaknesses, privacy,
+the UI, config sources of truth, and — from §19 on — running, building,
+editions, releasing, installing and troubleshooting. The base is documented in
+[rutile/technology.md](rutile/technology.md).

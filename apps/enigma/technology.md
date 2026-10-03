@@ -2,10 +2,12 @@
 
 A technical deep-dive into how Enigma26 works: its design, stack, dependencies,
 communication flow, cryptography, privacy posture, and known weaknesses — plus the
-project's conventions, config sources of truth, and rework history. For build and
-run instructions see [build.md](build.md).
+project's conventions, config sources of truth and rework history, and how to run,
+build, test, release and install it. The base it is built on — crypto crates,
+shared packages, build tooling — is documented in
+[rutile/technology.md](rutile/technology.md).
 
-> **Status:** early-stage (`v0.1.6`). The cryptography is production-grade (OpenMLS),
+> **Status:** early-stage (`v0.1.10`). The cryptography is production-grade (OpenMLS),
 > but several integration-level hardening items remain open — see
 > [Security & privacy considerations](#9-security--privacy-considerations) and
 > [Roadmap](#roadmap). This document is candid about them on purpose.
@@ -21,7 +23,11 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [14 Conventions](#14-conventions-naming--palette) · [15 Config sources](#15-config--sources-of-truth) ·
 [16 Rework history](#16-history--the-serverless-rework) ·
 [17 Privacy HP](#17-privacy-hp--the-exposure-budget) ·
-[18 Invitations](#18-invitations--encrypted-expiring-revocable) · [Roadmap](#roadmap)
+[18 Invitations](#18-invitations--encrypted-expiring-revocable) ·
+[19 Run, build, test](#19-run-build-and-test) · [20 Editions](#20-editions) ·
+[21 Releasing](#21-releasing) · [22 Installing](#22-installing) ·
+[23 App icon](#23-app-icon) · [24 Crypto audit inventory](#24-crypto-audit-inventory) ·
+[25 Map region packager](#25-map-region-packager) · [Roadmap](#roadmap)
 
 ---
 
@@ -58,7 +64,7 @@ Design principles:
   PKI, no phone number. `APP_PROFILE` isolates storage; `CHAT_USER` sets the MLS
   identity, so multiple instances can run side-by-side.
 - **Compile-time build policy.** A build config
-  ([§15](#15-config--sources-of-truth), [build.md](build.md)) bakes in the
+  ([§15](#15-config--sources-of-truth), [§19](#19-run-build-and-test)) bakes in the
   hosted-relay allow flag, the per-feature kill switches, crypto declarations,
   feature defaults, and setting clamps — a restricted build is a *different
   binary*, not a runtime toggle.
@@ -122,14 +128,14 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Voice calls (Vox) | 1:1 real-time voice over iroh QUIC datagrams (ALPN `enigma/vox/0` on the main endpoint); G.711 μ-law audio, per-call MLS-keyed ChaCha20-Poly1305, rustfft equalizer |
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
 | Room invites | Peer-to-peer only (`p2p_invite.rs`, ALPN `enigma/invite/0`): a live offer/accept handshake carrying a fresh ticket + DHT room code, so both peers must be online at once. Everything else is out-of-band — the QR code, the copyable ticket string, or a DHT room code. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
-| Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [build.md](build.md)) |
+| Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [§19](#19-run-build-and-test)) |
 | Build/CI | `./build.sh`, configured by `build.yaml`; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
 identifier `com.spectrumaipl.enigma26`. The tauri.conf `bundle.targets` list governs
 which desktop formats a build emits — currently `["deb", "rpm"]`, out of the Linux
 set Tauri can produce (`.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
-by the separate `rutile/scripts/build_android.sh` path ([build.md](build.md)).
+by the separate `rutile/scripts/build_android.sh` path ([§19](#19-run-build-and-test)).
 
 ---
 
@@ -168,7 +174,7 @@ which is gitignored; Rutile's crypto workspace commits its own, in the submodule
 | `webkit2gtk` (Linux), `rusqlite` bundled (Android) | — | Platform-specific glue |
 
 Build-dependencies: `tauri-build`, plus `serde`/`serde_norway`/`serde_json` for the
-compile-time `build_config.yaml` codegen ([build.md](build.md)).
+compile-time `build_config.yaml` codegen ([§19](#19-run-build-and-test)).
 
 ### Crypto workspace (`rutile/crates/rotor`, in the Rutile submodule)
 
@@ -196,9 +202,6 @@ layers as code — glyphs/sprites are bundled under `public/map/`, so styling ma
 no CDN contact), `ace-builds` (Files → Local notes editor, bundled offline — §13; the SVG editor beside it adds no dependency at all — it renders and rasterizes from its own model), and the
 in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
 map when it was parked — see `limbo/`.)
-
-**Dormant / carried from the earlier multi-app codebase (declared but unused by this
-app):** `leaflet` (+ `@types`). Dead weight worth pruning.
 
 ---
 
@@ -677,7 +680,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   room sharing — pins as compact MLS chat cards ("Open in Maps" is always an
   explicit action), region files over the P2P file-transfer path (never MLS).
   (Hand-drawn routes were part of this tab until 2026-07-27; they are parked
-  under `limbo/frontend/map-routes/` — map.md D6b — and no `map_route` card is
+  under `limbo/frontend/map-routes/` — and no `map_route` card is
   sent or accepted today.)
   One region can be **activated** (Regions → Activate): served first for tiles
   (others still fill), badged in the list + a chip on the canvas, the view opens
@@ -854,7 +857,7 @@ disables with the reason. Over Tor, peers are reached by ticket/QR alone. (Until
 2026-08 the fallback was a lookup on the user's own faros server; that client is
 gone — [§16](#16-history--the-serverless-rework).)
 
-**Standard and up.** `dht.enabled: false` (Basic — pland.md) short-circuits
+**Standard and up.** `dht.enabled: false` (Basic — [§20](#20-editions)) short-circuits
 `discovery_enabled` / `nick_publish_enabled` **ahead of the kv read**, so a
 profile carrying `dht_discovery: "on"` from a DHT-capable build reads as off
 without the key being rewritten. `dht_presence` / `dht_publish_nick` / `dht_find_nick` /
@@ -1168,7 +1171,7 @@ primitive).
 **Build config (compile-time):**
 [`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
 — baked into the binary by `build.rs` (codegen → `enigma_lib::build_config` consts;
-invalid file = build error — see [build.md](build.md)). Owns: the hosted-relay
+invalid file = build error — see [§19](#19-run-build-and-test)). Owns: the hosted-relay
 allow flag, the per-feature kill switches
 (`calls`/`contacts`/`calendar`/`maps`/`dht`/`keyring`/`lock.pin_unlock`),
 crypto declarations (compile-asserted against rotor_core/gervasius) +
@@ -1197,7 +1200,7 @@ instead of hardcoding.
 | Display name `Enigma26` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
 | Copyright / org / legal URL | `config/app.ts` `brand` | Was hardcoded in `App.vue` |
 | Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`); `build.rs` rejects any other value |
-| App icon | `apps/enigma/app-icon.png` | **Fixed, not a build choice** — one mark; the sizes generated from it are committed. See [icons.md](icons.md) |
+| App icon | `apps/enigma/app-icon.png` | **Fixed, not a build choice** — one mark; the sizes generated from it are committed. See [§23](#23-app-icon) |
 | In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma26`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
@@ -1212,7 +1215,7 @@ instead of hardcoding.
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local: each device imports its own packages |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that lets a room's timeline survive a restart |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
-| Release version `0.1.6` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); hand-duplicated in eleven files — `Cargo.toml`, three `package.json`, `build_config.yaml` and every `configs/*.yaml`. Each config's `app.version` must mirror it — `build.rs` fails the build on drift. Bumped **with the code**: it is not a build-time choice, and the Builder shows it read-only |
+| Release version `0.1.10` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); hand-duplicated in eleven files — `Cargo.toml`, three `package.json`, `build_config.yaml` and every `configs/*.yaml`. Each config's `app.version` must mirror it — `build.rs` fails the build on drift. Bumped **with the code**: it is not a build-time choice, and the Builder shows it read-only |
 | Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
@@ -1259,7 +1262,7 @@ get/set) → one constants module. Same for chat timing (`5000`, `30000` duplica
 UI copy/confirm delays (`1200`/`1500`/`2000`).
 
 **Build.** A version-bump script (or Tauri reading version from `package.json`) so
-`0.1.6` isn't hand-maintained in eleven files; extract the apt list to
+the version isn't hand-maintained in eleven files; extract the apt list to
 `scripts/install_desktop_deps.sh`; add `.nvmrc`/`engines` for the Node floor.
 
 **Palette.** Promote a `--color-scrim` token (unify `black/70` vs `black/40`) and lift
@@ -1294,11 +1297,9 @@ voice-note recording; offline profiles and the airplane switch.
 - **Encryption at rest** (gervasius/protasius, [§13](#13-encryption-at-rest-gervasius--protasius)) and per-file locking.
 - **Voice calls (Vox) and P2P file transfer restored** from the parked `limbo/`
   set (both now first-class tabs; `limbo/` retains the restore playbook).
-- **`rotor_wasm` → toto static handoff** (2026-07-14): cryptorotor lives only in
-  this repo; toto consumes a static committed copy of the wasm — no GitLab
-  anywhere in toto's path. CI job `rotor:wasm` builds it as a gate. (toto's
-  `edge/apps/*` still build from `toto/rotors/` — repointing or retiring edge is a
-  separate decision.)
+- **`rotor_wasm` → toto static handoff** (2026-07-14): the crypto crates live in
+  one place — since 2026-10-03 that is Rutile's `crates/rotor` — and toto
+  consumes a static committed copy of the wasm build.
 - **Compile-time build config** (`build_config.yaml`, [§15](#15-config--sources-of-truth)).
 - **Maps** (MapLibre + PMTiles, `maps.rs` + `EnigmaMapView`): fully offline regions
   imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
@@ -1347,8 +1348,7 @@ file storage had no P2P equivalent and were not replaced.
   the DHT nickname directory ([§12](#12-dht-discovery-mainline-rendezvous--contacts))
   is the only directory left, and Tor mode now has none at all.
 - **Maps lost the Beacon layer**, but not location sharing: the peer-to-peer
-  *Share this spot* card over the room's MLS seam is untouched (§8, §10, map.md
-  Part IV).
+  *Share this spot* card over the room's MLS seam is untouched (§8, §10).
 - **Files lost the Cloud sub-tab.** File *storage* is now local, and the only way
   a file moves is a P2P transfer the user starts.
 - **The P2P stack was untouched:** iroh QUIC + gossip, MLS, the peer-hosted onion
@@ -1919,6 +1919,1949 @@ move ([§17](#17-privacy-hp--the-exposure-budget)).
 
 ---
 
+## 19. Run, build and test
+
+How to run Enigma26 in development and package it into installable artifacts. A
+"build" compiles the frontend (`vue-tsc` + Vite) and the Rust core, then bundles
+them.
+
+### Prerequisites
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Node.js | 20+ (CI uses 22) | frontend build (Vite) + Tauri CLI |
+| Rust | stable | Tauri core + `rotor-core` |
+| System libs (Linux desktop) | — | WebKitGTK stack + bundling tools |
+
+Debian/Ubuntu desktop deps:
+
+```bash
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential curl file
+```
+
+**Nothing is fetched at build time but crates.io and npm.** The crypto crates
+([rutile/crates/rotor/](rutile/crates/rotor) — `rotor-core`, `gervasius`), the
+sealed-file frame and the shared front-end packages come from **Rutile**, the
+base repo mounted at `rutile/` as a git submodule, and are consumed by path —
+as are [protasius/](protasius) and the `rakotis` workspace package. The whole
+build is offline-friendly once crates.io/npm are cached.
+
+Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — see
+[Android](#android--toolchain-setup--build) below.
+
+---
+
+### First-time setup
+
+```bash
+git submodule update --init   # Rutile — unless you cloned with --recurse-submodules
+npm ci                        # once, at the repo root — sets up the workspace + all packages
+```
+
+Every script here stops with that `git submodule` hint if `rutile/` is empty.
+
+`./run_dev.sh`, `./run2.sh` and `./build.sh` do this themselves when the root
+`node_modules` is missing, so a fresh clone can go straight to either.
+
+`rakotis` is an in-repo workspace package (`packages/rakotis`); npm symlinks it
+into the app's `node_modules`, so edits to its source are picked up immediately —
+no rebuild step.
+
+---
+
+### Run (dev)
+
+```bash
+./run_dev.sh          # or: npm run dev
+```
+
+Both run `npm run tauri dev` inside `apps/enigma`: Vite starts on
+`http://localhost:1420` and Tauri opens the native window pointed at it. Frontend
+edits hot-reload; Rust edits trigger a rebuild.
+
+> The first launch compiles the full Rust dependency tree (incl. OpenMLS + iroh +
+> arti) and is slow. Later runs are incremental.
+
+The launchers work from VS Code's integrated terminal even when VS Code is the
+snap: they restore the environment the snap overrides before starting the app
+(`scrub_snap_env` in [rutile/scripts/lib.sh](rutile/scripts/lib.sh)). Without that the build
+succeeds and the window never opens — see [Troubleshooting](#troubleshooting).
+
+#### Profiles & two-instance pairing
+
+Two env vars isolate instances so you can pair two on one machine:
+
+| Var | Default | Effect |
+|---|---|---|
+| `APP_PROFILE` | `default` | Storage namespace (separate encrypted store / profile dir) |
+| `CHAT_USER` | `default` | MLS identity namespace |
+
+```bash
+# terminal 1
+APP_PROFILE=alice CHAT_USER=alice ./run_dev.sh
+# terminal 2
+APP_PROFILE=bob   CHAT_USER=bob   ./run_dev.sh
+# or both at once, sharing one Vite server:
+./run2.sh
+```
+
+#### Starting over (`--reset`) — new passphrase, clean cache
+
+There is no "forgot my passphrase" flow: the passphrase wraps the store's DEK,
+so a fresh one means a fresh store. Both launchers take a flag for it:
+
+```bash
+./run_dev.sh --reset              # reset profile "default", then run
+APP_PROFILE=alice ./run_dev.sh --reset
+./run2.sh --reset                 # reset BOTH profiles (alice + bob), then run
+./run2.sh --reset carol dave      # flags mix with the positional names, any order
+ENIGMA_RESET=1 ./run_dev.sh       # env equivalent (ENIGMA_RESET=purge for --purge)
+```
+
+The next start is a **first run**, so the app asks you to set a new passphrase.
+
+| | |
+|---|---|
+| **What it clears** | `profiles/<profile>/` (protasius store, `vault.json`, `profile_state.json`, `tor/`) and the global webview caches (`WebKitCache`, `CacheStorage`, `storage`, …) |
+| **What it keeps** | `iroh_gossip.key` and the legacy `kvstore/` at the app-data root — those are **global**, shared by every profile, so wiping them while resetting one would silently change the others' identity too |
+| **Default is archive** | the profile dir is renamed to `<profile>.reset-<UTC stamp>`, not deleted — a dev vault holds a real identity (iroh key, MLS state, room history) and a mistyped profile name should not be unrecoverable |
+| **`--purge`** | deletes instead, and asks you to type `purge` to confirm (`-y` skips the prompt). Use it when the archives pile up |
+
+The work is done by `scripts/reset_profile.sh`, which both launchers call before
+they start anything (the app holds the store open while it runs). You can call
+it directly: `scripts/reset_profile.sh [--purge] [-y] <profile>…`. It reads the
+bundle identifier from `tauri.conf.json` rather than hardcoding the data
+directory, and refuses a profile name containing a path separator.
+
+To wipe *everything* Enigma26 owns, including the global bits, use the app's own
+panic code (Settings → Lock) instead — that is the audited path.
+
+#### Pairing quick-start
+
+1. **A**: Chat → *New chat* → name it → **Create**. A QR code appears (gold ★ host
+   badge over Tor).
+2. **B**: Chat → *Join a chat* → scan the QR (camera / image) or paste the ticket.
+3. Both sides show **Encrypted** once the MLS handshake completes.
+
+After the one-time pairing the app reconnects automatically (peer NodeIds are
+persisted per room and re-resolved via iroh discovery) — no server, no accounts.
+Restart B and it reopens the room and reconnects.
+
+#### Browser-only mode (UI shell, no P2P)
+
+```bash
+npm run dev -w enigma        # http://localhost:1420
+```
+
+Plain Vite with no Tauri runtime — renders the UI shell only. P2P and MLS need
+the Rust backend, so chat does not function here; use it for pure-frontend work.
+
+#### Android emulator
+
+One-time SDK/NDK/Java setup is [below](#android--toolchain-setup--build). Tauri
+finds the SDK and NDK through `ANDROID_HOME` and `NDK_HOME`; an x86_64 AVD (the
+examples use one named `Pixel_9`) needs the `x86_64-linux-android` Rust target.
+
+```bash
+"$ANDROID_HOME/emulator/emulator" -list-avds
+rustup target list --installed | grep android
+```
+
+**Boot it** with a software GPU (works without a physical one) and without
+persisting snapshots, so each run is a clean boot. It has to stay up for the
+whole session:
+
+```bash
+"$ANDROID_HOME/emulator/emulator" -avd Pixel_9 \
+  -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect &
+until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do sleep 5; done
+adb devices          # -> emulator-5554   device
+```
+
+**Build, install and run**, from `apps/enigma/`:
+
+```bash
+npm run tauri android dev
+```
+
+Tauri detects the emulator and its ABI, runs the `beforeDevCommand` (the Vite
+dev server on `:1420`, reverse-tunnelled to the device with `adb reverse`),
+cross-compiles the Rust library, builds the APK with Gradle, installs and
+launches it (`Starting: Intent { cmp=com.spectrumaipl.enigma26/.MainActivity }`).
+Frontend edits hot-reload; Rust or native Android changes trigger a rebuild. The
+first build compiles the whole Rust tree for Android and is slow.
+
+**Drive and inspect it** with adb:
+
+```bash
+adb exec-out screencap -p > /tmp/enigma.png          # screenshot
+adb shell input tap 993 222                          # tap a point (device pixels)
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 1        # 0 = portrait, 1 = landscape
+adb shell wm size; adb shell wm density              # screen geometry
+adb shell am start -n com.spectrumaipl.enigma26/.MainActivity   # relaunch
+```
+
+**Shut down:** stop `npm run tauri android dev`, then `adb emu kill`.
+
+---
+
+### Build configuration (`build_config.yaml`)
+
+[`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
+is the compile-time build config: `build.rs` parses + validates it and generates
+Rust consts (`enigma_lib::build_config`); the shipped binary never re-reads the
+file. **An invalid or missing file fails the build** with the offending YAML paths
+listed. The checked-in defaults reproduce stock behavior exactly.
+
+What it owns (see the file's comments and [§15](#15-config--sources-of-truth) for
+details):
+
+- `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/DNS discovery
+  (and, transitively, the DHT — it rides the same endpoint); direct QUIC
+  (tickets) and Tor keep working, but reconnecting to a bare NodeId does not.
+  `true` in every shipped edition for that reason.
+- `dht.enabled` — `false` removes the **Mainline DHT only**: no ticketless
+  join-by-room-code, no nickname directory, no presence. `discovery_enabled` /
+  `nick_publish_enabled` return false ahead of the user's setting (so a profile
+  carrying `dht_discovery: "on"` from a DHT-capable build reads as off without
+  the key being rewritten), `dht_presence` / `dht_publish_nick` /
+  `dht_find_nick` / `dht_apply` error `DHT_DISABLED`, and the whole DHT UI is
+  hidden rather than disabled. Requires `p2p.allow_hosted_relays` — build.rs
+  rejects the combination. Standard and up.
+- `crypto` — declared algorithms are **compile-asserted** against the vendored
+  rotor_core/gervasius crates (editing the strings can't change the crypto; drift
+  in either direction is a build error). Argon2id costs apply to newly created
+  vaults only.
+- `calls` / `contacts` / `calendar` / `maps` — feature kill switches
+  (`enabled: false` builds without the tab, redirects the route, and never
+  instantiates the composable — so the feature's sync handlers and, for
+  calls/contacts, its ALPN are absent from the binary). `calls` additionally
+  makes every `vox_*` command error `CALLS_DISABLED`. These are what the product
+  editions are made of — see [§20](#20-editions). `maps` has no other knobs,
+  because the app has no tile-fetch path at all — region packages are produced
+  by the standalone `tools/map_packager` and imported from the device (see
+  [§25](#25-map-region-packager)).
+  (The `kanban`, `sketch` and `mind` sections were removed on 2026-07-27 when
+  those features were parked — `limbo/frontend/*/NOTES.md` carries the exact
+  YAML to paste back. `devices.allow_linking` and `peers.enabled` went the same
+  way on 2026-08-18, taking the `settings.devlink_pair_window_secs`,
+  `settings.devlink_resync_secs` and `settings.peer_resync_secs` clamps with
+  them; the restore playbooks are
+  [limbo/frontend/devices/NOTES.md](limbo/frontend/devices/NOTES.md) and
+  [limbo/frontend/peers/NOTES.md](limbo/frontend/peers/NOTES.md). The `cloud`
+  section went in 2026-08 with Enigma Cloud itself; unlike the parked features
+  it was deleted outright, so there is no YAML to restore — see
+  [limbo/removed/cloud.md](limbo/removed/cloud.md) and §16.)
+- `lock.pin_unlock` / `keyring.enabled` — two smaller kill switches: `false`
+  removes the PIN keypad (`vault_pin_*` → `PIN_UNLOCK_DISABLED`) and the key
+  ring (`keyring_*` → `KEYRING_DISABLED`). The key ring is an edition
+  differentiator, PIN unlock is on in all three. Per-file locking sits under
+  neither — it is always compiled in.
+- `features` / `settings` — new-profile defaults and settings defaults+clamps.
+- `network` — frame cap (**wire-interop**: all peers must agree), onion port,
+  chunk sizes, Tor timeouts.
+
+`app:` must match `tauri.conf.json` (`productName`/`identifier`/`version`) —
+`tauri.conf.json` stays authoritative and `build.rs` rejects drift. For an
+edition with a `tauri.<edition>.conf.json` overlay, the comparison is against the
+**merged** result (see *One fixed app identity* below). The same
+YAML drives desktop and Android builds (the codegen is target-agnostic).
+
+#### Editions (`ENIGMA_EDITION`)
+
+The product line — **Basic / Standard / Professional** — is three checked-in
+configs under
+[`apps/enigma/src-tauri/configs/`](apps/enigma/src-tauri/configs/), selected by
+an environment variable that `build.rs` reads:
+
+```bash
+ENIGMA_EDITION=basic        ./run_dev.sh    # contacts, calendar, PIN unlock
+ENIGMA_EDITION=standard     ./run_dev.sh    # + relays, DHT, keyring, voice calls
+ENIGMA_EDITION=professional ./run_dev.sh    # + maps (the dev default)
+```
+
+A **build** names its edition in [build.yaml](build.yaml) instead
+(`apps.enigma.edition`), and `./build.sh` sets the variable from it — see
+[Building](#building-buildyaml).
+
+Unset keeps the historical behavior: the top-level `build_config.yaml` is the
+default. An **unknown** edition name fails the build rather
+than falling back, and `build.rs` declares `rerun-if-env-changed=ENIGMA_EDITION`,
+so switching editions always regenerates rather than reusing a cached binary
+(the Rust crate does recompile — expect a full rebuild when you switch).
+
+The dev launchers `run_dev.sh` and `run2.sh` now default to
+`ENIGMA_EDITION=professional`, the everything-on edition, so every gated surface is
+exercisable in a dev run; shipped/CI defaults are unchanged, and an explicit
+`ENIGMA_EDITION=…` in the environment still wins.
+
+Editions differ **only** in feature gates; `crypto`, `network` and `settings` are
+identical across all three, deliberately — `network.max_frame_bytes` is
+wire-interop sensitive and a Basic peer must be able to share a room with a
+Professional peer. Who gets what, and why, is [§20](#20-editions).
+
+##### One fixed app identity
+
+Every edition now builds as the same installable app:
+
+| Value | Fixed setting |
+|---|---|
+| App name | `Enigma26` |
+| Bundle identifier / Android package id | `com.spectrumaipl.enigma26` |
+| Desktop binary name from edition overlays | `enigma26` |
+| Data directory | `…/com.spectrumaipl.enigma26/` |
+
+Editions differ only in feature gates. They do **not** get separate Android
+package ids or separate desktop data roots, so they update/replace the same app
+instead of installing side by side.
+
+The overlays are still `apps/enigma/src-tauri/tauri.<edition>.conf.json`,
+passed with `--config` by `run_dev.sh` and `run2.sh` (via
+[`scripts/edition_conf.sh`](scripts/edition_conf.sh)) and by `build.sh`. They keep the same
+fixed identity, and `build.rs` rejects any hand-edited config that tries to
+change the app name or identifier.
+
+> **Moving existing data.** The package id changed from
+> `com.spectrumaipl.enigma` to `com.spectrumaipl.enigma26`. Existing desktop
+> data is not deleted; the new build looks in a new app-data directory. To carry
+> a profile across:
+> ```bash
+> mv ~/.local/share/com.spectrumaipl.enigma/profiles/default \
+>    ~/.local/share/com.spectrumaipl.enigma26/profiles/default
+> ```
+> Or just start fresh with `./run_dev.sh --reset`.
+
+#### Building (`build.yaml`)
+
+There is one way to build: edit [build.yaml](build.yaml) at the repo root and
+run `./build.sh`. There are no build flags — the file is the whole interface.
+The build itself is Rutile's, shared with Morion; `./build.sh` here only finds
+it.
+
+```bash
+./build.sh                 # what build.yaml describes
+./build.sh --dry-run       # print the commands the file resolves to, run none
+./build.sh --config FILE   # read another file with the same shape
+npm run build              # -> ./build.sh
+```
+
+```yaml
+output_dir: dist              # packages are copied to dist/<app>/ with a SHA256SUMS
+
+apps:
+  enigma:
+    edition: professional     # -> configs/build_config.professional.yaml
+    test: false               # run the frontend + Rust suites first
+    desktop:
+      enabled: true
+      profile: release        # release | debug
+      bundles: [deb, rpm]     # this host's formats only
+    android:
+      enabled: false
+      profile: debug          # debug | release (release needs a signing key)
+      abis: [aarch64]
+      allow_unsigned_release: false
+```
+
+Every key, what is validated and what each step runs is documented with the
+tooling: [rutile/§5](rutile/technology.md#5-build-tooling). An
+unknown key or value is an error that names its path
+(`apps.enigma.desktop.profile: must be release or debug`), never a silent
+default.
+
+The **app icon is fixed** — not a per-build choice. One mark, whose master is
+[`apps/enigma/app-icon.png`](apps/enigma/app-icon.png); the generated sizes
+under `src-tauri/icons/` are committed. Changing it is a code change:
+[§23](#23-app-icon).
+
+---
+
+### Desktop build
+
+Set `apps.enigma.desktop` in [build.yaml](build.yaml) and run:
+
+```bash
+./build.sh
+```
+
+`profile: debug` gives a faster, unoptimized bundle. The frontend build runs
+automatically via Tauri's `beforeBuildCommand`.
+
+Which formats come out is `desktop.bundles` in `build.yaml` (falling back to
+`bundle.targets` in `tauri.conf.json` when the key is omitted). The build fails
+if *no* package appears, but not if fewer appear than you expected — read the
+"Built" list it prints before a release. Output, also copied to
+`dist/enigma/`:
+
+```
+apps/enigma/src-tauri/target/release/bundle/     # release
+apps/enigma/src-tauri/target/debug/bundle/       # profile: debug
+  deb/Enigma26_<ver>_amd64.deb
+  rpm/Enigma26-<ver>-1.x86_64.rpm
+  appimage/Enigma26_<ver>_amd64.AppImage         # only if "appimage" is in bundle.targets
+```
+
+#### Piecemeal (frontend / Rust separately)
+
+```bash
+npm run build -w rakotis                 # vue-tsc typecheck (shared package)
+npm run build -w enigma                  # vue-tsc --noEmit && vite build (frontend only)
+( cd apps/enigma/src-tauri && cargo build )          # Rust debug
+( cd apps/enigma/src-tauri && cargo build --release ) # Rust release
+```
+
+The frontend build emits `apps/enigma/dist/` (`index.html` + assets); Tauri reads
+it via `frontendDist: "../dist"`.
+
+---
+
+### Android — toolchain setup & build
+
+Building an Android APK/AAB from an Ubuntu dev machine.
+
+#### Toolchain overview
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Java (OpenJDK) | 17 | Gradle & Android build tools |
+| Android Studio | 2024.3.x | SDK manager UI (optional but recommended) |
+| Android SDK | platform 35 | Android platform headers |
+| Android NDK | 27.2.12479018 | Native (C/Rust) cross-compilation |
+| Android Build Tools | 35.0.0 | `aapt2`, `d8`, `apksigner`, `zipalign` |
+| CMake | 3.31.6 | Required by NDK toolchain |
+| Rust | stable | Tauri Rust core + vendored crates |
+| cargo-ndk | latest | Rust → Android NDK bridge |
+
+#### One-time setup (scripted)
+
+```bash
+bash rutile/scripts/setup_java.sh              # OpenJDK 17 (+ JAVA_HOME in ~/.bashrc)
+bash rutile/scripts/install_android_studio.sh  # Studio, SDK 35, NDK, build tools, CMake, i386 libs
+bash rutile/scripts/setup_rust_android.sh      # rustup Android targets + cargo-ndk
+bash rutile/scripts/patch_cargo_android.sh     # Cargo.toml Android-compat check
+source ~/.bashrc
+```
+
+Environment written to `~/.bashrc` / `~/.profile` (full reference):
+
+```bash
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+export ANDROID_HOME="${HOME}/Android/Sdk"
+export NDK_HOME="${ANDROID_HOME}/ndk/27.2.12479018"
+export PATH="${JAVA_HOME}/bin:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/emulator:${PATH}"
+```
+
+Verify:
+
+```bash
+java -version                                   # must print "openjdk 17..."
+sdkmanager --list_installed
+ls "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep aarch64
+rustup target list --installed | grep android   # aarch64 / armv7 / x86_64 / i686
+cargo ndk --version
+```
+
+Native-dependency notes: `webkit2gtk` is Linux-only (cfg-guarded; Android uses the
+system WebView); `cpal` uses the `oboe-shared-stdcxx` feature on Android (already
+declared in `Cargo.toml`); arti's transitive `rusqlite` is pinned `bundled` on
+Android (the NDK ships no `libsqlite3` — the pin compiles SQLite from source); all
+vendored crates are pure Rust and cross-compile fine; `pmtiles` (Maps) is pure
+Rust too (mmap via `fmmap`) — no extra native deps.
+
+Offline map assets: `apps/enigma/public/map/` bundles the Map tab's glyphs (a
+Latin/Greek/Cyrillic subset of the Noto Sans stacks, OFL-licensed — `OFL.txt`
+sits alongside) and the v4 light sprite sheet from
+[protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets), so map
+styling never fetches from a CDN. To widen script coverage, copy more range
+`.pbf` files from that repo into the same folders. Sprites are bundled for
+BOTH theme flavours (`sprites/v4/light*` and `sprites/v4/dark*`) — the Map tab
+switches flavour with the app's dark mode, so a missing dark sheet would show
+up as broken icons at night.
+
+Map region packages are NOT built here: the standalone PyQt6 tool
+[tools/map_packager](tools/map_packager) (`pip install -r requirements.txt`,
+`python main.py`; pytest suite in `tools/map_packager/tests`) extracts
+bbox/zoom subsets from any PMTiles archive over HTTP range requests and writes
+`<name>.pmtiles` + `<name>.manifest.json` — the pair the app's
+Maps → Regions → Import verifies (BLAKE3 + manifest, sidecar auto-detected).
+For a no-GUI download, the same folder ships one-command scripts
+(`./download_warsaw.sh`, `./download_gdansk.sh`) and a `download_map.py` CLI for
+any bbox — see the tool's README.
+
+#### Build the APK / AAB
+
+Set `apps.enigma.android.enabled: true` in [build.yaml](build.yaml) — with
+`profile` and `abis` — and run `./build.sh`. That calls:
+
+```bash
+bash rutile/scripts/build_android.sh enigma debug                    # debug APK, aarch64
+bash rutile/scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AAB
+```
+
+`build_android.sh <app> [debug|release] [abi-spec]` runs `npm install`,
+`tauri android init` (first time only — the generated project under
+`src-tauri/gen/android/` is committed), then `tauri android build`. Valid ABIs:
+`aarch64` (modern phones), `x86_64` (emulator), `armv7` (old 32-bit), `i686`
+(32-bit emulator), or `all`.
+
+Output — the selected ABIs are packed into ONE `universal` APK (Gradle's
+`universal` flavour), so the paths do not vary with `abi-spec`:
+
+```
+apps/enigma/src-tauri/gen/android/app/build/outputs/
+  apk/universal/debug/app-universal-debug.apk
+  apk/universal/release/app-universal-release.apk     # release only
+  bundle/universalRelease/app-universal-release.aab   # release only
+```
+
+`build.sh` copies these into `dist/enigma/` with the app name in place of
+Tauri's generic `app-` prefix (`enigma-universal-release.apk`), because the
+Tauri names are identical between apps.
+
+#### Signing a release build
+
+Release signing **fails closed**: with no keystore configured, a release build
+is refused before any work starts, and the SDK debug key (publicly known) is
+rejected for release outright — by path, filename, or the `androiddebugkey`
+alias. Debug builds keep the debug key and are unaffected.
+
+One-time setup, with the stdlib-only checker the build itself calls
+([rutile/scripts/android_signing/](rutile/scripts/android_signing)):
+
+```bash
+SIGN="python3 rutile/scripts/android_signing/signing_cli.py"
+GEN=apps/enigma/src-tauri/gen/android
+
+# Mint a release keystore (outside the repo, chmod 600, RSA 4096) — the tool
+# warns loudly: losing this key permanently orphans every distributed install.
+$SIGN create
+
+# Would a release sign, and where does each credential come from?
+$SIGN status --gen $GEN
+
+# Build a signed release (android: { enabled: true, profile: release } in
+# build.yaml). Artifacts are verified with apksigner afterwards and the report
+# prints package, version, signer and SHA-256 fingerprint.
+./build.sh
+
+# After confirming the first build, pin the fingerprint (committed file) so a
+# swapped or regenerated keystore FAILS the build instead of shipping:
+$SIGN pin --pin-file apps/enigma/deploy/android-release-key.properties --from <apk>
+
+# Inspect any artifact:
+$SIGN verify <apk-or-aab>
+```
+
+Credentials resolve per key from: a `${VAR}` placeholder in
+`gen/android/keystore.properties` → the `ENIGMA_KEYSTORE_FILE` /
+`ENIGMA_KEYSTORE_PASSWORD` / `ENIGMA_KEY_ALIAS` / `ENIGMA_KEY_PASSWORD`
+environment variables → a literal in `keystore.properties` → 
+`~/.config/enigma-builder/signing.properties` (must be chmod 600). Passwords
+never live in source control and never appear on an argv.
+`gen/android/keystore.properties.example` is the committed template and
+documents the four keys; `signing_cli.py --help` lists the commands.
+
+An **unsigned release** for internal inspection is a deliberate act, never a
+fallback: `allow_unsigned_release: true` under `android:` in `build.yaml`
+(`rutile/scripts/build_android.sh enigma release aarch64 --allow-unsigned-release`).
+It installs nowhere, says so loudly, and still refuses the debug
+key. The pinned fingerprint lives in
+`apps/enigma/deploy/android-release-key.properties` — deliberately outside
+`gen/android`, which `tauri android init` regenerates.
+
+#### Install & inspect on a device
+
+```bash
+adb devices
+adb install apps/enigma/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+adb logcat -s RustStdoutStderr enigma
+```
+
+---
+
+### CI builds
+
+[.gitlab-ci.yml](.gitlab-ci.yml) builds Enigma26 on GitLab:
+
+| Job | Stage | When | What |
+|---|---|---|---|
+| `frontend:build` | check | every commit | `vue-tsc` + `vite build`, asserts `dist/index.html` |
+| `tauri:build` | build | every branch commit | `./build.sh` — the desktop bundle `build.yaml` describes; fails if no package was produced |
+| `tauri:desktop` | build | tags / manual | release bundle, 30-day artifacts |
+| `android:build` | build | manual | stubbed (not provisioned to a CI image yet) |
+
+---
+
+### Tests
+
+```bash
+./tests.sh            # the full run — every suite below, with a pass/fail table at the end
+./tests.sh rust e2e   # only these groups (js | rust | py | build | e2e)
+./tests.sh --list     # the steps and the command each one runs
+```
+
+`tests.sh` keeps going after a failure, so one run tells you everything that is
+broken, and saves each step's output under `test-results/tests/`. The steps, for
+running one by hand:
+
+```bash
+npm test                                   # all workspaces
+npm test -w enigma                         # vitest: chat store, components, i18n, …
+npm test -w rakotis                        # vitest: transport bridge, storage, i18n
+( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, maps, …
+( cd protasius && cargo test )             # encrypted store
+python3 -m pytest scripts/android_signing/tests   # Enigma's signing contract vs Rutile's checker
+npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend — there is none)
+( cd rutile && ./tests.sh )                # the base itself: crypto crates, substrate, petalite, wisteria
+```
+
+---
+
+### Troubleshooting
+
+**Dev:**
+
+- **Port 1420 already in use** — a stray Vite server is running.
+  `npm run dev:tauri` reuses an existing server on `:1420`; otherwise kill the
+  process holding the port (`lsof -i :1420`) and relaunch.
+- **Window opens blank / WebKit errors** — the WebKitGTK dev libs above are
+  missing or mismatched; reinstall them.
+- **Every `npm` command dies with `Cannot find module 'graceful-fs'`** — npm
+  itself is broken, not the repo: npm keeps its own dependencies in a
+  `node_modules` beside it, and a disk cleanup that deletes every `node_modules`
+  it finds takes that one too. Reinstall the Node version
+  (`nvm install <version>`); the launchers detect this and say so.
+- **`rutile/ is empty — this repo is built on the Rutile submodule`** — the
+  clone was made without submodules: `git submodule update --init`.
+- **`sh: 1: vite: not found` / `tauri: not found`** — the root `node_modules` is
+  gone (same cleanup, usually). `npm ci` at the repo root; the launchers do it
+  themselves when the directory is missing.
+- **Build succeeds, then `symbol lookup error: /snap/core20/…/libpthread.so.0:
+  undefined symbol: __libc_pthread_init`** — the app was started with a snap's
+  GTK environment (VS Code's integrated terminal, when VS Code is the snap).
+  `run_dev.sh` and `run2.sh` undo that themselves; a binary
+  started by hand from such a terminal still needs a normal shell.
+- **First Rust compile is very slow / high memory** — expected for the initial
+  build; subsequent runs are incremental.
+- **Map tab renders blank / "WebGL is unavailable" (Linux)** — WebKitGTK's
+  DMABUF renderer breaks WebGL on NVIDIA and some hybrid-GPU stacks: the map
+  canvas stays fully transparent while the rest of the UI paints normally.
+  The app disables DMABUF itself on Linux (`main.rs` sets
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` before WebKit initializes), so this should
+  not occur since 2026-07-21; export `WEBKIT_DISABLE_DMABUF_RENDERER=0` to
+  re-enable DMABUF on a stack where it works. Only the map canvas needs WebGL,
+  everything else is unaffected.
+
+**Desktop build:**
+
+- **`No space left on device` / linker (`collect2`) failure at the final link** —
+  the release binary link step is large; this is almost always **disk space, not a
+  code bug**. Free space (clear `target/`, docker/build caches) and retry.
+- **`build_config.yaml is invalid` / `not found`** — the compile-time build config
+  failed validation; the panic message lists the offending YAML paths (see
+  [Build configuration](#build-configuration-build_configyaml)).
+- **`rotor-core` build error** — it's the in-repo crate at
+  `rutile/crates/rotor/rotor_core` (no fetch involved); reproduce in isolation
+  with `cd rutile/crates/rotor && cargo check -p rotor-core`.
+- **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
+- **`frontendDist` doesn't exist** — the frontend build didn't run/produce
+  `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build.sh`).
+
+**Android:**
+
+- **`ANDROID_HOME` / NDK not found during `tauri android build`** —
+  `source ~/.bashrc`, or export `ANDROID_HOME`/`NDK_HOME` per the reference above.
+- **`linker aarch64-linux-android-clang not found`** — NDK not on PATH or wrong
+  version; confirm with `ls "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep aarch64`.
+- **`ld.lld: unable to find library -lsqlite3`** — the Android `rusqlite { bundled }`
+  pin in `Cargo.toml` is missing/removed; restore it.
+- **`webkit2gtk` compile error when targeting Android** — should not happen (it's
+  cfg-guarded to Linux); verify you're running `tauri android build`, not plain
+  `cargo build`.
+- **Gradle Java version mismatch** — `JAVA_HOME` must point at JDK 17 (not 11/21);
+  re-run `rutile/scripts/setup_java.sh`.
+
+---
+
+## 20. Editions
+
+One codebase, three shipped products. Every edition is the same binary source
+built with a different **compile-time build config**; there is no runtime
+licence check, no server-side entitlement, and no dormant code path waiting for
+an unlock. A feature that is not in an edition is **not in that binary**: its
+tab is absent, its route redirects, its composable is never instantiated, and
+its Rust commands fail fast with a `*_DISABLED` error.
+
+That property is the whole point. Enigma26's pitch is a serverless, auditable,
+end-to-end-encrypted client — an edition that merely *hides* features would
+mean every user still ships the attack surface of every feature. Gating at
+build time keeps each edition's surface honest.
+
+### 20.1 The three editions
+
+*(Until 2026-08-18 the line was Light / Plus / Pro; those editions were
+replaced wholesale by the presets below — different names AND different
+compositions, e.g. contacts and calendar moved into the entry edition. The
+editions no longer carry separate bundle identifiers either: all three now
+declare `com.spectrumaipl.enigma26` and replace one another (§20.3, §20.6.1). An app
+installed from the older `com.spectrumaipl.enigma` id is untouched by a new
+build and has to be migrated by hand — see
+[§19](#one-fixed-app-identity).)*
+
+#### Enigma26 Basic — "the private organiser"
+
+The offline-first core: everything that works without any third-party
+infrastructure, plus the personal-organisation surface.
+
+**In:** P2P MLS chat with QR/ticket pairing and persistent rooms · Tor
+transport · P2P file transfer · per-file local locking + the notes and SVG
+editors · the encrypted-at-rest vault (passphrase gate, panic code, idle
+auto-lock, airplane mode) · **Contacts** · **Calendar** (meetings + polls) ·
+**PIN unlock** · profile + settings + i18n.
+
+**Out:** hosted relays and pkarr discovery, the DHT, the key ring, voice calls,
+maps.
+
+**The honest consequence of "no relays":** pairing works anywhere (the
+QR/ticket carries addresses), but *reconnecting to a saved NodeId across
+different networks does not* — with `p2p.allow_hosted_relays: false` the iroh
+endpoint registers no lookup service at all, so rooms reconnect on the same
+LAN or over Tor. That is the point of this edition: zero third-party
+infrastructure, and the trade is stated rather than hidden.
+
+**Who it's for:** the user who wants a private organiser and messenger with
+the smallest possible audit surface, and who either shares a network with
+their peers or runs Tor.
+
+#### Enigma26 Standard — "the connected messenger"
+
+Basic plus the connectivity layer.
+
+**Adds:** **hosted relays + pkarr discovery** (NAT-to-NAT pairing, reconnect
+to a saved NodeId from anywhere) · **the Mainline DHT** (ticketless
+join-by-room-code, the nickname directory, presence — still opt-in per
+profile) · **Key ring** (one passphrase, many locked files) · **Vox** (1:1
+voice calls).
+
+**Who it's for:** the ordinary case — people on different networks who want
+calls and reliable reconnection, accepting n0's relay/DNS infrastructure and
+the (opt-in) public DHT in exchange.
+
+#### Enigma26 Professional — "the collaboration suite"
+
+Standard plus **Maps** (offline region packages, P2P region sharing, the
+shared location layer).
+
+**Who it's for:** teams running Enigma26 as their working surface. Nothing here
+touches any infrastructure Standard does not already touch — since Enigma26
+Cloud was deleted (2026-08, §16) no edition speaks to an
+application server, so Professional's threat model is Standard's plus a
+larger local surface.
+
+---
+
+### 20.2 Feature matrix
+
+| Feature | Basic | Standard | Professional | Gate |
+|---|:--:|:--:|:--:|---|
+| P2P MLS chat, QR/ticket pairing, room persistence | ✅ | ✅ | ✅ | — (always) |
+| Tor onion transport | ✅ | ✅ | ✅ | — |
+| P2P file transfer | ✅ | ✅ | ✅ | — |
+| Local locked files + notes and SVG editors | ✅ | ✅ | ✅ | — |
+| Vault, panic code, idle lock, airplane mode | ✅ | ✅ | ✅ | — |
+| **Contacts** (saved peers, direct room invites) | ✅ | ✅ | ✅ | `contacts.enabled` |
+| **Calendar** (meetings + polls) | ✅ | ✅ | ✅ | `calendar.enabled` |
+| **PIN unlock** (keypad re-unlock after idle lock) | ✅ | ✅ | ✅ | `lock.pin_unlock` |
+| Hosted relays + pkarr discovery | ❌ | ✅ | ✅ | `p2p.allow_hosted_relays` |
+| **DHT discovery** (room codes, nick directory, presence) | ❌ | ✅ | ✅ | `dht.enabled` |
+| **Key ring** (one passphrase, many locked files) | ❌ | ✅ | ✅ | `keyring.enabled` |
+| **Vox** (1:1 voice calls) | ❌ | ✅ | ✅ | `calls.enabled` |
+| **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
+
+The Kanban board, Sketch board and Mind map were features of the top edition until 2026-07-27,
+when they were **parked** (no maintenance capacity) — code, tests and docs kept
+under `limbo/frontend/{kanban,sketch,mind}/` with restore checklists. Their
+build-config sections and flags are gone with them; restoring a feature re-adds
+its section, so the matrix would gain its row back.
+
+**Multi-device linking** (gate `devices.allow_linking`, a row in all three
+editions) and **peer sync** (gate `peers.enabled`, a Standard-and-up row) were
+**parked on 2026-08-18** the same way: frontend under
+`limbo/frontend/{devices,peers}/`, Rust under `limbo/rust/{devices,peers}/`,
+plans at [limbo/frontend/devices/sync.md](limbo/frontend/devices/sync.md),
+[limbo/frontend/devices/fsync.md](limbo/frontend/devices/fsync.md) and
+[limbo/frontend/peers/peer.md](limbo/frontend/peers/peer.md). Peer sync went for
+a reason beyond capacity: a grant persisted a 32-byte pairwise link key per
+contact, so every contact added standing key material to the vault, and the
+feature cost more to maintain than it returned. Both gates and the
+`devlink_pair_window_secs` / `devlink_resync_secs` / `peer_resync_secs` settings
+are gone from every build config — a restore re-adds them, and with them the
+matrix rows. Device linking is being reimplemented from scratch, so treat the
+parked code as a record rather than a design to return to.
+
+**Enigma Cloud** — the client for the user's own self-hosted faros server — was a
+top-edition row here (gate `cloud.allow_connections`) until 2026-08, when it was
+**deleted**, not parked: no `limbo/` copy, no flag, no YAML to restore
+(§16). It is the one feature this matrix has lost outright rather
+than gated away, and the reason no edition now contains any code that speaks to
+an application server.
+
+Two separate gates, easy to confuse:
+
+- **`p2p.allow_hosted_relays`** (Standard and up) buys the n0 relay fallback
+  and pkarr/DNS discovery — NAT-to-NAT pairing, and resolving a saved NodeId
+  after a restart from a different network. Basic turns it off deliberately:
+  zero third-party infrastructure, at the stated cost of off-LAN reconnection
+  (§20.1).
+- **`dht.enabled`** (Standard and up, and it requires relays — build.rs
+  rejects the combination without them) gates the Mainline DHT alone:
+  ticketless join-by-room-code, the nickname directory, and presence.
+
+Even in Professional the DHT stays **opt-in per profile** (`features.dht_discovery:
+false`): the build gate only decides whether the toggle can be offered, and
+nothing is published to a public network until the user asks for it.
+
+---
+
+### 20.3 Invariants — what does NOT vary by edition
+
+Editions differ **only in feature gates**. Everything else is byte-identical
+across the three configs, deliberately:
+
+- **Crypto.** Same MLS ciphersuite, same at-rest AEAD, same Argon2id costs. One
+  security story to audit, not three. (These are compile-time asserted against
+  the vendored `rotor_core`/`gervasius` anyway — they cannot drift silently.)
+- **Network / wire.** Same `max_frame_bytes`, `onion_port`, chunk size, Tor
+  timeouts. `max_frame_bytes` is **wire-interop sensitive**: peers in one room
+  must agree on it, and a Basic user must be able to sit in a room with a
+  Professional
+  user. Never diverge this per edition.
+- **Settings clamps.** Same defaults and bounds for every user-tunable setting,
+  including ones whose feature is off in that edition (`map_storage_limit_mb`
+  is still a required, validated field in the Basic config — it is simply
+  never read).
+- **App identity.** All three declare `name: Enigma26`,
+  `identifier: com.spectrumaipl.enigma26`, and the same version,
+  because Android installs by Gradle `applicationId` and `build.rs` rejects any
+  drift between the build config and `tauri.conf.json`. Editions replace the
+  same app instead of installing side by side. The version is bumped with the
+  code, never chosen per build — it is carried identically by `tauri.conf.json`,
+  `Cargo.toml`, the three `package.json` files, `build_config.yaml` and every
+  YAML in `configs/`; `build.yaml` has no key for it. The app **icon** is
+  fixed the same way and for the same reason: one mark, committed with the
+  code — see [§23](#23-app-icon).
+
+---
+
+### 20.4 Selecting an edition at build time
+
+`src-tauri/build.rs` resolves its YAML from the `ENIGMA_EDITION` environment
+variable:
+
+```
+ENIGMA_EDITION unset  →  src-tauri/build_config.yaml               (unchanged default)
+ENIGMA_EDITION=basic         →  src-tauri/configs/build_config.basic.yaml
+ENIGMA_EDITION=standard      →  src-tauri/configs/build_config.standard.yaml
+ENIGMA_EDITION=professional  →  src-tauri/configs/build_config.professional.yaml
+ENIGMA_EDITION=custom        →  src-tauri/configs/build_config.custom.yaml
+```
+
+`custom` is not a fourth product: it is a local feature set of your own
+(gitignored, absent from a fresh checkout), for experiments. Nothing checks
+that its gates match one of the three editions, so it is not something to ship
+under a product name.
+
+A build names its edition in [build.yaml](build.yaml) — `apps.enigma.edition:
+basic` — and `./build.sh` sets the variable from it. Dev runs and bare cargo
+take it from the environment:
+
+```bash
+./build.sh                                # release bundle, edition from build.yaml
+ENIGMA_EDITION=professional ./run_dev.sh         # dev run, Professional
+ENIGMA_EDITION=standard ( cd apps/enigma/src-tauri && cargo build )
+```
+
+An unset variable keeps today's behaviour exactly — the repo default build is
+still `build_config.yaml`, which stays the "everything on, main-branch" config
+and is what CI and existing scripts build. `build.rs` emits
+`cargo:rerun-if-env-changed=ENIGMA_EDITION` and watches the whole `configs/`
+directory, so switching editions re-runs codegen rather than silently reusing a
+cached binary. An unknown edition name fails the build with the list of valid
+ones — never a silent fallback to the default config.
+
+The generated `enigma_lib::build_config` module is unchanged in shape; the
+feature sections join the existing ones as `build_config::{calls, contacts,
+calendar, dht}::ENABLED`.
+
+---
+
+### 20.5 How each gate behaves
+
+Each flag follows the established `maps` precedent — nothing novel, three
+layers each:
+
+| Layer | `calls.enabled: false` | `contacts.enabled: false` | `calendar.enabled: false` |
+|---|---|---|---|
+| Rust | the `enigma/vox/0` ALPN is not registered on the p2p router (an inbound call is refused at ALPN negotiation) and every `vox_*` command returns `CALLS_DISABLED` | the invite ALPN is not registered — a direct room invite from a contacts-capable peer is refused at negotiation | — (meetings ride the chat channel's sync seam; no dedicated Rust surface) |
+| Store | `useVoxCall` never instantiated (`chatStore.vox === null`) | `useRoomInvites` never instantiated | `useMeetings` never instantiated; no reminder tick |
+| UI | no Vox tab, `/vox` redirects to `/chat`, no ring indicator, no call button in Contacts | no Contacts tab, `/contacts` redirects, no invite badge | no Calendar tab, `/calendar` redirects, no meeting badge |
+
+`dht.enabled: false` is shaped a little differently, because the DHT is a
+capability rather than a tab:
+
+| Layer | `dht.enabled: false` |
+|---|---|
+| Rust | `p2p_dht::discovery_enabled` and `nick_publish_enabled` return false **before** reading the user's setting, which is the single choke point for the `DhtHandle`, `DhtAddressLookup`, the rendezvous publisher/resolver, the nick publisher and room-code minting. On top of that `dht_presence` / `dht_publish_nick` / `dht_find_nick` / `dht_apply` fail fast with `DHT_DISABLED`, so a stray call cannot even bind the endpoint. `dht_status` and `dht_room_code` stay silent instead — each already has a total "nothing here" value in its own return type. |
+| Frontend | `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus` in rakotis apply the same gate ahead of the same kv read, so every consumer goes inert at once — including `useRoomInvites`, which then prefers a DHT-capable peer's **ticket** over the room code it also sends. |
+| UI | no Settings→Connections DHT card, no nickname claim / find-people / presence surfaces in Contacts, no call-by-nickname in Vox, no room-code field in create or room-info. Hidden, not disabled: every off-state string points at the Settings card, which is exactly what this build lacks. |
+
+Because the composables are the things that register sync handlers on the chat
+channel, a flag-off build does not merely hide a surface — it never subscribes
+to those message types at all. An incoming call offer or meeting invite from a
+higher-edition peer is simply an unhandled sync type and is dropped.
+
+Cross-edition rooms therefore degrade quietly rather than erroring: a
+Professional user can share a map region into a room containing Basic users;
+those users see
+nothing. That is the intended behaviour, but it is also the sharpest edge in
+this design — see §20.6.
+
+One place where quiet degradation was **not** enough: a room joined by code
+stores that code as its credential, so the room outlives the build that joined
+it — move the profile to a DHT-less edition (§20.6.3) and the saved room comes
+with it. Reopening it would hit `join_room_by_code` and strand it, and chat
+auto-reopens the most recent room at boot, so it would present as a red banner
+on first launch. `realtime_join_room` therefore recovers the room name from the
+code (the topic is `blake3(name)`, which the code carries) and reconnects by
+persisted NodeIds instead.
+
+---
+
+### 20.6 Known gaps / follow-ups
+
+1. **One installable app identity.** All three editions intentionally build as
+   `Enigma26` with bundle id / Android package id `com.spectrumaipl.enigma26`.
+   Editions replace the same app and share the same app-data root; side-by-side
+   Basic/Standard/Professional installs are not a supported product shape.
+2. **No cross-edition capability signalling.** A Professional peer cannot tell
+   that a room member is on Basic, so it cannot warn "3 members won't see this
+   meeting". A capability byte in the MLS-carried presence/join payload would
+   fix it; today the degradation is silent.
+3. **Upgrade path.** Moving a profile from Basic to Professional is "install the other
+   build and point it at the same profile" — the vault format is
+   edition-independent, so this works, but it is untested and undocumented.
+4. **No tier UI.** Nothing in the app tells the user which edition they are
+   running beyond which tabs exist. A line in Settings → About reading the
+   already-available build config would be cheap.
+5. **CI matrix.** CI builds the default config only, and `run_dev.sh` /
+   `run2.sh` default to `ENIGMA_EDITION=professional` — both DHT-on,
+   everything-on. Nothing in routine use
+   exercises a flag-*off* build, so an edition-only regression would ship
+   unnoticed; `tests/component/dhtGate.test.ts` is the only standing guard.
+   CI should build all three (a config that fails validation is a build failure,
+   so this catches config rot immediately).
+6. **A `const` makes code dead, not absent.** §20.1 promises a feature "is not in
+   that binary", and for tabs/composables that holds. It does not yet hold for
+   the DHT: `dht.enabled: false` makes every path unreachable, but iroh's
+   `address-lookup-pkarr-dht` feature and the `mainline` crate are still linked
+   into a Basic binary. Honest wording today is "unreachable"; making it true
+   needs a `#[cfg(feature)]` split in `Cargo.toml`, which is the same gap
+   `maps.rs` and `vox.rs` have.
+7. **Per-edition caps are deliberately not used.** If a future tier wants, say,
+   a bigger file-size default for Professional, note that `settings.*` clamps are safe to
+   vary per edition but `network.max_frame_bytes` is **not** (§20.3).
+
+---
+
+## 21. Releasing
+
+This is the maintainer checklist for producing Enigma26 desktop and Android
+release artifacts. For toolchain setup and lower-level build notes, see
+[§19](#19-run-build-and-test). For end-user installation, see [§22](#22-installing).
+
+### Release Goals
+
+A release artifact should be:
+
+- built from a known commit;
+- versioned consistently across every file that carries the version (§21.2);
+- signed when Android release artifacts are produced;
+- smoke-tested on the target platform;
+- distributed with checksums and enough metadata to diagnose install failures.
+
+### 21.1 Pick The Release Shape
+
+Decide what is being shipped:
+
+- Desktop only: `.deb` / `.rpm` — `desktop:` enabled in `build.yaml`.
+- Android sideload/test distribution: a signed `.apk`.
+- Android store distribution: a signed `.aab` uploaded to the store, plus an
+  APK only when the store or test channel needs one.
+- Both desktop and Android: enable both sections; one `./build.sh`
+  builds them in turn. See [§19](#building-buildyaml).
+
+Every one of those choices is a line in [build.yaml](build.yaml) at the repo
+root — the only place a build is configured. Choose the edition there before
+building:
+
+```yaml
+apps:
+  enigma:
+    edition: professional     # basic | standard | professional
+```
+
+Omitting `edition` builds the base `build_config.yaml`, so keep it explicit for
+repeatable releases. The edition is not in the artifact's name: record which
+`build.yaml` (commit) a release was built from.
+
+### 21.2 Prepare The Checkout
+
+Start from the Enigma26 repo root:
+
+```bash
+cd /path/to/enigma
+git status --short
+npm ci
+```
+
+Do not release from a dirty tree unless every change is intentional. The
+`dist/enigma/` output folder can contain old artifacts, so do not use "whatever
+is already in dist" as the release set.
+
+The version is a property of the code, not a build-time choice: it is bumped
+with the change that earns it — `build.yaml` has no key for it. It must be the same number in all of:
+
+- root `package.json`, `apps/enigma/package.json`,
+  `packages/rakotis/package.json`;
+- `apps/enigma/src-tauri/tauri.conf.json` (authoritative for the native bundle)
+  and `apps/enigma/src-tauri/Cargo.toml`;
+- `apps/enigma/src-tauri/build_config.yaml` and **every**
+  `apps/enigma/src-tauri/configs/*.yaml` — not only the editions being shipped.
+  `build.rs` asserts that the config it bakes equals `tauri.conf.json`, so a
+  config left behind fails the build for that edition rather than shipping the
+  wrong version.
+
+Android's generated
+`apps/enigma/src-tauri/gen/android/app/tauri.properties` is regenerated from
+`tauri.conf.json` and tracks that version — 0.1.3 produced `1003`, so 0.1.10
+produces:
+
+```text
+tauri.android.versionName=0.1.10
+tauri.android.versionCode=1010
+```
+
+`versionCode` must increase for every Android update with the same
+`applicationId`, or Android refuses the install as a downgrade.
+
+### 21.3 Run Pre-Release Checks
+
+Run the normal test gates before packaging:
+
+```bash
+npm test
+npm run build -w rakotis
+npm run build -w enigma
+( cd apps/enigma/src-tauri && cargo test )
+( cd rutile/crates/rotor/gervasius && cargo test )
+( cd protasius && cargo test )
+npm run test:e2e -w apps/enigma
+```
+
+For Android, also smoke-test on at least one real phone or emulator:
+
+```bash
+adb devices
+npm run tauri android dev
+adb logcat -s RustStdoutStderr enigma
+```
+
+### 21.4 Build Desktop Artifacts
+
+With `desktop: { enabled: true, profile: release, bundles: [deb, rpm] }` under
+`apps.enigma` in `build.yaml`:
+
+```bash
+./build.sh
+```
+
+Expected release output (copied to `dist/enigma/` as well):
+
+```text
+apps/enigma/src-tauri/target/release/bundle/
+  deb/*.deb
+  rpm/*.rpm
+```
+
+Which formats appear is `desktop.bundles` in `build.yaml` (`bundle.targets` in
+`tauri.conf.json` when that key is omitted) — check the "Built" list the
+command prints before a release.
+
+An `.rpm` built on Ubuntu links against Ubuntu's glibc and webkit2gtk: it is a
+package format, not a cross build, and will very likely refuse to start on
+Fedora. Build each distribution's package on that distribution.
+
+### 21.5 Configure Android Release Signing
+
+Android release builds must be signed. Enigma26 deliberately fails closed when a
+release key is missing or when the Android SDK debug key is used for a release.
+
+Preferred flow:
+
+```bash
+SIGN="python3 rutile/scripts/android_signing/signing_cli.py"
+$SIGN status --gen apps/enigma/src-tauri/gen/android
+$SIGN create
+./build.sh      # android: { enabled: true, profile: release, abis: [aarch64, x86_64] }
+$SIGN verify <apk-or-aab>
+```
+
+After the first real signed release has been inspected, pin its upload-key
+fingerprint:
+
+```bash
+$SIGN pin --pin-file apps/enigma/deploy/android-release-key.properties --from <signed-release.apk>
+git add apps/enigma/deploy/android-release-key.properties
+```
+
+That pinned fingerprint is public metadata. It exists so a swapped, regenerated,
+or lost keystore becomes a build failure instead of an update that strands
+existing installs.
+
+Secrets must stay outside source control. Each of the four values
+(`storeFile`, `storePassword`, `keyAlias`, `keyPassword`) is resolved on its
+own, highest first:
+
+1. a `${VAR}` placeholder in `gen/android/keystore.properties`, read from the
+   environment;
+2. the well-known environment variables `ENIGMA_KEYSTORE_FILE`,
+   `ENIGMA_KEYSTORE_PASSWORD`, `ENIGMA_KEY_ALIAS`, `ENIGMA_KEY_PASSWORD`;
+3. a literal in `keystore.properties`;
+4. `~/.config/enigma-builder/signing.properties`, which is refused unless it is
+   mode `0600`.
+
+With the environment or that local file supplying everything,
+`keystore.properties` can be absent entirely; the committed
+`keystore.properties.example` is the only half that belongs in the repo. No
+password is ever passed on an argv. Command reference: `signing_cli.py --help`
+([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
+
+### 21.6 Build Android Artifacts
+
+Set this under `apps.enigma` in `build.yaml` and run `./build.sh`:
+
+```yaml
+android:
+  enabled: true
+  profile: release
+  abis: [aarch64, x86_64]
+```
+
+It runs `rutile/scripts/build_android.sh enigma release aarch64,x86_64`.
+
+Expected output — every selected ABI is packed into one `universal` artifact,
+so these paths do not change with the ABI list:
+
+```text
+apps/enigma/src-tauri/gen/android/app/build/outputs/
+  apk/universal/release/app-universal-release.apk
+  bundle/universalRelease/app-universal-release.aab
+```
+
+Important defaults:
+
+- `android.profile` defaults to `debug` and `android.abis` to `[aarch64]`.
+- Debug APKs are installable for testing but are not releasable.
+- `allow_unsigned_release: true` is only for inspecting packaging output. That APK
+  should be treated as installable nowhere and must never be distributed.
+
+### 21.7 Collect And Verify Artifacts
+
+`./build.sh` clears the previous desktop bundle directory before it builds,
+fails if the build leaves no package, and — with `output_dir: dist` in
+`build.yaml` — copies what it built into `dist/enigma/`, Android artifacts
+renamed from Tauri's generic `app-…` to `enigma-…`. It prints the list under
+"Built".
+
+It also writes `dist/enigma/SHA256SUMS`, over **everything** in that directory —
+including older installers left there by earlier builds. Treat that file as an
+index of the directory, not as a manifest of this release, and publish checksums
+for the exact files you ship:
+
+```bash
+( cd dist/enigma && sha256sum -- Enigma26_<ver>_amd64.deb enigma-universal-release.apk )
+```
+
+Before sharing Android files, verify package, version, signer, and fingerprint:
+
+```bash
+python3 rutile/scripts/android_signing/signing_cli.py verify dist/enigma/enigma-universal-release.apk
+```
+
+For manual SDK inspection:
+
+```bash
+apksigner verify --verbose --print-certs <release.apk>
+aapt2 dump badging <release.apk> | head
+```
+
+### 21.8 Smoke-Test The Install
+
+Use a clean test device or emulator:
+
+```bash
+adb install -r apps/enigma/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+adb shell pm list packages | grep enigma
+adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
+adb logcat -s RustStdoutStderr enigma
+```
+
+If the device already has a debug build, an unsigned build, or a build signed
+with another key, Android may refuse the update. Uninstalling can fix the test
+device, but it removes the local Enigma26 vault and room state.
+
+### 21.9 Publish
+
+For direct distribution:
+
+- ship only the signed release APK;
+- include `SHA256SUMS`;
+- include the release signing fingerprint from verification output;
+- point users to [§22](#22-installing).
+
+For Google Play or another store:
+
+- upload the signed `.aab` when the store expects bundles;
+- keep the upload keystore and password backed up long-term;
+- remember that store-generated device APKs may be signed by the store's app
+  signing key, while Enigma's local pin records the upload key used by this
+  build.
+
+Tag the commit after artifacts are verified:
+
+```bash
+git tag -a v<version> -m "Enigma26 <version>"
+git push origin v<version>
+```
+
+### Known Release Friction Points
+
+#### Android Signing Identity
+
+Android updates are keyed by `(applicationId, signing certificate)`. Losing the
+release keystore, changing it without an accepted rotation path, or accidentally
+using the debug key means existing users cannot update in place.
+
+What to do:
+
+- create and back up the release keystore before the first release;
+- pin the first release fingerprint in
+  `apps/enigma/deploy/android-release-key.properties`;
+- verify every release artifact before upload or sharing;
+- never distribute debug-signed or unsigned releases.
+
+#### Android Package ID Is Fixed
+
+The generated Android Gradle file declares:
+
+```text
+applicationId = "com.spectrumaipl.enigma26"
+```
+
+Basic, Standard, and Professional APKs do not install side by side; they update
+or replace the same Android package. Treat the package id printed by
+`signing_cli.py verify` as the authority.
+
+#### AAB Is Not A Direct Installer
+
+An `.aab` is for publishing. A phone installs APKs. For sideloading, distribute
+the signed release APK; for app stores, upload the AAB and let the store generate
+device-specific APKs.
+
+#### ABI Coverage
+
+The default Android build is `aarch64`, which covers modern ARM64 phones but not
+the common `x86_64` emulator and not older 32-bit phones.
+
+What to do:
+
+- use `aarch64,x86_64` for phone plus emulator testing;
+- use `all` only when the full target set is installed and the artifact size is
+  acceptable;
+- diagnose `INSTALL_FAILED_NO_MATCHING_ABIS` by rebuilding for the device ABI.
+
+#### Stale Artifact Collection
+
+`dist/enigma/` can contain artifacts from earlier names, versions,
+and signing states. A filename like `enigma-universal-release.apk` is not enough
+proof that the file came from the current commit.
+
+What to do:
+
+- start from an empty `dist/enigma/`, or checksum only the files you ship;
+- verify the exact APK/AAB that will be shared.
+
+#### Regenerated Android Project
+
+`tauri android init` can regenerate files under
+`apps/enigma/src-tauri/gen/android/`. Enigma26 has custom signing gates in the
+generated Gradle project, mirrored by `rutile/scripts/android_signing/signing.py`.
+
+What to do:
+
+- run `python3 rutile/scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
+  after regenerating Android files;
+- verify that release signing still fails closed when credentials are missing;
+- keep signing logic in Gradle and `signing.py` in lockstep.
+
+---
+
+## 22. Installing
+
+This guide is for installing Enigma26 artifacts that were produced by the release
+process in [§21](#21-releasing). For building from source, see
+[§19](#19-run-build-and-test).
+
+### Choose The Right File
+
+Use the artifact for your platform:
+
+- Ubuntu / Debian: `.deb`
+- Fedora / RHEL: `.rpm`
+- Linux portable build, when produced: `.AppImage`
+- Android direct install: signed `.apk`
+- Android store upload: `.aab`
+
+Do not try to install an `.aab` directly on Android. It is a publishing format;
+phones install APKs.
+
+Before installing a downloaded release, compare its checksum with `SHA256SUMS`:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+### Linux
+
+Install a Debian package:
+
+```bash
+sudo apt install ./Enigma26_<version>_amd64.deb
+```
+
+Install an RPM package:
+
+```bash
+sudo dnf install ./Enigma26-<version>-1.x86_64.rpm
+```
+
+Run an AppImage, when one is shipped:
+
+```bash
+chmod +x ./Enigma26_<version>_amd64.AppImage
+./Enigma26_<version>_amd64.AppImage
+```
+
+If a desktop package refuses to start after installation, run the app from a
+terminal and keep the output. Missing WebKitGTK or a package built on the wrong
+Linux distribution is usually the first thing to check.
+
+### Android: Install From The Device
+
+Use the signed release APK, for example:
+
+```text
+enigma-universal-release.apk
+```
+
+Steps:
+
+1. Download or copy the APK to the Android device.
+2. Open it from Files, Downloads, a browser, or the app that received it.
+3. If Android asks, allow that source to install unknown apps.
+4. Tap Install.
+5. Open Enigma26 and grant camera or microphone permission only when using QR
+   scanning or calls.
+
+On Android 8.0 and newer, the unknown-app permission is per source. Allowing a
+browser does not automatically allow a file manager or chat app to install APKs.
+
+On managed work phones, school phones, or enterprise profiles, the administrator
+may block unknown-app installs entirely. In that case, use the approved app
+store, MDM channel, or `adb` if the device policy permits it.
+
+### Android: Install With adb
+
+Enable Developer options and USB debugging on the phone, then connect it:
+
+```bash
+adb devices
+adb install -r ./enigma-universal-release.apk
+```
+
+Useful inspection commands:
+
+```bash
+adb shell pm list packages | grep enigma
+adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
+adb logcat -s RustStdoutStderr enigma
+```
+
+Uninstalling removes Enigma26's local vault, room state, and device-local data:
+
+```bash
+adb uninstall com.spectrumaipl.enigma26
+```
+
+Only uninstall as a last resort on a real user's device. Enigma26 is serverless, so
+there is no central account that can restore local encrypted state.
+
+### Why An APK May Fail To Install
+
+#### The APK Is Unsigned
+
+Android requires installable APKs to be signed. Enigma26's release build fails
+closed: with no release keystore configured the build is refused before any
+work starts, and the Android SDK debug key is refused for a release outright. The only way to obtain an
+unsigned release artifact is to ask for it with `--allow-unsigned-release`, and
+that artifact is for packaging inspection — it installs nowhere and must not be
+shared.
+
+What to do:
+
+```bash
+python3 rutile/scripts/android_signing/signing_cli.py verify <apk>
+bash rutile/scripts/build_android.sh enigma release aarch64,x86_64
+```
+
+Share only a signed release APK.
+
+#### The Existing App Was Signed With Another Key
+
+Common adb symptom:
+
+```text
+INSTALL_FAILED_UPDATE_INCOMPATIBLE
+```
+
+Android treats an update as valid only when the installed app and the new APK
+have the same package id and compatible signing certificate. A debug APK cannot
+update a release APK, and a release APK signed by a new keystore cannot update an
+older release signed by the original keystore.
+
+What to do:
+
+- install an APK signed with the same release key as the existing app;
+- use a separate intentionally configured package id only for throwaway test
+  builds outside the fixed release path;
+- uninstall only if losing local data is acceptable.
+
+#### The APK Version Is Older Than The Installed Version
+
+Common adb symptom:
+
+```text
+INSTALL_FAILED_VERSION_DOWNGRADE
+```
+
+Android compares `versionCode`, not only the visible version name. If the device
+already has a higher `versionCode`, a normal install is blocked.
+
+What to do:
+
+- build a new release with a higher Android `versionCode`;
+- for a disposable test device, uninstall the existing app and install again.
+
+#### The APK Does Not Match The Device ABI
+
+Common adb symptom:
+
+```text
+INSTALL_FAILED_NO_MATCHING_ABIS
+```
+
+The default Enigma26 Android build targets `aarch64`, which is right for most
+modern phones but wrong for an `x86_64` emulator and wrong for old 32-bit
+devices.
+
+What to do:
+
+```bash
+bash rutile/scripts/build_android.sh enigma release aarch64,x86_64
+# or, when all targets are installed:
+bash rutile/scripts/build_android.sh enigma release all
+```
+
+For an emulator, include `x86_64`.
+
+#### The Device Is Too Old
+
+Enigma26's generated Android project currently declares:
+
+```text
+minSdk = 24
+targetSdk = 36
+```
+
+Android devices below API 24 cannot install the app. API 24 is Android 7.0.
+
+What to do:
+
+- use Android 7.0 or newer;
+- do not try to bypass this with signing or installer settings.
+
+#### Android Blocks Unknown Apps
+
+Symptoms include a generic "App not installed", a security warning, or a prompt
+that sends you to settings.
+
+What to do:
+
+- allow "Install unknown apps" for the source app that opens the APK;
+- verify checksums and the release signing fingerprint before proceeding;
+- on managed devices, ask the administrator to approve the app or distribute it
+  through the managed store;
+- use `adb install` for internal testing when USB debugging is allowed.
+
+#### The File Is An AAB, Not An APK
+
+An `.aab` will not install when opened on a phone.
+
+What to do:
+
+- use the `.apk` for direct install;
+- upload the `.aab` to Google Play or another store that accepts app bundles;
+- use bundletool only when you intentionally need generated APKs from an AAB.
+
+#### The Download Is Corrupt Or Incomplete
+
+Common symptoms are package parse errors, a zero-byte file, or an installer that
+fails before showing the app name.
+
+What to do:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+Download the APK again if the checksum does not match. Also confirm the device
+has enough free internal storage.
+
+#### Play Protect Or Developer Verification Warns
+
+Sideloaded APKs can show extra warnings, especially for apps outside an app
+store or from an unverified developer.
+
+What to do:
+
+- prefer the official release channel when available;
+- verify the checksum and signing fingerprint;
+- avoid forwarding APKs without the matching release notes and checksums.
+
+#### The App Installs But Does Not Work Correctly
+
+Installation success only proves the package was accepted by Android. If Enigma26
+opens blank, crashes, cannot scan QR codes, or cannot join calls:
+
+- update or enable Android System WebView / Chrome;
+- grant camera permission for QR scanning;
+- grant microphone permission for voice calls;
+- capture logs with `adb logcat -s RustStdoutStderr enigma`;
+- test with a clean profile on a disposable device before touching a real user's
+  install.
+
+### Repo-Specific Android Checks
+
+Confirm what is actually inside an APK before distributing it:
+
+```bash
+python3 rutile/scripts/android_signing/signing_cli.py verify <apk>
+```
+
+The report should show:
+
+- package id, fixed to `com.spectrumaipl.enigma26` in the generated Gradle file;
+- visible version and Android `versionCode`;
+- signer classification: signed release, debug, or unsigned;
+- SHA-256 signing certificate fingerprint.
+
+Once a release fingerprint has been pinned in
+`apps/enigma/deploy/android-release-key.properties`, a build signed with any
+other keystore fails instead of shipping — so a mismatch between that file and
+the fingerprint printed above means the artifact did not come from the release
+path. The full command set: `signing_cli.py --help`
+([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
+
+Edition names and output filenames are not separate Android identities. Android
+uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the
+release `applicationId` to `com.spectrumaipl.enigma26`.
+
+### Official Android References
+
+- Android app signing:
+  <https://developer.android.com/studio/publish/app-signing>
+- Prepare an Android app for release:
+  <https://developer.android.com/studio/publish/preparing>
+- APK vs Android App Bundle:
+  <https://developer.android.com/guide/app-bundle/faq>
+- Alternative distribution and unknown-app opt-in:
+  <https://developer.android.com/distribute/marketing-tools/alternative-distribution>
+- PackageInstaller failure categories:
+  <https://developer.android.com/reference/android/content/pm/PackageInstaller>
+- Android developer verification FAQ:
+  <https://developer.android.com/developer-verification/guides/faq>
+
+---
+
+## 23. App icon
+
+The app icon is not a build option. It is part of the product's identity, like
+its name, its bundle id and its version: one mark, fixed in the repository and
+changed here, in code — [build.yaml](build.yaml) has no key for it.
+
+### Why fixed rather than chosen
+
+An app icon is what a user identifies on their launcher. A build that could
+pick a different one is a build that can ship the wrong brand, and nothing
+downstream would catch it — the artifact installs and runs perfectly with the
+wrong face. Fixing it removes a decision that has exactly one right answer at
+any moment, and the answer belongs in version control beside the name and the
+version it goes out with.
+
+### The master
+
+```
+apps/enigma/
+├── app-icon.png          # normalised master: square, 1024×1024, what `tauri icon` consumes
+└── app-icon-source.png   # the original as authored — never overwritten
+```
+
+`app-icon.png` is what `npx tauri icon` consumes; the original is kept beside
+it so a better master can be re-derived later without starting from an upscale.
+The current master was made from the 1536×1024 original by **padding** it to
+square on transparency (centred, never stretched) and scaling — do the same
+with a new original, so the artwork is not distorted.
+
+Everything generated from the master is **committed**: the desktop
+`.png`/`.ico`/`.icns` set under `apps/enigma/src-tauri/icons/`, and the Android
+launcher mipmaps under `apps/enigma/src-tauri/gen/android/app/src/main/res/`.
+A build uses those committed files as they are; it does not regenerate them.
+
+#### Master image requirements
+
+- **Square** — Tauri would distort anything else into every output size.
+- **At least 512×512**; **1024×1024 recommended**, below which the largest
+  generated sizes are upscaled from a smaller original.
+- **PNG with alpha**, or **SVG**.
+- **Keep the mark inside the middle ~66%.** Android's adaptive icon crops to a
+  circle, squircle or rounded square depending on the launcher; anything in the
+  corners is gone. Design for the circle, then check the square still looks
+  deliberate.
+- **Test it small.** Most of an icon's life is 32–48px in a taskbar, where fine
+  detail and thin strokes disappear.
+
+### Changing the app icon
+
+Deliberately a manual, reviewed step.
+
+1. Replace `apps/enigma/app-icon.png` (and `app-icon-source.png`) with the new
+   master.
+2. Regenerate every size from it:
+
+   ```bash
+   cd apps/enigma
+   npx tauri icon app-icon.png
+   ```
+
+   That rewrites `src-tauri/icons/` — the desktop set plus an `icons/android/`
+   mipmap tree.
+3. Mirror the Android mipmaps into the generated project. The Gradle project
+   does **not** read `icons/android/`: `tauri android init` copies it once, at
+   init time, so without this step an Android build ships the previous
+   launcher icon.
+
+   ```bash
+   cp -r src-tauri/icons/android/. src-tauri/gen/android/app/src/main/res/
+   ```
+4. Review the diff (roughly 90 files) and commit it with the master.
+
+The in-app marks (the unlock gate and the top bar) are separate files, cut from
+the same master: `apps/enigma/src/assets/<logoDir>/app_icon.png` and
+`bar_icon.png` — see [`logos.ts`](apps/enigma/src/assets/logos.ts). Replace
+them in the same change so the app's face stays the same everywhere.
+
+---
+
+## 24. Crypto audit inventory
+
+Written 2026-09-16; scope narrowed on 2026-10-03, when Morion moved to its own
+repository and the code both apps share moved to Rutile. This document covers
+Enigma26 and the Rutile crates it links. Nothing here was re-audited on that
+date — only what no longer belongs to this repository was taken out.
+
+### Scope
+
+Active scope:
+
+- Enigma26 desktop app: `apps/enigma`
+- Enigma's encrypted store: `protasius`
+- The crypto crates, from the Rutile submodule: `rutile/crates/rotor`
+  (`rotor_core`, `gervasius`) and `rutile/crates/substrate` (the sealed-file
+  frame — Enigma links it WITHOUT `legacy-detect`, so no Fernet and no OpenSSL)
+
+Out of scope here:
+
+- Morion and its file sealing (`padova`, the `ZINNLOCK` frame): its own
+  repository. It shares `gervasius` and `substrate` with Enigma through Rutile,
+  so a finding in those crates concerns both apps.
+- Historical limbo material under `limbo/`
+
+### Algorithm Inventory
+
+| Area | Current algorithm or construction | Where used | Source of truth / notes |
+| --- | --- | --- | --- |
+| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, calendar/map cards, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `rutile/crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
+| MLS credentials | OpenMLS `BasicCredential` with self-asserted device identity | MLS member identities and rosters | `rutile/crates/rotor/rotor_core/src/lib.rs`. This is not a PKI or verified identity binding. |
+| At-rest envelope | Passphrase -> Argon2id -> UKEK wraps random 32-byte DEK -> XChaCha20-Poly1305 for values | Enigma profile vault, MLS state, chat/p2p settings, invite records, DHT secrets, iroh/Tor keys, panic sidecars | `rutile/crates/rotor/gervasius/src/*`, `protasius/src/lib.rs`. Vault headers store version, KDF params, salt, and wrapped DEK. |
+| Password KDF | Argon2id v1.3, 32-byte output | New Enigma vaults, local file locks, key rings (and Morion's sealed files, through the same crate) | Configured in `build_config.yaml` as 64 MiB, t=3, p=4; validated by `build.rs`; implemented in `rutile/crates/rotor/gervasius/src/kdf.rs`. |
+| AEAD for local data | XChaCha20-Poly1305 with 24-byte random nonce and AAD | Gervasius sealed blobs, Enigma local file locks, key-ring files, in-memory PIN passphrase box | `rutile/crates/rotor/gervasius/src/aead.rs`, `apps/enigma/src-tauri/src/local_lock.rs`, `apps/enigma/src-tauri/src/keyring.rs`, `crates/padova/src/lock.rs`. |
+| Public-key sealing | Ephemeral-static X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305 | Personal invite ticket body sealed to a recipient NodeId public key | `rutile/crates/rotor/gervasius/src/seal.rs`, `apps/enigma/src-tauri/src/invite_ticket.rs`. Recipient Ed25519 NodeId keys are converted to X25519; small-order/off-curve inputs are rejected. |
+| DHT record encryption | BLAKE3-derived keys, ChaCha20-Poly1305, random 96-bit nonce | Mainline DHT room rendezvous, presence, nickname directory | `apps/enigma/src-tauri/src/p2p_dht.rs`. DHT records are public metadata containers; MLS still gates room membership. |
+| DHT signatures | Ed25519 signing keys derived with BLAKE3 domain separation | BEP44 mutable DHT records | `apps/enigma/src-tauri/src/p2p_dht.rs`. |
+| Invite redemption | Ed25519 signature over random challenge plus BLAKE3 keyed proof with 32-byte invite capability | QR/ticket redemption before MLS add | `apps/enigma/src-tauri/src/invite_redeem.rs`, `apps/enigma/src-tauri/src/invites.rs`. The capability itself does not cross the wire during redemption. |
+| File transfer E2EE | Ephemeral 2-member MLS group for transfer chunks | Direct iroh file transfer payloads | `apps/enigma/src-tauri/src/file_xfer.rs`. Transfer auth is tied to a KeyPackage hash signaled through the feature's MLS channel. |
+| File transfer integrity | BLAKE3 hash chain with final root | Direct iroh file transfer chunks | `apps/enigma/src-tauri/src/file_xfer.rs`; default enabled by `features.file_integrity` in `build_config.yaml`. |
+| Voice media encryption | MLS exporter secrets -> directional ChaCha20-Poly1305 keys, monotonic counter nonce | 1:1 Vox media datagrams | `apps/enigma/src-tauri/src/vox.rs`. Current code can fall back to transport-only crypto if the MLS call handshake fails. |
+| P2P transport | iroh QUIC and iroh-gossip; optional hosted relays/discovery | Normal Enigma rooms, direct invites, file transfer, calls | `apps/enigma/src-tauri/src/p2p_iroh.rs`. Relays should see MLS ciphertext for room payloads. |
+| Tor transport | Arti onion services and streams | Tor-mode Enigma rooms | `apps/enigma/src-tauri/src/p2p_tor.rs`. The elected captain forwards MLS ciphertext and should not have other members' group keys beyond its own membership. |
+| Topic derivation | BLAKE3 hash of room name | iroh gossip topics and Tor room naming helpers | `apps/enigma/src-tauri/src/p2p_iroh.rs`, `apps/enigma/src-tauri/src/p2p_tor.rs`. This is deterministic and not a secret by itself. |
+| Legacy platform files | Fernet read/detect path: AES-128-CBC + HMAC | Historical Toto/Zinnia sealed files only — **not compiled into Enigma** | `rutile/crates/rotor/gervasius/src/gervazy.rs` (feature `gervazy`), `rutile/crates/substrate/src/lib.rs` (feature `legacy-detect`). Morion enables them; Enigma must not, and `./tests.sh` asserts `openssl-sys` is absent from its tree. |
+
+Key dependency versions confirmed from the Enigma Rust tree:
+
+- `openmls` 0.7.4 and `openmls_rust_crypto` 0.4.4
+- `iroh` 0.98.2 and `iroh-gossip` 0.98.0
+- `arti-client` 0.43.0
+- `argon2` 0.5.3
+- `chacha20poly1305` 0.10.1
+- `blake3` 1.8.5
+- `mainline` 6.2.0
+- `rustls` 0.23.41
+
+### Secret And Data Locations
+
+| Secret or sensitive data | Storage | Protection |
+| --- | --- | --- |
+| Profile DEK | In memory only after unlock; wrapped in `vault.json` at rest | Argon2id-derived UKEK wraps DEK through gervasius |
+| MLS state | Protasius encrypted store, namespace `mls` | XChaCha20-Poly1305 value sealing; exported state is zeroized on Rust paths that handle it |
+| Chat/profile settings and room data | Protasius encrypted store | Values sealed with per-key AAD prefixing; keys remain plaintext for scans |
+| iroh gossip identity key | Protasius encrypted store, namespace `keys` | Stored sealed; used for stable node identity |
+| Tor onion service identity / keystore | Profile Tor area, sealed through the vault integration | Wiped/resealed on shutdown paths described in `p2p_tor.rs` |
+| Invite capabilities and records | Protasius internal invite namespace | Sealed at rest; redemption sends only challenge-bound proof |
+| DHT room secret | Protasius encrypted store, namespace `dht` | Used to derive DHT record keys; public DHT still leaks bounded metadata |
+| PIN unlock passphrase copy | Process memory only | Passphrase sealed under PIN-derived gervasius vault; dropped after 5 wrong PINs or restart |
+| Panic code targets | Panic sidecar | Sealed under panic passphrase path; panic unlock returns like a normal unlock |
+| Key-ring file keys and absolute paths | Local ring file under profile keyrings | Ring table sealed under ring DEK; raw keys and absolute paths are device-local |
+
+### Existing Cybersecurity Measures
+
+- Build-time crypto declarations are validated in `apps/enigma/src-tauri/build.rs`.
+  Unknown YAML fields fail the build, sane KDF ranges are checked, and algorithm
+  strings are const-asserted against the vendored crypto crates.
+- Enigma room content is designed to be E2EE through MLS. iroh relays, the
+  Mainline DHT, and Tor captains are not intended to see plaintext room payloads.
+- Local profile data is encrypted at rest through Protasius/gervasius. The
+  vault has no password recovery path; a forgotten passphrase means the store is
+  unavailable by design.
+- The vault can idle-lock. Rust-side watchdog logic tears down Vox, iroh, Tor,
+  file transfer, map readers, and in-memory MLS sessions before dropping the DEK.
+- PIN unlock is explicitly convenience-only and memory-only. Nothing PIN-derived
+  is persisted to disk.
+- Panic code support keeps the unlock result indistinguishable from a normal
+  unlock and can wipe profile state plus opted-in local files.
+- Personal invite tickets hide the room material and capability from a passive
+  QR observer by sealing the body to the recipient. General invites are bearer
+  credentials by design.
+- Invite redemption is challenge-bound and identity-bound: a captured proof
+  should not replay against a new challenge or a different NodeId.
+- File transfer chunks are MLS-encrypted in a short-lived 2-member group and
+  can be protected by a BLAKE3 hash chain.
+- Key rings use per-file random DEKs and fsync+rename writes for ring and file
+  updates.
+- Tauri capabilities for Enigma are narrow at the manifest level: core, opener,
+  dialog, and notification defaults; no broad filesystem plugin permission is
+  declared in `capabilities/default.json`.
+- Remote Toto token handling, if kept in scope, avoids localStorage for tokens,
+  requires HTTPS, disables redirects, bounds request bodies, and allowlists
+  `/api/v1/` proxy paths.
+
+### Audit Gaps And Required Work
+
+P0 before an external encryption audit:
+
+- Remove or hard-disable the pre-MLS plaintext chat fallback in
+  `packages/rakotis/src/useChatChannel.ts`. Current code can send
+  `chat_message` over the gossip topic before `mlsStatus === "ready"`.
+- Make Vox fail closed when its MLS media handshake fails, or make the
+  transport-only fallback an explicit, user-visible degraded mode with audit
+  signoff. The current fallback is in `apps/enigma/src-tauri/src/vox.rs`.
+- Add a real Tauri Content Security Policy. `apps/enigma/src-tauri/tauri.conf.json`
+  currently has `"csp": null`.
+- Enforce passphrase minimum and policy in Rust, not only in UI. Direct
+  `invoke` calls can currently bypass UI-only policy.
+- Run a fresh dependency audit for Rust and npm before the audit package is
+  handed over. The lockfiles are the source of truth, and npm currently reports
+  high/critical findings during install.
+
+P1 hardening:
+
+- Add member/key verification UX: safety numbers, SAS, or another explicit
+  binding between QR/tickets, NodeIds, and MLS credentials. BasicCredential alone
+  is self-asserted.
+- Add admission approval for room joins and align old/modified-build behavior.
+  DHT room codes and leaked general tickets are bearer-style entry paths until
+  MLS admission is explicitly approved.
+- Define and implement MLS rekey/post-compromise recovery cadence, including a
+  user-visible "rekey room now" path and tests around removals.
+- Scope native file operations more tightly. `local_lock.rs` operates on paths
+  supplied by JS; prefer dialog-granted paths or an allowlist/capability model.
+- Add fsync+rename durability to Enigma `local_lock.rs`, matching the stronger
+  path in `rutile/crates/substrate` and `apps/enigma/src-tauri/src/keyring.rs`.
+- Review all logging for passphrases, invite capabilities, tokens, DHT secrets,
+  key material, and decrypted payloads. Add regression tests for redaction where
+  practical.
+- Document legacy Fernet/OpenSSL handling as read-only migration support and
+  ensure it is not enabled in Enigma release builds by accident.
+
+P2 documentation and test depth:
+
+- Write a short threat model that separates confidentiality, integrity,
+  authenticity, metadata privacy, local-device compromise, and malicious-room
+  member assumptions.
+- Document metadata leaks for iroh topics, hosted discovery, DHT room codes,
+  nickname records, Tor captain topology, and file/call timing.
+- Add fuzz/property tests for frame parsers, invite-ticket decoding, DHT record
+  opening, and file-transfer frame handling.
+- Review zeroization boundaries. Rust key paths use `zeroize` in several places,
+  but webview/TypeScript plaintext and UI strings cannot provide the same memory
+  guarantees.
+- Add an audit appendix mapping each persisted file or keyspace to its
+  encryption state, backup/recovery behavior, and deletion behavior.
+
+### Verification Commands
+
+Useful commands for keeping this document honest:
+
+```bash
+rg -n "MLS_128_DHKEMX25519|xchacha20-poly1305|argon2id|ChaCha20Poly1305|blake3|Fernet|csp" \
+  apps rutile/crates protasius packages
+
+cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i openmls --locked
+cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i iroh --locked
+cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i arti-client --locked
+cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i chacha20poly1305 --locked
+
+cargo metadata --format-version 1 --no-deps --manifest-path apps/enigma/src-tauri/Cargo.toml
+npm query .workspace --json
+npm audit
+```
+
+---
+
+## 25. Map region packager
+
+A standalone **PyQt6** desktop tool that produces offline map **region
+packages** for the Map tab, in `tools/map_packager/`. The app itself never
+talks to tile servers ([§8](#8-privacy), [§10](#10-user-interface)) — this
+tool does, on a machine you choose, and the app only ever **imports files**.
+
+A package is two files, side by side:
+
+```
+<name>.pmtiles          # bbox/zoom subset extracted from a PMTiles archive
+<name>.manifest.json    # BLAKE3 manifest — the app verifies both on import
+```
+
+### Install & run
+
+```bash
+cd tools/map_packager
+python -m venv venv && . venv/bin/activate   # optional but recommended
+pip install -r requirements.txt              # PyQt6, pmtiles, requests, blake3
+python main.py
+```
+
+### Workflow
+
+1. **Source URL** — any `.pmtiles` archive reachable over HTTP with Range
+   support (e.g. a [Protomaps build](https://protomaps.com/) you host or
+   downloaded location). *Check source* fetches only the header (a few KB) and
+   shows its zoom range.
+2. **Area** — type W/S/E/N degrees directly, or use *Find area* (Nominatim
+   town lookup — one explicit request per click, editable endpoint for
+   self-hosting) to fill the box.
+3. **Zoom levels + name**, then **Package region**. Progress, cancel, and a
+   log with the output paths. The *Coarse world (z0–5)* preset makes a small
+   whole-planet base layer worth importing alongside detailed regions.
+4. Copy **both files** to the device (USB, or any channel you trust) and import the `.pmtiles` in
+   **Enigma → Map → Regions → Import** — the manifest sidecar is auto-detected
+   by filename and the app re-verifies BLAKE3 + every field itself.
+
+### Command-line downloads (no GUI)
+
+Ready-made one-command scripts live alongside the tool — they bootstrap a
+`.venv` on first run (from `requirements.txt`), download from the latest
+Protomaps daily build, and show a `tqdm` progress bar. Output defaults to
+`~/enigma-maps`; pass a folder to override.
+
+```bash
+./download_warsaw.sh            # Warsaw + immediate surroundings
+./download_gdansk.sh            # Gdańsk + region (Tricity, delta, near lakes)
+./download_gdansk.sh /media/usb # …to a chosen folder
+```
+
+For any other area, drive the shared CLI directly:
+
+```bash
+python download_map.py --name "Kraków" --bbox 19.8,50.0,20.2,50.15 \
+    --min-zoom 0 --max-zoom 14 --out ~/enigma-maps
+```
+
+These produce **Protomaps-schema** packages, which is what the app's bundled
+style renders — a `.pmtiles` in another schema (e.g. Shortbread) imports fine
+but paints blank. Copy both output files to the device and import the
+`.pmtiles` in Enigma → Map → Regions.
+
+### Notes
+
+- Extraction copies stored tile bytes (no recompression); the output archive
+  keeps the source's tile type/compression and carries `vector_layers`
+  metadata over, so any PMTiles tooling can inspect it.
+- Missing tiles in the source (pruned ocean, etc.) are skipped and counted.
+- A soft cap of 200k tiles per package guards against accidental
+  planet-at-z14 runs; shrink the area or zoom range instead of raising it.
+- Tests: `python -m pytest tests/` (pure tile math, manifest matrix mirrored
+  from the app's `maps.rs`, extraction round-trips over file + HTTP-range
+  sources, cancellation).
+
+### Module map
+
+| File | Role |
+|---|---|
+| `main.py` / `window.py` / `theme.py` | App entry, main window, QSS theme (video_tools conventions) |
+| `packager.py` | The Package tab + QThread workers (source check, lookup, extract) |
+| `pm_source.py` | `get_bytes` sources (file / HTTP-Range / LRU cache) + `extract()` |
+| `tile_math.py` | Web-Mercator bbox↔tile math — mirrors the app's `maps.rs` |
+| `manifest.py` | `MapRegionManifest` wire shape + validation + BLAKE3 — mirrors `maps.rs` |
+| `geocode.py` | Nominatim jsonv2 town→bbox lookup (honest UA, editable endpoint) |
+| `download_map.py` | CLI: extract a bbox/zoom package from a source (tqdm progress) |
+| `download_warsaw.sh` / `download_gdansk.sh` | One-command wrappers over `download_map.py` |
+
+---
+
 ## Roadmap
 
 Open work, in rough priority order (security hardening items are enumerated in
@@ -1955,5 +3898,5 @@ work — key verification, admission approval, CSP/FS scoping, PCS key rotation)
   - Tor: new joiners need the ticket onion online ([§11](#11-tor-onion-transport--captain-election)).
 - **Deferred features:** deterministic pairwise DM rooms from Contacts;
   consolidating the two mainline UDP sockets; mesh-over-Tor (out of scope).
-- **Housekeeping:** prune dormant frontend deps (§3); the centralization roadmap in
+- **Housekeeping:** the centralization roadmap in
   [§15](#15-config--sources-of-truth).
