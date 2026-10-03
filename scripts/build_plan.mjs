@@ -1,7 +1,7 @@
 // build.yaml → the commands a build runs. Pure: nothing here touches the disk
 // or starts a process, so the whole mapping from "what the file says" to "what
 // gets executed" can be tested without building anything (build_plan.test.mjs).
-// scripts/build.mjs gathers the facts about the checkout and runs the result.
+// build.mjs gathers the facts about the checkout and runs the result.
 
 import { parse } from "yaml";
 
@@ -16,7 +16,7 @@ export const BUNDLES = {
 
 const HOST_NAMES = { linux: "Linux", darwin: "macOS", win32: "Windows" };
 
-/** The names scripts/build_android.sh accepts; it is the authority and refuses
+/** The names build_android.sh accepts; it is the authority and refuses
  *  anything else, this only refuses it sooner. */
 export const ABIS = ["aarch64", "x86_64", "armv7", "i686"];
 
@@ -190,8 +190,9 @@ export function loadConfig(text, facts) {
 /**
  * The ordered steps that build one app.
  *
- * `known` is this app's entry in `facts.apps`, plus what cargo says about it:
- *   inWorkspace  whether its crate is a member of the repo-root cargo workspace
+ * `known` is this app's entry in `facts.apps`, plus:
+ *   inWorkspace    whether its crate is a member of the repo-root cargo workspace
+ *   androidScript  build_android.sh, as a path from the repo root
  *
  * Each step is { title, cwd, argv, env } — `cwd` relative to the repo root,
  * `env` the variables added to the inherited environment — or, for the two
@@ -244,7 +245,7 @@ export function planApp(name, app, known) {
 
   if (app.android) {
     const { profile, abis, allowUnsigned } = app.android;
-    const argv = ["bash", "scripts/build_android.sh", name, profile, abis.join(",")];
+    const argv = ["bash", known.androidScript, name, profile, abis.join(",")];
     if (allowUnsigned) argv.push("--allow-unsigned-release");
     steps.push({ title: `${name}: Android ${profile} (${abis.join(", ")})`, cwd: ".", argv, env });
     steps.push({ title: `${name}: Android packages`, collect: "android", profile });

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Builds a Tauri workspace app for Android (APK + AAB).
 #
-#   bash scripts/build_android.sh <app> [debug|release] [abi-spec]
+# Normally reached through ./build.sh, from `android:` in build.yaml. By hand,
+# from the app repo's root:
+#
+#   bash rutile/scripts/build_android.sh <app> [debug|release] [abi-spec]
 #
 #   <app>      enigma | morion  (any dir under apps/ with a src-tauri/)
 #   build type debug (default) | release
@@ -25,12 +28,9 @@ if [[ -z "${APP}" ]]; then
   exit 1
 fi
 
-APP_DIR="$(realpath "${SCRIPT_DIR}/../apps/${APP}" 2>/dev/null || true)"
-
-# The crypto crates: the in-repo copy at crates/rotor, unless ROTOR_PATH says
-# otherwise.
-. "${SCRIPT_DIR}/rotor_path.sh"
-resolve_rotor "$(cd "${SCRIPT_DIR}/.." && pwd)"
+# The app repo: Rutile is mounted one level below its root.
+REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+APP_DIR="$(realpath "${REPO_ROOT}/apps/${APP}" 2>/dev/null || true)"
 if [[ -z "${APP_DIR}" || ! -d "${APP_DIR}/src-tauri" ]]; then
   echo "ERROR: no Tauri app '${APP}' under apps/ (expected ${APP_DIR}/src-tauri)" >&2
   exit 1
@@ -171,7 +171,7 @@ KEYSTORE_PROPS="${GEN_DIR}/keystore.properties"
 # on its own. This runs the same check early, because by the time Gradle sees
 # the task graph the frontend has already been rebuilt — no reason to spend
 # that to learn there is no key. One implementation, not two: the check IS
-# scripts/android_signing/signing.py (stdlib-only), so nothing here re-parses
+# android_signing/signing.py beside this script (stdlib-only), so nothing here re-parses
 # keystore.properties. `env -u` scrubs the vars a caller that carries its own
 # Python leaks into its children, which would otherwise poison the system one.
 

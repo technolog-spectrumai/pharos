@@ -1,9 +1,8 @@
-// node --test scripts/build_plan.test.mjs   (npm run test:build)
+// node --test scripts/build_plan.test.mjs
 //
 // What build.yaml turns into, checked without building anything.
 
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { test } from "node:test";
 
 import { loadConfig, planApp } from "./build_plan.mjs";
@@ -18,12 +17,6 @@ const facts = {
 
 const load = (yaml, f = facts) => loadConfig(yaml, f);
 const argvs = (steps) => steps.filter((s) => s.argv).map((s) => s.argv.join(" "));
-
-test("the shipped build.yaml is valid", () => {
-  const { config, errors } = load(fs.readFileSync(new URL("../build.yaml", import.meta.url), "utf8"));
-  assert.deepEqual(errors, []);
-  assert.deepEqual(Object.keys(config.apps), ["enigma", "morion"]);
-});
 
 test("an edition selects its config, its overlay and the env var build.rs reads", () => {
   const { config } = load(`
@@ -78,15 +71,19 @@ test("old bundles are cleared before a desktop build and collected after it", ()
   );
 });
 
-test("android goes through scripts/build_android.sh with the edition in its environment", () => {
+test("android goes through build_android.sh with the edition in its environment", () => {
   const { config } = load(`
 apps:
   enigma:
     edition: basic
     android: { profile: release, abis: [aarch64, x86_64], allow_unsigned_release: true }
 `);
-  const [build] = planApp("enigma", config.apps.enigma, { ...facts.apps.enigma, inWorkspace: false });
-  assert.equal(build.argv.join(" "), "bash scripts/build_android.sh enigma release aarch64,x86_64 --allow-unsigned-release");
+  const known = { ...facts.apps.enigma, inWorkspace: false, androidScript: "rutile/scripts/build_android.sh" };
+  const [build] = planApp("enigma", config.apps.enigma, known);
+  assert.equal(
+    build.argv.join(" "),
+    "bash rutile/scripts/build_android.sh enigma release aarch64,x86_64 --allow-unsigned-release",
+  );
   assert.deepEqual(build.env, { ENIGMA_EDITION: "basic" });
 });
 

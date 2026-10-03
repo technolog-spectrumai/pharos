@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Headless Android-signing commands — the CLI half of signing.py.
 
-    python3 scripts/android_signing/signing_cli.py status --gen DIR
-    python3 scripts/android_signing/signing_cli.py verify --gen DIR --pin FILE
-    python3 scripts/android_signing/signing_cli.py create
-    python3 scripts/android_signing/signing_cli.py pin --pin-file FILE --from APK
+From an app repo's root (Rutile mounted at rutile/):
 
-``status`` and ``verify`` are what scripts/build_android.sh calls around a
+    python3 rutile/scripts/android_signing/signing_cli.py status --gen DIR
+    python3 rutile/scripts/android_signing/signing_cli.py verify --gen DIR --pin FILE
+    python3 rutile/scripts/android_signing/signing_cli.py create
+    python3 rutile/scripts/android_signing/signing_cli.py pin --pin-file FILE --from APK
+
+``status`` and ``verify`` are what build_android.sh calls around a
 release build; ``create`` and ``pin`` are run by hand, once per key.
 
 Everything here prints to stdout and returns an exit code. Keeping this module

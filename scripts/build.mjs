@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Builds the apps build.yaml names, the way it says. Run through ./build.sh,
-// which checks the toolchain and installs dependencies first — this file needs
-// the `yaml` package and so cannot do that part itself.
+// Builds the apps an app repo's build.yaml names, the way it says. Run through
+// build.sh, which checks the toolchain and installs dependencies first — this
+// file needs the `yaml` package and so cannot do that part itself.
 //
 // The mapping from the config to commands lives in build_plan.mjs and is pure;
 // this file is the half that looks at the checkout and starts processes.
@@ -14,12 +14,16 @@ import { fileURLToPath } from "node:url";
 
 import { loadConfig, planApp } from "./build_plan.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-const USAGE = `Build Enigma and Morion as build.yaml says.
+// The app repo: Rutile is mounted one level below its root. build.sh passes it
+// explicitly, so this default only matters when the file is run by hand.
+const ROOT = path.resolve(process.env.REPO_ROOT ?? path.join(HERE, "..", ".."));
+
+const USAGE = `Build this repo's apps as build.yaml says.
 
   ./build.sh                 every app in build.yaml
-  ./build.sh enigma          one app (or several: ./build.sh enigma morion)
+  ./build.sh enigma          one app (or several, by name)
   ./build.sh --dry-run       print the commands the config resolves to, run none
   ./build.sh --config FILE   read another config instead of build.yaml
 
@@ -35,7 +39,7 @@ const die = (msg) => {
 // ── arguments ───────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const args = { config: "build.yaml", dryRun: false, apps: [] };
+  const args = { config: null, dryRun: false, apps: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") {
@@ -88,7 +92,12 @@ function cargoFacts(name) {
   );
   if (out.status !== 0) die(`cargo metadata failed for ${name}:\n${out.stderr}`);
   const meta = JSON.parse(out.stdout);
-  return { inWorkspace: path.resolve(meta.workspace_root) === ROOT, targetDir: meta.target_directory };
+  return {
+    inWorkspace: path.resolve(meta.workspace_root) === ROOT,
+    targetDir: meta.target_directory,
+    // Rutile's own script, as the app repo sees it.
+    androidScript: path.relative(ROOT, path.join(HERE, "build_android.sh")),
+  };
 }
 
 // ── artefacts ───────────────────────────────────────────────────────────────
@@ -196,25 +205,28 @@ function runApp(name, app, known, config, dryRun) {
 // ── main ────────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv.slice(2));
-const configPath = path.resolve(process.cwd(), args.config);
+// The repo's own build.yaml unless told otherwise; a path given by hand is
+// relative to where it was typed.
+const configPath = args.config ? path.resolve(process.cwd(), args.config) : path.join(ROOT, "build.yaml");
+const configName = path.relative(process.cwd(), configPath) || configPath;
 if (!fs.existsSync(configPath)) die(`no build config at ${configPath}`);
 
 const facts = { platform: process.platform, apps: discoverApps() };
 const { config, errors } = loadConfig(fs.readFileSync(configPath, "utf8"), facts);
 if (errors.length) {
-  die(`${path.relative(process.cwd(), configPath)} is invalid:\n${errors.map((e) => `  - ${e}`).join("\n")}`);
+  die(`${configName} is invalid:\n${errors.map((e) => `  - ${e}`).join("\n")}`);
 }
 
 const names = args.apps.length ? args.apps : Object.keys(config.apps);
 for (const name of names) {
-  if (!config.apps[name]) die(`'${name}' is not in ${args.config} (it has: ${Object.keys(config.apps).join(", ")})`);
+  if (!config.apps[name]) die(`'${name}' is not in ${configName} (it has: ${Object.keys(config.apps).join(", ")})`);
 }
 
 const built = [];
 for (const name of names) {
   const app = config.apps[name];
   if (!app.desktop && !app.android && !app.test) {
-    console.log(`\n${name}: nothing enabled in ${args.config} — skipped`);
+    console.log(`\n${name}: nothing enabled in ${configName} — skipped`);
     continue;
   }
   built.push(...runApp(name, app, { ...facts.apps[name], ...cargoFacts(name) }, config, args.dryRun));

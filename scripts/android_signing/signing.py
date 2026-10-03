@@ -4,7 +4,7 @@
 ``keystore.properties`` from the gen/android root, refuses to produce a release
 artifact when that file is missing or incomplete, and refuses outright when the
 key it points at is the Android SDK's debug key. This module mirrors those
-rules so ``scripts/build_android.sh`` (and the test suite here) can say
+rules so ``build_android.sh`` (and the app's signing tests) can say
 *before* a build what a release would produce, and so the two stay in
 lockstep.
 
@@ -100,8 +100,8 @@ LOCAL_CONFIG_NAME = "signing.properties"
 #: Printed wherever a report tells the developer to do it, and written into the
 #: pin file's own header, so the instruction cannot drift from the command.
 PIN_COMMAND = (
-    "python3 scripts/android_signing/signing_cli.py pin "
-    "--pin-file apps/enigma/deploy/android-release-key.properties --from <apk>"
+    "python3 rutile/scripts/android_signing/signing_cli.py pin "
+    "--pin-file apps/<app>/deploy/android-release-key.properties --from <apk>"
 )
 
 
