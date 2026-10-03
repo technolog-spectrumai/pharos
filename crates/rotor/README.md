@@ -1,9 +1,9 @@
 # CryptoRotor
 
-> **Its own repository**, and the single source of truth for the crypto layer.
-> It was vendored inside the enigma repo until 2026-09-08; the eight commits of
-> that history came across with it. Consumers pin it by **path** to a sibling
-> checkout — see "Consumers" below — so no GitLab access is needed to build.
+> The single source of truth for the crypto layer. It lives in the **Rutile**
+> repository at `crates/rotor`, as its own cargo workspace; Enigma and Morion
+> mount Rutile as a git submodule and consume these crates by **path**, so
+> nothing is fetched at build time.
 > The toto project vendors a static copy of the `rotor_wasm` build produced by
 > [build_wasm.sh](build_wasm.sh).
 
