@@ -27,6 +27,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 
+# step/warn/die, the toolchain checks, the snap trap and the dependency install.
+. "$SCRIPT_DIR/scripts/lib.sh"
+
 # Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
 # switch still defaults OFF). Both launch() subshells inherit the export.
 # Override: ENIGMA_EDITION=basic ./run2.sh   (first run after a switch = full
@@ -64,6 +67,14 @@ done
 PROFILE_A="${POSITIONAL[0]:-alice}"
 PROFILE_B="${POSITIONAL[1]:-bob}"
 VITE_PORT=1420
+
+# Same preflight as run_dev.sh, and for the same reasons: say what is missing
+# rather than let `npm run` fail without naming it, and undo a snap shell's GTK
+# environment before either app (or the reset) reads it.
+need_node
+need_cargo
+scrub_snap_env
+ensure_deps
 
 # Reset BEFORE launching either instance — and in one call, so the two profiles
 # share a timestamp and the global webview caches are cleared exactly once.

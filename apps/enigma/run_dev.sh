@@ -15,7 +15,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 
-# The crypto crates live in their own repo (sibling checkout by default).
+# step/warn/die, the toolchain checks, the snap trap and the dependency install
+# — shared with Morion's runner (scripts/lib.sh).
+. "$SCRIPT_DIR/scripts/lib.sh"
+
+# The crypto crates: the in-repo copy at crates/rotor, unless ROTOR_PATH says
+# otherwise.
 . "$SCRIPT_DIR/scripts/rotor_path.sh"
 resolve_rotor "$SCRIPT_DIR"
 
@@ -47,6 +52,14 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Checked here rather than left to fail inside `npm run`: a missing toolchain or
+# an npm that cannot start otherwise surfaces as a stack trace that names no
+# cause. The scrub must come before the reset — it also decides which data
+# directory "this profile" means.
+need_node
+need_cargo
+scrub_snap_env
+
 # Reset BEFORE launching: the app holds the store open while it runs, so pulling
 # the directory out from under a live instance would prove nothing.
 if [ "$RESET" != "0" ]; then
@@ -63,6 +76,10 @@ edition_conf_args CONF_ARGS
 # other's link. Costs ~17 GB per profile — see scripts/dev_target.sh.
 . "$SCRIPT_DIR/scripts/dev_target.sh"
 dev_target_export "$APP_PROFILE" "$APP_DIR/src-tauri"
+
+# A fresh clone — or a checkout whose node_modules was cleaned away — has no
+# `tauri` and no `vite` to run.
+ensure_deps
 
 cd "$APP_DIR"
 

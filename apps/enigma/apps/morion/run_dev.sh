@@ -29,21 +29,22 @@ for arg in "$@"; do
   esac
 done
 
-# step/warn/die, the toolchain checks, snap detection and the app-data path.
+# step/warn/die, the toolchain checks, the snap trap and the app-data path.
 # The shared preflight lives at the REPO root, not in this app: node/cargo
 # checks, the system libraries and the snap trap are identical for every app,
-# and three copies would mean fixing the next toolchain problem three times.
-. "$HERE/../../scripts/zinnia/lib.sh"
+# and a copy per app would mean fixing the next toolchain problem per app.
+. "$HERE/../../scripts/lib.sh"
 
 need_node
-detect_snap
+# Before the app-data path is resolved: a snap shell can point XDG_DATA_HOME
+# into its sandbox, and --reset must clear what the app really uses.
+scrub_snap_env
 
 # ── stored data ─────────────────────────────────────────────────────────────
 APP_DATA="$(app_data_dir ./src-tauri/tauri.conf.json)"
 
 if [ "$RESET" -eq 1 ]; then
   step "Resetting stored data"
-  [ "$IN_SNAP" -eq 1 ] && warn "this path is inside the snap sandbox, not the real app data dir"
   if [ -d "$APP_DATA" ]; then
     rm -rf "$APP_DATA"
     echo "    removed $APP_DATA"
@@ -56,10 +57,7 @@ if [ "$RESET" -eq 1 ]; then
 fi
 
 # ── dependencies ────────────────────────────────────────────────────────────
-if [ ! -d node_modules ]; then
-  step "Installing dependencies"
-  npm install --no-audit --no-fund
-fi
+ensure_deps
 
 # ── web only ────────────────────────────────────────────────────────────────
 if [ "$WEB" -eq 1 ]; then
