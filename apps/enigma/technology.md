@@ -27,7 +27,7 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [19 Run, build, test](#19-run-build-and-test) · [20 Features and presets](#20-features-and-presets) ·
 [21 Releasing](#21-releasing) · [22 Installing](#22-installing) ·
 [23 App icon](#23-app-icon) · [24 Crypto audit inventory](#24-crypto-audit-inventory) ·
-[25 Map region packager](#25-map-region-packager) · [Roadmap](#roadmap)
+[Roadmap](#roadmap)
 
 ---
 
@@ -73,7 +73,7 @@ Design principles:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  apps/enigma/src  (Vue 3 UI: Chat · Files · Vox · Calendar · Map · │
+│  apps/enigma/src  (Vue 3 UI: Chat · Files · Vox · Calendar ·       │
 │                    Contacts · Settings; QR create/scan; unlock gate)│
 ├──────────────────────────────────────────────────────────────────┤
 │  packages/rakotis (TS)                                             │
@@ -92,7 +92,6 @@ Design principles:
 │   • p2p_invite.rs — direct room invites (dedicated ALPN)           │
 │   • realtime.rs  — realtime_* gateway (gates + transport dispatch) │
 │   • vault.rs     — protasius integration (encrypted store, §13)    │
-│   • maps.rs      — offline PMTiles regions, pins, shares (§10)     │
 │   • file_xfer.rs · vox.rs — P2P file transfer · 1:1 voice calls    │
 │   • local_lock.rs — per-file passphrase locking (ENIGLOCK)         │
 │   • lib.rs       — mls_* commands, profiles, build_config, audio   │
@@ -156,8 +155,7 @@ which is gitignored; Rutile's crypto workspace commits its own, in the submodule
 | `iroh-gossip` | 0.98 | Epidemic broadcast over a topic (one room = one topic) |
 | `mainline` | 6 | Direct BEP44 access to the BitTorrent Mainline DHT (room rendezvous, [§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | `postcard` | 1 | Serialize the pairing `Ticket` / room codes / archives |
-| `blake3` | 1 | Topic id = `blake3(room name)`; DHT key derivation; map-region content addressing |
-| `pmtiles` | 0.23 | PMTiles v3 read/write for the Map tab: mmap'd local region blobs (`maps.rs`; minimal features — no reqwest/S3/zstd). The app never fetches tiles — packages come from `tools/map_packager` |
+| `blake3` | 1 | Topic id = `blake3(room name)`; DHT key derivation; transfer KeyPackage and chunk-chain hashes |
 | `data-encoding` | 2 | BASE32 (no-pad) ticket/code text encoding |
 | `bytes`, `futures-lite`, `anyhow` | — | Gossip stream plumbing, error handling |
 | `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor, used **only** by the peer-hosted onion transport (`p2p_tor.rs`): `onion-service-service` to host a room's own onion, `onion-service-client` to dial the captain's. There is no outbound HTTP client — it left with Enigma Cloud ([§16](#16-history--the-serverless-rework)) |
@@ -197,11 +195,10 @@ compile-time `build_config.yaml` codegen ([§19](#19-run-build-and-test)).
 **Used at runtime:** `vue` 3.5, `vue-router` 5 (`createMemoryHistory`), `pinia`,
 `vue-i18n` 9 (en/pl), `tailwindcss` 4, `@fortawesome/*`, `@tauri-apps/api` 2,
 `qrcode` (generate ticket/NodeId QR), `html5-qrcode` (scan), `nanoid` (message ids),
-`maplibre-gl` 5 (Map tab canvas; WebGL), `protomaps-themes-base` 4 (basemap style
-layers as code — glyphs/sprites are bundled under `public/map/`, so styling makes
-no CDN contact), `ace-builds` (Files → Local notes editor, bundled offline — §13; the SVG editor beside it adds no dependency at all — it renders and rasterizes from its own model), and the
+`ace-builds` (Files → Local notes editor, bundled offline — §13; the SVG editor beside it adds no dependency at all — it renders and rasterizes from its own model), and the
 in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
-map when it was parked — see `limbo/`.)
+map when it was parked — see `limbo/`; `maplibre-gl` and `protomaps-themes-base`
+left with the Map tab, which is Morion's now — [§16](#16-history--the-serverless-rework).)
 
 ---
 
@@ -387,7 +384,7 @@ failure deletes the partial file.
 **The transfer is bound to one peer.** Before dialling, the downloader calls
 `file_prepare`, which mints its transfer KeyPackage and returns a BLAKE3 hash of it;
 that hash travels back to the host over the feature's own MLS-encrypted signalling —
-chat `file_accept` or the Maps `map_region_bind` card — and
+chat `file_accept` — and
 the host records it with `file_authorize`. `serve` then accepts only a connection
 presenting that exact KeyPackage, waiting up to 20 s for the authorization to land
 (the bind message and the QUIC dial race each other). Possession of
@@ -488,8 +485,7 @@ below) / `export_state` + `import_state` (serializable session).
   MLS-protected, not merely QUIC-protected. Optional per-chunk **BLAKE3 hash chain**
   (`h_i = BLAKE3(h_{i-1} ‖ seq ‖ chunk)`, seeded from the offer id, root in a trailer
   frame) lets the receiver detect a dropped, reordered or altered chunk; a size and
-  chunk-count check runs regardless. Applies to both transfer features (chat
-  share and Maps regions) — they share `file_xfer.rs`.
+  chunk-count check runs regardless (`file_xfer.rs`).
 - **Voice-call media** → a *separate*, ephemeral per-call MLS group (a 2-member
   `RotorSession` keyed by the `call_id`) whose **RFC 9420 exporter secret**
   (`export_secret`) derives two directional 256-bit keys → two **ChaCha20-Poly1305**
@@ -542,8 +538,7 @@ below) / `export_state` + `import_state` (serializable session).
 | Invitation QR contents | **No room name, no topic, no MLS material.** A *personal* invitation is sealed to one contact's key and carries no decryption key of its own; a *general* one is a cleartext bearer code. Both carry the inviter's address — an IP on clearnet, an `.onion` over Tor — and a deadline the inviter's own clock enforces ([§18](#18-invitations--encrypted-expiring-revocable)). |
 | Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). DHT room codes carry an unguessable secret instead. |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
-| Map tiles | **The app performs no tile fetches at all.** Maps render exclusively from imported region packages produced offline by the standalone `tools/map_packager` (that tool — not the app — contacts the PMTiles host you give it, on a machine you choose). Imports are BLAKE3-verified against the package manifest. |
-| Device location | **Never read.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes). "Share a location" sends a point the **user tapped on the map** after an explicit press — it is a place they chose, not a device fix — to that room's MLS group only, and it stops rendering on peers' maps after 6 h. That share is the app's **only** location path — it goes to room members over the encrypted seam and nowhere else, since the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history--the-serverless-rework)). Nothing is ever shared automatically or in the background. |
+| Device location | **Never read, never sent.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes: `tests/e2e/noGeolocation.spec.ts`). It has no location feature of any kind: the Map tab, where a user could share a point they had tapped, moved to Morion on 2026-10-03, and the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history--the-serverless-rework)). |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 | DHT participation (opt-in) | Publishing your pkarr record announces "this NodeId is online" to anyone who knows the NodeId (relay addresses only, not direct IPs). Room/nickname records are sealed — see [§12 threat notes](#12-dht-discovery-mainline-rendezvous--contacts). |
 
@@ -555,11 +550,11 @@ table. It measures and remembers; it does not protect.
 **At-rest posture.** All persisted state is sealed in the per-profile protasius vault
 (Argon2id-derived key wrap, XChaCha20-Poly1305 values, AAD-bound to each record's
 location). The plaintext exceptions are: the vault header `vault.json` (salt +
-wrapped DEK — useless without the passphrase); map-region blobs
-(`profiles/<p>/maps/<blake3>.pmtiles` — public map data, immutable and
-content-addressed, so filenames carry no coordinates; which area they cover, plus
-all pins, live only in sealed kv — accepted because whole-blob sealing
-is incompatible with the random-access reads the map needs); and — only while the app is unlocked
+wrapped DEK — useless without the passphrase); in a profile that used the Map
+tab before it left the app, the map-region blobs it imported
+(`profiles/<p>/maps/<blake3>.pmtiles` — public map data, content-addressed, so
+filenames carry no coordinates; nothing reads or writes them now, and a full
+data wipe removes them); and — only while the app is unlocked
 *and* "keep onion stable" is on — arti's materialized onion keystore, which is sealed
 back into the vault and wiped on lock/exit (a crash can leave it until the next
 unlock's sweep). `zeroize` scrubs transient RAM buffers; `wipe_file` is a
@@ -672,33 +667,14 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   is where it is used ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 - **Calendar** (`EnigmaCalendarView`) — room-scoped meetings + scheduling polls over
   the MLS seam; local OS notification reminders (lead time in Settings).
-- **Map** (`EnigmaMapView` / `MapPanel`, `RegionsPanel`) — fully offline MapLibre map
-  over imported PMTiles region packages: immutable content-addressed blobs made by
-  the standalone `tools/map_packager` (the app never talks to tile servers),
-  imported from the device with BLAKE3 + manifest verification and storage-budgeted;
-  import/export region files, private pins (sealed kv), and
-  room sharing — pins as compact MLS chat cards ("Open in Maps" is always an
-  explicit action), region files over the P2P file-transfer path (never MLS).
-  (Hand-drawn routes were part of this tab until 2026-07-27; they are parked
-  under `limbo/frontend/map-routes/` — and no `map_route` card is
-  sent or accepted today.)
-  One region can be **activated** (Regions → Activate): served first for tiles
-  (others still fill), badged in the list + a chip on the canvas, the view opens
-  spread to it, and the choice persists sealed per profile (device-local).
-  Room members' shares also render as a distinct **shared layer** (violet
-  pins, orange locations, sender initial on the badge) wherever an
-  imported region covers them; anything outside coverage is listed in the
-  sidebar rather than drawn over blank canvas. A **shared location** is pushed
-  by hand — the user taps a point, adds an optional label, and presses Share —
-  and stops being drawn after 6 h, though its chat card remains. Per-item "Save
-  to my pins" adopts a share as ordinary local map data.
-  A build feature (`maps`). The basemap follows the app theme (a
-  night-styled map in dark mode) by swapping the bundled protomaps flavour —
-  no tile server is involved. **No geolocation, no tracking, no directions
-  engine** — location sharing changes none of that: the app never calls
-  `navigator.geolocation` and never asks the device where it is (an e2e test
-  traps the API and fails if anything ever does); a shared location is a point
-  the user chose, which may or may not be where they are.
+- **There is no Map tab.** It moved to Morion on 2026-10-03, as a viewer for
+  map files with pins, routes and zones drawn on them
+  ([§16](#16-history--the-serverless-rework)). A map share that is already in
+  a room's history, or that arrives from a peer on an older build — a pin, a
+  location, a region offer — is shown as one line saying it cannot be shown;
+  its payload is not read or stored. **No geolocation, no tracking**: the app
+  never calls `navigator.geolocation` and never asks the device where it is
+  (an e2e test traps the API and fails if anything ever does).
 - **Parked (2026-07-27)** — the **Board** (group Kanban), **Sketch board** and
   **Mind map** were the three sub-tabs of a Notes tab that no longer exists. No
   maintenance capacity; the code, tests, i18n and design docs are kept under
@@ -738,8 +714,8 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   meters became something people *check* rather than configure.
 - **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
-  shows; max file size; transfer chunk size + integrity check; meeting reminder;
-  map storage limit), **Connections** (use-Tor, stable-onion, connection timeout,
+  shows; max file size; transfer chunk size + integrity check; meeting
+  reminder), **Connections** (use-Tor, stable-onion, connection timeout,
   DHT discovery + cadences + status probe),
   **Lock** (auto-lock delay, lock-on-hide, reset passphrase, PIN unlock, panic
   code), **Data** (airplane mode; data profiles; clear data). Settings itself is
@@ -1003,15 +979,13 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
   modes and themes are static imports and its six syntax workers are registered with
   `ace.config.setModuleUrl` against bundler-emitted asset URLs (`aceSetup.ts`), so it
   never falls back to fetching them from a CDN.
-- **Maps data:** region manifests (`map:regions`) and pins (`map:pins`) are
-  sealed kv like everything else — coordinates never persist
-  outside the vault. The region *blobs* are the documented plaintext exception
-  (see §8 at-rest posture).
-- **Map shares add NO at-rest surface.** What a room shared lives only in the
-  already-sealed `chat:log` (as the map card it arrived as); the shared map
-  layer is derived from that timeline at render time, never stored again. The
-  `map:*` namespaces grow only when the user explicitly saves a pin, and
-  a shared LOCATION is never written there at all unless adopted.
+- **What the Map tab left behind.** A profile that used it still has its
+  region list (`map:regions`) and its pins (`map:pins`) in the sealed kv, and
+  its region blobs on disk (§8 at-rest posture). Nothing reads, writes or
+  shows any of them since 2026-10-03, and nothing removes them short of a
+  full data wipe (Settings → Data → clear data), which takes every profile.
+  The blobs are ordinary PMTiles files and open in Morion as they are; the
+  pins have no way out of the vault (see [todo.md](todo.md)).
 
 ---
 
@@ -1028,7 +1002,7 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
   `*Row`, `*Sidebar`, `*Drawer`, `*List`.
 - Route views are `Enigma<Domain>View` (`EnigmaChatView`, `EnigmaFilesView`,
   `EnigmaContactsView`, `EnigmaConfigView`, `EnigmaProfileView`, …). Stores are
-  lowercase domain files (`chat.ts`, `user.ts`, `map.ts`). Composables are
+  lowercase domain files (`chat.ts`, `user.ts`). Composables are
   `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
@@ -1046,7 +1020,7 @@ single event multiplexes all rooms, the payload carries the room id), plus
 
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 Namespaces: `nav`, `common`, `keys`, `lang`, `network`, `config`, `chat`,
-`calendar`, `map`, `contacts`, `files`, `vox`, `sketch`, `local`, `fileShare`,
+`calendar`, `contacts`, `files`, `vox`, `sketch`, `local`, `fileShare`,
 `profile`, `vault`, `hp`, `welcome`. Interpolation uses single-brace named tokens
 (`{n}`). English and Polish live in
 [`apps/enigma/src/i18n/`](apps/enigma/src/i18n/) and are the **only** catalogs;
@@ -1236,10 +1210,7 @@ instead of hardcoding.
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
 | DHT | build feature `dht` (requires `hosted_relays`) | Compiled in or out — **Professional only**. Without it there is no join-by-room-code, nickname directory or presence, and no `mainline` crate; n0 relays + pkarr are untouched. A stored `"on"` reads as off without being rewritten |
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); absent when `dht.enabled: false`, inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
-| Maps | build feature `maps` | Compiled in or out — **Professional only**. Without it there is no Map tab, no `map_*` command and no `pmtiles` / `maplibre-gl`. No other map knobs exist — the app has no tile-fetch path to configure |
 | Key ring | build feature `keyring` | Compiled in or out — in both presets. One passphrase locking MANY local files; without it no `keyring_*` command exists. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` is device-local and never synced |
-| Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
-| Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local: each device imports its own packages |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that lets a room's timeline survive a restart |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
 | Release version `0.1.10` | `tauri.conf.json` `version` | The owner (drives bundle filenames; `build.rs` reads it into `build_config::app::VERSION`). Still hand-duplicated in `Cargo.toml` and the three `package.json` files. Bumped **with the code**, never chosen per build |
@@ -1331,7 +1302,8 @@ voice-note recording; offline profiles and the airplane switch.
 - **Maps** (MapLibre + PMTiles, `maps.rs` + `EnigmaMapView`): fully offline regions
   imported from packages made by the standalone `tools/map_packager` (BLAKE3 +
   manifest verified), P2P region sharing over file_xfer, pins as MLS chat
-  cards. The 2026-07-19 pivot removed every in-app tile-fetch path (§8/§10/§15).
+  cards. The 2026-07-19 pivot removed every in-app tile-fetch path. **Moved to
+  Morion on 2026-10-03** — see the end of this section.
 - **Persisted chat history** (sealed per-room `chat:log` kv, `services/chatLog.ts`
   + `chatHistoryModel.ts`): a room's timeline survives a restart, bounded by
   `chat_history_cap_msgs`. It arrived as part of multi-device sync and outlived
@@ -1379,8 +1351,8 @@ file storage had no P2P equivalent and were not replaced.
 - **Files lost the Cloud sub-tab.** File *storage* is now local, and the only way
   a file moves is a P2P transfer the user starts.
 - **The P2P stack was untouched:** iroh QUIC + gossip, MLS, the peer-hosted onion
-  transport in `p2p_tor.rs` (which never used `tor.rs`), file transfer, maps and
-  calls all came through unchanged. Device linking survived this removal too —
+  transport in `p2p_tor.rs` (which never used `tor.rs`), file transfer, maps (then
+  still here) and calls all came through unchanged. Device linking survived this removal too —
   it was parked three days later, for reasons of its own (below).
 - **Third-party infrastructure still in use, deliberately:** iroh's n0 hosted
   relays, the Mainline DHT, and Tor's directory authorities
@@ -1429,6 +1401,44 @@ person and therefore filters nothing. The two families were deliberately
 domain-separated in their HMAC labels (`enigma/plink/v1/kp` vs
 `enigma/devlink/v1/kp`) so a proof minted for one could never be replayed into
 the other — a test in the parked set still pins that.
+
+### Moved to Morion — maps (2026-10-03)
+
+The Map tab left this app and became Morion's map viewer. It was not parked:
+nothing of it is under `limbo/`, and the code went rather than waited.
+
+**What went:** `maps.rs` and its ten `map_*` commands, the `maps` build
+feature and the `pmtiles` crate, the Map tab (`EnigmaMapView`, `MapPanel`,
+`RegionsPanel`, the pin form, the shared layer), `stores/map.ts`, rakotis'
+`mapModel.ts` and `mapData.ts`, the map storage-limit setting, the
+`data.delete.maps` Privacy HP credit, `maplibre-gl` and
+`protomaps-themes-base`, the bundled glyphs and sprites, and
+`tools/map_packager`, which is now in Morion's repository.
+
+**What it became there** is a different shape, not a copy. Enigma imported a
+package into a private library, kept the region list and the pins in its
+encrypted store, and let a room share pins, places and region files. Morion
+opens a map as a file in a workspace and keeps what is drawn on it — pins,
+routes, zones — in that file. There is no sharing in Morion; the room cards
+went with the tab.
+
+**What stays here, on purpose:**
+
+- The three message types — `map_pin`, `map_loc`, `map_region` — are still
+  *known* (`chatHistoryModel.ts`, `MAP_SHARE_TYPES`). They are in stored
+  histories and can still arrive from a peer on an older build, and an
+  unknown type would be dropped: a history would silently lose entries. Such
+  a message is kept as a card that says it cannot be shown; its payload is not
+  read or stored, and nothing can send one.
+- The geolocation guard (`tests/e2e/noGeolocation.spec.ts`). It lived with the
+  Map tab's tests, but the promise is the app's.
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1` in `main.rs`. It was set for the map's
+  WebGL canvas; it also changes how the whole window is composited on the GPU
+  stacks it was written for, and the app has not been run without it.
+
+**What is left behind in a profile that used the tab** is in
+[§13](#13-encryption-at-rest-gervasius--protasius): the region blobs, which
+open in Morion as they are, and the pins, which have no way out.
 
 ---
 
@@ -1627,7 +1637,7 @@ carrying**, capped at **12.5 HP/day and 50 HP/week** across everything.
 | `room.rekey` / `room.leave` | +1.5 | Once per rolling day |
 | `invite.revoke` | +2.5 | Only when a record really moved live→revoked |
 | `room.inviteonly.enable` | +2.5 | Only when a room really moved open→closed ([§18.8](#188-invite-only-rooms)) |
-| `data.delete.chat` / `.maps` / `.files` | +0.12/MiB freed, floor 0.25, ceiling 2.5 | Own caps: 5/day, 12.5/week |
+| `data.delete.chat` / `.files` | +0.12/MiB freed, floor 0.25, ceiling 2.5 | Own caps: 5/day, 12.5/week |
 
 **Key rotation out-pays a passphrase change by a full rung, and the gap is the
 point.** Changing a passphrase re-wraps the DEK: it protects the key, but every
@@ -1640,11 +1650,11 @@ while its paired exposure is live and unrecovered, so a switch flipped off and o
 again is always a **net loss**, never a profit. Credits without a pair
 (passphrase, rotation) are bounded by a rolling-day lockout instead.
 
-**Who measures a deletion credit:** `data.delete.maps` is measured in Rust —
-`maps::map_region_remove` reads the blob's real size immediately before unlinking
-it. `data.delete.chat` and `.files` are reported by the frontend, because the
-deletion happens there; the per-event ceiling and the two data caps are what make
-an inflated claim pointless.
+**Who measures a deletion credit:** the frontend. `data.delete.chat` and
+`.files` are both reported by it, because the deletion happens there; the
+per-event ceiling and the two data caps are what make an inflated claim
+pointless. (The one credit Rust measured itself, for deleting a map region,
+went with the Map tab.)
 
 ### 17.6 The ledger
 
@@ -1684,7 +1694,7 @@ subtraction).
    fresh profile is never charged `transport.tor.disable` even though it is fully
    exposed. That is why the clearnet posture is *also* priced through every
    action's own variant.
-4. **A known, capped farm exists.** Import a large map region, delete it, collect.
+4. **A known, capped farm exists.** Receive a large file, delete it, collect.
    The per-event ceiling and the data caps bound it to a nuisance. Closing it
    properly would need a hidden "data must be N days old" rule, and a visible cap
    is the more honest trade.
@@ -2224,7 +2234,7 @@ output_dir: dist/pro          # packages are copied to dist/pro/enigma/ with a S
 
 apps:
   enigma:
-    features: [hosted_relays, dht, calls, contacts, calendar, maps, keyring, pin_unlock]
+    features: [hosted_relays, dht, calls, contacts, calendar, keyring, pin_unlock]
     test: false               # run the frontend + Rust suites first
     desktop:
       enabled: true
@@ -2340,28 +2350,7 @@ Native-dependency notes: `webkit2gtk` is Linux-only (cfg-guarded; Android uses t
 system WebView); `cpal` uses the `oboe-shared-stdcxx` feature on Android (already
 declared in `Cargo.toml`); arti's transitive `rusqlite` is pinned `bundled` on
 Android (the NDK ships no `libsqlite3` — the pin compiles SQLite from source); all
-vendored crates are pure Rust and cross-compile fine; `pmtiles` (Maps) is pure
-Rust too (mmap via `fmmap`) — no extra native deps.
-
-Offline map assets: `apps/enigma/public/map/` bundles the Map tab's glyphs (a
-Latin/Greek/Cyrillic subset of the Noto Sans stacks, OFL-licensed — `OFL.txt`
-sits alongside) and the v4 light sprite sheet from
-[protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets), so map
-styling never fetches from a CDN. To widen script coverage, copy more range
-`.pbf` files from that repo into the same folders. Sprites are bundled for
-BOTH theme flavours (`sprites/v4/light*` and `sprites/v4/dark*`) — the Map tab
-switches flavour with the app's dark mode, so a missing dark sheet would show
-up as broken icons at night.
-
-Map region packages are NOT built here: the standalone PyQt6 tool
-[tools/map_packager](tools/map_packager) (`pip install -r requirements.txt`,
-`python main.py`; pytest suite in `tools/map_packager/tests`) extracts
-bbox/zoom subsets from any PMTiles archive over HTTP range requests and writes
-`<name>.pmtiles` + `<name>.manifest.json` — the pair the app's
-Maps → Regions → Import verifies (BLAKE3 + manifest, sidecar auto-detected).
-For a no-GUI download, the same folder ships one-command scripts
-(`./download_warsaw.sh`, `./download_gdansk.sh`) and a `download_map.py` CLI for
-any bbox — see the tool's README.
+vendored crates are pure Rust and cross-compile fine.
 
 #### Build the APK / AAB
 
@@ -2483,7 +2472,7 @@ running one by hand:
 npm test                                   # all workspaces
 npm test -w enigma                         # vitest: chat store, components, i18n, …
 npm test -w rakotis                        # vitest: transport bridge, storage, i18n
-( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, maps, …
+( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, …
 ( cd protasius && cargo test )             # encrypted store
 python3 -m pytest scripts/android_signing/tests   # Enigma's signing contract vs Rutile's checker
 npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend — there is none)
@@ -2518,14 +2507,6 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
   started by hand from such a terminal still needs a normal shell.
 - **First Rust compile is very slow / high memory** — expected for the initial
   build; subsequent runs are incremental.
-- **Map tab renders blank / "WebGL is unavailable" (Linux)** — WebKitGTK's
-  DMABUF renderer breaks WebGL on NVIDIA and some hybrid-GPU stacks: the map
-  canvas stays fully transparent while the rest of the UI paints normally.
-  The app disables DMABUF itself on Linux (`main.rs` sets
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1` before WebKit initializes), so this should
-  not occur since 2026-07-21; export `WEBKIT_DISABLE_DMABUF_RENDERER=0` to
-  re-enable DMABUF on a stack where it works. Only the map canvas needs WebGL,
-  everything else is unaffected.
 
 **Desktop build:**
 
@@ -2585,7 +2566,6 @@ catalogue — the one place that says which ids exist and what each requires.
 | `calls` | 1:1 voice calls | `vox.rs`, the `vox_*` commands, the `enigma/vox/0` protocol; crate `rustfft` | the Vox tab, `useVoxCall` |
 | `contacts` | Contacts and direct room invites | `p2p_invite.rs`, the invite protocol | the Contacts tab, `useRoomInvites` |
 | `calendar` | Meetings and polls | none | the Calendar tab, `useMeetings` |
-| `maps` | Offline maps ([§25](#25-map-region-packager)) | `maps.rs`, the `map_*` commands; crate `pmtiles` | the Map tab, `maplibre-gl` |
 | `keyring` | The key ring: one passphrase locking many local files | `keyring.rs`, the `keyring_*` commands | the Keys panel in Files |
 | `pin_unlock` | Re-opening an idle-locked vault with a PIN | the `vault_pin_*` commands and the PIN state | the keypad, the PIN card in Settings |
 
@@ -2608,7 +2588,6 @@ A preset is a root config that names features — nothing more. "Standard" and
 | `dht` | – | ✓ |
 | `calls` | – | ✓ |
 | `calendar` | – | ✓ |
-| `maps` | – | ✓ |
 
 `./build.sh` builds Professional; `./build.sh std.yaml` builds Standard
 ([§19](#building)). Any other list is a config away: copy a preset, edit
@@ -2633,12 +2612,12 @@ pro.yaml  apps.enigma.features: [hosted_relays, dht, calls, …]
    └─► ENIGMA_FEATURES=… in the environment   Vite: build-time literals
 ```
 
-**Rust.** The modules `maps`, `vox`, `p2p_dht`, `keyring` and `p2p_invite` are
+**Rust.** The modules `vox`, `p2p_dht`, `keyring` and `p2p_invite` are
 declared under `#[cfg(feature = …)]`, as are their commands in
 `generate_handler!`, their managed state, and the PIN commands and state in
 `vault.rs`. The optional crates are `optional = true` and named by the feature,
-so a build without `maps` does not link `pmtiles` at all.
-`crate::features::{MAPS, CALLS, …}` (`cfg!(feature)`) is what the app reports
+so a build without `calls` does not link `rustfft` at all.
+`crate::features::{CALLS, DHT, …}` (`cfg!(feature)`) is what the app reports
 to the frontend. Two details:
 
 - *The DHT has a stand-in.* The iroh node (`p2p_iroh.rs`) is threaded with the
@@ -2653,12 +2632,12 @@ to the frontend. Two details:
 
 **Frontend.** [`buildFeatures.ts`](apps/enigma/buildFeatures.ts) reads the
 catalogue from `Cargo.toml` and turns `ENIGMA_FEATURES` into one literal per
-feature (`__FEATURE_MAPS__`, …) through Vite's `define`. Code is gated where it
+feature (`__FEATURE_CALLS__`, …) through Vite's `define`. Code is gated where it
 is *imported or instantiated*, so the bundler drops it: feature routes are lazy
 and registered only when compiled in (`router/index.ts`), `tabs.ts` lists only
 compiled-in tabs, and the chat store creates `useVoxCall` / `useRoomInvites` /
-`useMeetings` only behind the literal. A Standard bundle has no `maplibre-gl`
-and no call or calendar code. With `ENIGMA_FEATURES` unset — plain
+`useMeetings` only behind the literal. A Standard bundle has no call or
+calendar code. With `ENIGMA_FEATURES` unset — plain
 `npm run dev`, vitest, Playwright — every feature is on.
 
 The runtime gate is still there as the second check: rakotis'
@@ -2698,8 +2677,8 @@ those message types, and its endpoint does not speak the feature's protocol.
 
 - An incoming **call** from a Professional peer is refused at protocol
   negotiation: a Standard endpoint has no `enigma/vox/0`.
-- A **meeting invite** or a shared **map** is an unhandled message type and is
-  dropped. The Standard user sees nothing.
+- A **meeting invite** is an unhandled message type and is dropped. The
+  Standard user sees nothing.
 
 Cross-preset rooms therefore degrade quietly rather than erroring. That is the
 intended behaviour, and also the sharpest edge in this design (§20.6).
@@ -2726,8 +2705,8 @@ Tracked in [todo.md](todo.md); the ones that are properties of the design:
    running beyond which tabs exist.
 4. **Thin frontend wrappers remain.** The views, composables and libraries of
    an omitted feature are gone from the bundle, but a few command wrappers in
-   shared modules (rakotis' `dht*` helpers, the map store) and the inline DHT
-   and maps cards inside Settings and Contacts still ship, dead at run time.
+   shared modules (rakotis' `dht*` helpers) and the inline DHT cards inside
+   Settings and Contacts still ship, dead at run time.
 5. **Settings cannot vary per preset.** If Professional should one day get,
    say, a larger default file size, `settings.*` bounds are safe to vary but
    `network.max_frame_bytes` is **not** (§20.4).
@@ -3475,7 +3454,7 @@ Out of scope here:
 
 | Area | Current algorithm or construction | Where used | Source of truth / notes |
 | --- | --- | --- | --- |
-| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, calendar/map cards, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `rutile/crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
+| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, calendar cards, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `rutile/crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
 | MLS credentials | OpenMLS `BasicCredential` with self-asserted device identity | MLS member identities and rosters | `rutile/crates/rotor/rotor_core/src/lib.rs`. This is not a PKI or verified identity binding. |
 | At-rest envelope | Passphrase -> Argon2id -> UKEK wraps random 32-byte DEK -> XChaCha20-Poly1305 for values | Enigma profile vault, MLS state, chat/p2p settings, invite records, DHT secrets, iroh/Tor keys, panic sidecars | `rutile/crates/rotor/gervasius/src/*`, `protasius/src/lib.rs`. Vault headers store version, KDF params, salt, and wrapped DEK. |
 | Password KDF | Argon2id v1.3, 32-byte output | New Enigma vaults, local file locks, key rings (and Morion's sealed files, through the same crate) | Configured in `build_config.yaml` as 64 MiB, t=3, p=4; validated by `build.rs`; implemented in `rutile/crates/rotor/gervasius/src/kdf.rs`. |
@@ -3529,7 +3508,7 @@ Key dependency versions confirmed from the Enigma Rust tree:
   vault has no password recovery path; a forgotten passphrase means the store is
   unavailable by design.
 - The vault can idle-lock. Rust-side watchdog logic tears down Vox, iroh, Tor,
-  file transfer, map readers, and in-memory MLS sessions before dropping the DEK.
+  file transfer, and in-memory MLS sessions before dropping the DEK.
 - PIN unlock is explicitly convenience-only and memory-only. Nothing PIN-derived
   is persisted to disk.
 - Panic code support keeps the unlock result indistinguishable from a normal
@@ -3620,97 +3599,6 @@ cargo metadata --format-version 1 --no-deps --manifest-path apps/enigma/src-taur
 npm query .workspace --json
 npm audit
 ```
-
----
-
-## 25. Map region packager
-
-A standalone **PyQt6** desktop tool that produces offline map **region
-packages** for the Map tab, in `tools/map_packager/`. The app itself never
-talks to tile servers ([§8](#8-privacy), [§10](#10-user-interface)) — this
-tool does, on a machine you choose, and the app only ever **imports files**.
-
-A package is two files, side by side:
-
-```
-<name>.pmtiles          # bbox/zoom subset extracted from a PMTiles archive
-<name>.manifest.json    # BLAKE3 manifest — the app verifies both on import
-```
-
-### Install & run
-
-```bash
-cd tools/map_packager
-python -m venv venv && . venv/bin/activate   # optional but recommended
-pip install -r requirements.txt              # PyQt6, pmtiles, requests, blake3
-python main.py
-```
-
-### Workflow
-
-1. **Source URL** — any `.pmtiles` archive reachable over HTTP with Range
-   support (e.g. a [Protomaps build](https://protomaps.com/) you host or
-   downloaded location). *Check source* fetches only the header (a few KB) and
-   shows its zoom range.
-2. **Area** — type W/S/E/N degrees directly, or use *Find area* (Nominatim
-   town lookup — one explicit request per click, editable endpoint for
-   self-hosting) to fill the box.
-3. **Zoom levels + name**, then **Package region**. Progress, cancel, and a
-   log with the output paths. The *Coarse world (z0–5)* preset makes a small
-   whole-planet base layer worth importing alongside detailed regions.
-4. Copy **both files** to the device (USB, or any channel you trust) and import the `.pmtiles` in
-   **Enigma → Map → Regions → Import** — the manifest sidecar is auto-detected
-   by filename and the app re-verifies BLAKE3 + every field itself.
-
-### Command-line downloads (no GUI)
-
-Ready-made one-command scripts live alongside the tool — they bootstrap a
-`.venv` on first run (from `requirements.txt`), download from the latest
-Protomaps daily build, and show a `tqdm` progress bar. Output defaults to
-`~/enigma-maps`; pass a folder to override.
-
-```bash
-./download_warsaw.sh            # Warsaw + immediate surroundings
-./download_gdansk.sh            # Gdańsk + region (Tricity, delta, near lakes)
-./download_gdansk.sh /media/usb # …to a chosen folder
-```
-
-For any other area, drive the shared CLI directly:
-
-```bash
-python download_map.py --name "Kraków" --bbox 19.8,50.0,20.2,50.15 \
-    --min-zoom 0 --max-zoom 14 --out ~/enigma-maps
-```
-
-These produce **Protomaps-schema** packages, which is what the app's bundled
-style renders — a `.pmtiles` in another schema (e.g. Shortbread) imports fine
-but paints blank. Copy both output files to the device and import the
-`.pmtiles` in Enigma → Map → Regions.
-
-### Notes
-
-- Extraction copies stored tile bytes (no recompression); the output archive
-  keeps the source's tile type/compression and carries `vector_layers`
-  metadata over, so any PMTiles tooling can inspect it.
-- Missing tiles in the source (pruned ocean, etc.) are skipped and counted.
-- A soft cap of 200k tiles per package guards against accidental
-  planet-at-z14 runs; shrink the area or zoom range instead of raising it.
-- Tests: `python -m pytest tests/` (pure tile math, manifest matrix mirrored
-  from the app's `maps.rs`, extraction round-trips over file + HTTP-range
-  sources, cancellation).
-
-### Module map
-
-| File | Role |
-|---|---|
-| `main.py` / `window.py` / `theme.py` | App entry, main window, QSS theme (video_tools conventions) |
-| `packager.py` | The Package tab + QThread workers (source check, lookup, extract) |
-| `pm_source.py` | `get_bytes` sources (file / HTTP-Range / LRU cache) + `extract()` |
-| `tile_math.py` | Web-Mercator bbox↔tile math — mirrors the app's `maps.rs` |
-| `manifest.py` | `MapRegionManifest` wire shape + validation + BLAKE3 — mirrors `maps.rs` |
-| `geocode.py` | Nominatim jsonv2 town→bbox lookup (honest UA, editable endpoint) |
-| `download_map.py` | CLI: extract a bbox/zoom package from a source (tqdm progress) |
-| `download_warsaw.sh` / `download_gdansk.sh` | One-command wrappers over `download_map.py` |
 
 ---
 

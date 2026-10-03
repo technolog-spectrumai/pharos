@@ -12,8 +12,8 @@ at rest** behind a passphrase.
 - **Transports** — direct QUIC with relay-assisted NAT traversal, or peer-hosted
   **Tor** onion services with an auto-elected relaying captain. Optional
   ticketless joins, presence and nicknames over the Mainline **DHT**.
-- **Beyond chat** — voice calls, P2P file transfer, per-file locking, a room
-  calendar, and fully offline maps.
+- **Beyond chat** — voice calls, P2P file transfer, per-file locking and a
+  room calendar.
 - **Privacy HP** — a budget that puts one comparable price beside every
   exposing action, so the cost of a choice is visible before the tap.
 - **Two products, one source** — Standard and Professional are the same code
@@ -29,7 +29,6 @@ enigma/
 ├── apps/enigma/       the app: Vue 3 frontend (src/) and Rust backend (src-tauri/)
 ├── packages/rakotis/  Enigma's app library and P2P chat orchestration
 ├── protasius/         the encrypted-at-rest store
-├── tools/map_packager/  makes offline map region packages
 ├── scripts/           dev-run helpers (profile reset, build dirs), the signing tests
 ├── limbo/             parked features, each with a restore playbook
 ├── pro.yaml  std.yaml the two presets: which features a build contains
@@ -66,7 +65,7 @@ There are no build flags. Packages land in `dist/pro/enigma/` and
 | | Standard | Professional |
 |---|:-:|:-:|
 | Relays and discovery, contacts, key ring, PIN unlock | ✓ | ✓ |
-| DHT (room codes, nicknames), voice calls, calendar, maps | – | ✓ |
+| DHT (room codes, nicknames), voice calls, calendar | – | ✓ |
 
 ## Test
 
