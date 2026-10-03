@@ -9,17 +9,17 @@
   ],
   "scripts": {
     "dev": "bash run_dev.sh",
-    "build": "bash build_desktop.sh",
-    "build:debug": "bash build_desktop.sh --debug",
-    "build:android": "bash scripts/build_android.sh enigma",
+    "build": "bash build.sh",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:zinnia": "bash scripts/zinnia/run_dev.sh",
-    "build:zinnia": "bash scripts/zinnia/build.sh",
     "build:frontends": "npm run build --workspaces --if-present",
     "test:rust": "cargo test --workspace",
     "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\"",
-    "test:all": "npm run test && npm run test:rust && npm run test:rust:net",
-    "builder:morion": "bash scripts/morion_builder.sh"
+    "test:build": "node --test scripts/build_plan.test.mjs",
+    "test:all": "npm run test && npm run test:build && npm run test:rust && npm run test:rust:net"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
   }
 }
