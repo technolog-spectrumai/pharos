@@ -24,7 +24,7 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [16 Rework history](#16-history--the-serverless-rework) ·
 [17 Privacy HP](#17-privacy-hp--the-exposure-budget) ·
 [18 Invitations](#18-invitations--encrypted-expiring-revocable) ·
-[19 Run, build, test](#19-run-build-and-test) · [20 Editions](#20-editions) ·
+[19 Run, build, test](#19-run-build-and-test) · [20 Features and presets](#20-features-and-presets) ·
 [21 Releasing](#21-releasing) · [22 Installing](#22-installing) ·
 [23 App icon](#23-app-icon) · [24 Crypto audit inventory](#24-crypto-audit-inventory) ·
 [25 Map region packager](#25-map-region-packager) · [Roadmap](#roadmap)
@@ -129,7 +129,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
 | Room invites | Peer-to-peer only (`p2p_invite.rs`, ALPN `enigma/invite/0`): a live offer/accept handshake carrying a fresh ticket + DHT room code, so both peers must be online at once. Everything else is out-of-band — the QR code, the copyable ticket string, or a DHT room code. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [§19](#19-run-build-and-test)) |
-| Build/CI | `./build.sh`, configured by `build.yaml`; GitLab CI (`.gitlab-ci.yml`); Node 22 |
+| Build/CI | `./build.sh`, configured by a preset (`pro.yaml` / `std.yaml`); GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
 identifier `com.spectrumaipl.enigma26`. The tauri.conf `bundle.targets` list governs
@@ -302,8 +302,8 @@ There is no WebSocket and no HTTP data path for chat.
   (pkarr-style signed DNS records). Identity is a stable Ed25519 `SecretKey` →
   **NodeId**. The router accepts iroh-gossip's ALPN plus `enigma/invite/0` (direct
   room invites) and `enigma/vox/0` (calls); file transfer runs its own ephemeral
-  endpoint. A build with `p2p.allow_hosted_relays: false`
-  ([§15](#15-config--sources-of-truth)) uses `presets::Minimal` +
+  endpoint. A build without the `hosted_relays` feature
+  ([§20](#20-features-and-presets)) uses `presets::Minimal` +
   `RelayMode::Disabled` instead — direct QUIC and Tor only.
 - **Room → topic.** `topic = blake3(room_name)` — a deterministic 32-byte id, with
   **no salt and no secret**. The room name is the only thing gating topic membership.
@@ -429,8 +429,8 @@ metadata exposure applies **only on the default iroh transport**; flipping
 **"use Tor"** on routes rendezvous + chat over peer-hosted onion services instead,
 which hides the NodeId↔IP graph from n0 (at the cost of Tor's own latency and the
 captain-hosting model of [§11](#11-tor-onion-transport--captain-election)). A build
-can also remove the n0 dependency outright (`p2p.allow_hosted_relays: false`,
-[§15](#15-config--sources-of-truth)) at the cost of NAT traversal.
+can also remove the n0 dependency outright (leave out the `hosted_relays`
+feature, [§20](#20-features-and-presets)) at the cost of NAT traversal.
 
 Topology is **1:1 / small "star" rooms** on both transports; over Tor the elected
 captain is the onion host + relay. Group scale (gossip fan-out + the naive admin
@@ -497,7 +497,7 @@ below) / `export_state` + `import_state` (serializable session).
   10 ms μ-law datagram is `[counter‖ciphertext]`. If the MLS handshake over the call's
   bi-stream fails for any reason, the call **falls back to transport-only** (QUIC TLS,
   peers authenticated by NodeId) and the UI shows a downgraded-encryption badge.
-- **PIN unlock (`lock.pin_unlock`)** → a **convenience layer, never an at-rest
+- **PIN unlock (the `pin_unlock` feature)** → a **convenience layer, never an at-rest
   secret**. At enrolment the passphrase is proven (`Protasius::verify_passphrase`,
   read-only) and a copy of it is sealed under a PIN-derived key held in **process
   memory only** (`vault.rs`, `PinState`). An idle lock zeroizes the DEK as always
@@ -662,7 +662,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
 - **Files** (`EnigmaFilesView`) — three sub-tabs: **P2P** (offer/accept transfers
   with progress, max-size guard), **Local** (passphrase-lock files in place,
   ENIGLOCK), and **Keys** (`KeyringPanel` — one passphrase over many locked
-  files, gated by `keyring.enabled`). There is no **Devices** sub-tab: device
+  files — the `keyring` build feature). There is no **Devices** sub-tab: device
   linking and the per-file device sync were parked whole on 2026-08-18
   ([limbo/frontend/devices/](limbo/frontend/devices/)), so nothing syncs between
   a user's own devices today ([§16](#16-history--the-serverless-rework)).
@@ -692,7 +692,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   by hand — the user taps a point, adds an optional label, and presses Share —
   and stops being drawn after 6 h, though its chat card remains. Per-item "Save
   to my pins" adopts a share as ordinary local map data.
-  Compile-time gated (`maps.enabled`). The basemap follows the app theme (a
+  A build feature (`maps`). The basemap follows the app theme (a
   night-styled map in dark mode) by swapping the bundled protomaps flavour —
   no tile server is involved. **No geolocation, no tracking, no directions
   engine** — location sharing changes none of that: the app never calls
@@ -857,18 +857,18 @@ disables with the reason. Over Tor, peers are reached by ticket/QR alone. (Until
 2026-08 the fallback was a lookup on the user's own faros server; that client is
 gone — [§16](#16-history--the-serverless-rework).)
 
-**Standard and up.** `dht.enabled: false` (Basic — [§20](#20-editions)) short-circuits
-`discovery_enabled` / `nick_publish_enabled` **ahead of the kv read**, so a
-profile carrying `dht_discovery: "on"` from a DHT-capable build reads as off
-without the key being rewritten. `dht_presence` / `dht_publish_nick` / `dht_find_nick` /
-`dht_apply` fail fast with `DHT_DISABLED`; `dht_status` and `dht_room_code` stay
-silent (each has a total "nothing here" value already). rakotis mirrors the gate
-in `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus`, so the whole UI goes
-inert at once, and every DHT surface is hidden rather than disabled — their
-off-state copy points at a Settings card such a build does not have.
+**A build feature** (`dht` — in Professional, not in Standard;
+[§20](#20-features-and-presets)). A build without it has no DHT at all: the
+module, the `mainline` crate and the `dht_*` commands are not compiled, and
+`discovery_enabled` reads false **whatever the profile says** — so a profile
+carrying `dht_discovery: "on"` from a DHT-capable build reads as off without
+the key being rewritten. rakotis applies the same gate in `getDhtDiscovery` /
+`getDhtNickPublish` / `getDhtStatus`, so the whole UI goes inert at once, and
+every DHT surface is hidden rather than disabled — their off-state copy points
+at a Settings card such a build does not have.
 
-**What it is.** An opt-in (default off; absent in Basic builds and inert in
-no-hosted-relays ones), fully
+**What it is.** An opt-in (default off; not present in a build without the
+`dht` feature), fully
 community-run discovery path over the **BitTorrent Mainline DHT** (~10M nodes, no
 infrastructure of ours or n0's): ticketless room join by a shareable **room code**,
 plus the **Contacts** tab (saved peers, presence, nickname search). iroh 0.98's
@@ -1171,24 +1171,51 @@ primitive).
 **Build config (compile-time):**
 [`apps/enigma/src-tauri/build_config.yaml`](apps/enigma/src-tauri/build_config.yaml)
 — baked into the binary by `build.rs` (codegen → `enigma_lib::build_config` consts;
-invalid file = build error — see [§19](#19-run-build-and-test)). Owns: the hosted-relay
-allow flag, the per-feature kill switches
-(`calls`/`contacts`/`calendar`/`maps`/`dht`/`keyring`/`lock.pin_unlock`),
-crypto declarations (compile-asserted against rotor_core/gervasius) +
-Argon2id costs for new vaults, feature defaults for new profiles, defaults **and
-clamp bounds** of the kv-backed settings, and network constants (frame cap, onion
-port, timeouts). The frontend fetches the relevant subset once at boot
-via `app_get_build_config` (rakotis `initBuildConfig`/`getBuildConfig`; `main.ts`
-seeds the browser-mode fallback from `config/app.ts`). App name and identifier
-are fixed to `Enigma26` / `com.spectrumaipl.enigma26`; `build.rs` rejects drift
-and still asserts the YAML mirrors `tauri.conf.json`.
+invalid file = build error — see [§19](#19-run-build-and-test)). The same for every
+build, and limited to what rarely changes: crypto declarations
+(compile-asserted against rotor_core/gervasius) + Argon2id costs for new
+vaults, network constants (frame cap, onion port, timeouts), defaults **and
+clamp bounds** of the kv-backed settings, and the toggle defaults of a new
+profile. The frontend fetches the relevant subset once at boot via
+`app_get_build_config` (rakotis `initBuildConfig`/`getBuildConfig`; `main.ts`
+seeds the browser-mode fallback from `config/app.ts` and the build-time feature
+literals).
+
+**Build features (compile-time):** which optional features a build contains is
+a list in a root config — [pro.yaml](pro.yaml) or [std.yaml](std.yaml) — drawn
+from the catalogue in `Cargo.toml` `[features]`
+([§20](#20-features-and-presets)). Not a setting: an omitted feature is not
+compiled.
+
+**Who owns what — one authoritative source each.** Nothing below is stated
+twice; where a value must be known in two places it is *read* from its owner,
+and a test or the build fails if a copy drifts.
+
+| What | Owner | Who reads it |
+|---|---|---|
+| App name, identifier, version | `tauri.conf.json` | `build.rs` (→ `build_config::app`), the bundler, the dev runner |
+| Which feature ids exist, and what each requires | `Cargo.toml` `[features]` | cargo, the build driver (validation), `buildFeatures.ts` |
+| Which features a build includes; debug/release, package formats, Android, tests | the root config (`pro.yaml` / `std.yaml`) | `./build.sh`, `./run_dev.sh`, `./tests.sh` |
+| Crypto parameters, protocol constants, setting defaults and bounds, new-profile toggle defaults | `build_config.yaml` | `build.rs` → every Rust module; the frontend through `app_get_build_config` |
+| Privacy HP prices | `privacy_hp.yaml` | `build.rs` → `hp_policy` |
+| The value of a setting at run time | the profile's encrypted store (kv `p2p:settings`) | Rust and the frontend, clamped to the bounds above |
+
+Precedence follows from that: a root config can choose features but cannot
+touch crypto, protocol constants or setting bounds; `build_config.yaml` cannot
+add or remove a feature; and a user's stored setting wins over a default but
+never over a bound. **Built in is not switched on** — a feature in the build
+makes it available, and the profile's own toggle (default from `defaults:`)
+decides whether it is used.
+
+App name and identifier are fixed to `Enigma26` / `com.spectrumaipl.enigma26`;
+`build.rs` rejects a `tauri.conf.json` that says otherwise.
 
 **Privacy HP price table (compile-time):**
 [`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml)
 — the second file `build.rs` bakes in, on the same contract as the build config
 (validate → codegen → `enigma_lib::hp_policy`; an invalid table fails the build).
-Unlike the build config it is **not per-edition**: an exposure does not get
-cheaper with a different tier. Full rationale in
+Like the build config it is the same for every preset: an exposure does not
+get cheaper with a different product. Full rationale in
 [§17](#17-privacy-hp--the-exposure-budget).
 
 **Frontend app config:** [`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts)
@@ -1204,27 +1231,27 @@ instead of hardcoding.
 | In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma26`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
-| Hosted-relay allow flag | `build_config.yaml` `p2p.allow_hosted_relays` | Compile-time kill switch: flips iroh to `presets::Minimal` + `RelayMode::Disabled` and forces DHT discovery off, leaving direct QUIC and Tor. (`cloud.allow_connections` sat beside it until 2026-08 and no longer exists — [§16](#16-history--the-serverless-rework)) |
-| Feature defaults (tor/stable/dht) | `build_config.yaml` `features:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable) |
+| Hosted relays | build feature `hosted_relays` | Compiled in or out: without it iroh runs `presets::Minimal` + `RelayMode::Disabled` and the DHT cannot be built in either, leaving direct QUIC and Tor. In both presets today. (`cloud.allow_connections` sat beside its predecessor until 2026-08 and no longer exists — [§16](#16-history--the-serverless-rework).) |
+| New-profile toggle defaults (tor/stable/dht) | `build_config.yaml` `defaults:` → Rust `AppProfileState` serde defaults + `p2p_dht` missing-key defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable). Distinct from build features: these are a profile's opt-ins |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
-| DHT kill switch | `build_config.yaml` `dht.enabled` | Compile-time, **Standard and up** (off in Basic): `false` removes the Mainline DHT alone (no join-by-room-code, nickname directory or presence) while leaving n0 relays + pkarr intact. Checked ahead of the kv read on both sides, so a stored `"on"` reads as off without being rewritten; `dht_presence`/`dht_publish_nick`/`dht_find_nick`/`dht_apply` error `DHT_DISABLED`; the UI is hidden, not disabled. Requires `p2p.allow_hosted_relays` — build.rs rejects the pair |
+| DHT | build feature `dht` (requires `hosted_relays`) | Compiled in or out — **Professional only**. Without it there is no join-by-room-code, nickname directory or presence, and no `mainline` crate; n0 relays + pkarr are untouched. A stored `"on"` reads as off without being rewritten |
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); absent when `dht.enabled: false`, inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
-| Maps kill switch | `build_config.yaml` `maps.enabled` | Compile-time, **Professional only** (off in Basic and Standard): `false` builds without the Map tab (route redirects, `map_*` commands error `MAPS_DISABLED`). No other map knobs exist — the app has no tile-fetch path to configure |
-| Key-ring kill switch | `build_config.yaml` `keyring.enabled` | Compile-time, **Standard and up** (off in Basic): `false` builds without the key ring (one passphrase locking MANY local files) — every `keyring_*` command errors `KEYRING_DISABLED`. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` never leaves the device — it holds raw file keys + absolute local paths, so it stays out of every transfer path |
+| Maps | build feature `maps` | Compiled in or out — **Professional only**. Without it there is no Map tab, no `map_*` command and no `pmtiles` / `maplibre-gl`. No other map knobs exist — the app has no tile-fetch path to configure |
+| Key ring | build feature `keyring` | Compiled in or out — in both presets. One passphrase locking MANY local files; without it no `keyring_*` command exists. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` is device-local and never synced |
 | Maps storage limit | kv `p2p:settings` / `map_storage_limit_mb` (rakotis `appStorage.getMapStorageLimitMb`) | **User-set in Settings**; default 512 MB clamped 64–65536 from `build_config.yaml`. Enforced in Rust before every region import (`MAPS_STORAGE_LIMIT` error contract) |
 | Maps active region | kv `p2p:settings` / `map_active_region` (rakotis `appStorage.getMapActiveRegion`) | **User-set via Map → Regions → Activate**; the priority region for tile resolution — checked first, other imported regions still fill the gaps. Rust reads the same key (`maps.rs`) and clears it when the region is removed. Device-local: each device imports its own packages |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that lets a room's timeline survive a restart |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
-| Release version `0.1.10` | `tauri.conf.json` `version` | De-facto owner (drives bundle filenames); hand-duplicated in eleven files — `Cargo.toml`, three `package.json`, `build_config.yaml` and every `configs/*.yaml`. Each config's `app.version` must mirror it — `build.rs` fails the build on drift. Bumped **with the code**: it is not a build-time choice, and the Builder shows it read-only |
-| Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl`, `scripts/tauri-dev-server.mjs`, `dev.vitePort` |
+| Release version `0.1.10` | `tauri.conf.json` `version` | The owner (drives bundle filenames; `build.rs` reads it into `build_config::app::VERSION`). Still hand-duplicated in `Cargo.toml` and the three `package.json` files. Bumped **with the code**, never chosen per build |
+| Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl` (which Rutile's dev-server shim and `run_dev.sh --dual` read) and `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
 | Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
-| Privacy HP price table | `apps/enigma/src-tauri/privacy_hp.yaml` | Compile-time, **all editions** (prices are not a product knob — one file, not one per `configs/*.yaml`). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of making a surface free) and generates `enigma_lib::hp_policy`. Fetched once at boot via `hp_get_policy` → rakotis `initHpPolicy`/`getHpPolicy`; `services/hp.ts` carries a browser-mode mirror that `privacyHpDrift.test.ts` pins against the YAML. See [§17](#17-privacy-hp--the-exposure-budget) |
+| Privacy HP price table | `apps/enigma/src-tauri/privacy_hp.yaml` | Compile-time, **the same for every preset** (prices are not a product knob). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of silently making a surface free) and generates `enigma_lib::hp_policy` |
 | Privacy HP ledger | protasius ns `hp` via `vault::get/put` (**internal** tag) | Per-profile, append-only, reason codes and numbers only. Deliberately NOT in the `kv_*` keyspace the webview can write: a different AAD tag means JS cannot read, forge or clobber it. Balances are derived, never stored — see [§17.4](#174-regeneration) |
 | Invitation state | protasius ns `invites` via `vault::get/put` (**internal** tag) | Per-profile, per-issuer: the capability, recipient binding, deadline and `Active/InFlight/Consumed/Revoked` state of every invitation minted. Deliberately NOT in the `kv_*` keyspace the webview can write. Expiry is decided **here**, on the inviter's clock — the deadline inside a ticket is advisory ([§18](#18-invitations--encrypted-expiring-revocable)) |
-| PIN unlock | `build_config.yaml` `lock.pin_unlock` (gate) + `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
-| Transfer integrity check | `build_config.yaml` `features.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
+| PIN unlock | build feature `pin_unlock` (in both presets) + `build_config.yaml` `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
+| Transfer integrity check | `build_config.yaml` `defaults.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
 | Window size, bundle targets | `tauri.conf.json` | — |
 | Two-profile dev instances | `APP_PROFILE` / `CHAT_USER` env | Defaulted in `run_dev.sh`; **`lib.rs` owns the `"default"` fallback** |
@@ -1422,7 +1449,7 @@ encrypted store, and nothing about it ever leaves the device.
 
 | Concern | Home |
 | --- | --- |
-| The prices | [`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml) — one file, all editions |
+| The prices | [`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml) — one file, every preset |
 | Validation + codegen | `build.rs` → `enigma_lib::hp_policy` consts. **An invalid table fails the build** |
 | Ledger, clock, enforcement | `src-tauri/src/privacy_hp.rs` (`hp_*` commands) |
 | Policy, derivation, copy | `packages/rakotis/src/privacyHp.ts` (pure) + `services/hp.ts` (bridge + browser mirror) |
@@ -1962,7 +1989,7 @@ npm ci                        # once, at the repo root — sets up the workspace
 
 Every script here stops with that `git submodule` hint if `rutile/` is empty.
 
-`./run_dev.sh`, `./run2.sh` and `./build.sh` do this themselves when the root
+`./run_dev.sh` and `./build.sh` do this themselves when the root
 `node_modules` is missing, so a fresh clone can go straight to either.
 
 `rakotis` is an in-repo workspace package (`packages/rakotis`); npm symlinks it
@@ -1999,13 +2026,19 @@ Two env vars isolate instances so you can pair two on one machine:
 | `CHAT_USER` | `default` | MLS identity namespace |
 
 ```bash
-# terminal 1
+./run_dev.sh --dual               # two instances at once: profiles alice + bob
+./run_dev.sh --dual carol dave    # …with other names
+# or by hand, one per terminal:
 APP_PROFILE=alice CHAT_USER=alice ./run_dev.sh
-# terminal 2
 APP_PROFILE=bob   CHAT_USER=bob   ./run_dev.sh
-# or both at once, sharing one Vite server:
-./run2.sh
 ```
+
+`--dual` gives each instance its own profile, identity and Cargo build
+directory (`target-<profile>`, so neither waits on the other's link — about
+8 GB each), and both share **one** Vite server: the first instance starts it,
+the second reuses it. Because that server belongs to the first instance, the
+two are tied together — Ctrl-C, or either window closing, stops both, and the
+script takes every process it started down with it.
 
 #### Starting over (`--reset`) — new passphrase, clean cache
 
@@ -2015,8 +2048,8 @@ so a fresh one means a fresh store. Both launchers take a flag for it:
 ```bash
 ./run_dev.sh --reset              # reset profile "default", then run
 APP_PROFILE=alice ./run_dev.sh --reset
-./run2.sh --reset                 # reset BOTH profiles (alice + bob), then run
-./run2.sh --reset carol dave      # flags mix with the positional names, any order
+./run_dev.sh --dual --reset       # reset BOTH profiles (alice + bob), then run
+./run_dev.sh --dual --reset carol dave   # flags mix with the names, any order
 ENIGMA_RESET=1 ./run_dev.sh       # env equivalent (ENIGMA_RESET=purge for --purge)
 ```
 
@@ -2114,115 +2147,54 @@ adb shell am start -n com.spectrumaipl.enigma26/.MainActivity   # relaunch
 is the compile-time build config: `build.rs` parses + validates it and generates
 Rust consts (`enigma_lib::build_config`); the shipped binary never re-reads the
 file. **An invalid or missing file fails the build** with the offending YAML paths
-listed. The checked-in defaults reproduce stock behavior exactly.
+listed.
 
-What it owns (see the file's comments and [§15](#15-config--sources-of-truth) for
-details):
+It is the same for every build and holds only what rarely changes:
 
-- `p2p.allow_hosted_relays` — `false` removes n0 relays + pkarr/DNS discovery
-  (and, transitively, the DHT — it rides the same endpoint); direct QUIC
-  (tickets) and Tor keep working, but reconnecting to a bare NodeId does not.
-  `true` in every shipped edition for that reason.
-- `dht.enabled` — `false` removes the **Mainline DHT only**: no ticketless
-  join-by-room-code, no nickname directory, no presence. `discovery_enabled` /
-  `nick_publish_enabled` return false ahead of the user's setting (so a profile
-  carrying `dht_discovery: "on"` from a DHT-capable build reads as off without
-  the key being rewritten), `dht_presence` / `dht_publish_nick` /
-  `dht_find_nick` / `dht_apply` error `DHT_DISABLED`, and the whole DHT UI is
-  hidden rather than disabled. Requires `p2p.allow_hosted_relays` — build.rs
-  rejects the combination. Standard and up.
-- `crypto` — declared algorithms are **compile-asserted** against the vendored
+- `crypto` — declared algorithms are **compile-asserted** against Rutile's
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
   vaults only.
-- `calls` / `contacts` / `calendar` / `maps` — feature kill switches
-  (`enabled: false` builds without the tab, redirects the route, and never
-  instantiates the composable — so the feature's sync handlers and, for
-  calls/contacts, its ALPN are absent from the binary). `calls` additionally
-  makes every `vox_*` command error `CALLS_DISABLED`. These are what the product
-  editions are made of — see [§20](#20-editions). `maps` has no other knobs,
-  because the app has no tile-fetch path at all — region packages are produced
-  by the standalone `tools/map_packager` and imported from the device (see
-  [§25](#25-map-region-packager)).
-  (The `kanban`, `sketch` and `mind` sections were removed on 2026-07-27 when
-  those features were parked — `limbo/frontend/*/NOTES.md` carries the exact
-  YAML to paste back. `devices.allow_linking` and `peers.enabled` went the same
-  way on 2026-08-18, taking the `settings.devlink_pair_window_secs`,
-  `settings.devlink_resync_secs` and `settings.peer_resync_secs` clamps with
-  them; the restore playbooks are
-  [limbo/frontend/devices/NOTES.md](limbo/frontend/devices/NOTES.md) and
-  [limbo/frontend/peers/NOTES.md](limbo/frontend/peers/NOTES.md). The `cloud`
-  section went in 2026-08 with Enigma Cloud itself; unlike the parked features
-  it was deleted outright, so there is no YAML to restore — see
-  [limbo/removed/cloud.md](limbo/removed/cloud.md) and §16.)
-- `lock.pin_unlock` / `keyring.enabled` — two smaller kill switches: `false`
-  removes the PIN keypad (`vault_pin_*` → `PIN_UNLOCK_DISABLED`) and the key
-  ring (`keyring_*` → `KEYRING_DISABLED`). The key ring is an edition
-  differentiator, PIN unlock is on in all three. Per-file locking sits under
-  neither — it is always compiled in.
-- `features` / `settings` — new-profile defaults and settings defaults+clamps.
 - `network` — frame cap (**wire-interop**: all peers must agree), onion port,
-  chunk sizes, Tor timeouts.
+  Tor timeouts.
+- `settings` — default and bounds of each user-tunable setting. The profile's
+  encrypted store holds the live value; these seed and clamp it.
+- `defaults` — the initial value of a new profile's runtime toggles (use Tor,
+  DHT discovery, …).
 
-`app:` must match `tauri.conf.json` (`productName`/`identifier`/`version`) —
-`tauri.conf.json` stays authoritative and `build.rs` rejects drift. For an
-edition with a `tauri.<edition>.conf.json` overlay, the comparison is against the
-**merged** result (see *One fixed app identity* below). The same
-YAML drives desktop and Android builds (the codegen is target-agnostic).
+What it does **not** hold: which optional features a build contains (the root
+config — next section), and the app's name, identifier and version
+(`tauri.conf.json`, which `build.rs` reads directly and holds to the fixed
+identity). [§15](#15-config--sources-of-truth) lists every owner.
 
-#### Editions (`ENIGMA_EDITION`)
+#### Features and presets
 
-The product line — **Basic / Standard / Professional** — is three checked-in
-configs under
-[`apps/enigma/src-tauri/configs/`](apps/enigma/src-tauri/configs/), selected by
-an environment variable that `build.rs` reads:
+Which optional features a build contains is a list in a root config —
+[pro.yaml](pro.yaml) (Professional, the default) or [std.yaml](std.yaml)
+(Standard). A feature that is not listed is **not compiled**: not its Rust
+module, not its dependencies, not its screens. The catalogue, the two presets
+and how the exclusion works are [§20](#20-features-and-presets).
 
-```bash
-ENIGMA_EDITION=basic        ./run_dev.sh    # contacts, calendar, PIN unlock
-ENIGMA_EDITION=standard     ./run_dev.sh    # + relays, DHT, keyring, voice calls
-ENIGMA_EDITION=professional ./run_dev.sh    # + maps (the dev default)
-```
+A dev run takes the same list: `./run_dev.sh` uses `pro.yaml`,
+`./run_dev.sh std.yaml` another. Switching presets recompiles the app crate
+(and compiles any optional dependency it did not have yet); nothing is cached
+across feature sets by name, so there is no stale binary to worry about.
 
-A **build** names its edition in [build.yaml](build.yaml) instead
-(`apps.enigma.edition`), and `./build.sh` sets the variable from it — see
-[Building](#building-buildyaml).
+#### One fixed app identity
 
-Unset keeps the historical behavior: the top-level `build_config.yaml` is the
-default. An **unknown** edition name fails the build rather
-than falling back, and `build.rs` declares `rerun-if-env-changed=ENIGMA_EDITION`,
-so switching editions always regenerates rather than reusing a cached binary
-(the Rust crate does recompile — expect a full rebuild when you switch).
-
-The dev launchers `run_dev.sh` and `run2.sh` now default to
-`ENIGMA_EDITION=professional`, the everything-on edition, so every gated surface is
-exercisable in a dev run; shipped/CI defaults are unchanged, and an explicit
-`ENIGMA_EDITION=…` in the environment still wins.
-
-Editions differ **only** in feature gates; `crypto`, `network` and `settings` are
-identical across all three, deliberately — `network.max_frame_bytes` is
-wire-interop sensitive and a Basic peer must be able to share a room with a
-Professional peer. Who gets what, and why, is [§20](#20-editions).
-
-##### One fixed app identity
-
-Every edition now builds as the same installable app:
+Every build is the same installable app:
 
 | Value | Fixed setting |
 |---|---|
 | App name | `Enigma26` |
 | Bundle identifier / Android package id | `com.spectrumaipl.enigma26` |
-| Desktop binary name from edition overlays | `enigma26` |
+| Desktop binary name | `enigma26` |
 | Data directory | `…/com.spectrumaipl.enigma26/` |
 
-Editions differ only in feature gates. They do **not** get separate Android
-package ids or separate desktop data roots, so they update/replace the same app
-instead of installing side by side.
-
-The overlays are still `apps/enigma/src-tauri/tauri.<edition>.conf.json`,
-passed with `--config` by `run_dev.sh` and `run2.sh` (via
-[`scripts/edition_conf.sh`](scripts/edition_conf.sh)) and by `build.sh`. They keep the same
-fixed identity, and `build.rs` rejects any hand-edited config that tries to
-change the app name or identifier.
+Presets differ only in features. They do **not** get separate Android package
+ids or separate desktop data roots, so Standard and Professional update or
+replace the same app instead of installing side by side. `build.rs` rejects a
+`tauri.conf.json` that tries to change the name or identifier.
 
 > **Moving existing data.** The package id changed from
 > `com.spectrumaipl.enigma` to `com.spectrumaipl.enigma26`. Existing desktop
@@ -2234,26 +2206,25 @@ change the app name or identifier.
 > ```
 > Or just start fresh with `./run_dev.sh --reset`.
 
-#### Building (`build.yaml`)
+#### Building
 
-There is one way to build: edit [build.yaml](build.yaml) at the repo root and
-run `./build.sh`. There are no build flags — the file is the whole interface.
-The build itself is Rutile's, shared with Morion; `./build.sh` here only finds
-it.
+There is one way to build: pick a preset and run `./build.sh`. There are no
+build flags — the config is the whole interface. The build itself is Rutile's,
+shared with Morion; `./build.sh` here only finds it and names the default.
 
 ```bash
-./build.sh                 # what build.yaml describes
-./build.sh --dry-run       # print the commands the file resolves to, run none
-./build.sh --config FILE   # read another file with the same shape
+./build.sh                 # Professional (pro.yaml)
+./build.sh std.yaml        # Standard — or any other config of the same shape
+./build.sh --dry-run       # print the commands the config resolves to, run none
 npm run build              # -> ./build.sh
 ```
 
 ```yaml
-output_dir: dist              # packages are copied to dist/<app>/ with a SHA256SUMS
+output_dir: dist/pro          # packages are copied to dist/pro/enigma/ with a SHA256SUMS
 
 apps:
   enigma:
-    edition: professional     # -> configs/build_config.professional.yaml
+    features: [hosted_relays, dht, calls, contacts, calendar, maps, keyring, pin_unlock]
     test: false               # run the frontend + Rust suites first
     desktop:
       enabled: true
@@ -2267,10 +2238,11 @@ apps:
 ```
 
 Every key, what is validated and what each step runs is documented with the
-tooling: [rutile/§5](rutile/technology.md#5-build-tooling). An
-unknown key or value is an error that names its path
-(`apps.enigma.desktop.profile: must be release or debug`), never a silent
-default.
+tooling: [rutile/§5](rutile/technology.md#5-build-tooling). An unknown key,
+value or feature id is an error that names its path
+(`apps.enigma.features: dht requires hosted_relays, which is not listed`),
+never a silent default. The two presets write to different folders
+(`dist/pro`, `dist/std`) because both produce a package with the same name.
 
 The **app icon is fixed** — not a per-build choice. One mark, whose master is
 [`apps/enigma/app-icon.png`](apps/enigma/app-icon.png); the generated sizes
@@ -2281,7 +2253,7 @@ under `src-tauri/icons/` are committed. Changing it is a code change:
 
 ### Desktop build
 
-Set `apps.enigma.desktop` in [build.yaml](build.yaml) and run:
+Set `apps.enigma.desktop` in the preset ([pro.yaml](pro.yaml) / [std.yaml](std.yaml)) and run:
 
 ```bash
 ./build.sh
@@ -2290,11 +2262,11 @@ Set `apps.enigma.desktop` in [build.yaml](build.yaml) and run:
 `profile: debug` gives a faster, unoptimized bundle. The frontend build runs
 automatically via Tauri's `beforeBuildCommand`.
 
-Which formats come out is `desktop.bundles` in `build.yaml` (falling back to
+Which formats come out is `desktop.bundles` in the preset (falling back to
 `bundle.targets` in `tauri.conf.json` when the key is omitted). The build fails
 if *no* package appears, but not if fewer appear than you expected — read the
 "Built" list it prints before a release. Output, also copied to
-`dist/enigma/`:
+`dist/pro/enigma/`:
 
 ```
 apps/enigma/src-tauri/target/release/bundle/     # release
@@ -2393,7 +2365,7 @@ any bbox — see the tool's README.
 
 #### Build the APK / AAB
 
-Set `apps.enigma.android.enabled: true` in [build.yaml](build.yaml) — with
+Set `apps.enigma.android.enabled: true` in the preset — with
 `profile` and `abis` — and run `./build.sh`. That calls:
 
 ```bash
@@ -2417,7 +2389,7 @@ apps/enigma/src-tauri/gen/android/app/build/outputs/
   bundle/universalRelease/app-universal-release.aab   # release only
 ```
 
-`build.sh` copies these into `dist/enigma/` with the app name in place of
+`build.sh` copies these into `dist/pro/enigma/` with the app name in place of
 Tauri's generic `app-` prefix (`enigma-universal-release.apk`), because the
 Tauri names are identical between apps.
 
@@ -2443,7 +2415,7 @@ $SIGN create
 $SIGN status --gen $GEN
 
 # Build a signed release (android: { enabled: true, profile: release } in
-# build.yaml). Artifacts are verified with apksigner afterwards and the report
+# the preset). Artifacts are verified with apksigner afterwards and the report
 # prints package, version, signer and SHA-256 fingerprint.
 ./build.sh
 
@@ -2465,7 +2437,7 @@ never live in source control and never appear on an argv.
 documents the four keys; `signing_cli.py --help` lists the commands.
 
 An **unsigned release** for internal inspection is a deliberate act, never a
-fallback: `allow_unsigned_release: true` under `android:` in `build.yaml`
+fallback: `allow_unsigned_release: true` under `android:` in the preset
 (`rutile/scripts/build_android.sh enigma release aarch64 --allow-unsigned-release`).
 It installs nowhere, says so loudly, and still refuses the debug
 key. The pinned fingerprint lives in
@@ -2489,7 +2461,7 @@ adb logcat -s RustStdoutStderr enigma
 | Job | Stage | When | What |
 |---|---|---|---|
 | `frontend:build` | check | every commit | `vue-tsc` + `vite build`, asserts `dist/index.html` |
-| `tauri:build` | build | every branch commit | `./build.sh` — the desktop bundle `build.yaml` describes; fails if no package was produced |
+| `tauri:build` | build | every branch commit | `./build.sh` — the Professional desktop bundle; fails if no package was produced |
 | `tauri:desktop` | build | tags / manual | release bundle, 30-day artifacts |
 | `android:build` | build | manual | stubbed (not provisioned to a CI image yet) |
 
@@ -2542,7 +2514,7 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
 - **Build succeeds, then `symbol lookup error: /snap/core20/…/libpthread.so.0:
   undefined symbol: __libc_pthread_init`** — the app was started with a snap's
   GTK environment (VS Code's integrated terminal, when VS Code is the snap).
-  `run_dev.sh` and `run2.sh` undo that themselves; a binary
+  `run_dev.sh` undoes that itself; a binary
   started by hand from such a terminal still needs a normal shell.
 - **First Rust compile is very slow / high memory** — expected for the initial
   build; subsequent runs are incremental.
@@ -2586,293 +2558,179 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
 
 ---
 
-## 20. Editions
+## 20. Features and presets
 
-One codebase, three shipped products. Every edition is the same binary source
-built with a different **compile-time build config**; there is no runtime
-licence check, no server-side entitlement, and no dormant code path waiting for
-an unlock. A feature that is not in an edition is **not in that binary**: its
-tab is absent, its route redirects, its composable is never instantiated, and
-its Rust commands fail fast with a `*_DISABLED` error.
+One codebase, two shipped products. Each is the same source built with a
+different **list of features**; there is no runtime licence check, no
+server-side entitlement, and no dormant code path waiting for an unlock. A
+feature that is not in a build is **not in that binary**: its Rust module is
+not compiled, its dependencies are not linked, its commands and its network
+protocol do not exist, and its screens are not in the frontend bundle.
 
 That property is the whole point. Enigma26's pitch is a serverless, auditable,
-end-to-end-encrypted client — an edition that merely *hides* features would
-mean every user still ships the attack surface of every feature. Gating at
-build time keeps each edition's surface honest.
+end-to-end-encrypted client — a product that merely *hides* features would mean
+every user still ships the attack surface of every feature. Excluding at build
+time keeps each product's surface honest.
 
-### 20.1 The three editions
+### 20.1 The catalogue
 
-*(Until 2026-08-18 the line was Light / Plus / Pro; those editions were
-replaced wholesale by the presets below — different names AND different
-compositions, e.g. contacts and calendar moved into the entry edition. The
-editions no longer carry separate bundle identifiers either: all three now
-declare `com.spectrumaipl.enigma26` and replace one another (§20.3, §20.6.1). An app
-installed from the older `com.spectrumaipl.enigma` id is untouched by a new
-build and has to be migrated by hand — see
-[§19](#one-fixed-app-identity).)*
+The optional features are **Cargo features**. The `[features]` table of
+[`apps/enigma/src-tauri/Cargo.toml`](apps/enigma/src-tauri/Cargo.toml) is the
+catalogue — the one place that says which ids exist and what each requires.
 
-#### Enigma26 Basic — "the private organiser"
+| Feature | What it adds | Rust | Frontend |
+|---|---|---|---|
+| `hosted_relays` | iroh's n0 relays and pkarr/DNS discovery. Without it iroh runs with relays disabled: direct QUIC by ticket and Tor keep working, reconnecting to a bare NodeId does not | a mode switch in `p2p_iroh.rs` / `file_xfer.rs` | — |
+| `dht` | The Mainline DHT: join by room code, the nickname directory, presence ([§12](#12-dht-discovery-mainline-rendezvous--contacts)). **Requires `hosted_relays`** | `p2p_dht.rs`, the `dht_*` commands; crates `mainline`, iroh's `address-lookup-pkarr-dht` | the DHT card in Settings, find-people in Contacts, call-by-nickname |
+| `calls` | 1:1 voice calls | `vox.rs`, the `vox_*` commands, the `enigma/vox/0` protocol; crate `rustfft` | the Vox tab, `useVoxCall` |
+| `contacts` | Contacts and direct room invites | `p2p_invite.rs`, the invite protocol | the Contacts tab, `useRoomInvites` |
+| `calendar` | Meetings and polls | none | the Calendar tab, `useMeetings` |
+| `maps` | Offline maps ([§25](#25-map-region-packager)) | `maps.rs`, the `map_*` commands; crate `pmtiles` | the Map tab, `maplibre-gl` |
+| `keyring` | The key ring: one passphrase locking many local files | `keyring.rs`, the `keyring_*` commands | the Keys panel in Files |
+| `pin_unlock` | Re-opening an idle-locked vault with a PIN | the `vault_pin_*` commands and the PIN state | the keypad, the PIN card in Settings |
 
-The offline-first core: everything that works without any third-party
-infrastructure, plus the personal-organisation surface.
+**Never optional:** the crypto (rotor_core, gervasius, protasius), the chat
+transports (iroh, Tor), file transfer, per-file locking, invitations,
+Privacy HP and voice notes (which is why the audio crates `cpal` and `hound`
+stay even without `calls`).
 
-**In:** P2P MLS chat with QR/ticket pairing and persistent rooms · Tor
-transport · P2P file transfer · per-file local locking + the notes and SVG
-editors · the encrypted-at-rest vault (passphrase gate, panic code, idle
-auto-lock, airplane mode) · **Contacts** · **Calendar** (meetings + polls) ·
-**PIN unlock** · profile + settings + i18n.
+### 20.2 The presets
 
-**Out:** hosted relays and pkarr discovery, the DHT, the key ring, voice calls,
-maps.
+A preset is a root config that names features — nothing more. "Standard" and
+"Professional" are labels for two lists.
 
-**The honest consequence of "no relays":** pairing works anywhere (the
-QR/ticket carries addresses), but *reconnecting to a saved NodeId across
-different networks does not* — with `p2p.allow_hosted_relays: false` the iroh
-endpoint registers no lookup service at all, so rooms reconnect on the same
-LAN or over Tor. That is the point of this edition: zero third-party
-infrastructure, and the trade is stated rather than hidden.
+| Feature | [std.yaml](std.yaml) | [pro.yaml](pro.yaml) |
+|---|:-:|:-:|
+| `hosted_relays` | ✓ | ✓ |
+| `contacts` | ✓ | ✓ |
+| `keyring` | ✓ | ✓ |
+| `pin_unlock` | ✓ | ✓ |
+| `dht` | – | ✓ |
+| `calls` | – | ✓ |
+| `calendar` | – | ✓ |
+| `maps` | – | ✓ |
 
-**Who it's for:** the user who wants a private organiser and messenger with
-the smallest possible audit surface, and who either shares a network with
-their peers or runs Tor.
+`./build.sh` builds Professional; `./build.sh std.yaml` builds Standard
+([§19](#building)). Any other list is a config away: copy a preset, edit
+`features:`. The build driver refuses an id the catalogue does not have, and a
+list that leaves out something a listed feature requires (`dht` without
+`hosted_relays`) — the list must be closed, so the file always says exactly
+what is built.
 
-#### Enigma26 Standard — "the connected messenger"
+*(Until 2026-10-03 the line was Basic / Standard / Professional "editions",
+selected by an `ENIGMA_EDITION` variable that picked one of several full copies
+of the build config, and gated by constants rather than by compilation. Before
+2026-08-18 it was Light / Plus / Pro.)*
 
-Basic plus the connectivity layer.
+### 20.3 How a feature is left out
 
-**Adds:** **hosted relays + pkarr discovery** (NAT-to-NAT pairing, reconnect
-to a saved NodeId from anywhere) · **the Mainline DHT** (ticketless
-join-by-room-code, the nickname directory, presence — still opt-in per
-profile) · **Key ring** (one passphrase, many locked files) · **Vox** (1:1
-voice calls).
+One list, two consumers, and they get the same one:
 
-**Who it's for:** the ordinary case — people on different networks who want
-calls and reliable reconnection, accepting n0's relay/DNS infrastructure and
-the (opt-in) public DHT in exchange.
+```
+pro.yaml  apps.enigma.features: [hosted_relays, dht, calls, …]
+   │  the build driver validates it against Cargo.toml [features]
+   ├─► tauri build/dev --features …           Rust: #[cfg(feature = "…")]
+   └─► ENIGMA_FEATURES=… in the environment   Vite: build-time literals
+```
 
-#### Enigma26 Professional — "the collaboration suite"
+**Rust.** The modules `maps`, `vox`, `p2p_dht`, `keyring` and `p2p_invite` are
+declared under `#[cfg(feature = …)]`, as are their commands in
+`generate_handler!`, their managed state, and the PIN commands and state in
+`vault.rs`. The optional crates are `optional = true` and named by the feature,
+so a build without `maps` does not link `pmtiles` at all.
+`crate::features::{MAPS, CALLS, …}` (`cfg!(feature)`) is what the app reports
+to the frontend. Two details:
 
-Standard plus **Maps** (offline region packages, P2P region sharing, the
-shared location layer).
+- *The DHT has a stand-in.* The iroh node (`p2p_iroh.rs`) is threaded with the
+  DHT in a dozen places. Rather than `#[cfg]` each, a build without `dht`
+  mounts `p2p_dht_off.rs` as `p2p_dht`: discovery always reads off, and the
+  handle types are uninhabited, so everything that would use one is
+  unreachable by construction. The node keeps one code path — the one a `dht`
+  build takes with the user's toggle off.
+- *`default = []`.* The Tauri CLI leaves a manifest's default features on, so
+  a non-empty `default` could not be left out of a build. A bare `cargo build`
+  therefore builds the core alone; `tests.sh` and CI name their features.
 
-**Who it's for:** teams running Enigma26 as their working surface. Nothing here
-touches any infrastructure Standard does not already touch — since Enigma26
-Cloud was deleted (2026-08, §16) no edition speaks to an
-application server, so Professional's threat model is Standard's plus a
-larger local surface.
+**Frontend.** [`buildFeatures.ts`](apps/enigma/buildFeatures.ts) reads the
+catalogue from `Cargo.toml` and turns `ENIGMA_FEATURES` into one literal per
+feature (`__FEATURE_MAPS__`, …) through Vite's `define`. Code is gated where it
+is *imported or instantiated*, so the bundler drops it: feature routes are lazy
+and registered only when compiled in (`router/index.ts`), `tabs.ts` lists only
+compiled-in tabs, and the chat store creates `useVoxCall` / `useRoomInvites` /
+`useMeetings` only behind the literal. A Standard bundle has no `maplibre-gl`
+and no call or calendar code. With `ENIGMA_FEATURES` unset — plain
+`npm run dev`, vitest, Playwright — every feature is on.
 
----
+The runtime gate is still there as the second check: rakotis'
+`getBuildConfig()` carries the flags the Rust side reports (and, in the browser
+shell, the same literals), and every surface asks it.
 
-### 20.2 Feature matrix
+**Built in is not switched on.** `dht` in a build makes the DHT *available*; a
+new profile still starts with discovery off (`defaults:` in
+`build_config.yaml`) until the user opts in. The two never mix: features are
+what the binary contains, defaults are what a profile begins with.
 
-| Feature | Basic | Standard | Professional | Gate |
-|---|:--:|:--:|:--:|---|
-| P2P MLS chat, QR/ticket pairing, room persistence | ✅ | ✅ | ✅ | — (always) |
-| Tor onion transport | ✅ | ✅ | ✅ | — |
-| P2P file transfer | ✅ | ✅ | ✅ | — |
-| Local locked files + notes and SVG editors | ✅ | ✅ | ✅ | — |
-| Vault, panic code, idle lock, airplane mode | ✅ | ✅ | ✅ | — |
-| **Contacts** (saved peers, direct room invites) | ✅ | ✅ | ✅ | `contacts.enabled` |
-| **Calendar** (meetings + polls) | ✅ | ✅ | ✅ | `calendar.enabled` |
-| **PIN unlock** (keypad re-unlock after idle lock) | ✅ | ✅ | ✅ | `lock.pin_unlock` |
-| Hosted relays + pkarr discovery | ❌ | ✅ | ✅ | `p2p.allow_hosted_relays` |
-| **DHT discovery** (room codes, nick directory, presence) | ❌ | ✅ | ✅ | `dht.enabled` |
-| **Key ring** (one passphrase, many locked files) | ❌ | ✅ | ✅ | `keyring.enabled` |
-| **Vox** (1:1 voice calls) | ❌ | ✅ | ✅ | `calls.enabled` |
-| **Maps** | ❌ | ❌ | ✅ | `maps.enabled` |
+### 20.4 Invariants — what does NOT vary by preset
 
-The Kanban board, Sketch board and Mind map were features of the top edition until 2026-07-27,
-when they were **parked** (no maintenance capacity) — code, tests and docs kept
-under `limbo/frontend/{kanban,sketch,mind}/` with restore checklists. Their
-build-config sections and flags are gone with them; restoring a feature re-adds
-its section, so the matrix would gain its row back.
-
-**Multi-device linking** (gate `devices.allow_linking`, a row in all three
-editions) and **peer sync** (gate `peers.enabled`, a Standard-and-up row) were
-**parked on 2026-08-18** the same way: frontend under
-`limbo/frontend/{devices,peers}/`, Rust under `limbo/rust/{devices,peers}/`,
-plans at [limbo/frontend/devices/sync.md](limbo/frontend/devices/sync.md),
-[limbo/frontend/devices/fsync.md](limbo/frontend/devices/fsync.md) and
-[limbo/frontend/peers/peer.md](limbo/frontend/peers/peer.md). Peer sync went for
-a reason beyond capacity: a grant persisted a 32-byte pairwise link key per
-contact, so every contact added standing key material to the vault, and the
-feature cost more to maintain than it returned. Both gates and the
-`devlink_pair_window_secs` / `devlink_resync_secs` / `peer_resync_secs` settings
-are gone from every build config — a restore re-adds them, and with them the
-matrix rows. Device linking is being reimplemented from scratch, so treat the
-parked code as a record rather than a design to return to.
-
-**Enigma Cloud** — the client for the user's own self-hosted faros server — was a
-top-edition row here (gate `cloud.allow_connections`) until 2026-08, when it was
-**deleted**, not parked: no `limbo/` copy, no flag, no YAML to restore
-(§16). It is the one feature this matrix has lost outright rather
-than gated away, and the reason no edition now contains any code that speaks to
-an application server.
-
-Two separate gates, easy to confuse:
-
-- **`p2p.allow_hosted_relays`** (Standard and up) buys the n0 relay fallback
-  and pkarr/DNS discovery — NAT-to-NAT pairing, and resolving a saved NodeId
-  after a restart from a different network. Basic turns it off deliberately:
-  zero third-party infrastructure, at the stated cost of off-LAN reconnection
-  (§20.1).
-- **`dht.enabled`** (Standard and up, and it requires relays — build.rs
-  rejects the combination without them) gates the Mainline DHT alone:
-  ticketless join-by-room-code, the nickname directory, and presence.
-
-Even in Professional the DHT stays **opt-in per profile** (`features.dht_discovery:
-false`): the build gate only decides whether the toggle can be offered, and
-nothing is published to a public network until the user asks for it.
-
----
-
-### 20.3 Invariants — what does NOT vary by edition
-
-Editions differ **only in feature gates**. Everything else is byte-identical
-across the three configs, deliberately:
+Presets differ **only in features**. Everything else is identical, deliberately:
 
 - **Crypto.** Same MLS ciphersuite, same at-rest AEAD, same Argon2id costs. One
-  security story to audit, not three. (These are compile-time asserted against
-  the vendored `rotor_core`/`gervasius` anyway — they cannot drift silently.)
-- **Network / wire.** Same `max_frame_bytes`, `onion_port`, chunk size, Tor
-  timeouts. `max_frame_bytes` is **wire-interop sensitive**: peers in one room
-  must agree on it, and a Basic user must be able to sit in a room with a
-  Professional
-  user. Never diverge this per edition.
-- **Settings clamps.** Same defaults and bounds for every user-tunable setting,
-  including ones whose feature is off in that edition (`map_storage_limit_mb`
-  is still a required, validated field in the Basic config — it is simply
-  never read).
-- **App identity.** All three declare `name: Enigma26`,
-  `identifier: com.spectrumaipl.enigma26`, and the same version,
-  because Android installs by Gradle `applicationId` and `build.rs` rejects any
-  drift between the build config and `tauri.conf.json`. Editions replace the
-  same app instead of installing side by side. The version is bumped with the
-  code, never chosen per build — it is carried identically by `tauri.conf.json`,
-  `Cargo.toml`, the three `package.json` files, `build_config.yaml` and every
-  YAML in `configs/`; `build.yaml` has no key for it. The app **icon** is
-  fixed the same way and for the same reason: one mark, committed with the
-  code — see [§23](#23-app-icon).
+  security story to audit, not two. (These are compile-time asserted against
+  Rutile's `rotor_core`/`gervasius` anyway — they cannot drift silently.)
+- **Network / wire.** Same `max_frame_bytes`, `onion_port`, Tor timeouts.
+  `max_frame_bytes` is **wire-interop sensitive**: peers in one room must agree
+  on it, and a Standard user must be able to sit in a room with a Professional
+  user.
+- **Settings.** Same defaults and bounds for every user-tunable setting,
+  including ones whose feature a preset leaves out (`map_storage_limit_mb` is
+  still a required, validated field — a Standard build simply never reads it).
+  They live in `build_config.yaml`, which no preset can override.
+- **App identity.** One name, one identifier (`com.spectrumaipl.enigma26`), one
+  version — all from `tauri.conf.json`. Presets replace the same app instead of
+  installing side by side. The version is bumped with the code, never chosen
+  per build. The app **icon** is fixed the same way: [§23](#23-app-icon).
 
----
+### 20.5 What a peer on another preset sees
 
-### 20.4 Selecting an edition at build time
+Because the composables are what register sync handlers on the chat channel, a
+build without a feature does not merely hide a surface — it never subscribes to
+those message types, and its endpoint does not speak the feature's protocol.
 
-`src-tauri/build.rs` resolves its YAML from the `ENIGMA_EDITION` environment
-variable:
+- An incoming **call** from a Professional peer is refused at protocol
+  negotiation: a Standard endpoint has no `enigma/vox/0`.
+- A **meeting invite** or a shared **map** is an unhandled message type and is
+  dropped. The Standard user sees nothing.
 
-```
-ENIGMA_EDITION unset  →  src-tauri/build_config.yaml               (unchanged default)
-ENIGMA_EDITION=basic         →  src-tauri/configs/build_config.basic.yaml
-ENIGMA_EDITION=standard      →  src-tauri/configs/build_config.standard.yaml
-ENIGMA_EDITION=professional  →  src-tauri/configs/build_config.professional.yaml
-ENIGMA_EDITION=custom        →  src-tauri/configs/build_config.custom.yaml
-```
-
-`custom` is not a fourth product: it is a local feature set of your own
-(gitignored, absent from a fresh checkout), for experiments. Nothing checks
-that its gates match one of the three editions, so it is not something to ship
-under a product name.
-
-A build names its edition in [build.yaml](build.yaml) — `apps.enigma.edition:
-basic` — and `./build.sh` sets the variable from it. Dev runs and bare cargo
-take it from the environment:
-
-```bash
-./build.sh                                # release bundle, edition from build.yaml
-ENIGMA_EDITION=professional ./run_dev.sh         # dev run, Professional
-ENIGMA_EDITION=standard ( cd apps/enigma/src-tauri && cargo build )
-```
-
-An unset variable keeps today's behaviour exactly — the repo default build is
-still `build_config.yaml`, which stays the "everything on, main-branch" config
-and is what CI and existing scripts build. `build.rs` emits
-`cargo:rerun-if-env-changed=ENIGMA_EDITION` and watches the whole `configs/`
-directory, so switching editions re-runs codegen rather than silently reusing a
-cached binary. An unknown edition name fails the build with the list of valid
-ones — never a silent fallback to the default config.
-
-The generated `enigma_lib::build_config` module is unchanged in shape; the
-feature sections join the existing ones as `build_config::{calls, contacts,
-calendar, dht}::ENABLED`.
-
----
-
-### 20.5 How each gate behaves
-
-Each flag follows the established `maps` precedent — nothing novel, three
-layers each:
-
-| Layer | `calls.enabled: false` | `contacts.enabled: false` | `calendar.enabled: false` |
-|---|---|---|---|
-| Rust | the `enigma/vox/0` ALPN is not registered on the p2p router (an inbound call is refused at ALPN negotiation) and every `vox_*` command returns `CALLS_DISABLED` | the invite ALPN is not registered — a direct room invite from a contacts-capable peer is refused at negotiation | — (meetings ride the chat channel's sync seam; no dedicated Rust surface) |
-| Store | `useVoxCall` never instantiated (`chatStore.vox === null`) | `useRoomInvites` never instantiated | `useMeetings` never instantiated; no reminder tick |
-| UI | no Vox tab, `/vox` redirects to `/chat`, no ring indicator, no call button in Contacts | no Contacts tab, `/contacts` redirects, no invite badge | no Calendar tab, `/calendar` redirects, no meeting badge |
-
-`dht.enabled: false` is shaped a little differently, because the DHT is a
-capability rather than a tab:
-
-| Layer | `dht.enabled: false` |
-|---|---|
-| Rust | `p2p_dht::discovery_enabled` and `nick_publish_enabled` return false **before** reading the user's setting, which is the single choke point for the `DhtHandle`, `DhtAddressLookup`, the rendezvous publisher/resolver, the nick publisher and room-code minting. On top of that `dht_presence` / `dht_publish_nick` / `dht_find_nick` / `dht_apply` fail fast with `DHT_DISABLED`, so a stray call cannot even bind the endpoint. `dht_status` and `dht_room_code` stay silent instead — each already has a total "nothing here" value in its own return type. |
-| Frontend | `getDhtDiscovery` / `getDhtNickPublish` / `getDhtStatus` in rakotis apply the same gate ahead of the same kv read, so every consumer goes inert at once — including `useRoomInvites`, which then prefers a DHT-capable peer's **ticket** over the room code it also sends. |
-| UI | no Settings→Connections DHT card, no nickname claim / find-people / presence surfaces in Contacts, no call-by-nickname in Vox, no room-code field in create or room-info. Hidden, not disabled: every off-state string points at the Settings card, which is exactly what this build lacks. |
-
-Because the composables are the things that register sync handlers on the chat
-channel, a flag-off build does not merely hide a surface — it never subscribes
-to those message types at all. An incoming call offer or meeting invite from a
-higher-edition peer is simply an unhandled sync type and is dropped.
-
-Cross-edition rooms therefore degrade quietly rather than erroring: a
-Professional user can share a map region into a room containing Basic users;
-those users see
-nothing. That is the intended behaviour, but it is also the sharpest edge in
-this design — see §20.6.
+Cross-preset rooms therefore degrade quietly rather than erroring. That is the
+intended behaviour, and also the sharpest edge in this design (§20.6).
 
 One place where quiet degradation was **not** enough: a room joined by code
 stores that code as its credential, so the room outlives the build that joined
-it — move the profile to a DHT-less edition (§20.6.3) and the saved room comes
-with it. Reopening it would hit `join_room_by_code` and strand it, and chat
-auto-reopens the most recent room at boot, so it would present as a red banner
-on first launch. `realtime_join_room` therefore recovers the room name from the
-code (the topic is `blake3(name)`, which the code carries) and reconnects by
+it — open the profile with a build that has no DHT and the saved room comes
+with it. `realtime_join_room` therefore recovers the room name from the code
+(the topic is `blake3(name)`, which the code carries) and reconnects by
 persisted NodeIds instead.
-
----
 
 ### 20.6 Known gaps / follow-ups
 
-1. **One installable app identity.** All three editions intentionally build as
-   `Enigma26` with bundle id / Android package id `com.spectrumaipl.enigma26`.
-   Editions replace the same app and share the same app-data root; side-by-side
-   Basic/Standard/Professional installs are not a supported product shape.
-2. **No cross-edition capability signalling.** A Professional peer cannot tell
-   that a room member is on Basic, so it cannot warn "3 members won't see this
-   meeting". A capability byte in the MLS-carried presence/join payload would
-   fix it; today the degradation is silent.
-3. **Upgrade path.** Moving a profile from Basic to Professional is "install the other
-   build and point it at the same profile" — the vault format is
-   edition-independent, so this works, but it is untested and undocumented.
-4. **No tier UI.** Nothing in the app tells the user which edition they are
-   running beyond which tabs exist. A line in Settings → About reading the
-   already-available build config would be cheap.
-5. **CI matrix.** CI builds the default config only, and `run_dev.sh` /
-   `run2.sh` default to `ENIGMA_EDITION=professional` — both DHT-on,
-   everything-on. Nothing in routine use
-   exercises a flag-*off* build, so an edition-only regression would ship
-   unnoticed; `tests/component/dhtGate.test.ts` is the only standing guard.
-   CI should build all three (a config that fails validation is a build failure,
-   so this catches config rot immediately).
-6. **A `const` makes code dead, not absent.** §20.1 promises a feature "is not in
-   that binary", and for tabs/composables that holds. It does not yet hold for
-   the DHT: `dht.enabled: false` makes every path unreachable, but iroh's
-   `address-lookup-pkarr-dht` feature and the `mainline` crate are still linked
-   into a Basic binary. Honest wording today is "unreachable"; making it true
-   needs a `#[cfg(feature)]` split in `Cargo.toml`, which is the same gap
-   `maps.rs` and `vox.rs` have.
-7. **Per-edition caps are deliberately not used.** If a future tier wants, say,
-   a bigger file-size default for Professional, note that `settings.*` clamps are safe to
-   vary per edition but `network.max_frame_bytes` is **not** (§20.3).
+Tracked in [todo.md](todo.md); the ones that are properties of the design:
+
+1. **No cross-preset capability signalling.** A Professional peer cannot tell
+   that a room member is on Standard, so it cannot warn "3 members won't see
+   this meeting". A capability byte in the MLS-carried presence/join payload
+   would fix it; today the degradation is silent.
+2. **Moving a profile between presets** is "install the other build and open
+   the same profile" — the vault format does not depend on features, so it
+   works, but it is untested.
+3. **No preset shown in the UI.** Nothing tells the user which build they are
+   running beyond which tabs exist.
+4. **Thin frontend wrappers remain.** The views, composables and libraries of
+   an omitted feature are gone from the bundle, but a few command wrappers in
+   shared modules (rakotis' `dht*` helpers, the map store) and the inline DHT
+   and maps cards inside Settings and Contacts still ship, dead at run time.
+5. **Settings cannot vary per preset.** If Professional should one day get,
+   say, a larger default file size, `settings.*` bounds are safe to vary but
+   `network.max_frame_bytes` is **not** (§20.4).
 
 ---
 
@@ -2896,26 +2754,23 @@ A release artifact should be:
 
 Decide what is being shipped:
 
-- Desktop only: `.deb` / `.rpm` — `desktop:` enabled in `build.yaml`.
+- Which product: Professional ([pro.yaml](pro.yaml)) or Standard
+  ([std.yaml](std.yaml)) — the feature list is the product
+  ([§20](#20-features-and-presets)).
+- Desktop only: `.deb` / `.rpm` — `desktop:` enabled in the preset.
 - Android sideload/test distribution: a signed `.apk`.
 - Android store distribution: a signed `.aab` uploaded to the store, plus an
   APK only when the store or test channel needs one.
 - Both desktop and Android: enable both sections; one `./build.sh`
-  builds them in turn. See [§19](#building-buildyaml).
+  builds them in turn. See [§19](#building).
 
-Every one of those choices is a line in [build.yaml](build.yaml) at the repo
-root — the only place a build is configured. Choose the edition there before
-building:
+Every one of those choices is a line in the preset — the only place a build is
+configured. `./build.sh` builds Professional, `./build.sh std.yaml` Standard.
 
-```yaml
-apps:
-  enigma:
-    edition: professional     # basic | standard | professional
-```
-
-Omitting `edition` builds the base `build_config.yaml`, so keep it explicit for
-repeatable releases. The edition is not in the artifact's name: record which
-`build.yaml` (commit) a release was built from.
+The preset is **not in the artifact's name**: both produce
+`Enigma26_<version>_…`, which is why they are delivered to different folders
+(`dist/pro/enigma/`, `dist/std/enigma/`). Keep them apart from there on, and
+record which preset (and commit) a release was built from.
 
 ### 21.2 Prepare The Checkout
 
@@ -2928,21 +2783,18 @@ npm ci
 ```
 
 Do not release from a dirty tree unless every change is intentional. The
-`dist/enigma/` output folder can contain old artifacts, so do not use "whatever
-is already in dist" as the release set.
+`dist/<preset>/enigma/` output folders can contain old artifacts, so do not use
+"whatever is already in dist" as the release set.
 
 The version is a property of the code, not a build-time choice: it is bumped
-with the change that earns it — `build.yaml` has no key for it. It must be the same number in all of:
+with the change that earns it — a preset has no key for it.
+`apps/enigma/src-tauri/tauri.conf.json` owns it: the native bundle is built from
+that file and `build.rs` reads the Rust side's copy out of it. Keep these in
+step by hand:
 
 - root `package.json`, `apps/enigma/package.json`,
   `packages/rakotis/package.json`;
-- `apps/enigma/src-tauri/tauri.conf.json` (authoritative for the native bundle)
-  and `apps/enigma/src-tauri/Cargo.toml`;
-- `apps/enigma/src-tauri/build_config.yaml` and **every**
-  `apps/enigma/src-tauri/configs/*.yaml` — not only the editions being shipped.
-  `build.rs` asserts that the config it bakes equals `tauri.conf.json`, so a
-  config left behind fails the build for that edition rather than shipping the
-  wrong version.
+- `apps/enigma/src-tauri/Cargo.toml`.
 
 Android's generated
 `apps/enigma/src-tauri/gen/android/app/tauri.properties` is regenerated from
@@ -2982,13 +2834,13 @@ adb logcat -s RustStdoutStderr enigma
 ### 21.4 Build Desktop Artifacts
 
 With `desktop: { enabled: true, profile: release, bundles: [deb, rpm] }` under
-`apps.enigma` in `build.yaml`:
+`apps.enigma` in the preset:
 
 ```bash
 ./build.sh
 ```
 
-Expected release output (copied to `dist/enigma/` as well):
+Expected release output (copied to `dist/pro/enigma/` as well):
 
 ```text
 apps/enigma/src-tauri/target/release/bundle/
@@ -2996,7 +2848,7 @@ apps/enigma/src-tauri/target/release/bundle/
   rpm/*.rpm
 ```
 
-Which formats appear is `desktop.bundles` in `build.yaml` (`bundle.targets` in
+Which formats appear is `desktop.bundles` in the preset (`bundle.targets` in
 `tauri.conf.json` when that key is omitted) — check the "Built" list the
 command prints before a release.
 
@@ -3051,7 +2903,7 @@ password is ever passed on an argv. Command reference: `signing_cli.py --help`
 
 ### 21.6 Build Android Artifacts
 
-Set this under `apps.enigma` in `build.yaml` and run `./build.sh`:
+Set this under `apps.enigma` in the preset and run `./build.sh`:
 
 ```yaml
 android:
@@ -3081,24 +2933,24 @@ Important defaults:
 ### 21.7 Collect And Verify Artifacts
 
 `./build.sh` clears the previous desktop bundle directory before it builds,
-fails if the build leaves no package, and — with `output_dir: dist` in
-`build.yaml` — copies what it built into `dist/enigma/`, Android artifacts
+fails if the build leaves no package, and copies what it built into the
+preset's `output_dir` (`dist/pro/enigma/` or `dist/std/enigma/`), Android artifacts
 renamed from Tauri's generic `app-…` to `enigma-…`. It prints the list under
 "Built".
 
-It also writes `dist/enigma/SHA256SUMS`, over **everything** in that directory —
+It also writes a `SHA256SUMS` there, over **everything** in that directory —
 including older installers left there by earlier builds. Treat that file as an
 index of the directory, not as a manifest of this release, and publish checksums
 for the exact files you ship:
 
 ```bash
-( cd dist/enigma && sha256sum -- Enigma26_<ver>_amd64.deb enigma-universal-release.apk )
+( cd dist/pro/enigma && sha256sum -- Enigma26_<ver>_amd64.deb enigma-universal-release.apk )
 ```
 
 Before sharing Android files, verify package, version, signer, and fingerprint:
 
 ```bash
-python3 rutile/scripts/android_signing/signing_cli.py verify dist/enigma/enigma-universal-release.apk
+python3 rutile/scripts/android_signing/signing_cli.py verify dist/pro/enigma/enigma-universal-release.apk
 ```
 
 For manual SDK inspection:
@@ -3171,7 +3023,7 @@ The generated Android Gradle file declares:
 applicationId = "com.spectrumaipl.enigma26"
 ```
 
-Basic, Standard, and Professional APKs do not install side by side; they update
+Standard and Professional APKs do not install side by side; they update
 or replace the same Android package. Treat the package id printed by
 `signing_cli.py verify` as the authority.
 
@@ -3195,13 +3047,13 @@ What to do:
 
 #### Stale Artifact Collection
 
-`dist/enigma/` can contain artifacts from earlier names, versions,
+`dist/pro/enigma/` can contain artifacts from earlier names, versions,
 and signing states. A filename like `enigma-universal-release.apk` is not enough
 proof that the file came from the current commit.
 
 What to do:
 
-- start from an empty `dist/enigma/`, or checksum only the files you ship;
+- start from an empty `dist/pro/enigma/`, or checksum only the files you ship;
 - verify the exact APK/AAB that will be shared.
 
 #### Regenerated Android Project
@@ -3495,7 +3347,7 @@ the fingerprint printed above means the artifact did not come from the release
 path. The full command set: `signing_cli.py --help`
 ([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
 
-Edition names and output filenames are not separate Android identities. Android
+Preset names and output filenames are not separate Android identities. Android
 uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the
 release `applicationId` to `com.spectrumaipl.enigma26`.
 
@@ -3520,7 +3372,7 @@ release `applicationId` to `com.spectrumaipl.enigma26`.
 
 The app icon is not a build option. It is part of the product's identity, like
 its name, its bundle id and its version: one mark, fixed in the repository and
-changed here, in code — [build.yaml](build.yaml) has no key for it.
+changed here, in code — a preset has no key for it.
 
 ### Why fixed rather than chosen
 

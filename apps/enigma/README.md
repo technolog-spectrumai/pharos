@@ -16,9 +16,9 @@ at rest** behind a passphrase.
   calendar, and fully offline maps.
 - **Privacy HP** — a budget that puts one comparable price beside every
   exposing action, so the cost of a choice is visible before the tap.
-- **Editions** — Basic / Standard / Professional are the same source built with
-  a different compile-time config: a feature outside an edition is not in that
-  binary.
+- **Two products, one source** — Standard and Professional are the same code
+  built with a different list of features. A feature a build leaves out is not
+  in that binary: not its code, not its dependencies, not its screens.
 
 ## Layout
 
@@ -30,9 +30,10 @@ enigma/
 ├── packages/rakotis/  Enigma's app library and P2P chat orchestration
 ├── protasius/         the encrypted-at-rest store
 ├── tools/map_packager/  makes offline map region packages
-├── scripts/           dev-run helpers (profiles, editions), the signing tests
+├── scripts/           dev-run helpers (profile reset, build dirs), the signing tests
 ├── limbo/             parked features, each with a restore playbook
-└── build.yaml  build.sh  run_dev.sh  run2.sh  tests.sh
+├── pro.yaml  std.yaml the two presets: which features a build contains
+└── build.sh  run_dev.sh  tests.sh  todo.md
 ```
 
 ## Getting started
@@ -41,7 +42,8 @@ enigma/
 git clone --recurse-submodules <this repo>   # or, afterwards: git submodule update --init
 
 ./run_dev.sh                 # one dev instance (installs dependencies on first run)
-./run2.sh                    # two instances side by side, to pair on one machine
+./run_dev.sh --dual          # two instances side by side, to pair on one machine
+./run_dev.sh std.yaml        # …with the Standard preset's features instead of Pro's
 ./run_dev.sh --reset         # start over with a fresh profile and passphrase
 ```
 
@@ -51,13 +53,20 @@ libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
 ## Build
 
 ```bash
-./build.sh                   # what build.yaml says — by default a release .deb and .rpm
+./build.sh                   # Professional (pro.yaml): a release .deb and .rpm
+./build.sh std.yaml          # Standard
 ./build.sh --dry-run         # show the commands, run none
 ```
 
-Edition, debug or release, package formats, Android and tests are all set in
-[build.yaml](build.yaml); there are no build flags. Packages land in
-`dist/enigma/`.
+A preset — [pro.yaml](pro.yaml), [std.yaml](std.yaml) — lists the features a
+build contains, and sets debug or release, package formats, Android and tests.
+There are no build flags. Packages land in `dist/pro/enigma/` and
+`dist/std/enigma/`.
+
+| | Standard | Professional |
+|---|:-:|:-:|
+| Relays and discovery, contacts, key ring, PIN unlock | ✓ | ✓ |
+| DHT (room codes, nicknames), voice calls, calendar, maps | – | ✓ |
 
 ## Test
 
@@ -74,6 +83,7 @@ table.
 
 Everything else is in **[technology.md](technology.md)**: architecture and
 message flow, transports, the cryptography and its known weaknesses, privacy,
-the UI, config sources of truth, and — from §19 on — running, building,
-editions, releasing, installing and troubleshooting. The base is documented in
+the UI, who owns which setting, and — from §19 on — running, building,
+features and presets, releasing, installing and troubleshooting. Open work is
+in [todo.md](todo.md). The base is documented in
 [rutile/technology.md](rutile/technology.md).
