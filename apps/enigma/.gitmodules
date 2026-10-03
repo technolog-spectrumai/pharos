@@ -1,0 +1,3 @@
+[submodule "rutile"]
+	path = rutile
+	url = git@github.com:technolog-spectrumai/rutile.git
