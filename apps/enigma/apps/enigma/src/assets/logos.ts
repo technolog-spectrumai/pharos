@@ -2,7 +2,7 @@ import { logoDir } from "../../package.json";
 
 // Two sizes of ONE mark: `app_icon` on the unlock/welcome gate, `bar_icon` in
 // the top bar. Both are cut from the same master as the OS icon
-// (`tools/enigma_builder/assets/icons/enigma/`), so the app's face is the same
+// (`apps/enigma/app-icon.png`), so the app's face is the same
 // everywhere — the bar sits beside the product name all day, the gate is a
 // single large first impression. `logoDir` keeps the brand swappable in one place:
 // every asset below lives in `assets/<logoDir>/`, so changing the directory

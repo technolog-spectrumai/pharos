@@ -1,3 +1,0 @@
-# The window only. Every subcommand (build / dev / android / targets) runs
-# without Qt, so a headless build server needs none of this.
-PyQt6>=6.6
