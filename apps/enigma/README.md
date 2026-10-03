@@ -68,8 +68,8 @@ shipped app mark, `enigma`, and how to change it).
 | Package | What it is |
 |---------|-----------|
 | **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar, maps. |
-| **[packages/rakotis](packages/rakotis)** | Shared primitives (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
-| **Rotor** ([crates/rotor](crates/rotor)) | The crypto layer. **Its own repository** (`crypto_rotor`), checked out in this repo at `crates/rotor`: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the *toto* project. `src-tauri` consumes it via path dependencies (no GitLab access needed to build). **All MLS crypto stays there.** |
+| **[packages/rakotis](packages/rakotis)** | Enigma's app library (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
+| **[rutile/](rutile)** | **Rutile**, the base this app is built on — a git submodule shared with Morion. It brings the crypto layer (`crates/rotor`: `rotor_core`, the OpenMLS engine, and `gervasius`, the at-rest primitives — **all MLS crypto stays there**), `substrate` (the sealed-file frame), the shared front end (`petalite`, `wisteria`) and the build tooling. Consumed by path; nothing is fetched at build time. |
 | **[protasius/](protasius)** | The per-profile **encrypted-at-rest store** (fjall + gervasius): all app state persists as sealed values behind the launch passphrase gate. |
 
 ### Dependency layering
@@ -89,20 +89,29 @@ apps/enigma (Vue 3 UI)
 
 ```
 enigma/
-├── package.json              # workspace root: workspaces = packages/* + apps/*
-├── packages/
-│   └── rakotis/              # shared primitives + P2P chat orchestration
+├── rutile/                   # the base: a git submodule (crypto, substrate, petalite,
+│                             #   wisteria, build tooling) — see rutile/README.md
 ├── apps/
 │   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma26)
-├── crates/rotor/             # the crypto layer (crypto_rotor, checked out in-repo)
+├── packages/
+│   └── rakotis/              # Enigma's app library + P2P chat orchestration
 ├── protasius/                # encrypted-at-rest store (Rust)
 ├── tools/                    # map_packager
 ├── limbo/                    # parked features (restore playbook) + limbo/removed/ (records of deleted ones)
-├── build.md                  # run in dev + desktop/Android build guide
-├── technology.md             # architecture, crypto, privacy, conventions, config
+├── package.json              # workspace root: packages/* + rutile/packages/* + apps/*
 ├── run_dev.sh · run2.sh      # dev instance launchers (profile-isolated)
 ├── build.yaml · build.sh     # what to build, and the one command that builds it
-└── scripts/                  # Android toolchain + build helpers
+├── tests.sh                  # the full test run
+├── scripts/                  # dev-run helpers (profiles, editions) + the signing tests
+├── build.md                  # run in dev + desktop/Android build guide
+└── technology.md             # architecture, crypto, privacy, conventions, config
+```
+
+Clone with the submodule, or fetch it afterwards:
+
+```bash
+git clone --recurse-submodules <this repo>
+git submodule update --init          # in a clone made without it
 ```
 
 Naming, colour palette, and where each config value canonically lives:
@@ -134,8 +143,7 @@ See [build.md](build.md) for profiles, browser-only mode, and the Android emulat
 ## Build
 
 ```bash
-./build.sh                  # builds what build.yaml says: both apps, release .deb/.rpm
-./build.sh enigma           # one app
+./build.sh                  # builds what build.yaml says: by default a release .deb/.rpm
 ./build.sh --dry-run        # show the commands, run none
 # edition, debug/release, package formats, Android and tests are all set in
 # build.yaml — there are no build flags (Android SDK setup: build.md)
@@ -145,6 +153,17 @@ npm run build -w rakotis    # vue-tsc typecheck
 npm run build -w enigma     # vue-tsc + vite build (frontend)
 ( cd apps/enigma/src-tauri && cargo build )
 ```
+
+## Test
+
+```bash
+./tests.sh                  # everything: vitest, Rust, signing checks, the bundle, Playwright
+./tests.sh rust             # one group (js | rust | py | build | e2e)
+./tests.sh --list           # what it would run
+```
+
+Every step runs even if an earlier one fails, and the run ends with a pass/fail
+table; each step's output is kept under `test-results/tests/`.
 
 ## Test
 

@@ -30,11 +30,13 @@ Mind workspaces are parked in [limbo/](../../limbo/README.md).
 
 ## Shared code
 
-- **[rakotis](../../packages/rakotis)** — shared primitives: UI components,
+- **[rakotis](../../packages/rakotis)** — Enigma's app library: UI components,
   Tauri helpers, storage, kv cache, i18n, plus the chat channel + MLS envelope
   state machine and the iroh transport bridge.
-- **Rotor** (`../../../rotor/crypto_rotor/rotor_core`, sibling repo) — OpenMLS
-  crypto, vendored in-repo and consumed from `src-tauri` via a path dependency.
+- **[Rutile](../../rutile)** — the base, a git submodule shared with Morion:
+  Rotor (`rutile/crates/rotor/rotor_core`, the OpenMLS crypto) and gervasius,
+  consumed from `src-tauri` via path dependencies; the sealed-file frame; the
+  `wisteria` drawing engine and `petalite` theme; and the build tooling.
 
 The Rust backend (`src-tauri/`) keeps: `mls_*` (Rotor-backed), the P2P gateway
 (`realtime.rs` dispatching to `p2p_iroh.rs` or the Tor onion transport
@@ -59,7 +61,7 @@ P2P requires the Tauri runtime (desktop/Android); the plain-browser build
 ## Build / test
 
 ```bash
-../../build.sh enigma                   # the bundle build.yaml describes (from anywhere)
+../../build.sh                   # the bundle build.yaml describes (from anywhere)
 npm run build -w enigma                 # vue-tsc + vite
 ( cd src-tauri && cargo build )         # Rust
 npm test -w enigma                      # vitest (unit/component)

@@ -14,6 +14,15 @@
 > not been made here — which is why the tables keep the old tier names: those
 > numbers were set for those compositions.
 
+> **⚠ ALSO STALE (2026-10-03):** the **Enigma Builder** this document counts as
+> an asset (§4) and leans on for custom builds (§6, §9) was removed. A build is
+> now configured by `build.yaml` and built by `./build.sh` — tooling that lives
+> in the Rutile base repo, shared with Morion — and the Android signing checks
+> the Builder carried are `rutile/scripts/android_signing`. The Builder's
+> valuation and every "the Builder does X" below describe code that no longer
+> exists; like the tier tables, they are left as written because re-valuing is
+> a decision, not an edit.
+
 What each module of the codebase is worth, what Light / Plus / Pro should cost,
 and a lifetime licence proposal.
 
@@ -27,7 +36,7 @@ Two different questions live in this document and they must not be blurred:
 
 **Related:** [pland.md](pland.md) (what is in each edition and why) ·
 [build.md](build.md) (how an edition is built) ·
-[tools/enigma_builder/README.md](tools/enigma_builder/README.md) (the tool that
+`tools/enigma_builder/README.md` (removed) (the tool that
 configures and builds a product).
 
 ---
@@ -222,7 +231,7 @@ what is actually in the binary.
 ## 6. Per-module add-on pricing
 
 > **This section has lost its mechanism (2026-08-18).** It was written when the
-> [Enigma Builder](tools/enigma_builder/README.md) could compile any combination
+> Enigma Builder (removed) could compile any combination
 > of gates from a checkbox screen, which is what made per-module SKUs cheap
 > enough to sell. The Builder now deliberately has **no custom feature set**: its
 > Features tab is an edition picker, and a config whose gates match no edition is

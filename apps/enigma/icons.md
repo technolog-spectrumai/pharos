@@ -75,8 +75,4 @@ the same master: `apps/enigma/src/assets/<logoDir>/app_icon.png` and
 `bar_icon.png` — see [`logos.ts`](apps/enigma/src/assets/logos.ts). Replace
 them in the same change so the app's face stays the same everywhere.
 
-Morion keeps its own master and generator:
-[`apps/morion/app-icon.png`](apps/morion/app-icon.png) and
-[`apps/morion/scripts/make_icons.py`](apps/morion/scripts/make_icons.py).
-
 See also [build.md](build.md) for the build itself.

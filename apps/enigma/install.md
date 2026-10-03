@@ -112,8 +112,8 @@ shared.
 What to do:
 
 ```bash
-python3 scripts/android_signing/signing_cli.py verify <apk>
-bash scripts/build_android.sh enigma release aarch64,x86_64
+python3 rutile/scripts/android_signing/signing_cli.py verify <apk>
+bash rutile/scripts/build_android.sh enigma release aarch64,x86_64
 ```
 
 Share only a signed release APK.
@@ -169,9 +169,9 @@ devices.
 What to do:
 
 ```bash
-bash scripts/build_android.sh enigma release aarch64,x86_64
+bash rutile/scripts/build_android.sh enigma release aarch64,x86_64
 # or, when all targets are installed:
-bash scripts/build_android.sh enigma release all
+bash rutile/scripts/build_android.sh enigma release all
 ```
 
 For an emulator, include `x86_64`.
@@ -257,7 +257,7 @@ opens blank, crashes, cannot scan QR codes, or cannot join calls:
 Confirm what is actually inside an APK before distributing it:
 
 ```bash
-python3 scripts/android_signing/signing_cli.py verify <apk>
+python3 rutile/scripts/android_signing/signing_cli.py verify <apk>
 ```
 
 The report should show:
@@ -272,7 +272,7 @@ Once a release fingerprint has been pinned in
 other keystore fails instead of shipping — so a mismatch between that file and
 the fingerprint printed above means the artifact did not come from the release
 path. The full command set: `signing_cli.py --help`
-([scripts/android_signing/](scripts/android_signing)).
+([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
 
 Edition names and output filenames are not separate Android identities. Android
 uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the

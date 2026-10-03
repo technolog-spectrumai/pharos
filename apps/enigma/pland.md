@@ -198,7 +198,7 @@ basic` — and `./build.sh` sets the variable from it. Dev runs and bare cargo
 take it from the environment:
 
 ```bash
-./build.sh enigma                                # release bundle, edition from build.yaml
+./build.sh                                # release bundle, edition from build.yaml
 ENIGMA_EDITION=professional ./run_dev.sh         # dev run, Professional
 ENIGMA_EDITION=standard ( cd apps/enigma/src-tauri && cargo build )
 ```

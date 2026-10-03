@@ -22,7 +22,7 @@ Decide what is being shipped:
 - Android sideload/test distribution: a signed `.apk`.
 - Android store distribution: a signed `.aab` uploaded to the store, plus an
   APK only when the store or test channel needs one.
-- Both desktop and Android: enable both sections; one `./build.sh enigma`
+- Both desktop and Android: enable both sections; one `./build.sh`
   builds them in turn. See [build.md](build.md#building-buildyaml).
 
 Every one of those choices is a line in [build.yaml](build.yaml) at the repo
@@ -89,7 +89,7 @@ npm test
 npm run build -w rakotis
 npm run build -w enigma
 ( cd apps/enigma/src-tauri && cargo test )
-( cd ../../rotor/crypto_rotor/gervasius && cargo test )
+( cd rutile/crates/rotor/gervasius && cargo test )
 ( cd protasius && cargo test )
 python apps/enigma/e2e.py
 ```
@@ -108,7 +108,7 @@ With `desktop: { enabled: true, profile: release, bundles: [deb, rpm] }` under
 `apps.enigma` in `build.yaml`:
 
 ```bash
-./build.sh enigma
+./build.sh
 ```
 
 Expected release output (copied to `dist/enigma/` as well):
@@ -135,10 +135,10 @@ release key is missing or when the Android SDK debug key is used for a release.
 Preferred flow:
 
 ```bash
-SIGN="python3 scripts/android_signing/signing_cli.py"
+SIGN="python3 rutile/scripts/android_signing/signing_cli.py"
 $SIGN status --gen apps/enigma/src-tauri/gen/android
 $SIGN create
-./build.sh enigma      # android: { enabled: true, profile: release, abis: [aarch64, x86_64] }
+./build.sh      # android: { enabled: true, profile: release, abis: [aarch64, x86_64] }
 $SIGN verify <apk-or-aab>
 ```
 
@@ -170,11 +170,11 @@ With the environment or that local file supplying everything,
 `keystore.properties` can be absent entirely; the committed
 `keystore.properties.example` is the only half that belongs in the repo. No
 password is ever passed on an argv. Command reference: `signing_cli.py --help`
-([scripts/android_signing/](scripts/android_signing)).
+([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
 
 ## 6. Build Android Artifacts
 
-Set this under `apps.enigma` in `build.yaml` and run `./build.sh enigma`:
+Set this under `apps.enigma` in `build.yaml` and run `./build.sh`:
 
 ```yaml
 android:
@@ -183,7 +183,7 @@ android:
   abis: [aarch64, x86_64]
 ```
 
-It runs `scripts/build_android.sh enigma release aarch64,x86_64`.
+It runs `rutile/scripts/build_android.sh enigma release aarch64,x86_64`.
 
 Expected output — every selected ABI is packed into one `universal` artifact,
 so these paths do not change with the ABI list:
@@ -221,7 +221,7 @@ for the exact files you ship:
 Before sharing Android files, verify package, version, signer, and fingerprint:
 
 ```bash
-python3 scripts/android_signing/signing_cli.py verify dist/enigma/enigma-universal-release.apk
+python3 rutile/scripts/android_signing/signing_cli.py verify dist/enigma/enigma-universal-release.apk
 ```
 
 For manual SDK inspection:
@@ -331,11 +331,11 @@ What to do:
 
 `tauri android init` can regenerate files under
 `apps/enigma/src-tauri/gen/android/`. Enigma26 has custom signing gates in the
-generated Gradle project, mirrored by `scripts/android_signing/signing.py`.
+generated Gradle project, mirrored by `rutile/scripts/android_signing/signing.py`.
 
 What to do:
 
-- run `python3 scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
+- run `python3 rutile/scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
   after regenerating Android files;
 - verify that release signing still fails closed when credentials are missing;
 - keep signing logic in Gradle and `signing.py` in lockstep.

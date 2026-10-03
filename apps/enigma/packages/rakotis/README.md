@@ -1,16 +1,16 @@
-> **Part of this repo.** Rakotis was a git subtree pulled from its own remote
-> until 2026-09-08. That stopped being honest once its code could only be
-> exercised here: twelve of its own assertions read
-> `apps/enigma/src-tauri/privacy_hp.yaml` and skipped themselves in every
-> standalone checkout, so the library's suite reported green while a third of
-> its price-table coverage never ran. Edit it here, like any other package.
+> **Part of the Enigma repo, and Enigma's.** Rakotis was once a repository of
+> its own; it came back because its code could only be exercised here — twelve
+> of its own assertions read `apps/enigma/src-tauri/privacy_hp.yaml`. Edit it
+> here, like any other package.
 >
-> The old upstream at `dev/rakotis` is closed. Its history is this directory's
-> history — nothing was lost.
+> Five of its UI primitives (`OyaButton`, `OyaIconButton`, `OyaModal`,
+> `OyaTextField`, `OyaQrCode`) are used by Morion too, so they live in Rutile's
+> `petalite` and are re-exported from this package's entry point. Everything
+> else here is Enigma-only.
 
 # Rakotis
 
-Reusable app primitives for Enigma26 (and any other Vite + Vue 3 app).
+Enigma26's app library.
 One package, two layers:
 
 - **Foundation** (non-crypto):

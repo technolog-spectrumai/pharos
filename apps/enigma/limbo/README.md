@@ -45,7 +45,7 @@ Parked here, restorable later:
   `rust/devices/`. QR pairing, the device registry, chat-log/kv convergence
   between a user's own devices, and the Files→Devices per-file push/pull, parked
   together: pairing was the only way to create a device link, so the rest was
-  unreachable once it went. **Zinnia is reimplementing this.** Note that
+  unreachable once it went. Note that
   `deviceSyncModel.ts` was SPLIT rather than parked — the chat-history and
   leaf-identity half stayed as `packages/rakotis/src/chatHistoryModel.ts`,
   because chat and peer sync import it. `NOTES.md` carries the design, the
@@ -116,9 +116,3 @@ wiring in `stores/chat.ts`.
   `vox_*` family), and call by DHT nickname / saved contact (`dht_find_nick` /
   Contacts phone button). Gated on airplane + Tor-exclusive mode with a `shutdown`
   hook; the voice-message mic button is disabled during a live call.
-
-- **Zenbia desktop editors** (2026-09-16) — `apps/py_editor` and
-  `apps/tex_editor` moved to `limbo/apps/`. Zenbia will not support the remote
-  Python and TeX editor clients for now; they are parked whole so they can come
-  back later if the portal API is revived for them. They are no longer Cargo
-  workspace members or Zinnia build/dev targets.
