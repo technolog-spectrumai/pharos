@@ -9,9 +9,8 @@
 // The rest of the Oya set (cards, badges, the Privacy HP meter and price) stays
 // in rakotis: only enigma uses it, and two of them import its price table.
 //
-// OyaQrCode lazy-imports `qrcode`, which this package does not install — an
-// app that shows a QR must declare `qrcode` ITSELF, or the import fails at the
-// moment a code is first shown.
+// OyaQrCode lazy-imports `qrcode`, which this package declares, so any app
+// that lists petalite as a workspace gets it installed.
 //
 // Exported as `.vue` default exports, so a consumer writes
 // `import { OyaButton } from "petalite/primitives"` and the Vue plugin still

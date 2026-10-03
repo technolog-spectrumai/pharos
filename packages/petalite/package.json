@@ -17,6 +17,12 @@
     "./i18n": "./src/i18n/index.ts",
     "./*.vue": "./src/components/*.vue"
   },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6"
+  },
   "peerDependencies": {
     "vue": "^3.5.38",
     "vue-i18n": "^9.14.5"
