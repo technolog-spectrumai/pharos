@@ -174,23 +174,6 @@ pub fn kv_get_raw(app: &AppHandle, ns: &str, scope: &str, k: &str) -> Option<Str
     p.kv_get(ns, scope, k).ok().flatten()
 }
 
-#[cfg(feature = "maps")]
-/// Write counterpart of `kv_get_raw` — lets backend code persist values into a
-/// frontend-visible kv namespace, where the frontend may read the value but
-/// Rust owns the writes.
-pub fn kv_put_raw(app: &AppHandle, ns: &str, scope: &str, k: &str, v: &str) -> Result<(), String> {
-    let st = store(app)?;
-    let p = st.0.lock().map_err(|e| e.to_string())?;
-    p.kv_put(ns, scope, k, v).map_err(e)
-}
-
-#[cfg(feature = "maps")]
-/// Delete counterpart of `kv_get_raw` (see `kv_put_raw`).
-pub fn kv_delete_raw(app: &AppHandle, ns: &str, scope: &str, k: &str) -> Result<(), String> {
-    let st = store(app)?;
-    let p = st.0.lock().map_err(|e| e.to_string())?;
-    p.kv_delete(ns, scope, k).map_err(e)
-}
 
 /// Open the store for a profile directory (used at startup + on profile switch).
 pub fn open(dir: std::path::PathBuf) -> Result<Protasius, String> {
@@ -462,7 +445,8 @@ fn panic_wipe(
     *store = scratch_store;
 
     // Everything Enigma26 owns: all profiles (protasius stores, vault.json headers,
-    // maps/*.pmtiles, tor/ onion keystores) plus the pre-vault legacy plaintext.
+    // tor/ onion keystores, and the maps/ folder a build with the old Map tab
+    // left behind) plus the pre-vault legacy plaintext.
     let _ = std::fs::remove_dir_all(base.join("profiles"));
     let _ = std::fs::remove_dir_all(base.join("kvstore"));
     let _ = std::fs::remove_file(base.join("iroh_gossip.key"));
@@ -500,9 +484,6 @@ pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
     crate::p2p_iroh::shutdown(app, &p2p).await;
     crate::p2p_tor::shutdown(app, &tor).await;
     crate::file_xfer::shutdown(&file).await;
-    // Cached mmap readers point into the profile's maps dir — drop them so the
-    // locked session holds no open handles into it.
-    crate::reset_map_readers(app).await;
 
     if let Ok(mut s) = app.state::<Sessions>().lock() {
         s.clear(); // in-memory MLS material

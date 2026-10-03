@@ -70,7 +70,6 @@ settings:
   connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
   max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
-  map_storage_limit_mb:  { default: 512, min: 64, max: 65536 }   # total on-disk map regions
   chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
   # Auto-lock: minutes of user inactivity before the vault locks itself and the
   # app returns to the passphrase gate. 0 = never auto-lock. A live call or

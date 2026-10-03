@@ -793,7 +793,7 @@ pub async fn file_offer_cancel(state: State<'_, FileXferState>, offer_id: String
 
 /// Mint this device's transfer KeyPackage and return its hash. The caller
 /// publishes the hash to the host over its feature's own MLS signalling (chat
-/// `file_accept`, the Maps bind card, devlink `dlink_file_bind`); the host then
+/// `file_accept`, devlink `dlink_file_bind`); the host then
 /// accepts only a connection presenting that KeyPackage. Must be called before
 /// `file_download`.
 #[tauri::command]

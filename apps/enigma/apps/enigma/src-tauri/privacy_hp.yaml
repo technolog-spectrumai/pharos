@@ -532,7 +532,7 @@ recovery:
   # tied to a verified reduction rather than a number the webview claims.
   # Idempotent for free: each byte can only be deleted once.
   #
-  # KNOWN, ACCEPTED FARM: import a large map region, delete it, collect. The
+  # KNOWN, ACCEPTED FARM: receive a large file, delete it, collect. The
   # per-event ceiling and the two caps below bound that to a nuisance. Closing it
   # properly would need a hidden "data must be N days old" rule, and a visible
   # cap is the more honest trade.
@@ -545,8 +545,6 @@ recovery:
     sources:
       - id: data.delete.chat
         explain_key: hp.explain.dataDeleteChat
-      - id: data.delete.maps
-        explain_key: hp.explain.dataDeleteMaps
       - id: data.delete.files
         explain_key: hp.explain.dataDeleteFiles
 

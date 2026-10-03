@@ -782,17 +782,15 @@ pub fn hp_recover(app: AppHandle, recovery_id: String) -> Result<HpDelta, String
 /// WHO MEASURES, precisely — because this is the one credit whose size is not
 /// fixed, and it should not be oversold:
 ///
-/// * `data.delete.maps` is measured HERE. `maps::map_region_remove` deletes the
-///   blob itself and calls `award_data` with the size it saw on disk, so the
-///   webview is not consulted at all.
-/// * `data.delete.chat` and `data.delete.files` are reported by the caller,
-///   because the deletion happens frontend-side (kv scope wipes and the locked
-///   files index). A dishonest webview could inflate `bytes_freed` — and the
-///   ceiling below is what makes that pointless: `max_per_event` caps a single
-///   claim at 5 HP and the two data caps bound the day and the week regardless
-///   of what is claimed.
+/// `data.delete.chat` and `data.delete.files` are both reported by the caller,
+/// because the deletion happens frontend-side (kv scope wipes and the locked
+/// files index). A dishonest webview could inflate `bytes_freed` — and the
+/// ceiling below is what makes that pointless: `max_per_event` caps a single
+/// claim and the two data caps bound the day and the week regardless of what
+/// is claimed. (A third source, deleting a map region, was measured in Rust;
+/// it went with the Map tab.)
 ///
-/// Idempotent in all three cases for the same structural reason: a byte can only
+/// Idempotent in both cases for the same structural reason: a byte can only
 /// be deleted once, and deleting nothing pays nothing.
 #[tauri::command]
 pub fn hp_data_credit(
@@ -806,8 +804,8 @@ pub fn hp_data_credit(
     Ok(award_data(&app, &source_id, bytes_freed))
 }
 
-/// Award path for Rust-side deletions (see `hp_data_credit`). Swallows its own
-/// errors: a credit is never worth failing a deletion the user asked for.
+/// The award behind `hp_data_credit`. Swallows its own errors: a credit is
+/// never worth failing a deletion the user asked for.
 pub fn award_data(app: &AppHandle, source_id: &str, bytes_freed: u64) -> HpDelta {
     let ids: Vec<&str> = hp_policy::DATA_SOURCES.iter().map(|d| d.id).collect();
     award(app, source_id, data_award(bytes_freed), None, Some(&ids))
@@ -1204,10 +1202,10 @@ mod tests {
     #[test]
     fn the_import_then_delete_farm_is_bounded_by_its_own_caps() {
         let now = 10 * MS_PER_DAY;
-        let ids = ["data.delete.maps"];
-        // Ten 5 HP map deletions today would be 50 HP; the data daily cap is 10.
+        let ids = ["data.delete.files"];
+        // Ten 5 HP file deletions today would be 50 HP; the data daily cap is 10.
         let log: Vec<Entry> =
-            (1..=2).map(|i| recover(now - i * 1000, "data.delete.maps", 250)).collect();
+            (1..=2).map(|i| recover(now - i * 1000, "data.delete.files", 250)).collect();
         assert_eq!(apply_caps(&log, now, 250, Some(&ids)), 0);
     }
 
@@ -1215,7 +1213,7 @@ mod tests {
     fn data_caps_do_not_leak_into_other_credits() {
         let now = 10 * MS_PER_DAY;
         let log = vec![
-            recover(now - 1000, "data.delete.maps", 250),
+            recover(now - 1000, "data.delete.files", 250),
             recover(now - 2000, "data.delete.chat", 250),
         ];
         // The data pot is empty, but a passphrase credit draws on the general cap.

@@ -71,7 +71,6 @@ struct SettingsSection {
     connect_timeout_secs: Clamp,
     dht_room_publish_secs: Clamp,
     max_file_size_mb: Clamp,
-    map_storage_limit_mb: Clamp,
     chat_history_cap_msgs: Clamp,
     idle_lock_mins: Clamp,
     file_chunk_kib: Clamp,
@@ -172,7 +171,6 @@ fn validate(cfg: &RawConfig, errors: &mut Vec<String>) {
         ("settings.connect_timeout_secs", &cfg.settings.connect_timeout_secs, 1u64),
         ("settings.dht_room_publish_secs", &cfg.settings.dht_room_publish_secs, 10u64),
         ("settings.max_file_size_mb", &cfg.settings.max_file_size_mb, 0u64),
-        ("settings.map_storage_limit_mb", &cfg.settings.map_storage_limit_mb, 1u64),
         ("settings.chat_history_cap_msgs", &cfg.settings.chat_history_cap_msgs, 10u64),
         // floor 0: auto-lock off is a legitimate configuration.
         ("settings.idle_lock_mins", &cfg.settings.idle_lock_mins, 0u64),
@@ -267,9 +265,6 @@ pub mod settings {{
     pub const MAX_FILE_SIZE_DEFAULT_MB: u64 = {fs_def};
     pub const MAX_FILE_SIZE_MIN_MB: u64 = {fs_min};
     pub const MAX_FILE_SIZE_MAX_MB: u64 = {fs_max};
-    pub const MAP_STORAGE_LIMIT_DEFAULT_MB: u64 = {ms_def};
-    pub const MAP_STORAGE_LIMIT_MIN_MB: u64 = {ms_min};
-    pub const MAP_STORAGE_LIMIT_MAX_MB: u64 = {ms_max};
     pub const CHAT_HISTORY_CAP_DEFAULT_MSGS: u64 = {hc_def};
     pub const CHAT_HISTORY_CAP_MIN_MSGS: u64 = {hc_min};
     pub const CHAT_HISTORY_CAP_MAX_MSGS: u64 = {hc_max};
@@ -348,9 +343,6 @@ const _: () = assert!(
         fs_def = cfg.settings.max_file_size_mb.default,
         fs_min = cfg.settings.max_file_size_mb.min,
         fs_max = cfg.settings.max_file_size_mb.max,
-        ms_def = cfg.settings.map_storage_limit_mb.default,
-        ms_min = cfg.settings.map_storage_limit_mb.min,
-        ms_max = cfg.settings.map_storage_limit_mb.max,
         hc_def = cfg.settings.chat_history_cap_msgs.default,
         hc_min = cfg.settings.chat_history_cap_msgs.min,
         hc_max = cfg.settings.chat_history_cap_msgs.max,
@@ -573,7 +565,7 @@ const REQUIRED_HP_RECOVERIES: &[&str] = &[
 ];
 
 const REQUIRED_HP_DATA_SOURCES: &[&str] =
-    &["data.delete.chat", "data.delete.maps", "data.delete.files"];
+    &["data.delete.chat", "data.delete.files"];
 
 /// HP → centi-HP, rejecting a third decimal place. Every price in the table goes
 /// through here, so "exact to two places" is enforced rather than assumed.
