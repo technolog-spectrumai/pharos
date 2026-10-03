@@ -11,8 +11,8 @@ Android builds, CI, troubleshooting) · [technology.md](technology.md) (the deep
 dive: architecture, transports, crypto, privacy posture, conventions, config
 sources of truth, rework history) · [pland.md](pland.md) (the Basic / Standard /
 Professional product line and how an edition is built) ·
-[tools/enigma_builder/README.md](tools/enigma_builder/README.md) (the GUI/CLI
-tool that configures and builds a product) · [icons.md](icons.md) (the one
+[build.yaml](build.yaml) (what `./build.sh` builds — the one file to edit for a
+build of either app) · [icons.md](icons.md) (the one
 shipped app mark, `enigma`, and how to change it).
 
 ## How it works
@@ -69,7 +69,7 @@ shipped app mark, `enigma`, and how to change it).
 |---------|-----------|
 | **[apps/enigma](apps/enigma)** | The Enigma26 app — P2P MLS chat, QR pairing, calls, files, contacts, calendar, maps. |
 | **[packages/rakotis](packages/rakotis)** | Shared primitives (in-repo workspace) — UI primitives, Tauri helpers, storage, i18n, plus the P2P chat orchestration (Rotor-backed crypto bridge, transport bridge, chat-channel composable + MLS envelope state machine). |
-| **Rotor** (`../../rotor/crypto_rotor`) | The crypto layer. **Its own repository** since 2026-09-08, checked out as a sibling of this one: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the *toto* project. `src-tauri` consumes it via path dependencies (no GitLab access needed to build). **All MLS crypto stays there.** |
+| **Rotor** ([crates/rotor](crates/rotor)) | The crypto layer. **Its own repository** (`crypto_rotor`), checked out in this repo at `crates/rotor`: `rotor_core` (OpenMLS engine), `gervasius` (at-rest primitives), plus `rotor_wasm`/`rotor_py` bindings consumed by the *toto* project. `src-tauri` consumes it via path dependencies (no GitLab access needed to build). **All MLS crypto stays there.** |
 | **[protasius/](protasius)** | The per-profile **encrypted-at-rest store** (fjall + gervasius): all app state persists as sealed values behind the launch passphrase gate. |
 
 ### Dependency layering
@@ -94,14 +94,14 @@ enigma/
 │   └── rakotis/              # shared primitives + P2P chat orchestration
 ├── apps/
 │   └── enigma/               # the app (bundle id: com.spectrumaipl.enigma26)
-│                             # (crypto lives in the sibling repo rotor/crypto_rotor)
+├── crates/rotor/             # the crypto layer (crypto_rotor, checked out in-repo)
 ├── protasius/                # encrypted-at-rest store (Rust)
-├── tools/                    # enigma_builder (configure + build) · map_packager
+├── tools/                    # map_packager
 ├── limbo/                    # parked features (restore playbook) + limbo/removed/ (records of deleted ones)
 ├── build.md                  # run in dev + desktop/Android build guide
 ├── technology.md             # architecture, crypto, privacy, conventions, config
 ├── run_dev.sh · run2.sh      # dev instance launchers (profile-isolated)
-├── build_desktop.sh          # one-click release build
+├── build.yaml · build.sh     # what to build, and the one command that builds it
 └── scripts/                  # Android toolchain + build helpers
 ```
 
@@ -134,9 +134,11 @@ See [build.md](build.md) for profiles, browser-only mode, and the Android emulat
 ## Build
 
 ```bash
-./build_desktop.sh          # one-click: npm install + tauri release bundle
-./build_desktop.sh --debug  # faster debug bundle
-npm run build:android       # Android APK/AAB (SDK setup: build.md)
+./build.sh                  # builds what build.yaml says: both apps, release .deb/.rpm
+./build.sh enigma           # one app
+./build.sh --dry-run        # show the commands, run none
+# edition, debug/release, package formats, Android and tests are all set in
+# build.yaml — there are no build flags (Android SDK setup: build.md)
 
 # piecemeal:
 npm run build -w rakotis    # vue-tsc typecheck

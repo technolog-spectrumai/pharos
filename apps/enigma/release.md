@@ -18,33 +18,26 @@ A release artifact should be:
 
 Decide what is being shipped:
 
-- Desktop only: `.deb` / `.rpm` from `./build_desktop.sh`.
+- Desktop only: `.deb` / `.rpm` — `desktop:` enabled in `build.yaml`.
 - Android sideload/test distribution: a signed `.apk`.
 - Android store distribution: a signed `.aab` uploaded to the store, plus an
   APK only when the store or test channel needs one.
-- Both desktop and Android: use the Builder — one window, four tabs
-  (Features / Identity / Expert / Build), so it configures *and* builds; see
-  [build.md](build.md#the-builder-toolsenigma_builder) — or
-  `apps/enigma/deploy/build.sh`.
+- Both desktop and Android: enable both sections; one `./build.sh enigma`
+  builds them in turn. See [build.md](build.md#building-buildyaml).
 
-Choose the edition before building:
+Every one of those choices is a line in [build.yaml](build.yaml) at the repo
+root — the only place a build is configured. Choose the edition there before
+building:
 
-```bash
-ENIGMA_EDITION=basic
-ENIGMA_EDITION=standard
-ENIGMA_EDITION=professional
+```yaml
+apps:
+  enigma:
+    edition: professional     # basic | standard | professional
 ```
 
-Unset `ENIGMA_EDITION` builds the base `build_config.yaml`. The dev launchers
-default to `professional`, but CI/release defaults do not, so make the edition
-explicit for repeatable releases.
-
-The Builder expresses the same choice differently: its Features tab is an
-edition picker (there is no custom feature set — a config whose gates match no
-edition is refused at save, at load and at build), and every Builder run writes
-`configs/build_config.custom.yaml` and builds with `ENIGMA_EDITION=custom`, so
-the checked-in edition configs are never rewritten. What shipped is recorded in
-`build-info.json`, not in the artifact's name.
+Omitting `edition` builds the base `build_config.yaml`, so keep it explicit for
+repeatable releases. The edition is not in the artifact's name: record which
+`build.yaml` (commit) a release was built from.
 
 ## 2. Prepare The Checkout
 
@@ -53,15 +46,15 @@ Start from the Enigma26 repo root:
 ```bash
 cd /path/to/enigma
 git status --short
-npm install
+npm ci
 ```
 
 Do not release from a dirty tree unless every change is intentional. The
-checked-in `apps/enigma/deploy/dist/` directory can contain old artifacts, so do
-not use "whatever is already in dist" as the release set.
+`dist/enigma/` output folder can contain old artifacts, so do not use "whatever
+is already in dist" as the release set.
 
 The version is a property of the code, not a build-time choice: it is bumped
-with the change that earns it, and the Builder shows it read-only. It is
+with the change that earns it — `build.yaml` has no key for it. It is
 currently **0.1.6**, and it must be the same number in all of:
 
 - root `package.json`, `apps/enigma/package.json`,
@@ -111,11 +104,14 @@ adb logcat -s RustStdoutStderr enigma
 
 ## 4. Build Desktop Artifacts
 
+With `desktop: { enabled: true, profile: release, bundles: [deb, rpm] }` under
+`apps.enigma` in `build.yaml`:
+
 ```bash
-./build_desktop.sh
+./build.sh enigma
 ```
 
-Expected release output:
+Expected release output (copied to `dist/enigma/` as well):
 
 ```text
 apps/enigma/src-tauri/target/release/bundle/
@@ -123,10 +119,9 @@ apps/enigma/src-tauri/target/release/bundle/
   rpm/*.rpm
 ```
 
-Which formats actually appear is `bundle.targets` in `tauri.conf.json` — check
-it before a release. The Builder's *Target distribution* box rewrites that key
-for the duration of a build and restores it afterwards, so a cancelled or
-crashed run can leave it narrowed to a single format.
+Which formats appear is `desktop.bundles` in `build.yaml` (`bundle.targets` in
+`tauri.conf.json` when that key is omitted) — check the "Built" list the
+command prints before a release.
 
 An `.rpm` built on Ubuntu links against Ubuntu's glibc and webkit2gtk: it is a
 package format, not a cross build, and will very likely refuse to start on
@@ -140,17 +135,18 @@ release key is missing or when the Android SDK debug key is used for a release.
 Preferred flow:
 
 ```bash
-enigma-builder signing android status
-enigma-builder signing android create
-enigma-builder build android --release --abi aarch64,x86_64
-enigma-builder signing android verify <apk-or-aab>
+SIGN="python3 scripts/android_signing/signing_cli.py"
+$SIGN status --gen apps/enigma/src-tauri/gen/android
+$SIGN create
+./build.sh enigma      # android: { enabled: true, profile: release, abis: [aarch64, x86_64] }
+$SIGN verify <apk-or-aab>
 ```
 
 After the first real signed release has been inspected, pin its upload-key
 fingerprint:
 
 ```bash
-enigma-builder signing android pin --from <signed-release.apk>
+$SIGN pin --pin-file apps/enigma/deploy/android-release-key.properties --from <signed-release.apk>
 git add apps/enigma/deploy/android-release-key.properties
 ```
 
@@ -173,16 +169,21 @@ own, highest first:
 With the environment or that local file supplying everything,
 `keystore.properties` can be absent entirely; the committed
 `keystore.properties.example` is the only half that belongs in the repo. No
-password is ever passed on an argv. Command reference:
-[tools/enigma_builder/README.md](tools/enigma_builder/README.md).
+password is ever passed on an argv. Command reference: `signing_cli.py --help`
+([scripts/android_signing/](scripts/android_signing)).
 
 ## 6. Build Android Artifacts
 
-The raw script:
+Set this under `apps.enigma` in `build.yaml` and run `./build.sh enigma`:
 
-```bash
-bash scripts/build_android.sh enigma release aarch64,x86_64
+```yaml
+android:
+  enabled: true
+  profile: release
+  abis: [aarch64, x86_64]
 ```
+
+It runs `scripts/build_android.sh enigma release aarch64,x86_64`.
 
 Expected output — every selected ABI is packed into one `universal` artifact,
 so these paths do not change with the ABI list:
@@ -195,41 +196,32 @@ apps/enigma/src-tauri/gen/android/app/build/outputs/
 
 Important defaults:
 
-- `npm run build:android` builds a debug APK, not a release.
-- `scripts/build_android.sh enigma` defaults to `debug` and `aarch64`.
+- `android.profile` defaults to `debug` and `android.abis` to `[aarch64]`.
 - Debug APKs are installable for testing but are not releasable.
-- `--allow-unsigned-release` is only for inspecting packaging output. That APK
+- `allow_unsigned_release: true` is only for inspecting packaging output. That APK
   should be treated as installable nowhere and must never be distributed.
 
 ## 7. Collect And Verify Artifacts
 
-The Builder is the safest release collection path because it records
-`build-info.json` (config path + sha256, identity, options, and for an Android
-release each artifact's signing classification and fingerprint) next to the
-collected artifacts, generates `SHA256SUMS` for exactly what it collected, and
-— with *Only packages this build produced* ticked — digests the output
-directories before the build so nothing already sitting there is reported as
-this build's output. It never deletes anything.
+`./build.sh` clears the previous desktop bundle directory before it builds,
+fails if the build leaves no package, and — with `output_dir: dist` in
+`build.yaml` — copies what it built into `dist/enigma/`, Android artifacts
+renamed from Tauri's generic `app-…` to `enigma-…`. It prints the list under
+"Built".
 
-For a script-only release:
-
-```bash
-bash apps/enigma/deploy/build.sh both release aarch64,x86_64
-```
-
-That script copies into `apps/enigma/deploy/dist/` and writes `SHA256SUMS`
-itself, over **everything** in that directory — including the older installers
-archived there by hand. Treat that file as an index of the directory, not as a
-manifest of this release, and publish checksums for the exact files you ship:
+It also writes `dist/enigma/SHA256SUMS`, over **everything** in that directory —
+including older installers left there by earlier builds. Treat that file as an
+index of the directory, not as a manifest of this release, and publish checksums
+for the exact files you ship:
 
 ```bash
-( cd apps/enigma/deploy/dist && sha256sum -- Enigma26_0.1.6_amd64.deb enigma-universal-release.apk )
+( cd dist/enigma && sha256sum -- Enigma26_<ver>_amd64.deb enigma-universal-release.apk )
 ```
 
 Before sharing Android files, verify package, version, signer, and fingerprint:
 
 ```bash
-enigma-builder signing android verify apps/enigma/deploy/dist/enigma-universal-release.apk
+python3 scripts/android_signing/signing_cli.py verify dist/enigma/enigma-universal-release.apk
 ```
 
 For manual SDK inspection:
@@ -304,7 +296,7 @@ applicationId = "com.spectrumaipl.enigma26"
 
 Basic, Standard, and Professional APKs do not install side by side; they update
 or replace the same Android package. Treat the package id printed by
-`enigma-builder signing android verify` as the authority.
+`signing_cli.py verify` as the authority.
 
 ### AAB Is Not A Direct Installer
 
@@ -326,25 +318,25 @@ What to do:
 
 ### Stale Artifact Collection
 
-`apps/enigma/deploy/dist/` can contain artifacts from earlier names, versions,
+`dist/enigma/` can contain artifacts from earlier names, versions,
 and signing states. A filename like `enigma-universal-release.apk` is not enough
 proof that the file came from the current commit.
 
 What to do:
 
-- prefer the Builder collection flow with `build-info.json`;
-- create fresh `SHA256SUMS` after collection;
+- start from an empty `dist/enigma/`, or checksum only the files you ship;
 - verify the exact APK/AAB that will be shared.
 
 ### Regenerated Android Project
 
 `tauri android init` can regenerate files under
 `apps/enigma/src-tauri/gen/android/`. Enigma26 has custom signing gates in the
-generated Gradle project, mirrored by `tools/enigma_builder/signing.py`.
+generated Gradle project, mirrored by `scripts/android_signing/signing.py`.
 
 What to do:
 
-- run `enigma-builder signing android status` after regenerating Android files;
+- run `python3 scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
+  after regenerating Android files;
 - verify that release signing still fails closed when credentials are missing;
 - keep signing logic in Gradle and `signing.py` in lockstep.
 

@@ -112,7 +112,7 @@ shared.
 What to do:
 
 ```bash
-enigma-builder signing android verify <apk>
+python3 scripts/android_signing/signing_cli.py verify <apk>
 bash scripts/build_android.sh enigma release aarch64,x86_64
 ```
 
@@ -257,7 +257,7 @@ opens blank, crashes, cannot scan QR codes, or cannot join calls:
 Confirm what is actually inside an APK before distributing it:
 
 ```bash
-enigma-builder signing android verify <apk>
+python3 scripts/android_signing/signing_cli.py verify <apk>
 ```
 
 The report should show:
@@ -271,8 +271,8 @@ Once a release fingerprint has been pinned in
 `apps/enigma/deploy/android-release-key.properties`, a build signed with any
 other keystore fails instead of shipping — so a mismatch between that file and
 the fingerprint printed above means the artifact did not come from the release
-path. The full command set is in
-[tools/enigma_builder/README.md](tools/enigma_builder/README.md).
+path. The full command set: `signing_cli.py --help`
+([scripts/android_signing/](scripts/android_signing)).
 
 Edition names and output filenames are not separate Android identities. Android
 uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the

@@ -997,6 +997,12 @@ drift, and the drift is invisible until someone diffs two build logs.
 > picker, plus an Android APK button. `tools/appbuilder` is still what it and
 > enigma's builder share.
 
+> **Since removed (2026-10-03).** There is no builder GUI any more — not
+> Morion's, not Enigma's, and not `tools/appbuilder`. Both apps are built by
+> `./build.sh` from the repo-root `build.yaml`, which also replaced
+> `build_desktop.sh`, `apps/morion/build.sh` and `scripts/zinnia/build.sh`; the
+> shared preflight moved to `scripts/lib.sh`. See `build.md`.
+
 **Multiplatform, and honest about it.** Tauri compiles for the machine it runs
 on, so `platforms.py` marks each format with the hosts that can produce it. The
 window greys out the impossible ones with the reason in the tooltip; the CLI

@@ -59,7 +59,7 @@ P2P requires the Tauri runtime (desktop/Android); the plain-browser build
 ## Build / test
 
 ```bash
-../../build_desktop.sh                  # one-click release bundle (from anywhere)
+../../build.sh enigma                   # the bundle build.yaml describes (from anywhere)
 npm run build -w enigma                 # vue-tsc + vite
 ( cd src-tauri && cargo build )         # Rust
 npm test -w enigma                      # vitest (unit/component)

@@ -9,7 +9,7 @@ Tauri 2 (Vue 3 frontend + Rust backend) app; a "build" compiles the frontend
 Contents: [Prerequisites](#prerequisites) · [First-time setup](#first-time-setup) ·
 [Run (dev)](#run-dev) · [Build configuration](#build-configuration-build_configyaml) ·
 [Editions](#editions-enigma_edition) ·
-[Builder](#the-builder-toolsenigma_builder) ·
+[Building](#building-buildyaml) ·
 [Desktop build](#desktop-build) · [Android](#android--toolchain-setup--build) ·
 [CI](#ci-builds) · [Tests](#tests) · [Troubleshooting](#troubleshooting)
 
@@ -32,7 +32,7 @@ sudo apt-get install -y \
 ```
 
 **No GitLab account needed.** The crypto crates are **vendored in-repo**
-(the sibling repo `../../rotor/crypto_rotor` — `rotor-core`, `gervasius`) and consumed by
+([crates/rotor/](crates/rotor) — `rotor-core`, `gervasius`) and consumed by
 `src-tauri` as path dependencies, as are [protasius/](protasius) and the
 `rakotis` npm workspace package — there is nothing to authenticate or configure.
 The whole build is offline-friendly once crates.io/npm are cached.
@@ -45,8 +45,11 @@ Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — s
 ## First-time setup
 
 ```bash
-npm install        # once, at the repo root — sets up the workspace + all packages
+npm ci             # once, at the repo root — sets up the workspace + all packages
 ```
+
+`./run_dev.sh`, `./run2.sh` and `./build.sh` do this themselves when the root
+`node_modules` is missing, so a fresh clone can go straight to either.
 
 `rakotis` is an in-repo workspace package (`packages/rakotis`); npm symlinks it
 into the app's `node_modules`, so edits to its source are picked up immediately —
@@ -66,6 +69,11 @@ edits hot-reload; Rust edits trigger a rebuild.
 
 > The first launch compiles the full Rust dependency tree (incl. OpenMLS + iroh +
 > arti) and is slow. Later runs are incremental.
+
+The launchers work from VS Code's integrated terminal even when VS Code is the
+snap: they restore the environment the snap overrides before starting the app
+(`scrub_snap_env` in [scripts/lib.sh](scripts/lib.sh)). Without that the build
+succeeds and the window never opens — see [Troubleshooting](#troubleshooting).
 
 ### Profiles & two-instance pairing
 
@@ -220,14 +228,17 @@ configs under
 an environment variable that `build.rs` reads:
 
 ```bash
-ENIGMA_EDITION=basic        ./build_desktop.sh    # contacts, calendar, PIN unlock
-ENIGMA_EDITION=standard     ./run_dev.sh          # + relays, DHT, keyring, voice calls
-ENIGMA_EDITION=professional npm run build:android # + maps
-./build_desktop.sh                           # unset → build_config.yaml (everything on)
+ENIGMA_EDITION=basic        ./run_dev.sh    # contacts, calendar, PIN unlock
+ENIGMA_EDITION=standard     ./run_dev.sh    # + relays, DHT, keyring, voice calls
+ENIGMA_EDITION=professional ./run_dev.sh    # + maps (the dev default)
 ```
 
+A **build** names its edition in [build.yaml](build.yaml) instead
+(`apps.enigma.edition`), and `./build.sh` sets the variable from it — see
+[Building](#building-buildyaml).
+
 Unset keeps the historical behavior: the top-level `build_config.yaml` is the
-default and is what CI builds. An **unknown** edition name fails the build rather
+default. An **unknown** edition name fails the build rather
 than falling back, and `build.rs` declares `rerun-if-env-changed=ENIGMA_EDITION`,
 so switching editions always regenerates rather than reusing a cached binary
 (the Rust crate does recompile — expect a full rebuild when you switch).
@@ -258,8 +269,8 @@ package ids or separate desktop data roots, so they update/replace the same app
 instead of installing side by side.
 
 The overlays are still `apps/enigma/src-tauri/tauri.<edition>.conf.json`,
-passed with `--config` by `run_dev.sh`, `run2.sh` and `build_desktop.sh` (all
-via [`scripts/edition_conf.sh`](scripts/edition_conf.sh)). They keep the same
+passed with `--config` by `run_dev.sh` and `run2.sh` (via
+[`scripts/edition_conf.sh`](scripts/edition_conf.sh)) and by `build.sh`. They keep the same
 fixed identity, and `build.rs` rejects any hand-edited config that tries to
 change the app name or identifier.
 
@@ -273,67 +284,89 @@ change the app name or identifier.
 > ```
 > Or just start fresh with `./run_dev.sh --reset`.
 
-### The Builder (`tools/enigma_builder`)
+### Building (`build.yaml`)
 
-The scripts below are also driven by a GUI. A bare `enigma-builder` opens **one**
-window with four tabs — **Features / Identity / Expert / Build** — so the same
-tool configures a product *and* builds it:
+There is one way to build, for both apps: edit [build.yaml](build.yaml) at the
+repo root and run `./build.sh`. There is no builder GUI and there are no build
+flags — the file is the whole interface.
 
-| Tab | What it decides |
+```bash
+./build.sh                 # every app in build.yaml
+./build.sh enigma          # one app (or several: ./build.sh enigma morion)
+./build.sh --dry-run       # print the commands the file resolves to, run none
+./build.sh --config FILE   # read another file with the same shape
+npm run build              # -> ./build.sh
+```
+
+```yaml
+output_dir: dist              # packages are copied to dist/<app>/ with a SHA256SUMS
+
+apps:
+  enigma:
+    edition: professional     # -> configs/build_config.professional.yaml
+    test: false               # run the frontend + Rust suites first
+    desktop:
+      enabled: true
+      profile: release        # release | debug
+      bundles: [deb, rpm]     # this host's formats only
+    android:
+      enabled: false
+      profile: debug          # debug | release (release needs a signing key)
+      abis: [aarch64]
+      allow_unsigned_release: false
+  morion:
+    test: true
+    desktop: { enabled: true, profile: release, bundles: [deb, rpm] }
+```
+
+| Key | Meaning |
 |---|---|
-| **Features** | the edition. Basic / Standard / Professional, each edition's in/out list derived from its checked-in `configs/*.yaml` rather than hardcoded. There is deliberately **no custom feature set**: a config whose gates match no edition is refused at save, at load and at build |
-| **Identity** | announcements, not inputs — the fixed app name, the fixed package id, the version read-only (it belongs to the repo, not to the build), and the fixed app icon |
-| **Expert** | the `settings` clamps and `network` tuning, with the `crypto` declarations read-only |
-| **Build** | platform, package formats, build type, Android ABIs, output folder, and a pinned pane the compiler output streams into (Cancel signals the whole process group) |
+| `output_dir` | where finished packages are copied, one folder per app, with `SHA256SUMS`. Omit to leave them where cargo and gradle put them |
+| `apps.<app>` | any directory under `apps/` with a `src-tauri/` — today `enigma` and `morion` |
+| `edition` | Enigma only. Names `configs/build_config.<edition>.yaml`, which is where the **features** are set (previous section); `build.sh` exports `ENIGMA_EDITION` and passes the edition's `tauri.<edition>.conf.json` overlay. Omit for the plain `build_config.yaml`. `custom` is a gitignored file of your own |
+| `test` | run `npm run test -w apps/<app>` and the Rust suite before building; a failure stops the build |
+| `desktop.profile` | `release` or `debug` |
+| `desktop.bundles` | package formats. Tauri does not cross-compile, so a format this host cannot produce is **refused before anything runs**. Omit to use `bundle.targets` from the app's `tauri.conf.json` |
+| `android.*` | handed to [`scripts/build_android.sh`](scripts/build_android.sh) — see [Android](#android--toolchain-setup--build) |
+| `enabled: false` | on `desktop` / `android`: keep the settings, build nothing |
 
-Validation mirrors `build.rs` rule for rule — same paths, same wording — so a
-mistake reads here exactly as cargo would print it.
+An unknown key or value is an error that names its path
+(`apps.enigma.desktop.profile: must be release or debug`), never a silent
+default, and every problem is reported at once.
 
-A build materializes `configs/build_config.custom.yaml` from what is on screen
-and runs with `ENIGMA_EDITION=custom`: a fourth, gitignored config that only the
-Builder writes, so the checked-in edition files are never rewritten. From there
-it shells out to the same scripts documented below — `build_desktop.sh` for
-desktop, `scripts/build_android.sh` for Android, `apps/enigma/deploy/build.sh`
-for both.
+`build.sh` is a preflight (toolchain, a working npm, dependencies, the snap
+environment) and hands over to [`scripts/build.mjs`](scripts/build.mjs); the
+mapping from the file to commands is
+[`scripts/build_plan.mjs`](scripts/build_plan.mjs), covered by
+`npm run test:build`.
 
-The same binary is a **headless CLI** when given a subcommand:
-`enigma-builder build android [--release] [--unsigned] [--abi SPEC]`, and the
-`enigma-builder signing android status|create|verify|pin` family that
-`scripts/build_android.sh` itself calls for its pre-flight and its post-build
-verification — one implementation, so the script and the GUI cannot drift.
-`enigma-builder build product.yaml --gui` opens a single-tab, read-only Builder
-for a saved product config. Full reference:
-[tools/enigma_builder/README.md](tools/enigma_builder/README.md).
-
-The **app icon is fixed too** — not a per-build choice. One mark, `enigma`,
-shipped at `tools/enigma_builder/assets/icons/enigma/`, announced on the
-Identity tab and regenerated into the app (every desktop size plus the Android
-mipmaps) on every build. Changing it is a code change: [icons.md](icons.md).
+The **app icon is fixed** — not a per-build choice. One mark, whose master is
+[`apps/enigma/app-icon.png`](apps/enigma/app-icon.png); the generated sizes
+under `src-tauri/icons/` are committed. Changing it is a code change:
+[icons.md](icons.md).
 
 ---
 
 ## Desktop build
 
-One-click (installs workspace deps, then builds — the frontend build runs
-automatically via Tauri's `beforeBuildCommand`):
+Set `apps.enigma.desktop` in [build.yaml](build.yaml) and run:
 
 ```bash
-./build_desktop.sh            # release bundles
-./build_desktop.sh --debug    # faster, unoptimized debug bundle
-
-# equivalently, via npm:
-npm run build                 # -> ./build_desktop.sh
-npm run build:debug           # -> ./build_desktop.sh --debug
+./build.sh enigma
 ```
 
-Which formats come out is `bundle.targets` in `tauri.conf.json` — currently
-`["deb", "rpm"]`. The script and CI only assert that *some* Linux bundle
-appeared, so a narrowed `targets` key produces a green build with fewer
-artifacts than you expected; check it before a release. Output:
+`profile: debug` gives a faster, unoptimized bundle. The frontend build runs
+automatically via Tauri's `beforeBuildCommand`.
+
+Which formats come out is `desktop.bundles` in `build.yaml` (falling back to
+`bundle.targets` in `tauri.conf.json` when the key is omitted). The build fails
+if *no* package appears, but not if fewer appear than you expected — read the
+"Built" list it prints before a release. Output, also copied to
+`dist/enigma/`:
 
 ```
 apps/enigma/src-tauri/target/release/bundle/     # release
-apps/enigma/src-tauri/target/debug/bundle/       # --debug
+apps/enigma/src-tauri/target/debug/bundle/       # profile: debug
   deb/Enigma26_<ver>_amd64.deb
   rpm/Enigma26-<ver>-1.x86_64.rpm
   appimage/Enigma26_<ver>_amd64.AppImage         # only if "appimage" is in bundle.targets
@@ -428,10 +461,10 @@ any bbox — see the tool's README.
 
 ### Build the APK / AAB
 
-```bash
-npm run build:android                             # debug APK (default)
+Set `apps.enigma.android.enabled: true` in [build.yaml](build.yaml) — with
+`profile` and `abis` — and run `./build.sh enigma`. That calls:
 
-# full control (build type + ABIs):
+```bash
 bash scripts/build_android.sh enigma debug                    # debug APK, aarch64
 bash scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AAB
 ```
@@ -452,9 +485,9 @@ apps/enigma/src-tauri/gen/android/app/build/outputs/
   bundle/universalRelease/app-universal-release.aab   # release only
 ```
 
-`apps/enigma/deploy/build.sh` copies these into `deploy/dist/` with the app name
-in place of Tauri's generic `app-` prefix (`enigma-universal-release.apk`),
-because the Tauri names are identical between builds.
+`build.sh` copies these into `dist/enigma/` with the app name in place of
+Tauri's generic `app-` prefix (`enigma-universal-release.apk`), because the
+Tauri names are identical between apps.
 
 ### Signing a release build
 
@@ -463,23 +496,31 @@ is refused before any work starts, and the SDK debug key (publicly known) is
 rejected for release outright — by path, filename, or the `androiddebugkey`
 alias. Debug builds keep the debug key and are unaffected.
 
-One-time setup, all through the Builder tool (`tools/enigma_builder`):
+One-time setup, with the stdlib-only checker the build itself calls
+([scripts/android_signing/](scripts/android_signing)):
 
 ```bash
+SIGN="python3 scripts/android_signing/signing_cli.py"
+GEN=apps/enigma/src-tauri/gen/android
+
 # Mint a release keystore (outside the repo, chmod 600, RSA 4096) — the tool
 # warns loudly: losing this key permanently orphans every distributed install.
-enigma-builder signing android create
+$SIGN create
 
-# Build a signed release; artifacts are verified with apksigner afterwards
-# and the report prints package, version, signer and SHA-256 fingerprint.
-enigma-builder build android --release
+# Would a release sign, and where does each credential come from?
+$SIGN status --gen $GEN
+
+# Build a signed release (android: { enabled: true, profile: release } in
+# build.yaml). Artifacts are verified with apksigner afterwards and the report
+# prints package, version, signer and SHA-256 fingerprint.
+./build.sh enigma
 
 # After confirming the first build, pin the fingerprint (committed file) so a
 # swapped or regenerated keystore FAILS the build instead of shipping:
-enigma-builder signing android pin --from <apk>
+$SIGN pin --pin-file apps/enigma/deploy/android-release-key.properties --from <apk>
 
 # Inspect any artifact:
-enigma-builder signing android verify <apk-or-aab>
+$SIGN verify <apk-or-aab>
 ```
 
 Credentials resolve per key from: a `${VAR}` placeholder in
@@ -487,15 +528,14 @@ Credentials resolve per key from: a `${VAR}` placeholder in
 `ENIGMA_KEYSTORE_PASSWORD` / `ENIGMA_KEY_ALIAS` / `ENIGMA_KEY_PASSWORD`
 environment variables → a literal in `keystore.properties` → 
 `~/.config/enigma-builder/signing.properties` (must be chmod 600). Passwords
-never live in source control and never appear on an argv. The four keys and the
-full CLI are documented in
-[tools/enigma_builder/README.md](tools/enigma_builder/README.md), and
-`gen/android/keystore.properties.example` is the committed template.
+never live in source control and never appear on an argv.
+`gen/android/keystore.properties.example` is the committed template and
+documents the four keys; `signing_cli.py --help` lists the commands.
 
 An **unsigned release** for internal inspection is a deliberate act, never a
-fallback: `scripts/build_android.sh enigma release aarch64
---allow-unsigned-release` (or `--unsigned` on the CLI, or the checkbox in the
-Builder GUI). It installs nowhere, says so loudly, and still refuses the debug
+fallback: `allow_unsigned_release: true` under `android:` in `build.yaml`
+(`scripts/build_android.sh enigma release aarch64 --allow-unsigned-release`).
+It installs nowhere, says so loudly, and still refuses the debug
 key. The pinned fingerprint lives in
 `apps/enigma/deploy/android-release-key.properties` — deliberately outside
 `gen/android`, which `tauri android init` regenerates.
@@ -517,8 +557,7 @@ adb logcat -s RustStdoutStderr enigma
 | Job | Stage | When | What |
 |---|---|---|---|
 | `frontend:build` | check | every commit | `vue-tsc` + `vite build`, asserts `dist/index.html` |
-| `rotor:wasm` | build | every branch/tag | wasm-pack build of `rotor_wasm` (web + bundler) as a gate; 30-day artifacts with a `COMMIT` provenance stamp |
-| `tauri:build` | build | every branch commit | full desktop bundle, asserts at least one `.deb`/`.AppImage`/`.rpm` was produced |
+| `tauri:build` | build | every branch commit | `./build.sh enigma` — the desktop bundle `build.yaml` describes; fails if no package was produced |
 | `tauri:desktop` | build | tags / manual | release bundle, 30-day artifacts |
 | `android:build` | build | manual | stubbed (not provisioned to a CI image yet) |
 
@@ -531,7 +570,7 @@ npm test                                   # all workspaces
 npm test -w enigma                         # vitest: chat store, components, i18n, …
 npm test -w rakotis                        # vitest: transport bridge, storage, i18n
 ( cd apps/enigma/src-tauri && cargo test ) # Rust: tickets, DHT, Tor, kv, maps, …
-( cd ../../rotor/crypto_rotor/gervasius && cargo test ) # at-rest primitives
+( cd crates/rotor/gervasius && cargo test ) # at-rest primitives
 ( cd protasius && cargo test )             # encrypted store
 python apps/enigma/e2e.py                  # Playwright smoke tier (no backend — there is none)
 ```
@@ -547,6 +586,19 @@ python apps/enigma/e2e.py                  # Playwright smoke tier (no backend �
   process holding the port (`lsof -i :1420`) and relaunch.
 - **Window opens blank / WebKit errors** — the WebKitGTK dev libs above are
   missing or mismatched; reinstall them.
+- **Every `npm` command dies with `Cannot find module 'graceful-fs'`** — npm
+  itself is broken, not the repo: npm keeps its own dependencies in a
+  `node_modules` beside it, and a disk cleanup that deletes every `node_modules`
+  it finds takes that one too. Reinstall the Node version
+  (`nvm install <version>`); the launchers detect this and say so.
+- **`sh: 1: vite: not found` / `tauri: not found`** — the root `node_modules` is
+  gone (same cleanup, usually). `npm ci` at the repo root; the launchers do it
+  themselves when the directory is missing.
+- **Build succeeds, then `symbol lookup error: /snap/core20/…/libpthread.so.0:
+  undefined symbol: __libc_pthread_init`** — the app was started with a snap's
+  GTK environment (VS Code's integrated terminal, when VS Code is the snap).
+  `run_dev.sh`, `run2.sh` and Morion's runner undo that themselves; a binary
+  started by hand from such a terminal still needs a normal shell.
 - **First Rust compile is very slow / high memory** — expected for the initial
   build; subsequent runs are incremental.
 - **Map tab renders blank / "WebGL is unavailable" (Linux)** — WebKitGTK's
@@ -566,12 +618,12 @@ python apps/enigma/e2e.py                  # Playwright smoke tier (no backend �
 - **`build_config.yaml is invalid` / `not found`** — the compile-time build config
   failed validation; the panic message lists the offending YAML paths (see
   [Build configuration](#build-configuration-build_configyaml)).
-- **`rotor-core` build error** — it's the sibling-checkout crate at
-  `../../rotor/crypto_rotor/rotor_core` (no fetch involved); reproduce in isolation
-  with `cd ../../rotor/crypto_rotor && cargo check -p rotor-core`.
+- **`rotor-core` build error** — it's the in-repo crate at
+  `crates/rotor/rotor_core` (no fetch involved); reproduce in isolation
+  with `cd crates/rotor && cargo check -p rotor-core`.
 - **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
 - **`frontendDist` doesn't exist** — the frontend build didn't run/produce
-  `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build_desktop.sh`).
+  `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build.sh enigma`).
 
 **Android:**
 

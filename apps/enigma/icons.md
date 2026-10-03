@@ -1,12 +1,8 @@
 # App icons — the shipped mark and how to change it (icons.md)
 
-The Builder does **not** offer an icon choice. The app icon is part of the
-product's identity, like its name, its bundle id and its version: one mark,
-fixed in the repository, announced on the Identity tab so a build engineer can
-see what they are shipping — and changed here, in code, not per build.
-
-The mark is `enigma`, at
-`tools/enigma_builder/assets/icons/enigma/`.
+The app icon is not a build option. It is part of the product's identity, like
+its name, its bundle id and its version: one mark, fixed in the repository and
+changed here, in code — [build.yaml](build.yaml) has no key for it.
 
 ## Why fixed rather than chosen
 
@@ -17,28 +13,31 @@ wrong face. Fixing it removes a decision that has exactly one right answer at
 any moment, and the answer belongs in version control beside the name and the
 version it goes out with.
 
-## The set
+## The master
 
 ```
-tools/enigma_builder/assets/icons/enigma/
-├── icon.png     # normalised master: square, 1024×1024, what tauri icon consumes
-├── source.png   # the original as authored — never overwritten
-└── set.json     # { "name", "description", "author", "version": 1 }
+apps/enigma/
+├── app-icon.png          # normalised master: square, 1024×1024, what `tauri icon` consumes
+└── app-icon-source.png   # the original as authored — never overwritten
 ```
 
-`icon.png` is what `npx tauri icon` consumes; the original is kept beside it so
-a better master can be re-derived later without starting from an upscale. If
-the original is neither square nor 1024, it is **padded** to square on
-transparency (centred, never stretched) and scaled — the artwork is not
-distorted.
+`app-icon.png` is what `npx tauri icon` consumes; the original is kept beside
+it so a better master can be re-derived later without starting from an upscale.
+The current master was made from the 1536×1024 original by **padding** it to
+square on transparency (centred, never stretched) and scaling — do the same
+with a new original, so the artwork is not distorted.
+
+Everything generated from the master is **committed**: the desktop
+`.png`/`.ico`/`.icns` set under `apps/enigma/src-tauri/icons/`, and the Android
+launcher mipmaps under `apps/enigma/src-tauri/gen/android/app/src/main/res/`.
+A build uses those committed files as they are; it does not regenerate them.
 
 ### Master image requirements
 
-- **Square**, or it is refused — Tauri would distort it into every output size.
+- **Square** — Tauri would distort anything else into every output size.
 - **At least 512×512**; **1024×1024 recommended**, below which the largest
   generated sizes are upscaled from a smaller original.
-- **PNG with alpha**, or **SVG**. An SVG is accepted because Tauri accepts it,
-  but it is *not* measured, so the square and size rules move to you.
+- **PNG with alpha**, or **SVG**.
 - **Keep the mark inside the middle ~66%.** Android's adaptive icon crops to a
   circle, squircle or rounded square depending on the launcher; anything in the
   corners is gone. Design for the circle, then check the square still looks
@@ -46,85 +45,38 @@ distorted.
 - **Test it small.** Most of an icon's life is 32–48px in a taskbar, where fine
   detail and thin strokes disappear.
 
-The same validation the Builder shows is the one a build runs
-(`icons.validate_source`), so a mark that would fail the build is reported on
-the Identity tab rather than at build time.
-
 ## Changing the app icon
 
-Deliberately a manual, reviewed step — the Builder never creates, edits or
-deletes sets.
+Deliberately a manual, reviewed step.
 
-1. Put the new master at
-   `tools/enigma_builder/assets/icons/<new-id>/icon.png`, with its
-   `source.png` and a `set.json`.
-2. Point the Builder at it: `FIXED_SET_ID` in
-   `tools/enigma_builder/iconsets.py`.
-3. Repackage if you distribute the standalone binary
-   (`bash tools/enigma_builder/package.sh`) — the assets are baked *into* the
-   executable, so a set added afterwards is not in a copy you already handed
-   out. `ENIGMA_BUILDER_ICON_SETS=/dir` overrides the location for a one-off.
+1. Replace `apps/enigma/app-icon.png` (and `app-icon-source.png`) with the new
+   master.
+2. Regenerate every size from it:
 
-If the set named by `FIXED_SET_ID` is missing or unusable, the Identity tab
-says so and the build keeps the icons already committed in the repo — it never
-silently ships a different mark.
+   ```bash
+   cd apps/enigma
+   npx tauri icon app-icon.png
+   ```
 
-## What happens at build time
+   That rewrites `src-tauri/icons/` — the desktop set plus an `icons/android/`
+   mipmap tree.
+3. Mirror the Android mipmaps into the generated project. The Gradle project
+   does **not** read `icons/android/`: `tauri android init` copies it once, at
+   init time, so without this step an Android build ships the previous
+   launcher icon.
 
-Choosing a set is not what changes the app — running a build is.
+   ```bash
+   cp -r src-tauri/icons/android/. src-tauri/gen/android/app/src/main/res/
+   ```
+4. Review the diff (roughly 90 files) and commit it with the master.
 
-1. The Builder snapshots every tracked icon file (roughly 90 of them, under
-   `apps/enigma/src-tauri/icons/` and the generated Android project).
-2. It runs `npx tauri icon <the set's master>`, which regenerates that whole
-   tree: the desktop `.png`/`.ico`/`.icns` set and the Android mipmaps.
-3. It copies the fresh mipmaps into `src-tauri/gen/android/` — `tauri icon`
-   writes `icons/android/` only, and the generated Gradle project keeps its own
-   copy, so without this step an Android build ships the previous launcher.
-4. After the build it **restores the snapshot**, so the working tree ends where
-   it started. That restore is on by default and can be turned off on the
-   Identity tab; if a run dies mid-way, the Builder prints the git command that
-   undoes it.
+The in-app marks (the unlock gate and the top bar) are separate files, cut from
+the same master: `apps/enigma/src/assets/<logoDir>/app_icon.png` and
+`bar_icon.png` — see [`logos.ts`](apps/enigma/src/assets/logos.ts). Replace
+them in the same change so the app's face stays the same everywhere.
 
-If the fixed set is missing or unusable the icon step is skipped entirely —
-nothing is regenerated and nothing is touched — which is the fallback described
-above, not a per-build option.
+Morion keeps its own master and generator:
+[`apps/morion/app-icon.png`](apps/morion/app-icon.png) and
+[`apps/morion/scripts/make_icons.py`](apps/morion/scripts/make_icons.py).
 
-The headless build does the same thing. `enigma-builder build product.yaml`
-reads `branding.icon`, resolves it through the very same resolver the Identity
-tab reads, and runs the same snapshot → generate → mirror → restore sequence, so
-one product config produces one brand whether it is built from the window or
-from a CI job. A config naming a set this Builder does not ship is **refused before any
-work starts** rather than quietly built with the repo's icons — a release under
-the wrong brand and a zero exit code is the one outcome worth failing for. The
-set that branded a run is recorded in `build-info.json` as `icon_set`.
-
-## Replacing the repo's committed icons
-
-If a set should become the app's *permanent* icon rather than one build's, turn
-off restore-after-build on the Identity tab, build once, and commit the
-regenerated `src-tauri/icons/**` and `src-tauri/gen/android/**` yourself. The
-Builder never runs git.
-
-## Where the code is
-
-| File | Responsibility |
-|---|---|
-| `tools/enigma_builder/assets/icons/` | the sets themselves |
-| `tools/enigma_builder/iconsets.py` | discovery, `set.json` parsing, per-set validation |
-| `tools/enigma_builder/icons.py` | the image rules, the `tauri icon` command, the Android mirror, snapshot/restore |
-| `tools/enigma_builder/identity_tab.py` | the announcement, the preview, the fallbacks |
-| `tools/enigma_builder/build_tab.py` | the icon step and putting the repo back afterwards (GUI) |
-| `tools/enigma_builder/productbuild.py` | the same icon step for `enigma-builder build` (headless) |
-| `tools/enigma_builder/tests/test_iconsets.py` | discovery, broken sets, and that every shipped set is valid |
-| `tools/enigma_builder/tests/test_split_modes.py` | that the headless build honours `branding.icon` |
-
-`enigma` is the only set under `assets/icons/`, which is the point: the
-directory is not a menu. `tools/enigma_builder/assets/make_example_sets.py` is a
-stdlib-only script that draws the two example sets (`default`, `mono`) the
-directory carried while an icon was still a per-build choice; nothing in the
-Builder runs it, and you do not need it — export a PNG from whatever you
-actually design in.
-
-See also [tools/enigma_builder/README.md](tools/enigma_builder/README.md) for
-the Builder as a whole, and [build.md](build.md) for the build scripts the icon
-step runs in front of.
+See also [build.md](build.md) for the build itself.

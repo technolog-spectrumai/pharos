@@ -123,7 +123,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
 | Room invites | Peer-to-peer only (`p2p_invite.rs`, ALPN `enigma/invite/0`): a live offer/accept handshake carrying a fresh ticket + DHT room code, so both peers must be online at once. Everything else is out-of-band — the QR code, the copyable ticket string, or a DHT room code. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [build.md](build.md)) |
-| Build/CI | `build_desktop.sh` one-click; GitLab CI (`.gitlab-ci.yml`); Node 22 |
+| Build/CI | `./build.sh`, configured by `build.yaml`; GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
 identifier `com.spectrumaipl.enigma26`. The tauri.conf `bundle.targets` list governs
@@ -1197,7 +1197,7 @@ instead of hardcoding.
 | Display name `Enigma26` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
 | Copyright / org / legal URL | `config/app.ts` `brand` | Was hardcoded in `App.vue` |
 | Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`); `build.rs` rejects any other value |
-| App icon | `tools/enigma_builder/assets/icons/enigma/` | **Fixed, not a build choice** — one mark, regenerated into the app on every build and announced (read-only) on the Builder's Identity tab. See [icons.md](icons.md) |
+| App icon | `apps/enigma/app-icon.png` | **Fixed, not a build choice** — one mark; the sizes generated from it are committed. See [icons.md](icons.md) |
 | In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma26`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
@@ -1230,7 +1230,7 @@ instead of hardcoding.
 alias path (`vite.config.ts` + `vitest.config.ts` + `tsconfig.json`); the desktop apt
 dependency list (docs + CI jobs); the Playwright image tag `v1.60.0` ↔
 `@playwright/test ^1.60.0`; the NDK version `27.2.12479018` (docs ↔ installer); the
-`*.deb/*.AppImage/*.rpm` bundle glob (`build_desktop.sh` + CI). State one Node floor
+`*.deb/*.AppImage/*.rpm` bundle glob (`scripts/build.mjs`). State one Node floor
 (CI uses **node 22**).
 
 ### Centralization roadmap (not yet done)

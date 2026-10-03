@@ -14,17 +14,22 @@ npm test             # vitest
 
 Or the underlying commands: `npm run dev`, `npx tauri dev`, `npm run build`.
 
-To produce an installable desktop package:
+To produce an installable desktop package, from the **repo root**:
 
 ```bash
-./build.sh           # deb + rpm, release
-./build.sh --debug   # much faster to build, slower to run
-./build.sh --frontend  # frontend only, no Rust
+./build.sh morion    # what build.yaml says — by default tests, then deb + rpm, release
+npm run build -w apps/morion   # frontend only, no Rust
 ```
 
-`build.sh` gates each step on the last — dependencies, types, tests, frontend,
-then Rust — so a type error surfaces in seconds rather than after the minutes
-the Rust stage costs. It also checks for `webkit2gtk`/`libsoup` up front,
+What is built is set under `apps.morion` in the root `build.yaml`, not by
+flags: `desktop.profile: debug` builds much faster and runs slower, `test:
+false` skips the suites, `desktop.bundles` picks the package formats, and
+`android.enabled: true` adds an APK. See the root `build.md`.
+
+`build.sh` gates each step on the last — dependencies, tests, the typecheck
+and frontend bundle, then Rust — so a failure stops the build rather than
+producing a package nobody should install. It also checks for
+`webkit2gtk`/`libsoup` up front,
 because without them the failure arrives deep inside a `-sys` crate naming a
 `.pc` file rather than the package you need to install.
 

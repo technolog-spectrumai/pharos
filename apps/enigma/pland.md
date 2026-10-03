@@ -169,9 +169,9 @@ across the three configs, deliberately:
   same app instead of installing side by side. The version is bumped with the
   code, never chosen per build — it is carried identically by `tauri.conf.json`,
   `Cargo.toml`, the three `package.json` files, `build_config.yaml` and every
-  YAML in `configs/`, and the Builder shows it read-only. The app **icon** is
-  fixed the same way and for the same reason: one mark, `enigma`, regenerated
-  into every build — see [icons.md](icons.md).
+  YAML in `configs/`; `build.yaml` has no key for it. The app **icon** is
+  fixed the same way and for the same reason: one mark, committed with the
+  code — see [icons.md](icons.md).
 
 ---
 
@@ -188,13 +188,17 @@ ENIGMA_EDITION=professional  →  src-tauri/configs/build_config.professional.ya
 ENIGMA_EDITION=custom        →  src-tauri/configs/build_config.custom.yaml
 ```
 
-`custom` is not a fourth product: it is the file the Enigma Builder materialises
-from whatever config is on screen (generated, gitignored, absent from a fresh
-checkout). Its gates still have to match one of the three editions — the Builder
-refuses a config that matches none, at save, at load and at build.
+`custom` is not a fourth product: it is a local feature set of your own
+(gitignored, absent from a fresh checkout), for experiments. Nothing checks
+that its gates match one of the three editions, so it is not something to ship
+under a product name.
+
+A build names its edition in [build.yaml](build.yaml) — `apps.enigma.edition:
+basic` — and `./build.sh` sets the variable from it. Dev runs and bare cargo
+take it from the environment:
 
 ```bash
-ENIGMA_EDITION=basic        ./build_desktop.sh   # release bundle, Basic
+./build.sh enigma                                # release bundle, edition from build.yaml
 ENIGMA_EDITION=professional ./run_dev.sh         # dev run, Professional
 ENIGMA_EDITION=standard ( cd apps/enigma/src-tauri && cargo build )
 ```
