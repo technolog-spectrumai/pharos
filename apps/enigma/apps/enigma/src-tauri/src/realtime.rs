@@ -183,6 +183,7 @@ pub async fn realtime_node_info(
 /// Offer a room directly to a contact (by NodeId) and wait for their answer:
 /// `"accepted"` or `"declined"`. Unreachable / unanswered invites surface as
 /// errors. The frontend opens the room first (MLS admission needs a live member).
+#[cfg(feature = "contacts")]
 #[tauri::command]
 pub async fn invite_send(
     app: AppHandle,
@@ -208,6 +209,7 @@ pub async fn invite_send(
 
 // ── DHT discovery commands (`dht_*` family — see technology.md §12) ────────────────────────
 
+#[cfg(feature = "dht")]
 #[derive(Serialize)]
 pub struct DhtStatus {
     enabled: bool,
@@ -220,6 +222,7 @@ pub struct DhtStatus {
 /// Status probe for Settings/Contacts: is the toggle on, is the node running,
 /// and does our Mainline node have a live routing table. May lazily start the
 /// node (like any room command) — but never in airplane or Tor mode.
+#[cfg(feature = "dht")]
 #[tauri::command]
 pub async fn dht_status(
     app: AppHandle,
@@ -233,6 +236,7 @@ pub async fn dht_status(
 
 /// "Recently online" per contact NodeId (Contacts presence poll). Granularity is
 /// ~1 h — the cadence of the pkarr records DHT-enabled peers publish.
+#[cfg(feature = "dht")]
 #[tauri::command]
 pub async fn dht_presence(
     app: AppHandle,
@@ -240,7 +244,6 @@ pub async fn dht_presence(
     p2p: State<'_, P2pState>,
     node_ids: Vec<String>,
 ) -> Result<serde_json::Value, String> {
-    crate::p2p_dht::ensure_enabled()?;
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
@@ -258,13 +261,13 @@ pub async fn dht_presence(
 
 /// Publish the nickname claim NOW and wait for the DHT write to complete —
 /// backs the Contacts "Publish" button's spinner and "name published" state.
+#[cfg(feature = "dht")]
 #[tauri::command]
 pub async fn dht_publish_nick(
     app: AppHandle,
     config: State<'_, AppConfigState>,
     p2p: State<'_, P2pState>,
 ) -> Result<(), String> {
-    crate::p2p_dht::ensure_enabled()?;
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
@@ -276,6 +279,7 @@ pub async fn dht_publish_nick(
 
 /// Search the DHT nickname directory (Contacts "Find people"). Results are
 /// CLAIMS — anyone can publish any name; the UI shows NodeId fingerprints.
+#[cfg(feature = "dht")]
 #[tauri::command]
 pub async fn dht_find_nick(
     app: AppHandle,
@@ -283,7 +287,6 @@ pub async fn dht_find_nick(
     p2p: State<'_, P2pState>,
     nick: String,
 ) -> Result<serde_json::Value, String> {
-    crate::p2p_dht::ensure_enabled()?;
     if offline(&app, &config) {
         return Err(OFFLINE_BLOCKED.to_string());
     }
@@ -305,9 +308,9 @@ pub async fn dht_find_nick(
 ///
 /// Guarded even though it touches no DHT code: it is a "drop every open room"
 /// button, and a build without the DHT must not expose that under a DHT name.
+#[cfg(feature = "dht")]
 #[tauri::command]
 pub async fn dht_apply(app: AppHandle, p2p: State<'_, P2pState>) -> Result<(), String> {
-    crate::p2p_dht::ensure_enabled()?;
     p2p_iroh::shutdown(&app, &p2p).await;
     Ok(())
 }

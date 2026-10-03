@@ -4,7 +4,7 @@
 #
 #   scripts/reset_profile.sh [--purge] [-y] <profile> [<profile>…]
 #
-# Used by run_dev.sh --reset and run2.sh --reset; you can also call it directly.
+# Used by run_dev.sh --reset (with or without --dual); you can also call it directly.
 #
 # What it touches, and why that is the whole list:
 #   profiles/<profile>/     the protasius store + vault.json (the wrapped DEK the
@@ -55,20 +55,9 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 CONF="$REPO_DIR/apps/enigma/src-tauri/tauri.conf.json"
 
 # Which app's data are we resetting? The bundle identifier IS the data directory
-# (Tauri derives app_data_dir from it), and each edition overrides it — so read
-# the active edition's overlay first and fall back to the base config. Getting
-# this wrong would reset a DIFFERENT edition's vault, which is why it is derived
-# rather than hardcoded.
-EDITION="$(printf '%s' "${ENIGMA_EDITION:-}" | tr '[:upper:]' '[:lower:]')"
-OVERLAY="$REPO_DIR/apps/enigma/src-tauri/tauri.$EDITION.conf.json"
-read_identifier() {
-  sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -1
-}
-IDENTIFIER=""
-if [ -n "$EDITION" ] && [ -f "$OVERLAY" ]; then
-  IDENTIFIER="$(read_identifier "$OVERLAY")"
-fi
-[ -n "$IDENTIFIER" ] || IDENTIFIER="$(read_identifier "$CONF")"
+# (Tauri derives app_data_dir from it), so it is read from the config rather
+# than hardcoded — a changed identifier must never leave this wiping the old one.
+IDENTIFIER="$(sed -n 's/.*"identifier"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONF" 2>/dev/null | head -1)"
 if [ -z "$IDENTIFIER" ]; then
   echo "[reset] ERROR: could not read the bundle identifier from $CONF" >&2
   exit 1
@@ -80,7 +69,7 @@ case "$(uname -s)" in
   *) APP_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/$IDENTIFIER" ;;
 esac
 
-echo "[reset] edition '${EDITION:-<unset>}' → $IDENTIFIER"
+echo "[reset] app data: $IDENTIFIER"
 if [ ! -d "$APP_DATA" ]; then
   echo "[reset] nothing to reset — no app data at $APP_DATA"
   exit 0

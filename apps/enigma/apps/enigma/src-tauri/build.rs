@@ -2,13 +2,13 @@
 //! `$OUT_DIR/build_config_gen.rs` (included as `enigma_lib::build_config`).
 //! Any invalid or missing value fails the build here, before compilation;
 //! algorithm declarations are additionally const-asserted in the generated
-//! code against the vendored crypto crates, so drift in either direction
+//! code against Rutile's crypto crates, so drift in either direction
 //! (YAML edited, or rotor_core/gervasius changed) is a compile error.
 //!
-//! WHICH yaml is chosen by the `ENIGMA_EDITION` env var (basic / standard /
-//! professional → `configs/build_config.<edition>.yaml`); unset keeps the
-//! historical `build_config.yaml`. A build sets it from `edition:` in the
-//! repo-root build.yaml (`./build.sh`). See technology.md §20 for the product line.
+//! What is NOT decided here: which optional features a build contains. Those
+//! are Cargo features (`[features]` in Cargo.toml), chosen by the root build
+//! config and compiled in or out with `#[cfg(feature = "…")]` — see
+//! technology.md §20. This file is the same for every build.
 
 use std::env;
 use std::fmt::Write as _;
@@ -21,39 +21,19 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawConfig {
-    app: AppSection,
-    p2p: P2pSection,
-    dht: DhtSection,
     crypto: CryptoSection,
-    calls: CallsSection,
-    contacts: ContactsSection,
-    calendar: CalendarSection,
-    maps: MapsSection,
-    keyring: KeyringSection,
-    lock: LockSection,
-    features: FeaturesSection,
+    defaults: DefaultsSection,
     settings: SettingsSection,
     network: NetworkSection,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AppSection {
+/// The app's identity. Not in the YAML: tauri.conf.json owns it — that file is
+/// what the native bundle is built from — and it is read here so the Rust side
+/// can never disagree with the package it ships in.
+struct AppIdentity {
     name: String,
     identifier: String,
     version: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct P2pSection {
-    allow_hosted_relays: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DhtSection {
-    enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -73,45 +53,11 @@ struct KdfSection {
     p_cost: u32,
 }
 
+/// Initial values of a NEW profile's runtime toggles. A toggle whose feature
+/// is not in the build is simply never read.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CallsSection {
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ContactsSection {
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CalendarSection {
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MapsSection {
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct KeyringSection {
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LockSection {
-    pin_unlock: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FeaturesSection {
+struct DefaultsSection {
     use_tor: bool,
     stable_onion: bool,
     dht_discovery: bool,
@@ -163,93 +109,39 @@ const KNOWN_MLS_SUITES: &[&str] = &[
 const FIXED_APP_NAME: &str = "Enigma26";
 const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.enigma26";
 
-/// The active edition's `tauri.<edition>.conf.json`, if it has one.
-///
-/// Keep this in lockstep with what the launchers pass to `--config`
-/// (`run_dev.sh`, `run2.sh`, `scripts/build_plan.mjs`): if the two ever disagree, the
-/// bundle would carry one identity and this assertion would check another —
-/// exactly the class of drift the assertion exists to catch.
-fn edition_conf_overlay(manifest_dir: &Path) -> Option<serde_json::Value> {
-    let edition = env::var("ENIGMA_EDITION").ok()?;
-    let edition = edition.trim().to_ascii_lowercase();
-    if edition.is_empty() {
-        return None;
-    }
-    let path = manifest_dir.join(format!("tauri.{edition}.conf.json"));
-    println!("cargo:rerun-if-changed={}", path.display());
-    let text = std::fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
-fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
-    let mut err = |path: &str, msg: String| errors.push(format!("{path}: {msg}"));
-
-    // app: fixed product identity, valid version, and equality with tauri.conf.json.
-    if cfg.app.name.trim().is_empty() {
-        err("app.name", "must not be empty".into());
-    } else if cfg.app.name != FIXED_APP_NAME {
-        err(
-            "app.name",
-            format!("must be '{FIXED_APP_NAME}' (app name is not configurable)"),
-        );
-    }
-    if cfg.app.version.trim().is_empty() {
-        err("app.version", "must not be empty".into());
-    }
-    if cfg.app.identifier.is_empty()
-        || !cfg.app.identifier.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
-    {
-        err("app.identifier", format!("'{}' must be non-empty [a-zA-Z0-9.-]", cfg.app.identifier));
-    } else if cfg.app.identifier != FIXED_APP_IDENTIFIER {
-        err(
-            "app.identifier",
-            format!(
-                "must be '{FIXED_APP_IDENTIFIER}' (Android applicationId is not configurable)"
-            ),
-        );
-    }
+/// Read the identity out of tauri.conf.json, and hold it to the fixed one.
+fn read_identity(manifest_dir: &Path, errors: &mut Vec<String>) -> AppIdentity {
     let conf_path = manifest_dir.join("tauri.conf.json");
-    match std::fs::read_to_string(&conf_path)
+    let conf = std::fs::read_to_string(&conf_path)
         .map_err(|e| e.to_string())
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| e.to_string()))
-    {
-        Ok(mut conf) => {
-            // Per-edition overlay: editions keep one product identity now and
-            // vary feature gates only. The overlay is still a partial config
-            // the tauri CLI is given with `--config`, and it deep-merges over
-            // tauri.conf.json; apply the same merge here so this assertion sees
-            // the EFFECTIVE identity rather than the base file's.
-            //
-            // `custom` deliberately has no overlay: it is a local feature set
-            // under the same fixed identity, so the base file already IS its
-            // effective identity.
-            if let Some(overlay) = edition_conf_overlay(manifest_dir) {
-                if let (Some(base), Some(over)) = (conf.as_object_mut(), overlay.as_object()) {
-                    for (k, v) in over {
-                        base.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-            let pairs = [
-                ("app.name", "productName", cfg.app.name.as_str()),
-                ("app.identifier", "identifier", cfg.app.identifier.as_str()),
-                ("app.version", "version", cfg.app.version.as_str()),
-            ];
-            for (yaml_path, conf_key, yaml_val) in pairs {
-                let conf_val = conf.get(conf_key).and_then(|v| v.as_str()).unwrap_or("");
-                if conf_val != yaml_val {
-                    err(
-                        yaml_path,
-                        format!(
-                            "'{yaml_val}' does not match tauri.conf.json {conf_key} '{conf_val}' \
-                             (tauri.conf.json stays authoritative — fix whichever is stale)"
-                        ),
-                    );
-                }
-            }
-        }
-        Err(e) => err("app", format!("cannot read {}: {e}", conf_path.display())),
+        .unwrap_or_else(|e| {
+            errors.push(format!("tauri.conf.json: cannot read {}: {e}", conf_path.display()));
+            serde_json::Value::Null
+        });
+    let field = |key: &str| conf.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let id = AppIdentity { name: field("productName"), identifier: field("identifier"), version: field("version") };
+
+    if id.name != FIXED_APP_NAME {
+        errors.push(format!(
+            "tauri.conf.json productName: '{}' must be '{FIXED_APP_NAME}' (app name is not configurable)",
+            id.name
+        ));
     }
+    if id.identifier != FIXED_APP_IDENTIFIER {
+        errors.push(format!(
+            "tauri.conf.json identifier: '{}' must be '{FIXED_APP_IDENTIFIER}' (Android applicationId is not configurable)",
+            id.identifier
+        ));
+    }
+    if id.version.trim().is_empty() {
+        errors.push("tauri.conf.json version: must not be empty".into());
+    }
+    id
+}
+
+fn validate(cfg: &RawConfig, errors: &mut Vec<String>) {
+    let mut err = |path: &str, msg: String| errors.push(format!("{path}: {msg}"));
 
     // crypto: allowlisted declarations + Argon2 sanity rails.
     if !KNOWN_MLS_SUITES.contains(&cfg.crypto.mls_ciphersuite.as_str()) {
@@ -299,18 +191,6 @@ fn validate(cfg: &RawConfig, manifest_dir: &Path, errors: &mut Vec<String>) {
         }
     }
 
-    // dht: the Mainline rendezvous rides the iroh endpoint's hosted discovery
-    // (p2p_dht::discovery_enabled checks ALLOW_HOSTED_RELAYS first), so the
-    // combination below would be silently inert rather than merely off.
-    if cfg.dht.enabled && !cfg.p2p.allow_hosted_relays {
-        err(
-            "dht.enabled",
-            "true requires p2p.allow_hosted_relays: true — the DHT rides the iroh \
-             endpoint's hosted discovery and is inert without it"
-                .into(),
-        );
-    }
-
     // network.
     let net = &cfg.network;
     if net.onion_port == 0 {
@@ -345,7 +225,7 @@ fn rust_str(s: &str) -> String {
     format!("{s:?}") // debug-format of &str is a valid Rust string literal
 }
 
-fn generate(cfg: &RawConfig) -> String {
+fn generate(cfg: &RawConfig, app: &AppIdentity) -> String {
     let mut o = String::new();
     let _ = write!(
         &mut o,
@@ -355,14 +235,6 @@ pub mod app {{
     pub const NAME: &str = {name};
     pub const IDENTIFIER: &str = {identifier};
     pub const VERSION: &str = {version};
-}}
-
-pub mod p2p {{
-    pub const ALLOW_HOSTED_RELAYS: bool = {allow_relays};
-}}
-
-pub mod dht {{
-    pub const ENABLED: bool = {dht_enabled};
 }}
 
 pub mod crypto {{
@@ -375,7 +247,9 @@ pub mod crypto {{
     pub const KDF_OUT_LEN: u32 = 32; // fixed — mirrors gervasius::KDF_OUT_LEN
 }}
 
-pub mod features {{
+/// Initial values of a new profile's runtime toggles (build_config.yaml
+/// `defaults:`). Not the build features — those are `crate::features`.
+pub mod defaults {{
     pub const USE_TOR_DEFAULT: bool = {use_tor};
     pub const STABLE_ONION_DEFAULT: bool = {stable_onion};
     pub const DHT_DISCOVERY_DEFAULT: bool = {dht_discovery};
@@ -417,30 +291,6 @@ pub mod network {{
     pub const TOR_HANDSHAKE_TIMEOUT_SECS: u64 = {tor_hs};
 }}
 
-pub mod calls {{
-    pub const ENABLED: bool = {calls_enabled};
-}}
-
-pub mod contacts {{
-    pub const ENABLED: bool = {contacts_enabled};
-}}
-
-pub mod calendar {{
-    pub const ENABLED: bool = {calendar_enabled};
-}}
-
-pub mod maps {{
-    pub const ENABLED: bool = {maps_enabled};
-}}
-
-pub mod lock {{
-    pub const PIN_UNLOCK: bool = {pin_unlock};
-}}
-
-pub mod keyring {{
-    pub const ENABLED: bool = {keyring_enabled};
-}}
-
 // ── compile-time algorithm asserts against the vendored crates ──────────────
 
 const fn str_eq(a: &str, b: &str) -> bool {{
@@ -475,22 +325,20 @@ const _: () = assert!(
     "KDF out_len is fixed at 32"
 );
 "#,
-        name = rust_str(&cfg.app.name),
-        identifier = rust_str(&cfg.app.identifier),
-        version = rust_str(&cfg.app.version),
-        allow_relays = cfg.p2p.allow_hosted_relays,
-        dht_enabled = cfg.dht.enabled,
+        name = rust_str(&app.name),
+        identifier = rust_str(&app.identifier),
+        version = rust_str(&app.version),
         mls = rust_str(&cfg.crypto.mls_ciphersuite),
         aead = rust_str(&cfg.crypto.at_rest_aead),
         kdf_alg = rust_str(&cfg.crypto.kdf.algorithm),
         m_cost = cfg.crypto.kdf.m_cost_kib,
         t_cost = cfg.crypto.kdf.t_cost,
         p_cost = cfg.crypto.kdf.p_cost,
-        use_tor = cfg.features.use_tor,
-        stable_onion = cfg.features.stable_onion,
-        dht_discovery = cfg.features.dht_discovery,
-        dht_nick = cfg.features.dht_nick_publish,
-        file_integrity = cfg.features.file_integrity,
+        use_tor = cfg.defaults.use_tor,
+        stable_onion = cfg.defaults.stable_onion,
+        dht_discovery = cfg.defaults.dht_discovery,
+        dht_nick = cfg.defaults.dht_nick_publish,
+        file_integrity = cfg.defaults.file_integrity,
         ct_def = cfg.settings.connect_timeout_secs.default,
         ct_min = cfg.settings.connect_timeout_secs.min,
         ct_max = cfg.settings.connect_timeout_secs.max,
@@ -519,48 +367,22 @@ const _: () = assert!(
         onion_port = cfg.network.onion_port,
         tor_write = cfg.network.tor_write_timeout_secs,
         tor_hs = cfg.network.tor_handshake_timeout_secs,
-        calls_enabled = cfg.calls.enabled,
-        contacts_enabled = cfg.contacts.enabled,
-        calendar_enabled = cfg.calendar.enabled,
-        maps_enabled = cfg.maps.enabled,
-        keyring_enabled = cfg.keyring.enabled,
-        pin_unlock = cfg.lock.pin_unlock,
     );
     o
-}
-
-/// Product editions (technology.md §20). Each maps to `configs/build_config.<name>.yaml`;
-/// an unset ENIGMA_EDITION keeps the historical top-level build_config.yaml.
-/// `custom` is a local feature set of the developer's own: that file is
-/// gitignored, so a fresh checkout has no `custom` config and building one
-/// without writing it first fails with "not found".
-const EDITIONS: &[&str] = &["basic", "standard", "professional", "custom"];
-
-/// Resolve which YAML to bake in. Unknown names FAIL — never silently fall back
-/// to the default config, or a typo'd edition would ship every feature.
-fn resolve_config_path(manifest_dir: &Path) -> std::path::PathBuf {
-    println!("cargo:rerun-if-env-changed=ENIGMA_EDITION");
-    let edition = match env::var("ENIGMA_EDITION") {
-        Ok(e) if !e.trim().is_empty() => e.trim().to_ascii_lowercase(),
-        _ => return manifest_dir.join("build_config.yaml"),
-    };
-    if !EDITIONS.contains(&edition.as_str()) {
-        panic!("\n\nENIGMA_EDITION='{edition}' is not a known edition (valid: {EDITIONS:?}) — see technology.md §20\n");
-    }
-    manifest_dir.join("configs").join(format!("build_config.{edition}.yaml"))
 }
 
 fn generate_build_config() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_dir = Path::new(&manifest_dir);
-    let yaml_path = resolve_config_path(manifest_dir);
+    // One file, the same for every build. What varies between builds is the
+    // feature list, and that is cargo's.
+    let yaml_path = manifest_dir.join("build_config.yaml");
     println!("cargo:rerun-if-changed=build_config.yaml");
-    println!("cargo:rerun-if-changed=configs");
     println!("cargo:rerun-if-changed=tauri.conf.json");
 
     let raw = std::fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
         panic!(
-            "\n\nbuild config not found at {} ({e}) — this file is required (see technology.md §19, technology.md §20)\n",
+            "\n\nbuild config not found at {} ({e}) — this file is required (see technology.md §19)\n",
             yaml_path.display()
         )
     });
@@ -569,7 +391,8 @@ fn generate_build_config() {
     });
 
     let mut errors = Vec::new();
-    validate(&cfg, manifest_dir, &mut errors);
+    let app = read_identity(manifest_dir, &mut errors);
+    validate(&cfg, &mut errors);
     if !errors.is_empty() {
         let list: String = errors.iter().map(|e| format!("  - {e}\n")).collect();
         panic!("\n\nbuild config is invalid:\n{list}(file: {})\n", yaml_path.display());
@@ -577,7 +400,7 @@ fn generate_build_config() {
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let out_path = Path::new(&out_dir).join("build_config_gen.rs");
-    std::fs::write(&out_path, generate(&cfg))
+    std::fs::write(&out_path, generate(&cfg, &app))
         .unwrap_or_else(|e| panic!("cannot write {}: {e}", out_path.display()));
 }
 
@@ -587,8 +410,8 @@ fn generate_build_config() {
 //
 // Same contract as the build config above: parse → validate → codegen, and any
 // invalid value fails the build here rather than shipping a wrong price. The
-// table is deliberately NOT per-edition (one privacy_hp.yaml, not one per
-// configs/*.yaml) — an exposure does not get cheaper with a different tier.
+// table is deliberately NOT per-preset (one privacy_hp.yaml for every build)
+// — an exposure does not get cheaper with a different product.
 //
 // Every HP figure is converted to an integer number of hundredths ("centi-HP")
 // at this point, and no float survives into the generated code. That is what

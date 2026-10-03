@@ -309,7 +309,7 @@ async fn decide(
 
     // Bounded by the same user-set connect timeout every other deadline in this
     // app reads (technology.md §15) — never a literal.
-    let window = Duration::from_secs(crate::p2p_dht::connect_timeout_secs(app));
+    let window = Duration::from_secs(crate::net_settings::connect_timeout_secs(app));
     let answer = tokio::time::timeout(window, rx).await;
     pending.0.lock().await.remove(&request_id);
 
@@ -552,7 +552,7 @@ pub async fn redeem_over_iroh(
     let secret = crate::p2p_iroh::load_or_create_secret(app, "gossip")?;
     // 2×N, matching every other "reach them, then wait for their side to act"
     // deadline in the app.
-    let window = Duration::from_secs(2 * crate::p2p_dht::connect_timeout_secs(app));
+    let window = Duration::from_secs(2 * crate::net_settings::connect_timeout_secs(app));
     let exchange = async move {
         let conn = endpoint
             .connect(id, REDEEM_ALPN)

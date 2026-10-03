@@ -14,6 +14,48 @@ edition = "2021"
 name = "enigma_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# ── build features ──────────────────────────────────────────────────────────
+# What a build MAY contain beyond the core. This table is the catalogue: the one
+# place that says which feature ids exist and what each requires. A build picks
+# from it in a root config (pro.yaml, std.yaml — `apps.enigma.features`), and
+# `./build.sh` passes exactly that list to cargo and to the frontend bundler.
+#
+# A feature that is not listed is NOT COMPILED: its module, its commands, its
+# network protocol and its optional dependencies are absent from the binary,
+# and the frontend drops its code too. That is different from a runtime
+# setting: `dht` in a build makes the DHT available; whether a profile uses it
+# is the user's own opt-in (build_config.yaml `defaults:`).
+#
+# `default` is EMPTY on purpose. The Tauri CLI keeps a manifest's default
+# features switched on, so anything listed there could not be left out of a
+# build — the allowlist would stop being one. A bare `cargo build` therefore
+# builds the core alone; tests.sh and CI name their features.
+#
+# Never optional: the crypto (rotor-core, gervasius, protasius), the chat
+# transports (iroh, Tor), file transfer, per-file locking, invitations,
+# Privacy HP.
+[features]
+default = []
+# iroh's n0 relays and pkarr/DNS discovery. Without it iroh runs with relays
+# disabled: direct QUIC by ticket and the Tor onion transport keep working,
+# reconnecting to a bare NodeId does not.
+hosted_relays = []
+# The Mainline DHT: join by room code, the nickname directory, presence. It
+# rides the endpoint's hosted discovery, hence the requirement.
+dht = ["hosted_relays", "dep:mainline", "iroh/address-lookup-pkarr-dht"]
+# 1:1 voice calls (the Vox tab) and their network protocol.
+calls = ["dep:rustfft"]
+# Contacts and direct room invites, and their network protocol.
+contacts = []
+# Meetings and polls. Frontend only — there is no Rust behind it.
+calendar = []
+# Offline maps (the Map tab).
+maps = ["dep:pmtiles"]
+# The key ring: one passphrase locking many local files.
+keyring = []
+# Re-opening an idle-locked vault with a PIN.
+pin_unlock = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 # build_config.yaml → generated consts (see build.rs). Build-time only: the
@@ -54,8 +96,8 @@ zeroize = "1"
 cpal = "0.15"
 hound = "3"
 # Pure-Rust FFT for the voice-call equalizer (vox.rs → `vox://spectrum`); no C
-# toolchain, MSRV-safe.
-rustfft = "6"
+# toolchain, MSRV-safe. Only in a build with `calls`.
+rustfft = { version = "6", optional = true }
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }
 # Embedded pure-Rust Tor (arti). Outbound client plumbing (tor.rs) plus the
 # peer-hosted onion transport (p2p_tor.rs). `onion-service-service` enables
@@ -76,13 +118,15 @@ safelog = "0.8"
 typed-index-collections = "=3.3.0"
 data-encoding = "2"
 # Direct P2P chat backend (iroh-gossip over QUIC) — the app's only transport.
-# `address-lookup-pkarr-dht` adds Mainline-DHT publish/resolve of node addresses
-# (serverless discovery, opt-in via the Settings DHT toggle — technology.md §12).
-iroh = { version = "0.98", features = ["address-lookup-pkarr-dht"] }
+# The `dht` build feature adds iroh's `address-lookup-pkarr-dht`: Mainline-DHT
+# publish/resolve of node addresses (serverless discovery, opt-in via the
+# Settings DHT toggle — technology.md §12).
+iroh = "0.98"
 iroh-gossip = "0.98"
 # Direct BEP44 access to the Mainline DHT for the room-rendezvous records
 # (p2p_dht.rs). Same crate/version iroh's DHT feature resolves — no dup tree.
-mainline = { version = "6", features = ["async"] }
+# Only in a build with `dht`.
+mainline = { version = "6", features = ["async"], optional = true }
 # Seals rendezvous records so DHT observers can't read room membership.
 # 0.10 pinned: 0.11 changes the aead API surface.
 chacha20poly1305 = "0.10"
@@ -91,7 +135,8 @@ blake3 = "1"
 bytes = "1"
 # PMTiles read (mmap local blobs + custom range-HTTP backend) and write (region
 # extraction). Kept to the minimal feature set: no reqwest/S3/zstd/brotli.
-pmtiles = { version = "0.23", default-features = false, features = ["write", "mmap-async-tokio"] }
+# Only in a build with `maps`.
+pmtiles = { version = "0.23", default-features = false, features = ["write", "mmap-async-tokio"], optional = true }
 futures-lite = "2"
 anyhow = "1"
 # Local key/value cache backend (pure-Rust LSM, no C deps — same rationale as

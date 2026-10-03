@@ -350,23 +350,10 @@ fn mls_caller_join(session: &mut RotorSession, welcome_b64: &str, call_id: &str)
 
 const TOR_BLOCKED: &str = "Voice calls are unavailable in Tor mode.";
 
-/// Returned by every vox command in a build with calls.enabled: false.
-pub(crate) const CALLS_DISABLED: &str = "Voice calls are disabled in this build.";
-
-/// Compile-time feature gate (technology.md §20): a calls-off edition never registers the
-/// vox ALPN either, so this only backstops a frontend that asks anyway.
-fn ensure_calls_enabled() -> Result<(), String> {
-    if !crate::build_config::calls::ENABLED {
-        return Err(CALLS_DISABLED.to_string());
-    }
-    Ok(())
-}
-
 /// Airplane mode blocks all networking; Tor-exclusive mode blocks voice because it
 /// is iroh-only (a direct QUIC call from a Tor-routed profile would leak the IP).
 /// Every network-touching command runs this first (mirrors file_xfer).
 fn check_network_policy(app: &AppHandle, config: &State<'_, AppConfigState>) -> Result<(), String> {
-    ensure_calls_enabled()?;
     if matches!(active_config(config), Ok(cfg) if crate::is_offline(&load_profile_state(app, &cfg))) {
         return Err(crate::file_xfer::OFFLINE_BLOCKED.to_string());
     }
@@ -1040,7 +1027,6 @@ pub async fn vox_call_node(
 
 #[tauri::command]
 pub async fn vox_accept(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), String> {
-    ensure_calls_enabled()?;
     if let Some(tx) = vox.shared(&app).pending.lock().unwrap().take() {
         let _ = tx.send(true);
     }
@@ -1049,7 +1035,6 @@ pub async fn vox_accept(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), 
 
 #[tauri::command]
 pub async fn vox_decline(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), String> {
-    ensure_calls_enabled()?;
     if let Some(tx) = vox.shared(&app).pending.lock().unwrap().take() {
         let _ = tx.send(false);
     }
@@ -1058,7 +1043,6 @@ pub async fn vox_decline(app: AppHandle, vox: State<'_, VoxState>) -> Result<(),
 
 #[tauri::command]
 pub async fn vox_hangup(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), String> {
-    ensure_calls_enabled()?;
     let shared = vox.shared(&app);
     shared.generation.fetch_add(1, Ordering::SeqCst);
     if let Some(tx) = shared.pending.lock().unwrap().take() {
@@ -1072,7 +1056,6 @@ pub async fn vox_hangup(app: AppHandle, vox: State<'_, VoxState>) -> Result<(), 
 
 #[tauri::command]
 pub async fn vox_set_mute(app: AppHandle, vox: State<'_, VoxState>, muted: bool) -> Result<(), String> {
-    ensure_calls_enabled()?;
     vox.shared(&app).mute.store(muted, Ordering::SeqCst);
     Ok(())
 }

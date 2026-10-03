@@ -44,22 +44,6 @@ use tauri::{AppHandle, Manager};
 const SETTINGS_NS: &str = "p2p:settings";
 const SETTINGS_SCOPE: &str = "default";
 
-/// Returned by the `dht_*` commands that would otherwise do real work in a
-/// build with `dht.enabled: false` (Pro-only — technology.md §20). Mirrors MAPS_DISABLED
-/// / PEERS_DISABLED. `dht_status` and `dht_room_code` deliberately do NOT use
-/// it: both already have a total "nothing here" value in their own return type.
-pub(crate) const DHT_DISABLED: &str = "DHT discovery is disabled in this build.";
-
-/// Fail-fast guard for those commands. Checked before the offline/Tor gates so
-/// a DHT-less build never reaches `ensure_started` — which would bind the whole
-/// iroh endpoint and open a relay connection for a call that cannot succeed.
-pub(crate) fn ensure_enabled() -> Result<(), String> {
-    if !crate::build_config::dht::ENABLED {
-        return Err(DHT_DISABLED.to_string());
-    }
-    Ok(())
-}
-
 /// True in Tor-exclusive mode, where iroh (and therefore every DHT function)
 /// is torn down.
 fn tor_exclusive(app: &AppHandle) -> bool {
@@ -70,40 +54,30 @@ fn tor_exclusive(app: &AppHandle) -> bool {
     }
 }
 
-/// The opt-in toggle. Edition gate first, then the relay/discovery kill switch,
-/// then Tor mode, then the user's setting; locked vault / missing key ⇒ the
-/// build-config default. Single choke point: gates DhtHandle,
+/// The opt-in toggle: Tor mode first, then the user's setting; locked vault /
+/// missing key ⇒ the build-config default. Single choke point: gates DhtHandle,
 /// DhtAddressLookup, the nick publisher, dht_status and ticketless joins.
 ///
-/// The build gate sits ABOVE the kv read on purpose: a profile carrying
-/// `dht_discovery: "on"` from a Pro build must read as off here, without the
-/// key being rewritten (the same profile reopened by Pro keeps the choice).
+/// The build gate is this module existing at all — it is only compiled into a
+/// build with the `dht` feature, which in turn requires `hosted_relays`. In a
+/// build without it, p2p_dht_off.rs answers false here whatever the profile
+/// says, so a profile carrying `dht_discovery: "on"` reads as off without the
+/// key being rewritten (the same profile reopened by a DHT build keeps it).
 ///
 /// Tor mode returns false unconditionally: the DHT rides the iroh endpoint,
 /// which Tor-exclusive mode shuts down, and a pkarr record would publish a
 /// relay address this profile is deliberately not using.
 pub fn discovery_enabled(app: &AppHandle) -> bool {
-    if !crate::build_config::dht::ENABLED {
-        return false;
-    }
-    if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
-        return false;
-    }
     if tor_exclusive(app) {
         return false;
     }
     match crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_discovery") {
         Some(v) => v == "on",
-        None => crate::build_config::features::DHT_DISCOVERY_DEFAULT,
+        None => crate::build_config::defaults::DHT_DISCOVERY_DEFAULT,
     }
 }
 
-fn setting_secs(app: &AppHandle, key: &str, default: u64, min: u64, max: u64) -> u64 {
-    crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, key)
-        .and_then(|v| v.parse::<u64>().ok())
-        .map(|v| v.clamp(min, max))
-        .unwrap_or(default)
-}
+use crate::net_settings::setting_secs;
 
 /// Rendezvous publish interval. Re-read every round so Settings edits apply live.
 /// Default + clamp bounds come from build_config.yaml (settings section).
@@ -118,21 +92,6 @@ fn room_publish_secs(app: &AppHandle) -> u64 {
     )
 }
 
-/// The user-set connect deadline (same value the frontend's join window uses —
-/// see technology.md §15: never hardcode a connect deadline). Bounds how long
-/// the rendezvous resolver keeps retrying after a ticketless join.
-/// Default + clamp bounds come from build_config.yaml (settings section).
-pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
-    use crate::build_config::settings as s;
-    setting_secs(
-        app,
-        "connect_timeout_secs",
-        s::CONNECT_TIMEOUT_DEFAULT_SECS,
-        s::CONNECT_TIMEOUT_MIN_SECS,
-        s::CONNECT_TIMEOUT_MAX_SECS,
-    )
-}
-
 /// Opt-in "findable by nickname" toggle (Contacts tab). Missing key ⇒ the
 /// build-config default; inert in a build without the DHT or without hosted
 /// relays, and in Tor mode (nothing to announce — see `discovery_enabled`).
@@ -141,18 +100,12 @@ pub fn connect_timeout_secs(app: &AppHandle) -> u64 {
 /// only be spawned when that returned true — but kept honest so the function
 /// answers its own question when read in isolation.
 pub fn nick_publish_enabled(app: &AppHandle) -> bool {
-    if !crate::build_config::dht::ENABLED {
-        return false;
-    }
-    if !crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
-        return false;
-    }
     if tor_exclusive(app) {
         return false;
     }
     match crate::vault::kv_get_raw(app, SETTINGS_NS, SETTINGS_SCOPE, "dht_nick_publish") {
         Some(v) => v == "on",
-        None => crate::build_config::features::DHT_NICK_PUBLISH_DEFAULT,
+        None => crate::build_config::defaults::DHT_NICK_PUBLISH_DEFAULT,
     }
 }
 

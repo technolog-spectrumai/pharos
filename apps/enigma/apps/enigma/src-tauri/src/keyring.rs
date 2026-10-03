@@ -45,9 +45,6 @@ use tauri::{AppHandle, Manager};
 
 // ── constants / gates ─────────────────────────────────────────────────────────
 
-/// Returned by every keyring command in a build with keyring.enabled: false.
-pub(crate) const KEYRING_DISABLED: &str = "Key ring is disabled in this build.";
-
 /// Marks the ring file.
 const RING_MAGIC: &[u8; 8] = b"ENIGRING";
 const RING_VERSION: u8 = 1;
@@ -69,13 +66,6 @@ const LOCKED_EXT: &str = ".enigr";
 const RING_FILE: &str = "keyring.enig";
 const RING_DIR: &str = "keyrings";
 const DEFAULT_RING_ID: &str = "default";
-
-fn ensure_keyring_enabled() -> Result<(), String> {
-    if !crate::build_config::keyring::ENABLED {
-        return Err(KEYRING_DISABLED.to_string());
-    }
-    Ok(())
-}
 
 // ── public result types ───────────────────────────────────────────────────────
 
@@ -710,7 +700,6 @@ fn summarize(id: &str, path: &Path) -> Option<KeyringSummary> {
 /// picker can show WHICH rings exist without opening any.
 #[tauri::command]
 pub fn keyring_list(app: AppHandle) -> Result<Vec<KeyringSummary>, String> {
-    ensure_keyring_enabled()?;
     let root = profile_root(&app)?;
     let mut rings = Vec::new();
     if let Some(s) = summarize(DEFAULT_RING_ID, &root.join(RING_FILE)) {
@@ -739,7 +728,6 @@ pub fn keyring_list(app: AppHandle) -> Result<Vec<KeyringSummary>, String> {
 /// passphrase and its own set of locked files.
 #[tauri::command]
 pub fn keyring_create(app: AppHandle, name: String, passphrase: String) -> Result<String, String> {
-    ensure_keyring_enabled()?;
     let root = profile_root(&app)?;
     // First ring on a profile that never had one keeps the legacy path, so the
     // common single-ring case stays exactly where it always was.
@@ -765,7 +753,6 @@ pub fn keyring_rename(
     passphrase: String,
     name: String,
 ) -> Result<(), String> {
-    ensure_keyring_enabled()?;
     rename_at(&ring_path(&app, &ring_id)?, &passphrase, &name)
 }
 
@@ -773,7 +760,6 @@ pub fn keyring_rename(
 /// every `.enigr` file it owns permanently unopenable.
 #[tauri::command]
 pub fn keyring_delete(app: AppHandle, ring_id: String, passphrase: String) -> Result<(), String> {
-    ensure_keyring_enabled()?;
     let path = ring_path(&app, &ring_id)?;
     let (_, _, table) = read_ring(&path, &passphrase)?;
     if !table.entries.is_empty() {
@@ -787,7 +773,6 @@ pub fn keyring_delete(app: AppHandle, ring_id: String, passphrase: String) -> Re
 
 #[tauri::command]
 pub fn keyring_status(app: AppHandle, ring_id: String) -> Result<KeyringStatus, String> {
-    ensure_keyring_enabled()?;
     status_at(&ring_path(&app, &ring_id)?)
 }
 
@@ -798,7 +783,6 @@ pub fn keyring_lock(
     passphrase: String,
     paths: Vec<String>,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
-    ensure_keyring_enabled()?;
     lock_at(&ring_path(&app, &ring_id)?, &passphrase, &paths)
 }
 
@@ -809,7 +793,6 @@ pub fn keyring_unlock(
     passphrase: String,
     paths: Vec<String>,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
-    ensure_keyring_enabled()?;
     unlock_at(&ring_path(&app, &ring_id)?, &passphrase, &paths)
 }
 
@@ -819,7 +802,6 @@ pub fn keyring_unlock_all(
     ring_id: String,
     passphrase: String,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
-    ensure_keyring_enabled()?;
     unlock_all_at(&ring_path(&app, &ring_id)?, &passphrase)
 }
 
@@ -829,7 +811,6 @@ pub fn keyring_entries(
     ring_id: String,
     passphrase: String,
 ) -> Result<Vec<KeyringEntryInfo>, String> {
-    ensure_keyring_enabled()?;
     entries_at(&ring_path(&app, &ring_id)?, &passphrase)
 }
 
@@ -840,7 +821,6 @@ pub fn keyring_change_passphrase(
     old: String,
     new: String,
 ) -> Result<(), String> {
-    ensure_keyring_enabled()?;
     change_passphrase_at(&ring_path(&app, &ring_id)?, &old, &new)
 }
 
@@ -854,7 +834,6 @@ pub fn keyring_rotate(
     old: String,
     new: String,
 ) -> Result<Vec<KeyringFileOutcome>, String> {
-    ensure_keyring_enabled()?;
     let outcomes = rotate_at(&ring_path(&app, &ring_id)?, &old, &new)?;
     // Privacy HP: re-encrypting the data itself out-pays re-wrapping the key
     // above it, so this credits more than a passphrase change (privacy_hp.yaml).

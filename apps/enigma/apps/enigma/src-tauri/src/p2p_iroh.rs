@@ -22,8 +22,10 @@ use std::sync::{Arc, Mutex as StdMutex};
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures_lite::StreamExt;
+#[cfg(feature = "dht")]
+use iroh::address_lookup::pkarr::dht::DhtAddressLookup;
 use iroh::{
-    address_lookup::{memory::MemoryLookup, pkarr::dht::DhtAddressLookup},
+    address_lookup::memory::MemoryLookup,
     endpoint::presets,
     protocol::Router,
     Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey,
@@ -121,10 +123,10 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     // presets::N0 keeps iroh's built-in n0 relay + discovery (pkarr/DNS): peers
     // publish their own addresses and NodeId-only dials resolve without any app
     // server. The QR ticket (EndpointAddr) is the bootstrap; discovery is the
-    // auto-refresh when addresses change later. A build with
-    // p2p.allow_hosted_relays: false drops all of that (Minimal + Disabled,
-    // direct QUIC only) — the MemoryLookup ticket path stays on both arms.
-    let mut builder = if crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+    // auto-refresh when addresses change later. A build without the
+    // `hosted_relays` feature drops all of that (Minimal + Disabled, direct
+    // QUIC only) — the MemoryLookup ticket path stays on both arms.
+    let mut builder = if crate::features::HOSTED_RELAYS {
         Endpoint::builder(presets::N0).relay_mode(RelayMode::Default)
     } else {
         Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled)
@@ -132,6 +134,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     builder = builder
         .secret_key(secret)
         .address_lookup(lookup.clone()); // ticket path (QR bootstrap)
+    #[cfg(feature = "dht")]
     if dht_enabled {
         // Mainline-DHT address lookup stacked on n0 (lookups race in parallel):
         // publishes our pkarr record to the DHT (relay addrs only, the privacy
@@ -152,12 +155,12 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
         .max_message_size(crate::build_config::network::MAX_FRAME_BYTES)
         .spawn(endpoint.clone());
     // Gossip is the chat channel itself and is always accepted. The invite and
-    // vox ALPNs belong to build-gated features (technology.md §20): an edition without
-    // Contacts / Calls does not merely hide their UI — it never advertises the
-    // protocol, so a dial from a higher-edition peer is refused at the ALPN
+    // vox ALPNs belong to build features (technology.md §20): a build without
+    // `contacts` / `calls` does not merely hide their UI — the protocol is not
+    // compiled in, so a dial from a peer that has it is refused at the ALPN
     // negotiation rather than ringing a surface that isn't there.
     let mut router = Router::builder(endpoint.clone()).accept(GOSSIP_ALPN, gossip.clone());
-    // Invitation redemption. Unlike the surfaces below it is NOT edition-gated:
+    // Invitation redemption. Unlike the surfaces below it is NOT a build feature:
     // an invitation is how someone joins a room, and a build that could mint one
     // but not honour one would strand every invitation it issued.
     router = router.accept(
@@ -167,7 +170,8 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
             tauri::Manager::state::<crate::invite_redeem::RedeemState>(app).inner().clone(),
         ),
     );
-    if crate::build_config::contacts::ENABLED {
+    #[cfg(feature = "contacts")]
+    {
         // Direct room invites from contacts ride this same endpoint, so a contact
         // is invitable at the stable NodeId they already have saved.
         router = router.accept(
@@ -178,7 +182,8 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
             ),
         );
     }
-    if crate::build_config::calls::ENABLED {
+    #[cfg(feature = "calls")]
+    {
         // Voice calls (vox) ride this same endpoint too, so a callee is reachable at
         // the stable NodeId their contacts/nickname already resolve to.
         router = router.accept(
@@ -293,7 +298,7 @@ fn spawn_rendezvous_resolver(
         // Deadline = the user-set connect timeout (the frontend's join window
         // spans the same setting — never a hardcoded connect deadline).
         let deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&app));
+            + std::time::Duration::from_secs(crate::net_settings::connect_timeout_secs(&app));
         loop {
             if neighbors.lock().map(|s| !s.is_empty()).unwrap_or(false) {
                 break;
@@ -421,6 +426,7 @@ fn abort_dht_tasks(handle: &RoomHandle) {
 ///
 /// The frontend opens the room before calling this, so an accepting invitee finds
 /// a live member for MLS admission.
+#[cfg(feature = "contacts")]
 pub async fn invite_send(
     app: &AppHandle,
     state: &P2pState,
@@ -458,6 +464,7 @@ pub async fn invite_send(
 /// `VOX_ALPN` on this same router). `peer` — a vox ticket's embedded address — is
 /// seeded into discovery so the dial can resolve it, exactly as `join_room` seeds
 /// room tickets.
+#[cfg(feature = "calls")]
 pub async fn vox_endpoint(
     app: &AppHandle,
     state: &P2pState,
@@ -479,6 +486,7 @@ pub async fn vox_endpoint(
 /// room command does) — otherwise a freshly-applied toggle would always read
 /// "unreachable" purely because `dht_apply` tore the node down. `running=false`
 /// then means: not allowed to start (offline/Tor) or the DHT bind failed.
+#[cfg(feature = "dht")]
 pub async fn dht_status(app: &AppHandle, state: &P2pState, may_start: bool) -> (bool, bool, bool) {
     if !crate::p2p_dht::discovery_enabled(app) {
         return (false, false, false);
@@ -496,6 +504,7 @@ pub async fn dht_status(app: &AppHandle, state: &P2pState, may_start: bool) -> (
 
 /// "Recently online" per contact NodeId, via the pkarr records DHT-enabled
 /// peers publish (technology.md §12). Starts the node lazily like every network command.
+#[cfg(feature = "dht")]
 pub async fn dht_presence(
     app: &AppHandle,
     state: &P2pState,
@@ -509,6 +518,7 @@ pub async fn dht_presence(
 
 /// One awaited nickname-claim publish (the Contacts "Publish" button): success
 /// means the record reached the DHT's storage nodes.
+#[cfg(feature = "dht")]
 pub async fn dht_publish_nick(app: &AppHandle, state: &P2pState) -> Result<()> {
     ensure_started(app, state).await?;
     let (dht, self_id) = {
@@ -526,6 +536,7 @@ pub async fn dht_publish_nick(app: &AppHandle, state: &P2pState) -> Result<()> {
 
 /// Nickname-directory search (Contacts "Find people"). Returns every fresh
 /// CLAIM on the name — `(node_id, claimed display name, ts)` — freshest first.
+#[cfg(feature = "dht")]
 pub async fn dht_find_nick(
     app: &AppHandle,
     state: &P2pState,

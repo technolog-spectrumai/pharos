@@ -1,39 +1,19 @@
-# Enigma26 build configuration — baked in at COMPILE TIME by src-tauri/build.rs.
-# build.rs validates this file, generates Rust consts from it (enigma_lib's
-# `build_config` module), and FAILS THE BUILD on any invalid or missing value.
-# The shipped binary never re-reads this file. Defaults below match current
-# main exactly: a default build is behaviorally identical to one before this
-# file existed.
-
-app:
-  # Must MATCH tauri.conf.json (productName / identifier / version), which stays
-  # authoritative for the native bundle — build.rs asserts equality.
-  name: Enigma26
-  identifier: com.spectrumaipl.enigma26
-  version: 0.1.10
-
-
-p2p:
-  # false = iroh runs with RelayMode::Disabled (no n0-hosted relays) and all
-  # hosted discovery is off: pkarr/DNS publishing AND the Mainline DHT (which
-  # rides the same endpoint, so `dht.enabled` below cannot rescue it). Direct
-  # QUIC (ticket/QR bootstrap) and the Tor onion transport keep working, but
-  # reconnecting to a bare NodeId does not — nothing is left to resolve it.
-  allow_hosted_relays: true
-
-dht:
-  # false = the Mainline DHT is compiled out of reach: no rendezvous publishing,
-  # no ticketless join-by-room-code, no nickname directory, no presence. The
-  # Settings→Connections DHT card is hidden, the Contacts nickname/find-people
-  # surfaces go with it, and dht_presence / dht_publish_nick / dht_find_nick /
-  # dht_apply fail fast with DHT_DISABLED. Pro only (technology.md §20).
-  #
-  # Requires p2p.allow_hosted_relays — build.rs rejects the combination, since
-  # the rendezvous rides the iroh endpoint's hosted discovery.
-  #
-  # Note this is the BUILD gate. `features.dht_discovery` below is a different
-  # thing: the per-profile runtime default, which stays opt-in even in Pro.
-  enabled: true
+# Enigma26 build configuration — baked in at COMPILE TIME by build.rs, which
+# validates this file, generates Rust consts from it (`enigma_lib::build_config`)
+# and FAILS THE BUILD on any invalid or missing value. The shipped binary never
+# re-reads it.
+#
+# This file is the same for every build, and holds only what rarely changes:
+# crypto parameters, protocol constants, and the defaults and bounds of the
+# user's settings. What is NOT here, and who owns it instead:
+#
+#   which features a build contains   the root config — pro.yaml / std.yaml
+#                                     (`apps.enigma.features`), from the
+#                                     catalogue in Cargo.toml `[features]`
+#   name, identifier, version         tauri.conf.json
+#   the Privacy HP price table        privacy_hp.yaml
+#
+# See technology.md §15 for the full list of who owns what.
 
 crypto:
   # Declarations, ASSERTED at compile time against Rutile's crypto crates
@@ -52,66 +32,41 @@ crypto:
     t_cost: 3
     p_cost: 4
 
-calls:
-  # false = this build has no 1:1 voice calls: no Calls tab, /calls redirects,
-  # stores/chat.ts never instantiates useVoxCall (so no call offer ever lands),
-  # and every vox_* command fails fast with CALLS_DISABLED.
-  enabled: true
+network:
+  # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the
+  # Tor transport frame AND the iroh-gossip message size. A peer built with a
+  # larger value can emit messages a smaller-cap peer rejects. Change only in
+  # lockstep across a fleet, and never per preset: a Standard user must be able
+  # to sit in a room with a Pro user.
+  max_frame_bytes: 16777216      # 16 MiB
+  # Not interop-sensitive: the virtual onion port rides inside each ticket, so
+  # joiners always use the ticket's value; changing it affects new tickets only.
+  onion_port: 9999
+  # Local-only tuning (no wire impact).
+  tor_write_timeout_secs: 20
+  tor_handshake_timeout_secs: 30
 
-contacts:
-  # false = this build has no Contacts: no Contacts tab, /contacts redirects,
-  # and useRoomInvites is never instantiated (direct room invites are neither
-  # sent nor received). DHT room codes are unaffected — only the presence /
-  # nickname-directory surface lives in Contacts.
-  enabled: true
-
-calendar:
-  # false = this build has no Calendar: no Calendar tab, /calendar redirects,
-  # useMeetings is never instantiated (no meetings, no polls, no reminder tick).
-  enabled: true
-
-
-maps:
-  # false = this build has no Maps: no Map tab, /map redirects, and every map_*
-  # command fails fast with MAPS_DISABLED. Default true ships the feature.
-  # The app NEVER fetches tiles itself — region packages are produced by the
-  # standalone tools/map_packager and imported from the device (technology.md §25).
-  enabled: true
-
-# PIN unlock: after an idle lock, re-open the vault with a short PIN on an
-# on-screen keypad instead of retyping the passphrase. CONVENIENCE ONLY — the
-# PIN is memory-resident, so a restart still demands the passphrase and nothing
-# PIN-derived ever reaches disk (technology.md §7).
-lock:
-  # false = no PIN surface at all: no keypad, no Settings card, and the
-  # vault_pin_* commands fail with PIN_UNLOCK_DISABLED.
-  pin_unlock: true
-
-keyring:
-  # false = this build has no key ring (one passphrase locking MANY local
-  # files): every keyring_* command fails fast with KEYRING_DISABLED. The ring
-  # file (<profile_dir>/keyring.enig) is device-local and never synced; the
-  # per-file "lock a file" (local_lock.rs) is unaffected — it is always in.
-  enabled: true
-
-
-features:
-  # Initial values for a NEW profile's toggles. Runtime Settings switches still
-  # override per profile; profiles saved by any build keep their stored values.
-  # "offline" (airplane mode) is deliberately not configurable — always starts
-  # off.
+defaults:
+  # Initial values of a NEW profile's runtime toggles — the user's own opt-ins,
+  # not what the build contains. A feature being compiled in does not turn it
+  # on: a build with `dht` still starts every new profile with discovery off.
+  # Settings switches override these per profile, and a profile saved by any
+  # build keeps its stored values. A toggle whose feature is not in the build
+  # is never read. "offline" (airplane mode) is deliberately not here — it
+  # always starts off.
   use_tor: false
   stable_onion: false
   dht_discovery: false
   dht_nick_publish: false
-  # Verify chunked P2P transfers with a per-chunk hash chain (Settings toggle
-  # default). Off = trust the transport; either SIDE turning it on enforces it.
+  # Verify chunked P2P transfers with a per-chunk hash chain. Off = trust the
+  # transport; either SIDE turning it on enforces it.
   file_integrity: true
 
 settings:
-  # Defaults + clamp bounds for the user-tunable settings. The encrypted KV
-  # store (ns p2p:settings) remains the runtime source of truth; these only
-  # seed and bound it. Build-checked invariant: min <= default <= max.
+  # Defaults + bounds for the user-tunable settings. The encrypted store (kv
+  # namespace p2p:settings) is the runtime source of truth; these only seed and
+  # bound it. Build-checked invariant: min <= default <= max. The same for
+  # every preset, including settings whose feature a build leaves out.
   connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
   dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
   max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
@@ -127,16 +82,3 @@ settings:
   # Digits in the unlock PIN. Each extra digit is ~3.3 bits; the PIN guards an
   # in-session re-unlock only, never data at rest.
   pin_digits:               { default: 6, min: 4, max: 12 }
-
-network:
-  # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the
-  # Tor transport frame AND the iroh-gossip message size. A peer built with a
-  # larger value can emit messages a smaller-cap peer rejects. Change only in
-  # lockstep across a fleet.
-  max_frame_bytes: 16777216      # 16 MiB
-  # Not interop-sensitive: the virtual onion port rides inside each ticket, so
-  # joiners always use the ticket's value; changing it affects new tickets only.
-  onion_port: 9999
-  # Local-only tuning (no wire impact).
-  tor_write_timeout_secs: 20
-  tor_handshake_timeout_secs: 30

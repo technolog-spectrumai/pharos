@@ -132,7 +132,7 @@ impl InviteProtocol {
 
         // Decision window = the user-set connect timeout (never hardcoded); the
         // inviter waits 2× this, so an answer at the buzzer still lands.
-        let window = Duration::from_secs(crate::p2p_dht::connect_timeout_secs(&self.app));
+        let window = Duration::from_secs(crate::net_settings::connect_timeout_secs(&self.app));
         let accepted = matches!(tokio::time::timeout(window, rx).await, Ok(Ok(true)));
         self.pending.0.lock().await.remove(&invite_id);
         // Clears a stale card if the window lapsed without an answer (harmless
@@ -172,7 +172,7 @@ pub async fn send(
     let id: EndpointId = node_id.parse().map_err(|_| anyhow!("invalid contact code"))?;
     // 2×N: N for the dial, N for the invitee's human decision window (which is
     // N on their side) — the same shape as the join modal's 2×N lifetime.
-    let window = Duration::from_secs(2 * crate::p2p_dht::connect_timeout_secs(app));
+    let window = Duration::from_secs(2 * crate::net_settings::connect_timeout_secs(app));
     let exchange = async move {
         let conn = endpoint
             .connect(id, INVITE_ALPN)

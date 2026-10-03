@@ -78,7 +78,7 @@ pub(crate) fn file_integrity_enabled(app: &AppHandle) -> bool {
     match crate::vault::kv_get_raw(app, "p2p:settings", "default", "file_integrity").as_deref() {
         Some("on") => true,
         Some("off") => false,
-        _ => crate::build_config::features::FILE_INTEGRITY_DEFAULT,
+        _ => crate::build_config::defaults::FILE_INTEGRITY_DEFAULT,
     }
 }
 
@@ -533,7 +533,7 @@ async fn ensure_started(app: &AppHandle, state: &FileXferState) -> Result<()> {
     }
     // Hosted-infra policy is build-time: N0 = n0 relay + pkarr/DNS discovery,
     // Minimal + Disabled = direct QUIC only (same pair the vox tests use).
-    let builder = if crate::build_config::p2p::ALLOW_HOSTED_RELAYS {
+    let builder = if crate::features::HOSTED_RELAYS {
         Endpoint::builder(presets::N0).relay_mode(RelayMode::Default)
     } else {
         Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled)

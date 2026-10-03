@@ -30,8 +30,6 @@ use crate::vault;
 
 // ── constants / gates ─────────────────────────────────────────────────────────
 
-/// Returned by every map command in a build with maps.enabled: false.
-pub(crate) const MAPS_DISABLED: &str = "Maps are disabled in this build.";
 /// Error prefix contract for the storage budget (frontend matches on it).
 pub(crate) const MAPS_STORAGE_LIMIT: &str = "MAPS_STORAGE_LIMIT";
 /// Error prefix contract for a package whose tiles the bundled style cannot
@@ -65,13 +63,6 @@ const NAME_MAX_LEN: usize = 120;
 const SOURCE_URL_MAX_LEN: usize = 2048;
 const ZOOM_MAX: u8 = 22;
 const MANIFEST_VERSION: u32 = 1;
-
-fn ensure_maps_enabled() -> Result<(), String> {
-    if !crate::build_config::maps::ENABLED {
-        return Err(MAPS_DISABLED.to_string());
-    }
-    Ok(())
-}
 
 // ── settings (encrypted kv is the runtime source of truth; build config seeds
 //    and bounds — see technology.md §15) ───────────────────────────────────────
@@ -330,7 +321,6 @@ async fn local_reader(
 /// tile_compression, so the webview always receives raw MVT/image data.
 #[tauri::command]
 pub async fn map_get_tile(app: AppHandle, z: u8, x: u32, y: u32) -> Result<tauri::ipc::Response, String> {
-    ensure_maps_enabled()?;
     if z > ZOOM_MAX {
         return Ok(tauri::ipc::Response::new(Vec::new()));
     }
@@ -379,7 +369,6 @@ pub fn map_debug_log(message: String) {
 
 #[tauri::command]
 pub async fn map_source_info(app: AppHandle) -> Result<Option<MapSourceInfo>, String> {
-    ensure_maps_enabled()?;
     let regions = read_regions(&app);
     if regions.is_empty() {
         return Ok(None);
@@ -402,7 +391,6 @@ pub async fn map_source_info(app: AppHandle) -> Result<Option<MapSourceInfo>, St
 /// The manifest list (validated). Also sweeps crash-leftover temp files.
 #[tauri::command]
 pub async fn map_regions_list(app: AppHandle) -> Result<Vec<MapRegionManifest>, String> {
-    ensure_maps_enabled()?;
     sweep_tmp(&app);
     Ok(read_regions(&app))
 }
@@ -411,7 +399,6 @@ pub async fn map_regions_list(app: AppHandle) -> Result<Vec<MapRegionManifest>, 
 /// manifest references the same content hash.
 #[tauri::command]
 pub async fn map_region_remove(app: AppHandle, id: String) -> Result<(), String> {
-    ensure_maps_enabled()?;
     let regions = read_regions(&app);
     let Some(removed) = regions.iter().find(|r| r.id == id).cloned() else {
         return Ok(());
@@ -445,7 +432,6 @@ pub struct MapStorageUsage {
 
 #[tauri::command]
 pub async fn map_storage_usage(app: AppHandle) -> Result<MapStorageUsage, String> {
-    ensure_maps_enabled()?;
     Ok(MapStorageUsage {
         used_bytes: blob_bytes_used(&maps_dir(&app)?),
         limit_bytes: storage_limit_bytes(&app),
@@ -464,7 +450,6 @@ pub async fn map_region_offer(
     file: State<'_, crate::file_xfer::FileXferState>,
     id: String,
 ) -> Result<crate::file_xfer::OfferCreated, String> {
-    ensure_maps_enabled()?;
     let regions = read_regions(&app);
     let region = regions
         .iter()
@@ -483,7 +468,6 @@ pub async fn map_region_offer(
 /// it to `file_download`, then to `map_region_import` once the transfer ends.
 #[tauri::command]
 pub async fn map_region_recv_path(app: AppHandle, offer_id: String) -> Result<String, String> {
-    ensure_maps_enabled()?;
     let safe: String = offer_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
@@ -610,7 +594,6 @@ pub async fn map_region_import(
     path: String,
     manifest_json: Option<String>,
 ) -> Result<MapRegionManifest, String> {
-    ensure_maps_enabled()?;
     let src = PathBuf::from(&path);
     if !src.is_file() {
         return Err("file not found".into());
@@ -692,7 +675,6 @@ pub async fn map_region_import(
 /// `<stem>.manifest.json` sidecar next to it (the pair a receiver imports).
 #[tauri::command]
 pub async fn map_region_export(app: AppHandle, id: String, dest_path: String) -> Result<(), String> {
-    ensure_maps_enabled()?;
     let regions = read_regions(&app);
     let region = regions
         .iter()
