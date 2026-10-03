@@ -30,7 +30,7 @@ TO="$SRC_TAURI/target-$PROFILE"
 # binary and an afternoon of confusion.
 if pgrep -f 'tauri dev|cargo (run|build|check)' >/dev/null 2>&1; then
   echo "[adopt] A dev instance or Cargo build is running." >&2
-  echo "[adopt] Stop both instances first (Ctrl-C in run2.sh), then re-run this." >&2
+  echo "[adopt] Stop both instances first (Ctrl-C in run_dev.sh --dual), then re-run this." >&2
   exit 1
 fi
 
