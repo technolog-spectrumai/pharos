@@ -1,3 +1,0 @@
-# GUI tool (main.py) dependencies = the CLI download deps + PyQt6.
--r requirements-download.txt
-PyQt6>=6.6
