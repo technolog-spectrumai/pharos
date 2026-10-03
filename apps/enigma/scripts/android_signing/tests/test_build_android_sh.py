@@ -18,9 +18,9 @@ import signing
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ANDROID_GEN = REPO_ROOT / "apps" / "enigma" / "src-tauri" / "gen" / "android"
-SCRIPT = REPO_ROOT / "scripts" / "build_android.sh"
+SCRIPT = REPO_ROOT / "rutile" / "scripts" / "build_android.sh"
 
-TOOL_DIR = Path(__file__).resolve().parents[1]
+TOOL_DIR = REPO_ROOT / "rutile" / "scripts" / "android_signing"
 
 
 def script_text() -> str:

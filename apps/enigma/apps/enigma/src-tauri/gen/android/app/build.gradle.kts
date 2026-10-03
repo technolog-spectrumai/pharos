@@ -19,7 +19,7 @@ val tauriProperties = Properties().apply {
 // ── Release signing ──────────────────────────────────────────────────────────
 //
 // Credential precedence, per key (storeFile, storePassword, keyAlias,
-// keyPassword) — mirrored in Python by scripts/android_signing/signing.py; keep
+// keyPassword) — mirrored in Python by rutile/scripts/android_signing/signing.py; keep
 // the two in lockstep (its check_gradle() asserts these names appear here):
 //
 //   1. a ${VAR} placeholder in gen/android/keystore.properties;

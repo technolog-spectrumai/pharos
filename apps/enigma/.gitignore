@@ -7,9 +7,7 @@ build/
 target/
 **/target/
 
-# Tauri's generated capability schemas. Globbed, not anchored: four apps carry
-# a src-tauri now, and an anchored path would silently stop matching the moment
-# one moved. Came from the zinnia root ignore when its app set was annexed.
+# Tauri's generated capability schemas.
 **/gen/schemas/
 dist-ssr/
 *.local
@@ -18,12 +16,10 @@ dist-ssr/
 target-*/
 **/target-*/
 *.wasm
+# Enigma's app crate and protasius are standalone crates whose resolution is not
+# committed — which is what their MSRV pin comments assume. (Rutile's crypto
+# workspace commits its own lock, inside the submodule.)
 Cargo.lock
-# ...except the ROOT workspace lock. The zinnia app set is one cargo workspace
-# (see the root Cargo.toml) and commits its resolution deliberately; enigma's
-# own app crate and protasius are outside that workspace and stay ignored, which
-# is what their MSRV pin comments assume.
-!/Cargo.lock
 
 # The `custom` Enigma edition (`edition: custom` in build.yaml): a local feature
 # set of your own. basic/standard/professional stay checked in; this never is.

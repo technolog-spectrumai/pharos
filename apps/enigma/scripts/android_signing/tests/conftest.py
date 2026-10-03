@@ -1,4 +1,8 @@
-"""Make signing.py importable from tests/, and keep tests off real credentials.
+"""Enigma's Android signing contract, tested against Rutile's checker.
+
+The module under test is Rutile's (rutile/scripts/android_signing); the tests
+live here because what they assert is ENIGMA's: that its Gradle signing block,
+its pin file and its .gitignore still say what the checker expects.
 
     python3 -m pytest scripts/android_signing/tests
 """
@@ -10,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "rutile" / "scripts" / "android_signing"))
 
 
 @pytest.fixture(autouse=True)

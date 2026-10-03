@@ -2,9 +2,10 @@
   "name": "enigma-workspace",
   "private": true,
   "version": "0.1.10",
-  "description": "Monorepo for Enigma26 (serverless P2P chat, iroh + MLS) and Morion, the Zinnia file editor. Shared primitives in packages/, shared Rust in crates/.",
+  "description": "Enigma26: serverless, end-to-end-encrypted P2P chat (iroh + MLS). Built on Rutile (mounted at rutile/), which brings the crypto, the shared front end and the build tooling.",
   "workspaces": [
     "packages/*",
+    "rutile/packages/*",
     "apps/*"
   ],
   "scripts": {
@@ -12,12 +13,7 @@
     "build": "bash build.sh",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:zinnia": "bash scripts/zinnia/run_dev.sh",
-    "build:frontends": "npm run build --workspaces --if-present",
-    "test:rust": "cargo test --workspace",
-    "test:rust:net": "cargo check -p collab --features net && cargo test -p collab --features net && cargo test -p collab --features mls && cargo test -p collab --features \"net mls\"",
-    "test:build": "node --test scripts/build_plan.test.mjs",
-    "test:all": "npm run test && npm run test:build && npm run test:rust && npm run test:rust:net"
+    "test:all": "bash tests.sh"
   },
   "devDependencies": {
     "yaml": "^2.9.1"

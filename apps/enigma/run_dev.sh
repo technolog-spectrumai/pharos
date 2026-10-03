@@ -15,14 +15,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 
-# step/warn/die, the toolchain checks, the snap trap and the dependency install
-# — shared with Morion's runner (scripts/lib.sh).
-. "$SCRIPT_DIR/scripts/lib.sh"
+# Everything below is Rutile's; without the submodule there is nothing to run.
+[ -f "$SCRIPT_DIR/rutile/scripts/lib.sh" ] || {
+  echo "rutile/ is empty — this repo is built on the Rutile submodule." >&2
+  echo "  git submodule update --init" >&2
+  exit 1
+}
 
-# The crypto crates: the in-repo copy at crates/rotor, unless ROTOR_PATH says
-# otherwise.
-. "$SCRIPT_DIR/scripts/rotor_path.sh"
-resolve_rotor "$SCRIPT_DIR"
+# step/warn/die, the toolchain checks, the snap trap and the dependency install
+# — Rutile's, shared with every app built on it.
+. "$SCRIPT_DIR/rutile/scripts/lib.sh"
 
 # Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
 # switch still defaults OFF). Override: ENIGMA_EDITION=basic ./run_dev.sh

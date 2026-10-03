@@ -71,7 +71,7 @@ export const policy = {
 } as const;
 
 /** Dev-tooling constants. `vitePort` MUST agree with vite.config.ts `server.port`,
- *  tauri.conf.json `devUrl`, and scripts/tauri-dev-server.mjs — this is the
+ *  tauri.conf.json `devUrl` (which Rutile's dev-server shim reads) — this is the
  *  documented reference for that value (those files own their own copy today). */
 export const dev = {
   vitePort: 1420,

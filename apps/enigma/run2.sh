@@ -16,7 +16,7 @@
 # Each instance gets its own APP_PROFILE / CHAT_USER, so they keep separate data
 # dirs and identity namespaces (no cross-instance identity reuse). Both instances
 # share a single Vite dev server on :1420 — the first instance starts it, the
-# second reuses it (see apps/enigma/scripts/tauri-dev-server.mjs), so there is no
+# second reuses it (see rutile/scripts/tauri-dev-server.mjs), so there is no
 # port collision. The two Rust/webview app processes are independent.
 #
 # Note: because the Vite server is a child of the first instance, closing the
@@ -27,8 +27,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/apps/enigma"
 
+# Everything below is Rutile's; without the submodule there is nothing to run.
+[ -f "$SCRIPT_DIR/rutile/scripts/lib.sh" ] || {
+  echo "rutile/ is empty — this repo is built on the Rutile submodule." >&2
+  echo "  git submodule update --init" >&2
+  exit 1
+}
+
 # step/warn/die, the toolchain checks, the snap trap and the dependency install.
-. "$SCRIPT_DIR/scripts/lib.sh"
+. "$SCRIPT_DIR/rutile/scripts/lib.sh"
 
 # Dev default: the Pro edition (cloud-capable — the Cloud tab exists; its master
 # switch still defaults OFF). Both launch() subshells inherit the export.
