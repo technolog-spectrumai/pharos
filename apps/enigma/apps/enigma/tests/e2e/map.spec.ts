@@ -45,6 +45,11 @@ test.describe("Map tab — happy path (browser shell)", () => {
 test.describe("Map container vs MapLibre's own CSS", () => {
   test("keeps its box when MapLibre adds .maplibregl-map", async ({ page }) => {
     await page.goto("/");
+    // The Map tab is a build feature and its view is loaded on demand — and
+    // MapLibre's stylesheet arrives with it. Open the tab first, or there is
+    // no MapLibre CSS on the page for the counter-rule to be tested against.
+    await page.getByRole("link", { name: "Map", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: "Map" })).toBeVisible();
 
     const probe = await page.evaluate(() => {
       const measure = (cls: string) => {
