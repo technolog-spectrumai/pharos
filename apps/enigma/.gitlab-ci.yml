@@ -64,18 +64,17 @@ frontend:build:
     paths: [apps/$APP/dist/]
     expire_in: 1 week
 
-# ── the zinnia app set ──────────────────────────────────────────────────────
+# ── the zinnia workspace (Morion) ───────────────────────────────────────────
 # Separate jobs, not an extra entry in enigma's matrices, and deliberately so.
-# The three zinnia apps are ONE cargo workspace (see the root Cargo.toml) while
-# enigma's app crate stands outside it, so they share a target directory with
-# each other and none with enigma. Folding them into `cargo:check`'s matrix
-# would give each its own cache key for a target dir all three share, and three
-# runs would thrash one cache. They also build with a different toolchain gate:
-# their workspace commits its Cargo.lock, enigma's does not.
+# Morion and the shared crates are ONE cargo workspace (see the root
+# Cargo.toml) while enigma's app crate stands outside it, so the workspace has
+# its own target directory and shares none with enigma. It also builds with a
+# different toolchain gate: the workspace commits its Cargo.lock, enigma's does
+# not.
 #
 # `node:vitest` is NOT duplicated here: it runs `npm run test --workspaces
-# --if-present` from the root and already covers all four apps plus the shared
-# packages. That is the one existing job whose scope grew with the annexation.
+# --if-present` from the root and already covers both apps plus the shared
+# packages.
 
 cargo:zinnia:
   stage: check
@@ -92,7 +91,7 @@ cargo:zinnia:
       libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
       librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential
     # tauri-build validates that frontendDist ("../dist") exists
-    - mkdir -p apps/morion/dist apps/py_editor/dist apps/tex_editor/dist
+    - mkdir -p apps/morion/dist
   script:
     - cargo test --workspace
     # The collab transport lives behind an off-by-default feature, and code
@@ -108,7 +107,7 @@ frontend:build:zinnia:
   image: node:22-bookworm
   parallel:
     matrix:
-      - APP: [morion, py_editor, tex_editor]
+      - APP: [morion]
   variables:
     npm_config_cache: $CI_PROJECT_DIR/.npm
   cache:
@@ -144,11 +143,13 @@ playwright:smoke:
     paths: [apps/$APP/test-results/]
     expire_in: 7 days
 
-# Shared desktop-build definition. `npx tauri build` runs the frontend build first
-# (beforeBuildCommand -> npm run build), compiles the Rust release binary, then
-# bundles it to src-tauri/target/release/bundle/ (.deb / .AppImage / .rpm). Two
-# jobs extend this: tauri:build (every-commit verification) and tauri:desktop
-# (tag releases). The script asserts at least one bundle artifact was produced.
+# Shared desktop-build definition. `./build.sh enigma` builds what build.yaml
+# says — the same route a developer uses, so CI cannot build something a local
+# build would not. It runs the frontend build first (tauri's beforeBuildCommand
+# -> npm run build), compiles the Rust release binary, then bundles it to
+# src-tauri/target/release/bundle/ (.deb / .rpm) and fails if no package came
+# out. Two jobs extend this: tauri:build (every-commit verification) and
+# tauri:desktop (tag releases).
 .tauri-build:
   stage: build
   image: rust:1-bookworm
@@ -166,27 +167,20 @@ playwright:smoke:
     - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
   script:
     - npm ci
-    # Start from a clean bundle dir. The cargo-desktop cache retains target/ (for
-    # fast incremental compiles), but tauri only overwrites same-named outputs — so
-    # after a version bump, stale old-version installers would linger in
-    # release/bundle/ and get re-uploaded inside the artifacts. Removing just the
-    # bundle subdir keeps the compile cache while making the artifact + the
-    # assertion below reflect only the current build.
-    - rm -rf apps/enigma/src-tauri/target/release/bundle
-    - (cd apps/enigma && npx tauri build)
-    - |
-      if ! find apps/enigma/src-tauri/target/release/bundle -type f \
-           \( -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) | grep -q .; then
-        echo "ERROR: tauri build produced no desktop bundle artifacts"
-        exit 1
-      fi
+    # The cargo-desktop cache retains target/ (for fast incremental compiles),
+    # and tauri only overwrites same-named outputs — so after a version bump,
+    # stale old-version installers would linger in release/bundle/ and get
+    # re-uploaded inside the artifacts. build.sh clears that directory before
+    # it builds and fails if the build leaves no package in it.
+    - bash build.sh enigma
 
 # Every-commit build verification: proves enigma still builds end-to-end
 # (frontend -> Rust release -> bundle) on every branch push. A full release build
 # is heavy (cold cache: tens of minutes); the cargo-desktop cache keeps warm runs
-# fast. To trim cost, scope `rules` to merge requests / the default branch, or use
-# `npx tauri build --debug`. Tag pipelines are excluded so tauri:desktop (below)
-# handles releases without a duplicate build.
+# fast. To trim cost, scope `rules` to merge requests / the default branch, or
+# build the debug profile from a second config (`build.sh --config FILE`). Tag
+# pipelines are excluded so tauri:desktop (below) handles releases without a
+# duplicate build.
 tauri:build:
   extends: .tauri-build
   rules:
@@ -211,12 +205,11 @@ tauri:desktop:
     paths: [apps/enigma/src-tauri/target/release/bundle/]
     expire_in: 30 days
 
-# The Rotor WASM build gate moved OUT with the crate. CryptoRotor became its own
-# repository on 2026-09-08 (gitlab.com/janhagit-group/crypto_rotor, checked out
-# as a sibling of this one); the job that ran cryptorotor/build_wasm.sh and
-# stamped provenance into rotor_wasm/build{,_web}/ belongs to that repo's
-# pipeline now. Consumers were never pulling these artifacts anyway — toto
-# vendors a static copy of the build_wasm.sh output.
+# There is no Rotor WASM build gate here. The crypto crates are consumed from
+# the copy at crates/rotor; the job that ran build_wasm.sh and stamped
+# provenance into rotor_wasm/build{,_web}/ is not part of this pipeline.
+# Consumers were never pulling these artifacts anyway — toto vendors a static
+# copy of the build_wasm.sh output.
 
 # Android needs an SDK/NDK image plus signing configuration; the host-provisioning
 # scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)
@@ -227,7 +220,7 @@ android:build:
   when: manual
   allow_failure: true
   script:
-    - echo "Android CI is not provisioned. Build locally with:"
-    - echo "  bash scripts/build_android.sh enigma [debug|release]"
+    - echo "Android CI is not provisioned. Build locally:"
+    - echo "  set android.enabled to true in build.yaml, then ./build.sh enigma"
     - echo "See build.md for SDK/NDK setup."
     - exit 1
