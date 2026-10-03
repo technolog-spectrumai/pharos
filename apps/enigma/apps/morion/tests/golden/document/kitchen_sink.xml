@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<document version="3" title="Q3 &quot;Report&quot; &amp; &lt;notes&gt;" font="mono" margins="wide" toc="true" cover="true">
-  <meta>
-    <field name="author"><![CDATA[A. Lovelace]]></field>
-    <field name="dept"><![CDATA[R&D]]></field>
-  </meta>
-  <content><![CDATA[<h1>Intro</h1><p>Revenue is <strong>up</strong> <span class="cy-ink-accent">a lot</span>.</p><div class="cy-callout" data-tone="warn"><p>Careful</p></div><div class="cy-formula" data-latex="e^{i\pi}+1=0"><span class="katex">rendered</span></div><div class="cy-pagebreak"></div><table><tr><th>R</th><td>+12%</td></tr></table>]]></content>
-</document>

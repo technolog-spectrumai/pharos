@@ -2,7 +2,6 @@
 # build flags, and no other way to produce a bundle.
 #
 #   ./build.sh                 every app below
-#   ./build.sh enigma          one app (or several: ./build.sh enigma morion)
 #   ./build.sh --dry-run       print the commands this file resolves to, run none
 #   ./build.sh --config FILE   read another file with this shape instead
 #
@@ -44,18 +43,4 @@ apps:
       abis: [aarch64]           # aarch64 (phones) | x86_64 (emulator) | armv7 | i686, or [all]
       # A release that is deliberately NOT signed. It installs nowhere and
       # must never be distributed.
-      allow_unsigned_release: false
-
-  morion:
-    test: true
-
-    desktop:
-      enabled: true
-      profile: release
-      bundles: [deb, rpm]
-
-    android:
-      enabled: false
-      profile: debug
-      abis: [aarch64]
       allow_unsigned_release: false

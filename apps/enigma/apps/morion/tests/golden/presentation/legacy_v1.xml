@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<presentation version="2" title="Old deck" theme="black" font="sans">
-  <slide id="s-eeee1111" layout="title-content">
-    <title>First</title>
-    <block id="b-fdaa24a4" type="html"><![CDATA[<p>hello</p>]]></block>
-  </slide>
-</presentation>
