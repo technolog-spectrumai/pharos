@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # The shared base's test run — everything that can be tested without an app:
-# the shared crates and packages, and Dromon.
+# the shared crates and packages, Dromon, and the shared scripts.
 #
 #   ./tests.sh base              every step (from the repo root)
 #   ./tests.sh base rust         only one group (js | rust | py)
@@ -17,6 +17,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tests_step js   "petalite + wisteria (vitest)"    'npm run test -w packages/petalite -w packages/wisteria'
 tests_step js   "Dromon: files → commands"        'node --test dromon/plan.test.mjs'
 tests_step js   "Dromon: every variant validates" './build.sh all --validate'
+tests_step js   "scripts: lib.sh, tests_lib.sh"   'node --test scripts/lib.test.mjs'
+tests_step js   "scripts: vite-shared.mjs"        'node --test scripts/vite-shared.test.mjs'
 tests_step rust "substrate"                       'cargo test -p substrate'
 # The feature that reaches gervasius's gervazy half, and so OpenSSL: Morion
 # turns it on, Enigma must not. Both shapes have to keep working.

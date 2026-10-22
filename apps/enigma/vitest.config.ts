@@ -2,12 +2,12 @@
 import { defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 import { featureDefines } from "./buildFeatures";
+import { sourceAliases } from "../../scripts/vite-shared.mjs";
 
 // A dedicated Vitest config (no Tailwind plugin needed for tests). ace-builds
 // subpaths are aliased to a lightweight stub so jsdom never loads the real
 // editor — the editor's logic is covered through mocked interactions instead.
 const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
-const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
 const wisteriaSrc = new URL("../../packages/wisteria/src", import.meta.url).pathname;
 const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
 // The DIRECTORY, not index.ts: the deep alias below appends a subpath, and
@@ -23,14 +23,10 @@ export default defineConfig({
   define: featureDefines(undefined),
   resolve: {
     alias: [
-      { find: /^wisteria\/(.*\.vue)$/, replacement: `${wisteriaSrc}/components/$1` },
-      { find: /^wisteria\/(.*)/, replacement: `${wisteriaSrc}/$1` },
-      { find: /^wisteria$/, replacement: `${wisteriaSrc}/index.ts` },
-      { find: /^petalite\/(.*\.vue)$/, replacement: `${petaliteSrc}/components/$1` },
-      { find: /^petalite\/(.*)/, replacement: `${petaliteSrc}/$1` },
-      { find: /^petalite$/, replacement: `${petaliteSrc}/index.ts` },
-      { find: /^rakotis\/(.*)/, replacement: `${rakotisDir}/$1` },
-      { find: /^rakotis$/, replacement: rakotisSrc },
+      // The same source aliases as vite.config.ts.
+      ...sourceAliases("wisteria", wisteriaSrc),
+      ...sourceAliases("petalite", petaliteSrc),
+      ...sourceAliases("rakotis", rakotisDir, { components: false, entry: rakotisSrc }),
       { find: /^ace-builds\/src-noconflict\/ace$/, replacement: aceStub },
       { find: /^ace-builds\/src-noconflict\/.*/, replacement: aceStub },
     ],

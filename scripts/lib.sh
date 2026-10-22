@@ -122,6 +122,85 @@ app_data_dir() {
   esac
 }
 
+# Every directory Tauri may keep this app's state in: config (Irena's recent
+# files), data (the webview's localStorage, the app's own files) and cache.
+# One per line, so a caller can `while read` them. Same identifier rule as
+# app_data_dir, and a config with no identifier is refused rather than read
+# as the literal "undefined" — `rm -rf ~/.config/undefined` is the bug.
+#
+# $1: path to tauri.conf.json.
+app_stored_dirs() {
+  local identifier
+  identifier="$(node -p "require('$1').identifier")"
+  [ -n "$identifier" ] && [ "$identifier" != "undefined" ] || die "no identifier in $1"
+  case "$(uname -s)" in
+    Darwin)
+      echo "$HOME/Library/Application Support/$identifier"
+      echo "$HOME/Library/Caches/$identifier"
+      ;;
+    *)
+      echo "${XDG_CONFIG_HOME:-$HOME/.config}/$identifier"
+      echo "${XDG_DATA_HOME:-$HOME/.local/share}/$identifier"
+      echo "${XDG_CACHE_HOME:-$HOME/.cache}/$identifier"
+      ;;
+  esac
+}
+
+# Removes each directory named on stdin (one per line, as app_data_dir and
+# app_stored_dirs print them) and says what it did with each — the "--reset"
+# of every dev runner. Empty lines are skipped, never `rm -rf ""`.
+remove_stored_dirs() {
+  local dir
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    if [ -d "$dir" ]; then
+      rm -rf "$dir"
+      echo "    removed $dir"
+    else
+      echo "    nothing stored yet ($dir)"
+    fi
+  done
+}
+
+# ── dev runners ─────────────────────────────────────────────────────────────
+# The argument loop of a dev runner that offers --web and --reset (Morion,
+# Irena). Sets WEB, RESET and RESET_ONLY to 0 or 1; --help prints lines 2–9
+# of the calling script's header, which is where those runners keep their usage.
+#
+#   dev_parse_args "$@"
+dev_parse_args() {
+  WEB=0
+  RESET=0
+  RESET_ONLY=0
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --web)        WEB=1 ;;
+      --reset)      RESET=1 ;;
+      --reset-only) RESET=1; RESET_ONLY=1 ;;
+      -h|--help)    sed -n '2,9p' "${BASH_SOURCE[1]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
+    esac
+  done
+}
+
+# The dev port, read from the vite.config.ts in the current directory rather
+# than repeated by the caller: it already lives in four files and a test fails
+# if they drift. Echoes nothing when the config names no port.
+#
+# $1: path to vite.config.ts (default ./vite.config.ts).
+vite_port() {
+  grep -oE 'port: *[0-9]+' "${1:-vite.config.ts}" | grep -oE '[0-9]+' | head -1
+}
+
+# Serves the front end alone, in the browser, from the current directory —
+# the --web of every dev runner. Replaces the shell.
+start_web_dev() {
+  step "Starting Vite (browser only)"
+  echo "    http://localhost:$(vite_port)"
+  exec npm run dev
+}
+
 # ── dependencies ────────────────────────────────────────────────────────────
 # The apps are npm WORKSPACES: their dependencies hoist into the root
 # node_modules, and apps/<name>/node_modules may never exist at all. So "is it
