@@ -2,6 +2,7 @@
 name = "gervasius"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "At-rest encryption primitives: Argon2id KDF + XChaCha20-Poly1305 wrapped-key vault envelope."
 
 # Pure-Rust, wasm-clean. Named for St. Gervasius (paired with Protasius) — the

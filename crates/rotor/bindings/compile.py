@@ -11,7 +11,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 ROTORS_DIR     = SCRIPT_DIR
-ROTOR_CORE_DIR = ROTORS_DIR / "rotor_core"
+ROTOR_CORE_DIR = ROTORS_DIR.parent / "rotor_core"
 ROTOR_PY_DIR   = ROTORS_DIR / "rotor_py"
 ROTOR_WASM_DIR  = ROTORS_DIR / "rotor_wasm"
 

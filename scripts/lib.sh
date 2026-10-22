@@ -1,10 +1,10 @@
 # Shared preflight for every app's dev, build and test scripts.
 #
-# Sourced, never executed — from an app repo that mounts Rutile at rutile/:
+# Sourced, never executed:
 #
 #   HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-#   . "$HERE/rutile/scripts/lib.sh"        # from the app repo's root
-#   . "$HERE/../../rutile/scripts/lib.sh"  # from apps/<name>/
+#   . "$HERE/scripts/lib.sh"            # from the repo root
+#   . "$HERE/../../scripts/lib.sh"      # from apps/<name>/
 #
 # This exists because every app carries its own dev runner, and the checks
 # below are the half that is genuinely identical across them: the same
@@ -14,13 +14,8 @@
 # What is NOT here, deliberately: anything that names a port or an app. Those
 # differ per app and belong in the caller, where they are visible.
 
-# Where this copy of Rutile is.
-RUTILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# The repo being worked on: the app repo Rutile is mounted in, which is the
-# directory above it. A caller that knows better — Rutile's own tests.sh, where
-# the repo IS Rutile — sets REPO_ROOT before sourcing this.
-REPO_ROOT="${REPO_ROOT:-$(cd "$RUTILE_DIR/.." && pwd)}"
+# The repo root: the directory above scripts/.
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # ── output ──────────────────────────────────────────────────────────────────
 # Callers rely on these three being defined; keep the shapes stable.
