@@ -1,4 +1,4 @@
-import { config } from "@vue/test-utils";
+import { config, enableAutoUnmount } from "@vue/test-utils";
 import { afterEach } from "vitest";
 import { initBuildConfig } from "rakotis";
 import { brand, policy } from "../src/config/app";
@@ -29,6 +29,13 @@ await initBuildConfig({
 config.global.stubs = {
   "font-awesome-icon": true,
 };
+
+// Unmount whatever a test mounted once it ends. A wrapper left mounted keeps
+// reacting to the module-level state the next tests change (the HP ledger, the
+// build config, the router), so every later write re-renders every earlier
+// test's components: hpUi's 30-charge test took 120 ms alone and over 6 s
+// under coverage, past the timeout, before this.
+enableAutoUnmount(afterEach);
 
 afterEach(() => {
   localStorage.clear();
