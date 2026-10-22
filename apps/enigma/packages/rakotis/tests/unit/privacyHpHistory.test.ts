@@ -16,6 +16,8 @@ import {
   findAction,
   formatRate,
   hpBars,
+  hpToCenti,
+  regenPerHour,
   hpHistory,
   hpSparkline,
   type HpEntry,
@@ -132,5 +134,20 @@ describe("formatRate", () => {
 
   it("shows nothing at all for the free lane", () => {
     expect(formatRate(0, "msg")).toBe("");
+  });
+});
+
+describe("meter labels", () => {
+  it("states the regeneration rate in force as whole HP per hour", () => {
+    expect(regenPerHour(deriveBalances(P, [], T0).daily)).toBe("4");
+    const onTor: HpEntry = { ts: T0 - HOUR, kind: "posture", code: "transport.tor.on", hp: 0, n: 1, bucket: 0 };
+    expect(regenPerHour(deriveBalances(P, [onTor], T0).daily)).toBe("12");
+  });
+
+  it("converts HP to centi-HP without floating-point drift", () => {
+    expect(hpToCenti(0.05)).toBe(5);
+    expect(hpToCenti(0.07)).toBe(7); // 0.07 * 100 is 7.000000000000001 in floating point
+    expect(hpToCenti(2.675)).toBe(268);
+    expect(hpToCenti(-1.1)).toBe(-110);
   });
 });

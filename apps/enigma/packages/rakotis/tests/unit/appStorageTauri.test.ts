@@ -194,9 +194,11 @@ describe("the vault", () => {
   });
 });
 
-// Every remaining command, with the exact arguments Rust expects.
+// Every remaining command, with the exact arguments Rust expects, and whether
+// it hands Rust's answer back (a query) or resolves to nothing (a command).
 const note = { display_name: "Alice", email: "", phone: "", bio: "", date_of_birth: "" };
-describe.each([
+type Route = [name: string, call: () => Promise<unknown>, cmd: string, args: Record<string, unknown> | undefined, returns: boolean];
+const routes: Route[] = [
   ["vaultSetup", () => S.vaultSetup("pw"), "vault_setup", { passphrase: "pw" }, false],
   ["vaultUnlock", () => S.vaultUnlock("pw"), "vault_unlock", { passphrase: "pw" }, false],
   ["vaultLock", () => S.vaultLock(), "vault_lock", undefined, false],
@@ -238,11 +240,12 @@ describe.each([
   ["setSelectedOfflineProfile", () => S.setSelectedOfflineProfile("p1"), "app_set_selected_offline_profile", { selectedOfflineProfileId: "p1" }, true],
   ["loadOfflineProfile", () => S.loadOfflineProfile("Work"), "app_load_offline_profile", { label: "Work" }, true],
   ["upsertOfflineProfile", () => S.upsertOfflineProfile("p1", "Work", note), "app_upsert_offline_profile", { offlineProfileId: "p1", label: "Work", offlineProfile: note }, true],
-] as const)("%s", (_name, call, cmd, args) => {
-  it(`invokes ${cmd} with exactly its arguments and returns Rust's answer`, async () => {
+];
+describe.each(routes)("%s", (_name, call, cmd, args, returns) => {
+  it(`invokes ${cmd} with exactly its arguments`, async () => {
     replies.set(cmd, { from: cmd });
     const out = await call();
     expect(invoke.mock.calls).toEqual([[cmd, args]]);
-    if (out !== undefined) expect(out).toEqual({ from: cmd });
+    expect(out).toEqual(returns ? { from: cmd } : undefined);
   });
 });

@@ -8,6 +8,7 @@ import {
   formatDate,
   formatTime,
   formatNumber,
+  formatBytes,
   currentLocale,
   resetDateFormatCache,
 } from "../../src/i18n/dateFormat";
@@ -101,5 +102,29 @@ describe("input handling", () => {
     expect(formatDate("not a date", "date")).toBe("");
     expect(formatDate(NaN, "dateTime")).toBe("");
     expect(formatNumber(Infinity)).toBe("");
+  });
+});
+
+describe("byte counts", () => {
+  it("picks the unit by size and keeps a fixed number of decimals", () => {
+    // Fixed decimals keep sizes in a list the same width: "2.0 MB", not "2 MB".
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(1023)).toBe("1,023 B");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(2 * 1024 * 1024)).toBe("2.0 MB");
+    expect(formatBytes(3.5 * 1024 ** 3)).toBe("3.50 GB");
+  });
+
+  it("moves only the separator in Polish, never the unit symbol", () => {
+    currentLocale.value = "pl";
+    expect(formatBytes(1536)).toBe("1,5 KB");
+    expect(formatBytes(2 * 1024 * 1024)).toBe("2,0 MB");
+  });
+
+  it("renders a size that is not a size as empty", () => {
+    expect(formatBytes(-1)).toBe("");
+    expect(formatBytes(Number.NaN)).toBe("");
+    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe("");
+    expect(formatNumber(Number.NaN)).toBe("");
   });
 });

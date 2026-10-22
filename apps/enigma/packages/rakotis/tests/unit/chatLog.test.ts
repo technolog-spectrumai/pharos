@@ -4,6 +4,7 @@ import {
   messagesSince, wipeLog,
 } from "../../src/services/chatLog";
 import { CHAT_LOG_SEG_MAX_MSGS, type PersistedMessage } from "../../src/chatHistoryModel";
+import { kvGet, kvPut } from "../../src/services/localDb";
 
 function msg(id: string, ts: number): PersistedMessage {
   return { id, type: "mls_app", user: "alice", content: `m-${id}`, encrypted: true, ts };
@@ -63,5 +64,37 @@ describe("chatLog", () => {
     appender.push("room-e", msg("z", 3));
     await appender.flushNow();
     expect((await loadLog("room-e")).map((m) => m.id)).toEqual(["x", "y", "z"]);
+  });
+});
+
+describe("chatLog — a damaged log", () => {
+  // The log is read on every room entry. Whatever is in the kv — a future
+  // format, a half-written segment — entering the room must still work.
+
+  it("reads an index from another format version as an empty log", async () => {
+    await kvPut("chat:log", "room-f", "index", JSON.stringify({ v: 2, segs: [{ n: 0, count: 1 }] }));
+    await kvPut("chat:log", "room-f", "seg-0", JSON.stringify([msg("a", 1)]));
+    expect(await loadLog("room-f")).toEqual([]);
+    expect(await logMeta("room-f")).toEqual({ count: 0, latestTs: 0 });
+  });
+
+  it("skips a segment that is not a list and keeps the rest", async () => {
+    await appendMessages("room-g", batch(0, CHAT_LOG_SEG_MAX_MSGS + 2), 500);
+    await kvPut("chat:log", "room-g", "seg-0", JSON.stringify({ not: "a list" }));
+    expect((await loadLog("room-g")).map((m) => m.id)).toEqual([
+      `m${CHAT_LOG_SEG_MAX_MSGS}`, `m${CHAT_LOG_SEG_MAX_MSGS + 1}`,
+    ]);
+  });
+
+  it("deletes segments a merge no longer needs", async () => {
+    // A merge under a smaller cap rewrites fewer segments; the leftovers must go,
+    // or a later index rebuild could resurrect trimmed history.
+    await appendMessages("room-h", batch(0, CHAT_LOG_SEG_MAX_MSGS + 10), 500);
+    expect(await kvGet("chat:log", "room-h", "seg-1")).not.toBeNull();
+    await mergeIntoLog("room-h", [msg("new", 10_000)], 50);
+    expect(await kvGet("chat:log", "room-h", "seg-1")).toBeNull();
+    const left = await loadLog("room-h");
+    expect(left).toHaveLength(50);
+    expect(left.at(-1)!.id).toBe("new");
   });
 });

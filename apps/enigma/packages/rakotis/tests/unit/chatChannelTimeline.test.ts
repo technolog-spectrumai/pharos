@@ -479,6 +479,26 @@ describe("sending media", () => {
   });
 });
 
+describe("the data-sync seam", () => {
+  it("carries a control message inside the ciphertext, with no timeline id", async () => {
+    // Orchestrators (file share, meetings, calls) ride the room's group; their
+    // traffic is not human content, so it gets no msg_id and no bubble.
+    const ch = await readyRoom();
+    await ch.sendSync("file_offer", { id: "f1", size: 10 });
+    const [frame] = sent("mls_app");
+    expect(JSON.parse(open(frame))).toEqual({ type: "file_offer", id: "f1", size: 10 });
+    expect(frame).toMatchObject({ device_id: "alice", sender_name: "Alice" });
+    expect(bubbles(ch)).toHaveLength(0);
+  });
+
+  it("rejects when it cannot encrypt, so a caller never believes it was sent", async () => {
+    const ch = await readyRoom();
+    crypto.encrypt.mockResolvedValueOnce(null);
+    await expect(ch.sendSync("meeting_invite", {})).rejects.toThrow("Encryption failed");
+    expect(mockTransport.send).not.toHaveBeenCalled();
+  });
+});
+
 describe("downscaleImageToDataUrl", () => {
   const bitmap = (width: number, height: number) =>
     vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width, height })));

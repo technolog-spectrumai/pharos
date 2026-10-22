@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   getStoredLocale,
   hasExplicitLocale,
@@ -88,5 +88,53 @@ describe("createAppI18n", () => {
     const { i18n, setLocale } = createAppI18n(messages);
     setLocale("pl");
     expect(i18n.global.t("hello")).toBe("Cześć");
+  });
+});
+
+describe("Polish plurals", () => {
+  // Three forms chosen by the last two digits, with the teens carved out — the
+  // part a modulo in a template gets wrong.
+  // vue-i18n's composer/legacy union has no single callable `t` type.
+  const tr = (i18n: ReturnType<typeof createAppI18n>["i18n"]) =>
+    i18n.global.t as unknown as (key: string, named: Record<string, unknown>, plural: number) => string;
+  const plural = {
+    en: { people: "{n} participant | {n} participants" },
+    pl: { people: "{n} uczestnik | {n} uczestnicy | {n} uczestników" },
+  };
+
+  it("picks one / few / many the way Polish does, teens included", () => {
+    const { i18n, setLocale } = createAppI18n(plural);
+    setLocale("pl", false);
+    const t = (n: number) => tr(i18n)("people", { n }, n);
+    expect(t(1)).toBe("1 uczestnik");
+    expect(t(2)).toBe("2 uczestnicy");
+    expect(t(4)).toBe("4 uczestnicy");
+    expect(t(5)).toBe("5 uczestników");
+    expect(t(12)).toBe("12 uczestników");
+    expect(t(14)).toBe("14 uczestników");
+    expect(t(22)).toBe("22 uczestnicy");
+    expect(t(25)).toBe("25 uczestników");
+    expect(t(0)).toBe("0 uczestników");
+  });
+
+  it("leaves English on its two-form rule", () => {
+    const { i18n, setLocale } = createAppI18n(plural);
+    setLocale("en", false);
+    expect(tr(i18n)("people", { n: 1 }, 1)).toBe("1 participant");
+    expect(tr(i18n)("people", { n: 3 }, 3)).toBe("3 participants");
+  });
+});
+
+describe("a stored locale when storage is unavailable", () => {
+  it("reads as no explicit choice rather than throwing", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    try {
+      expect(getStoredLocale()).toBeNull();
+      expect(hasExplicitLocale()).toBe(false);
+    } finally {
+      getItem.mockRestore();
+    }
   });
 });

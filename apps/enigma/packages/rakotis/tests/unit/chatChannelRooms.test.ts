@@ -162,6 +162,21 @@ describe("creating a room", () => {
     expect(notices(ch)).toEqual(["Created “Room One”. Invite someone to let them in."]);
   });
 
+  it("updates the record of a room that is already saved, keeping its address book", async () => {
+    // Re-hosting a saved room (or being re-invited to one) must not duplicate the
+    // row or drop the peers a ticketless reconnect depends on.
+    await kvPut("p2p:rooms", "default", "", JSON.stringify([
+      { room: ROOM, name: "Old name", peers: ["node-b"], rules: "be kind" },
+    ]));
+    const ch = useChatChannel();
+    await ch.loadP2pRooms();
+    await create(ch);
+    expect(ch.p2pRooms.value).toEqual([
+      { room: ROOM, name: "Room One", peers: ["node-b"], rules: "be kind", host: true, tor: false, onion: undefined },
+    ]);
+    expect(await storedRooms()).toHaveLength(1);
+  });
+
   it("returns null with the transport's reason when it fails, entering nothing", async () => {
     const ch = useChatChannel();
     mockTransport.createRoom.mockRejectedValueOnce(new Error("Network access is off."));

@@ -440,6 +440,7 @@ describe("a meta snapshot", () => {
     // receivers dedupe by revision, so the redundant copies are harmless.
     const ch = await asMember();
     await deliver(fromPeer("bob", { type: "room_meta", device_id: "bob", rev: 3, rules: "r" }));
+    expect(ch.roomRules.value).toBe("r");
     mockTransport.send.mockClear();
 
     await presence("carol", false);
