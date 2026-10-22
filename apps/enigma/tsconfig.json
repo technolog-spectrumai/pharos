@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "preserve",
+
+    /* Shared workspace packages resolved as source */
+    "baseUrl": ".",
+    "paths": {
+      "rakotis": ["../../node_modules/rakotis/src/index.ts"],
+      "rakotis/*": ["./packages/rakotis/src/*"],
+      "wisteria/*.vue": ["../../packages/wisteria/src/components/*.vue"],
+      "wisteria/*": ["../../packages/wisteria/src/*"],
+      "wisteria": ["../../packages/wisteria/src/index.ts"],
+      "petalite/*.vue": ["../../packages/petalite/src/components/*.vue"],
+      "petalite/*": ["../../packages/petalite/src/*"],
+      "petalite": ["../../packages/petalite/src/index.ts"]
+    },
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

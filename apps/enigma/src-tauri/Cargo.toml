@@ -1,0 +1,157 @@
+[package]
+name = "enigma"
+version = "0.1.10"
+description = "Enigma26 — serverless, end-to-end-encrypted (MLS) peer-to-peer chat (Tauri shell)"
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "enigma_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# ── build features ──────────────────────────────────────────────────────────
+# What a build MAY contain beyond the core. This table is the catalogue: the one
+# place that says which feature ids exist and what each requires. A build picks
+# from it in a root config (pro.yaml, std.yaml — `apps.enigma.features`), and
+# `./build.sh` passes exactly that list to cargo and to the frontend bundler.
+#
+# A feature that is not listed is NOT COMPILED: its module, its commands, its
+# network protocol and its optional dependencies are absent from the binary,
+# and the frontend drops its code too. That is different from a runtime
+# setting: `dht` in a build makes the DHT available; whether a profile uses it
+# is the user's own opt-in (build_config.yaml `defaults:`).
+#
+# `default` is EMPTY on purpose. The Tauri CLI keeps a manifest's default
+# features switched on, so anything listed there could not be left out of a
+# build — the allowlist would stop being one. A bare `cargo build` therefore
+# builds the core alone; tests.sh and CI name their features.
+#
+# Never optional: the crypto (rotor-core, gervasius, protasius), the chat
+# transports (iroh, Tor), file transfer, per-file locking, invitations,
+# Privacy HP.
+[features]
+default = []
+# iroh's n0 relays and pkarr/DNS discovery. Without it iroh runs with relays
+# disabled: direct QUIC by ticket and the Tor onion transport keep working,
+# reconnecting to a bare NodeId does not.
+hosted_relays = []
+# The Mainline DHT: join by room code, the nickname directory, presence. It
+# rides the endpoint's hosted discovery, hence the requirement.
+dht = ["hosted_relays", "dep:mainline", "iroh/address-lookup-pkarr-dht"]
+# 1:1 voice calls (the Vox tab) and their network protocol.
+calls = ["dep:rustfft"]
+# Contacts and direct room invites, and their network protocol.
+contacts = []
+# Meetings and polls. Frontend only — there is no Rust behind it.
+calendar = []
+# The key ring: one passphrase locking many local files.
+keyring = []
+# Re-opening an idle-locked vault with a PIN.
+pin_unlock = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# build_config.yaml → generated consts (see build.rs). Build-time only: the
+# shipped binary contains no YAML parser. serde_norway is the maintained fork
+# of the archived serde_yaml (same serde API, pure Rust — Android-safe).
+serde = { version = "1", features = ["derive"] }
+serde_norway = "0.9"
+# Reads tauri.conf.json for the app-identity equality assert.
+serde_json = "1"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+# Native file/save dialogs for picking a file to send and where to save a received one.
+tauri-plugin-dialog = "2"
+# Native OS notifications (desktop + Android/iOS) for upcoming-meeting reminders.
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Crypto layer (OpenMLS via Rotor). The crypto crates are the repo's shared ones
+# (crates/rotor), consumed by path — so building enigma fetches nothing but
+# crates.io.
+rotor-core = { path = "../../../crates/rotor/rotor_core" }
+# Encryption at rest: the centralized encrypted store (protasius) built on the
+# crypto primitives crate (gervasius). All app data persists through protasius.
+protasius = { path = "../crates/protasius" }
+# Reused directly (not just via protasius) for passphrase-protected local files
+# (local_lock.rs): per-file vault + seal/open over the chosen file's bytes.
+gervasius = { path = "../../../crates/rotor/gervasius" }
+# The sealed-file FRAME, shared with Morion (Rutile's substrate). Deliberately WITHOUT
+# `legacy-detect`: that feature reaches gervasius's gervazy half and so
+# openssl-sys, and enigma never wrote a Fernet file to recognise. The layout is
+# shared; the magic and AAD are not — every file already on a user's disk
+# carries `ENIGLOCK`, so `FrameSpec::ENIGMA` keeps reading exactly what this
+# app has always written.
+substrate = { path = "../../../crates/substrate" }
+zeroize = "1"
+cpal = "0.15"
+hound = "3"
+# Pure-Rust FFT for the voice-call equalizer (vox.rs → `vox://spectrum`); no C
+# toolchain, MSRV-safe. Only in a build with `calls`.
+rustfft = { version = "6", optional = true }
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }
+# Embedded pure-Rust Tor (arti). Outbound client plumbing (tor.rs) plus the
+# peer-hosted onion transport (p2p_tor.rs). `onion-service-service` enables
+# hidden-service HOSTING and transitively pulls in the persistent keystore
+# (keymgr) + tor-persist state-dir that keep our .onion stable across restarts.
+arti-client = { version = "0.43", default-features = false, features = ["tokio", "rustls", "onion-service-client", "onion-service-service", "compression"] }
+tor-rtcompat = { version = "0.43", features = ["tokio", "rustls"] }
+# Hosting types not re-exported by arti-client: the onion-service config/launch
+# surface, and the `Connected` relay cell used to accept an inbound onion stream.
+tor-hsservice = "0.43"
+tor-cell = "0.43"
+# HsId (the .onion address) is redaction-safe and has no plain Display; the
+# DisplayRedacted trait gives the full address for the QR ticket.
+safelog = "0.8"
+# MSRV pin (from when Cargo.lock was not committed): typed-index-collections
+# 3.4+ requires rustc 1.90, but arti pulls it in transitively. Hold it at 3.3.0
+# (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
+typed-index-collections = "=3.3.0"
+data-encoding = "2"
+# Direct P2P chat backend (iroh-gossip over QUIC) — the app's only transport.
+# The `dht` build feature adds iroh's `address-lookup-pkarr-dht`: Mainline-DHT
+# publish/resolve of node addresses (serverless discovery, opt-in via the
+# Settings DHT toggle — technology.md §12).
+iroh = "0.98"
+iroh-gossip = "0.98"
+# Direct BEP44 access to the Mainline DHT for the room-rendezvous records
+# (p2p_dht.rs). Same crate/version iroh's DHT feature resolves — no dup tree.
+# Only in a build with `dht`.
+mainline = { version = "6", features = ["async"], optional = true }
+# Seals rendezvous records so DHT observers can't read room membership.
+# 0.10 pinned: 0.11 changes the aead API surface.
+chacha20poly1305 = "0.10"
+postcard = { version = "1", features = ["use-std"] }
+blake3 = "1"
+bytes = "1"
+futures-lite = "2"
+anyhow = "1"
+# Local key/value cache backend (pure-Rust LSM, no C deps — same rationale as
+# μ-law/rustls/flat-file cache). Used by kv.rs.
+fjall = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0", features = ["v2_22"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
+# arti-client pulls in rusqlite (tor-dirmgr's directory cache) which links the
+# system libsqlite3. The Android NDK ships no libsqlite3, so the cross-link fails
+# with `ld.lld: unable to find library -lsqlite3`. Declaring rusqlite here (same
+# version arti resolves) with `bundled` makes libsqlite3-sys compile SQLite from
+# source via the NDK clang. Android-only, so desktop keeps using the system lib.
+rusqlite = { version = "0.39", features = ["bundled"] }
+
+# [profile.dev] — split-debuginfo = "unpacked" — lives in the repo-root
+# Cargo.toml: a workspace member's [profile.*] is ignored. The enigma debug
+# binary embeds hundreds of MB of DWARF (iroh + arti + cpal + tauri), and the
+# GNU linker merging it all is OOM-killed on low-RAM machines without it.
