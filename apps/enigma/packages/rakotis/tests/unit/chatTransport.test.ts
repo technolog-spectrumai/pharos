@@ -121,3 +121,124 @@ describe("chatTransport — browser stub (no Tauri runtime)", () => {
     await expect(stub.nodeInfo()).resolves.toBeNull();
   });
 });
+
+describe("chatTransport — gateway commands and awkward frames", () => {
+  let transport: any;
+
+  beforeEach(async () => {
+    invoke.mockReset();
+    invoke.mockResolvedValue(undefined);
+    for (const k of Object.keys(listeners)) delete listeners[k];
+    (window as any).__TAURI_INTERNALS__ = {};
+    vi.resetModules();
+    transport = (await import("../../src/chatTransport")).chatTransport;
+  });
+
+  afterEach(() => {
+    delete (window as any).__TAURI_INTERNALS__;
+  });
+
+  it("drops a frame that is not JSON instead of throwing into every handler", async () => {
+    const got: unknown[] = [];
+    transport.onMessage((_room: string, data: unknown) => got.push(data));
+    await tick();
+    listeners["realtime://message"]({ payload: { room: "room-1", payload: "{not json" } });
+    listeners["realtime://message"]({ payload: { room: "room-1", payload: JSON.stringify({ ok: 1 }) } });
+    expect(got).toEqual([{ ok: 1 }]);
+  });
+
+  it("passes a status reason through, so a dead Tor captain is not mistaken for a disconnect", async () => {
+    const got: unknown[][] = [];
+    transport.onStatus((...args: unknown[]) => got.push(args));
+    await tick();
+    listeners["realtime://status"]({
+      payload: { room: "room-1", state: "disconnected", peer_id: "cap.onion", reason: "captain_unreachable" },
+    });
+    listeners["realtime://status"]({ payload: { room: "room-1", state: "connected", reason: null } });
+    expect(got).toEqual([
+      ["room-1", "disconnected", "cap.onion", "captain_unreachable"],
+      ["room-1", "connected", undefined, undefined],
+    ]);
+  });
+
+  it("registers the Rust listeners once, however many handlers subscribe", async () => {
+    const { listen } = await import("@tauri-apps/api/event");
+    const before = vi.mocked(listen).mock.calls.length;
+    transport.onMessage(() => {});
+    transport.onMessage(() => {});
+    transport.onStatus(() => {});
+    await transport.createRoom("general");
+    await tick();
+    expect(vi.mocked(listen).mock.calls.slice(before).map(([name]) => name)).toEqual([
+      "realtime://message",
+      "realtime://status",
+    ]);
+  });
+
+  it("stops delivering to a handler once it unsubscribes", async () => {
+    const got: unknown[] = [];
+    const off = transport.onMessage((_room: string, data: unknown) => got.push(data));
+    await tick();
+    off();
+    listeners["realtime://message"]({ payload: { room: "room-1", payload: "{}" } });
+    expect(got).toEqual([]);
+  });
+
+  it("reads a retired ticket through Rust, and a refusal as nothing to recover", async () => {
+    const info = { tor: true, name: "Room", peers: [], captain_onion: "cap.onion" };
+    invoke.mockResolvedValueOnce(info);
+    expect(await transport.decodeLegacyTicket("tlegacy")).toEqual(info);
+    expect(invoke).toHaveBeenCalledWith("legacy_ticket_decode", { ticket: "tlegacy" });
+    invoke.mockRejectedValueOnce(new Error("not a ticket"));
+    expect(await transport.decodeLegacyTicket("garbage")).toBeNull();
+  });
+
+  it.each([
+    ["cancelJoin", (t: any) => t.cancelJoin(), "realtime_cancel_join", undefined],
+    ["leaveRoom", (t: any) => t.leaveRoom("room-1"), "realtime_leave_room", { room: "room-1" }],
+    ["forgetTorOnion", (t: any) => t.forgetTorOnion("Room One"), "realtime_forget_tor_onion", { name: "Room One" }],
+    ["setCaptain", (t: any) => t.setCaptain("room-1", "cap.onion"), "realtime_tor_set_captain", { room: "room-1", captainOnion: "cap.onion" }],
+    ["send", (t: any) => t.send("room-1", { a: 1 }), "realtime_send", { room: "room-1", payload: '{"a":1}' }],
+  ])("%s fires its command and swallows a failure", async (_name, call, cmd, args) => {
+    // These are fire-and-forget from UI paths; a rejected invoke must not
+    // surface as an unhandled rejection.
+    invoke.mockRejectedValueOnce(new Error("gateway down"));
+    expect(call(transport)).toBeUndefined();
+    await tick();
+    expect(invoke).toHaveBeenCalledWith(cmd, args);
+  });
+
+  it("forgets a room's last status when it is left", async () => {
+    transport.onStatus(() => {});
+    await tick();
+    listeners["realtime://status"]({ payload: { room: "room-1", state: "connected" } });
+    expect(transport.lastStatus("room-1")).toBe("connected");
+    transport.leaveRoom("room-1");
+    expect(transport.lastStatus("room-1")).toBeUndefined();
+  });
+
+  it("asks Rust for this device's NodeId", async () => {
+    invoke.mockResolvedValueOnce({ node_id: "node-me" });
+    expect(await transport.nodeInfo()).toEqual({ node_id: "node-me" });
+    expect(invoke).toHaveBeenCalledWith("realtime_node_info", undefined);
+  });
+});
+
+describe("chatTransport — the browser stub's quiet half", () => {
+  it("answers everything that is not a join without side effects", async () => {
+    delete (window as any).__TAURI_INTERNALS__;
+    vi.resetModules();
+    invoke.mockClear();
+    const stub = (await import("../../src/chatTransport")).chatTransport;
+    expect(await stub.decodeLegacyTicket("t")).toBeNull();
+    stub.send("room-1", {});
+    stub.leaveRoom("room-1");
+    stub.cancelJoin();
+    stub.forgetTorOnion("Room");
+    stub.setCaptain("room-1", "x.onion");
+    expect(typeof stub.onMessage(() => {})).toBe("function");
+    expect(typeof stub.onStatus(() => {})).toBe("function");
+    expect(stub.lastStatus("room-1")).toBeUndefined();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { kvGet, kvPut, kvDelete, kvClearNamespace, kvCount } from "../../src/services/localDb";
 
 // In jsdom there is no Tauri runtime, so localDb uses its localStorage backend —
@@ -42,5 +42,21 @@ describe("localDb (localStorage backend)", () => {
     await kvClearNamespace("cache", "s");
     expect(await kvCount("cache", "s")).toBe(0);
     expect(await kvGet("notes:snapshot", "s", "")).toBe("keep");
+  });
+});
+
+describe("localDb (localStorage backend) when storage is full", () => {
+  it("drops the write quietly instead of failing the caller", async () => {
+    // A full or disabled localStorage is an ordinary browser state; the app
+    // keeps working in memory rather than erroring on every settings change.
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota exceeded", "QuotaExceededError");
+    });
+    try {
+      await expect(kvPut("cache", "s", "k", "v")).resolves.toBeUndefined();
+      expect(await kvGet("cache", "s", "k")).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
   });
 });
