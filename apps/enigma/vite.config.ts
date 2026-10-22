@@ -14,7 +14,6 @@ export default defineConfig(async () => ({
   // One literal per build feature (see buildFeatures.ts). The list comes from
   // the root build config through `./build.sh` / `./run_dev.sh`; with nothing
   // set — plain `npm run dev`, Playwright — every feature is on.
-  // @ts-expect-error process is a nodejs global
   define: featureDefines(process.env.ENIGMA_FEATURES),
 
   // wisteria, petalite (the repo's) and rakotis (this app's) ship raw TS/Vue

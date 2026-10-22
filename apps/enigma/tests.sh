@@ -31,6 +31,9 @@ CRATE='-p enigma --no-default-features'
 # flipping the run-time build config.
 tests_step js    "vitest: enigma, rakotis"                    'npm run test -w apps/enigma -w apps/enigma/packages/rakotis'
 tests_step js    "typecheck (rakotis)"                        'npm run typecheck -w apps/enigma/packages/rakotis'
+# The app, and its build configs (vite/vitest.config.ts, buildFeatures.ts),
+# which `npm run build` does not typecheck: they are a project of their own.
+tests_step js    "typecheck (app and build configs)"          'npm run typecheck -w apps/enigma'
 
 # With Professional's features — every one — which is also what the dev runner
 # builds, so this run and `./run_dev.sh` share one compiled tree.
