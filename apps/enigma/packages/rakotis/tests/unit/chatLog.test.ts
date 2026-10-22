@@ -86,6 +86,17 @@ describe("chatLog — a damaged log", () => {
     ]);
   });
 
+  it("reads unparseable JSON in the index or a segment as nothing stored there", async () => {
+    await kvPut("chat:log", "room-i", "index", "{half-written");
+    expect(await loadLog("room-i")).toEqual([]);
+
+    await appendMessages("room-j", batch(0, CHAT_LOG_SEG_MAX_MSGS + 1), 500);
+    await kvPut("chat:log", "room-j", "seg-1", "[{oops");
+    const left = await loadLog("room-j");
+    expect(left).toHaveLength(CHAT_LOG_SEG_MAX_MSGS);
+    expect(await logMeta("room-j")).toEqual({ count: CHAT_LOG_SEG_MAX_MSGS + 1, latestTs: 0 });
+  });
+
   it("deletes segments a merge no longer needs", async () => {
     // A merge under a smaller cap rewrites fewer segments; the leftovers must go,
     // or a later index rebuild could resurrect trimmed history.
