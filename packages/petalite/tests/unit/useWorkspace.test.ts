@@ -412,6 +412,18 @@ describe("opening folders", () => {
     expect(ws.unreadable.value).toBe(false);
   });
 
+  it("reports a folder refused with a plain string, as that string", async () => {
+    disk({ "/w": ["private/"] });
+    const { ws } = await workspace();
+    await ws.switchRoot("/w");
+    fsPlugin.readDir.mockRejectedValueOnce("forbidden path: /w/private");
+
+    await ws.toggle("/w/private");
+
+    expect(ws.error.value).toBe("forbidden path: /w/private");
+    expect(ws.isExpanded("/w/private")).toBe(false);
+  });
+
   it("clears an earlier complaint when the next folder opens", async () => {
     disk({ "/w": ["private/", "notes/"], "/w/notes": [] });
     const { ws } = await workspace();
@@ -462,6 +474,71 @@ describe("opening folders", () => {
     await ws.toggle("/r");
 
     expect(shape(ws.rows.value)).toEqual(["a", "  up", "x.txt"]);
+  });
+});
+
+describe("filtering the loaded tree", () => {
+  const row = (name: string, depth: number, isDirectory = false) => ({
+    name,
+    path: `/r/${name}`,
+    isDirectory,
+    depth,
+  });
+
+  it("returns every row, untouched, for a needle of only spaces", async () => {
+    const { filterRows } = await load();
+    const rows = [row("a.md", 0), row("b.md", 0)];
+    expect(filterRows(rows, "   ")).toBe(rows);
+  });
+
+  it("matches ignoring case and surrounding space", async () => {
+    const { filterRows } = await load();
+    const rows = [row("Budget.CSV", 0), row("notes.md", 0)];
+    expect(filterRows(rows, "  budget ").map((r) => r.name)).toEqual(["Budget.CSV"]);
+  });
+
+  it("keeps the whole chain of folders above a deep match, and nothing beside it", async () => {
+    // Dropping an unmatched ancestor would draw the hit indented under
+    // nothing, which reads as a file in a folder it is not in.
+    const { filterRows } = await load();
+    const rows = [
+      row("projects", 0, true),
+      row("alpha", 1, true),
+      row("deep", 2, true),
+      row("talk.pxml", 3),
+      row("other.md", 3),
+      row("beta", 1, true),
+      row("readme.md", 1),
+      row("talk-notes.md", 0),
+    ];
+    expect(filterRows(rows, "talk").map((r) => `${r.depth}:${r.name}`)).toEqual([
+      "0:projects",
+      "1:alpha",
+      "2:deep",
+      "3:talk.pxml",
+      "0:talk-notes.md",
+    ]);
+  });
+
+  it("keeps a matching folder without dragging in its contents", async () => {
+    // The match is the folder's name; its files did not match anything.
+    const { filterRows } = await load();
+    const rows = [row("photos", 0, true), row("a.png", 1), row("b.png", 1)];
+    expect(filterRows(rows, "photo").map((r) => r.name)).toEqual(["photos"]);
+  });
+
+  it("finds nothing inside a folder that was never opened, and reads no disk to try", async () => {
+    // The filter answers a keystroke. Reading every folder to answer it is
+    // the stall the lazy load exists to avoid.
+    disk({ "/w": ["closed/", "open/"], "/w/open": ["seen.md"], "/w/closed": ["hidden.md"] });
+    const { ws, filterRows } = await workspace();
+    await ws.switchRoot("/w");
+    await ws.toggle("/w/open");
+    fsPlugin.readDir.mockClear();
+
+    expect(filterRows(ws.rows.value, "hidden")).toEqual([]);
+    expect(filterRows(ws.rows.value, "seen").map((r) => r.path)).toEqual(["/w/open", "/w/open/seen.md"]);
+    expect(fsPlugin.readDir).not.toHaveBeenCalled();
   });
 });
 
@@ -816,6 +893,22 @@ describe("a backend of the app's own", () => {
     expect(ws.recent.value).toEqual(["/w"]);
     expect(shape(ws.rows.value)).toEqual(["a.md"]);
     expect(JSON.parse(storage.data.get(ROOT_KEY)!)).toEqual({ root: "/w" });
+  });
+
+  it("reports a refusal that arrives as a plain string, as Tauri's invoke sends it", async () => {
+    const b = backend({ "/w": [] });
+    b.open.mockImplementation(async (root: string) => {
+      if (root === "/w") return root;
+      throw `cannot_open: ${root} is not a folder`;
+    });
+    const { ws, setFileBackend } = await workspace();
+    setFileBackend(b);
+    await ws.switchRoot("/w");
+
+    expect(await ws.switchRoot("/etc/hosts")).toBe(false);
+
+    expect(ws.error.value).toBe("cannot_open: /etc/hosts is not a folder");
+    expect(ws.root.value).toBe("/w");
   });
 
   it("shows a remembered folder it refuses to reopen as unreadable", async () => {

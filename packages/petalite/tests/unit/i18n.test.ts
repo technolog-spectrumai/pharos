@@ -17,7 +17,10 @@ const messages = {
 
 function build(storageKey = "zinnia:locale") {
   const app = createAppI18n({ storageKey, messages });
-  return { ...app, t: (key: string) => app.i18n.global.t(key), locale: () => app.i18n.global.locale.value };
+  // The composer's catalogue-typed `t` is not what is under test; the words
+  // it answers are.
+  const global = app.i18n.global as unknown as { t: (key: string) => string; locale: { value: string } };
+  return { ...app, t: (key: string) => global.t(key), locale: () => global.locale.value };
 }
 
 function browserSpeaks(language: string | undefined) {
