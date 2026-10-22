@@ -1,0 +1,53 @@
+{
+  "name": "enigma",
+  "private": true,
+  "version": "0.1.10",
+  "type": "module",
+  "logoDir": "enigma26",
+  "scripts": {
+    "dev": "vite",
+    "dev:tauri": "node ../../rutile/scripts/tauri-dev-server.mjs",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.2.0",
+    "@fortawesome/free-solid-svg-icons": "^7.2.0",
+    "@fortawesome/vue-fontawesome": "^3.2.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-opener": "^2",
+    "ace-builds": "^1.44.0",
+    "html5-qrcode": "^2.3.8",
+    "nanoid": "^5.1.11",
+    "petalite": "*",
+    "pinia": "^3.0.4",
+    "qrcode": "^1.5.4",
+    "rakotis": "*",
+    "tailwindcss": "^4.3.0",
+    "vue": "^3.5.13",
+    "vue-i18n": "^9.14.5",
+    "vue-router": "^5.0.7",
+    "wisteria": "*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@tauri-apps/cli": "^2",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^29.1.1",
+    "typescript": "~5.6.2",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^2.1.10"
+  }
+}

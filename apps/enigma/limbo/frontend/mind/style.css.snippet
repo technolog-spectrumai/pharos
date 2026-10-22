@@ -1,0 +1,49 @@
+/* Parked with the Mind map — restore into apps/enigma/src/style.css.
+   These rules out-specify Trix's unlayered element selectors under Tailwind v4;
+   without them the node editor renders unstyled and the attachment button
+   group (which MindRichText also blocks via trix-file-accept) reappears. */
+
+/* Trix (Mind node notes) vs Tailwind v4 + dark mode. trix.css ships unlayered
+   element selectors, so plain utilities lose to it; these class-scoped rules
+   out-specify it deterministically (same trick as .map-canvas-host above).
+   Toolbar icons are baked-in dark SVG backgrounds — inverted wholesale in dark
+   mode. The attachment button group is hidden: MindRichText also cancels
+   trix-file-accept, so nothing can smuggle a blob into the encrypted doc. */
+.mind-trix-wrap trix-editor {
+  border: 1px solid var(--color-accent-2);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  min-height: 8rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  font-size: 0.875rem;
+  background: transparent;
+}
+.dark .mind-trix-wrap trix-editor {
+  border-color: var(--color-accent-1);
+}
+.mind-trix-wrap trix-toolbar .trix-button-group {
+  border-color: var(--color-accent-2);
+}
+.dark .mind-trix-wrap trix-toolbar .trix-button-group {
+  border-color: var(--color-accent-1);
+}
+.dark .mind-trix-wrap trix-toolbar .trix-button {
+  border-color: var(--color-accent-1);
+  color: var(--color-text-main-dark);
+}
+.dark .mind-trix-wrap trix-toolbar .trix-button::before {
+  filter: invert(0.85);
+}
+.mind-trix-wrap trix-toolbar .trix-button-group--file-tools {
+  display: none;
+}
+/* Read-only rendering (Topics details): no toolbar, no edit chrome. */
+.mind-trix-readonly trix-toolbar {
+  display: none;
+}
+.mind-trix-readonly trix-editor {
+  border: none;
+  padding: 0;
+  min-height: 0;
+}

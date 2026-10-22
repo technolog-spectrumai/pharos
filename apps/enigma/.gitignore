@@ -1,0 +1,63 @@
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+target/
+**/target/
+
+# Tauri's generated capability schemas.
+**/gen/schemas/
+dist-ssr/
+*.local
+# Per-profile dev build dirs (scripts/dev_target.sh) — one per running instance
+# so two dev instances never queue behind one another's Cargo lock.
+target-*/
+**/target-*/
+*.wasm
+# Enigma's app crate and protasius are standalone crates whose resolution is not
+# committed — which is what their MSRV pin comments assume. (Rutile's crypto
+# workspace commits its own lock, inside the submodule.)
+Cargo.lock
+
+# The `custom` Enigma edition (`edition: custom` in build.yaml): a local feature
+# set of your own. basic/standard/professional stay checked in; this never is.
+apps/enigma/src-tauri/configs/build_config.custom.yaml
+
+# Python tooling venvs (tools/map_packager)
+tools/*/venv/
+tools/*/.venv/
+
+# Test artifacts
+test-results/
+playwright-report/
+coverage/
+
+# Logs & local env
+*.log
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Android signing material — a keystore or its passwords must never be committed.
+# gen/android/.gitignore covers the generated project; these cover the repo root
+# and anywhere else a stray copy could land. The committed fingerprint PIN file
+# (apps/enigma/deploy/android-release-key.properties) is deliberately named so
+# these patterns do not match it.
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+key.properties
+signing.properties
+
+# Python bytecode and pytest's cache, wherever a script or its tests ran.
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,21 @@
+{
+  "name": "enigma-workspace",
+  "private": true,
+  "version": "0.1.10",
+  "description": "Enigma26: serverless, end-to-end-encrypted P2P chat (iroh + MLS). Built on Rutile (mounted at rutile/), which brings the crypto, the shared front end and the build tooling.",
+  "workspaces": [
+    "packages/*",
+    "rutile/packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bash run_dev.sh",
+    "build": "bash build.sh",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:all": "bash tests.sh"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
+  }
+}

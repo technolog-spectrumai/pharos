@@ -1,0 +1,83 @@
+# Enigma26 build configuration — baked in at COMPILE TIME by build.rs, which
+# validates this file, generates Rust consts from it (`enigma_lib::build_config`)
+# and FAILS THE BUILD on any invalid or missing value. The shipped binary never
+# re-reads it.
+#
+# This file is the same for every build, and holds only what rarely changes:
+# crypto parameters, protocol constants, and the defaults and bounds of the
+# user's settings. What is NOT here, and who owns it instead:
+#
+#   which features a build contains   the root config — pro.yaml / std.yaml
+#                                     (`apps.enigma.features`), from the
+#                                     catalogue in Cargo.toml `[features]`
+#   name, identifier, version         tauri.conf.json
+#   the Privacy HP price table        privacy_hp.yaml
+#
+# See technology.md §15 for the full list of who owns what.
+
+crypto:
+  # Declarations, ASSERTED at compile time against Rutile's crypto crates
+  # (rutile/crates/rotor: rotor_core, gervasius) — a mismatch fails the
+  # build. Changing these strings does NOT change the algorithms; change the
+  # crates and then update the declaration here.
+  mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
+  at_rest_aead: xchacha20-poly1305
+  kdf:
+    algorithm: argon2id
+    # Argon2id costs for NEWLY created vaults (the per-profile protasius store
+    # and per-file "lock a file"). Existing vaults are untouched: each vault
+    # header records its own costs, so old data always unlocks. The derived-key
+    # length is fixed at 32 bytes and not configurable.
+    m_cost_kib: 65536   # 64 MiB
+    t_cost: 3
+    p_cost: 4
+
+network:
+  # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the
+  # Tor transport frame AND the iroh-gossip message size. A peer built with a
+  # larger value can emit messages a smaller-cap peer rejects. Change only in
+  # lockstep across a fleet, and never per preset: a Standard user must be able
+  # to sit in a room with a Pro user.
+  max_frame_bytes: 16777216      # 16 MiB
+  # Not interop-sensitive: the virtual onion port rides inside each ticket, so
+  # joiners always use the ticket's value; changing it affects new tickets only.
+  onion_port: 9999
+  # Local-only tuning (no wire impact).
+  tor_write_timeout_secs: 20
+  tor_handshake_timeout_secs: 30
+
+defaults:
+  # Initial values of a NEW profile's runtime toggles — the user's own opt-ins,
+  # not what the build contains. A feature being compiled in does not turn it
+  # on: a build with `dht` still starts every new profile with discovery off.
+  # Settings switches override these per profile, and a profile saved by any
+  # build keeps its stored values. A toggle whose feature is not in the build
+  # is never read. "offline" (airplane mode) is deliberately not here — it
+  # always starts off.
+  use_tor: false
+  stable_onion: false
+  dht_discovery: false
+  dht_nick_publish: false
+  # Verify chunked P2P transfers with a per-chunk hash chain. Off = trust the
+  # transport; either SIDE turning it on enforces it.
+  file_integrity: true
+
+settings:
+  # Defaults + bounds for the user-tunable settings. The encrypted store (kv
+  # namespace p2p:settings) is the runtime source of truth; these only seed and
+  # bound it. Build-checked invariant: min <= default <= max. The same for
+  # every preset, including settings whose feature a build leaves out.
+  connect_timeout_secs:  { default: 60,  min: 5,  max: 600 }
+  dht_room_publish_secs: { default: 600, min: 60, max: 3600 }
+  max_file_size_mb:      { default: 16,  min: 0,  max: 102400 }  # 0 = unlimited
+  chat_history_cap_msgs:    { default: 500, min: 50, max: 5000 }
+  # Auto-lock: minutes of user inactivity before the vault locks itself and the
+  # app returns to the passphrase gate. 0 = never auto-lock. A live call or
+  # in-flight transfer defers the countdown (see src/idleLock.ts).
+  idle_lock_mins:           { default: 15,  min: 0,  max: 120 }
+  # P2P transfer chunk, KiB ("file chunk size" in Settings). Each chunk
+  # rides as one MLS message; max must fit network.max_frame_bytes.
+  file_chunk_kib:           { default: 256, min: 16, max: 4096 }
+  # Digits in the unlock PIN. Each extra digit is ~3.3 bits; the PIN guards an
+  # in-session re-unlock only, never data at rest.
+  pin_digits:               { default: 6, min: 4, max: 12 }

@@ -1,0 +1,182 @@
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Rutile — the crypto crates, the shared packages and the build tooling — is a
+# git submodule, and nothing here builds without it. Its URL is an SSH one on
+# GitHub, so the runner needs credentials for that repository (a deploy key, or
+# a `url.<https-with-token>.insteadOf` rewrite) before any job can clone.
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages: [test, check, e2e, build]
+
+node:vitest:
+  stage: test
+  image: node:22-bookworm
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key: npm
+    paths: [.npm/]
+  script:
+    - npm ci
+    - npm run test --workspaces
+
+cargo:check:
+  stage: check
+  image: rust:1-bookworm
+  parallel:
+    matrix:
+      - APP: [enigma]
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  cache:
+    key: cargo-$APP
+    paths:
+      - .cargo/registry
+      - apps/$APP/src-tauri/target/
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends
+      libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+      librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential
+    # tauri-build validates that frontendDist ("../dist") exists
+    - mkdir -p apps/$APP/dist
+  script:
+    # The crate's optional features are an allowlist (Cargo.toml [features],
+    # chosen per build by pro.yaml / std.yaml), so it has to build at both
+    # ends: the core alone, and with everything. `./tests.sh` also checks
+    # Standard's exact list; this image has no node to read the preset with.
+    - (cd apps/$APP/src-tauri && cargo check --no-default-features)
+    - (cd apps/$APP/src-tauri && cargo check --all-features)
+    # The gate the crate layout exists to hold: Morion turns on gervasius's
+    # `gervazy` feature, which pulls fernet and then OpenSSL. Enigma shares the
+    # crate through Rutile and must never inherit that.
+    - 'test "$(cargo tree -p enigma -e normal --all-features --manifest-path apps/enigma/src-tauri/Cargo.toml | grep -c openssl-sys)" = 0 || { echo "ERROR: openssl-sys reached enigma"; exit 1; }'
+
+# Frontend build gate: `vue-tsc --noEmit && vite build` per app. This is the ONLY
+# place the app frontends are actually built in CI — node:vitest runs unit tests
+# and cargo:check only checks Rust, so a broken vite build or a TypeScript type
+# error would otherwise slip through to the (heavy, tag-only) tauri build. Runs on
+# every commit and asserts the build emitted dist/index.html.
+frontend:build:
+  stage: check
+  image: node:22-bookworm
+  parallel:
+    matrix:
+      - APP: [enigma]
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key: npm
+    paths: [.npm/]
+  script:
+    - npm ci
+    - npm run build -w apps/$APP
+    # assert the build actually produced a frontend bundle (not just exit 0)
+    - 'test -f "apps/$APP/dist/index.html" || { echo "ERROR: frontend build emitted no apps/$APP/dist/index.html"; exit 1; }'
+  artifacts:
+    paths: [apps/$APP/dist/]
+    expire_in: 1 week
+
+# Stubbed smoke tier (the app is serverless — there is no live backend tier).
+# The image version must match @playwright/test in package-lock.json.
+playwright:smoke:
+  stage: e2e
+  image: mcr.microsoft.com/playwright:v1.60.0-noble
+  parallel:
+    matrix:
+      - APP: [enigma]
+  retry: 1
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key: npm
+    paths: [.npm/]
+  script:
+    - npm ci
+    - npm run test:e2e -w apps/$APP
+  artifacts:
+    when: on_failure
+    paths: [apps/$APP/test-results/]
+    expire_in: 7 days
+
+# Shared desktop-build definition. `./build.sh` builds what pro.yaml
+# says — the same route a developer uses, so CI cannot build something a local
+# build would not. It runs the frontend build first (tauri's beforeBuildCommand
+# -> npm run build), compiles the Rust release binary, then bundles it to
+# src-tauri/target/release/bundle/ (.deb / .rpm) and fails if no package came
+# out. Two jobs extend this: tauri:build (every-commit verification) and
+# tauri:desktop (tag releases).
+.tauri-build:
+  stage: build
+  image: rust:1-bookworm
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  cache:
+    key: cargo-desktop
+    paths:
+      - .cargo/registry
+      - apps/enigma/src-tauri/target/
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends
+      libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+      librsvg2-dev libxdo-dev libssl-dev pkg-config build-essential curl file
+    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
+  script:
+    - npm ci
+    # The cargo-desktop cache retains target/ (for fast incremental compiles),
+    # and tauri only overwrites same-named outputs — so after a version bump,
+    # stale old-version installers would linger in release/bundle/ and get
+    # re-uploaded inside the artifacts. build.sh clears that directory before
+    # it builds and fails if the build leaves no package in it.
+    - bash build.sh
+
+# Every-commit build verification: proves enigma still builds end-to-end
+# (frontend -> Rust release -> bundle) on every branch push. A full release build
+# is heavy (cold cache: tens of minutes); the cargo-desktop cache keeps warm runs
+# fast. To trim cost, scope `rules` to merge requests / the default branch, or
+# build the debug profile from a second config (`build.sh --config FILE`). Tag
+# pipelines are excluded so tauri:desktop (below) handles releases without a
+# duplicate build.
+tauri:build:
+  extends: .tauri-build
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - when: on_success
+  retry:
+    max: 1
+    when: [runner_system_failure, stuck_or_timeout_failure]
+  artifacts:
+    paths: [apps/enigma/src-tauri/target/release/bundle/]
+    expire_in: 1 week
+
+# Release build on tags (and manual runs): same build, longer-lived artifacts.
+tauri:desktop:
+  extends: .tauri-build
+  rules:
+    - if: $CI_COMMIT_TAG
+    - when: manual
+      allow_failure: true
+  artifacts:
+    paths: [apps/enigma/src-tauri/target/release/bundle/]
+    expire_in: 30 days
+
+# There is no Rotor WASM build gate here: the crypto crates are Rutile's
+# (rutile/crates/rotor), and building its bindings is that repo's business.
+
+# Android needs an SDK/NDK image plus signing configuration; the host-provisioning
+# scripts (scripts/setup_java.sh, setup_rust_android.sh, install_android_studio.sh)
+# and technology.md §19 documents the requirements. Not wired to a CI image yet.
+android:build:
+  stage: build
+  image: rust:1-bookworm
+  when: manual
+  allow_failure: true
+  script:
+    - echo "Android CI is not provisioned. Build locally:"
+    - echo "  set android.enabled to true in pro.yaml, then ./build.sh"
+    - echo "See technology.md §19 for SDK/NDK setup."
+    - exit 1
