@@ -17,7 +17,7 @@
 
 crypto:
   # Declarations, ASSERTED at compile time against Rutile's crypto crates
-  # (rutile/crates/rotor: rotor_core, gervasius) — a mismatch fails the
+  # (crates/rotor: rotor_core, gervasius) — a mismatch fails the
   # build. Changing these strings does NOT change the algorithms; change the
   # crates and then update the declaration here.
   mls_ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519

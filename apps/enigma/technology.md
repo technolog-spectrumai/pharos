@@ -1,11 +1,17 @@
 # Enigma26 — Technology Overview
 
+> **Since 2026-10-22 this app lives in the Belisario monorepo** at `apps/enigma/`. What
+> this document calls Rutile — mounted at `rutile/` as a submodule — is the repo root now
+> (`crates/`, `packages/`, `scripts/`, `tools/`), and the build is `./build.sh enigma configs/…`.
+> Paths below that start `rutile/` mean the same path from the repo root. See
+> [docs/migration.md](../../docs/migration.md).
+
 A technical deep-dive into how Enigma26 works: its design, stack, dependencies,
 communication flow, cryptography, privacy posture, and known weaknesses — plus the
 project's conventions, config sources of truth and rework history, and how to run,
 build, test, release and install it. The base it is built on — crypto crates,
 shared packages, build tooling — is documented in
-[rutile/technology.md](rutile/technology.md).
+[docs/technology.md](../../docs/technology.md).
 
 > **Status:** early-stage (`v0.1.10`). The cryptography is production-grade (OpenMLS),
 > but several integration-level hardening items remain open — see
@@ -134,7 +140,7 @@ Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bun
 identifier `com.spectrumaipl.enigma26`. The tauri.conf `bundle.targets` list governs
 which desktop formats a build emits — currently `["deb", "rpm"]`, out of the Linux
 set Tauri can produce (`.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
-by the separate `rutile/scripts/build_android.sh` path ([§19](#19-run-build-and-test)).
+by the separate `scripts/build_android.sh` path ([§19](#19-run-build-and-test)).
 
 ---
 
@@ -148,7 +154,7 @@ which is gitignored; Rutile's crypto workspace commits its own, in the submodule
 | Crate | Ver | Role |
 |---|---|---|
 | `tauri` (+ `tauri-plugin-opener`/`-dialog`/`-notification`) | 2 | App framework, IPC, bundler, OS integration |
-| `rotor-core` | path | MLS crypto engine (`rutile/crates/rotor/rotor_core`) |
+| `rotor-core` | path | MLS crypto engine (`crates/rotor/rotor_core`) |
 | `protasius` | path | Per-profile encrypted store (vault lifecycle + sealed kv) |
 | `gervasius` | path | At-rest crypto primitives (also used directly by `local_lock.rs`) |
 | `iroh` | 0.98 | QUIC P2P endpoint, NodeId identity, n0 relay + discovery (`address-lookup-pkarr-dht` feature) |
@@ -174,7 +180,7 @@ which is gitignored; Rutile's crypto workspace commits its own, in the submodule
 Build-dependencies: `tauri-build`, plus `serde`/`serde_norway`/`serde_json` for the
 compile-time `build_config.yaml` codegen ([§19](#19-run-build-and-test)).
 
-### Crypto workspace (`rutile/crates/rotor`, in the Rutile submodule)
+### Crypto workspace (`crates/rotor`, in the Rutile submodule)
 
 - **`rotor_core`** — the MLS engine (`RotorSession`). `openmls =0.7.4`,
   `openmls_rust_crypto =0.4.4`, `openmls_basic_credential =0.4.1`,
@@ -920,7 +926,7 @@ or a room code out of band.
 
 ## 13. Encryption at rest (gervasius + protasius)
 
-*(Condensed as-built reference. Crates: `rutile/crates/rotor/gervasius` — primitives;
+*(Condensed as-built reference. Crates: `crates/rotor/gervasius` — primitives;
 `protasius/` — the store; app integration in `vault.rs` / `lib.rs`.)*
 
 **Model.** On every launch the user enters a passphrase (per profile; set on first
@@ -1231,7 +1237,7 @@ instead of hardcoding.
 alias path (`vite.config.ts` + `vitest.config.ts` + `tsconfig.json`); the desktop apt
 dependency list (docs + CI jobs); the Playwright image tag `v1.60.0` ↔
 `@playwright/test ^1.60.0`; the NDK version `27.2.12479018` (docs ↔ installer); the
-`*.deb/*.AppImage/*.rpm` bundle glob (`rutile/scripts/build.mjs`). State one Node floor
+`*.deb/*.AppImage/*.rpm` bundle glob (`scripts/build.mjs`). State one Node floor
 (CI uses **node 22**).
 
 ### Centralization roadmap (not yet done)
@@ -1979,7 +1985,7 @@ sudo apt-get install -y \
 ```
 
 **Nothing is fetched at build time but crates.io and npm.** The crypto crates
-([rutile/crates/rotor/](rutile/crates/rotor) — `rotor-core`, `gervasius`), the
+([crates/rotor/](crates/rotor) — `rotor-core`, `gervasius`), the
 sealed-file frame and the shared front-end packages come from **Rutile**, the
 base repo mounted at `rutile/` as a git submodule, and are consumed by path —
 as are [protasius/](protasius) and the `rakotis` workspace package. The whole
@@ -2023,7 +2029,7 @@ edits hot-reload; Rust edits trigger a rebuild.
 
 The launchers work from VS Code's integrated terminal even when VS Code is the
 snap: they restore the environment the snap overrides before starting the app
-(`scrub_snap_env` in [rutile/scripts/lib.sh](rutile/scripts/lib.sh)). Without that the build
+(`scrub_snap_env` in [scripts/lib.sh](scripts/lib.sh)). Without that the build
 succeeds and the window never opens — see [Troubleshooting](#troubleshooting).
 
 #### Profiles & two-instance pairing
@@ -2248,7 +2254,7 @@ apps:
 ```
 
 Every key, what is validated and what each step runs is documented with the
-tooling: [rutile/§5](rutile/technology.md#5-build-tooling). An unknown key,
+tooling: [rutile/§5](../../docs/technology.md#5-build-tooling). An unknown key,
 value or feature id is an error that names its path
 (`apps.enigma.features: dht requires hosted_relays, which is not listed`),
 never a silent default. The two presets write to different folders
@@ -2320,10 +2326,10 @@ Building an Android APK/AAB from an Ubuntu dev machine.
 #### One-time setup (scripted)
 
 ```bash
-bash rutile/scripts/setup_java.sh              # OpenJDK 17 (+ JAVA_HOME in ~/.bashrc)
-bash rutile/scripts/install_android_studio.sh  # Studio, SDK 35, NDK, build tools, CMake, i386 libs
-bash rutile/scripts/setup_rust_android.sh      # rustup Android targets + cargo-ndk
-bash rutile/scripts/patch_cargo_android.sh     # Cargo.toml Android-compat check
+bash scripts/setup_java.sh              # OpenJDK 17 (+ JAVA_HOME in ~/.bashrc)
+bash scripts/install_android_studio.sh  # Studio, SDK 35, NDK, build tools, CMake, i386 libs
+bash scripts/setup_rust_android.sh      # rustup Android targets + cargo-ndk
+bash scripts/patch_cargo_android.sh     # Cargo.toml Android-compat check
 source ~/.bashrc
 ```
 
@@ -2358,8 +2364,8 @@ Set `apps.enigma.android.enabled: true` in the preset — with
 `profile` and `abis` — and run `./build.sh`. That calls:
 
 ```bash
-bash rutile/scripts/build_android.sh enigma debug                    # debug APK, aarch64
-bash rutile/scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AAB
+bash scripts/build_android.sh enigma debug                    # debug APK, aarch64
+bash scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AAB
 ```
 
 `build_android.sh <app> [debug|release] [abi-spec]` runs `npm install`,
@@ -2390,10 +2396,10 @@ rejected for release outright — by path, filename, or the `androiddebugkey`
 alias. Debug builds keep the debug key and are unaffected.
 
 One-time setup, with the stdlib-only checker the build itself calls
-([rutile/scripts/android_signing/](rutile/scripts/android_signing)):
+([scripts/android_signing/](scripts/android_signing)):
 
 ```bash
-SIGN="python3 rutile/scripts/android_signing/signing_cli.py"
+SIGN="python3 scripts/android_signing/signing_cli.py"
 GEN=apps/enigma/src-tauri/gen/android
 
 # Mint a release keystore (outside the repo, chmod 600, RSA 4096) — the tool
@@ -2427,7 +2433,7 @@ documents the four keys; `signing_cli.py --help` lists the commands.
 
 An **unsigned release** for internal inspection is a deliberate act, never a
 fallback: `allow_unsigned_release: true` under `android:` in the preset
-(`rutile/scripts/build_android.sh enigma release aarch64 --allow-unsigned-release`).
+(`scripts/build_android.sh enigma release aarch64 --allow-unsigned-release`).
 It installs nowhere, says so loudly, and still refuses the debug
 key. The pinned fingerprint lives in
 `apps/enigma/deploy/android-release-key.properties` — deliberately outside
@@ -2517,8 +2523,8 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
   failed validation; the panic message lists the offending YAML paths (see
   [Build configuration](#build-configuration-build_configyaml)).
 - **`rotor-core` build error** — it's the in-repo crate at
-  `rutile/crates/rotor/rotor_core` (no fetch involved); reproduce in isolation
-  with `cd rutile/crates/rotor && cargo check -p rotor-core`.
+  `crates/rotor/rotor_core` (no fetch involved); reproduce in isolation
+  with `cd crates/rotor && cargo check -p rotor-core`.
 - **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
 - **`frontendDist` doesn't exist** — the frontend build didn't run/produce
   `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build.sh`).
@@ -2535,7 +2541,7 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
   cfg-guarded to Linux); verify you're running `tauri android build`, not plain
   `cargo build`.
 - **Gradle Java version mismatch** — `JAVA_HOME` must point at JDK 17 (not 11/21);
-  re-run `rutile/scripts/setup_java.sh`.
+  re-run `scripts/setup_java.sh`.
 
 ---
 
@@ -2797,7 +2803,7 @@ npm test
 npm run build -w rakotis
 npm run build -w enigma
 ( cd apps/enigma/src-tauri && cargo test )
-( cd rutile/crates/rotor/gervasius && cargo test )
+( cd crates/rotor/gervasius && cargo test )
 ( cd protasius && cargo test )
 npm run test:e2e -w apps/enigma
 ```
@@ -2843,7 +2849,7 @@ release key is missing or when the Android SDK debug key is used for a release.
 Preferred flow:
 
 ```bash
-SIGN="python3 rutile/scripts/android_signing/signing_cli.py"
+SIGN="python3 scripts/android_signing/signing_cli.py"
 $SIGN status --gen apps/enigma/src-tauri/gen/android
 $SIGN create
 ./build.sh      # android: { enabled: true, profile: release, abis: [aarch64, x86_64] }
@@ -2878,7 +2884,7 @@ With the environment or that local file supplying everything,
 `keystore.properties` can be absent entirely; the committed
 `keystore.properties.example` is the only half that belongs in the repo. No
 password is ever passed on an argv. Command reference: `signing_cli.py --help`
-([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
+([scripts/android_signing/](scripts/android_signing)).
 
 ### 21.6 Build Android Artifacts
 
@@ -2891,7 +2897,7 @@ android:
   abis: [aarch64, x86_64]
 ```
 
-It runs `rutile/scripts/build_android.sh enigma release aarch64,x86_64`.
+It runs `scripts/build_android.sh enigma release aarch64,x86_64`.
 
 Expected output — every selected ABI is packed into one `universal` artifact,
 so these paths do not change with the ABI list:
@@ -2929,7 +2935,7 @@ for the exact files you ship:
 Before sharing Android files, verify package, version, signer, and fingerprint:
 
 ```bash
-python3 rutile/scripts/android_signing/signing_cli.py verify dist/pro/enigma/enigma-universal-release.apk
+python3 scripts/android_signing/signing_cli.py verify dist/pro/enigma/enigma-universal-release.apk
 ```
 
 For manual SDK inspection:
@@ -3039,11 +3045,11 @@ What to do:
 
 `tauri android init` can regenerate files under
 `apps/enigma/src-tauri/gen/android/`. Enigma26 has custom signing gates in the
-generated Gradle project, mirrored by `rutile/scripts/android_signing/signing.py`.
+generated Gradle project, mirrored by `scripts/android_signing/signing.py`.
 
 What to do:
 
-- run `python3 rutile/scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
+- run `python3 scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
   after regenerating Android files;
 - verify that release signing still fails closed when credentials are missing;
 - keep signing logic in Gradle and `signing.py` in lockstep.
@@ -3164,8 +3170,8 @@ shared.
 What to do:
 
 ```bash
-python3 rutile/scripts/android_signing/signing_cli.py verify <apk>
-bash rutile/scripts/build_android.sh enigma release aarch64,x86_64
+python3 scripts/android_signing/signing_cli.py verify <apk>
+bash scripts/build_android.sh enigma release aarch64,x86_64
 ```
 
 Share only a signed release APK.
@@ -3221,9 +3227,9 @@ devices.
 What to do:
 
 ```bash
-bash rutile/scripts/build_android.sh enigma release aarch64,x86_64
+bash scripts/build_android.sh enigma release aarch64,x86_64
 # or, when all targets are installed:
-bash rutile/scripts/build_android.sh enigma release all
+bash scripts/build_android.sh enigma release all
 ```
 
 For an emulator, include `x86_64`.
@@ -3309,7 +3315,7 @@ opens blank, crashes, cannot scan QR codes, or cannot join calls:
 Confirm what is actually inside an APK before distributing it:
 
 ```bash
-python3 rutile/scripts/android_signing/signing_cli.py verify <apk>
+python3 scripts/android_signing/signing_cli.py verify <apk>
 ```
 
 The report should show:
@@ -3324,7 +3330,7 @@ Once a release fingerprint has been pinned in
 other keystore fails instead of shipping — so a mismatch between that file and
 the fingerprint printed above means the artifact did not come from the release
 path. The full command set: `signing_cli.py --help`
-([rutile/scripts/android_signing/](rutile/scripts/android_signing)).
+([scripts/android_signing/](scripts/android_signing)).
 
 Preset names and output filenames are not separate Android identities. Android
 uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the
@@ -3439,8 +3445,8 @@ Active scope:
 
 - Enigma26 desktop app: `apps/enigma`
 - Enigma's encrypted store: `protasius`
-- The crypto crates, from the Rutile submodule: `rutile/crates/rotor`
-  (`rotor_core`, `gervasius`) and `rutile/crates/substrate` (the sealed-file
+- The crypto crates, from the Rutile submodule: `crates/rotor`
+  (`rotor_core`, `gervasius`) and `crates/substrate` (the sealed-file
   frame — Enigma links it WITHOUT `legacy-detect`, so no Fernet and no OpenSSL)
 
 Out of scope here:
@@ -3454,12 +3460,12 @@ Out of scope here:
 
 | Area | Current algorithm or construction | Where used | Source of truth / notes |
 | --- | --- | --- | --- |
-| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, calendar cards, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `rutile/crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
-| MLS credentials | OpenMLS `BasicCredential` with self-asserted device identity | MLS member identities and rosters | `rutile/crates/rotor/rotor_core/src/lib.rs`. This is not a PKI or verified identity binding. |
-| At-rest envelope | Passphrase -> Argon2id -> UKEK wraps random 32-byte DEK -> XChaCha20-Poly1305 for values | Enigma profile vault, MLS state, chat/p2p settings, invite records, DHT secrets, iroh/Tor keys, panic sidecars | `rutile/crates/rotor/gervasius/src/*`, `protasius/src/lib.rs`. Vault headers store version, KDF params, salt, and wrapped DEK. |
-| Password KDF | Argon2id v1.3, 32-byte output | New Enigma vaults, local file locks, key rings (and Morion's sealed files, through the same crate) | Configured in `build_config.yaml` as 64 MiB, t=3, p=4; validated by `build.rs`; implemented in `rutile/crates/rotor/gervasius/src/kdf.rs`. |
-| AEAD for local data | XChaCha20-Poly1305 with 24-byte random nonce and AAD | Gervasius sealed blobs, Enigma local file locks, key-ring files, in-memory PIN passphrase box | `rutile/crates/rotor/gervasius/src/aead.rs`, `apps/enigma/src-tauri/src/local_lock.rs`, `apps/enigma/src-tauri/src/keyring.rs`, `crates/padova/src/lock.rs`. |
-| Public-key sealing | Ephemeral-static X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305 | Personal invite ticket body sealed to a recipient NodeId public key | `rutile/crates/rotor/gervasius/src/seal.rs`, `apps/enigma/src-tauri/src/invite_ticket.rs`. Recipient Ed25519 NodeId keys are converted to X25519; small-order/off-curve inputs are rejected. |
+| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, calendar cards, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
+| MLS credentials | OpenMLS `BasicCredential` with self-asserted device identity | MLS member identities and rosters | `crates/rotor/rotor_core/src/lib.rs`. This is not a PKI or verified identity binding. |
+| At-rest envelope | Passphrase -> Argon2id -> UKEK wraps random 32-byte DEK -> XChaCha20-Poly1305 for values | Enigma profile vault, MLS state, chat/p2p settings, invite records, DHT secrets, iroh/Tor keys, panic sidecars | `crates/rotor/gervasius/src/*`, `protasius/src/lib.rs`. Vault headers store version, KDF params, salt, and wrapped DEK. |
+| Password KDF | Argon2id v1.3, 32-byte output | New Enigma vaults, local file locks, key rings (and Morion's sealed files, through the same crate) | Configured in `build_config.yaml` as 64 MiB, t=3, p=4; validated by `build.rs`; implemented in `crates/rotor/gervasius/src/kdf.rs`. |
+| AEAD for local data | XChaCha20-Poly1305 with 24-byte random nonce and AAD | Gervasius sealed blobs, Enigma local file locks, key-ring files, in-memory PIN passphrase box | `crates/rotor/gervasius/src/aead.rs`, `apps/enigma/src-tauri/src/local_lock.rs`, `apps/enigma/src-tauri/src/keyring.rs`, `crates/padova/src/lock.rs`. |
+| Public-key sealing | Ephemeral-static X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305 | Personal invite ticket body sealed to a recipient NodeId public key | `crates/rotor/gervasius/src/seal.rs`, `apps/enigma/src-tauri/src/invite_ticket.rs`. Recipient Ed25519 NodeId keys are converted to X25519; small-order/off-curve inputs are rejected. |
 | DHT record encryption | BLAKE3-derived keys, ChaCha20-Poly1305, random 96-bit nonce | Mainline DHT room rendezvous, presence, nickname directory | `apps/enigma/src-tauri/src/p2p_dht.rs`. DHT records are public metadata containers; MLS still gates room membership. |
 | DHT signatures | Ed25519 signing keys derived with BLAKE3 domain separation | BEP44 mutable DHT records | `apps/enigma/src-tauri/src/p2p_dht.rs`. |
 | Invite redemption | Ed25519 signature over random challenge plus BLAKE3 keyed proof with 32-byte invite capability | QR/ticket redemption before MLS add | `apps/enigma/src-tauri/src/invite_redeem.rs`, `apps/enigma/src-tauri/src/invites.rs`. The capability itself does not cross the wire during redemption. |
@@ -3469,7 +3475,7 @@ Out of scope here:
 | P2P transport | iroh QUIC and iroh-gossip; optional hosted relays/discovery | Normal Enigma rooms, direct invites, file transfer, calls | `apps/enigma/src-tauri/src/p2p_iroh.rs`. Relays should see MLS ciphertext for room payloads. |
 | Tor transport | Arti onion services and streams | Tor-mode Enigma rooms | `apps/enigma/src-tauri/src/p2p_tor.rs`. The elected captain forwards MLS ciphertext and should not have other members' group keys beyond its own membership. |
 | Topic derivation | BLAKE3 hash of room name | iroh gossip topics and Tor room naming helpers | `apps/enigma/src-tauri/src/p2p_iroh.rs`, `apps/enigma/src-tauri/src/p2p_tor.rs`. This is deterministic and not a secret by itself. |
-| Legacy platform files | Fernet read/detect path: AES-128-CBC + HMAC | Historical Toto/Zinnia sealed files only — **not compiled into Enigma** | `rutile/crates/rotor/gervasius/src/gervazy.rs` (feature `gervazy`), `rutile/crates/substrate/src/lib.rs` (feature `legacy-detect`). Morion enables them; Enigma must not, and `./tests.sh` asserts `openssl-sys` is absent from its tree. |
+| Legacy platform files | Fernet read/detect path: AES-128-CBC + HMAC | Historical Toto/Zinnia sealed files only — **not compiled into Enigma** | `crates/rotor/gervasius/src/gervazy.rs` (feature `gervazy`), `crates/substrate/src/lib.rs` (feature `legacy-detect`). Morion enables them; Enigma must not, and `./tests.sh` asserts `openssl-sys` is absent from its tree. |
 
 Key dependency versions confirmed from the Enigma Rust tree:
 
@@ -3560,7 +3566,7 @@ P1 hardening:
 - Scope native file operations more tightly. `local_lock.rs` operates on paths
   supplied by JS; prefer dialog-granted paths or an allowlist/capability model.
 - Add fsync+rename durability to Enigma `local_lock.rs`, matching the stronger
-  path in `rutile/crates/substrate` and `apps/enigma/src-tauri/src/keyring.rs`.
+  path in `crates/substrate` and `apps/enigma/src-tauri/src/keyring.rs`.
 - Review all logging for passphrases, invite capabilities, tokens, DHT secrets,
   key material, and decrypted payloads. Add regression tests for redaction where
   practical.

@@ -155,7 +155,7 @@ import {
 // The drawing engine writes files through whatever the app hands it. Enigma
 // has no @tauri-apps/plugin-fs — it writes through its own Rust command — and
 // that difference is exactly why the engine takes a writer instead of
-// importing one. See rutile/technology.md §4.
+// importing one. See docs/technology.md §4.
 import { setWriteFile } from "wisteria/sketchExport";
 import { writeBase64FileToDisk } from "rakotis";
 setWriteFile(async (path, bytes) => {

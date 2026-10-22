@@ -22,28 +22,30 @@ at rest** behind a passphrase.
 
 ## Layout
 
+Enigma is one app in the Belisario monorepo; the code it shares with the other
+apps (crypto crates, the sealed-file frame, the shared front end, the build) is
+at the repo root — see the [root README](../../README.md).
+
 ```
-enigma/
-├── rutile/            the base — a git submodule shared with Morion (crypto crates,
-│                      sealed-file frame, shared front end, build tooling)
-├── apps/enigma/       the app: Vue 3 frontend (src/) and Rust backend (src-tauri/)
-├── packages/rakotis/  Enigma's app library and P2P chat orchestration
-├── protasius/         the encrypted-at-rest store
-├── scripts/           dev-run helpers (profile reset, build dirs), the signing tests
-├── limbo/             parked features, each with a restore playbook
-├── pro.yaml  std.yaml the two presets: which features a build contains
-└── build.sh  run_dev.sh  tests.sh  todo.md
+apps/enigma/
+├── src/  src-tauri/       the app: Vue 3 frontend and Rust backend
+├── packages/rakotis/      Enigma's app library and P2P chat orchestration
+├── crates/protasius/      the encrypted-at-rest store
+├── scripts/               dev-run helpers (profile reset, build dirs), the signing tests
+├── limbo/                 parked features, each with a restore playbook
+└── run_dev.sh  tests.sh  todo.md
+configs/enigma-pro.yaml  configs/enigma-std.yaml   (repo root) the two presets
 ```
 
 ## Getting started
 
-```bash
-git clone --recurse-submodules <this repo>   # or, afterwards: git submodule update --init
+From the repo root:
 
-./run_dev.sh                 # one dev instance (installs dependencies on first run)
-./run_dev.sh --dual          # two instances side by side, to pair on one machine
-./run_dev.sh std.yaml        # …with the Standard preset's features instead of Pro's
-./run_dev.sh --reset         # start over with a fresh profile and passphrase
+```bash
+./run_dev.sh enigma                            # one dev instance (installs dependencies on first run)
+./run_dev.sh enigma --dual                     # two instances side by side, to pair on one machine
+./run_dev.sh enigma configs/enigma-std.yaml    # …with the Standard preset's features instead of Pro's
+./run_dev.sh enigma --reset                    # start over with a fresh profile and passphrase
 ```
 
 Prerequisites: Node 20+, Rust stable, and on Linux the WebKitGTK development
@@ -52,15 +54,19 @@ libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
 ## Build
 
 ```bash
-./build.sh                   # Professional (pro.yaml): a release .deb and .rpm
-./build.sh std.yaml          # Standard
-./build.sh --dry-run         # show the commands, run none
+./build.sh enigma configs/enigma-pro.yaml             # Professional: a release .deb and .rpm
+./build.sh enigma configs/enigma-std.yaml             # Standard
+./build.sh enigma configs/enigma-pro.yaml --dry-run   # show the commands, run none
 ```
 
-A preset — [pro.yaml](pro.yaml), [std.yaml](std.yaml) — lists the features a
-build contains, and sets debug or release, package formats, Android and tests.
-There are no build flags. Packages land in `dist/pro/enigma/` and
-`dist/std/enigma/`.
+A preset — [enigma-pro.yaml](../../configs/enigma-pro.yaml),
+[enigma-std.yaml](../../configs/enigma-std.yaml) — lists the features a build
+contains, and sets debug or release, package formats, Android, signing and
+tests. There are no build flags. Packages land in `dist/enigma-pro/enigma/` and
+`dist/enigma-std/enigma/`. Before anything compiles, the build checks with
+`cargo tree` that Standard links neither the DHT's `mainline` nor the
+equalizer's `rustfft`, and that no Enigma build links OpenSSL
+([tools/build/README.md](../../tools/build/README.md#feature-isolation)).
 
 | | Standard | Professional |
 |---|:-:|:-:|
@@ -70,9 +76,9 @@ There are no build flags. Packages land in `dist/pro/enigma/` and
 ## Test
 
 ```bash
-./tests.sh                   # everything: vitest, Rust, signing checks, the bundle, Playwright
-./tests.sh rust              # one group (js | rust | py | build | e2e)
-./tests.sh --list            # what it would run
+./tests.sh enigma            # everything: vitest, Rust, signing checks, the bundle, Playwright
+./tests.sh enigma rust       # one group (js | rust | py | build | e2e)
+./tests.sh enigma --list     # what it would run
 ```
 
 Every step runs even if an earlier one fails, and the run ends with a pass/fail
@@ -85,4 +91,4 @@ message flow, transports, the cryptography and its known weaknesses, privacy,
 the UI, who owns which setting, and — from §19 on — running, building,
 features and presets, releasing, installing and troubleshooting. Open work is
 in [todo.md](todo.md). The base is documented in
-[rutile/technology.md](rutile/technology.md).
+[docs/technology.md](../../docs/technology.md).
