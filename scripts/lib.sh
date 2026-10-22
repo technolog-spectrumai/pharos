@@ -125,13 +125,33 @@ app_data_dir() {
 # ── dependencies ────────────────────────────────────────────────────────────
 # The apps are npm WORKSPACES: their dependencies hoist into the root
 # node_modules, and apps/<name>/node_modules may never exist at all. So "is it
-# installed" is asked of the root, by the marker npm writes last — a directory
-# test in the app would reinstall on every run, or never.
+# installed" is asked of the root.
+#
+# Installed is not the same as current: a checkout that already has packages
+# never learns that a pull added some, and the first page that imports one
+# fails ("Failed to resolve import" in Vite). So this installs again whenever
+# package-lock.json is not the one node_modules was installed from, judged by
+# its hash (a checkout touches mtimes, not contents), kept beside the packages.
 #
 # `npm ci`, because the lockfile is authoritative — reproducible, and it refuses
 # rather than silently resolving a drifted package.json.
 ensure_deps() {
-  [ -f "$REPO_ROOT/node_modules/.package-lock.json" ] && return 0
-  step "Installing dependencies"
+  local lock="$REPO_ROOT/package-lock.json"
+  local stamp="$REPO_ROOT/node_modules/.lock-sha256"
+  local want have=""
+  want="$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$lock")"
+  [ -f "$stamp" ] && have="$(cat "$stamp")"
+  if [ -f "$REPO_ROOT/node_modules/.package-lock.json" ] && [ "$have" = "$want" ]; then
+    return 0
+  fi
+  if [ -d "$REPO_ROOT/node_modules" ]; then
+    step "Updating dependencies (package-lock.json changed)"
+  else
+    step "Installing dependencies"
+  fi
   (cd "$REPO_ROOT" && npm ci --no-audit --no-fund)
+  printf '%s' "$want" > "$stamp"
 }
+
+# Morion's name for the same thing, from before the two were one.
+fresh_deps() { ensure_deps; }
