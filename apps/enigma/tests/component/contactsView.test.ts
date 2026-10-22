@@ -284,7 +284,7 @@ describe("adding a contact", () => {
     return w;
   }
   const submit = (w: VueWrapper) =>
-    w.findAll("button").filter((b) => b.text() === "Add contact").at(-1)!.trigger("click");
+    w.findAll("button").filter((b) => b.text() === "Add contact").pop()!.trigger("click");
 
   it("refuses something that is not a contact code, and stores nothing", async () => {
     const w = await openAdd();

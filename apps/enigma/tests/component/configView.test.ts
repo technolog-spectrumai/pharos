@@ -664,7 +664,7 @@ describe("panic code", () => {
     return { w, current: fields[0], code: fields[1], confirm: fields[2] };
   }
   const submit = (w: VueWrapper) =>
-    w.findAll("button").filter((b) => b.text().trim() === "Set panic code").at(-1)!.trigger("click");
+    w.findAll("button").filter((b) => b.text().trim() === "Set panic code").pop()!.trigger("click");
 
   it("arms a panic code with the real passphrase as authority", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

@@ -20,7 +20,6 @@ import EnigmaCalendarView from "../../src/views/EnigmaCalendarView.vue";
 
 (i18n.global.locale as any).value = "en";
 
-const HOUR = 3_600_000;
 // A fixed "now": the form defaults (next full hour) and the past/upcoming split
 // both read the clock, so every expectation below is about this moment.
 const NOW = new Date(2026, 6, 15, 10, 30);
@@ -297,7 +296,7 @@ describe("cancelling my meeting", () => {
   it("confirming cancels exactly that meeting and closes the dialog", async () => {
     const w = await askToCancel();
     // The dialog's button carries the same label as the row's; it renders last.
-    const confirm = w.findAll("button").filter((b) => b.text().trim() === "Cancel meeting").at(-1)!;
+    const confirm = w.findAll("button").filter((b) => b.text().trim() === "Cancel meeting").pop()!;
     await confirm.trigger("click");
     await flushPromises();
 
@@ -362,7 +361,7 @@ describe("scheduling a poll's winning time", () => {
 
   it("confirming closes the poll on that slot", async () => {
     const w = await pick();
-    const confirm = w.findAll("button").filter((b) => b.text().trim() === "Schedule this time").at(-1)!;
+    const confirm = w.findAll("button").filter((b) => b.text().trim() === "Schedule this time").pop()!;
     await confirm.trigger("click");
     await flushPromises();
 
@@ -386,7 +385,7 @@ describe("cancelling my poll", () => {
     expect(w.text()).toContain("Cancel the poll “Retro” for everyone?");
     expect(store.meetings.cancelPoll).not.toHaveBeenCalled();
 
-    const confirm = w.findAll("button").filter((b) => b.text().trim() === "Cancel poll").at(-1)!;
+    const confirm = w.findAll("button").filter((b) => b.text().trim() === "Cancel poll").pop()!;
     await confirm.trigger("click");
     await flushPromises();
     expect(store.meetings.cancelPoll).toHaveBeenCalledWith("p-4");
