@@ -2,7 +2,7 @@
 # Run Enigma26 in development — one instance, or two side by side.
 #
 #   ./run_dev.sh enigma                              one instance, profile "default", Professional
-#   ./run_dev.sh enigma configs/enigma-std.yaml      …built with another preset's features
+#   ./run_dev.sh enigma std                          …built with Standard's features
 #   ./run_dev.sh enigma --dual                       two instances (profiles alice + bob) to pair
 #   ./run_dev.sh enigma --dual carol dave            …with other profile names
 #   ./run_dev.sh enigma --reset                      wipe the profile(s) first, then run
@@ -10,9 +10,9 @@
 #   APP_PROFILE=alice ./run_dev.sh enigma            one instance on a different profile
 #
 # (from the repo root; apps/enigma/run_dev.sh takes the same arguments without
-# the app name.) The build's features come from a config in configs/ —
-# enigma-pro.yaml unless one is named — so a dev run is the same build
-# `./build.sh enigma` would package.
+# the app name.) The build's features come from a variant in
+# apps/enigma/dromon.yaml — pro unless one is named — so a dev run is the same
+# build `./build.sh enigma pro` would package.
 #
 # --dual gives each instance its own APP_PROFILE / CHAT_USER (separate data
 # dirs and identities) and its own Cargo build dir, so neither waits on the
@@ -34,10 +34,10 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 usage() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
 
 # ── arguments ───────────────────────────────────────────────────────────────
-# Flags may appear anywhere. A positional argument ending in .yaml is the
-# config — the same convention ./build.sh has; any other is a profile name,
-# which only --dual takes.
-CONFIG=""
+# Flags may appear anywhere. `pro` or `std` is the variant of
+# apps/enigma/dromon.yaml whose features to build with (--variant NAME for any
+# other); any other positional is a profile name, which only --dual takes.
+VARIANT=""
 DUAL=0
 RESET="${ENIGMA_RESET:-0}"
 RESET_ARGS=()
@@ -48,14 +48,14 @@ while [ $# -gt 0 ]; do
     --reset) [ "$RESET" = "purge" ] || RESET=1 ;;
     --purge) RESET=purge ;;
     -y | --yes) RESET_ARGS+=(-y) ;;
-    --config)
+    --variant)
       shift
-      [ $# -gt 0 ] || { echo "[run_dev] --config needs a file" >&2; exit 2; }
-      CONFIG="$1" ;;
-    --config=*) CONFIG="${1#--config=}" ;;
+      [ $# -gt 0 ] || { echo "[run_dev] --variant needs a name" >&2; exit 2; }
+      VARIANT="$1" ;;
+    --variant=*) VARIANT="${1#--variant=}" ;;
     -h | --help) usage; exit 0 ;;
     -*) echo "[run_dev] unknown option: $1 (try --help)" >&2; exit 2 ;;
-    *.yaml | *.yml) CONFIG="$1" ;;
+    pro | std) VARIANT="$1" ;;
     *) NAMES+=("$1") ;;
   esac
   shift
@@ -105,11 +105,11 @@ ensure_deps
 # validates it for a build. Cargo gets it as --features; the frontend reads it
 # from ENIGMA_FEATURES (apps/enigma/buildFeatures.ts). Exported even when empty:
 # "no optional features" is a list, not an absence.
-FEATURES="$(cd "$ROOT" && node tools/build/build.mjs enigma "${CONFIG:-configs/enigma-pro.yaml}" --print-features)"
+FEATURES="$(cd "$ROOT" && node dromon/dromon.mjs enigma "${VARIANT:-pro}" --print-features)"
 export ENIGMA_FEATURES="$FEATURES"
 FEATURE_ARGS=()
 [ -z "$FEATURES" ] || FEATURE_ARGS=(--features "$FEATURES")
-echo "[run_dev] ${CONFIG:-configs/enigma-pro.yaml}: ${FEATURES:-no optional features}"
+echo "[run_dev] enigma ${VARIANT:-pro}: ${FEATURES:-no optional features}"
 
 # Per-profile Cargo build directory: two instances must not queue behind each
 # other's link. Costs ~17 GB per profile — see scripts/dev_target.sh.

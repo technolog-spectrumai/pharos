@@ -7,7 +7,7 @@ target-*/
 *.wasm
 
 # The `custom` Enigma edition: a local feature set of your own. The presets in
-# configs/ stay checked in; this never is.
+# dromon.yaml stay checked in; this never is.
 src-tauri/configs/build_config.custom.yaml
 
 # Test artifacts

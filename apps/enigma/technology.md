@@ -2,7 +2,7 @@
 
 > **Since 2026-10-22 this app lives in the Belisario monorepo** at `apps/enigma/`. What
 > this document calls Rutile — mounted at `rutile/` as a submodule — is the repo root now
-> (`crates/`, `packages/`, `scripts/`, `tools/`), and the build is `./build.sh enigma configs/…`.
+> (`crates/`, `packages/`, `scripts/`, `tools/`), and the build is Dromon's: `./build.sh enigma pro|std`, from `apps/enigma/dromon.yaml`.
 > Paths below that start `rutile/` mean the same path from the repo root. See
 > [docs/migration.md](../../docs/migration.md).
 

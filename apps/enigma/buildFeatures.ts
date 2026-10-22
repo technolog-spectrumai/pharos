@@ -2,7 +2,7 @@
 //
 // Enigma26's optional features are Cargo features (src-tauri/Cargo.toml
 // `[features]` — the catalogue). A build picks from them in a root config
-// (configs/enigma-pro.yaml / configs/enigma-std.yaml), and `./build.sh` hands the SAME list to cargo
+// (apps/enigma/dromon.yaml: pro / std), and `./build.sh` hands the SAME list to cargo
 // (`--features`) and to this file (`ENIGMA_FEATURES`). Here it becomes one
 // literal per feature — `__FEATURE_CALLS__` and so on — which Vite substitutes
 // before bundling, so a branch guarded by a feature the build left out is

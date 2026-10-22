@@ -20,8 +20,8 @@ REPO_ROOT="$ROOT"
 # when a step runs (it needs the `yaml` package, which ensure_deps installs),
 # so --list works on a bare checkout.
 export REPO_ROOT
-PRO='$(node tools/build/build.mjs enigma configs/enigma-pro.yaml --print-features)'
-STD='$(node tools/build/build.mjs enigma configs/enigma-std.yaml --print-features)'
+PRO='$(node dromon/dromon.mjs enigma pro --print-features)'
+STD='$(node dromon/dromon.mjs enigma std --print-features)'
 # One package selected, never --workspace: cargo unifies features across every
 # package an invocation selects, and Morion's gervazy/OpenSSL must not leak in.
 CRATE='-p enigma --no-default-features'
@@ -57,7 +57,7 @@ tests_step build "frontend bundle, Pro (vue-tsc + vite)"      "ENIGMA_FEATURES=\
 # Morion, and this is what would notice one coming back with a merge.
 tests_step build "Standard bundle omits calls"                "rm -rf test-results/std-bundle && (cd apps/enigma && ENIGMA_FEATURES=\"$STD\" npx vite build --outDir ../../test-results/std-bundle --emptyOutDir >/dev/null) && if grep -rlE --include='*.js' 'vox_create' test-results/std-bundle/assets; then echo 'omitted feature code found in a Standard bundle'; exit 1; fi"
 tests_step build "no bundle carries maps"                     "if grep -rlE --include='*.js' 'maplibre|map_get_tile|map_region_import' apps/enigma/dist/assets test-results/std-bundle/assets; then echo 'map code found in a bundle'; exit 1; fi"
-tests_step build "both presets resolve"                       './build.sh enigma configs/enigma-pro.yaml --dry-run && ./build.sh enigma configs/enigma-std.yaml --dry-run'
+tests_step build "both presets resolve"                       './build.sh enigma all --validate'
 # Needs Playwright's browsers: npx playwright install chromium
 tests_step e2e   "Playwright smoke"                           'npm run test:e2e -w apps/enigma'
 

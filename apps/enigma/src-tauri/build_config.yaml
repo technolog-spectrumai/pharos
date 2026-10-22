@@ -7,7 +7,7 @@
 # crypto parameters, protocol constants, and the defaults and bounds of the
 # user's settings. What is NOT here, and who owns it instead:
 #
-#   which features a build contains   configs/enigma-pro.yaml / configs/enigma-std.yaml
+#   which features a build contains   apps/enigma/dromon.yaml (pro / std)
 #                                     (`apps.enigma.features`), from the
 #                                     catalogue in Cargo.toml `[features]`
 #   name, identifier, version         tauri.conf.json

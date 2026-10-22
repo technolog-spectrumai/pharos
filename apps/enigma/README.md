@@ -34,7 +34,7 @@ apps/enigma/
 ├── scripts/               dev-run helpers (profile reset, build dirs), the signing tests
 ├── limbo/                 parked features, each with a restore playbook
 └── run_dev.sh  tests.sh  todo.md
-configs/enigma-pro.yaml  configs/enigma-std.yaml   (repo root) the two presets
+dromon.yaml                how it is built: the two presets, pro and std
 ```
 
 ## Getting started
@@ -44,7 +44,7 @@ From the repo root:
 ```bash
 ./run_dev.sh enigma                            # one dev instance (installs dependencies on first run)
 ./run_dev.sh enigma --dual                     # two instances side by side, to pair on one machine
-./run_dev.sh enigma configs/enigma-std.yaml    # …with the Standard preset's features instead of Pro's
+./run_dev.sh enigma std    # …with the Standard preset's features instead of Pro's
 ./run_dev.sh enigma --reset                    # start over with a fresh profile and passphrase
 ```
 
@@ -54,19 +54,18 @@ libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
 ## Build
 
 ```bash
-./build.sh enigma configs/enigma-pro.yaml             # Professional: a release .deb and .rpm
-./build.sh enigma configs/enigma-std.yaml             # Standard
-./build.sh enigma configs/enigma-pro.yaml --dry-run   # show the commands, run none
+./build.sh enigma pro             # Professional: a release .deb and .rpm
+./build.sh enigma std             # Standard
+./build.sh enigma pro --dry-run   # show the commands, run none
 ```
 
-A preset — [enigma-pro.yaml](../../configs/enigma-pro.yaml),
-[enigma-std.yaml](../../configs/enigma-std.yaml) — lists the features a build
-contains, and sets debug or release, package formats, Android, signing and
+A preset — a variant in [dromon.yaml](dromon.yaml) — lists the features a
+build contains, and sets debug or release, package formats, Android, signing and
 tests. There are no build flags. Packages land in `dist/enigma-pro/enigma/` and
 `dist/enigma-std/enigma/`. Before anything compiles, the build checks with
 `cargo tree` that Standard links neither the DHT's `mainline` nor the
 equalizer's `rustfft`, and that no Enigma build links OpenSSL
-([tools/build/README.md](../../tools/build/README.md#feature-isolation)).
+([dromon/README.md](../../dromon/README.md#feature-isolation)).
 
 | | Standard | Professional |
 |---|:-:|:-:|
