@@ -103,7 +103,7 @@ function scanVue(): Finding[] {
 
 function scanRakotisNotices(): Finding[] {
   const found: Finding[] = [];
-  const file = resolve(ROOT, "packages/rakotis/src/useChatChannel.ts");
+  const file = resolve(ROOT, "apps/enigma/packages/rakotis/src/useChatChannel.ts");
   readFileSync(file, "utf8")
     .split("\n")
     .forEach((line, i) => {
@@ -111,7 +111,7 @@ function scanRakotisNotices(): Finding[] {
       const m = line.match(/systemMsg\(\s*[`"']([^`"']{4,})/);
       if (m && looksLikeProse(m[1])) {
         found.push({
-          file: "packages/rakotis/src/useChatChannel.ts",
+          file: "apps/enigma/packages/rakotis/src/useChatChannel.ts",
           line: i + 1,
           text: m[1],
         });
@@ -132,7 +132,7 @@ function scanDateFormatting(): Finding[] {
   const found: Finding[] = [];
   const roots = [
     resolve(ROOT, "apps/enigma/src"),
-    resolve(ROOT, "packages/rakotis/src"),
+    resolve(ROOT, "apps/enigma/packages/rakotis/src"),
   ];
   for (const root of roots) {
     for (const ext of [".vue", ".ts"]) {

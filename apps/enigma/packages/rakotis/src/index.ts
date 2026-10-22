@@ -52,18 +52,18 @@ export type { ChatTranslator } from "./i18n/chatText";
 // and are re-exported here by PATH — to the .vue file itself, for the reason
 // above, and not through the `petalite/…` alias, whose `.vue` rule points at
 // petalite's components directory.
-export { default as OyaButton } from "../../../rutile/packages/petalite/src/primitives/OyaButton.vue";
+export { default as OyaButton } from "../../../../../packages/petalite/src/primitives/OyaButton.vue";
 export { default as OyaCard } from "./components/primitives/OyaCard.vue";
-export { default as OyaIconButton } from "../../../rutile/packages/petalite/src/primitives/OyaIconButton.vue";
-export { default as OyaTextField } from "../../../rutile/packages/petalite/src/primitives/OyaTextField.vue";
+export { default as OyaIconButton } from "../../../../../packages/petalite/src/primitives/OyaIconButton.vue";
+export { default as OyaTextField } from "../../../../../packages/petalite/src/primitives/OyaTextField.vue";
 export { default as OyaTextArea } from "./components/primitives/OyaTextArea.vue";
 export { default as OyaBadge } from "./components/primitives/OyaBadge.vue";
 export { default as OyaCopyField } from "./components/primitives/OyaCopyField.vue";
-export { default as OyaQrCode } from "../../../rutile/packages/petalite/src/primitives/OyaQrCode.vue";
+export { default as OyaQrCode } from "../../../../../packages/petalite/src/primitives/OyaQrCode.vue";
 export { default as OyaAvatar } from "./components/primitives/OyaAvatar.vue";
 export { default as OyaEmptyState } from "./components/primitives/OyaEmptyState.vue";
 export { default as OyaSectionHeader } from "./components/primitives/OyaSectionHeader.vue";
-export { default as OyaModal } from "../../../rutile/packages/petalite/src/primitives/OyaModal.vue";
+export { default as OyaModal } from "../../../../../packages/petalite/src/primitives/OyaModal.vue";
 export { default as OyaHpPrice } from "./components/primitives/OyaHpPrice.vue";
 export { default as OyaHpMeter } from "./components/primitives/OyaHpMeter.vue";
 

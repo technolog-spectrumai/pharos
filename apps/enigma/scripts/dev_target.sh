@@ -16,9 +16,9 @@
 # a code bug and is not one (technology.md §19).
 #
 # LAYOUT:
-#   profile "default"  -> src-tauri/target          (unchanged; the plain path)
-#   profile "alice"    -> src-tauri/target-alice
-#   profile "bob"      -> src-tauri/target-bob
+#   profile "default"  -> <repo>/target          (the workspace's own, shared with builds)
+#   profile "alice"    -> <repo>/target-alice
+#   profile "bob"      -> <repo>/target-bob
 #
 # Every `target*` sibling is already covered by .gitignore's `**/target/` only
 # for the exact name, so `dev_target_ignore` keeps the siblings ignored too.

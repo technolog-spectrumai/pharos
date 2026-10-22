@@ -2,6 +2,7 @@
 name = "protasius"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Enigma's centralized per-profile encrypted-at-rest data store (fjall + gervasius). Tauri-agnostic."
 
 # Named for St. Protasius (paired with Gervasius). The store half of Enigma's
@@ -9,9 +10,9 @@ description = "Enigma's centralized per-profile encrypted-at-rest data store (fj
 # unlocked by a passphrase-derived key (via the `gervasius` primitives crate).
 
 [dependencies]
-# The crypto crates come from Rutile (mounted at rutile/) — see
+# The crypto crates are the repo's shared ones (crates/rotor) — see
 # apps/enigma/src-tauri/Cargo.toml.
-gervasius = { path = "../rutile/crates/rotor/gervasius" }
+gervasius = { path = "../../../../crates/rotor/gervasius" }
 fjall = "2"
 # Filler bytes for the unused panic slot (must be indistinguishable from a real
 # wrapped key, so they come from the OS CSPRNG — same source gervasius uses).

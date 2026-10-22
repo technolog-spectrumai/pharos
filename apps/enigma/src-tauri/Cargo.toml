@@ -4,6 +4,7 @@ version = "0.1.10"
 description = "Enigma26 — serverless, end-to-end-encrypted (MLS) peer-to-peer chat (Tauri shell)"
 authors = ["SpectrumAI"]
 edition = "2021"
+rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -73,23 +74,23 @@ tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Crypto layer (OpenMLS via Rotor). The crypto crates live in Rutile, the base
-# repo mounted at rutile/ as a git submodule, and are consumed by path — so
-# building enigma fetches nothing but crates.io.
-rotor-core = { path = "../../../rutile/crates/rotor/rotor_core" }
+# Crypto layer (OpenMLS via Rotor). The crypto crates are the repo's shared ones
+# (crates/rotor), consumed by path — so building enigma fetches nothing but
+# crates.io.
+rotor-core = { path = "../../../crates/rotor/rotor_core" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
-protasius = { path = "../../../protasius" }
+protasius = { path = "../crates/protasius" }
 # Reused directly (not just via protasius) for passphrase-protected local files
 # (local_lock.rs): per-file vault + seal/open over the chosen file's bytes.
-gervasius = { path = "../../../rutile/crates/rotor/gervasius" }
+gervasius = { path = "../../../crates/rotor/gervasius" }
 # The sealed-file FRAME, shared with Morion (Rutile's substrate). Deliberately WITHOUT
 # `legacy-detect`: that feature reaches gervasius's gervazy half and so
 # openssl-sys, and enigma never wrote a Fernet file to recognise. The layout is
 # shared; the magic and AAD are not — every file already on a user's disk
 # carries `ENIGLOCK`, so `FrameSpec::ENIGMA` keeps reading exactly what this
 # app has always written.
-substrate = { path = "../../../rutile/crates/substrate" }
+substrate = { path = "../../../crates/substrate" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"
@@ -110,7 +111,7 @@ tor-cell = "0.43"
 # HsId (the .onion address) is redaction-safe and has no plain Display; the
 # DisplayRedacted trait gives the full address for the QR ticket.
 safelog = "0.8"
-# MSRV pin (Cargo.lock is gitignored, so this must live here): typed-index-collections
+# MSRV pin (from when Cargo.lock was not committed): typed-index-collections
 # 3.4+ requires rustc 1.90, but arti pulls it in transitively. Hold it at 3.3.0
 # (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
 typed-index-collections = "=3.3.0"
@@ -150,10 +151,7 @@ cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
 # source via the NDK clang. Android-only, so desktop keeps using the system lib.
 rusqlite = { version = "0.39", features = ["bundled"] }
 
-[profile.dev]
-# The enigma debug binary embeds hundreds of MB of DWARF (iroh + arti + cpal +
-# tauri). The GNU linker merging it all spikes to multiple GB and gets OOM-killed
-# (`ld ... signal 9`) on low-RAM machines. Keeping debug info in the object files
-# instead of linking it into the executable slashes peak linker memory and binary
-# size; full gdb debugging still works (it reads the .o files).
-split-debuginfo = "unpacked"
+# [profile.dev] — split-debuginfo = "unpacked" — lives in the repo-root
+# Cargo.toml: a workspace member's [profile.*] is ignored. The enigma debug
+# binary embeds hundreds of MB of DWARF (iroh + arti + cpal + tauri), and the
+# GNU linker merging it all is OOM-killed on low-RAM machines without it.

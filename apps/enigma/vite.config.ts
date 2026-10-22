@@ -25,13 +25,13 @@ export default defineConfig(async () => ({
       // The drawing engine and the theme it leans on — Rutile's, mounted at the
       // repo root. Raw TS/Vue like rakotis, so the `.vue` rule comes first and
       // both are excluded from prebundling.
-      { find: /^wisteria\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../rutile/packages/wisteria/src/components/$1", import.meta.url)) },
-      { find: /^wisteria\/(.*)/, replacement: fileURLToPath(new URL("../../rutile/packages/wisteria/src/$1", import.meta.url)) },
-      { find: /^wisteria$/, replacement: fileURLToPath(new URL("../../rutile/packages/wisteria/src/index.ts", import.meta.url)) },
-      { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../rutile/packages/petalite/src/components/$1", import.meta.url)) },
-      { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("../../rutile/packages/petalite/src/$1", import.meta.url)) },
-      { find: /^petalite$/, replacement: fileURLToPath(new URL("../../rutile/packages/petalite/src/index.ts", import.meta.url)) },
-      { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("../../packages/rakotis/src/$1", import.meta.url)) },
+      { find: /^wisteria\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/components/$1", import.meta.url)) },
+      { find: /^wisteria\/(.*)/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/$1", import.meta.url)) },
+      { find: /^wisteria$/, replacement: fileURLToPath(new URL("../../packages/wisteria/src/index.ts", import.meta.url)) },
+      { find: /^petalite\/(.*\.vue)$/, replacement: fileURLToPath(new URL("../../packages/petalite/src/components/$1", import.meta.url)) },
+      { find: /^petalite\/(.*)/, replacement: fileURLToPath(new URL("../../packages/petalite/src/$1", import.meta.url)) },
+      { find: /^petalite$/, replacement: fileURLToPath(new URL("../../packages/petalite/src/index.ts", import.meta.url)) },
+      { find: /^rakotis\/(.*)/, replacement: fileURLToPath(new URL("./packages/rakotis/src/$1", import.meta.url)) },
       { find: /^rakotis$/, replacement: fileURLToPath(new URL("../../node_modules/rakotis/src/index.ts", import.meta.url)) },
     ],
   },

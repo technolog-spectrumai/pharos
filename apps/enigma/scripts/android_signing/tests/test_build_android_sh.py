@@ -16,11 +16,11 @@ import pytest
 
 import signing
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 ANDROID_GEN = REPO_ROOT / "apps" / "enigma" / "src-tauri" / "gen" / "android"
-SCRIPT = REPO_ROOT / "rutile" / "scripts" / "build_android.sh"
+SCRIPT = REPO_ROOT / "tools" / "android" / "build_android.sh"
 
-TOOL_DIR = REPO_ROOT / "rutile" / "scripts" / "android_signing"
+TOOL_DIR = REPO_ROOT / "tools" / "android" / "android_signing"
 
 
 def script_text() -> str:

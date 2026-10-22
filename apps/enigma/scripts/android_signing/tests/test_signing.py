@@ -24,7 +24,7 @@ import pytest
 
 import signing
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 APP_DIR = REPO_ROOT / "apps" / "enigma"
 ANDROID_GEN = APP_DIR / "src-tauri" / "gen" / "android"
 ANDROID_OUTPUTS = ANDROID_GEN / "app" / "build" / "outputs"

@@ -21,10 +21,9 @@ if [ -z "$PROFILE" ] || [ "$PROFILE" = "default" ]; then
   exit 2
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC_TAURI="$SCRIPT_DIR/apps/enigma/src-tauri"
-FROM="$SRC_TAURI/target"
-TO="$SRC_TAURI/target-$PROFILE"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+FROM="$ROOT/target"
+TO="$ROOT/target-$PROFILE"
 
 # Moving a build tree from under a running Cargo is how you get a half-linked
 # binary and an afternoon of confusion.

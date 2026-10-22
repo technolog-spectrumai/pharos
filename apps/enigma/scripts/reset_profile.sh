@@ -51,8 +51,8 @@ if [ ${#PROFILES[@]} -eq 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(dirname "$SCRIPT_DIR")"
-CONF="$REPO_DIR/apps/enigma/src-tauri/tauri.conf.json"
+APP_DIR="$(dirname "$SCRIPT_DIR")"
+CONF="$APP_DIR/src-tauri/tauri.conf.json"
 
 # Which app's data are we resetting? The bundle identifier IS the data directory
 # (Tauri derives app_data_dir from it), so it is read from the config rather

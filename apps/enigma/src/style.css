@@ -8,11 +8,11 @@
    are generated too: rakotis, and petalite — the five Oya primitives rakotis
    re-exports live there now. A path that stops matching is SILENT: no error,
    just components rendering unstyled. */
-@source "../../../packages/rakotis/src";
-@source "../../../rutile/packages/petalite/src";
+@source "../packages/rakotis/src";
+@source "../../../packages/petalite/src";
 
 /* The colour tokens are shared — see rutile/packages/petalite/src/theme/tokens.css. */
-@import "../../../rutile/packages/petalite/src/theme/tokens.css";
+@import "../../../packages/petalite/src/theme/tokens.css";
 
 /* Enigma's own brand face, which Morion does not use. */
 @theme {

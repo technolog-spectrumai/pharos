@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # Run Enigma26 in development — one instance, or two side by side.
 #
-#   ./run_dev.sh                    one instance, profile "default", Professional
-#   ./run_dev.sh std.yaml           …built with another preset's features
-#   ./run_dev.sh --dual             two instances (profiles alice + bob) to pair
-#   ./run_dev.sh --dual carol dave  …with other profile names
-#   ./run_dev.sh --reset            wipe the profile(s) first, then run
-#   ./run_dev.sh --purge            …deleting outright instead of archiving
-#   APP_PROFILE=alice ./run_dev.sh  one instance on a different profile
+#   ./run_dev.sh enigma                              one instance, profile "default", Professional
+#   ./run_dev.sh enigma configs/enigma-std.yaml      …built with another preset's features
+#   ./run_dev.sh enigma --dual                       two instances (profiles alice + bob) to pair
+#   ./run_dev.sh enigma --dual carol dave            …with other profile names
+#   ./run_dev.sh enigma --reset                      wipe the profile(s) first, then run
+#   ./run_dev.sh enigma --purge                      …deleting outright instead of archiving
+#   APP_PROFILE=alice ./run_dev.sh enigma            one instance on a different profile
 #
-# The build's features come from a root config — pro.yaml unless one is named —
-# so a dev run is the same build `./build.sh` would package.
+# (from the repo root; apps/enigma/run_dev.sh takes the same arguments without
+# the app name.) The build's features come from a config in configs/ —
+# enigma-pro.yaml unless one is named — so a dev run is the same build
+# `./build.sh enigma` would package.
 #
 # --dual gives each instance its own APP_PROFILE / CHAT_USER (separate data
 # dirs and identities) and its own Cargo build dir, so neither waits on the
 # other's link. Both share ONE Vite dev server: the first instance starts it,
-# the second reuses it (rutile/scripts/tauri-dev-server.mjs). Because that
+# the second reuses it (scripts/tauri-dev-server.mjs). Because that
 # server is a child of the first instance, the two are tied together: Ctrl-C —
 # or either instance exiting — tears both down.
 #
@@ -26,7 +28,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR/apps/enigma"
+APP_DIR="$SCRIPT_DIR"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 usage() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
 
@@ -71,16 +74,10 @@ else
 fi
 
 # ── preflight ───────────────────────────────────────────────────────────────
-# Everything below is Rutile's; without the submodule there is nothing to run.
-[ -f "$SCRIPT_DIR/rutile/scripts/lib.sh" ] || {
-  echo "rutile/ is empty — this repo is built on the Rutile submodule." >&2
-  echo "  git submodule update --init" >&2
-  exit 1
-}
-
 # step/warn/die, the toolchain checks, the snap trap and the dependency install
-# — Rutile's, shared with every app built on it.
-. "$SCRIPT_DIR/rutile/scripts/lib.sh"
+# — the repo's, shared with every app.
+REPO_ROOT="$ROOT"
+. "$ROOT/scripts/lib.sh"
 
 # Checked here rather than left to fail inside `npm run`: a missing toolchain or
 # an npm that cannot start otherwise surfaces as a stack trace that names no
@@ -108,12 +105,11 @@ ensure_deps
 # validates it for a build. Cargo gets it as --features; the frontend reads it
 # from ENIGMA_FEATURES (apps/enigma/buildFeatures.ts). Exported even when empty:
 # "no optional features" is a list, not an absence.
-FEATURES="$(REPO_ROOT="$SCRIPT_DIR" BUILD_CONFIG_DEFAULT=pro.yaml \
-  node "$SCRIPT_DIR/rutile/scripts/build.mjs" ${CONFIG:+"$CONFIG"} --print-features enigma)"
+FEATURES="$(cd "$ROOT" && node tools/build/build.mjs enigma "${CONFIG:-configs/enigma-pro.yaml}" --print-features)"
 export ENIGMA_FEATURES="$FEATURES"
 FEATURE_ARGS=()
 [ -z "$FEATURES" ] || FEATURE_ARGS=(--features "$FEATURES")
-echo "[run_dev] ${CONFIG:-pro.yaml}: ${FEATURES:-no optional features}"
+echo "[run_dev] ${CONFIG:-configs/enigma-pro.yaml}: ${FEATURES:-no optional features}"
 
 # Per-profile Cargo build directory: two instances must not queue behind each
 # other's link. Costs ~17 GB per profile — see scripts/dev_target.sh.
@@ -122,7 +118,7 @@ echo "[run_dev] ${CONFIG:-pro.yaml}: ${FEATURES:-no optional features}"
 # Run one instance in the foreground of the calling (sub)shell.
 run_instance() {
   local profile="$1" user="$2"
-  dev_target_export "$profile" "$APP_DIR/src-tauri" || return 1
+  dev_target_export "$profile" "$ROOT" || return 1
   cd "$APP_DIR"
   APP_PROFILE="$profile" CHAT_USER="$user" npm run tauri -- dev "${FEATURE_ARGS[@]}"
 }

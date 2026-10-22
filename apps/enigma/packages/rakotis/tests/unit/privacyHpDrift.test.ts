@@ -29,7 +29,7 @@ function findPolicyYaml(): string {
   // NOT a skip any more. This package used to be a git subtree with a life of
   // its own outside enigma, and a standalone checkout had no price table to
   // check against — so the suite skipped, and twelve real assertions with it.
-  // It is an ordinary in-repo package now: the YAML is always two directories
+  // It is an ordinary in-repo package now: the YAML is always four directories
   // up, and its absence is a broken checkout, not a supported configuration.
   throw new Error(`${rel} not found from ${process.cwd()} — is this a full checkout?`);
 }

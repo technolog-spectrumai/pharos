@@ -1,6 +1,6 @@
 """Enigma's Android signing contract, tested against Rutile's checker.
 
-The module under test is Rutile's (rutile/scripts/android_signing); the tests
+The module under test is the repo's (tools/android/android_signing); the tests
 live here because what they assert is ENIGMA's: that its Gradle signing block,
 its pin file and its .gitignore still say what the checker expects.
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "rutile" / "scripts" / "android_signing"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "tools" / "android" / "android_signing"))
 
 
 @pytest.fixture(autouse=True)

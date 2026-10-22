@@ -8,11 +8,11 @@ import { featureDefines } from "./buildFeatures";
 // editor — the editor's logic is covered through mocked interactions instead.
 const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
 const cssStub = new URL("./tests/stubs/empty-css.ts", import.meta.url).pathname;
-const wisteriaSrc = new URL("../../rutile/packages/wisteria/src", import.meta.url).pathname;
-const petaliteSrc = new URL("../../rutile/packages/petalite/src", import.meta.url).pathname;
+const wisteriaSrc = new URL("../../packages/wisteria/src", import.meta.url).pathname;
+const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
 // The DIRECTORY, not index.ts: the deep alias below appends a subpath, and
 // "…/index.ts/components/…" resolves to nothing.
-const rakotisDir = new URL("../../packages/rakotis/src", import.meta.url).pathname;
+const rakotisDir = new URL("./packages/rakotis/src", import.meta.url).pathname;
 const rakotisSrc = new URL("../../node_modules/rakotis/src/index.ts", import.meta.url).pathname;
 
 export default defineConfig({
