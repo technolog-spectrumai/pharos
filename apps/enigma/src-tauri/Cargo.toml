@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # ── build features ──────────────────────────────────────────────────────────
 # What a build MAY contain beyond the core. This table is the catalogue: the one
 # place that says which feature ids exist and what each requires. A build picks
-# from it in a root config (pro.yaml, std.yaml — `apps.enigma.features`), and
+# from it in a build config (configs/enigma-pro.yaml, configs/enigma-std.yaml — `features:`), and
 # `./build.sh` passes exactly that list to cargo and to the frontend bundler.
 #
 # A feature that is not listed is NOT COMPILED: its module, its commands, its
