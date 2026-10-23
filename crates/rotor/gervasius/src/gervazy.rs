@@ -267,6 +267,112 @@ mod tests {
         let new = seal("pw", &SALT, 19456, 2, 1, AAD, b"new").unwrap();
         assert_eq!(open_any("pw", &SALT, 19456, 2, 1, AAD, &new).unwrap(), b"new");
     }
+
+    // The cases below run at Argon2's floor: they are about framing and
+    // refusals, and the costs are parameters anyway.
+
+    #[test]
+    fn a_bare_header_is_not_a_frame() {
+        // MAGIC and VERSION with nothing after them is the detector's edge:
+        // the badge has to go on content, not on a nine-byte stub.
+        let mut stub = MAGIC.to_vec();
+        stub.push(VERSION);
+        assert!(!is_current(&stub));
+        assert!(!is_sealed(&stub));
+        stub.push(0);
+        assert!(is_current(&stub), "one byte past the header is a (short) frame");
+
+        // The right magic under an unknown version is not this frame.
+        let mut future = MAGIC.to_vec();
+        future.push(VERSION + 1);
+        future.extend_from_slice(&[0u8; 64]);
+        assert!(!is_current(&future));
+        assert!(!is_sealed(&future));
+    }
+
+    #[test]
+    fn a_frame_too_short_for_nonce_and_tag_is_malformed() {
+        // Refused before any key is derived: there is nothing to verify, and a
+        // short read must not cost a second of Argon2 to reject.
+        let mut short = MAGIC.to_vec();
+        short.push(VERSION);
+        short.extend_from_slice(&[0u8; NONCE_LEN + TAG_LEN - 1]);
+        assert_eq!(open("pw", &SALT, 64, 1, 1, AAD, &short), Err(CryptoError::Format));
+        assert_eq!(open("pw", &SALT, 64, 1, 1, AAD, b"not a frame at all"), Err(CryptoError::Format));
+
+        // At exactly header + nonce + tag the frame is whole; the tag decides.
+        short.push(0);
+        assert_eq!(open("pw", &SALT, 64, 1, 1, AAD, &short), Err(CryptoError::Aead));
+    }
+
+    #[test]
+    fn a_frame_from_one_salt_does_not_open_under_another() {
+        // The salt is the server's, per strongbox row: two users with the same
+        // password must not be able to open each other's files.
+        let frame = seal("pw", &SALT, 64, 1, 1, AAD, b"bytes").unwrap();
+        let mut other = SALT;
+        other[15] ^= 1;
+        assert_eq!(open("pw", &other, 64, 1, 1, AAD, &frame), Err(CryptoError::Aead));
+    }
+
+    #[test]
+    fn open_any_refuses_bytes_of_neither_era() {
+        // Not a frame and not text, so not a token either: malformed.
+        assert_eq!(
+            open_any("pw", &SALT, 64, 1, 1, AAD, &[0xff, 0xfe, 0x00, 0x80]),
+            Err(CryptoError::Format)
+        );
+        // Text that is not a Fernet token fails the way a wrong password does —
+        // coarse on purpose, like every other refusal here.
+        assert_eq!(open_any("pw", &SALT, 64, 1, 1, AAD, b"hello"), Err(CryptoError::Aead));
+    }
+
+    #[test]
+    fn a_legacy_token_with_a_trailing_newline_still_opens() {
+        // Token files went through editors and shells that append a newline;
+        // a file must not stop opening because of one.
+        #[allow(deprecated)]
+        let token = legacy_fernet_seal("pw", &SALT, 64, 1, 1, b"old").unwrap();
+        let saved = format!("{token}\n");
+        assert_eq!(open_any("pw", &SALT, 64, 1, 1, AAD, saved.as_bytes()).unwrap(), b"old");
+        assert_eq!(legacy_fernet_open("pw", &SALT, 64, 1, 1, &format!("{token} \r\n")).unwrap(), b"old");
+    }
+
+    #[test]
+    fn a_legacy_token_refuses_the_wrong_password_and_tampering() {
+        #[allow(deprecated)]
+        let token = legacy_fernet_seal("pw", &SALT, 64, 1, 1, b"old").unwrap();
+        assert_eq!(legacy_fernet_open("nope", &SALT, 64, 1, 1, &token), Err(CryptoError::Aead));
+        // Swap one base64 character in the middle of the token's ciphertext.
+        let mut bytes = token.into_bytes();
+        let mid = bytes.len() / 2;
+        bytes[mid] = if bytes[mid] == b'A' { b'B' } else { b'A' };
+        let tampered = String::from_utf8(bytes).unwrap();
+        assert_eq!(legacy_fernet_open("pw", &SALT, 64, 1, 1, &tampered), Err(CryptoError::Aead));
+    }
+
+    #[test]
+    fn the_fernet_key_is_the_raw_key_in_base64url() {
+        // The two eras must derive the SAME key from the same row: Fernet just
+        // wanted it as text. If these drifted, a password that opens a legacy
+        // file would fail on its re-sealed copy.
+        let text = derive_key("pw", &SALT, 64, 1, 1).unwrap();
+        let raw = derive_raw_key("pw", &SALT, 64, 1, 1).unwrap();
+        assert_eq!(text, base64::engine::general_purpose::URL_SAFE.encode(raw.as_ref()));
+        assert_eq!(text.len(), 44, "32 bytes, padded base64url");
+    }
+
+    #[test]
+    fn costs_argon2_rejects_are_an_error_on_every_path() {
+        for (m, t, p) in [(0, 1, 1), (64, 0, 1), (64, 1, 0)] {
+            assert!(matches!(derive_raw_key("pw", &SALT, m, t, p), Err(CryptoError::Kdf(_))), "{m}/{t}/{p}");
+            assert!(matches!(derive_key("pw", &SALT, m, t, p), Err(CryptoError::Kdf(_))), "{m}/{t}/{p}");
+            assert!(matches!(seal("pw", &SALT, m, t, p, AAD, b"x"), Err(CryptoError::Kdf(_))), "{m}/{t}/{p}");
+        }
+        // Argon2's salt floor is 8 bytes; the server's is 16, but a corrupt
+        // row must still come back as an error.
+        assert!(matches!(derive_raw_key("pw", &[0u8; 4], 64, 1, 1), Err(CryptoError::Kdf(_))));
+    }
 }
 
 #[cfg(test)]
