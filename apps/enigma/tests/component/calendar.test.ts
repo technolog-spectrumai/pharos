@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { i18n } from "../../src/i18n";
 import CalendarPanel from "../../src/components/calendar/CalendarPanel.vue";
@@ -282,6 +282,25 @@ describe("MeetingFormModal", () => {
     expect(draft.roomSlug).toBe("room-1"); // defaults to the current room
     expect(draft.roomName).toBe("Crew");
     expect(wrapper.emitted("update:open")).toEqual([[false]]);
+  });
+
+  it("saves the untouched default when opened between 22:00 and 22:59", async () => {
+    // The default is the next whole hour for an hour: 23:00–00:00. An end of
+    // 00:00 on the same date used to read as that day's first minute, so the
+    // untouched form said "The end must be after the start." and saved nothing.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 6, 20, 22, 30));
+    try {
+      const wrapper = await open();
+      await wrapper.find("input[type='text']").setValue("Late sync");
+      await wrapper.find("form").trigger("submit");
+
+      const draft = wrapper.emitted("save")![0][0] as Record<string, unknown>;
+      expect(draft.start).toBe(new Date(2026, 6, 20, 23).getTime());
+      expect(draft.end).toBe(new Date(2026, 6, 21, 0).getTime());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers a local-only option and prefills + locks the room when editing", async () => {

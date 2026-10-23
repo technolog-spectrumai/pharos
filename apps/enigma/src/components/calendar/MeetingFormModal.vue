@@ -5,7 +5,8 @@
 import { computed, ref, watch } from "vue";
 import { OyaButton, OyaModal, OyaTextArea, OyaTextField } from "rakotis";
 import type { P2pRoomEntry } from "rakotis";
-import { dayKey, validateMeetingDraft, type Meeting, type MeetingDraft } from "./meetingModel";
+import { hourAfter, nextWholeHour, singleDayFields, singleDayRange } from "calendula";
+import { validateMeetingDraft, type Meeting, type MeetingDraft } from "./meetingModel";
 
 const props = defineProps<{
   open: boolean;
@@ -26,10 +27,6 @@ const errorKey = ref<string | null>(null);
 
 const isEdit = computed(() => !!props.meeting);
 
-function toTimeStr(ms: number): string {
-  return new Date(ms).toTimeString().slice(0, 5); // local "HH:MM"
-}
-
 watch(
   () => props.open,
   (open) => {
@@ -40,19 +37,16 @@ watch(
       title.value = m.title;
       description.value = m.description;
       location.value = m.location;
-      dateStr.value = dayKey(m.start);
-      startStr.value = toTimeStr(m.start);
-      endStr.value = toTimeStr(m.end);
+      ({ date: dateStr.value, start: startStr.value, end: endStr.value } = singleDayFields(m.start, m.end));
       roomSlug.value = m.roomSlug;
     } else {
       title.value = "";
       description.value = "";
       location.value = "";
-      const next = new Date(Date.now() + 3_600_000); // default: the next full hour
-      next.setMinutes(0, 0, 0);
-      dateStr.value = dayKey(next);
-      startStr.value = toTimeStr(next.getTime());
-      endStr.value = toTimeStr(next.getTime() + 3_600_000);
+      // Default: the next whole hour, for an hour. 23:00–00:00 is a valid
+      // last hour of the day (calendula's singleDayRange).
+      const next = nextWholeHour(Date.now());
+      ({ date: dateStr.value, start: startStr.value, end: endStr.value } = singleDayFields(next, hourAfter(next)));
       roomSlug.value = props.currentRoomSlug ?? "";
     }
   },
@@ -60,17 +54,14 @@ watch(
 
 const roomName = computed(() => props.rooms.find((r) => r.room === roomSlug.value)?.name ?? "");
 
-function parseLocal(date: string, time: string): number {
-  return date && time ? new Date(`${date}T${time}`).getTime() : NaN;
-}
-
 function submit() {
+  const range = singleDayRange(dateStr.value, startStr.value, endStr.value);
   const draft: MeetingDraft = {
     title: title.value,
     description: description.value,
     location: location.value,
-    start: parseLocal(dateStr.value, startStr.value),
-    end: parseLocal(dateStr.value, endStr.value),
+    start: range?.start.getTime() ?? NaN,
+    end: range?.end.getTime() ?? NaN,
     roomSlug: roomSlug.value,
     roomName: roomName.value,
   };

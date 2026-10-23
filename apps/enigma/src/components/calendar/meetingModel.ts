@@ -11,6 +11,8 @@
 // "some member of the MLS group" — membership, not authorship — so a malicious
 // member could forge it. Cooperative trust, same posture as presence/file_offer.
 
+import { dateValue as dayKey } from "calendula";
+
 export type MeetingStatus = "scheduled" | "cancelled";
 export type RsvpStatus = "pending" | "accepted" | "declined";
 
@@ -104,13 +106,8 @@ export function monthGrid(anchor: Date): Date[][] {
   return weeks;
 }
 
-/** Local-time day bucket, "YYYY-MM-DD". */
-export function dayKey(d: Date | number): string {
-  const dt = typeof d === "number" ? new Date(d) : d;
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const day = String(dt.getDate()).padStart(2, "0");
-  return `${dt.getFullYear()}-${m}-${day}`;
-}
+/** Local-time day bucket, "YYYY-MM-DD" — the same string a date input holds. */
+export { dateValue as dayKey } from "calendula";
 
 /** Meetings starting on the given day, earliest first. */
 export function meetingsOnDay(meetings: Meeting[], key: string): Meeting[] {

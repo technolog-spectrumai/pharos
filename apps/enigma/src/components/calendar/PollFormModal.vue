@@ -6,7 +6,8 @@
 import { computed, ref, watch } from "vue";
 import { OyaButton, OyaModal, OyaTextArea, OyaTextField } from "rakotis";
 import type { P2pRoomEntry } from "rakotis";
-import { dayKey, validatePollDraft, type PollDraft } from "./meetingModel";
+import { hourAfter, singleDayFields, singleDayRange } from "calendula";
+import { validatePollDraft, type PollDraft } from "./meetingModel";
 
 const props = defineProps<{
   open: boolean;
@@ -29,21 +30,13 @@ const deadlineStr = ref(""); // datetime-local, optional
 const roomSlug = ref("");
 const errorKey = ref<string | null>(null);
 
-function toTimeStr(ms: number): string {
-  return new Date(ms).toTimeString().slice(0, 5); // local "HH:MM"
-}
-
 function defaultRow(daysAhead: number): SlotRow {
   const next = new Date(Date.now() + 24 * 3_600_000 * daysAhead);
   next.setMinutes(0, 0, 0);
-  // A row shares one date for start AND end: a 23:00 start would put the
-  // +1 h end past midnight (end <= start after parsing) — cap at 22:00.
-  if (next.getHours() === 23) next.setHours(22);
-  return {
-    dateStr: dayKey(next),
-    startStr: toTimeStr(next.getTime()),
-    endStr: toTimeStr(next.getTime() + 3_600_000),
-  };
+  // A row shares one date for start AND end; a 23:00 start ends at 00:00,
+  // which singleDayRange reads as midnight at the end of that day.
+  const f = singleDayFields(next, hourAfter(next));
+  return { dateStr: f.date, startStr: f.start, endStr: f.end };
 }
 
 watch(
@@ -70,19 +63,16 @@ function removeSlot(i: number) {
 
 const roomName = computed(() => props.rooms.find((r) => r.room === roomSlug.value)?.name ?? "");
 
-function parseLocal(date: string, time: string): number {
-  return date && time ? new Date(`${date}T${time}`).getTime() : NaN;
-}
 
 function submit() {
   const draft: PollDraft = {
     title: title.value,
     description: description.value,
     location: location.value,
-    slots: slotRows.value.map((r) => ({
-      start: parseLocal(r.dateStr, r.startStr),
-      end: parseLocal(r.dateStr, r.endStr),
-    })),
+    slots: slotRows.value.map((r) => {
+      const range = singleDayRange(r.dateStr, r.startStr, r.endStr);
+      return { start: range?.start.getTime() ?? NaN, end: range?.end.getTime() ?? NaN };
+    }),
     roomSlug: roomSlug.value,
     roomName: roomName.value,
     deadline: deadlineStr.value ? new Date(deadlineStr.value).getTime() : undefined,
