@@ -864,6 +864,33 @@ mod tests {
     }
 
     #[test]
+    fn a_proposal_from_a_peer_is_held_not_applied() {
+        // Rotor never sends bare proposals, but another MLS client in the room
+        // can. Receiving one must not change the roster or the epoch by
+        // itself — only a commit does. Bob speaks openmls directly here, as
+        // such a client would.
+        let (mut alice, mut guests) = room("room-proposal", &["bob", "carol"]);
+        let secret = alice.export_secret("l", b"", 32).unwrap();
+        let proposal = {
+            let bob = &mut guests[0];
+            let mut group = bob.load_group().unwrap();
+            let carol = group
+                .members()
+                .find(|m| m.credential.serialized_content() == b"carol")
+                .unwrap()
+                .index;
+            let (msg, _ref) = group
+                .propose_remove_member(&bob.provider, bob.signature_keys.as_ref().unwrap(), carol)
+                .unwrap();
+            msg.to_bytes().unwrap()
+        };
+        assert_eq!(wire_format(&proposal), WireFormat::PrivateMessage);
+        assert_eq!(alice.process_message(&proposal).unwrap(), None, "a proposal is not app data");
+        assert_eq!(sorted(alice.members().unwrap()), vec!["alice", "bob", "carol"]);
+        assert_eq!(alice.export_secret("l", b"", 32).unwrap(), secret, "no new epoch");
+    }
+
+    #[test]
     fn a_key_package_cannot_add_the_same_device_twice() {
         let (mut alice, _) = room("room-dup", &[]);
         let mut bob = RotorSession::new("room-dup".into(), "bob".into()).unwrap();
