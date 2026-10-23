@@ -478,34 +478,6 @@ recovery:
       # work against the old wrap is dead. Mutually exclusive with `strengthen` —
       # Rust awards one or the other, never both for the same change.
 
-    # Key rotation pays MORE than a passphrase change, and the gap is the point.
-    # Changing a passphrase re-wraps the DEK: it protects the key, but every byte
-    # on disk is still sealed under the same DEK it was yesterday. Rotation
-    # replaces the keys the data itself is encrypted under, so ciphertext an
-    # attacker copied earlier is now sealed under a key that no longer exists
-    # anywhere. That is a real reduction in risk you are currently carrying, and
-    # it is the best-paying thing in this table.
-
-    - id: local.reencrypt.keyring
-      credit: 5
-      requires: ~
-      explain_key: hp.explain.localReencryptKeyring
-      # keyring_rotate: fresh file keys, every entry re-encrypted under them.
-
-    - id: local.reencrypt.files
-      credit: 5
-      requires: ~
-      explain_key: hp.explain.localReencryptFiles
-      # rotate_local_file: a locked file re-sealed under a fresh key. Pays once
-      # per day for the id, not once per file — rotating fifty files is one
-      # award, so a large collection is not a faucet.
-      #
-      # Note what is NOT here: rotating the vault's own DEK and re-sealing every
-      # record. Enigma26 has no such operation — change_passphrase re-wraps the
-      # DEK in place and data is never re-encrypted (§13) — and inventing one to
-      # hand out HP would be exactly the kind of change to the vault this feature
-      # promised not to make. If DEK rotation ever ships, it earns a line here.
-
     - id: invite.revoke
       credit: 2.5
       # No `requires`: a bearer invitation can be minted on either transport, so

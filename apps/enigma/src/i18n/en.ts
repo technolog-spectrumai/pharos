@@ -617,8 +617,6 @@ export default {
       localAutolockOn: "Turn auto-lock on",
       localPassphraseStrengthen: "Lengthen your passphrase",
       localPassphraseChange: "Change your passphrase",
-      localReencryptKeyring: "Rotate your key ring",
-      localReencryptFiles: "Rotate a locked file's key",
       roomRekey: "Reset a room's encryption",
       roomLeave: "Leave a room",
       dataDeleteChat: "Delete stored messages",
@@ -694,10 +692,6 @@ export default {
         "A longer passphrase is the single most useful change here: everything else on this device is protected by it.",
       localPassphraseChange:
         "A new passphrase re-wraps your key with fresh salt, so any work an attacker had done against the old one is wasted.",
-      localReencryptKeyring:
-        "Your files get brand-new keys, so a copy of the old encrypted data is now sealed under a key that no longer exists anywhere.",
-      localReencryptFiles:
-        "This file gets a brand-new key, so an older copy of it is sealed under a key that no longer exists anywhere.",
       roomRekey: "The room's encryption starts fresh, so old key material no longer opens what comes next.",
       roomLeave: "You stop receiving this room and its stored history is removed from this device.",
       dataDeleteChat: "The messages stored for this room are gone from this device.",

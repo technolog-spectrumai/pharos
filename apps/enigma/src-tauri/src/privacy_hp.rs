@@ -871,15 +871,6 @@ pub fn award_passphrase_change(app: &AppHandle, old_len: usize, new_len: usize) 
     }
 }
 
-/// Called from the key-rotation paths (`keyring_rotate`, `rotate_local_file`).
-/// Pays more than a passphrase change because it re-encrypts the data itself
-/// rather than re-wrapping the key above it.
-pub fn award_rotation(app: &AppHandle, id: &str) {
-    if let Some(rec) = hp_policy::recovery(id) {
-        let _ = award(app, rec.id, rec.credit_centi, rec.requires, None);
-    }
-}
-
 /// Total ledger rows — used by the Data tab to say whether a wipe would discard
 /// any HP history. Cheap enough to call on render.
 #[tauri::command]
@@ -1063,17 +1054,6 @@ mod tests {
     }
 
     #[test]
-    fn key_rotation_pays_more_than_a_passphrase_change() {
-        let change = hp_policy::recovery("local.passphrase.change").unwrap().credit_centi;
-        let strengthen = hp_policy::recovery("local.passphrase.strengthen").unwrap().credit_centi;
-        let keyring = hp_policy::recovery("local.reencrypt.keyring").unwrap().credit_centi;
-        let files = hp_policy::recovery("local.reencrypt.files").unwrap().credit_centi;
-        assert!(strengthen > change);
-        assert!(keyring > change, "rotation must out-pay a plain passphrase change");
-        assert!(files > change);
-    }
-
-    #[test]
     fn unknown_ids_have_no_price() {
         assert!(hp_policy::action("msg.definitely.not.real").is_none());
         assert!(hp_policy::recovery("free.money").is_none());
@@ -1165,7 +1145,7 @@ mod tests {
     #[test]
     fn the_daily_cap_bounds_credits() {
         let now = 10 * MS_PER_DAY;
-        let log = vec![recover(now - 1000, "local.reencrypt.keyring", 1200)];
+        let log = vec![recover(now - 1000, "room.rekey", 1200)];
         // 12 of the 12.5 daily HP are gone; a 5 HP credit is trimmed to 0.5.
         assert_eq!(apply_caps(&log, now, 500, None), 50);
     }
@@ -1174,7 +1154,7 @@ mod tests {
     fn credits_outside_the_window_stop_counting() {
         let now = 10 * MS_PER_DAY;
         // Paid 25 HP just over a day ago — the daily cap is clear again.
-        let log = vec![recover(now - MS_PER_DAY - 1, "local.reencrypt.keyring", 1250)];
+        let log = vec![recover(now - MS_PER_DAY - 1, "room.rekey", 1250)];
         assert_eq!(apply_caps(&log, now, 500, None), 500);
     }
 
@@ -1182,7 +1162,7 @@ mod tests {
     fn the_weekly_cap_bounds_credits_the_daily_one_would_allow() {
         let now = 10 * MS_PER_DAY;
         let log: Vec<Entry> = (1..=5)
-            .map(|d| recover(now - d * MS_PER_DAY + 1, "local.reencrypt.keyring", 1000))
+            .map(|d| recover(now - d * MS_PER_DAY + 1, "room.rekey", 1000))
             .collect();
         // 50 of 50 weekly HP already paid, and none of it inside today.
         assert_eq!(apply_caps(&log, now, 500, None), 0);
@@ -1236,7 +1216,7 @@ mod tests {
     #[test]
     fn the_lockout_is_per_id() {
         let log = vec![recover(1_000, "local.passphrase.change", 150)];
-        assert!(!paid_recently(&log, 2_000, "local.reencrypt.keyring"));
+        assert!(!paid_recently(&log, 2_000, "room.rekey"));
     }
 
     // ── clock behaviour ─────────────────────────────────────────────────────

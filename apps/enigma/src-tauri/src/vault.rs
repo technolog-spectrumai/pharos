@@ -247,9 +247,6 @@ pub fn vault_unlock(
         let _ = p.migrate(&migration_plan(&app, &cfg));
     }
     crate::migrate_mls(&app, &cfg);
-    // Self-heal the panic-targets sidecar in case a crash landed between a
-    // locked-files index edit and its resync last session.
-    resync_panic_targets(&app);
     Ok(())
 }
 
@@ -369,7 +366,6 @@ pub fn vault_pin_unlock(
         return panic_wipe(&app, &cfg, &vault, &sessions, &secret);
     }
     crate::migrate_mls(&app, &cfg);
-    resync_panic_targets(&app);
     Ok(())
 }
 
@@ -390,11 +386,7 @@ pub fn vault_pin_clear(app: AppHandle) -> Result<(), String> {
 /// torn every transport down. So, unlike a profile switch, nothing needs stopping
 /// here. Any future path that locks the vault must keep that true.
 ///
-/// What survives, deliberately: ENIGLOCK-locked files the user keeps elsewhere on
-/// disk (only the index of them dies with the vault; each is still encrypted under
-/// its own passphrase) — UNLESS the "Delete files on panic" knob (Settings → Lock)
-/// is armed, in which case those marked files are deleted here too (see the
-/// panic-targets sidecar below). Also untouched: arti's consensus cache (no
+/// What survives, deliberately: arti's consensus cache (no
 /// identity material), the webview's localStorage (in the desktop app that is the
 /// UI locale — all real data goes through `kv_*` into protasius). Files are
 /// unlinked, not shredded: without `vault.json`'s wrapped DEK the remaining
@@ -417,17 +409,6 @@ fn panic_wipe(
 
     let mut store = vault.0.lock().map_err(|e| e.to_string())?;
 
-    // "Delete files on panic": read the sidecar the panic code seals (works while
-    // locked — it re-derives the panic DEK from `panic_pass`) BEFORE swapping the
-    // store away, then unlink each marked file that is still ENIGLOCK-locked. Filler
-    // / knob-off yields no targets. Best-effort throughout — a failure to delete one
-    // file must never abort the wipe of everything else.
-    for path in store.read_panic_targets(panic_pass) {
-        let p = std::path::Path::new(&path);
-        if crate::local_lock::is_locked_path(p) {
-            let _ = std::fs::remove_file(p);
-        }
-    }
     // Point the managed store at an empty scratch keyspace FIRST. That drops the
     // live `Protasius` (zeroizing the DEK and closing fjall's file handles), which
     // is what makes deleting the directory underneath it safe on every platform.
@@ -633,7 +614,6 @@ pub fn vault_change_passphrase(
 /// is what wipes this device when typed at the unlock screen.
 #[tauri::command]
 pub fn vault_set_panic_code(
-    app: AppHandle,
     vault: State<ProtasiusState>,
     current: String,
     code: String,
@@ -644,56 +624,18 @@ pub fn vault_set_panic_code(
         .map_err(|e| e.to_string())?
         .set_panic_passphrase(&current, &code)
         .map_err(e)?;
-    // A newly armed code stashes a fresh panic DEK; refresh the sidecar so the
-    // delete-on-panic knob (if already on) seals the current locked-file list.
-    resync_panic_targets(&app);
     Ok(())
 }
 
 /// Disarm the panic code; the old code becomes an ordinary wrong passphrase.
 #[tauri::command]
-pub fn vault_clear_panic_code(app: AppHandle, vault: State<ProtasiusState>, current: String) -> Result<(), String> {
+pub fn vault_clear_panic_code(vault: State<ProtasiusState>, current: String) -> Result<(), String> {
     vault
         .0
         .lock()
         .map_err(|e| e.to_string())?
         .clear_panic_passphrase(&current)
         .map_err(e)?;
-    resync_panic_targets(&app);
-    Ok(())
-}
-
-/// Re-seal the panic-targets sidecar from the current knob + locked-files index.
-/// Called whenever either changes (the `panic_targets_resync` command, invoked from
-/// the frontend after an index edit or a knob toggle) and defensively after unlock.
-///
-/// All reads come from the encrypted store, so this only does anything while
-/// unlocked; locked/absent ⇒ a no-op. Best-effort: the sidecar is a convenience for
-/// the panic path, never a correctness dependency for normal operation.
-fn resync_panic_targets(app: &AppHandle) {
-    let enabled = kv_get_raw(app, "p2p:settings", "default", "delete_files_on_panic")
-        .map(|v| v == "1" || v == "true" || v == "on")
-        .unwrap_or(false);
-    // The locked-files index is one JSON array of records; we only need each `path`.
-    let paths: Vec<String> = kv_get_raw(app, "files:local", "default", "index")
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|rec| rec.get("path").and_then(|p| p.as_str()).map(str::to_string))
-        .collect();
-    if let Ok(st) = store(app) {
-        if let Ok(p) = st.0.lock() {
-            let _ = p.write_panic_targets(&paths, enabled);
-        }
-    }
-}
-
-/// Frontend hook (`resyncPanicTargets`): re-derive the panic-targets sidecar after
-/// the locked-files index or the delete-on-panic knob changes.
-#[tauri::command]
-pub fn panic_targets_resync(app: AppHandle) -> Result<(), String> {
-    resync_panic_targets(&app);
     Ok(())
 }
 

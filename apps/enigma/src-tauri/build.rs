@@ -558,8 +558,6 @@ const REQUIRED_HP_RECOVERIES: &[&str] = &[
     "invite.revoke",
     "local.passphrase.strengthen",
     "local.passphrase.change",
-    "local.reencrypt.keyring",
-    "local.reencrypt.files",
     "room.rekey",
     "room.leave",
 ];

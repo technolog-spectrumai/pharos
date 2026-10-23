@@ -47,11 +47,6 @@ mod realtime;
 // Encryption-at-rest: the centralized encrypted store integration (protasius).
 // Replaces the old plaintext kv.rs + per-file persistence.
 mod vault;
-mod fs_local;
-mod local_lock;
-// Key ring: one passphrase locking many local files.
-#[cfg(feature = "keyring")]
-mod keyring;
 
 /// Which optional features this binary was BUILT with — the Cargo features of
 /// this crate (Cargo.toml `[features]`), chosen per build by the root config
@@ -66,7 +61,6 @@ pub mod features {
     pub const CALLS: bool = cfg!(feature = "calls");
     pub const CONTACTS: bool = cfg!(feature = "contacts");
     pub const CALENDAR: bool = cfg!(feature = "calendar");
-    pub const KEYRING: bool = cfg!(feature = "keyring");
     pub const PIN_UNLOCK: bool = cfg!(feature = "pin_unlock");
 }
 
@@ -503,7 +497,6 @@ pub struct BuildConfigSummary {
     pub calls_enabled: bool,
     pub contacts_enabled: bool,
     pub calendar_enabled: bool,
-    pub keyring_enabled: bool,
     pub pin_unlock: bool,
     pub use_tor_default: bool,
     pub stable_onion_default: bool,
@@ -532,7 +525,6 @@ fn app_get_build_config() -> BuildConfigSummary {
         calls_enabled: features::CALLS,
         contacts_enabled: features::CONTACTS,
         calendar_enabled: features::CALENDAR,
-        keyring_enabled: features::KEYRING,
         pin_unlock: features::PIN_UNLOCK,
         use_tor_default: defaults::USE_TOR_DEFAULT,
         stable_onion_default: defaults::STABLE_ONION_DEFAULT,
@@ -1441,7 +1433,6 @@ pub fn run() {
             vault::vault_set_panic_code,
             vault::vault_clear_panic_code,
             vault::vault_has_panic_code,
-            vault::panic_targets_resync,
             vault::vault_wipe,
             #[cfg(feature = "pin_unlock")]
             vault::vault_pin_status,
@@ -1503,28 +1494,6 @@ pub fn run() {
             file_xfer::file_download,
             file_xfer::file_prepare,
             file_xfer::file_authorize,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_list,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_create,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_rename,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_delete,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_status,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_lock,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_unlock,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_unlock_all,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_entries,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_change_passphrase,
-            #[cfg(feature = "keyring")]
-            keyring::keyring_rotate,
             #[cfg(feature = "calls")]
             vox::vox_create,
             #[cfg(feature = "calls")]
@@ -1539,14 +1508,6 @@ pub fn run() {
             vox::vox_hangup,
             #[cfg(feature = "calls")]
             vox::vox_set_mute,
-            fs_local::fs_write_base64_file,
-            local_lock::local_lock_file,
-            local_lock::local_unlock_file,
-            local_lock::local_rotate_file,
-            local_lock::local_is_locked,
-            local_lock::local_note_read,
-            local_lock::local_note_write,
-            local_lock::local_note_stat,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

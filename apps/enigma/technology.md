@@ -99,7 +99,6 @@ Design principles:
 │   • realtime.rs  — realtime_* gateway (gates + transport dispatch) │
 │   • vault.rs     — protasius integration (encrypted store, §13)    │
 │   • file_xfer.rs · vox.rs — P2P file transfer · 1:1 voice calls    │
-│   • local_lock.rs — per-file passphrase locking (ENIGLOCK)         │
 │   • lib.rs       — mls_* commands, profiles, build_config, audio   │
 ├───────────────┬───────────────────┬──────────────────────────────┤
 │ rutile/       │ protasius         │ iroh 0.98 + iroh-gossip 0.98  │
@@ -156,7 +155,7 @@ which is gitignored; Rutile's crypto workspace commits its own, in the submodule
 | `tauri` (+ `tauri-plugin-opener`/`-dialog`/`-notification`) | 2 | App framework, IPC, bundler, OS integration |
 | `rotor-core` | path | MLS crypto engine (`crates/rotor/rotor_core`) |
 | `protasius` | path | Per-profile encrypted store (vault lifecycle + sealed kv) |
-| `gervasius` | path | At-rest crypto primitives (also used directly by `local_lock.rs`) |
+| `gervasius` | path | At-rest crypto primitives (also used directly by `vault.rs` for the PIN and panic envelopes) |
 | `iroh` | 0.98 | QUIC P2P endpoint, NodeId identity, n0 relay + discovery (`address-lookup-pkarr-dht` feature) |
 | `iroh-gossip` | 0.98 | Epidemic broadcast over a topic (one room = one topic) |
 | `mainline` | 6 | Direct BEP44 access to the BitTorrent Mainline DHT (room rendezvous, [§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
@@ -218,8 +217,7 @@ runtime check (in a plain browser there is no backend — chat is inert by desig
   `mls_*` (crypto), `app_*` (profiles/runtime/airplane/use-Tor/build-config),
   `vault_*` (encrypted-store lifecycle, PIN, panic code), `kv_*` (sealed kv),
   `dht_*` (discovery), `file_*` (P2P transfer), `vox_*` (calls),
-  `invite_*` (direct room invites), `audio_*` (recording), `fs_*` (local file IO),
-  `local_*` / `keyring_*` (per-file locking), `map_*`, `tor_*`.
+  `invite_*` (direct room invites), `audio_*` (recording), `tor_*`.
 - **Events (`listen`):** `realtime://message` `{room, payload}` and
   `realtime://status` `{room, state, peers, peer_id?, reason?}` (both transports
   emit identical shapes, so the frontend is transport-agnostic); plus
@@ -514,9 +512,8 @@ below) / `export_state` + `import_state` (serializable session).
   idle-locked process could brute-force the blob — strictly weaker than scraping
   an unlocked process, which is already total compromise.
 - **Everything at rest** → Argon2id + XChaCha20-Poly1305 via gervasius/protasius
-  ([§13](#13-encryption-at-rest-gervasius--protasius)); user-chosen files can
-  additionally be locked in place with a per-file passphrase (`local_lock.rs`,
-  `ENIGLOCK` format: `magic ‖ version ‖ VaultHeader(JSON) ‖ nonce ‖ ct+tag`).
+  ([§13](#13-encryption-at-rest-gervasius--protasius)). (Locking user-chosen
+  files in place, `ENIGLOCK`, was removed on 2026-10-23.)
 - **DHT records** → ChaCha20-Poly1305 under blake3-derived keys
   ([§12](#12-dht-discovery-mainline-rendezvous--contacts)).
 
@@ -659,10 +656,10 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   ticket/QR, by room member (signaled over the chat's MLS seam), or by DHT
   nickname / saved contact where the build has the DHT and Contacts; live
   spectrum equalizer; incoming-call nav dot.
-- **Files** (`EnigmaFilesView`) — three sub-tabs: **P2P** (offer/accept transfers
-  with progress, max-size guard), **Local** (passphrase-lock files in place,
-  ENIGLOCK), and **Keys** (`KeyringPanel` — one passphrase over many locked
-  files — the `keyring` build feature). There is no **Devices** sub-tab: device
+- **Files** (`EnigmaFilesView`) — peer-to-peer transfer only: offer/accept
+  transfers with progress and a max-size guard. The Local (per-file locking) and
+  Keys (key ring) sub-tabs were removed on 2026-10-23 (README.md, "Removed
+  features"). There is no **Devices** sub-tab either: device
   linking and the per-file device sync were parked whole on 2026-08-18
   ([limbo/frontend/devices/](limbo/frontend/devices/)), so nothing syncs between
   a user's own devices today ([§16](#16-history--the-serverless-rework)).
@@ -963,29 +960,16 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
   shutdown/lock — materialized on disk only while unlocked. The plaintext dir is
   wiped **only after a successful seal**. A crash while unlocked leaves it until the
   next unlock's sweep — the one accepted exposure window.
-- **Per-file locking** (`local_lock.rs`, Files → Local): encrypt any chosen file in
-  place under its own passphrase using the same gervasius envelope. On-disk format
-  `ENIGLOCK`: `magic(8) ‖ version(1) ‖ header_len(u32 LE) ‖ VaultHeader(JSON) ‖
-  nonce(24) ‖ ct+tag`, AAD `enigma:localfile:v1` (constant, so locked files can be
-  renamed/moved). The passphrase is never stored; the UI keeps only a record of
-  which files are locked (kv ns `files:local`).
-- **Notes editor — removed from the UI on 2026-10-23** (see
-  [README.md](README.md#removed-features)). The Rust commands it used
-  (`local_note_read` / `local_note_write` in `local_lock.rs`) are still there but
-  nothing in the front end calls them; `local_note_stat` is still used by the
-  locked-file list. What follows describes the editor as it was: it edited local
-  text files in an ACE editor. A locked
-  file is decrypted into memory only — reading never rewrites it, and saving re-seals
-  from the buffer, so its plaintext never lands on disk. Encryption is opt-in per file:
-  a plain file saves as plaintext (refused if the file on disk is currently `ENIGLOCK`,
-  so ciphertext is never clobbered), and "Encrypt…" converts it. Saves are stateless —
-  no DEK is cached in Rust; each encrypted save re-reads the file's *current* header and
-  re-derives the key from the passphrase the editor holds, so a file re-keyed by another
-  process fails closed instead of being overwritten under a stale key. Recently edited
-  files are remembered under kv ns `files:local`, key `notes`. ACE is bundled offline:
-  modes and themes are static imports and its six syntax workers are registered with
-  `ace.config.setModuleUrl` against bundler-emitted asset URLs (`aceSetup.ts`), so it
-  never falls back to fetching them from a CDN.
+- **Per-file locking, the key ring and the notes editor — removed 2026-10-23**
+  (README.md, "Removed features"; last commit with them `cf2c6c5`). Enigma no
+  longer seals, opens or rotates local files. What a profile that used them
+  still has: files on disk sealed as `ENIGLOCK` (`FrameSpec::ENIGMA` in
+  `crates/substrate`) or moved into a ring as `.enigr`, which this version cannot
+  open; the kv index of them (ns `files:local`, keys `index` and `notes`), the
+  `file_key_rotation_days` and `delete_files_on_panic` settings, and in the
+  profile directory a `panic_targets.dat` sidecar. None of it is read any more;
+  a profile wipe removes the sidecar. Decrypting an old file needs a build of
+  `cf2c6c5` or earlier.
 - **What the Map tab left behind.** A profile that used it still has its
   region list (`map:regions`) and its pins (`map:pins`) in the sealed kv, and
   its region blobs on disk (§8 at-rest posture). Nothing reads, writes or
@@ -1014,7 +998,7 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
 `kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`, `dht_*`,
-`invite_*`, `vox_*`, `local_*`, `keyring_*`, `map_*`. All registered in the single
+`invite_*`, `vox_*`, `tor_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -1217,7 +1201,6 @@ instead of hardcoding.
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`p2p_dht::connect_timeout_secs`) for the DHT rendezvous-resolver deadline |
 | DHT | build feature `dht` (requires `hosted_relays`) | Compiled in or out — **Professional only**. Without it there is no join-by-room-code, nickname directory or presence, and no `mainline` crate; n0 relays + pkarr are untouched. A stored `"on"` reads as off without being rewritten |
 | DHT discovery + cadences | kv `p2p:settings` / `dht_discovery`, `dht_room_publish_secs`, `dht_presence_poll_secs` (rakotis `appStorage.getDht*`) | **User-set in Settings**, opt-in (default off). Publish default + clamp (600 s, 60–3600) from `build_config.yaml`; presence poll 300 s clamp 60–3600 (frontend-only). Rust reads the same keys directly (`vault::kv_get_raw`); absent when `dht.enabled: false`, inert when `p2p.allow_hosted_relays: false`; see [§12](#12-dht-discovery-mainline-rendezvous--contacts) |
-| Key ring | build feature `keyring` | Compiled in or out — in both presets. One passphrase locking MANY local files; without it no `keyring_*` command exists. Per-file locking (`local_lock.rs`) is unaffected. The ring file `<profile_dir>/keyring.enig` is device-local and never synced |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that lets a room's timeline survive a restart |
 | Meeting reminder lead | kv `p2p:settings` / `meeting_reminder_mins` (rakotis `appStorage.getMeetingReminderMins`) | **User-set in Settings**; default 15 min, clamped 0–1440, 0 = off. Read by `useMeetings`' reminder tick every round (changes apply live) — never hardcode a reminder lead |
 | Release version `0.1.10` | `tauri.conf.json` `version` | The owner (drives bundle filenames; `build.rs` reads it into `build_config::app::VERSION`). Still hand-duplicated in `Cargo.toml` and the three `package.json` files. Bumped **with the code**, never chosen per build |
@@ -1637,7 +1620,6 @@ carrying**, capped at **12.5 HP/day and 50 HP/week** across everything.
 | `transport.tor.enable` | +5 | Paired exposure live |
 | `dht.nickname.withdraw` | +5 | Paired exposure live |
 | `local.passphrase.strengthen` | +5 | New passphrase **longer** than the old (lengths only, compared inside `vault_change_passphrase`; neither is stored) |
-| `local.reencrypt.keyring` / `.files` | +5 | A completed key rotation |
 | `dht.presence.withdraw` | +2.5 | Paired exposure live |
 | `local.autolock.on` | +2.5 | `idle_lock_mins > 0` |
 | `local.passphrase.change` | +1.5 | Any change — protasius re-wraps the DEK under a fresh salt |
@@ -2241,7 +2223,7 @@ output_dir: dist/pro          # packages are copied to dist/pro/enigma/ with a S
 
 apps:
   enigma:
-    features: [hosted_relays, dht, calls, contacts, calendar, keyring, pin_unlock]
+    features: [hosted_relays, dht, calls, contacts, calendar, pin_unlock]
     test: false               # run the frontend + Rust suites first
     desktop:
       enabled: true
@@ -2573,11 +2555,10 @@ catalogue — the one place that says which ids exist and what each requires.
 | `calls` | 1:1 voice calls | `vox.rs`, the `vox_*` commands, the `enigma/vox/0` protocol; crate `rustfft` | the Vox tab, `useVoxCall` |
 | `contacts` | Contacts and direct room invites | `p2p_invite.rs`, the invite protocol | the Contacts tab, `useRoomInvites` |
 | `calendar` | Meetings and polls | none | the Calendar tab, `useMeetings` |
-| `keyring` | The key ring: one passphrase locking many local files | `keyring.rs`, the `keyring_*` commands | the Keys panel in Files |
 | `pin_unlock` | Re-opening an idle-locked vault with a PIN | the `vault_pin_*` commands and the PIN state | the keypad, the PIN card in Settings |
 
 **Never optional:** the crypto (rotor_core, gervasius, protasius), the chat
-transports (iroh, Tor), file transfer, per-file locking, invitations,
+transports (iroh, Tor), file transfer, invitations,
 Privacy HP and voice notes (which is why the audio crates `cpal` and `hound`
 stay even without `calls`).
 
@@ -2590,7 +2571,6 @@ A preset is a root config that names features — nothing more. "Standard" and
 |---|:-:|:-:|
 | `hosted_relays` | ✓ | ✓ |
 | `contacts` | ✓ | ✓ |
-| `keyring` | ✓ | ✓ |
 | `pin_unlock` | ✓ | ✓ |
 | `dht` | – | ✓ |
 | `calls` | – | ✓ |
@@ -2619,7 +2599,7 @@ pro.yaml  apps.enigma.features: [hosted_relays, dht, calls, …]
    └─► ENIGMA_FEATURES=… in the environment   Vite: build-time literals
 ```
 
-**Rust.** The modules `vox`, `p2p_dht`, `keyring` and `p2p_invite` are
+**Rust.** The modules `vox`, `p2p_dht` and `p2p_invite` are
 declared under `#[cfg(feature = …)]`, as are their commands in
 `generate_handler!`, their managed state, and the PIN commands and state in
 `vault.rs`. The optional crates are `optional = true` and named by the feature,
@@ -3459,6 +3439,10 @@ Out of scope here:
 
 ### Algorithm Inventory
 
+Rows that mention local file locks or key rings describe code removed on
+2026-10-23 (see §13); they are kept for the record of what files on disk use.
+
+
 | Area | Current algorithm or construction | Where used | Source of truth / notes |
 | --- | --- | --- | --- |
 | MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, calendar cards, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
@@ -3564,10 +3548,6 @@ P1 hardening:
   MLS admission is explicitly approved.
 - Define and implement MLS rekey/post-compromise recovery cadence, including a
   user-visible "rekey room now" path and tests around removals.
-- Scope native file operations more tightly. `local_lock.rs` operates on paths
-  supplied by JS; prefer dialog-granted paths or an allowlist/capability model.
-- Add fsync+rename durability to Enigma `local_lock.rs`, matching the stronger
-  path in `crates/substrate` and `apps/enigma/src-tauri/src/keyring.rs`.
 - Review all logging for passphrases, invite capabilities, tokens, DHT secrets,
   key material, and decrypted payloads. Add regression tests for redaction where
   practical.

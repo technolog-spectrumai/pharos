@@ -44,7 +44,6 @@ variants:
       - calls           # 1:1 voice calls (the Vox tab)
       - contacts        # Contacts and direct room invites
       - calendar        # meetings and polls
-      - keyring         # one passphrase locking many local files
       - pin_unlock      # re-unlock with a PIN after an idle lock
 
     # Run the frontend and Rust suites first; a failure stops the build before
@@ -76,7 +75,6 @@ variants:
     features:
       - hosted_relays
       - contacts
-      - keyring
       - pin_unlock
     # Omitted means not linked, and that is checked before anything compiles:
     # the DHT's mainline and the equalizer's rustfft must not be in the tree.

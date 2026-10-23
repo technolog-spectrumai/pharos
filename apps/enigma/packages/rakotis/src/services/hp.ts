@@ -114,8 +114,6 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
     R("local.autolock.on", 250, "local.autolock.off", "hp.explain.localAutolockOn"),
     R("local.passphrase.strengthen", 500, null, "hp.explain.localPassphraseStrengthen"),
     R("local.passphrase.change", 150, null, "hp.explain.localPassphraseChange"),
-    R("local.reencrypt.keyring", 500, null, "hp.explain.localReencryptKeyring"),
-    R("local.reencrypt.files", 500, null, "hp.explain.localReencryptFiles"),
     R("invite.revoke", 250, null, "hp.explain.inviteRevoke"),
     R("room.rekey", 150, null, "hp.explain.roomRekey"),
     R("room.leave", 150, null, "hp.explain.roomLeave"),

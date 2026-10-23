@@ -188,10 +188,8 @@ describe("the YAML holds to its own rules", () => {
     expect(yaml.recovery.daily_cap).toBeLessThanOrEqual(yaml.recovery.window_cap);
   });
 
-  it("keeps key rotation paying more than a plain passphrase change", () => {
+  it("keeps strengthening a passphrase paying more than a plain change", () => {
     const by = (id: string) => yaml.recovery.fixed.find((r) => r.id === id)!.credit;
-    expect(by("local.reencrypt.keyring")).toBeGreaterThan(by("local.passphrase.change"));
-    expect(by("local.reencrypt.files")).toBeGreaterThan(by("local.passphrase.change"));
     expect(by("local.passphrase.strengthen")).toBeGreaterThan(by("local.passphrase.change"));
   });
 

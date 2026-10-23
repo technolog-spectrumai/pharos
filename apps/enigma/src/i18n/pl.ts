@@ -612,8 +612,6 @@ export default {
       localAutolockOn: "Włącz automatyczną blokadę",
       localPassphraseStrengthen: "Wydłuż swoje hasło",
       localPassphraseChange: "Zmień swoje hasło",
-      localReencryptKeyring: "Wymień klucze pęku",
-      localReencryptFiles: "Wymień klucz zablokowanego pliku",
       roomRekey: "Zresetuj szyfrowanie pokoju",
       roomLeave: "Opuść pokój",
       dataDeleteChat: "Usuń zapisane wiadomości",
@@ -689,10 +687,6 @@ export default {
         "Dłuższe hasło to najbardziej użyteczna zmiana tutaj: chroni ono wszystko inne na tym urządzeniu.",
       localPassphraseChange:
         "Nowe hasło ponownie opakowuje twój klucz świeżą solą, więc praca, którą atakujący wykonał nad starym, idzie na marne.",
-      localReencryptKeyring:
-        "Twoje pliki dostają zupełnie nowe klucze, więc kopia starych zaszyfrowanych danych jest teraz zapieczętowana kluczem, który już nigdzie nie istnieje.",
-      localReencryptFiles:
-        "Ten plik dostaje zupełnie nowy klucz, więc jego starsza kopia jest zapieczętowana kluczem, który już nigdzie nie istnieje.",
       roomRekey: "Szyfrowanie pokoju zaczyna od nowa, więc stary materiał kluczy nie otwiera już tego, co nadejdzie.",
       roomLeave: "Przestajesz odbierać ten pokój, a jego zapisana historia znika z tego urządzenia.",
       dataDeleteChat: "Wiadomości zapisane dla tego pokoju zniknęły z tego urządzenia.",

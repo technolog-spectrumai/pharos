@@ -50,8 +50,6 @@ calls = ["dep:rustfft"]
 contacts = []
 # Meetings and polls. Frontend only — there is no Rust behind it.
 calendar = []
-# The key ring: one passphrase locking many local files.
-keyring = []
 # Re-opening an idle-locked vault with a PIN.
 pin_unlock = []
 
@@ -81,16 +79,9 @@ rotor-core = { path = "../../../crates/rotor/rotor_core" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
 protasius = { path = "../crates/protasius" }
-# Reused directly (not just via protasius) for passphrase-protected local files
-# (local_lock.rs): per-file vault + seal/open over the chosen file's bytes.
+# Reused directly (not just via protasius) for the PIN-unlock and panic-code
+# envelopes in vault.rs.
 gervasius = { path = "../../../crates/rotor/gervasius" }
-# The sealed-file FRAME, shared with Morion (Rutile's substrate). Deliberately WITHOUT
-# `legacy-detect`: that feature reaches gervasius's gervazy half and so
-# openssl-sys, and enigma never wrote a Fernet file to recognise. The layout is
-# shared; the magic and AAD are not — every file already on a user's disk
-# carries `ENIGLOCK`, so `FrameSpec::ENIGMA` keeps reading exactly what this
-# app has always written.
-substrate = { path = "../../../crates/substrate" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"

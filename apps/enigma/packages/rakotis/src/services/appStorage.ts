@@ -95,10 +95,6 @@ export interface BuildConfig {
   /** false = this build has no peer sync: the `enigma/plink/0` ALPN is not
    *  registered, usePeerSync is never instantiated, and every peer_* command
    *  errors with PEERS_DISABLED. (peer.md; technology.md §20 — Pro only.) */
-  /** false = this build has no key ring (one passphrase locking MANY local
-   *  files): keyring_* commands error with KEYRING_DISABLED and the UI hides
-   *  the key-ring surface. Per-file locking (local_lock) is always in. */
-  keyring_enabled: boolean;
   /** PIN unlock: a short in-session re-unlock after an idle lock. The passphrase
    *  still opens the vault at cold start — the PIN never protects data at rest. */
   pin_unlock: boolean;
@@ -134,7 +130,6 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   calls_enabled: true,
   contacts_enabled: true,
   calendar_enabled: true,
-  keyring_enabled: true,
   pin_unlock: true,
   use_tor_default: false,
   stable_onion_default: false,

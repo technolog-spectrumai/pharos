@@ -12,8 +12,7 @@ at rest** behind a passphrase.
 - **Transports** — direct QUIC with relay-assisted NAT traversal, or peer-hosted
   **Tor** onion services with an auto-elected relaying captain. Optional
   ticketless joins, presence and nicknames over the Mainline **DHT**.
-- **Beyond chat** — voice calls, P2P file transfer, per-file locking and a
-  room calendar. File editing is Morion's (see [Removed features](#removed-features)).
+- **Beyond chat** — voice calls, P2P file transfer and a room calendar. File editing is Morion's (see [Removed features](#removed-features)).
 - **Privacy HP** — a budget that puts one comparable price beside every
   exposing action, so the cost of a choice is visible before the tap.
 - **Two products, one source** — Standard and Professional are the same code
@@ -69,7 +68,7 @@ equalizer's `rustfft`, and that no Enigma build links OpenSSL
 
 | | Standard | Professional |
 |---|:-:|:-:|
-| Relays and discovery, contacts, key ring, PIN unlock | ✓ | ✓ |
+| Relays and discovery, contacts, PIN unlock | ✓ | ✓ |
 | DHT (room codes, nicknames), voice calls, calendar | – | ✓ |
 
 ## Test
@@ -93,9 +92,7 @@ The code is in the history; restore a file with
 |---|---|---|---|---|
 | Files → Local **SVG drawing editor** | 2026-10-23 | `a0b6224a4fcced186b455736b8745901c27e1931` | `src/components/local/SvgEditor.vue`, its tests `tests/component/svgEditor.test.ts`; it used `packages/wisteria` | Morion's sketch editor |
 | Files → Local **text/notes editor** (Ace) | 2026-10-23 | `a0b6224a4fcced186b455736b8745901c27e1931` | `src/components/local/NoteEditor.vue`, `src/components/local/aceSetup.ts`, their tests and `tests/stubs/{ace,fakeAce}.ts`; it used `ace-builds` | Morion's text and code editors |
-
-The Local panel still locks, unlocks and rotates files, with or without the
-key ring.
+| Files → Local **file encryption** (lock, unlock, rotate; ENIGLOCK), Files → Keys **key ring** (`.enigr`), Settings' key-rotation reminder and **Delete files on panic** | 2026-10-23 | `cf2c6c559bed487cb5daa98ca59d8c8734a0cab4` | `src/components/local/`, `src-tauri/src/local_lock.rs`, `src-tauri/src/keyring.rs`, `src-tauri/src/fs_local.rs`, the `keyring` cargo feature, protasius's panic-targets sidecar | — (files locked with Enigma can only be opened by a build of that commit) |
 
 ## Documentation
 

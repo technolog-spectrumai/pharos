@@ -337,7 +337,7 @@ describe("meter derivation", () => {
   });
 
   it("never lets credits push a meter above its ceiling", () => {
-    const b = deriveBalances(P, [credit(T0, "local.reencrypt.keyring", 5000)], T0);
+    const b = deriveBalances(P, [credit(T0, "room.rekey", 5000)], T0);
     expect(b.daily.balanceCenti).toBe(P.dailyMaxCenti);
   });
 });
