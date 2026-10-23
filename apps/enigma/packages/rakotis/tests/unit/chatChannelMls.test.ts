@@ -164,6 +164,17 @@ describe("starting the session", () => {
     expect(sent("mls_key_package")).toHaveLength(1);
     expect(ch.mlsStatus.value).toBe("key_exchange");
   });
+
+  it("declares no lone group for a room that was left while negotiating", async () => {
+    // Leaving does not cancel the creator timer. When it fires it has to find
+    // the negotiation over and say nothing, or a closed room comes back as
+    // "ready" with an encryption notice over an empty view.
+    const ch = await negotiating();
+    await ch.leaveParticipant();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(ch.mlsStatus.value).toBe("idle");
+    expect(count(ch, ENCRYPTED)).toBe(0);
+  });
 });
 
 // ── the Welcome ─────────────────────────────────────────────────────────────

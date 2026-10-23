@@ -231,6 +231,9 @@ describe("muting", () => {
     expect(notices(ch).at(-1)).toBe("🔇 Bob was muted for 5m.");
     await flush();
     expect(row(ch, "bob")?.muteUntil).toBe(until);
+    // Keyed by user, it also silences a device of bob's it never named.
+    await deliver(fromPeer("bob#dev-zyxwvuts", "from my other device"));
+    expect(bubbles(ch)).toHaveLength(0);
   });
 
   it("refuses to mute ourselves, on this or any other of our devices", async () => {
@@ -451,6 +454,18 @@ describe("a meta snapshot", () => {
     mockTransport.send.mockClear();
     await presence("carol", true);
     expect(mockTransport.send).not.toHaveBeenCalled();
+  });
+
+  it("is taken from anyone but the captain only when it is strictly newer", async () => {
+    // The captain's copy re-applies at an equal revision. Anyone else's copy
+    // at that revision is a rival version of the same state, not a handover.
+    const ch = await asMember();
+    await deliver(fromPeer("bob", { type: "room_meta", device_id: "bob", rev: 3, rules: "from the captain" }));
+    await deliver(fromPeer("carol", { type: "room_meta", device_id: "carol", rev: 3, rules: "rival" }));
+    expect(ch.roomRules.value).toBe("from the captain");
+
+    await deliver(fromPeer("carol", { type: "room_meta", device_id: "carol", rev: 4, rules: "handed over" }));
+    expect(ch.roomRules.value).toBe("handed over");
   });
 
   it("handed over by the previous holder is re-broadcast by the new captain as its own", async () => {
