@@ -315,6 +315,13 @@ describe("MessageComposer — attachments", () => {
     expect(sendButton(w).attributes("disabled")).toBeUndefined();
   });
 
+  it("opens the image picker from the image button", async () => {
+    const { w } = mountComposer();
+    const click = vi.spyOn(w.get('input[type="file"]').element as HTMLInputElement, "click");
+    await imageButton(w).trigger("click");
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores a picker closed without a file", async () => {
     const { w } = mountComposer();
     await pickImage(w, null);

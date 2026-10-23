@@ -172,6 +172,13 @@ describe("JoinRoomModal — the form", () => {
     expect(w.text()).toContain("No QR code found in that image.");
   });
 
+  it("opens the image picker from the upload button", async () => {
+    const { w } = mountJoin();
+    const click = vi.spyOn(w.get('input[type="file"]').element as HTMLInputElement, "click");
+    await w.get('button[aria-label="Upload a QR image"]').trigger("click");
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it("hands a picked QR image to the controller's decoder", async () => {
     const { w, ctrl } = mountJoin();
     await w.get('input[type="file"]').trigger("change");
@@ -359,6 +366,9 @@ describe("RoomInfoModal — the open room", () => {
     const ch = infoChannel({ current: "room-live", captain: true });
     const { w } = mountInfo(live, ch);
     const input = w.get('input[type="file"]');
+    const click = vi.spyOn(input.element as HTMLInputElement, "click");
+    await buttonByText(w, "Set room logo").trigger("click");
+    expect(click).toHaveBeenCalledTimes(1);
     const file = new File(["png"], "logo.png", { type: "image/png" });
     Object.defineProperty(input.element, "files", { value: [file], configurable: true });
     await input.trigger("change");

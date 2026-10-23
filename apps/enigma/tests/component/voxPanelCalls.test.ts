@@ -307,6 +307,9 @@ describe("VoxPanel — scanning a call code", () => {
     qr.decoded = " tkt-img ";
     const w = await mountPanel();
     const input = w.get('input[type="file"]');
+    const click = vi.spyOn(input.element as HTMLInputElement, "click");
+    await byText(w, "Upload a QR image").trigger("click");
+    expect(click).toHaveBeenCalledTimes(1);
     Object.defineProperty(input.element, "files", { value: [new File(["png"], "qr.png")], configurable: true });
     await input.trigger("change");
     await flushPromises();
