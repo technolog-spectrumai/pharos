@@ -51,53 +51,19 @@ function seedRecents(records: Array<{ path: string; name: string; locked: boolea
 
 const GLOBAL = () => ({ plugins: [i18n, pinia], stubs: { teleport: true } });
 
-describe("LocalPanel — recents lock button", () => {
-  it("offers Lock on a plain existing file and opens the lock modal for it", async () => {
+describe("LocalPanel — locking only, no editing", () => {
+  it("offers no editor: no new-file button, no recents, no edit action", async () => {
+    // Editing moved to Morion (README.md, "Removed features"); Enigma keeps
+    // only the encrypted-file list. A stale recents index must not bring the
+    // editor's list back.
     seedRecents([{ path: "/home/a/todo.txt", name: "todo.txt", locked: false }]);
     const wrapper = mount(LocalPanel, { global: GLOBAL() });
     await flushPromises();
 
-    const lock = wrapper.find("[data-testid='recent-lock']");
-    expect(lock.exists()).toBe(true);
-    await lock.trigger("click");
-    await flushPromises();
-
-    // The passphrase modal opens in lock mode for exactly that file.
-    expect(wrapper.text()).toContain("todo.txt");
-    const modal = wrapper.findComponent({ name: "LocalPassphraseModal" });
-    expect(modal.exists()).toBe(true);
-    expect(modal.props("mode")).toBe("lock");
-    expect(modal.props("path")).toBe("/home/a/todo.txt");
-  });
-
-  it("hides Lock for an already-locked file", async () => {
-    // The missing-from-disk case rides the same v-if via `exists === false`;
-    // the locked case is the one the record itself can prove (the stat mock's
-    // second parallel call is unreliable under jsdom's double module graph).
-    seedRecents([{ path: "/home/a/sealed.txt", name: "sealed.txt", locked: true }]);
-    statByPath["/home/a/sealed.txt"] = { exists: true, locked: true, size: 5 };
-    const wrapper = mount(LocalPanel, { global: GLOBAL() });
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("sealed.txt");
-    expect(wrapper.find("[data-testid='recent-lock']").exists()).toBe(false);
-  });
-
-  it("opens the new-file modal with the three choices", async () => {
-    const wrapper = mount(LocalPanel, { global: GLOBAL() });
-    await flushPromises();
-
-    await wrapper.find("[data-testid='new-file']").trigger("click");
-    expect(wrapper.find("[data-testid='new-file-text']").exists()).toBe(true);
-    expect(wrapper.find("[data-testid='new-file-svg']").exists()).toBe(true);
-    expect(wrapper.find("[data-testid='new-file-open']").exists()).toBe(true);
-
-    // Picking "text" switches to the editor view (the editor itself is an
-    // async ACE chunk that never materializes in jsdom — the toolbar leaving
-    // is the observable part of the transition).
-    await wrapper.find("[data-testid='new-file-text']").trigger("click");
-    await flushPromises();
     expect(wrapper.find("[data-testid='new-file']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='recent-lock']").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("todo.txt");
+    expect(wrapper.find("button[aria-label='Edit']").exists()).toBe(false);
   });
 });
 

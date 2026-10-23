@@ -13,7 +13,7 @@ at rest** behind a passphrase.
   **Tor** onion services with an auto-elected relaying captain. Optional
   ticketless joins, presence and nicknames over the Mainline **DHT**.
 - **Beyond chat** — voice calls, P2P file transfer, per-file locking and a
-  room calendar.
+  room calendar. File editing is Morion's (see [Removed features](#removed-features)).
 - **Privacy HP** — a budget that puts one comparable price beside every
   exposing action, so the cost of a choice is visible before the tap.
 - **Two products, one source** — Standard and Professional are the same code
@@ -82,6 +82,20 @@ equalizer's `rustfft`, and that no Enigma build links OpenSSL
 
 Every step runs even if an earlier one fails, and the run ends with a pass/fail
 table.
+
+## Removed features
+
+Features taken out of Enigma because another app in Belisario does the job.
+The code is in the history; restore a file with
+`git show <commit>:<path> > <path>` and re-add its dependencies.
+
+| Feature | Removed | Last commit that has it | Files | Instead |
+|---|---|---|---|---|
+| Files → Local **SVG drawing editor** | 2026-10-23 | `a0b6224a4fcced186b455736b8745901c27e1931` | `src/components/local/SvgEditor.vue`, its tests `tests/component/svgEditor.test.ts`; it used `packages/wisteria` | Morion's sketch editor |
+| Files → Local **text/notes editor** (Ace) | 2026-10-23 | `a0b6224a4fcced186b455736b8745901c27e1931` | `src/components/local/NoteEditor.vue`, `src/components/local/aceSetup.ts`, their tests and `tests/stubs/{ace,fakeAce}.ts`; it used `ace-builds` | Morion's text and code editors |
+
+The Local panel still locks, unlocks and rotates files, with or without the
+key ring.
 
 ## Documentation
 

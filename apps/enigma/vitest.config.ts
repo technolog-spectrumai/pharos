@@ -4,11 +4,7 @@ import vue from "@vitejs/plugin-vue";
 import { featureDefines } from "./buildFeatures";
 import { sourceAliases } from "../../scripts/vite-shared.mjs";
 
-// A dedicated Vitest config (no Tailwind plugin needed for tests). ace-builds
-// subpaths are aliased to a lightweight stub so jsdom never loads the real
-// editor — the editor's logic is covered through mocked interactions instead.
-const aceStub = new URL("./tests/stubs/ace.ts", import.meta.url).pathname;
-const wisteriaSrc = new URL("../../packages/wisteria/src", import.meta.url).pathname;
+// A dedicated Vitest config (no Tailwind plugin needed for tests).
 const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
 // The DIRECTORY, not index.ts: the deep alias below appends a subpath, and
 // "…/index.ts/components/…" resolves to nothing.
@@ -24,11 +20,8 @@ export default defineConfig({
   resolve: {
     alias: [
       // The same source aliases as vite.config.ts.
-      ...sourceAliases("wisteria", wisteriaSrc),
       ...sourceAliases("petalite", petaliteSrc),
       ...sourceAliases("rakotis", rakotisDir, { components: false, entry: rakotisSrc }),
-      { find: /^ace-builds\/src-noconflict\/ace$/, replacement: aceStub },
-      { find: /^ace-builds\/src-noconflict\/.*/, replacement: aceStub },
     ],
   },
   test: {

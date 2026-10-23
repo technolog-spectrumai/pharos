@@ -16,14 +16,13 @@ export default defineConfig(async () => ({
   // set — plain `npm run dev`, Playwright — every feature is on.
   define: featureDefines(process.env.ENIGMA_FEATURES),
 
-  // wisteria, petalite (the repo's) and rakotis (this app's) ship raw TS/Vue
+  // petalite (the repo's) and rakotis (this app's) ship raw TS/Vue
   // (no prebuild): alias each to its source and keep it out of esbuild's
   // dependency pre-bundling, so the Vue plugin compiles it like app source.
   // rakotis exports only its entry, so it takes no `.vue` rule
   // (scripts/vite-shared.mjs).
   resolve: {
     alias: [
-      ...sourceAliases("wisteria", dir("../../packages/wisteria/src")),
       ...sourceAliases("petalite", dir("../../packages/petalite/src")),
       ...sourceAliases("rakotis", dir("./packages/rakotis/src"), {
         components: false,
@@ -32,7 +31,7 @@ export default defineConfig(async () => ({
     ],
   },
   optimizeDeps: {
-    exclude: ["rakotis", "wisteria", "petalite"],
+    exclude: ["rakotis", "petalite"],
   },
 
   // Don't let Vite's overlay hide Rust compiler errors during `tauri dev`.

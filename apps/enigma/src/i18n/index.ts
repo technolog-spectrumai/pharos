@@ -5,10 +5,6 @@
 import en from "./en";
 import pl from "./pl";
 import { createAppI18n } from "rakotis";
-// The drawing engine (wisteria, from Rutile) ships the words its canvas and
-// toolbar render. Both copies of these strings used to live in two apps, and
-// only one was ever updated.
-import { wisteriaMessages } from "wisteria/i18n";
 
 export {
   SUPPORTED_LOCALES,
@@ -20,8 +16,8 @@ export {
 export type { Locale } from "rakotis";
 
 const app = createAppI18n({
-  en: { ...en, ...wisteriaMessages.en },
-  pl: { ...pl, ...wisteriaMessages.pl },
+  en,
+  pl,
 });
 export const i18n = app.i18n;
 export const setLocale = app.setLocale;

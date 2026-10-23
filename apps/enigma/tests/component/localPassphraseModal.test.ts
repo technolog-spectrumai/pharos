@@ -1,5 +1,5 @@
-// The one passphrase prompt behind every Local action: lock, unlock, rotate,
-// and the editor's open / encrypt. It is the last check before a passphrase
+// The one passphrase prompt behind every Local action: lock, unlock and
+// rotate. It is the last check before a passphrase
 // becomes a key, so what is pinned is that nothing reaches Rust until the form
 // is right (present, long enough, typed twice when it is new), that a refusal
 // keeps the modal open with the reason inline instead of closing as if it
@@ -247,43 +247,6 @@ describe("LocalPassphraseModal — rotate", () => {
   });
 });
 
-describe("LocalPassphraseModal — the editor's open and encrypt", () => {
-  it("open hands the passphrase to the parent's action and sends nothing itself", async () => {
-    const action = vi.fn(async () => {});
-    const w = mountModal({ mode: "open", path: "", action });
-    expect(w.text()).toContain("Open encrypted file");
-    await submit(w, "anything");
-    expect(action).toHaveBeenCalledWith("anything");
-    expect(invokeMock).not.toHaveBeenCalled();
-    expect(w.emitted("update:open")).toEqual([[false]]);
-  });
-
-  it("a rejected action keeps the modal open with its message — Error or bare string", async () => {
-    const action = vi.fn().mockRejectedValueOnce(new Error("wrong passphrase")).mockRejectedValueOnce("disk full");
-    const w = mountModal({ mode: "open", path: "", action });
-    await submit(w, "nope");
-    expect(errorText(w)).toBe("wrong passphrase");
-    await submit(w, "nope");
-    expect(errorText(w)).toBe("disk full");
-    expect(w.emitted("update:open")).toBeUndefined();
-  });
-
-  it("encrypt is a new passphrase, so it is confirmed and length-checked first", async () => {
-    const action = vi.fn(async () => {});
-    const w = mountModal({ mode: "encrypt", path: "", action });
-    expect(w.text()).toContain("Encrypt note");
-    expect(w.text()).toContain("its plaintext is never written");
-    expect(placeholders(w)).toEqual(["Passphrase", "Confirm passphrase"]);
-
-    await submit(w, "short", "short");
-    expect(errorText(w)).toBe("Passphrase must be at least 8 characters.");
-    expect(action).not.toHaveBeenCalled();
-
-    await submit(w, "long enough", "long enough");
-    expect(action).toHaveBeenCalledWith("long enough");
-  });
-});
-
 describe("LocalPassphraseModal — closing and reopening", () => {
   it("Cancel closes without submitting", async () => {
     const w = mountModal();
@@ -294,13 +257,15 @@ describe("LocalPassphraseModal — closing and reopening", () => {
 
   it("cannot be dismissed while a submit is in flight, and ignores a second press", async () => {
     let finish!: () => void;
-    const action = vi.fn(() => new Promise<void>((res) => (finish = res)));
-    const w = mountModal({ mode: "open", path: "", action });
+    handlers.local_unlock_file = () =>
+      new Promise((res) => (finish = () => res({ name: "f.txt", size: 42 })));
+    const w = mountModal({ mode: "unlock" });
     await fields(w)[0].setValue("pw");
     await primary(w).trigger("click");
     await primary(w).trigger("click");
     await cancel(w).trigger("click");
-    expect(action).toHaveBeenCalledTimes(1);
+    await flushPromises();
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "local_unlock_file")).toHaveLength(1);
     expect(w.emitted("update:open")).toBeUndefined();
     expect((fields(w)[0].element as HTMLInputElement).disabled).toBe(true);
 

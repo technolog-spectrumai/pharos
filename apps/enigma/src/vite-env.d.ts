@@ -6,10 +6,6 @@ declare module "*.vue" {
   export default component;
 }
 
-// ace-builds ships JS-only core/mode/theme bundles under src-noconflict without
-// per-file type declarations; treat those subpath imports as untyped modules.
-declare module "ace-builds/src-noconflict/*";
-
 // Build features, substituted by Vite at build time (buildFeatures.ts). One per
 // id in src-tauri/Cargo.toml `[features]` — tests/unit/buildFeatures.test.ts
 // fails if the two lists drift. Use them where code is IMPORTED or

@@ -201,8 +201,7 @@ compile-time `build_config.yaml` codegen ([§19](#19-run-build-and-test)).
 **Used at runtime:** `vue` 3.5, `vue-router` 5 (`createMemoryHistory`), `pinia`,
 `vue-i18n` 9 (en/pl), `tailwindcss` 4, `@fortawesome/*`, `@tauri-apps/api` 2,
 `qrcode` (generate ticket/NodeId QR), `html5-qrcode` (scan), `nanoid` (message ids),
-`ace-builds` (Files → Local notes editor, bundled offline — §13; the SVG editor beside it adds no dependency at all — it renders and rasterizes from its own model), and the
-in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
+and the in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
 map when it was parked — see `limbo/`; `maplibre-gl` and `protomaps-themes-base`
 left with the Map tab, which is Morion's now — [§16](#16-history--the-serverless-rework).)
 
@@ -686,11 +685,9 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   maintenance capacity; the code, tests, i18n and design docs are kept under
   `limbo/frontend/{kanban,sketch,mind}/`, each with a restore checklist, and
   their build-config sections were removed with them. No route, tab or store in
-  the shipped app reaches any of them. One piece was kept rather than parked:
-  the Sketch board's drawing engine (`components/sketch/`) is what the Files →
-  Local **SVG editor** (`components/local/SvgEditor.vue`) draws with, so that
-  code ships — the *board*, with its own tab and its own document store, does
-  not.
+  the shipped app reaches any of them. The Files → Local text and SVG editors,
+  which used Ace and the shared drawing engine (wisteria), were removed on
+  2026-10-23; editing is Morion's. See [README.md](README.md#removed-features).
 - **Sharing a room** (`RoomShareCard`, in both `CreateRoomModal` and
   `RoomInfoModal`) — three ways in, on segmented pills: the **room ticket**
   (permanent, anyone, not revocable), a **private QR** (sealed to one contact,
@@ -972,8 +969,12 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
   nonce(24) ‖ ct+tag`, AAD `enigma:localfile:v1` (constant, so locked files can be
   renamed/moved). The passphrase is never stored; the UI keeps only a record of
   which files are locked (kv ns `files:local`).
-- **Notes editor** (`local_note_read` / `local_note_write` / `local_note_stat` in
-  `local_lock.rs`, Files → Local): edits local text files in an ACE editor. A locked
+- **Notes editor — removed from the UI on 2026-10-23** (see
+  [README.md](README.md#removed-features)). The Rust commands it used
+  (`local_note_read` / `local_note_write` in `local_lock.rs`) are still there but
+  nothing in the front end calls them; `local_note_stat` is still used by the
+  locked-file list. What follows describes the editor as it was: it edited local
+  text files in an ACE editor. A locked
   file is decrypted into memory only — reading never rewrites it, and saving re-seals
   from the buffer, so its plaintext never lands on disk. Encryption is opt-in per file:
   a plain file saves as plaintext (refused if the file on disk is currently `ENIGLOCK`,
