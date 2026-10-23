@@ -16,7 +16,7 @@ export default defineConfig(async () => ({
   // set — plain `npm run dev`, Playwright — every feature is on.
   define: featureDefines(process.env.ENIGMA_FEATURES),
 
-  // petalite (the repo's) and rakotis (this app's) ship raw TS/Vue
+  // petalite, calendula (the repo's) and rakotis (this app's) ship raw TS/Vue
   // (no prebuild): alias each to its source and keep it out of esbuild's
   // dependency pre-bundling, so the Vue plugin compiles it like app source.
   // rakotis exports only its entry, so it takes no `.vue` rule
@@ -24,6 +24,7 @@ export default defineConfig(async () => ({
   resolve: {
     alias: [
       ...sourceAliases("petalite", dir("../../packages/petalite/src")),
+      ...sourceAliases("calendula", dir("../../packages/calendula/src"), { components: false }),
       ...sourceAliases("rakotis", dir("./packages/rakotis/src"), {
         components: false,
         entry: dir("../../node_modules/rakotis/src/index.ts"),
@@ -31,7 +32,7 @@ export default defineConfig(async () => ({
     ],
   },
   optimizeDeps: {
-    exclude: ["rakotis", "petalite"],
+    exclude: ["rakotis", "petalite", "calendula"],
   },
 
   // Don't let Vite's overlay hide Rust compiler errors during `tauri dev`.

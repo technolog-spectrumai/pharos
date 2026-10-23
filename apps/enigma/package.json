@@ -27,6 +27,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "html5-qrcode": "^2.3.8",
     "nanoid": "^5.1.11",
+    "calendula": "*",
     "petalite": "*",
     "pinia": "^3.0.4",
     "qrcode": "^1.5.4",

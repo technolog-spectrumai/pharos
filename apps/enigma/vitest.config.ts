@@ -6,6 +6,7 @@ import { sourceAliases } from "../../scripts/vite-shared.mjs";
 
 // A dedicated Vitest config (no Tailwind plugin needed for tests).
 const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
+const calendulaSrc = new URL("../../packages/calendula/src", import.meta.url).pathname;
 // The DIRECTORY, not index.ts: the deep alias below appends a subpath, and
 // "…/index.ts/components/…" resolves to nothing.
 const rakotisDir = new URL("./packages/rakotis/src", import.meta.url).pathname;
@@ -21,6 +22,7 @@ export default defineConfig({
     alias: [
       // The same source aliases as vite.config.ts.
       ...sourceAliases("petalite", petaliteSrc),
+      ...sourceAliases("calendula", calendulaSrc, { components: false }),
       ...sourceAliases("rakotis", rakotisDir, { components: false, entry: rakotisSrc }),
     ],
   },

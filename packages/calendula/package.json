@@ -1,0 +1,14 @@
+{
+  "name": "calendula",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The calendar code Enigma and Morion share: local dates and times for meeting forms",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

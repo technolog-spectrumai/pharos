@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO_ROOT/scripts/lib.sh"
 . "$REPO_ROOT/scripts/tests_lib.sh"
 
-tests_step js   "petalite + wisteria (vitest)"    'npm run test -w packages/petalite -w packages/wisteria'
+tests_step js   "petalite, wisteria, calendula"   'npm run test -w packages/petalite -w packages/wisteria -w packages/calendula'
 tests_step js   "Dromon: files → commands"        'node --test dromon/plan.test.mjs'
 tests_step js   "Dromon: every variant validates" './build.sh all --validate'
 tests_step js   "scripts: lib.sh, tests_lib.sh"   'node --test scripts/lib.test.mjs'

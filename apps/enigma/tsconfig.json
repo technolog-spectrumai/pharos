@@ -21,7 +21,8 @@
       "rakotis/*": ["./packages/rakotis/src/*"],
       "petalite/*.vue": ["../../packages/petalite/src/components/*.vue"],
       "petalite/*": ["../../packages/petalite/src/*"],
-      "petalite": ["../../packages/petalite/src/index.ts"]
+      "petalite": ["../../packages/petalite/src/index.ts"],
+      "calendula": ["../../packages/calendula/src/index.ts"]
     },
 
     /* Linting */
