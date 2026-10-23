@@ -1,0 +1,91 @@
+# How Enigma26 is built — Dromon's file for this app (schema: dromon/README.md).
+#
+#   ./build.sh enigma pro              Professional
+#   ./build.sh enigma std              Standard
+#   ./build.sh enigma std --dry-run    the commands, none run
+#   ./run_dev.sh enigma [std]          a dev run with a variant's features (pro by default)
+#
+# There are no build flags: this file is the whole interface. An unknown key or
+# value is an error, never a default.
+schema: 1
+
+# What the app is.
+app:
+  kind: tauri
+  # Names the app's data directory on every OS, so it never changes; checked
+  # against src-tauri/tauri.conf.json on every run.
+  identifier: com.spectrumaipl.enigma26
+  cargo:
+    workspace: .                  # the repo-root workspace, shared with Morion
+    package: enigma
+    test_packages: [protasius]    # tested beside the app, with its features
+  android: true
+  # Morion turns on gervasius's gervazy half, which pulls fernet and so OpenSSL.
+  # They share a workspace; no Enigma build may ever link it.
+  forbid_crates: [openssl-sys]
+
+# The ways to build it. "Professional" and "Standard" are labels for these
+# lists, nothing more: a variant is exactly the features it names.
+variants:
+  pro:
+    # Packages land in <output_dir>/enigma/, with a SHA256SUMS and a build.json.
+    # Separate from Standard's: both produce a package with the same name.
+    output_dir: dist/enigma-pro
+
+    # The optional features compiled into this build. Anything not listed is not
+    # in the binary: not its Rust code, not its dependencies, not its screens.
+    # The ids, and what each requires, are the [features] table of
+    # src-tauri/Cargo.toml; the list must name every requirement itself (dht
+    # needs hosted_relays). Built in is not switched on: `dht` here makes the
+    # DHT available, and each profile still opts in to using it.
+    features:
+      - hosted_relays   # iroh's n0 relays and pkarr/DNS discovery
+      - dht             # room codes, the nickname directory, presence
+      - calls           # 1:1 voice calls (the Vox tab)
+      - contacts        # Contacts and direct room invites
+      - calendar        # meetings and polls
+      - pin_unlock      # re-unlock with a PIN after an idle lock
+
+    # Run the frontend and Rust suites first; a failure stops the build before
+    # anything is packaged.
+    test: false
+
+    desktop:
+      enabled: true
+      profile: release          # release | debug (debug builds far faster, runs slower)
+      # Tauri compiles for the machine it runs on, so only this host's formats
+      # are accepted: deb, rpm, appimage on Linux; dmg, app on macOS; msi, nsis
+      # on Windows. Remove the line to use tauri.conf.json's.
+      bundles: [deb, rpm]
+
+    android:
+      enabled: false
+      profile: debug            # debug | release (release needs a signing key — technology.md §19)
+      abis: [aarch64]           # aarch64 (phones) | x86_64 (emulator) | armv7 | i686, or [all]
+      # debug-key (debug) | release-key (release, the default there) | none: a
+      # release deliberately NOT signed — it installs nowhere and must never be
+      # distributed.
+      signing: debug-key
+
+  std:
+    output_dir: dist/enigma-std
+    # Not in this build, and therefore not in its binary: dht, calls, calendar.
+    # A Standard user can still sit in a room with a Professional one — what
+    # they cannot do is receive a call or a meeting from it.
+    features:
+      - hosted_relays
+      - contacts
+      - pin_unlock
+    # Omitted means not linked, and that is checked before anything compiles:
+    # the DHT's mainline and the equalizer's rustfft must not be in the tree.
+    forbid_crates: [mainline, rustfft]
+    test: false
+    desktop:
+      enabled: true
+      profile: release
+      bundles: [deb, rpm]
+    android:
+      enabled: false
+      profile: debug
+      abis: [aarch64]
+      signing: debug-key

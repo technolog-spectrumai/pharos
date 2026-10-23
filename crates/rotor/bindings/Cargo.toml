@@ -1,0 +1,14 @@
+# The language bindings: Python (rotor_py) and WebAssembly (rotor_wasm). No app
+# in this repo links them; they are built for outside consumers by compile.py
+# and build_wasm.sh beside this file.
+#
+# Their OWN workspace, with their own committed lock, because rotor_wasm pins
+# wasm-bindgen exactly (=0.2.100) and the apps' trees need a newer 0.2.x: one
+# lockfile cannot hold both. rotor_core and gervasius are members of the
+# repo-root workspace and are reached from here by path.
+[workspace]
+resolver = "2"
+members = [
+    "rotor_py",
+    "rotor_wasm",
+]

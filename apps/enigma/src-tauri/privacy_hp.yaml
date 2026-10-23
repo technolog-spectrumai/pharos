@@ -1,0 +1,529 @@
+# Privacy HP — the price table, baked in at COMPILE TIME by src-tauri/build.rs.
+#
+# HP is a *safety budget*, not a security control. Nothing here gates, blocks or
+# weakens anything: MLS, Tor, iroh, the vault and the passphrase behave exactly
+# as they would if this file did not exist. What HP does is let the user compare
+# the relative exposure of the choices the app offers, in one currency, with the
+# price shown before the tap.
+#
+# Read this file with technology.md §8 (privacy posture), §9 (ranked weaknesses)
+# and §12 (DHT threat notes) open: every price below cites the line it comes
+# from, and a price that cannot cite one does not belong here.
+#
+# WHY IT IS COMPILE-TIME. The same action in the same state must always cost the
+# same — no randomness, no personalisation, no server, no drifting score. Baking
+# the table into the binary makes that structural: build.rs validates this file
+# and FAILS THE BUILD on anything invalid, the shipped binary never re-reads it,
+# and the webview can only ever name an action id — never a number. Prices are
+# deliberately NOT per-edition (there is one privacy_hp.yaml, not one per
+# configs/*.yaml): an exposure does not become cheaper because you bought a
+# different tier.
+#
+# ARITHMETIC. Every HP figure here is exact to two decimal places and is stored
+# and computed internally as an INTEGER number of hundredths ("centi-HP"). No
+# float ever reaches the ledger, so balances are reproducible byte-for-byte.
+# build.rs rejects a third decimal place.
+
+version: 1
+
+# ── the ladder ───────────────────────────────────────────────────────────────
+# Five rungs, so prices stay comparable at a glance. A fixed-cost action must
+# land on one of them (build.rs enforces it); metered actions bill in fractions
+# below the bottom rung and are exempt.
+# HALVED 2026-08-24. Every rung, every metered rate and every credit was divided
+# by two, so the whole budget goes twice as far while every RATIO between prices
+# is preserved exactly — which is what the ladder is for. The meters (100/700)
+# and the regeneration rates were deliberately left alone: the request was to
+# halve what actions cost, not to shrink the budget or slow recovery.
+#
+# Three rates could not halve exactly at two decimal places — 0.05 and 0.25 want
+# 0.025 and 0.125 — and are rounded DOWN rather than up (0.02, 0.12). Down is the
+# direction the halving was asked for, and the affected values are per-message and
+# per-MiB rates where the difference is far below anything a user can perceive.
+scale:
+  negligible: 0.5
+  low: 1.5
+  moderate: 2.5
+  high: 5
+  severe: 10
+
+# Costs at or above this get a confirmation step. Everything cheaper stays
+# one-tap — a budget that interrupts you constantly is one you stop reading.
+confirm_at_hp: 5
+
+# ── the two meters ───────────────────────────────────────────────────────────
+# They differ ONLY in ceiling and recovery period. There is no second formula
+# hiding in one of them.
+#
+# REGENERATION is derived, never stored: each charge heals on its own clock, so
+# a charge of N HP made T ago currently weighs max(0, N - T x rate). Nothing is
+# written when HP comes back, which is why offline use, restarts, crashes and
+# app-closed time need no reconciliation at all — there is no counter to
+# reconcile. A backwards clock jump heals nothing (saturating subtraction); a
+# forwards one heals faster and is not defended against, because the only person
+# it cheats is the user.
+#
+# Regeneration is GAMIFICATION. It does not erase past metadata exposure: the
+# DHT record you published is still out there long after the bar has refilled.
+# ONE meter. There used to be a second, slower 7-day one; it is gone, along with
+# its bar. Two budgets meant every price had to be legible against two ceilings at
+# once, and the weekly one moved so slowly that it read as scenery rather than as
+# something a choice could affect. What is left is the meter a decision actually
+# lands on.
+meters:
+  daily:
+    max: 100
+    # +4 HP/h with Tor off. Today's budget is meant to be forgiving: you would
+    # have to send more than 80 clearnet messages an hour to outpace it.
+    regen_hp: 1
+    regen_per_minutes: 15
+    # +12 HP/h with Tor on — three times as fast. See the note below.
+    tor_regen_per_minutes: 5
+
+# ── why Tor changes the RATE and not a price ─────────────────────────────────
+#
+# Turning Tor on or off costs nothing and earns nothing. Instead, every hour
+# spent with Tor on regenerates HP three times faster than an hour without it.
+#
+# This replaced a one-time −20 HP charge for switching Tor off, which had a hole
+# big enough to see through: Tor ships OFF, so a profile that never touched the
+# switch was never charged, despite being permanently in the exposed state. The
+# budget punished the *transition* while ignoring the *posture*, which is exactly
+# backwards — nobody is harmed by flipping a switch, they are harmed by where the
+# switch has been sitting for the last week.
+#
+# A rate expresses that correctly and continuously: protection you actually ran
+# with pays, for as long as you ran with it, and stopping simply stops the bonus.
+# There is no one-time hit to take and then forget, and no way to game the toggle.
+#
+# NOT RETROACTIVE, and this is the part that makes it honest. Regeneration is
+# derived from ledger timestamps, so a naive implementation would re-heal every
+# past charge at whichever rate is current — flip Tor on and the meter jumps, flip
+# it off and it drops. Instead the ledger records posture markers (zero-HP rows)
+# and healing is integrated piecewise: hours with Tor on heal fast, hours without
+# heal slow, and no balance ever moves because a switch moved.
+#
+# The per-action Tor variants below are untouched and answer a different
+# question. The rate is about the posture you keep; a variant is about the
+# exposure one act causes. A clearnet invitation still carries your IP whatever
+# your regeneration looks like.
+
+# ── what costs HP ────────────────────────────────────────────────────────────
+#
+# kind: toggle   charged on the off->on transition ONLY, and idempotent —
+#                re-affirming a switch that is already on costs nothing and
+#                writes nothing.
+# kind: event    charged on every activation. No dedup: the meter always moves
+#                by exactly the number that was on the button.
+# kind: metered  a base price plus a per-MiB or per-minute rate, capped per
+#                event, accumulated into one hourly bucket per action rather
+#                than one ledger row per message.
+#
+# NOT CHARGED, deliberately: receiving anything (you did not choose it), reading,
+# searching, local-only work, and every message on the safe path — MLS-encrypted
+# over Tor is 0.00 and is the default the whole budget exists to protect.
+
+actions:
+
+  # ── transport posture ──────────────────────────────────────────────────────
+
+  # Turning Tor on or off is deliberately ABSENT from this table. It is not
+  # priced at all; it changes the regeneration rate instead (see the meters
+  # note above). Switching a protection on should not read as an expense, and
+  # switching it off should not be a one-time toll you pay once and then forget.
+
+  - id: transport.onion_stable.enable
+    kind: toggle
+    cost: low
+    explain_key: hp.explain.transportOnionStableEnable
+    # A stable .onion is reusable across sessions, so sessions become linkable to
+    # one long-lived address; it also materialises an onion keystore on disk
+    # while unlocked (§8, "at-rest posture" exceptions). Low, not moderate: the
+    # address is still yours alone and reveals no IP.
+
+  # ── discovery ──────────────────────────────────────────────────────────────
+
+  - id: dht.nickname.publish
+    kind: toggle
+    cost: severe
+    explain_key: hp.explain.dhtNicknamePublish
+    # §12. Binds a human-chosen handle to your NodeId in a GLOBAL directory that
+    # anyone can query. This is the strongest de-anonymiser the app contains:
+    # every other exposure leaks a machine identity, this one volunteers a name a
+    # person picked.
+
+  - id: dht.presence.enable
+    kind: toggle
+    cost: high
+    explain_key: hp.explain.dhtPresenceEnable
+    # §12 — "the presence feature's data source IS its privacy cost". Publishes
+    # your pkarr record to the Mainline DHT, republished hourly: anyone holding
+    # your NodeId learns when you are online, at roughly one-hour granularity.
+
+  # ── persistent Tor reachability ────────────────────────────────────────────
+  #
+  # The one exposure in this table that is charged for PASSING TIME rather than
+  # for an act. An invitation that never expires is only offered over Tor, and it
+  # is only tolerable there because a `.onion` is hard to come by — but a standing
+  # invitation is only as good as the address it names, so the address has to keep
+  # resolving, and anyone who has it can keep knocking for as long as it does.
+  #
+  # So the meter charges per hour, per room whose onion is up with a never-expiring
+  # invitation outstanding. Additive across rooms: two standing doors are twice the
+  # exposure. It stops the moment the address stops being reachable — the room
+  # closes, Tor goes off, or the onion is rotated (which deletes the old identity
+  # key, so the old address is gone rather than dormant and every invitation naming
+  # it is dead paper).
+  #
+  # The rate is set against the daily meter's Tor regeneration, which is what makes
+  # it a budget rather than a countdown. On Tor the daily meter heals 1 HP every
+  # 5 minutes — 12/hour — so:
+  #
+  #     one standing room    4.8/hour   comfortably under regen; keep it for ever
+  #     two standing rooms   9.6/hour   still under; sustainable but with no slack
+  #     three               14.4/hour   over regen — this one drains, and will end
+  #
+  # That is the intended shape. A single persistent room is a supported way to
+  # live; collecting them is not, and the meter says so by emptying rather than by
+  # refusing. Reaching zero closes the rooms that caused it (§17.4).
+
+  - id: tor.persistent.hold
+    kind: metered
+    cost: 0
+    per_minute: 0.08
+    cap_per_event: 5
+    explain_key: hp.explain.torPersistentHold
+    # 0.08/minute = 4.8 HP/hour. The cap bounds ONE accrual, which matters because
+    # a suspended laptop can leave a long gap between ticks: waking to a single
+    # 40 HP charge for hours during which the onion answered nobody would be both
+    # wrong and alarming. Ticks are minutes apart, so the cap only ever bites after
+    # a sleep — exactly the case where the exposure was not really live.
+
+  # ── rooms ─────────────────────────────────────────────────────────────────
+
+  - id: room.create.clearnet
+    kind: event
+    cost: moderate
+    explain_key: hp.explain.roomCreateClearnet
+    # A new gossip topic joined in the clear. topic = blake3(name) has no secret
+    # (§9.7), so a low-entropy room name is derivable by anyone who guesses it.
+
+  - id: room.create.tor
+    kind: event
+    cost: negligible
+    explain_key: hp.explain.roomCreateTor
+    # Topic guessability is unchanged; your IP is not on the wire.
+
+  - id: room.join.clearnet
+    kind: event
+    cost: moderate
+    explain_key: hp.explain.roomJoinClearnet
+    # Joining announces your NodeId and IP to that topic's peers and to n0.
+
+  - id: room.join.tor
+    kind: event
+    cost: negligible
+    explain_key: hp.explain.roomJoinTor
+
+  # ── invitations (technology.md §18) ────────────────────────────────────────
+  #
+  # An invitation is now the ONLY way to bring somebody in — every room is
+  # invite-only and the permanent room ticket is gone — so these prices no longer
+  # compete with a cheaper, worse option. What they price against each other is
+  # the two kinds of invitation, and the gap between them is the whole point: a
+  # private one is sealed to a single contact and costs `low`, a bearer one is
+  # readable by anyone holding it and costs `high`.
+  #
+  # (`ticket.export.*` used to sit here at `high`, which is where the bearer
+  # invitation's price came from: it exposes the same address to the same
+  # audience. That comparison outlived the thing it compared to, and the price
+  # stands on its own now.)
+  #
+  # Charged at CREATION, not on copy. Minting is what brings the credential into
+  # existence; copying it again exposes nothing further.
+
+  - id: invite.personal.create.clearnet
+    kind: event
+    cost: low
+    explain_key: hp.explain.invitePersonalCreateClearnet
+    # Sealed to one contact's public key, one-use, expiring, revocable. Nobody
+    # else who photographs it can read it — and no decryption key travels with
+    # it. Not free, because the invitation still carries the inviter's dialable
+    # address, and an address is an IP on this transport (§8).
+
+  - id: invite.personal.create.tor
+    kind: event
+    cost: negligible
+    explain_key: hp.explain.invitePersonalCreateTor
+    # The same sealed invitation carrying a .onion instead of an IP. The
+    # cheapest way to invite anyone to anything in this app, deliberately.
+
+  - id: invite.general.create.clearnet
+    kind: event
+    cost: high
+    explain_key: hp.explain.inviteGeneralCreateClearnet
+    # A BEARER credential in cleartext: there is no recipient to seal it to, so
+    # anyone who sees the code can read it and redeem it. The most exposing thing
+    # the share card can do, and priced accordingly — it is bounded only in that
+    # it expires and can be revoked, which limits the damage rather than avoiding
+    # it.
+    #
+    # At −10 this crosses `confirm_at_hp`, so it ALWAYS raises the confirmation
+    # dialog. That is deliberate: the warning belongs in front of the tap.
+
+  - id: invite.general.create.tor
+    kind: event
+    cost: moderate
+    explain_key: hp.explain.inviteGeneralCreateTor
+    # Still a bearer credential, but without an IP attached to it.
+
+  # ── messages ───────────────────────────────────────────────────────────────
+  # Size is billed because size is exactly what an observer sees when the content
+  # is sealed: a 4 MiB voice note is a far more distinctive event than "ok".
+  # Rates apply to what you SEND, measured in wire bytes.
+
+  - id: msg.tor.mls
+    kind: metered
+    cost: 0
+    explain_key: hp.explain.msgTorMls
+    # The safe path, and free. Present in the table only so the composer can show
+    # the rate falling to zero when it applies — which makes the encryption state
+    # legible in a way the lock badge alone is not.
+
+  - id: msg.clearnet.mls
+    kind: metered
+    cost: 0.02
+    per_mib: 0.02
+    cap_per_event: 0.5
+    explain_key: hp.explain.msgClearnetMls
+    # Content is sealed by MLS, but the send itself is an observable event to n0:
+    # its timing, its size, and which peers it fans out to.
+
+  - id: msg.tor.plain
+    kind: metered
+    cost: 0.05
+    explain_key: hp.explain.msgTorPlain
+    # §9.5 — the cleartext fallback before MLS reports ready. Inside the circuit,
+    # so no per-MiB rate, but the frame is not end-to-end encrypted.
+
+  - id: msg.clearnet.plain
+    kind: metered
+    cost: 0.25
+    per_mib: 0.25
+    # Deliberately five times the MLS lane's ceiling. At a 1 HP cap this lane's
+    # per-MiB rate was inert — 1 MiB already hit the ceiling, so a 20-byte
+    # cleartext message and a 4 MiB cleartext image cost the same, on the one
+    # channel where size matters most. At 5 the rate stays live out to 9 MiB.
+    cap_per_event: 2.5
+    explain_key: hp.explain.msgClearnetPlain
+    # §9.5, and the worst per-message case in the app: not E2E at all, in the
+    # clear, on a topic anyone who guessed the room name can be sitting on.
+
+  # ── calendar ───────────────────────────────────────────────────────────────
+  # Meeting invites, RSVPs, poll snapshots and ballots ride `sendSync` →
+  # `sendEncryptedMedia`, which ENCRYPTS OR THROWS. Unlike chat text there is no
+  # cleartext fallback, and `canSendTo` additionally gates every send on
+  # `mlsStatus === "ready"` — so the Calendar can never emit on a plaintext lane
+  # and has no `.plain` variant to price. That is a stronger guarantee than
+  # ordinary chat gets (§9.5).
+  #
+  # Priced identically to an encrypted chat message on the same transport,
+  # because the observable event is identical: a relay sees that you sent
+  # something, when, how big, and to which peers. Scheduling "Tuesday 3pm" as a
+  # meeting must not be cheaper than typing it, or the budget would be teaching
+  # a distinction that does not exist.
+  #
+  # Charged ONCE PER USER ACTION, never per frame. The outbox re-broadcasts
+  # automatically (`flushOutbox` on MLS-ready, `rebroadcastRoom` when the
+  # participant list grows), and billing those would drain the meter for sends
+  # nobody initiated — breaking the rule that the meter moves by exactly the
+  # number that was on the button.
+
+  - id: calendar.share.tor
+    kind: metered
+    cost: 0
+    explain_key: hp.explain.calendarShareTor
+
+  - id: calendar.share.clearnet
+    kind: metered
+    cost: 0.02
+    per_mib: 0.02
+    cap_per_event: 0.5
+    explain_key: hp.explain.calendarShareClearnet
+
+  # ── traffic that cannot use Tor at all ─────────────────────────────────────
+  # vox.rs and file_xfer.rs are iroh-direct-QUIC only and are BLOCKED in Tor
+  # mode (stores/network.ts: irohBlocked). There is no safe variant to offer,
+  # and that is precisely why they price where they do.
+
+  - id: file.send
+    kind: metered
+    cost: 0.5
+    per_mib: 0.02
+    cap_per_event: 2.5
+    explain_key: hp.explain.fileSend
+    # Size and duration are visible to relays and to anyone watching either
+    # endpoint even though the bytes are sealed (§9.10). The cap keeps one large
+    # transfer from emptying the meter.
+
+  - id: vox.call
+    kind: metered
+    cost: 1.5
+    per_minute: 0.05
+    cap_per_event: 5
+    explain_key: hp.explain.voxCall
+    # A continuously flowing, distinctively shaped real-time stream over a direct
+    # path. It confirms who spoke to whom, when, and for how long. Metered by
+    # minute because a 40-second call and a four-hour call are not the same
+    # disclosure.
+
+  # ── local security posture ─────────────────────────────────────────────────
+  # These do not expose anything to a network. They lower the wall between your
+  # data and whoever picks up the device, which is a risk the same budget should
+  # be able to express.
+
+  - id: local.autolock.off
+    kind: toggle
+    cost: high
+    explain_key: hp.explain.localAutolockOff
+    # idle_lock_mins = 0 keeps the DEK live in memory indefinitely (§13). An
+    # unlocked device that is walked up to, or stolen, is total compromise.
+
+  - id: local.pin.enroll
+    kind: toggle
+    cost: low
+    explain_key: hp.explain.localPinEnroll
+    # Memory-only convenience (§7): someone who dumps the RAM of an idle-locked
+    # process can brute-force six digits. Strictly weaker than the passphrase —
+    # a real reduction, but a small one, and nothing PIN-derived reaches disk.
+
+  - id: local.panic_code.clear
+    kind: toggle
+    cost: low
+    explain_key: hp.explain.localPanicCodeClear
+    # Removes the duress escape hatch (§8). Not an exposure — a loss of
+    # protection under coercion, which is why it is priced low rather than high.
+
+  - id: local.lock_on_hide.off
+    kind: toggle
+    cost: negligible
+    explain_key: hp.explain.localLockOnHideOff
+
+  - id: local.file_integrity.off
+    kind: toggle
+    cost: negligible
+    explain_key: hp.explain.localFileIntegrityOff
+    # Drops the per-chunk hash chain on transfers.
+
+# ── what gives HP back ───────────────────────────────────────────────────────
+#
+# Recovery is NOT a second regeneration. It pays only for a change that reduces
+# risk you are CURRENTLY carrying, it is capped, and it is idempotent — a fixed
+# credit with a `requires:` pays at most once per live exposure, and pays nothing
+# at all if that exposure was never active. Turning a switch off and on again
+# therefore nets a loss, not a profit.
+recovery:
+  # Ceilings across everything below, so recovery can never become a faucet.
+  #
+  # The longer ceiling still spans 7 days even though the weekly METER is gone.
+  # The two were never the same thing: the meter was a budget the user read, this
+  # is an anti-farming bound on how fast credits can be minted, and a
+  # wipe-then-reimport loop is exactly as profitable over a week as it ever was.
+  daily_cap: 12.5
+  window_days: 7
+  window_cap: 50
+
+  fixed:
+    - id: dht.nickname.withdraw
+      credit: 5
+      requires: dht.nickname.publish
+      explain_key: hp.explain.dhtNicknameWithdraw
+
+    - id: dht.presence.withdraw
+      credit: 2.5
+      requires: dht.presence.enable
+      explain_key: hp.explain.dhtPresenceWithdraw
+
+    - id: local.autolock.on
+      credit: 2.5
+      requires: local.autolock.off
+      explain_key: hp.explain.localAutolockOn
+
+    # ── passphrase and re-encryption ──────────────────────────────────────
+    # The best-paying recoveries in the table, because they are the only ones
+    # that improve the secret everything else hangs off. None of them has a
+    # `requires:` — a stronger passphrase reduces risk you are ALWAYS carrying,
+    # not one you opted into.
+    #
+    # Farming is bounded three ways: each pays at most once per rolling 24 h,
+    # `strengthen` demands a strictly longer passphrase than the one it replaces
+    # (so it cannot be re-collected without the passphrase actually growing every
+    # single day), and the daily/weekly caps above sit over the lot.
+
+    - id: local.passphrase.strengthen
+      credit: 5
+      requires: ~
+      explain_key: hp.explain.localPassphraseStrengthen
+      # Verified inside vault_change_passphrase at the moment of the change: the
+      # new passphrase must be longer than the old one. Both are compared by
+      # length and neither is stored, logged or measured any other way. Pays a
+      # full high rung — this is the single most useful thing a user can do here.
+
+    - id: local.passphrase.change
+      credit: 1.5
+      requires: ~
+      explain_key: hp.explain.localPassphraseChange
+      # A change that is not longer than before still earns something: protasius
+      # re-wraps the DEK under a FRESH salt (§13), so an attacker's precomputed
+      # work against the old wrap is dead. Mutually exclusive with `strengthen` —
+      # Rust awards one or the other, never both for the same change.
+
+    - id: invite.revoke
+      credit: 2.5
+      # No `requires`: a bearer invitation can be minted on either transport, so
+      # pairing it to one action id would silently refuse to pay for the other.
+      # The verified state change is enforced at the call site instead —
+      # `invite_revoke` returns whether a record actually moved from live to
+      # revoked, and the credit is claimed only on `true`. Revoking something
+      # already spent, already revoked or long expired earns nothing.
+      requires: ~
+      explain_key: hp.explain.inviteRevoke
+
+    - id: room.rekey
+      credit: 1.5
+      requires: ~
+      explain_key: hp.explain.roomRekey
+
+    - id: room.leave
+      credit: 1.5
+      requires: ~
+      explain_key: hp.explain.roomLeave
+
+  # Deleting data you are holding earns HP in proportion to how much actually
+  # went away — measured by Rust as it performs the deletion, so the credit is
+  # tied to a verified reduction rather than a number the webview claims.
+  # Idempotent for free: each byte can only be deleted once.
+  #
+  # KNOWN, ACCEPTED FARM: receive a large file, delete it, collect. The
+  # per-event ceiling and the two caps below bound that to a nuisance. Closing it
+  # properly would need a hidden "data must be N days old" rule, and a visible
+  # cap is the more honest trade.
+  data:
+    per_mib: 0.12
+    min_award: 0.25     # a deletion worth less than this pays min_award or 0
+    max_per_event: 2.5
+    daily_cap: 5
+    window_cap: 12.5
+    sources:
+      - id: data.delete.chat
+        explain_key: hp.explain.dataDeleteChat
+      - id: data.delete.files
+        explain_key: hp.explain.dataDeleteFiles
+
+# A full "Clear all data" wipe is deliberately absent from this table. It
+# destroys the profile store — INCLUDING the HP ledger that any award would be
+# written into — so there is nowhere to put a credit. The outcome is already the
+# best one available: the fresh profile opens at a full 100 / 700, because no
+# history survives to count against it. The Data tab says so plainly rather than
+# pretending to hand out a number. The panic-code wipe is the same, and that path
+# is not touched by any of this.
