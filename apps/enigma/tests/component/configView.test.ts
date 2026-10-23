@@ -89,7 +89,6 @@ function defaultHandlers(): Record<string, Handler> {
     hp_charge: ({ actionId }) => ({ applied: -100, code: actionId }),
     hp_recover: ({ recoveryId }) => ({ applied: 100, code: recoveryId }),
     hp_set_tor_posture: () => true,
-    panic_targets_resync: () => null,
   };
 }
 
@@ -263,18 +262,10 @@ describe("number settings", () => {
 
   it("reads the stored values back on open", async () => {
     seed("max_file_size_mb", "512");
-    seed("file_key_rotation_days", "90");
     seed("meeting_reminder_mins", "5");
     const w = await mountAt();
     expect((numberFor(w, "Max file size").input.element as HTMLInputElement).value).toBe("512");
-    expect((numberFor(w, "Rotate file keys").input.element as HTMLInputElement).value).toBe("90");
     expect((numberFor(w, "Meeting reminder").input.element as HTMLInputElement).value).toBe("5");
-  });
-
-  it("stores the key-rotation reminder", async () => {
-    const w = await mountAt();
-    await enter(w, "Rotate file keys", 30);
-    expect(setting("file_key_rotation_days")).toBe("30");
   });
 
   it("asks for the notification permission when reminders are switched on, not off", async () => {
@@ -757,26 +748,11 @@ describe("panic code", () => {
 });
 
 describe("delete files on panic", () => {
-  it("is inert without a panic code to trigger it", async () => {
-    const w = await mountAt("lock");
-    const toggle = switchFor(w, "Delete files on panic");
-    expect((toggle.element as HTMLButtonElement).disabled).toBe(true);
-    expect(w.text()).toContain("Set a panic code first");
-  });
-
-  it("with a code armed, stores the choice and re-seals the panic target list", async () => {
+  it("is gone with local file encryption: the Lock tab offers no such switch", async () => {
     handlers.vault_has_panic_code = () => true;
     const w = await mountAt("lock");
-    const toggle = switchFor(w, "Delete files on panic");
-    expect((toggle.element as HTMLButtonElement).disabled).toBe(false);
-
-    await toggle.trigger("click");
-    await settle();
-    expect(setting("delete_files_on_panic")).toBe("1");
-    // The path list lives in a sidecar sealed under the panic code; Rust has to
-    // re-seal it for the change to mean anything at the gate.
-    expect(callsTo("panic_targets_resync")).toHaveLength(1);
-    expect(toggle.attributes("aria-checked")).toBe("true");
+    expect(w.text()).not.toContain("Delete files on panic");
+    expect(callsTo("panic_targets_resync")).toHaveLength(0);
   });
 });
 

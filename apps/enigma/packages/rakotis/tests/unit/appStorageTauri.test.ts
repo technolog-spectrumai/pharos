@@ -104,12 +104,8 @@ describe("kv-backed settings", () => {
       expect(await S.getMeetingReminderMins()).toBe(15);
       expect(await S.getDhtRoomPublishSecs()).toBe(600);
       expect(await S.getDhtPresencePollSecs()).toBe(300);
-      expect(await S.getFileKeyRotationDays()).toBe(0);
       expect(await S.getLockOnHide()).toBe(false);
-      expect(await S.getDeleteFilesOnPanic()).toBe(false);
       expect(await S.getHiddenTabs()).toEqual([]);
-      expect(await S.getLockedFiles()).toEqual([]);
-      expect(await S.getNoteRecents()).toEqual([]);
       expect(await S.getDhtDiscovery()).toBe(false);
       expect(await S.getDhtNickPublish()).toBe(false);
       expect(await S.getDhtNickname()).toBe("");
@@ -128,26 +124,6 @@ describe("kv-backed settings", () => {
     } finally {
       invoke.mockReset();
     }
-  });
-});
-
-describe("the panic-targets sidecar", () => {
-  it("is re-sealed after the knob is written, in that order", async () => {
-    await S.setDeleteFilesOnPanic(true);
-    expect(commands()).toEqual(["kv_put", "panic_targets_resync"]);
-    expect(await S.getDeleteFilesOnPanic()).toBe(true);
-  });
-
-  it("is re-sealed whenever the locked-file list changes", async () => {
-    await S.addLockedFile({ path: "/a", name: "a", size: 1, lockedAt: 1 });
-    await S.removeLockedFile("/a");
-    expect(commands().filter((c) => c === "panic_targets_resync")).toHaveLength(2);
-  });
-
-  it("does not let a failed re-seal break the change that triggered it", async () => {
-    invoke.mockImplementationOnce(async () => undefined); // kv_put
-    invoke.mockRejectedValueOnce(new Error("no panic code")); // panic_targets_resync
-    await expect(S.setDeleteFilesOnPanic(false)).resolves.toBeUndefined();
   });
 });
 
@@ -209,26 +185,6 @@ const routes: Route[] = [
   ["vaultWipe", () => S.vaultWipe(), "vault_wipe", undefined, false],
   ["vaultSetPanicCode", () => S.vaultSetPanicCode("pw", "duress"), "vault_set_panic_code", { current: "pw", code: "duress" }, false],
   ["vaultClearPanicCode", () => S.vaultClearPanicCode("pw"), "vault_clear_panic_code", { current: "pw" }, false],
-  ["lockLocalFile", () => S.lockLocalFile("/a", "pw"), "local_lock_file", { path: "/a", passphrase: "pw" }, true],
-  ["unlockLocalFile", () => S.unlockLocalFile("/a", "pw"), "local_unlock_file", { path: "/a", passphrase: "pw" }, true],
-  ["rotateLocalFile", () => S.rotateLocalFile("/a", "pw", "pw2"), "local_rotate_file", { path: "/a", current: "pw", new: "pw2" }, true],
-  ["isLocalFileLocked", () => S.isLocalFileLocked("/a"), "local_is_locked", { path: "/a" }, true],
-  ["getKeyringStatus", () => S.getKeyringStatus("r1"), "keyring_status", { ringId: "r1" }, true],
-  ["keyringList", () => S.keyringList(), "keyring_list", undefined, true],
-  ["keyringCreate", () => S.keyringCreate("Work", "pw"), "keyring_create", { name: "Work", passphrase: "pw" }, true],
-  ["keyringRename", () => S.keyringRename("r1", "pw", "Home"), "keyring_rename", { ringId: "r1", passphrase: "pw", name: "Home" }, false],
-  ["keyringDelete", () => S.keyringDelete("r1", "pw"), "keyring_delete", { ringId: "r1", passphrase: "pw" }, false],
-  ["keyringLock", () => S.keyringLock("r1", "pw", ["/a"]), "keyring_lock", { ringId: "r1", passphrase: "pw", paths: ["/a"] }, true],
-  ["keyringUnlock", () => S.keyringUnlock("r1", "pw", ["/a.enigr"]), "keyring_unlock", { ringId: "r1", passphrase: "pw", paths: ["/a.enigr"] }, true],
-  ["keyringUnlockAll", () => S.keyringUnlockAll("r1", "pw"), "keyring_unlock_all", { ringId: "r1", passphrase: "pw" }, true],
-  ["keyringEntries", () => S.keyringEntries("r1", "pw"), "keyring_entries", { ringId: "r1", passphrase: "pw" }, true],
-  ["keyringChangePassphrase", () => S.keyringChangePassphrase("r1", "old", "new"), "keyring_change_passphrase", { ringId: "r1", old: "old", new: "new" }, false],
-  ["keyringRotate", () => S.keyringRotate("r1", "old", "new"), "keyring_rotate", { ringId: "r1", old: "old", new: "new" }, true],
-  ["readLocalNote (plain)", () => S.readLocalNote("/n.md"), "local_note_read", { path: "/n.md", passphrase: null }, true],
-  ["readLocalNote (locked)", () => S.readLocalNote("/n.md", "pw"), "local_note_read", { path: "/n.md", passphrase: "pw" }, true],
-  ["writeLocalNote", () => S.writeLocalNote("/n.md", "text"), "local_note_write", { path: "/n.md", content: "text", passphrase: null }, true],
-  ["statLocalNote", () => S.statLocalNote("/n.md"), "local_note_stat", { path: "/n.md" }, true],
-  ["writeBase64FileToDisk", () => S.writeBase64FileToDisk("/a.png", "AAAA"), "fs_write_base64_file", { path: "/a.png", b64: "AAAA" }, false],
   ["cleanTorKeystore", () => S.cleanTorKeystore(), "tor_clean_keystore", undefined, false],
   ["getRuntimeConfig", () => S.getRuntimeConfig(), "app_get_runtime_config", undefined, true],
   ["setActiveProfile", () => S.setActiveProfile("work", "work-id"), "app_set_active_profile", { profile: "work", identity: "work-id" }, true],

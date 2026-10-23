@@ -44,10 +44,6 @@ import {
   setFileChunkKib,
   getFileIntegrity,
   setFileIntegrity,
-  getFileKeyRotationDays,
-  setFileKeyRotationDays,
-  FILE_KEY_ROTATION_MIN_DAYS,
-  FILE_KEY_ROTATION_MAX_DAYS,
   getMeetingReminderMins,
   setMeetingReminderMins,
   MEETING_REMINDER_MIN_MINS,
@@ -64,8 +60,6 @@ import {
   vaultPinClear,
   vaultClearPanicCode,
   vaultHasPanicCode,
-  getDeleteFilesOnPanic,
-  setDeleteFilesOnPanic,
   cleanTorKeystore,
   getBuildConfig,
   type AppRuntimeConfig,
@@ -279,17 +273,6 @@ async function saveMaxFileSize() {
 }
 
 
-// ── Local-file key-rotation reminder interval (0 = off) ────────────────────────
-// Flags locked files in Files → Local whose key is older than N days. Reminder
-// only: rotation always needs the passphrase, so nothing rotates in the background.
-const fileKeyRotationDays = ref(0);
-const fileKeyRotationSaved = ref(false);
-async function saveFileKeyRotation() {
-  fileKeyRotationDays.value = await setFileKeyRotationDays(Number(fileKeyRotationDays.value));
-  fileKeyRotationSaved.value = true;
-  setTimeout(() => { fileKeyRotationSaved.value = false; }, 1500);
-}
-
 // ── Reset passphrase modal ───────────────────────────────────────────────────
 const showResetPass = ref(false);
 const resetCurrent = ref("");
@@ -392,9 +375,6 @@ const panicError = ref("");
 const panicBusy = ref(false);
 const panicDone = ref("");
 
-// Delete-marked-files-on-panic knob (only meaningful when a panic code is armed).
-const deleteFilesOnPanic = ref(false);
-const deleteFilesBusy = ref(false);
 
 async function loadPanicState() {
   try { panicArmed.value = await vaultHasPanicCode(); } catch { panicArmed.value = false; }
@@ -403,20 +383,8 @@ async function loadPanicState() {
   if (pinAllowed) {
     pinEnrolled.value = (await vaultPinStatus().catch(() => null))?.enrolled ?? false;
   }
-  try { deleteFilesOnPanic.value = await getDeleteFilesOnPanic(); } catch { deleteFilesOnPanic.value = false; }
 }
 
-async function toggleDeleteFilesOnPanic() {
-  if (deleteFilesBusy.value) return;
-  deleteFilesBusy.value = true;
-  const next = !deleteFilesOnPanic.value;
-  try {
-    await setDeleteFilesOnPanic(next);
-    deleteFilesOnPanic.value = next;
-  } finally {
-    deleteFilesBusy.value = false;
-  }
-}
 
 function openPanic() {
   panicCurrent.value = "";
@@ -521,7 +489,6 @@ onMounted(async () => {
   maxFileSizeMb.value = await getMaxFileSizeMb();
   fileChunkKib.value = await getFileChunkKib();
   fileIntegrity.value = await getFileIntegrity();
-  fileKeyRotationDays.value = await getFileKeyRotationDays();
   if (dhtAllowed) {
     dhtDiscovery.value = await getDhtDiscovery();
     dhtRoomPublishSecs.value = await getDhtRoomPublishSecs();
@@ -851,37 +818,6 @@ async function clearSelectedOfflineData() {
       </div>
     </OyaCard>
 
-    <!-- Local-file key rotation reminder — flags locked files in Files → Local whose
-         key is older than N days. Reminder only (rotating a file needs its passphrase,
-         which is never stored). 0 disables the reminder. -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.fileKeyRotation') }}
-        </p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="rotate-right" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.fileKeyRotation') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.fileKeyRotationHint') }}</p>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <input
-            v-model.number="fileKeyRotationDays"
-            type="number"
-            :min="FILE_KEY_ROTATION_MIN_DAYS"
-            :max="FILE_KEY_ROTATION_MAX_DAYS"
-            class="w-24 rounded-lg border bg-transparent px-2 py-1.5 text-right text-sm"
-            :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-            @change="saveFileKeyRotation"
-            @keyup.enter="saveFileKeyRotation"
-          />
-          <span class="text-xs opacity-60">{{ $t('config.days') }}</span>
-          <span v-if="fileKeyRotationSaved" class="text-xs text-success-dark">{{ $t('common.saved') }}</span>
-        </div>
-      </div>
-    </OyaCard>
 
     <!-- Meeting reminder lead time — minutes before a meeting starts to fire a
          local OS notification (0 disables). Enforced by useMeetings' tick. -->
@@ -1313,38 +1249,6 @@ async function clearSelectedOfflineData() {
         {{ panicArmed ? $t('config.panicCodeChange') : $t('config.panicCodeSet') }}
       </OyaButton>
 
-      <!-- Delete-marked-files-on-panic knob. Inert (and greyed) without a panic
-           code, since there'd be nothing to trigger the deletion. -->
-      <div class="flex items-center gap-3 border-t pt-4" :class="darkMode ? 'border-accent-1/40' : 'border-accent-2/40'">
-        <font-awesome-icon
-          icon="trash"
-          :class="deleteFilesOnPanic && panicArmed ? 'text-warn-dark' : 'opacity-60'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.deleteFilesOnPanic') }}</p>
-          <p class="text-xs opacity-60">
-            {{ panicArmed ? $t('config.deleteFilesOnPanicHint') : $t('config.deleteFilesOnPanicNeedsPanic') }}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="deleteFilesOnPanic"
-          :disabled="!panicArmed || deleteFilesBusy"
-          :class="[
-            deleteFilesOnPanic ? 'bg-warn-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2',
-            !panicArmed ? 'cursor-not-allowed opacity-50' : '',
-          ]"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleDeleteFilesOnPanic"
-        >
-          <span
-            :class="deleteFilesOnPanic ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
-      </div>
     </OyaCard>
     </template>
 

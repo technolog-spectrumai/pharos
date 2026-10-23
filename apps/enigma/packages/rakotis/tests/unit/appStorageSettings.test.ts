@@ -7,9 +7,8 @@
 // to. A stored value that does not parse falls back to the default rather than
 // becoming NaN somewhere downstream.
 //
-// The desktop-only operations (file locking, the key ring, notes, PIN unlock)
-// refuse plainly in a browser instead of pretending to succeed: a "locked" file
-// that was never encrypted is worse than an error.
+// The desktop-only operations (PIN unlock among them) refuse plainly in a
+// browser instead of pretending to succeed.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as S from "../../src/services/appStorage";
@@ -53,7 +52,6 @@ describe("numeric settings", () => {
     ["idle lock", S.getIdleLockMins, S.setIdleLockMins, 15, [[0, 0], [-5, 0], [500, 120]]],
     ["chat history cap", S.getChatHistoryCapMsgs, S.setChatHistoryCapMsgs, 500, [[1, 50], [1e9, 5000]]],
     ["meeting reminder", S.getMeetingReminderMins, S.setMeetingReminderMins, 15, [[0, 0], [5000, 1440]]],
-    ["file key rotation", S.getFileKeyRotationDays, S.setFileKeyRotationDays, 0, [[30, 30], [99_999, 3650]]],
     ["file chunk", S.getFileChunkKib, S.setFileChunkKib, 256, [[1, 16], [1e6, 4096]]],
   ] as const)("%s: defaults, clamps on write, and reads back what was stored", async (_name, get, set, dflt, cases) => {
     expect(await get()).toBe(dflt);
@@ -69,7 +67,6 @@ describe("numeric settings", () => {
     ["idle_lock_mins", S.getIdleLockMins, 15],
     ["chat_history_cap_msgs", S.getChatHistoryCapMsgs, 500],
     ["meeting_reminder_mins", S.getMeetingReminderMins, 15],
-    ["file_key_rotation_days", S.getFileKeyRotationDays, 0],
     ["file_chunk_kib", S.getFileChunkKib, 256],
   ] as const)("%s: a stored value that does not parse reads as the default", async (key, get, dflt) => {
     await putSetting(key, "banana");
@@ -102,7 +99,6 @@ describe("switches", () => {
   it.each([
     ["stable onion", S.getStableOnion, S.setStableOnion],
     ["lock on hide", S.getLockOnHide, S.setLockOnHide],
-    ["delete files on panic", S.getDeleteFilesOnPanic, S.setDeleteFilesOnPanic],
     ["file integrity off", async () => !(await S.getFileIntegrity()), async (on: boolean) => S.setFileIntegrity(!on)],
   ] as const)("%s: starts in its safe position and round-trips", async (_name, get, set) => {
     expect(await get()).toBe(false);
@@ -154,72 +150,10 @@ describe("hidden tabs", () => {
   });
 });
 
-// ── records ─────────────────────────────────────────────────────────────────
-
-describe("the locked-files record", () => {
-  const rec = (path: string, lockedAt = 1) => ({ path, name: path.split("/").pop()!, size: 10, lockedAt });
-
-  it("adds, replaces by path, and forgets without touching other rows", async () => {
-    await S.addLockedFile(rec("/a.txt"));
-    await S.addLockedFile(rec("/b.txt"));
-    await S.addLockedFile(rec("/a.txt", 2));
-    expect((await S.getLockedFiles()).map((r) => [r.path, r.lockedAt])).toEqual([["/b.txt", 1], ["/a.txt", 2]]);
-    await S.removeLockedFile("/b.txt");
-    expect((await S.getLockedFiles()).map((r) => r.path)).toEqual(["/a.txt"]);
-  });
-
-  it("reads a corrupt or non-list record as empty", async () => {
-    await kvPut("files:local", "default", "index", "not json");
-    expect(await S.getLockedFiles()).toEqual([]);
-    await kvPut("files:local", "default", "index", JSON.stringify({ path: "/a" }));
-    expect(await S.getLockedFiles()).toEqual([]);
-  });
-});
-
-describe("recent notes", () => {
-  const note = (path: string) => ({ path, name: path, size: 1, locked: false, openedAt: 1 });
-
-  it("keeps the newest first, once per path, and at most twenty", async () => {
-    for (let i = 0; i < 25; i++) await S.addNoteRecent(note(`/n${i}`));
-    await S.addNoteRecent(note("/n10"));
-    const recents = (await S.getNoteRecents()).map((r) => r.path);
-    expect(recents).toHaveLength(S.NOTE_RECENTS_MAX);
-    expect(recents.slice(0, 3)).toEqual(["/n10", "/n24", "/n23"]);
-    expect(recents.filter((p) => p === "/n10")).toHaveLength(1);
-    expect(recents).not.toContain("/n4");
-  });
-
-  it("drops one path on request and reads garbage as empty", async () => {
-    await S.addNoteRecent(note("/a"));
-    await S.addNoteRecent(note("/b"));
-    await S.removeNoteRecent("/a");
-    expect((await S.getNoteRecents()).map((r) => r.path)).toEqual(["/b"]);
-    await kvPut("files:local", "default", "notes", "[[[");
-    expect(await S.getNoteRecents()).toEqual([]);
-    await kvPut("files:local", "default", "notes", "42");
-    expect(await S.getNoteRecents()).toEqual([]);
-  });
-});
-
 // ── browser fallbacks ───────────────────────────────────────────────────────
 
 describe("desktop-only operations in a browser", () => {
   it.each([
-    ["lockLocalFile", () => S.lockLocalFile("/a", "pw")],
-    ["unlockLocalFile", () => S.unlockLocalFile("/a", "pw")],
-    ["rotateLocalFile", () => S.rotateLocalFile("/a", "pw", "pw2")],
-    ["keyringCreate", () => S.keyringCreate("ring", "pw")],
-    ["keyringRename", () => S.keyringRename("r1", "pw", "new")],
-    ["keyringDelete", () => S.keyringDelete("r1", "pw")],
-    ["keyringLock", () => S.keyringLock("r1", "pw", ["/a"])],
-    ["keyringUnlock", () => S.keyringUnlock("r1", "pw", ["/a.enigr"])],
-    ["keyringUnlockAll", () => S.keyringUnlockAll("r1", "pw")],
-    ["keyringEntries", () => S.keyringEntries("r1", "pw")],
-    ["keyringChangePassphrase", () => S.keyringChangePassphrase("r1", "pw", "pw2")],
-    ["keyringRotate", () => S.keyringRotate("r1", "pw", "pw2")],
-    ["readLocalNote", () => S.readLocalNote("/a")],
-    ["writeLocalNote", () => S.writeLocalNote("/a", "text")],
-    ["writeBase64FileToDisk", () => S.writeBase64FileToDisk("/a.png", "AAAA")],
     ["vaultPinEnroll", () => S.vaultPinEnroll("pw", "123456")],
     ["vaultPinUnlock", () => S.vaultPinUnlock("123456")],
   ])("%s refuses, naming the desktop app", async (_name, call) => {
@@ -227,10 +161,6 @@ describe("desktop-only operations in a browser", () => {
   });
 
   it("reports the things that need Rust as absent rather than failing", async () => {
-    expect(await S.isLocalFileLocked("/a")).toBe(false);
-    expect(await S.statLocalNote("/a")).toEqual({ exists: false, locked: false, size: 0 });
-    expect(await S.getKeyringStatus("r1")).toEqual({ exists: false, entryCount: 0, name: "" });
-    expect(await S.keyringList()).toEqual([]);
     expect(await S.vaultHasPanicCode()).toBe(false);
     expect(await S.vaultPinStatus()).toEqual({ enrolled: false, digits: 6, attemptsLeft: 5 });
   });
@@ -242,7 +172,7 @@ describe("desktop-only operations in a browser", () => {
       () => S.vaultSetup("pw"), () => S.vaultUnlock("pw"), () => S.vaultLock(), () => S.vaultTouch(),
       () => S.vaultChangePassphrase("a", "b"), () => S.vaultPinClear(), () => S.vaultWipe(),
       () => S.vaultSetPanicCode("pw", "code"), () => S.vaultClearPanicCode("pw"),
-      () => S.cleanTorKeystore(), () => S.resyncPanicTargets(), () => S.applyDhtDiscovery(),
+      () => S.cleanTorKeystore(), () => S.applyDhtDiscovery(),
     ]) {
       await expect(op()).resolves.toBeUndefined();
     }

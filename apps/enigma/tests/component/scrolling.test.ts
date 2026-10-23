@@ -138,8 +138,6 @@ describe("the views that fill the pane", () => {
   const stubs = {
     ChatPanel: true,
     FilePanel: true,
-    KeyringPanel: true,
-    LocalPanel: true,
     VoxPanel: true,
   };
   const views = [
