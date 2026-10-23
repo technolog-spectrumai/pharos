@@ -864,11 +864,15 @@ mod tests {
     }
 
     #[test]
-    fn a_proposal_from_a_peer_is_held_not_applied() {
+    fn a_proposal_from_a_peer_changes_neither_the_roster_nor_the_epoch() {
         // Rotor never sends bare proposals, but another MLS client in the room
         // can. Receiving one must not change the roster or the epoch by
         // itself — only a commit does. Bob speaks openmls directly here, as
         // such a client would.
+        //
+        // Whether the proposal is then kept for the admin's next commit is
+        // left unpinned on purpose: today it is, and that lets a peer's
+        // removal ride along on an unrelated add_member.
         let (mut alice, mut guests) = room("room-proposal", &["bob", "carol"]);
         let secret = alice.export_secret("l", b"", 32).unwrap();
         let proposal = {
@@ -888,6 +892,27 @@ mod tests {
         assert_eq!(alice.process_message(&proposal).unwrap(), None, "a proposal is not app data");
         assert_eq!(sorted(alice.members().unwrap()), vec!["alice", "bob", "carol"]);
         assert_eq!(alice.export_secret("l", b"", 32).unwrap(), secret, "no new epoch");
+    }
+
+    #[test]
+    fn another_key_package_keeps_the_signing_key_the_group_already_knows() {
+        // A device may publish more than one key package before a welcome
+        // comes back, and an admin may make one after creating its group.
+        // Both must keep the one signing key: had a later call replaced it,
+        // everything the device then sent would fail its signature check at
+        // every other member.
+        let (mut alice, _) = room("room-two-kps", &[]);
+        let mut bob = RotorSession::new("room-two-kps".into(), "bob".into()).unwrap();
+        let first = bob.key_package().unwrap();
+        bob.key_package().unwrap();
+        let (welcome, _commit) = alice.add_member(&first).unwrap();
+        bob.join_from_welcome(&welcome).unwrap();
+        let ct = bob.encrypt_app(b"from bob").unwrap();
+        assert_eq!(alice.process_message(&ct).unwrap().as_deref(), Some(&b"from bob"[..]));
+
+        alice.key_package().unwrap();
+        let ct = alice.encrypt_app(b"from alice").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"from alice"[..]));
     }
 
     #[test]
