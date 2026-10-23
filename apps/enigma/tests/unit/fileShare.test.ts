@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ref } from "vue";
 import { useFileShare } from "../../src/components/chat/useFileShare";
+import { hpConfirm, refreshHp, resolveHpConfirm, stopHp } from "../../src/components/hp/useHp";
 import type { ChatChannel } from "rakotis";
 
 // useFileShare orchestrates the offer/accept signaling over the channel's MLS
@@ -330,5 +331,304 @@ describe("useFileShare — max file size guard (Settings)", () => {
 
     expect(share.state.value).toBe("offering");
     expect(stub.sendSync).toHaveBeenCalledWith("file_offer", expect.objectContaining({ offerId: "offer-1" }));
+  });
+});
+
+// ── the remaining edges of the state machine ────────────────────────────────
+// A transfer is a two-party protocol over a broadcast room, so most of what can
+// go wrong is a message that is not for us, arrives late, or arrives while we
+// are busy. Each of those must leave the other transfer untouched.
+
+describe("useFileShare — host side, edges", () => {
+  // The HP meter is module state; never let a drained one leak into a later test.
+  afterEach(() => stopHp());
+
+  function hosting() {
+    const ctx = makeChannel();
+    const share = useFileShare(ctx.channel);
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "file_offer_create" ? OFFER_META : undefined));
+    return { share, ...ctx };
+  }
+
+  it("refuses to offer in a plain browser, saying it is desktop-only", async () => {
+    delete (window as any).__TAURI_INTERNALS__;
+    const { channel, stub } = makeChannel();
+    const share = useFileShare(channel);
+    await share.offer({ id: "bob-device", name: "bob" });
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toBe("File sharing is desktop-only.");
+    expect(openMock).not.toHaveBeenCalled();
+    expect(stub.sendSync).not.toHaveBeenCalled();
+  });
+
+  it("bills the transfer once the offer is on the wire, by the file's size", async () => {
+    const { share } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    expect(invokeMock).toHaveBeenCalledWith("hp_charge", { actionId: "file.send", bytes: 4096, minutes: null });
+  });
+
+  it("withdraws the registered file and sends nothing when the user declines the price", async () => {
+    // confirmHp only asks when a meter is already empty; drain it, then say no.
+    const { share, stub } = hosting();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "file_offer_create") return OFFER_META;
+      if (cmd === "hp_ledger") return [{ ts: Date.now(), kind: "spend", code: "x", hp: -1_000_000, n: 1, bucket: 0 }];
+      return undefined;
+    });
+    await refreshHp();
+    const pending = share.offer({ id: "bob-device", name: "bob" });
+    for (let i = 0; i < 10 && !hpConfirm.value; i++) await flush();
+    expect(hpConfirm.value).not.toBeNull();
+    resolveHpConfirm(false);
+    await pending;
+    await flush();
+
+    expect(invokeMock).toHaveBeenCalledWith("file_offer_cancel", { offerId: "offer-1" });
+    expect(stub.sendSync).not.toHaveBeenCalled();
+    expect(share.state.value).toBe("idle");
+    expect(invokeMock).not.toHaveBeenCalledWith("hp_charge", expect.anything());
+  });
+
+  it("reports a backend failure while registering the file", async () => {
+    const { share, stub } = hosting();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "file_offer_create") throw new Error("permission denied");
+      return undefined;
+    });
+    await share.offer({ id: "bob-device", name: "bob" });
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toBe("permission denied");
+    expect(stub.sendSync).not.toHaveBeenCalled();
+  });
+
+  it("reports a thrown string as it came", async () => {
+    const { share } = hosting();
+    openMock.mockRejectedValue("dialog unavailable");
+    await share.offer({ id: "bob-device", name: "bob" });
+    expect(share.error.value).toBe("dialog unavailable");
+  });
+
+  it("authorizes exactly the KeyPackage the recipient accepted with", async () => {
+    const { share, emitSync } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    emitSync("file_accept", { offerId: "offer-1", kpHash: "kp-hash-1" });
+    await flush();
+    expect(invokeMock).toHaveBeenCalledWith("file_authorize", { offerId: "offer-1", kpHash: "kp-hash-1" });
+    expect(share.state.value).toBe("transferring");
+  });
+
+  it("authorizes nothing for an accept that carries no KeyPackage", async () => {
+    // Possession of {addr, offerId} alone must not get anyone the file.
+    const { share, emitSync } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    emitSync("file_accept", { offerId: "offer-1" });
+    await flush();
+    expect(invokeMock).not.toHaveBeenCalledWith("file_authorize", expect.anything());
+    expect(share.state.value).toBe("transferring");
+  });
+
+  it("ignores an accept, decline or cancel for someone else's offer", async () => {
+    const { share, emitSync } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    emitSync("file_accept", { offerId: "other", kpHash: "kp" });
+    emitSync("file_decline", { offerId: "other" });
+    emitSync("file_cancel", { offerId: "other" });
+    await flush();
+    expect(share.state.value).toBe("offering");
+    expect(invokeMock).not.toHaveBeenCalledWith("file_authorize", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("file_offer_cancel", expect.anything());
+  });
+
+  it("does not step back to transferring for a repeated accept once bytes flow", async () => {
+    const { share, emitSync } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    fireBackend("file://done", { offerId: "offer-1", dir: "send" });
+    emitSync("file_accept", { offerId: "offer-1", kpHash: "kp" });
+    await flush();
+    expect(share.state.value).toBe("done");
+  });
+
+  it("cancelling an offer tells the peer and withdraws the file", async () => {
+    const { share, stub } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    stub.sendSync.mockRejectedValueOnce(new Error("channel closed"));
+    await share.cancel();
+    await flush();
+    expect(stub.sendSync).toHaveBeenCalledWith("file_cancel", { offerId: "offer-1" });
+    expect(invokeMock).toHaveBeenCalledWith("file_offer_cancel", { offerId: "offer-1" });
+    expect(share.state.value).toBe("idle");
+    expect(share.fileName.value).toBe("");
+  });
+
+  it("a cancel with nothing in flight just resets", async () => {
+    const { channel, stub } = makeChannel();
+    const share = useFileShare(channel);
+    await share.cancel();
+    expect(stub.sendSync).not.toHaveBeenCalled();
+    expect(share.state.value).toBe("idle");
+  });
+
+  it("the peer's cancel resets our side", async () => {
+    const { share, emitSync } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    emitSync("file_cancel", { offerId: "offer-1" });
+    await flush();
+    expect(share.state.value).toBe("idle");
+  });
+
+  it("a backend error without a message still says the transfer failed", async () => {
+    const { share } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    fireBackend("file://error", { offerId: "offer-1", message: "" });
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toBe("Transfer failed.");
+  });
+
+  it("reads progress against an unknown total as zero, not NaN", async () => {
+    const { share } = hosting();
+    await share.offer({ id: "bob-device", name: "bob" });
+    fireBackend("file://progress", { offerId: "offer-1", dir: "send", transferred: 100, total: 0 });
+    expect(share.progress.value).toBe(0);
+    expect(share.state.value).toBe("transferring");
+  });
+});
+
+describe("useFileShare — recipient side, edges", () => {
+  const offer = {
+    offerId: "offer-9",
+    target: "alice-device",
+    addr: "peer-addr",
+    name: "photo.png",
+    size: 1000,
+    mime: "image/png",
+    fromName: "bob",
+  };
+
+  async function receiving(payload: Record<string, unknown> = offer) {
+    const ctx = makeChannel();
+    const share = useFileShare(ctx.channel);
+    ctx.emitSync("file_offer", payload);
+    await flush();
+    return { share, ...ctx };
+  }
+
+  it("ignores sync traffic that is not a file transfer's", async () => {
+    const { channel, emitSync } = makeChannel();
+    const share = useFileShare(channel);
+    emitSync("vox_offer", { offerId: "v1", target: "alice-device" });
+    emitSync("sync_snapshot", {});
+    await flush();
+    expect(share.state.value).toBe("idle");
+  });
+
+  it("names the sender by their MLS identity when the offer carries no name", async () => {
+    const { share } = await receiving({ offerId: "offer-9", target: "alice-device", addr: "a" });
+    expect(share.peerName.value).toBe("bob");
+    expect(share.fileName.value).toBe("");
+    expect(share.fileSize.value).toBe(0);
+  });
+
+  it("takes an unaddressed offer as ours (a two-person room)", async () => {
+    const { share } = await receiving({ ...offer, target: undefined });
+    expect(share.state.value).toBe("incoming");
+  });
+
+  it("stays on the offer when the save dialog is dismissed", async () => {
+    saveMock.mockResolvedValue(null);
+    const { share, stub } = await receiving();
+    await share.accept();
+    expect(share.state.value).toBe("incoming");
+    expect(stub.sendSync).not.toHaveBeenCalled();
+    expect(invokeMock).not.toHaveBeenCalledWith("file_download", expect.anything());
+  });
+
+  it("publishes the hash of the KeyPackage it minted for this transfer", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => (cmd === "file_prepare" ? "kp-hash-9" : undefined));
+    const { share, stub } = await receiving();
+    await share.accept();
+    expect(invokeMock).toHaveBeenCalledWith("file_prepare", { offerId: "offer-9" });
+    expect(stub.sendSync).toHaveBeenCalledWith("file_accept", { offerId: "offer-9", kpHash: "kp-hash-9" });
+  });
+
+  it("reports a download that fails", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "file_download") throw new Error("connection refused");
+      return undefined;
+    });
+    const { share } = await receiving();
+    await share.accept();
+    expect(share.state.value).toBe("error");
+    expect(share.error.value).toBe("connection refused");
+  });
+
+  it("accept and decline do nothing without an offer on screen", async () => {
+    const { channel, stub } = makeChannel();
+    const share = useFileShare(channel);
+    await share.accept();
+    await share.decline();
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(stub.sendSync).not.toHaveBeenCalled();
+  });
+
+  it("declines even when the refusal cannot be delivered", async () => {
+    const { share, stub } = await receiving();
+    stub.sendSync.mockRejectedValueOnce(new Error("channel closed"));
+    await share.decline();
+    expect(share.state.value).toBe("idle");
+  });
+
+  it("cancelling an incoming offer declines it to the sender", async () => {
+    const { share, stub } = await receiving();
+    stub.sendSync.mockRejectedValueOnce(new Error("channel closed"));
+    await share.cancel();
+    expect(stub.sendSync).toHaveBeenCalledWith("file_decline", { offerId: "offer-9" });
+    expect(share.state.value).toBe("idle");
+  });
+
+  it("drops the offer when the sender withdraws it", async () => {
+    const { share, emitSync } = await receiving();
+    emitSync("file_cancel", { offerId: "offer-9" });
+    await flush();
+    expect(share.state.value).toBe("idle");
+    expect(share.peerName.value).toBe("");
+  });
+
+  it("ignores a second offer while a download is running", async () => {
+    const { share, emitSync } = await receiving();
+    await share.accept();
+    emitSync("file_offer", { ...offer, offerId: "offer-10", name: "other.zip" });
+    await flush();
+    expect(share.state.value).toBe("transferring");
+    expect(share.fileName.value).toBe("photo.png");
+  });
+
+  it("follows download progress and completes without withdrawing anything", async () => {
+    // Only the host serves an offer; the recipient has nothing to cancel on done.
+    const { share } = await receiving();
+    await share.accept();
+    invokeMock.mockClear();
+    fireBackend("file://progress", { offerId: "offer-9", dir: "recv", transferred: 250, total: 1000 });
+    expect(share.direction.value).toBe("recv");
+    expect(share.progress.value).toBeCloseTo(0.25);
+    fireBackend("file://done", { offerId: "offer-9", dir: "recv" });
+    await flush();
+    expect(share.state.value).toBe("done");
+    expect(invokeMock).not.toHaveBeenCalledWith("file_offer_cancel", expect.anything());
+  });
+
+  it("ignores progress and completion for other transfers", async () => {
+    const { share } = await receiving();
+    fireBackend("file://progress", { offerId: "nope", dir: "recv", transferred: 1, total: 2 });
+    fireBackend("file://done", { offerId: "nope", dir: "recv" });
+    expect(share.state.value).toBe("incoming");
+    expect(share.progress.value).toBe(0);
+  });
+
+  it("reset() clears a finished transfer back to idle", async () => {
+    const { share } = await receiving();
+    share.reset();
+    expect(share.state.value).toBe("idle");
+    expect(share.direction.value).toBe("");
+    expect(share.error.value).toBeNull();
   });
 });
