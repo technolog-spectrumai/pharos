@@ -26,6 +26,8 @@ tests_step rust "substrate, legacy-detect"        'cargo test -p substrate --fea
 tests_step rust "gervasius (at-rest crypto)"      'cargo test -p gervasius'
 tests_step rust "gervasius, gervazy"              'cargo test -p gervasius --features gervazy'
 tests_step rust "rotor_core (MLS)"                'cargo test -p rotor-core'
+# Its own workspace (see crates/heliodor/Cargo.toml), so it is selected by manifest.
+tests_step rust "heliodor (DIDs)"                 'cargo test --manifest-path crates/heliodor/Cargo.toml --all-features'
 
 tests_answered "$@" && exit 0
 
