@@ -467,6 +467,7 @@ impl RotorSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ops::Range;
 
     /// Two members that join the same 2-member group derive an identical
     /// exporter secret for the same (label, context) — the basis for keying
@@ -541,5 +542,414 @@ mod tests {
         let ct = alice.encrypt_app(b"post-removal").unwrap();
         assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"post-removal"[..]));
         assert!(dev.process_message(&ct).is_err(), "removed leaf cannot decrypt the new epoch");
+    }
+
+    /// `alice` creates `room`, then each guest is added in turn and every
+    /// earlier member processes the commit — the order a relay delivers in.
+    fn room(slug: &str, guests: &[&str]) -> (RotorSession, Vec<RotorSession>) {
+        let mut admin = RotorSession::new(slug.into(), "alice".into()).unwrap();
+        admin.create_group().unwrap();
+        let mut joined: Vec<RotorSession> = Vec::new();
+        for id in guests {
+            let mut guest = RotorSession::new(slug.into(), (*id).into()).unwrap();
+            let kp = guest.key_package().unwrap();
+            let (welcome, commit) = admin.add_member(&kp).unwrap();
+            for earlier in joined.iter_mut() {
+                assert_eq!(earlier.process_message(&commit).unwrap(), None);
+            }
+            guest.join_from_welcome(&welcome).unwrap();
+            joined.push(guest);
+        }
+        (admin, joined)
+    }
+
+    fn sorted(mut ids: Vec<String>) -> Vec<String> {
+        ids.sort();
+        ids
+    }
+
+    fn wire_format(bytes: &[u8]) -> WireFormat {
+        MlsMessageIn::tls_deserialize_exact(bytes).unwrap().wire_format()
+    }
+
+    #[test]
+    fn the_ciphersuite_name_is_derived_from_the_suite() {
+        // The app's build_config.yaml assert compares against this string; a
+        // suite that fell through to "UNKNOWN" would fail every build.
+        assert_eq!(RotorSession::ciphersuite(), CIPHERSUITE);
+        assert_eq!(CIPHERSUITE_NAME, "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519");
+    }
+
+    #[test]
+    fn a_session_that_has_not_joined_refuses_every_group_operation() {
+        // Each of these needs a group; before one exists they must say so,
+        // naming the room, rather than act on an empty one.
+        let mut s = RotorSession::new("room-x".into(), "alice".into()).unwrap();
+        let want = "session has not joined MLS group room-x yet".to_string();
+        assert_eq!(s.members().err(), Some(want.clone()));
+        assert_eq!(s.encrypt_app(b"hi").err(), Some(want.clone()));
+        assert_eq!(s.export_secret("label", b"", 32).err(), Some(want.clone()));
+        assert_eq!(s.remove_member("bob").err(), Some(want.clone()));
+        assert_eq!(s.process_message(b"\x00").err(), Some(want.clone()));
+        assert_eq!(s.add_member(b"\x00").err(), Some(want.clone()));
+        // Having signing keys (from a key package) is not having a group.
+        s.key_package().unwrap();
+        assert_eq!(s.encrypt_app(b"hi").err(), Some(want));
+    }
+
+    #[test]
+    fn a_new_group_holds_only_its_creator() {
+        let (alice, _) = room("room-solo", &[]);
+        assert_eq!(alice.members().unwrap(), vec!["alice"]);
+    }
+
+    #[test]
+    fn two_members_converse_in_both_directions() {
+        let (mut alice, mut guests) = room("room-pair", &["bob"]);
+        let bob = &mut guests[0];
+        for (i, text) in ["one", "two", "three"].iter().enumerate() {
+            let ct = alice.encrypt_app(text.as_bytes()).unwrap();
+            assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(text.as_bytes()), "a->b {i}");
+            let reply = format!("re: {text}");
+            let ct = bob.encrypt_app(reply.as_bytes()).unwrap();
+            assert_eq!(alice.process_message(&ct).unwrap().as_deref(), Some(reply.as_bytes()), "b->a {i}");
+        }
+        // An empty message is still a message.
+        let ct = alice.encrypt_app(b"").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b""[..]));
+        assert_eq!(sorted(bob.members().unwrap()), vec!["alice", "bob"]);
+    }
+
+    #[test]
+    fn nothing_travels_in_the_clear() {
+        // PURE_CIPHERTEXT: application data AND commits go out as
+        // PrivateMessages, so a relay learns neither the text nor who was
+        // added or removed.
+        let (mut alice, mut guests) = room("room-wire", &["bob"]);
+        let ct = alice.encrypt_app(b"a very recognisable plaintext").unwrap();
+        assert_eq!(wire_format(&ct), WireFormat::PrivateMessage);
+        assert!(!ct.windows(12).any(|w| w == b"recognisable"));
+
+        let mut carol = RotorSession::new("room-wire".into(), "carol".into()).unwrap();
+        let (welcome, commit) = alice.add_member(&carol.key_package().unwrap()).unwrap();
+        assert_eq!(wire_format(&commit), WireFormat::PrivateMessage);
+        assert_eq!(wire_format(&welcome), WireFormat::Welcome);
+        assert_eq!(guests[0].process_message(&commit).unwrap(), None);
+        carol.join_from_welcome(&welcome).unwrap();
+        assert_eq!(sorted(carol.members().unwrap()), vec!["alice", "bob", "carol"]);
+    }
+
+    #[test]
+    fn a_replayed_application_message_is_refused() {
+        // Each message key is used once and then deleted; a relay (or anyone
+        // on the path) re-sending a message must not make it appear twice.
+        let (mut alice, mut guests) = room("room-replay", &["bob"]);
+        let bob = &mut guests[0];
+        let ct = alice.encrypt_app(b"pay 10").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"pay 10"[..]));
+        assert!(bob.process_message(&ct).is_err(), "the second delivery must be refused");
+        // And the refusal leaves the session usable.
+        let ct = alice.encrypt_app(b"next").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"next"[..]));
+    }
+
+    /// Where a PrivateMessage keeps its encrypted sender data and its
+    /// ciphertext, walking RFC 9420's framing: version(2) wire_format(2)
+    /// group_id<V> epoch(8) content_type(1) authenticated_data<V>
+    /// encrypted_sender_data<V> ciphertext<V>, each <V> a varint length and
+    /// then the bytes.
+    fn private_message_fields(msg: &[u8]) -> (Range<usize>, Range<usize>) {
+        fn vl(msg: &[u8], at: &mut usize) -> Range<usize> {
+            let len_len = 1usize << (msg[*at] >> 6);
+            let mut len = (msg[*at] & 0x3f) as usize;
+            for b in &msg[*at + 1..*at + len_len] {
+                len = (len << 8) | *b as usize;
+            }
+            let start = *at + len_len;
+            *at = start + len;
+            start..*at
+        }
+        assert_eq!(&msg[..4], &[0, 1, 0, 2], "an MLS 1.0 PrivateMessage");
+        let mut at = 4;
+        vl(msg, &mut at); // group_id
+        at += 8 + 1; // epoch, content_type
+        vl(msg, &mut at); // authenticated_data
+        let sender = vl(msg, &mut at);
+        let ciphertext = vl(msg, &mut at);
+        assert_eq!(at, msg.len(), "walked the whole message");
+        (sender, ciphertext)
+    }
+
+    #[test]
+    fn a_tampered_message_is_refused_and_does_not_burn_the_real_one() {
+        // A forgery must fail WITHOUT consuming the message key, or anyone on
+        // the path could make a real message unreadable by racing a corrupted
+        // copy of it ahead.
+        //
+        // The flips are in the encrypted sender data and in the ciphertext
+        // sample its key is derived from. A flip further into the ciphertext
+        // (its tag) is refused too in a release build, but openmls 0.7.4
+        // `debug_assert!`s on that path, so a debug build panics instead.
+        let (mut alice, mut guests) = room("room-tamper", &["bob"]);
+        let bob = &mut guests[0];
+        let ct = alice.encrypt_app(b"authentic").unwrap();
+        let (sender, body) = private_message_fields(&ct);
+        for idx in [sender.start, sender.end - 1, body.start] {
+            let mut forged = ct.clone();
+            forged[idx] ^= 0x01;
+            assert!(bob.process_message(&forged).is_err(), "flip at {idx}");
+        }
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"authentic"[..]));
+    }
+
+    #[test]
+    fn a_message_for_another_group_is_refused() {
+        // Two rooms with the same members' names: a ciphertext from one must
+        // not decrypt in the other.
+        let (mut alice_a, _a) = room("room-a", &["bob"]);
+        let (_alice_b, mut b) = room("room-b", &["bob"]);
+        let ct = alice_a.encrypt_app(b"for room a").unwrap();
+        assert!(b[0].process_message(&ct).is_err());
+    }
+
+    #[test]
+    fn wrong_kinds_of_message_are_refused_by_name() {
+        let (mut alice, mut guests) = room("room-kinds", &["bob"]);
+        let mut carol = RotorSession::new("room-kinds".into(), "carol".into()).unwrap();
+        let kp = carol.key_package().unwrap();
+        let ct = alice.encrypt_app(b"x").unwrap();
+
+        // A key package is not a welcome, and an app message is not a key package.
+        assert_eq!(carol.join_from_welcome(&kp).err().as_deref(), Some("expected an MLS Welcome message"));
+        assert_eq!(alice.add_member(&ct).err().as_deref(), Some("expected an MLS KeyPackage message"));
+        // A welcome or a key package is not something a member processes.
+        let (welcome, _commit) = alice.add_member(&kp).unwrap();
+        for not_protocol in [&welcome, &kp] {
+            assert_eq!(
+                guests[0].process_message(not_protocol).err().as_deref(),
+                Some("expected an MLS PublicMessage or PrivateMessage")
+            );
+        }
+    }
+
+    #[test]
+    fn bytes_that_are_not_mls_are_an_error_everywhere() {
+        let (mut alice, _) = room("room-junk", &[]);
+        let mut stranger = RotorSession::new("room-junk".into(), "eve".into()).unwrap();
+        for junk in [&b""[..], b"\x00", b"not an mls message"] {
+            assert!(alice.add_member(junk).is_err(), "add {junk:?}");
+            assert!(alice.process_message(junk).is_err(), "process {junk:?}");
+            assert!(stranger.join_from_welcome(junk).is_err(), "join {junk:?}");
+        }
+        // A good message with a byte appended is not exactly one message.
+        let mut padded = alice.encrypt_app(b"x").unwrap();
+        padded.push(0);
+        assert!(alice.process_message(&padded).is_err());
+        // None of that disturbed the group.
+        assert_eq!(alice.members().unwrap(), vec!["alice"]);
+    }
+
+    #[test]
+    fn a_welcome_is_only_for_the_key_package_it_answers() {
+        let (mut alice, _) = room("room-welcome", &[]);
+        let mut bob = RotorSession::new("room-welcome".into(), "bob".into()).unwrap();
+        let mut eve = RotorSession::new("room-welcome".into(), "eve".into()).unwrap();
+        eve.key_package().unwrap();
+        let (welcome, _commit) = alice.add_member(&bob.key_package().unwrap()).unwrap();
+        assert!(eve.join_from_welcome(&welcome).is_err(), "eve holds no matching key package");
+        assert!(eve.members().is_err(), "and a failed join leaves her outside");
+        bob.join_from_welcome(&welcome).unwrap();
+    }
+
+    #[test]
+    fn an_epoch_change_rotates_the_exported_secret_for_everyone() {
+        // Vox keys come from the exporter; when the roster changes, the old
+        // key must stop being the key — and every member must move together.
+        let (mut alice, mut guests) = room("room-epoch", &["bob"]);
+        let before = alice.export_secret("enigma/vox/c2s", b"call", 32).unwrap();
+        assert_eq!(guests[0].export_secret("enigma/vox/c2s", b"call", 32).unwrap(), before);
+
+        let mut carol = RotorSession::new("room-epoch".into(), "carol".into()).unwrap();
+        let (welcome, commit) = alice.add_member(&carol.key_package().unwrap()).unwrap();
+        let after = alice.export_secret("enigma/vox/c2s", b"call", 32).unwrap();
+        assert_ne!(after, before);
+
+        // Bob is still on the old epoch until he processes the commit.
+        assert_eq!(guests[0].export_secret("enigma/vox/c2s", b"call", 32).unwrap(), before);
+        guests[0].process_message(&commit).unwrap();
+        carol.join_from_welcome(&welcome).unwrap();
+        assert_eq!(guests[0].export_secret("enigma/vox/c2s", b"call", 32).unwrap(), after);
+        assert_eq!(carol.export_secret("enigma/vox/c2s", b"call", 32).unwrap(), after);
+    }
+
+    #[test]
+    fn a_member_that_missed_a_commit_cannot_read_the_next_epoch_until_it_catches_up() {
+        let (mut alice, mut guests) = room("room-lag", &["bob"]);
+        let bob = &mut guests[0];
+        let mut carol = RotorSession::new("room-lag".into(), "carol".into()).unwrap();
+        let (_welcome, commit) = alice.add_member(&carol.key_package().unwrap()).unwrap();
+
+        let ct = alice.encrypt_app(b"new epoch").unwrap();
+        assert!(bob.process_message(&ct).is_err(), "bob is an epoch behind");
+        // Delivered late, the commit still applies, and the next message reads.
+        bob.process_message(&commit).unwrap();
+        let ct = alice.encrypt_app(b"caught up").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"caught up"[..]));
+    }
+
+    #[test]
+    fn a_message_from_before_a_commit_is_unreadable_after_it() {
+        // No past epochs are kept (the join/create config sets none), so the
+        // relay must deliver an application message before the commit that
+        // follows it — afterwards its key is gone.
+        let (mut alice, mut guests) = room("room-order", &["bob"]);
+        let old = alice.encrypt_app(b"sent at epoch 1").unwrap();
+        let mut carol = RotorSession::new("room-order".into(), "carol".into()).unwrap();
+        let (_welcome, commit) = alice.add_member(&carol.key_package().unwrap()).unwrap();
+        guests[0].process_message(&commit).unwrap();
+        assert!(guests[0].process_message(&old).is_err());
+    }
+
+    #[test]
+    fn export_secret_is_bound_to_label_context_and_length() {
+        let (alice, guests) = room("room-export", &["bob"]);
+        let base = alice.export_secret("l", b"ctx", 32).unwrap();
+        assert_ne!(alice.export_secret("l", b"ctx2", 32).unwrap(), base, "context matters");
+        assert_ne!(alice.export_secret("l2", b"ctx", 32).unwrap(), base, "label matters");
+        // A shorter export is a different key, not a prefix of the longer one:
+        // a 16-byte key must reveal nothing about a 32-byte one.
+        let short = alice.export_secret("l", b"ctx", 16).unwrap();
+        assert_eq!(short.len(), 16);
+        assert_ne!(&short[..], &base[..16]);
+        assert_eq!(guests[0].export_secret("l", b"ctx", 16).unwrap(), short);
+        // Same inputs, same epoch: deterministic.
+        assert_eq!(alice.export_secret("l", b"ctx", 32).unwrap(), base);
+    }
+
+    #[test]
+    fn an_export_longer_than_the_kdf_can_produce_is_an_error() {
+        // HKDF-SHA256 tops out at 255 * 32 bytes.
+        let (alice, _) = room("room-export-max", &[]);
+        assert_eq!(alice.export_secret("l", b"", 255 * 32).unwrap().len(), 255 * 32);
+        assert!(alice.export_secret("l", b"", 255 * 32 + 1).is_err());
+    }
+
+    #[test]
+    fn removing_an_unknown_identity_changes_nothing() {
+        let (mut alice, guests) = room("room-rm", &["bob"]);
+        let secret = alice.export_secret("l", b"", 32).unwrap();
+        assert_eq!(alice.remove_member("carol").err().as_deref(), Some("member carol not found in group"));
+        // Identities match exactly, not by prefix: "bo" is not "bob".
+        assert_eq!(alice.remove_member("bo").err().as_deref(), Some("member bo not found in group"));
+        assert_eq!(sorted(alice.members().unwrap()), vec!["alice", "bob"]);
+        assert_eq!(alice.export_secret("l", b"", 32).unwrap(), secret, "no new epoch");
+        assert_eq!(guests[0].export_secret("l", b"", 32).unwrap(), secret);
+    }
+
+    #[test]
+    fn a_removed_member_is_cut_off_in_both_directions() {
+        let (mut alice, mut guests) = room("room-cut", &["bob", "carol"]);
+        let commit = alice.remove_member("carol").unwrap();
+        guests[0].process_message(&commit).unwrap();
+
+        // Carol, not yet aware, still writes at the old epoch: nobody reads it.
+        let stale = guests[1].encrypt_app(b"still here?").unwrap();
+        assert!(alice.process_message(&stale).is_err());
+        assert!(guests[0].process_message(&stale).is_err());
+
+        // Once she processes her own removal she cannot send at all.
+        assert_eq!(guests[1].process_message(&commit).unwrap(), None);
+        assert!(guests[1].encrypt_app(b"let me back in").is_err());
+        assert_eq!(sorted(guests[0].members().unwrap()), vec!["alice", "bob"]);
+    }
+
+    #[test]
+    fn a_key_package_cannot_add_the_same_device_twice() {
+        let (mut alice, _) = room("room-dup", &[]);
+        let mut bob = RotorSession::new("room-dup".into(), "bob".into()).unwrap();
+        let kp = bob.key_package().unwrap();
+        alice.add_member(&kp).unwrap();
+        assert!(alice.add_member(&kp).is_err(), "the same leaf keys cannot sit in the group twice");
+        assert_eq!(sorted(alice.members().unwrap()), vec!["alice", "bob"]);
+    }
+
+    #[test]
+    fn exported_state_resumes_a_live_member() {
+        // What the app does across a restart: export, persist, import. The
+        // resumed session must be the same member — same group, same keys,
+        // same position in the ratchet — not a stranger with the same name.
+        let (mut alice, mut guests) = room("room-persist", &["bob"]);
+        let ct = alice.encrypt_app(b"before").unwrap();
+        assert_eq!(guests[0].process_message(&ct).unwrap().as_deref(), Some(&b"before"[..]));
+        let secret = guests[0].export_secret("l", b"", 32).unwrap();
+
+        let saved = guests[0].export_state().unwrap();
+        let mut bob = RotorSession::import_state(&saved).unwrap();
+        assert_eq!(sorted(bob.members().unwrap()), vec!["alice", "bob"]);
+        assert_eq!(bob.export_secret("l", b"", 32).unwrap(), secret);
+
+        let ct = alice.encrypt_app(b"after").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"after"[..]));
+        let ct = bob.encrypt_app(b"resumed").unwrap();
+        assert_eq!(alice.process_message(&ct).unwrap().as_deref(), Some(&b"resumed"[..]));
+        // The resumed admin keeps admin powers: it still holds the signing key.
+        let alice_saved = alice.export_state().unwrap();
+        let mut alice2 = RotorSession::import_state(&alice_saved).unwrap();
+        let commit = alice2.remove_member("bob").unwrap();
+        assert_eq!(bob.process_message(&commit).unwrap(), None);
+        assert_eq!(alice2.members().unwrap(), vec!["alice"]);
+    }
+
+    #[test]
+    fn a_key_package_survives_a_restart_before_the_welcome_arrives() {
+        // Bob publishes a key package, the app restarts, and only then does
+        // the welcome come back: the private half must have been persisted.
+        let (mut alice, _) = room("room-pending", &[]);
+        let mut bob = RotorSession::new("room-pending".into(), "bob".into()).unwrap();
+        let kp = bob.key_package().unwrap();
+        let mut bob = RotorSession::import_state(&bob.export_state().unwrap()).unwrap();
+        let (welcome, _commit) = alice.add_member(&kp).unwrap();
+        bob.join_from_welcome(&welcome).unwrap();
+        let ct = alice.encrypt_app(b"welcome back").unwrap();
+        assert_eq!(bob.process_message(&ct).unwrap().as_deref(), Some(&b"welcome back"[..]));
+    }
+
+    #[test]
+    fn a_fresh_session_round_trips_as_a_fresh_session() {
+        let blank = RotorSession::new("room-blank".into(), "dora".into()).unwrap();
+        let back = RotorSession::import_state(&blank.export_state().unwrap()).unwrap();
+        assert_eq!(back.members().err().as_deref(), Some("session has not joined MLS group room-blank yet"));
+
+        // A state written with no storage at all imports as a blank session too.
+        let empty = serde_json::json!({
+            "room_slug": "room-empty", "identity": "dora", "storage": [],
+            "signature_keys": null, "group_id": null,
+        });
+        let mut back = RotorSession::import_state(&serde_json::to_vec(&empty).unwrap()).unwrap();
+        assert_eq!(back.members().err().as_deref(), Some("session has not joined MLS group room-empty yet"));
+        // ... and can still go on to make a group of its own.
+        back.create_group().unwrap();
+        assert_eq!(back.members().unwrap(), vec!["dora"]);
+    }
+
+    #[test]
+    fn a_corrupt_saved_state_is_refused() {
+        let s = RotorSession::new("room-bad".into(), "erin".into()).unwrap();
+        let good: serde_json::Value = serde_json::from_slice(&s.export_state().unwrap()).unwrap();
+        assert!(RotorSession::import_state(b"not json").is_err());
+        assert!(RotorSession::import_state(b"{}").is_err(), "fields are required");
+
+        let mut truncated_storage = good.clone();
+        truncated_storage["storage"] = serde_json::json!([0, 0, 0]);
+        assert!(RotorSession::import_state(&serde_json::to_vec(&truncated_storage).unwrap()).is_err());
+
+        let mut bad_keys = good.clone();
+        bad_keys["signature_keys"] = serde_json::json!([1, 2, 3]);
+        assert!(RotorSession::import_state(&serde_json::to_vec(&bad_keys).unwrap()).is_err());
+
+        // A group id that claims five bytes and carries one.
+        let mut bad_group = good;
+        bad_group["group_id"] = serde_json::json!([5, 1]);
+        assert!(RotorSession::import_state(&serde_json::to_vec(&bad_group).unwrap()).is_err());
     }
 }
