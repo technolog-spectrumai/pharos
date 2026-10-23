@@ -32,7 +32,7 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, getHiddenTabs, setHiddenTabs, type BuildConfig } from "rakotis";
 
-export type AppTabId = "chat" | "files" | "vox" | "calendar" | "map" | "contacts";
+export type AppTabId = "chat" | "files" | "vox" | "calendar" | "contacts";
 
 export interface AppTab {
   id: AppTabId;

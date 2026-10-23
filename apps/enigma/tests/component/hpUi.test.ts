@@ -496,7 +496,7 @@ describe("HpChip", () => {
     // cannot strand the chip, which is why /privacy has no guard.
     expect(APP_TABS.some((t) => t.path === "/privacy")).toBe(false);
     const push = vi.spyOn(router, "push").mockResolvedValue(undefined as never);
-    await setHiddenTabs(["chat", "files", "vox", "calendar", "map", "contacts"]);
+    await setHiddenTabs(["chat", "files", "vox", "calendar", "contacts"]);
     await loadTabVisibility();
     try {
       const w = mount(HpChip, { global });

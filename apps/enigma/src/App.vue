@@ -409,10 +409,6 @@ onBeforeUnmount(() => {
               :title="$t('calendar.attentionTitle')"
             />
           </RouterLink>
-          <RouterLink v-if="isTabVisible('map')" to="/map" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.map')">
-            <font-awesome-icon icon="map" />
-            {{ $t('nav.map') }}
-          </RouterLink>
           <RouterLink v-if="isTabVisible('contacts')" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
             <font-awesome-icon icon="address-book" />
             {{ $t('nav.contacts') }}
@@ -496,10 +492,6 @@ onBeforeUnmount(() => {
               v-if="(meetings?.attentionCount.value ?? 0) > 0"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('map')" to="/map" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="map" class="w-4 text-center" />
-            {{ $t('nav.map') }}
           </RouterLink>
           <RouterLink v-if="isTabVisible('contacts')" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="address-book" class="w-4 text-center" />
