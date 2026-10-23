@@ -144,7 +144,9 @@ describe("switching", () => {
 describe("two apps on one machine", () => {
   it("keep their choices under their own keys", () => {
     // Two apps must not fight over one stored locale, for the same reason
-    // they do not share a keyring entry.
+    // they do not share a keyring entry. Both apps switch here: a write under
+    // one fixed key would look right for the first and land in its slot for
+    // the second.
     browserSpeaks("en-US");
     const zinnia = build("zinnia:locale");
     const other = build("other:locale");
@@ -154,6 +156,11 @@ describe("two apps on one machine", () => {
     expect(localStorage.getItem("zinnia:locale")).toBe("pl");
     expect(localStorage.getItem("other:locale")).toBeNull();
     expect(other.locale()).toBe("en");
+
+    other.setLocale("en");
+
+    expect(localStorage.getItem("other:locale")).toBe("en");
+    expect(localStorage.getItem("zinnia:locale")).toBe("pl");
   });
 
   it("each start from their own stored choice", () => {
