@@ -299,10 +299,15 @@ mod tests {
         short.extend_from_slice(&[0u8; NONCE_LEN + TAG_LEN - 1]);
         assert_eq!(open("pw", &SALT, 64, 1, 1, AAD, &short), Err(CryptoError::Format));
         assert_eq!(open("pw", &SALT, 64, 1, 1, AAD, b"not a frame at all"), Err(CryptoError::Format));
+        // Costs Argon2 would reject show the order: the length refuses first,
+        // so no derivation was attempted.
+        assert_eq!(open("pw", &SALT, 0, 0, 0, AAD, &short), Err(CryptoError::Format));
 
-        // At exactly header + nonce + tag the frame is whole; the tag decides.
+        // At exactly header + nonce + tag the frame is whole; the tag decides,
+        // and only now are the costs looked at.
         short.push(0);
         assert_eq!(open("pw", &SALT, 64, 1, 1, AAD, &short), Err(CryptoError::Aead));
+        assert!(matches!(open("pw", &SALT, 0, 0, 0, AAD, &short), Err(CryptoError::Kdf(_))));
     }
 
     #[test]
