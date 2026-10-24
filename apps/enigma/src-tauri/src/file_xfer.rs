@@ -142,6 +142,11 @@ fn observer(app: AppHandle) -> Observer {
         TransferEvent::Failed { offer_id, direction: Direction::Send, message } => {
             eprintln!("[file] serving {offer_id} ended: {message}");
         }
+        // A dial turned away before admission (unknown offer, unauthorized
+        // peer): logged, as before the extraction; the offer stays open.
+        TransferEvent::Refused { offer_id, message } => {
+            eprintln!("[file] refused a downloader for {offer_id}: {message}");
+        }
     })
 }
 
