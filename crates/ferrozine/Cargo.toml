@@ -1,0 +1,44 @@
+[package]
+name = "ferrozine"
+version = "0.1.0"
+description = "Peer-to-peer transport over iroh — rooms for messages, streams for files — with every byte sealed by rotor (MLS)"
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version.workspace = true
+
+# A member of the repo-root workspace, not a workspace of its own: it shares
+# iroh (and through it ed25519-dalek's pinned pre-release) and rotor_core with
+# the apps that use it, and one lock is what keeps those versions identical.
+#
+# No `tauri` dependency, on purpose — the same line substrate draws. Ferrozine
+# reports progress and arrivals through plain callbacks and streams; each app
+# turns them into its own events and keeps its own command names.
+
+[dependencies]
+# The MLS layer. Ferrozine depends on rotor, never the other way round: rotor
+# stays transport-free so its WASM and Python bindings keep building.
+rotor-core = { path = "../rotor/rotor_core" }
+
+iroh = "0.98"
+iroh-gossip = "0.98"
+tokio = { version = "1", features = ["sync", "time", "fs", "io-util", "macros", "rt"] }
+futures-lite = "2"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["use-std"] }
+data-encoding = "2"
+blake3 = "1"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "test-util"] }
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

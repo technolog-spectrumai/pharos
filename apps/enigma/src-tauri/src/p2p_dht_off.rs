@@ -12,9 +12,6 @@
 //! Keeping the node on one code path is the point: it is the same path a
 //! `dht` build takes with the user's toggle off, which is the tested one.
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
-
 use anyhow::{anyhow, Result};
 use iroh::EndpointId;
 use tauri::AppHandle;
@@ -67,7 +64,7 @@ pub fn spawn_room_publisher(
     dht: AsyncDht,
     _secret: [u8; 32],
     _self_id: EndpointId,
-    _neighbors: Arc<Mutex<HashSet<EndpointId>>>,
+    _room: ferrozine::room::Room,
 ) -> tauri::async_runtime::JoinHandle<()> {
     match dht {}
 }

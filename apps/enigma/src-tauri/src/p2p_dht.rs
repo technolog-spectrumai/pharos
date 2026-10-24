@@ -25,7 +25,6 @@
 // The DHT only introduces transport connections — MLS still gates membership.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -340,7 +339,7 @@ pub fn spawn_room_publisher(
     dht: AsyncDht,
     secret: [u8; 32],
     self_id: EndpointId,
-    neighbors: Arc<Mutex<HashSet<EndpointId>>>,
+    room: ferrozine::room::Room,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         loop {
@@ -360,10 +359,8 @@ pub fn spawn_room_publisher(
                 })
                 .count();
             if fresh_others < MAX_FRESH_RECORDS {
-                let peers: Vec<[u8; 32]> = neighbors
-                    .lock()
-                    .map(|set| set.iter().take(MAX_RECORD_PEERS).map(|id| *id.as_bytes()).collect())
-                    .unwrap_or_default();
+                let peers: Vec<[u8; 32]> =
+                    room.neighbors().iter().take(MAX_RECORD_PEERS).map(|id| *id.as_bytes()).collect();
                 let record =
                     Record { v: RECORD_VERSION, node_id: *self_id.as_bytes(), peers, ts: now };
                 if let Some(value) = encode_record(&enc, &record) {
