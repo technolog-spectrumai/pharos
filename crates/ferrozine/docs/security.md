@@ -10,9 +10,18 @@
 | A forged message makes a debug build panic | openmls's decrypt `debug_assert!` is caught where the release build returns an error; same result in every profile | `a_flipped_byte_anywhere_in_a_chunk_is_an_error_never_a_panic` |
 | Memory exhaustion by a large length prefix | Frames are bounded before allocation; the receiver refuses chunk sizes beyond its limits and bytes beyond the announced size | `frame` tests, `a_header_announcing_chunks_beyond_the_limits…` |
 | A message from outside a room's group | It does not open with the group's session | `a_room_carries_mls_sealed_messages…` |
+| A peer that connects and sends nothing, holding resources (and keeping `transfers_active` true) for ever | The request must arrive within 30 s; at most 16 connections are served at once; a transfer counts as active only once authorized | `a_connection_that_never_sends_its_request…`, `connections_beyond_the_cap…` |
+| A failed download destroys a file the user already had at that path | Only a file this transfer created is removed on failure | `a_download_that_fails_before_writing_leaves_an_existing_file_alone` |
+| A verified file thrown away because the final ack could not be delivered | The ack and stream close are best-effort once the file is verified | `a_verified_file_is_kept_when_its_ack_cannot_be_delivered` |
 | Linking one transfer to the next | Ephemeral endpoint identities by default | — |
 
 Not covered by ferrozine:
+
+- **Whether an offer id exists.** An unknown offer is refused at once, a known
+  but unauthorized one after the authorization wait, so timing tells them
+  apart. Offer ids are random UUIDs (122 bits), so the answer is useless
+  without already knowing the id; making unknown offers wait too would let a
+  prober hold serving slots for the full wait.
 
 - **Who is in a room.** Membership is the app's MLS group and its admission
   flow; landing on a gossip topic grants nothing.

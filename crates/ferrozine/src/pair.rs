@@ -45,8 +45,22 @@ pub(crate) fn process(session: &mut RotorSession, bytes: &[u8]) -> Result<Option
         session.process_message(bytes)
     })) {
         Ok(result) => result.map_err(mls),
-        Err(_) => Err(Error::Mls("ciphertext decryption failed".into())),
+        Err(payload) if is_decryption_assert(&*payload) => {
+            Err(Error::Mls("ciphertext decryption failed".into()))
+        }
+        // Any other panic is a real bug, not a forged message: let it surface.
+        Err(payload) => std::panic::resume_unwind(payload),
     }
+}
+
+/// Whether a panic payload is openmls's
+/// `debug_assert!(false, "Ciphertext decryption failed")`.
+fn is_decryption_assert(payload: &(dyn std::any::Any + Send)) -> bool {
+    let msg = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str));
+    msg == Some("Ciphertext decryption failed")
 }
 
 /// Base64 (standard, padded) — how KeyPackages and Welcomes travel in JSON.
@@ -222,6 +236,17 @@ mod tests {
         assert_eq!(caller.commitment().len(), 64);
         let other = Caller::start("o", "peer").unwrap();
         assert_ne!(caller.commitment(), other.commitment());
+    }
+
+    #[test]
+    fn only_the_decryption_assert_is_treated_as_a_forged_message() {
+        let assert: Box<dyn std::any::Any + Send> = Box::new("Ciphertext decryption failed");
+        assert!(is_decryption_assert(&*assert));
+        let formatted: Box<dyn std::any::Any + Send> =
+            Box::new(String::from("Ciphertext decryption failed"));
+        assert!(is_decryption_assert(&*formatted));
+        let bug: Box<dyn std::any::Any + Send> = Box::new("index out of bounds");
+        assert!(!is_decryption_assert(&*bug));
     }
 
     #[test]

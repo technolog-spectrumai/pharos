@@ -13,19 +13,19 @@ pub enum Error {
     #[error("connection: {0}")]
     Connection(String),
     /// Reading or writing a stream failed.
-    #[error("i/o: {0}")]
+    #[error("{0}")]
     Io(#[from] std::io::Error),
     /// A frame was larger than its bound, malformed, or out of order.
-    #[error("protocol: {0}")]
+    #[error("{0}")]
     Protocol(String),
     /// The MLS layer (rotor) refused an operation.
     #[error("mls: {0}")]
     Mls(String),
     /// The peer is not the one this transfer was authorized for.
-    #[error("not authorized: {0}")]
+    #[error("{0}")]
     Unauthorized(String),
     /// The received bytes are incomplete or do not match what was sent.
-    #[error("integrity: {0}")]
+    #[error("{0}")]
     Integrity(String),
     /// An address or other encoded value did not decode.
     #[error("decode: {0}")]

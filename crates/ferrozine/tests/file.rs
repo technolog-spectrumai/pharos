@@ -28,8 +28,8 @@ fn host(chunk: usize, integrity: bool) -> (FileHost, Arc<Mutex<Vec<TransferEvent
             integrity,
         },
         obs,
-    )
-    .with_authorize_wait(Duration::from_millis(300));
+    );
+    h.set_authorize_wait(Duration::from_millis(300));
     (h, log)
 }
 
@@ -389,4 +389,106 @@ async fn a_flipped_byte_anywhere_in_a_chunk_is_an_error_never_a_panic() {
         assert!(result.is_err(), "flip at {at}");
         assert!(!exists);
     }
+}
+
+// ── regressions from the review of the extraction ────────────────────────────
+
+#[tokio::test]
+async fn a_download_that_fails_before_writing_leaves_an_existing_file_alone() {
+    // The user picked an existing file as the destination; the host then
+    // refused the downloader. The old file must survive.
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 100);
+    let (h, _) = host(64, false);
+    let offer = h.offer(&path).unwrap();
+    let dest = dir.path().join("report.pdf");
+    std::fs::write(&dest, b"the user's own file").unwrap();
+    let someone_else = file::prepare(&offer.offer_id).unwrap().commitment();
+    let (client, _) = run(&h, &offer.offer_id, Some(&someone_else), &dest, false).await;
+    assert!(client.is_err());
+    assert_eq!(std::fs::read(&dest).unwrap(), b"the user's own file");
+}
+
+#[tokio::test]
+async fn a_verified_file_is_kept_when_its_ack_cannot_be_delivered() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, bytes) = write_file(dir.path(), "f", 5000);
+    let (h, _) = host(512, true);
+    let offer = h.offer(&path).unwrap();
+    let prepared = file::prepare(&offer.offer_id).unwrap();
+    h.authorize(&offer.offer_id, &prepared.commitment());
+
+    // Downloader → host carries the request and then hangs up, so the
+    // downloader's final ack has nowhere to go.
+    let (host_w, dl_r) = tokio::io::duplex(256 * 1024);
+    let (dl_w, mut proxy_r) = tokio::io::duplex(256 * 1024);
+    let (mut proxy_w, host_r) = tokio::io::duplex(256 * 1024);
+    tokio::spawn(async move {
+        let mut len = [0u8; 4];
+        proxy_r.read_exact(&mut len).await.unwrap();
+        let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
+        proxy_r.read_exact(&mut body).await.unwrap();
+        proxy_w.write_all(&len).await.unwrap();
+        proxy_w.write_all(&body).await.unwrap();
+        // Dropping both ends here.
+    });
+    let h2 = h.clone();
+    tokio::spawn(async move { h2.serve(host_r, host_w).await });
+    let dest = dir.path().join("out");
+    file::receive(
+        prepared,
+        dl_r,
+        dl_w,
+        &dest,
+        false,
+        LIMITS,
+        file::ignore_events(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_never_sends_its_request_times_out() {
+    let (h, _) = host(64, false);
+    let ((_dl_recv, _dl_send), (h_recv, h_send)) = streams();
+    let server = tokio::spawn(async move { h.serve(h_recv, h_send).await });
+    tokio::time::advance(Duration::from_secs(31)).await;
+    assert!(matches!(server.await.unwrap(), Err(Error::Protocol(_))));
+}
+
+#[tokio::test(start_paused = true)]
+async fn connections_beyond_the_cap_are_refused_at_once() {
+    let (h, _) = host(64, false);
+    let mut idle = Vec::new();
+    for _ in 0..file::MAX_CONCURRENT_SERVES {
+        let ((dl_recv, dl_send), (h_recv, h_send)) = streams();
+        let h2 = h.clone();
+        idle.push((
+            dl_recv,
+            dl_send,
+            tokio::spawn(async move { h2.serve(h_recv, h_send).await }),
+        ));
+    }
+    tokio::task::yield_now().await;
+    let ((_r, _s), (h_recv, h_send)) = streams();
+    assert!(matches!(
+        h.serve(h_recv, h_send).await,
+        Err(Error::Connection(_))
+    ));
+}
+
+#[test]
+fn user_visible_messages_keep_their_old_wording() {
+    // Enigma shows these verbatim; the extraction must not reword them.
+    assert_eq!(
+        Error::Integrity("integrity check failed — the file was altered in transit".into())
+            .to_string(),
+        "integrity check failed — the file was altered in transit"
+    );
+    assert_eq!(
+        Error::Io(std::io::Error::other("disk full")).to_string(),
+        "disk full"
+    );
 }

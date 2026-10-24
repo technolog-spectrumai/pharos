@@ -37,7 +37,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -132,7 +132,11 @@ impl Limits {
     }
 
     fn clamp(&self, chunk: usize) -> usize {
-        chunk.clamp(self.min_chunk, self.max_chunk)
+        // Robust to limits a caller built by hand: never 0 (a zero chunk would
+        // divide by zero), never min > max (`clamp` would panic).
+        let max = self.max_chunk.max(1);
+        let min = self.min_chunk.clamp(1, max);
+        chunk.clamp(min, max)
     }
 }
 
@@ -293,8 +297,18 @@ struct HostInner {
     settings: Box<dyn Fn() -> HostSettings + Send + Sync>,
     observer: Observer,
     limits: Limits,
-    authorize_wait: Duration,
+    /// Milliseconds; see [`FileHost::set_authorize_wait`].
+    authorize_wait_ms: AtomicU64,
+    /// One permit per connection being served.
+    serving: Arc<tokio::sync::Semaphore>,
 }
+
+/// How long a connection may take to send its request. A peer that opens a
+/// stream and sends nothing must not hold a serving slot (or keep
+/// [`transfers_active`] true) for ever.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Connections served at once; more are refused until one finishes.
+pub const MAX_CONCURRENT_SERVES: usize = 16;
 
 /// The serving side: a set of offers, who may fetch each, and the protocol
 /// handler that serves them. Clone it freely; clones share their offers.
@@ -321,20 +335,17 @@ impl FileHost {
             settings: Box::new(settings),
             observer,
             limits,
-            authorize_wait: Duration::from_secs(20),
+            authorize_wait_ms: AtomicU64::new(20_000),
+            serving: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_SERVES)),
         }))
     }
 
     /// How long a connection waits for its authorization to arrive. The
     /// downloader sends its commitment and dials at once, so the dial can win
-    /// the race; the wait absorbs that. Default 20 s.
-    pub fn with_authorize_wait(self, wait: Duration) -> Self {
-        let inner = Arc::try_unwrap(self.0)
-            .unwrap_or_else(|_| panic!("configure a FileHost before cloning it"));
-        Self(Arc::new(HostInner {
-            authorize_wait: wait,
-            ..inner
-        }))
+    /// the race; the wait absorbs that. Default 20 s. Applies to every clone.
+    pub fn set_authorize_wait(&self, wait: Duration) {
+        let ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
+        self.0.authorize_wait_ms.store(ms, Ordering::Relaxed);
     }
 
     /// Offer the file at `path`.
@@ -382,7 +393,8 @@ impl FileHost {
     }
 
     async fn wait_for_authorization(&self, offer_id: &str) -> Option<String> {
-        let deadline = tokio::time::Instant::now() + self.0.authorize_wait;
+        let wait = Duration::from_millis(self.0.authorize_wait_ms.load(Ordering::Relaxed));
+        let deadline = tokio::time::Instant::now() + wait;
         loop {
             if let Some(c) = self
                 .0
@@ -408,8 +420,15 @@ impl FileHost {
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
-        let _active = Active::new();
-        let req: Request = read_control(&mut recv).await?;
+        let _permit = self
+            .0
+            .serving
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Connection("too many transfers at once".into()))?;
+        let req: Request = tokio::time::timeout(REQUEST_TIMEOUT, read_control(&mut recv))
+            .await
+            .map_err(|_| Error::Protocol("no request within the timeout".into()))??;
         let offer_id = req.offer_id.clone();
         let result = self.serve_request(req, &mut recv, &mut send).await;
         let event = match &result {
@@ -455,6 +474,9 @@ impl FileHost {
                 "KeyPackage does not match the authorized peer".into(),
             ));
         }
+        // Counted from here: an authorized peer is a transfer, a stranger
+        // probing the port is not.
+        let _active = Active::new();
         let (mut channel, welcome) = pair::accept(&req.offer_id, "host", &key_package)?;
 
         let settings = (self.0.settings)();
@@ -515,7 +537,9 @@ impl FileHost {
             plain.extend_from_slice(&chain);
             write_blob(send, &channel.seal(&plain)?).await?;
         }
-        send.shutdown().await?;
+        // Closing our half can fail if the peer has already gone; every byte
+        // is written by then, so that is not a failed transfer.
+        let _ = send.shutdown().await;
         // Wait for the downloader's ack, so everything is read before we close.
         let mut ack = [0u8; 1];
         let _ = recv.read_exact(&mut ack).await;
@@ -591,6 +615,7 @@ where
 {
     let _active = Active::new();
     let offer_id = prepared.offer_id.clone();
+    let mut created = false;
     let result = receive_inner(
         prepared,
         &mut recv,
@@ -599,6 +624,7 @@ where
         want_integrity,
         limits,
         &observer,
+        &mut created,
     )
     .await;
     match &result {
@@ -607,7 +633,11 @@ where
             direction: Direction::Recv,
         }),
         Err(e) => {
-            let _ = tokio::fs::remove_file(dest).await;
+            // Only what this transfer wrote: a failure before the file was
+            // created must not delete a file the user already had there.
+            if created {
+                let _ = tokio::fs::remove_file(dest).await;
+            }
             observer(TransferEvent::Failed {
                 offer_id,
                 direction: Direction::Recv,
@@ -618,6 +648,7 @@ where
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn receive_inner<R, W>(
     prepared: Prepared,
     recv: &mut R,
@@ -626,6 +657,7 @@ async fn receive_inner<R, W>(
     want_integrity: bool,
     limits: Limits,
     observer: &Observer,
+    created: &mut bool,
 ) -> Result<()>
 where
     R: AsyncRead + Unpin,
@@ -641,7 +673,8 @@ where
     let header: Header = read_control(recv).await?;
     if want_integrity && !header.integrity {
         return Err(Error::Integrity(
-            "the sender did not provide an integrity manifest".into(),
+            "the sender did not provide an integrity manifest (verification is on for this device)"
+                .into(),
         ));
     }
     if header.chunk_size as usize > limits.max_chunk || header.chunk_size == 0 {
@@ -653,6 +686,7 @@ where
     let mut channel: Channel = prepared.caller.join(&unb64(&header.welcome)?)?;
 
     let mut file = tokio::fs::File::create(dest).await?;
+    *created = true;
     let (mut got, mut seq, mut chain, mut ticks) =
         (0u64, 0u64, chain_seed(&offer_id), Ticker::new());
     let mut trailer: Option<(u64, [u8; 32])> = None;
@@ -712,24 +746,29 @@ where
     }
     if seq != header.chunk_count {
         return Err(Error::Integrity(format!(
-            "got {seq} of {} announced chunks",
+            "missing chunks: got {seq} of {} announced",
             header.chunk_count
         )));
     }
     if header.integrity {
-        let (count, root) =
-            trailer.ok_or_else(|| Error::Integrity("integrity manifest missing".into()))?;
+        let (count, root) = trailer.ok_or_else(|| {
+            Error::Integrity("integrity manifest missing — transfer was cut short".into())
+        })?;
         if count != seq {
             return Err(Error::Integrity(format!(
                 "manifest counts {count} chunks, received {seq}"
             )));
         }
         if root != chain {
-            return Err(Error::Integrity("the file was altered in transit".into()));
+            return Err(Error::Integrity(
+                "integrity check failed — the file was altered in transit".into(),
+            ));
         }
     }
-    send.write_all(&[1u8]).await?;
-    send.shutdown().await?;
+    // The file is complete and verified: an ack that cannot be delivered (the
+    // host already hung up) must not turn that into a failure.
+    let _ = send.write_all(&[1u8]).await;
+    let _ = send.shutdown().await;
     Ok(())
 }
 
@@ -745,6 +784,8 @@ pub async fn download(
     limits: Limits,
     observer: Observer,
 ) -> Result<()> {
+    // Counted from before the dial: a slow connect is a transfer in progress.
+    let _active = Active::new();
     let offer_id = prepared.offer_id.clone();
     let fail = |e: Error| {
         observer(TransferEvent::Failed {
@@ -803,6 +844,26 @@ mod tests {
         assert_eq!((0..=10_000u64).filter(|d| t.tick(*d, 10_000)).count(), 101);
         let mut t = Ticker::new();
         assert!(t.tick(0, 0), "an empty file reports complete");
+    }
+
+    #[test]
+    fn hand_built_limits_never_make_a_zero_or_inverted_chunk() {
+        assert_eq!(
+            Limits {
+                min_chunk: 0,
+                max_chunk: 0
+            }
+            .clamp(0),
+            1
+        );
+        assert_eq!(
+            Limits {
+                min_chunk: 9,
+                max_chunk: 4
+            }
+            .clamp(100),
+            4
+        );
     }
 
     #[test]
