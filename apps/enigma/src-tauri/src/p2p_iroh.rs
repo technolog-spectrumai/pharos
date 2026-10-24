@@ -16,12 +16,11 @@
 // Emits `realtime://message` / `realtime://status` events (room-tagged), keeping
 // the frontend transport-agnostic.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use futures_lite::StreamExt;
+use ferrozine::room::{self, Room, RoomEvent, RoomEvents, TopicId, GOSSIP_ALPN};
 #[cfg(feature = "dht")]
 use iroh::address_lookup::pkarr::dht::DhtAddressLookup;
 use iroh::{
@@ -30,11 +29,7 @@ use iroh::{
     protocol::Router,
     Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey,
 };
-use iroh_gossip::{
-    api::{Event, GossipReceiver, GossipSender},
-    net::{Gossip, GOSSIP_ALPN},
-    proto::TopicId,
-};
+use iroh_gossip::net::Gossip;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
@@ -57,14 +52,14 @@ pub struct Node {
 }
 
 struct RoomHandle {
-    sender: GossipSender,
+    /// The room's sending half (ferrozine). It also knows the live gossip
+    /// neighbors — the receive loop keeps them current — which the rendezvous
+    /// publisher (records advertise a few) and the resolver (stops once the
+    /// room has a connection) read.
+    room: Room,
     #[allow(dead_code)]
     name: String,
     task: tauri::async_runtime::JoinHandle<()>,
-    /// Live gossip neighbors, maintained by the receive loop. Read by the
-    /// rendezvous publisher (records advertise a few neighbors) and by the
-    /// resolver (stops once the room has a connection).
-    neighbors: Arc<StdMutex<HashSet<EndpointId>>>,
     /// DHT rendezvous publisher — running only while this room is open AND the
     /// room's secret exists (created rooms, code-joins, code-minted rooms).
     publisher: Option<tauri::async_runtime::JoinHandle<()>>,
@@ -83,8 +78,10 @@ struct RoomHandle {
 // to migrate saved rooms — it cannot make one.
 
 
+/// `blake3(name)`, ferrozine's room topic — unchanged, so every build meets in
+/// the same room.
 fn topic_for(name: &str) -> TopicId {
-    TopicId::from_bytes(*blake3::hash(name.as_bytes()).as_bytes())
+    room::topic_for(name)
 }
 
 // ── stable identity ────────────────────────────────────────────────────────────
@@ -151,9 +148,7 @@ async fn ensure_started(app: &AppHandle, state: &P2pState) -> Result<()> {
     });
     // Raise the gossip message cap (default is a few KB) so MLS-encrypted images
     // and voice notes fit in a single broadcast.
-    let gossip = Gossip::builder()
-        .max_message_size(crate::build_config::network::MAX_FRAME_BYTES)
-        .spawn(endpoint.clone());
+    let gossip = room::spawn_gossip(endpoint.clone(), crate::build_config::network::MAX_FRAME_BYTES);
     // Gossip is the chat channel itself and is always accepted. The invite and
     // vox ALPNs belong to build features (technology.md §20): a build without
     // `contacts` / `calls` does not merely hide their UI — the protocol is not
@@ -219,24 +214,13 @@ async fn open_room(
     if node.rooms.contains_key(room) {
         return Ok(());
     }
-    let (sender, receiver) = node
-        .gossip
-        .subscribe(topic, peer_ids)
+    let (handle, events) = room::join(&node.gossip, topic, peer_ids)
         .await
-        .map_err(|e| anyhow!("subscribe failed: {e}"))?
-        .split();
-    let neighbors = Arc::new(StdMutex::new(HashSet::new()));
-    let task = spawn_receiver(app.clone(), room.to_string(), receiver, neighbors.clone());
+        .map_err(|e| anyhow!("subscribe failed: {e}"))?;
+    let task = spawn_receiver(app.clone(), room.to_string(), events);
     node.rooms.insert(
         room.to_string(),
-        RoomHandle {
-            sender,
-            name: name.to_string(),
-            task,
-            neighbors,
-            publisher: None,
-            resolver: None,
-        },
+        RoomHandle { room: handle, name: name.to_string(), task, publisher: None, resolver: None },
     );
     Ok(())
 }
@@ -255,7 +239,7 @@ fn start_publisher(app: &AppHandle, node: &mut Node, room: &str) {
                 dht,
                 secret,
                 self_id,
-                handle.neighbors.clone(),
+                handle.room.clone(),
             ));
         }
     }
@@ -275,14 +259,8 @@ fn start_resolver(app: &AppHandle, node: &mut Node, room: &str) {
         if let Some(old) = handle.resolver.take() {
             old.abort();
         }
-        handle.resolver = Some(spawn_rendezvous_resolver(
-            app.clone(),
-            dht,
-            secret,
-            self_id,
-            handle.sender.clone(),
-            handle.neighbors.clone(),
-        ));
+        handle.resolver =
+            Some(spawn_rendezvous_resolver(app.clone(), dht, secret, self_id, handle.room.clone()));
     }
 }
 
@@ -291,8 +269,7 @@ fn spawn_rendezvous_resolver(
     dht: crate::p2p_dht::DhtHandle,
     secret: [u8; 32],
     self_id: EndpointId,
-    sender: GossipSender,
-    neighbors: Arc<StdMutex<HashSet<EndpointId>>>,
+    room: Room,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         // Deadline = the user-set connect timeout (the frontend's join window
@@ -300,14 +277,14 @@ fn spawn_rendezvous_resolver(
         let deadline = std::time::Instant::now()
             + std::time::Duration::from_secs(crate::net_settings::connect_timeout_secs(&app));
         loop {
-            if neighbors.lock().map(|s| !s.is_empty()).unwrap_or(false) {
+            if room.is_connected() {
                 break;
             }
             let found = dht.resolve_room_peers(&secret, Some(self_id)).await;
             if !found.is_empty() {
                 // Feeding known-but-unreached peers again is harmless; gossip
                 // dials the new ones and ignores active neighbors.
-                let _ = sender.join_peers(found).await;
+                let _ = room.join_peers(found).await;
             }
             if std::time::Instant::now() >= deadline {
                 break;
@@ -557,8 +534,10 @@ pub async fn broadcast(state: &P2pState, room: &str, payload: String) -> Result<
     let guard = state.0.lock().await;
     let node = guard.as_ref().ok_or_else(|| anyhow!("p2p not started"))?;
     let handle = node.rooms.get(room).ok_or_else(|| anyhow!("no such p2p room"))?;
+    // The payload is already MLS ciphertext (the frontend sealed it with the
+    // room's group via the mls_* commands), so it goes out as it is.
     handle
-        .sender
+        .room
         .broadcast(Bytes::from(payload.into_bytes()))
         .await
         .map_err(|e| anyhow!("broadcast failed: {e}"))
@@ -604,52 +583,27 @@ pub async fn endpoint_for_dial(
 
 // ── receive loop ───────────────────────────────────────────────────────────────
 
-fn spawn_receiver(
-    app: AppHandle,
-    room: String,
-    mut receiver: GossipReceiver,
-    neighbors: Arc<StdMutex<HashSet<EndpointId>>>,
-) -> tauri::async_runtime::JoinHandle<()> {
+fn spawn_receiver(app: AppHandle, room: String, mut events: RoomEvents) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         emit_status(&app, &room, "connecting", 0, None);
-        while let Some(item) = receiver.next().await {
-            let Ok(event) = item else { break };
+        while let Some(event) = events.next().await {
             match event {
-                Event::Received(msg) => {
-                    if let Ok(text) = std::str::from_utf8(&msg.content) {
+                RoomEvent::Message { payload, .. } => {
+                    if let Ok(text) = std::str::from_utf8(&payload) {
                         emit_message(&app, &room, text);
                     }
                 }
                 // The neighbor's NodeId rides the status event so the frontend can
                 // persist it per room — that's the address book for reconnects.
-                // The shared set additionally feeds the DHT rendezvous publisher
-                // (records advertise a few neighbors) and stops the resolver.
-                Event::NeighborUp(peer) => {
-                    let peers = neighbors
-                        .lock()
-                        .map(|mut set| {
-                            set.insert(peer);
-                            set.len() as u32
-                        })
-                        .unwrap_or(0);
-                    emit_status(&app, &room, "connected", peers, Some(peer.to_string()));
+                RoomEvent::NeighborUp { peer, neighbors } => {
+                    emit_status(&app, &room, "connected", neighbors as u32, Some(peer.to_string()));
                 }
-                Event::NeighborDown(peer) => {
-                    let peers = neighbors
-                        .lock()
-                        .map(|mut set| {
-                            set.remove(&peer);
-                            set.len() as u32
-                        })
-                        .unwrap_or(0);
-                    let state = if peers > 0 { "connected" } else { "disconnected" };
-                    emit_status(&app, &room, state, peers, None);
+                RoomEvent::NeighborDown { neighbors, .. } => {
+                    let state = if neighbors > 0 { "connected" } else { "disconnected" };
+                    emit_status(&app, &room, state, neighbors as u32, None);
                 }
-                Event::Lagged => {}
+                RoomEvent::Lagged => {}
             }
-        }
-        if let Ok(mut set) = neighbors.lock() {
-            set.clear();
         }
         emit_status(&app, &room, "disconnected", 0, None);
     })
