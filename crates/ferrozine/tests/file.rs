@@ -492,3 +492,131 @@ fn user_visible_messages_keep_their_old_wording() {
         "disk full"
     );
 }
+
+// ── tickets: one-time secrets instead of a signalling channel ────────────────
+
+fn ticket_for(h: &FileHost, path: &Path) -> file::Ticket {
+    let offer = h.offer(path).unwrap();
+    let addr = iroh::EndpointAddr::new(iroh::SecretKey::from_bytes(&[9; 32]).public());
+    let ticket = file::Ticket::new(addr, &offer).unwrap();
+    h.authorize_with_secret(&offer.offer_id, &ticket.secret);
+    ticket
+}
+
+async fn fetch(
+    h: &FileHost,
+    prepared: file::Prepared,
+    dest: &Path,
+) -> (ferrozine::Result<()>, ferrozine::Result<()>) {
+    let ((dl_recv, dl_send), (h_recv, h_send)) = streams();
+    let h2 = h.clone();
+    let server = tokio::spawn(async move { h2.serve(h_recv, h_send).await });
+    let client = file::receive(
+        prepared,
+        dl_recv,
+        dl_send,
+        dest,
+        false,
+        LIMITS,
+        file::ignore_events(),
+    )
+    .await;
+    (client, server.await.unwrap())
+}
+
+#[tokio::test]
+async fn a_ticket_holder_fetches_the_file_and_the_ticket_then_stops_working() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, bytes) = write_file(dir.path(), "holiday.jpg", 3000);
+    let (h, _) = host(256, true);
+    let ticket = ticket_for(&h, &path);
+    assert_eq!((ticket.name.as_str(), ticket.size), ("holiday.jpg", 3000));
+
+    let dest = dir.path().join("got");
+    let (client, server) = fetch(&h, file::prepare_for_ticket(&ticket).unwrap(), &dest).await;
+    client.unwrap();
+    server.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+
+    // The same ticket again, with a fresh KeyPackage: refused.
+    let again = dir.path().join("again");
+    let (client, server) = fetch(&h, file::prepare_for_ticket(&ticket).unwrap(), &again).await;
+    assert!(matches!(server, Err(Error::Unauthorized(_))), "{server:?}");
+    assert!(client.is_err());
+    assert!(!again.exists());
+}
+
+#[tokio::test]
+async fn a_wrong_secret_or_no_claim_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 100);
+    let (h, _) = host(64, false);
+    let mut ticket = ticket_for(&h, &path);
+    let real = ticket.secret;
+
+    ticket.secret[0] ^= 1;
+    let (_, server) = fetch(
+        &h,
+        file::prepare_for_ticket(&ticket).unwrap(),
+        &dir.path().join("a"),
+    )
+    .await;
+    assert!(matches!(server, Err(Error::Unauthorized(_))));
+
+    // A plain prepare (no claim) for a ticket offer.
+    let (_, server) = fetch(
+        &h,
+        file::prepare(&ticket.offer_id).unwrap(),
+        &dir.path().join("b"),
+    )
+    .await;
+    assert!(matches!(server, Err(Error::Unauthorized(_))));
+
+    // The failures did not burn the ticket: the real secret still works.
+    ticket.secret = real;
+    let (client, _) = fetch(
+        &h,
+        file::prepare_for_ticket(&ticket).unwrap(),
+        &dir.path().join("c"),
+    )
+    .await;
+    client.unwrap();
+}
+
+#[tokio::test]
+async fn of_two_simultaneous_ticket_holders_exactly_one_gets_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 20_000);
+    let (h, _) = host(1024, false);
+    let ticket = ticket_for(&h, &path);
+    let (dest_a, dest_b) = (dir.path().join("a"), dir.path().join("b"));
+    let (a, b) = tokio::join!(
+        fetch(&h, file::prepare_for_ticket(&ticket).unwrap(), &dest_a),
+        fetch(&h, file::prepare_for_ticket(&ticket).unwrap(), &dest_b),
+    );
+    let wins = [a.0.is_ok(), b.0.is_ok()];
+    assert_eq!(wins.iter().filter(|w| **w).count(), 1, "{wins:?}");
+}
+
+#[tokio::test]
+async fn a_commitment_offer_ignores_a_ticket_claim() {
+    // A downloader that sends a claim to an offer authorized by commitment is
+    // judged on its commitment alone (a claim never widens access).
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 100);
+    let (h, _) = host(64, false);
+    let offer = h.offer(&path).unwrap();
+    let addr = iroh::EndpointAddr::new(iroh::SecretKey::from_bytes(&[9; 32]).public());
+    let forged = file::Ticket::new(addr, &offer).unwrap();
+    h.authorize(
+        &offer.offer_id,
+        &file::prepare(&offer.offer_id).unwrap().commitment(),
+    );
+    let (_, server) = fetch(
+        &h,
+        file::prepare_for_ticket(&forged).unwrap(),
+        &dir.path().join("x"),
+    )
+    .await;
+    assert!(matches!(server, Err(Error::Unauthorized(_))));
+}

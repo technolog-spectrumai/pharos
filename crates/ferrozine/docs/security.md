@@ -13,6 +13,9 @@
 | A peer that connects and sends nothing, holding resources (and keeping `transfers_active` true) for ever | The request must arrive within 30 s; at most 16 connections are served at once; a transfer counts as active only once authorized | `a_connection_that_never_sends_its_request…`, `connections_beyond_the_cap…` |
 | A failed download destroys a file the user already had at that path | Only a file this transfer created is removed on failure | `a_download_that_fails_before_writing_leaves_an_existing_file_alone` |
 | A verified file thrown away because the final ack could not be delivered | The ack and stream close are best-effort once the file is verified | `a_verified_file_is_kept_when_its_ack_cannot_be_delivered` |
+| Someone else uses a ticket (link / QR) | A ticket is the authorization, so it must reach only the intended person; it works once — the first valid claim binds the offer to that KeyPackage, atomically — and the app can expire it | `a_ticket_holder_fetches_the_file_and_the_ticket_then_stops_working`, `of_two_simultaneous_ticket_holders…` |
+| A ticket claim replayed for another KeyPackage | The claim is keyed-BLAKE3 over the offer *and* the KeyPackage commitment | `a_claim_is_bound_to_secret_offer_and_keypackage` |
+| A wrong guess burns a real ticket | Failed claims change nothing | `a_wrong_secret_or_no_claim_is_refused` |
 | Linking one transfer to the next | Ephemeral endpoint identities by default | — |
 
 Not covered by ferrozine:

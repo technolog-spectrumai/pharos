@@ -37,6 +37,12 @@ file::download(&endpoint, addr, b"pumex/file/1", prepared, dest, true, Limits::E
 Offer ids, addresses and commitments must travel over a channel that is
 already authenticated — in Enigma, the room's own MLS group.
 
+Without one (Pumex), a `file::Ticket` is the channel: the host makes one per
+offer (`Ticket::new` + `FileHost::authorize_with_secret`) and shares its text
+as a link or QR code; the downloader `prepare_for_ticket`s and downloads. The
+ticket carries a one-time secret, and the first downloader to prove it is the
+only one admitted.
+
 ## Tests
 
 ```bash

@@ -139,3 +139,54 @@ async fn a_room_carries_mls_sealed_messages_between_two_endpoints() {
     ra.shutdown().await.unwrap();
     rb.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ticket_is_all_a_downloader_needs() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("notes.txt");
+    std::fs::write(&src, b"sealed end to end").unwrap();
+
+    let host_node = Node::bind(EndpointConfig::ephemeral(Relays::None))
+        .await
+        .unwrap();
+    let host = FileHost::new(
+        Limits::ENIGMA,
+        || HostSettings {
+            chunk_size: 64 * 1024,
+            integrity: true,
+        },
+        file::ignore_events(),
+    );
+    let router = Router::builder(host_node.endpoint.clone())
+        .accept(ALPN, host.clone())
+        .spawn();
+    let offer = host.offer(&src).unwrap();
+    let ticket = file::Ticket::new(host_node.endpoint.addr(), &offer).unwrap();
+    host.authorize_with_secret(&offer.offer_id, &ticket.secret);
+
+    // Only the ticket's text crosses to the other side.
+    let text = ticket.encode();
+    let got = file::Ticket::decode(&text).unwrap();
+    let dl = Node::bind(EndpointConfig::ephemeral(Relays::None))
+        .await
+        .unwrap();
+    let dest = dir.path().join("got.txt");
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        file::download(
+            &dl.endpoint,
+            got.addr.clone(),
+            ALPN,
+            file::prepare_for_ticket(&got).unwrap(),
+            &dest,
+            true,
+            Limits::ENIGMA,
+            file::ignore_events(),
+        ),
+    )
+    .await
+    .expect("timed out")
+    .unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), b"sealed end to end");
+    router.shutdown().await.unwrap();
+}

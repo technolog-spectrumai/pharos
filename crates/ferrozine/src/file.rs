@@ -168,6 +168,11 @@ struct Request {
     offer_id: String,
     key_package: String,
     want_integrity: bool,
+    /// Proof of the offer's one-time secret, for offers authorized by a
+    /// [`Ticket`]. Absent (and not serialized) otherwise, so a request is
+    /// byte-identical to what peers that predate tickets send and expect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    claim: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -291,9 +296,19 @@ struct OfferedFile {
     offer: Offer,
 }
 
+/// Who may fetch an offer.
+#[derive(Clone)]
+enum Authorization {
+    /// The downloader whose KeyPackage hashes to this commitment.
+    Commitment(String),
+    /// Whoever proves the ticket's one-time secret first — after which the
+    /// offer is bound to that downloader's commitment.
+    Secret([u8; 32]),
+}
+
 struct HostInner {
     offers: Mutex<HashMap<String, OfferedFile>>,
-    authorized: Mutex<HashMap<String, String>>,
+    authorized: Mutex<HashMap<String, Authorization>>,
     settings: Box<dyn Fn() -> HostSettings + Send + Sync>,
     observer: Observer,
     limits: Limits,
@@ -385,14 +400,57 @@ impl FileHost {
 
     /// Let the downloader whose KeyPackage hashes to `commitment` fetch `offer_id`.
     pub fn authorize(&self, offer_id: &str, commitment: &str) {
+        self.0.authorized.lock().expect("authorized lock").insert(
+            offer_id.to_owned(),
+            Authorization::Commitment(commitment.to_owned()),
+        );
+    }
+
+    /// Let whoever holds `secret` fetch `offer_id`, once: the first
+    /// downloader to prove it is bound to the offer, and nobody else is
+    /// admitted after. This is how a [`Ticket`] — a link or QR code — stands
+    /// in for an authenticated channel.
+    pub fn authorize_with_secret(&self, offer_id: &str, secret: &[u8; 32]) {
         self.0
             .authorized
             .lock()
             .expect("authorized lock")
-            .insert(offer_id.to_owned(), commitment.to_owned());
+            .insert(offer_id.to_owned(), Authorization::Secret(*secret));
     }
 
-    async fn wait_for_authorization(&self, offer_id: &str) -> Option<String> {
+    /// Check `commitment` (and, for a secret, `claim`) against the offer's
+    /// authorization. A valid secret claim rebinds the offer to `commitment`
+    /// in the same critical section, so two holders of one ticket cannot
+    /// both pass.
+    fn admit(&self, offer_id: &str, commitment: &str, claim: Option<&str>) -> Result<()> {
+        let mut map = self.0.authorized.lock().expect("authorized lock");
+        match map.get(offer_id) {
+            Some(Authorization::Commitment(c)) if c == commitment => Ok(()),
+            Some(Authorization::Commitment(_)) => Err(Error::Unauthorized(
+                "KeyPackage does not match the authorized peer".into(),
+            )),
+            Some(Authorization::Secret(secret)) => {
+                let claim = claim.ok_or_else(|| {
+                    Error::Unauthorized("this offer needs its link's secret".into())
+                })?;
+                if !claim_matches(secret, offer_id, commitment, claim) {
+                    return Err(Error::Unauthorized(
+                        "the link's secret does not match".into(),
+                    ));
+                }
+                map.insert(
+                    offer_id.to_owned(),
+                    Authorization::Commitment(commitment.to_owned()),
+                );
+                Ok(())
+            }
+            None => Err(Error::Unauthorized(format!(
+                "no peer was authorized for offer {offer_id}"
+            ))),
+        }
+    }
+
+    async fn wait_for_authorization(&self, offer_id: &str) -> Option<Authorization> {
         let wait = Duration::from_millis(self.0.authorize_wait_ms.load(Ordering::Relaxed));
         let deadline = tokio::time::Instant::now() + wait;
         loop {
@@ -462,18 +520,17 @@ impl FileHost {
             .ok_or_else(|| Error::Unauthorized(format!("unknown offer {}", req.offer_id)))?;
 
         // Authenticate before any metadata leaves.
-        let expected = self
-            .wait_for_authorization(&req.offer_id)
+        self.wait_for_authorization(&req.offer_id)
             .await
             .ok_or_else(|| {
                 Error::Unauthorized(format!("no peer was authorized for offer {}", req.offer_id))
             })?;
         let key_package = unb64(&req.key_package)?;
-        if pair::commitment(&key_package) != expected {
-            return Err(Error::Unauthorized(
-                "KeyPackage does not match the authorized peer".into(),
-            ));
-        }
+        self.admit(
+            &req.offer_id,
+            &pair::commitment(&key_package),
+            req.claim.as_deref(),
+        )?;
         // Counted from here: an authorized peer is a transfer, a stranger
         // probing the port is not.
         let _active = Active::new();
@@ -574,6 +631,7 @@ impl ProtocolHandler for FileHost {
 pub struct Prepared {
     offer_id: String,
     caller: Caller,
+    claim: Option<String>,
 }
 
 /// Make the KeyPackage for fetching `offer_id`. Send
@@ -583,7 +641,21 @@ pub fn prepare(offer_id: &str) -> Result<Prepared> {
     Ok(Prepared {
         offer_id: offer_id.to_owned(),
         caller: Caller::start(offer_id, "peer")?,
+        claim: None,
     })
+}
+
+/// Make the KeyPackage for fetching the offer a [`Ticket`] names, with the
+/// proof of the ticket's secret bound to it. Nothing needs sending first:
+/// [`download`] straight away.
+pub fn prepare_for_ticket(ticket: &Ticket) -> Result<Prepared> {
+    let mut prepared = prepare(&ticket.offer_id)?;
+    prepared.claim = Some(claim_for(
+        &ticket.secret,
+        &ticket.offer_id,
+        &prepared.commitment(),
+    ));
+    Ok(prepared)
 }
 
 impl Prepared {
@@ -668,6 +740,7 @@ where
         offer_id: offer_id.clone(),
         key_package: b64(prepared.caller.key_package()),
         want_integrity,
+        claim: prepared.claim.clone(),
     };
     write_control(send, &request).await?;
     let header: Header = read_control(recv).await?;
@@ -814,9 +887,174 @@ pub async fn download(
     result
 }
 
+// ── tickets ──────────────────────────────────────────────────────────────────
+
+const CLAIM_DOMAIN: &[u8] = b"ferrozine/file/claim/v1";
+
+/// `BLAKE3-keyed(secret, domain ‖ 0 ‖ offer_id ‖ 0 ‖ commitment)`, as hex.
+/// Binds the downloader's KeyPackage to the ticket: the secret alone, seen
+/// in a later request, cannot be replayed for another KeyPackage.
+fn claim_for(secret: &[u8; 32], offer_id: &str, commitment: &str) -> String {
+    claim_hash(secret, offer_id, commitment)
+        .to_hex()
+        .to_string()
+}
+
+fn claim_hash(secret: &[u8; 32], offer_id: &str, commitment: &str) -> blake3::Hash {
+    let mut h = blake3::Hasher::new_keyed(secret);
+    h.update(CLAIM_DOMAIN);
+    h.update(&[0]);
+    h.update(offer_id.as_bytes());
+    h.update(&[0]);
+    h.update(commitment.as_bytes());
+    h.finalize()
+}
+
+/// Constant-time: `blake3::Hash` equality does not short-circuit.
+fn claim_matches(secret: &[u8; 32], offer_id: &str, commitment: &str, claim: &str) -> bool {
+    blake3::Hash::from_hex(claim).is_ok_and(|c| c == claim_hash(secret, offer_id, commitment))
+}
+
+/// The ticket format version this crate writes and reads.
+pub const TICKET_VERSION: u8 = 1;
+/// The longest ticket text accepted (an address with relays is well under 1 KiB).
+pub const MAX_TICKET_CHARS: usize = 4096;
+
+/// Everything a downloader needs to fetch one offer: where the host is, which
+/// offer, and the one-time secret that authorizes it. As text (a link, a QR
+/// code) it *is* the authorization — whoever holds it first gets the file —
+/// so it must reach only the intended person, and it works once.
+///
+/// `name` and `size` are the host's description, for showing before the
+/// download; what arrives is checked against the host's header, not these.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ticket {
+    /// [`TICKET_VERSION`].
+    pub version: u8,
+    /// The host's dialable address.
+    pub addr: EndpointAddr,
+    /// The offer.
+    pub offer_id: String,
+    /// The one-time secret.
+    pub secret: [u8; 32],
+    /// The file's name, as the host describes it.
+    pub name: String,
+    /// Its size in bytes, as the host describes it.
+    pub size: u64,
+}
+
+impl std::fmt::Debug for Ticket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never the secret: a ticket in a log is a stolen file.
+        f.debug_struct("Ticket")
+            .field("offer_id", &self.offer_id)
+            .field("name", &self.name)
+            .field("size", &self.size)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Ticket {
+    /// A ticket for `offer` at `addr`, with a fresh secret. Authorize it on the
+    /// host with [`FileHost::authorize_with_secret`]`(&offer.offer_id, &ticket.secret)`.
+    pub fn new(addr: EndpointAddr, offer: &Offer) -> Result<Self> {
+        let mut secret = [0u8; 32];
+        getrandom::fill(&mut secret).map_err(|e| Error::Protocol(format!("no randomness: {e}")))?;
+        Ok(Self {
+            version: TICKET_VERSION,
+            addr,
+            offer_id: offer.offer_id.clone(),
+            secret,
+            name: offer.name.clone(),
+            size: offer.size,
+        })
+    }
+
+    /// Lowercase unpadded base32 of the postcard encoding.
+    pub fn encode(&self) -> String {
+        let bytes = postcard::to_stdvec(self).expect("postcard into a Vec is infallible");
+        let mut text = data_encoding::BASE32_NOPAD.encode(&bytes);
+        text.make_ascii_lowercase();
+        text
+    }
+
+    /// Decode [`encode`](Self::encode)'s output, in either case, surrounding
+    /// whitespace ignored.
+    pub fn decode(text: &str) -> Result<Self> {
+        let text = text.trim();
+        if text.len() > MAX_TICKET_CHARS {
+            return Err(Error::Decode("ticket too long".into()));
+        }
+        let bytes = data_encoding::BASE32_NOPAD
+            .decode(text.to_ascii_uppercase().as_bytes())
+            .map_err(|e| Error::Decode(format!("ticket: {e}")))?;
+        let ticket: Self =
+            postcard::from_bytes(&bytes).map_err(|e| Error::Decode(format!("ticket: {e}")))?;
+        if ticket.version != TICKET_VERSION {
+            return Err(Error::Decode(format!(
+                "unsupported ticket version {}",
+                ticket.version
+            )));
+        }
+        Ok(ticket)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ticket_round_trips_and_its_debug_hides_the_secret() {
+        let id = iroh::SecretKey::from_bytes(&[3; 32]).public();
+        let offer = Offer {
+            offer_id: "o-1".into(),
+            name: "a.pdf".into(),
+            size: 9,
+            mime: "application/pdf".into(),
+        };
+        let t = Ticket::new(EndpointAddr::new(id), &offer).unwrap();
+        assert_ne!(t.secret, [0; 32]);
+        assert_eq!(Ticket::decode(&t.encode()).unwrap(), t);
+        assert_eq!(
+            Ticket::decode(&format!(" {}\n", t.encode().to_ascii_uppercase())).unwrap(),
+            t
+        );
+        let shown = format!("{t:?}");
+        assert!(!shown.contains(&format!("{:?}", t.secret)) && !shown.contains("secret"));
+        assert!(Ticket::decode("junk!").is_err());
+        assert!(Ticket::decode(&"a".repeat(MAX_TICKET_CHARS + 1)).is_err());
+    }
+
+    #[test]
+    fn a_request_without_a_claim_is_byte_identical_to_the_v1_wire_format() {
+        // Enigma peers that predate tickets send exactly these three fields.
+        let r = Request {
+            offer_id: "o".into(),
+            key_package: "kp".into(),
+            want_integrity: true,
+            claim: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&r).unwrap(),
+            r#"{"offer_id":"o","key_package":"kp","want_integrity":true}"#
+        );
+        let old: Request =
+            serde_json::from_str(r#"{"offer_id":"o","key_package":"kp","want_integrity":false}"#)
+                .unwrap();
+        assert!(old.claim.is_none());
+    }
+
+    #[test]
+    fn a_claim_is_bound_to_secret_offer_and_keypackage() {
+        let (s, other) = ([1u8; 32], [2u8; 32]);
+        let c = claim_for(&s, "o", "kp1");
+        assert!(claim_matches(&s, "o", "kp1", &c));
+        assert!(!claim_matches(&other, "o", "kp1", &c), "another secret");
+        assert!(!claim_matches(&s, "o2", "kp1", &c), "another offer");
+        assert!(!claim_matches(&s, "o", "kp2", &c), "another KeyPackage");
+        assert!(!claim_matches(&s, "o", "kp1", "not hex"));
+    }
 
     #[test]
     fn mime_maps_known_extensions_and_defaults() {
