@@ -40,7 +40,7 @@ use bytes::Bytes;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rotor_core::RotorSession;
+use ferrozine::pair::{self, Caller, Channel};
 use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use iroh::endpoint::{Connection, RecvStream, SendStream};
@@ -282,11 +282,8 @@ fn emit_connected(app: &AppHandle, peer: &str, encrypted: bool) {
 
 // ── MLS-keyed media crypto ────────────────────────────────────────────────────
 
-fn b64(bytes: &[u8]) -> String {
-    data_encoding::BASE64.encode(bytes)
-}
 fn unb64(s: &str) -> Result<Vec<u8>> {
-    data_encoding::BASE64.decode(s.as_bytes()).map_err(|e| anyhow!("base64: {e}"))
+    pair::unb64(s).map_err(|e| anyhow!("{e}"))
 }
 
 /// Per-direction AEAD ciphers derived from the call's MLS exporter secret.
@@ -303,12 +300,12 @@ fn nonce_from_counter(counter: u64) -> [u8; 12] {
     n
 }
 
-/// Export two directional 256-bit keys from a freshly-joined MLS group and wrap
-/// them as ChaCha20-Poly1305 ciphers, assigned by role.
-fn derive_vox_keys(session: &RotorSession, call_id: &str, caller: bool) -> Result<VoxKeys> {
-    let ctx = call_id.as_bytes();
-    let c2s = session.export_secret("enigma/vox/c2s", ctx, 32).map_err(|e| anyhow!("export c2s: {e}"))?;
-    let s2c = session.export_secret("enigma/vox/s2c", ctx, 32).map_err(|e| anyhow!("export s2c: {e}"))?;
+/// Export two directional 256-bit keys from the call's pairwise MLS channel
+/// (bound to the call id, its context) and wrap them as ChaCha20-Poly1305
+/// ciphers, assigned by role.
+fn derive_vox_keys(channel: &Channel, caller: bool) -> Result<VoxKeys> {
+    let c2s = channel.export_secret("enigma/vox/c2s", 32).map_err(|e| anyhow!("export c2s: {e}"))?;
+    let s2c = channel.export_secret("enigma/vox/s2c", 32).map_err(|e| anyhow!("export s2c: {e}"))?;
     let mk = |k: &[u8]| ChaCha20Poly1305::new_from_slice(k).map_err(|e| anyhow!("cipher init: {e}"));
     let (c2s, s2c) = (mk(&c2s)?, mk(&s2c)?);
     Ok(if caller {
@@ -318,32 +315,32 @@ fn derive_vox_keys(session: &RotorSession, call_id: &str, caller: bool) -> Resul
     })
 }
 
-/// Callee side: form a 2-member MLS group from the caller's KeyPackage and return
-/// the base64 Welcome to send back plus our directional keys.
+// The handshake is ferrozine's pairwise channel (crates/ferrozine/src/pair.rs),
+// the same one file transfers use; these wrap it in the base64 the Hello and
+// Control frames carry.
+
+/// Callee side: form the two-member group from the caller's KeyPackage and
+/// return the base64 Welcome to send back plus our directional keys.
 fn mls_callee(call_id: &str, identity: &str, caller_kp_b64: &str) -> Result<(String, VoxKeys)> {
     let kp = unb64(caller_kp_b64)?;
-    let mut session = RotorSession::new(call_id.to_string(), identity.to_string())
-        .map_err(|e| anyhow!("mls new: {e}"))?;
-    session.create_group().map_err(|e| anyhow!("mls create_group: {e}"))?;
-    let (welcome, _commit) = session.add_member(&kp).map_err(|e| anyhow!("mls add_member: {e}"))?;
-    let keys = derive_vox_keys(&session, call_id, false)?;
-    Ok((b64(&welcome), keys))
+    let (channel, welcome) = pair::accept(call_id, identity, &kp).map_err(|e| anyhow!("{e}"))?;
+    let keys = derive_vox_keys(&channel, false)?;
+    Ok((pair::b64(&welcome), keys))
 }
 
-/// Caller side: fresh session + our KeyPackage (base64). The session is kept so we
-/// can join from the Welcome the callee returns.
-fn mls_caller_start(call_id: &str, identity: &str) -> Result<(RotorSession, String)> {
-    let mut session = RotorSession::new(call_id.to_string(), identity.to_string())
-        .map_err(|e| anyhow!("mls new: {e}"))?;
-    let kp = session.key_package().map_err(|e| anyhow!("mls key_package: {e}"))?;
-    Ok((session, b64(&kp)))
+/// Caller side: a fresh pairwise session and its KeyPackage (base64), kept
+/// until the callee's Welcome comes back.
+fn mls_caller_start(call_id: &str, identity: &str) -> Result<(Caller, String)> {
+    let caller = Caller::start(call_id, identity).map_err(|e| anyhow!("{e}"))?;
+    let kp = pair::b64(caller.key_package());
+    Ok((caller, kp))
 }
 
 /// Caller side: finish the handshake by joining from the Welcome and deriving keys.
-fn mls_caller_join(session: &mut RotorSession, welcome_b64: &str, call_id: &str) -> Result<VoxKeys> {
+fn mls_caller_join(caller: Caller, welcome_b64: &str) -> Result<VoxKeys> {
     let welcome = unb64(welcome_b64)?;
-    session.join_from_welcome(&welcome).map_err(|e| anyhow!("mls join: {e}"))?;
-    derive_vox_keys(session, call_id, true)
+    let channel = caller.join(&welcome).map_err(|e| anyhow!("{e}"))?;
+    derive_vox_keys(&channel, true)
 }
 
 // ── network policy ───────────────────────────────────────────────────────────
@@ -479,8 +476,8 @@ impl VoxShared {
         // Complete MLS if the callee could, otherwise fall back to transport.
         let mut keys: Option<VoxKeys> = None;
         if ctrl.can_mls && !ctrl.welcome.is_empty() {
-            if let Some((mut session, _)) = mls.take() {
-                match mls_caller_join(&mut session, &ctrl.welcome, &call_id) {
+            if let Some((caller, _)) = mls.take() {
+                match mls_caller_join(caller, &ctrl.welcome) {
                     Ok(k) => keys = Some(k),
                     Err(e) => eprintln!("[vox] caller MLS join failed — falling back to transport: {e}"),
                 }
@@ -1144,9 +1141,9 @@ mod tests {
     // tampering is rejected.
     #[test]
     fn mls_keyed_audio_round_trips_both_directions_and_rejects_tampering() {
-        let (mut caller_session, kp) = mls_caller_start("call-xyz", "alice").unwrap();
+        let (caller, kp) = mls_caller_start("call-xyz", "alice").unwrap();
         let (welcome, callee_keys) = mls_callee("call-xyz", "bob", &kp).unwrap();
-        let caller_keys = mls_caller_join(&mut caller_session, &welcome, "call-xyz").unwrap();
+        let caller_keys = mls_caller_join(caller, &welcome).unwrap();
 
         let frame = [0xABu8; FRAME_SAMPLES];
         let nonce = nonce_from_counter(7);
