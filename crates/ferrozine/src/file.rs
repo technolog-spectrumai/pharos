@@ -91,7 +91,18 @@ pub enum TransferEvent {
         /// This side's role.
         direction: Direction,
     },
-    /// Failed; the receiving side has removed its partial file.
+    /// A downloader was turned away before it was admitted to the offer — an
+    /// unknown offer, no authorization, the wrong KeyPackage or ticket secret.
+    /// Not the offer's transfer failing: the offer is still open for the
+    /// downloader it is meant for. Host side only.
+    Refused {
+        /// The offer the request named.
+        offer_id: String,
+        /// Why.
+        message: String,
+    },
+    /// The admitted transfer failed; the receiving side has removed its
+    /// partial file.
     Failed {
         /// The offer.
         offer_id: String,
@@ -488,11 +499,18 @@ impl FileHost {
             .await
             .map_err(|_| Error::Protocol("no request within the timeout".into()))??;
         let offer_id = req.offer_id.clone();
-        let result = self.serve_request(req, &mut recv, &mut send).await;
+        let mut admitted = false;
+        let result = self
+            .serve_request(req, &mut recv, &mut send, &mut admitted)
+            .await;
         let event = match &result {
             Ok(()) => TransferEvent::Done {
                 offer_id,
                 direction: Direction::Send,
+            },
+            Err(e) if !admitted => TransferEvent::Refused {
+                offer_id,
+                message: e.to_string(),
             },
             Err(e) => TransferEvent::Failed {
                 offer_id,
@@ -504,7 +522,13 @@ impl FileHost {
         result
     }
 
-    async fn serve_request<R, W>(&self, req: Request, recv: &mut R, send: &mut W) -> Result<()>
+    async fn serve_request<R, W>(
+        &self,
+        req: Request,
+        recv: &mut R,
+        send: &mut W,
+        admitted: &mut bool,
+    ) -> Result<()>
     where
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
@@ -531,6 +555,7 @@ impl FileHost {
             &pair::commitment(&key_package),
             req.claim.as_deref(),
         )?;
+        *admitted = true;
         // Counted from here: an authorized peer is a transfer, a stranger
         // probing the port is not.
         let _active = Active::new();

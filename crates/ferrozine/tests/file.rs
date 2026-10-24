@@ -137,10 +137,69 @@ async fn a_downloader_with_another_keypackage_is_refused_before_any_metadata() {
     assert!(matches!(server, Err(Error::Unauthorized(_))));
     assert!(client.is_err());
     assert!(!dest.exists(), "nothing written");
-    assert!(matches!(
-        log.lock().unwrap().last(),
-        Some(TransferEvent::Failed { .. })
-    ));
+    // A refusal, not the offer failing: it stays open for its real downloader.
+    let log = log.lock().unwrap();
+    assert!(
+        matches!(log.last(), Some(TransferEvent::Refused { .. })),
+        "{log:?}"
+    );
+    assert!(!log
+        .iter()
+        .any(|e| matches!(e, TransferEvent::Failed { .. })));
+}
+
+#[tokio::test]
+async fn a_failure_after_admission_is_a_failed_transfer_not_a_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 200_000);
+    let (h, log) = host(1000, false);
+    let offer = h.offer(&path).unwrap();
+    let prepared = file::prepare(&offer.offer_id).unwrap();
+    h.authorize(&offer.offer_id, &prepared.commitment());
+
+    // host → proxy → downloader; the proxy passes the header and one chunk,
+    // then drops both of its ends, so the host's next write fails.
+    let (host_w, mut proxy_r) = tokio::io::duplex(4096);
+    let (mut proxy_w, dl_r) = tokio::io::duplex(256 * 1024);
+    let (dl_w, host_r) = tokio::io::duplex(256 * 1024);
+    tokio::spawn(async move {
+        for _ in 0..2 {
+            let mut len = [0u8; 4];
+            proxy_r.read_exact(&mut len).await.unwrap();
+            let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
+            proxy_r.read_exact(&mut body).await.unwrap();
+            proxy_w.write_all(&len).await.unwrap();
+            proxy_w.write_all(&body).await.unwrap();
+        }
+    });
+    let h2 = h.clone();
+    let server = tokio::spawn(async move { h2.serve(host_r, host_w).await });
+    let client = file::receive(
+        prepared,
+        dl_r,
+        dl_w,
+        &dir.path().join("o"),
+        false,
+        LIMITS,
+        file::ignore_events(),
+    )
+    .await;
+    assert!(client.is_err());
+    assert!(server.await.unwrap().is_err());
+    let log = log.lock().unwrap();
+    assert!(
+        matches!(
+            log.last(),
+            Some(TransferEvent::Failed {
+                direction: Direction::Send,
+                ..
+            })
+        ),
+        "{log:?}"
+    );
+    assert!(!log
+        .iter()
+        .any(|e| matches!(e, TransferEvent::Refused { .. })));
 }
 
 #[tokio::test]
