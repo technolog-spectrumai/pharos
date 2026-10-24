@@ -312,10 +312,38 @@ struct OfferedFile {
 enum Authorization {
     /// The downloader whose KeyPackage hashes to this commitment.
     Commitment(String),
-    /// Whoever proves the ticket's one-time secret first — after which the
-    /// offer is bound to that downloader's commitment.
-    Secret([u8; 32]),
+    /// Whoever proves a ticket's secret. One downloader at a time is
+    /// admitted (`in_use`); if its transfer fails the offer is claimable
+    /// again, so a retry works; once one succeeds the offer is withdrawn.
+    Ticket {
+        secret: [u8; 32],
+        /// Unix seconds after which nobody is admitted. Wall-clock time, so a
+        /// machine that slept past it does not serve a link the UI already
+        /// shows as closed.
+        deadline: Option<u64>,
+        /// Whether a transfer under this ticket is running.
+        in_use: bool,
+    },
 }
+
+/// How a downloader was admitted, which decides what its outcome does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admitted {
+    No,
+    ByCommitment,
+    ByTicket,
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// Connections served at once for one remote endpoint. Anyone who has a
+/// ticket's address can dial it; this keeps one peer from holding every
+/// serving slot.
+pub const MAX_SERVES_PER_PEER: usize = 2;
 
 struct HostInner {
     offers: Mutex<HashMap<String, OfferedFile>>,
@@ -327,6 +355,8 @@ struct HostInner {
     authorize_wait_ms: AtomicU64,
     /// One permit per connection being served.
     serving: Arc<tokio::sync::Semaphore>,
+    /// Connections being served, per remote endpoint (iroh connections only).
+    per_peer: Mutex<HashMap<iroh::EndpointId, usize>>,
 }
 
 /// How long a connection may take to send its request. A peer that opens a
@@ -363,6 +393,7 @@ impl FileHost {
             limits,
             authorize_wait_ms: AtomicU64::new(20_000),
             serving: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_SERVES)),
+            per_peer: Mutex::default(),
         }))
     }
 
@@ -417,30 +448,75 @@ impl FileHost {
         );
     }
 
-    /// Let whoever holds `secret` fetch `offer_id`, once: the first
-    /// downloader to prove it is bound to the offer, and nobody else is
-    /// admitted after. This is how a [`Ticket`] — a link or QR code — stands
-    /// in for an authenticated channel.
+    /// Let whoever holds `secret` fetch `offer_id`, once. This is how a
+    /// [`Ticket`] — a link or QR code — stands in for an authenticated
+    /// channel:
+    ///
+    /// - one downloader at a time is admitted, and only by proving the secret;
+    /// - if its transfer fails, the offer is claimable again (a retry works);
+    /// - once a transfer succeeds, the offer and its authorization are
+    ///   withdrawn: the ticket never works again.
     pub fn authorize_with_secret(&self, offer_id: &str, secret: &[u8; 32]) {
-        self.0
+        self.authorize_ticket(offer_id, secret, None);
+    }
+
+    /// [`authorize_with_secret`](Self::authorize_with_secret), refusing
+    /// everyone after `deadline` (Unix seconds, wall clock).
+    pub fn authorize_with_secret_until(&self, offer_id: &str, secret: &[u8; 32], deadline: u64) {
+        self.authorize_ticket(offer_id, secret, Some(deadline));
+    }
+
+    fn authorize_ticket(&self, offer_id: &str, secret: &[u8; 32], deadline: Option<u64>) {
+        self.0.authorized.lock().expect("authorized lock").insert(
+            offer_id.to_owned(),
+            Authorization::Ticket {
+                secret: *secret,
+                deadline,
+                in_use: false,
+            },
+        );
+    }
+
+    /// What a ticket offer's outcome does: success withdraws it (one-time),
+    /// failure makes it claimable again.
+    fn ticket_finished(&self, offer_id: &str, success: bool) {
+        if success {
+            self.cancel(offer_id);
+        } else if let Some(Authorization::Ticket { in_use, .. }) = self
+            .0
             .authorized
             .lock()
             .expect("authorized lock")
-            .insert(offer_id.to_owned(), Authorization::Secret(*secret));
+            .get_mut(offer_id)
+        {
+            *in_use = false;
+        }
     }
 
     /// Check `commitment` (and, for a secret, `claim`) against the offer's
     /// authorization. A valid secret claim rebinds the offer to `commitment`
     /// in the same critical section, so two holders of one ticket cannot
     /// both pass.
-    fn admit(&self, offer_id: &str, commitment: &str, claim: Option<&str>) -> Result<()> {
+    fn admit(&self, offer_id: &str, commitment: &str, claim: Option<&str>) -> Result<Admitted> {
         let mut map = self.0.authorized.lock().expect("authorized lock");
-        match map.get(offer_id) {
-            Some(Authorization::Commitment(c)) if c == commitment => Ok(()),
+        match map.get_mut(offer_id) {
+            Some(Authorization::Commitment(c)) if c == commitment => Ok(Admitted::ByCommitment),
             Some(Authorization::Commitment(_)) => Err(Error::Unauthorized(
                 "KeyPackage does not match the authorized peer".into(),
             )),
-            Some(Authorization::Secret(secret)) => {
+            Some(Authorization::Ticket {
+                secret,
+                deadline,
+                in_use,
+            }) => {
+                if deadline.is_some_and(|d| unix_now() >= d) {
+                    return Err(Error::Unauthorized("this link has expired".into()));
+                }
+                if *in_use {
+                    return Err(Error::Unauthorized(
+                        "this link is being used right now".into(),
+                    ));
+                }
                 let claim = claim.ok_or_else(|| {
                     Error::Unauthorized("this offer needs its link's secret".into())
                 })?;
@@ -449,11 +525,8 @@ impl FileHost {
                         "the link's secret does not match".into(),
                     ));
                 }
-                map.insert(
-                    offer_id.to_owned(),
-                    Authorization::Commitment(commitment.to_owned()),
-                );
-                Ok(())
+                *in_use = true;
+                Ok(Admitted::ByTicket)
             }
             None => Err(Error::Unauthorized(format!(
                 "no peer was authorized for offer {offer_id}"
@@ -499,16 +572,19 @@ impl FileHost {
             .await
             .map_err(|_| Error::Protocol("no request within the timeout".into()))??;
         let offer_id = req.offer_id.clone();
-        let mut admitted = false;
+        let mut admitted = Admitted::No;
         let result = self
             .serve_request(req, &mut recv, &mut send, &mut admitted)
             .await;
+        if admitted == Admitted::ByTicket {
+            self.ticket_finished(&offer_id, result.is_ok());
+        }
         let event = match &result {
             Ok(()) => TransferEvent::Done {
                 offer_id,
                 direction: Direction::Send,
             },
-            Err(e) if !admitted => TransferEvent::Refused {
+            Err(e) if admitted == Admitted::No => TransferEvent::Refused {
                 offer_id,
                 message: e.to_string(),
             },
@@ -527,7 +603,7 @@ impl FileHost {
         req: Request,
         recv: &mut R,
         send: &mut W,
-        admitted: &mut bool,
+        admitted: &mut Admitted,
     ) -> Result<()>
     where
         R: AsyncRead + Unpin,
@@ -550,12 +626,11 @@ impl FileHost {
                 Error::Unauthorized(format!("no peer was authorized for offer {}", req.offer_id))
             })?;
         let key_package = unb64(&req.key_package)?;
-        self.admit(
+        *admitted = self.admit(
             &req.offer_id,
             &pair::commitment(&key_package),
             req.claim.as_deref(),
         )?;
-        *admitted = true;
         // Counted from here: an authorized peer is a transfer, a stranger
         // probing the port is not.
         let _active = Active::new();
@@ -640,10 +715,26 @@ impl FileHost {
 
 impl ProtocolHandler for FileHost {
     async fn accept(&self, conn: Connection) -> std::result::Result<(), AcceptError> {
+        let peer = conn.remote_id();
+        {
+            let mut per_peer = self.0.per_peer.lock().expect("per-peer lock");
+            let n = per_peer.entry(peer).or_insert(0);
+            if *n >= MAX_SERVES_PER_PEER {
+                return Ok(());
+            }
+            *n += 1;
+        }
         // Errors before the request names an offer have no one to report to;
         // after that, `serve` has reported them.
         if let Ok((send, recv)) = conn.accept_bi().await {
             let _ = self.serve(recv, send).await;
+        }
+        let mut per_peer = self.0.per_peer.lock().expect("per-peer lock");
+        if let Some(n) = per_peer.get_mut(&peer) {
+            *n -= 1;
+            if *n == 0 {
+                per_peer.remove(&peer);
+            }
         }
         Ok(())
     }

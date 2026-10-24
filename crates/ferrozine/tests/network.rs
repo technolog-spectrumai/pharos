@@ -190,3 +190,49 @@ async fn a_ticket_is_all_a_downloader_needs() {
     assert_eq!(std::fs::read(&dest).unwrap(), b"sealed end to end");
     router.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_peer_cannot_hold_more_than_its_share_of_serving_slots() {
+    let host_node = Node::bind(EndpointConfig::ephemeral(Relays::None))
+        .await
+        .unwrap();
+    let host = FileHost::new(
+        Limits::ENIGMA,
+        || HostSettings {
+            chunk_size: 64 * 1024,
+            integrity: false,
+        },
+        file::ignore_events(),
+    );
+    let router = Router::builder(host_node.endpoint.clone())
+        .accept(ALPN, host.clone())
+        .spawn();
+    let peer = Node::bind(EndpointConfig::ephemeral(Relays::None))
+        .await
+        .unwrap();
+    let addr = host_node.endpoint.addr();
+
+    // MAX_SERVES_PER_PEER idle connections, each with a stream that sends
+    // nothing, hold their slots…
+    let mut idle = Vec::new();
+    for _ in 0..file::MAX_SERVES_PER_PEER {
+        let conn = peer.endpoint.connect(addr.clone(), ALPN).await.unwrap();
+        let (mut send, recv) = conn.open_bi().await.unwrap();
+        send.write_all(&[]).await.unwrap();
+        idle.push((conn, send, recv));
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // …so the next one from the same peer is dropped at once.
+    let conn = peer.endpoint.connect(addr, ALPN).await.unwrap();
+    let (mut send, mut recv) = conn.open_bi().await.unwrap();
+    let _ = send.write_all(&1u32.to_le_bytes()).await;
+    let mut buf = [0u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(5), recv.read(&mut buf)).await;
+    assert!(
+        matches!(read, Ok(Err(_)) | Ok(Ok(None)) | Ok(Ok(Some(0)))),
+        "the extra connection was served: {read:?}"
+    );
+    drop(idle);
+    router.shutdown().await.unwrap();
+}

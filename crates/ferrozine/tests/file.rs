@@ -679,3 +679,155 @@ async fn a_commitment_offer_ignores_a_ticket_claim() {
     .await;
     assert!(matches!(server, Err(Error::Unauthorized(_))));
 }
+
+// ── ticket lifecycle: retry after failure, one at a time, wall-clock expiry ───
+
+/// Fetch through a proxy that passes `frames` host→downloader frames and then
+/// drops the connection.
+async fn fetch_cut_after(
+    h: &FileHost,
+    prepared: file::Prepared,
+    dest: &Path,
+    frames: usize,
+) -> ferrozine::Result<()> {
+    let (host_w, mut proxy_r) = tokio::io::duplex(4096);
+    let (mut proxy_w, dl_r) = tokio::io::duplex(256 * 1024);
+    let (dl_w, host_r) = tokio::io::duplex(256 * 1024);
+    tokio::spawn(async move {
+        for _ in 0..frames {
+            let mut len = [0u8; 4];
+            if proxy_r.read_exact(&mut len).await.is_err() {
+                return;
+            }
+            let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
+            proxy_r.read_exact(&mut body).await.unwrap();
+            proxy_w.write_all(&len).await.unwrap();
+            proxy_w.write_all(&body).await.unwrap();
+        }
+    });
+    let h2 = h.clone();
+    let server = tokio::spawn(async move { h2.serve(host_r, host_w).await });
+    let client = file::receive(
+        prepared,
+        dl_r,
+        dl_w,
+        dest,
+        false,
+        LIMITS,
+        file::ignore_events(),
+    )
+    .await;
+    let _ = server.await;
+    client
+}
+
+#[tokio::test]
+async fn a_ticket_transfer_cut_short_can_be_retried_with_the_same_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, bytes) = write_file(dir.path(), "big.bin", 200_000);
+    let (h, _) = host(1000, false);
+    let ticket = ticket_for(&h, &path);
+    let dest = dir.path().join("got");
+    assert!(
+        fetch_cut_after(&h, file::prepare_for_ticket(&ticket).unwrap(), &dest, 3)
+            .await
+            .is_err()
+    );
+    // The receiver's network came back: same link, fresh KeyPackage.
+    let (client, server) = fetch(&h, file::prepare_for_ticket(&ticket).unwrap(), &dest).await;
+    client.unwrap();
+    server.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn while_a_ticket_transfer_runs_a_second_holder_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 500_000);
+    let (h, log) = host(1000, false);
+    let ticket = ticket_for(&h, &path);
+
+    // The first downloader is admitted, then stalls: its proxy stops reading
+    // after the header, so the host blocks mid-file with the ticket in use.
+    let (host_w, mut proxy_r) = tokio::io::duplex(1024);
+    let (mut proxy_w, dl_r) = tokio::io::duplex(256 * 1024);
+    let (dl_w, host_r) = tokio::io::duplex(256 * 1024);
+    let stall = tokio::spawn(async move {
+        let mut len = [0u8; 4];
+        proxy_r.read_exact(&mut len).await.unwrap();
+        let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
+        proxy_r.read_exact(&mut body).await.unwrap();
+        proxy_w.write_all(&len).await.unwrap();
+        proxy_w.write_all(&body).await.unwrap();
+        std::future::pending::<()>().await;
+        drop((proxy_r, proxy_w));
+    });
+    let h2 = h.clone();
+    tokio::spawn(async move { h2.serve(host_r, host_w).await });
+    let first = file::prepare_for_ticket(&ticket).unwrap();
+    let dest1 = dir.path().join("one");
+    tokio::spawn(async move {
+        file::receive(
+            first,
+            dl_r,
+            dl_w,
+            &dest1,
+            false,
+            LIMITS,
+            file::ignore_events(),
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let (_, server) = fetch(
+        &h,
+        file::prepare_for_ticket(&ticket).unwrap(),
+        &dir.path().join("two"),
+    )
+    .await;
+    assert!(
+        matches!(&server, Err(Error::Unauthorized(m)) if m.contains("being used")),
+        "{server:?}"
+    );
+    assert!(log
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e, TransferEvent::Refused { .. })));
+    stall.abort();
+}
+
+#[tokio::test]
+async fn a_ticket_past_its_wall_clock_deadline_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _) = write_file(dir.path(), "f", 10);
+    let (h, _) = host(64, false);
+    let offer = h.offer(&path).unwrap();
+    let addr = iroh::EndpointAddr::new(iroh::SecretKey::from_bytes(&[9; 32]).public());
+    let ticket = file::Ticket::new(addr, &offer).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    h.authorize_with_secret_until(&offer.offer_id, &ticket.secret, now - 1);
+    let (_, server) = fetch(
+        &h,
+        file::prepare_for_ticket(&ticket).unwrap(),
+        &dir.path().join("x"),
+    )
+    .await;
+    assert!(
+        matches!(&server, Err(Error::Unauthorized(m)) if m.contains("expired")),
+        "{server:?}"
+    );
+    // And one still inside its deadline is served.
+    h.authorize_with_secret_until(&offer.offer_id, &ticket.secret, now + 600);
+    let (client, _) = fetch(
+        &h,
+        file::prepare_for_ticket(&ticket).unwrap(),
+        &dir.path().join("y"),
+    )
+    .await;
+    client.unwrap();
+}
