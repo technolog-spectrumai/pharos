@@ -54,6 +54,9 @@ check_system_libs() {
     pkg-config --exists "$pkg" 2>/dev/null \
       || echo "    WARNING: $pkg not found — install libwebkit2gtk-4.1-dev libsoup-3.0-dev"
   done
+  # Enigma's calls (cpal) link ALSA; without it alsa-sys panics mid-build.
+  pkg-config --exists alsa 2>/dev/null \
+    || echo "    WARNING: alsa not found — install libasound2-dev (Enigma)"
 }
 
 # ── snap ────────────────────────────────────────────────────────────────────
