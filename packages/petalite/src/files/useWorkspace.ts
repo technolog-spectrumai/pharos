@@ -98,6 +98,11 @@ function fs(): FileBackend {
 /** The root the backend has been told to open, so it is told once per root. */
 let openedRoot = "";
 
+/** Which refresh is the latest. Two can overlap (the panel's root watcher and
+ *  an explicit one), and only the newest may set the outcome: an older one
+ *  finishing late must not paint "unreadable" over a listing that succeeded. */
+let refreshSeq = 0;
+
 /** An entry placed in the tree: same fields, plus how deep it sits. */
 export interface Row extends Entry {
   depth: number;
@@ -374,6 +379,7 @@ export function useWorkspace() {
    *  walked into again — the row it hung under is already gone. */
   async function refresh(): Promise<void> {
     if (!root.value || !isTauri()) return;
+    const seq = ++refreshSeq;
     loading.value = true;
     error.value = "";
     children.value = new Map();
@@ -391,6 +397,7 @@ export function useWorkspace() {
         }
       }
       await read(root.value);
+      if (seq !== refreshSeq) return;
       unreadable.value = false;
       const open = [...expanded.value].sort((a, b) => a.length - b.length);
       for (const dir of open) {
@@ -408,11 +415,12 @@ export function useWorkspace() {
       // as a message over a stale listing: the tree that was on screen belongs
       // to a folder this run can no longer read, and showing it would invite
       // clicking a row that cannot be opened.
+      if (seq !== refreshSeq) return;
       error.value = (err as Error)?.message ?? String(err);
       unreadable.value = true;
       expanded.value = new Set();
     } finally {
-      loading.value = false;
+      if (seq === refreshSeq) loading.value = false;
     }
   }
 
