@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OyaIconButton } from "rakotis";
+import { OyaIconButton } from "petalite/primitives";
 import type { P2pRoomEntry } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 

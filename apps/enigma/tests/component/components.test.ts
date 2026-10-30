@@ -1,16 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
-import {
-  OyaButton,
-  OyaCard,
-  OyaIconButton,
-  OyaBadge,
-  OyaAvatar,
-  OyaTextField,
-  OyaTextArea,
-  OyaCopyField,
-  OyaQrCode,
-} from "rakotis";
+import { OyaButton, OyaCard, OyaIconButton, OyaBadge, OyaAvatar, OyaTextField, OyaTextArea, OyaCopyField, OyaQrCode } from "petalite/primitives";
 import ChatBubble from "../../src/components/ChatBubble.vue";
 import type { Message } from "../../src/stores/chat";
 import { i18n } from "../../src/i18n";

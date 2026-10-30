@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OyaButton } from "rakotis";
+import { OyaButton } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 import SavedRoomsList from "./SavedRoomsList.vue";

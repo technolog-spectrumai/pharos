@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { OyaAvatar, formatTime } from "rakotis";
+import { formatTime } from "rakotis";
+import { OyaAvatar } from "petalite/primitives";
 import type { Message } from "../stores/chat";
 
 defineProps<{ message: Message }>();

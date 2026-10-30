@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaButton, getBuildConfig } from "rakotis";
+import { getBuildConfig } from "rakotis";
+import { OyaButton } from "petalite/primitives";
 import { useChatStore } from "../../stores/chat";
 import { useNetworkStore } from "../../stores/network";
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick, ref } from "vue";
-import { OyaModal } from "rakotis";
+import { OyaModal } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import { i18n } from "../../src/i18n";
 import ChatPanel from "../../src/components/ChatPanel.vue";

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaButton, OyaTextArea, OyaHpPrice, formatRemaining, messageActionId } from "rakotis";
+import { OyaHpPrice, formatRemaining, messageActionId } from "rakotis";
+import { OyaButton, OyaTextArea } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
 import EmojiPicker from "./EmojiPicker.vue";

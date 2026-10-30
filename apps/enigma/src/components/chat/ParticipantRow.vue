@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { OyaAvatar, OyaBadge, formatRemaining } from "rakotis";
+import { formatRemaining } from "rakotis";
+import { OyaAvatar, OyaBadge } from "petalite/primitives";
 import type { Participant } from "rakotis";
 
 // `canModerate` = the local user is the room captain and this row is not them —

@@ -15,11 +15,8 @@ import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
 import { useIdleLock, useHideLock, type IdleLockHandle, type HideLockHandle } from "./idleLock";
 import { isTabVisible, loadTabVisibility } from "./tabs";
-import {
-  OyaButton, OyaTextField, getBuildConfig, getIdleLockMins, getLockOnHide, isTauri,
-  vaultStatus, vaultSetup, vaultUnlock, vaultLock, vaultTouch,
-  vaultPinStatus, vaultPinUnlock,
-} from "rakotis";
+import { getBuildConfig, getIdleLockMins, getLockOnHide, isTauri, vaultStatus, vaultSetup, vaultUnlock, vaultLock, vaultTouch, vaultPinStatus, vaultPinUnlock } from "rakotis";
+import { OyaButton, OyaTextField } from "petalite/primitives";
 
 // The PIN keypad is a build feature. Used only behind the build-time literal,
 // so a build without `pin_unlock` does not carry it; the gate never reaches

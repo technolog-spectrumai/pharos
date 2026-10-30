@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { OyaEmptyState } from "rakotis";
+import { OyaEmptyState } from "petalite/primitives";
 import type { ChatChannel, Participant } from "rakotis";
 import ParticipantRow from "./ParticipantRow.vue";
 import ModerateMemberModal from "./ModerateMemberModal.vue";

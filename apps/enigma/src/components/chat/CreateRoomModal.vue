@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { OyaModal, OyaTextField, getUseTor } from "rakotis";
+import { getUseTor } from "rakotis";
+import { OyaModal, OyaTextField } from "petalite/primitives";
 import RoomShareCard from "./RoomShareCard.vue";
 import type { P2pRoomsController } from "./useP2pRooms";
 

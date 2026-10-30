@@ -6,7 +6,8 @@
 // never the outcome. Low-cost actions never reach this component at all, which is
 // the point: a budget that interrupts constantly is one people click through
 // without reading.
-import { OyaModal, formatPrice } from "rakotis";
+import { formatPrice } from "rakotis";
+import { OyaModal } from "petalite/primitives";
 import { hpConfirm, resolveHpConfirm } from "./useHp";
 </script>
 

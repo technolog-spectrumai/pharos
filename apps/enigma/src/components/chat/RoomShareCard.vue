@@ -37,19 +37,8 @@
 
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  OyaCopyField,
-  OyaHpPrice,
-  OyaQrCode,
-  OyaTextField,
-  formatHp,
-  getBuildConfig,
-  invoke,
-  isTauri,
-  listContacts,
-  inviteActionId,
-  type ContactEntry,
-} from "rakotis";
+import { OyaHpPrice, formatHp, getBuildConfig, invoke, isTauri, listContacts, inviteActionId, type ContactEntry } from "rakotis";
+import { OyaCopyField, OyaQrCode, OyaTextField } from "petalite/primitives";
 import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from "../hp/useHp";
 
 const props = defineProps<{

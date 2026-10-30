@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
-import { OyaButton, OyaEmptyState } from "rakotis";
+import { OyaButton, OyaEmptyState } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import ChatBubble from "../ChatBubble.vue";
 

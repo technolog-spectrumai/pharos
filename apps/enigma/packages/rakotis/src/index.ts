@@ -41,29 +41,11 @@ export {
 export type { DateStyle, DateInput } from "./i18n/dateFormat";
 export type { ChatTranslator } from "./i18n/chatText";
 
-// ── UI components (Oya primitives) ────────────────────────────────────────────
-// Explicit single-level re-exports (NOT `export *` through a sub-barrel): WebKit's
-// JavaScriptCore fails to resolve a two-level `export * → export { default as … }`
-// chain in unbundled dev ESM ("Importing binding name 'X' is not found"), even
-// though bundlers flatten it fine. Keep these direct.
-//
-// Five of them are not rakotis's any more: the button, icon button, text field,
-// QR code and modal are what Morion uses too, so they live in Rutile's petalite
-// and are re-exported here by PATH — to the .vue file itself, for the reason
-// above, and not through the `petalite/…` alias, whose `.vue` rule points at
-// petalite's components directory.
-export { default as OyaButton } from "../../../../../packages/petalite/src/primitives/OyaButton.vue";
-export { default as OyaCard } from "./components/primitives/OyaCard.vue";
-export { default as OyaIconButton } from "../../../../../packages/petalite/src/primitives/OyaIconButton.vue";
-export { default as OyaTextField } from "../../../../../packages/petalite/src/primitives/OyaTextField.vue";
-export { default as OyaTextArea } from "./components/primitives/OyaTextArea.vue";
-export { default as OyaBadge } from "./components/primitives/OyaBadge.vue";
-export { default as OyaCopyField } from "./components/primitives/OyaCopyField.vue";
-export { default as OyaQrCode } from "../../../../../packages/petalite/src/primitives/OyaQrCode.vue";
-export { default as OyaAvatar } from "./components/primitives/OyaAvatar.vue";
-export { default as OyaEmptyState } from "./components/primitives/OyaEmptyState.vue";
-export { default as OyaSectionHeader } from "./components/primitives/OyaSectionHeader.vue";
-export { default as OyaModal } from "../../../../../packages/petalite/src/primitives/OyaModal.vue";
+// ── UI components ─────────────────────────────────────────────────────────────
+// The Oya primitives are petalite's (petalite/primitives); only the two that
+// read enigma's Privacy HP price table stay here. Explicit single-level
+// re-exports (NOT `export *` through a sub-barrel): WebKit's JavaScriptCore
+// fails to resolve a two-level chain in unbundled dev ESM.
 export { default as OyaHpPrice } from "./components/primitives/OyaHpPrice.vue";
 export { default as OyaHpMeter } from "./components/primitives/OyaHpMeter.vue";
 

@@ -3,7 +3,8 @@
 // Accept/Decline here (the "act in the Calendar tab" side of a chat invite);
 // the organizer gets Edit/Cancel plus the attendee roster.
 import { computed } from "vue";
-import { OyaBadge, formatDate, formatTime } from "rakotis";
+import { formatDate, formatTime } from "rakotis";
+import { OyaBadge } from "petalite/primitives";
 import type { Meeting } from "./meetingModel";
 
 const props = defineProps<{ meeting: Meeting }>();

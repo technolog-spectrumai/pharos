@@ -2,7 +2,8 @@
 // The selected day's meetings + the next few upcoming ones. Row actions
 // (RSVP / edit / cancel / remove) bubble up to the view.
 import { computed } from "vue";
-import { OyaCard, OyaEmptyState, formatDate, formatTime } from "rakotis";
+import { formatDate, formatTime } from "rakotis";
+import { OyaCard, OyaEmptyState } from "petalite/primitives";
 import MeetingRow from "./MeetingRow.vue";
 import { dayKey, meetingsOnDay, upcoming, type Meeting } from "./meetingModel";
 

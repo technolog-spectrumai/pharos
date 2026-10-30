@@ -3,7 +3,8 @@
 // event dots per day, click a day to select it (drives DayEventsPanel).
 // Filled dots = scheduled meetings; hollow dots = open-poll proposed slots.
 import { computed, ref } from "vue";
-import { OyaCard, formatDate } from "rakotis";
+import { formatDate } from "rakotis";
+import { OyaCard } from "petalite/primitives";
 import { dayKey, monthGrid, type Meeting, type MeetingPoll } from "./meetingModel";
 
 const props = defineProps<{ meetings: Meeting[]; polls?: MeetingPoll[]; modelValue: Date }>();

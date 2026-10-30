@@ -7,35 +7,8 @@
 // chat tab (create/info modals); here inviting is person-first.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import {
-  OyaCard,
-  OyaButton,
-  OyaModal,
-  OyaTextField,
-  OyaQrCode,
-  OyaCopyField,
-  listContacts,
-  upsertContact,
-  renameContact,
-  removeContact,
-  touchContact,
-  dhtPresence,
-  dhtFindNick,
-  getDhtDiscovery,
-  getUseTor,
-  getDhtPresencePollSecs,
-  getDhtNickPublish,
-  setDhtNickPublish,
-  getDhtNickname,
-  setDhtNickname,
-  DHT_NICKNAME_MAX_LEN,
-  getBuildConfig,
-  invoke,
-  type ContactEntry,
-  type P2pRoomEntry,
-  type NickClaim,
-  formatDate,
-} from "rakotis";
+import { listContacts, upsertContact, renameContact, removeContact, touchContact, dhtPresence, dhtFindNick, getDhtDiscovery, getUseTor, getDhtPresencePollSecs, getDhtNickPublish, setDhtNickPublish, getDhtNickname, setDhtNickname, DHT_NICKNAME_MAX_LEN, getBuildConfig, invoke, type ContactEntry, type P2pRoomEntry, type NickClaim, formatDate } from "rakotis";
+import { OyaCard, OyaButton, OyaModal, OyaTextField, OyaQrCode, OyaCopyField } from "petalite/primitives";
 import { chargeHp, confirmHp, recoverHp } from "../components/hp/useHp";
 import { useChatStore } from "../stores/chat";
 import { isTabVisible } from "../tabs";

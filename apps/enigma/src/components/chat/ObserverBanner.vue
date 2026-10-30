@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { OyaButton } from "rakotis";
+import { OyaButton } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 
 const props = defineProps<{ channel: ChatChannel }>();
