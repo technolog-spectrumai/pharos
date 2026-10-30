@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { OyaButton, OyaIconButton } from "rakotis";
+import { OyaButton, OyaIconButton } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 import RoomsSidebar from "./RoomsSidebar.vue";

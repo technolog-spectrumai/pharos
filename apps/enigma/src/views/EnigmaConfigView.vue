@@ -65,9 +65,9 @@ import {
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
-import { OyaCard } from "rakotis";
-import { OyaButton } from "rakotis";
-import { OyaModal, OyaTextField } from "rakotis";
+import { OyaCard } from "petalite/primitives";
+import { OyaButton } from "petalite/primitives";
+import { OyaModal, OyaTextField } from "petalite/primitives";
 import { OyaHpPrice, formatHp } from "rakotis";
 
 // Price badges show what the NEXT tap would cost, so they flip with the switch —

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OyaIconButton } from "rakotis";
+import { OyaIconButton } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import RoomStatusBar from "./RoomStatusBar.vue";
 

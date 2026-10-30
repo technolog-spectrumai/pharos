@@ -9,15 +9,8 @@
 // keeps no state — it reads the same sources everything else does.
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import {
-  OyaAvatar,
-  OyaCard,
-  getBuildConfig,
-  getOfflineProfile,
-  getRuntimeConfig,
-  type AppRuntimeConfig,
-  type OfflineProfile,
-} from "rakotis";
+import { getBuildConfig, getOfflineProfile, getRuntimeConfig, type AppRuntimeConfig, type OfflineProfile } from "rakotis";
+import { OyaAvatar, OyaCard } from "petalite/primitives";
 import { brand } from "../config/app";
 import HpPanel from "../components/hp/HpPanel.vue";
 import { PRIVACY_PATH } from "../tabs";

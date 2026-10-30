@@ -20,7 +20,7 @@
 //    larger than the rendered video, and on a narrow phone that rejection is a camera
 //    that never opens at all.
 import { ref, watch, nextTick, onUnmounted } from "vue";
-import { OyaModal } from "rakotis";
+import { OyaModal } from "petalite/primitives";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ "update:open": [boolean]; decoded: [string] }>();

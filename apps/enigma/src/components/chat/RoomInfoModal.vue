@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { OyaModal, RULES_MAX_CHARS } from "rakotis";
+import { RULES_MAX_CHARS } from "rakotis";
+import { OyaModal } from "petalite/primitives";
 import RoomShareCard from "./RoomShareCard.vue";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";

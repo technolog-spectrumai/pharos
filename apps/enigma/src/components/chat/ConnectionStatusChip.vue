@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { OyaBadge } from "rakotis";
+import { OyaBadge } from "petalite/primitives";
 import type { WsStatus } from "rakotis";
 
 type BadgeTone = "neutral" | "success" | "warn" | "muted" | "pulse";

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { OyaModal } from "rakotis";
+import { OyaModal } from "petalite/primitives";
 import type { P2pRoomsController } from "./useP2pRooms";
 
 const props = defineProps<{ open: boolean; controller: P2pRoomsController }>();

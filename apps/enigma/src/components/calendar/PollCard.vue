@@ -4,7 +4,8 @@
 // "Schedule this time" + "Cancel poll" controls. Expiry is derived at render
 // time from the stored deadline (pollExpired) — no timer.
 import { computed } from "vue";
-import { OyaBadge, formatDate, formatTime } from "rakotis";
+import { formatDate, formatTime } from "rakotis";
+import { OyaBadge } from "petalite/primitives";
 import { pollExpired, tallyPoll, type MeetingPoll, type PollVoteChoice } from "./meetingModel";
 
 const props = defineProps<{ poll: MeetingPoll }>();

@@ -8,7 +8,7 @@
 // watcher tick is too slow for a live countdown, and `remaining()` reads the
 // wall clock, so a throttled timer can't skew the number shown.
 import { ref, onMounted, onBeforeUnmount } from "vue";
-import { OyaButton } from "rakotis";
+import { OyaButton } from "petalite/primitives";
 import type { IdleLockHandle } from "../idleLock";
 
 const props = defineProps<{

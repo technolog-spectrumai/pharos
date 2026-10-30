@@ -4,7 +4,8 @@
 // which broadcasts them over the encrypted seam (technology.md §9 — cooperative,
 // captain-authoritative enforcement).
 import { ref, computed, watch } from "vue";
-import { OyaModal, OyaAvatar, OyaButton, formatRemaining, MUTE_PRESETS_MIN } from "rakotis";
+import { formatRemaining, MUTE_PRESETS_MIN } from "rakotis";
+import { OyaModal, OyaAvatar, OyaButton } from "petalite/primitives";
 import type { ChatChannel, Participant } from "rakotis";
 import { useI18n } from "vue-i18n";
 

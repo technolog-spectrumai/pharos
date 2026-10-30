@@ -85,7 +85,7 @@ ferrozine = { path = "../../../crates/ferrozine" }
 protasius = { path = "../crates/protasius" }
 # Reused directly (not just via protasius) for the PIN-unlock and panic-code
 # envelopes in vault.rs.
-gervasius = { path = "../../../crates/rotor/gervasius" }
+gervasius = { path = "../../../vendor/zirconium/crates/rotor/gervasius" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"

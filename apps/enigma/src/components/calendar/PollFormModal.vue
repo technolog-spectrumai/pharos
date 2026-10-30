@@ -4,7 +4,7 @@
 // members vote. Create-only — slots can't be edited afterwards (cancel and
 // recreate instead).
 import { computed, ref, watch } from "vue";
-import { OyaButton, OyaModal, OyaTextArea, OyaTextField } from "rakotis";
+import { OyaButton, OyaModal, OyaTextArea, OyaTextField } from "petalite/primitives";
 import type { P2pRoomEntry } from "rakotis";
 import { hourAfter, singleDayFields, singleDayRange } from "calendula";
 import { validatePollDraft, type PollDraft } from "./meetingModel";

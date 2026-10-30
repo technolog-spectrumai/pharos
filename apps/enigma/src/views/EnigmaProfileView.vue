@@ -4,9 +4,10 @@ import { useI18n } from "vue-i18n";
 import { storeToRefs } from "pinia";
 import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
-import { OyaCard } from "rakotis";
-import { OyaButton } from "rakotis";
-import { OyaAvatar, downscaleImageToDataUrl } from "rakotis";
+import { OyaCard } from "petalite/primitives";
+import { OyaButton } from "petalite/primitives";
+import { downscaleImageToDataUrl } from "rakotis";
+import { OyaAvatar } from "petalite/primitives";
 import { useRouter } from "vue-router";
 import { policy } from "../config/app";
 

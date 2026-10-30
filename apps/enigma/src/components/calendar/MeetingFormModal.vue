@@ -3,7 +3,7 @@
 // v1 — the model itself supports cross-midnight ranges). The room picker
 // chooses whose members get invited; it is fixed once a meeting exists.
 import { computed, ref, watch } from "vue";
-import { OyaButton, OyaModal, OyaTextArea, OyaTextField } from "rakotis";
+import { OyaButton, OyaModal, OyaTextArea, OyaTextField } from "petalite/primitives";
 import type { P2pRoomEntry } from "rakotis";
 import { hourAfter, nextWholeHour, singleDayFields, singleDayRange } from "calendula";
 import { validateMeetingDraft, type Meeting, type MeetingDraft } from "./meetingModel";

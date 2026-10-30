@@ -3,7 +3,8 @@
 // RSVP and organizer actions. All state lives in the app-wide meetings
 // orchestrator (stores/chat.ts) — this view is just its surface.
 import { computed, ref } from "vue";
-import { OyaButton, OyaModal, formatDate } from "rakotis";
+import { formatDate } from "rakotis";
+import { OyaButton, OyaModal } from "petalite/primitives";
 import { useChatStore } from "../stores/chat";
 import CalendarPanel from "../components/calendar/CalendarPanel.vue";
 import DayEventsPanel from "../components/calendar/DayEventsPanel.vue";
