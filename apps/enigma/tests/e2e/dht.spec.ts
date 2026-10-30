@@ -20,6 +20,8 @@ test.describe("DHT discovery — Settings card", () => {
     await expect(page.getByRole("button", { name: "Test DHT" })).toHaveCount(0);
 
     await dhtSwitch.click();
+    // Announcing presence costs Privacy HP, so turning it on asks first.
+    await page.getByTestId("hp-confirm-continue").click();
     await expect(dhtSwitch).toHaveAttribute("aria-checked", "true");
     await expect(page.getByRole("button", { name: "Test DHT" })).toBeVisible();
     await expect(page.getByText("Room announce interval").first()).toBeVisible();
@@ -103,6 +105,7 @@ test.describe("Contacts tab", () => {
     await page.getByRole("link", { name: "Settings" }).first().click();
     await page.getByRole("button", { name: "Connections" }).click();
     await page.getByRole("switch", { name: "DHT discovery" }).click();
+    await page.getByTestId("hp-confirm-continue").click();
     await page.getByRole("link", { name: "Contacts" }).first().click();
 
     const search = page.getByPlaceholder("Search a nickname (exact spelling)");
@@ -119,6 +122,7 @@ test.describe("Contacts tab", () => {
     // silent success), while the nickname itself is saved.
     await page.getByPlaceholder("Your public nickname").fill("Alice-Dev");
     await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByTestId("hp-confirm-continue").click();
     await expect(page.getByText("Couldn't publish the name.")).toBeVisible();
 
     // Nickname persists across reload (kv → localStorage fallback).

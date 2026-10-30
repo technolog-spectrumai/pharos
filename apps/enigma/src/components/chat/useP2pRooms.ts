@@ -19,7 +19,9 @@ export function useP2pRooms(channel: ChatChannel) {
   const ticket = ref("");
   // The room the ticket above belongs to. Invitations are minted against a room
   // slug, and the entry is the only place that pairs a ticket with one.
-  const createdRoom = ref<{ slug: string; name: string }>({ slug: "", name: "" });
+  // null until a room comes up: the modal shows its name form while this is
+  // empty, so an empty OBJECT here (always truthy) skipped straight to the host card.
+  const createdRoom = ref<{ slug: string; name: string } | null>(null);
   const scanError = ref(""); // i18n key, "" when clear
 
   // ── Create modal ─────────────────────────────────────────────────────────────
@@ -40,6 +42,7 @@ export function useP2pRooms(channel: ChatChannel) {
 
   function openCreate() {
     name.value = "";
+    createdRoom.value = null;
     createError.value = "";
     createBusy.value = false;
     clearCreateTimer();

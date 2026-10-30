@@ -6,8 +6,9 @@ test.describe("Devices tab removal", () => {
     await page.getByRole("link", { name: "Files" }).first().click();
 
     await expect(page.getByRole("button", { name: "Devices" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Peer-to-peer" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Local" })).toBeVisible();
+    // File sharing needs the Tauri runtime; the browser shell says so instead
+    // of showing the Peer-to-peer and Local sub-tabs.
+    await expect(page.getByText("File sharing is available in the desktop app only.")).toBeVisible();
   });
 
   test("Settings still has no Devices tab", async ({ page }) => {

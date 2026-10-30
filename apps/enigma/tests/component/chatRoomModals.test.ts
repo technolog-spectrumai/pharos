@@ -43,7 +43,7 @@ function buttonByText(w: ReturnType<typeof mount>, text: string) {
 function createController() {
   return {
     name: ref(""),
-    createdRoom: ref<{ slug: string; name: string }>({ slug: "", name: "" }),
+    createdRoom: ref<{ slug: string; name: string } | null>(null),
     createBusy: ref(false),
     createError: ref(""),
     createRoom: vi.fn(async () => {}),
