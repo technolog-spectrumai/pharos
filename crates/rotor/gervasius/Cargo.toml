@@ -34,7 +34,9 @@ sha2 = { version = "0.10", default-features = false }
 # Rust and wasm-clean. Enigma had no OpenSSL by any other route before the two
 # forks were merged; gating it keeps that true for consumers that never touch
 # the platform format. Zinnia turns it on: `features = ["gervazy"]`.
-fernet = { version = "0.2", optional = true }
+# fernet's `rustcrypto` backend instead of its default OpenSSL one: pure Rust,
+# so it cross-compiles for Android with no OpenSSL to find.
+fernet = { version = "0.2", optional = true, default-features = false, features = ["rustcrypto"] }
 base64 = { version = "0.22", optional = true }
 
 [features]
