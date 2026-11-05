@@ -138,6 +138,7 @@ export default {
     offlineCleared: "Offline data cleared.",
   },
   friends: {
+    back: "Back to friends",
     add: "Add a friend",
     settings: "You and your Proteus",
     yourFingerprint: "Your fingerprint",

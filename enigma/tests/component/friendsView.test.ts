@@ -94,6 +94,21 @@ describe("Friends", () => {
     expect(w.find("[data-testid=status-Delivered]").exists()).toBe(true);
   });
 
+  it("on a phone, shows the list or one conversation, with a way back", async () => {
+    replies.pharos_friends = [BOB];
+    const w = view();
+    await flushPromises();
+    // The first friend is preselected for wide screens, but a phone starts on the list.
+    expect(w.get("[data-testid=friends-list]").classes()).toContain("flex");
+    expect(w.get("[data-testid=conversation]").classes()).toContain("hidden");
+    await w.get("[data-testid=friend-Bob]").trigger("click");
+    await flushPromises();
+    expect(w.get("[data-testid=friends-list]").classes()).toContain("hidden");
+    expect(w.get("[data-testid=conversation]").classes()).toContain("flex");
+    await w.get("[data-testid=back]").trigger("click");
+    expect(w.get("[data-testid=friends-list]").classes()).toContain("flex");
+  });
+
   it("shows a start failure instead of a blank page", async () => {
     replies.pharos_start = new Error("tor bootstrap: no network");
     const w = view();

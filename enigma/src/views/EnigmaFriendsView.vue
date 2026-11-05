@@ -19,6 +19,8 @@ const msgs = ref<api.Msg[]>([]);
 const draft = ref("");
 const error = ref("");
 const starting = ref(true);
+// Phones show the list or one conversation, not both (md and up show both).
+const showList = ref(true);
 let stop: (() => void) | null = null;
 
 const friend = computed(() => list.value.find((f) => f.id === current.value) ?? null);
@@ -31,11 +33,12 @@ function fail(e: unknown) {
 
 async function refreshFriends() {
   list.value = await api.friends();
-  if (!current.value && list.value.length) await open(list.value[0].id);
+  if (!current.value && list.value.length) await open(list.value[0].id, false);
 }
 
-async function open(id: string) {
+async function open(id: string, tapped = true) {
   current.value = id;
+  if (tapped) showList.value = false;
   msgs.value = await api.messages(id);
   await scrollDown();
 }
@@ -169,14 +172,15 @@ async function removeCurrent() {
   await api.remove(current.value);
   current.value = null;
   msgs.value = [];
+  showList.value = true;
   await refreshFriends();
 }
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col md:flex-row" data-testid="friends-view">
+  <div class="flex h-full min-h-0 w-full flex-col md:flex-row" data-testid="friends-view">
     <!-- friends -->
-    <aside class="flex flex-col border-current/10 md:w-72 md:border-r">
+    <aside class="w-full flex-col border-current/10 md:flex md:w-72 md:border-r" :class="showList ? 'flex' : 'hidden'" data-testid="friends-list">
       <div class="flex items-center gap-2 border-b border-current/10 p-3">
         <div class="min-w-0 flex-1">
           <div class="truncate font-bold" data-testid="me-name">{{ me?.name ?? "…" }}</div>
@@ -209,12 +213,15 @@ async function removeCurrent() {
     </aside>
 
     <!-- conversation -->
-    <section class="flex min-h-0 flex-1 flex-col">
+    <section class="min-h-0 flex-1 flex-col md:flex" :class="showList ? 'hidden' : 'flex'" data-testid="conversation">
       <p v-if="error" class="m-3 rounded border border-error-light/40 p-2 text-sm text-error-light dark:text-error-dark" role="alert">
         {{ error }} <button type="button" class="underline" @click="error = ''">{{ $t('friends.dismiss') }}</button>
       </p>
       <template v-if="friend">
         <header class="flex items-center gap-2 border-b border-current/10 px-4 py-2">
+          <OyaButton type="button" class="md:hidden" :aria-label="$t('friends.back')" data-testid="back" @click="showList = true">
+            <font-awesome-icon icon="arrow-left" />
+          </OyaButton>
           <div class="min-w-0 flex-1">
             <div class="font-bold">{{ friend.name }}</div>
             <div class="font-mono text-[10px] opacity-60">{{ friend.fingerprint }}</div>
