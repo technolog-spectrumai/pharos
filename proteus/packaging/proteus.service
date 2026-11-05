@@ -1,0 +1,35 @@
+[Unit]
+Description=Proteus — Pharos mailbox and directory (onion only)
+After=network-online.target
+Wants=network-online.target
+# If the data folder is on its own (encrypted) disk, wait for it.
+RequiresMountsFor=/var/lib/proteus
+
+[Service]
+User=proteus
+Group=proteus
+ExecStart=/usr/bin/proteus serve -c /etc/proteus/config.yaml
+Restart=on-failure
+RestartSec=10
+# A Pi 3 has 1 GiB: arti plus Proteus stay well under this.
+MemoryMax=256M
+# Hardening: Proteus needs only its data folder and its key.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/proteus
+ReadOnlyPaths=/etc/proteus
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

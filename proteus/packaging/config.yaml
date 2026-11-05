@@ -1,0 +1,15 @@
+# Proteus configuration. Every key is optional; these are the defaults.
+data_dir: /var/lib/proteus
+# The at-rest key (mode 0600). Keep its backup apart from the data's.
+master_key: /etc/proteus/master.key
+limits:
+  max_message_bytes: 40960
+  max_messages_per_mailbox: 500
+  max_mailboxes: 10000
+  message_ttl_days: 14
+  max_record_bytes: 2048
+  record_ttl_days: 15
+  max_pairing_bytes: 49152
+  pairing_ttl_days: 7
+  requests_per_minute: 60
+  max_concurrent: 32

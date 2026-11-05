@@ -20,13 +20,13 @@ Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1
 - [x] 2.5 Identity: a device's long-term key, its fingerprint and its contact card (QR / text)
 
 ## Stage 3 — Proteus, the server on a Raspberry Pi
-- [ ] 3.1 A slim axum service reachable only as an onion service through arti (no clearnet port)
-- [ ] 3.2 Mailbox (M3): keep sealed messages for an offline friend until fetched and acknowledged, with expiry and quotas
-- [ ] 3.3 Directory (D5): signed, sealed "where to find me" records only friends can open, with expiry
-- [ ] 3.4 Access: capability tokens per mailbox and record, rate limits, size caps, fixed-size padding
-- [ ] 3.5 Storage: one SQLite file, small and crash-safe, with a backup command
-- [ ] 3.7 At rest, as in Zirkel: a `master.key` (0600) seals every stored blob, token and record with XChaCha20-Poly1305 under a per-row label; `proteus check` says whether the data folder is on an encrypted disk; a LUKS guide for the Pi
-- [ ] 3.6 Raspberry Pi: aarch64 build, systemd unit, memory and SD-card budget, install guide
+- [x] 3.1 A slim axum service reachable only as an onion service through arti (no clearnet port)
+- [x] 3.2 Mailbox (M3): keep sealed messages for an offline friend until fetched and acknowledged, with expiry and quotas
+- [x] 3.3 Directory (D5): signed, sealed "where to find me" records only friends can open, with expiry
+- [x] 3.4 Access: capability tokens per mailbox and record, rate limits, size caps, fixed-size padding
+- [x] 3.5 Storage: one SQLite file, small and crash-safe, with a backup command
+- [x] 3.7 At rest, as in Zirkel: a `master.key` (0600) seals every stored blob, token and record with XChaCha20-Poly1305 under a per-row label; `proteus check` says whether the data folder is on an encrypted disk; a LUKS guide for the Pi
+- [x] 3.6 Raspberry Pi: aarch64 build, systemd unit, memory and SD-card budget, install guide
 
 ## Stage 4 — Nautes, the client
 - [ ] 4.1 The cut-down window: friends, conversation, compose a short message, settings

@@ -1,0 +1,46 @@
+[package]
+name = "proteus"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Proteus: the optional Pharos helper — an onion-only mailbox and directory, small enough for a Raspberry Pi"
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "proteus"
+path = "src/main.rs"
+
+[dependencies]
+pharos-tor = { path = "../crates/pharos-tor" }
+pharos-seal = { path = "../crates/pharos-seal" }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "http1", "service"] }
+tower = { version = "0.5", features = ["limit", "util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_norway = "0.9"
+rusqlite = { version = "0.39", features = ["bundled"] }
+blake3 = "1"
+data-encoding = "2"
+rand_core = { version = "0.6", features = ["getrandom"] }
+zeroize = "1"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+http-body-util = "0.1"
+
+# Raspberry Pi OS package (6.2): cargo deb -p proteus --target aarch64-unknown-linux-gnu
+[package.metadata.deb]
+maintainer = "Spectrum AI <noreply@spectrumai.pl>"
+section = "net"
+priority = "optional"
+assets = [
+  ["target/release/proteus", "usr/bin/", "755"],
+  ["packaging/proteus.service", "lib/systemd/system/", "644"],
+  ["packaging/config.yaml", "etc/proteus/config.yaml.example", "644"],
+]
+maintainer-scripts = "packaging/debian"
+systemd-units = { enable = false }

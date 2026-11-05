@@ -12,6 +12,7 @@ members = [
     "crates/pharos-seal",
     "crates/pharos-id",
     "crates/pharos-tor",
+    "proteus",
     "nautes/src-tauri",
 ]
 exclude = [
@@ -23,3 +24,9 @@ rust-version = "1.94"
 
 [profile.dev]
 split-debuginfo = "unpacked"
+
+# Proteus on a Raspberry Pi: small and stripped. (Nautes' bundle uses the same profile.)
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 4
