@@ -2,11 +2,11 @@
 import { defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 import { featureDefines } from "./buildFeatures";
-import { sourceAliases } from "../../scripts/vite-shared.mjs";
+import { sourceAliases } from "../scripts/vite-shared.mjs";
 
 // A dedicated Vitest config (no Tailwind plugin needed for tests).
-const petaliteSrc = new URL("../../packages/petalite/src", import.meta.url).pathname;
-const calendulaSrc = new URL("../../packages/calendula/src", import.meta.url).pathname;
+const petaliteSrc = new URL("../packages/petalite/src", import.meta.url).pathname;
+const calendulaSrc = new URL("../packages/calendula/src", import.meta.url).pathname;
 // The DIRECTORY, not index.ts: the deep alias below appends a subpath, and
 // "…/index.ts/components/…" resolves to nothing.
 const rakotisDir = new URL("./packages/rakotis/src", import.meta.url).pathname;

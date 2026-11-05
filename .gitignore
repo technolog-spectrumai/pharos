@@ -1,0 +1,44 @@
+node_modules/
+target/
+dist/
+dist-ssr/
+build/
+coverage/
+test-results/
+*.local
+*.log
+.DS_Store
+
+# Tauri's generated capability schemas.
+**/gen/schemas/
+
+# Rust
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+rustc-ice-*.txt
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Editors
+.vscode/
+.idea/
+
+# Android signing material — a keystore or its passwords must never be committed.
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+key.properties
+signing.properties
+.claude/worktrees/

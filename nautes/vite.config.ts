@@ -3,7 +3,7 @@ import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 import { featureDefines } from "./buildFeatures";
-import { sourceAliases, tauriDevServer } from "../../scripts/vite-shared.mjs";
+import { sourceAliases, tauriDevServer } from "../scripts/vite-shared.mjs";
 
 const dir = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -23,8 +23,8 @@ export default defineConfig(async () => ({
   // (scripts/vite-shared.mjs).
   resolve: {
     alias: [
-      ...sourceAliases("petalite", dir("../../packages/petalite/src")),
-      ...sourceAliases("calendula", dir("../../packages/calendula/src"), { components: false }),
+      ...sourceAliases("petalite", dir("../packages/petalite/src")),
+      ...sourceAliases("calendula", dir("../packages/calendula/src"), { components: false }),
       ...sourceAliases("rakotis", dir("./packages/rakotis/src"), {
         components: false,
         entry: dir("../../node_modules/rakotis/src/index.ts"),

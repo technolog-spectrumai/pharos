@@ -75,17 +75,17 @@ serde_json = "1"
 # Crypto layer (OpenMLS via Rotor). The crypto crates are the repo's shared ones
 # (crates/rotor), consumed by path — so building enigma fetches nothing but
 # crates.io.
-rotor-core = { path = "../../../crates/rotor/rotor_core" }
+rotor-core = { path = "../../crates/rotor/rotor_core" }
 # P2P transport (iroh) with rotor sealing — the file-transfer protocol, the
 # pairwise MLS handshake calls use, and the gossip-room plumbing. Shared with
 # Pumex; see crates/ferrozine.
-ferrozine = { path = "../../../crates/ferrozine" }
+ferrozine = { path = "../../crates/ferrozine" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
-protasius = { path = "../crates/protasius" }
+protasius = { path = "../../crates/protasius" }
 # Reused directly (not just via protasius) for the PIN-unlock and panic-code
 # envelopes in vault.rs.
-gervasius = { path = "../../../vendor/zirconium/crates/rotor/gervasius" }
+gervasius = { path = "../../crates/gervasius" }
 zeroize = "1"
 cpal = "0.15"
 hound = "3"
