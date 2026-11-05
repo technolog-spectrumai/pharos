@@ -1,0 +1,7 @@
+$ sudo -u proteus proteus status -c /etc/proteus/config.yaml
+ mailbox: 3
+ message: 3
+  record: 1
+ pairing: 0
+   onion: kbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbigbwyd.onion
+

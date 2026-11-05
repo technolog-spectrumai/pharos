@@ -1,0 +1,5 @@
+$ sudo -u proteus proteus init -c /etc/proteus/config.yaml
+master key written to /etc/proteus/master.key — back it up apart from the data
+master key: ok
+disk: the data folder is NOT on an encrypted disk (vda, mounted at /): a stolen disk gives away what is not sealed; see docs/disk-encryption.md
+

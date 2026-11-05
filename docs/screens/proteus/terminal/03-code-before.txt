@@ -1,0 +1,3 @@
+$ sudo -u proteus proteus code -c /etc/proteus/config.yaml
+proteus: no address yet: run `proteus serve` once; Tor makes the address then
+

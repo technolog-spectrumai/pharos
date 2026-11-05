@@ -1,0 +1,6 @@
+$ sudo -u proteus proteus check -c /etc/proteus/config.yaml; echo "(exit status $?)"
+master key: PROBLEM: /etc/proteus/master.key is readable by group or others (mode 640); run: chmod 600 /etc/proteus/master.key
+disk: the data folder is NOT on an encrypted disk (vda, mounted at /): a stolen disk gives away what is not sealed; see docs/disk-encryption.md
+proteus: not ready to serve
+(exit status 1)
+

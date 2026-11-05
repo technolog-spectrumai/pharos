@@ -1,0 +1,5 @@
+$ sudo -u proteus proteus serve -c /etc/proteus/config.yaml --tcp 127.0.0.1:18091   # here: loopback (no Tor in this sandbox); on the Pi without --tcp
+proteus: WARNING disk: the data folder is NOT on an encrypted disk (vda, mounted at /): a stolen disk gives away what is not sealed; see docs/disk-encryption.md
+proteus: serving on http://127.0.0.1:18091 (loopback, development)
+proteus: its page, with the code for Enigma, is at http://kbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbigbwyd.onion/
+

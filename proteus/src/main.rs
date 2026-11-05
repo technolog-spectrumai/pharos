@@ -46,7 +46,19 @@ fn parse_args() -> Result<Args> {
     Ok(a)
 }
 
-fn main() -> Result<()> {
+/// Errors are one line for the person at the terminal (or in the journal),
+/// whatever RUST_BACKTRACE says; the exit status says it failed.
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("proteus: {e:#}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let a = parse_args()?;
     let load = || Config::load(&a.config);
     match a.cmd.as_str() {
@@ -70,7 +82,8 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => {
-            println!("{}", include_str!("main.rs").lines().skip(2).take(8).map(|l| l.trim_start_matches("//!")).collect::<Vec<_>>().join("\n"));
+            let usage: Vec<&str> = include_str!("main.rs").lines().skip(2).take(7).map(|l| l.trim_start_matches("//!   ")).collect();
+            println!("Proteus {}: the optional Pharos helper, reached only over Tor.\n\nusage:\n  {}", env!("CARGO_PKG_VERSION"), usage.join("\n  "));
             Ok(())
         }
     }

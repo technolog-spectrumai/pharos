@@ -1,0 +1,3 @@
+$ sudo -u proteus proteus backup -c /etc/proteus/config.yaml /var/lib/proteus/backup-2026-11-05.sqlite
+backed up to /var/lib/proteus/backup-2026-11-05.sqlite; back up the master key separately
+

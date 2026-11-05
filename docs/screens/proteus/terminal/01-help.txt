@@ -1,0 +1,12 @@
+$ proteus help
+Proteus 0.1.0: the optional Pharos helper, reached only over Tor.
+
+usage:
+  proteus init   [-c config.yaml]           make the master key and data folder
+  proteus check  [-c config.yaml]           key permissions, disk encryption, config
+  proteus serve  [-c config.yaml]           serve on an onion service
+  proteus serve  --tcp 127.0.0.1:PORT       …on loopback TCP instead (tests, development)
+  proteus status [-c config.yaml]           row counts and the onion address
+  proteus backup [-c config.yaml] OUT       a consistent copy of the database
+  proteus code   [-c config.yaml] [--png F] its code for Enigma, as text and a QR (and a PNG)
+
