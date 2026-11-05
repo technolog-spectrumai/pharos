@@ -15,6 +15,22 @@ Chosen from the earlier analysis (Belisario session, 2026-11-05):
 - **D5** a directory onion on the Pi.
 - **M3** the Raspberry Pi as the always-on member: a mailbox for offline friends.
 
+## Proteus is optional (the owner, 2026-11-05)
+
+"In theory, Nautes should work without Proteus, but Proteus should make
+things easier." So:
+
+| | Without Proteus | With Proteus |
+|---|---|---|
+| First contact | D1: QR or text card | the same |
+| Reaching a friend | D2: rendezvous onions, direct | the same, first choice |
+| Friend offline | the message waits in a local outbox (sealed, in the vault) and is retried while Nautes runs; it arrives when both are online at once | left in the friend's mailbox (M3), fetched when they come online |
+| Friend lost (new device, onion changed) | pair again (D1) | found again through the directory (D5) |
+
+Nothing in Nautes requires a Proteus address: pairing works without one, and
+a Proteus can be added to a friendship later (a new contact-card field
+exchanged over the sealed channel). Tests cover both modes (5.2).
+
 ## Stage 1 — Fork and cut down
 
 **1.1 (done 2026-11-05).** `git filter-repo` over Belisario's `dev_halo26`
@@ -188,3 +204,5 @@ OS.
 - **PD9.** Keep Enigma's "Privacy HP" for exposing actions (presence,
   publishing), or drop it to stay minimal.
 - **PD10.** Device keys only for now; Heliodor identities later if wanted.
+- **PD11 (the owner).** Nautes works without Proteus; Proteus is an optional
+  helper for offline delivery and for finding friends again.

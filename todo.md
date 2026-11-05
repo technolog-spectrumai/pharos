@@ -1,6 +1,6 @@
 # Pharos — plan
 
-Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1** pair once out of band, **D2** rendezvous onions per friendship, **D5** a directory onion on Proteus, **M3** Proteus as the always-on mailbox. Short messages only, over Tor, sealed with Ferrozine's MLS.
+Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1** pair once out of band, **D2** rendezvous onions per friendship, **D5** a directory onion on Proteus, **M3** Proteus as the always-on mailbox. Short messages only, over Tor, sealed with Ferrozine's MLS. **Nautes works without Proteus** (direct, friend to friend); Proteus only makes it easier (offline delivery, finding each other again).
 
 ## Stage 0 — Approval
 - [ ] 0.1 👤 Owner approves the plan and decisions PD1–PD10 (work.md)
@@ -31,13 +31,13 @@ Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1
 - [ ] 4.1 The cut-down window: friends, conversation, compose a short message, settings
 - [ ] 4.2 Pairing (D1): exchange contact cards by QR or text, verify the fingerprint, set up the friendship's secret and Proteus address
 - [ ] 4.3 Friendship (D2): host this week's rendezvous onion per friend and dial theirs; deliver directly when both are online
-- [ ] 4.4 Offline (M3): when direct delivery fails, leave the sealed message in the friend's mailbox on Proteus; fetch your own on start and on a schedule
-- [ ] 4.5 Directory (D5): publish your current reachability to Proteus and look friends up there when the rendezvous fails
+- [ ] 4.4 Offline without Proteus: an undelivered message waits in a local outbox and is retried while both are online; with Proteus (M3) it is left in the friend's mailbox instead and fetched on their start and on a schedule
+- [ ] 4.5 Directory (D5), only with Proteus: publish your current reachability and look friends up there when the rendezvous fails; without it, a lost friend is paired again (D1)
 - [ ] 4.6 Local state encrypted at rest behind a passphrase (Enigma's vault), and desktop notifications
 
 ## Stage 5 — Security and tests
 - [ ] 5.1 Threat model and metadata: what Proteus, Tor and a friend can learn; padding and fetch schedules
-- [ ] 5.2 Tests: unit, protocol vectors, Proteus with an in-memory transport, Nautes vitest, and an end-to-end run over real Tor
+- [ ] 5.2 Tests: unit, protocol vectors, Proteus with an in-memory transport, Nautes vitest, and end-to-end runs over real Tor both with and without Proteus
 - [ ] 5.3 Hostile inputs: oversized and malformed frames, replay, token abuse, a full disk
 
 ## Stage 6 — Release
