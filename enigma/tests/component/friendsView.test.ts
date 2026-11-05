@@ -109,6 +109,46 @@ describe("Friends", () => {
     expect(w.get("[data-testid=friends-list]").classes()).toContain("flex");
   });
 
+  it("connects to a Proteus from the code on its page, and shows it", async () => {
+    const onion = "fivcukrkfivcukrkfivcukrkfivcukrkfivcukrkfivcukrkfivjcrid.onion";
+    replies.pharos_set_proteus = (a: unknown) => ({ ...ME, proteus: (a as { text: string }).text ? onion : null });
+    const w = view();
+    await flushPromises();
+    expect(w.get("[data-testid=me-proteus]").text()).toBe(i18n.global.t("friends.proteusNone"));
+    await w.get("button[aria-label='You and your Proteus']").trigger("click");
+    await w.get("[data-testid=proteus-field] input, input[data-testid=proteus-field]").setValue("  pharos-proteus:AEVCUKRK  ");
+    await w.get("[data-testid=save-settings]").trigger("click");
+    await flushPromises();
+    // The code goes to Rust as typed (trimmed); Rust reads it and connects.
+    expect(calls.find(([c]) => c === "pharos_set_proteus")?.[1]).toEqual({ text: "pharos-proteus:AEVCUKRK" });
+    expect(w.get("[data-testid=me-proteus]").text()).toContain("Proteus: fivcukrkfivc…");
+    expect(w.find("[data-testid=save-settings]").exists()).toBe(false);
+  });
+
+  it("keeps the dialog open with the reason when a Proteus cannot be used", async () => {
+    replies.pharos_set_proteus = new Error("not a Proteus code or a .onion address (a typo fails the address's checksum)");
+    const w = view();
+    await flushPromises();
+    await w.get("button[aria-label='You and your Proteus']").trigger("click");
+    await w.get("[data-testid=proteus-field] input, input[data-testid=proteus-field]").setValue("typo.onion");
+    await w.get("[data-testid=save-settings]").trigger("click");
+    await flushPromises();
+    expect(w.get("[data-testid=settings-error]").text()).toContain("checksum");
+    expect(w.find("[data-testid=save-settings]").exists()).toBe(true);
+  });
+
+  it("says where a Proteus code goes when it is pasted as a friend", async () => {
+    replies.pharos_card = "pharos-card:MINE";
+    const w = view();
+    await flushPromises();
+    await w.get("[data-testid=add-friend]").trigger("click");
+    await w.get("[data-testid=paste] input, [data-testid=paste]").setValue("PHAROS-PROTEUS:AEVCUKRK");
+    await w.get("[data-testid=use-paste]").trigger("click");
+    await flushPromises();
+    expect(w.get("[data-testid=pair-note]").text()).toBe(i18n.global.t("friends.proteusCodeHint"));
+    expect(calls.some(([c]) => c === "pharos_scan" || c === "pharos_accept" || c === "pharos_set_proteus")).toBe(false);
+  });
+
   it("shows a start failure instead of a blank page", async () => {
     replies.pharos_start = new Error("tor bootstrap: no network");
     const w = view();

@@ -26,6 +26,7 @@ Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pai
 - [x] 3.4 Access: capability tokens per mailbox and record, rate limits, size caps, fixed-size padding
 - [x] 3.5 Storage: one SQLite file, small and crash-safe, with a backup command
 - [x] 3.7 At rest, as in Zirkel: a `master.key` (0600) seals every stored blob, token and record with XChaCha20-Poly1305 under a per-row label; `proteus check` says whether the data folder is on an encrypted disk; a LUKS guide for the Pi
+- [x] 3.8 Its page: `http://<onion>/` in Tor Browser shows its code (`pharos-proteus:…`) as a QR image and as text, to download; `proteus code` prints it on the Pi; Enigma connects with it (scan or paste)
 - [x] 3.6 Raspberry Pi: aarch64 build, systemd unit, memory and SD-card budget, install guide
 
 ## Stage 4 — Enigma, the client

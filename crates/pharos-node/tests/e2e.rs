@@ -32,10 +32,18 @@ fn node(net: &MemNet, t: &T, name: &str) -> Node<MemNet> {
 
 /// A real Proteus (the library behind the binary) on loopback, reachable as `onion`.
 async fn proteus(net: &MemNet, onion: &str) {
-    use proteus::{api, config::Limits, masterkey::MasterKey, store::Store};
+    proteus_with_page(net, onion, None).await
+}
+
+/// …with its page (the code for Enigma), as `serve` adds it once Tor gave it an address.
+async fn proteus_with_page(net: &MemNet, onion: &str, page: Option<&str>) {
+    use proteus::{api, config::Limits, masterkey::MasterKey, page::Page, store::Store};
     let limits = Limits::default();
     let store = Store::in_memory(MasterKey::from_bytes(&[5; 32]), limits.clone()).unwrap();
-    let app = api::router(Arc::new(api::AppState { store, limiter: api::Limiter::new(1000), clock: pharos_node::system_secs }));
+    let mut app = api::router(Arc::new(api::AppState { store, limiter: api::Limiter::new(1000), clock: pharos_node::system_secs }));
+    if let Some(name) = page {
+        app = app.merge(proteus::page::router(Arc::new(Page::build(onion, name).unwrap())));
+    }
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     net.route_tcp(onion, l.local_addr().unwrap());
     tokio::spawn(async move {
@@ -144,6 +152,35 @@ async fn with_proteus_pairing_mailbox_and_acks() {
     assert_eq!(bob.fetch_mailboxes().await.unwrap(), 0, "the mailbox was emptied");
     bob.deliver_all().await;
     eventually(|| status_of(&alice, &fb, "for later") == Status::Delivered).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_code_on_a_proteus_page_connects_enigma_to_it() {
+    let net = MemNet::default();
+    let t = T::new();
+    let onion = pharos_rendezvous::onion_address(&[3u8; 32]);
+    proteus_with_page(&net, &onion, Some("Bob's Pi")).await;
+    // What Tor Browser shows on the page, and what its download gives.
+    let (status, page) = pharos_node::proteus::call(&net, &onion, hyper::Method::GET, "/", None, vec![]).await.unwrap();
+    assert_eq!(status, 200);
+    let (_, txt) = pharos_node::proteus::call(&net, &onion, hyper::Method::GET, "/proteus.txt", None, vec![]).await.unwrap();
+    let code = String::from_utf8(txt.to_vec()).unwrap().trim().to_string();
+    assert!(String::from_utf8_lossy(&page).contains(&code));
+
+    // Bob scans it; Enigma reads it and connects.
+    let target = pharos_node::parse_proteus(&code).unwrap().unwrap();
+    assert_eq!(target, pharos_node::ProteusTarget { onion: onion.clone(), name: Some("Bob's Pi".into()) });
+    let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
+    bob.set_proteus(Some(target.onion)).await.unwrap();
+    assert_eq!(bob.proteus().as_deref(), Some(onion.as_str()));
+
+    // And it works as his Proteus: pairing through it, then a message while he is offline.
+    let s = alice.scan_card(&bob.my_card().unwrap()).await.unwrap();
+    assert!(s.reply.is_none(), "the reply was left on Bob's Proteus");
+    assert_eq!(bob.poll_pairings().await.unwrap(), vec![alice.fingerprint()]);
+    alice.send(&bob.fingerprint(), "via your Pi").await.unwrap();
+    assert_eq!(status_of(&alice, &bob.fingerprint(), "via your Pi"), Status::OnProteus);
+    assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]

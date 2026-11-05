@@ -111,6 +111,21 @@ A sender leaves messages for friend `F` in the mailbox `mailbox id(F)` on F's
 Proteus; F fetches it, opens each blob as a friendship message, acknowledges
 to Proteus up to the last seq, and owes the sender an `Ack`.
 
+**Its page and its code.** On its onion, outside `/v1/`, Proteus serves a
+static page for people (no JavaScript, no SVG, `Content-Security-Policy:
+default-src 'none'; img-src 'self'; style-src 'unsafe-inline'`): `/` in
+English, `/pl` in Polish, `/proteus-qr.png` (the code as a QR image) and
+`/proteus.txt` (the code as text). `proteus code` prints the same code and QR
+in a terminal. The **Proteus code** is `pharos-proteus:` + base32 (no padding,
+prefix and payload in any case) of the postcard encoding of
+
+```
+ProteusCode { v: u8 = 1, onion: [u8; 32] (the onion's ed25519 identity key), name: String (1–64 chars) }
+```
+
+The address is derived from `onion` (§3), so a code cannot carry a mistyped
+one. Enigma also takes a bare v3 address; it checks its checksum and version.
+
 **Directory record**: XChaCha20-Poly1305 under the directory key, associated
 data `pharos/directory/v1`, nonce (24 bytes) ‖ ciphertext, of the JSON
 `{"proteus": onion | null, "at": unix_seconds}`. The owner files it under

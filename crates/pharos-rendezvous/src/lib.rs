@@ -148,6 +148,24 @@ pub fn onion_address(public_key: &[u8; 32]) -> String {
     format!("{}.onion", data_encoding::BASE32_NOPAD.encode(&raw).to_lowercase())
 }
 
+/// The public key in a Tor v3 onion address, if it is one: 56 base32
+/// characters (any case, `.onion` optional), version 3, and a checksum that
+/// matches. A mistyped address fails the checksum instead of reaching some
+/// other service.
+pub fn parse_onion(address: &str) -> Option<[u8; 32]> {
+    let a = address.trim().to_ascii_lowercase();
+    let a = a.strip_suffix(".onion").unwrap_or(&a);
+    if a.len() != 56 {
+        return None;
+    }
+    let raw = data_encoding::BASE32_NOPAD.decode(a.to_ascii_uppercase().as_bytes()).ok()?;
+    if raw.len() != 35 || raw[34] != 3 {
+        return None;
+    }
+    let pk: [u8; 32] = raw[..32].try_into().ok()?;
+    (onion_address(&pk) == format!("{a}.onion")).then_some(pk)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +184,24 @@ mod tests {
         assert!(a.starts_with("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         assert!(a.ends_with("d.onion"), "{a}");
         // pharos-tor checks the same address against arti's own HsId.
+    }
+
+    #[test]
+    fn onion_addresses_are_parsed_and_checked() {
+        let pk = secret().rendezvous(&ALICE, 1).public_key();
+        let a = onion_address(&pk);
+        assert_eq!(parse_onion(&a), Some(pk));
+        assert_eq!(parse_onion(a.trim_end_matches(".onion")), Some(pk), "without .onion");
+        assert_eq!(parse_onion(&format!("  {}  ", a.to_uppercase())), Some(pk), "any case, spaces");
+        // One character changed: the checksum catches it.
+        let mut typo = a.clone().into_bytes();
+        typo[10] = if typo[10] == b'a' { b'b' } else { b'a' };
+        assert_eq!(parse_onion(std::str::from_utf8(&typo).unwrap()), None);
+        assert_eq!(parse_onion("example.com"), None);
+        assert_eq!(parse_onion(""), None);
+        assert_eq!(parse_onion(&"a".repeat(56)), None, "wrong version byte");
+        // A v2 address (16 characters) is not accepted.
+        assert_eq!(parse_onion("expyuzz4wqqyqhjn.onion"), None);
     }
 
     #[test]

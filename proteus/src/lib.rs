@@ -4,6 +4,7 @@ pub mod api;
 pub mod config;
 pub mod diskcrypt;
 pub mod masterkey;
+pub mod page;
 pub mod store;
 
 /// Serve `app` on one connection (HTTP/1, capped in time).

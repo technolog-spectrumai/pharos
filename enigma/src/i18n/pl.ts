@@ -170,8 +170,8 @@ export default {
     done: "Gotowe",
     yourName: "Twoje imię",
     proteus: "Twój Proteus (opcjonalnie)",
-    proteusPlaceholder: "…onion",
-    proteusHelp: "Proteus przechowuje wiadomości, gdy jesteś offline. Bez niego znajomi dotrą do Ciebie tylko, gdy oboje jesteście online.",
+    proteusPlaceholder: "pharos-proteus:… lub …onion",
+    proteusHelp: "Proteus przechowuje wiadomości, gdy jesteś offline. Otwórz jego adres w Tor Browserze: jego strona pokazuje kod QR do zeskanowania tutaj i kod jako tekst do wklejenia. Bez niego znajomi dotrą do Ciebie tylko, gdy oboje jesteście online.",
     cancel: "Anuluj",
     save: "Zapisz",
     status: {
@@ -180,6 +180,11 @@ export default {
       Delivered: "Doręczone",
       Received: "Odebrane",
     },
+    scanProteus: "Zeskanuj jego kod QR",
+    proteusCodeHint: "To kod Proteusa, nie znajomego. Użyj go w: Ty i Twój Proteus (⚙).",
+    proteusNone: "Bez Proteusa",
+    proteusOn: "Proteus: {onion}",
+    connectingProteus: "Łączenie z Proteusem przez Tor…",
   },
   chat: {
     send: "Wyślij",

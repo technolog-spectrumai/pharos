@@ -47,6 +47,18 @@ sees. Hence `proteus check` and [proteus/docs/disk-encryption.md](proteus/docs/d
 **Someone who takes your unlocked device** has everything; locked, they need
 the passphrase (Argon2id). A panic code wipes the vault.
 
+## A Proteus' page and code
+
+Anyone who has a Proteus' onion address can open its page in Tor Browser and
+use it: the address is its only access control, as it is for the API (friends
+learn it from your contact card anyway). The page shows nothing the address
+does not already give — the address itself, the name its operator chose, and
+the same address as a QR code — and it is made once, at start, from those two
+things, with no input from visitors. It runs no script and loads nothing from
+elsewhere. A code passed on as a picture can be swapped for another Proteus'
+code; whoever hands it to you should be someone you trust, and the address
+inside it is checked (a typo fails its checksum), not authenticated.
+
 ## Pairing (D1)
 
 A card is signed by the device key, expires after 7 days, and carries a

@@ -6,8 +6,9 @@
 //!   proteus serve  --tcp 127.0.0.1:PORT       …on loopback TCP instead (tests, development)
 //!   proteus status [-c config.yaml]           row counts and the onion address
 //!   proteus backup [-c config.yaml] OUT       a consistent copy of the database
+//!   proteus code   [-c config.yaml] [--png F] its code for Enigma, as text and a QR (and a PNG)
 
-use proteus::{api, config, diskcrypt, masterkey, store};
+use proteus::{api, config, diskcrypt, masterkey, page, store};
 
 use anyhow::{bail, Context, Result};
 use api::{AppState, Limiter};
@@ -26,17 +27,19 @@ struct Args {
     cmd: String,
     config: PathBuf,
     tcp: Option<String>,
+    png: Option<PathBuf>,
     rest: Vec<String>,
 }
 
 fn parse_args() -> Result<Args> {
     let mut it = std::env::args().skip(1);
     let cmd = it.next().unwrap_or_else(|| "help".into());
-    let mut a = Args { cmd, config: PathBuf::from(DEFAULT_CONFIG), tcp: None, rest: vec![] };
+    let mut a = Args { cmd, config: PathBuf::from(DEFAULT_CONFIG), tcp: None, png: None, rest: vec![] };
     while let Some(x) = it.next() {
         match x.as_str() {
             "-c" | "--config" => a.config = it.next().context("-c needs a path")?.into(),
             "--tcp" => a.tcp = Some(it.next().context("--tcp needs an address")?),
+            "--png" => a.png = Some(it.next().context("--png needs a file")?.into()),
             _ => a.rest.push(x),
         }
     }
@@ -59,6 +62,7 @@ fn main() -> Result<()> {
                 .block_on(serve(cfg, a.tcp))
         }
         "status" => status(&load()?),
+        "code" => code(&load()?, a.png.as_deref()),
         "backup" => {
             let out = a.rest.first().context("backup needs an output path")?;
             open_store(&load()?)?.backup(Path::new(out))?;
@@ -66,7 +70,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => {
-            println!("{}", include_str!("main.rs").lines().skip(2).take(7).map(|l| l.trim_start_matches("//!")).collect::<Vec<_>>().join("\n"));
+            println!("{}", include_str!("main.rs").lines().skip(2).take(8).map(|l| l.trim_start_matches("//!")).collect::<Vec<_>>().join("\n"));
             Ok(())
         }
     }
@@ -125,6 +129,41 @@ fn status(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// The onion this Proteus was last served on (written by `serve`).
+fn served_onion(cfg: &Config) -> Option<String> {
+    std::fs::read_to_string(cfg.data_dir.join("onion.txt")).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// Its code for Enigma: the text, the QR in the terminal, and optionally a PNG.
+fn code(cfg: &Config, png: Option<&Path>) -> Result<()> {
+    let onion = served_onion(cfg).context("no address yet: run `proteus serve` once; Tor makes the address then")?;
+    let p = page::Page::build(&onion, &cfg.name)?;
+    println!("{}\n", p.code);
+    print!("{}", page::qr_terminal(&p.code)?);
+    println!("\n{} — {}", cfg.name, p.onion);
+    if let Some(f) = png {
+        std::fs::write(f, page::qr_png(&p.code)?)?;
+        println!("QR image written to {}", f.display());
+    }
+    Ok(())
+}
+
+/// Add the page (3.8) for `onion`, unless the config turns it off.
+fn with_page(app: axum::Router, cfg: &Config, onion: Option<&str>) -> Result<axum::Router> {
+    match (cfg.page, onion) {
+        (false, _) => Ok(app),
+        (true, None) => {
+            eprintln!("proteus: no page yet: the address is made when it is first served over Tor");
+            Ok(app)
+        }
+        (true, Some(o)) => {
+            let p = page::Page::build(o, &cfg.name)?;
+            eprintln!("proteus: its page, with the code for Enigma, is at http://{}/", p.onion);
+            Ok(app.merge(page::router(Arc::new(p))))
+        }
+    }
+}
+
 async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
     let disk = diskcrypt::check(&cfg.data_dir);
     if disk.is_encrypted() {
@@ -160,6 +199,7 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
         }
         let l = tokio::net::TcpListener::bind(sa).await?;
         eprintln!("proteus: serving on http://{} (loopback, development)", l.local_addr()?);
+        let app = with_page(app, &cfg, served_onion(&cfg).as_deref())?;
         loop {
             tokio::select! {
                 _ = &mut stop => break,
@@ -171,6 +211,7 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
         let mut hosted = tor.host("proteus").await?;
         std::fs::write(cfg.data_dir.join("onion.txt"), format!("{}\n", hosted.onion))?;
         eprintln!("proteus: serving on {}", hosted.onion);
+        let app = with_page(app, &cfg, Some(&hosted.onion))?;
         loop {
             tokio::select! {
                 _ = &mut stop => break,

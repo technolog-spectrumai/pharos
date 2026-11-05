@@ -169,15 +169,13 @@ pub async fn pharos_set_name(app: AppHandle, name: String) -> Result<Me, String>
 }
 
 #[tauri::command]
-pub async fn pharos_set_proteus(app: AppHandle, onion: Option<String>) -> Result<Me, String> {
+/// Use a Proteus: `text` is its code (`pharos-proteus:…`, from its page in Tor
+/// Browser or `proteus code`, scanned or pasted) or its bare .onion address;
+/// empty means none. Enigma connects to it before saving.
+pub async fn pharos_set_proteus(app: AppHandle, text: Option<String>) -> Result<Me, String> {
     let n = node(&app).await?;
-    let onion = onion.map(|o| o.trim().to_lowercase()).filter(|o| !o.is_empty());
-    if let Some(o) = &onion {
-        if !o.ends_with(".onion") || o.len() != 62 {
-            return Err("a Proteus address is a 56-character .onion".into());
-        }
-    }
-    n.set_proteus(onion).await.map_err(|e| e.to_string())?;
+    let target = pharos_node::parse_proteus(text.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+    n.set_proteus(target.map(|t| t.onion)).await.map_err(|e| e.to_string())?;
     Ok(me_of(&n))
 }
 

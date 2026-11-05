@@ -10,7 +10,11 @@
 //!   that starts the friendship. Shown back as a second QR / text, or, when the
 //!   first card names a Proteus, left there under the pairing token.
 //!
-//! Both travel as text: a prefix (`pharos-card:` / `pharos-reply:`) and
+//! - [`ProteusCode`]: "here is a Proteus" — its onion and its name. Proteus
+//!   shows it on its own page (and `proteus code` prints it); Enigma takes it
+//!   to connect, so nobody types a 56-character address on a phone.
+//!
+//! All travel as text: a prefix (`pharos-card:` / `pharos-reply:` / `pharos-proteus:`) and
 //! base32 of the postcard bytes, which fits in a QR code and survives being
 //! pasted into a chat.
 
@@ -21,6 +25,7 @@ use serde_big_array::BigArray;
 
 pub const CARD_PREFIX: &str = "pharos-card:";
 pub const REPLY_PREFIX: &str = "pharos-reply:";
+pub const PROTEUS_PREFIX: &str = "pharos-proteus:";
 const VERSION: u8 = 1;
 /// A card older than this is refused, so a photographed QR goes stale.
 pub const CARD_TTL_SECS: u64 = 7 * 24 * 3600;
@@ -120,7 +125,11 @@ fn from_text(prefix: &'static str, text: &str) -> Result<Vec<u8>> {
     if t.len() > MAX_TEXT * 2 {
         return Err(IdError::Malformed("too long".into()));
     }
-    let rest = t.strip_prefix(prefix).ok_or(IdError::Prefix(prefix))?;
+    // The prefix in any case: a QR reader or a person may upper-case it all.
+    let rest = match t.get(..prefix.len()) {
+        Some(p) if p.eq_ignore_ascii_case(prefix) => &t[prefix.len()..],
+        _ => return Err(IdError::Prefix(prefix)),
+    };
     data_encoding::BASE32_NOPAD
         .decode(rest.to_uppercase().as_bytes())
         .map_err(|e| IdError::Malformed(e.to_string()))
@@ -229,6 +238,44 @@ impl PairReply {
     }
 }
 
+/// A Proteus, as its page shows it: the onion service's identity key and a name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProteusCode {
+    pub v: u8,
+    /// The onion's ed25519 identity key; the address is derived from it, so a
+    /// code cannot carry a mistyped address.
+    pub onion: [u8; 32],
+    pub name: String,
+}
+
+impl ProteusCode {
+    /// The code for the Proteus at `onion_address`, called `name`.
+    pub fn new(onion_address: &str, name: &str) -> Result<Self> {
+        check_name(name)?;
+        let onion = pharos_rendezvous::parse_onion(onion_address)
+            .ok_or_else(|| IdError::Malformed("not a Tor v3 onion address".into()))?;
+        Ok(ProteusCode { v: VERSION, onion, name: name.trim().to_string() })
+    }
+
+    pub fn onion_address(&self) -> String {
+        pharos_rendezvous::onion_address(&self.onion)
+    }
+
+    pub fn to_text(&self) -> String {
+        to_text(PROTEUS_PREFIX, &postcard::to_stdvec(self).unwrap())
+    }
+
+    pub fn from_text(text: &str) -> Result<Self> {
+        let bytes = from_text(PROTEUS_PREFIX, text)?;
+        let c: ProteusCode = postcard::from_bytes(&bytes).map_err(|e| IdError::Malformed(e.to_string()))?;
+        if c.v != VERSION {
+            return Err(IdError::Version(c.v));
+        }
+        check_name(&c.name)?;
+        Ok(c)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +326,29 @@ mod tests {
         let mut forged = r.clone();
         forged.sig = PairReply::new(&carol, card(&b, "Bob"), &ca, vec![9; 100]).sig;
         assert_eq!(PairReply::from_bytes(&forged.to_bytes(), &a.fingerprint(), NOW).unwrap_err(), IdError::Signature);
+    }
+
+    #[test]
+    fn proteus_codes_round_trip_and_carry_a_checked_address() {
+        let onion = pharos_rendezvous::onion_address(&[7u8; 32]);
+        let c = ProteusCode::new(&onion, "  Alice's Pi ").unwrap();
+        assert_eq!(c.name, "Alice's Pi");
+        assert_eq!(c.onion_address(), onion);
+        let t = c.to_text();
+        assert!(t.starts_with(PROTEUS_PREFIX));
+        assert_eq!(ProteusCode::from_text(&t).unwrap(), c);
+        // Upper-cased whole (a QR reader in alphanumeric mode), wrapped, padded.
+        let shouty = format!("  {}\n", t.to_uppercase());
+        assert_eq!(ProteusCode::from_text(&shouty).unwrap(), c);
+        // Not a code, a card, a mistyped address, a nameless one.
+        assert_eq!(ProteusCode::from_text("hello").unwrap_err(), IdError::Prefix(PROTEUS_PREFIX));
+        assert!(ProteusCode::from_text(&format!("{PROTEUS_PREFIX}AAAA")).is_err());
+        let mut typo = onion.into_bytes();
+        typo[3] = if typo[3] == b'a' { b'b' } else { b'a' };
+        assert!(ProteusCode::new(std::str::from_utf8(&typo).unwrap(), "x").is_err());
+        assert!(ProteusCode::new(&pharos_rendezvous::onion_address(&[1; 32]), " ").is_err());
+        let k = DeviceKey::generate();
+        assert!(ProteusCode::from_text(&card(&k, "Alice").to_text()).is_err());
     }
 
     #[test]

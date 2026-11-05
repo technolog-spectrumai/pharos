@@ -2,6 +2,10 @@
 data_dir: /var/lib/proteus
 # The at-rest key (mode 0600). Keep its backup apart from the data's.
 master_key: /etc/proteus/master.key
+# What its page and its code call it. The page (http://<its onion>/, in Tor
+# Browser) shows the code Enigma connects with; `proteus code` prints it too.
+name: Proteus
+page: true
 limits:
   max_message_bytes: 40960
   max_messages_per_mailbox: 500

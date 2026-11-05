@@ -124,6 +124,8 @@ to keep this small (PD10).
 - `pharos-id` (2.5, a fifth crate): ed25519 device key, fingerprint (SHA-256, 16 bytes; shown as six groups of four), signed `ContactCard` (name, device key, MLS key package, optional Proteus onion, one-time pairing token, 7-day expiry) and `PairReply` (the scanner's card + MLS welcome, bound to the card it answers), as `pharos-card:` / `pharos-reply:` base32 text for QR or paste.
 
 
+## Stage 3 — Proteus
+
 **3.1 Slim axum over arti.** Proteus never listens on a clearnet port: arti
 hosts its onion service, and each incoming onion stream is served by
 hyper/axum as a connection (axum's `serve` on a custom stream source). Small
@@ -168,6 +170,51 @@ Three layers, as Zirkelite does it (zirkelite `docs/security.md`, `src/diskcrypt
 3. The disk: `proteus check` reads `/proc/self/mountinfo` and `/sys/dev/block` and says whether the data folder is on dm-crypt (encrypted / not encrypted / unknown); `serve` warns at start unless encrypted. A guide for LUKS on the Pi's SD card or a USB disk.
 
 
+### 3.8 Its page and its code (the owner, 2026-11-05)
+
+"Proteus exports its QR code as text or image via a simple static HTML website
+accessible via Tor Browser if you know its Tor address, and Enigma can use this
+code to connect to it."
+
+- `proteus/src/page.rs`: `/` (English), `/pl` (Polish), `/proteus-qr.png`,
+  `/proteus.txt`, merged into the router once the onion is known (after Tor
+  hosts it; with `--tcp`, from the last `onion.txt`). Made once at start; no
+  JavaScript and no SVG (both are off at Tor Browser's "Safest" level), a strict
+  CSP, `nosniff`, `no-referrer`, `DENY` framing. The name is HTML-escaped.
+- The code is `pharos-id::ProteusCode` (`pharos-proteus:` + base32 of postcard
+  `{v, onion key, name}`); the address is derived from the key, so a code
+  cannot carry a typo. `qrcodegen` makes the QR, `png` the image; a test
+  decodes the served PNG with `rqrr`, as a phone camera would, and gets the
+  code back.
+- `proteus code` prints the code, the QR in half blocks for a terminal, and
+  with `--png` writes the image. Config: `name` (default "Proteus"), `page`
+  (default true).
+- Enigma: `pharos_node::parse_proteus` takes the code or a bare address
+  (`pharos_rendezvous::parse_onion` checks the v3 checksum and version, so a
+  mistyped address is refused instead of tried); "You and your Proteus" has a
+  camera button, says when it is connecting, and keeps the dialog open with the
+  reason when it fails; the sidebar shows the Proteus in use; a Proteus code
+  pasted as a friend says where it goes. The name inside a code is not stored:
+  the saved state's format is unchanged.
+- Tests: the page (code on it, QR decodes to it, no script, headers, both
+  languages, escaping), the code (round trip, any case, typos), the parser, an
+  end-to-end run where Enigma reads the code from a real Proteus' page and then
+  pairs and leaves a message through it, and the window.
+
+### Stage 3 done — notes
+
+(Restored 2026-11-05: an earlier edit of this file dropped this section and
+the Stage 3–5 headings.)
+
+- `proteus/`: axum 0.8 (http1 only) served per connection through hyper on arti's onion streams; `--tcp` is loopback-only, for tests and development. No clap, no tracing: `init`, `check`, `serve`, `status`, `backup` (and, with 3.8, `code`).
+- Mailbox: the first PUT with a token creates the mailbox (its id and token come from the friendship secret, so only the two friends can know them); GET after a sequence number; POST ack up to one. Quotas: 500 messages, 40 KiB each, 10 000 mailboxes, 14 days. Directory records: owned by the first writer's token, 2 KiB, 15 days, GET needs only the id. Pairing drop-off: one-time, taken once, 7 days.
+- Access: per-id requests per minute (Tor hides addresses, so ids are what can be counted), a body limit, at most 32 connections at once, a 30 s header timeout and a 120 s connection cap.
+- At rest (3.7): `master.key` 0600 (refused otherwise); BLAKE3-derived sub-keys seal every value (XChaCha20-Poly1305, label `table/hashed-id/seq`) and key-hash every id and token. A test greps the database, WAL and a backup for ids, tokens and contents. `diskcrypt.rs` is Zirkelite's. `docs/disk-encryption.md` adds Adiantum for Pis without AES and a key file on a separate stick (a Pi has no TPM).
+- SQLite WAL with `synchronous=FULL`; `VACUUM INTO` backups.
+- Pi: `.cargo/config.toml` cross-links with `aarch64-linux-gnu-gcc`; the binary is 14 MB stripped, needs glibc 2.34 (Bookworm has 2.36), and was run under qemu-aarch64 against a database the x86 build made. About 10 MB RSS on loopback; arti adds its directory (budget 60–120 MB, `MemoryMax=256M` in the unit). systemd unit hardened; `.deb` metadata for cargo-deb with a postinst that creates the user and runs `init`.
+
+## Stage 4 — Enigma
+
 **4.1 The window.** From Vesper's chat: friends, a conversation, a compose
 box with the length cap, delivery state (sent directly, left on Proteus,
 delivered, read), settings (Proteus address, passphrase, language, theme).
@@ -204,6 +251,8 @@ Notifications for new messages.
 - Tests: pharos-node 7 end-to-end (without Proteus; weekly rotation and clock skew; mailbox, pairing drop-off and acks with a real Proteus; directory move; restart from a snapshot; hostile cards, replies, frames); `friendsView.test.ts` 5.
 
 
+## Stage 5 — Security and tests
+
 **5.1 Threat model.** What each party learns:
 - **Tor** sees nothing of content and no addresses beyond its circuits.
 - **Proteus** sees mailbox ids, blob sizes (padded) and timing, never content
@@ -239,7 +288,7 @@ OS.
 - 5.3 Added: replayed and reflected MLS messages do not open; a full disk (SQLite `max_page_count`) fails the request, rolls back, and the server keeps working.
 - 6.1 PROTOCOL.md (formats, derivations, the Proteus API), README, technology.md and READMEs headed for Enigma, THIRD_PARTY.md for enigma (851 crates, 125 npm) and proteus (597 crates) from `scripts/third_party.mjs`.
 - 6.2 `release.yml`: Enigma on Linux and Windows (`tauri build`), Proteus for arm64 (binary and `.deb`). Built here: `proteus_0.1.0-1_arm64.deb` (4.4 MB; depends `libc6 (>= 2.34)`, pinned, because cargo-deb took the build host's 2.39, which Bookworm could not install); the amd64 build of the same package installed with dpkg: it created the user, a 0600 master key, and `status` answered.
- (PD1–PD10)
+## Decisions for the owner (PD1–PD10)
 
 - **PD1.** Fork with history via `git filter-repo` (done, 1.1).
 - **PD2.** One repository, three parts: `enigma/`, `proteus/`, `crates/`.

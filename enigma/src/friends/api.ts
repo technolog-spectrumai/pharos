@@ -34,7 +34,8 @@ export interface Scan {
 export const start = (name?: string) => invoke<Me>("pharos_start", { name: name ?? null });
 export const me = () => invoke<Me>("pharos_me");
 export const setName = (name: string) => invoke<Me>("pharos_set_name", { name });
-export const setProteus = (onion: string | null) => invoke<Me>("pharos_set_proteus", { onion });
+/** `text`: a Proteus code (`pharos-proteus:…`, from its page) or its .onion address; empty for none. */
+export const setProteus = (text: string | null) => invoke<Me>("pharos_set_proteus", { text });
 export const card = () => invoke<string>("pharos_card");
 export const scan = (text: string) => invoke<Scan>("pharos_scan", { text });
 export const accept = (text: string) => invoke<string>("pharos_accept", { text });
@@ -58,10 +59,12 @@ export async function onEvents(h: {
   return () => u.forEach((f) => f());
 }
 
-/** "pharos-card:…" or "pharos-reply:…": what a scanned or pasted text is. */
-export function kindOf(text: string): "card" | "reply" | null {
-  const t = text.trim();
+/** "pharos-card:…", "pharos-reply:…" or "pharos-proteus:…": what a scanned or
+ *  pasted text is. Any case: a QR reader may upper-case it all. */
+export function kindOf(text: string): "card" | "reply" | "proteus" | null {
+  const t = text.trim().toLowerCase();
   if (t.startsWith("pharos-card:")) return "card";
   if (t.startsWith("pharos-reply:")) return "reply";
+  if (t.startsWith("pharos-proteus:")) return "proteus";
   return null;
 }

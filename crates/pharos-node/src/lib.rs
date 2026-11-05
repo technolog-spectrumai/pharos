@@ -219,6 +219,31 @@ pub fn hex(b: &[u8]) -> String {
     data_encoding::HEXLOWER.encode(b)
 }
 
+/// A Proteus to use, from what the person scanned or typed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProteusTarget {
+    pub onion: String,
+    /// The name its code carries; a bare address has none.
+    pub name: Option<String>,
+}
+
+/// Read a Proteus from a code (`pharos-proteus:…`, from its page or `proteus
+/// code`) or a bare v3 `.onion` address, checksum checked. Empty means none.
+pub fn parse_proteus(text: &str) -> Result<Option<ProteusTarget>> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Ok(None);
+    }
+    let prefix = pharos_id::PROTEUS_PREFIX;
+    if t.get(..prefix.len()).is_some_and(|p| p.eq_ignore_ascii_case(prefix)) {
+        let c = pharos_id::ProteusCode::from_text(t).map_err(|e| anyhow!("that Proteus code does not read: {e}"))?;
+        return Ok(Some(ProteusTarget { onion: c.onion_address(), name: Some(c.name) }));
+    }
+    let pk = pharos_rendezvous::parse_onion(t)
+        .ok_or_else(|| anyhow!("not a Proteus code or a .onion address (a typo fails the address's checksum)"))?;
+    Ok(Some(ProteusTarget { onion: pharos_rendezvous::onion_address(&pk), name: None }))
+}
+
 pub fn parse_fp(s: &str) -> Result<Fingerprint> {
     let v = data_encoding::HEXLOWER_PERMISSIVE.decode(s.as_bytes())?;
     v.try_into().map_err(|_| anyhow!("not a friend id"))
@@ -767,5 +792,29 @@ fn push_capped(v: &mut Vec<Message>, m: Message) {
         if let Some(i) = v.iter().position(|x| x.friend == f) {
             v.remove(i);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_proteus_is_read_from_its_code_or_its_address() {
+        let onion = pharos_rendezvous::onion_address(&[4u8; 32]);
+        let code = pharos_id::ProteusCode::new(&onion, "Pi").unwrap().to_text();
+        let want = |name: Option<&str>| Some(ProteusTarget { onion: onion.clone(), name: name.map(String::from) });
+        assert_eq!(parse_proteus(&code).unwrap(), want(Some("Pi")));
+        assert_eq!(parse_proteus(&format!(" {} ", code.to_uppercase())).unwrap(), want(Some("Pi")));
+        assert_eq!(parse_proteus(&onion).unwrap(), want(None));
+        assert_eq!(parse_proteus(&onion.to_uppercase()).unwrap(), want(None));
+        assert_eq!(parse_proteus(onion.trim_end_matches(".onion")).unwrap(), want(None));
+        assert_eq!(parse_proteus("  ").unwrap(), None, "empty: no Proteus");
+        let mut typo = onion.clone().into_bytes();
+        typo[0] = if typo[0] == b'a' { b'b' } else { b'a' };
+        assert!(parse_proteus(std::str::from_utf8(&typo).unwrap()).unwrap_err().to_string().contains("checksum"));
+        assert!(parse_proteus("pharos-proteus:XYZ").is_err());
+        assert!(parse_proteus("pharos-card:AAAA").is_err());
+        assert!(parse_proteus("ąę").is_err(), "non-ASCII input does not panic");
     }
 }

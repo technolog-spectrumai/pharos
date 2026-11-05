@@ -10,6 +10,10 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// The at-rest key (3.7). Beside the config by default, not in the data folder.
     pub master_key: PathBuf,
+    /// What its page and its code call it (1 to 64 characters).
+    pub name: String,
+    /// Serve the page with the code for Enigma at `/` on the onion (3.8).
+    pub page: bool,
     pub limits: Limits,
 }
 
@@ -55,6 +59,8 @@ impl Default for Config {
         Config {
             data_dir: PathBuf::from("/var/lib/proteus"),
             master_key: PathBuf::from("/etc/proteus/master.key"),
+            name: "Proteus".into(),
+            page: true,
             limits: Limits::default(),
         }
     }
@@ -79,7 +85,9 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("c.yaml");
         std::fs::write(&p, "").unwrap();
-        assert_eq!(Config::load(&p).unwrap().limits.max_messages_per_mailbox, 500);
+        let c = Config::load(&p).unwrap();
+        assert_eq!(c.limits.max_messages_per_mailbox, 500);
+        assert_eq!((c.name.as_str(), c.page), ("Proteus", true));
         std::fs::write(&p, "data_dir: /srv/p\nlimits:\n  message_ttl_days: 3\n").unwrap();
         let c = Config::load(&p).unwrap();
         assert_eq!(c.data_dir, PathBuf::from("/srv/p"));

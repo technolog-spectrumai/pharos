@@ -134,6 +134,9 @@ async function usePasted(text = pasted.value) {
       } else {
         pairNote.value = t("friends.pairedViaProteus", { name: s.name });
       }
+    } else if (kind === "proteus") {
+      // A Proteus is not a friend: say where its code goes instead of failing.
+      pairNote.value = t("friends.proteusCodeHint");
     } else if (kind === "reply") {
       const id = await api.accept(text);
       await refreshFriends();
@@ -149,21 +152,31 @@ async function usePasted(text = pasted.value) {
 
 // ── me ──────────────────────────────────────────────────────────────────────
 const settings = ref(false);
+const scanningProteus = ref(false);
 const nameDraft = ref("");
 const proteusDraft = ref("");
+const settingsError = ref("");
+const savingSettings = ref(false);
 function openSettings() {
   nameDraft.value = me.value?.name ?? "";
   proteusDraft.value = me.value?.proteus ?? "";
+  settingsError.value = "";
   settings.value = true;
 }
 async function saveSettings() {
+  settingsError.value = "";
+  savingSettings.value = true;
   try {
     if (nameDraft.value.trim() !== me.value?.name) me.value = await api.setName(nameDraft.value);
     const p = proteusDraft.value.trim() || null;
+    // Connecting to a Proteus over Tor can take a while; the dialog says so.
     if (p !== (me.value?.proteus ?? null)) me.value = await api.setProteus(p);
     settings.value = false;
   } catch (e) {
-    fail(e);
+    // Shown in the dialog, beside what was typed, not behind it.
+    settingsError.value = String(e);
+  } finally {
+    savingSettings.value = false;
   }
 }
 
@@ -185,6 +198,10 @@ async function removeCurrent() {
         <div class="min-w-0 flex-1">
           <div class="truncate font-bold" data-testid="me-name">{{ me?.name ?? "…" }}</div>
           <div class="truncate font-mono text-[10px] opacity-60" :title="$t('friends.yourFingerprint')">{{ me?.fingerprint }}</div>
+          <div class="truncate text-[10px] opacity-60" data-testid="me-proteus" :title="me?.proteus ?? ''">
+            <font-awesome-icon icon="server" />
+            {{ me?.proteus ? $t('friends.proteusOn', { onion: me.proteus.slice(0, 12) + '…' }) : $t('friends.proteusNone') }}
+          </div>
         </div>
         <OyaButton type="button" :aria-label="$t('friends.settings')" @click="openSettings"><font-awesome-icon icon="gear" /></OyaButton>
       </div>
@@ -299,6 +316,7 @@ async function removeCurrent() {
       </div>
     </OyaModal>
     <QrScannerModal v-model:open="scanning" @decoded="(s: string) => { scanning = false; usePasted(s); }" />
+    <QrScannerModal v-model:open="scanningProteus" @decoded="(s: string) => { scanningProteus = false; proteusDraft = s.trim(); }" />
 
     <!-- me -->
     <OyaModal v-model:open="settings">
@@ -308,12 +326,19 @@ async function removeCurrent() {
           <OyaTextField v-model="nameDraft" :maxlength="64" />
         </label>
         <label class="block text-sm">{{ $t('friends.proteus') }}
-          <OyaTextField v-model="proteusDraft" :placeholder="$t('friends.proteusPlaceholder')" />
+          <div class="flex gap-2">
+            <OyaTextField v-model="proteusDraft" class="flex-1" :placeholder="$t('friends.proteusPlaceholder')" data-testid="proteus-field" />
+            <OyaButton type="button" :aria-label="$t('friends.scanProteus')" data-testid="scan-proteus" @click="scanningProteus = true">
+              <font-awesome-icon icon="camera" />
+            </OyaButton>
+          </div>
         </label>
         <p class="text-xs opacity-60">{{ $t('friends.proteusHelp') }}</p>
+        <p v-if="savingSettings" class="text-xs" role="status">{{ $t('friends.connectingProteus') }}</p>
+        <p v-if="settingsError" class="text-xs text-error-light dark:text-error-dark" role="alert" data-testid="settings-error">{{ settingsError }}</p>
         <div class="flex justify-end gap-2">
           <OyaButton type="button" @click="settings = false">{{ $t('friends.cancel') }}</OyaButton>
-          <OyaButton type="button" data-testid="save-settings" @click="saveSettings">{{ $t('friends.save') }}</OyaButton>
+          <OyaButton type="button" data-testid="save-settings" :disabled="savingSettings" @click="saveSettings">{{ $t('friends.save') }}</OyaButton>
         </div>
       </div>
     </OyaModal>

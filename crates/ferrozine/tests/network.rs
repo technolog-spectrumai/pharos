@@ -224,15 +224,18 @@ async fn one_peer_cannot_hold_more_than_its_share_of_serving_slots() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // …so the next one from the same peer is dropped at once.
+    // The host may close it before the stream even opens: that is the refusal
+    // too, and it used to make this test fail about one run in three.
     let conn = peer.endpoint.connect(addr, ALPN).await.unwrap();
-    let (mut send, mut recv) = conn.open_bi().await.unwrap();
-    let _ = send.write_all(&1u32.to_le_bytes()).await;
-    let mut buf = [0u8; 1];
-    let read = tokio::time::timeout(Duration::from_secs(5), recv.read(&mut buf)).await;
-    assert!(
-        matches!(read, Ok(Err(_)) | Ok(Ok(None)) | Ok(Ok(Some(0)))),
-        "the extra connection was served: {read:?}"
-    );
+    if let Ok((mut send, mut recv)) = conn.open_bi().await {
+        let _ = send.write_all(&1u32.to_le_bytes()).await;
+        let mut buf = [0u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(5), recv.read(&mut buf)).await;
+        assert!(
+            matches!(read, Ok(Err(_)) | Ok(Ok(None)) | Ok(Ok(Some(0)))),
+            "the extra connection was served: {read:?}"
+        );
+    }
     drop(idle);
     router.shutdown().await.unwrap();
 }

@@ -39,8 +39,22 @@ sudo install -m 644 packaging/proteus.service /lib/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now proteus
 ```
 
-Put the onion address into Enigma (Settings → Proteus). It goes on the
-contact card you show friends, so they know where your mailbox is.
+Connect Enigma to it. Either open its address in **Tor Browser**
+(`http://<onion>/`): its page shows a QR code and the same code as text, with
+both to download. Or, on the Pi:
+
+```sh
+sudo -u proteus proteus code -c /etc/proteus/config.yaml               # the code, and a QR in the terminal
+sudo -u proteus proteus code -c /etc/proteus/config.yaml --png qr.png  # …and as an image
+```
+
+In Enigma, open **Friends → ⚙ You and your Proteus**, scan the QR (camera
+button) or paste the code (a bare `.onion` address works too), and Save:
+Enigma checks it can reach the Proteus first. The address then goes on the
+contact cards you show friends, so they know where your mailbox is.
+
+Set `name:` in the config to what the page and the code should call it
+(`Alice's Pi`); `page: false` stops serving the page (the API is unaffected).
 
 ## Building it
 
