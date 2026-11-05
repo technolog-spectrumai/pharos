@@ -45,6 +45,8 @@ pub struct Hosted {
 impl Tor {
     /// Bootstrap arti with its state (keys) in `state_dir` and its directory cache in `cache_dir`.
     pub async fn start(state_dir: PathBuf, cache_dir: PathBuf, strict_permissions: bool) -> Result<Self> {
+        // Fails harmlessly if a provider is already installed.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         std::fs::create_dir_all(&state_dir)?;
         std::fs::create_dir_all(&cache_dir)?;
         let mut b = TorClientConfigBuilder::from_directories(state_dir, cache_dir);

@@ -341,6 +341,28 @@ mod tests {
     }
 
     #[test]
+    fn a_full_disk_fails_the_request_not_the_server() {
+        let d = tempfile::tempdir().unwrap();
+        let s = Store::open(&d.path().join("p.sqlite"), MasterKey::from_bytes(&[7; 32]), Limits::default()).unwrap();
+        s.put_message(b"box", b"tok", b"first", 0).unwrap().unwrap();
+        // Stand-in for a full SD card: SQLite may not grow the file any more.
+        let pages: i64 = s.db().query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap();
+        s.db().query_row(&format!("PRAGMA max_page_count={pages}"), [], |_| Ok(())).unwrap();
+        let mut failed = false;
+        for i in 0..200 {
+            if s.put_message(b"box2", b"tok", &vec![i as u8; 30_000], 0).is_err() {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed, "the disk never filled");
+        // What was stored is intact, reads work, and the transaction rolled back.
+        assert_eq!(s.fetch(b"box", b"tok", 0, 9).unwrap().unwrap()[0].blob, b"first");
+        s.ack(b"box", b"tok", 1).unwrap().unwrap();
+        assert!(s.put_message(b"box", b"tok", b"small again", 0).unwrap().is_ok(), "space freed by the ack is reused");
+    }
+
+    #[test]
     fn a_sealed_value_moved_to_another_row_does_not_open() {
         let s = store();
         s.put_message(b"box", b"tok", b"one", 0).unwrap().unwrap();

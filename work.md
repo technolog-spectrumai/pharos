@@ -223,7 +223,14 @@ technology.md, THIRD_PARTY.md.
 but is heavy on battery). Proteus: aarch64 binary and a .deb for Raspberry Pi
 OS.
 
-## Decisions for the owner (PD1–PD10)
+### Stages 5 and 6 done — notes
+
+- 5.1 [SECURITY.md](SECURITY.md): who learns what (network, relays, a friend, Proteus' operator, a thief of its disk or of your device); known gaps: a fixed 60 s fetch schedule shows Proteus when you are online, message counts per mailbox are visible, no cover traffic, the rendezvous derivation has no forward secrecy, one device per identity.
+- 5.2 A real bug found by the real-Tor test: arti's rustls had no process crypto provider (it cannot choose when several crates enable backends). `Tor::start` now installs ring. That test (`pharos-node/tests/real_tor.rs`, ignored) could not run here: this sandbox reaches the outside only through an HTTPS proxy, so Tor never bootstraps. It runs in `.github/workflows/real-tor.yml`, by hand.
+- 5.3 Added: replayed and reflected MLS messages do not open; a full disk (SQLite `max_page_count`) fails the request, rolls back, and the server keeps working.
+- 6.1 PROTOCOL.md (formats, derivations, the Proteus API), README, technology.md and READMEs headed for Nautes, THIRD_PARTY.md for nautes (851 crates, 125 npm) and proteus (597 crates) from `scripts/third_party.mjs`.
+- 6.2 `release.yml`: Nautes on Linux and Windows (`tauri build`), Proteus for arm64 (binary and `.deb`). Built here: `proteus_0.1.0-1_arm64.deb` (4.4 MB; depends `libc6 (>= 2.34)`, pinned, because cargo-deb took the build host's 2.39, which Bookworm could not install); the amd64 build of the same package installed with dpkg: it created the user, a 0600 master key, and `status` answered.
+ (PD1–PD10)
 
 - **PD1.** Fork with history via `git filter-repo` (done, 1.1).
 - **PD2.** One repository, three parts: `nautes/`, `proteus/`, `crates/`.

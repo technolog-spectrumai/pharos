@@ -181,6 +181,18 @@ mod tests {
     }
 
     #[test]
+    fn a_replayed_message_is_refused() {
+        let (mut alice, mut bob) = pair();
+        let ct = alice.seal(&Envelope::text([4; 16], 0, "once").unwrap()).unwrap();
+        assert!(matches!(bob.open(&ct).unwrap(), Opened::Message(_)));
+        assert!(bob.open(&ct).is_err(), "MLS deletes each message key after use");
+        // Bob's own message, reflected back to him, does not open either.
+        let mine = bob.seal(&Envelope::text([5; 16], 0, "mine").unwrap()).unwrap();
+        assert!(bob.open(&mine).is_err());
+        assert!(bob.open(&[0u8; 64]).is_err());
+    }
+
+    #[test]
     fn labelled_boxes_open_only_under_their_label() {
         let key = [9u8; 32];
         let b = seal_labelled(&key, b"mailbox/1", b"data");

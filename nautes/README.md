@@ -1,3 +1,13 @@
+# Nautes
+
+The Pharos client. **Friends**: pair once by QR or text, then exchange short
+messages over Tor, directly or through a friend's Proteus. **Groups**: Enigma's
+rooms. See [../README.md](../README.md), [../PROTOCOL.md](../PROTOCOL.md).
+
+---
+
+What follows is Enigma26's README, from which Nautes was cut:
+
 # Enigma26
 
 A **serverless, peer-to-peer, end-to-end-encrypted chat** — a Tauri 2 + Vue 3

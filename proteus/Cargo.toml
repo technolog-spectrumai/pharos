@@ -40,6 +40,8 @@ http-body-util = "0.1"
 maintainer = "Spectrum AI <noreply@spectrumai.pl>"
 section = "net"
 priority = "optional"
+# The binary needs glibc 2.34 (checked with objdump); Bookworm has 2.36.
+depends = "libc6 (>= 2.34), adduser"
 assets = [
   ["target/release/proteus", "usr/bin/", "755"],
   ["packaging/proteus.service", "lib/systemd/system/", "644"],

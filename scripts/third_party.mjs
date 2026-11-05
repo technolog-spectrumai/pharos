@@ -2,8 +2,8 @@
 // package pulls in (cargo metadata, normal dependencies, this platform's
 // set) and every npm package its window ships (dependencies, not dev).
 //
-//   node scripts/third_party.mjs fuxia          writes apps/fuxia/THIRD_PARTY.md
-//   node scripts/third_party.mjs fuxia --check  fails if that file is stale
+//   node scripts/third_party.mjs nautes          writes nautes/THIRD_PARTY.md
+//   node scripts/third_party.mjs proteus --check fails if that file is stale
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,8 +12,10 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const [app, flag] = process.argv.slice(2);
 if (!app) throw new Error("usage: third_party.mjs <app> [--check]");
-const appDir = join(root, "apps", app);
-const pkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8"));
+// Pharos keeps its two programs at the root (nautes/, proteus/).
+const appDir = join(root, app);
+const pkgFile = join(appDir, "package.json");
+const pkg = existsSync(pkgFile) ? JSON.parse(readFileSync(pkgFile, "utf8")) : { dependencies: {} };
 
 function crates() {
   const meta = JSON.parse(execFileSync("cargo", ["metadata", "--format-version", "1", "--locked"],

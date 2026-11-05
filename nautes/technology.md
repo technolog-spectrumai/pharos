@@ -1,4 +1,14 @@
-# Enigma26 — Technology Overview
+# Nautes — Technology Overview
+
+> **Pharos.** Nautes is Enigma26 cut down to short messages over Tor, in the
+> Pharos repository. Its new part, **Friends** (1:1, pairing by QR, weekly
+> rendezvous onions, an optional Proteus mailbox), is described in
+> [../PROTOCOL.md](../PROTOCOL.md) and [../SECURITY.md](../SECURITY.md); its code
+> is `src-tauri/src/pharos.rs`, `src/views/NautesFriendsView.vue` and
+> `crates/pharos-*`. What follows is Enigma's document, kept for **Groups**
+> (its rooms over a captain relay) and the parts both share: the vault, MLS,
+> arti, Privacy HP. Sections on iroh, the DHT, calls, files and the calendar
+> describe code that is no longer here.
 
 > **Since 2026-10-22 this app lives in the Belisario monorepo** at `apps/enigma/`. What
 > this document calls Rutile — mounted at `rutile/` as a submodule — is the repo root now

@@ -20,6 +20,9 @@ typed-index-collections = "=3.3.0"
 futures = "0.3"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 anyhow = "1"
+# arti's TLS: install ring as the process provider (rustls cannot pick one when
+# several crates enable different backends).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [dev-dependencies]
 pharos-rendezvous = { path = "../pharos-rendezvous" }

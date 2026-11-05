@@ -1,9 +1,9 @@
 # Pharos — plan
 
-Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1** pair once out of band, **D2** rendezvous onions per friendship, **D5** a directory onion on Proteus, **M3** Proteus as the always-on mailbox. Short messages only, over Tor, sealed with Ferrozine's MLS. **Nautes works without Proteus** (direct, friend to friend); Proteus only makes it easier (offline delivery, finding each other again).
+Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pair once out of band, **D2** rendezvous onions per friendship, **D5** a directory onion on Proteus, **M3** Proteus as the always-on mailbox. Short messages only, over Tor, sealed with Ferrozine's MLS. **Nautes works without Proteus** (direct, friend to friend); Proteus only makes it easier (offline delivery, finding each other again).
 
 ## Stage 0 — Approval
-- [ ] 0.1 👤 Owner approves the plan and decisions PD1–PD10 (work.md)
+- [x] 0.1 👤 Owner approves the plan ("approved, go on", 2026-11-05); PD9 (Privacy HP) still open
 
 ## Stage 1 — Fork and cut down: Enigma becomes Nautes, building on its own
 - [x] 1.1 Import Enigma's history (`apps/enigma`) and the shared code it needs (Ferrozine, rotor, gervasius, petalite, calendula, scripts) into this repository
@@ -37,10 +37,10 @@ Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1
 - [x] 4.6 Local state encrypted at rest behind a passphrase (Enigma's vault), and desktop notifications
 
 ## Stage 5 — Security and tests
-- [ ] 5.1 Threat model and metadata: what Proteus, Tor and a friend can learn; padding and fetch schedules
-- [ ] 5.2 Tests: unit, protocol vectors, Proteus with an in-memory transport, Nautes vitest, and end-to-end runs over real Tor both with and without Proteus
-- [ ] 5.3 Hostile inputs: oversized and malformed frames, replay, token abuse, a full disk
+- [x] 5.1 Threat model and metadata: what Proteus, Tor and a friend can learn; padding and fetch schedules
+- [x] 5.2 Tests: unit, protocol vectors, Proteus with an in-memory transport, Nautes vitest, and end-to-end runs over real Tor both with and without Proteus
+- [x] 5.3 Hostile inputs: oversized and malformed frames, replay, token abuse, a full disk
 
 ## Stage 6 — Release
-- [ ] 6.1 PROTOCOL.md, README, technology.md, THIRD_PARTY.md
-- [ ] 6.2 Packages: Nautes for Linux and Windows (Android later), Proteus as an aarch64 binary and a .deb for Raspberry Pi OS
+- [x] 6.1 PROTOCOL.md, README, technology.md, THIRD_PARTY.md
+- [x] 6.2 Packages: Nautes for Linux and Windows (Android later), Proteus as an aarch64 binary and a .deb for Raspberry Pi OS — Proteus .deb built and install-tested here; Nautes bundles come from release.yml (not yet run)

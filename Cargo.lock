@@ -6021,6 +6021,7 @@ dependencies = [
  "arti-client",
  "futures",
  "pharos-rendezvous",
+ "rustls",
  "safelog",
  "tokio",
  "tor-cell",
