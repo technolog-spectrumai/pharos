@@ -1,0 +1,190 @@
+# Pharos — engineering journal
+
+## The request (the owner, 2026-11-05)
+
+A new project, **Pharos** ("a lighthouse in the dark"): short messages over
+Tor, encrypted with Ferrozine. Fork Belisario keeping only Enigma, with its
+code history, and cut it down to short messages via Tor. The server is
+**Proteus** (axum, slim, must run on a Raspberry Pi); the client is
+**Nautes** (Rust, Tauri), built from Enigma's code.
+
+Chosen from the earlier analysis (Belisario session, 2026-11-05):
+
+- **D1** exchange once, out of band: the first contact is a QR code or text card.
+- **D2** rendezvous onions derived after pairing, to keep finding each other.
+- **D5** a directory onion on the Pi.
+- **M3** the Raspberry Pi as the always-on member: a mailbox for offline friends.
+
+## Stage 1 — Fork and cut down
+
+**1.1 (done 2026-11-05).** `git filter-repo` over Belisario's `dev_halo26`
+(2,149 commits) kept these paths with their history (1,049 commits):
+`apps/enigma/`, `crates/ferrozine/`, `crates/rotor/`,
+`vendor/zirconium/crates/rotor/gervasius/`, `packages/petalite/`,
+`packages/calendula/`, `scripts/`, `LICENSE`. Authors and dates are kept.
+The tree still has Belisario's layout, so nothing builds yet (no root
+workspace); 1.2 fixes that.
+
+**1.2 Layout.** `nautes/` (from `apps/enigma/`), `proteus/`, `crates/`
+(ferrozine, rotor, gervasius, the new pharos-* crates), `packages/` (petalite,
+calendula), one root `Cargo.toml` workspace and `package.json` workspaces.
+Moves are done with `git mv`, so history follows.
+
+**1.3 Cut.** Removed, not hidden behind features:
+- iroh transport (`p2p_iroh.rs`) and the Mainline DHT (`p2p_dht*.rs`);
+- calls (`vox.rs`), file transfer (`file_xfer.rs`), calendar, the editions
+  (Standard / Professional), `limbo/`;
+- the invite variants not needed for D1.
+
+Kept: arti (`tor.rs`, `p2p_tor.rs`), MLS and the encrypted vault, the chat UI
+core, petalite, i18n EN/PL. "Privacy HP" (the cost of exposing actions) is
+worth keeping for presence and directory publishing; decision PD9.
+
+**1.4 Rename.** Bundle id, product name, words, icons. Enigma's remaining
+tests must pass before Stage 2 starts.
+
+**1.5 Scripts and CI.** A `tests.sh` per part; a GitHub workflow running cargo
+and vitest on push.
+
+## Stage 2 — Shared core
+
+**2.1 `pharos-wire`.** Enigma's Tor framing (4-byte length prefix) with a
+binary body (Borsh or CBOR instead of JSON), a version byte, and message kinds:
+`Deliver`, `Ack`, `MailboxPut`, `MailboxFetch`, `DirectoryPut`,
+`DirectoryGet`. Every frame has a hard size cap. Short messages: proposed
+1,000 characters of text (PD7).
+
+**2.2 `pharos-seal`.** "Encrypted with Ferrozine" means Ferrozine's sealed
+rooms: MLS through rotor (OpenMLS). Ferrozine is built on iroh, which cannot
+run over Tor (QUIC/UDP; Tor carries streams only), so the sealing part is
+used without iroh: a feature that leaves iroh out of Ferrozine, or a small
+crate taken from it. A friendship is a two-member MLS group; a small group is
+an MLS group (PD8). Forward secrecy and post-compromise security come from MLS.
+
+**2.3 `pharos-tor`.** From `p2p_tor.rs`: arti client with a per-profile
+state directory (stable onion identities), hosting onion services, dialing,
+per-frame write timeouts, handshake read caps. Used by Nautes and Proteus.
+
+**2.4 `pharos-rendezvous` (D2).** At pairing, the two friends agree a
+friendship secret (from the MLS group's exporter secret). Each week:
+`seed = HKDF(secret, "pharos/rendezvous/v1" || year || week)`, an Ed25519 key
+from the seed, and its v3 `.onion` address. Both compute the same address; the
+friend who "owns" the direction hosts it (two addresses per friendship, one
+per side, so each hosts its own). Clock skew: the current and the previous
+week are tried. Test vectors pin the derivation.
+
+**2.5 Identity.** A device key (Ed25519) and its fingerprint, shown on both
+sides at pairing. Heliodor (Belisario's identity system) is left for later,
+to keep this small (PD10).
+
+## Stage 3 — Proteus
+
+**3.1 Slim axum over arti.** Proteus never listens on a clearnet port: arti
+hosts its onion service, and each incoming onion stream is served by
+hyper/axum as a connection (axum's `serve` on a custom stream source). Small
+dependency set: axum without the macros feature, `tower` limits, tokio with
+only `rt` + `net` + `time`; no TLS (Tor's onion transport is already end to
+end). Target: idle memory under 64 MB on a Pi 4.
+
+**3.2 Mailbox (M3).** A mailbox is an opaque id (random, 32 bytes) that only
+its owner and the friends it was given to know. Proteus stores sealed blobs
+per mailbox, padded to fixed sizes, until the owner fetches and acknowledges
+them or they expire (proposed 14 days). Quotas per mailbox. Proteus is
+"always on" but **not an MLS member**: it holds no keys and cannot read a
+message. (M3's "always-on member" is met as a member of the protocol, not of
+the encrypted groups; PD3.)
+
+**3.3 Directory (D5).** A record says "this friendship's current onion is X",
+sealed so only that friend can open it, signed by the publisher, stored under
+a lookup id derived from the friendship secret (so Proteus cannot tell who it
+belongs to), with an expiry. Used when the rendezvous onion is not answering
+(new device, moved state).
+
+**3.4 Access.** Capability tokens: a mailbox's write token is given to
+friends at pairing, its read token stays with the owner. Rate limits per
+token and in total; size caps; all requests over Tor, so no IP addresses are
+seen or logged.
+
+**3.5 Storage.** One SQLite file (bundled, WAL), with a schema version, an
+expiry sweep and a `proteus backup` command. A full disk refuses new puts
+with a reason; nothing else breaks.
+
+**3.6 Raspberry Pi.** A cross-compiled aarch64 binary
+(`aarch64-unknown-linux-gnu`), a systemd unit with hardening (DynamicUser,
+ProtectSystem, a state directory), a config file (quotas, expiries), an
+install guide. arti's state lives under the state directory; its keys are the
+Proteus onion identity and are backed up with it.
+
+## Stage 4 — Nautes
+
+**4.1 The window.** From Enigma's chat: friends, a conversation, a compose
+box with the length cap, delivery state (sent directly, left on Proteus,
+delivered, read), settings (Proteus address, passphrase, language, theme).
+
+**4.2 Pairing (D1).** A contact card: device fingerprint, an MLS key package,
+the first rendezvous parameters, the Proteus onion address and a mailbox
+write token. Shown as a QR code and as text; both sides confirm the
+fingerprint (a short code read aloud).
+
+**4.3 Friendship (D2).** For each friend, host this week's own rendezvous
+onion and dial theirs when there is something to send or a presence check
+is due. Delivery is direct when both are online.
+
+**4.4 Offline (M3).** If the friend's onion does not answer within a timeout,
+the sealed message goes to their mailbox on Proteus. Nautes fetches its own
+mailbox on start and on a randomised schedule, and acknowledges what it read.
+
+**4.5 Directory (D5).** On start and when its onion changes, Nautes publishes
+sealed records for its friends; when a friend's rendezvous onion fails, it
+looks them up.
+
+**4.6 Local state.** Enigma's vault: encrypted at rest behind a passphrase.
+Notifications for new messages.
+
+## Stage 5 — Security and tests
+
+**5.1 Threat model.** What each party learns:
+- **Tor** sees nothing of content and no addresses beyond its circuits.
+- **Proteus** sees mailbox ids, blob sizes (padded) and timing, never content
+  or who is who.
+- **A friend** sees what you send them.
+- **A stolen device**: the vault behind a passphrase.
+
+Fetch on a randomised schedule and pad blobs to limit timing and size
+signals.
+
+**5.2 Tests.**
+- Rust unit tests and protocol vectors (rendezvous, wire).
+- Proteus over an in-memory transport (no Tor) for speed.
+- Nautes vitest.
+- One end-to-end run over real Tor (slow; on demand).
+
+**5.3 Hostile inputs.** Oversized and malformed frames, replayed blobs,
+token guessing, quota abuse, a full disk.
+
+## Stage 6 — Release
+
+**6.1** PROTOCOL.md (wire, rendezvous derivation, Proteus API), README,
+technology.md, THIRD_PARTY.md.
+
+**6.2** Nautes: Linux .deb / .rpm, Windows; Android later (arti works there
+but is heavy on battery). Proteus: aarch64 binary and a .deb for Raspberry Pi
+OS.
+
+## Decisions for the owner (PD1–PD10)
+
+- **PD1.** Fork with history via `git filter-repo` (done, 1.1).
+- **PD2.** One repository, three parts: `nautes/`, `proteus/`, `crates/`.
+- **PD3.** Proteus is always on, but not a member of any encrypted group: it
+  never has keys (M3 as "member of the protocol").
+- **PD4.** Proteus is reachable only as an onion service; no clearnet port.
+- **PD5.** D1 then D2: pairing by QR or text, then rendezvous onions rotating
+  weekly, two per friendship (one per side).
+- **PD6.** D5 directory records sealed per friend, under lookup ids Proteus
+  cannot link to people.
+- **PD7.** Short means short: 1,000 characters of text, no attachments.
+- **PD8.** 1:1 first; small groups (MLS groups, up to about a dozen) as a
+  later step.
+- **PD9.** Keep Enigma's "Privacy HP" for exposing actions (presence,
+  publishing), or drop it to stay minimal.
+- **PD10.** Device keys only for now; Heliodor identities later if wanted.
