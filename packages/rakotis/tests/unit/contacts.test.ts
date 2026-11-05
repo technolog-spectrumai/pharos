@@ -19,7 +19,7 @@ const B = { nodeId: "b".repeat(64), name: "Bob", addedAt: 2000 };
 describe("contacts service — CRUD over the kv store", () => {
   it("starts empty and returns [] on garbage payloads", async () => {
     expect(await listContacts()).toEqual([]);
-    localStorage.setItem("enigma:db:contacts:default:", "not json");
+    localStorage.setItem("vesper:db:contacts:default:", "not json");
     expect(await listContacts()).toEqual([]);
   });
 

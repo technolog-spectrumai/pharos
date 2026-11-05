@@ -1,4 +1,4 @@
-//! Nautes' engine, without the window (Stage 4). Everything a Pharos client
+//! Enigma' engine, without the window (Stage 4). Everything a Pharos client
 //! does, over any [`Net`]: arti in the app, an in-process network in tests.
 //!
 //! - **Pairing (D1)**: [`Node::my_card`] shows a signed card; the friend

@@ -159,7 +159,7 @@ export async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality
   }
 }
 
-const log = (...args: unknown[]) => console.log("[enigma-chat]", ...args);
+const log = (...args: unknown[]) => console.log("[vesper-chat]", ...args);
 
 /** Options for secondary channel instances (the hidden device-link room). A
  *  headless channel never touches the saved-rooms kv or the chat log; an
@@ -413,9 +413,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   // prefix "for consistency" would make this gate `return` before the mute
   // check and swallow every card — no handler owns `map_`, so nothing would
   // ever render. (The routing tests that pinned this lived in
-  // multiDeviceChannel.test.ts, deleted with device linking in enigma's
+  // multiDeviceChannel.test.ts, deleted with device linking in vesper's
   // `f0c8126 Park device linking and file sync to limbo`; the parked copies are
-  // in enigma's limbo/frontend/devices.)
+  // in vesper's limbo/frontend/devices.)
   type SyncHandler = (type: string, payload: Record<string, unknown>, sender: string) => void;
   const syncHandlers = new Set<SyncHandler>();
   function onSync(fn: SyncHandler): () => void {

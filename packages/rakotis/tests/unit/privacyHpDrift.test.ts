@@ -1,4 +1,4 @@
-// The price table has one source of truth: nautes/src-tauri/privacy_hp.yaml.
+// The price table has one source of truth: enigma/src-tauri/privacy_hp.yaml.
 //
 // Rust reads it at compile time; this package carries a browser-mode mirror so the
 // app still works in the Vite dev server and so these tests have real numbers to
@@ -17,7 +17,7 @@ import { FALLBACK_HP_POLICY as MIRROR } from "../../src/services/hp";
  *  from there. `import.meta.url` is not a file: URL under the jsdom environment
  *  these tests run in, so the lookup is done by path instead. */
 function findPolicyYaml(): string {
-  const rel = "nautes/src-tauri/privacy_hp.yaml";
+  const rel = "enigma/src-tauri/privacy_hp.yaml";
   let dir = process.cwd();
   for (let i = 0; i < 6; i++) {
     const candidate = resolve(dir, rel);
@@ -27,7 +27,7 @@ function findPolicyYaml(): string {
     dir = up;
   }
   // NOT a skip any more. This package used to be a git subtree with a life of
-  // its own outside enigma, and a standalone checkout had no price table to
+  // its own outside vesper, and a standalone checkout had no price table to
   // check against — so the suite skipped, and twelve real assertions with it.
   // It is an ordinary in-repo package now: the YAML is always four directories
   // up, and its absence is a broken checkout, not a supported configuration.
@@ -202,7 +202,7 @@ describe("the YAML holds to its own rules", () => {
 describe("the drift guard itself", () => {
   it("actually found the price table", () => {
     // These twelve assertions used to skip themselves whenever the YAML was
-    // not reachable, which was every run outside enigma — and a silently
+    // not reachable, which was every run outside vesper — and a silently
     // skipped drift check is the same as no check. Now the lookup throws
     // instead, and this is the belt to that brace.
     expect(YAML_PATH).toContain("privacy_hp.yaml");

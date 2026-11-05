@@ -1,4 +1,4 @@
-// Rakotis — reusable app primitives for Enigma26: the non-crypto foundation
+// Rakotis — reusable app primitives for Vesper: the non-crypto foundation
 // (services, i18n, Oya UI components) plus the P2P chat orchestration
 // (Rotor-backed crypto bridge, iroh transport bridge, chat channel composable +
 // MLS envelope state machine). Crypto is delegated to the Rotor-backed `mls_*`
@@ -43,7 +43,7 @@ export type { ChatTranslator } from "./i18n/chatText";
 
 // ── UI components ─────────────────────────────────────────────────────────────
 // The Oya primitives are petalite's (petalite/primitives); only the two that
-// read enigma's Privacy HP price table stay here. Explicit single-level
+// read vesper's Privacy HP price table stay here. Explicit single-level
 // re-exports (NOT `export *` through a sub-barrel): WebKit's JavaScriptCore
 // fails to resolve a two-level chain in unbundled dev ESM.
 export { default as OyaHpPrice } from "./components/primitives/OyaHpPrice.vue";

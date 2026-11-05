@@ -1,4 +1,4 @@
-//! A Nautes device's identity and the two things it shows a friend (D1).
+//! A Enigma device's identity and the two things it shows a friend (D1).
 //!
 //! - [`DeviceKey`]: a long-term ed25519 key. Its [`Fingerprint`] (16 bytes) is
 //!   what both people compare by eye: [`fingerprint_words`] prints it as eight

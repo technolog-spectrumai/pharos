@@ -2,10 +2,10 @@
   "name": "pharos",
   "private": true,
   "version": "0.1.0",
-  "description": "Pharos: Nautes, short messages over Tor sealed with MLS, and the packages it shares (petalite, calendula, rakotis).",
+  "description": "Pharos: Enigma, short messages over Tor sealed with MLS, and the packages it shares (petalite, calendula, rakotis).",
   "workspaces": [
     "packages/*",
-    "nautes"
+    "enigma"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",

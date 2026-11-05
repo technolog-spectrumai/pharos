@@ -1,6 +1,6 @@
 // Sizes and dates, in one place.
 //
-// Enigma has this function copy-pasted into four components in two subtly
+// Vesper has this function copy-pasted into four components in two subtly
 // different variants (one handles `undefined`, one stops at GB). That is the
 // kind of drift that ends with two panels disagreeing about what 1.5 MB is, so
 // here it is written once.

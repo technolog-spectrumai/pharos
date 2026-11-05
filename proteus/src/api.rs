@@ -1,5 +1,5 @@
 //! The HTTP API Proteus serves on its onion (3.1–3.4). Bodies are raw bytes
-//! (already sealed by Nautes); ids and tokens are hex.
+//! (already sealed by Enigma); ids and tokens are hex.
 //!
 //! | Method | Path | Auth | What |
 //! |---|---|---|---|

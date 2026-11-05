@@ -131,7 +131,7 @@ echo "not reached"
 });
 
 test("vite_port reads the port the app's vite.config.ts serves on", () => {
-  for (const app of ["enigma", "morion", "irena"]) {
+  for (const app of ["vesper", "morion", "irena"]) {
     const config = join(SCRIPTS, "..", "apps", app, "vite.config.ts");
     const port = sh(`vite_port "${config}"`).stdout.trim();
     assert.match(port, /^14[234]0$/, `${app}: got "${port}"`);

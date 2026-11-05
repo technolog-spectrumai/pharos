@@ -1,7 +1,7 @@
 //! Public-key sealing: encrypt to someone's public key, with no shared secret and
 //! no prior handshake.
 //!
-//! Enigma's other primitives are all symmetric — a passphrase derives a key and
+//! Vesper's other primitives are all symmetric — a passphrase derives a key and
 //! that key seals data for the same person later. That shape cannot express "only
 //! Bob may open this", which is exactly what a Personal Invite needs: a QR handed
 //! to Bob, unreadable by anyone else who photographs it, and carrying **no
@@ -20,7 +20,7 @@
 //!
 //! Both public keys go into the HKDF salt, so a ciphertext is bound to the exact
 //! recipient it was made for: it cannot be re-pointed at another key by rewriting
-//! the ephemeral header. The caller's `aad` binds it further (Enigma passes the
+//! the ephemeral header. The caller's `aad` binds it further (Vesper passes the
 //! invite id and format version, so a sealed body cannot be lifted into a
 //! different invite).
 //!
@@ -32,7 +32,7 @@
 //!
 //! ## Identity keys as encryption keys
 //!
-//! Enigma knows a contact by their **iroh NodeId**, which is an Ed25519 *signing*
+//! Vesper knows a contact by their **iroh NodeId**, which is an Ed25519 *signing*
 //! public key — the only key material a contact record holds. `x25519_from_ed25519_pk`
 //! maps it onto Curve25519's Montgomery form so it can also serve as a Diffie-Hellman
 //! key. This is the standard birational map (age does the same for `ssh-ed25519`
@@ -40,7 +40,7 @@
 //!
 //! It does mean one key pair is used for two purposes. That is a deliberate,
 //! documented trade — the alternative is a second key per contact, distributed and
-//! verified out of band, which Enigma has no channel for. The signing side is
+//! verified out of band, which Vesper has no channel for. The signing side is
 //! Ed25519 (Schnorr over the Edwards form) and the sealing side is X25519 ECDH over
 //! the Montgomery form; they use disjoint hash prefixes and neither protocol
 //! interprets the other's messages, so the standard cross-protocol concerns do not
@@ -58,7 +58,7 @@ use crate::CryptoError;
 
 /// Domain separation for the HKDF step. Bumping this invalidates every previously
 /// sealed blob, so it moves only alongside a format version.
-const INFO: &[u8] = b"enigma/seal/x25519-hkdf-sha256/v1";
+const INFO: &[u8] = b"vesper/seal/x25519-hkdf-sha256/v1";
 
 /// Length of an X25519 public key, and of the ephemeral header on a sealed blob.
 pub const X25519_PK_LEN: usize = 32;
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn the_aad_must_match() {
-        // Enigma binds the invite id here, so a sealed body cannot be moved into
+        // Vesper binds the invite id here, so a sealed body cannot be moved into
         // a different invite.
         let (sk, pk) = pair();
         let sealed = seal_to(&pk, b"invite-1", b"cap").unwrap();
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn a_contact_can_be_sealed_to_by_node_id_alone() {
-        // The real Enigma flow: all we hold for a contact is their Ed25519 NodeId.
+        // The real Vesper flow: all we hold for a contact is their Ed25519 NodeId.
         let ed_seed: [u8; 32] =
             hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
         let ed_pk: [u8; 32] =

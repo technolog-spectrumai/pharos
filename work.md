@@ -1,12 +1,21 @@
 # Pharos — engineering journal
 
+## Names (the owner, 2026-11-05)
+
+"Rename enigma to Vesper and nautes to enigma." The original messenger in
+belisario (`apps/enigma`) is now **Vesper** (`apps/vesper`, `com.spectrumaipl.vesper`),
+and this client, built here as Nautes, is now **Enigma** (`enigma/`,
+`com.spectrumaipl.enigma`, storage keys `enigma:*`). Older notes in this file
+were rewritten to the new names: "Vesper" there means the app this one was
+forked from, "Enigma" this client.
+
 ## The request (the owner, 2026-11-05)
 
 A new project, **Pharos** ("a lighthouse in the dark"): short messages over
-Tor, encrypted with Ferrozine. Fork Belisario keeping only Enigma, with its
+Tor, encrypted with Ferrozine. Fork Belisario keeping only Vesper, with its
 code history, and cut it down to short messages via Tor. The server is
 **Proteus** (axum, slim, must run on a Raspberry Pi); the client is
-**Nautes** (Rust, Tauri), built from Enigma's code.
+**Enigma** (Rust, Tauri), built from Vesper's code.
 
 Chosen from the earlier analysis (Belisario session, 2026-11-05):
 
@@ -17,17 +26,17 @@ Chosen from the earlier analysis (Belisario session, 2026-11-05):
 
 ## Proteus is optional (the owner, 2026-11-05)
 
-"In theory, Nautes should work without Proteus, but Proteus should make
+"In theory, Enigma should work without Proteus, but Proteus should make
 things easier." So:
 
 | | Without Proteus | With Proteus |
 |---|---|---|
 | First contact | D1: QR or text card | the same |
 | Reaching a friend | D2: rendezvous onions, direct | the same, first choice |
-| Friend offline | the message waits in a local outbox (sealed, in the vault) and is retried while Nautes runs; it arrives when both are online at once | left in the friend's mailbox (M3), fetched when they come online |
+| Friend offline | the message waits in a local outbox (sealed, in the vault) and is retried while Enigma runs; it arrives when both are online at once | left in the friend's mailbox (M3), fetched when they come online |
 | Friend lost (new device, onion changed) | pair again (D1) | found again through the directory (D5) |
 
-Nothing in Nautes requires a Proteus address: pairing works without one, and
+Nothing in Enigma requires a Proteus address: pairing works without one, and
 a Proteus can be added to a friendship later (a new contact-card field
 exchanged over the sealed channel). Tests cover both modes (5.2).
 
@@ -35,13 +44,13 @@ exchanged over the sealed channel). Tests cover both modes (5.2).
 
 **1.1 (done 2026-11-05).** `git filter-repo` over Belisario's `dev_halo26`
 (2,149 commits) kept these paths with their history (1,049 commits):
-`apps/enigma/`, `crates/ferrozine/`, `crates/rotor/`,
+`apps/vesper/`, `crates/ferrozine/`, `crates/rotor/`,
 `vendor/zirconium/crates/rotor/gervasius/`, `packages/petalite/`,
 `packages/calendula/`, `scripts/`, `LICENSE`. Authors and dates are kept.
 The tree still has Belisario's layout, so nothing builds yet (no root
 workspace); 1.2 fixes that.
 
-**1.2 Layout.** `nautes/` (from `apps/enigma/`), `proteus/`, `crates/`
+**1.2 Layout.** `enigma/` (from `apps/vesper/`), `proteus/`, `crates/`
 (ferrozine, rotor, gervasius, the new pharos-* crates), `packages/` (petalite,
 calendula), one root `Cargo.toml` workspace and `package.json` workspaces.
 Moves are done with `git mv`, so history follows.
@@ -56,7 +65,7 @@ Kept: arti (`tor.rs`, `p2p_tor.rs`), MLS and the encrypted vault, the chat UI
 core, petalite, i18n EN/PL. "Privacy HP" (the cost of exposing actions) is
 worth keeping for presence and directory publishing; decision PD9.
 
-**1.4 Rename.** Bundle id, product name, words, icons. Enigma's remaining
+**1.4 Rename.** Bundle id, product name, words, icons. Vesper's remaining
 tests must pass before Stage 2 starts.
 
 **1.5 Scripts and CI.** A `tests.sh` per part; a GitHub workflow running cargo
@@ -65,19 +74,19 @@ and vitest on push.
 ### Stage 1 done — notes (2026-11-05)
 
 - Cut: iroh/DHT/gossip, vox (calls, audio), file transfer, calendar, contacts tab, invites over iroh, `limbo/`, editions/feature flags except `pin_unlock`. Tor is always on (`default_use_tor` = true; no switch).
-- Composer is text-only with a length counter; the cap is `policy.maxMessageChars` (1000) in `nautes/src/config/app.ts`. Proteus must enforce the same cap (Stage 3).
-- Renamed: crate `nautes` / `nautes_lib`, bundle id `com.spectrumaipl.nautes`, views `Nautes*View`, assets `assets/nautes/`, storage keys `nautes:*`. Icons are still Enigma's artwork (new art: Stage 6).
+- Composer is text-only with a length counter; the cap is `policy.maxMessageChars` (1000) in `enigma/src/config/app.ts`. Proteus must enforce the same cap (Stage 3).
+- Renamed: crate `enigma` / `enigma_lib`, bundle id `com.spectrumaipl.enigma`, views `Enigma*View`, assets `assets/enigma/`, storage keys `enigma:*`. Icons are still Vesper's artwork (new art: Stage 6).
 - Leftovers for later stages:
   - `packages/rakotis/src/useChatChannel.ts` still has iroh-shaped branches (ticket/peer paths); rewrite in Stage 4.
-  - `nautes/src-tauri/privacy_hp.yaml` keeps clearnet/DHT entries that nothing charges any more; decide with PD9.
+  - `enigma/src-tauri/privacy_hp.yaml` keeps clearnet/DHT entries that nothing charges any more; decide with PD9.
   - Tab-visibility tests were removed with the tabs (only Chat is left).
-  - `nautes/dromon.yaml` and `scripts/tests_lib.sh` are Belisario build-driver leftovers, unused.
+  - `enigma/dromon.yaml` and `scripts/tests_lib.sh` are Belisario build-driver leftovers, unused.
 - Scripts: root `tests.sh` (`js` | `rust`), root `run_dev.sh [profile]`, `.github/workflows/ci.yml`.
-- Results: nautes vitest 437, rakotis 444, petalite 186, calendula 16, vue-tsc clean, `cargo test` nautes + crates pass.
+- Results: enigma vitest 437, rakotis 444, petalite 186, calendula 16, vue-tsc clean, `cargo test` enigma + crates pass.
 
 ## Stage 2 — Shared core
 
-**2.1 `pharos-wire`.** Enigma's Tor framing (4-byte length prefix) with a
+**2.1 `pharos-wire`.** Vesper's Tor framing (4-byte length prefix) with a
 binary body (Borsh or CBOR instead of JSON), a version byte, and message kinds:
 `Deliver`, `Ack`, `MailboxPut`, `MailboxFetch`, `DirectoryPut`,
 `DirectoryGet`. Every frame has a hard size cap. Short messages: proposed
@@ -92,7 +101,7 @@ an MLS group (PD8). Forward secrecy and post-compromise security come from MLS.
 
 **2.3 `pharos-tor`.** From `p2p_tor.rs`: arti client with a per-profile
 state directory (stable onion identities), hosting onion services, dialing,
-per-frame write timeouts, handshake read caps. Used by Nautes and Proteus.
+per-frame write timeouts, handshake read caps. Used by Enigma and Proteus.
 
 **2.4 `pharos-rendezvous` (D2).** At pairing, the two friends agree a
 friendship secret (from the MLS group's exporter secret). Each week:
@@ -154,12 +163,12 @@ Proteus onion identity and are backed up with it.
 ### 3.7 At rest (the owner, 2026-11-05: "like in s3-like buckets of Zirkel")
 
 Three layers, as Zirkelite does it (zirkelite `docs/security.md`, `src/diskcrypt.rs`, `docs/disk-encryption.md`):
-1. End to end: what Nautes leaves on Proteus is already sealed (MLS / the friendship key), like Zirkel's encrypted buckets.
+1. End to end: what Enigma leaves on Proteus is already sealed (MLS / the friendship key), like Zirkel's encrypted buckets.
 2. A master key: `master.key` beside the config, mode 0600, refused if group or others can read it. Every stored value (mailbox blob, token hash, directory record) is sealed with XChaCha20-Poly1305 under a label naming its table and row, so a value moved to another row does not open. The database alone gives away counts and sizes, not contents. Back up the database and the key separately.
 3. The disk: `proteus check` reads `/proc/self/mountinfo` and `/sys/dev/block` and says whether the data folder is on dm-crypt (encrypted / not encrypted / unknown); `serve` warns at start unless encrypted. A guide for LUKS on the Pi's SD card or a USB disk.
 
 
-**4.1 The window.** From Enigma's chat: friends, a conversation, a compose
+**4.1 The window.** From Vesper's chat: friends, a conversation, a compose
 box with the length cap, delivery state (sent directly, left on Proteus,
 delivered, read), settings (Proteus address, passphrase, language, theme).
 
@@ -173,14 +182,14 @@ onion and dial theirs when there is something to send or a presence check
 is due. Delivery is direct when both are online.
 
 **4.4 Offline (M3).** If the friend's onion does not answer within a timeout,
-the sealed message goes to their mailbox on Proteus. Nautes fetches its own
+the sealed message goes to their mailbox on Proteus. Enigma fetches its own
 mailbox on start and on a randomised schedule, and acknowledges what it read.
 
-**4.5 Directory (D5).** On start and when its onion changes, Nautes publishes
+**4.5 Directory (D5).** On start and when its onion changes, Enigma publishes
 sealed records for its friends; when a friend's rendezvous onion fails, it
 looks them up.
 
-**4.6 Local state.** Enigma's vault: encrypted at rest behind a passphrase.
+**4.6 Local state.** Vesper's vault: encrypted at rest behind a passphrase.
 Notifications for new messages.
 
 ### Stage 4 done — notes
@@ -190,8 +199,8 @@ Notifications for new messages.
 - Direct: per friend, this week's rendezvous onion (key from the friendship secret and *our* fingerprint); dialling tries this week, last week, next week. One frame per message; every text is answered by a sealed `Ack` on the same connection.
 - Offline: the outbox keeps `Queued` messages and retries each round (60 s). If the friend's card or directory record names a Proteus, the message goes to their mailbox instead (`OnProteus`) and becomes `Delivered` when their acknowledgement arrives (directly, or through *our* mailbox). Acknowledgements we owe ride with the next delivery.
 - Directory: when we set or change our Proteus, a sealed `{proteus, at}` record goes, per friend, to the current and previous Proteus for this week and the next; a friend's `lookup` follows it to the new address.
-- Nautes: `src-tauri/src/pharos.rs` (commands `pharos_*`, events `pharos://message|status|friends`, a notification that says who wrote but not what), started after unlock, stopped on lock. Its own arti instance in `profiles/<p>/pharos-tor/` (rendezvous keys are derived, so nothing there is secret beyond the vault). `NautesFriendsView.vue` is the first tab: friends, a conversation with statuses, a 1000-character composer, pairing (QR, copy, paste, camera), name and Proteus.
-- Enigma's rooms remain as the second tab, "Groups" (small groups over the captain relay). Two arti clients run while both are in use; merging them is a later cleanup.
+- Enigma: `src-tauri/src/pharos.rs` (commands `pharos_*`, events `pharos://message|status|friends`, a notification that says who wrote but not what), started after unlock, stopped on lock. Its own arti instance in `profiles/<p>/pharos-tor/` (rendezvous keys are derived, so nothing there is secret beyond the vault). `EnigmaFriendsView.vue` is the first tab: friends, a conversation with statuses, a 1000-character composer, pairing (QR, copy, paste, camera), name and Proteus.
+- Vesper's rooms remain as the second tab, "Groups" (small groups over the captain relay). Two arti clients run while both are in use; merging them is a later cleanup.
 - Tests: pharos-node 7 end-to-end (without Proteus; weekly rotation and clock skew; mailbox, pairing drop-off and acks with a real Proteus; directory move; restart from a snapshot; hostile cards, replies, frames); `friendsView.test.ts` 5.
 
 
@@ -208,7 +217,7 @@ signals.
 **5.2 Tests.**
 - Rust unit tests and protocol vectors (rendezvous, wire).
 - Proteus over an in-memory transport (no Tor) for speed.
-- Nautes vitest.
+- Enigma vitest.
 - One end-to-end run over real Tor (slow; on demand).
 
 **5.3 Hostile inputs.** Oversized and malformed frames, replayed blobs,
@@ -219,7 +228,7 @@ token guessing, quota abuse, a full disk.
 **6.1** PROTOCOL.md (wire, rendezvous derivation, Proteus API), README,
 technology.md, THIRD_PARTY.md.
 
-**6.2** Nautes: Linux .deb / .rpm, Windows; Android later (arti works there
+**6.2** Enigma: Linux .deb / .rpm, Windows; Android later (arti works there
 but is heavy on battery). Proteus: aarch64 binary and a .deb for Raspberry Pi
 OS.
 
@@ -228,12 +237,12 @@ OS.
 - 5.1 [SECURITY.md](SECURITY.md): who learns what (network, relays, a friend, Proteus' operator, a thief of its disk or of your device); known gaps: a fixed 60 s fetch schedule shows Proteus when you are online, message counts per mailbox are visible, no cover traffic, the rendezvous derivation has no forward secrecy, one device per identity.
 - 5.2 A real bug found by the real-Tor test: arti's rustls had no process crypto provider (it cannot choose when several crates enable backends). `Tor::start` now installs ring. That test (`pharos-node/tests/real_tor.rs`, ignored) could not run here: this sandbox reaches the outside only through an HTTPS proxy, so Tor never bootstraps. It runs in `.github/workflows/real-tor.yml`, by hand.
 - 5.3 Added: replayed and reflected MLS messages do not open; a full disk (SQLite `max_page_count`) fails the request, rolls back, and the server keeps working.
-- 6.1 PROTOCOL.md (formats, derivations, the Proteus API), README, technology.md and READMEs headed for Nautes, THIRD_PARTY.md for nautes (851 crates, 125 npm) and proteus (597 crates) from `scripts/third_party.mjs`.
-- 6.2 `release.yml`: Nautes on Linux and Windows (`tauri build`), Proteus for arm64 (binary and `.deb`). Built here: `proteus_0.1.0-1_arm64.deb` (4.4 MB; depends `libc6 (>= 2.34)`, pinned, because cargo-deb took the build host's 2.39, which Bookworm could not install); the amd64 build of the same package installed with dpkg: it created the user, a 0600 master key, and `status` answered.
+- 6.1 PROTOCOL.md (formats, derivations, the Proteus API), README, technology.md and READMEs headed for Enigma, THIRD_PARTY.md for enigma (851 crates, 125 npm) and proteus (597 crates) from `scripts/third_party.mjs`.
+- 6.2 `release.yml`: Enigma on Linux and Windows (`tauri build`), Proteus for arm64 (binary and `.deb`). Built here: `proteus_0.1.0-1_arm64.deb` (4.4 MB; depends `libc6 (>= 2.34)`, pinned, because cargo-deb took the build host's 2.39, which Bookworm could not install); the amd64 build of the same package installed with dpkg: it created the user, a 0600 master key, and `status` answered.
  (PD1–PD10)
 
 - **PD1.** Fork with history via `git filter-repo` (done, 1.1).
-- **PD2.** One repository, three parts: `nautes/`, `proteus/`, `crates/`.
+- **PD2.** One repository, three parts: `enigma/`, `proteus/`, `crates/`.
 - **PD3.** Proteus is always on, but not a member of any encrypted group: it
   never has keys (M3 as "member of the protocol").
 - **PD4.** Proteus is reachable only as an onion service; no clearnet port.
@@ -244,8 +253,8 @@ OS.
 - **PD7.** Short means short: 1,000 characters of text, no attachments.
 - **PD8.** 1:1 first; small groups (MLS groups, up to about a dozen) as a
   later step.
-- **PD9.** Keep Enigma's "Privacy HP" for exposing actions (presence,
+- **PD9.** Keep Vesper's "Privacy HP" for exposing actions (presence,
   publishing), or drop it to stay minimal.
 - **PD10.** Device keys only for now; Heliodor identities later if wanted.
-- **PD11 (the owner).** Nautes works without Proteus; Proteus is an optional
+- **PD11 (the owner).** Enigma works without Proteus; Proteus is an optional
   helper for offline delivery and for finding friends again.

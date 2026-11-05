@@ -1,8 +1,8 @@
 /* The colour tokens, once, for every app in this repo.
  *
- * There were two copies: enigma's `apps/enigma/src/style.css` and the office
+ * There were two copies: vesper's `apps/vesper/src/style.css` and the office
  * apps' three. Every token the two had in common held the SAME value — checked
- * token by token before they were merged — and enigma's set was a strict
+ * token by token before they were merged — and vesper's set was a strict
  * superset, so unifying changed no pixel in any app. What stays per app is the
  * `@source` list (each scans its own packages), the brand font, and anything
  * component-specific.

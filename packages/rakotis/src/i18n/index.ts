@@ -1,6 +1,6 @@
 // Shared i18n framework: locale resolution + persistence helpers and a factory
 // that builds an app's i18n instance from its own message catalogs. The catalogs
-// themselves live in the app (apps/enigma/src/i18n), so rakotis carries no app strings.
+// themselves live in the app (apps/vesper/src/i18n), so rakotis carries no app strings.
 
 import { createI18n, type I18n } from "vue-i18n";
 import { syncDateLocale } from "./dateFormat";
@@ -13,7 +13,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   pl: "Polski",
 };
 
-const STORAGE_KEY = "nautes:locale";
+const STORAGE_KEY = "enigma:locale";
 
 function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && (SUPPORTED_LOCALES as readonly string[]).includes(value);

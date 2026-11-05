@@ -1,4 +1,4 @@
-//! A demo bridge: the real Pharos engine behind Nautes' window in a plain
+//! A demo bridge: the real Pharos engine behind Enigma' window in a plain
 //! browser, for screenshots and UI work without Tauri or Tor.
 //!
 //!   cargo run -p pharos-node --example demo_bridge      # http://127.0.0.1:8977
@@ -6,7 +6,7 @@
 //! Three nodes (alice, bob, carol) and a real Proteus run on the in-process
 //! network. `POST /call/{profile}/{command}` with the command's JSON arguments
 //! answers as `src-tauri/src/pharos.rs` would; `GET /events/{profile}?since=n`
-//! returns the events since `n`. A browser shim (nautes/tests/e2e/bridge.ts)
+//! returns the events since `n`. A browser shim (enigma/tests/e2e/bridge.ts)
 //! routes the window's `pharos_*` invokes here.
 
 use axum::extract::{Path, Query, State};

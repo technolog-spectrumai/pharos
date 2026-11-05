@@ -1,4 +1,4 @@
-// Profile / runtime storage abstraction for the serverless Enigma26 app.
+// Profile / runtime storage abstraction for the serverless Vesper app.
 //
 // When running inside the Tauri desktop app, all storage goes through Rust via
 // invoke(). In a plain browser (Vite dev server, vitest jsdom) we fall back to
@@ -8,7 +8,7 @@ import { isTauri, invoke } from "./tauri";
 import { kvGet, kvPut } from "./localDb";
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
-const LS_OFFLINE = "enigma:offline";
+const LS_OFFLINE = "vesper:offline";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -82,10 +82,10 @@ export interface BuildConfig {
   pin_digits: SettingClamp;
 }
 
-// Mirrors build_config.yaml (Nautes).
+// Mirrors build_config.yaml (Enigma).
 const FALLBACK_BUILD_CONFIG: BuildConfig = {
-  app_name: "Nautes",
-  app_identifier: "com.spectrumaipl.nautes",
+  app_name: "Enigma",
+  app_identifier: "com.spectrumaipl.enigma",
   app_version: "0.1.0",
   pin_unlock: true,
   stable_onion_default: false,
@@ -132,7 +132,7 @@ export async function setOffline(offline: boolean): Promise<void> {
 }
 
 // ── Tor ─────────────────────────────────────────────────────────────────────
-// Nautes (Pharos) has one transport: every room is hosted and dialled as an
+// Enigma (Pharos) has one transport: every room is hosted and dialled as an
 // onion service. Kept as a function so call sites read the same as before.
 
 export async function getUseTor(): Promise<boolean> {
@@ -143,12 +143,12 @@ export async function getUseTor(): Promise<boolean> {
 
 export async function getStableOnion(): Promise<boolean> {
   if (isTauri()) return invoke<boolean>("app_get_stable_onion");
-  return localStorage.getItem("enigma:stableOnion") === "on";
+  return localStorage.getItem("vesper:stableOnion") === "on";
 }
 
 export async function setStableOnion(stableOnion: boolean): Promise<void> {
   if (isTauri()) { await invoke("app_set_stable_onion", { stableOnion }); return; }
-  localStorage.setItem("enigma:stableOnion", stableOnion ? "on" : "off");
+  localStorage.setItem("vesper:stableOnion", stableOnion ? "on" : "off");
 }
 
 // ── P2P connection timeout (room create + join give up after this many seconds) ─
@@ -234,7 +234,7 @@ export async function setLockOnHide(on: boolean): Promise<void> {
 
 // ── Hidden tabs (which tabs the app presents) ────────────────────────────────
 // The user's own pick of which main tabs appear in the navigation (Settings →
-// Tabs; the tab taxonomy itself lives in the app, apps/enigma/src/tabs.ts).
+// Tabs; the tab taxonomy itself lives in the app, apps/vesper/src/tabs.ts).
 // Device-local like idle_lock_mins and lock_on_hide above — deliberately NOT in
 // DEVLINK_SYNC_KV: a wide desktop nav bar and a phone's hamburger drawer want
 // different sets, and the build gates this composes with are per-BINARY anyway,

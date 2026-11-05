@@ -12,7 +12,7 @@ friends who are offline and helps friends find each other again.
 | Message contents | MLS (RFC 9420, Ferrozine's rotor), per friendship; padded to 512 / 2048 / 8192 bytes before encryption |
 | Who talks to whom | Tor onion services on both ends; per-friendship rendezvous onions that change weekly; Proteus sees random-looking ids |
 | Friendship secrets, device key, history | The vault (protasius: Argon2id passphrase, XChaCha20-Poly1305), locked on idle |
-| What Proteus stores | End-to-end sealed by Nautes, then sealed again with Proteus' master key; ids and tokens stored as keyed hashes |
+| What Proteus stores | End-to-end sealed by Enigma, then sealed again with Proteus' master key; ids and tokens stored as keyed hashes |
 
 ## Who can learn what
 
@@ -59,7 +59,7 @@ card's token is taken once.
 
 ## Limits and known gaps
 
-- **Fetch timing.** Nautes fetches its mailboxes and retries its outbox every
+- **Fetch timing.** Enigma fetches its mailboxes and retries its outbox every
   60 seconds while running, so Proteus learns when you are online. A random
   schedule would blur it; it is not implemented.
 - **Message count per mailbox** is visible to Proteus (padding hides sizes, not counts). No cover traffic.
@@ -70,9 +70,9 @@ card's token is taken once.
   friendship secret can compute that friendship's past and future onions and
   mailbox ids (not past message keys, which MLS ratchets).
 - **One device per identity.** No multi-device sync.
-- **Groups** (the second tab) is Enigma's room chat over a captain relay; its
-  model is Enigma's (`nautes/technology.md`), not this document's.
-- **Privacy HP** (Enigma's meter of privacy cost) is still present; whether to keep it is decision PD9.
+- **Groups** (the second tab) is Vesper's room chat over a captain relay; its
+  model is Vesper's (`enigma/technology.md`), not this document's.
+- **Privacy HP** (Vesper's meter of privacy cost) is still present; whether to keep it is decision PD9.
 
 ## Hostile input
 

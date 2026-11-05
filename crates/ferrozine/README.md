@@ -14,8 +14,8 @@ It has no `tauri` dependency and stores nothing: apps persist endpoint
 secrets and room groups themselves, map ferrozine's plain events onto their
 own, and apply their own network policy (airplane mode, Tor-only profiles).
 
-Users: **Enigma** (chat rooms, chat file transfers, calls) and **Pumex**
-(file transfer, to be split out of Enigma).
+Users: **Vesper** (chat rooms, chat file transfers, calls) and **Pumex**
+(file transfer, to be split out of Vesper).
 
 ## Use
 
@@ -24,18 +24,18 @@ use ferrozine::{endpoint::{EndpointConfig, Node, Relays}, file::{self, FileHost,
 
 // Host
 let node = Node::bind(EndpointConfig::ephemeral(Relays::Hosted)).await?;
-let host = FileHost::new(Limits::ENIGMA, || HostSettings { chunk_size: 256 * 1024, integrity: true }, observer);
+let host = FileHost::new(Limits::VESPER, || HostSettings { chunk_size: 256 * 1024, integrity: true }, observer);
 let _router = iroh::protocol::Router::builder(node.endpoint.clone()).accept(b"pumex/file/1", host.clone()).spawn();
 let offer = host.offer("/path/to/file")?;           // send offer.offer_id + node.addr_text() to the peer
 host.authorize(&offer.offer_id, &commitment);       // the commitment the peer sent back
 
 // Downloader
 let prepared = file::prepare(&offer_id)?;            // send prepared.commitment() to the host
-file::download(&endpoint, addr, b"pumex/file/1", prepared, dest, true, Limits::ENIGMA, observer).await?;
+file::download(&endpoint, addr, b"pumex/file/1", prepared, dest, true, Limits::VESPER, observer).await?;
 ```
 
 Offer ids, addresses and commitments must travel over a channel that is
-already authenticated — in Enigma, the room's own MLS group.
+already authenticated — in Vesper, the room's own MLS group.
 
 Without one (Pumex), a `file::Ticket` is the channel: the host makes one per
 offer (`Ticket::new` + `FileHost::authorize_with_secret`) and shares its text

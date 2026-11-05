@@ -1,6 +1,6 @@
 # Pharos protocol, version 1
 
-What two Nautes say to each other and to Proteus. The reference is the code:
+What two Enigma say to each other and to Proteus. The reference is the code:
 `crates/pharos-wire`, `pharos-seal`, `pharos-rendezvous`, `pharos-id`,
 `pharos-node`, and `proteus/src/api.rs`. Test vectors are in
 `pharos-rendezvous` (`test_vectors`).

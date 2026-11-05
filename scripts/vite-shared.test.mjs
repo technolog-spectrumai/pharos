@@ -101,7 +101,7 @@ test("refuses a port that is not one", () => {
 // one holds the apps apart — two on one port could not run side by side.
 test("gives every app its own port, the one its devUrl names", () => {
   const ports = {};
-  for (const app of ["enigma", "morion", "irena"]) {
+  for (const app of ["vesper", "morion", "irena"]) {
     const vite = readFileSync(join(ROOT, "apps", app, "vite.config.ts"), "utf8");
     const match = vite.match(/tauriDevServer\(\{ port: (\d+) \}\)/);
     assert.ok(match, `${app}/vite.config.ts takes its server block from tauriDevServer`);

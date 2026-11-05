@@ -21,7 +21,7 @@ tests_step js   "scripts: lib.sh, tests_lib.sh"   'node --test scripts/lib.test.
 tests_step js   "scripts: vite-shared.mjs"        'node --test scripts/vite-shared.test.mjs'
 tests_step rust "substrate"                       'cargo test -p substrate'
 # The feature that reaches gervasius's gervazy half, and so OpenSSL: Morion
-# turns it on, Enigma must not. Both shapes have to keep working.
+# turns it on, Vesper must not. Both shapes have to keep working.
 tests_step rust "substrate, legacy-detect"        'cargo test -p substrate --features legacy-detect'
 tests_step rust "gervasius (at-rest crypto)"      'cargo test -p gervasius'
 tests_step rust "gervasius, gervazy"              'cargo test -p gervasius --features gervazy'

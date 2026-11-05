@@ -21,7 +21,7 @@ async fn a_file_crosses_two_endpoints_sealed() {
         .await
         .unwrap();
     let host = FileHost::new(
-        Limits::ENIGMA,
+        Limits::VESPER,
         || HostSettings {
             chunk_size: 64 * 1024,
             integrity: true,
@@ -51,7 +51,7 @@ async fn a_file_crosses_two_endpoints_sealed() {
             prepared,
             &dest,
             false,
-            Limits::ENIGMA,
+            Limits::VESPER,
             file::ignore_events(),
         ),
     )
@@ -150,7 +150,7 @@ async fn a_ticket_is_all_a_downloader_needs() {
         .await
         .unwrap();
     let host = FileHost::new(
-        Limits::ENIGMA,
+        Limits::VESPER,
         || HostSettings {
             chunk_size: 64 * 1024,
             integrity: true,
@@ -180,7 +180,7 @@ async fn a_ticket_is_all_a_downloader_needs() {
             file::prepare_for_ticket(&got).unwrap(),
             &dest,
             true,
-            Limits::ENIGMA,
+            Limits::VESPER,
             file::ignore_events(),
         ),
     )
@@ -197,7 +197,7 @@ async fn one_peer_cannot_hold_more_than_its_share_of_serving_slots() {
         .await
         .unwrap();
     let host = FileHost::new(
-        Limits::ENIGMA,
+        Limits::VESPER,
         || HostSettings {
             chunk_size: 64 * 1024,
             integrity: false,

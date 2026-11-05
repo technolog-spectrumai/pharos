@@ -1,7 +1,7 @@
 # Proteus
 
 The optional Pharos helper: an onion-only mailbox (M3), directory (D5) and
-pairing drop-off, small enough for a Raspberry Pi. Nautes works without it.
+pairing drop-off, small enough for a Raspberry Pi. Enigma works without it.
 
 - Running it: [docs/raspberry-pi.md](docs/raspberry-pi.md)
 - Encrypting its disk: [docs/disk-encryption.md](docs/disk-encryption.md)

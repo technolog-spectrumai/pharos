@@ -1,4 +1,4 @@
-//! The onion transport, from Enigma's `p2p_tor.rs`, cut to what Pharos needs:
+//! The onion transport, from Vesper's `p2p_tor.rs`, cut to what Pharos needs:
 //! start arti, host an onion service and hand out its inbound streams, and
 //! dial an onion with a timeout. Framing and size caps are pharos-wire's.
 //!

@@ -1,7 +1,7 @@
-//! Encryption-at-rest primitives for Enigma (and reusable elsewhere).
+//! Encryption-at-rest primitives for Vesper (and reusable elsewhere).
 //!
 //! Envelope: `passphrase --Argon2id--> UKEK --wraps--> DEK --XChaCha20-Poly1305--> data`.
-//! Two tiers (no VMK): Enigma has a single data scope, so the UKEK wraps one random
+//! Two tiers (no VMK): Vesper has a single data scope, so the UKEK wraps one random
 //! DEK directly. Changing the passphrase re-wraps only that DEK (`rewrap`), so no
 //! data is ever re-encrypted. Wrong passphrase fails closed (the AEAD tag on the
 //! wrapped DEK is the verifier). All key material zeroizes on drop.
@@ -141,7 +141,7 @@ mod tests {
 
     // ── the union of the two forks ─────────────────────────────────────────
     //
-    // `gervasius` lived in two diverged copies until 2026-09-08: enigma's had
+    // `gervasius` lived in two diverged copies until 2026-09-08: vesper's had
     // `seal.rs` (X25519 public-key sealing), zinnia's had `gervazy.rs` (the
     // toto platform's Argon2id -> Fernet vault, which zinnia's sealed-file
     // DETECTION depends on). Neither was a superset. These tests pin what the
@@ -155,7 +155,7 @@ mod tests {
         // from lib.rs and the crate still compiles for whichever consumer does
         // not use it, going silently missing for the other.
         //
-        // enigma's half — public-key sealing.
+        // vesper's half — public-key sealing.
         let sk = x25519_from_ed25519_sk(&[7u8; 32]);
         let pk = x25519_public(&sk);
         let blob = seal_to(&pk, b"aad", b"hello").unwrap();
@@ -176,7 +176,7 @@ mod tests {
         let (header, dek) = create_vault("pw").unwrap();
         let vault_bytes = seal(&dek, b"aad", b"payload").unwrap();
         assert!(!gervazy::is_sealed(&vault_bytes),
-            "the enigma vault's ciphertext must not read as platform-sealed");
+            "the vesper vault's ciphertext must not read as platform-sealed");
 
         // And the reverse: a platform frame must not be mistaken for ours.
         // Same costs its own tests use; the params are part of the key.

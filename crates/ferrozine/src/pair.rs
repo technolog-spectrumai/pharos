@@ -78,7 +78,7 @@ pub fn unb64(text: &str) -> Result<Vec<u8>> {
 /// The commitment to a KeyPackage: BLAKE3 of its base64 text, as hex.
 ///
 /// It hashes the base64 text rather than the raw bytes because that is what
-/// Enigma's peers have always published; changing it would refuse every
+/// Vesper's peers have always published; changing it would refuse every
 /// transfer between old and new builds.
 pub fn commitment(key_package: &[u8]) -> String {
     blake3::hash(b64(key_package).as_bytes())
@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn the_commitment_is_enigmas_kp_hash() {
+    fn the_commitment_is_vespers_kp_hash() {
         // file_xfer.rs: blake3(base64(kp)).to_hex() — pinned so old and new
         // builds keep authorizing each other.
         let caller = Caller::start("o", "peer").unwrap();

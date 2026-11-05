@@ -16,7 +16,7 @@
 // you can see where a file sits without walking away from where you are.
 //
 // Rows are FLAT and depth-tagged rather than nested, so the template never
-// recurses: indentation is a padding calculation. That is the shape enigma's
+// recurses: indentation is a padding calculation. That is the shape vesper's
 // file tree and the platform's own explorer both settled on, and it keeps
 // arbitrarily deep folders from becoming arbitrarily deep components.
 //

@@ -28,8 +28,8 @@ afterEach(async () => {
 describe("the build config in a browser", () => {
   it("is the stock table until patched, and a patch only touches what it names", async () => {
     expect(S.getBuildConfig().connect_timeout_secs).toEqual({ default: 60, min: 5, max: 600 });
-    const patched = await S.initBuildConfig({ app_name: "Nautes Lite" });
-    expect(patched.app_name).toBe("Nautes Lite");
+    const patched = await S.initBuildConfig({ app_name: "Enigma Lite" });
+    expect(patched.app_name).toBe("Enigma Lite");
     expect(S.getBuildConfig()).toBe(patched);
   });
 

@@ -1,7 +1,7 @@
 // The i18n MECHANISM. The catalogues stay with the app that owns their words.
 //
 // Deliberately not rakotis's `createAppI18n`: that module persists under
-// "enigma:locale", and each app here keeps its own key — which is also why the
+// "vesper:locale", and each app here keeps its own key — which is also why the
 // key is a parameter rather than a constant. Two apps on one machine should not
 // fight over one stored locale, for the same reason they do not share a keyring
 // entry.

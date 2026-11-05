@@ -1,7 +1,7 @@
-// The calendar code Enigma and Morion share: the local dates and times a
+// The calendar code Vesper and Morion share: the local dates and times a
 // meeting form reads and writes.
 //
-// The two calendars are different products — Enigma's meetings and polls go
+// The two calendars are different products — Vesper's meetings and polls go
 // to a room, Morion's live in an .ics file — but both ask a person for a day
 // and a time in a native <input>, and both had their own copy of turning that
 // text into a Date and back, and of guessing "the next whole hour" for a new

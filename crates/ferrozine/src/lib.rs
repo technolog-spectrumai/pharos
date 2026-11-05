@@ -17,7 +17,7 @@
 //! ## Where ferrozine stops
 //!
 //! - **No storage.** Stable endpoint secrets and room MLS state are the app's
-//!   to persist (Enigma keeps them in its encrypted vault). Ferrozine takes the
+//!   to persist (Vesper keeps them in its encrypted vault). Ferrozine takes the
 //!   bytes and borrows the session.
 //! - **No UI events.** Progress and arrivals come back as plain values
 //!   ([`file::TransferEvent`], [`room::RoomEvent`]); each app maps them to its

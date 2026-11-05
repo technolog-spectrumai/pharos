@@ -540,7 +540,7 @@ async fn connections_beyond_the_cap_are_refused_at_once() {
 
 #[test]
 fn user_visible_messages_keep_their_old_wording() {
-    // Enigma shows these verbatim; the extraction must not reword them.
+    // Vesper shows these verbatim; the extraction must not reword them.
     assert_eq!(
         Error::Integrity("integrity check failed — the file was altered in transit".into())
             .to_string(),

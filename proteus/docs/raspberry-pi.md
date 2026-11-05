@@ -1,6 +1,6 @@
 # Proteus on a Raspberry Pi
 
-Proteus is optional: Nautes works without it, friend to friend. A Proteus
+Proteus is optional: Enigma works without it, friend to friend. A Proteus
 keeps messages for friends who are offline (the mailbox), lets friends find
 each other again after a long time apart (the directory), and accepts a
 pairing reply when you cannot scan a second QR code. It has no clearnet port:
@@ -39,7 +39,7 @@ sudo install -m 644 packaging/proteus.service /lib/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now proteus
 ```
 
-Put the onion address into Nautes (Settings → Proteus). It goes on the
+Put the onion address into Enigma (Settings → Proteus). It goes on the
 contact card you show friends, so they know where your mailbox is.
 
 ## Building it
@@ -57,7 +57,7 @@ cargo deb -p proteus --target aarch64-unknown-linux-gnu --no-build   # the .deb 
 
 Three layers, as in Zirkel:
 
-1. What Nautes leaves here is sealed end to end before it arrives (MLS, or the
+1. What Enigma leaves here is sealed end to end before it arrives (MLS, or the
    friendship's directory key). Proteus cannot read it.
 2. Proteus seals it again with its master key (`/etc/proteus/master.key`,
    mode 0600, refused otherwise), and stores ids and tokens only as keyed
@@ -74,7 +74,7 @@ sudo -u proteus proteus backup -c /etc/proteus/config.yaml /var/lib/proteus/back
 
 Back up the database and `master.key` separately: one without the other is
 useless, and together they are everything. Losing Proteus' data loses only
-undelivered messages and directory records; friendships live in Nautes.
+undelivered messages and directory records; friendships live in Enigma.
 
 ## Moving or rebuilding
 

@@ -49,10 +49,10 @@ afterEach(async () => {
 
 describe("the build config", () => {
   it("comes from the binary, which wins over any browser fallback", async () => {
-    const baked = { ...original, app_name: "Enigma Pro", dht_enabled: false };
+    const baked = { ...original, app_name: "Vesper Pro", dht_enabled: false };
     replies.set("app_get_build_config", baked);
     expect(await S.initBuildConfig({ app_name: "ignored" })).toEqual(baked);
-    expect(S.getBuildConfig().app_name).toBe("Enigma Pro");
+    expect(S.getBuildConfig().app_name).toBe("Vesper Pro");
   });
 
   it("keeps the fallback when the binary cannot answer", async () => {

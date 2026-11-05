@@ -32,7 +32,7 @@ Not covered by ferrozine:
   flow; landing on a gossip topic grants nothing.
 - **Address privacy.** A direct connection reveals each side's IP to the
   other; `Relays::Hosted` also reveals endpoint ids to n0's relays. An app
-  that must hide IPs (Enigma's Tor-only profiles) must not use ferrozine.
+  that must hide IPs (Vesper's Tor-only profiles) must not use ferrozine.
 - **Metadata.** File names, sizes and MIME types are in the host's header,
   inside QUIC but before the MLS channel exists; the authorization check runs
   first, so only the authorized peer receives them.

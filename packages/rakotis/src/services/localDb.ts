@@ -14,11 +14,11 @@ import { isTauri, invoke } from "./tauri";
 // ── localStorage fallback helpers ────────────────────────────────────────────
 
 function _lsKey(ns: string, scope: string, k: string): string {
-  return `enigma:db:${ns}:${scope}:${k}`;
+  return `vesper:db:${ns}:${scope}:${k}`;
 }
 
 function _lsPrefix(ns: string, scope?: string): string {
-  return scope === undefined ? `enigma:db:${ns}:` : `enigma:db:${ns}:${scope}:`;
+  return scope === undefined ? `vesper:db:${ns}:` : `vesper:db:${ns}:${scope}:`;
 }
 
 function _lsKeysWithPrefix(prefix: string): string[] {

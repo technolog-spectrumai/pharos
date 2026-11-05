@@ -1,4 +1,4 @@
-//! Protasius — Enigma's centralized, per-profile, encryption-at-rest data store.
+//! Protasius — Vesper's centralized, per-profile, encryption-at-rest data store.
 //!
 //! One `fjall` keyspace per profile holds ALL app state (profile settings, room
 //! list, MLS blobs, identity keys) as **sealed values** (`gervasius` AEAD). Keys

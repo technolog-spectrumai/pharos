@@ -1,4 +1,4 @@
-//! The Pharos wire format: what one Nautes says to another, and to Proteus.
+//! The Pharos wire format: what one Enigma says to another, and to Proteus.
 //!
 //! Three layers, inside out:
 //! 1. [`Envelope`]: a version, a message id, a send time and a [`Body`]
@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// The wire version this build speaks. A peer with another version is refused.
 pub const VERSION: u8 = 1;
-/// The longest message, in Unicode scalar values (Nautes' composer has the same cap).
+/// The longest message, in Unicode scalar values (Enigma' composer has the same cap).
 pub const MAX_TEXT_CHARS: usize = 1000;
 /// The largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 * 1024;

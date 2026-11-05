@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn a_topic_is_blake3_of_the_room_name() {
-        // Enigma's p2p_iroh derived it this way; keeping it keeps old and new
+        // Vesper's p2p_iroh derived it this way; keeping it keeps old and new
         // builds in one room.
         assert_eq!(
             topic_for("room-a"),
