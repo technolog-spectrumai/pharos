@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Vox real-time voice calls: native mic capture via cpal/oboe -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <!-- QR-code pairing: camera scan of a peer's room ticket -->
+    <!-- No microphone: Enigma has no calls (Vesper's Vox was cut). -->
+    <!-- QR codes: scanning a friend's card or reply, or a Proteus code -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

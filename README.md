@@ -53,6 +53,24 @@ npm ci
 cargo run -p proteus -- serve -c proteus/packaging/config.yaml --tcp 127.0.0.1:8080   # Proteus on loopback
 ```
 
+### Enigma for Android
+
+Needs the Android SDK and NDK (`ANDROID_HOME`, `NDK_HOME`), Java 17+, and the
+Rust target (`rustup target add aarch64-linux-android`).
+
+```sh
+cd enigma
+npx tauri android build --debug --apk --target aarch64        # a debug APK, signed with the debug key
+ORG_GRADLE_PROJECT_enigmaAllowUnsignedRelease=true \
+  npx tauri android build --apk --target aarch64               # a release APK, unsigned
+```
+
+The APK lands in `enigma/src-tauri/gen/android/app/build/outputs/apk/`. A signed
+release takes a keystore through `ENIGMA_KEYSTORE_FILE`, `ENIGMA_KEYSTORE_PASSWORD`,
+`ENIGMA_KEY_ALIAS` and `ENIGMA_KEY_PASSWORD`, or `gen/android/keystore.properties`
+(see `keystore.properties.example`). The app is `com.spectrumaipl.enigma`, Android 7.0
+(API 24) and up; it asks for the camera (QR codes) and notifications, not the microphone.
+
 Releases (Enigma for Linux and Windows, Proteus for arm64) are built by
 `.github/workflows/release.yml` on a `v*` tag. A run over the real Tor network
 is `.github/workflows/real-tor.yml` (by hand).
