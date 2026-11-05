@@ -1,0 +1,33 @@
+[package]
+name = "pharos-node"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Pharos client logic (Nautes without the window): friends, pairing, direct delivery over rendezvous onions, outbox, Proteus mailbox and directory"
+license = "AGPL-3.0-only"
+
+[features]
+default = ["tor"]
+tor = ["dep:pharos-tor"]
+
+[dependencies]
+pharos-wire = { path = "../pharos-wire" }
+pharos-seal = { path = "../pharos-seal" }
+pharos-rendezvous = { path = "../pharos-rendezvous" }
+pharos-id = { path = "../pharos-id" }
+pharos-tor = { path = "../pharos-tor", optional = true }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "io-util", "net"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["use-std"] }
+data-encoding = "2"
+rand_core = { version = "0.6", features = ["getrandom"] }
+anyhow = "1"
+
+[dev-dependencies]
+proteus = { path = "../../proteus" }
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "io-util", "net"] }

@@ -6,6 +6,9 @@ rust-version.workspace = true
 description = "Proteus: the optional Pharos helper — an onion-only mailbox and directory, small enough for a Raspberry Pi"
 license = "AGPL-3.0-only"
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "proteus"
 path = "src/main.rs"

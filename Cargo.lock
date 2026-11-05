@@ -5965,6 +5965,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "pharos-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "data-encoding",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pharos-id",
+ "pharos-rendezvous",
+ "pharos-seal",
+ "pharos-tor",
+ "pharos-wire",
+ "postcard",
+ "proteus",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "pharos-rendezvous"
 version = "0.1.0"
 dependencies = [

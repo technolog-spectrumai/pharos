@@ -7,17 +7,11 @@
 //!   proteus status [-c config.yaml]           row counts and the onion address
 //!   proteus backup [-c config.yaml] OUT       a consistent copy of the database
 
-mod api;
-mod config;
-mod diskcrypt;
-mod masterkey;
-mod store;
+use proteus::{api, config, diskcrypt, masterkey, store};
 
 use anyhow::{bail, Context, Result};
 use api::{AppState, Limiter};
 use config::Config;
-use hyper_util::rt::TokioIo;
-use hyper_util::service::TowerToHyperService;
 use masterkey::MasterKey;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -198,13 +192,7 @@ where
 {
     let Ok(permit) = slots.try_acquire_owned() else { return };
     tokio::spawn(async move {
-        let svc = TowerToHyperService::new(app);
-        let conn = hyper::server::conn::http1::Builder::new()
-            .max_buf_size(64 * 1024)
-            .header_read_timeout(std::time::Duration::from_secs(30))
-            .timer(hyper_util::rt::TokioTimer::new())
-            .serve_connection(TokioIo::new(s), svc);
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(120), conn).await;
+        proteus::serve_conn(s, app).await;
         drop(permit);
     });
 }

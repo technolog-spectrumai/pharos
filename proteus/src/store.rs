@@ -50,7 +50,6 @@ impl Store {
         Self::init(db, key, limits)
     }
 
-    #[cfg(test)]
     pub fn in_memory(key: MasterKey, limits: Limits) -> Result<Self> {
         Self::init(Connection::open_in_memory()?, key, limits)
     }

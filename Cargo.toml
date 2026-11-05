@@ -12,6 +12,7 @@ members = [
     "crates/pharos-seal",
     "crates/pharos-id",
     "crates/pharos-tor",
+    "crates/pharos-node",
     "proteus",
     "nautes/src-tauri",
 ]
