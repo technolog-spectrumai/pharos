@@ -232,7 +232,7 @@ async function removeCurrent() {
           >
             <div
               class="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm"
-              :class="m.status === 'Received' ? 'bg-current/10' : 'bg-primary-light/20 dark:bg-primary-dark/20'"
+              :class="m.status === 'Received' ? 'bg-bubble-bg-light dark:bg-bubble-bg-dark' : 'border border-accent-dark/40 bg-accent-dark/20'"
             >
               {{ m.text }}
               <div class="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-60">
@@ -253,7 +253,7 @@ async function removeCurrent() {
           </div>
           <div class="flex gap-2">
             <OyaTextArea v-model="draft" :rows="1" :placeholder="$t('friends.placeholder')" class="flex-1 text-sm" data-testid="compose" @keydown="onKey" />
-            <OyaButton type="button" :disabled="!canSend" data-testid="send" @click="sendDraft">
+            <OyaButton type="button" :disabled="!canSend" :class="{ 'cursor-not-allowed opacity-40': !canSend }" data-testid="send" @click="sendDraft">
               <font-awesome-icon icon="paper-plane" />{{ $t('chat.send') }}
             </OyaButton>
           </div>
@@ -264,7 +264,7 @@ async function removeCurrent() {
 
     <!-- pairing -->
     <OyaModal v-model:open="pairing">
-      <div class="max-h-[85vh] w-[min(36rem,92vw)] space-y-4 overflow-y-auto p-5" data-testid="pairing">
+      <div class="max-h-[85vh] w-[min(36rem,92vw)] space-y-4 overflow-y-auto rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark" data-testid="pairing">
         <h2 class="text-lg font-bold">{{ $t('friends.add') }}</h2>
         <section v-if="!replyToShow" class="space-y-2">
           <h3 class="font-bold">{{ $t('friends.step1') }}</h3>
@@ -295,7 +295,7 @@ async function removeCurrent() {
 
     <!-- me -->
     <OyaModal v-model:open="settings">
-      <div class="w-[min(30rem,92vw)] space-y-3 p-5">
+      <div class="w-[min(30rem,92vw)] space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
         <h2 class="text-lg font-bold">{{ $t('friends.settings') }}</h2>
         <label class="block text-sm">{{ $t('friends.yourName') }}
           <OyaTextField v-model="nameDraft" :maxlength="64" />

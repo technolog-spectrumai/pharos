@@ -9,10 +9,10 @@
    re-exports live there now. A path that stops matching is SILENT: no error,
    just components rendering unstyled. */
 @source "../packages/rakotis/src";
-@source "../../../packages/petalite/src";
+@source "../../packages/petalite/src";
 
 /* The colour tokens are shared — see packages/petalite/src/theme/tokens.css. */
-@import "../../../packages/petalite/src/theme/tokens.css";
+@import "../../packages/petalite/src/theme/tokens.css";
 
 /* Enigma's own brand face, which Morion does not use. */
 @theme {

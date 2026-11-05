@@ -16,6 +16,7 @@ step js   "vitest: petalite"        npm run test -w packages/petalite
 step js   "vitest: calendula"       npm run test -w packages/calendula
 step js   "typecheck: rakotis"      npm run typecheck -w packages/rakotis
 step js   "typecheck: nautes"       npm run typecheck -w nautes
+step js   "build: nautes window"    npm run build -w nautes
 step rust "cargo test: nautes"      cargo test -p nautes
 step rust "cargo test: crates"      cargo test -p gervasius -p protasius -p rotor-core -p ferrozine -p pharos-wire -p pharos-seal -p pharos-rendezvous -p pharos-id -p pharos-tor -p pharos-node -p proteus
 fail=0; echo; for i in "${!names[@]}"; do

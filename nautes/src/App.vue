@@ -360,6 +360,10 @@ onBeforeUnmount(() => {
 
         <!-- Desktop nav -->
         <nav class="hidden lg:flex items-center gap-x-4 gap-y-2 text-sm flex-wrap">
+          <RouterLink v-if="isTabVisible('friends')" to="/friends" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.friends')">
+            <font-awesome-icon icon="user-plus" />
+            {{ $t('nav.friends') }}
+          </RouterLink>
           <RouterLink v-if="isTabVisible('chat')" to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.chat')">
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
@@ -411,6 +415,10 @@ onBeforeUnmount(() => {
           v-if="menuOpen"
           class="lg:hidden border-t divide-y divide-current/10 bg-header-bg-light border-accent-2 dark:bg-header-bg-dark dark:border-accent-1"
         >
+          <RouterLink v-if="isTabVisible('friends')" to="/friends" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="user-plus" class="w-4 text-center" />
+            {{ $t('nav.friends') }}
+          </RouterLink>
           <RouterLink v-if="isTabVisible('chat')" to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}

@@ -29,5 +29,7 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 anyhow = "1"
 
 [dev-dependencies]
+# examples/demo_bridge.rs (screenshots of Nautes against the real engine)
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
 proteus = { path = "../../proteus" }
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "io-util", "net"] }
