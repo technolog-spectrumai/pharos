@@ -9,9 +9,8 @@ import { catalogue, featureDefines } from "../../buildFeatures";
 describe("the build-feature catalogue", () => {
   it("is read from Cargo.toml, without `default`", () => {
     const ids = catalogue();
-    expect(ids).toContain("calendar");
-    expect(ids).toContain("hosted_relays");
-    expect(ids).not.toContain("default");
+    // Nautes has one optional feature (Pharos Stage 1.3 cut the others).
+    expect(ids).toEqual(["pin_unlock"]);
   });
 
   it("has a declared literal for every feature, and no stray ones", () => {
@@ -25,17 +24,14 @@ describe("the build-feature catalogue", () => {
   });
 });
 
-describe("turning ENIGMA_FEATURES into literals", () => {
+describe("turning NAUTES_FEATURES into literals", () => {
   it("unset means every feature — the dev server, vitest and Playwright see the whole app", () => {
     expect(new Set(Object.values(featureDefines(undefined)))).toEqual(new Set(["true"]));
   });
 
   it("set means exactly that list", () => {
-    const defs = featureDefines("hosted_relays,contacts");
-    expect(defs.__FEATURE_HOSTED_RELAYS__).toBe("true");
-    expect(defs.__FEATURE_CONTACTS__).toBe("true");
-    expect(defs.__FEATURE_CALENDAR__).toBe("false");
-    expect(defs.__FEATURE_CALLS__).toBe("false");
+    expect(featureDefines("pin_unlock").__FEATURE_PIN_UNLOCK__).toBe("true");
+    expect(featureDefines("").__FEATURE_PIN_UNLOCK__).toBe("false");
   });
 
   it("the empty string means none — not 'unset'", () => {
@@ -43,6 +39,7 @@ describe("turning ENIGMA_FEATURES into literals", () => {
   });
 
   it("refuses an id the catalogue does not have", () => {
-    expect(() => featureDefines("calls,callz")).toThrow(/unknown feature\(s\) callz/);
+    // `calls` was Enigma's; Nautes does not have it.
+    expect(() => featureDefines("pin_unlock,calls")).toThrow(/unknown feature\(s\) calls/);
   });
 });

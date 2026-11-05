@@ -30,7 +30,7 @@ const H = 64;
 
 // Remembered, like the panel's other view choices — a reader who prefers days
 // should not have to say so again on every visit.
-const KEY = "enigma:hp:tick";
+const KEY = "nautes:hp:tick";
 const tick = ref<HpTick>(
   (() => {
     try {

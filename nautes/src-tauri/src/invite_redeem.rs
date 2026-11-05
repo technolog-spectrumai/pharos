@@ -36,17 +36,14 @@
 //! redemption cannot be replayed by the same holder (new challenge) or reused by
 //! a different one (different node_id).
 //!
-//! ## Why the signature exists on both transports
+//! ## Why the redeemer signs
 //!
-//! On iroh the QUIC handshake already authenticates the peer's NodeId, and the
-//! handler cross-checks the claimed `node_id` against it. **Tor authenticates the
-//! server, not the client** — an onion connection carries no client identity at
-//! all. Without a signature, "recipient binding" over Tor would reduce to the
-//! redeemer *claiming* to be the recipient, which is no binding whatsoever.
-//!
-//! So the redeemer signs the challenge with the identity secret behind its NodeId
-//! and the inviter verifies it against the NodeId being claimed. One code path,
-//! both transports; redundant over iroh and load-bearing over Tor.
+//! **Tor authenticates the server, not the client** — an onion connection
+//! carries no client identity at all. Without a signature, "recipient binding"
+//! would reduce to the redeemer *claiming* to be the recipient, which is no
+//! binding whatsoever. So the redeemer signs the challenge with the identity
+//! secret behind its id (identity.rs) and the inviter verifies it against the id
+//! being claimed.
 //!
 //! ## Where the MLS work happens
 //!
@@ -62,10 +59,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use iroh::endpoint::{Connection, RecvStream, SendStream};
-use iroh::protocol::{AcceptError, ProtocolHandler};
 use chacha20poly1305::aead::rand_core::{OsRng, RngCore};
-use iroh::{Endpoint, EndpointId, Signature};
+use crate::identity::{EndpointId, SecretKey, Signature};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -74,13 +69,10 @@ use tokio::sync::{oneshot, Mutex};
 use crate::invite_ticket::INVITE_ID_LEN;
 use crate::invites::{self, RedeemError};
 
-pub const REDEEM_ALPN: &[u8] = b"enigma/redeem/0";
 
 const REDEEM_VERSION: u8 = 1;
 const CHALLENGE_LEN: usize = 32;
 
-/// Frames are small and fixed-shape; anything larger is a malformed peer.
-const MAX_CONTROL_FRAME: usize = 256 * 1024;
 
 // ── wire frames (length-prefixed JSON, the p2p_invite / file_xfer idiom) ─────
 
@@ -211,28 +203,12 @@ pub fn verify_identity(node_id: &str, challenge: &[u8], sig_hex: &str) -> bool {
     id.verify(challenge, &Signature::from_bytes(&raw)).is_ok()
 }
 
-/// On iroh the QUIC handshake already told us who this is. A request claiming to
-/// be somebody else is rejected even if its signature verifies — a valid
-/// signature for a *third party's* key would otherwise let a relay-style attacker
-/// present a captured request as their own.
-fn transport_identity_agrees(claimed: &str, authenticated: Option<EndpointId>) -> bool {
-    match authenticated {
-        Some(id) => id.to_string() == claimed,
-        // Tor: nothing to cross-check against, so the signature carries it alone.
-        None => true,
-    }
-}
-
 // ── server side ─────────────────────────────────────────────────────────────
 
 /// Run the inviter's half of the exchange over an already-open stream pair.
-///
-/// `authenticated` is the transport-level identity where one exists (iroh) and
-/// `None` where it does not (Tor).
 async fn serve_exchange<W, R>(
     app: &AppHandle,
     pending: &RedeemState,
-    authenticated: Option<EndpointId>,
     write: &mut W,
     read: &mut R,
 ) -> Result<()>
@@ -252,7 +228,7 @@ where
         return Ok(());
     }
 
-    let reply = decide(app, pending, authenticated, &challenge, req).await;
+    let reply = decide(app, pending, &challenge, req).await;
     write.send(&reply).await?;
     Ok(())
 }
@@ -262,16 +238,12 @@ where
 async fn decide(
     app: &AppHandle,
     pending: &RedeemState,
-    authenticated: Option<EndpointId>,
     challenge: &[u8; CHALLENGE_LEN],
     req: RequestFrame,
 ) -> ReplyFrame {
     // 1. Is the redeemer who they say they are? Everything downstream —
     //    recipient binding, the proof, the audit trail — is meaningless if not.
     if !verify_identity(&req.node_id, challenge, &req.sig) {
-        return ReplyFrame::refused("INVITE_BAD_IDENTITY");
-    }
-    if !transport_identity_agrees(&req.node_id, authenticated) {
         return ReplyFrame::refused("INVITE_BAD_IDENTITY");
     }
 
@@ -373,35 +345,6 @@ pub trait FrameSource {
     fn recv<T: DeserializeOwned>(&mut self) -> impl std::future::Future<Output = Result<T>> + Send;
 }
 
-/// iroh: length-prefixed JSON over a QUIC bi-stream.
-struct QuicSink<'a>(&'a mut SendStream);
-struct QuicSource<'a>(&'a mut RecvStream);
-
-impl FrameSink for QuicSink<'_> {
-    async fn send<T: Serialize + Sync>(&mut self, val: &T) -> Result<()> {
-        let body = serde_json::to_vec(val)?;
-        let mut out = Vec::with_capacity(body.len() + 4);
-        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
-        out.extend_from_slice(&body);
-        self.0.write_all(&out).await?;
-        Ok(())
-    }
-}
-
-impl FrameSource for QuicSource<'_> {
-    async fn recv<T: DeserializeOwned>(&mut self) -> Result<T> {
-        let mut len = [0u8; 4];
-        self.0.read_exact(&mut len).await?;
-        let n = u32::from_le_bytes(len) as usize;
-        if n > MAX_CONTROL_FRAME {
-            return Err(anyhow!("control frame too large"));
-        }
-        let mut body = vec![0u8; n];
-        self.0.read_exact(&mut body).await?;
-        Ok(serde_json::from_slice(&body)?)
-    }
-}
-
 /// Tor: the onion transport's own newline-free text framing (`p2p_tor`).
 pub struct TorSink<'a, W>(pub &'a mut W);
 pub struct TorSource<'a, R>(pub &'a mut R);
@@ -425,50 +368,6 @@ where
     }
 }
 
-// ── iroh protocol handler ───────────────────────────────────────────────────
-
-#[derive(Clone)]
-pub struct RedeemProtocol {
-    app: AppHandle,
-    pending: RedeemState,
-}
-
-impl std::fmt::Debug for RedeemProtocol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("RedeemProtocol")
-    }
-}
-
-impl RedeemProtocol {
-    pub fn new(app: AppHandle, pending: RedeemState) -> Self {
-        Self { app, pending }
-    }
-
-    async fn serve(self, conn: Connection) -> Result<()> {
-        let authenticated = conn.remote_id();
-        let (mut send, mut recv) = conn.accept_bi().await?;
-        let res = serve_exchange(
-            &self.app,
-            &self.pending,
-            Some(authenticated),
-            &mut QuicSink(&mut send),
-            &mut QuicSource(&mut recv),
-        )
-        .await;
-        let _ = send.finish();
-        res
-    }
-}
-
-impl ProtocolHandler for RedeemProtocol {
-    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
-        if let Err(e) = self.clone().serve(conn).await {
-            eprintln!("[redeem] serve ended: {e}");
-        }
-        Ok(())
-    }
-}
-
 /// Serve one redemption over an accepted onion stream (`p2p_tor`'s accept loop
 /// routes `Hello { kind: "redeem" }` here).
 pub async fn serve_tor<W, R>(app: &AppHandle, pending: &RedeemState, write: &mut W, read: &mut R) -> Result<()>
@@ -476,7 +375,7 @@ where
     W: tokio::io::AsyncWrite + Unpin + Send,
     R: tokio::io::AsyncRead + Unpin + Send,
 {
-    serve_exchange(app, pending, None, &mut TorSink(write), &mut TorSource(read)).await
+    serve_exchange(app, pending, &mut TorSink(write), &mut TorSource(read)).await
 }
 
 // ── client side ─────────────────────────────────────────────────────────────
@@ -487,7 +386,7 @@ async fn run_redeem<W, R>(
     read: &mut R,
     invite_id: &[u8; INVITE_ID_LEN],
     capability: &[u8; 32],
-    secret: &iroh::SecretKey,
+    secret: &SecretKey,
     key_package_b64: String,
     name: String,
 ) -> Result<RedeemGrant>
@@ -538,46 +437,6 @@ where
     })
 }
 
-/// Dial the inviter over iroh and redeem.
-pub async fn redeem_over_iroh(
-    app: &AppHandle,
-    endpoint: Endpoint,
-    inviter: &str,
-    invite_id: &[u8; INVITE_ID_LEN],
-    capability: &[u8; 32],
-    key_package_b64: String,
-    name: String,
-) -> Result<RedeemGrant> {
-    let id: EndpointId = inviter.parse().map_err(|_| anyhow!("invalid inviter id"))?;
-    let secret = crate::p2p_iroh::load_or_create_secret(app, "gossip")?;
-    // 2×N, matching every other "reach them, then wait for their side to act"
-    // deadline in the app.
-    let window = Duration::from_secs(2 * crate::net_settings::connect_timeout_secs(app));
-    let exchange = async move {
-        let conn = endpoint
-            .connect(id, REDEEM_ALPN)
-            .await
-            .map_err(|e| anyhow!("INVITE_UNREACHABLE: {e}"))?;
-        let (mut send, mut recv) = conn.open_bi().await.map_err(|e| anyhow!("open stream: {e}"))?;
-        let grant = run_redeem(
-            &mut QuicSink(&mut send),
-            &mut QuicSource(&mut recv),
-            invite_id,
-            capability,
-            &secret,
-            key_package_b64,
-            name,
-        )
-        .await;
-        let _ = send.finish();
-        grant
-    };
-    match tokio::time::timeout(window, exchange).await {
-        Ok(r) => r,
-        Err(_) => Err(anyhow!("INVITE_UNREACHABLE: the inviter did not answer in time")),
-    }
-}
-
 /// Redeem over an already-connected onion stream (`p2p_tor` dials and hands the
 /// halves over, so the Tor client plumbing stays in one module).
 pub async fn redeem_over_tor<W, R>(
@@ -593,7 +452,7 @@ where
     W: tokio::io::AsyncWrite + Unpin + Send,
     R: tokio::io::AsyncRead + Unpin + Send,
 {
-    let secret = crate::p2p_iroh::load_or_create_secret(app, "gossip")?;
+    let secret = crate::identity::load_or_create_secret(app, "gossip")?;
     run_redeem(
         &mut TorSink(write),
         &mut TorSource(read),
@@ -609,7 +468,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iroh::SecretKey;
 
     fn key(seed: u8) -> SecretKey {
         SecretKey::from_bytes(&[seed; 32])
@@ -657,23 +515,6 @@ mod tests {
         assert!(!verify_identity(&id, &challenge, &"ab".repeat(64)));
         // Odd-length hex must not panic.
         assert!(!verify_identity(&id, &challenge, "abc"));
-    }
-
-    // ── transport cross-check ────────────────────────────────────────────────
-
-    #[test]
-    fn iroh_rejects_a_request_claiming_someone_elses_identity() {
-        let bob = key(3).public();
-        let carol = key(2).public();
-        assert!(transport_identity_agrees(&bob.to_string(), Some(bob)));
-        assert!(!transport_identity_agrees(&carol.to_string(), Some(bob)));
-    }
-
-    #[test]
-    fn tor_has_nothing_to_cross_check_and_leans_on_the_signature() {
-        // Documented explicitly because it looks like a hole until you notice the
-        // signature is what carries identity on this transport.
-        assert!(transport_identity_agrees("anything at all", None));
     }
 
     // ── hex helpers ──────────────────────────────────────────────────────────

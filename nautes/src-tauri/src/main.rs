@@ -14,5 +14,5 @@ fn main() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
-    enigma_lib::run()
+    nautes_lib::run()
 }

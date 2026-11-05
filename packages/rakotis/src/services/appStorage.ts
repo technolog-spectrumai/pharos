@@ -9,7 +9,6 @@ import { kvGet, kvPut } from "./localDb";
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_OFFLINE = "enigma:offline";
-const LS_USE_TOR = "enigma:useTor";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -71,78 +70,29 @@ export interface BuildConfig {
   app_name: string;
   app_identifier: string;
   app_version: string;
-  /** false = no n0 relay / pkarr / Mainline DHT; DHT toggles are inert. */
-  p2p_allow_hosted_relays: boolean;
-  /** false = this build has no Mainline DHT: no ticketless join-by-room-code,
-   *  no nickname directory, no presence. getDhtDiscovery/getDhtNickPublish read
-   *  false regardless of the stored setting, the Settings→Connections DHT card
-   *  and the Contacts nickname/find surfaces are hidden, and dht_presence /
-   *  dht_publish_nick / dht_find_nick / dht_apply error with DHT_DISABLED.
-   *  Pairing falls back to QR/ticket. (technology.md §20 — Pro only.) */
-  dht_enabled: boolean;
-  /** false = this build has no 1:1 voice calls: no Vox tab, /vox redirects,
-   *  useVoxCall is never instantiated, the vox ALPN is not accepted, and every
-   *  vox_* command errors with CALLS_DISABLED. (technology.md §20 — Plus and up.) */
-  calls_enabled: boolean;
-  /** false = this build has no Contacts: no Contacts tab, /contacts redirects,
-   *  useRoomInvites is never instantiated and the invite ALPN is not accepted.
-   *  (technology.md §20 — Pro only.) */
-  contacts_enabled: boolean;
-  /** false = this build has no Calendar: no Calendar tab, /calendar redirects,
-   *  useMeetings is never instantiated (no meetings, polls or reminder tick).
-   *  (technology.md §20 — Pro only.) */
-  calendar_enabled: boolean;
-  /** false = this build has no peer sync: the `enigma/plink/0` ALPN is not
-   *  registered, usePeerSync is never instantiated, and every peer_* command
-   *  errors with PEERS_DISABLED. (peer.md; technology.md §20 — Pro only.) */
   /** PIN unlock: a short in-session re-unlock after an idle lock. The passphrase
    *  still opens the vault at cold start — the PIN never protects data at rest. */
   pin_unlock: boolean;
-  /** false = this build has no linked-device sync channel. The old Files→Devices
-   *  UI is removed regardless of this flag. */
-  use_tor_default: boolean;
   stable_onion_default: boolean;
-  dht_discovery_default: boolean;
-  dht_nick_publish_default: boolean;
   connect_timeout_secs: SettingClamp;
-  dht_room_publish_secs: SettingClamp;
-  max_file_size_mb: SettingClamp;
   chat_history_cap_msgs: SettingClamp;
   /** Auto-lock: minutes of inactivity before the vault re-locks. 0 = never. */
   idle_lock_mins: SettingClamp;
-  /** Peer sync: seconds between a live link's hello + diff pull. */
-  /** P2P transfer chunk, KiB — the "file chunk size" setting's bounds. */
-  file_chunk_kib: SettingClamp;
   /** Digits in the unlock PIN. */
   pin_digits: SettingClamp;
-  /** Seed for the per-chunk integrity check toggle on a new profile. */
-  file_integrity_default: boolean;
 }
 
-// Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
-// consts below (literals here: the consts are declared later in the module).
+// Mirrors build_config.yaml (Nautes).
 const FALLBACK_BUILD_CONFIG: BuildConfig = {
-  app_name: "Enigma26",
-  app_identifier: "com.spectrumaipl.enigma26",
+  app_name: "Nautes",
+  app_identifier: "com.spectrumaipl.nautes",
   app_version: "0.1.0",
-  p2p_allow_hosted_relays: true,
-  dht_enabled: true,
-  calls_enabled: true,
-  contacts_enabled: true,
-  calendar_enabled: true,
   pin_unlock: true,
-  use_tor_default: false,
   stable_onion_default: false,
-  dht_discovery_default: false,
-  dht_nick_publish_default: false,
   connect_timeout_secs: { default: 60, min: 5, max: 600 },
-  dht_room_publish_secs: { default: 600, min: 60, max: 3600 },
-  max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
-  file_chunk_kib: { default: 256, min: 16, max: 4096 },
   pin_digits: { default: 6, min: 4, max: 12 },
-  file_integrity_default: true,
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -181,18 +131,12 @@ export async function setOffline(offline: boolean): Promise<void> {
   localStorage.setItem(LS_OFFLINE, offline ? "on" : "off");
 }
 
-// ── Use Tor (route rendezvous + chat over peer-hosted onion services) ──────────
-// On → the app hosts an onion service, the room QR carries a `.onion`, and all
-// chat rides Tor; iroh is not used. Exclusive; enforced by the Rust command.
+// ── Tor ─────────────────────────────────────────────────────────────────────
+// Nautes (Pharos) has one transport: every room is hosted and dialled as an
+// onion service. Kept as a function so call sites read the same as before.
 
 export async function getUseTor(): Promise<boolean> {
-  if (isTauri()) return invoke<boolean>("app_get_use_tor");
-  return localStorage.getItem(LS_USE_TOR) === "on";
-}
-
-export async function setUseTor(useTor: boolean): Promise<void> {
-  if (isTauri()) { await invoke("app_set_use_tor", { useTor }); return; }
-  localStorage.setItem(LS_USE_TOR, useTor ? "on" : "off");
+  return true;
 }
 
 // ── Keep onion stable (persist the Tor .onion, encrypted at rest) ──────────────
@@ -349,218 +293,6 @@ export async function setChatHistoryCapMsgs(cap: number): Promise<number> {
   return v;
 }
 
-// ── Max file-transfer size (0 = unlimited) ────────────────────────────────────
-// A local guard on P2P file sharing, enforced by `useFileShare` on both sides:
-// offering a larger file is blocked, and an incoming offer over the limit is
-// auto-declined. Stored in the encrypted kv store, in MB. The app's build config
-// (`policy.fileShare.defaultMaxFileSizeMb`) owns the shipped default and passes it
-// in — rakotis only knows the generic fallback.
-
-export const MAX_FILE_SIZE_DEFAULT_MB = 0; // generic fallback: 0 = unlimited
-export const MAX_FILE_SIZE_MIN_MB = 0;
-export const MAX_FILE_SIZE_MAX_MB = 100 * 1024; // 100 GB
-
-export function clampMaxFileSizeMb(mb: number, fallback?: number): number {
-  const c = getBuildConfig().max_file_size_mb;
-  if (!Number.isFinite(mb)) return fallback ?? c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(mb)));
-}
-
-export async function getMaxFileSizeMb(defaultMb?: number): Promise<number> {
-  const fallback = defaultMb ?? getBuildConfig().max_file_size_mb.default;
-  try {
-    const raw = await kvGet("p2p:settings", "default", "max_file_size_mb");
-    if (raw === null || raw === "") return fallback;
-    return clampMaxFileSizeMb(Number(raw), fallback);
-  } catch {
-    return fallback;
-  }
-}
-
-export async function setMaxFileSizeMb(mb: number, defaultMb?: number): Promise<number> {
-  const v = clampMaxFileSizeMb(mb, defaultMb ?? getBuildConfig().max_file_size_mb.default);
-  await kvPut("p2p:settings", "default", "max_file_size_mb", String(v)).catch(() => {});
-  return v;
-}
-
-// ── Meeting reminder lead time (0 = reminders off) ────────────────────────────
-// How many minutes before a meeting starts the app fires a local OS notification.
-// Enforced by `useMeetings` in the app (its reminder tick re-reads this every
-// round, so Settings changes apply live). Stored in the encrypted kv store.
-
-export const MEETING_REMINDER_DEFAULT_MINS = 15;
-export const MEETING_REMINDER_MIN_MINS = 0; // 0 = off
-export const MEETING_REMINDER_MAX_MINS = 24 * 60;
-
-export function clampMeetingReminderMins(mins: number): number {
-  if (!Number.isFinite(mins)) return MEETING_REMINDER_DEFAULT_MINS;
-  return Math.min(MEETING_REMINDER_MAX_MINS, Math.max(MEETING_REMINDER_MIN_MINS, Math.round(mins)));
-}
-
-export async function getMeetingReminderMins(): Promise<number> {
-  try {
-    const raw = await kvGet("p2p:settings", "default", "meeting_reminder_mins");
-    if (raw === null || raw === "") return MEETING_REMINDER_DEFAULT_MINS;
-    return clampMeetingReminderMins(Number(raw));
-  } catch {
-    return MEETING_REMINDER_DEFAULT_MINS;
-  }
-}
-
-export async function setMeetingReminderMins(mins: number): Promise<number> {
-  const v = clampMeetingReminderMins(mins);
-  await kvPut("p2p:settings", "default", "meeting_reminder_mins", String(v)).catch(() => {});
-  return v;
-}
-
-// ── DHT discovery (Mainline/Kademlia rendezvous + presence — see technology.md §12) ───────
-// Opt-in, default off. On → the iroh endpoint additionally publishes/resolves
-// addresses on the public BitTorrent DHT (server-free), rooms get a ticketless
-// join code, and Contacts presence works. Rust reads the same kv keys directly.
-
-export async function getDhtDiscovery(): Promise<boolean> {
-  // Build gate FIRST, exactly as Rust's p2p_dht::discovery_enabled orders it:
-  // a profile carrying "on" from a DHT-capable build must read as off here too.
-  // The key is deliberately NOT rewritten — reopening the same profile with a
-  // Pro build restores the user's choice.
-  if (!getBuildConfig().dht_enabled) return false;
-  try {
-    return (await kvGet("p2p:settings", "default", "dht_discovery")) === "on";
-  } catch {
-    return false;
-  }
-}
-
-export async function setDhtDiscovery(on: boolean): Promise<void> {
-  await kvPut("p2p:settings", "default", "dht_discovery", on ? "on" : "off").catch(() => {});
-}
-
-/** Apply a flipped DHT toggle: tears the iroh node down in Rust; the next room
- *  command lazily re-binds with the new setting. */
-export async function applyDhtDiscovery(): Promise<void> {
-  if (isTauri()) await invoke("dht_apply").catch(() => {});
-}
-
-export interface DhtStatus {
-  enabled: boolean;
-  /** The iroh node is up with a DHT handle. False = blocked from starting
-   *  (offline / Tor mode) or the Mainline UDP bind failed. */
-  running: boolean;
-  bootstrapped: boolean;
-}
-
-/** Status probe for Settings/Contacts. May lazily start the node (like any
- *  room command) — never in airplane or Tor mode. A fresh Mainline node takes
- *  a few seconds to bootstrap, so callers should retry before declaring the
- *  DHT unreachable. */
-export async function getDhtStatus(): Promise<DhtStatus> {
-  if (!getBuildConfig().dht_enabled) return { enabled: false, running: false, bootstrapped: false };
-  if (isTauri()) {
-    try {
-      return await invoke<DhtStatus>("dht_status");
-    } catch {
-      /* fall through */
-    }
-  }
-  return { enabled: false, running: false, bootstrapped: false };
-}
-
-// ── Nickname directory ("findable as ‹nick›" — technology.md §12) ────────────────────────
-// Opt-in claim on the DHT nickname directory. Rust re-reads both keys every
-// announce round, so renames/toggles apply live; `dht_apply` forces an
-// immediate first publish. Findable only while the app runs with DHT on.
-
-export const DHT_NICKNAME_MAX_LEN = 64;
-
-export function clampDhtNickname(nick: string): string {
-  const trimmed = nick.trim();
-  return trimmed.length > DHT_NICKNAME_MAX_LEN ? trimmed.slice(0, DHT_NICKNAME_MAX_LEN) : trimmed;
-}
-
-export async function getDhtNickPublish(): Promise<boolean> {
-  // Build gate first — mirrors Rust's p2p_dht::nick_publish_enabled.
-  if (!getBuildConfig().dht_enabled) return false;
-  try {
-    return (await kvGet("p2p:settings", "default", "dht_nick_publish")) === "on";
-  } catch {
-    return false;
-  }
-}
-
-export async function setDhtNickPublish(on: boolean): Promise<void> {
-  await kvPut("p2p:settings", "default", "dht_nick_publish", on ? "on" : "off").catch(() => {});
-}
-
-export async function getDhtNickname(): Promise<string> {
-  try {
-    return clampDhtNickname((await kvGet("p2p:settings", "default", "dht_nickname")) ?? "");
-  } catch {
-    return "";
-  }
-}
-
-export async function setDhtNickname(nick: string): Promise<string> {
-  const v = clampDhtNickname(nick);
-  await kvPut("p2p:settings", "default", "dht_nickname", v).catch(() => {});
-  return v;
-}
-
-// How often an open room's rendezvous record is re-published (Rust re-reads this
-// every round) — lower finds code-joiners faster, higher saves battery/traffic.
-export const DHT_ROOM_PUBLISH_DEFAULT_SECS = 600;
-export const DHT_ROOM_PUBLISH_MIN_SECS = 60;
-export const DHT_ROOM_PUBLISH_MAX_SECS = 3600;
-
-export function clampDhtRoomPublishSecs(secs: number): number {
-  const c = getBuildConfig().dht_room_publish_secs;
-  if (!Number.isFinite(secs)) return c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(secs)));
-}
-
-export async function getDhtRoomPublishSecs(): Promise<number> {
-  const c = getBuildConfig().dht_room_publish_secs;
-  try {
-    const raw = await kvGet("p2p:settings", "default", "dht_room_publish_secs");
-    if (raw === null || raw === "") return c.default;
-    return clampDhtRoomPublishSecs(Number(raw));
-  } catch {
-    return c.default;
-  }
-}
-
-export async function setDhtRoomPublishSecs(secs: number): Promise<number> {
-  const v = clampDhtRoomPublishSecs(secs);
-  await kvPut("p2p:settings", "default", "dht_room_publish_secs", String(v)).catch(() => {});
-  return v;
-}
-
-// How often the Contacts view polls presence. Purely frontend-driven
-// (setInterval), so it suspends with the webview — battery-safe on Android.
-export const DHT_PRESENCE_POLL_DEFAULT_SECS = 300;
-export const DHT_PRESENCE_POLL_MIN_SECS = 60;
-export const DHT_PRESENCE_POLL_MAX_SECS = 3600;
-
-export function clampDhtPresencePollSecs(secs: number): number {
-  if (!Number.isFinite(secs)) return DHT_PRESENCE_POLL_DEFAULT_SECS;
-  return Math.min(DHT_PRESENCE_POLL_MAX_SECS, Math.max(DHT_PRESENCE_POLL_MIN_SECS, Math.round(secs)));
-}
-
-export async function getDhtPresencePollSecs(): Promise<number> {
-  try {
-    const raw = await kvGet("p2p:settings", "default", "dht_presence_poll_secs");
-    if (raw === null || raw === "") return DHT_PRESENCE_POLL_DEFAULT_SECS;
-    return clampDhtPresencePollSecs(Number(raw));
-  } catch {
-    return DHT_PRESENCE_POLL_DEFAULT_SECS;
-  }
-}
-
-export async function setDhtPresencePollSecs(secs: number): Promise<number> {
-  const v = clampDhtPresencePollSecs(secs);
-  await kvPut("p2p:settings", "default", "dht_presence_poll_secs", String(v)).catch(() => {});
-  return v;
-}
-
 // ── Encryption-at-rest vault (Tauri only; browser fallback treats it unlocked) ─
 
 export async function vaultStatus(): Promise<VaultStatus> {
@@ -656,43 +388,6 @@ export async function vaultHasPanicCode(): Promise<boolean> {
   return false;
 }
 
-// ── File transfer: chunk size + integrity check ───────────────────────────────
-// Both are DEVICE-LOCAL tuning knobs, deliberately absent from DEVLINK_SYNC_KV
-// (the connect-timeout / idle-lock category). The sending device's values
-// govern a transfer; the receiver learns the chunk size from the wire header.
-
-function clampFileChunkKib(v: number): number {
-  const c = getBuildConfig().file_chunk_kib;
-  if (!Number.isFinite(v)) return c.default;
-  return Math.min(c.max, Math.max(c.min, Math.round(v)));
-}
-
-export async function getFileChunkKib(): Promise<number> {
-  const raw = await kvGet("p2p:settings", "default", "file_chunk_kib");
-  if (raw === null || raw === "") return getBuildConfig().file_chunk_kib.default;
-  return clampFileChunkKib(Number(raw));
-}
-
-export async function setFileChunkKib(kib: number): Promise<number> {
-  const v = clampFileChunkKib(kib);
-  await kvPut("p2p:settings", "default", "file_chunk_kib", String(v)).catch(() => {});
-  return v;
-}
-
-/** Per-chunk hash-chain verification. Either side enabling it enforces it. */
-export async function getFileIntegrity(): Promise<boolean> {
-  const raw = await kvGet("p2p:settings", "default", "file_integrity");
-  if (raw === "on") return true;
-  if (raw === "off") return false;
-  return getBuildConfig().file_integrity_default;
-}
-
-export async function setFileIntegrity(on: boolean): Promise<void> {
-  await kvPut("p2p:settings", "default", "file_integrity", on ? "on" : "off").catch(() => {});
-}
-
-/// Reset the Tor onion keystore (identity) — clears stale locks; next Tor room mints
-/// a fresh .onion. Wired into "Clear selected data".
 export async function cleanTorKeystore(): Promise<void> {
   if (isTauri()) await invoke("tor_clean_keystore");
 }

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { getUseTor } from "rakotis";
 import { OyaModal, OyaTextField } from "petalite/primitives";
 import RoomShareCard from "./RoomShareCard.vue";
 import type { P2pRoomsController } from "./useP2pRooms";
@@ -10,14 +8,9 @@ const emit = defineEmits<{ "update:open": [boolean] }>();
 
 const { name, createdRoom, createBusy, createError, createRoom } = props.controller;
 
-// Whether this will be a Tor room — drives the spinner wording + the captain ★ hint.
-const tor = ref(false);
-watch(
-  () => props.open,
-  async (o) => {
-    if (o) tor.value = await getUseTor();
-  },
-);
+// Every Nautes room is a Tor room: the spinner says the wait is Tor's, and the
+// creator hosts the onion (the captain ★ hint).
+const tor = true;
 
 function close() {
   emit("update:open", false);

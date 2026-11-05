@@ -13,7 +13,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   pl: "Polski",
 };
 
-const STORAGE_KEY = "enigma:locale";
+const STORAGE_KEY = "nautes:locale";
 
 function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && (SUPPORTED_LOCALES as readonly string[]).includes(value);

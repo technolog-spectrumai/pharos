@@ -62,6 +62,19 @@ tests must pass before Stage 2 starts.
 **1.5 Scripts and CI.** A `tests.sh` per part; a GitHub workflow running cargo
 and vitest on push.
 
+### Stage 1 done — notes (2026-11-05)
+
+- Cut: iroh/DHT/gossip, vox (calls, audio), file transfer, calendar, contacts tab, invites over iroh, `limbo/`, editions/feature flags except `pin_unlock`. Tor is always on (`default_use_tor` = true; no switch).
+- Composer is text-only with a length counter; the cap is `policy.maxMessageChars` (1000) in `nautes/src/config/app.ts`. Proteus must enforce the same cap (Stage 3).
+- Renamed: crate `nautes` / `nautes_lib`, bundle id `com.spectrumaipl.nautes`, views `Nautes*View`, assets `assets/nautes/`, storage keys `nautes:*`. Icons are still Enigma's artwork (new art: Stage 6).
+- Leftovers for later stages:
+  - `packages/rakotis/src/useChatChannel.ts` still has iroh-shaped branches (ticket/peer paths); rewrite in Stage 4.
+  - `nautes/src-tauri/privacy_hp.yaml` keeps clearnet/DHT entries that nothing charges any more; decide with PD9.
+  - Tab-visibility tests were removed with the tabs (only Chat is left).
+  - `nautes/dromon.yaml` and `scripts/tests_lib.sh` are Belisario build-driver leftovers, unused.
+- Scripts: root `tests.sh` (`js` | `rust`), root `run_dev.sh [profile]`, `.github/workflows/ci.yml`.
+- Results: nautes vitest 437, rakotis 444, petalite 186, calendula 16, vue-tsc clean, `cargo test` nautes + crates pass.
+
 ## Stage 2 — Shared core
 
 **2.1 `pharos-wire`.** Enigma's Tor framing (4-byte length prefix) with a

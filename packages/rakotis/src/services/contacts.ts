@@ -1,14 +1,9 @@
-// Contacts — saved peers (iroh NodeId + display name) for the Contacts tab.
-//
-// A contact is the durable P2P handle of a person you paired with: their stable
-// NodeId (shared as text/QR, like a room ticket). With DHT discovery on
-// (technology.md §12), contacts get "recently online" presence — the freshness of the
-// address record every DHT-enabled peer publishes about itself.
+// Contacts — saved peers (device id + display name), used to address personal
+// invitations. Pairing (Pharos Stage 4.2) will fill and use this list.
 //
 // Stored as one JSON array under the encrypted kv (same single-key pattern as
 // the `p2p:rooms` list — the kv API has no key enumeration by design).
 
-import { isTauri, invoke } from "./tauri";
 import { kvGet, kvPut } from "./localDb";
 
 export interface ContactEntry {
@@ -73,43 +68,4 @@ export async function touchContact(nodeId: string, lastSeen: number): Promise<Co
     await persist(contacts);
   }
   return contacts;
-}
-
-// ── DHT-backed lookups (Tauri only; browser fallback degrades gracefully) ──────
-
-export interface ContactPresence {
-  node_id: string;
-  online: boolean;
-}
-
-/** "Recently online" per contact NodeId (~1 h granularity — the cadence of the
- *  DHT address records). Requires the DHT toggle on; errors resolve to []. */
-export async function dhtPresence(nodeIds: string[]): Promise<ContactPresence[]> {
-  if (!isTauri() || nodeIds.length === 0) return [];
-  try {
-    return await invoke<ContactPresence[]>("dht_presence", { nodeIds });
-  } catch {
-    return [];
-  }
-}
-
-
-export interface NickClaim {
-  node_id: string;
-  /** The display form the claimant published — a CLAIM, not verified identity. */
-  name: string;
-  /** Unix seconds when the claim was last published. */
-  ts: number;
-}
-
-/** Search the DHT nickname directory. Every result is a claim (anyone can
- *  publish any name) — the UI must show NodeId fingerprints. Requires the DHT
- *  toggle; errors and the browser fallback resolve to []. */
-export async function dhtFindNick(nick: string): Promise<NickClaim[]> {
-  if (!isTauri() || !nick.trim()) return [];
-  try {
-    return await invoke<NickClaim[]>("dht_find_nick", { nick });
-  } catch {
-    return [];
-  }
 }

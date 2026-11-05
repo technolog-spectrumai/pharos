@@ -1,10 +1,9 @@
 import { watch } from "vue";
 import { createRouter, createMemoryHistory } from "vue-router";
-import EnigmaChatView from "../views/EnigmaChatView.vue";
-import EnigmaFilesView from "../views/EnigmaFilesView.vue";
-import EnigmaConfigView from "../views/EnigmaConfigView.vue";
-import EnigmaWelcomeView from "../views/EnigmaWelcomeView.vue";
-import EnigmaPrivacyView from "../views/EnigmaPrivacyView.vue";
+import NautesChatView from "../views/NautesChatView.vue";
+import NautesConfigView from "../views/NautesConfigView.vue";
+import NautesWelcomeView from "../views/NautesWelcomeView.vue";
+import NautesPrivacyView from "../views/NautesPrivacyView.vue";
 import { APP_TABS, firstVisiblePath, isTabVisible, visibleTabs, type AppTabId } from "../tabs";
 
 /** Guard for a tab that can be switched off — build gate AND the user's own
@@ -19,10 +18,9 @@ import { APP_TABS, firstVisiblePath, isTabVisible, visibleTabs, type AppTabId } 
  *  returns the path being denied, because that tab is by definition not visible. */
 const tabGuard = (id: AppTabId) => () => isTabVisible(id) || firstVisiblePath();
 
-// Enigma26 is a serverless P2P chat: one chat surface, P2P file transfer,
-// meeting scheduling (calendar), contacts (peer discovery), and settings.
+// Nautes: short messages over Tor. One chat surface, Privacy HP, settings.
 // There is no login — identity is the local offline profile, pairing is a
-// QR-shared ticket.
+// QR-shared invitation.
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
@@ -30,35 +28,19 @@ const router = createRouter({
     // buttons come through here, and "/" is also where every lock cycle re-enters
     // (window.location.reload wipes the memory history).
     { path: "/", redirect: () => firstVisiblePath() },
-    { path: "/chat", component: EnigmaChatView, name: "chat", beforeEnter: tabGuard("chat") },
-    { path: "/files", component: EnigmaFilesView, name: "files", beforeEnter: tabGuard("files") },
-    // Vox (voice calls) / calendar / contacts / map — build features
-    // (technology.md §20) on top of the per-user switch. Each is registered
-    // only in a build that has the feature, and loaded lazily: the import sits
-    // behind the build-time literal, so a build without the feature does not
-    // contain the view — or anything only the view pulls in (the map library,
-    // the call UI). The tab is called Vox; its feature id is `calls`.
-    ...(__FEATURE_CALLS__
-      ? [{ path: "/vox", component: () => import("../views/EnigmaVoxView.vue"), name: "vox", beforeEnter: tabGuard("vox") }]
-      : []),
-    ...(__FEATURE_CALENDAR__
-      ? [{ path: "/calendar", component: () => import("../views/EnigmaCalendarView.vue"), name: "calendar", beforeEnter: tabGuard("calendar") }]
-      : []),
-    ...(__FEATURE_CONTACTS__
-      ? [{ path: "/contacts", component: () => import("../views/EnigmaContactsView.vue"), name: "contacts", beforeEnter: tabGuard("contacts") }]
-      : []),
+    { path: "/chat", component: NautesChatView, name: "chat", beforeEnter: tabGuard("chat") },
     // Privacy HP — reached from the header's HP chip, not from the nav, so it is
     // ungated like Settings and the welcome page.
-    { path: "/privacy", component: EnigmaPrivacyView, name: "privacy" },
+    { path: "/privacy", component: NautesPrivacyView, name: "privacy" },
     // Settings has no gate of either kind — it is the way back from everything
     // else, including from a nav the user has emptied out.
-    { path: "/config", component: EnigmaConfigView, name: "config" },
+    { path: "/config", component: NautesConfigView, name: "config" },
     // Welcome: app info, who you are, and the Privacy HP meters. Ungated for the
     // same reason Settings is — it is where the header logo goes, and a logo that
     // could lead nowhere would be a dead end on every screen. Note this is NOT
     // "/": that still resolves to the first visible tab, which is where a lock
     // cycle re-enters (App.vue reloads the webview, wiping the memory history).
-    { path: "/welcome", component: EnigmaWelcomeView, name: "welcome" },
+    { path: "/welcome", component: NautesWelcomeView, name: "welcome" },
     // Profile now lives inside Settings (as a tab) — keep the old path working.
     { path: "/profile", redirect: "/config?tab=profile" },
     // Anything else — including the path of a tab this build was made without —

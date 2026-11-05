@@ -346,8 +346,6 @@ describe("moderation from the captain", () => {
 
     mockTransport.send.mockClear();
     await ch.sendMessage("let me speak");
-    await ch.sendImage(new File(["x"], "a.png"));
-    await ch.sendAudio(new Blob(["x"]));
     expect(mockTransport.send).not.toHaveBeenCalled();
     expect(ch.messages.value.at(-1)).toMatchObject({
       type: "system_error", content: "🔇 You are muted for another 10m.",

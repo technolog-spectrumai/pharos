@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Enigma26",
-  "mainBinaryName": "enigma26",
-  "version": "0.1.10",
-  "identifier": "com.spectrumaipl.enigma26",
+  "productName": "Nautes",
+  "mainBinaryName": "nautes",
+  "version": "0.1.0",
+  "identifier": "com.spectrumaipl.nautes",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "Enigma26",
+        "title": "Nautes",
         "width": 800,
         "height": 600
       }

@@ -64,17 +64,14 @@ describe("the build config", () => {
 describe("switches that Rust owns", () => {
   it("read and write through their own commands and never touch localStorage", async () => {
     replies.set("app_get_offline", true);
-    replies.set("app_get_use_tor", true);
     replies.set("app_get_stable_onion", true);
     expect(await S.getOffline()).toBe(true);
     expect(await S.getUseTor()).toBe(true);
     expect(await S.getStableOnion()).toBe(true);
     await S.setOffline(false);
-    await S.setUseTor(false);
     await S.setStableOnion(false);
-    expect(invoke.mock.calls.slice(3)).toEqual([
+    expect(invoke.mock.calls.slice(2)).toEqual([
       ["app_set_offline", { offline: false }],
-      ["app_set_use_tor", { useTor: false }],
       ["app_set_stable_onion", { stableOnion: false }],
     ]);
     expect(localStorage.length).toBe(0);
@@ -100,15 +97,8 @@ describe("kv-backed settings", () => {
       expect(await S.getConnectTimeoutSecs()).toBe(60);
       expect(await S.getIdleLockMins()).toBe(15);
       expect(await S.getChatHistoryCapMsgs()).toBe(500);
-      expect(await S.getMaxFileSizeMb(25)).toBe(25);
-      expect(await S.getMeetingReminderMins()).toBe(15);
-      expect(await S.getDhtRoomPublishSecs()).toBe(600);
-      expect(await S.getDhtPresencePollSecs()).toBe(300);
       expect(await S.getLockOnHide()).toBe(false);
       expect(await S.getHiddenTabs()).toEqual([]);
-      expect(await S.getDhtDiscovery()).toBe(false);
-      expect(await S.getDhtNickPublish()).toBe(false);
-      expect(await S.getDhtNickname()).toBe("");
     } finally {
       invoke.mockReset();
     }
@@ -124,31 +114,6 @@ describe("kv-backed settings", () => {
     } finally {
       invoke.mockReset();
     }
-  });
-});
-
-describe("the DHT", () => {
-  it("reports Rust's status, and a disabled triple when it cannot", async () => {
-    replies.set("dht_status", { enabled: true, running: true, bootstrapped: false });
-    expect(await S.getDhtStatus()).toEqual({ enabled: true, running: true, bootstrapped: false });
-    invoke.mockRejectedValueOnce(new Error("DHT_DISABLED"));
-    expect(await S.getDhtStatus()).toEqual({ enabled: false, running: false, bootstrapped: false });
-  });
-
-  it("applies a flipped toggle and swallows a failure", async () => {
-    await S.applyDhtDiscovery();
-    expect(invoke).toHaveBeenCalledWith("dht_apply", undefined);
-    invoke.mockRejectedValueOnce(new Error("offline"));
-    await expect(S.applyDhtDiscovery()).resolves.toBeUndefined();
-  });
-
-  it("asks nothing of Rust in a build without the DHT", async () => {
-    replies.set("app_get_build_config", { ...original, dht_enabled: false });
-    await S.initBuildConfig();
-    invoke.mockClear();
-    expect(await S.getDhtStatus()).toEqual({ enabled: false, running: false, bootstrapped: false });
-    expect(await S.getDhtDiscovery()).toBe(false);
-    expect(invoke).not.toHaveBeenCalled();
   });
 });
 

@@ -14,7 +14,7 @@ export default defineConfig(async () => ({
   // One literal per build feature (see buildFeatures.ts). The list comes from
   // the root build config through `./build.sh` / `./run_dev.sh`; with nothing
   // set — plain `npm run dev`, Playwright — every feature is on.
-  define: featureDefines(process.env.ENIGMA_FEATURES),
+  define: featureDefines(process.env.NAUTES_FEATURES),
 
   // petalite, calendula (the repo's) and rakotis (this app's) ship raw TS/Vue
   // (no prebuild): alias each to its source and keep it out of esbuild's
@@ -25,9 +25,9 @@ export default defineConfig(async () => ({
     alias: [
       ...sourceAliases("petalite", dir("../packages/petalite/src")),
       ...sourceAliases("calendula", dir("../packages/calendula/src"), { components: false }),
-      ...sourceAliases("rakotis", dir("./packages/rakotis/src"), {
+      ...sourceAliases("rakotis", dir("../packages/rakotis/src"), {
         components: false,
-        entry: dir("../../node_modules/rakotis/src/index.ts"),
+        entry: dir("../packages/rakotis/src/index.ts"),
       }),
     ],
   },

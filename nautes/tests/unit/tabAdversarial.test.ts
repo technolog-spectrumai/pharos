@@ -55,17 +55,6 @@ describe("cold boot with everything hidden", () => {
     expect(router.currentRoute.value.path).toBe("/config");
   });
 
-  it("kicks it off a hidden tab even when other tabs remain", async () => {
-    await setHiddenTabs(["chat", "files"]);
-    const { tabs, router } = await coldBoot();
-    await router.replace("/chat");
-    await router.isReady();
-
-    await tabs.loadTabVisibility();
-    // The Vox view is a feature tab, so its route is lazy: the redirect lands
-    // once the view's chunk has loaded, which is later than a flushed tick.
-    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe("/vox"));
-  });
 });
 
 describe("no redirect loop", () => {
@@ -134,7 +123,7 @@ describe("Settings stays usable in every hidden state", () => {
 describe("stored value abuse", () => {
   it("does not choke on a huge / duplicated hidden list", async () => {
     localStorage.setItem(
-      "enigma:db:p2p:settings:default:hidden_tabs",
+      "nautes:db:p2p:settings:default:hidden_tabs",
       JSON.stringify(["calendar", "calendar", "calendar", ...Array.from({ length: 500 }, (_, i) => `x${i}`)]),
     );
     const { tabs } = await coldBoot();
@@ -145,7 +134,7 @@ describe("stored value abuse", () => {
 
   it("treats a nested-array / object value as garbage, not as a hide-all", async () => {
     for (const junk of ['[["chat"]]', '[{"id":"chat"}]', "[[]]", '""', "[true]"]) {
-      localStorage.setItem("enigma:db:p2p:settings:default:hidden_tabs", junk);
+      localStorage.setItem("nautes:db:p2p:settings:default:hidden_tabs", junk);
       const { tabs } = await coldBoot();
       await tabs.loadTabVisibility();
       expect(tabs.visibleTabs.value.length, junk).toBe(tabs.APP_TABS.length);

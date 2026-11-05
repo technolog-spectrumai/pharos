@@ -17,11 +17,11 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-  document.getElementById("enigma-fatal")?.remove();
+  document.getElementById("nautes-fatal")?.remove();
   consoleError.mockClear();
 });
 
-const overlay = () => document.getElementById("enigma-fatal");
+const overlay = () => document.getElementById("nautes-fatal");
 
 function raise(error: unknown, message = "") {
   window.dispatchEvent(new ErrorEvent("error", { error, message }));
@@ -35,12 +35,12 @@ describe("errorOverlay — uncaught errors", () => {
 
     const el = overlay()!;
     expect(el.parentElement).toBe(document.body);
-    expect(el.firstElementChild!.textContent).toBe("Enigma26 hit an error while starting.");
+    expect(el.firstElementChild!.textContent).toBe("Nautes hit an error while starting.");
     expect(el.textContent).toContain("Uncaught error:\nError: boom\n    at main.ts:1:1");
     // It must cover the app, not sit under it.
     expect(el.style.position).toBe("fixed");
     expect(el.style.zIndex).toBe("99999");
-    expect(consoleError).toHaveBeenCalledWith("[enigma] Uncaught error:", err);
+    expect(consoleError).toHaveBeenCalledWith("[nautes] Uncaught error:", err);
   });
 
   it("falls back to the message when the error has no stack, and to the event text when there is no error", () => {
@@ -56,8 +56,8 @@ describe("errorOverlay — uncaught errors", () => {
   it("collects every error in one overlay instead of stacking new ones", () => {
     raise(new Error("first"));
     raise(new Error("second"));
-    expect(document.querySelectorAll("#enigma-fatal")).toHaveLength(1);
-    expect(overlay()!.textContent!.match(/Enigma26 hit an error/g)).toHaveLength(1);
+    expect(document.querySelectorAll("#nautes-fatal")).toHaveLength(1);
+    expect(overlay()!.textContent!.match(/Nautes hit an error/g)).toHaveLength(1);
     expect(overlay()!.textContent).toMatch(/first[\s\S]*second/);
   });
 });
@@ -67,7 +67,7 @@ describe("errorOverlay — unhandled rejections", () => {
     const ev = Object.assign(new Event("unhandledrejection"), { reason: "vault locked" });
     window.dispatchEvent(ev);
     expect(overlay()!.textContent).toContain("Unhandled promise rejection:\nvault locked");
-    expect(consoleError).toHaveBeenCalledWith("[enigma] Unhandled promise rejection:", "vault locked");
+    expect(consoleError).toHaveBeenCalledWith("[nautes] Unhandled promise rejection:", "vault locked");
   });
 });
 

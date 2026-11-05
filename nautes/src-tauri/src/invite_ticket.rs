@@ -55,7 +55,6 @@
 //! exists so a holder knows when not to bother, not to enforce anything.
 
 use anyhow::{anyhow, Result};
-use iroh::EndpointAddr;
 use serde::{Deserialize, Serialize};
 
 /// Leading tag byte, joining the ticket family so one field routes them all.
@@ -102,16 +101,11 @@ impl InviteKind {
     }
 }
 
-/// Where to reach the inviter to redeem. One variant per transport, so an
-/// invitation works identically with Tor on or off and neither leaks the other's
-/// address.
+/// Where to reach the inviter to redeem: their onion address (Nautes has no
+/// other transport, so an invitation never carries an IP address).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InviteAddr {
-    /// Direct QUIC: the inviter's dialable addresses. Carries their IP, exactly
-    /// as an ordinary clearnet ticket does — which is why the clearnet variants
-    /// cost more Privacy HP than the Tor ones.
-    Iroh(Vec<EndpointAddr>),
-    /// The inviter's onion address. No IP.
+    /// The inviter's onion address.
     Tor(String),
 }
 
@@ -225,8 +219,7 @@ pub fn decode(s: &str, my_ed25519_seed: Option<&[u8; 32]>) -> Result<DecodedInvi
     Ok(DecodedInvite { kind, body })
 }
 
-/// Tag sniff for the join router, mirroring `p2p_tor::ticket_is_tor` and
-/// `p2p_iroh::code_is_dht`. Cheap and key-free: it answers "is this an
+/// Tag sniff for the join router, mirroring `p2p_tor::ticket_is_tor`. Cheap and key-free: it answers "is this an
 /// invitation?", never "is it valid" or "is it mine".
 pub fn is_invite_ticket(s: &str) -> bool {
     match unbase32(s) {
@@ -434,12 +427,9 @@ mod tests {
     }
 
     #[test]
-    fn both_transports_survive_the_round_trip() {
-        let mut b = body();
-        b.addr = InviteAddr::Iroh(vec![]);
-        let got = decode(&encode_general(&b), None).unwrap();
-        assert_eq!(got.body.addr, InviteAddr::Iroh(vec![]));
-        assert!(!got.body.addr.is_tor());
-        assert!(body().addr.is_tor());
+    fn the_onion_survives_the_round_trip() {
+        let got = decode(&encode_general(&body()), None).unwrap();
+        assert_eq!(got.body.addr, body().addr);
+        assert!(got.body.addr.is_tor());
     }
 }

@@ -28,7 +28,6 @@ use crate::invite_ticket::{
     self, InviteAddr, InviteBody, InviteKind, CAPABILITY_LEN, INVITE_ID_LEN,
 };
 use crate::invites::{self, effective_state, InviteRecord, InviteState};
-use crate::p2p_iroh::P2pState;
 use crate::p2p_tor::TorP2pState;
 
 /// Ceiling on how long an invitation may live. A deadline is the only thing
@@ -101,7 +100,7 @@ pub struct InvitePeek {
 }
 
 fn identity_seed(app: &AppHandle) -> Result<[u8; 32], String> {
-    Ok(crate::p2p_iroh::load_or_create_secret(app, "gossip")
+    Ok(crate::identity::load_or_create_secret(app, "gossip")
         .map_err(|e| e.to_string())?
         .to_bytes())
 }
@@ -116,7 +115,6 @@ fn identity_seed(app: &AppHandle) -> Result<[u8; 32], String> {
 #[tauri::command]
 pub async fn invite_create(
     app: AppHandle,
-    p2p: State<'_, P2pState>,
     tor: State<'_, TorP2pState>,
     room_slug: String,
     room_name: String,
@@ -124,20 +122,16 @@ pub async fn invite_create(
     recipient: Option<String>,
     ttl_secs: u64,
 ) -> Result<InviteCreated, String> {
-    mint(&app, &p2p, &tor, room_slug, room_name, &kind, recipient, ttl_secs).await
+    mint(&app, &tor, room_slug, room_name, &kind, recipient, ttl_secs).await
 }
 
 /// The minting core, callable from Rust as well as from the command above.
 ///
-/// It exists because the Contacts "invite to room" flow (`p2p_invite.rs`) has to
-/// mint one too: it used to hand the contact a permanent room ticket, and now
-/// sends a personal invitation sealed to that contact's NodeId instead. One
-/// implementation, so the direct-invite path cannot drift into issuing something
-/// with different expiry, revocation or ledger behaviour from the QR path.
+/// Kept apart from the command so pairing (Stage 4.2) can mint through the
+/// same expiry, revocation and ledger rules as the QR path.
 #[allow(clippy::too_many_arguments)]
 pub async fn mint(
     app: &AppHandle,
-    p2p: &P2pState,
     tor: &TorP2pState,
     room_slug: String,
     room_name: String,
@@ -152,14 +146,12 @@ pub async fn mint(
     };
     let now = invites::now_ms();
 
-    // The room's own transport decides the address (see the module note).
-    let onion = crate::p2p_tor::room_onion(tor, &room_slug).await;
-    let addr = match &onion {
-        Some(o) => InviteAddr::Tor(o.clone()),
-        None => InviteAddr::Iroh(vec![crate::p2p_iroh::local_addr(app, p2p)
-            .await
-            .map_err(|e| e.to_string())?]),
-    };
+    // The room's onion is the address an invitation names (Tor is the only
+    // transport).
+    let onion = crate::p2p_tor::room_onion(tor, &room_slug)
+        .await
+        .ok_or_else(|| "this room has no onion yet; open it first".to_string())?;
+    let addr = InviteAddr::Tor(onion);
     // `ttl_secs == 0` asks for an invitation that never expires. Tor only.
     //
     // On a clearnet room the address is an IP, and an invitation naming one for
@@ -178,7 +170,7 @@ pub async fn mint(
         now + ttl_secs.clamp(MIN_TTL_SECS, MAX_TTL_SECS) * 1000
     };
 
-    let inviter = crate::p2p_iroh::load_or_create_secret(app, "gossip")
+    let inviter = crate::identity::load_or_create_secret(app, "gossip")
         .map_err(|e| e.to_string())?
         .public()
         .to_string();
@@ -203,7 +195,7 @@ pub async fn mint(
             let node = recipient
                 .as_deref()
                 .ok_or_else(|| "a personal invitation needs a recipient".to_string())?;
-            let id: iroh::EndpointId =
+            let id: crate::identity::EndpointId =
                 node.parse().map_err(|_| "invalid contact code".to_string())?;
             invite_ticket::encode_personal(&body, id.as_bytes()).map_err(|e| e.to_string())?
         }
@@ -319,7 +311,6 @@ pub fn invite_is_invite(ticket: String) -> bool {
 #[tauri::command]
 pub async fn invite_redeem(
     app: AppHandle,
-    p2p: State<'_, P2pState>,
     tor: State<'_, TorP2pState>,
     ticket: String,
     key_package: String,
@@ -338,22 +329,6 @@ pub async fn invite_redeem(
                 &app,
                 &mut wr,
                 &mut rd,
-                &body.invite_id,
-                &body.capability,
-                key_package,
-                name,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        }
-        InviteAddr::Iroh(hints) => {
-            let endpoint = crate::p2p_iroh::endpoint_for_dial(&app, &p2p, hints)
-                .await
-                .map_err(|e| e.to_string())?;
-            invite_redeem::redeem_over_iroh(
-                &app,
-                endpoint,
-                &body.inviter,
                 &body.invite_id,
                 &body.capability,
                 key_package,

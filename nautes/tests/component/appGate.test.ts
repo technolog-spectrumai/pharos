@@ -26,14 +26,12 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 const p2p = { currentUserName: ref(""), myAvatar: ref("") };
-const vox = { phase: ref("idle") };
 const fileShare = { state: ref("idle") };
 const chatStore = {
   syncRuntimeIdentity: vi.fn(async () => {}),
   init: vi.fn(async () => {}),
   p2p,
   fileShare,
-  vox,
   invites: { incoming: ref(null) },
   meetings: { attentionCount: ref(0) },
 };
@@ -98,7 +96,6 @@ beforeEach(async () => {
   listeners.clear();
   p2p.currentUserName.value = "";
   p2p.myAvatar.value = "";
-  vox.phase.value = "idle";
   handlers = backend({ exists: true, unlocked: true });
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
     invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),
@@ -377,14 +374,4 @@ describe("auto-lock warning", () => {
     expect(w.text()).not.toContain("Auto-lock imminent");
   });
 
-  it("holds the warning off while a call is live", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    kv.set("p2p:settings/default/idle_lock_mins", "1");
-    vox.phase.value = "active";
-    const w = await mountApp();
-
-    vi.advanceTimersByTime(50_000);
-    await settle();
-    expect(w.text()).not.toContain("Auto-lock imminent");
-  });
 });

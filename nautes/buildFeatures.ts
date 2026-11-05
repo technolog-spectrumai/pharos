@@ -1,9 +1,9 @@
 // The build's feature allowlist, for the bundler.
 //
-// Enigma26's optional features are Cargo features (src-tauri/Cargo.toml
+// Nautes' optional features are Cargo features (src-tauri/Cargo.toml
 // `[features]` — the catalogue). A build picks from them in a root config
-// (apps/enigma/dromon.yaml: pro / std), and `./build.sh` hands the SAME list to cargo
-// (`--features`) and to this file (`ENIGMA_FEATURES`). Here it becomes one
+// and the build script hands the SAME list to cargo
+// (`--features`) and to this file (`NAUTES_FEATURES`). Here it becomes one
 // literal per feature — `__FEATURE_CALLS__` and so on — which Vite substitutes
 // before bundling, so a branch guarded by a feature the build left out is
 // dead code and is dropped, together with everything only that branch imports.
@@ -28,13 +28,13 @@ export function catalogue(): string[] {
 }
 
 /** `{ __FEATURE_CALLS__: "true", … }` for Vite's `define`.
- *  `list` is ENIGMA_FEATURES: undefined = everything, otherwise comma-separated. */
+ *  `list` is NAUTES_FEATURES: undefined = everything, otherwise comma-separated. */
 export function featureDefines(list: string | undefined): Record<string, string> {
   const ids = catalogue();
   const wanted = list === undefined ? ids : list.split(",").map((s) => s.trim()).filter(Boolean);
   const unknown = wanted.filter((id) => !ids.includes(id));
   if (unknown.length) {
-    throw new Error(`ENIGMA_FEATURES names unknown feature(s) ${unknown.join(", ")} (available: ${ids.join(", ")})`);
+    throw new Error(`NAUTES_FEATURES names unknown feature(s) ${unknown.join(", ")} (available: ${ids.join(", ")})`);
   }
   return Object.fromEntries(ids.map((id) => [`__FEATURE_${id.toUpperCase()}__`, String(wanted.includes(id))]));
 }

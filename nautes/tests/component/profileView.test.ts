@@ -1,6 +1,6 @@
 // The profile form (standalone, and embedded as Settings → Profile).
 //
-// Enigma26 has no account: who you are is this locally stored profile, and the
+// Nautes has no account: who you are is this locally stored profile, and the
 // display name is what every peer sees in chat. So what is pinned here is the
 // round trip to the Rust profile store — the exact profile each button writes,
 // that the form re-reads what Rust answers instead of trusting itself, and that
@@ -28,7 +28,7 @@ vi.mock("../../src/stores/chat", () => ({ useChatStore: () => chatStore }));
 
 import "@tauri-apps/api/core";
 import { i18n } from "../../src/i18n";
-import EnigmaProfileView from "../../src/views/EnigmaProfileView.vue";
+import NautesProfileView from "../../src/views/NautesProfileView.vue";
 
 (i18n.global.locale as any).value = "en";
 
@@ -119,7 +119,7 @@ afterEach(() => {
 });
 
 async function mountView(props: Record<string, unknown> = {}) {
-  const w = mount(EnigmaProfileView, {
+  const w = mount(NautesProfileView, {
     props: { darkMode: true, ...props },
     global: { plugins: [i18n, router] },
   });

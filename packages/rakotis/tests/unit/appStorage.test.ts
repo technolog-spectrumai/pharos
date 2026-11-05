@@ -25,27 +25,13 @@ describe("appStorage — offline / airplane switch (localStorage backend)", () =
   });
 });
 
-describe("appStorage — use Tor switch (localStorage backend)", () => {
-  it("defaults to off when unset", async () => {
-    expect(await getUseTor()).toBe(false);
-  });
-
-  it("persists on then off, independently of the offline flag", async () => {
-    await setUseTor(true);
-    expect(await getUseTor()).toBe(true);
-    expect(await getOffline()).toBe(false);
-    await setUseTor(false);
-    expect(await getUseTor()).toBe(false);
-  });
-});
-
 describe("appStorage — browser fallbacks", () => {
   it("getProfileState returns an empty local profile shape", async () => {
     const state = await getProfileState();
     expect(state.offline_profile.display_name).toBe("");
     expect(state.offline_profiles).toEqual([]);
     expect(state.selected_offline_profile_id).toBe("");
-    expect(state.use_tor).toBe(false);
+    expect(state.use_tor).toBe(true);
   });
 
   it("getRuntimeConfig degrades to a browser identity", async () => {

@@ -299,7 +299,7 @@ installVueErrorHandler(app);
 
 // Privacy HP labels read through the app's catalog. Injected rather than
 // imported by the HP modules themselves, so that charging HP never drags the
-// message catalog into the composer, the file-share composable or vox.
+// message catalog into the composer.
 // Chat notices emitted from inside rakotis read through the same catalog
 // (packages/rakotis/src/i18n/chatText.ts). Injected rather than imported, for the
 // reason given there: a library should not carry the app's message catalog.
@@ -321,19 +321,8 @@ void initBuildConfig({
   // What this bundle was built with. In the desktop app the Rust side reports
   // the same list (it was compiled from it); in the browser shell there is no
   // Rust to ask, so the literals are the answer.
-  p2p_allow_hosted_relays: __FEATURE_HOSTED_RELAYS__,
-  dht_enabled: __FEATURE_DHT__,
-  calls_enabled: __FEATURE_CALLS__,
-  contacts_enabled: __FEATURE_CONTACTS__,
-  calendar_enabled: __FEATURE_CALENDAR__,
   pin_unlock: __FEATURE_PIN_UNLOCK__,
-  use_tor_default: policy.featureDefaults.useTor,
   stable_onion_default: policy.featureDefaults.stableOnion,
-  max_file_size_mb: {
-    default: policy.fileShare.defaultMaxFileSizeMb,
-    min: 0,
-    max: 100 * 1024,
-  },
 })
   // The Privacy HP price table, fetched the same way and for the same reason:
   // every badge in the app renders from it, so it has to be final before the

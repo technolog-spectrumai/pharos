@@ -1,13 +1,13 @@
 import { test, expect } from "@playwright/test";
 
-// Enigma26 is a serverless P2P chat: "/" redirects to "/chat". There is no backend
+// Nautes is a serverless P2P chat: "/" redirects to "/chat". There is no backend
 // at all — the shell must render fully offline (P2P features themselves need the
 // Tauri runtime, so in the plain browser the panel just shows its empty state).
 
-test.describe("Enigma26 shell (serverless P2P)", () => {
+test.describe("Nautes shell (serverless P2P)", () => {
   test("redirects / to the chat view and renders the nav in English", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("banner").getByRole("heading", { name: "Enigma26" })).toBeVisible();
+    await expect(page.getByRole("banner").getByRole("heading", { name: "Nautes" })).toBeVisible();
     // Nav: Chat + Settings — and no server-era links (Login is gone).
     await expect(page.getByRole("link", { name: "Chat" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Settings" }).first()).toBeVisible();

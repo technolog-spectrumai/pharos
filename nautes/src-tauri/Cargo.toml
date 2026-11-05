@@ -1,7 +1,7 @@
 [package]
-name = "enigma"
-version = "0.1.10"
-description = "Enigma26 — serverless, end-to-end-encrypted (MLS) peer-to-peer chat (Tauri shell)"
+name = "nautes"
+version = "0.1.0"
+description = "Nautes — short messages between friends over Tor, sealed with MLS (Pharos client, Tauri shell)"
 authors = ["SpectrumAI"]
 edition = "2021"
 rust-version.workspace = true
@@ -12,7 +12,7 @@ rust-version.workspace = true
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "enigma_lib"
+name = "nautes_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # ── build features ──────────────────────────────────────────────────────────
@@ -37,19 +37,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # Privacy HP.
 [features]
 default = []
-# iroh's n0 relays and pkarr/DNS discovery. Without it iroh runs with relays
-# disabled: direct QUIC by ticket and the Tor onion transport keep working,
-# reconnecting to a bare NodeId does not.
-hosted_relays = []
-# The Mainline DHT: join by room code, the nickname directory, presence. It
-# rides the endpoint's hosted discovery, hence the requirement.
-dht = ["hosted_relays", "dep:mainline", "iroh/address-lookup-pkarr-dht"]
-# 1:1 voice calls (the Vox tab) and their network protocol.
-calls = ["dep:rustfft"]
-# Contacts and direct room invites, and their network protocol.
-contacts = []
-# Meetings and polls. Frontend only — there is no Rust behind it.
-calendar = []
 # Re-opening an idle-locked vault with a PIN.
 pin_unlock = []
 
@@ -66,20 +53,14 @@ serde_json = "1"
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-# Native file/save dialogs for picking a file to send and where to save a received one.
-tauri-plugin-dialog = "2"
-# Native OS notifications (desktop + Android/iOS) for upcoming-meeting reminders.
+# Native OS notifications (desktop + Android/iOS) for new messages.
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Crypto layer (OpenMLS via Rotor). The crypto crates are the repo's shared ones
-# (crates/rotor), consumed by path — so building enigma fetches nothing but
+# (crates/rotor), consumed by path — so building nautes fetches nothing but
 # crates.io.
 rotor-core = { path = "../../crates/rotor/rotor_core" }
-# P2P transport (iroh) with rotor sealing — the file-transfer protocol, the
-# pairwise MLS handshake calls use, and the gossip-room plumbing. Shared with
-# Pumex; see crates/ferrozine.
-ferrozine = { path = "../../crates/ferrozine" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
 protasius = { path = "../../crates/protasius" }
@@ -87,11 +68,6 @@ protasius = { path = "../../crates/protasius" }
 # envelopes in vault.rs.
 gervasius = { path = "../../crates/gervasius" }
 zeroize = "1"
-cpal = "0.15"
-hound = "3"
-# Pure-Rust FFT for the voice-call equalizer (vox.rs → `vox://spectrum`); no C
-# toolchain, MSRV-safe. Only in a build with `calls`.
-rustfft = { version = "6", optional = true }
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }
 # Embedded pure-Rust Tor (arti). Outbound client plumbing (tor.rs) plus the
 # peer-hosted onion transport (p2p_tor.rs). `onion-service-service` enables
@@ -111,17 +87,9 @@ safelog = "0.8"
 # (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
 typed-index-collections = "=3.3.0"
 data-encoding = "2"
-# Direct P2P chat backend (iroh-gossip over QUIC) — the app's only transport.
-# The `dht` build feature adds iroh's `address-lookup-pkarr-dht`: Mainline-DHT
-# publish/resolve of node addresses (serverless discovery, opt-in via the
-# Settings DHT toggle — technology.md §12).
-iroh = "0.98"
-iroh-gossip = "0.98"
-# Direct BEP44 access to the Mainline DHT for the room-rendezvous records
-# (p2p_dht.rs). Same crate/version iroh's DHT feature resolves — no dup tree.
-# Only in a build with `dht`.
-mainline = { version = "6", features = ["async"], optional = true }
-# Seals rendezvous records so DHT observers can't read room membership.
+# This device's key types (Ed25519) only — no iroh transport (identity.rs).
+iroh-base = { version = "0.98", default-features = false, features = ["key"] }
+# OsRng for invitation ids, capabilities and challenges (its rand_core).
 # 0.10 pinned: 0.11 changes the aead API surface.
 chacha20poly1305 = "0.10"
 postcard = { version = "1", features = ["use-std"] }
@@ -138,7 +106,6 @@ uuid = { version = "1", features = ["v4"] }
 webkit2gtk = { version = "2.0", features = ["v2_22"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
 # arti-client pulls in rusqlite (tor-dirmgr's directory cache) which links the
 # system libsqlite3. The Android NDK ships no libsqlite3, so the cross-link fails
 # with `ld.lld: unable to find library -lsqlite3`. Declaring rusqlite here (same
@@ -147,6 +114,6 @@ cpal = { version = "0.15", features = ["oboe-shared-stdcxx"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 
 # [profile.dev] — split-debuginfo = "unpacked" — lives in the repo-root
-# Cargo.toml: a workspace member's [profile.*] is ignored. The enigma debug
-# binary embeds hundreds of MB of DWARF (iroh + arti + cpal + tauri), and the
+# Cargo.toml: a workspace member's [profile.*] is ignored. The nautes debug
+# binary embeds hundreds of MB of DWARF (arti + tauri), and the
 # GNU linker merging it all is OOM-killed on low-RAM machines without it.

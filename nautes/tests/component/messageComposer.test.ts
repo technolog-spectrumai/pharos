@@ -1,12 +1,9 @@
-// The message composer: what it lets you send, when, and what each send costs.
+// The message composer: short text only (Pharos sends no images, voice or
+// files), what it lets you send, when, and what each send costs.
 //
-// The composer is the one place a user types something that leaves the device,
-// so its gates matter more than its looks: nothing may go out before the room's
-// MLS session is ready, nothing while a captain has muted you, and an attachment
-// is billed by its size because on a clearnet lane a 4 MiB voice note is a far
-// more distinctive event than a line of text. The rate chip above it is the one
-// price in the app that moves under you, and it has to follow the live Tor and
-// MLS state rather than a value sampled at mount.
+// Nothing may go out before the room's MLS session is ready, nothing while a
+// captain has muted you, and nothing longer than the short-message limit. Every
+// message travels over Tor; the rate chip follows the live MLS state.
 //
 // Runs in Tauri mode against the IPC hook, so every Privacy HP charge reaches a
 // fake backend and the test can read exactly what was billed.
@@ -27,9 +24,7 @@ vi.mock("../../src/stores/chat", () => ({ useChatStore: () => store }));
 import "@tauri-apps/api/core";
 import { i18n } from "../../src/i18n";
 import MessageComposer from "../../src/components/chat/MessageComposer.vue";
-import VoiceRecorderButton from "../../src/components/chat/VoiceRecorderButton.vue";
 import EmojiPicker from "../../src/components/chat/EmojiPicker.vue";
-import { useNetworkStore } from "../../src/stores/network";
 import { stopHp } from "../../src/components/hp/useHp";
 
 (i18n.global.locale as any).value = "en";
@@ -47,9 +42,6 @@ async function settle() {
   for (let i = 0; i < 10; i++) await flushPromises();
 }
 
-let urlSeq = 0;
-const createObjectURL = vi.fn((_b: Blob) => `blob:test/${++urlSeq}`);
-const revokeObjectURL = vi.fn((_u: string) => {});
 
 function makeChannel() {
   return {
@@ -59,8 +51,6 @@ function makeChannel() {
     mlsStatus: ref("ready"),
     selfMuteUntil: ref<number | null>(null),
     sendMessage: vi.fn(),
-    sendImage: vi.fn(async (_file: File, _onProgress?: (pct: number) => void) => {}),
-    sendAudio: vi.fn(async (_blob: Blob) => {}),
   };
 }
 type Channel = ReturnType<typeof makeChannel>;
@@ -77,26 +67,16 @@ function mountComposer(ch: Channel = makeChannel(), errorHandler?: (e: unknown) 
 
 const textarea = (w: ReturnType<typeof mount>) => w.get("textarea");
 const sendButton = (w: ReturnType<typeof mount>) => w.findAll("button").find((b) => b.text() === "Send")!;
-const imageButton = (w: ReturnType<typeof mount>) => w.get('button[title="Send image"]');
 const emojiButton = (w: ReturnType<typeof mount>) => w.get('button[title="Emoji"]');
-
-async function pickImage(w: ReturnType<typeof mount>, file: File | null) {
-  const input = w.get('input[type="file"]');
-  Object.defineProperty(input.element, "files", { value: file ? [file] : [], configurable: true });
-  await input.trigger("change");
-}
 
 beforeEach(() => {
   invokeMock.mockClear();
-  createObjectURL.mockClear();
-  revokeObjectURL.mockClear();
-  Object.assign(URL, { createObjectURL, revokeObjectURL });
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
     invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),
   };
   pinia = createPinia();
   setActivePinia(pinia);
-  store = { vox: { phase: ref("idle") } };
+  store = {};
   stopHp();
 });
 
@@ -107,29 +87,16 @@ afterEach(() => {
 // ── the rate chip ───────────────────────────────────────────────────────────
 
 describe("MessageComposer — the per-message rate", () => {
-  it("prices the clearnet MLS lane per message", () => {
+  it("is Free once the room is MLS over Tor", () => {
     const { w } = mountComposer();
-    expect(w.get('[data-testid="hp-msg-rate"]').text()).toContain("−0.02 HP/msg");
-    expect(w.find('[data-testid="hp-msg-free"]').exists()).toBe(false);
-  });
-
-  it("drops to Free the moment the room is MLS over Tor", async () => {
-    const { w } = mountComposer();
-    useNetworkStore().useTor = true;
-    await settle();
     expect(w.get('[data-testid="hp-msg-free"]').text()).toBe("Free");
     expect(w.find('[data-testid="hp-msg-rate"]').exists()).toBe(false);
   });
 
-  it("charges the cleartext fallback while MLS is still coming up", async () => {
-    // Before MLS reports ready a send falls back to a cleartext frame; the chip
-    // has to say so rather than keep showing the sealed lane's price.
+  it("charges the cleartext fallback while MLS is still coming up", () => {
     const ch = makeChannel();
     ch.mlsStatus.value = "key_exchange";
     const { w } = mountComposer(ch);
-    expect(w.get('[data-testid="hp-msg-rate"]').text()).toContain("−0.25 HP/msg");
-    useNetworkStore().useTor = true;
-    await settle();
     expect(w.get('[data-testid="hp-msg-rate"]').text()).toContain("−0.05 HP/msg");
   });
 });
@@ -143,9 +110,7 @@ describe("MessageComposer — placeholder and gates", () => {
     const { w } = mountComposer(ch);
     expect(textarea(w).attributes("placeholder")).toBe("Select a room to start chatting");
     expect(textarea(w).attributes("disabled")).toBeDefined();
-    expect(imageButton(w).attributes("disabled")).toBeDefined();
     expect(emojiButton(w).attributes("disabled")).toBeDefined();
-    expect(w.findComponent(VoiceRecorderButton).props("disabled")).toBe(true);
   });
 
   it("asks an observer to join before typing", () => {
@@ -154,18 +119,14 @@ describe("MessageComposer — placeholder and gates", () => {
     const { w } = mountComposer(ch);
     expect(textarea(w).attributes("placeholder")).toBe("Join this room to send messages");
     expect(textarea(w).attributes("disabled")).toBeDefined();
-    expect(emojiButton(w).attributes("disabled")).toBeDefined();
-    expect(w.findComponent(VoiceRecorderButton).props("disabled")).toBe(true);
   });
 
-  it("says the session is being established until MLS is ready, but lets an image be staged", () => {
-    // Attaching is allowed early (it is only staged); sending waits for MLS.
+  it("says the session is being established until MLS is ready", () => {
     const ch = makeChannel();
     ch.mlsStatus.value = "initializing";
     const { w } = mountComposer(ch);
     expect(textarea(w).attributes("placeholder")).toBe("Establishing secure session…");
     expect(textarea(w).attributes("disabled")).toBeDefined();
-    expect(imageButton(w).attributes("disabled")).toBeUndefined();
   });
 
   it("locks with a countdown while the captain has muted you", () => {
@@ -177,15 +138,6 @@ describe("MessageComposer — placeholder and gates", () => {
     const { w } = mountComposer(ch);
     expect(textarea(w).attributes("placeholder")).toBe("You are muted (10m left)");
     expect(textarea(w).attributes("disabled")).toBeDefined();
-    expect(imageButton(w).attributes("disabled")).toBeDefined();
-  });
-
-  it("disables attaching while disconnected", () => {
-    const ch = makeChannel();
-    ch.isConnected.value = false;
-    const { w } = mountComposer(ch);
-    expect(imageButton(w).attributes("disabled")).toBeDefined();
-    expect(textarea(w).attributes("disabled")).toBeDefined();
   });
 
   it("invites a message when everything is ready", () => {
@@ -194,42 +146,24 @@ describe("MessageComposer — placeholder and gates", () => {
     expect(textarea(w).attributes("disabled")).toBeUndefined();
   });
 
-  it("keeps the microphone off-limits while a call owns it", async () => {
-    // A live or ringing-out call holds the default input device; recording a
-    // voice note at the same time would fight it for the microphone.
+  it("offers no image, voice or file button: text only", () => {
     const { w } = mountComposer();
-    const voice = () => w.findComponent(VoiceRecorderButton).props("disabled");
-    expect(voice()).toBe(false);
-    store.vox.phase.value = "calling";
-    await settle();
-    expect(voice()).toBe(true);
-    store.vox.phase.value = "connected";
-    await settle();
-    expect(voice()).toBe(true);
-    store.vox.phase.value = "incoming";
-    await settle();
-    expect(voice()).toBe(false);
-  });
-
-  it("leaves the microphone free in a build without calls", () => {
-    store = { vox: null };
-    const { w } = mountComposer();
-    expect(w.findComponent(VoiceRecorderButton).props("disabled")).toBe(false);
+    expect(w.find('input[type="file"]').exists()).toBe(false);
+    expect(w.find('button[title="Send image"]').exists()).toBe(false);
   });
 });
 
 // ── sending text ────────────────────────────────────────────────────────────
 
 describe("MessageComposer — sending text", () => {
-  it("sends the trimmed text on Enter, clears the box and bills the text's bytes", async () => {
+  it("sends the trimmed text on Enter, clears the box and bills it on the Tor lane", async () => {
     const { w, ch } = mountComposer();
     await textarea(w).setValue("  hello  ");
     await textarea(w).trigger("keydown", { key: "Enter" });
     await settle();
-
     expect(ch.sendMessage).toHaveBeenCalledWith("hello");
     expect((textarea(w).element as HTMLTextAreaElement).value).toBe("");
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 5, minutes: null }]);
+    expect(charges()).toEqual([{ actionId: "msg.tor.mls", bytes: 5, minutes: null }]);
   });
 
   it("counts bytes, not characters, when billing", async () => {
@@ -237,17 +171,27 @@ describe("MessageComposer — sending text", () => {
     await textarea(w).setValue("żółw");
     await sendButton(w).trigger("click");
     await settle();
-    // Four characters, seven bytes of UTF-8.
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 7, minutes: null }]);
+    expect(charges()).toEqual([{ actionId: "msg.tor.mls", bytes: 7, minutes: null }]);
   });
 
-  it("bills the lane the room is on at the moment of sending", async () => {
-    const { w } = mountComposer();
-    useNetworkStore().useTor = true;
-    await textarea(w).setValue("over tor");
-    await sendButton(w).trigger("click");
+  it("shows the length, and refuses a message over the short-message limit", async () => {
+    const { w, ch } = mountComposer();
+    await textarea(w).setValue("x".repeat(1000));
+    expect(w.get('[data-testid="msg-length"]').text()).toBe("1000 / 1000");
+    expect(sendButton(w).attributes("disabled")).toBeUndefined();
+    await textarea(w).setValue("x".repeat(1001));
+    expect(w.get('[data-testid="msg-length"]').text()).toBe("1001 / 1000");
+    expect(sendButton(w).attributes("disabled")).toBeDefined();
+    await textarea(w).trigger("keydown", { key: "Enter" });
     await settle();
-    expect(charges()).toEqual([{ actionId: "msg.tor.mls", bytes: 8, minutes: null }]);
+    expect(ch.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("counts characters as people see them, not UTF-16 units", async () => {
+    const { w } = mountComposer();
+    await textarea(w).setValue("😀".repeat(1000));
+    expect(w.get('[data-testid="msg-length"]').text()).toBe("1000 / 1000");
+    expect(sendButton(w).attributes("disabled")).toBeUndefined();
   });
 
   it("treats Shift+Enter as a new line, not a send", async () => {
@@ -295,155 +239,9 @@ describe("MessageComposer — sending text", () => {
     await emojiButton(w).trigger("click");
     await w.findAll("button").find((b) => b.text() === "😀")!.trigger("click");
     expect((textarea(w).element as HTMLTextAreaElement).value).toBe("hi 😀");
-    // The send gate reads the draft, so an emoji alone is a sendable message.
     expect(sendButton(w).attributes("disabled")).toBeUndefined();
   });
 });
-
-// ── attachments ─────────────────────────────────────────────────────────────
-
-describe("MessageComposer — attachments", () => {
-  const photo = () => new File([new Uint8Array(1500)], "cat.png", { type: "image/png" });
-
-  it("stages a picked image as a preview, which alone makes the message sendable", async () => {
-    const { w } = mountComposer();
-    expect(sendButton(w).attributes("disabled")).toBeDefined();
-    await pickImage(w, photo());
-    expect(w.text()).toContain("Image ready to send");
-    expect(w.text()).toContain("cat.png");
-    expect(w.get("img").attributes("src")).toBe("blob:test/" + urlSeq);
-    expect(sendButton(w).attributes("disabled")).toBeUndefined();
-  });
-
-  it("opens the image picker from the image button", async () => {
-    const { w } = mountComposer();
-    const click = vi.spyOn(w.get('input[type="file"]').element as HTMLInputElement, "click");
-    await imageButton(w).trigger("click");
-    expect(click).toHaveBeenCalledTimes(1);
-  });
-
-  it("ignores a picker closed without a file", async () => {
-    const { w } = mountComposer();
-    await pickImage(w, null);
-    expect(createObjectURL).not.toHaveBeenCalled();
-    expect(w.text()).not.toContain("Image ready to send");
-  });
-
-  it("sends the image with live progress, then bills its size and frees the preview", async () => {
-    const ch = makeChannel();
-    let finish!: () => void;
-    let report!: (pct: number) => void;
-    ch.sendImage.mockImplementation(
-      (_f, onProgress) =>
-        new Promise<void>((resolve) => {
-          report = onProgress!;
-          finish = resolve;
-        }),
-    );
-    const { w } = mountComposer(ch);
-    const file = photo();
-    await pickImage(w, file);
-    const url = createObjectURL.mock.results[0].value as string;
-
-    await sendButton(w).trigger("click");
-    await settle();
-    expect(ch.sendImage).toHaveBeenCalledWith(file, expect.any(Function));
-    // The preview goes at once; the upload bar takes its place.
-    expect(w.text()).not.toContain("Image ready to send");
-    expect(w.text()).toContain("Sending…");
-    expect(imageButton(w).attributes("disabled")).toBeDefined();
-
-    report(40);
-    await settle();
-    expect(w.text()).toContain("40%");
-
-    finish();
-    await settle();
-    expect(w.text()).not.toContain("Sending…");
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 1500, minutes: null }]);
-    expect(revokeObjectURL).toHaveBeenCalledWith(url);
-    expect(ch.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("sends the attachment first and the caption after, billing each", async () => {
-    const { w, ch } = mountComposer();
-    await pickImage(w, photo());
-    await textarea(w).setValue("look");
-    await sendButton(w).trigger("click");
-    await settle();
-
-    expect(ch.sendImage.mock.invocationCallOrder[0]).toBeLessThan(ch.sendMessage.mock.invocationCallOrder[0]);
-    expect(ch.sendMessage).toHaveBeenCalledWith("look");
-    expect(charges()).toEqual([
-      { actionId: "msg.clearnet.mls", bytes: 1500, minutes: null },
-      { actionId: "msg.clearnet.mls", bytes: 4, minutes: null },
-    ]);
-  });
-
-  it("keeps the caption and bills nothing when the upload fails", async () => {
-    const ch = makeChannel();
-    ch.sendImage.mockRejectedValue(new Error("relay gone"));
-    const errors: unknown[] = [];
-    const { w } = mountComposer(ch, (e) => errors.push(e));
-    await pickImage(w, photo());
-    await textarea(w).setValue("caption");
-    await sendButton(w).trigger("click");
-    await settle();
-
-    expect((errors[0] as Error).message).toBe("relay gone");
-    expect(w.text()).not.toContain("Sending…");
-    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
-    expect(ch.sendMessage).not.toHaveBeenCalled();
-    expect((textarea(w).element as HTMLTextAreaElement).value).toBe("caption");
-    expect(charges()).toEqual([]);
-  });
-
-  it("frees the staged image when the preview is cancelled", async () => {
-    const { w } = mountComposer();
-    await pickImage(w, photo());
-    const url = createObjectURL.mock.results[0].value as string;
-    await w.findAll("button").find((b) => b.text().includes("Cancel"))!.trigger("click");
-    expect(revokeObjectURL).toHaveBeenCalledWith(url);
-    expect(w.text()).not.toContain("Image ready to send");
-    expect(sendButton(w).attributes("disabled")).toBeDefined();
-  });
-
-  it("replaces a staged attachment with the next one, freeing the first", async () => {
-    const { w } = mountComposer();
-    await pickImage(w, photo());
-    const first = createObjectURL.mock.results[0].value as string;
-    await pickImage(w, new File(["x"], "dog.png", { type: "image/png" }));
-    expect(revokeObjectURL).toHaveBeenCalledWith(first);
-    expect(w.text()).toContain("dog.png");
-    expect(w.text()).not.toContain("cat.png");
-  });
-
-  it("stages a recorded voice note and sends it as audio, billed by size", async () => {
-    const { w, ch } = mountComposer();
-    const blob = new Blob([new Uint8Array(3000)], { type: "audio/webm" });
-    w.findComponent(VoiceRecorderButton).vm.$emit("staged", blob, "Voice message · 0:03");
-    await settle();
-    expect(w.text()).toContain("Voice message ready to send");
-    expect(w.text()).toContain("Voice message · 0:03");
-    expect(w.find("audio").exists()).toBe(true);
-
-    await sendButton(w).trigger("click");
-    await settle();
-    expect(ch.sendAudio).toHaveBeenCalledWith(blob);
-    expect(ch.sendImage).not.toHaveBeenCalled();
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 3000, minutes: null }]);
-  });
-
-  it("frees a staged attachment when the composer goes away", async () => {
-    const { w } = mountComposer();
-    await pickImage(w, photo());
-    const url = createObjectURL.mock.results[0].value as string;
-    w.unmount();
-    expect(revokeObjectURL).toHaveBeenCalledWith(url);
-  });
-});
-
-// ── the emoji picker on its own ─────────────────────────────────────────────
 
 describe("EmojiPicker", () => {
   const mountPicker = (props: { disabled?: boolean } = {}) =>

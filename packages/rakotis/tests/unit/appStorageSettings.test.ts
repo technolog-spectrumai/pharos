@@ -28,10 +28,8 @@ afterEach(async () => {
 describe("the build config in a browser", () => {
   it("is the stock table until patched, and a patch only touches what it names", async () => {
     expect(S.getBuildConfig().connect_timeout_secs).toEqual({ default: 60, min: 5, max: 600 });
-    const patched = await S.initBuildConfig({ app_name: "Enigma Lite", calls_enabled: false });
-    expect(patched.app_name).toBe("Enigma Lite");
-    expect(patched.calls_enabled).toBe(false);
-    expect(patched.contacts_enabled).toBe(true);
+    const patched = await S.initBuildConfig({ app_name: "Nautes Lite" });
+    expect(patched.app_name).toBe("Nautes Lite");
     expect(S.getBuildConfig()).toBe(patched);
   });
 
@@ -51,8 +49,6 @@ describe("numeric settings", () => {
     ["connect timeout", S.getConnectTimeoutSecs, S.setConnectTimeoutSecs, 60, [[1, 5], [12.6, 13], [1e6, 600]]],
     ["idle lock", S.getIdleLockMins, S.setIdleLockMins, 15, [[0, 0], [-5, 0], [500, 120]]],
     ["chat history cap", S.getChatHistoryCapMsgs, S.setChatHistoryCapMsgs, 500, [[1, 50], [1e9, 5000]]],
-    ["meeting reminder", S.getMeetingReminderMins, S.setMeetingReminderMins, 15, [[0, 0], [5000, 1440]]],
-    ["file chunk", S.getFileChunkKib, S.setFileChunkKib, 256, [[1, 16], [1e6, 4096]]],
   ] as const)("%s: defaults, clamps on write, and reads back what was stored", async (_name, get, set, dflt, cases) => {
     expect(await get()).toBe(dflt);
     for (const [input, clamped] of cases) {
@@ -66,8 +62,6 @@ describe("numeric settings", () => {
     ["connect_timeout_secs", S.getConnectTimeoutSecs, 60],
     ["idle_lock_mins", S.getIdleLockMins, 15],
     ["chat_history_cap_msgs", S.getChatHistoryCapMsgs, 500],
-    ["meeting_reminder_mins", S.getMeetingReminderMins, 15],
-    ["file_chunk_kib", S.getFileChunkKib, 256],
   ] as const)("%s: a stored value that does not parse reads as the default", async (key, get, dflt) => {
     await putSetting(key, "banana");
     expect(await get()).toBe(dflt);
@@ -81,16 +75,6 @@ describe("numeric settings", () => {
     expect(await S.getChatHistoryCapMsgs()).toBe(5000);
   });
 
-  it("max file size: 0 means unlimited, and the app's own default stands in until set", async () => {
-    expect(await S.getMaxFileSizeMb()).toBe(0);
-    expect(await S.getMaxFileSizeMb(25)).toBe(25);
-    expect(await S.setMaxFileSizeMb(10)).toBe(10);
-    expect(await S.getMaxFileSizeMb(25)).toBe(10);
-    expect(await S.setMaxFileSizeMb(1e9)).toBe(100 * 1024);
-    expect(await S.setMaxFileSizeMb(Number.NaN, 25)).toBe(25);
-    await putSetting("max_file_size_mb", "lots");
-    expect(await S.getMaxFileSizeMb(25)).toBe(25);
-  });
 });
 
 // ── switches and strings ────────────────────────────────────────────────────
@@ -99,7 +83,6 @@ describe("switches", () => {
   it.each([
     ["stable onion", S.getStableOnion, S.setStableOnion],
     ["lock on hide", S.getLockOnHide, S.setLockOnHide],
-    ["file integrity off", async () => !(await S.getFileIntegrity()), async (on: boolean) => S.setFileIntegrity(!on)],
   ] as const)("%s: starts in its safe position and round-trips", async (_name, get, set) => {
     expect(await get()).toBe(false);
     await set(true);
@@ -108,26 +91,6 @@ describe("switches", () => {
     expect(await get()).toBe(false);
   });
 
-  it("file integrity takes its default from the build until the user chooses", async () => {
-    await S.initBuildConfig({ file_integrity_default: false });
-    expect(await S.getFileIntegrity()).toBe(false);
-    await S.setFileIntegrity(true);
-    expect(await S.getFileIntegrity()).toBe(true);
-  });
-});
-
-describe("the DHT nickname", () => {
-  it("is trimmed and capped at 64 characters, both when set and when read", async () => {
-    expect(S.clampDhtNickname("  alice  ")).toBe("alice");
-    expect(await S.setDhtNickname(`  ${"n".repeat(80)}  `)).toBe("n".repeat(64));
-    expect(await S.getDhtNickname()).toBe("n".repeat(64));
-    await putSetting("dht_nickname", "x".repeat(70));
-    expect(await S.getDhtNickname()).toBe("x".repeat(64));
-  });
-
-  it("reads as empty when never set", async () => {
-    expect(await S.getDhtNickname()).toBe("");
-  });
 });
 
 describe("hidden tabs", () => {
@@ -172,7 +135,7 @@ describe("desktop-only operations in a browser", () => {
       () => S.vaultSetup("pw"), () => S.vaultUnlock("pw"), () => S.vaultLock(), () => S.vaultTouch(),
       () => S.vaultChangePassphrase("a", "b"), () => S.vaultPinClear(), () => S.vaultWipe(),
       () => S.vaultSetPanicCode("pw", "code"), () => S.vaultClearPanicCode("pw"),
-      () => S.cleanTorKeystore(), () => S.applyDhtDiscovery(),
+      () => S.cleanTorKeystore(),
     ]) {
       await expect(op()).resolves.toBeUndefined();
     }
@@ -185,7 +148,6 @@ describe("desktop-only operations in a browser", () => {
 
   it("answers every profile-state call with the local state, flags included", async () => {
     await S.setOffline(true);
-    await S.setUseTor(true);
     const blank = { display_name: "", email: "", phone: "", bio: "", date_of_birth: "" };
     const expected = {
       offline_profile: blank, offline_profiles: [], selected_offline_profile_id: "",

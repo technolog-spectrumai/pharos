@@ -457,14 +457,8 @@ fn panic_wipe(
 /// sessions. Every shutdown helper is `Option::take`-based, so a concurrent
 /// second lock (JS and watchdog racing after a suspend wake) is harmless.
 pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
-    let p2p = app.state::<crate::p2p_iroh::P2pState>();
     let tor = app.state::<crate::p2p_tor::TorP2pState>();
-    let file = app.state::<crate::file_xfer::FileXferState>();
-
-    crate::shutdown_calls(app).await;
-    crate::p2p_iroh::shutdown(app, &p2p).await;
     crate::p2p_tor::shutdown(app, &tor).await;
-    crate::file_xfer::shutdown(&file).await;
 
     if let Ok(mut s) = app.state::<Sessions>().lock() {
         s.clear(); // in-memory MLS material
@@ -547,17 +541,6 @@ pub async fn lock_watchdog(app: AppHandle) {
             .and_then(|st| st.0.lock().ok().map(|p| p.status().unlocked))
             .unwrap_or(false);
         if !unlocked || idle_lock_mins(&app) == 0 {
-            activity.0.store(now_ms(), Ordering::Relaxed);
-            continue;
-        }
-        // A minimized webview may throttle its timers hard enough to starve the
-        // heartbeat mid-call or mid-transfer, and the fallback must never hang up
-        // a call or cut a transfer the user is waiting on — treat every busy state
-        // Rust can see as presence, mirroring App.vue's `isBusy`. (The JS
-        // heartbeat stays the primary signal; states only the frontend can see —
-        // an offer still awaiting accept, a queued sync batch — are its job to
-        // report.) `file_xfer` covers chat files, map regions and device sync.
-        if crate::in_call(&app) || crate::file_xfer::transfers_active() {
             activity.0.store(now_ms(), Ordering::Relaxed);
             continue;
         }

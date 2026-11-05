@@ -137,8 +137,10 @@ export default {
     offlineCleared: "Wyczyszczono dane offline.",
   },
   chat: {
-    mapShareUnavailable: "Udostępniona mapa. Ta wersja Enigma26 nie ma map, więc nie można jej pokazać.",
-    a11yAppIcon: "Ikona Enigma26",
+    send: "Wyślij",
+    length: "{n} / {max}",
+    mapShareUnavailable: "Udostępniona mapa. Ta wersja Nautes nie ma map, więc nie można jej pokazać.",
+    a11yAppIcon: "Ikona Nautes",
     a11yRoomLogo: "Logo pokoju",
     a11yRoomQr: "Kod QR pokoju",
     a11yInviteQr: "Kod QR zaproszenia",
@@ -694,7 +696,7 @@ export default {
     },
   },
 
-  // ── Strona powitalna (znak Enigma26 w lewym górnym rogu) ────────────────────
+  // ── Strona powitalna (znak Nautes w lewym górnym rogu) ────────────────────
   welcome: {
     version: "Wersja {v}",
     tagline:
@@ -757,7 +759,7 @@ export default {
     errBusy: "Ktoś inny właśnie używa tego zaproszenia. Spróbuj za chwilę.",
     errUnreachable: "Nie udało się połączyć z autorem. Musi być online z otwartym pokojem.",
     errAdmitFailed: "Nie mógł cię wpuścić — pokój mógł zostać zamknięty. Zaproszenie nadal działa, spróbuj ponownie.",
-    errVersion: "To zaproszenie utworzyła nowsza wersja Enigma26.",
+    errVersion: "To zaproszenie utworzyła nowsza wersja Nautes.",
     errNotAnInvitation: "To nie jest zaproszenie. Bilety i kody pokoju nikogo już nie wpuszczają — poproś o zaproszenie.",
     errGeneric: "Nie udało się użyć tego zaproszenia.",
   },

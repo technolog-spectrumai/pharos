@@ -11,9 +11,4 @@ declare module "*.vue" {
 // fails if the two lists drift. Use them where code is IMPORTED or
 // instantiated, so a build without the feature drops that code; for anything
 // else ask rakotis' `getBuildConfig()`, which says the same thing at run time.
-declare const __FEATURE_HOSTED_RELAYS__: boolean;
-declare const __FEATURE_DHT__: boolean;
-declare const __FEATURE_CALLS__: boolean;
-declare const __FEATURE_CONTACTS__: boolean;
-declare const __FEATURE_CALENDAR__: boolean;
 declare const __FEATURE_PIN_UNLOCK__: boolean;

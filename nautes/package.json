@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.10",
   "type": "module",
-  "logoDir": "enigma26",
+  "logoDir": "nautes",
   "scripts": {
     "dev": "vite",
     "dev:tauri": "node ../scripts/tauri-dev-server.mjs",

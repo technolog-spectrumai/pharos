@@ -10,18 +10,7 @@ import { brand, policy } from "../src/config/app";
 await initBuildConfig({
   app_name: brand.name,
   app_identifier: brand.bundleId,
-  use_tor_default: policy.featureDefaults.useTor,
   stable_onion_default: policy.featureDefaults.stableOnion,
-  max_file_size_mb: {
-    default: policy.fileShare.defaultMaxFileSizeMb,
-    min: 0,
-    max: 100 * 1024,
-  },
-  // The DHT surfaces on a DHT-capable build (rakotis' fallback is already true
-  // for both — seeded here so the contract is explicit). dhtGate.test.ts
-  // overrides dht_enabled.
-  p2p_allow_hosted_relays: true,
-  dht_enabled: true,
 });
 
 // FontAwesome is registered globally in main.ts; stub it everywhere so component

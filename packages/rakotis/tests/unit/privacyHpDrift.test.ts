@@ -1,4 +1,4 @@
-// The price table has one source of truth: apps/enigma/src-tauri/privacy_hp.yaml.
+// The price table has one source of truth: nautes/src-tauri/privacy_hp.yaml.
 //
 // Rust reads it at compile time; this package carries a browser-mode mirror so the
 // app still works in the Vite dev server and so these tests have real numbers to
@@ -17,7 +17,7 @@ import { FALLBACK_HP_POLICY as MIRROR } from "../../src/services/hp";
  *  from there. `import.meta.url` is not a file: URL under the jsdom environment
  *  these tests run in, so the lookup is done by path instead. */
 function findPolicyYaml(): string {
-  const rel = "apps/enigma/src-tauri/privacy_hp.yaml";
+  const rel = "nautes/src-tauri/privacy_hp.yaml";
   let dir = process.cwd();
   for (let i = 0; i < 6; i++) {
     const candidate = resolve(dir, rel);

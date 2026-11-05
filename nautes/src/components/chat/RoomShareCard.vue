@@ -37,7 +37,7 @@
 
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaHpPrice, formatHp, getBuildConfig, invoke, isTauri, listContacts, inviteActionId, type ContactEntry } from "rakotis";
+import { OyaHpPrice, formatHp, invoke, isTauri, listContacts, inviteActionId, type ContactEntry } from "rakotis";
 import { OyaCopyField, OyaQrCode, OyaTextField } from "petalite/primitives";
 import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from "../hp/useHp";
 
@@ -81,7 +81,8 @@ const minted = ref<{ ticket: string; expiresAt: number; kind: string } | null>(n
 
 /** Contacts can be compiled out, and a fresh profile has none. Neither may be a
  *  dead end, so the paste field is always reachable. */
-const contactsEnabled = getBuildConfig().contacts_enabled;
+// The saved-contacts picker for personal invitations (Stage 4.2 reworks pairing).
+const contactsEnabled = true;
 const chosenRecipient = computed(() => (usePaste.value ? pasted.value.trim() : recipient.value));
 
 const priceCenti = computed(() => priceFor(inviteActionId(mode.value, !!props.tor)));
@@ -181,7 +182,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
 
 <template>
   <div class="space-y-3" data-testid="room-share">
-    <!-- Segmented pills, the EnigmaFilesView idiom. Labels drop below `sm` so
+    <!-- Segmented pills, the NautesFilesView idiom. Labels drop below `sm` so
          three fit a phone; the icons carry the meaning there. -->
     <div class="flex gap-1 overflow-x-auto rounded-xl border border-current/20 p-1 text-xs font-semibold">
       <button

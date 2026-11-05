@@ -36,10 +36,10 @@ describe("getStoredLocale / hasExplicitLocale", () => {
     expect(hasExplicitLocale()).toBe(false);
   });
   it("reads a valid stored locale and ignores an invalid one", () => {
-    localStorage.setItem("enigma:locale", "pl");
+    localStorage.setItem("nautes:locale", "pl");
     expect(getStoredLocale()).toBe("pl");
     expect(hasExplicitLocale()).toBe(true);
-    localStorage.setItem("enigma:locale", "xx");
+    localStorage.setItem("nautes:locale", "xx");
     expect(getStoredLocale()).toBeNull();
   });
 });
@@ -48,12 +48,12 @@ describe("setLocale", () => {
   it("changes the active locale and persists by default", () => {
     setLocale("pl");
     expect(i18n.global.locale.value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBe("pl");
+    expect(localStorage.getItem("nautes:locale")).toBe("pl");
   });
   it("does not persist when persist=false", () => {
     setLocale("pl", false);
     expect(i18n.global.locale.value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBeNull();
+    expect(localStorage.getItem("nautes:locale")).toBeNull();
   });
   it("reflects the locale on <html lang>", () => {
     setLocale("pl");
@@ -65,7 +65,7 @@ describe("applyProfileLocaleGuess", () => {
   it("applies a supported profile language as a non-persisted guess", () => {
     applyProfileLocaleGuess("pl");
     expect(i18n.global.locale.value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBeNull(); // a guess, not a choice
+    expect(localStorage.getItem("nautes:locale")).toBeNull(); // a guess, not a choice
   });
   it("ignores the guess when the user already chose explicitly", () => {
     setLocale("en"); // explicit choice persisted

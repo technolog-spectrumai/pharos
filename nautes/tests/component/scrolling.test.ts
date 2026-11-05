@@ -37,9 +37,7 @@ vi.mock("../../src/stores/chat", () => ({
 }));
 
 import App from "../../src/App.vue";
-import EnigmaChatView from "../../src/views/EnigmaChatView.vue";
-import EnigmaFilesView from "../../src/views/EnigmaFilesView.vue";
-import EnigmaVoxView from "../../src/views/EnigmaVoxView.vue";
+import NautesChatView from "../../src/views/NautesChatView.vue";
 import MessageList from "../../src/components/chat/MessageList.vue";
 import router from "../../src/router";
 import { i18n } from "../../src/i18n";
@@ -108,7 +106,7 @@ describe("the app shell", () => {
     // Settings is the longest view in the app; make sure this really is the
     // "long view" case and not an empty shell.
     expect(view).not.toBeNull();
-    expect(view.querySelectorAll("section").length).toBeGreaterThan(3);
+    expect(view.querySelectorAll("section").length).toBeGreaterThanOrEqual(2);
 
     // The view neither clips its own content nor pins itself to the viewport…
     expect(view.classList.contains("overflow-hidden")).toBe(false);
@@ -132,18 +130,14 @@ describe("the app shell", () => {
 });
 
 describe("the views that fill the pane", () => {
-  // Chat / Files / Calls hand their scrolling to a panel inside them, so
+  // Chat hands its scrolling to a panel inside it, so
   // they must be exactly as tall as <main> — `h-full`, never a `100vh - 8rem`
   // guess at the chrome's height (wrong on desktop, badly wrong on Android).
   const stubs = {
     ChatPanel: true,
-    FilePanel: true,
-    VoxPanel: true,
   };
   const views = [
-    ["chat", EnigmaChatView],
-    ["files", EnigmaFilesView],
-    ["vox", EnigmaVoxView],
+    ["chat", NautesChatView],
   ] as const;
 
   for (const [name, view] of views) {
@@ -159,19 +153,6 @@ describe("the views that fill the pane", () => {
     });
   }
 
-  it("gives the Files pane a flex column, so its panels can scroll themselves", async () => {
-    const wrapper = mount(EnigmaFilesView, {
-      props: { darkMode: true },
-      global: { plugins: [i18n, pinia], stubs },
-    });
-    await flushPromises();
-
-    // A display:block wrapper silently ignores a panel's `flex-1 min-h-0
-    // overflow-y-auto` — the panel then outgrows the pane and gets clipped by
-    // the view's `overflow-hidden`.
-    const panel = wrapper.find("file-panel-stub").element.parentElement as HTMLElement;
-    expect([...panel.classList]).toEqual(expect.arrayContaining(["flex", "flex-col", "min-h-0"]));
-  });
 });
 
 describe("the panels that own their scrolling", () => {

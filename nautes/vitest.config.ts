@@ -9,13 +9,13 @@ const petaliteSrc = new URL("../packages/petalite/src", import.meta.url).pathnam
 const calendulaSrc = new URL("../packages/calendula/src", import.meta.url).pathname;
 // The DIRECTORY, not index.ts: the deep alias below appends a subpath, and
 // "…/index.ts/components/…" resolves to nothing.
-const rakotisDir = new URL("./packages/rakotis/src", import.meta.url).pathname;
-const rakotisSrc = new URL("../../node_modules/rakotis/src/index.ts", import.meta.url).pathname;
+const rakotisDir = new URL("../packages/rakotis/src", import.meta.url).pathname;
+const rakotisSrc = new URL("../packages/rakotis/src/index.ts", import.meta.url).pathname;
 
 export default defineConfig({
   plugins: [vue()],
   // The suite always runs with EVERY build feature compiled in, whatever
-  // ENIGMA_FEATURES says: the tests cover the whole app, and they exercise the
+  // NAUTES_FEATURES says: the tests cover the whole app, and they exercise the
   // gates by flipping the runtime build config instead.
   define: featureDefines(undefined),
   resolve: {

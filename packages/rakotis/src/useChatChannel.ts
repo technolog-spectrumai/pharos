@@ -1681,39 +1681,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     return true;
   }
 
-  async function sendImage(file: File, onProgress?: (pct: number) => void) {
-    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
-    if (blockedByMute()) return;
-    error.value = null;
-    if (mlsStatus.value !== "ready") {
-      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
-      return;
-    }
-    try {
-      const dataUrl = await downscaleImageToDataUrl(file);
-      const msgId = nanoid();
-      await sendEncryptedMedia("image_message", { image_data: dataUrl }, msgId);
-      pushMessage({ id: msgId, type: "image_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", image_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
-      onProgress?.(100);
-    } catch (e) { error.value = errorMessage(e); }
-  }
-
-  async function sendAudio(audioBlob: Blob) {
-    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
-    if (blockedByMute()) return;
-    error.value = null;
-    if (mlsStatus.value !== "ready") {
-      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
-      return;
-    }
-    try {
-      const dataUrl = await blobToDataUrl(audioBlob);
-      const msgId = nanoid();
-      await sendEncryptedMedia("voice_message", { audio_data: dataUrl }, msgId);
-      pushMessage({ id: msgId, type: "voice_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: "", audio_data: dataUrl, participant_type: "human", self: true, encrypted: true, timestamp: new Date() }, mlsIdentity.value);
-    } catch (e) { error.value = errorMessage(e); }
-  }
-
   async function sendMessage(content: string) {
     const text = content.trim();
     if (!text || !isConnected.value || !currentRoom.value) return;
@@ -1826,7 +1793,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     isParticipant, currentUserName, mlsIdentity, myAvatar,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
-    sendMessage, sendImage, sendAudio, forceResetMls,
+    sendMessage, forceResetMls,
     p2pRooms, loadP2pRooms, createRoom, joinByNode, openP2pRoom,
     admitInvited, joinByInvite,
     cancelJoin, deleteRoom,

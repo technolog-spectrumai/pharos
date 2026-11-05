@@ -41,8 +41,8 @@ import { i18n } from "../../src/i18n";
 import HpPanel from "../../src/components/hp/HpPanel.vue";
 import HpConfirmModal from "../../src/components/hp/HpConfirmModal.vue";
 import HpFlash from "../../src/components/hp/HpFlash.vue";
-import EnigmaWelcomeView from "../../src/views/EnigmaWelcomeView.vue";
-import EnigmaPrivacyView from "../../src/views/EnigmaPrivacyView.vue";
+import NautesWelcomeView from "../../src/views/NautesWelcomeView.vue";
+import NautesPrivacyView from "../../src/views/NautesPrivacyView.vue";
 import HpChip from "../../src/components/hp/HpChip.vue";
 import { APP_TABS, loadTabVisibility } from "../../src/tabs";
 import { setHiddenTabs } from "rakotis";
@@ -74,8 +74,8 @@ beforeEach(async () => {
     .querySelectorAll('[data-testid="hp-explain"], [data-testid="hp-explain-backdrop"]')
     .forEach((n) => n.remove());
   // The panel remembers which sections were open; each test starts folded.
-  localStorage.removeItem("enigma:hp:open");
-  localStorage.removeItem("enigma:hp:subtab");
+  localStorage.removeItem("nautes:hp:open");
+  localStorage.removeItem("nautes:hp:subtab");
   setActivePinia(createPinia());
   resetHpLedgerForTest();
   stopHp();
@@ -243,9 +243,10 @@ describe("HpPanel", () => {
   it("lists a price for every priced action, once its section is opened", async () => {
     const w = mount(HpPanel, { global });
     for (const [group, id] of [
-      ["discovery", "dht.presence.enable"],
-      ["rooms", "room.create.clearnet"],
-      ["traffic", "vox.call"],
+      ["transport", "transport.onion_stable.enable"],
+      ["rooms", "room.create.tor"],
+      ["messages", "msg.tor.mls"],
+      ["local", "local.pin.enroll"],
     ]) {
       await w.get(`[data-testid="hp-group-${group}"]`).trigger("click");
       expect(w.find(`[data-testid="hp-price-row-${id}"]`).exists(), id).toBe(true);
@@ -257,9 +258,9 @@ describe("HpPanel", () => {
     // headings are a contents page; you open the one you are asking about.
     const w = mount(HpPanel, { global });
     expect(w.findAll('[data-testid^="hp-group-body-"]')).toHaveLength(0);
-    expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(false);
+    expect(w.find('[data-testid="hp-price-row-msg.tor.mls"]').exists()).toBe(false);
     // ...but every heading is there to be opened.
-    expect(w.findAll('[data-testid^="hp-group-"]').length).toBeGreaterThan(5);
+    expect(w.findAll('[data-testid^="hp-group-"]').length).toBeGreaterThanOrEqual(5);
   });
 
   it("folds a section back up", async () => {
@@ -314,7 +315,7 @@ describe("HpPanel", () => {
   it("hides the price list and history in compact mode", () => {
     const w = mount(HpPanel, { props: { compact: true }, global });
     expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
-    expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(false);
+    expect(w.find('[data-testid="hp-group-messages"]').exists()).toBe(false);
   });
 
   it("shows an empty history before anything happens", async () => {
@@ -340,12 +341,12 @@ describe("HpPanel", () => {
     const w = mount(HpPanel, { global });
     await flushPromises();
     // Rules is the default pane, and the ledger is not in it.
-    expect(w.find('[data-testid="hp-group-discovery"]').exists()).toBe(true);
+    expect(w.find('[data-testid="hp-group-transport"]').exists()).toBe(true);
     expect(w.find('[data-testid="hp-history"]').exists()).toBe(false);
 
     await w.get('[data-testid="hp-subtab-decisions"]').trigger("click");
     expect(w.find('[data-testid="hp-history"]').exists()).toBe(true);
-    expect(w.find('[data-testid="hp-group-discovery"]').exists()).toBe(false);
+    expect(w.find('[data-testid="hp-group-transport"]').exists()).toBe(false);
   });
 
   it("keeps the meter on screen whichever pane is open", async () => {
@@ -453,22 +454,22 @@ describe("HpFlash", () => {
 
 // ── the Privacy tab ─────────────────────────────────────────────────────────
 
-describe("EnigmaPrivacyView", () => {
+describe("NautesPrivacyView", () => {
   it("shows the meter and the full price list", async () => {
-    const w = mount(EnigmaPrivacyView, { global });
+    const w = mount(NautesPrivacyView, { global });
     await flushPromises();
     expect(w.findAll('[data-testid="hp-meter"]')).toHaveLength(1);
     // The full panel, not the compact one the welcome page uses — its sections
     // start folded, so what distinguishes them is that the headings are there.
-    expect(w.find('[data-testid="hp-group-traffic"]').exists()).toBe(true);
-    await w.get('[data-testid="hp-group-traffic"]').trigger("click");
-    expect(w.find('[data-testid="hp-price-row-vox.call"]').exists()).toBe(true);
+    expect(w.find('[data-testid="hp-group-messages"]').exists()).toBe(true);
+    await w.get('[data-testid="hp-group-messages"]').trigger("click");
+    expect(w.find('[data-testid="hp-price-row-msg.tor.mls"]').exists()).toBe(true);
   });
 
   it("renders the same panel the welcome page does", async () => {
     // One component in both places, so the two can never disagree about a number.
-    const tab = mount(EnigmaPrivacyView, { global });
-    const welcome = mount(EnigmaWelcomeView, { global });
+    const tab = mount(NautesPrivacyView, { global });
+    const welcome = mount(NautesWelcomeView, { global });
     await flushPromises();
     expect(tab.get('[data-testid="hp-meter-value"]').text()).toBe(
       welcome.get('[data-testid="hp-meter-value"]').text(),
@@ -514,9 +515,9 @@ describe("HpChip", () => {
 
 // ── the welcome page ────────────────────────────────────────────────────────
 
-describe("EnigmaWelcomeView", () => {
+describe("NautesWelcomeView", () => {
   it("shows the app version, the user's name and the HP meter", async () => {
-    const w = mount(EnigmaWelcomeView, { global });
+    const w = mount(NautesWelcomeView, { global });
     await flushPromises();
     expect(w.get('[data-testid="welcome-version"]').text()).toMatch(/\d+\.\d+\.\d+/);
     expect(w.find('[data-testid="welcome-name"]').exists()).toBe(true);
@@ -524,13 +525,13 @@ describe("EnigmaWelcomeView", () => {
   });
 
   it("offers a way through to the full price list", async () => {
-    const w = mount(EnigmaWelcomeView, { global });
+    const w = mount(NautesWelcomeView, { global });
     await flushPromises();
     expect(w.find('[data-testid="welcome-hp-details"]').exists()).toBe(true);
   });
 
   it("describes what the app is without claiming a server", async () => {
-    const w = mount(EnigmaWelcomeView, { global });
+    const w = mount(NautesWelcomeView, { global });
     await flushPromises();
     expect(w.text()).toMatch(/serverless/i);
   });

@@ -31,7 +31,7 @@ vi.mock("../../src/stores/chat", () => ({ useChatStore: () => ({ clearLocalChatS
 
 import "@tauri-apps/api/core";
 import { i18n, setLocale } from "../../src/i18n";
-import EnigmaConfigView from "../../src/views/EnigmaConfigView.vue";
+import NautesConfigView from "../../src/views/NautesConfigView.vue";
 import { hpConfirm, resolveHpConfirm, setHpTranslator, stopHp } from "../../src/components/hp/useHp";
 
 (i18n.global.locale as any).value = "en";
@@ -136,7 +136,7 @@ async function mountAt(tab?: string) {
   await router.replace(tab ? `/config?tab=${tab}` : "/config");
   const pinia = createPinia();
   setActivePinia(pinia);
-  const w = mount(EnigmaConfigView, {
+  const w = mount(NautesConfigView, {
     props: { darkMode: true },
     global: { plugins: [i18n, router, pinia], stubs: { teleport: true } },
   });
@@ -188,7 +188,7 @@ describe("the tab strip", () => {
 
   it("opens the tab the link asks for, and falls back to settings for an unknown one", async () => {
     expect((await mountAt("lock")).text()).toContain("Panic code");
-    expect((await mountAt("connections")).text()).toContain("Route over Tor");
+    expect((await mountAt("connections")).text()).toContain("Keep onion address stable");
     expect((await mountAt("data")).text()).toContain("Offline Data");
     const unknown = await mountAt("nonsense");
     expect(unknown.text()).toContain("Interface language");
@@ -236,100 +236,9 @@ describe("language", () => {
   });
 });
 
-describe("number settings", () => {
-  it("stores the file-size limit and confirms it for a moment", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const w = await mountAt();
-    await enter(w, "Max file size", 2048);
-
-    expect(setting("max_file_size_mb")).toBe("2048");
-    expect(numberFor(w, "Max file size").row.text()).toContain("Saved");
-    vi.advanceTimersByTime(1500);
-    await settle();
-    expect(numberFor(w, "Max file size").row.text()).not.toContain("Saved");
-  });
-
-  it("clamps out-of-range input to the build's bounds and shows what was stored", async () => {
-    const w = await mountAt();
-    const size = await enter(w, "Max file size", 10_000_000);
-    expect(setting("max_file_size_mb")).toBe(String(100 * 1024));
-    expect((size.element as HTMLInputElement).value).toBe(String(100 * 1024));
-
-    const chunk = await enter(w, "File chunk size", 1);
-    expect(setting("file_chunk_kib")).toBe("16");
-    expect((chunk.element as HTMLInputElement).value).toBe("16");
-  });
-
-  it("reads the stored values back on open", async () => {
-    seed("max_file_size_mb", "512");
-    seed("meeting_reminder_mins", "5");
-    const w = await mountAt();
-    expect((numberFor(w, "Max file size").input.element as HTMLInputElement).value).toBe("512");
-    expect((numberFor(w, "Meeting reminder").input.element as HTMLInputElement).value).toBe("5");
-  });
-
-  it("asks for the notification permission when reminders are switched on, not off", async () => {
-    // Turning reminders on is the friendly moment to ask, rather than at the
-    // first reminder.
-    const w = await mountAt();
-    await enter(w, "Meeting reminder", 0);
-    expect(setting("meeting_reminder_mins")).toBe("0");
-    expect(notif.requests).toBe(0);
-
-    await enter(w, "Meeting reminder", 10);
-    expect(setting("meeting_reminder_mins")).toBe("10");
-    expect(notif.requests).toBe(1);
-  });
-
-  it("does not ask again once the permission is granted", async () => {
-    notif.granted = true;
-    const w = await mountAt();
-    await enter(w, "Meeting reminder", 10);
-    expect(notif.requests).toBe(0);
-  });
-});
-
-describe("file integrity", () => {
-  it("prices switching verification off, and charges only that direction", async () => {
-    const w = await mountAt();
-    const toggle = switchFor(w, "Verify transferred files");
-    expect(toggle.attributes("aria-checked")).toBe("true");
-    expect(w.get('[data-testid="hp-badge-integrity"]').text()).toContain("−0.5 HP");
-
-    await toggle.trigger("click");
-    await settle();
-    expect(setting("file_integrity")).toBe("off");
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "local.file_integrity.off", bytes: null, minutes: null }]);
-    // Off already: the next tap restores protection, which costs nothing.
-    expect(w.find('[data-testid="hp-badge-integrity"]').exists()).toBe(false);
-
-    await toggle.trigger("click");
-    await settle();
-    expect(setting("file_integrity")).toBe("on");
-    expect(callsTo("hp_charge")).toHaveLength(1);
-  });
-});
-
 // ── Connections tab ─────────────────────────────────────────────────────────
 
 describe("Tor", () => {
-  it("switching Tor on routes through Rust, records the posture, and swaps the cards", async () => {
-    const w = await mountAt("connections");
-    expect(w.text()).toContain("DHT discovery");
-    expect(w.text()).not.toContain("Keep onion address stable");
-
-    await switchFor(w, "Route over Tor").trigger("click");
-    await settle();
-
-    expect(callsTo("app_set_use_tor")).toEqual([{ useTor: true }]);
-    // Not a charge: the switch changes how fast HP comes back, from here on.
-    expect(callsTo("hp_set_tor_posture")).toEqual([{ on: true }]);
-    expect(callsTo("hp_charge")).toHaveLength(0);
-    // The DHT rides iroh, which Tor mode shuts down — nothing to decide there.
-    expect(w.text()).not.toContain("DHT discovery");
-    expect(w.text()).toContain("Keep onion address stable");
-    expect(w.get('[data-testid="hp-badge-tor"]').text()).toContain("Regenerating");
-  });
 
   it("charges for a stable onion only when it is switched on", async () => {
     network.useTor = true;
@@ -348,113 +257,6 @@ describe("Tor", () => {
     // Switching back earns nothing: the old address was already seen.
     expect(callsTo("hp_charge")).toHaveLength(1);
     expect(callsTo("hp_recover")).toHaveLength(0);
-  });
-});
-
-describe("DHT discovery", () => {
-  it("asks before announcing this node, and changes nothing on a no", async () => {
-    const w = await mountAt("connections");
-    expect(w.get('[data-testid="hp-badge-dht"]').text()).toContain("−5 HP");
-
-    await switchFor(w, "DHT discovery").trigger("click");
-    await settle();
-    expect(hpConfirm.value?.centi).toBe(-500);
-
-    resolveHpConfirm(false);
-    await settle();
-    expect(setting("dht_discovery")).toBeUndefined();
-    expect(callsTo("dht_apply")).toHaveLength(0);
-    expect(switchFor(w, "DHT discovery").attributes("aria-checked")).toBe("false");
-  });
-
-  it("once confirmed: stores it, rebinds, charges after the rebind, and probes the DHT", async () => {
-    const w = await mountAt("connections");
-    await switchFor(w, "DHT discovery").trigger("click");
-    await settle();
-    resolveHpConfirm(true);
-    await settle();
-
-    expect(setting("dht_discovery")).toBe("on");
-    const order = sent();
-    // Charged after dht_apply: until the rebind nothing has been announced.
-    expect(order.indexOf("dht_apply")).toBeLessThan(order.indexOf("hp_charge"));
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "dht.presence.enable", bytes: null, minutes: null }]);
-    expect(callsTo("dht_status")).toHaveLength(1);
-    expect(w.text()).toContain("DHT reachable");
-    // The tuning knobs appear with it, and the badge now shows the withdrawal credit.
-    expect(w.text()).toContain("Room announce interval");
-    expect(w.get('[data-testid="hp-badge-dht"]').text()).toContain("+2.5 HP");
-  });
-
-  it("switching it off needs no confirm and claims the withdrawal credit", async () => {
-    seed("dht_discovery", "on");
-    const w = await mountAt("connections");
-    await switchFor(w, "DHT discovery").trigger("click");
-    await settle();
-
-    expect(hpConfirm.value).toBeNull();
-    expect(setting("dht_discovery")).toBe("off");
-    expect(callsTo("dht_apply")).toHaveLength(1);
-    expect(callsTo("hp_recover")).toEqual([{ recoveryId: "dht.presence.withdraw" }]);
-    expect(w.text()).not.toContain("Room announce interval");
-  });
-
-  it("retries a node that has not bootstrapped yet before calling it unreachable", async () => {
-    // A fresh Mainline node needs a few seconds to fill its routing table.
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    seed("dht_discovery", "on");
-    handlers.dht_status = () => ({ enabled: true, running: true, bootstrapped: false });
-    const w = await mountAt("connections");
-    expect(w.text()).toContain("Checking DHT…");
-
-    vi.advanceTimersByTime(5000);
-    await settle();
-    expect(w.text()).toContain("Checking DHT…");
-    vi.advanceTimersByTime(5000);
-    await settle();
-
-    expect(w.text()).toContain("DHT unreachable");
-    // Three probes, five seconds apart — then it gives up.
-    expect(callsTo("dht_status")).toHaveLength(2);
-  });
-
-  it("reports a bootstrap that lands on a retry as reachable", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    seed("dht_discovery", "on");
-    let probes = 0;
-    handlers.dht_status = () => ({ enabled: true, running: true, bootstrapped: ++probes >= 2 });
-    const w = await mountAt("connections");
-    vi.advanceTimersByTime(5000);
-    await settle();
-
-    expect(w.text()).toContain("DHT reachable");
-    expect(probes).toBe(2);
-  });
-
-  it("says the node is idle, not unreachable, when it is not running at all", async () => {
-    seed("dht_discovery", "on");
-    handlers.dht_status = () => ({ enabled: true, running: false, bootstrapped: false });
-    const w = await mountAt("connections");
-    expect(w.text()).toContain("Not active — offline or Tor mode is blocking the P2P node");
-    expect(w.text()).not.toContain("DHT unreachable");
-  });
-
-  it("Test DHT probes again on demand", async () => {
-    seed("dht_discovery", "on");
-    const w = await mountAt("connections");
-    await w.findAll("button").find((b) => b.text().includes("Test DHT"))!.trigger("click");
-    await settle();
-    expect(callsTo("dht_status")).toHaveLength(1);
-    expect(w.text()).toContain("DHT reachable");
-  });
-
-  it("stores the announce and presence cadences, clamped", async () => {
-    seed("dht_discovery", "on");
-    const w = await mountAt("connections");
-    await enter(w, "Room announce interval", 5);
-    expect(setting("dht_room_publish_secs")).toBe("60");
-    await enter(w, "Presence refresh", 900);
-    expect(setting("dht_presence_poll_secs")).toBe("900");
   });
 });
 

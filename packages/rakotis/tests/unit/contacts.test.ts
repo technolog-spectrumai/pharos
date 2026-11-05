@@ -57,11 +57,3 @@ describe("contacts service — CRUD over the kv store", () => {
     expect(await listContacts()).toHaveLength(1);
   });
 });
-
-describe("contacts service — DHT lookups degrade gracefully in the browser", () => {
-  it("presence resolves to [] without the Tauri runtime (and for empty input)", async () => {
-    expect(await dhtPresence([A.nodeId])).toEqual([]);
-    expect(await dhtPresence([])).toEqual([]);
-  });
-
-});

@@ -1,5 +1,5 @@
 //! Bakes build_config.yaml into the binary: parse → validate → generate
-//! `$OUT_DIR/build_config_gen.rs` (included as `enigma_lib::build_config`).
+//! `$OUT_DIR/build_config_gen.rs` (included as `nautes_lib::build_config`).
 //! Any invalid or missing value fails the build here, before compilation;
 //! algorithm declarations are additionally const-asserted in the generated
 //! code against Rutile's crypto crates, so drift in either direction
@@ -58,22 +58,15 @@ struct KdfSection {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DefaultsSection {
-    use_tor: bool,
     stable_onion: bool,
-    dht_discovery: bool,
-    dht_nick_publish: bool,
-    file_integrity: bool,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SettingsSection {
     connect_timeout_secs: Clamp,
-    dht_room_publish_secs: Clamp,
-    max_file_size_mb: Clamp,
     chat_history_cap_msgs: Clamp,
     idle_lock_mins: Clamp,
-    file_chunk_kib: Clamp,
     pin_digits: Clamp,
 }
 
@@ -105,8 +98,8 @@ const KNOWN_MLS_SUITES: &[&str] = &[
     "MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448",
 ];
 
-const FIXED_APP_NAME: &str = "Enigma26";
-const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.enigma26";
+const FIXED_APP_NAME: &str = "Nautes";
+const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.nautes";
 
 /// Read the identity out of tauri.conf.json, and hold it to the fixed one.
 fn read_identity(manifest_dir: &Path, errors: &mut Vec<String>) -> AppIdentity {
@@ -169,13 +162,9 @@ fn validate(cfg: &RawConfig, errors: &mut Vec<String>) {
     // settings clamps.
     let clamps = [
         ("settings.connect_timeout_secs", &cfg.settings.connect_timeout_secs, 1u64),
-        ("settings.dht_room_publish_secs", &cfg.settings.dht_room_publish_secs, 10u64),
-        ("settings.max_file_size_mb", &cfg.settings.max_file_size_mb, 0u64),
         ("settings.chat_history_cap_msgs", &cfg.settings.chat_history_cap_msgs, 10u64),
         // floor 0: auto-lock off is a legitimate configuration.
         ("settings.idle_lock_mins", &cfg.settings.idle_lock_mins, 0u64),
-        // floor 16 KiB: below that the per-chunk MLS overhead dominates.
-        ("settings.file_chunk_kib", &cfg.settings.file_chunk_kib, 16u64),
         // floor 4 digits: the PIN only re-opens an already-unlocked session, but
         // fewer than four would be guessable by hand at the keypad.
         ("settings.pin_digits", &cfg.settings.pin_digits, 4u64),
@@ -196,16 +185,6 @@ fn validate(cfg: &RawConfig, errors: &mut Vec<String>) {
     }
     if !((1u64 << 20)..=(256u64 << 20)).contains(&net.max_frame_bytes) {
         err("network.max_frame_bytes", format!("{} outside 1 MiB ..= 256 MiB", net.max_frame_bytes));
-    }
-    // The user-tunable chunk ceiling must fit a single wire frame.
-    if cfg.settings.file_chunk_kib.max * 1024 > net.max_frame_bytes {
-        err(
-            "settings.file_chunk_kib",
-            format!(
-                "max {} KiB exceeds network.max_frame_bytes ({})",
-                cfg.settings.file_chunk_kib.max, net.max_frame_bytes
-            ),
-        );
     }
     for (path, secs) in [
         ("network.tor_write_timeout_secs", net.tor_write_timeout_secs),
@@ -248,32 +227,19 @@ pub mod crypto {{
 /// Initial values of a new profile's runtime toggles (build_config.yaml
 /// `defaults:`). Not the build features — those are `crate::features`.
 pub mod defaults {{
-    pub const USE_TOR_DEFAULT: bool = {use_tor};
     pub const STABLE_ONION_DEFAULT: bool = {stable_onion};
-    pub const DHT_DISCOVERY_DEFAULT: bool = {dht_discovery};
-    pub const DHT_NICK_PUBLISH_DEFAULT: bool = {dht_nick};
-    pub const FILE_INTEGRITY_DEFAULT: bool = {file_integrity};
 }}
 
 pub mod settings {{
     pub const CONNECT_TIMEOUT_DEFAULT_SECS: u64 = {ct_def};
     pub const CONNECT_TIMEOUT_MIN_SECS: u64 = {ct_min};
     pub const CONNECT_TIMEOUT_MAX_SECS: u64 = {ct_max};
-    pub const DHT_ROOM_PUBLISH_DEFAULT_SECS: u64 = {rp_def};
-    pub const DHT_ROOM_PUBLISH_MIN_SECS: u64 = {rp_min};
-    pub const DHT_ROOM_PUBLISH_MAX_SECS: u64 = {rp_max};
-    pub const MAX_FILE_SIZE_DEFAULT_MB: u64 = {fs_def};
-    pub const MAX_FILE_SIZE_MIN_MB: u64 = {fs_min};
-    pub const MAX_FILE_SIZE_MAX_MB: u64 = {fs_max};
     pub const CHAT_HISTORY_CAP_DEFAULT_MSGS: u64 = {hc_def};
     pub const CHAT_HISTORY_CAP_MIN_MSGS: u64 = {hc_min};
     pub const CHAT_HISTORY_CAP_MAX_MSGS: u64 = {hc_max};
     pub const IDLE_LOCK_DEFAULT_MINS: u64 = {il_def};
     pub const IDLE_LOCK_MIN_MINS: u64 = {il_min};
     pub const IDLE_LOCK_MAX_MINS: u64 = {il_max};
-    pub const FILE_CHUNK_DEFAULT_KIB: u64 = {fc_def};
-    pub const FILE_CHUNK_MIN_KIB: u64 = {fc_min};
-    pub const FILE_CHUNK_MAX_KIB: u64 = {fc_max};
     pub const PIN_DIGITS_DEFAULT: u64 = {pd_def};
     pub const PIN_DIGITS_MIN: u64 = {pd_min};
     pub const PIN_DIGITS_MAX: u64 = {pd_max};
@@ -329,29 +295,16 @@ const _: () = assert!(
         m_cost = cfg.crypto.kdf.m_cost_kib,
         t_cost = cfg.crypto.kdf.t_cost,
         p_cost = cfg.crypto.kdf.p_cost,
-        use_tor = cfg.defaults.use_tor,
         stable_onion = cfg.defaults.stable_onion,
-        dht_discovery = cfg.defaults.dht_discovery,
-        dht_nick = cfg.defaults.dht_nick_publish,
-        file_integrity = cfg.defaults.file_integrity,
         ct_def = cfg.settings.connect_timeout_secs.default,
         ct_min = cfg.settings.connect_timeout_secs.min,
         ct_max = cfg.settings.connect_timeout_secs.max,
-        rp_def = cfg.settings.dht_room_publish_secs.default,
-        rp_min = cfg.settings.dht_room_publish_secs.min,
-        rp_max = cfg.settings.dht_room_publish_secs.max,
-        fs_def = cfg.settings.max_file_size_mb.default,
-        fs_min = cfg.settings.max_file_size_mb.min,
-        fs_max = cfg.settings.max_file_size_mb.max,
         hc_def = cfg.settings.chat_history_cap_msgs.default,
         hc_min = cfg.settings.chat_history_cap_msgs.min,
         hc_max = cfg.settings.chat_history_cap_msgs.max,
         il_def = cfg.settings.idle_lock_mins.default,
         il_min = cfg.settings.idle_lock_mins.min,
         il_max = cfg.settings.idle_lock_mins.max,
-        fc_def = cfg.settings.file_chunk_kib.default,
-        fc_min = cfg.settings.file_chunk_kib.min,
-        fc_max = cfg.settings.file_chunk_kib.max,
         pd_def = cfg.settings.pin_digits.default,
         pd_min = cfg.settings.pin_digits.min,
         pd_max = cfg.settings.pin_digits.max,
@@ -397,7 +350,7 @@ fn generate_build_config() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Privacy HP — src-tauri/privacy_hp.yaml → `enigma_lib::hp_policy`
+// Privacy HP — src-tauri/privacy_hp.yaml → `nautes_lib::hp_policy`
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Same contract as the build config above: parse → validate → codegen, and any

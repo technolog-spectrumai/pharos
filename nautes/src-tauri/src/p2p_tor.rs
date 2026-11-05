@@ -751,13 +751,6 @@ pub async fn broadcast(state: &TorP2pState, room: &str, payload: String) -> Resu
     Ok(())
 }
 
-/// True if this backend currently owns `room` — lets the realtime layer route a
-/// send to the transport that actually holds the room, not the global switch.
-pub async fn has_room(state: &TorP2pState, room: &str) -> bool {
-    let guard = state.0.lock().await;
-    guard.as_ref().is_some_and(|node| node.rooms.contains_key(room))
-}
-
 pub async fn leave_room(state: &TorP2pState, room: &str) -> Result<()> {
     let mut guard = state.0.lock().await;
     if let Some(node) = guard.as_mut() {

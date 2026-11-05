@@ -20,7 +20,7 @@ function repoRoot(): string {
   let dir = process.cwd();
   for (let i = 0; i < 6; i++) {
     try {
-      statSync(join(dir, "apps/enigma/src/i18n/en.ts"));
+      statSync(join(dir, "nautes/src/i18n/en.ts"));
       return dir;
     } catch {
       const up = dirname(dir);
@@ -52,7 +52,7 @@ const ALLOWED = new Set([
   // called, in every language; translating them would invent terminology.
   "Tor",
   "iroh",
-  "Enigma26",
+  "Nautes",
   "MLS",
   "QR",
 ]);
@@ -76,7 +76,7 @@ interface Finding {
 
 function scanVue(): Finding[] {
   const found: Finding[] = [];
-  for (const file of walk(resolve(ROOT, "apps/enigma/src"), ".vue")) {
+  for (const file of walk(resolve(ROOT, "nautes/src"), ".vue")) {
     const rel = relative(ROOT, file);
     readFileSync(file, "utf8")
       .split("\n")
@@ -103,7 +103,7 @@ function scanVue(): Finding[] {
 
 function scanRakotisNotices(): Finding[] {
   const found: Finding[] = [];
-  const file = resolve(ROOT, "apps/enigma/packages/rakotis/src/useChatChannel.ts");
+  const file = resolve(ROOT, "packages/rakotis/src/useChatChannel.ts");
   readFileSync(file, "utf8")
     .split("\n")
     .forEach((line, i) => {
@@ -111,7 +111,7 @@ function scanRakotisNotices(): Finding[] {
       const m = line.match(/systemMsg\(\s*[`"']([^`"']{4,})/);
       if (m && looksLikeProse(m[1])) {
         found.push({
-          file: "apps/enigma/packages/rakotis/src/useChatChannel.ts",
+          file: "packages/rakotis/src/useChatChannel.ts",
           line: i + 1,
           text: m[1],
         });
@@ -131,8 +131,8 @@ function scanRakotisNotices(): Finding[] {
 function scanDateFormatting(): Finding[] {
   const found: Finding[] = [];
   const roots = [
-    resolve(ROOT, "apps/enigma/src"),
-    resolve(ROOT, "apps/enigma/packages/rakotis/src"),
+    resolve(ROOT, "nautes/src"),
+    resolve(ROOT, "packages/rakotis/src"),
   ];
   for (const root of roots) {
     for (const ext of [".vue", ".ts"]) {
@@ -163,7 +163,7 @@ function scanDateFormatting(): Finding[] {
  */
 function scanVueScripts(): Finding[] {
   const found: Finding[] = [];
-  for (const file of walk(resolve(ROOT, "apps/enigma/src"), ".vue")) {
+  for (const file of walk(resolve(ROOT, "nautes/src"), ".vue")) {
     const rel = relative(ROOT, file);
     const src = readFileSync(file, "utf8");
     const end = src.indexOf("</script>");

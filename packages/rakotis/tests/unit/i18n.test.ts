@@ -39,10 +39,10 @@ describe("getStoredLocale / hasExplicitLocale", () => {
     expect(hasExplicitLocale()).toBe(false);
   });
   it("reads a valid stored locale and ignores an invalid one", () => {
-    localStorage.setItem("enigma:locale", "pl");
+    localStorage.setItem("nautes:locale", "pl");
     expect(getStoredLocale()).toBe("pl");
     expect(hasExplicitLocale()).toBe(true);
-    localStorage.setItem("enigma:locale", "xx");
+    localStorage.setItem("nautes:locale", "xx");
     expect(getStoredLocale()).toBeNull();
   });
 });
@@ -59,14 +59,14 @@ describe("createAppI18n", () => {
     const { i18n, setLocale } = createAppI18n(messages);
     setLocale("pl");
     expect((i18n.global.locale as { value: string }).value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBe("pl");
+    expect(localStorage.getItem("nautes:locale")).toBe("pl");
   });
 
   it("setLocale does not persist when persist=false and reflects <html lang>", () => {
     const { i18n, setLocale } = createAppI18n(messages);
     setLocale("pl", false);
     expect((i18n.global.locale as { value: string }).value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBeNull();
+    expect(localStorage.getItem("nautes:locale")).toBeNull();
     expect(document.documentElement.getAttribute("lang")).toBe("pl");
   });
 
@@ -74,11 +74,11 @@ describe("createAppI18n", () => {
     const { i18n, applyProfileLocaleGuess } = createAppI18n(messages);
     applyProfileLocaleGuess("pl");
     expect((i18n.global.locale as { value: string }).value).toBe("pl");
-    expect(localStorage.getItem("enigma:locale")).toBeNull();
+    expect(localStorage.getItem("nautes:locale")).toBeNull();
   });
 
   it("applyProfileLocaleGuess ignores the guess when a choice is already stored", () => {
-    localStorage.setItem("enigma:locale", "en");
+    localStorage.setItem("nautes:locale", "en");
     const { i18n, applyProfileLocaleGuess } = createAppI18n(messages);
     applyProfileLocaleGuess("pl");
     expect((i18n.global.locale as { value: string }).value).toBe("en");

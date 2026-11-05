@@ -94,63 +94,6 @@ describe("chat store — serverless P2P bootstrap", () => {
     expect(p2pStub.openP2pRoom).toHaveBeenCalledTimes(1);
   });
 
-  it("creates the fileShare + vox + meetings singletons riding the channel's sync seam", async () => {
-    const store = await freshStore();
-    expect(store.fileShare).toBeDefined();
-    expect(store.fileShare.state.value).toBe("idle");
-    expect(store.vox).toBeDefined();
-    expect(store.vox.phase.value).toBe("idle");
-    expect(store.meetings).toBeDefined();
-    expect(store.meetings.pendingInviteCount.value).toBe(0);
-    // Each registers its signaling handler at store creation, so file offers,
-    // call offers and meeting invites are caught even while their tabs are closed.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(3);
-  });
-
-  it("a build with none of the features instantiates none of the gated singletons", async () => {
-    // technology.md §20: Light ships chat + files only. The flags being off must mean the
-    // composables are never created — not merely that their tabs are hidden — so
-    // no sync handler for calls / meetings is registered at all and an
-    // offer from a better-equipped peer lands as an unhandled sync type.
-    const store = await freshStore({
-      calls_enabled: false,
-      contacts_enabled: false,
-      calendar_enabled: false,
-    });
-
-    expect(store.callsEnabled).toBe(false);
-    expect(store.vox).toBeNull();
-    expect(store.contactsEnabled).toBe(false);
-    expect(store.invites).toBeNull();
-    expect(store.calendarEnabled).toBe(false);
-    expect(store.meetings).toBeNull();
-    // Only fileShare remains on the sync seam.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(1);
-    // The profile fan-out must stay null-safe with the composables absent.
-    await expect(
-      store.applyRuntimeProfile({ profile: "alice", identity: "alice", profile_state_path: "" }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("a build with calls alone instantiates vox and nothing else", async () => {
-    // technology.md §20: Plus is Light + Vox, full stop — Contacts, device linking and
-    // the DHT are all Pro. This pins the shape of that middle tier, which is
-    // otherwise only expressed in a YAML no test reads.
-    const store = await freshStore({
-      calls_enabled: true,
-      contacts_enabled: false,
-      calendar_enabled: false,
-      dht_enabled: false,
-    });
-
-    expect(store.callsEnabled).toBe(true);
-    expect(store.vox).toBeDefined();
-    expect(store.invites).toBeNull();
-    expect(store.meetings).toBeNull();
-    // fileShare + vox only.
-    expect(p2pStub.onSync).toHaveBeenCalledTimes(2);
-  });
-
   it("identity fan-out delegates to the channel", async () => {
     const store = await freshStore();
 

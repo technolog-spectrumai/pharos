@@ -7,10 +7,10 @@ Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1
 
 ## Stage 1 — Fork and cut down: Enigma becomes Nautes, building on its own
 - [x] 1.1 Import Enigma's history (`apps/enigma`) and the shared code it needs (Ferrozine, rotor, gervasius, petalite, calendula, scripts) into this repository
-- [ ] 1.2 New layout: `nautes/` (the app), `proteus/` (the server), `crates/` (shared), one root Cargo workspace, paths fixed
-- [ ] 1.3 Cut what is not short messaging over Tor: iroh transport, DHT, calls, file transfer, calendar, editions, everything in `limbo/`
-- [ ] 1.4 Rename Enigma to Nautes (identifier, words EN/PL, icons) and make it build and pass its remaining tests
-- [ ] 1.5 Test and build scripts for this repository (`tests.sh`, `run_dev.sh`), and a CI workflow
+- [x] 1.2 New layout: `nautes/` (the app), `proteus/` (the server), `crates/` (shared), one root Cargo workspace, paths fixed
+- [x] 1.3 Cut what is not short messaging over Tor: iroh transport, DHT, calls, file transfer, calendar, editions, everything in `limbo/`
+- [x] 1.4 Rename Enigma to Nautes (identifier, words EN/PL, icons) and make it build and pass its remaining tests
+- [x] 1.5 Test and build scripts for this repository (`tests.sh`, `run_dev.sh`), and a CI workflow
 
 ## Stage 2 — Shared core crates
 - [ ] 2.1 `pharos-wire`: the message envelope, framing and version, from Enigma's Tor framing

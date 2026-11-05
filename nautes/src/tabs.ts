@@ -32,7 +32,7 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, getHiddenTabs, setHiddenTabs, type BuildConfig } from "rakotis";
 
-export type AppTabId = "chat" | "files" | "vox" | "calendar" | "contacts";
+export type AppTabId = "chat";
 
 export interface AppTab {
   id: AppTabId;
@@ -41,30 +41,17 @@ export interface AppTab {
    *  it hides, so the two never drift apart. */
   labelKey: string;
   icon: string;
-  /** Build gate; `null` = always compiled in (chat, files). Read at run time
+  /** Build gate; `null` = always compiled in (chat). Read at run time
    *  from the build config the Rust side reports — which a build without the
    *  feature reports as false. The compile-time half is the list below. */
   gate: ((cfg: BuildConfig) => boolean) | null;
 }
 
-/** Every hideable tab, in nav order. Settings is absent on purpose (see above),
- *  and this list — not the `nav.*` keys — is the source of truth: the Vox
- *  tab's key is `nav.calls`, for instance. */
+/** Every hideable tab, in nav order. Settings is absent on purpose (see above).
+ *  Nautes has one: Chat (Enigma's Files, Vox, Calendar and Contacts were cut
+ *  in Pharos Stage 1.3). */
 export const APP_TABS: readonly AppTab[] = [
   { id: "chat", path: "/chat", labelKey: "nav.chat", icon: "comments", gate: null },
-  { id: "files", path: "/files", labelKey: "nav.files", icon: "file-arrow-up", gate: null },
-  // A tab whose feature the build left out is not in the list at all — the
-  // same build-time literal the router uses, so the two cannot disagree.
-  // The tab is called Vox; its feature id is `calls`.
-  ...(__FEATURE_CALLS__
-    ? [{ id: "vox", path: "/vox", labelKey: "nav.calls", icon: "phone", gate: (c: BuildConfig) => c.calls_enabled } as const]
-    : []),
-  ...(__FEATURE_CALENDAR__
-    ? [{ id: "calendar", path: "/calendar", labelKey: "nav.calendar", icon: "calendar", gate: (c: BuildConfig) => c.calendar_enabled } as const]
-    : []),
-  ...(__FEATURE_CONTACTS__
-    ? [{ id: "contacts", path: "/contacts", labelKey: "nav.contacts", icon: "address-book", gate: (c: BuildConfig) => c.contacts_enabled } as const]
-    : []),
 ];
 
 /** Settings — the tab that can never be hidden, and therefore the terminal

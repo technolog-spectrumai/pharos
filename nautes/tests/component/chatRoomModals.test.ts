@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { ref, type Ref } from "vue";
-import { setUseTor, type ChatChannel, type Participant, type P2pRoomEntry } from "rakotis";
+import { type ChatChannel, type Participant, type P2pRoomEntry } from "rakotis";
 import { i18n } from "../../src/i18n";
 import CreateRoomModal from "../../src/components/chat/CreateRoomModal.vue";
 import JoinRoomModal from "../../src/components/chat/JoinRoomModal.vue";
@@ -54,7 +54,6 @@ describe("CreateRoomModal", () => {
   it("says it is launching an onion while a Tor room comes up", async () => {
     // Publishing an onion descriptor can take a long while; the wording is what
     // tells the user the wait is Tor's and not a hang.
-    await setUseTor(true);
     const ctrl = createController();
     ctrl.createBusy.value = true;
     const w = mount(CreateRoomModal, { props: { open: false, controller: asController(ctrl) }, global: GLOBAL });
@@ -64,18 +63,7 @@ describe("CreateRoomModal", () => {
     expect(w.text()).not.toContain("Creating your room");
   });
 
-  it("says it is creating the room while an iroh room comes up", async () => {
-    await setUseTor(false);
-    const ctrl = createController();
-    ctrl.createBusy.value = true;
-    const w = mount(CreateRoomModal, { props: { open: false, controller: asController(ctrl) }, global: GLOBAL });
-    await w.setProps({ open: true });
-    await flushPromises();
-    expect(w.text()).toContain("Creating your room…");
-  });
-
   it("names the creator as host and hands the new room to the share card", async () => {
-    await setUseTor(true);
     const ctrl = createController();
     const w = mount(CreateRoomModal, { props: { open: false, controller: asController(ctrl) }, global: GLOBAL });
     await w.setProps({ open: true });
@@ -88,18 +76,6 @@ describe("CreateRoomModal", () => {
     expect(w.text()).toContain("you'll see a ★ by your name");
     const card = w.findComponent(RoomShareCard);
     expect(card.props()).toMatchObject({ roomSlug: "room-7", roomName: "Book club", tor: true });
-  });
-
-  it("leaves out the onion ★ hint for an iroh room", async () => {
-    await setUseTor(false);
-    const ctrl = createController();
-    const w = mount(CreateRoomModal, { props: { open: false, controller: asController(ctrl) }, global: GLOBAL });
-    await w.setProps({ open: true });
-    ctrl.createdRoom.value = { slug: "room-8", name: "Plain" };
-    await flushPromises();
-    expect(w.text()).toContain("You're the room host");
-    expect(w.text()).not.toContain("★");
-    expect(w.findComponent(RoomShareCard).props("tor")).toBe(false);
   });
 
   it("closes from its footer", async () => {

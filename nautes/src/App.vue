@@ -88,11 +88,9 @@ let hideLock: HideLockHandle | null = null;
 // mid-warning that countdown is exactly the information they need.
 const lockWarn = ref(false);
 
-/** Background work that should hold the countdown off: nothing here involves the
- *  keyboard, but the user is still mid-task and locking would abort it. */
+/** Background work that should hold the countdown off. Nautes has none (no
+ *  calls, no transfers); kept as the seam the idle lock asks. */
 function isBusy(): boolean {
-  if (chatStore.vox && chatStore.vox.phase.value !== "idle") return true;
-  if (["offering", "incoming", "transferring"].includes(chatStore.fileShare.state.value)) return true;
   return false;
 }
 
@@ -250,19 +248,6 @@ watch(avatarDataUrl, (avatar) => {
 // sampling it into a const here — the way the build flags used to be — would
 // freeze the nav at whatever the profile had at unlock.
 //
-// This gates the LINKS only. The composables behind them stay wired app-wide
-// (stores/chat.ts): hiding Calendar must not stop meeting reminders, and hiding
-// Contacts must not stop the invite ALPN from being accepted.
-//
-// Files tab attention dot: an incoming file offer is waiting for accept/decline.
-const fileShare = chatStore.fileShare;
-// Calls / Contacts / Calendar (compile-time gated — technology.md §20): each is null in
-// a build without the feature, so every consumer below is null-guarded.
-const vox = chatStore.vox;
-const invites = chatStore.invites;
-// Calendar tab attention dot: meeting invites awaiting an RSVP.
-const meetings = chatStore.meetings;
-
 // Close menu on navigation
 watch(() => route.path, () => {
   menuOpen.value = false;
@@ -379,42 +364,6 @@ onBeforeUnmount(() => {
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
           </RouterLink>
-          <RouterLink v-if="isTabVisible('files')" to="/files" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.files')">
-            <font-awesome-icon icon="file-arrow-up" />
-            {{ $t('nav.files') }}
-            <span
-              v-if="fileShare.state.value === 'incoming'"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('fileShare.wantsToSend')"
-            />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('vox')" to="/vox" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calls')">
-            <font-awesome-icon icon="phone" />
-            {{ $t('nav.calls') }}
-            <span
-              v-if="vox?.phase.value === 'incoming'"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('vox.incomingTitle')"
-            />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('calendar')" to="/calendar" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.calendar')">
-            <font-awesome-icon icon="calendar" />
-            {{ $t('nav.calendar') }}
-            <span
-              v-if="(meetings?.attentionCount.value ?? 0) > 0"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('calendar.attentionTitle')"
-            />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('contacts')" to="/contacts" class="relative inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.contacts')">
-            <font-awesome-icon icon="address-book" />
-            {{ $t('nav.contacts') }}
-            <span
-              v-if="invites?.incoming.value"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-              :title="$t('contacts.incomingTitle')"
-            />
-          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -465,38 +414,6 @@ onBeforeUnmount(() => {
           <RouterLink v-if="isTabVisible('chat')" to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
             <font-awesome-icon icon="comments" class="w-4 text-center" />
             {{ $t('nav.chat') }}
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('files')" to="/files" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="file-arrow-up" class="w-4 text-center" />
-            {{ $t('nav.files') }}
-            <span
-              v-if="fileShare.state.value === 'incoming'"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('vox')" to="/vox" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="phone" class="w-4 text-center" />
-            {{ $t('nav.calls') }}
-            <span
-              v-if="vox?.phase.value === 'incoming'"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('calendar')" to="/calendar" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="calendar" class="w-4 text-center" />
-            {{ $t('nav.calendar') }}
-            <span
-              v-if="(meetings?.attentionCount.value ?? 0) > 0"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('contacts')" to="/contacts" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="address-book" class="w-4 text-center" />
-            {{ $t('nav.contacts') }}
-            <span
-              v-if="invites?.incoming.value"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
           </RouterLink>
           <RouterLink
             to="/config"

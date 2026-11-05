@@ -40,8 +40,8 @@ const policy = getHpPolicy();
 // rather than the encrypted kv: it is not a setting, it says nothing about the
 // user, and losing it costs a click. Guarded because storage can throw outright
 // in a private window or with site data blocked.
-const OPEN_KEY = "enigma:hp:open";
-const SUBTAB_KEY = "enigma:hp:subtab";
+const OPEN_KEY = "nautes:hp:open";
+const SUBTAB_KEY = "nautes:hp:subtab";
 
 // Below the meters the panel answers two different questions, and mixing them
 // made both harder to read: "what does this cost?" (the rules, which are fixed
@@ -115,36 +115,21 @@ const GROUPS: { key: string; ids: string[] }[] = [
     key: "transport",
     ids: ["transport.onion_stable.enable"],
   },
-  {
-    key: "discovery",
-    ids: ["dht.nickname.publish", "dht.presence.enable"],
-  },
+  // Every room, invitation and message in Nautes goes over Tor: only the Tor
+  // variants are listed (the clearnet ones remain in the price table, unused;
+  // Pharos decision PD9 settles the table).
   {
     key: "rooms",
-    ids: [
-      "ticket.export.clearnet",
-      "ticket.export.tor",
-      "room.create.clearnet",
-      "room.create.tor",
-      "room.join.clearnet",
-      "room.join.tor",
-    ],
+    ids: ["ticket.export.tor", "room.create.tor", "room.join.tor"],
   },
   {
     key: "invites",
-    ids: [
-      "invite.general.create.clearnet",
-      "invite.general.create.tor",
-      "invite.personal.create.clearnet",
-      "invite.personal.create.tor",
-    ],
+    ids: ["invite.general.create.tor", "invite.personal.create.tor"],
   },
   {
     key: "messages",
-    ids: ["msg.clearnet.plain", "msg.tor.plain", "msg.clearnet.mls", "msg.tor.mls"],
+    ids: ["msg.tor.plain", "msg.tor.mls"],
   },
-  { key: "calendar", ids: ["calendar.share.clearnet", "calendar.share.tor"] },
-  { key: "traffic", ids: ["vox.call", "file.send"] },
   {
     key: "local",
     ids: [
@@ -152,7 +137,6 @@ const GROUPS: { key: string; ids: string[] }[] = [
       "local.pin.enroll",
       "local.panic_code.clear",
       "local.lock_on_hide.off",
-      "local.file_integrity.off",
     ],
   },
 ];
