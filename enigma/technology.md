@@ -874,9 +874,9 @@ persists in the vault (ns `dht`); any online holder keeps the room discoverable.
 
 ```
 bucket      = floor(unix_seconds / 3600)
-signing_key = ed25519 from blake3::derive_key("vesper/dht/room-sign/v1", secret ‖ bucket_le)
-enc_key     =              blake3::derive_key("vesper/dht/room-enc/v1",  secret ‖ bucket_le)
-salt        = b"vesper-room-v1"
+signing_key = ed25519 from blake3::derive_key("enigma/dht/room-sign/v1", secret ‖ bucket_le)
+enc_key     =              blake3::derive_key("enigma/dht/room-enc/v1",  secret ‖ bucket_le)
+salt        = b"enigma-room-v1"
 plaintext   = postcard { v:1, node_id, peers: Vec<[u8;32]> (≤4), ts }
 value       = nonce(12) ‖ ChaCha20-Poly1305(enc_key, nonce, plaintext)
 ```
@@ -890,8 +890,8 @@ secret-holders can write acceptable records. The publisher loop re-announces eve
 records are visible).
 
 **Nickname directory** ("findable as ‹nick›", opt-in): static keys derived from the
-normalized nickname (`blake3::derive_key("vesper/dht/nick-sign/v1" / "nick-enc/v1")`,
-salt `b"vesper-nick-v1"`), sealed claim record `{v, node_id, display name ≤64, ts}`.
+normalized nickname (`blake3::derive_key("enigma/dht/nick-sign/v1" / "nick-enc/v1")`,
+salt `b"enigma-nick-v1"`), sealed claim record `{v, node_id, display name ≤64, ts}`.
 Claims, not identities: anyone can publish any name; search lists every fresh
 claimant with its NodeId fingerprint (verification is out-of-band; the direct-invite
 handshake authenticates the NodeId cryptographically). You are findable only while
@@ -1794,7 +1794,7 @@ for something that expires in hours; wrong for a long-term secret.
 
 ### 18.3 Redemption
 
-`REDEEM_ALPN = vesper/redeem/0` on the same iroh router as `INVITE_ALPN`; over Tor,
+`REDEEM_ALPN = enigma/redeem/0` on the same iroh router as `INVITE_ALPN`; over Tor,
 the existing `Hello` frame gained `kind: "room" | "redeem"` (absent = `"room"`, so
 older peers are untouched and a room dial is byte-identical to before).
 
@@ -2195,23 +2195,23 @@ Every build is the same installable app:
 
 | Value | Fixed setting |
 |---|---|
-| App name | `Vesper` |
-| Bundle identifier / Android package id | `com.spectrumaipl.vesper` |
-| Desktop binary name | `vesper` |
-| Data directory | `…/com.spectrumaipl.vesper/` |
+| App name | `Enigma` |
+| Bundle identifier / Android package id | `com.spectrumaipl.enigma` |
+| Desktop binary name | `enigma` |
+| Data directory | `…/com.spectrumaipl.enigma/` |
 
 Presets differ only in features. They do **not** get separate Android package
 ids or separate desktop data roots, so Standard and Professional update or
 replace the same app instead of installing side by side. `build.rs` rejects a
 `tauri.conf.json` that tries to change the name or identifier.
 
-> **Moving existing data.** The package id changed from
-> `com.spectrumaipl.vesper` to `com.spectrumaipl.vesper`. Existing desktop
-> data is not deleted; the new build looks in a new app-data directory. To carry
-> a profile across:
+> **Moving existing data.** This client's package id changed from
+> `com.spectrumaipl.nautes` to `com.spectrumaipl.enigma` (2026-11-05). Existing
+> desktop data is not deleted; the new build looks in a new app-data directory.
+> To carry a profile across:
 > ```bash
-> mv ~/.local/share/com.spectrumaipl.vesper/profiles/default \
->    ~/.local/share/com.spectrumaipl.vesper/profiles/default
+> mv ~/.local/share/com.spectrumaipl.nautes/profiles/default \
+>    ~/.local/share/com.spectrumaipl.enigma/profiles/default
 > ```
 > Or just start fresh with `./run_dev.sh --reset`.
 

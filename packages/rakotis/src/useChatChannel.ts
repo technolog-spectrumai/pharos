@@ -159,7 +159,7 @@ export async function downscaleImageToDataUrl(file: File, maxDim = 1600, quality
   }
 }
 
-const log = (...args: unknown[]) => console.log("[vesper-chat]", ...args);
+const log = (...args: unknown[]) => console.log("[enigma-chat]", ...args);
 
 /** Options for secondary channel instances (the hidden device-link room). A
  *  headless channel never touches the saved-rooms kv or the chat log; an
