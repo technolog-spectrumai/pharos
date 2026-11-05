@@ -144,7 +144,13 @@ ProtectSystem, a state directory), a config file (quotas, expiries), an
 install guide. arti's state lives under the state directory; its keys are the
 Proteus onion identity and are backed up with it.
 
-## Stage 4 — Nautes
+### 3.7 At rest (the owner, 2026-11-05: "like in s3-like buckets of Zirkel")
+
+Three layers, as Zirkelite does it (zirkelite `docs/security.md`, `src/diskcrypt.rs`, `docs/disk-encryption.md`):
+1. End to end: what Nautes leaves on Proteus is already sealed (MLS / the friendship key), like Zirkel's encrypted buckets.
+2. A master key: `master.key` beside the config, mode 0600, refused if group or others can read it. Every stored value (mailbox blob, token hash, directory record) is sealed with XChaCha20-Poly1305 under a label naming its table and row, so a value moved to another row does not open. The database alone gives away counts and sizes, not contents. Back up the database and the key separately.
+3. The disk: `proteus check` reads `/proc/self/mountinfo` and `/sys/dev/block` and says whether the data folder is on dm-crypt (encrypted / not encrypted / unknown); `serve` warns at start unless encrypted. A guide for LUKS on the Pi's SD card or a USB disk.
+
 
 **4.1 The window.** From Enigma's chat: friends, a conversation, a compose
 box with the length cap, delivery state (sent directly, left on Proteus,
