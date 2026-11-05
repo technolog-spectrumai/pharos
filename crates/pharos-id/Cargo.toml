@@ -1,0 +1,18 @@
+[package]
+name = "pharos-id"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Pharos device identity, fingerprints, and the signed contact card / pairing reply (QR or text)"
+license = "AGPL-3.0-only"
+
+[dependencies]
+pharos-rendezvous = { path = "../pharos-rendezvous" }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+serde = { version = "1", features = ["derive"] }
+serde-big-array = "0.5"
+postcard = { version = "1", features = ["use-std"] }
+data-encoding = "2"
+thiserror = "2"
+zeroize = "1"

@@ -7,6 +7,11 @@ members = [
     "crates/rotor/rotor_core",
     "crates/ferrozine",
     "crates/protasius",
+    "crates/pharos-wire",
+    "crates/pharos-rendezvous",
+    "crates/pharos-seal",
+    "crates/pharos-id",
+    "crates/pharos-tor",
     "nautes/src-tauri",
 ]
 exclude = [

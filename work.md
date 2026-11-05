@@ -106,7 +106,14 @@ week are tried. Test vectors pin the derivation.
 sides at pairing. Heliodor (Belisario's identity system) is left for later,
 to keep this small (PD10).
 
-## Stage 3 — Proteus
+### Stage 2 done — notes
+
+- `pharos-wire`: `Envelope { v, id, sent_ms, body: Text | Ack | Mls | Ping }` (postcard); text cap 1000 characters, checked on both encode and decode; padding to 512 / 2048 / 8192 bytes (32 KiB multiples for MLS handshakes) inside the seal; u32 frames capped at 64 KiB, refused before allocation.
+- `pharos-seal`: `Friendship` over rotor's MLS (start / join / seal / open / export / import); the friendship secret is the MLS exporter at pairing (`pharos/friendship/v1`), stored, since it changes with each epoch. `seal_labelled` / `open_labelled`: XChaCha20-Poly1305 with the label as associated data (directory records, Proteus at rest).
+- `pharos-rendezvous`: HKDF-SHA256 (salt `pharos/rendezvous/v1`) from the friendship secret: weekly onion key per host, mailbox id and token, directory id (weekly), key and token. Dial candidates: this week, last week, next week. Test vectors pinned.
+- `pharos-tor`: arti start / host (arti's own key) / host_with_key (`experimental-api`'s `launch_onion_service_with_hsid`) / dial with timeout. Test: the onion arti publishes for a derived key equals pharos-rendezvous' address.
+- `pharos-id` (2.5, a fifth crate): ed25519 device key, fingerprint (SHA-256, 16 bytes; shown as six groups of four), signed `ContactCard` (name, device key, MLS key package, optional Proteus onion, one-time pairing token, 7-day expiry) and `PairReply` (the scanner's card + MLS welcome, bound to the card it answers), as `pharos-card:` / `pharos-reply:` base32 text for QR or paste.
+
 
 **3.1 Slim axum over arti.** Proteus never listens on a clearnet port: arti
 hosts its onion service, and each incoming onion stream is served by

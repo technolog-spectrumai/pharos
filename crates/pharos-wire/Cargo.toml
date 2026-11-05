@@ -1,0 +1,16 @@
+[package]
+name = "pharos-wire"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Pharos message envelope, padding and framing"
+license = "AGPL-3.0-only"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["use-std"] }
+tokio = { version = "1", features = ["io-util"] }
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "rt"] }

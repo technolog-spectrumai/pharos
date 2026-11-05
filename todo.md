@@ -13,11 +13,11 @@ Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1
 - [x] 1.5 Test and build scripts for this repository (`tests.sh`, `run_dev.sh`), and a CI workflow
 
 ## Stage 2 — Shared core crates
-- [ ] 2.1 `pharos-wire`: the message envelope, framing and version, from Enigma's Tor framing
-- [ ] 2.2 `pharos-seal`: Ferrozine's MLS sealing (rotor) without iroh, for 1:1 friendships and small groups
-- [ ] 2.3 `pharos-tor`: arti hosting and dialing of onion services, from Enigma's `p2p_tor.rs`, with timeouts and size caps
-- [ ] 2.4 `pharos-rendezvous`: deriving a friendship's rotating onion key from its shared secret and the week (D2), with test vectors
-- [ ] 2.5 Identity: a device's long-term key, its fingerprint and its contact card (QR / text)
+- [x] 2.1 `pharos-wire`: the message envelope, framing and version, from Enigma's Tor framing
+- [x] 2.2 `pharos-seal`: Ferrozine's MLS sealing (rotor) without iroh, for 1:1 friendships and small groups
+- [x] 2.3 `pharos-tor`: arti hosting and dialing of onion services, from Enigma's `p2p_tor.rs`, with timeouts and size caps
+- [x] 2.4 `pharos-rendezvous`: deriving a friendship's rotating onion key from its shared secret and the week (D2), with test vectors
+- [x] 2.5 Identity: a device's long-term key, its fingerprint and its contact card (QR / text)
 
 ## Stage 3 — Proteus, the server on a Raspberry Pi
 - [ ] 3.1 A slim axum service reachable only as an onion service through arti (no clearnet port)
