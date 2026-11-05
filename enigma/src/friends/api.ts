@@ -20,9 +20,11 @@ export interface Friend {
 export interface Msg {
   id: string;
   friend: string;
+  /** Empty for a picture. */
   text: string;
   sent_ms: number;
   status: Status;
+  image?: { mime: string; bytes: number } | null;
 }
 export interface Scan {
   friend: string;
@@ -42,6 +44,14 @@ export const accept = (text: string) => invoke<string>("pharos_accept", { text }
 export const friends = () => invoke<Friend[]>("pharos_friends");
 export const messages = (friend: string) => invoke<Msg[]>("pharos_messages", { friend });
 export const send = (friend: string, text: string) => invoke<string>("pharos_send", { friend, text });
+/** A picture, already made small enough (friends/shrink.ts); `data` is base64. */
+export const sendImage = (friend: string, mime: string, data: string) =>
+  invoke<string>("pharos_send_image", { friend, mime, data });
+/** A picture message's bytes, as a data URL to show. */
+export async function imageUrl(id: string): Promise<string> {
+  const r = await invoke<{ mime: string; data: string }>("pharos_image", { id });
+  return `data:${r.mime};base64,${r.data}`;
+}
 export const remove = (friend: string) => invoke<void>("pharos_remove", { friend });
 export const sync = () => invoke<void>("pharos_sync");
 

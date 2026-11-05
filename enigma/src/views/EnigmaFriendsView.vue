@@ -6,6 +6,8 @@ import { useI18n } from "vue-i18n";
 import { OyaButton, OyaEmptyState, OyaModal, OyaQrCode, OyaTextArea, OyaTextField, OyaCopyField } from "petalite/primitives";
 import { formatTime } from "rakotis";
 import QrScannerModal from "../components/chat/QrScannerModal.vue";
+import FriendImage from "../components/friends/FriendImage.vue";
+import { shrink, toBase64, type Fitted } from "../friends/shrink";
 import * as api from "../friends/api";
 import { policy } from "../config/app";
 
@@ -47,6 +49,58 @@ const scroller = ref<HTMLElement | null>(null);
 async function scrollDown() {
   await nextTick();
   scroller.value?.scrollTo?.({ top: scroller.value.scrollHeight });
+}
+
+// ── pictures ────────────────────────────────────────────────────────────────
+// A picture (a screenshot) goes whole, in one message: it is made small enough
+// first (friends/shrink.ts), shown for a yes, then sent. Over Tor it takes a few seconds.
+const picture = ref<(Fitted & { url: string }) | null>(null);
+const shrinking = ref(false);
+const pictureError = ref("");
+const fileInput = ref<HTMLInputElement | null>(null);
+
+async function takePicture(file: Blob | null | undefined) {
+  if (!file || !current.value) return;
+  pictureError.value = "";
+  shrinking.value = true;
+  try {
+    const f = await shrink(file);
+    picture.value = { ...f, url: URL.createObjectURL(f.blob) };
+  } catch {
+    pictureError.value = t("friends.imageTooBig");
+  } finally {
+    shrinking.value = false;
+  }
+}
+
+function onFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  takePicture(input.files?.[0]);
+  input.value = "";
+}
+
+/** A screenshot pasted into the message box becomes a picture to send. */
+function onPaste(e: ClipboardEvent) {
+  const item = [...(e.clipboardData?.items ?? [])].find((i) => i.kind === "file" && i.type.startsWith("image/"));
+  if (!item) return;
+  e.preventDefault();
+  takePicture(item.getAsFile());
+}
+
+function dropPicture() {
+  if (picture.value) URL.revokeObjectURL(picture.value.url);
+  picture.value = null;
+}
+
+async function sendPicture() {
+  const p = picture.value;
+  if (!p || !current.value) return;
+  try {
+    await api.sendImage(current.value, p.mime, await toBase64(p.blob));
+    dropPicture();
+  } catch (e) {
+    pictureError.value = String(e);
+  }
 }
 
 async function sendDraft() {
@@ -258,7 +312,12 @@ async function removeCurrent() {
               class="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm"
               :class="m.status === 'Received' ? 'bg-bubble-bg-light dark:bg-bubble-bg-dark' : 'border border-accent-dark/40 bg-accent-dark/20'"
             >
-              {{ m.text }}
+              <FriendImage
+                v-if="m.image"
+                :id="m.id"
+                :alt="m.status === 'Received' ? $t('friends.imageFrom', { name: friend.name }) : $t('friends.imageYours')"
+              />
+              <template v-else>{{ m.text }}</template>
               <div class="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-60">
                 {{ formatTime(new Date(m.sent_ms)) }}
                 <font-awesome-icon
@@ -275,8 +334,14 @@ async function removeCurrent() {
           <div class="mb-1 text-right text-[11px] tabular-nums" :class="length > MAX ? 'font-bold text-error-light' : 'opacity-50'">
             {{ $t('chat.length', { n: length, max: MAX }) }}
           </div>
+          <p v-if="shrinking" class="mb-1 text-xs opacity-70" role="status">{{ $t('friends.shrinking') }}</p>
+          <p v-if="pictureError && !picture" class="mb-1 text-xs text-error-light dark:text-error-dark" role="alert" data-testid="picture-error">{{ pictureError }}</p>
           <div class="flex gap-2">
-            <OyaTextArea v-model="draft" :rows="1" :placeholder="$t('friends.placeholder')" class="flex-1 text-sm" data-testid="compose" @keydown="onKey" />
+            <input ref="fileInput" type="file" accept="image/*" class="hidden" data-testid="picture-input" @change="onFile" />
+            <OyaButton type="button" :aria-label="$t('friends.addImage')" :title="$t('friends.addImage')" data-testid="add-picture" @click="fileInput?.click()">
+              <font-awesome-icon icon="image" />
+            </OyaButton>
+            <OyaTextArea v-model="draft" :rows="1" :placeholder="$t('friends.placeholder')" class="flex-1 text-sm" data-testid="compose" @keydown="onKey" @paste="onPaste" />
             <OyaButton type="button" :disabled="!canSend" :class="{ 'cursor-not-allowed opacity-40': !canSend }" data-testid="send" @click="sendDraft">
               <font-awesome-icon icon="paper-plane" />{{ $t('chat.send') }}
             </OyaButton>
@@ -285,6 +350,22 @@ async function removeCurrent() {
       </template>
       <OyaEmptyState v-else class="flex-1" icon="users" size="lg">{{ starting ? $t('friends.starting') : $t('friends.pick') }}</OyaEmptyState>
     </section>
+
+    <!-- a picture, before it goes -->
+    <OyaModal :open="!!picture" @close="dropPicture">
+      <div v-if="picture" class="w-[min(34rem,92vw)] space-y-3 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark" data-testid="picture-preview">
+        <h2 class="text-lg font-bold">{{ $t('friends.imagePreview', { name: friend?.name ?? '' }) }}</h2>
+        <img :src="picture.url" :alt="$t('friends.imageYours')" class="max-h-[55vh] w-full rounded-xl object-contain" />
+        <p class="text-xs opacity-70" data-testid="picture-size">
+          {{ $t('friends.imageSize', { kb: Math.ceil(picture.blob.size / 1024), w: picture.width, h: picture.height }) }}
+        </p>
+        <p v-if="pictureError" class="text-xs text-error-light dark:text-error-dark" role="alert">{{ pictureError }}</p>
+        <div class="flex justify-end gap-2">
+          <OyaButton type="button" @click="dropPicture">{{ $t('friends.cancel') }}</OyaButton>
+          <OyaButton type="button" data-testid="send-picture" @click="sendPicture"><font-awesome-icon icon="paper-plane" />{{ $t('friends.sendImage') }}</OyaButton>
+        </div>
+      </div>
+    </OyaModal>
 
     <!-- pairing -->
     <OyaModal v-model:open="pairing">

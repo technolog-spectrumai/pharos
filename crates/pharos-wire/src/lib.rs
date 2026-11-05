@@ -17,7 +17,14 @@ pub const VERSION: u8 = 1;
 /// The longest message, in Unicode scalar values (Enigma' composer has the same cap).
 pub const MAX_TEXT_CHARS: usize = 1000;
 /// The largest frame either side accepts.
-pub const MAX_FRAME: usize = 64 * 1024;
+/// Room for the largest image ([`MAX_IMAGE_BYTES`]) once padded and sealed.
+pub const MAX_FRAME: usize = 256 * 1024;
+/// The largest image a message carries, all in one piece. Enigma shrinks a
+/// picture (a screenshot) until it fits; over Tor it takes a few seconds.
+pub const MAX_IMAGE_BYTES: usize = 192 * 1024;
+/// The image formats a message may carry, checked by their first bytes, not
+/// by what the sender says they are.
+pub const IMAGE_TYPES: [&str; 3] = ["image/webp", "image/jpeg", "image/png"];
 /// Padded plaintext sizes. 1000 characters of 4-byte UTF-8 fit in the last one.
 pub const PAD_BUCKETS: [usize; 3] = [512, 2048, 8192];
 /// The padded size for MLS handshake traffic (commits, welcomes), which can be larger.
@@ -31,6 +38,10 @@ pub enum WireError {
     Empty,
     #[error("message is longer than {MAX_TEXT_CHARS} characters")]
     TooLong,
+    #[error("an image of {0} bytes is over the limit of {MAX_IMAGE_BYTES}")]
+    ImageTooLarge(usize),
+    #[error("not an allowed image (WebP, JPEG or PNG), or not what it says it is: {0}")]
+    ImageType(String),
     #[error("frame of {0} bytes is over the limit")]
     FrameTooLarge(usize),
     #[error("malformed: {0}")]
@@ -54,6 +65,9 @@ pub enum Body {
     Mls(Vec<u8>),
     /// Keep-alive / presence; carries nothing.
     Ping,
+    /// A small picture (a screenshot), whole: WebP, JPEG or PNG, at most
+    /// [`MAX_IMAGE_BYTES`].
+    Image { mime: String, data: Vec<u8> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +90,12 @@ impl Envelope {
         Ok(Self::new(id, sent_ms, Body::Text(text.trim().to_string())))
     }
 
+    /// An image envelope, checked: an allowed format whose bytes match it, within the cap.
+    pub fn image(id: MsgId, sent_ms: u64, mime: &str, data: Vec<u8>) -> Result<Self> {
+        check_image(mime, &data)?;
+        Ok(Self::new(id, sent_ms, Body::Image { mime: mime.to_string(), data }))
+    }
+
     pub fn encode(&self) -> Vec<u8> {
         postcard::to_stdvec(self).expect("an envelope always encodes")
     }
@@ -86,8 +106,10 @@ impl Envelope {
         if e.v != VERSION {
             return Err(WireError::Version(e.v));
         }
-        if let Body::Text(t) = &e.body {
-            check_text(t)?;
+        match &e.body {
+            Body::Text(t) => check_text(t)?,
+            Body::Image { mime, data } => check_image(mime, data)?,
+            _ => {}
         }
         Ok(e)
     }
@@ -101,6 +123,33 @@ pub fn check_text(text: &str) -> Result<()> {
     }
     if t.chars().count() > MAX_TEXT_CHARS {
         return Err(WireError::TooLong);
+    }
+    Ok(())
+}
+
+/// The format an image's first bytes say it is.
+pub fn sniff_image(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if data.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// An image must be one of [`IMAGE_TYPES`], be what its bytes say, and fit.
+pub fn check_image(mime: &str, data: &[u8]) -> Result<()> {
+    if data.is_empty() {
+        return Err(WireError::Empty);
+    }
+    if data.len() > MAX_IMAGE_BYTES {
+        return Err(WireError::ImageTooLarge(data.len()));
+    }
+    if !IMAGE_TYPES.contains(&mime) || sniff_image(data) != Some(mime) {
+        return Err(WireError::ImageType(mime.chars().take(40).collect()));
     }
     Ok(())
 }
@@ -219,6 +268,36 @@ mod tests {
         p[..4].copy_from_slice(&10_000u32.to_be_bytes());
         assert!(unpad(&p).is_err());
         assert!(unpad(&[0, 0]).is_err());
+    }
+
+    fn png(n: usize) -> Vec<u8> {
+        let mut v = b"\x89PNG\r\n\x1a\n".to_vec();
+        v.resize(n, 7);
+        v
+    }
+
+    #[test]
+    fn images_round_trip_whole_and_are_checked_by_their_bytes() {
+        let e = Envelope::image([1; 16], 0, "image/png", png(MAX_IMAGE_BYTES)).unwrap();
+        let bytes = e.encode();
+        assert_eq!(Envelope::decode(&bytes).unwrap(), e);
+        // Padded to whole 32 KiB blocks, and a sealed one still fits a frame.
+        let padded = pad(&bytes);
+        assert_eq!(padded.len() % PAD_LARGE, 0);
+        assert!(padded.len() + 1024 <= MAX_FRAME, "{} plus MLS overhead fits {MAX_FRAME}", padded.len());
+
+        let webp = [b"RIFF".as_slice(), &[0, 0, 0, 0], b"WEBPVP8 "].concat();
+        assert!(Envelope::image([0; 16], 0, "image/webp", webp).is_ok());
+        assert!(Envelope::image([0; 16], 0, "image/jpeg", vec![0xff, 0xd8, 0xff, 0xe0]).is_ok());
+
+        assert_eq!(Envelope::image([0; 16], 0, "image/png", png(MAX_IMAGE_BYTES + 1)).unwrap_err(), WireError::ImageTooLarge(MAX_IMAGE_BYTES + 1));
+        assert!(matches!(Envelope::image([0; 16], 0, "image/jpeg", png(100)), Err(WireError::ImageType(_))), "a PNG called a JPEG");
+        assert!(matches!(Envelope::image([0; 16], 0, "image/svg+xml", b"<svg/>".to_vec()), Err(WireError::ImageType(_))), "no SVG");
+        assert!(matches!(Envelope::image([0; 16], 0, "image/gif", b"GIF89a".to_vec()), Err(WireError::ImageType(_))));
+        assert_eq!(Envelope::image([0; 16], 0, "image/png", vec![]).unwrap_err(), WireError::Empty);
+        // A peer that skipped the checks is refused on our side.
+        let forged = Envelope::new([2; 16], 0, Body::Image { mime: "image/png".into(), data: b"<html>".to_vec() });
+        assert!(matches!(Envelope::decode(&forged.encode()), Err(WireError::ImageType(_))));
     }
 
     #[tokio::test]

@@ -183,6 +183,77 @@ async fn the_code_on_a_proteus_page_connects_enigma_to_it() {
     assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);
 }
 
+/// A PNG of `n` bytes (a real header, then filler): what the window sends.
+fn png(n: usize) -> Vec<u8> {
+    let mut v = b"\x89PNG\r\n\x1a\n".to_vec();
+    v.resize(n, 0x5a);
+    v
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_screenshot_goes_whole_directly_and_through_proteus() {
+    let net = MemNet::default();
+    let t = T::new();
+    proteus(&net, "bobsproteus.onion").await;
+    let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
+    bob.set_proteus(Some("bobsproteus.onion".into())).await.unwrap();
+    pair_by_text_or_drop(&bob, &alice).await;
+    let (fa, fb) = (alice.fingerprint(), bob.fingerprint());
+
+    // Both online: the largest image goes in one message, acknowledged.
+    bob.refresh_listeners().await.unwrap();
+    let big = png(pharos_wire::MAX_IMAGE_BYTES);
+    let id = alice.send_image(&fb, "image/png", big.clone()).await.unwrap();
+    let sent = alice.messages(&fb).into_iter().find(|m| m.id == id).unwrap();
+    assert_eq!(sent.status, Status::Delivered);
+    assert_eq!(sent.image.as_ref().unwrap().bytes as usize, big.len());
+    let got = bob.messages(&fa).into_iter().find(|m| m.id == id).unwrap();
+    assert_eq!((got.status, got.text.as_str()), (Status::Received, ""));
+    assert_eq!(bob.image(&id).unwrap(), ("image/png".to_string(), big.clone()));
+    assert_eq!(alice.image(&id).unwrap().1, big, "the sender keeps its copy");
+
+    // Bob offline: it waits in his mailbox on Proteus, whole, and arrives intact.
+    bob.stop_listeners();
+    let small = png(50_000);
+    let id2 = alice.send_image(&fb, "image/png", small.clone()).await.unwrap();
+    assert_eq!(status_of_id(&alice, &fb, &id2), Status::OnProteus);
+    assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);
+    assert_eq!(bob.image(&id2).unwrap().1, small);
+
+    // What is not an allowed image never leaves.
+    assert!(alice.send_image(&fb, "image/png", png(pharos_wire::MAX_IMAGE_BYTES + 1)).await.is_err());
+    assert!(alice.send_image(&fb, "image/svg+xml", b"<svg onload=x>".to_vec()).await.is_err());
+    assert!(alice.send_image(&fb, "image/jpeg", png(100)).await.is_err(), "a PNG called a JPEG");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_queued_image_survives_a_restart_and_removing_a_friend_drops_its_images() {
+    let net = MemNet::default();
+    let t = T::new();
+    let blobs: Arc<dyn pharos_node::Blobs> = Arc::new(pharos_node::MemBlobs::default());
+    let (alice, _rx) = Node::with_blobs(State::new("Alice"), net.clone(), t.clock(), blobs.clone());
+    let bob = node(&net, &t, "Bob");
+    pair_by_text(&alice, &bob).await;
+    let fb = bob.fingerprint();
+    // Bob is offline and has no Proteus: it waits in Alice's outbox.
+    let id = alice.send_image(&fb, "image/png", png(10_000)).await.unwrap();
+    assert_eq!(status_of_id(&alice, &fb, &id), Status::Queued);
+    // Alice restarts; her saved state and the image store are what she has.
+    let saved = alice.snapshot();
+    drop(alice);
+    let (alice, _rx2) = Node::with_blobs(State::from_bytes(&saved).unwrap(), net.clone(), t.clock(), blobs.clone());
+    bob.refresh_listeners().await.unwrap();
+    alice.deliver_all().await;
+    assert_eq!(status_of_id(&alice, &fb, &id), Status::Delivered);
+    assert_eq!(bob.image(&id).unwrap().1, png(10_000));
+    alice.remove_friend(&fb);
+    assert!(blobs.get(&id).is_none(), "a removed friend's images are gone too");
+}
+
+fn status_of_id(n: &Node<MemNet>, friend: &[u8; 16], id: &[u8; 16]) -> Status {
+    n.messages(friend).into_iter().find(|m| &m.id == id).unwrap().status
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn directory_follows_a_move() {
     let net = MemNet::default();

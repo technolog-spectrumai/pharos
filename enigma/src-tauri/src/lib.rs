@@ -1129,6 +1129,8 @@ pub fn run() {
             pharos::pharos_friends,
             pharos::pharos_messages,
             pharos::pharos_send,
+            pharos::pharos_send_image,
+            pharos::pharos_image,
             pharos::pharos_remove,
             pharos::pharos_sync,
             vault::vault_status,

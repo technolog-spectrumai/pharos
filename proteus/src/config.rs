@@ -24,6 +24,8 @@ pub struct Limits {
     pub max_message_bytes: usize,
     /// Messages kept per mailbox; a full mailbox refuses more until fetched.
     pub max_messages_per_mailbox: u32,
+    /// Bytes kept per mailbox, across its messages (images make some large).
+    pub max_mailbox_bytes: usize,
     pub max_mailboxes: u32,
     /// A message nobody fetched is dropped after this many days.
     pub message_ttl_days: u64,
@@ -40,8 +42,10 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Limits {
-            max_message_bytes: 40 * 1024,
+            // A sealed image (192 KiB, padded, MLS) fits; a text is far smaller.
+            max_message_bytes: 256 * 1024,
             max_messages_per_mailbox: 500,
+            max_mailbox_bytes: 8 * 1024 * 1024,
             max_mailboxes: 10_000,
             message_ttl_days: 14,
             max_record_bytes: 2048,

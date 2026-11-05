@@ -62,10 +62,69 @@ pub enum Status {
 pub struct Message {
     pub id: MsgId,
     pub friend: Fingerprint,
+    /// Empty for an image.
     pub text: String,
     pub sent_ms: u64,
     pub status: Status,
+    /// An image's type and size; its bytes are in the [`Blobs`] store, under the message id.
+    pub image: Option<ImageMeta>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageMeta {
+    pub mime: String,
+    pub bytes: u32,
+}
+
+/// Where image bytes live, apart from the state (which is saved whole on every
+/// change and must stay small). The app keeps them in its vault; tests and the
+/// demo in memory.
+pub trait Blobs: Send + Sync {
+    fn put(&self, id: &MsgId, data: &[u8]);
+    fn get(&self, id: &MsgId) -> Option<Vec<u8>>;
+    fn remove(&self, id: &MsgId);
+}
+
+#[derive(Default)]
+pub struct MemBlobs(Mutex<HashMap<MsgId, Vec<u8>>>);
+
+impl Blobs for MemBlobs {
+    fn put(&self, id: &MsgId, data: &[u8]) {
+        self.0.lock().unwrap().insert(*id, data.to_vec());
+    }
+    fn get(&self, id: &MsgId) -> Option<Vec<u8>> {
+        self.0.lock().unwrap().get(id).cloned()
+    }
+    fn remove(&self, id: &MsgId) {
+        self.0.lock().unwrap().remove(id);
+    }
+}
+
+/// The saved state before images (format 1, no marker): read and moved on.
+mod v1 {
+    use super::*;
+    #[derive(Serialize, Deserialize)]
+    pub struct Message {
+        pub id: MsgId,
+        pub friend: Fingerprint,
+        pub text: String,
+        pub sent_ms: u64,
+        pub status: Status,
+    }
+    #[derive(Serialize, Deserialize)]
+    pub struct State {
+        pub device: [u8; 32],
+        pub name: String,
+        pub proteus: Option<String>,
+        pub previous_proteus: Vec<String>,
+        pub friends: Vec<Friend>,
+        pub messages: Vec<Message>,
+        pub pending: Vec<Pending>,
+    }
+}
+
+/// Marks the saved state's format; format 1 had none.
+const STATE_V2: &[u8; 4] = b"PHS2";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Friend {
@@ -123,10 +182,29 @@ impl State {
         }
     }
     pub fn from_bytes(b: &[u8]) -> Result<Self> {
-        Ok(postcard::from_bytes(b)?)
+        if let Some(rest) = b.strip_prefix(STATE_V2.as_slice()) {
+            return Ok(postcard::from_bytes(rest)?);
+        }
+        // Format 1: the same, without images.
+        let o: v1::State = postcard::from_bytes(b)?;
+        Ok(State {
+            device: o.device,
+            name: o.name,
+            proteus: o.proteus,
+            previous_proteus: o.previous_proteus,
+            friends: o.friends,
+            messages: o
+                .messages
+                .into_iter()
+                .map(|m| Message { id: m.id, friend: m.friend, text: m.text, sent_ms: m.sent_ms, status: m.status, image: None })
+                .collect(),
+            pending: o.pending,
+        })
     }
     pub fn to_bytes(&self) -> Vec<u8> {
-        postcard::to_stdvec(self).expect("state encodes")
+        let mut out = STATE_V2.to_vec();
+        out.extend(postcard::to_stdvec(self).expect("state encodes"));
+        out
     }
     fn key(&self) -> DeviceKey {
         DeviceKey::from_bytes(&self.device)
@@ -180,6 +258,7 @@ impl<N: Net> Clone for Node<N> {
 
 struct Inner<N> {
     net: N,
+    blobs: Arc<dyn Blobs>,
     st: Mutex<State>,
     events: mpsc::UnboundedSender<Event>,
     clock: Clock,
@@ -256,9 +335,14 @@ struct DirectoryRecord {
 }
 
 impl<N: Net> Node<N> {
+    /// A node keeping image bytes in memory (tests, the demo).
     pub fn new(state: State, net: N, clock: Clock) -> (Self, mpsc::UnboundedReceiver<Event>) {
+        Self::with_blobs(state, net, clock, Arc::new(MemBlobs::default()))
+    }
+
+    pub fn with_blobs(state: State, net: N, clock: Clock, blobs: Arc<dyn Blobs>) -> (Self, mpsc::UnboundedReceiver<Event>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Inner { net, st: Mutex::new(state), events: tx, clock, hosts: Mutex::default() };
+        let inner = Inner { net, blobs, st: Mutex::new(state), events: tx, clock, hosts: Mutex::default() };
         (Node { inner: Arc::new(inner) }, rx)
     }
 
@@ -323,6 +407,9 @@ impl<N: Net> Node<N> {
         {
             let mut st = self.st();
             st.friends.retain(|f| &f.fp != friend);
+            for m in st.messages.iter().filter(|m| &m.friend == friend && m.image.is_some()) {
+                self.inner.blobs.remove(&m.id);
+            }
             st.messages.retain(|m| &m.friend != friend);
         }
         self.inner.hosts.lock().unwrap().remove(friend);
@@ -486,15 +573,64 @@ impl<N: Net> Node<N> {
         let id = random::<16>();
         let env = Envelope::text(id, self.now() * 1000, text)?;
         let Body::Text(t) = env.body else { unreachable!() };
-        let msg = Message { id, friend: *friend, text: t, sent_ms: env.sent_ms, status: Status::Queued };
+        let msg = Message { id, friend: *friend, text: t, sent_ms: env.sent_ms, status: Status::Queued, image: None };
         {
             let mut st = self.st();
             st.friend_mut(friend)?;
-            push_capped(&mut st.messages, msg.clone());
+            push_capped(&mut st.messages, msg.clone(), &*self.inner.blobs);
         }
         self.changed();
         self.emit(Event::Message(msg));
         Ok(id)
+    }
+
+    /// Queue a small image (WebP, JPEG or PNG, at most `MAX_IMAGE_BYTES`), sent
+    /// whole like a text. The window shrinks a picture to fit first.
+    pub fn queue_image(&self, friend: &Fingerprint, mime: &str, data: Vec<u8>) -> Result<MsgId> {
+        let id = random::<16>();
+        let env = Envelope::image(id, self.now() * 1000, mime, data)?;
+        let Body::Image { mime, data } = env.body else { unreachable!() };
+        let msg = Message {
+            id,
+            friend: *friend,
+            text: String::new(),
+            sent_ms: env.sent_ms,
+            status: Status::Queued,
+            image: Some(ImageMeta { mime, bytes: data.len() as u32 }),
+        };
+        {
+            let mut st = self.st();
+            st.friend_mut(friend)?;
+            self.inner.blobs.put(&id, &data);
+            push_capped(&mut st.messages, msg.clone(), &*self.inner.blobs);
+        }
+        self.changed();
+        self.emit(Event::Message(msg));
+        Ok(id)
+    }
+
+    /// Queue and try to deliver now.
+    pub async fn send_image(&self, friend: &Fingerprint, mime: &str, data: Vec<u8>) -> Result<MsgId> {
+        let id = self.queue_image(friend, mime, data)?;
+        let _ = self.deliver(friend).await;
+        Ok(id)
+    }
+
+    /// An image message's type and bytes.
+    pub fn image(&self, id: &MsgId) -> Option<(String, Vec<u8>)> {
+        let mime = self.st().messages.iter().find(|m| &m.id == id)?.image.as_ref()?.mime.clone();
+        Some((mime, self.inner.blobs.get(id)?))
+    }
+
+    /// The envelope that carries a queued message.
+    fn envelope_of(&self, m: &Message) -> Result<Envelope> {
+        match &m.image {
+            None => Ok(Envelope::text(m.id, m.sent_ms, &m.text)?),
+            Some(img) => {
+                let data = self.inner.blobs.get(&m.id).ok_or_else(|| anyhow!("the image's bytes are gone"))?;
+                Ok(Envelope::image(m.id, m.sent_ms, &img.mime, data)?)
+            }
+        }
     }
 
     fn set_status(&self, id: &MsgId, status: Status) {
@@ -538,13 +674,21 @@ impl<N: Net> Node<N> {
     /// Handle an opened envelope; returns the id to acknowledge, if any.
     fn handle(&self, friend: &Fingerprint, env: Envelope) -> Option<MsgId> {
         match env.body {
-            Body::Text(text) => {
-                let msg = Message { id: env.id, friend: *friend, text, sent_ms: env.sent_ms, status: Status::Received };
+            Body::Text(_) | Body::Image { .. } => {
+                let (text, image) = match env.body {
+                    Body::Text(t) => (t, None),
+                    Body::Image { mime, data } => {
+                        self.inner.blobs.put(&env.id, &data);
+                        (String::new(), Some(ImageMeta { mime, bytes: data.len() as u32 }))
+                    }
+                    _ => unreachable!(),
+                };
+                let msg = Message { id: env.id, friend: *friend, text, sent_ms: env.sent_ms, status: Status::Received, image };
                 let new = {
                     let mut st = self.st();
                     let dup = st.messages.iter().any(|m| m.id == msg.id && &m.friend == friend);
                     if !dup {
-                        push_capped(&mut st.messages, msg.clone());
+                        push_capped(&mut st.messages, msg.clone(), &*self.inner.blobs);
                     }
                     !dup
                 };
@@ -595,7 +739,7 @@ impl<N: Net> Node<N> {
             self.drop_acks(friend, &acks);
         }
         for m in &queued {
-            let env = Envelope::text(m.id, m.sent_ms, &m.text)?;
+            let env = self.envelope_of(m)?;
             proteus::put_message(&self.inner.net, &p, &id, &token, self.seal(friend, &env)?).await?;
             self.set_status(&m.id, Status::OnProteus);
         }
@@ -616,7 +760,7 @@ impl<N: Net> Node<N> {
             self.drop_acks(friend, acks);
         }
         for m in queued {
-            let env = Envelope::text(m.id, m.sent_ms, &m.text)?;
+            let env = self.envelope_of(m)?;
             write_frame(&mut io, &self.seal(friend, &env)?).await?;
             let reply = tokio::time::timeout(ACK_TIMEOUT, read_frame(&mut io)).await.map_err(|_| anyhow!("no acknowledgement"))??;
             if let Opened::Message(e) = self.open(friend, &reply)? {
@@ -784,13 +928,18 @@ impl<N: Net> Node<N> {
     }
 }
 
-fn push_capped(v: &mut Vec<Message>, m: Message) {
+/// Add a message, dropping the friend's oldest past [`HISTORY_CAP`] (and its
+/// image's bytes).
+fn push_capped(v: &mut Vec<Message>, m: Message, blobs: &dyn Blobs) {
     let f = m.friend;
     v.push(m);
     let n = v.iter().filter(|x| x.friend == f).count();
     if n > HISTORY_CAP {
         if let Some(i) = v.iter().position(|x| x.friend == f) {
-            v.remove(i);
+            let old = v.remove(i);
+            if old.image.is_some() {
+                blobs.remove(&old.id);
+            }
         }
     }
 }
@@ -816,5 +965,27 @@ mod tests {
         assert!(parse_proteus("pharos-proteus:XYZ").is_err());
         assert!(parse_proteus("pharos-card:AAAA").is_err());
         assert!(parse_proteus("ąę").is_err(), "non-ASCII input does not panic");
+    }
+
+    #[test]
+    fn a_state_saved_before_images_is_read_and_moved_on() {
+        let old = v1::State {
+            device: [1; 32],
+            name: "Alice".into(),
+            proteus: Some("x.onion".into()),
+            previous_proteus: vec![],
+            friends: vec![],
+            messages: vec![v1::Message { id: [2; 16], friend: [3; 16], text: "hi".into(), sent_ms: 5, status: Status::Delivered }],
+            pending: vec![],
+        };
+        let bytes = postcard::to_stdvec(&old).unwrap();
+        let s = State::from_bytes(&bytes).unwrap();
+        assert_eq!((s.name.as_str(), s.proteus.as_deref()), ("Alice", Some("x.onion")));
+        assert_eq!(s.messages[0].text, "hi");
+        assert_eq!(s.messages[0].image, None);
+        // Saved again, it is the new format, and reads back the same.
+        let again = s.to_bytes();
+        assert!(again.starts_with(STATE_V2));
+        assert_eq!(State::from_bytes(&again).unwrap().messages, s.messages);
     }
 }

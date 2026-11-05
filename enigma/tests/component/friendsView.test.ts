@@ -20,6 +20,14 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 
+vi.mock("../../src/friends/shrink", async (orig) => ({
+  ...(await orig<typeof import("../../src/friends/shrink")>()),
+  // jsdom has no canvas: the search itself is tested in shrink.test.ts.
+  shrink: async (f: Blob) => ({ mime: "image/webp", blob: new Blob([new Uint8Array([82, 73, 70, 70])], { type: "image/webp" }), width: 1280, height: 720, _from: f }),
+}));
+globalThis.URL.createObjectURL ??= () => "blob:preview";
+globalThis.URL.revokeObjectURL ??= () => {};
+
 import EnigmaFriendsView from "../../src/views/EnigmaFriendsView.vue";
 
 const ME = { name: "Alice", fingerprint: "AAAA BBBB CCCC DDDD EEEE FFFF", id: "a1", proteus: null };
@@ -147,6 +155,30 @@ describe("Friends", () => {
     await flushPromises();
     expect(w.get("[data-testid=pair-note]").text()).toBe(i18n.global.t("friends.proteusCodeHint"));
     expect(calls.some(([c]) => c === "pharos_scan" || c === "pharos_accept" || c === "pharos_set_proteus")).toBe(false);
+  });
+
+  it("sends a picture whole after showing it, and shows pictures in the conversation", async () => {
+    replies.pharos_friends = [BOB];
+    replies.pharos_messages = [{ id: "i1", friend: "b0", text: "", sent_ms: 0, status: "Received", image: { mime: "image/png", bytes: 3 } }];
+    replies.pharos_image = { mime: "image/png", data: "iVBO" };
+    replies.pharos_send_image = "i2";
+    const w = view();
+    await flushPromises();
+    await w.get("[data-testid=friend-Bob]").trigger("click");
+    await flushPromises();
+    // A received picture is fetched from Rust when shown.
+    expect(calls.find(([c]) => c === "pharos_image")?.[1]).toEqual({ id: "i1" });
+    expect(w.get("[data-testid=friend-image]").attributes("src")).toBe("data:image/png;base64,iVBO");
+    // Choosing one shows it first, with its size; Send sends it whole.
+    const input = w.get("[data-testid=picture-input]");
+    Object.defineProperty(input.element, "files", { value: [new File([new Uint8Array(500_000)], "shot.png", { type: "image/png" })] });
+    await input.trigger("change");
+    await flushPromises();
+    expect(w.get("[data-testid=picture-size]").text()).toContain("1 KB · 1280×720");
+    await w.get("[data-testid=send-picture]").trigger("click");
+    await flushPromises();
+    expect(calls.find(([c]) => c === "pharos_send_image")?.[1]).toEqual({ friend: "b0", mime: "image/webp", data: "UklGRg==" });
+    expect(w.find("[data-testid=picture-preview]").exists()).toBe(false);
   });
 
   it("shows a start failure instead of a blank page", async () => {

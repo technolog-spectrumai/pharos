@@ -37,7 +37,7 @@ struct Peer {
 type Peers = Arc<HashMap<String, Peer>>;
 
 fn msg(m: &Message) -> Value {
-    json!({ "id": hex(&m.id), "friend": hex(&m.friend), "text": m.text, "sent_ms": m.sent_ms, "status": m.status })
+    json!({ "id": hex(&m.id), "friend": hex(&m.friend), "text": m.text, "sent_ms": m.sent_ms, "status": m.status, "image": m.image })
 }
 
 fn me(n: &Node<MemNet>) -> Value {
@@ -78,6 +78,22 @@ async fn call(State(p): State<Peers>, Path((who, cmd)): Path<(String, String)>, 
                     let _ = n.deliver(&fp).await;
                 });
                 json!(hex(&id))
+            }
+            "pharos_send_image" => {
+                let fp = parse_fp(&s("friend"))?;
+                let data = data_encoding::BASE64.decode(s("data").as_bytes())?;
+                let id = n.queue_image(&fp, &s("mime"), data)?;
+                let n = n.clone();
+                tokio::spawn(async move {
+                    // A picture over Tor takes a few seconds.
+                    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+                    let _ = n.deliver(&fp).await;
+                });
+                json!(hex(&id))
+            }
+            "pharos_image" => {
+                let (mime, data) = n.image(&parse_fp(&s("id"))?).ok_or_else(|| anyhow::anyhow!("that image is no longer kept"))?;
+                json!({ "mime": mime, "data": data_encoding::BASE64.encode(&data) })
             }
             "pharos_remove" => {
                 n.remove_friend(&parse_fp(&s("friend"))?);

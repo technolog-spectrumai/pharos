@@ -60,6 +60,8 @@ pub struct MessageView {
     text: String,
     sent_ms: u64,
     status: Status,
+    /// An image's type and size; the window asks for its bytes with `pharos_image`.
+    image: Option<pharos_node::ImageMeta>,
 }
 
 impl From<Message> for MessageView {
@@ -70,7 +72,26 @@ impl From<Message> for MessageView {
             text: m.text,
             sent_ms: m.sent_ms,
             status: m.status,
+            image: m.image,
         }
+    }
+}
+
+/// Image bytes in the vault (`pharos-img/<message id>`), sealed like everything
+/// else, apart from the state so saving the state stays cheap.
+struct VaultBlobs(AppHandle);
+
+const IMG_NS: &str = "pharos-img";
+
+impl pharos_node::Blobs for VaultBlobs {
+    fn put(&self, id: &[u8; 16], data: &[u8]) {
+        let _ = crate::vault::put(&self.0, IMG_NS, &pharos_node::hex(id), data);
+    }
+    fn get(&self, id: &[u8; 16]) -> Option<Vec<u8>> {
+        crate::vault::get(&self.0, IMG_NS, &pharos_node::hex(id)).ok().flatten()
+    }
+    fn remove(&self, id: &[u8; 16]) {
+        let _ = crate::vault::delete(&self.0, IMG_NS, &pharos_node::hex(id));
     }
 }
 
@@ -98,7 +119,8 @@ pub async fn pharos_start(app: AppHandle, name: Option<String>) -> Result<Me, St
     crate::vault::put(&app, NS, KEY, &state.to_bytes())?;
     let dir = base(&app);
     let tor = pharos_tor::Tor::start(dir.join("state"), dir.join("cache"), false).await.map_err(|e| e.to_string())?;
-    let (node, mut events) = Node::new(state, TorNet(tor), pharos_node::system_clock());
+    let blobs = std::sync::Arc::new(VaultBlobs(app.clone()));
+    let (node, mut events) = Node::with_blobs(state, TorNet(tor), pharos_node::system_clock(), blobs);
 
     let (a, n) = (app.clone(), node.clone());
     let forward = tauri::async_runtime::spawn(async move {
@@ -140,7 +162,8 @@ fn notify(app: &AppHandle, n: &Node<TorNet>, m: &MessageView) {
     use tauri_plugin_notification::NotificationExt;
     let from = n.friends().into_iter().find(|f| f.id == m.friend).map(|f| f.name).unwrap_or_default();
     // The text stays in the app: a notification can be read on a locked screen.
-    let _ = app.notification().builder().title("Enigma").body(format!("{from}: new message")).show();
+    let what = if m.image.is_some() { "new image" } else { "new message" };
+    let _ = app.notification().builder().title("Enigma").body(format!("{from}: {what}")).show();
 }
 
 /// Stop on lock: hosting ends, the state is already saved.
@@ -225,6 +248,35 @@ pub async fn pharos_send(app: AppHandle, friend: String, text: String) -> Result
         let _ = n.deliver(&fp).await;
     });
     Ok(pharos_node::hex(&id))
+}
+
+/// Queue a small image (WebP, JPEG or PNG, at most 192 KiB; the window shrinks
+/// a picture first), base64. Sent whole, in the background, like a text.
+#[tauri::command]
+pub async fn pharos_send_image(app: AppHandle, friend: String, mime: String, data: String) -> Result<String, String> {
+    let fp = parse_fp(&friend).map_err(|e| e.to_string())?;
+    let bytes = data_encoding::BASE64.decode(data.as_bytes()).map_err(|_| "the image did not arrive whole".to_string())?;
+    let n = node(&app).await?;
+    let id = n.queue_image(&fp, &mime, bytes).map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn(async move {
+        let _ = n.deliver(&fp).await;
+    });
+    Ok(pharos_node::hex(&id))
+}
+
+#[derive(Serialize)]
+pub struct ImageView {
+    mime: String,
+    /// base64
+    data: String,
+}
+
+/// An image message's bytes, for the window to show.
+#[tauri::command]
+pub async fn pharos_image(app: AppHandle, id: String) -> Result<ImageView, String> {
+    let id = parse_fp(&id).map_err(|e| e.to_string())?;
+    let (mime, data) = node(&app).await?.image(&id).ok_or("that image is no longer kept")?;
+    Ok(ImageView { mime, data: data_encoding::BASE64.encode(&data) })
 }
 
 #[tauri::command]

@@ -69,17 +69,19 @@ tries this week, then last week, then next week.
 
 ```
 Envelope { v: u8 = 1, id: [u8; 16] (random), sent_ms: u64, body: Body }
-Body = Text(String) | Ack(Vec<[u8; 16]>) | Mls(Vec<u8>) | Ping
+Body = Text(String) | Ack(Vec<[u8; 16]>) | Mls(Vec<u8>) | Ping | Image { mime: String, data: Vec<u8> }
 ```
 
 Text is trimmed, 1–1000 Unicode scalar values; refused on decode otherwise.
+An image is WebP, JPEG or PNG (its first bytes must match its `mime`), at most
+192 KiB, sent whole in one message; anything else is refused on decode.
 
 **Padding**, before encryption: `len: u32 BE ‖ bytes ‖ zeros` to 512, 2048 or
 8192 bytes, or a multiple of 32768 beyond; non-zero padding is refused.
 
 **Sealing**: an MLS application message in the friendship's group (ciphersuite MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519, OpenMLS 0.7).
 
-**Frames** on a stream: `len: u32 BE ‖ bytes`, at most 65536 bytes.
+**Frames** on a stream: `len: u32 BE ‖ bytes`, at most 262144 bytes (room for a sealed image).
 
 **Direct session**: the dialer connects to the friend's rendezvous onion and
 sends frames. For each frame that opens to a Text, the host answers with one
@@ -103,7 +105,7 @@ HTTP/1.1 over its onion. Ids and tokens are lower-case hex; a token goes in
 | `GET /v1/pairing/{token}` | – | → the reply once, then 404 |
 
 Errors: 400 bad id, 401 no token, 403 wrong token, 404, 409, 413 too large,
-429 rate limited, 507 full. Defaults: messages ≤ 40 KiB, 500 per mailbox,
+429 rate limited, 507 full. Defaults: messages ≤ 256 KiB, 500 and 8 MiB per mailbox,
 kept 14 days; records ≤ 2 KiB, 15 days; pairing replies ≤ 48 KiB, 7 days; 60
 requests per minute per id.
 

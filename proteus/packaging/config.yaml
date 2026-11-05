@@ -7,8 +7,9 @@ master_key: /etc/proteus/master.key
 name: Proteus
 page: true
 limits:
-  max_message_bytes: 40960
+  max_message_bytes: 262144      # a sealed image (Enigma sends pictures up to 192 KiB)
   max_messages_per_mailbox: 500
+  max_mailbox_bytes: 8388608     # per mailbox, across its messages
   max_mailboxes: 10000
   message_ttl_days: 14
   max_record_bytes: 2048

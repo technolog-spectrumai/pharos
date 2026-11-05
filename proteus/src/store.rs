@@ -115,8 +115,13 @@ impl Store {
             Ok(h) => h,
             Err(r) => return Ok(Err(r)),
         };
-        let count: u32 = tx.query_row("SELECT COUNT(*) FROM message WHERE mailbox=?1", [&hid[..]], |r| r.get(0))?;
-        if count >= self.limits.max_messages_per_mailbox {
+        let (count, bytes): (u32, i64) = tx.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(LENGTH(blob)), 0) FROM message WHERE mailbox=?1",
+            [&hid[..]],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        // Stored sizes include the at-rest seal (40 bytes); near enough for a quota.
+        if count >= self.limits.max_messages_per_mailbox || bytes as usize + blob.len() > self.limits.max_mailbox_bytes {
             return Ok(Err(Refusal::Full));
         }
         let seq: i64 = tx.query_row("SELECT next_seq FROM mailbox WHERE id=?1", [&hid[..]], |r| r.get(0))?;
@@ -293,6 +298,17 @@ mod tests {
         let big = vec![0; s.limits().max_message_bytes + 1];
         assert_eq!(s.put_message(b"box2", b"t", &big, 0).unwrap(), Err(Refusal::TooLarge));
         assert!(s.fetch(b"nobox", b"t", 0, 10).unwrap().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_mailbox_holds_at_most_its_bytes() {
+        let limits = Limits { max_mailbox_bytes: 100_000, ..Limits::default() };
+        let s = Store::in_memory(MasterKey::from_bytes(&[7; 32]), limits).unwrap();
+        s.put_message(b"box", b"tok", &[1; 60_000], 0).unwrap().unwrap();
+        assert_eq!(s.put_message(b"box", b"tok", &[2; 60_000], 0).unwrap(), Err(Refusal::Full));
+        assert!(s.put_message(b"box", b"tok", &[3; 30_000], 0).unwrap().is_ok(), "a smaller one still fits");
+        s.ack(b"box", b"tok", 2).unwrap().unwrap();
+        assert!(s.put_message(b"box", b"tok", &[4; 60_000], 0).unwrap().is_ok(), "fetched and acknowledged: room again");
     }
 
     #[test]
