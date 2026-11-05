@@ -46,7 +46,7 @@ const PIN_MAX_FAILURES: u8 = 5;
 #[cfg(feature = "pin_unlock")]
 /// AAD ties the sealed passphrase to this use, so the blob is meaningless if it
 /// ever turned up anywhere else.
-const PIN_AAD: &[u8] = b"vesper/vault/pin/v1";
+const PIN_AAD: &[u8] = b"enigma/vault/pin/v1";
 
 #[cfg(feature = "pin_unlock")]
 struct PinBox {
@@ -417,7 +417,7 @@ fn panic_wipe(
     // is not one of the three we delete below, so it survives long enough to be
     // swapped out and removed at the end.
     let (scratch, scratch_store) = [
-        std::env::temp_dir().join(format!("vesper-{tag}")),
+        std::env::temp_dir().join(format!("enigma-{tag}")),
         base.join(format!(".wipe-{tag}")),
     ]
     .into_iter()
@@ -425,7 +425,7 @@ fn panic_wipe(
     .ok_or_else(|| "no writable scratch location".to_string())?;
     *store = scratch_store;
 
-    // Everything Vesper owns: all profiles (protasius stores, vault.json headers,
+    // Everything Enigma owns: all profiles (protasius stores, vault.json headers,
     // tor/ onion keystores, and the maps/ folder a build with the old Map tab
     // left behind) plus the pre-vault legacy plaintext.
     let _ = std::fs::remove_dir_all(base.join("profiles"));

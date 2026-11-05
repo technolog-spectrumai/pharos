@@ -1,4 +1,4 @@
-# Vesper's own; the repo root's .gitignore covers the rest.
+# Enigma's own; the repo root's .gitignore covers the rest.
 
 # Per-profile dev build dirs (scripts/dev_target.sh) — one per running instance
 # so two dev instances never queue behind one another's Cargo lock.
@@ -6,7 +6,7 @@ target-*/
 **/target-*/
 *.wasm
 
-# The `custom` Vesper edition: a local feature set of your own. The presets in
+# The `custom` Enigma edition: a local feature set of your own. The presets in
 # dromon.yaml stay checked in; this never is.
 src-tauri/configs/build_config.custom.yaml
 

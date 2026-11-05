@@ -50,7 +50,7 @@ who published that commitment holds the private key to join.
 
 ## Wire compatibility
 
-`file` speaks Vesper's `vesper/file/1` byte for byte: the same JSON control
+`file` speaks Vesper's `enigma/file/1` byte for byte: the same JSON control
 frames, chunk framing, chain seed, MLS identities and commitment hash.
 Vesper moves onto ferrozine without breaking transfers between old and new
 builds. Pumex uses the same protocol under its own ALPN. `room::topic_for`

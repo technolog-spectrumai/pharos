@@ -8,7 +8,7 @@ import { isTauri, invoke } from "./tauri";
 import { kvGet, kvPut } from "./localDb";
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
-const LS_OFFLINE = "vesper:offline";
+const LS_OFFLINE = "enigma:offline";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -143,12 +143,12 @@ export async function getUseTor(): Promise<boolean> {
 
 export async function getStableOnion(): Promise<boolean> {
   if (isTauri()) return invoke<boolean>("app_get_stable_onion");
-  return localStorage.getItem("vesper:stableOnion") === "on";
+  return localStorage.getItem("enigma:stableOnion") === "on";
 }
 
 export async function setStableOnion(stableOnion: boolean): Promise<void> {
   if (isTauri()) { await invoke("app_set_stable_onion", { stableOnion }); return; }
-  localStorage.setItem("vesper:stableOnion", stableOnion ? "on" : "off");
+  localStorage.setItem("enigma:stableOnion", stableOnion ? "on" : "off");
 }
 
 // ── P2P connection timeout (room create + join give up after this many seconds) ─

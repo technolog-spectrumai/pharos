@@ -23,10 +23,10 @@ val tauriProperties = Properties().apply {
 // the two in lockstep (its check_gradle() asserts these names appear here):
 //
 //   1. a ${VAR} placeholder in gen/android/keystore.properties;
-//   2. the well-known environment variable — VESPER_KEYSTORE_FILE,
-//      VESPER_KEYSTORE_PASSWORD, VESPER_KEY_ALIAS, VESPER_KEY_PASSWORD;
+//   2. the well-known environment variable — ENIGMA_KEYSTORE_FILE,
+//      ENIGMA_KEYSTORE_PASSWORD, ENIGMA_KEY_ALIAS, ENIGMA_KEY_PASSWORD;
 //   3. a literal in keystore.properties (gitignored, never committed);
-//   4. $XDG_CONFIG_HOME/vesper-builder/signing.properties (default
+//   4. $XDG_CONFIG_HOME/enigma-builder/signing.properties (default
 //      ~/.config/…), which must be chmod 600 — outside every repo.
 //
 // Two deliberate refusals:
@@ -53,7 +53,7 @@ val keystoreProperties = Properties().apply {
 val localSigningFile: File = run {
     val xdg = providers.environmentVariable("XDG_CONFIG_HOME").orNull?.trim().orEmpty()
     val base = if (xdg.isEmpty()) File(System.getProperty("user.home"), ".config") else File(xdg)
-    File(base, "vesper-builder/signing.properties")
+    File(base, "enigma-builder/signing.properties")
 }
 
 var localSigningProblem: String? = null
@@ -79,10 +79,10 @@ val localSigningProperties = Properties().apply {
 val requiredSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
 
 val envForSigningKey = mapOf(
-    "storeFile" to "VESPER_KEYSTORE_FILE",
-    "storePassword" to "VESPER_KEYSTORE_PASSWORD",
-    "keyAlias" to "VESPER_KEY_ALIAS",
-    "keyPassword" to "VESPER_KEY_PASSWORD",
+    "storeFile" to "ENIGMA_KEYSTORE_FILE",
+    "storePassword" to "ENIGMA_KEYSTORE_PASSWORD",
+    "keyAlias" to "ENIGMA_KEY_ALIAS",
+    "keyPassword" to "ENIGMA_KEY_PASSWORD",
 )
 
 // `storePassword=${MY_VAR}` — the whole value must be a single placeholder.
@@ -139,7 +139,7 @@ fun storeFileIsFromPropertiesFile(): Boolean {
     val raw = (keystoreProperties.getProperty("storeFile") ?: "").trim()
     if (raw.isEmpty() || signingPlaceholder.matchEntire(raw) != null) return false
     // A literal in the file loses to the env var (rule 2 beats rule 3).
-    val fromEnv = providers.environmentVariable("VESPER_KEYSTORE_FILE").orNull?.trim().orEmpty()
+    val fromEnv = providers.environmentVariable("ENIGMA_KEYSTORE_FILE").orNull?.trim().orEmpty()
     return fromEnv.isEmpty()
 }
 
@@ -157,8 +157,8 @@ val releaseSigningProblem: String? = run {
         missing.size == requiredSigningKeys.size ->
             "No release signing credentials found.\n" +
                 "Provide them via ${keystorePropertiesFile.absolutePath} (copy " +
-                "keystore.properties.example), the VESPER_KEYSTORE_* / " +
-                "VESPER_KEY_* environment variables, or " +
+                "keystore.properties.example), the ENIGMA_KEYSTORE_* / " +
+                "ENIGMA_KEY_* environment variables, or " +
                 "${localSigningFile.absolutePath} (chmod 600).\n" +
                 "Required: ${requiredSigningKeys.joinToString(", ")}."
 
@@ -181,8 +181,8 @@ val releaseSigningProblem: String? = run {
                 "signed with it cannot be updated by a real release, and " +
                 "anyone can forge an update for it.\n" +
                 "Generate a release keystore instead:\n" +
-                "  keytool -genkeypair -v -keystore vesper-release.jks " +
-                "-alias vesper -keyalg RSA -keysize 4096 -validity 10000"
+                "  keytool -genkeypair -v -keystore enigma-release.jks " +
+                "-alias enigma -keyalg RSA -keysize 4096 -validity 10000"
 
         !resolveStoreFile(rawStore).isFile ->
             "storeFile '$rawStore' does not exist (resolved to " +
@@ -194,10 +194,10 @@ val releaseSigningProblem: String? = run {
 
 android {
     compileSdk = 36
-    namespace = "com.spectrumaipl.vesper"
+    namespace = "com.spectrumaipl.enigma"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.spectrumaipl.vesper"
+        applicationId = "com.spectrumaipl.enigma"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
@@ -253,12 +253,12 @@ android {
 // task graph so it fires before any work, and only for this module's release
 // packaging tasks — a debug build never trips it.
 // The unsigned-release escape hatch. Set ONLY by scripts/build_android.sh
-// --allow-unsigned-release (via ORG_GRADLE_PROJECT_vesperAllowUnsignedRelease,
+// --allow-unsigned-release (via ORG_GRADLE_PROJECT_enigmaAllowUnsignedRelease,
 // the one env→property bridge that survives the tauri CLI, which forwards
 // nothing to Gradle). Read ONLY here, never inside signingConfigs — so it can
 // waive *unsigned*, but can never change WHICH key signs, and in particular
 // can never fall back to the debug key: a debug keystore still refuses above.
-val allowUnsignedRelease = (findProperty("vesperAllowUnsignedRelease") as? String) == "true"
+val allowUnsignedRelease = (findProperty("enigmaAllowUnsignedRelease") as? String) == "true"
 
 gradle.taskGraph.whenReady {
     // Kotlin DSL: the Action overload makes the graph the receiver — a named

@@ -199,7 +199,7 @@ pub fn decode(s: &str, my_ed25519_seed: Option<&[u8; 32]>) -> Result<DecodedInvi
         // The one case worth distinguishing: a newer format is not corruption,
         // and telling the user to update is actionable where "invalid" is not.
         return Err(anyhow!(
-            "INVITE_VERSION: this invitation was made by a newer version of Vesper"
+            "INVITE_VERSION: this invitation was made by a newer version of Enigma"
         ));
     }
     let kind = InviteKind::from_tag(bytes[2]).ok_or_else(|| anyhow!("not an invitation"))?;

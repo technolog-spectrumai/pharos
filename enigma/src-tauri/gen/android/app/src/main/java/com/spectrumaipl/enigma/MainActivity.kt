@@ -1,4 +1,4 @@
-package com.spectrumaipl.vesper
+package com.spectrumaipl.enigma
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

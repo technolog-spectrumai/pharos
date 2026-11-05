@@ -482,13 +482,13 @@ mod tests {
         let (welcome, _commit) = admin.add_member(&guest_kp).unwrap();
         guest.join_from_welcome(&welcome).unwrap();
 
-        let a = admin.export_secret("vesper/vox/c2s", b"call-123", 32).unwrap();
-        let b = guest.export_secret("vesper/vox/c2s", b"call-123", 32).unwrap();
+        let a = admin.export_secret("enigma/vox/c2s", b"call-123", 32).unwrap();
+        let b = guest.export_secret("enigma/vox/c2s", b"call-123", 32).unwrap();
         assert_eq!(a.len(), 32);
         assert_eq!(a, b, "both members derive the same exporter secret");
 
         // Different labels (per-direction keys) must differ.
-        let other = admin.export_secret("vesper/vox/s2c", b"call-123", 32).unwrap();
+        let other = admin.export_secret("enigma/vox/s2c", b"call-123", 32).unwrap();
         assert_ne!(a, other, "different labels yield independent keys");
     }
 
@@ -766,20 +766,20 @@ mod tests {
         // Vox keys come from the exporter; when the roster changes, the old
         // key must stop being the key — and every member must move together.
         let (mut alice, mut guests) = room("room-epoch", &["bob"]);
-        let before = alice.export_secret("vesper/vox/c2s", b"call", 32).unwrap();
-        assert_eq!(guests[0].export_secret("vesper/vox/c2s", b"call", 32).unwrap(), before);
+        let before = alice.export_secret("enigma/vox/c2s", b"call", 32).unwrap();
+        assert_eq!(guests[0].export_secret("enigma/vox/c2s", b"call", 32).unwrap(), before);
 
         let mut carol = RotorSession::new("room-epoch".into(), "carol".into()).unwrap();
         let (welcome, commit) = alice.add_member(&carol.key_package().unwrap()).unwrap();
-        let after = alice.export_secret("vesper/vox/c2s", b"call", 32).unwrap();
+        let after = alice.export_secret("enigma/vox/c2s", b"call", 32).unwrap();
         assert_ne!(after, before);
 
         // Bob is still on the old epoch until he processes the commit.
-        assert_eq!(guests[0].export_secret("vesper/vox/c2s", b"call", 32).unwrap(), before);
+        assert_eq!(guests[0].export_secret("enigma/vox/c2s", b"call", 32).unwrap(), before);
         guests[0].process_message(&commit).unwrap();
         carol.join_from_welcome(&welcome).unwrap();
-        assert_eq!(guests[0].export_secret("vesper/vox/c2s", b"call", 32).unwrap(), after);
-        assert_eq!(carol.export_secret("vesper/vox/c2s", b"call", 32).unwrap(), after);
+        assert_eq!(guests[0].export_secret("enigma/vox/c2s", b"call", 32).unwrap(), after);
+        assert_eq!(carol.export_secret("enigma/vox/c2s", b"call", 32).unwrap(), after);
     }
 
     #[test]

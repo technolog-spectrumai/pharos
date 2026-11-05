@@ -58,7 +58,7 @@ use crate::CryptoError;
 
 /// Domain separation for the HKDF step. Bumping this invalidates every previously
 /// sealed blob, so it moves only alongside a format version.
-const INFO: &[u8] = b"vesper/seal/x25519-hkdf-sha256/v1";
+const INFO: &[u8] = b"enigma/seal/x25519-hkdf-sha256/v1";
 
 /// Length of an X25519 public key, and of the ephemeral header on a sealed blob.
 pub const X25519_PK_LEN: usize = 32;

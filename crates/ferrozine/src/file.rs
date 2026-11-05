@@ -27,7 +27,7 @@
 //! - **Bounded memory** — both sides stream chunk by chunk; frame sizes are
 //!   bounded before allocation.
 //!
-//! The wire format is Vesper's `vesper/file/1`, unchanged, so Vesper can move
+//! The wire format is Vesper's `enigma/file/1`, unchanged, so Vesper can move
 //! onto this module without breaking transfers with older builds. Another app
 //! (Pumex) uses the same protocol under its own ALPN.
 //!
@@ -53,7 +53,7 @@ use crate::pair::{self, b64, unb64, Caller, Channel};
 
 /// The ALPN Vesper's transfers use. A new app picks its own (a peer that
 /// cannot negotiate it fails to connect instead of misreading the stream).
-pub const VESPER_ALPN: &[u8] = b"vesper/file/1";
+pub const VESPER_ALPN: &[u8] = b"enigma/file/1";
 
 const KIND_CHUNK: u8 = 0;
 const KIND_TRAILER: u8 = 1;
@@ -227,7 +227,7 @@ pub fn transfers_active() -> bool {
 /// another transfer. The domain string is part of the v1 wire format.
 fn chain_seed(offer_id: &str) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
-    h.update(b"vesper/file/chain/v1");
+    h.update(b"enigma/file/chain/v1");
     h.update(offer_id.as_bytes());
     *h.finalize().as_bytes()
 }

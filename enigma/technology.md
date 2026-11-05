@@ -139,9 +139,9 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Cryptography (at rest) | `gervasius` (Argon2id → wrapped DEK → XChaCha20-Poly1305) + `protasius` (per-profile encrypted fjall store) ([§13](#13-encryption-at-rest-gervasius--protasius)) |
 | Local storage | protasius (encrypted fjall LSM keyspace) per profile; OS app-data dir |
 | Media capture | cpal (microphone + speaker) + hound (WAV) for native voice notes; cpal + rustfft for live voice calls |
-| Voice calls (Vox) | 1:1 real-time voice over iroh QUIC datagrams (ALPN `vesper/vox/0` on the main endpoint); G.711 μ-law audio, per-call MLS-keyed ChaCha20-Poly1305, rustfft equalizer |
+| Voice calls (Vox) | 1:1 real-time voice over iroh QUIC datagrams (ALPN `enigma/vox/0` on the main endpoint); G.711 μ-law audio, per-call MLS-keyed ChaCha20-Poly1305, rustfft equalizer |
 | Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
-| Room invites | Peer-to-peer only (`p2p_invite.rs`, ALPN `vesper/invite/0`): a live offer/accept handshake carrying a fresh ticket + DHT room code, so both peers must be online at once. Everything else is out-of-band — the QR code, the copyable ticket string, or a DHT room code. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
+| Room invites | Peer-to-peer only (`p2p_invite.rs`, ALPN `enigma/invite/0`): a live offer/accept handshake carrying a fresh ticket + DHT room code, so both peers must be online at once. Everything else is out-of-band — the QR code, the copyable ticket string, or a DHT room code. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [§19](#19-run-build-and-test)) |
 | Build/CI | `./build.sh`, configured by a preset (`pro.yaml` / `std.yaml`); GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
@@ -310,8 +310,8 @@ There is no WebSocket and no HTTP data path for chat.
 - **Endpoint.** A single process-global iroh `Endpoint` is built with `presets::N0` +
   `RelayMode::Default`, i.e. iroh's built-in **n0 public relays and n0 discovery**
   (pkarr-style signed DNS records). Identity is a stable Ed25519 `SecretKey` →
-  **NodeId**. The router accepts iroh-gossip's ALPN plus `vesper/invite/0` (direct
-  room invites) and `vesper/vox/0` (calls); file transfer runs its own ephemeral
+  **NodeId**. The router accepts iroh-gossip's ALPN plus `enigma/invite/0` (direct
+  room invites) and `enigma/vox/0` (calls); file transfer runs its own ephemeral
   endpoint. A build without the `hosted_relays` feature
   ([§20](#20-features-and-presets)) uses `presets::Minimal` +
   `RelayMode::Disabled` instead — direct QUIC and Tor only.
@@ -351,7 +351,7 @@ There is no WebSocket and no HTTP data path for chat.
 ### Voice calls (Vox) — real-time media over the same endpoint
 
 1:1 voice calls (`vox.rs`, Vox tab) reuse the **main iroh endpoint**: a second ALPN
-(`vesper/vox/0`) is registered on the same router as gossip and invites, so a callee is
+(`enigma/vox/0`) is registered on the same router as gossip and invites, so a callee is
 call-reachable at the very NodeId their contacts/nickname already resolve to (no
 separate identity, no directory). Three ways to place a call, all ending in one dial:
 
@@ -376,7 +376,7 @@ live call when airplane/Tor is toggled or the profile is switched.
 
 ### File transfer — chunked, MLS-sealed, chain-verified
 
-`file_xfer.rs` binds its own ephemeral iroh endpoint on ALPN `vesper/file/1` (v1 =
+`file_xfer.rs` binds its own ephemeral iroh endpoint on ALPN `enigma/file/1` (v1 =
 MLS chunks; a v0 peer simply cannot negotiate it, so a version skew fails to connect
 rather than misreading the stream). One bi-stream carries everything:
 
@@ -917,7 +917,7 @@ hourly key rotation. Enabling the toggle publishes your NodeId record (relay
 addresses only, by default) — the presence feature's data source *is* its privacy
 cost. Topic collision on `blake3(name)` is unchanged from ticket rooms.
 
-**Direct room invites** ride a dedicated ALPN (`vesper/invite/0`, `p2p_invite.rs`):
+**Direct room invites** ride a dedicated ALPN (`enigma/invite/0`, `p2p_invite.rs`):
 an offer/accept handshake whose payload carries a fresh ticket + the DHT room code,
 surfaced as `invite://incoming` / `invite://resolved`. Both peers must be **online
 at the same time** — the handshake is a live QUIC dial with nothing to hold a
@@ -1254,8 +1254,8 @@ relevant subsystem:
 bypasses it, and `gervasius::create_vault` accepts any passphrase. If it's a real
 boundary, enforce the same value in Rust (`vault_setup`/`vault_change_passphrase`).
 
-**Frontend consts (rakotis).** LocalStorage keys + the `vesper:` prefix + the on/off
-boolean encoding are scattered (`vesper:stableOnion` is inline-duplicated in
+**Frontend consts (rakotis).** LocalStorage keys + the `enigma:` prefix + the on/off
+boolean encoding are scattered (`enigma:stableOnion` is inline-duplicated in
 get/set) → one constants module. Same for chat timing (`5000`, `30000` duplicated) and
 UI copy/confirm delays (`1200`/`1500`/`2000`).
 
@@ -1391,15 +1391,15 @@ card, shared rooms) — moved to [limbo/frontend/peers/](limbo/frontend/peers/) 
 one worth carrying forward: a grant **persisted a 32-byte pairwise link key in
 each contact record** — long-lived secret material sitting where anything that
 can read the contact list can read it, and outliving any single sync. The second
-is plainer: it cost more to maintain than it returned. The `vesper/plink/0` ALPN,
+is plainer: it cost more to maintain than it returned. The `enigma/plink/0` ALPN,
 the `peer_*` commands, the `peers.enabled` gate and the `peer_resync_secs`
 setting all went with it. A revival should start by asking whether the link key
 needs to persist at all.
 
 Not to be confused with device linking, which assumes both ends are the same
 person and therefore filters nothing. The two families were deliberately
-domain-separated in their HMAC labels (`vesper/plink/v1/kp` vs
-`vesper/devlink/v1/kp`) so a proof minted for one could never be replayed into
+domain-separated in their HMAC labels (`enigma/plink/v1/kp` vs
+`enigma/devlink/v1/kp`) so a proof minted for one could never be replayed into
 the other — a test in the parked set still pins that.
 
 ### Moved to Morion — maps (2026-10-03)
@@ -2562,7 +2562,7 @@ catalogue — the one place that says which ids exist and what each requires.
 |---|---|---|---|
 | `hosted_relays` | iroh's n0 relays and pkarr/DNS discovery. Without it iroh runs with relays disabled: direct QUIC by ticket and Tor keep working, reconnecting to a bare NodeId does not | a mode switch in `p2p_iroh.rs` / `file_xfer.rs` | — |
 | `dht` | The Mainline DHT: join by room code, the nickname directory, presence ([§12](#12-dht-discovery-mainline-rendezvous--contacts)). **Requires `hosted_relays`** | `p2p_dht.rs`, the `dht_*` commands; crates `mainline`, iroh's `address-lookup-pkarr-dht` | the DHT card in Settings, find-people in Contacts, call-by-nickname |
-| `calls` | 1:1 voice calls | `vox.rs`, the `vox_*` commands, the `vesper/vox/0` protocol; crate `rustfft` | the Vox tab, `useVoxCall` |
+| `calls` | 1:1 voice calls | `vox.rs`, the `vox_*` commands, the `enigma/vox/0` protocol; crate `rustfft` | the Vox tab, `useVoxCall` |
 | `contacts` | Contacts and direct room invites | `p2p_invite.rs`, the invite protocol | the Contacts tab, `useRoomInvites` |
 | `calendar` | Meetings and polls | none | the Calendar tab, `useMeetings` |
 | `pin_unlock` | Re-opening an idle-locked vault with a PIN | the `vault_pin_*` commands and the PIN state | the keypad, the PIN card in Settings |
@@ -2673,7 +2673,7 @@ build without a feature does not merely hide a surface — it never subscribes t
 those message types, and its endpoint does not speak the feature's protocol.
 
 - An incoming **call** from a Professional peer is refused at protocol
-  negotiation: a Standard endpoint has no `vesper/vox/0`.
+  negotiation: a Standard endpoint has no `enigma/vox/0`.
 - A **meeting invite** is an unhandled message type and is dropped. The
   Standard user sees nothing.
 

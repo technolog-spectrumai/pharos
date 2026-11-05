@@ -168,7 +168,7 @@ fn nickname_for_gen(name: &str, generation: u32) -> Result<HsNickname> {
         format!("{name}#{generation}")
     };
     let hex = blake3::hash(seed.as_bytes()).to_hex();
-    HsNickname::new(format!("vesper_{}", &hex.as_str()[..16]))
+    HsNickname::new(format!("enigma_{}", &hex.as_str()[..16]))
         .map_err(|e| anyhow!("invalid hs nickname: {e}"))
 }
 
@@ -376,7 +376,7 @@ async fn ensure_started(app: &AppHandle, state: &TorP2pState) -> Result<()> {
         // Ephemeral: a fresh temp dir → arti generates a new HS key → the onion
         // regenerates each session. Nothing persists in app-data.
         let d = std::env::temp_dir().join(format!(
-            "vesper-tor-{}-{}",
+            "enigma-tor-{}-{}",
             crate::safe_filename_component(&profile_name(app)),
             uuid::Uuid::new_v4().simple()
         ));
@@ -908,7 +908,7 @@ pub async fn forget_onion(app: &AppHandle, state: &TorP2pState, name: String) ->
             // a temp dir, drop the nickname subtree, re-seal, wipe the temp dir.
             if let Ok(Some(archive)) = crate::vault::get(app, "keys", "tor_keystore") {
                 let tmp = std::env::temp_dir()
-                    .join(format!("vesper-tor-forget-{}", uuid::Uuid::new_v4().simple()));
+                    .join(format!("enigma-tor-forget-{}", uuid::Uuid::new_v4().simple()));
                 let _ = std::fs::create_dir_all(&tmp);
                 if extract_archive(&tmp, &archive).is_ok() {
                     remove_nickname_from_keystore(&tmp, &nick);
@@ -1234,7 +1234,7 @@ mod tests {
     #[test]
     fn relaxed_permissions_accept_a_loose_state_dir() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("vesper_tor_perm_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("enigma_tor_perm_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();

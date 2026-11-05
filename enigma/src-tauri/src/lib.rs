@@ -29,7 +29,7 @@ mod vault;
 
 /// Which optional features this binary was BUILT with — the Cargo features of
 /// this crate (Cargo.toml `[features]`), chosen per build by the root config
-/// (apps/vesper/dromon.yaml: pro / std). A feature that is false here is not switched off: it
+/// (once Vesper's editions; Enigma builds one). A feature that is false here is not switched off: it
 /// is not compiled, and its commands do not exist.
 ///
 /// Not to be confused with `build_config::defaults`, the initial values of a
