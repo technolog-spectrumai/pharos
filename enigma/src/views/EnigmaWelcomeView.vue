@@ -35,11 +35,21 @@ onMounted(async () => {
   <section class="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 pb-8">
     <!-- ── who this is ──────────────────────────────────────────────────── -->
     <OyaCard class="flex flex-col items-center gap-4 text-center">
-      <img
-        src="../assets/enigma/app_icon.png"
-        :alt="brand.name"
-        class="h-24 w-24 rounded-2xl object-contain sm:h-28 sm:w-28"
-      />
+      <!-- The letter is the app's mark (top bar, OS icon); the key is its mascot. -->
+      <div class="flex items-center justify-center gap-5">
+        <img
+          src="../assets/enigma/app_icon.png"
+          :alt="brand.name"
+          class="h-24 w-24 rounded-2xl object-contain sm:h-28 sm:w-28"
+        />
+        <img
+          src="../assets/enigma/key.png"
+          alt=""
+          aria-hidden="true"
+          class="h-24 w-24 object-contain sm:h-28 sm:w-28"
+          data-testid="welcome-mascot"
+        />
+      </div>
       <div class="flex flex-col gap-1">
         <h1 class="text-2xl font-bold tracking-wide sm:text-3xl">{{ brand.name }}</h1>
         <p class="text-xs opacity-60" data-testid="welcome-version">
