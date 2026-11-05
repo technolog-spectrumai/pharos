@@ -183,7 +183,17 @@ looks them up.
 **4.6 Local state.** Enigma's vault: encrypted at rest behind a passphrase.
 Notifications for new messages.
 
-## Stage 5 — Security and tests
+### Stage 4 done — notes
+
+- The engine is a crate, `crates/pharos-node`, so it is tested without a window: `Node<N: Net>` with `TorNet` (arti, `pharos-tor`) in the app and `MemNet` (in-process streams, plus routing an "onion" to a loopback Proteus) in tests. Its whole state is one postcard `State`, saved by the app in the vault (`pharos/state`) on every `Event::Changed`.
+- Pairing: each shown card carries its own MLS key package and a one-time token, kept as a pending entry for a week. Scanning a card starts the MLS group and gives a `PairReply`; it is left on the card owner's Proteus under the token when the card names one (the owner's `poll_pairings` takes it), and otherwise shown as a QR / text. A welcome opens only for the key package it was made for, so a reply is matched to its card by trying the pending entries.
+- Direct: per friend, this week's rendezvous onion (key from the friendship secret and *our* fingerprint); dialling tries this week, last week, next week. One frame per message; every text is answered by a sealed `Ack` on the same connection.
+- Offline: the outbox keeps `Queued` messages and retries each round (60 s). If the friend's card or directory record names a Proteus, the message goes to their mailbox instead (`OnProteus`) and becomes `Delivered` when their acknowledgement arrives (directly, or through *our* mailbox). Acknowledgements we owe ride with the next delivery.
+- Directory: when we set or change our Proteus, a sealed `{proteus, at}` record goes, per friend, to the current and previous Proteus for this week and the next; a friend's `lookup` follows it to the new address.
+- Nautes: `src-tauri/src/pharos.rs` (commands `pharos_*`, events `pharos://message|status|friends`, a notification that says who wrote but not what), started after unlock, stopped on lock. Its own arti instance in `profiles/<p>/pharos-tor/` (rendezvous keys are derived, so nothing there is secret beyond the vault). `NautesFriendsView.vue` is the first tab: friends, a conversation with statuses, a 1000-character composer, pairing (QR, copy, paste, camera), name and Proteus.
+- Enigma's rooms remain as the second tab, "Groups" (small groups over the captain relay). Two arti clients run while both are in use; merging them is a later cleanup.
+- Tests: pharos-node 7 end-to-end (without Proteus; weekly rotation and clock skew; mailbox, pairing drop-off and acks with a real Proteus; directory move; restart from a snapshot; hostile cards, replies, frames); `friendsView.test.ts` 5.
+
 
 **5.1 Threat model.** What each party learns:
 - **Tor** sees nothing of content and no addresses beyond its circuits.

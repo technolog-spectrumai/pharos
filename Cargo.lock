@@ -4954,6 +4954,8 @@ dependencies = [
  "futures-lite",
  "gervasius",
  "iroh-base",
+ "pharos-node",
+ "pharos-tor",
  "postcard",
  "protasius",
  "rotor-core",

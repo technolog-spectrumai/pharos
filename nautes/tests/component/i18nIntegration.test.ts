@@ -16,7 +16,7 @@ beforeEach(() => {
 describe("i18n plugin integration", () => {
   it("renders English by default", () => {
     const w = mount(Probe, { global: { plugins: [i18n] } });
-    expect(w.get(".s").text()).toBe("Chat");
+    expect(w.get(".s").text()).toBe("Groups");
     expect(w.get(".t").text()).toBe("Create");
   });
 
@@ -24,7 +24,7 @@ describe("i18n plugin integration", () => {
     const w = mount(Probe, { global: { plugins: [i18n] } });
     setLocale("pl");
     await w.vm.$nextTick();
-    expect(w.get(".s").text()).toBe("Czat");
+    expect(w.get(".s").text()).toBe("Grupy");
     expect(w.get(".t").text()).toBe("Utwórz");
   });
 });

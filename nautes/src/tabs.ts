@@ -32,7 +32,7 @@
 import { computed, ref } from "vue";
 import { getBuildConfig, getHiddenTabs, setHiddenTabs, type BuildConfig } from "rakotis";
 
-export type AppTabId = "chat";
+export type AppTabId = "friends" | "chat";
 
 export interface AppTab {
   id: AppTabId;
@@ -51,6 +51,9 @@ export interface AppTab {
  *  Nautes has one: Chat (Enigma's Files, Vox, Calendar and Contacts were cut
  *  in Pharos Stage 1.3). */
 export const APP_TABS: readonly AppTab[] = [
+  // Pharos 1:1 friends (pairing, rendezvous onions, Proteus) — the main surface.
+  { id: "friends", path: "/friends", labelKey: "nav.friends", icon: "user-plus", gate: null },
+  // Enigma's rooms over a captain relay, kept for small groups.
   { id: "chat", path: "/chat", labelKey: "nav.chat", icon: "comments", gate: null },
 ];
 

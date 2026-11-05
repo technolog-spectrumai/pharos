@@ -21,6 +21,7 @@ mod invite_redeem;
 // The commands the invitation UI drives: mint, list, revoke, inspect, redeem.
 mod invite_api;
 mod p2p_tor;
+mod pharos;
 mod realtime;
 // Encryption-at-rest: the centralized encrypted store integration (protasius).
 // Replaces the old plaintext kv.rs + per-file persistence.
@@ -1072,6 +1073,7 @@ pub fn run() {
         .manage(invite_redeem::RedeemState::default())
         // The peer-hosted onion transport.
         .manage(p2p_tor::TorP2pState::default())
+        .manage(pharos::PharosState::default())
         // Last-heartbeat timestamp for the Rust-side lock watchdog (vault.rs).
         .manage(vault::ActivityState::default());
 
@@ -1117,6 +1119,18 @@ pub fn run() {
             app_set_offline,
             app_get_stable_onion,
             app_set_stable_onion,
+            pharos::pharos_start,
+            pharos::pharos_me,
+            pharos::pharos_set_name,
+            pharos::pharos_set_proteus,
+            pharos::pharos_card,
+            pharos::pharos_scan,
+            pharos::pharos_accept,
+            pharos::pharos_friends,
+            pharos::pharos_messages,
+            pharos::pharos_send,
+            pharos::pharos_remove,
+            pharos::pharos_sync,
             vault::vault_status,
             vault::vault_setup,
             vault::vault_unlock,

@@ -1,6 +1,7 @@
 import { watch } from "vue";
 import { createRouter, createMemoryHistory } from "vue-router";
 import NautesChatView from "../views/NautesChatView.vue";
+import NautesFriendsView from "../views/NautesFriendsView.vue";
 import NautesConfigView from "../views/NautesConfigView.vue";
 import NautesWelcomeView from "../views/NautesWelcomeView.vue";
 import NautesPrivacyView from "../views/NautesPrivacyView.vue";
@@ -28,6 +29,7 @@ const router = createRouter({
     // buttons come through here, and "/" is also where every lock cycle re-enters
     // (window.location.reload wipes the memory history).
     { path: "/", redirect: () => firstVisiblePath() },
+    { path: "/friends", component: NautesFriendsView, name: "friends", beforeEnter: tabGuard("friends") },
     { path: "/chat", component: NautesChatView, name: "chat", beforeEnter: tabGuard("chat") },
     // Privacy HP — reached from the header's HP chip, not from the nav, so it is
     // ungated like Settings and the welcome page.

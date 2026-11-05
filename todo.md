@@ -29,12 +29,12 @@ Plan only, awaiting the owner's approval (2026-11-05). Decisions (work.md): **D1
 - [x] 3.6 Raspberry Pi: aarch64 build, systemd unit, memory and SD-card budget, install guide
 
 ## Stage 4 — Nautes, the client
-- [ ] 4.1 The cut-down window: friends, conversation, compose a short message, settings
-- [ ] 4.2 Pairing (D1): exchange contact cards by QR or text, verify the fingerprint, set up the friendship's secret and Proteus address
-- [ ] 4.3 Friendship (D2): host this week's rendezvous onion per friend and dial theirs; deliver directly when both are online
-- [ ] 4.4 Offline without Proteus: an undelivered message waits in a local outbox and is retried while both are online; with Proteus (M3) it is left in the friend's mailbox instead and fetched on their start and on a schedule
-- [ ] 4.5 Directory (D5), only with Proteus: publish your current reachability and look friends up there when the rendezvous fails; without it, a lost friend is paired again (D1)
-- [ ] 4.6 Local state encrypted at rest behind a passphrase (Enigma's vault), and desktop notifications
+- [x] 4.1 The cut-down window: friends, conversation, compose a short message, settings
+- [x] 4.2 Pairing (D1): exchange contact cards by QR or text, verify the fingerprint, set up the friendship's secret and Proteus address
+- [x] 4.3 Friendship (D2): host this week's rendezvous onion per friend and dial theirs; deliver directly when both are online
+- [x] 4.4 Offline without Proteus: an undelivered message waits in a local outbox and is retried while both are online; with Proteus (M3) it is left in the friend's mailbox instead and fetched on their start and on a schedule
+- [x] 4.5 Directory (D5), only with Proteus: publish your current reachability and look friends up there when the rendezvous fails; without it, a lost friend is paired again (D1)
+- [x] 4.6 Local state encrypted at rest behind a passphrase (Enigma's vault), and desktop notifications
 
 ## Stage 5 — Security and tests
 - [ ] 5.1 Threat model and metadata: what Proteus, Tor and a friend can learn; padding and fetch schedules

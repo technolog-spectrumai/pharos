@@ -61,6 +61,9 @@ serde_json = "1"
 # (crates/rotor), consumed by path — so building nautes fetches nothing but
 # crates.io.
 rotor-core = { path = "../../crates/rotor/rotor_core" }
+# Pharos friends (pharos.rs): the engine and its onion transport.
+pharos-node = { path = "../../crates/pharos-node" }
+pharos-tor = { path = "../../crates/pharos-tor" }
 # Encryption at rest: the centralized encrypted store (protasius) built on the
 # crypto primitives crate (gervasius). All app data persists through protasius.
 protasius = { path = "../../crates/protasius" }

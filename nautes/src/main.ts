@@ -147,6 +147,7 @@ import {
   faGavel,
   faCommentSlash,
   faUserSlash,
+  faUserPlus,
   faArrowsRotate,
   faLinkSlash,
 } from "@fortawesome/free-solid-svg-icons";
@@ -285,6 +286,7 @@ library.add(
   faGavel,
   faCommentSlash,
   faUserSlash,
+  faUserPlus,
   faArrowsRotate,
   faLinkSlash,
 );

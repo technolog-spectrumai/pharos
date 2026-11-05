@@ -459,6 +459,7 @@ fn panic_wipe(
 pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
     let tor = app.state::<crate::p2p_tor::TorP2pState>();
     crate::p2p_tor::shutdown(app, &tor).await;
+    crate::pharos::stop(app).await;
 
     if let Ok(mut s) = app.state::<Sessions>().lock() {
         s.clear(); // in-memory MLS material
