@@ -464,14 +464,14 @@ async function clearSelectedOfflineData() {
     <!-- Profile / Settings tabs -->
     <div
       :class="darkMode ? 'border-accent-1' : 'border-accent-2'"
-      class="flex gap-1 rounded-xl border p-1 text-sm font-semibold"
+      class="grid grid-flow-col auto-cols-fr gap-1 rounded-xl border p-1 text-sm font-semibold" data-testid="config-tabs"
     >
       <button
         type="button"
         :class="activeTab === 'profile'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2 py-2 text-sm transition sm:px-3 sm:text-base"
+        class="flex min-h-12 min-w-0 flex-col overflow-hidden text-ellipsis items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] leading-tight transition sm:flex-row sm:gap-2 sm:px-3 sm:py-2 sm:text-sm"
         @click="activeTab = 'profile'"
       >
         <font-awesome-icon icon="user" />{{ $t('nav.myProfile') }}
@@ -481,7 +481,7 @@ async function clearSelectedOfflineData() {
         :class="activeTab === 'settings'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2 py-2 text-sm transition sm:px-3 sm:text-base"
+        class="flex min-h-12 min-w-0 flex-col overflow-hidden text-ellipsis items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] leading-tight transition sm:flex-row sm:gap-2 sm:px-3 sm:py-2 sm:text-sm"
         @click="activeTab = 'settings'"
       >
         <font-awesome-icon icon="gear" />{{ $t('nav.settings') }}
@@ -491,7 +491,7 @@ async function clearSelectedOfflineData() {
         :class="activeTab === 'connections'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2 py-2 text-sm transition sm:px-3 sm:text-base"
+        class="flex min-h-12 min-w-0 flex-col overflow-hidden text-ellipsis items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] leading-tight transition sm:flex-row sm:gap-2 sm:px-3 sm:py-2 sm:text-sm"
         @click="activeTab = 'connections'"
       >
         <font-awesome-icon icon="circle-nodes" />{{ $t('nav.connections') }}
@@ -501,7 +501,7 @@ async function clearSelectedOfflineData() {
         :class="activeTab === 'lock'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2 py-2 text-sm transition sm:px-3 sm:text-base"
+        class="flex min-h-12 min-w-0 flex-col overflow-hidden text-ellipsis items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] leading-tight transition sm:flex-row sm:gap-2 sm:px-3 sm:py-2 sm:text-sm"
         @click="activeTab = 'lock'"
       >
         <font-awesome-icon icon="key" />{{ $t('nav.lock') }}
@@ -511,7 +511,7 @@ async function clearSelectedOfflineData() {
         :class="activeTab === 'data'
           ? (darkMode ? 'bg-accent-dark text-primary-bg-dark' : 'bg-accent-light text-primary-bg-light')
           : 'opacity-60 hover:opacity-100'"
-        class="flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2 py-2 text-sm transition sm:px-3 sm:text-base"
+        class="flex min-h-12 min-w-0 flex-col overflow-hidden text-ellipsis items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] leading-tight transition sm:flex-row sm:gap-2 sm:px-3 sm:py-2 sm:text-sm"
         @click="activeTab = 'data'"
       >
         <font-awesome-icon icon="database" />{{ $t('nav.data') }}
