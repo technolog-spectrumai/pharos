@@ -14,7 +14,8 @@ import type { ChatChannel } from "rakotis";
 import "@tauri-apps/api/core";
 import { i18n } from "../../src/i18n";
 import RoomStatusBar from "../../src/components/chat/RoomStatusBar.vue";
-import MobileRoomsDrawer from "../../src/components/chat/MobileRoomsDrawer.vue";
+import RoomsModal from "../../src/components/chat/RoomsModal.vue";
+import ParticipantsModal from "../../src/components/chat/ParticipantsModal.vue";
 import RoomsSidebar from "../../src/components/chat/RoomsSidebar.vue";
 import ParticipantsPanel from "../../src/components/chat/ParticipantsPanel.vue";
 import { stopHp } from "../../src/components/hp/useHp";
@@ -45,6 +46,7 @@ function makeChannel() {
     currentRoom: ref<{ slug: string; name: string } | null>({ slug: "room-1", name: "Room" }),
     isParticipant: ref(true),
     participants: ref([{ id: "a", name: "Ann" }, { id: "b", name: "Ben" }]),
+    p2pRooms: ref<unknown[]>([]),
     mlsStatus: ref("ready"),
     mlsError: ref<string | null>(null),
     wsStatus: ref("connected"),
@@ -206,85 +208,71 @@ describe("RoomStatusBar — a participant", () => {
   });
 });
 
-// ── mobile drawer ───────────────────────────────────────────────────────────
+// ── rooms and participants dialogs (no side slider) ─────────────────────────
 
 const controller = { openCreate: vi.fn(), openJoin: vi.fn() } as unknown as P2pRoomsController;
+const MODAL = { props: ["open"], template: '<div v-if="open" data-testid="modal"><slot /></div>' };
 
-function mountDrawer(ch: Channel = makeChannel(), open = true) {
-  const w = mount(MobileRoomsDrawer, {
-    props: { open, channel: ch as unknown as ChatChannel, controller },
-    global: { ...GLOBAL(), stubs: { RoomsSidebar: true, ParticipantsPanel: true } },
+describe("RoomsModal", () => {
+  it("shows the rooms list as a dialog and closes when a room is picked", async () => {
+    const ch = makeChannel();
+    const w = mount(RoomsModal, {
+      props: { open: true, channel: ch as unknown as ChatChannel, controller },
+      global: { ...GLOBAL(), stubs: { RoomsSidebar: true, OyaModal: MODAL } },
+    });
+    expect(w.get("[data-testid=rooms-modal]").text()).toContain("Rooms");
+    expect(w.findComponent(RoomsSidebar).exists()).toBe(true);
+    expect(w.get("[data-testid=rooms-empty]").text()).toContain("No rooms yet");
+    ch.currentRoom.value = { ...ch.currentRoom.value, slug: "another-room" } as never;
+    await flushPromises();
+    expect(w.emitted("update:open")).toEqual([[false]]);
   });
-  return { w, ch };
-}
 
-describe("MobileRoomsDrawer", () => {
   it("renders nothing while closed", () => {
-    const { w } = mountDrawer(makeChannel(), false);
-    expect(w.find("aside").exists()).toBe(false);
+    const w = mount(RoomsModal, {
+      props: { open: false, channel: makeChannel() as unknown as ChatChannel, controller },
+      global: { ...GLOBAL(), stubs: { RoomsSidebar: true, OyaModal: MODAL } },
+    });
+    expect(w.find("[data-testid=rooms-modal]").exists()).toBe(false);
+  });
+});
+
+describe("ParticipantsModal", () => {
+  const mountP = (ch: Channel) =>
+    mount(ParticipantsModal, {
+      props: { open: true, channel: ch as unknown as ChatChannel },
+      global: { ...GLOBAL(), stubs: { ParticipantsPanel: true, OyaModal: MODAL } },
+    });
+
+  it("shows the roster with its count", () => {
+    const ch = makeChannel();
+    const w = mountP(ch);
+    expect(w.findComponent(ParticipantsPanel).exists()).toBe(true);
+    expect(w.get("[data-testid=participants-count]").text()).toBe("2");
   });
 
-  it("carries the rooms list and the roster of the same channel", () => {
-    const { w, ch } = mountDrawer();
-    expect(w.get("aside").text()).toContain("Rooms");
-    expect(w.findComponent(RoomsSidebar).props()).toMatchObject({ channel: ch, controller });
-    expect(w.findComponent(ParticipantsPanel).props()).toMatchObject({ channel: ch, compact: true });
-    // The participant count reads the live roster.
-    expect(w.text()).toContain("Participants");
-    expect(w.text()).toMatch(/Participants\s*2/);
-  });
-
-  it("closes from the backdrop and from its close button", async () => {
-    const { w } = mountDrawer();
-    await w.get(".bg-black\\/40").trigger("click");
-    await w.get('button[aria-label="Close rooms"]').trigger("click");
-    expect(w.emitted("update:open")).toEqual([[false], [false]]);
+  it("lets an observer join, inert while joining, and a member leave", async () => {
+    const ch = makeChannel();
+    ch.isParticipant.value = false;
+    const pending = deferred();
+    ch.joinParticipant.mockReturnValue(pending.promise);
+    const w = mountP(ch);
+    await w.get("[data-testid=join-room]").trigger("click");
+    expect(ch.joinParticipant).toHaveBeenCalledTimes(1);
+    expect(w.get("[data-testid=join-room]").classes()).toContain("pointer-events-none");
+    pending.resolve();
+    await flushPromises();
+    ch.isParticipant.value = true;
+    await flushPromises();
+    await w.get("[data-testid=leave-room]").trigger("click");
+    expect(ch.leaveParticipant).toHaveBeenCalledTimes(1);
   });
 
   it("offers no join or leave when no room is open", () => {
     const ch = makeChannel();
     ch.currentRoom.value = null;
-    const { w } = mountDrawer(ch);
-    expect(w.text()).not.toContain("Join Room");
-    expect(w.text()).not.toContain("Leave Room");
-  });
-
-  it("lets an observer join the open room, inert while joining", async () => {
-    const ch = makeChannel();
-    ch.isParticipant.value = false;
-    const pending = deferred();
-    ch.joinParticipant.mockReturnValue(pending.promise);
-    const { w } = mountDrawer(ch);
-    await byText(w, "Join Room").trigger("click");
-    expect(ch.joinParticipant).toHaveBeenCalledTimes(1);
-    expect(byText(w, "Join Room").classes()).toContain("pointer-events-none");
-    pending.resolve();
-    await flushPromises();
-    expect(byText(w, "Join Room").classes()).not.toContain("pointer-events-none");
-  });
-
-  it("lets a participant leave, and recovers from a leave that fails", async () => {
-    const ch = makeChannel();
-    ch.leaveParticipant.mockRejectedValue(new Error("gone"));
-    const { w } = mountDrawer(ch);
-    expect(w.text()).not.toContain("Join Room");
-    await byText(w, "Leave Room").trigger("click");
-    await flushPromises();
-    expect(ch.leaveParticipant).toHaveBeenCalledTimes(1);
-    expect((handled[0] as Error).message).toBe("gone");
-    expect(byText(w, "Leave Room").classes()).not.toContain("pointer-events-none");
-  });
-
-  it("swaps Join for Leave once the join lands", async () => {
-    const ch = makeChannel();
-    ch.isParticipant.value = false;
-    ch.joinParticipant.mockImplementation(async () => {
-      ch.isParticipant.value = true;
-    });
-    const { w } = mountDrawer(ch);
-    await byText(w, "Join Room").trigger("click");
-    await flushPromises();
-    expect(w.text()).toContain("Leave Room");
-    expect(w.text()).not.toContain("Join Room");
+    const w = mountP(ch);
+    expect(w.find("[data-testid=join-room]").exists()).toBe(false);
+    expect(w.find("[data-testid=leave-room]").exists()).toBe(false);
   });
 });

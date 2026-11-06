@@ -198,6 +198,11 @@ export default {
     openImage: "Open the picture full size",
   },
   chat: {
+    roomsEmpty: "No rooms yet. Start one with New chat, or join one with an invitation.",
+    roomsTitle: "Rooms",
+    participantsTitle: "Participants",
+    joinRoom: "Join room",
+    leaveRoom: "Leave room",
     newRoomLabel: "Room name",
     newRoomHelp: "Only the people you invite see it. You can invite them as soon as the room is up.",
     done: "Done",

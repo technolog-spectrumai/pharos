@@ -8,13 +8,13 @@ import RoomStatusBar from "./chat/RoomStatusBar.vue";
 import MessageList from "./chat/MessageList.vue";
 import MessageComposer from "./chat/MessageComposer.vue";
 import RoomsSidebar from "./chat/RoomsSidebar.vue";
-import ParticipantsPanel from "./chat/ParticipantsPanel.vue";
 import QrScannerModal from "./chat/QrScannerModal.vue";
 import CreateRoomModal from "./chat/CreateRoomModal.vue";
 import JoinRoomModal from "./chat/JoinRoomModal.vue";
 import RoomInfoModal from "./chat/RoomInfoModal.vue";
 import DeleteRoomModal from "./chat/DeleteRoomModal.vue";
-import MobileRoomsDrawer from "./chat/MobileRoomsDrawer.vue";
+import RoomsModal from "./chat/RoomsModal.vue";
+import ParticipantsModal from "./chat/ParticipantsModal.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
 const channel = props.channel;
@@ -24,6 +24,7 @@ const { currentRoom, error, isParticipant } = channel;
 const p2p = useP2pRooms(channel);
 const { createOpen, joinOpen, infoOpen, deleteOpen } = p2p;
 const sidebarOpen = ref(false);
+const participantsOpen = ref(false);
 
 // ── Join ⇄ camera handoff ────────────────────────────────────────────────────
 // The scanner is only reachable from inside the join window, and both are
@@ -54,7 +55,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
 </script>
 
 <template>
-  <div class="grid h-full min-h-0 w-full gap-4 overflow-hidden lg:grid-cols-[16rem_minmax(0,1fr)_16rem]">
+  <div class="grid h-full min-h-0 w-full gap-4 overflow-hidden lg:grid-cols-[16rem_minmax(0,1fr)]">
     <!-- Rooms sidebar (desktop) -->
     <aside
       class="hidden min-h-0 flex-col overflow-hidden rounded-lg border shadow-md lg:flex bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
@@ -71,7 +72,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <section
       class="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
-      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" @new-chat="p2p.openCreate()" @join-chat="p2p.openJoin()" />
+      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" @participants="participantsOpen = true" @new-chat="p2p.openCreate()" @join-chat="p2p.openJoin()" />
       <ObserverBanner v-if="currentRoom && !isParticipant" :channel="channel" />
       <div
         v-if="currentRoom && isParticipant"
@@ -85,20 +86,6 @@ watch(currentRoom, () => (sidebarOpen.value = false));
       <MessageList :channel="channel" @open-sidebar="sidebarOpen = true" />
       <MessageComposer :channel="channel" />
     </section>
-
-    <!-- Participants sidebar (desktop) -->
-    <aside
-      class="hidden min-h-0 flex-col overflow-hidden rounded-lg border shadow-md lg:flex bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
-    >
-      <div class="border-b border-current/10 p-4">
-        <h2 class="text-lg font-bold text-accent-light dark:text-accent-dark">
-          <font-awesome-icon icon="user" class="mr-2" />Participants
-        </h2>
-      </div>
-      <div class="flex-1 overflow-y-auto p-4 pr-3">
-        <ParticipantsPanel :channel="channel" />
-      </div>
-    </aside>
 
     <!-- Off-screen mount point for html5-qrcode's scan-from-image-file flow. -->
     <div id="p2p-qr-file-region" class="hidden"></div>
@@ -117,7 +104,8 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <RoomInfoModal v-model:open="infoOpen" :controller="p2p" :channel="channel" />
     <DeleteRoomModal v-model:open="deleteOpen" :controller="p2p" />
 
-    <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->
-    <MobileRoomsDrawer v-model:open="sidebarOpen" :channel="channel" :controller="p2p" />
+    <!-- Rooms (the phone's ☰) and participants: dialogs, not side sliders. -->
+    <RoomsModal v-model:open="sidebarOpen" :channel="channel" :controller="p2p" />
+    <ParticipantsModal v-model:open="participantsOpen" :channel="channel" />
   </div>
 </template>

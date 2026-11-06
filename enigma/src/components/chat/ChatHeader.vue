@@ -4,8 +4,8 @@ import type { ChatChannel } from "rakotis";
 import RoomStatusBar from "./RoomStatusBar.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
-defineEmits<{ "open-sidebar": []; "new-chat": []; "join-chat": [] }>();
-const { currentRoom, isParticipant, roomLogo } = props.channel;
+defineEmits<{ "open-sidebar": []; "new-chat": []; "join-chat": []; participants: [] }>();
+const { currentRoom, isParticipant, roomLogo, participants } = props.channel;
 </script>
 
 <template>
@@ -33,6 +33,16 @@ const { currentRoom, isParticipant, roomLogo } = props.channel;
       </div>
       <!-- Starting or joining a room opens a dialog, from the same place on a phone and a desktop. -->
       <div class="flex shrink-0 gap-2">
+        <OyaButton
+          v-if="currentRoom"
+          type="button"
+          variant="secondary"
+          data-testid="open-participants"
+          :aria-label="$t('chat.participantsTitle')"
+          @click="$emit('participants')"
+        >
+          <font-awesome-icon icon="users" /><span class="tabular-nums">{{ participants.length }}</span>
+        </OyaButton>
         <OyaButton type="button" data-testid="new-chat" :aria-label="$t('chat.newChat')" @click="$emit('new-chat')">
           <font-awesome-icon icon="circle-nodes" /><span class="hidden sm:inline">{{ $t("chat.newChat") }}</span>
         </OyaButton>

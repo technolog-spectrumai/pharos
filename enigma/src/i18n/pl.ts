@@ -198,6 +198,11 @@ export default {
     openImage: "Otwórz obraz w pełnym rozmiarze",
   },
   chat: {
+    roomsEmpty: "Nie masz jeszcze pokoi. Załóż pokój przyciskiem Nowy czat albo dołącz z zaproszeniem.",
+    roomsTitle: "Pokoje",
+    participantsTitle: "Uczestnicy",
+    joinRoom: "Dołącz do pokoju",
+    leaveRoom: "Opuść pokój",
     newRoomLabel: "Nazwa pokoju",
     newRoomHelp: "Widzą ją tylko zaproszone osoby. Możesz je zaprosić, gdy tylko pokój ruszy.",
     done: "Gotowe",
