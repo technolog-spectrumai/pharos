@@ -71,7 +71,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <section
       class="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
-      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" />
+      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" @new-chat="p2p.openCreate()" @join-chat="p2p.openJoin()" />
       <ObserverBanner v-if="currentRoom && !isParticipant" :channel="channel" />
       <div
         v-if="currentRoom && isParticipant"

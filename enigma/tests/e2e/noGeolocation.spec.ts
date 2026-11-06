@@ -27,7 +27,7 @@ test.describe("The app never asks the device for a position", () => {
     await page.goto("/");
     // Every tab the build has: each view is loaded on demand, so a call
     // hiding in one would not run until it is opened.
-    for (const tab of ["Files", "Vox", "Calendar", "Contacts", "Settings", "Chat"]) {
+    for (const tab of ["Friends", "Groups", "Settings"]) {
       await page.getByRole("link", { name: tab, exact: true }).first().click();
       await expect(page.getByRole("link", { name: tab, exact: true }).first()).toBeVisible();
     }

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { OyaIconButton } from "petalite/primitives";
+import { OyaButton, OyaIconButton } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import RoomStatusBar from "./RoomStatusBar.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
-defineEmits<{ "open-sidebar": [] }>();
+defineEmits<{ "open-sidebar": []; "new-chat": []; "join-chat": [] }>();
 const { currentRoom, isParticipant, roomLogo } = props.channel;
 </script>
 
@@ -30,6 +30,15 @@ const { currentRoom, isParticipant, roomLogo } = props.channel;
           <span>{{ $t("chat.participantCount", currentRoom.participant_count) }}</span>
           <span>{{ isParticipant ? $t("chat.joinedLabel") : $t("chat.observerLabel") }}</span>
         </div>
+      </div>
+      <!-- Starting or joining a room opens a dialog, from the same place on a phone and a desktop. -->
+      <div class="flex shrink-0 gap-2">
+        <OyaButton type="button" data-testid="new-chat" :aria-label="$t('chat.newChat')" @click="$emit('new-chat')">
+          <font-awesome-icon icon="circle-nodes" /><span class="hidden sm:inline">{{ $t("chat.newChat") }}</span>
+        </OyaButton>
+        <OyaButton type="button" variant="secondary" data-testid="join-chat" :aria-label="$t('chat.joinChat')" @click="$emit('join-chat')">
+          <font-awesome-icon icon="right-to-bracket" /><span class="hidden sm:inline">{{ $t("chat.joinChat") }}</span>
+        </OyaButton>
       </div>
     </div>
 
