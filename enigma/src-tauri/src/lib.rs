@@ -1168,6 +1168,8 @@ pub fn run() {
             vault::vault_set_panic_code,
             vault::vault_clear_panic_code,
             vault::vault_has_panic_code,
+            vault::vault_get_wipe_after,
+            vault::vault_set_wipe_after,
             vault::vault_wipe,
             #[cfg(feature = "pin_unlock")]
             vault::vault_pin_status,

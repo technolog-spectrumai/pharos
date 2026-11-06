@@ -461,3 +461,16 @@ export async function upsertOfflineProfile(
   }
   return getProfileState();
 }
+
+/** Wipe after N wrong passphrases: the configured number of mistakes (1–7), or
+ *  null when off. Readable while locked. Browser fallback: off. */
+export async function vaultGetWipeAfter(): Promise<number | null> {
+  if (isTauri()) return (await invoke<number | null>("vault_get_wipe_after")) ?? null;
+  return null;
+}
+
+/** Turn wipe-after-mistakes on (`limit` 1–7) or off (`null`). `current` is the
+ *  real passphrase, which authorizes the change. */
+export async function vaultSetWipeAfter(current: string, limit: number | null): Promise<void> {
+  if (isTauri()) await invoke("vault_set_wipe_after", { current, limit });
+}

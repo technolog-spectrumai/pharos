@@ -84,6 +84,7 @@ function defaultHandlers(): Record<string, Handler> {
     dht_status: () => ({ enabled: true, running: true, bootstrapped: true }),
     dht_apply: () => null,
     vault_has_panic_code: () => false,
+    vault_get_wipe_after: () => null,
     vault_pin_status: () => ({ enrolled: false, digits: 6, attemptsLeft: 5 }),
     hp_ledger: () => [],
     hp_charge: ({ actionId }) => ({ applied: -100, code: actionId }),
@@ -632,5 +633,54 @@ describe("offline data", () => {
     const message = w.findAll("p").find((p) => p.text() === "profile name is not allowed");
     expect(message, "error line").toBeDefined();
     expect(message!.classes()).toContain("text-warn-dark");
+  });
+});
+
+describe("wipe after wrong passphrases", () => {
+  const pass = (w: VueWrapper) => {
+    const el = w.get('[data-testid="wipe-after-pass"]');
+    return el.element.tagName === "INPUT" ? el : el.get("input");
+  };
+
+  it("is off by default and offers 1–7 mistakes, defaulting to 3", async () => {
+    const w = await mountAt("lock");
+    const card = w.get('[data-testid="wipe-after"]');
+    expect(card.text()).toContain("Off.");
+    await w.get('[data-testid="wipe-after-on"]').setValue(true);
+    const sel = w.get('[data-testid="wipe-after-n"]');
+    expect((sel.element as HTMLSelectElement).value).toBe("3");
+    expect(sel.findAll("option").map((o) => o.text())).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+  });
+
+  it("turns it on with the passphrase as proof and the chosen number", async () => {
+    handlers.vault_set_wipe_after = () => null;
+    const w = await mountAt("lock");
+    await w.get('[data-testid="wipe-after-on"]').setValue(true);
+    await w.get('[data-testid="wipe-after-n"]').setValue("5");
+    await pass(w).setValue("my-passphrase");
+    await w.get('[data-testid="wipe-after-save"]').trigger("click");
+    await settle();
+    expect(callsTo("vault_set_wipe_after")).toEqual([{ current: "my-passphrase", limit: 5 }]);
+    expect(w.get('[data-testid="wipe-after"]').text()).toContain("erases after 5 wrong passphrases");
+  });
+
+  it("turns it off with null, and reports a wrong passphrase", async () => {
+    handlers.vault_get_wipe_after = () => 3;
+    handlers.vault_set_wipe_after = ({ current }) => {
+      if (current !== "right") throw new Error("wrong passphrase");
+      return null;
+    };
+    const w = await mountAt("lock");
+    expect(w.get('[data-testid="wipe-after"]').text()).toContain("erases after 3 wrong passphrases");
+    await w.get('[data-testid="wipe-after-on"]').setValue(false);
+    await pass(w).setValue("nope");
+    await w.get('[data-testid="wipe-after-save"]').trigger("click");
+    await settle();
+    expect(w.get('[data-testid="wipe-after"]').find('[role="alert"]').exists()).toBe(true);
+    await pass(w).setValue("right");
+    await w.get('[data-testid="wipe-after-save"]').trigger("click");
+    await settle();
+    expect(callsTo("vault_set_wipe_after").at(-1)).toEqual({ current: "right", limit: null });
+    expect(w.get('[data-testid="wipe-after"]').text()).toContain("Turned off.");
   });
 });

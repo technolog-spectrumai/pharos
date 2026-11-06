@@ -239,9 +239,22 @@ pub fn vault_unlock(
     let cfg = active_config(&config)?;
     {
         let mut p = vault.0.lock().map_err(|e| e.to_string())?;
-        if p.unlock(&passphrase).map_err(e)? == UnlockOutcome::Panic {
-            drop(p); // panic_wipe re-takes the lock (and replaces the store)
-            return panic_wipe(&app, &cfg, &vault, &sessions, &passphrase);
+        match p.unlock(&passphrase) {
+            Ok(UnlockOutcome::Panic) => {
+                drop(p); // panic_wipe re-takes the lock (and replaces the store)
+                return panic_wipe(&app, &cfg, &vault, &sessions, &passphrase);
+            }
+            Ok(UnlockOutcome::Unlocked) => guard_reset(&app, &cfg),
+            Err(ProtasiusError::WrongPassphrase) => {
+                if guard_record_failure(&app, &cfg) {
+                    // Too many wrong passphrases: exactly the panic path, keyed by
+                    // what was just typed, and just as indistinguishable.
+                    drop(p);
+                    return panic_wipe(&app, &cfg, &vault, &sessions, &passphrase);
+                }
+                return Err(ProtasiusError::WrongPassphrase.to_string());
+            }
+            Err(other) => return Err(e(other)),
         }
         // Sweep any legacy plaintext a prior crash left behind (idempotent).
         let _ = p.migrate(&migration_plan(&app, &cfg));
@@ -609,6 +622,147 @@ pub fn vault_set_panic_code(
         .set_panic_passphrase(&current, &code)
         .map_err(e)?;
     Ok(())
+}
+
+// ── wipe after N wrong passphrases ─────────────────────────────────────────────
+//
+// Opt-in and drastic: after `limit` wrong passphrases IN A ROW at the unlock gate,
+// the next unlock attempt that fails acts exactly like the panic code (every
+// profile erased, a fresh vault keyed by what was typed). The guard file has to
+// be readable while locked, so it is plaintext next to `vault.json`; it holds a
+// number and a counter, nothing secret. Someone with raw file access could reset
+// it, but they could equally copy the vault away — this defends the unlock
+// screen, not the disk. PIN mistakes are not counted (the PIN layer already
+// drops itself after a few).
+
+/// Allowed range for the number of mistakes.
+pub const WIPE_AFTER_MIN: u8 = 1;
+pub const WIPE_AFTER_MAX: u8 = 7;
+pub const WIPE_AFTER_DEFAULT: u8 = 3;
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Copy, Debug, PartialEq)]
+struct UnlockGuard {
+    /// `None` = feature off.
+    limit: Option<u8>,
+    failures: u8,
+}
+
+fn guard_path(app: &AppHandle, cfg: &AppConfig) -> std::path::PathBuf {
+    profile_dir(app, cfg).join("unlock_guard.json")
+}
+
+fn guard_load(app: &AppHandle, cfg: &AppConfig) -> UnlockGuard {
+    std::fs::read(guard_path(app, cfg))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn guard_store(app: &AppHandle, cfg: &AppConfig, g: UnlockGuard) -> Result<(), String> {
+    let path = guard_path(app, cfg);
+    if g == UnlockGuard::default() {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec(&g).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+/// One more wrong passphrase. True when the limit is reached (wipe now).
+fn guard_record_failure(app: &AppHandle, cfg: &AppConfig) -> bool {
+    let (g, wipe) = guard_next(guard_load(app, cfg));
+    if wipe || g.limit.is_none() {
+        return wipe;
+    }
+    // If the counter cannot be written, fail towards wiping rather than allowing
+    // unlimited guesses.
+    guard_store(app, cfg, g).is_err()
+}
+
+/// The guard after one more wrong passphrase, and whether that one wipes.
+fn guard_next(mut g: UnlockGuard) -> (UnlockGuard, bool) {
+    let Some(limit) = g.limit else { return (g, false) };
+    g.failures = g.failures.saturating_add(1);
+    let wipe = g.failures >= limit.clamp(WIPE_AFTER_MIN, WIPE_AFTER_MAX);
+    (g, wipe)
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+
+    fn run(limit: Option<u8>, attempts: u8) -> Vec<bool> {
+        let mut g = UnlockGuard { limit, failures: 0 };
+        (0..attempts)
+            .map(|_| {
+                let (n, wipe) = guard_next(g);
+                g = n;
+                wipe
+            })
+            .collect()
+    }
+
+    #[test]
+    fn off_never_wipes() {
+        assert_eq!(run(None, 10), vec![false; 10]);
+    }
+
+    #[test]
+    fn wipes_on_the_nth_mistake() {
+        assert_eq!(run(Some(3), 3), vec![false, false, true]);
+        assert_eq!(run(Some(1), 1), vec![true]);
+        assert_eq!(run(Some(7), 7), [vec![false; 6], vec![true]].concat());
+    }
+
+    #[test]
+    fn out_of_range_limits_are_clamped() {
+        assert_eq!(run(Some(0), 1), vec![true]);
+        assert_eq!(run(Some(50), 7).last(), Some(&true));
+    }
+
+    #[test]
+    fn default_is_three() {
+        assert_eq!(WIPE_AFTER_DEFAULT, 3);
+        assert!((WIPE_AFTER_MIN..=WIPE_AFTER_MAX).contains(&WIPE_AFTER_DEFAULT));
+    }
+}
+
+fn guard_reset(app: &AppHandle, cfg: &AppConfig) {
+    let mut g = guard_load(app, cfg);
+    if g.failures != 0 {
+        g.failures = 0;
+        let _ = guard_store(app, cfg, g);
+    }
+}
+
+/// The configured limit, or `None` when the feature is off.
+#[tauri::command]
+pub fn vault_get_wipe_after(app: AppHandle, config: State<AppConfigState>) -> Result<Option<u8>, String> {
+    let cfg = active_config(&config)?;
+    Ok(guard_load(&app, &cfg).limit)
+}
+
+/// Turn the feature on with `limit` mistakes (1–7), or off with `None`.
+/// Needs the real passphrase, like every other lock setting.
+#[tauri::command]
+pub fn vault_set_wipe_after(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    vault: State<ProtasiusState>,
+    current: String,
+    limit: Option<u8>,
+) -> Result<(), String> {
+    if let Some(n) = limit {
+        if !(WIPE_AFTER_MIN..=WIPE_AFTER_MAX).contains(&n) {
+            return Err(format!("the number of mistakes must be {WIPE_AFTER_MIN}–{WIPE_AFTER_MAX}"));
+        }
+    }
+    if !vault.0.lock().map_err(|e| e.to_string())?.verify_passphrase(&current).map_err(e)? {
+        return Err(ProtasiusError::WrongPassphrase.to_string());
+    }
+    let cfg = active_config(&config)?;
+    guard_store(&app, &cfg, UnlockGuard { limit, failures: 0 })
 }
 
 /// Disarm the panic code; the old code becomes an ordinary wrong passphrase.

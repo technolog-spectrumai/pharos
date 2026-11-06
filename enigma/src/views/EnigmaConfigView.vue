@@ -37,6 +37,8 @@ import {
   vaultPinClear,
   vaultClearPanicCode,
   vaultHasPanicCode,
+  vaultGetWipeAfter,
+  vaultSetWipeAfter,
   cleanTorKeystore,
   getBuildConfig,
   type AppRuntimeConfig,
@@ -239,6 +241,7 @@ const panicDone = ref("");
 
 
 async function loadPanicState() {
+  void loadWipeAfter();
   try { panicArmed.value = await vaultHasPanicCode(); } catch { panicArmed.value = false; }
   // A PIN only ever exists for the CURRENT process, so this reflects whether
   // one was enrolled since launch.
@@ -247,6 +250,44 @@ async function loadPanicState() {
   }
 }
 
+
+// ── Wipe after N wrong passphrases ───────────────────────────────────────────
+// Opt-in: that many wrong passphrases in a row at the unlock screen act exactly
+// like the panic code. Changing it needs the real passphrase.
+const WIPE_MIN = 1;
+const WIPE_MAX = 7;
+const WIPE_DEFAULT = 3;
+const wipeAfter = ref<number | null>(null);
+const wipeOn = ref(false);
+const wipeN = ref(WIPE_DEFAULT);
+const wipePass = ref("");
+const wipeError = ref("");
+const wipeDone = ref("");
+const wipeBusy = ref(false);
+const wipeDirty = computed(() => (wipeOn.value ? wipeN.value : null) !== wipeAfter.value);
+
+async function loadWipeAfter() {
+  try { wipeAfter.value = await vaultGetWipeAfter(); } catch { wipeAfter.value = null; }
+  wipeOn.value = wipeAfter.value !== null;
+  wipeN.value = wipeAfter.value ?? WIPE_DEFAULT;
+}
+
+async function saveWipeAfter() {
+  wipeError.value = "";
+  wipeDone.value = "";
+  wipeBusy.value = true;
+  try {
+    const limit = wipeOn.value ? Math.min(WIPE_MAX, Math.max(WIPE_MIN, wipeN.value)) : null;
+    await vaultSetWipeAfter(wipePass.value, limit);
+    wipeAfter.value = limit;
+    wipePass.value = "";
+    wipeDone.value = limit === null ? t("config.wipeAfterOff") : t("config.wipeAfterSaved", { n: limit });
+  } catch {
+    wipeError.value = t("vault.wrongPass");
+  } finally {
+    wipeBusy.value = false;
+  }
+}
 
 function openPanic() {
   panicCurrent.value = "";
@@ -809,6 +850,42 @@ async function clearSelectedOfflineData() {
         {{ panicArmed ? $t('config.panicCodeChange') : $t('config.panicCodeSet') }}
       </OyaButton>
 
+    </OyaCard>
+    <!-- Wipe after too many wrong passphrases — the drastic option -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4" data-testid="wipe-after">
+      <div>
+        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+          {{ $t('config.wipeAfter') }}
+        </p>
+        <p class="mt-1 text-sm opacity-65">{{ $t('config.wipeAfterHint') }}</p>
+        <p class="mt-2 text-sm" :class="wipeAfter !== null ? 'text-warn-dark' : 'opacity-65'">
+          <font-awesome-icon v-if="wipeAfter !== null" icon="shield-halved" class="mr-1" />
+          {{ wipeAfter !== null ? $t('config.wipeAfterArmed', { n: wipeAfter }) : $t('config.wipeAfterNone') }}
+        </p>
+      </div>
+      <label class="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+        <input v-model="wipeOn" type="checkbox" class="h-5 w-5 shrink-0 accent-current" data-testid="wipe-after-on" />
+        <span class="font-semibold">{{ $t('config.wipeAfterEnable') }}</span>
+      </label>
+      <label v-if="wipeOn" class="flex flex-wrap items-center gap-3 text-sm">
+        <span>{{ $t('config.wipeAfterCount') }}</span>
+        <select
+          v-model.number="wipeN"
+          :class="darkMode ? 'config-control-dark' : 'config-control-light'"
+          class="config-control min-h-11 rounded-lg border px-3 py-1 text-sm outline-none transition"
+          data-testid="wipe-after-n"
+        >
+          <option v-for="n in WIPE_MAX" :key="n" :value="n">{{ n }}</option>
+        </select>
+      </label>
+      <template v-if="wipeDirty">
+        <OyaTextField v-model="wipePass" type="password" :placeholder="$t('config.currentPass')" :disabled="wipeBusy" data-testid="wipe-after-pass" />
+        <OyaButton :dark-mode="darkMode" variant="secondary" :disabled="wipeBusy || !wipePass" data-testid="wipe-after-save" @click="saveWipeAfter">
+          <font-awesome-icon icon="triangle-exclamation" />{{ $t('config.wipeAfterSave') }}
+        </OyaButton>
+      </template>
+      <p v-if="wipeError" class="text-sm text-warn-dark" role="alert">{{ wipeError }}</p>
+      <p v-if="wipeDone" class="text-sm text-success-dark" role="status">{{ wipeDone }}</p>
     </OyaCard>
     </template>
 
