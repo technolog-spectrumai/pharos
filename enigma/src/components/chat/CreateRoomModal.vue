@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OyaModal, OyaTextField } from "petalite/primitives";
+import { OyaModal, OyaTextField, OyaButton } from "petalite/primitives";
 import RoomShareCard from "./RoomShareCard.vue";
 import type { P2pRoomsController } from "./useP2pRooms";
 
@@ -19,65 +19,59 @@ function close() {
 
 <template>
   <OyaModal :open="open" @close="close">
-    <div class="max-h-[85dvh] overflow-y-auto w-full max-w-sm space-y-4 rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark">
-      <p class="flex items-center gap-2 text-lg font-bold">
+    <!-- Same shape as "Add a friend": one panel, wide enough on a desktop, the
+         whole width of a phone, its actions inside it. -->
+    <div
+      class="max-h-[85dvh] w-[min(32rem,92vw)] space-y-4 overflow-y-auto rounded-2xl bg-primary-bg-light p-5 dark:bg-primary-bg-dark"
+      data-testid="create-room"
+    >
+      <h2 class="flex items-center gap-2 text-lg font-bold">
         <font-awesome-icon icon="circle-nodes" />{{ $t("chat.newChat") }}
-      </p>
+      </h2>
 
       <!-- Name form -->
-      <template v-if="!createdRoom && !createBusy && !createError">
-        <OyaTextField v-model="name" :placeholder="$t('chat.newRoomName')" @enter="createRoom" />
-        <button
-          type="button"
-          class="w-full rounded-lg bg-accent-dark px-4 py-2 text-sm font-semibold text-primary-bg-dark transition hover:opacity-90"
-          @click="createRoom"
-        >
-          {{ $t("chat.create") }}
-        </button>
-      </template>
+      <section v-if="!createdRoom && !createBusy && !createError" class="space-y-2">
+        <label class="block text-sm font-semibold" for="new-room-name">{{ $t("chat.newRoomLabel") }}</label>
+        <OyaTextField id="new-room-name" v-model="name" :placeholder="$t('chat.newRoomName')" @enter="createRoom" />
+        <p class="text-xs opacity-60">{{ $t("chat.newRoomHelp") }}</p>
+      </section>
 
-      <!-- Launching spinner -->
-      <div v-else-if="createBusy" class="flex flex-col items-center gap-3 py-6 text-center">
+      <!-- Launching -->
+      <section v-else-if="createBusy" class="flex flex-col items-center gap-3 py-8 text-center" role="status">
         <font-awesome-icon icon="spinner" spin class="text-3xl text-accent-dark" />
         <p class="text-sm opacity-70">{{ tor ? $t("chat.launchingOnion") : $t("chat.creatingRoom") }}</p>
-      </div>
+      </section>
 
-      <!-- Success: you're the host + QR to share -->
-      <div v-else-if="createdRoom" class="space-y-2.5">
-        <p class="flex items-center gap-2 text-sm font-semibold text-success-dark">
-          <font-awesome-icon v-if="tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
-        </p>
-        <p v-if="tor" class="text-xs opacity-60">{{ $t("chat.hostStarHint") }}</p>
-        <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
-        <!-- Mint an invitation and see its QR without leaving this modal — the
-             same card Room info uses, so the two can never disagree. -->
+      <!-- Created: you host it; invite people from here -->
+      <section v-else-if="createdRoom" class="space-y-3">
+        <div class="rounded-xl border border-success-dark/30 bg-success-dark/10 p-3">
+          <p class="flex items-center gap-2 text-sm font-semibold text-success-dark">
+            <font-awesome-icon v-if="tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
+          </p>
+          <p v-if="tor" class="mt-1 text-xs opacity-70">{{ $t("chat.hostStarHint") }}</p>
+        </div>
+        <h3 class="font-bold">{{ $t("chat.shareTicket") }}</h3>
+        <!-- The same card Room info uses, so the two can never disagree. -->
         <RoomShareCard :room-slug="createdRoom.slug" :room-name="createdRoom.name" :tor="tor" />
-      </div>
+      </section>
 
       <!-- Error -->
-      <div v-else-if="createError" class="space-y-3">
-        <p class="flex items-center gap-2 text-sm text-warn-dark">
+      <section v-else-if="createError" class="space-y-2" role="alert">
+        <p class="flex items-center gap-2 text-sm font-semibold text-warn-dark">
           <font-awesome-icon icon="triangle-exclamation" />{{ $t("chat.launchFailed") }}
         </p>
         <p class="text-xs opacity-70">{{ $t(createError) }}</p>
-        <button
-          type="button"
-          class="w-full rounded-lg border border-current/20 px-4 py-2 text-sm font-semibold transition hover:opacity-80"
-          @click="createRoom"
-        >
-          {{ $t("chat.retry") }}
-        </button>
+      </section>
+
+      <div class="flex justify-end gap-2 pt-1">
+        <OyaButton type="button" @click="close">{{ createdRoom ? $t("chat.done") : $t("chat.close") }}</OyaButton>
+        <OyaButton v-if="!createdRoom && !createBusy && !createError" type="button" data-testid="create-room-submit" @click="createRoom">
+          <font-awesome-icon icon="plus" />{{ $t("chat.create") }}
+        </OyaButton>
+        <OyaButton v-if="createError" type="button" @click="createRoom">
+          <font-awesome-icon icon="rotate" />{{ $t("chat.retry") }}
+        </OyaButton>
       </div>
     </div>
-
-    <template #footer>
-      <button
-        type="button"
-        class="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-        @click="close"
-      >
-        {{ $t("chat.close") }}
-      </button>
-    </template>
   </OyaModal>
 </template>

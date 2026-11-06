@@ -198,6 +198,9 @@ export default {
     openImage: "Otwórz obraz w pełnym rozmiarze",
   },
   chat: {
+    newRoomLabel: "Nazwa pokoju",
+    newRoomHelp: "Widzą ją tylko zaproszone osoby. Możesz je zaprosić, gdy tylko pokój ruszy.",
+    done: "Gotowe",
     send: "Wyślij",
     length: "{n} / {max}",
     mapShareUnavailable: "Udostępniona mapa. Ta wersja Enigma nie ma map, więc nie można jej pokazać.",
