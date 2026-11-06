@@ -268,15 +268,18 @@ async function removeCurrent() {
         <li v-for="f in list" :key="f.id">
           <button
             type="button"
-            class="w-full px-4 py-2 text-left hover:bg-current/5"
+            class="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left hover:bg-current/5"
             :class="{ 'bg-current/10 font-bold': f.id === current }"
             :data-testid="`friend-${f.name}`"
             @click="open(f.id)"
           >
-            <div class="truncate">{{ f.name }}</div>
-            <div class="truncate text-[10px] opacity-50">
-              {{ f.relay ? $t('friends.hasRelay') : $t('friends.directOnly') }}
-            </div>
+            <span aria-hidden="true" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-dark/25 font-bold uppercase">{{ f.name.slice(0, 1) }}</span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate">{{ f.name }}</span>
+              <span class="block truncate text-[11px] opacity-50">
+                {{ f.relay ? $t('friends.hasRelay') : $t('friends.directOnly') }}
+              </span>
+            </span>
           </button>
         </li>
       </ul>
@@ -294,8 +297,8 @@ async function removeCurrent() {
             <font-awesome-icon icon="arrow-left" />
           </OyaButton>
           <div class="min-w-0 flex-1">
-            <div class="font-bold">{{ friend.name }}</div>
-            <div class="font-mono text-[10px] opacity-60">{{ friend.fingerprint }}</div>
+            <div class="truncate font-bold">{{ friend.name }}</div>
+            <div class="truncate font-mono text-[10px] opacity-60" :title="friend.fingerprint">{{ friend.fingerprint }}</div>
           </div>
           <OyaButton type="button" :aria-label="$t('friends.checkNow')" @click="api.sync().catch(fail)"><font-awesome-icon icon="rotate" /></OyaButton>
           <OyaButton type="button" :aria-label="$t('friends.remove')" @click="removeCurrent"><font-awesome-icon icon="trash" /></OyaButton>
@@ -331,7 +334,7 @@ async function removeCurrent() {
           </div>
         </div>
         <div class="border-t border-current/10 p-3">
-          <div class="mb-1 text-right text-[11px] tabular-nums" :class="length > MAX ? 'font-bold text-error-light' : 'opacity-50'">
+          <div v-if="length > MAX * 0.8" class="mb-1 text-right text-[11px] tabular-nums" data-testid="length" :class="length > MAX ? 'font-bold text-error-light' : 'opacity-50'">
             {{ $t('chat.length', { n: length, max: MAX }) }}
           </div>
           <p v-if="shrinking" class="mb-1 text-xs opacity-70" role="status">{{ $t('friends.shrinking') }}</p>

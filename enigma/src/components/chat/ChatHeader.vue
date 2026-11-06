@@ -23,7 +23,7 @@ const { currentRoom, isParticipant, roomLogo, participants } = props.channel;
         <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
           {{ currentRoom ? $t("chat.activeRoom") : $t("chat.noRoomSelected") }}
         </p>
-        <h2 class="mt-1 break-words text-xl font-bold leading-tight sm:text-2xl">
+        <h2 class="mt-1 truncate text-lg font-bold leading-tight sm:text-2xl">
           {{ currentRoom?.name ?? $t("chat.selectARoom") }}
         </h2>
         <div v-if="currentRoom" class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs opacity-70">
