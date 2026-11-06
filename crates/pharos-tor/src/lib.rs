@@ -4,7 +4,7 @@
 //!
 //! An onion can be hosted with a key we supply ([`Tor::host_with_key`]: a
 //! friendship's weekly rendezvous key, D2) or with arti's own persistent key
-//! ([`Tor::host`]: Proteus' stable address).
+//! ([`Tor::host`]: Relay' stable address).
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -1,8 +1,8 @@
 //! 3.7: is the data folder on an encrypted disk? (From Zirkelite's src/diskcrypt.rs.)
 //!
-//! Proteus seals what it stores with its master key, but the key often sits on
-//! the same disk, so the disk itself should be encrypted too. Proteus
-//! cannot encrypt it; it can say when it is not. `proteus check` prints
+//! Relay seals what it stores with its master key, but the key often sits on
+//! the same disk, so the disk itself should be encrypted too. Relay
+//! cannot encrypt it; it can say when it is not. `relay check` prints
 //! the verdict and `serve` logs a warning for anything but "encrypted".
 //!
 //! Linux only: the folder's filesystem is found in `/proc/self/mountinfo`
@@ -212,7 +212,7 @@ mod tests {
         std::os::unix::fs::symlink(&dm1, block.join("253:1")).unwrap();
         std::os::unix::fs::symlink(&dm0, block.join("253:0")).unwrap();
         std::os::unix::fs::symlink(&sdb1, block.join("8:17")).unwrap();
-        for p in ["data/proteus", "plain/proteus", "run/z", "with space/z"] {
+        for p in ["data/relay", "plain/relay", "run/z", "with space/z"] {
             fs::create_dir_all(root.join(p)).unwrap();
         }
         let r = root.display();
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn luks_under_lvm_is_encrypted() {
         let (dir, mi, sys) = fixture();
-        let v = check_in(&dir.path().join("data/proteus"), &mi, &sys);
+        let v = check_in(&dir.path().join("data/relay"), &mi, &sys);
         assert!(v.is_encrypted(), "{v:?}");
         assert!(v.describe().contains("encrypted disk (dm-1"));
     }
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn a_plain_partition_is_not() {
         let (dir, mi, sys) = fixture();
-        let v = check_in(&dir.path().join("plain/proteus"), &mi, &sys);
+        let v = check_in(&dir.path().join("plain/relay"), &mi, &sys);
         assert!(
             matches!(v, Verdict::NotEncrypted { ref device, .. } if device == "sdb1"),
             "{v:?}"

@@ -1,10 +1,10 @@
-# Proteus configuration. Every key is optional; these are the defaults.
-data_dir: /var/lib/proteus
+# Relay configuration. Every key is optional; these are the defaults.
+data_dir: /var/lib/relay
 # The at-rest key (mode 0600). Keep its backup apart from the data's.
-master_key: /etc/proteus/master.key
+master_key: /etc/relay/master.key
 # What its page and its code call it. The page (http://<its onion>/, in Tor
-# Browser) shows the code Enigma connects with; `proteus code` prints it too.
-name: Proteus
+# Browser) shows the code Enigma connects with; `relay code` prints it too.
+name: Relay
 page: true
 limits:
   max_message_bytes: 262144      # a sealed image (Enigma sends pictures up to 192 KiB)

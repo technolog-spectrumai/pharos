@@ -1,4 +1,4 @@
-//! A Proteus client: HTTP/1.1 over one stream to its onion (see proteus/src/api.rs).
+//! A Relay client: HTTP/1.1 over one stream to its onion (see relay/src/api.rs).
 
 use crate::net::Net;
 use anyhow::{anyhow, bail, Result};
@@ -36,13 +36,13 @@ pub async fn call<N: Net>(
         driver.abort();
         Ok::<_, anyhow::Error>((status, bytes))
     };
-    tokio::time::timeout(TIMEOUT, fut).await.map_err(|_| anyhow!("Proteus {onion} timed out"))?
+    tokio::time::timeout(TIMEOUT, fut).await.map_err(|_| anyhow!("Relay {onion} timed out"))?
 }
 
 pub async fn put_message<N: Net>(net: &N, onion: &str, id: &[u8], token: &[u8], blob: Vec<u8>) -> Result<()> {
     let (s, b) = call(net, onion, Method::PUT, &format!("/v1/mailbox/{}", hex(id)), Some(token), blob).await?;
     if s != StatusCode::CREATED {
-        bail!("Proteus refused the message: {s} {}", String::from_utf8_lossy(&b));
+        bail!("Relay refused the message: {s} {}", String::from_utf8_lossy(&b));
     }
     Ok(())
 }
@@ -60,7 +60,7 @@ struct Item {
 pub async fn fetch<N: Net>(net: &N, onion: &str, id: &[u8], token: &[u8], after: i64) -> Result<Vec<(i64, Vec<u8>)>> {
     let (s, b) = call(net, onion, Method::GET, &format!("/v1/mailbox/{}?after={after}", hex(id)), Some(token), vec![]).await?;
     if s != StatusCode::OK {
-        bail!("Proteus refused the fetch: {s}");
+        bail!("Relay refused the fetch: {s}");
     }
     let f: Fetched = serde_json::from_slice(&b)?;
     f.messages
@@ -72,7 +72,7 @@ pub async fn fetch<N: Net>(net: &N, onion: &str, id: &[u8], token: &[u8], after:
 pub async fn ack<N: Net>(net: &N, onion: &str, id: &[u8], token: &[u8], upto: i64) -> Result<()> {
     let (s, _) = call(net, onion, Method::POST, &format!("/v1/mailbox/{}/ack?upto={upto}", hex(id)), Some(token), vec![]).await?;
     if s != StatusCode::OK {
-        bail!("Proteus refused the ack: {s}");
+        bail!("Relay refused the ack: {s}");
     }
     Ok(())
 }
@@ -80,7 +80,7 @@ pub async fn ack<N: Net>(net: &N, onion: &str, id: &[u8], token: &[u8], upto: i6
 pub async fn put_record<N: Net>(net: &N, onion: &str, id: &[u8], token: &[u8], blob: Vec<u8>) -> Result<()> {
     let (s, _) = call(net, onion, Method::PUT, &format!("/v1/record/{}", hex(id)), Some(token), blob).await?;
     if s != StatusCode::NO_CONTENT {
-        bail!("Proteus refused the record: {s}");
+        bail!("Relay refused the record: {s}");
     }
     Ok(())
 }
@@ -90,14 +90,14 @@ pub async fn get_record<N: Net>(net: &N, onion: &str, id: &[u8]) -> Result<Optio
     match s {
         StatusCode::OK => Ok(Some(b.to_vec())),
         StatusCode::NOT_FOUND => Ok(None),
-        s => bail!("Proteus refused the lookup: {s}"),
+        s => bail!("Relay refused the lookup: {s}"),
     }
 }
 
 pub async fn put_pairing<N: Net>(net: &N, onion: &str, token: &[u8], blob: Vec<u8>) -> Result<()> {
     let (s, _) = call(net, onion, Method::PUT, &format!("/v1/pairing/{}", hex(token)), None, blob).await?;
     if s != StatusCode::CREATED {
-        bail!("Proteus refused the pairing reply: {s}");
+        bail!("Relay refused the pairing reply: {s}");
     }
     Ok(())
 }
@@ -107,14 +107,14 @@ pub async fn take_pairing<N: Net>(net: &N, onion: &str, token: &[u8]) -> Result<
     match s {
         StatusCode::OK => Ok(Some(b.to_vec())),
         StatusCode::NOT_FOUND => Ok(None),
-        s => bail!("Proteus refused: {s}"),
+        s => bail!("Relay refused: {s}"),
     }
 }
 
 pub async fn health<N: Net>(net: &N, onion: &str) -> Result<()> {
     let (s, _) = call(net, onion, Method::GET, "/v1/health", None, vec![]).await?;
     if s != StatusCode::OK {
-        bail!("Proteus health: {s}");
+        bail!("Relay health: {s}");
     }
     Ok(())
 }

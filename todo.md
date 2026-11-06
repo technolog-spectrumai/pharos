@@ -1,13 +1,13 @@
 # Pharos — plan
 
-Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pair once out of band, **D2** rendezvous onions per friendship, **D5** a directory onion on Proteus, **M3** Proteus as the always-on mailbox. Short messages only, over Tor, sealed with Ferrozine's MLS. **Enigma works without Proteus** (direct, friend to friend); Proteus only makes it easier (offline delivery, finding each other again).
+Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pair once out of band, **D2** rendezvous onions per friendship, **D5** a directory onion on Relay, **M3** Relay as the always-on mailbox. Short messages only, over Tor, sealed with Ferrozine's MLS. **Enigma works without Relay** (direct, friend to friend); Relay only makes it easier (offline delivery, finding each other again).
 
 ## Stage 0 — Approval
 - [x] 0.1 👤 Owner approves the plan ("approved, go on", 2026-11-05); PD9 (Privacy HP) still open
 
 ## Stage 1 — Fork and cut down: Vesper becomes Enigma, building on its own
 - [x] 1.1 Import Vesper's history (`apps/vesper`) and the shared code it needs (Ferrozine, rotor, gervasius, petalite, calendula, scripts) into this repository
-- [x] 1.2 New layout: `enigma/` (the app), `proteus/` (the server), `crates/` (shared), one root Cargo workspace, paths fixed
+- [x] 1.2 New layout: `enigma/` (the app), `relay/` (the server), `crates/` (shared), one root Cargo workspace, paths fixed
 - [x] 1.3 Cut what is not short messaging over Tor: iroh transport, DHT, calls, file transfer, calendar, editions, everything in `limbo/`
 - [x] 1.4 Rename Vesper to Enigma (identifier, words EN/PL, icons) and make it build and pass its remaining tests
 - [x] 1.5 Test and build scripts for this repository (`tests.sh`, `run_dev.sh`), and a CI workflow
@@ -19,29 +19,29 @@ Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pai
 - [x] 2.4 `pharos-rendezvous`: deriving a friendship's rotating onion key from its shared secret and the week (D2), with test vectors
 - [x] 2.5 Identity: a device's long-term key, its fingerprint and its contact card (QR / text)
 
-## Stage 3 — Proteus, the server on a Raspberry Pi
+## Stage 3 — Relay, the server on a Raspberry Pi
 - [x] 3.1 A slim axum service reachable only as an onion service through arti (no clearnet port)
 - [x] 3.2 Mailbox (M3): keep sealed messages for an offline friend until fetched and acknowledged, with expiry and quotas
 - [x] 3.3 Directory (D5): signed, sealed "where to find me" records only friends can open, with expiry
 - [x] 3.4 Access: capability tokens per mailbox and record, rate limits, size caps, fixed-size padding
 - [x] 3.5 Storage: one SQLite file, small and crash-safe, with a backup command
-- [x] 3.7 At rest, as in Zirkel: a `master.key` (0600) seals every stored blob, token and record with XChaCha20-Poly1305 under a per-row label; `proteus check` says whether the data folder is on an encrypted disk; a LUKS guide for the Pi
-- [x] 3.8 Its page: `http://<onion>/` in Tor Browser shows its code (`pharos-proteus:…`) as a QR image and as text, to download; `proteus code` prints it on the Pi; Enigma connects with it (scan or paste)
+- [x] 3.7 At rest, as in Zirkel: a `master.key` (0600) seals every stored blob, token and record with XChaCha20-Poly1305 under a per-row label; `relay check` says whether the data folder is on an encrypted disk; a LUKS guide for the Pi
+- [x] 3.8 Its page: `http://<onion>/` in Tor Browser shows its code (`pharos-relay:…`) as a QR image and as text, to download; `relay code` prints it on the Pi; Enigma connects with it (scan or paste)
 - [x] 3.6 Raspberry Pi: aarch64 build, systemd unit, memory and SD-card budget, install guide
 
 ## Stage 4 — Enigma, the client
 - [x] 4.1 The cut-down window: friends, conversation, compose a short message, settings
-- [x] 4.2 Pairing (D1): exchange contact cards by QR or text, verify the fingerprint, set up the friendship's secret and Proteus address
+- [x] 4.2 Pairing (D1): exchange contact cards by QR or text, verify the fingerprint, set up the friendship's secret and Relay address
 - [x] 4.3 Friendship (D2): host this week's rendezvous onion per friend and dial theirs; deliver directly when both are online
-- [x] 4.4 Offline without Proteus: an undelivered message waits in a local outbox and is retried while both are online; with Proteus (M3) it is left in the friend's mailbox instead and fetched on their start and on a schedule
-- [x] 4.5 Directory (D5), only with Proteus: publish your current reachability and look friends up there when the rendezvous fails; without it, a lost friend is paired again (D1)
+- [x] 4.4 Offline without Relay: an undelivered message waits in a local outbox and is retried while both are online; with Relay (M3) it is left in the friend's mailbox instead and fetched on their start and on a schedule
+- [x] 4.5 Directory (D5), only with Relay: publish your current reachability and look friends up there when the rendezvous fails; without it, a lost friend is paired again (D1)
 - [x] 4.6 Local state encrypted at rest behind a passphrase (Vesper's vault), and desktop notifications
 
 ## Stage 5 — Security and tests
-- [x] 5.1 Threat model and metadata: what Proteus, Tor and a friend can learn; padding and fetch schedules
-- [x] 5.2 Tests: unit, protocol vectors, Proteus with an in-memory transport, Enigma vitest, and end-to-end runs over real Tor both with and without Proteus
+- [x] 5.1 Threat model and metadata: what Relay, Tor and a friend can learn; padding and fetch schedules
+- [x] 5.2 Tests: unit, protocol vectors, Relay with an in-memory transport, Enigma vitest, and end-to-end runs over real Tor both with and without Relay
 - [x] 5.3 Hostile inputs: oversized and malformed frames, replay, token abuse, a full disk
 
 ## Stage 6 — Release
 - [x] 6.1 PROTOCOL.md, README, technology.md, THIRD_PARTY.md
-- [x] 6.2 Packages: Enigma for Linux and Windows (Android later), Proteus as an aarch64 binary and a .deb for Raspberry Pi OS — Proteus .deb built and install-tested here; Enigma bundles come from release.yml (not yet run)
+- [x] 6.2 Packages: Enigma for Linux and Windows (Android later), Relay as an aarch64 binary and a .deb for Raspberry Pi OS — Relay .deb built and install-tested here; Enigma bundles come from release.yml (not yet run)

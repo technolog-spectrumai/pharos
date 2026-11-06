@@ -1,7 +1,7 @@
 # Enigma
 
 The Pharos client. **Friends**: pair once by QR or text, then exchange short
-messages over Tor, directly or through a friend's Proteus. **Groups**: Vesper's
+messages over Tor, directly or through a friend's Relay. **Groups**: Vesper's
 rooms. See [../README.md](../README.md), [../PROTOCOL.md](../PROTOCOL.md).
 
 ---

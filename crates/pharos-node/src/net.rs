@@ -1,6 +1,6 @@
 //! How a node reaches others: dial an onion, host one under a given key.
 //! [`TorNet`] is arti; [`MemNet`] is an in-process stand-in for tests, which
-//! can also route an "onion" to a loopback TCP address (a real Proteus).
+//! can also route an "onion" to a loopback TCP address (a real Relay).
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -37,7 +37,7 @@ enum Route {
 }
 
 impl MemNet {
-    /// Make `onion` reach a TCP address (a Proteus serving with `--tcp`).
+    /// Make `onion` reach a TCP address (a Relay serving with `--tcp`).
     pub fn route_tcp(&self, onion: &str, addr: std::net::SocketAddr) {
         self.routes.lock().unwrap().insert(onion.to_string(), Route::Tcp(addr));
     }

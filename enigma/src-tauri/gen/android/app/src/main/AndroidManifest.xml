@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- No microphone: Enigma has no calls (Vesper's Vox was cut). -->
-    <!-- QR codes: scanning a friend's card or reply, or a Proteus code -->
+    <!-- QR codes: scanning a friend's card or reply, or a Relay code -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

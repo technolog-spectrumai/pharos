@@ -1,12 +1,12 @@
-# Putting Proteus' data on an encrypted disk
+# Putting Relay' data on an encrypted disk
 
-(Adapted from Zirkelite's guide.) Proteus seals everything it stores with its
+(Adapted from Zirkelite's guide.) Relay seals everything it stores with its
 master key, but on a Pi the key usually sits on the same SD card as the data.
-Whoever takes the card takes both — unless the card is encrypted. Proteus
+Whoever takes the card takes both — unless the card is encrypted. Relay
 cannot do that for you; it checks and says so:
 
 ```
-$ proteus check -c /etc/proteus/config.yaml
+$ relay check -c /etc/relay/config.yaml
 disk: the data folder is NOT on an encrypted disk (mmcblk0p2, mounted at /): …
 ```
 
@@ -22,10 +22,10 @@ The device's contents are destroyed. Replace `/dev/sdX` (`lsblk` lists them).
 ```sh
 sudo apt install cryptsetup
 sudo cryptsetup luksFormat --type luks2 /dev/sdX
-sudo cryptsetup open /dev/sdX proteus-data
-sudo mkfs.ext4 /dev/mapper/proteus-data
-sudo mount /dev/mapper/proteus-data /var/lib/proteus
-sudo chown proteus:proteus /var/lib/proteus && sudo chmod 700 /var/lib/proteus
+sudo cryptsetup open /dev/sdX relay-data
+sudo mkfs.ext4 /dev/mapper/relay-data
+sudo mount /dev/mapper/relay-data /var/lib/relay
+sudo chown relay:relay /var/lib/relay && sudo chmod 700 /var/lib/relay
 ```
 
 On a Pi without AES instructions (Pi 3, 4, Zero 2 W), Adiantum is much faster
@@ -33,18 +33,18 @@ than AES: `sudo cryptsetup luksFormat --type luks2 --cipher xchacha12,aes-adiant
 The Pi 5 has AES and can use the default.
 
 Move the master key onto the encrypted disk too, and point `master_key:` at it
-(e.g. `/var/lib/proteus/master.key`; the service can already read its data folder).
+(e.g. `/var/lib/relay/master.key`; the service can already read its data folder).
 
 ### Unlocking at boot
 
 - **Typed at boot** (a keyboard or serial console): in `/etc/crypttab`
-  `proteus-data UUID=<uuid> none luks`, and in `/etc/fstab`
-  `/dev/mapper/proteus-data /var/lib/proteus ext4 defaults,nofail 0 2`.
+  `relay-data UUID=<uuid> none luks`, and in `/etc/fstab`
+  `/dev/mapper/relay-data /var/lib/relay ext4 defaults,nofail 0 2`.
 - **Unattended** with a key file on a second USB stick you keep apart from the
-  Pi: `proteus-data UUID=<uuid> /dev/disk/by-label/KEY:/proteus.key luks`.
+  Pi: `relay-data UUID=<uuid> /dev/disk/by-label/KEY:/relay.key luks`.
   A Pi has no TPM; a key file next to the disk protects nothing.
 
-`proteus.service` has `RequiresMountsFor=/var/lib/proteus`, so it waits for the mount.
+`relay.service` has `RequiresMountsFor=/var/lib/relay`, so it waits for the mount.
 
 ## The whole SD card
 

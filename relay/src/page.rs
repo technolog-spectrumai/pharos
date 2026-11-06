@@ -1,9 +1,9 @@
-//! Proteus' own page: how to connect Enigma to it.
+//! Relay' own page: how to connect Enigma to it.
 //!
 //! Served on the onion itself, so it opens in Tor Browser for anyone who has
-//! the address. It shows the Proteus code (`pharos-proteus:…`, see
-//! `pharos_id::ProteusCode`) as a QR image and as text, with both to download.
-//! Enigma takes that code under "You and your Proteus".
+//! the address. It shows the Relay code (`pharos-relay:…`, see
+//! `pharos_id::RelayCode`) as a QR image and as text, with both to download.
+//! Enigma takes that code under "You and your Relay".
 //!
 //! Everything is made once, at start, from the onion and the configured name:
 //! no request computes anything, and nothing a visitor sends reaches the page.
@@ -14,8 +14,8 @@
 //! |---|---|
 //! | `/` | the page, in English |
 //! | `/pl` | the page, in Polish |
-//! | `/proteus-qr.png` | the QR code |
-//! | `/proteus.txt` | the code as text |
+//! | `/relay-qr.png` | the QR code |
+//! | `/relay.txt` | the code as text |
 
 use anyhow::{anyhow, Result};
 use axum::http::header;
@@ -32,7 +32,7 @@ const CSP: &str = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'
                    base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 pub struct Page {
-    /// The code, `pharos-proteus:…`.
+    /// The code, `pharos-relay:…`.
     pub code: String,
     pub onion: String,
     en: String,
@@ -42,7 +42,7 @@ pub struct Page {
 
 impl Page {
     pub fn build(onion: &str, name: &str) -> Result<Self> {
-        let c = pharos_id::ProteusCode::new(onion, name).map_err(|e| anyhow!("the page's code: {e}"))?;
+        let c = pharos_id::RelayCode::new(onion, name).map_err(|e| anyhow!("the page's code: {e}"))?;
         let code = c.to_text();
         let onion = c.onion_address();
         let png = qr_png(&code)?;
@@ -55,8 +55,8 @@ pub fn router(page: Arc<Page>) -> Router {
     Router::new()
         .route("/", get(en))
         .route("/pl", get(pl))
-        .route("/proteus-qr.png", get(png))
-        .route("/proteus.txt", get(txt))
+        .route("/relay-qr.png", get(png))
+        .route("/relay.txt", get(txt))
         .with_state(page)
 }
 
@@ -86,7 +86,7 @@ async fn pl(axum::extract::State(p): St) -> Response {
 
 async fn png(axum::extract::State(p): St) -> Response {
     let mut r = guarded("image/png", p.png.clone());
-    r.headers_mut().insert(header::CONTENT_DISPOSITION, "inline; filename=\"proteus-qr.png\"".parse().unwrap());
+    r.headers_mut().insert(header::CONTENT_DISPOSITION, "inline; filename=\"relay-qr.png\"".parse().unwrap());
     r
 }
 
@@ -170,37 +170,37 @@ struct Words {
 
 const EN: Words = Words {
     lang: "en",
-    lead: "This is a Proteus. It keeps sealed messages for people who use Enigma while they are offline, and cannot read them.",
+    lead: "This is a Relay. It keeps sealed messages for people who use Enigma while they are offline, and cannot read them.",
     connect: "Connect Enigma to it",
     steps: [
-        "In Enigma, open <b>Friends</b>, then ⚙ <b>You and your Proteus</b>.",
+        "In Enigma, open <b>Friends</b>, then ⚙ <b>You and your Relay</b>.",
         "Scan this QR code with the camera button, or paste the code below.",
-        "Save. Enigma checks that it can reach this Proteus.",
+        "Save. Enigma checks that it can reach this Relay.",
     ],
-    qr_alt: "QR code of this Proteus",
+    qr_alt: "QR code of this Relay",
     as_text: "The code as text",
     get_png: "Download the QR code (PNG)",
     get_txt: "Download the code (text)",
     address: "Its address",
-    share: "Give the address and the code only to people you want to use this Proteus.",
+    share: "Give the address and the code only to people you want to use this Relay.",
     other: ("/pl", "Polski"),
 };
 
 const PL: Words = Words {
     lang: "pl",
-    lead: "To jest Proteus. Przechowuje zaszyfrowane wiadomości dla osób korzystających z Enigmy, gdy są offline, i nie może ich przeczytać.",
+    lead: "To jest Relay. Przechowuje zaszyfrowane wiadomości dla osób korzystających z Enigmy, gdy są offline, i nie może ich przeczytać.",
     connect: "Połącz z nim Enigmę",
     steps: [
-        "W Enigmie otwórz <b>Znajomi</b>, a potem ⚙ <b>Ty i Twój Proteus</b>.",
+        "W Enigmie otwórz <b>Znajomi</b>, a potem ⚙ <b>Ty i Twój Relay</b>.",
         "Zeskanuj ten kod QR przyciskiem aparatu albo wklej kod poniżej.",
-        "Zapisz. Enigma sprawdzi, czy może połączyć się z tym Proteusem.",
+        "Zapisz. Enigma sprawdzi, czy może połączyć się z tym serwerem Relay.",
     ],
-    qr_alt: "Kod QR tego Proteusa",
+    qr_alt: "Kod QR tego serwera Relay",
     as_text: "Kod jako tekst",
     get_png: "Pobierz kod QR (PNG)",
     get_txt: "Pobierz kod (tekst)",
     address: "Jego adres",
-    share: "Podawaj adres i kod tylko osobom, które mają korzystać z tego Proteusa.",
+    share: "Podawaj adres i kod tylko osobom, które mają korzystać z tego serwera Relay.",
     other: ("/", "English"),
 };
 
@@ -214,7 +214,7 @@ fn html(w: &Words, name: &str, onion: &str, code: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>{name} · Proteus</title>
+<title>{name} · Relay</title>
 <style>
   :root {{ color-scheme: light dark; --bg: #f6f7fb; --fg: #161a2b; --card: #ffffff; --line: #d9dcea; --accent: #5b67c7; }}
   @media (prefers-color-scheme: dark) {{ :root {{ --bg: #0b0d14; --fg: #e8eaf4; --card: #161a2b; --line: #2a3050; --accent: #8c96e8; }} }}
@@ -238,24 +238,24 @@ fn html(w: &Words, name: &str, onion: &str, code: &str) -> String {
 </head>
 <body>
 <main>
-  <header><div class="mark" aria-hidden="true">P</div><div><h1>{name}</h1><div class="kind">Proteus</div></div></header>
+  <header><div class="mark" aria-hidden="true">P</div><div><h1>{name}</h1><div class="kind">Relay</div></div></header>
   <p>{lead}</p>
   <section>
     <h2>{connect}</h2>
     <ol>{steps}</ol>
-    <img class="qr" src="/proteus-qr.png" width="410" height="410" alt="{qr_alt}">
+    <img class="qr" src="/relay-qr.png" width="410" height="410" alt="{qr_alt}">
   </section>
   <section>
     <h2>{as_text}</h2>
     <pre>{code}</pre>
-    <div class="links"><a href="/proteus-qr.png" download="proteus-qr.png">{get_png}</a><a href="/proteus.txt" download="proteus.txt">{get_txt}</a></div>
+    <div class="links"><a href="/relay-qr.png" download="relay-qr.png">{get_png}</a><a href="/relay.txt" download="relay.txt">{get_txt}</a></div>
   </section>
   <section>
     <h2>{address}</h2>
     <p><code>{onion}</code></p>
     <p>{share}</p>
   </section>
-  <footer><span>Proteus {version} · Pharos</span><a href="{other_href}" lang="{other_lang}">{other_label}</a></footer>
+  <footer><span>Relay {version} · Pharos</span><a href="{other_href}" lang="{other_lang}">{other_label}</a></footer>
 </main>
 </body>
 </html>
@@ -286,7 +286,7 @@ mod tests {
 
     /// A well-formed onion address (any 32 bytes make one).
     fn onion() -> String {
-        pharos_id::ProteusCode { v: 1, onion: [9u8; 32], name: "x".into() }.onion_address()
+        pharos_id::RelayCode { v: 1, onion: [9u8; 32], name: "x".into() }.onion_address()
     }
 
     async fn get(app: &Router, path: &str) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
@@ -319,17 +319,17 @@ mod tests {
         assert!(html.contains(&page.code), "the code is on the page");
         assert!(html.contains(&onion()), "and the address");
         assert!(html.contains("Alice&#39;s Pi"), "the name, escaped");
-        assert!(html.contains("You and your Proteus"), "names the place in Enigma");
+        assert!(html.contains("You and your Relay"), "names the place in Enigma");
 
-        let (s, h, txt) = get(&app, "/proteus.txt").await;
+        let (s, h, txt) = get(&app, "/relay.txt").await;
         assert_eq!((s, h[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "text/plain; charset=utf-8"));
         assert_eq!(String::from_utf8(txt).unwrap().trim(), page.code);
 
-        let (s, h, png) = get(&app, "/proteus-qr.png").await;
+        let (s, h, png) = get(&app, "/relay-qr.png").await;
         assert_eq!((s, h[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "image/png"));
         assert_eq!(decode_png(&png), page.code);
         // What a phone scans is what Enigma takes.
-        let c = pharos_id::ProteusCode::from_text(&decode_png(&png)).unwrap();
+        let c = pharos_id::RelayCode::from_text(&decode_png(&png)).unwrap();
         assert_eq!((c.onion_address(), c.name.as_str()), (onion(), "Alice's Pi"));
     }
 
@@ -354,7 +354,7 @@ mod tests {
         let en = String::from_utf8(get(&app, "/").await.2).unwrap();
         let pl = String::from_utf8(get(&app, "/pl").await.2).unwrap();
         assert!(en.contains(r#"<html lang="en">"#) && en.contains(r#"href="/pl""#));
-        assert!(pl.contains(r#"<html lang="pl">"#) && pl.contains("Ty i Twój Proteus") && pl.contains(r#"href="/""#));
+        assert!(pl.contains(r#"<html lang="pl">"#) && pl.contains("Ty i Twój Relay") && pl.contains(r#"href="/""#));
         assert_eq!(get(&app, "/nothing").await.0, StatusCode::NOT_FOUND);
     }
 
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn the_terminal_qr_is_square_and_quiet_zoned() {
-        let t = qr_terminal("pharos-proteus:TEST").unwrap();
+        let t = qr_terminal("pharos-relay:TEST").unwrap();
         let lines: Vec<&str> = t.lines().collect();
         let w = lines[0].chars().count();
         assert!(lines.iter().all(|l| l.chars().count() == w));

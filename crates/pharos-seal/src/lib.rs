@@ -8,7 +8,7 @@
 //!   24-byte nonce and a label as associated data. A box opens only under the
 //!   label it was sealed with, so a value moved to another place (another
 //!   table row, another friend's record) does not open. Directory records and
-//!   Proteus' at-rest sealing use it.
+//!   Relay' at-rest sealing use it.
 
 use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
 use chacha20poly1305::XChaCha20Poly1305;

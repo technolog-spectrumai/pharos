@@ -6050,8 +6050,8 @@ dependencies = [
  "pharos-tor",
  "pharos-wire",
  "postcard",
- "proteus",
  "rand_core 0.6.4",
+ "relay",
  "serde",
  "serde_json",
  "tokio",
@@ -6566,34 +6566,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proteus"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "blake3",
- "data-encoding",
- "http-body-util",
- "hyper",
- "hyper-util",
- "pharos-id",
- "pharos-seal",
- "pharos-tor",
- "png 0.18.1",
- "qrcodegen",
- "rand_core 0.6.4",
- "rqrr",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_norway",
- "tempfile",
- "tokio",
- "tower",
- "zeroize",
-]
-
-[[package]]
 name = "pwd-grp"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6872,6 +6844,34 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "blake3",
+ "data-encoding",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pharos-id",
+ "pharos-seal",
+ "pharos-tor",
+ "png 0.18.1",
+ "qrcodegen",
+ "rand_core 0.6.4",
+ "rqrr",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "tempfile",
+ "tokio",
+ "tower",
+ "zeroize",
+]
 
 [[package]]
 name = "reqwest"

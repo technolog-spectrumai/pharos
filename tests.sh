@@ -19,7 +19,7 @@ step js   "typecheck: enigma"       npm run typecheck -w enigma
 step js   "build: enigma window"    npm run build -w enigma
 step js   "e2e: enigma smoke"       npm run test:e2e -w enigma
 step rust "cargo test: enigma"      cargo test -p enigma
-step rust "cargo test: crates"      cargo test -p gervasius -p protasius -p rotor-core -p ferrozine -p pharos-wire -p pharos-seal -p pharos-rendezvous -p pharos-id -p pharos-tor -p pharos-node -p proteus
+step rust "cargo test: crates"      cargo test -p gervasius -p protasius -p rotor-core -p ferrozine -p pharos-wire -p pharos-seal -p pharos-rendezvous -p pharos-id -p pharos-tor -p pharos-node -p relay
 fail=0; echo; for i in "${!names[@]}"; do
   if [[ ${codes[$i]} == 0 ]]; then echo "  ok    ${names[$i]}"; else echo "  FAIL  ${names[$i]}"; fail=1; fi
 done; exit $fail

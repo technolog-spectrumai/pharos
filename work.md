@@ -9,12 +9,22 @@ and this client, built here as Nautes, is now **Enigma** (`enigma/`,
 were rewritten to the new names: "Vesper" there means the app this one was
 forked from, "Enigma" this client.
 
+## Relay (the owner, 2026-11-06)
+
+"Replace name proteus to name relay." The server is now **Relay**: folder `relay/`,
+crate and binary `relay`, `/etc/relay`, `/var/lib/relay`, `relay.sqlite`, the
+code `pharos-relay:…`, and the words in Enigma (EN, and PL as "serwer Relay"
+where Polish needs a case). Two values keep the former name because data
+depends on them: the master key's derivation labels (`"proteus 2026 …"`) and
+the onion's keystore nickname (`host("proteus")`). Older notes below were
+rewritten to the new name.
+
 ## The request (the owner, 2026-11-05)
 
 A new project, **Pharos** ("a lighthouse in the dark"): short messages over
 Tor, encrypted with Ferrozine. Fork Belisario keeping only Vesper, with its
 code history, and cut it down to short messages via Tor. The server is
-**Proteus** (axum, slim, must run on a Raspberry Pi); the client is
+**Relay** (axum, slim, must run on a Raspberry Pi); the client is
 **Enigma** (Rust, Tauri), built from Vesper's code.
 
 Chosen from the earlier analysis (Belisario session, 2026-11-05):
@@ -24,20 +34,20 @@ Chosen from the earlier analysis (Belisario session, 2026-11-05):
 - **D5** a directory onion on the Pi.
 - **M3** the Raspberry Pi as the always-on member: a mailbox for offline friends.
 
-## Proteus is optional (the owner, 2026-11-05)
+## Relay is optional (the owner, 2026-11-05)
 
-"In theory, Enigma should work without Proteus, but Proteus should make
+"In theory, Enigma should work without Relay, but Relay should make
 things easier." So:
 
-| | Without Proteus | With Proteus |
+| | Without Relay | With Relay |
 |---|---|---|
 | First contact | D1: QR or text card | the same |
 | Reaching a friend | D2: rendezvous onions, direct | the same, first choice |
 | Friend offline | the message waits in a local outbox (sealed, in the vault) and is retried while Enigma runs; it arrives when both are online at once | left in the friend's mailbox (M3), fetched when they come online |
 | Friend lost (new device, onion changed) | pair again (D1) | found again through the directory (D5) |
 
-Nothing in Enigma requires a Proteus address: pairing works without one, and
-a Proteus can be added to a friendship later (a new contact-card field
+Nothing in Enigma requires a Relay address: pairing works without one, and
+a Relay can be added to a friendship later (a new contact-card field
 exchanged over the sealed channel). Tests cover both modes (5.2).
 
 ## Stage 1 — Fork and cut down
@@ -50,7 +60,7 @@ exchanged over the sealed channel). Tests cover both modes (5.2).
 The tree still has Belisario's layout, so nothing builds yet (no root
 workspace); 1.2 fixes that.
 
-**1.2 Layout.** `enigma/` (from `apps/vesper/`), `proteus/`, `crates/`
+**1.2 Layout.** `enigma/` (from `apps/vesper/`), `relay/`, `crates/`
 (ferrozine, rotor, gervasius, the new pharos-* crates), `packages/` (petalite,
 calendula), one root `Cargo.toml` workspace and `package.json` workspaces.
 Moves are done with `git mv`, so history follows.
@@ -74,7 +84,7 @@ and vitest on push.
 ### Stage 1 done — notes (2026-11-05)
 
 - Cut: iroh/DHT/gossip, vox (calls, audio), file transfer, calendar, contacts tab, invites over iroh, `limbo/`, editions/feature flags except `pin_unlock`. Tor is always on (`default_use_tor` = true; no switch).
-- Composer is text-only with a length counter; the cap is `policy.maxMessageChars` (1000) in `enigma/src/config/app.ts`. Proteus must enforce the same cap (Stage 3).
+- Composer is text-only with a length counter; the cap is `policy.maxMessageChars` (1000) in `enigma/src/config/app.ts`. Relay must enforce the same cap (Stage 3).
 - Renamed: crate `enigma` / `enigma_lib`, bundle id `com.spectrumaipl.enigma`, views `Enigma*View`, assets `assets/enigma/`, storage keys `enigma:*`. Icons are still Vesper's artwork (new art: Stage 6).
 - Leftovers for later stages:
   - `packages/rakotis/src/useChatChannel.ts` still has iroh-shaped branches (ticket/peer paths); rewrite in Stage 4.
@@ -101,7 +111,7 @@ an MLS group (PD8). Forward secrecy and post-compromise security come from MLS.
 
 **2.3 `pharos-tor`.** From `p2p_tor.rs`: arti client with a per-profile
 state directory (stable onion identities), hosting onion services, dialing,
-per-frame write timeouts, handshake read caps. Used by Enigma and Proteus.
+per-frame write timeouts, handshake read caps. Used by Enigma and Relay.
 
 **2.4 `pharos-rendezvous` (D2).** At pairing, the two friends agree a
 friendship secret (from the MLS group's exporter secret). Each week:
@@ -118,15 +128,15 @@ to keep this small (PD10).
 ### Stage 2 done — notes
 
 - `pharos-wire`: `Envelope { v, id, sent_ms, body: Text | Ack | Mls | Ping }` (postcard); text cap 1000 characters, checked on both encode and decode; padding to 512 / 2048 / 8192 bytes (32 KiB multiples for MLS handshakes) inside the seal; u32 frames capped at 64 KiB, refused before allocation.
-- `pharos-seal`: `Friendship` over rotor's MLS (start / join / seal / open / export / import); the friendship secret is the MLS exporter at pairing (`pharos/friendship/v1`), stored, since it changes with each epoch. `seal_labelled` / `open_labelled`: XChaCha20-Poly1305 with the label as associated data (directory records, Proteus at rest).
+- `pharos-seal`: `Friendship` over rotor's MLS (start / join / seal / open / export / import); the friendship secret is the MLS exporter at pairing (`pharos/friendship/v1`), stored, since it changes with each epoch. `seal_labelled` / `open_labelled`: XChaCha20-Poly1305 with the label as associated data (directory records, Relay at rest).
 - `pharos-rendezvous`: HKDF-SHA256 (salt `pharos/rendezvous/v1`) from the friendship secret: weekly onion key per host, mailbox id and token, directory id (weekly), key and token. Dial candidates: this week, last week, next week. Test vectors pinned.
 - `pharos-tor`: arti start / host (arti's own key) / host_with_key (`experimental-api`'s `launch_onion_service_with_hsid`) / dial with timeout. Test: the onion arti publishes for a derived key equals pharos-rendezvous' address.
-- `pharos-id` (2.5, a fifth crate): ed25519 device key, fingerprint (SHA-256, 16 bytes; shown as six groups of four), signed `ContactCard` (name, device key, MLS key package, optional Proteus onion, one-time pairing token, 7-day expiry) and `PairReply` (the scanner's card + MLS welcome, bound to the card it answers), as `pharos-card:` / `pharos-reply:` base32 text for QR or paste.
+- `pharos-id` (2.5, a fifth crate): ed25519 device key, fingerprint (SHA-256, 16 bytes; shown as six groups of four), signed `ContactCard` (name, device key, MLS key package, optional Relay onion, one-time pairing token, 7-day expiry) and `PairReply` (the scanner's card + MLS welcome, bound to the card it answers), as `pharos-card:` / `pharos-reply:` base32 text for QR or paste.
 
 
-## Stage 3 — Proteus
+## Stage 3 — Relay
 
-**3.1 Slim axum over arti.** Proteus never listens on a clearnet port: arti
+**3.1 Slim axum over arti.** Relay never listens on a clearnet port: arti
 hosts its onion service, and each incoming onion stream is served by
 hyper/axum as a connection (axum's `serve` on a custom stream source). Small
 dependency set: axum without the macros feature, `tower` limits, tokio with
@@ -134,16 +144,16 @@ only `rt` + `net` + `time`; no TLS (Tor's onion transport is already end to
 end). Target: idle memory under 64 MB on a Pi 4.
 
 **3.2 Mailbox (M3).** A mailbox is an opaque id (random, 32 bytes) that only
-its owner and the friends it was given to know. Proteus stores sealed blobs
+its owner and the friends it was given to know. Relay stores sealed blobs
 per mailbox, padded to fixed sizes, until the owner fetches and acknowledges
-them or they expire (proposed 14 days). Quotas per mailbox. Proteus is
+them or they expire (proposed 14 days). Quotas per mailbox. Relay is
 "always on" but **not an MLS member**: it holds no keys and cannot read a
 message. (M3's "always-on member" is met as a member of the protocol, not of
 the encrypted groups; PD3.)
 
 **3.3 Directory (D5).** A record says "this friendship's current onion is X",
 sealed so only that friend can open it, signed by the publisher, stored under
-a lookup id derived from the friendship secret (so Proteus cannot tell who it
+a lookup id derived from the friendship secret (so Relay cannot tell who it
 belongs to), with an expiry. Used when the rendezvous onion is not answering
 (new device, moved state).
 
@@ -153,52 +163,52 @@ token and in total; size caps; all requests over Tor, so no IP addresses are
 seen or logged.
 
 **3.5 Storage.** One SQLite file (bundled, WAL), with a schema version, an
-expiry sweep and a `proteus backup` command. A full disk refuses new puts
+expiry sweep and a `relay backup` command. A full disk refuses new puts
 with a reason; nothing else breaks.
 
 **3.6 Raspberry Pi.** A cross-compiled aarch64 binary
 (`aarch64-unknown-linux-gnu`), a systemd unit with hardening (DynamicUser,
 ProtectSystem, a state directory), a config file (quotas, expiries), an
 install guide. arti's state lives under the state directory; its keys are the
-Proteus onion identity and are backed up with it.
+Relay onion identity and are backed up with it.
 
 ### 3.7 At rest (the owner, 2026-11-05: "like in s3-like buckets of Zirkel")
 
 Three layers, as Zirkelite does it (zirkelite `docs/security.md`, `src/diskcrypt.rs`, `docs/disk-encryption.md`):
-1. End to end: what Enigma leaves on Proteus is already sealed (MLS / the friendship key), like Zirkel's encrypted buckets.
+1. End to end: what Enigma leaves on Relay is already sealed (MLS / the friendship key), like Zirkel's encrypted buckets.
 2. A master key: `master.key` beside the config, mode 0600, refused if group or others can read it. Every stored value (mailbox blob, token hash, directory record) is sealed with XChaCha20-Poly1305 under a label naming its table and row, so a value moved to another row does not open. The database alone gives away counts and sizes, not contents. Back up the database and the key separately.
-3. The disk: `proteus check` reads `/proc/self/mountinfo` and `/sys/dev/block` and says whether the data folder is on dm-crypt (encrypted / not encrypted / unknown); `serve` warns at start unless encrypted. A guide for LUKS on the Pi's SD card or a USB disk.
+3. The disk: `relay check` reads `/proc/self/mountinfo` and `/sys/dev/block` and says whether the data folder is on dm-crypt (encrypted / not encrypted / unknown); `serve` warns at start unless encrypted. A guide for LUKS on the Pi's SD card or a USB disk.
 
 
 ### 3.8 Its page and its code (the owner, 2026-11-05)
 
-"Proteus exports its QR code as text or image via a simple static HTML website
+"Relay exports its QR code as text or image via a simple static HTML website
 accessible via Tor Browser if you know its Tor address, and Enigma can use this
 code to connect to it."
 
-- `proteus/src/page.rs`: `/` (English), `/pl` (Polish), `/proteus-qr.png`,
-  `/proteus.txt`, merged into the router once the onion is known (after Tor
+- `relay/src/page.rs`: `/` (English), `/pl` (Polish), `/relay-qr.png`,
+  `/relay.txt`, merged into the router once the onion is known (after Tor
   hosts it; with `--tcp`, from the last `onion.txt`). Made once at start; no
   JavaScript and no SVG (both are off at Tor Browser's "Safest" level), a strict
   CSP, `nosniff`, `no-referrer`, `DENY` framing. The name is HTML-escaped.
-- The code is `pharos-id::ProteusCode` (`pharos-proteus:` + base32 of postcard
+- The code is `pharos-id::RelayCode` (`pharos-relay:` + base32 of postcard
   `{v, onion key, name}`); the address is derived from the key, so a code
   cannot carry a typo. `qrcodegen` makes the QR, `png` the image; a test
   decodes the served PNG with `rqrr`, as a phone camera would, and gets the
   code back.
-- `proteus code` prints the code, the QR in half blocks for a terminal, and
-  with `--png` writes the image. Config: `name` (default "Proteus"), `page`
+- `relay code` prints the code, the QR in half blocks for a terminal, and
+  with `--png` writes the image. Config: `name` (default "Relay"), `page`
   (default true).
-- Enigma: `pharos_node::parse_proteus` takes the code or a bare address
+- Enigma: `pharos_node::parse_relay` takes the code or a bare address
   (`pharos_rendezvous::parse_onion` checks the v3 checksum and version, so a
-  mistyped address is refused instead of tried); "You and your Proteus" has a
+  mistyped address is refused instead of tried); "You and your Relay" has a
   camera button, says when it is connecting, and keeps the dialog open with the
-  reason when it fails; the sidebar shows the Proteus in use; a Proteus code
+  reason when it fails; the sidebar shows the Relay in use; a Relay code
   pasted as a friend says where it goes. The name inside a code is not stored:
   the saved state's format is unchanged.
 - Tests: the page (code on it, QR decodes to it, no script, headers, both
   languages, escaping), the code (round trip, any case, typos), the parser, an
-  end-to-end run where Enigma reads the code from a real Proteus' page and then
+  end-to-end run where Enigma reads the code from a real Relay' page and then
   pairs and leaves a message through it, and the window.
 
 ### Stage 3 done — notes
@@ -206,7 +216,7 @@ code to connect to it."
 (Restored 2026-11-05: an earlier edit of this file dropped this section and
 the Stage 3–5 headings.)
 
-- `proteus/`: axum 0.8 (http1 only) served per connection through hyper on arti's onion streams; `--tcp` is loopback-only, for tests and development. No clap, no tracing: `init`, `check`, `serve`, `status`, `backup` (and, with 3.8, `code`).
+- `relay/`: axum 0.8 (http1 only) served per connection through hyper on arti's onion streams; `--tcp` is loopback-only, for tests and development. No clap, no tracing: `init`, `check`, `serve`, `status`, `backup` (and, with 3.8, `code`).
 - Mailbox: the first PUT with a token creates the mailbox (its id and token come from the friendship secret, so only the two friends can know them); GET after a sequence number; POST ack up to one. Quotas: 500 messages, 40 KiB each, 10 000 mailboxes, 14 days. Directory records: owned by the first writer's token, 2 KiB, 15 days, GET needs only the id. Pairing drop-off: one-time, taken once, 7 days.
 - Access: per-id requests per minute (Tor hides addresses, so ids are what can be counted), a body limit, at most 32 connections at once, a 30 s header timeout and a 120 s connection cap.
 - At rest (3.7): `master.key` 0600 (refused otherwise); BLAKE3-derived sub-keys seal every value (XChaCha20-Poly1305, label `table/hashed-id/seq`) and key-hash every id and token. A test greps the database, WAL and a backup for ids, tokens and contents. `diskcrypt.rs` is Zirkelite's. `docs/disk-encryption.md` adds Adiantum for Pis without AES and a key file on a separate stick (a Pi has no TPM).
@@ -216,11 +226,11 @@ the Stage 3–5 headings.)
 ## Stage 4 — Enigma
 
 **4.1 The window.** From Vesper's chat: friends, a conversation, a compose
-box with the length cap, delivery state (sent directly, left on Proteus,
-delivered, read), settings (Proteus address, passphrase, language, theme).
+box with the length cap, delivery state (sent directly, left on Relay,
+delivered, read), settings (Relay address, passphrase, language, theme).
 
 **4.2 Pairing (D1).** A contact card: device fingerprint, an MLS key package,
-the first rendezvous parameters, the Proteus onion address and a mailbox
+the first rendezvous parameters, the Relay onion address and a mailbox
 write token. Shown as a QR code and as text; both sides confirm the
 fingerprint (a short code read aloud).
 
@@ -229,7 +239,7 @@ onion and dial theirs when there is something to send or a presence check
 is due. Delivery is direct when both are online.
 
 **4.4 Offline (M3).** If the friend's onion does not answer within a timeout,
-the sealed message goes to their mailbox on Proteus. Enigma fetches its own
+the sealed message goes to their mailbox on Relay. Enigma fetches its own
 mailbox on start and on a randomised schedule, and acknowledges what it read.
 
 **4.5 Directory (D5).** On start and when its onion changes, Enigma publishes
@@ -241,21 +251,21 @@ Notifications for new messages.
 
 ### Stage 4 done — notes
 
-- The engine is a crate, `crates/pharos-node`, so it is tested without a window: `Node<N: Net>` with `TorNet` (arti, `pharos-tor`) in the app and `MemNet` (in-process streams, plus routing an "onion" to a loopback Proteus) in tests. Its whole state is one postcard `State`, saved by the app in the vault (`pharos/state`) on every `Event::Changed`.
-- Pairing: each shown card carries its own MLS key package and a one-time token, kept as a pending entry for a week. Scanning a card starts the MLS group and gives a `PairReply`; it is left on the card owner's Proteus under the token when the card names one (the owner's `poll_pairings` takes it), and otherwise shown as a QR / text. A welcome opens only for the key package it was made for, so a reply is matched to its card by trying the pending entries.
+- The engine is a crate, `crates/pharos-node`, so it is tested without a window: `Node<N: Net>` with `TorNet` (arti, `pharos-tor`) in the app and `MemNet` (in-process streams, plus routing an "onion" to a loopback Relay) in tests. Its whole state is one postcard `State`, saved by the app in the vault (`pharos/state`) on every `Event::Changed`.
+- Pairing: each shown card carries its own MLS key package and a one-time token, kept as a pending entry for a week. Scanning a card starts the MLS group and gives a `PairReply`; it is left on the card owner's Relay under the token when the card names one (the owner's `poll_pairings` takes it), and otherwise shown as a QR / text. A welcome opens only for the key package it was made for, so a reply is matched to its card by trying the pending entries.
 - Direct: per friend, this week's rendezvous onion (key from the friendship secret and *our* fingerprint); dialling tries this week, last week, next week. One frame per message; every text is answered by a sealed `Ack` on the same connection.
-- Offline: the outbox keeps `Queued` messages and retries each round (60 s). If the friend's card or directory record names a Proteus, the message goes to their mailbox instead (`OnProteus`) and becomes `Delivered` when their acknowledgement arrives (directly, or through *our* mailbox). Acknowledgements we owe ride with the next delivery.
-- Directory: when we set or change our Proteus, a sealed `{proteus, at}` record goes, per friend, to the current and previous Proteus for this week and the next; a friend's `lookup` follows it to the new address.
-- Enigma: `src-tauri/src/pharos.rs` (commands `pharos_*`, events `pharos://message|status|friends`, a notification that says who wrote but not what), started after unlock, stopped on lock. Its own arti instance in `profiles/<p>/pharos-tor/` (rendezvous keys are derived, so nothing there is secret beyond the vault). `EnigmaFriendsView.vue` is the first tab: friends, a conversation with statuses, a 1000-character composer, pairing (QR, copy, paste, camera), name and Proteus.
+- Offline: the outbox keeps `Queued` messages and retries each round (60 s). If the friend's card or directory record names a Relay, the message goes to their mailbox instead (`OnRelay`) and becomes `Delivered` when their acknowledgement arrives (directly, or through *our* mailbox). Acknowledgements we owe ride with the next delivery.
+- Directory: when we set or change our Relay, a sealed `{relay, at}` record goes, per friend, to the current and previous Relay for this week and the next; a friend's `lookup` follows it to the new address.
+- Enigma: `src-tauri/src/pharos.rs` (commands `pharos_*`, events `pharos://message|status|friends`, a notification that says who wrote but not what), started after unlock, stopped on lock. Its own arti instance in `profiles/<p>/pharos-tor/` (rendezvous keys are derived, so nothing there is secret beyond the vault). `EnigmaFriendsView.vue` is the first tab: friends, a conversation with statuses, a 1000-character composer, pairing (QR, copy, paste, camera), name and Relay.
 - Vesper's rooms remain as the second tab, "Groups" (small groups over the captain relay). Two arti clients run while both are in use; merging them is a later cleanup.
-- Tests: pharos-node 7 end-to-end (without Proteus; weekly rotation and clock skew; mailbox, pairing drop-off and acks with a real Proteus; directory move; restart from a snapshot; hostile cards, replies, frames); `friendsView.test.ts` 5.
+- Tests: pharos-node 7 end-to-end (without Relay; weekly rotation and clock skew; mailbox, pairing drop-off and acks with a real Relay; directory move; restart from a snapshot; hostile cards, replies, frames); `friendsView.test.ts` 5.
 
 
 ## Stage 5 — Security and tests
 
 **5.1 Threat model.** What each party learns:
 - **Tor** sees nothing of content and no addresses beyond its circuits.
-- **Proteus** sees mailbox ids, blob sizes (padded) and timing, never content
+- **Relay** sees mailbox ids, blob sizes (padded) and timing, never content
   or who is who.
 - **A friend** sees what you send them.
 - **A stolen device**: the vault behind a passphrase.
@@ -265,7 +275,7 @@ signals.
 
 **5.2 Tests.**
 - Rust unit tests and protocol vectors (rendezvous, wire).
-- Proteus over an in-memory transport (no Tor) for speed.
+- Relay over an in-memory transport (no Tor) for speed.
 - Enigma vitest.
 - One end-to-end run over real Tor (slow; on demand).
 
@@ -274,30 +284,30 @@ token guessing, quota abuse, a full disk.
 
 ## Stage 6 — Release
 
-**6.1** PROTOCOL.md (wire, rendezvous derivation, Proteus API), README,
+**6.1** PROTOCOL.md (wire, rendezvous derivation, Relay API), README,
 technology.md, THIRD_PARTY.md.
 
 **6.2** Enigma: Linux .deb / .rpm, Windows; Android later (arti works there
-but is heavy on battery). Proteus: aarch64 binary and a .deb for Raspberry Pi
+but is heavy on battery). Relay: aarch64 binary and a .deb for Raspberry Pi
 OS.
 
 ### Stages 5 and 6 done — notes
 
-- 5.1 [SECURITY.md](SECURITY.md): who learns what (network, relays, a friend, Proteus' operator, a thief of its disk or of your device); known gaps: a fixed 60 s fetch schedule shows Proteus when you are online, message counts per mailbox are visible, no cover traffic, the rendezvous derivation has no forward secrecy, one device per identity.
+- 5.1 [SECURITY.md](SECURITY.md): who learns what (network, relays, a friend, Relay' operator, a thief of its disk or of your device); known gaps: a fixed 60 s fetch schedule shows Relay when you are online, message counts per mailbox are visible, no cover traffic, the rendezvous derivation has no forward secrecy, one device per identity.
 - 5.2 A real bug found by the real-Tor test: arti's rustls had no process crypto provider (it cannot choose when several crates enable backends). `Tor::start` now installs ring. That test (`pharos-node/tests/real_tor.rs`, ignored) could not run here: this sandbox reaches the outside only through an HTTPS proxy, so Tor never bootstraps. It runs in `.github/workflows/real-tor.yml`, by hand.
 - 5.3 Added: replayed and reflected MLS messages do not open; a full disk (SQLite `max_page_count`) fails the request, rolls back, and the server keeps working.
-- 6.1 PROTOCOL.md (formats, derivations, the Proteus API), README, technology.md and READMEs headed for Enigma, THIRD_PARTY.md for enigma (851 crates, 125 npm) and proteus (597 crates) from `scripts/third_party.mjs`.
-- 6.2 `release.yml`: Enigma on Linux and Windows (`tauri build`), Proteus for arm64 (binary and `.deb`). Built here: `proteus_0.1.0-1_arm64.deb` (4.4 MB; depends `libc6 (>= 2.34)`, pinned, because cargo-deb took the build host's 2.39, which Bookworm could not install); the amd64 build of the same package installed with dpkg: it created the user, a 0600 master key, and `status` answered.
+- 6.1 PROTOCOL.md (formats, derivations, the Relay API), README, technology.md and READMEs headed for Enigma, THIRD_PARTY.md for enigma (851 crates, 125 npm) and relay (597 crates) from `scripts/third_party.mjs`.
+- 6.2 `release.yml`: Enigma on Linux and Windows (`tauri build`), Relay for arm64 (binary and `.deb`). Built here: `relay_0.1.0-1_arm64.deb` (4.4 MB; depends `libc6 (>= 2.34)`, pinned, because cargo-deb took the build host's 2.39, which Bookworm could not install); the amd64 build of the same package installed with dpkg: it created the user, a 0600 master key, and `status` answered.
 ## Decisions for the owner (PD1–PD10)
 
 - **PD1.** Fork with history via `git filter-repo` (done, 1.1).
-- **PD2.** One repository, three parts: `enigma/`, `proteus/`, `crates/`.
-- **PD3.** Proteus is always on, but not a member of any encrypted group: it
+- **PD2.** One repository, three parts: `enigma/`, `relay/`, `crates/`.
+- **PD3.** Relay is always on, but not a member of any encrypted group: it
   never has keys (M3 as "member of the protocol").
-- **PD4.** Proteus is reachable only as an onion service; no clearnet port.
+- **PD4.** Relay is reachable only as an onion service; no clearnet port.
 - **PD5.** D1 then D2: pairing by QR or text, then rendezvous onions rotating
   weekly, two per friendship (one per side).
-- **PD6.** D5 directory records sealed per friend, under lookup ids Proteus
+- **PD6.** D5 directory records sealed per friend, under lookup ids Relay
   cannot link to people.
 - **PD7.** Short means short: 1,000 characters of text, no attachments.
 - **PD8.** 1:1 first; small groups (MLS groups, up to about a dozen) as a
@@ -305,5 +315,5 @@ OS.
 - **PD9.** Keep Vesper's "Privacy HP" for exposing actions (presence,
   publishing), or drop it to stay minimal.
 - **PD10.** Device keys only for now; Heliodor identities later if wanted.
-- **PD11 (the owner).** Enigma works without Proteus; Proteus is an optional
+- **PD11 (the owner).** Enigma works without Relay; Relay is an optional
   helper for offline delivery and for finding friends again.

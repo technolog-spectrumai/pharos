@@ -3,7 +3,7 @@
 //!
 //!   cargo run -p pharos-node --example demo_bridge      # http://127.0.0.1:8977
 //!
-//! Three nodes (alice, bob, carol) and a real Proteus run on the in-process
+//! Three nodes (alice, bob, carol) and a real Relay run on the in-process
 //! network. `POST /call/{profile}/{command}` with the command's JSON arguments
 //! answers as `src-tauri/src/pharos.rs` would; `GET /events/{profile}?since=n`
 //! returns the events since `n`. A browser shim (enigma/tests/e2e/bridge.ts)
@@ -18,12 +18,12 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// The demo Proteus' page (with its code for Enigma) is also on plain loopback
+/// The demo Relay' page (with its code for Enigma) is also on plain loopback
 /// HTTP here, for a browser to open as Tor Browser would open the onion.
-const PROTEUS_HTTP: &str = "127.0.0.1:8978";
+const RELAY_HTTP: &str = "127.0.0.1:8978";
 
-/// A well-formed onion address for the demo Proteus (any 32 bytes make one).
-fn proteus_onion() -> String {
+/// A well-formed onion address for the demo Relay (any 32 bytes make one).
+fn relay_onion() -> String {
     pharos_rendezvous::onion_address(&[0x50; 32])
 }
 
@@ -41,7 +41,7 @@ fn msg(m: &Message) -> Value {
 }
 
 fn me(n: &Node<MemNet>) -> Value {
-    json!({ "name": n.name(), "fingerprint": n.fingerprint_words(), "id": hex(&n.fingerprint()), "proteus": n.proteus() })
+    json!({ "name": n.name(), "fingerprint": n.fingerprint_words(), "id": hex(&n.fingerprint()), "relay": n.relay() })
 }
 
 async fn call(State(p): State<Peers>, Path((who, cmd)): Path<(String, String)>, Json(a): Json<Value>) -> Json<Value> {
@@ -55,9 +55,9 @@ async fn call(State(p): State<Peers>, Path((who, cmd)): Path<(String, String)>, 
                 n.set_name(&s("name"))?;
                 me(n)
             }
-            "pharos_set_proteus" => {
-                let target = pharos_node::parse_proteus(a.get("text").and_then(|v| v.as_str()).unwrap_or(""))?;
-                n.set_proteus(target.map(|t| t.onion)).await?;
+            "pharos_set_relay" => {
+                let target = pharos_node::parse_relay(a.get("text").and_then(|v| v.as_str()).unwrap_or(""))?;
+                n.set_relay(target.map(|t| t.onion)).await?;
                 me(n)
             }
             "pharos_card" => json!(n.my_card()?),
@@ -140,15 +140,15 @@ async fn events(State(p): State<Peers>, Path(who): Path<String>, Query(q): Query
 async fn main() -> anyhow::Result<()> {
     let net = MemNet::default();
     {
-        use proteus::{api, config::Limits, masterkey::MasterKey, page::Page, store::Store};
+        use relay::{api, config::Limits, masterkey::MasterKey, page::Page, store::Store};
         let store = Store::in_memory(MasterKey::from_bytes(&[5; 32]), Limits::default())?;
         let app = api::router(Arc::new(api::AppState { store, limiter: api::Limiter::new(1000), clock: pharos_node::system_secs }))
-            .merge(proteus::page::router(Arc::new(Page::build(&proteus_onion(), "Bob's Pi")?)));
-        let l = tokio::net::TcpListener::bind(PROTEUS_HTTP).await?;
-        net.route_tcp(&proteus_onion(), l.local_addr()?);
+            .merge(relay::page::router(Arc::new(Page::build(&relay_onion(), "Bob's Pi")?)));
+        let l = tokio::net::TcpListener::bind(RELAY_HTTP).await?;
+        net.route_tcp(&relay_onion(), l.local_addr()?);
         tokio::spawn(async move {
             while let Ok((s, _)) = l.accept().await {
-                tokio::spawn(proteus::serve_conn(s, app.clone()));
+                tokio::spawn(relay::serve_conn(s, app.clone()));
             }
         });
     }
@@ -188,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn(cors))
         .with_state(Arc::new(peers));
     let l = tokio::net::TcpListener::bind("127.0.0.1:8977").await?;
-    eprintln!("demo bridge on http://127.0.0.1:8977; Proteus {} with its page on http://{PROTEUS_HTTP}/", proteus_onion());
+    eprintln!("demo bridge on http://127.0.0.1:8977; Relay {} with its page on http://{RELAY_HTTP}/", relay_onion());
     axum::serve(l, app).await?;
     Ok(())
 }

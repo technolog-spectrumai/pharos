@@ -102,7 +102,7 @@ const shim = (bridge) => {
 
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.click("[data-testid=back]");
-  await page.getByRole("button", { name: "You and your Proteus" }).click();
+  await page.getByRole("button", { name: "You and your Relay" }).click();
   await shot("10-settings");
   await browser.close();
 })().catch((e) => { console.error(e); process.exit(1); });

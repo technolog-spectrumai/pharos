@@ -4,17 +4,17 @@
 //!   what both people compare by eye: [`fingerprint_words`] prints it as eight
 //!   groups of four base32 letters.
 //! - [`ContactCard`]: "here is me" — name, device key, an MLS key package,
-//!   optionally the address of a Proteus that keeps a mailbox for me, and a
+//!   optionally the address of a Relay that keeps a mailbox for me, and a
 //!   one-time pairing token. Signed by the device key.
 //! - [`PairReply`]: the scanner's answer — its own card plus the MLS welcome
 //!   that starts the friendship. Shown back as a second QR / text, or, when the
-//!   first card names a Proteus, left there under the pairing token.
+//!   first card names a Relay, left there under the pairing token.
 //!
-//! - [`ProteusCode`]: "here is a Proteus" — its onion and its name. Proteus
-//!   shows it on its own page (and `proteus code` prints it); Enigma takes it
+//! - [`RelayCode`]: "here is a Relay" — its onion and its name. Relay
+//!   shows it on its own page (and `relay code` prints it); Enigma takes it
 //!   to connect, so nobody types a 56-character address on a phone.
 //!
-//! All travel as text: a prefix (`pharos-card:` / `pharos-reply:` / `pharos-proteus:`) and
+//! All travel as text: a prefix (`pharos-card:` / `pharos-reply:` / `pharos-relay:`) and
 //! base32 of the postcard bytes, which fits in a QR code and survives being
 //! pasted into a chat.
 
@@ -25,7 +25,7 @@ use serde_big_array::BigArray;
 
 pub const CARD_PREFIX: &str = "pharos-card:";
 pub const REPLY_PREFIX: &str = "pharos-reply:";
-pub const PROTEUS_PREFIX: &str = "pharos-proteus:";
+pub const RELAY_PREFIX: &str = "pharos-relay:";
 const VERSION: u8 = 1;
 /// A card older than this is refused, so a photographed QR goes stale.
 pub const CARD_TTL_SECS: u64 = 7 * 24 * 3600;
@@ -94,9 +94,9 @@ pub struct CardBody {
     pub name: String,
     pub device: [u8; 32],
     pub key_package: Vec<u8>,
-    /// A Proteus onion that will hold this person's mailbox and accept a pairing reply.
-    pub proteus: Option<String>,
-    /// One-time: a reply left on Proteus under this token reaches the card's owner.
+    /// A Relay onion that will hold this person's mailbox and accept a pairing reply.
+    pub relay: Option<String>,
+    /// One-time: a reply left on Relay under this token reaches the card's owner.
     pub pairing_token: [u8; 16],
     pub issued_secs: u64,
 }
@@ -140,7 +140,7 @@ impl ContactCard {
         key: &DeviceKey,
         name: &str,
         key_package: Vec<u8>,
-        proteus: Option<String>,
+        relay: Option<String>,
         pairing_token: [u8; 16],
         now_secs: u64,
     ) -> Result<Self> {
@@ -150,7 +150,7 @@ impl ContactCard {
             name: name.trim().to_string(),
             device: key.public(),
             key_package,
-            proteus,
+            relay,
             pairing_token,
             issued_secs: now_secs,
         };
@@ -238,9 +238,9 @@ impl PairReply {
     }
 }
 
-/// A Proteus, as its page shows it: the onion service's identity key and a name.
+/// A Relay, as its page shows it: the onion service's identity key and a name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProteusCode {
+pub struct RelayCode {
     pub v: u8,
     /// The onion's ed25519 identity key; the address is derived from it, so a
     /// code cannot carry a mistyped address.
@@ -248,13 +248,13 @@ pub struct ProteusCode {
     pub name: String,
 }
 
-impl ProteusCode {
-    /// The code for the Proteus at `onion_address`, called `name`.
+impl RelayCode {
+    /// The code for the Relay at `onion_address`, called `name`.
     pub fn new(onion_address: &str, name: &str) -> Result<Self> {
         check_name(name)?;
         let onion = pharos_rendezvous::parse_onion(onion_address)
             .ok_or_else(|| IdError::Malformed("not a Tor v3 onion address".into()))?;
-        Ok(ProteusCode { v: VERSION, onion, name: name.trim().to_string() })
+        Ok(RelayCode { v: VERSION, onion, name: name.trim().to_string() })
     }
 
     pub fn onion_address(&self) -> String {
@@ -262,12 +262,12 @@ impl ProteusCode {
     }
 
     pub fn to_text(&self) -> String {
-        to_text(PROTEUS_PREFIX, &postcard::to_stdvec(self).unwrap())
+        to_text(RELAY_PREFIX, &postcard::to_stdvec(self).unwrap())
     }
 
     pub fn from_text(text: &str) -> Result<Self> {
-        let bytes = from_text(PROTEUS_PREFIX, text)?;
-        let c: ProteusCode = postcard::from_bytes(&bytes).map_err(|e| IdError::Malformed(e.to_string()))?;
+        let bytes = from_text(RELAY_PREFIX, text)?;
+        let c: RelayCode = postcard::from_bytes(&bytes).map_err(|e| IdError::Malformed(e.to_string()))?;
         if c.v != VERSION {
             return Err(IdError::Version(c.v));
         }
@@ -329,26 +329,26 @@ mod tests {
     }
 
     #[test]
-    fn proteus_codes_round_trip_and_carry_a_checked_address() {
+    fn relay_codes_round_trip_and_carry_a_checked_address() {
         let onion = pharos_rendezvous::onion_address(&[7u8; 32]);
-        let c = ProteusCode::new(&onion, "  Alice's Pi ").unwrap();
+        let c = RelayCode::new(&onion, "  Alice's Pi ").unwrap();
         assert_eq!(c.name, "Alice's Pi");
         assert_eq!(c.onion_address(), onion);
         let t = c.to_text();
-        assert!(t.starts_with(PROTEUS_PREFIX));
-        assert_eq!(ProteusCode::from_text(&t).unwrap(), c);
+        assert!(t.starts_with(RELAY_PREFIX));
+        assert_eq!(RelayCode::from_text(&t).unwrap(), c);
         // Upper-cased whole (a QR reader in alphanumeric mode), wrapped, padded.
         let shouty = format!("  {}\n", t.to_uppercase());
-        assert_eq!(ProteusCode::from_text(&shouty).unwrap(), c);
+        assert_eq!(RelayCode::from_text(&shouty).unwrap(), c);
         // Not a code, a card, a mistyped address, a nameless one.
-        assert_eq!(ProteusCode::from_text("hello").unwrap_err(), IdError::Prefix(PROTEUS_PREFIX));
-        assert!(ProteusCode::from_text(&format!("{PROTEUS_PREFIX}AAAA")).is_err());
+        assert_eq!(RelayCode::from_text("hello").unwrap_err(), IdError::Prefix(RELAY_PREFIX));
+        assert!(RelayCode::from_text(&format!("{RELAY_PREFIX}AAAA")).is_err());
         let mut typo = onion.into_bytes();
         typo[3] = if typo[3] == b'a' { b'b' } else { b'a' };
-        assert!(ProteusCode::new(std::str::from_utf8(&typo).unwrap(), "x").is_err());
-        assert!(ProteusCode::new(&pharos_rendezvous::onion_address(&[1; 32]), " ").is_err());
+        assert!(RelayCode::new(std::str::from_utf8(&typo).unwrap(), "x").is_err());
+        assert!(RelayCode::new(&pharos_rendezvous::onion_address(&[1; 32]), " ").is_err());
         let k = DeviceKey::generate();
-        assert!(ProteusCode::from_text(&card(&k, "Alice").to_text()).is_err());
+        assert!(RelayCode::from_text(&card(&k, "Alice").to_text()).is_err());
     }
 
     #[test]

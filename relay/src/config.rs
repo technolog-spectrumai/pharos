@@ -61,9 +61,9 @@ impl Default for Limits {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            data_dir: PathBuf::from("/var/lib/proteus"),
-            master_key: PathBuf::from("/etc/proteus/master.key"),
-            name: "Proteus".into(),
+            data_dir: PathBuf::from("/var/lib/relay"),
+            master_key: PathBuf::from("/etc/relay/master.key"),
+            name: "Relay".into(),
             page: true,
             limits: Limits::default(),
         }
@@ -91,7 +91,7 @@ mod tests {
         std::fs::write(&p, "").unwrap();
         let c = Config::load(&p).unwrap();
         assert_eq!(c.limits.max_messages_per_mailbox, 500);
-        assert_eq!((c.name.as_str(), c.page), ("Proteus", true));
+        assert_eq!((c.name.as_str(), c.page), ("Relay", true));
         std::fs::write(&p, "data_dir: /srv/p\nlimits:\n  message_ttl_days: 3\n").unwrap();
         let c = Config::load(&p).unwrap();
         assert_eq!(c.data_dir, PathBuf::from("/srv/p"));

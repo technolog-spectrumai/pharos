@@ -1122,7 +1122,7 @@ pub fn run() {
             pharos::pharos_start,
             pharos::pharos_me,
             pharos::pharos_set_name,
-            pharos::pharos_set_proteus,
+            pharos::pharos_set_relay,
             pharos::pharos_card,
             pharos::pharos_scan,
             pharos::pharos_accept,

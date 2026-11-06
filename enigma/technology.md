@@ -2,7 +2,7 @@
 
 > **Pharos.** Enigma is Vesper cut down to short messages over Tor, in the
 > Pharos repository. Its new part, **Friends** (1:1, pairing by QR, weekly
-> rendezvous onions, an optional Proteus mailbox), is described in
+> rendezvous onions, an optional Relay mailbox), is described in
 > [../PROTOCOL.md](../PROTOCOL.md) and [../SECURITY.md](../SECURITY.md); its code
 > is `src-tauri/src/pharos.rs`, `src/views/EnigmaFriendsView.vue` and
 > `crates/pharos-*`. What follows is Vesper's document, kept for **Groups**

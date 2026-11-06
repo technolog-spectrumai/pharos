@@ -1,8 +1,8 @@
 # Pharos protocol, version 1
 
-What two Enigma say to each other and to Proteus. The reference is the code:
+What two Enigma say to each other and to Relay. The reference is the code:
 `crates/pharos-wire`, `pharos-seal`, `pharos-rendezvous`, `pharos-id`,
-`pharos-node`, and `proteus/src/api.rs`. Test vectors are in
+`pharos-node`, and `relay/src/api.rs`. Test vectors are in
 `pharos-rendezvous` (`test_vectors`).
 
 ## 1. Identity
@@ -19,7 +19,7 @@ the postcard encoding of):
 ```
 ContactCard { body: CardBody, sig: [u8; 64] }
 CardBody { v: u8 = 1, name: String (1–64 chars), device: [u8; 32],
-           key_package: Vec<u8> (MLS KeyPackage message), proteus: Option<String> (onion),
+           key_package: Vec<u8> (MLS KeyPackage message), relay: Option<String> (onion),
            pairing_token: [u8; 16], issued_secs: u64 }
 ```
 
@@ -36,7 +36,7 @@ ReplyBody { card: ContactCard (the scanner's; key_package empty, token zero),
 
 `sig` is by `body.card.body.device` over postcard(`body`); `to_fingerprint`
 must be the receiver's. The scanner creates an MLS group, adds the card's key
-package, and sends the welcome. If the card names a Proteus, the reply is
+package, and sends the welcome. If the card names a Relay, the reply is
 `PUT /v1/pairing/{hex(pairing_token)}` there; otherwise it is shown.
 
 **Friendship secret**: right after the group is formed, both take the MLS
@@ -88,14 +88,14 @@ sends frames. For each frame that opens to a Text, the host answers with one
 frame: a sealed `Ack([id])`. A frame that does not open ends the session. An
 idle session closes after 120 s.
 
-## 5. Proteus (M3, D5)
+## 5. Relay (M3, D5)
 
 HTTP/1.1 over its onion. Ids and tokens are lower-case hex; a token goes in
 `Authorization: Bearer`.
 
 | Method and path | Auth | Body → answer |
 |---|---|---|
-| `GET /v1/health` | – | `{"ok":true,"service":"proteus","version":…}` |
+| `GET /v1/health` | – | `{"ok":true,"service":"relay","version":…}` |
 | `PUT /v1/mailbox/{id}` | token | sealed message → 201 `{"seq":n}`; the first PUT sets the token |
 | `GET /v1/mailbox/{id}?after=n` | token | → `{"messages":[{"seq":n,"blob":base64}]}`, ≤ 100 |
 | `POST /v1/mailbox/{id}/ack?upto=n` | token | → `{"removed":k}` |
@@ -110,19 +110,19 @@ kept 14 days; records ≤ 2 KiB, 15 days; pairing replies ≤ 48 KiB, 7 days; 60
 requests per minute per id.
 
 A sender leaves messages for friend `F` in the mailbox `mailbox id(F)` on F's
-Proteus; F fetches it, opens each blob as a friendship message, acknowledges
-to Proteus up to the last seq, and owes the sender an `Ack`.
+Relay; F fetches it, opens each blob as a friendship message, acknowledges
+to Relay up to the last seq, and owes the sender an `Ack`.
 
-**Its page and its code.** On its onion, outside `/v1/`, Proteus serves a
+**Its page and its code.** On its onion, outside `/v1/`, Relay serves a
 static page for people (no JavaScript, no SVG, `Content-Security-Policy:
 default-src 'none'; img-src 'self'; style-src 'unsafe-inline'`): `/` in
-English, `/pl` in Polish, `/proteus-qr.png` (the code as a QR image) and
-`/proteus.txt` (the code as text). `proteus code` prints the same code and QR
-in a terminal. The **Proteus code** is `pharos-proteus:` + base32 (no padding,
+English, `/pl` in Polish, `/relay-qr.png` (the code as a QR image) and
+`/relay.txt` (the code as text). `relay code` prints the same code and QR
+in a terminal. The **Relay code** is `pharos-relay:` + base32 (no padding,
 prefix and payload in any case) of the postcard encoding of
 
 ```
-ProteusCode { v: u8 = 1, onion: [u8; 32] (the onion's ed25519 identity key), name: String (1–64 chars) }
+RelayCode { v: u8 = 1, onion: [u8; 32] (the onion's ed25519 identity key), name: String (1–64 chars) }
 ```
 
 The address is derived from `onion` (§3), so a code cannot carry a mistyped
@@ -130,6 +130,6 @@ one. Enigma also takes a bare v3 address; it checks its checksum and version.
 
 **Directory record**: XChaCha20-Poly1305 under the directory key, associated
 data `pharos/directory/v1`, nonce (24 bytes) ‖ ciphertext, of the JSON
-`{"proteus": onion | null, "at": unix_seconds}`. The owner files it under
+`{"relay": onion | null, "at": unix_seconds}`. The owner files it under
 `directory id(owner, week)` and `week + 1` on its current and previous
-Proteus addresses. A friend reads this week's, then last week's.
+Relay addresses. A friend reads this week's, then last week's.

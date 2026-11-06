@@ -3,26 +3,26 @@
 //!
 //! - **Pairing (D1)**: [`Node::my_card`] shows a signed card; the friend
 //!   [`Node::scan_card`]s it, which starts the friendship's MLS group and
-//!   gives a reply — left on our Proteus if the card names one, otherwise
+//!   gives a reply — left on our Relay if the card names one, otherwise
 //!   shown for us to [`Node::accept_reply`]. [`Node::poll_pairings`] picks
-//!   replies up from Proteus.
+//!   replies up from Relay.
 //! - **Direct (D2)**: per friend we host this week's rendezvous onion
 //!   ([`Node::refresh_listeners`]) and dial theirs ([`Node::deliver`]). Each
 //!   message is one frame (MLS ciphertext of a padded envelope); the receiver
 //!   answers each with a sealed acknowledgement.
-//! - **Offline (4.4)**: without Proteus a message waits in the outbox until a
-//!   direct delivery works. With the friend's Proteus it is left in their
-//!   mailbox ([`Status::OnProteus`]); they fetch it ([`Node::fetch_mailboxes`])
+//! - **Offline (4.4)**: without Relay a message waits in the outbox until a
+//!   direct delivery works. With the friend's Relay it is left in their
+//!   mailbox ([`Status::OnRelay`]); they fetch it ([`Node::fetch_mailboxes`])
 //!   and acknowledge, then it is [`Status::Delivered`].
 //! - **Directory (D5)**: [`Node::publish_directory`] files a sealed "my
-//!   Proteus is now X" record on the Proteus addresses friends know;
+//!   Relay is now X" record on the Relay addresses friends know;
 //!   [`Node::lookup`] follows it.
 //!
 //! State is one serialisable [`State`]; the app saves [`Node::snapshot`] in its
 //! vault whenever an [`Event::Changed`] arrives.
 
 pub mod net;
-pub mod proteus;
+pub mod relay;
 
 use anyhow::{anyhow, bail, Result};
 use net::{BoxIo, Listener, Net};
@@ -48,10 +48,10 @@ const PENDING_TTL: u64 = pharos_id::CARD_TTL_SECS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
-    /// Waiting for a direct delivery (or for the friend's Proteus to answer).
+    /// Waiting for a direct delivery (or for the friend's Relay to answer).
     Queued,
-    /// Left in the friend's Proteus mailbox; not yet acknowledged.
-    OnProteus,
+    /// Left in the friend's Relay mailbox; not yet acknowledged.
+    OnRelay,
     /// The friend has it.
     Delivered,
     /// From the friend.
@@ -115,8 +115,8 @@ mod v1 {
     pub struct State {
         pub device: [u8; 32],
         pub name: String,
-        pub proteus: Option<String>,
-        pub previous_proteus: Vec<String>,
+        pub relay: Option<String>,
+        pub previous_relay: Vec<String>,
         pub friends: Vec<Friend>,
         pub messages: Vec<Message>,
         pub pending: Vec<Pending>,
@@ -134,7 +134,7 @@ pub struct Friend {
     secret: [u8; 32],
     mls: Vec<u8>,
     /// Where their mailbox is (from their card or their directory record).
-    pub proteus: Option<String>,
+    pub relay: Option<String>,
     pub added_secs: u64,
     pub last_seen_secs: Option<u64>,
     /// How far into our mailbox for them we have read.
@@ -160,10 +160,10 @@ struct Pending {
 pub struct State {
     device: [u8; 32],
     pub name: String,
-    /// Our own Proteus (optional): our mailbox and pairing drop-off.
-    pub proteus: Option<String>,
-    /// Proteus addresses we used before; our directory record is left there too.
-    previous_proteus: Vec<String>,
+    /// Our own Relay (optional): our mailbox and pairing drop-off.
+    pub relay: Option<String>,
+    /// Relay addresses we used before; our directory record is left there too.
+    previous_relay: Vec<String>,
     friends: Vec<Friend>,
     messages: Vec<Message>,
     pending: Vec<Pending>,
@@ -174,8 +174,8 @@ impl State {
         State {
             device: DeviceKey::generate().to_bytes(),
             name: name.to_string(),
-            proteus: None,
-            previous_proteus: vec![],
+            relay: None,
+            previous_relay: vec![],
             friends: vec![],
             messages: vec![],
             pending: vec![],
@@ -190,8 +190,8 @@ impl State {
         Ok(State {
             device: o.device,
             name: o.name,
-            proteus: o.proteus,
-            previous_proteus: o.previous_proteus,
+            relay: o.relay,
+            previous_relay: o.previous_relay,
             friends: o.friends,
             messages: o
                 .messages
@@ -224,7 +224,7 @@ pub enum Event {
     Message(Message),
     Status { id: MsgId, status: Status },
     FriendAdded { fp: Fingerprint, name: String },
-    FriendMoved { fp: Fingerprint, proteus: String },
+    FriendMoved { fp: Fingerprint, relay: String },
 }
 
 /// What scanning a friend's card did.
@@ -232,7 +232,7 @@ pub enum Event {
 pub struct Scanned {
     pub friend: Fingerprint,
     pub name: String,
-    /// Show this to the friend if it could not be left on their Proteus.
+    /// Show this to the friend if it could not be left on their Relay.
     pub reply: Option<String>,
 }
 
@@ -242,7 +242,7 @@ pub struct FriendView {
     pub id: String,
     pub name: String,
     pub fingerprint: String,
-    pub proteus: Option<String>,
+    pub relay: Option<String>,
     pub last_seen_secs: Option<u64>,
 }
 
@@ -298,29 +298,29 @@ pub fn hex(b: &[u8]) -> String {
     data_encoding::HEXLOWER.encode(b)
 }
 
-/// A Proteus to use, from what the person scanned or typed.
+/// A Relay to use, from what the person scanned or typed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProteusTarget {
+pub struct RelayTarget {
     pub onion: String,
     /// The name its code carries; a bare address has none.
     pub name: Option<String>,
 }
 
-/// Read a Proteus from a code (`pharos-proteus:…`, from its page or `proteus
+/// Read a Relay from a code (`pharos-relay:…`, from its page or `relay
 /// code`) or a bare v3 `.onion` address, checksum checked. Empty means none.
-pub fn parse_proteus(text: &str) -> Result<Option<ProteusTarget>> {
+pub fn parse_relay(text: &str) -> Result<Option<RelayTarget>> {
     let t = text.trim();
     if t.is_empty() {
         return Ok(None);
     }
-    let prefix = pharos_id::PROTEUS_PREFIX;
+    let prefix = pharos_id::RELAY_PREFIX;
     if t.get(..prefix.len()).is_some_and(|p| p.eq_ignore_ascii_case(prefix)) {
-        let c = pharos_id::ProteusCode::from_text(t).map_err(|e| anyhow!("that Proteus code does not read: {e}"))?;
-        return Ok(Some(ProteusTarget { onion: c.onion_address(), name: Some(c.name) }));
+        let c = pharos_id::RelayCode::from_text(t).map_err(|e| anyhow!("that Relay code does not read: {e}"))?;
+        return Ok(Some(RelayTarget { onion: c.onion_address(), name: Some(c.name) }));
     }
     let pk = pharos_rendezvous::parse_onion(t)
-        .ok_or_else(|| anyhow!("not a Proteus code or a .onion address (a typo fails the address's checksum)"))?;
-    Ok(Some(ProteusTarget { onion: pharos_rendezvous::onion_address(&pk), name: None }))
+        .ok_or_else(|| anyhow!("not a Relay code or a .onion address (a typo fails the address's checksum)"))?;
+    Ok(Some(RelayTarget { onion: pharos_rendezvous::onion_address(&pk), name: None }))
 }
 
 pub fn parse_fp(s: &str) -> Result<Fingerprint> {
@@ -330,7 +330,7 @@ pub fn parse_fp(s: &str) -> Result<Fingerprint> {
 
 #[derive(Serialize, Deserialize)]
 struct DirectoryRecord {
-    proteus: Option<String>,
+    relay: Option<String>,
     at: u64,
 }
 
@@ -371,8 +371,8 @@ impl<N: Net> Node<N> {
     pub fn name(&self) -> String {
         self.st().name.clone()
     }
-    pub fn proteus(&self) -> Option<String> {
-        self.st().proteus.clone()
+    pub fn relay(&self) -> Option<String> {
+        self.st().relay.clone()
     }
 
     pub fn set_name(&self, name: &str) -> Result<()> {
@@ -393,7 +393,7 @@ impl<N: Net> Node<N> {
                 id: hex(&f.fp),
                 name: f.name.clone(),
                 fingerprint: pharos_id::fingerprint_words(&f.fp),
-                proteus: f.proteus.clone(),
+                relay: f.relay.clone(),
                 last_seen_secs: f.last_seen_secs,
             })
             .collect()
@@ -416,19 +416,19 @@ impl<N: Net> Node<N> {
         self.changed();
     }
 
-    /// Use `onion` as our Proteus (checked first), or none.
-    pub async fn set_proteus(&self, onion: Option<String>) -> Result<()> {
+    /// Use `onion` as our Relay (checked first), or none.
+    pub async fn set_relay(&self, onion: Option<String>) -> Result<()> {
         if let Some(o) = &onion {
-            proteus::health(&self.inner.net, o).await?;
+            relay::health(&self.inner.net, o).await?;
         }
         {
             let mut st = self.st();
-            if let Some(old) = st.proteus.take() {
-                if Some(&old) != onion.as_ref() && !st.previous_proteus.contains(&old) {
-                    st.previous_proteus.push(old);
+            if let Some(old) = st.relay.take() {
+                if Some(&old) != onion.as_ref() && !st.previous_relay.contains(&old) {
+                    st.previous_relay.push(old);
                 }
             }
-            st.proteus = onion;
+            st.relay = onion;
         }
         self.changed();
         let _ = self.publish_directory().await;
@@ -446,7 +446,7 @@ impl<N: Net> Node<N> {
         let mut f = Friendship::new(MLS_GROUP, &key.mls_identity())?;
         let kp = f.key_package()?;
         let token = random::<16>();
-        let card = ContactCard::new(&key, &st.name, kp, st.proteus.clone(), token, now)?;
+        let card = ContactCard::new(&key, &st.name, kp, st.relay.clone(), token, now)?;
         st.pending.retain(|p| now.saturating_sub(p.created_secs) < PENDING_TTL);
         st.pending.push(Pending { token, mls: f.export_state()?, created_secs: now });
         drop(st);
@@ -477,20 +477,20 @@ impl<N: Net> Node<N> {
                 device: card.body.device,
                 secret,
                 mls: f.export_state()?,
-                proteus: card.body.proteus.clone(),
+                relay: card.body.relay.clone(),
                 added_secs: now,
                 last_seen_secs: None,
                 cursor: 0,
                 acks: vec![],
             });
-            let mine = ContactCard::new(&key, &st.name, vec![], st.proteus.clone(), [0; 16], now)?;
+            let mine = ContactCard::new(&key, &st.name, vec![], st.relay.clone(), [0; 16], now)?;
             (PairReply::new(&key, mine, &card, welcome), fp, card.body.name.clone())
         };
         self.changed();
         self.emit(Event::FriendAdded { fp, name: name.clone() });
         let mut shown = Some(reply.to_text());
-        if let Some(p) = &card.body.proteus {
-            if proteus::put_pairing(&self.inner.net, p, &card.body.pairing_token, reply.to_bytes()).await.is_ok() {
+        if let Some(p) = &card.body.relay {
+            if relay::put_pairing(&self.inner.net, p, &card.body.pairing_token, reply.to_bytes()).await.is_ok() {
                 shown = None;
             }
         }
@@ -529,7 +529,7 @@ impl<N: Net> Node<N> {
             device: card.body.device,
             secret: *f.friendship_secret()?.as_bytes(),
             mls: f.export_state()?,
-            proteus: card.body.proteus.clone(),
+            relay: card.body.relay.clone(),
             added_secs: now,
             last_seen_secs: None,
             cursor: 0,
@@ -542,16 +542,16 @@ impl<N: Net> Node<N> {
         Ok(fp)
     }
 
-    /// Replies friends left on our Proteus.
+    /// Replies friends left on our Relay.
     pub async fn poll_pairings(&self) -> Result<Vec<Fingerprint>> {
-        let (proteus, tokens, me) = {
+        let (relay, tokens, me) = {
             let st = self.st();
-            (st.proteus.clone(), st.pending.iter().map(|p| p.token).collect::<Vec<_>>(), st.me())
+            (st.relay.clone(), st.pending.iter().map(|p| p.token).collect::<Vec<_>>(), st.me())
         };
-        let Some(p) = proteus else { return Ok(vec![]) };
+        let Some(p) = relay else { return Ok(vec![]) };
         let mut added = vec![];
         for t in tokens {
-            if let Some(bytes) = proteus::take_pairing(&self.inner.net, &p, &t).await? {
+            if let Some(bytes) = relay::take_pairing(&self.inner.net, &p, &t).await? {
                 let r = PairReply::from_bytes(&bytes, &me, self.now())?;
                 added.push(self.accept(r)?);
             }
@@ -709,14 +709,14 @@ impl<N: Net> Node<N> {
     }
 
     /// Deliver what is queued for `friend`: directly if they answer on their
-    /// rendezvous onion, else into their Proteus mailbox if they have one.
+    /// rendezvous onion, else into their Relay mailbox if they have one.
     pub async fn deliver(&self, friend: &Fingerprint) -> Result<()> {
-        let (queued, acks, candidates, their_proteus) = {
+        let (queued, acks, candidates, their_relay) = {
             let st = self.st();
             let fr = st.friends.iter().find(|f| &f.fp == friend).ok_or_else(|| anyhow!("no such friend"))?;
             let queued: Vec<Message> =
                 st.messages.iter().filter(|m| &m.friend == friend && m.status == Status::Queued).cloned().collect();
-            (queued, fr.acks.clone(), fr.secret().dial_candidates(friend, self.now()), fr.proteus.clone())
+            (queued, fr.acks.clone(), fr.secret().dial_candidates(friend, self.now()), fr.relay.clone())
         };
         if queued.is_empty() && acks.is_empty() {
             return Ok(());
@@ -726,8 +726,8 @@ impl<N: Net> Node<N> {
             let Ok(io) = self.inner.net.dial(onion).await else { continue };
             return self.send_direct(friend, io, &queued, &acks).await;
         }
-        // Then their Proteus.
-        let Some(p) = their_proteus else { bail!("not reachable now; it stays in the outbox") };
+        // Then their Relay.
+        let Some(p) = their_relay else { bail!("not reachable now; it stays in the outbox") };
         let (id, token) = {
             let st = self.st();
             let s = st.friends.iter().find(|f| &f.fp == friend).unwrap().secret();
@@ -735,13 +735,13 @@ impl<N: Net> Node<N> {
         };
         if !acks.is_empty() {
             let env = Envelope::new(random(), self.now() * 1000, Body::Ack(acks.clone()));
-            proteus::put_message(&self.inner.net, &p, &id, &token, self.seal(friend, &env)?).await?;
+            relay::put_message(&self.inner.net, &p, &id, &token, self.seal(friend, &env)?).await?;
             self.drop_acks(friend, &acks);
         }
         for m in &queued {
             let env = self.envelope_of(m)?;
-            proteus::put_message(&self.inner.net, &p, &id, &token, self.seal(friend, &env)?).await?;
-            self.set_status(&m.id, Status::OnProteus);
+            relay::put_message(&self.inner.net, &p, &id, &token, self.seal(friend, &env)?).await?;
+            self.set_status(&m.id, Status::OnRelay);
         }
         Ok(())
     }
@@ -835,20 +835,20 @@ impl<N: Net> Node<N> {
         }
     }
 
-    // ── Proteus mailbox (M3) ──────────────────────────────────────────────────
+    // ── Relay mailbox (M3) ──────────────────────────────────────────────────
 
-    /// Fetch what friends left in our mailboxes, acknowledge it to Proteus, and
+    /// Fetch what friends left in our mailboxes, acknowledge it to Relay, and
     /// queue acknowledgements for the friends.
     pub async fn fetch_mailboxes(&self) -> Result<usize> {
-        let (proteus, me, friends) = {
+        let (relay, me, friends) = {
             let st = self.st();
-            (st.proteus.clone(), st.me(), st.friends.iter().map(|f| (f.fp, f.secret(), f.cursor)).collect::<Vec<_>>())
+            (st.relay.clone(), st.me(), st.friends.iter().map(|f| (f.fp, f.secret(), f.cursor)).collect::<Vec<_>>())
         };
-        let Some(p) = proteus else { return Ok(0) };
+        let Some(p) = relay else { return Ok(0) };
         let mut got = 0;
         for (fp, secret, cursor) in friends {
             let (id, token) = (secret.mailbox_id(&me), secret.mailbox_token(&me));
-            let items = proteus::fetch(&self.inner.net, &p, &id, &token, cursor).await?;
+            let items = relay::fetch(&self.inner.net, &p, &id, &token, cursor).await?;
             let Some(last) = items.last().map(|(s, _)| *s) else { continue };
             for (_, blob) in items {
                 if let Ok(Opened::Message(env)) = self.open(&fp, &blob) {
@@ -864,57 +864,57 @@ impl<N: Net> Node<N> {
                 fr.cursor = last;
             }
             self.changed();
-            proteus::ack(&self.inner.net, &p, &id, &token, last).await?;
+            relay::ack(&self.inner.net, &p, &id, &token, last).await?;
         }
         Ok(got)
     }
 
     // ── directory (D5) ────────────────────────────────────────────────────────
 
-    /// Leave a sealed "my Proteus is X" record for each friend, on our current
-    /// Proteus and on those we used before (where friends will look).
+    /// Leave a sealed "my Relay is X" record for each friend, on our current
+    /// Relay and on those we used before (where friends will look).
     pub async fn publish_directory(&self) -> Result<()> {
         let (me, current, mut targets, friends) = {
             let st = self.st();
-            let mut t = st.previous_proteus.clone();
-            t.extend(st.proteus.clone());
-            (st.me(), st.proteus.clone(), t, st.friends.iter().map(|f| f.secret()).collect::<Vec<_>>())
+            let mut t = st.previous_relay.clone();
+            t.extend(st.relay.clone());
+            (st.me(), st.relay.clone(), t, st.friends.iter().map(|f| f.secret()).collect::<Vec<_>>())
         };
         targets.dedup();
         let week = week_of(self.now());
-        let rec = serde_json::to_vec(&DirectoryRecord { proteus: current, at: self.now() })?;
+        let rec = serde_json::to_vec(&DirectoryRecord { relay: current, at: self.now() })?;
         for p in &targets {
             for s in &friends {
                 let sealed = seal_labelled(&s.directory_key(&me), DIRECTORY_LABEL, &rec);
                 for w in [week, week + 1] {
-                    proteus::put_record(&self.inner.net, p, &s.directory_id(&me, w), &s.directory_token(&me), sealed.clone()).await?;
+                    relay::put_record(&self.inner.net, p, &s.directory_id(&me, w), &s.directory_token(&me), sealed.clone()).await?;
                 }
             }
         }
         Ok(())
     }
 
-    /// Ask the friend's (last known) Proteus whether they moved; follow it.
+    /// Ask the friend's (last known) Relay whether they moved; follow it.
     pub async fn lookup(&self, friend: &Fingerprint) -> Result<Option<String>> {
         let (p, s) = {
             let st = self.st();
             let f = st.friends.iter().find(|f| &f.fp == friend).ok_or_else(|| anyhow!("no such friend"))?;
-            (f.proteus.clone(), f.secret())
+            (f.relay.clone(), f.secret())
         };
         let Some(p) = p else { return Ok(None) };
         let week = week_of(self.now());
         for w in [week, week.saturating_sub(1)] {
-            let Some(blob) = proteus::get_record(&self.inner.net, &p, &s.directory_id(friend, w)).await? else { continue };
+            let Some(blob) = relay::get_record(&self.inner.net, &p, &s.directory_id(friend, w)).await? else { continue };
             let plain = open_labelled(&s.directory_key(friend), DIRECTORY_LABEL, &blob)?;
             let rec: DirectoryRecord = serde_json::from_slice(&plain)?;
-            if let Some(newp) = rec.proteus.clone() {
+            if let Some(newp) = rec.relay.clone() {
                 if newp != p {
-                    self.st().friend_mut(friend)?.proteus = Some(newp.clone());
+                    self.st().friend_mut(friend)?.relay = Some(newp.clone());
                     self.changed();
-                    self.emit(Event::FriendMoved { fp: *friend, proteus: newp });
+                    self.emit(Event::FriendMoved { fp: *friend, relay: newp });
                 }
             }
-            return Ok(rec.proteus);
+            return Ok(rec.relay);
         }
         Ok(None)
     }
@@ -949,22 +949,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_proteus_is_read_from_its_code_or_its_address() {
+    fn a_relay_is_read_from_its_code_or_its_address() {
         let onion = pharos_rendezvous::onion_address(&[4u8; 32]);
-        let code = pharos_id::ProteusCode::new(&onion, "Pi").unwrap().to_text();
-        let want = |name: Option<&str>| Some(ProteusTarget { onion: onion.clone(), name: name.map(String::from) });
-        assert_eq!(parse_proteus(&code).unwrap(), want(Some("Pi")));
-        assert_eq!(parse_proteus(&format!(" {} ", code.to_uppercase())).unwrap(), want(Some("Pi")));
-        assert_eq!(parse_proteus(&onion).unwrap(), want(None));
-        assert_eq!(parse_proteus(&onion.to_uppercase()).unwrap(), want(None));
-        assert_eq!(parse_proteus(onion.trim_end_matches(".onion")).unwrap(), want(None));
-        assert_eq!(parse_proteus("  ").unwrap(), None, "empty: no Proteus");
+        let code = pharos_id::RelayCode::new(&onion, "Pi").unwrap().to_text();
+        let want = |name: Option<&str>| Some(RelayTarget { onion: onion.clone(), name: name.map(String::from) });
+        assert_eq!(parse_relay(&code).unwrap(), want(Some("Pi")));
+        assert_eq!(parse_relay(&format!(" {} ", code.to_uppercase())).unwrap(), want(Some("Pi")));
+        assert_eq!(parse_relay(&onion).unwrap(), want(None));
+        assert_eq!(parse_relay(&onion.to_uppercase()).unwrap(), want(None));
+        assert_eq!(parse_relay(onion.trim_end_matches(".onion")).unwrap(), want(None));
+        assert_eq!(parse_relay("  ").unwrap(), None, "empty: no Relay");
         let mut typo = onion.clone().into_bytes();
         typo[0] = if typo[0] == b'a' { b'b' } else { b'a' };
-        assert!(parse_proteus(std::str::from_utf8(&typo).unwrap()).unwrap_err().to_string().contains("checksum"));
-        assert!(parse_proteus("pharos-proteus:XYZ").is_err());
-        assert!(parse_proteus("pharos-card:AAAA").is_err());
-        assert!(parse_proteus("ąę").is_err(), "non-ASCII input does not panic");
+        assert!(parse_relay(std::str::from_utf8(&typo).unwrap()).unwrap_err().to_string().contains("checksum"));
+        assert!(parse_relay("pharos-relay:XYZ").is_err());
+        assert!(parse_relay("pharos-card:AAAA").is_err());
+        assert!(parse_relay("ąę").is_err(), "non-ASCII input does not panic");
     }
 
     #[test]
@@ -972,15 +972,15 @@ mod tests {
         let old = v1::State {
             device: [1; 32],
             name: "Alice".into(),
-            proteus: Some("x.onion".into()),
-            previous_proteus: vec![],
+            relay: Some("x.onion".into()),
+            previous_relay: vec![],
             friends: vec![],
             messages: vec![v1::Message { id: [2; 16], friend: [3; 16], text: "hi".into(), sent_ms: 5, status: Status::Delivered }],
             pending: vec![],
         };
         let bytes = postcard::to_stdvec(&old).unwrap();
         let s = State::from_bytes(&bytes).unwrap();
-        assert_eq!((s.name.as_str(), s.proteus.as_deref()), ("Alice", Some("x.onion")));
+        assert_eq!((s.name.as_str(), s.relay.as_deref()), ("Alice", Some("x.onion")));
         assert_eq!(s.messages[0].text, "hi");
         assert_eq!(s.messages[0].image, None);
         // Saved again, it is the new format, and reads back the same.

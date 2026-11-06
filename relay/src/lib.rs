@@ -1,5 +1,5 @@
-//! Proteus as a library: the parts `main.rs` wires together, also used by the
-//! end-to-end tests in pharos-node (a real Proteus on loopback).
+//! Relay as a library: the parts `main.rs` wires together, also used by the
+//! end-to-end tests in pharos-node (a real Relay on loopback).
 pub mod api;
 pub mod config;
 pub mod diskcrypt;

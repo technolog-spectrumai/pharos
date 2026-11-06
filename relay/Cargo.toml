@@ -1,22 +1,22 @@
 [package]
-name = "proteus"
+name = "relay"
 version = "0.1.0"
 edition = "2021"
 rust-version.workspace = true
-description = "Proteus: the optional Pharos helper — an onion-only mailbox and directory, small enough for a Raspberry Pi"
+description = "Relay: the optional Pharos helper — an onion-only mailbox and directory, small enough for a Raspberry Pi"
 license = "AGPL-3.0-only"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "proteus"
+name = "relay"
 path = "src/main.rs"
 
 [dependencies]
 pharos-tor = { path = "../crates/pharos-tor" }
 pharos-seal = { path = "../crates/pharos-seal" }
-# The Proteus code its page shows (pharos-proteus:…).
+# The Relay code its page shows (pharos-relay:…).
 pharos-id = { path = "../crates/pharos-id" }
 # Its page: the QR code (encoder only) as a PNG.
 qrcodegen = "1"
@@ -42,7 +42,7 @@ http-body-util = "0.1"
 # Decodes the served QR image in tests, as a phone camera would.
 rqrr = "0.9"
 
-# Raspberry Pi OS package (6.2): cargo deb -p proteus --target aarch64-unknown-linux-gnu
+# Raspberry Pi OS package (6.2): cargo deb -p relay --target aarch64-unknown-linux-gnu
 [package.metadata.deb]
 maintainer = "Spectrum AI <noreply@spectrumai.pl>"
 section = "net"
@@ -50,9 +50,9 @@ priority = "optional"
 # The binary needs glibc 2.34 (checked with objdump); Bookworm has 2.36.
 depends = "libc6 (>= 2.34), adduser"
 assets = [
-  ["target/release/proteus", "usr/bin/", "755"],
-  ["packaging/proteus.service", "lib/systemd/system/", "644"],
-  ["packaging/config.yaml", "etc/proteus/config.yaml.example", "644"],
+  ["target/release/relay", "usr/bin/", "755"],
+  ["packaging/relay.service", "lib/systemd/system/", "644"],
+  ["packaging/config.yaml", "etc/relay/config.yaml.example", "644"],
 ]
 maintainer-scripts = "packaging/debian"
 systemd-units = { enable = false }

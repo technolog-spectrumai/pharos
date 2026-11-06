@@ -1,5 +1,5 @@
 //! Two (or three) nodes on an in-process network, with and without a real
-//! Proteus on loopback: pairing, direct delivery, the outbox, the mailbox,
+//! Relay on loopback: pairing, direct delivery, the outbox, the mailbox,
 //! the directory, restarts, and hostile input.
 
 use pharos_node::net::{MemNet, Net};
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::AsyncWriteExt;
 
-/// One clock per test, shared by its nodes and its Proteus.
+/// One clock per test, shared by its nodes and its Relay.
 #[derive(Clone)]
 struct T(Arc<AtomicU64>);
 impl T {
@@ -30,26 +30,26 @@ fn node(net: &MemNet, t: &T, name: &str) -> Node<MemNet> {
     n
 }
 
-/// A real Proteus (the library behind the binary) on loopback, reachable as `onion`.
-async fn proteus(net: &MemNet, onion: &str) {
-    proteus_with_page(net, onion, None).await
+/// A real Relay (the library behind the binary) on loopback, reachable as `onion`.
+async fn relay(net: &MemNet, onion: &str) {
+    relay_with_page(net, onion, None).await
 }
 
 /// …with its page (the code for Enigma), as `serve` adds it once Tor gave it an address.
-async fn proteus_with_page(net: &MemNet, onion: &str, page: Option<&str>) {
-    use proteus::{api, config::Limits, masterkey::MasterKey, page::Page, store::Store};
+async fn relay_with_page(net: &MemNet, onion: &str, page: Option<&str>) {
+    use relay::{api, config::Limits, masterkey::MasterKey, page::Page, store::Store};
     let limits = Limits::default();
     let store = Store::in_memory(MasterKey::from_bytes(&[5; 32]), limits.clone()).unwrap();
     let mut app = api::router(Arc::new(api::AppState { store, limiter: api::Limiter::new(1000), clock: pharos_node::system_secs }));
     if let Some(name) = page {
-        app = app.merge(proteus::page::router(Arc::new(Page::build(onion, name).unwrap())));
+        app = app.merge(relay::page::router(Arc::new(Page::build(onion, name).unwrap())));
     }
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     net.route_tcp(onion, l.local_addr().unwrap());
     tokio::spawn(async move {
         loop {
             let (s, _) = l.accept().await.unwrap();
-            tokio::spawn(proteus::serve_conn(s, app.clone()));
+            tokio::spawn(relay::serve_conn(s, app.clone()));
         }
     });
 }
@@ -69,7 +69,7 @@ async fn eventually(f: impl Fn() -> bool) {
 async fn pair_by_text(a: &Node<MemNet>, b: &Node<MemNet>) {
     let card = a.my_card().unwrap();
     let scanned = b.scan_card(&card).await.unwrap();
-    a.accept_reply(&scanned.reply.expect("no Proteus: the reply is shown")).unwrap();
+    a.accept_reply(&scanned.reply.expect("no Relay: the reply is shown")).unwrap();
 }
 
 fn status_of(n: &Node<MemNet>, friend: &[u8; 16], text: &str) -> Status {
@@ -77,7 +77,7 @@ fn status_of(n: &Node<MemNet>, friend: &[u8; 16], text: &str) -> Status {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn without_proteus_direct_and_outbox() {
+async fn without_relay_direct_and_outbox() {
     let net = MemNet::default();
     let t = T::new();
     let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
@@ -127,14 +127,14 @@ async fn rendezvous_onions_move_each_week() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn with_proteus_pairing_mailbox_and_acks() {
+async fn with_relay_pairing_mailbox_and_acks() {
     let net = MemNet::default();
     let t = T::new();
-    proteus(&net, "bobsproteus.onion").await;
+    relay(&net, "bobsrelay.onion").await;
     let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
-    bob.set_proteus(Some("bobsproteus.onion".into())).await.unwrap();
+    bob.set_relay(Some("bobsrelay.onion".into())).await.unwrap();
 
-    // Alice scans Bob's card; her reply is left on Bob's Proteus, not shown.
+    // Alice scans Bob's card; her reply is left on Bob's Relay, not shown.
     let card = bob.my_card().unwrap();
     let scanned = alice.scan_card(&card).await.unwrap();
     assert!(scanned.reply.is_none());
@@ -144,7 +144,7 @@ async fn with_proteus_pairing_mailbox_and_acks() {
     // Bob offline: Alice leaves it in his mailbox.
     alice.refresh_listeners().await.unwrap();
     alice.send(&fb, "for later").await.unwrap();
-    assert_eq!(status_of(&alice, &fb, "for later"), Status::OnProteus);
+    assert_eq!(status_of(&alice, &fb, "for later"), Status::OnRelay);
 
     // Bob starts: fetches, and his acknowledgement reaches Alice directly.
     assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);
@@ -155,31 +155,31 @@ async fn with_proteus_pairing_mailbox_and_acks() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_code_on_a_proteus_page_connects_enigma_to_it() {
+async fn the_code_on_a_relay_page_connects_enigma_to_it() {
     let net = MemNet::default();
     let t = T::new();
     let onion = pharos_rendezvous::onion_address(&[3u8; 32]);
-    proteus_with_page(&net, &onion, Some("Bob's Pi")).await;
+    relay_with_page(&net, &onion, Some("Bob's Pi")).await;
     // What Tor Browser shows on the page, and what its download gives.
-    let (status, page) = pharos_node::proteus::call(&net, &onion, hyper::Method::GET, "/", None, vec![]).await.unwrap();
+    let (status, page) = pharos_node::relay::call(&net, &onion, hyper::Method::GET, "/", None, vec![]).await.unwrap();
     assert_eq!(status, 200);
-    let (_, txt) = pharos_node::proteus::call(&net, &onion, hyper::Method::GET, "/proteus.txt", None, vec![]).await.unwrap();
+    let (_, txt) = pharos_node::relay::call(&net, &onion, hyper::Method::GET, "/relay.txt", None, vec![]).await.unwrap();
     let code = String::from_utf8(txt.to_vec()).unwrap().trim().to_string();
     assert!(String::from_utf8_lossy(&page).contains(&code));
 
     // Bob scans it; Enigma reads it and connects.
-    let target = pharos_node::parse_proteus(&code).unwrap().unwrap();
-    assert_eq!(target, pharos_node::ProteusTarget { onion: onion.clone(), name: Some("Bob's Pi".into()) });
+    let target = pharos_node::parse_relay(&code).unwrap().unwrap();
+    assert_eq!(target, pharos_node::RelayTarget { onion: onion.clone(), name: Some("Bob's Pi".into()) });
     let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
-    bob.set_proteus(Some(target.onion)).await.unwrap();
-    assert_eq!(bob.proteus().as_deref(), Some(onion.as_str()));
+    bob.set_relay(Some(target.onion)).await.unwrap();
+    assert_eq!(bob.relay().as_deref(), Some(onion.as_str()));
 
-    // And it works as his Proteus: pairing through it, then a message while he is offline.
+    // And it works as his Relay: pairing through it, then a message while he is offline.
     let s = alice.scan_card(&bob.my_card().unwrap()).await.unwrap();
-    assert!(s.reply.is_none(), "the reply was left on Bob's Proteus");
+    assert!(s.reply.is_none(), "the reply was left on Bob's Relay");
     assert_eq!(bob.poll_pairings().await.unwrap(), vec![alice.fingerprint()]);
     alice.send(&bob.fingerprint(), "via your Pi").await.unwrap();
-    assert_eq!(status_of(&alice, &bob.fingerprint(), "via your Pi"), Status::OnProteus);
+    assert_eq!(status_of(&alice, &bob.fingerprint(), "via your Pi"), Status::OnRelay);
     assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);
 }
 
@@ -191,12 +191,12 @@ fn png(n: usize) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_screenshot_goes_whole_directly_and_through_proteus() {
+async fn a_screenshot_goes_whole_directly_and_through_relay() {
     let net = MemNet::default();
     let t = T::new();
-    proteus(&net, "bobsproteus.onion").await;
+    relay(&net, "bobsrelay.onion").await;
     let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
-    bob.set_proteus(Some("bobsproteus.onion".into())).await.unwrap();
+    bob.set_relay(Some("bobsrelay.onion".into())).await.unwrap();
     pair_by_text_or_drop(&bob, &alice).await;
     let (fa, fb) = (alice.fingerprint(), bob.fingerprint());
 
@@ -212,11 +212,11 @@ async fn a_screenshot_goes_whole_directly_and_through_proteus() {
     assert_eq!(bob.image(&id).unwrap(), ("image/png".to_string(), big.clone()));
     assert_eq!(alice.image(&id).unwrap().1, big, "the sender keeps its copy");
 
-    // Bob offline: it waits in his mailbox on Proteus, whole, and arrives intact.
+    // Bob offline: it waits in his mailbox on Relay, whole, and arrives intact.
     bob.stop_listeners();
     let small = png(50_000);
     let id2 = alice.send_image(&fb, "image/png", small.clone()).await.unwrap();
-    assert_eq!(status_of_id(&alice, &fb, &id2), Status::OnProteus);
+    assert_eq!(status_of_id(&alice, &fb, &id2), Status::OnRelay);
     assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);
     assert_eq!(bob.image(&id2).unwrap().1, small);
 
@@ -235,7 +235,7 @@ async fn a_queued_image_survives_a_restart_and_removing_a_friend_drops_its_image
     let bob = node(&net, &t, "Bob");
     pair_by_text(&alice, &bob).await;
     let fb = bob.fingerprint();
-    // Bob is offline and has no Proteus: it waits in Alice's outbox.
+    // Bob is offline and has no Relay: it waits in Alice's outbox.
     let id = alice.send_image(&fb, "image/png", png(10_000)).await.unwrap();
     assert_eq!(status_of_id(&alice, &fb, &id), Status::Queued);
     // Alice restarts; her saved state and the image store are what she has.
@@ -258,16 +258,16 @@ fn status_of_id(n: &Node<MemNet>, friend: &[u8; 16], id: &[u8; 16]) -> Status {
 async fn directory_follows_a_move() {
     let net = MemNet::default();
     let t = T::new();
-    proteus(&net, "old.onion").await;
-    proteus(&net, "new.onion").await;
+    relay(&net, "old.onion").await;
+    relay(&net, "new.onion").await;
     let (alice, bob) = (node(&net, &t, "Alice"), node(&net, &t, "Bob"));
-    bob.set_proteus(Some("old.onion".into())).await.unwrap();
+    bob.set_relay(Some("old.onion".into())).await.unwrap();
     pair_by_text_or_drop(&bob, &alice).await;
     let fb = bob.fingerprint();
-    assert_eq!(alice.friends()[0].proteus.as_deref(), Some("old.onion"));
-    bob.set_proteus(Some("new.onion".into())).await.unwrap();
+    assert_eq!(alice.friends()[0].relay.as_deref(), Some("old.onion"));
+    bob.set_relay(Some("new.onion".into())).await.unwrap();
     assert_eq!(alice.lookup(&fb).await.unwrap().as_deref(), Some("new.onion"));
-    assert_eq!(alice.friends()[0].proteus.as_deref(), Some("new.onion"));
+    assert_eq!(alice.friends()[0].relay.as_deref(), Some("new.onion"));
     // Messages now go to the new mailbox.
     alice.send(&fb, "found you").await.unwrap();
     assert_eq!(bob.fetch_mailboxes().await.unwrap(), 1);

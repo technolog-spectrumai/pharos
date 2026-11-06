@@ -30,8 +30,8 @@ globalThis.URL.revokeObjectURL ??= () => {};
 
 import EnigmaFriendsView from "../../src/views/EnigmaFriendsView.vue";
 
-const ME = { name: "Alice", fingerprint: "AAAA BBBB CCCC DDDD EEEE FFFF", id: "a1", proteus: null };
-const BOB = { id: "b0", name: "Bob", fingerprint: "BBBB", proteus: null, last_seen_secs: null };
+const ME = { name: "Alice", fingerprint: "AAAA BBBB CCCC DDDD EEEE FFFF", id: "a1", relay: null };
+const BOB = { id: "b0", name: "Bob", fingerprint: "BBBB", relay: null, last_seen_secs: null };
 
 beforeEach(() => {
   calls.length = 0;
@@ -53,7 +53,7 @@ describe("Friends", () => {
     expect(w.get("[data-testid=me-name]").text()).toBe("Alice");
   });
 
-  it("pairs from a pasted card and shows the reply when there is no Proteus", async () => {
+  it("pairs from a pasted card and shows the reply when there is no Relay", async () => {
     replies.pharos_card = "pharos-card:MINE";
     replies.pharos_scan = { friend: "b0", name: "Bob", reply: "pharos-reply:BACK" };
     const w = view();
@@ -117,44 +117,44 @@ describe("Friends", () => {
     expect(w.get("[data-testid=friends-list]").classes()).toContain("flex");
   });
 
-  it("connects to a Proteus from the code on its page, and shows it", async () => {
+  it("connects to a Relay from the code on its page, and shows it", async () => {
     const onion = "fivcukrkfivcukrkfivcukrkfivcukrkfivcukrkfivcukrkfivjcrid.onion";
-    replies.pharos_set_proteus = (a: unknown) => ({ ...ME, proteus: (a as { text: string }).text ? onion : null });
+    replies.pharos_set_relay = (a: unknown) => ({ ...ME, relay: (a as { text: string }).text ? onion : null });
     const w = view();
     await flushPromises();
-    expect(w.get("[data-testid=me-proteus]").text()).toBe(i18n.global.t("friends.proteusNone"));
-    await w.get("button[aria-label='You and your Proteus']").trigger("click");
-    await w.get("[data-testid=proteus-field] input, input[data-testid=proteus-field]").setValue("  pharos-proteus:AEVCUKRK  ");
+    expect(w.get("[data-testid=me-relay]").text()).toBe(i18n.global.t("friends.relayNone"));
+    await w.get("button[aria-label='You and your Relay']").trigger("click");
+    await w.get("[data-testid=relay-field] input, input[data-testid=relay-field]").setValue("  pharos-relay:AEVCUKRK  ");
     await w.get("[data-testid=save-settings]").trigger("click");
     await flushPromises();
     // The code goes to Rust as typed (trimmed); Rust reads it and connects.
-    expect(calls.find(([c]) => c === "pharos_set_proteus")?.[1]).toEqual({ text: "pharos-proteus:AEVCUKRK" });
-    expect(w.get("[data-testid=me-proteus]").text()).toContain("Proteus: fivcukrkfivc…");
+    expect(calls.find(([c]) => c === "pharos_set_relay")?.[1]).toEqual({ text: "pharos-relay:AEVCUKRK" });
+    expect(w.get("[data-testid=me-relay]").text()).toContain("Relay: fivcukrkfivc…");
     expect(w.find("[data-testid=save-settings]").exists()).toBe(false);
   });
 
-  it("keeps the dialog open with the reason when a Proteus cannot be used", async () => {
-    replies.pharos_set_proteus = new Error("not a Proteus code or a .onion address (a typo fails the address's checksum)");
+  it("keeps the dialog open with the reason when a Relay cannot be used", async () => {
+    replies.pharos_set_relay = new Error("not a Relay code or a .onion address (a typo fails the address's checksum)");
     const w = view();
     await flushPromises();
-    await w.get("button[aria-label='You and your Proteus']").trigger("click");
-    await w.get("[data-testid=proteus-field] input, input[data-testid=proteus-field]").setValue("typo.onion");
+    await w.get("button[aria-label='You and your Relay']").trigger("click");
+    await w.get("[data-testid=relay-field] input, input[data-testid=relay-field]").setValue("typo.onion");
     await w.get("[data-testid=save-settings]").trigger("click");
     await flushPromises();
     expect(w.get("[data-testid=settings-error]").text()).toContain("checksum");
     expect(w.find("[data-testid=save-settings]").exists()).toBe(true);
   });
 
-  it("says where a Proteus code goes when it is pasted as a friend", async () => {
+  it("says where a Relay code goes when it is pasted as a friend", async () => {
     replies.pharos_card = "pharos-card:MINE";
     const w = view();
     await flushPromises();
     await w.get("[data-testid=add-friend]").trigger("click");
-    await w.get("[data-testid=paste] input, [data-testid=paste]").setValue("PHAROS-PROTEUS:AEVCUKRK");
+    await w.get("[data-testid=paste] input, [data-testid=paste]").setValue("PHAROS-RELAY:AEVCUKRK");
     await w.get("[data-testid=use-paste]").trigger("click");
     await flushPromises();
-    expect(w.get("[data-testid=pair-note]").text()).toBe(i18n.global.t("friends.proteusCodeHint"));
-    expect(calls.some(([c]) => c === "pharos_scan" || c === "pharos_accept" || c === "pharos_set_proteus")).toBe(false);
+    expect(w.get("[data-testid=pair-note]").text()).toBe(i18n.global.t("friends.relayCodeHint"));
+    expect(calls.some(([c]) => c === "pharos_scan" || c === "pharos_accept" || c === "pharos_set_relay")).toBe(false);
   });
 
   it("sends a picture whole after showing it, and shows pictures in the conversation", async () => {

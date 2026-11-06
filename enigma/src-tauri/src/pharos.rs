@@ -50,7 +50,7 @@ pub struct Me {
     name: String,
     fingerprint: String,
     id: String,
-    proteus: Option<String>,
+    relay: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -100,7 +100,7 @@ fn me_of(n: &Node<TorNet>) -> Me {
         name: n.name(),
         fingerprint: n.fingerprint_words(),
         id: pharos_node::hex(&n.fingerprint()),
-        proteus: n.proteus(),
+        relay: n.relay(),
     }
 }
 
@@ -192,13 +192,13 @@ pub async fn pharos_set_name(app: AppHandle, name: String) -> Result<Me, String>
 }
 
 #[tauri::command]
-/// Use a Proteus: `text` is its code (`pharos-proteus:…`, from its page in Tor
-/// Browser or `proteus code`, scanned or pasted) or its bare .onion address;
+/// Use a Relay: `text` is its code (`pharos-relay:…`, from its page in Tor
+/// Browser or `relay code`, scanned or pasted) or its bare .onion address;
 /// empty means none. Enigma connects to it before saving.
-pub async fn pharos_set_proteus(app: AppHandle, text: Option<String>) -> Result<Me, String> {
+pub async fn pharos_set_relay(app: AppHandle, text: Option<String>) -> Result<Me, String> {
     let n = node(&app).await?;
-    let target = pharos_node::parse_proteus(text.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
-    n.set_proteus(target.map(|t| t.onion)).await.map_err(|e| e.to_string())?;
+    let target = pharos_node::parse_relay(text.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+    n.set_relay(target.map(|t| t.onion)).await.map_err(|e| e.to_string())?;
     Ok(me_of(&n))
 }
 

@@ -42,7 +42,7 @@ const shim = (bridge) => {
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/01-friends-empty.png` });
 
-  // Pairing: Alice shows her card; Bob scans it (no Proteus → a reply to show).
+  // Pairing: Alice shows her card; Bob scans it (no Relay → a reply to show).
   await page.click("[data-testid=add-friend]");
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${OUT}/02-pair-show-card.png` });
@@ -95,11 +95,11 @@ const shim = (bridge) => {
   await page.screenshot({ path: `${OUT}/07-offline-queued-and-too-long.png` });
   await page.fill("textarea", "");
 
-  // Settings: name and Proteus.
-  await page.getByRole("button", { name: "You and your Proteus" }).click();
+  // Settings: name and Relay.
+  await page.getByRole("button", { name: "You and your Relay" }).click();
   await page.waitForTimeout(300);
-  await page.locator("input").nth(1).fill("proteusdemo4k2q7m3xv5nb6wz8yc9h2dj4lf7rt3ga5ek6pq2sum3wd.onion");
-  await page.screenshot({ path: `${OUT}/08-settings-proteus.png` });
+  await page.locator("input").nth(1).fill("relaydemo4k2q7m3xv5nb6wz8yc9h2dj4lf7rt3ga5ek6pq2sum3wd.onion");
+  await page.screenshot({ path: `${OUT}/08-settings-relay.png` });
   await page.click("[data-testid=save-settings]");
   await page.waitForTimeout(800);
 

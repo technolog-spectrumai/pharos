@@ -2,19 +2,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type Status = "Queued" | "OnProteus" | "Delivered" | "Received";
+export type Status = "Queued" | "OnRelay" | "Delivered" | "Received";
 
 export interface Me {
   name: string;
   fingerprint: string;
   id: string;
-  proteus: string | null;
+  relay: string | null;
 }
 export interface Friend {
   id: string;
   name: string;
   fingerprint: string;
-  proteus: string | null;
+  relay: string | null;
   last_seen_secs: number | null;
 }
 export interface Msg {
@@ -29,15 +29,15 @@ export interface Msg {
 export interface Scan {
   friend: string;
   name: string;
-  /** Show this back to the friend: it could not be left on their Proteus. */
+  /** Show this back to the friend: it could not be left on their Relay. */
   reply: string | null;
 }
 
 export const start = (name?: string) => invoke<Me>("pharos_start", { name: name ?? null });
 export const me = () => invoke<Me>("pharos_me");
 export const setName = (name: string) => invoke<Me>("pharos_set_name", { name });
-/** `text`: a Proteus code (`pharos-proteus:…`, from its page) or its .onion address; empty for none. */
-export const setProteus = (text: string | null) => invoke<Me>("pharos_set_proteus", { text });
+/** `text`: a Relay code (`pharos-relay:…`, from its page) or its .onion address; empty for none. */
+export const setRelay = (text: string | null) => invoke<Me>("pharos_set_relay", { text });
 export const card = () => invoke<string>("pharos_card");
 export const scan = (text: string) => invoke<Scan>("pharos_scan", { text });
 export const accept = (text: string) => invoke<string>("pharos_accept", { text });
@@ -69,12 +69,12 @@ export async function onEvents(h: {
   return () => u.forEach((f) => f());
 }
 
-/** "pharos-card:…", "pharos-reply:…" or "pharos-proteus:…": what a scanned or
+/** "pharos-card:…", "pharos-reply:…" or "pharos-relay:…": what a scanned or
  *  pasted text is. Any case: a QR reader may upper-case it all. */
-export function kindOf(text: string): "card" | "reply" | "proteus" | null {
+export function kindOf(text: string): "card" | "reply" | "relay" | null {
   const t = text.trim().toLowerCase();
   if (t.startsWith("pharos-card:")) return "card";
   if (t.startsWith("pharos-reply:")) return "reply";
-  if (t.startsWith("pharos-proteus:")) return "proteus";
+  if (t.startsWith("pharos-relay:")) return "relay";
   return null;
 }

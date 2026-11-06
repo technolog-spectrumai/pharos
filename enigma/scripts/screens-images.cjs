@@ -51,7 +51,7 @@ async function open(browser, opts, phone) {
   await call("alice", "pharos_accept", { text: s.reply });
   for (const n of ["alice", "bob"]) await call(n, "demo_online");
   const bobsAlice = (await call("bob", "pharos_friends"))[0].id;
-  await call("bob", "pharos_send", { friend: bobsAlice, text: "Send me a screenshot of your Proteus page?" });
+  await call("bob", "pharos_send", { friend: bobsAlice, text: "Send me a screenshot of your Relay page?" });
   await new Promise((r) => setTimeout(r, 2500));
 
   const page = await open(browser, { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 }, false);

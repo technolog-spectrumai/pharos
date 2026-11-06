@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  adduser --system --group --home /var/lib/relay --no-create-home relay >/dev/null 2>&1 || true
+  install -d -o relay -g relay -m 0700 /var/lib/relay /etc/relay
+  [ -f /etc/relay/config.yaml ] || install -o relay -g relay -m 0600 /etc/relay/config.yaml.example /etc/relay/config.yaml
+  runuser -u relay -- /usr/bin/relay init -c /etc/relay/config.yaml || true
+  echo "Relay installed. Start it: sudo systemctl enable --now relay"
+  echo "Its address: sudo -u relay relay status -c /etc/relay/config.yaml"
+fi
+#DEBHELPER#

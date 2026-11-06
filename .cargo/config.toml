@@ -1,7 +1,7 @@
-# Cross-building Proteus for a Raspberry Pi (64-bit Raspberry Pi OS):
+# Cross-building Relay for a Raspberry Pi (64-bit Raspberry Pi OS):
 #   sudo apt install gcc-aarch64-linux-gnu
 #   rustup target add aarch64-unknown-linux-gnu
-#   cargo build --release -p proteus --target aarch64-unknown-linux-gnu
+#   cargo build --release -p relay --target aarch64-unknown-linux-gnu
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
 

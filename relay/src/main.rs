@@ -1,14 +1,14 @@
-//! Proteus — the optional Pharos helper (Stage 3). Onion-only by design.
+//! Relay — the optional Pharos helper (Stage 3). Onion-only by design.
 //!
-//!   proteus init   [-c config.yaml]           make the master key and data folder
-//!   proteus check  [-c config.yaml]           key permissions, disk encryption, config
-//!   proteus serve  [-c config.yaml]           serve on an onion service
-//!   proteus serve  --tcp 127.0.0.1:PORT       …on loopback TCP instead (tests, development)
-//!   proteus status [-c config.yaml]           row counts and the onion address
-//!   proteus backup [-c config.yaml] OUT       a consistent copy of the database
-//!   proteus code   [-c config.yaml] [--png F] its code for Enigma, as text and a QR (and a PNG)
+//!   relay init   [-c config.yaml]           make the master key and data folder
+//!   relay check  [-c config.yaml]           key permissions, disk encryption, config
+//!   relay serve  [-c config.yaml]           serve on an onion service
+//!   relay serve  --tcp 127.0.0.1:PORT       …on loopback TCP instead (tests, development)
+//!   relay status [-c config.yaml]           row counts and the onion address
+//!   relay backup [-c config.yaml] OUT       a consistent copy of the database
+//!   relay code   [-c config.yaml] [--png F] its code for Enigma, as text and a QR (and a PNG)
 
-use proteus::{api, config, diskcrypt, masterkey, page, store};
+use relay::{api, config, diskcrypt, masterkey, page, store};
 
 use anyhow::{bail, Context, Result};
 use api::{AppState, Limiter};
@@ -20,7 +20,7 @@ use store::Store;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Semaphore;
 
-const DEFAULT_CONFIG: &str = "/etc/proteus/config.yaml";
+const DEFAULT_CONFIG: &str = "/etc/relay/config.yaml";
 const SWEEP_SECS: u64 = 600;
 
 struct Args {
@@ -52,7 +52,7 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("proteus: {e:#}");
+            eprintln!("relay: {e:#}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -83,7 +83,7 @@ fn run() -> Result<()> {
         }
         _ => {
             let usage: Vec<&str> = include_str!("main.rs").lines().skip(2).take(7).map(|l| l.trim_start_matches("//!   ")).collect();
-            println!("Proteus {}: the optional Pharos helper, reached only over Tor.\n\nusage:\n  {}", env!("CARGO_PKG_VERSION"), usage.join("\n  "));
+            println!("Relay {}: the optional Pharos helper, reached only over Tor.\n\nusage:\n  {}", env!("CARGO_PKG_VERSION"), usage.join("\n  "));
             Ok(())
         }
     }
@@ -127,7 +127,7 @@ fn check(cfg: &Config) -> Result<()> {
 
 fn open_store(cfg: &Config) -> Result<Store> {
     let key = MasterKey::load(&cfg.master_key)?;
-    Store::open(&cfg.data_dir.join("proteus.sqlite"), key, cfg.limits.clone())
+    Store::open(&cfg.data_dir.join("relay.sqlite"), key, cfg.limits.clone())
 }
 
 fn status(cfg: &Config) -> Result<()> {
@@ -142,14 +142,14 @@ fn status(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// The onion this Proteus was last served on (written by `serve`).
+/// The onion this Relay was last served on (written by `serve`).
 fn served_onion(cfg: &Config) -> Option<String> {
     std::fs::read_to_string(cfg.data_dir.join("onion.txt")).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 /// Its code for Enigma: the text, the QR in the terminal, and optionally a PNG.
 fn code(cfg: &Config, png: Option<&Path>) -> Result<()> {
-    let onion = served_onion(cfg).context("no address yet: run `proteus serve` once; Tor makes the address then")?;
+    let onion = served_onion(cfg).context("no address yet: run `relay serve` once; Tor makes the address then")?;
     let p = page::Page::build(&onion, &cfg.name)?;
     println!("{}\n", p.code);
     print!("{}", page::qr_terminal(&p.code)?);
@@ -166,12 +166,12 @@ fn with_page(app: axum::Router, cfg: &Config, onion: Option<&str>) -> Result<axu
     match (cfg.page, onion) {
         (false, _) => Ok(app),
         (true, None) => {
-            eprintln!("proteus: no page yet: the address is made when it is first served over Tor");
+            eprintln!("relay: no page yet: the address is made when it is first served over Tor");
             Ok(app)
         }
         (true, Some(o)) => {
             let p = page::Page::build(o, &cfg.name)?;
-            eprintln!("proteus: its page, with the code for Enigma, is at http://{}/", p.onion);
+            eprintln!("relay: its page, with the code for Enigma, is at http://{}/", p.onion);
             Ok(app.merge(page::router(Arc::new(p))))
         }
     }
@@ -180,9 +180,9 @@ fn with_page(app: axum::Router, cfg: &Config, onion: Option<&str>) -> Result<axu
 async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
     let disk = diskcrypt::check(&cfg.data_dir);
     if disk.is_encrypted() {
-        eprintln!("proteus: disk: {}", disk.describe());
+        eprintln!("relay: disk: {}", disk.describe());
     } else {
-        eprintln!("proteus: WARNING disk: {}", disk.describe());
+        eprintln!("relay: WARNING disk: {}", disk.describe());
     }
     create_private_dir(&cfg.data_dir)?;
     let store = open_store(&cfg)?;
@@ -194,8 +194,8 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
     tokio::spawn(async move {
         loop {
             match sweeper.store.sweep(api::now_secs()) {
-                Ok(n) if n > 0 => eprintln!("proteus: swept {n} expired rows"),
-                Err(e) => eprintln!("proteus: sweep: {e:#}"),
+                Ok(n) if n > 0 => eprintln!("relay: swept {n} expired rows"),
+                Err(e) => eprintln!("relay: sweep: {e:#}"),
                 _ => {}
             }
             tokio::time::sleep(std::time::Duration::from_secs(SWEEP_SECS)).await;
@@ -208,10 +208,10 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
     if let Some(addr) = tcp {
         let sa: std::net::SocketAddr = addr.parse().context("--tcp address")?;
         if !sa.ip().is_loopback() {
-            bail!("--tcp is for loopback only; Proteus is reached over Tor");
+            bail!("--tcp is for loopback only; Relay is reached over Tor");
         }
         let l = tokio::net::TcpListener::bind(sa).await?;
-        eprintln!("proteus: serving on http://{} (loopback, development)", l.local_addr()?);
+        eprintln!("relay: serving on http://{} (loopback, development)", l.local_addr()?);
         let app = with_page(app, &cfg, served_onion(&cfg).as_deref())?;
         loop {
             tokio::select! {
@@ -221,9 +221,11 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
         }
     } else {
         let tor = pharos_tor::Tor::start(cfg.data_dir.join("tor-state"), cfg.data_dir.join("tor-cache"), true).await?;
+        // The onion's keystore nickname keeps the former name (Proteus): it selects
+        // the stored identity key, so changing it would change the address.
         let mut hosted = tor.host("proteus").await?;
         std::fs::write(cfg.data_dir.join("onion.txt"), format!("{}\n", hosted.onion))?;
-        eprintln!("proteus: serving on {}", hosted.onion);
+        eprintln!("relay: serving on {}", hosted.onion);
         let app = with_page(app, &cfg, Some(&hosted.onion))?;
         loop {
             tokio::select! {
@@ -235,7 +237,7 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
             }
         }
     }
-    eprintln!("proteus: stopping");
+    eprintln!("relay: stopping");
     Ok(())
 }
 
@@ -246,7 +248,7 @@ where
 {
     let Ok(permit) = slots.try_acquire_owned() else { return };
     tokio::spawn(async move {
-        proteus::serve_conn(s, app).await;
+        relay::serve_conn(s, app).await;
         drop(permit);
     });
 }

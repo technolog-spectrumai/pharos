@@ -149,7 +149,7 @@ onUnmounted(() => stop?.());
 
 const statusIcon: Record<api.Status, string> = {
   Queued: "clock",
-  OnProteus: "server",
+  OnRelay: "server",
   Delivered: "check",
   Received: "",
 };
@@ -186,11 +186,11 @@ async function usePasted(text = pasted.value) {
         replyToShow.value = s.reply;
         pairNote.value = t("friends.showReply", { name: s.name });
       } else {
-        pairNote.value = t("friends.pairedViaProteus", { name: s.name });
+        pairNote.value = t("friends.pairedViaRelay", { name: s.name });
       }
-    } else if (kind === "proteus") {
-      // A Proteus is not a friend: say where its code goes instead of failing.
-      pairNote.value = t("friends.proteusCodeHint");
+    } else if (kind === "relay") {
+      // A Relay is not a friend: say where its code goes instead of failing.
+      pairNote.value = t("friends.relayCodeHint");
     } else if (kind === "reply") {
       const id = await api.accept(text);
       await refreshFriends();
@@ -206,14 +206,14 @@ async function usePasted(text = pasted.value) {
 
 // ── me ──────────────────────────────────────────────────────────────────────
 const settings = ref(false);
-const scanningProteus = ref(false);
+const scanningRelay = ref(false);
 const nameDraft = ref("");
-const proteusDraft = ref("");
+const relayDraft = ref("");
 const settingsError = ref("");
 const savingSettings = ref(false);
 function openSettings() {
   nameDraft.value = me.value?.name ?? "";
-  proteusDraft.value = me.value?.proteus ?? "";
+  relayDraft.value = me.value?.relay ?? "";
   settingsError.value = "";
   settings.value = true;
 }
@@ -222,9 +222,9 @@ async function saveSettings() {
   savingSettings.value = true;
   try {
     if (nameDraft.value.trim() !== me.value?.name) me.value = await api.setName(nameDraft.value);
-    const p = proteusDraft.value.trim() || null;
-    // Connecting to a Proteus over Tor can take a while; the dialog says so.
-    if (p !== (me.value?.proteus ?? null)) me.value = await api.setProteus(p);
+    const p = relayDraft.value.trim() || null;
+    // Connecting to a Relay over Tor can take a while; the dialog says so.
+    if (p !== (me.value?.relay ?? null)) me.value = await api.setRelay(p);
     settings.value = false;
   } catch (e) {
     // Shown in the dialog, beside what was typed, not behind it.
@@ -252,9 +252,9 @@ async function removeCurrent() {
         <div class="min-w-0 flex-1">
           <div class="truncate font-bold" data-testid="me-name">{{ me?.name ?? "…" }}</div>
           <div class="truncate font-mono text-[10px] opacity-60" :title="$t('friends.yourFingerprint')">{{ me?.fingerprint }}</div>
-          <div class="truncate text-[10px] opacity-60" data-testid="me-proteus" :title="me?.proteus ?? ''">
+          <div class="truncate text-[10px] opacity-60" data-testid="me-relay" :title="me?.relay ?? ''">
             <font-awesome-icon icon="server" />
-            {{ me?.proteus ? $t('friends.proteusOn', { onion: me.proteus.slice(0, 12) + '…' }) : $t('friends.proteusNone') }}
+            {{ me?.relay ? $t('friends.relayOn', { onion: me.relay.slice(0, 12) + '…' }) : $t('friends.relayNone') }}
           </div>
         </div>
         <OyaButton type="button" :aria-label="$t('friends.settings')" @click="openSettings"><font-awesome-icon icon="gear" /></OyaButton>
@@ -275,7 +275,7 @@ async function removeCurrent() {
           >
             <div class="truncate">{{ f.name }}</div>
             <div class="truncate text-[10px] opacity-50">
-              {{ f.proteus ? $t('friends.hasProteus') : $t('friends.directOnly') }}
+              {{ f.relay ? $t('friends.hasRelay') : $t('friends.directOnly') }}
             </div>
           </button>
         </li>
@@ -397,7 +397,7 @@ async function removeCurrent() {
       </div>
     </OyaModal>
     <QrScannerModal v-model:open="scanning" @decoded="(s: string) => { scanning = false; usePasted(s); }" />
-    <QrScannerModal v-model:open="scanningProteus" @decoded="(s: string) => { scanningProteus = false; proteusDraft = s.trim(); }" />
+    <QrScannerModal v-model:open="scanningRelay" @decoded="(s: string) => { scanningRelay = false; relayDraft = s.trim(); }" />
 
     <!-- me -->
     <OyaModal v-model:open="settings">
@@ -406,16 +406,16 @@ async function removeCurrent() {
         <label class="block text-sm">{{ $t('friends.yourName') }}
           <OyaTextField v-model="nameDraft" :maxlength="64" />
         </label>
-        <label class="block text-sm">{{ $t('friends.proteus') }}
+        <label class="block text-sm">{{ $t('friends.relay') }}
           <div class="flex gap-2">
-            <OyaTextField v-model="proteusDraft" class="flex-1" :placeholder="$t('friends.proteusPlaceholder')" data-testid="proteus-field" />
-            <OyaButton type="button" :aria-label="$t('friends.scanProteus')" data-testid="scan-proteus" @click="scanningProteus = true">
+            <OyaTextField v-model="relayDraft" class="flex-1" :placeholder="$t('friends.relayPlaceholder')" data-testid="relay-field" />
+            <OyaButton type="button" :aria-label="$t('friends.scanRelay')" data-testid="scan-relay" @click="scanningRelay = true">
               <font-awesome-icon icon="camera" />
             </OyaButton>
           </div>
         </label>
-        <p class="text-xs opacity-60">{{ $t('friends.proteusHelp') }}</p>
-        <p v-if="savingSettings" class="text-xs" role="status">{{ $t('friends.connectingProteus') }}</p>
+        <p class="text-xs opacity-60">{{ $t('friends.relayHelp') }}</p>
+        <p v-if="savingSettings" class="text-xs" role="status">{{ $t('friends.connectingRelay') }}</p>
         <p v-if="settingsError" class="text-xs text-error-light dark:text-error-dark" role="alert" data-testid="settings-error">{{ settingsError }}</p>
         <div class="flex justify-end gap-2">
           <OyaButton type="button" @click="settings = false">{{ $t('friends.cancel') }}</OyaButton>

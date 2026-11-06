@@ -1,4 +1,4 @@
-//! 3.7, as in Zirkelite: one master key seals everything Proteus stores.
+//! 3.7, as in Zirkelite: one master key seals everything Relay stores.
 //!
 //! `master.key` holds 32 random bytes (hex). It must be mode 0600 — a key
 //! that group or others can read is refused. Two sub-keys come from it with
@@ -26,6 +26,8 @@ impl std::fmt::Debug for MasterKey {
 impl MasterKey {
     pub fn from_bytes(master: &[u8; 32]) -> Self {
         MasterKey {
+            // These labels keep the server's former name (Proteus): they derive
+            // the keys existing data is sealed with, so they never change.
             seal: Zeroizing::new(blake3::derive_key("proteus 2026 at-rest seal v1", master)),
             hash: Zeroizing::new(blake3::derive_key("proteus 2026 id and token hash v1", master)),
         }

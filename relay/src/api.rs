@@ -1,4 +1,4 @@
-//! The HTTP API Proteus serves on its onion (3.1–3.4). Bodies are raw bytes
+//! The HTTP API Relay serves on its onion (3.1–3.4). Bodies are raw bytes
 //! (already sealed by Enigma); ids and tokens are hex.
 //!
 //! | Method | Path | Auth | What |
@@ -99,7 +99,7 @@ fn refusal(r: Refusal) -> Response {
 }
 
 fn internal(e: anyhow::Error) -> Response {
-    eprintln!("proteus: {e:#}");
+    eprintln!("relay: {e:#}");
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
 }
 
@@ -149,7 +149,7 @@ macro_rules! out {
 }
 
 async fn health() -> Response {
-    Json(json!({ "ok": true, "service": "proteus", "version": env!("CARGO_PKG_VERSION") })).into_response()
+    Json(json!({ "ok": true, "service": "relay", "version": env!("CARGO_PKG_VERSION") })).into_response()
 }
 
 async fn put_message(State(st): St, Path(id): Path<String>, h: HeaderMap, body: Bytes) -> Response {

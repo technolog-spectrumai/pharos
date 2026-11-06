@@ -1,4 +1,4 @@
-# Pharos: Enigma (the client), Proteus (the optional server, from Stage 3) and
+# Pharos: Enigma (the client), Relay (the optional server, from Stage 3) and
 # the crates they share.
 [workspace]
 resolver = "3"
@@ -13,7 +13,7 @@ members = [
     "crates/pharos-id",
     "crates/pharos-tor",
     "crates/pharos-node",
-    "proteus",
+    "relay",
     "enigma/src-tauri",
 ]
 exclude = [
@@ -26,7 +26,7 @@ rust-version = "1.94"
 [profile.dev]
 split-debuginfo = "unpacked"
 
-# Proteus on a Raspberry Pi: small and stripped. (Enigma' bundle uses the same profile.)
+# Relay on a Raspberry Pi: small and stripped. (Enigma' bundle uses the same profile.)
 [profile.release]
 strip = true
 lto = "thin"

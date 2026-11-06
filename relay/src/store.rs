@@ -200,7 +200,7 @@ impl Store {
         }
     }
 
-    /// D1 with Proteus: a pairing reply left under the card's one-time token.
+    /// D1 with Relay: a pairing reply left under the card's one-time token.
     pub fn put_pairing(&self, token: &[u8], blob: &[u8], now: u64) -> Result<Outcome<()>> {
         if blob.len() > self.limits.max_pairing_bytes {
             return Ok(Err(Refusal::TooLarge));
@@ -250,7 +250,7 @@ impl Store {
         Ok(())
     }
 
-    /// Rows per table, for `proteus status`.
+    /// Rows per table, for `relay status`.
     pub fn counts(&self) -> Result<[(String, i64); 4]> {
         let db = self.db();
         let c = |t: &str| -> Result<(String, i64)> {

@@ -5,10 +5,10 @@
 //!   ([`WEEK_SECS`]); its key is HKDF(secret, "onion" ‖ host ‖ week). The
 //!   other friend derives the same key's public half and dials it. An observer
 //!   who sees one week's onion cannot link it to the next.
-//! - With Proteus (M3), each friend has a **mailbox** there whose id and
+//! - With Relay (M3), each friend has a **mailbox** there whose id and
 //!   access token come from the same secret, so either friend can find it and
-//!   Proteus learns only a random-looking id.
-//! - The **directory** record (D5) a friend leaves on Proteus is sealed with
+//!   Relay learns only a random-looking id.
+//! - The **directory** record (D5) a friend leaves on Relay is sealed with
 //!   a key from the secret and filed under a weekly id.
 //!
 //! All derivations are HKDF-SHA256 with the salt [`SALT`] and a distinct info
@@ -69,13 +69,13 @@ impl FriendshipSecret {
         out
     }
 
-    /// The id of `owner`'s mailbox on Proteus (stable for the friendship's life).
+    /// The id of `owner`'s mailbox on Relay (stable for the friendship's life).
     pub fn mailbox_id(&self, owner: &Fingerprint) -> [u8; 32] {
         self.derive(&[b"mailbox-id", owner])
     }
 
     /// The token that lets either friend put into and take from `owner`'s mailbox.
-    /// Proteus stores only its hash.
+    /// Relay stores only its hash.
     pub fn mailbox_token(&self, owner: &Fingerprint) -> [u8; 32] {
         self.derive(&[b"mailbox-token", owner])
     }
