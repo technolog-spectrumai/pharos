@@ -65,7 +65,8 @@ export const FALLBACK_HP_POLICY: HpPolicy = {
   dataDailyCapCenti: 500,
   dataWindowCapCenti: 1250,
   actions: [
-    A("transport.onion_stable.enable", "toggle", 150, "hp.explain.transportOnionStableEnable"),
+    // Per MINUTE while Tor runs with a stable address: ≈2.4 HP/hour. See privacy_hp.yaml.
+    A("tor.stable.hold", "metered", 0, "hp.explain.torStableHold", { perMinuteCenti: 4, capPerEventCenti: 500 }),
     A("dht.nickname.publish", "toggle", 1000, "hp.explain.dhtNicknamePublish"),
     A("dht.presence.enable", "toggle", 500, "hp.explain.dhtPresenceEnable"),
     // Per MINUTE, not per event: ≈4.8 HP/hour while a room's onion stays up with a
@@ -305,6 +306,43 @@ export async function hpSetTorPosture(on: boolean): Promise<boolean> {
   if ((last?.code ?? "transport.tor.off") === code) return false;
   browserLedger.push({ ts: browserStamp(), kind: "posture", code, hp: 0, n: 1, bucket: 0 });
   return true;
+}
+
+/** What one tick of the hourly charges did: standing Tor rooms and the stable
+ *  address (privacy_hp.rs, `hp_tor_tick`). */
+export interface HpTorExposure {
+  /** Centi-HP this tick charged, ≤ 0. */
+  chargedCenti: number;
+  /** Rooms accruing `tor.persistent.hold`. */
+  rooms: string[];
+  /** Centi-HP per hour all of it costs while it lasts. */
+  drainPerHourCenti: number;
+  /** Whether the stable address is accruing `tor.stable.hold`. */
+  stable: boolean;
+}
+
+const NO_EXPOSURE: HpTorExposure = { chargedCenti: 0, rooms: [], drainPerHourCenti: 0, stable: false };
+
+/** Bill the hourly charges for the time since the last tick. Rust decides what is
+ *  exposed; the window only asks. Outside Tauri nothing is hosted, so nothing accrues. */
+export async function hpTorTick(): Promise<HpTorExposure> {
+  if (!isTauri()) return NO_EXPOSURE;
+  try {
+    return await invoke<HpTorExposure>("hp_tor_tick");
+  } catch {
+    return NO_EXPOSURE;
+  }
+}
+
+/** The day's budget ran out: revoke these rooms' standing invitations, which is
+ *  what stops their accrual (§17.4). Returns how many were revoked. */
+export async function hpTorShutdown(rooms: string[]): Promise<number> {
+  if (!isTauri() || rooms.length === 0) return 0;
+  try {
+    return await invoke<number>("hp_tor_shutdown", { rooms });
+  } catch {
+    return 0;
+  }
 }
 
 /** Award a fixed recovery. Rust verifies the paired exposure is live and applies

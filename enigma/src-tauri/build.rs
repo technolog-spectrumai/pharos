@@ -476,7 +476,7 @@ struct HpDataSource {
 /// YAML fails the build instead of silently making that surface free — the
 /// failure mode a price table must never have.
 const REQUIRED_HP_ACTIONS: &[&str] = &[
-    "transport.onion_stable.enable",
+    "tor.stable.hold",
     "dht.nickname.publish",
     "dht.presence.enable",
     "room.create.clearnet",

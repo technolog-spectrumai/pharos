@@ -240,22 +240,23 @@ describe("language", () => {
 
 describe("Tor", () => {
 
-  it("charges for a stable onion only when it is switched on", async () => {
+  it("prices a stable onion by the hour and charges nothing for switching it", async () => {
     network.useTor = true;
     const w = await mountAt("connections");
-    expect(w.get('[data-testid="hp-badge-stable-onion"]').text()).toContain("−1.5 HP");
+    // 0.04 HP a minute: 2.4 HP for every hour it stays up (billed by the Rust tick).
+    const badge = w.get('[data-testid="hp-badge-stable-onion"]').text();
+    expect(badge).toContain("−2.4 HP");
+    expect(badge).toContain("/h");
 
     const toggle = switchFor(w, "Keep onion address stable");
     await toggle.trigger("click");
     await settle();
     expect(callsTo("app_set_stable_onion")).toEqual([{ stableOnion: true }]);
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "transport.onion_stable.enable", bytes: null, minutes: null }]);
-
     await toggle.trigger("click");
     await settle();
     expect(callsTo("app_set_stable_onion")).toEqual([{ stableOnion: true }, { stableOnion: false }]);
-    // Switching back earns nothing: the old address was already seen.
-    expect(callsTo("hp_charge")).toHaveLength(1);
+    // Neither direction is a one-off charge or credit.
+    expect(callsTo("hp_charge")).toHaveLength(0);
     expect(callsTo("hp_recover")).toHaveLength(0);
   });
 });

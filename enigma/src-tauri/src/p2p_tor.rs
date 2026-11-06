@@ -850,6 +850,14 @@ pub async fn hosted_rooms(state: &TorP2pState) -> Vec<String> {
     guard.as_ref().map(|n| n.rooms.keys().cloned().collect()).unwrap_or_default()
 }
 
+/// Whether a STABLE onion is answering right now: Tor runs with the persistent
+/// keystore and at least one room's service is up. This is what
+/// `tor.stable.hold` bills by the hour.
+pub async fn stable_up(state: &TorP2pState) -> bool {
+    let guard = state.0.lock().await;
+    guard.as_ref().is_some_and(|n| n.stable && !n.rooms.is_empty())
+}
+
 /// Retire this room's `.onion` and mint a different one.
 ///
 /// Not a restart: the point is that the OLD address stops resolving. The room's

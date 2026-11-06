@@ -22,7 +22,7 @@ import {
   severityOf,
   formatDate,
 } from "rakotis";
-import { explainFor, hpBalances, hpEntries, hpLoaded, labelFor } from "./useHp";
+import { explainFor, hpBalances, hpEntries, hpExposure, hpLoaded, labelFor } from "./useHp";
 import HpHistoryChart from "./HpHistoryChart.vue";
 
 withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
@@ -96,6 +96,27 @@ function toggleSection(key: string) {
 }
 
 /** Regeneration line: "+4 HP / hour". */
+// ── every hour ───────────────────────────────────────────────────────────────
+// What comes back and what goes out per hour right now, so the meter's direction
+// is not a guess: regeneration, minus the stable address and the standing rooms
+// (billed by the minute in Rust, tor.stable.hold / tor.persistent.hold).
+const perHour = (id: string) => (findAction(getHpPolicy(), id)?.perMinuteCenti ?? 0) * 60;
+const hourly = computed(() => {
+  const e = hpExposure.value;
+  const lines: { key: string; label: string; centi: number }[] = [];
+  if (e.stable) lines.push({ key: "stable", label: t("hp.hourlyStable"), centi: -perHour("tor.stable.hold") });
+  if (e.rooms.length > 0) {
+    lines.push({
+      key: "rooms",
+      label: t("hp.hourlyRooms", { n: e.rooms.length }, e.rooms.length),
+      centi: -perHour("tor.persistent.hold") * e.rooms.length,
+    });
+  }
+  const regen = hpBalances.value.daily.regenPerHourCenti;
+  return { regen, lines, net: regen + lines.reduce((s, l) => s + l.centi, 0) };
+});
+const signed = (c: number) => (c > 0 ? "+" : c < 0 ? "−" : "") + formatHp(Math.abs(c));
+
 function regenLabel(centiPerHour: number): string {
   return t("hp.regenRate", { n: formatHp(centiPerHour) });
 }
@@ -113,7 +134,7 @@ function nextLabel(ms: number | null): string {
 const GROUPS: { key: string; ids: string[] }[] = [
   {
     key: "transport",
-    ids: ["transport.onion_stable.enable"],
+    ids: ["tor.stable.hold"],
   },
   // Every room, invitation and message in Enigma goes over Tor: only the Tor
   // variants are listed (the clearnet ones remain in the price table, unused;
@@ -208,6 +229,30 @@ const recoveries = computed(() => policy.recoveries);
         :next-label="nextLabel(hpBalances.daily.msToNextHp)"
       />
     </div>
+
+    <!-- Every hour: what comes back, what is being charged, and the net. -->
+    <section
+      v-if="hpLoaded"
+      class="rounded-xl border border-current/15 p-3 text-sm"
+      data-testid="hp-hourly"
+    >
+      <h3 class="mb-2 text-[10px] uppercase tracking-wide opacity-50">{{ $t("hp.hourlyTitle") }}</h3>
+      <dl class="space-y-1">
+        <div class="flex justify-between gap-3">
+          <dt>{{ $t("hp.hourlyRegen") }}</dt>
+          <dd class="tabular-nums text-success-light dark:text-success-dark" data-testid="hp-hourly-regen">{{ signed(hourly.regen) }}</dd>
+        </div>
+        <div v-for="l in hourly.lines" :key="l.key" class="flex justify-between gap-3" :data-testid="`hp-hourly-${l.key}`">
+          <dt>{{ l.label }}</dt>
+          <dd class="tabular-nums text-error-light dark:text-error-dark">{{ signed(l.centi) }}</dd>
+        </div>
+        <p v-if="hourly.lines.length === 0" class="text-xs opacity-60">{{ $t("hp.hourlyNothing") }}</p>
+        <div class="mt-1 flex justify-between gap-3 border-t border-current/10 pt-1 font-bold">
+          <dt>{{ $t("hp.hourlyNet") }}</dt>
+          <dd class="tabular-nums" data-testid="hp-hourly-net">{{ signed(hourly.net) }} HP</dd>
+        </div>
+      </dl>
+    </section>
 
     <!-- Seven days of the same meter, in place of the second bar that used to
          sit beside it. A shape says what a slower number could not. -->

@@ -243,7 +243,7 @@ describe("HpPanel", () => {
   it("lists a price for every priced action, once its section is opened", async () => {
     const w = mount(HpPanel, { global });
     for (const [group, id] of [
-      ["transport", "transport.onion_stable.enable"],
+      ["transport", "tor.stable.hold"],
       ["rooms", "room.create.tor"],
       ["messages", "msg.tor.mls"],
       ["local", "local.pin.enroll"],
@@ -387,6 +387,35 @@ describe("HpPanel", () => {
 });
 
 // ── the confirmation ────────────────────────────────────────────────────────
+
+describe("HpPanel: every hour, and the week", () => {
+  it("shows regeneration, the hourly charges and the net", async () => {
+    const { setHpExposureForTest } = await import("../../src/components/hp/useHp");
+    setHpExposureForTest({ chargedCenti: 0, rooms: ["r1"], drainPerHourCenti: 720, stable: true });
+    const w = mount(HpPanel, { global: { plugins: [i18n] } });
+    await flushPromises();
+    const regen = w.get("[data-testid=hp-hourly-regen]").text();
+    expect(regen.startsWith("+")).toBe(true);
+    expect(w.get("[data-testid=hp-hourly-stable]").text()).toContain("−2.4");
+    expect(w.get("[data-testid=hp-hourly-rooms]").text()).toContain("1 Tor room kept reachable");
+    expect(w.get("[data-testid=hp-hourly-rooms]").text()).toContain("−4.8");
+    // Net = regeneration − 2.4 − 4.8.
+    const n = (x: string) => Number(x.replace("−", "-").replace(/[^0-9.+-]/g, ""));
+    expect(n(w.get("[data-testid=hp-hourly-net]").text())).toBeCloseTo(n(regen) - 7.2, 1);
+    setHpExposureForTest({ chargedCenti: 0, rooms: [], drainPerHourCenti: 0, stable: false });
+    await flushPromises();
+    expect(w.find("[data-testid=hp-hourly-stable]").exists()).toBe(false);
+    expect(w.get("[data-testid=hp-hourly]").text()).toContain(i18n.global.t("hp.hourlyNothing"));
+  });
+
+  it("draws the last seven days as one line of hourly samples", async () => {
+    const w = mount(HpPanel, { global: { plugins: [i18n] } });
+    await flushPromises();
+    const canvas = w.get("[data-testid=hp-chart] canvas[data-testid=hp-chart-line]");
+    expect(Number(canvas.attributes("data-points"))).toBeGreaterThanOrEqual(7 * 24);
+    expect(w.find("[data-testid=hp-chart-bar]").exists()).toBe(false);
+  });
+});
 
 describe("HpConfirmModal", () => {
   it("stays closed until something asks", () => {

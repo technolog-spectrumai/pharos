@@ -118,11 +118,12 @@ const stableOnion = ref(false);
 async function toggleStableOnion() {
   stableOnion.value = !stableOnion.value;
   await setStableOnion(stableOnion.value);
-  // Only the ON direction is an exposure (one long-lived address makes sessions
-  // linkable). Switching back is free but earns nothing: the old address was
-  // already published to whoever saw it.
-  if (stableOnion.value) await chargeHp("transport.onion_stable.enable");
+  // Nothing is charged here: a stable address costs HP for every hour Tor runs
+  // with it (tor.stable.hold, billed by the Rust tick), not once when switched on.
 }
+
+/** The stable address's hourly price, from its per-minute rate. */
+const stableOnionPerHour = computed(() => priceFor("tor.stable.hold", { minutes: 60 }));
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
 const connectTimeoutSecs = ref(60);
@@ -600,10 +601,11 @@ async function clearSelectedOfflineData() {
             {{ stableOnion ? $t('config.stableOnionOnHint') : $t('config.stableOnionOffHint') }}
           </p>
           <OyaHpPrice
-            v-if="stableOnion ? 0 : priceFor('transport.onion_stable.enable') !== 0"
+            v-if="stableOnionPerHour !== 0"
             class="mt-1"
-            :centi="stableOnion ? 0 : priceFor('transport.onion_stable.enable')"
-            :explain="hpExplain('transport.onion_stable.enable')"
+            :centi="stableOnionPerHour"
+            :unit="$t('hp.unitHour')"
+            :explain="hpExplain('tor.stable.hold')"
             data-testid="hp-badge-stable-onion"
           />
         </div>

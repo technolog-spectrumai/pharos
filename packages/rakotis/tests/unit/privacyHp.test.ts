@@ -408,7 +408,7 @@ describe("Tor regeneration", () => {
   });
 
   it("heals three times faster while Tor is on", () => {
-    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const charge = spend(T0, "tor.stable.hold", 2000);
     const off = deriveBalances(P, [charge], T0 + HOUR).daily;
     const on = deriveBalances(P, [posture(T0 - 1, true), charge], T0 + HOUR).daily;
     expect(off.balanceCenti).toBe(8400); // −20, +4 back
@@ -434,7 +434,7 @@ describe("Tor regeneration", () => {
     // THE property this design exists for. A naive implementation multiplies
     // total elapsed time by the current rate, so flipping the switch would jump
     // the meter. Here the balance is identical either side of the flip.
-    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const charge = spend(T0, "tor.stable.hold", 2000);
     const flip = T0 + HOUR;
     const justBefore = deriveBalances(P, [charge], flip).daily.balanceCenti;
     const justAfter = deriveBalances(P, [charge, posture(flip, true)], flip).daily.balanceCenti;
@@ -442,7 +442,7 @@ describe("Tor regeneration", () => {
   });
 
   it("does not un-heal the past when Tor is switched off", () => {
-    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const charge = spend(T0, "tor.stable.hold", 2000);
     const flip = T0 + HOUR;
     const log = [posture(T0 - 1, true), charge];
     const before = deriveBalances(P, log, flip).daily.balanceCenti;
@@ -452,7 +452,7 @@ describe("Tor regeneration", () => {
 
   it("counts each hour at the rate that was actually in force", () => {
     // One hour with Tor off (+4), then one with it on (+12) = 16 back.
-    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const charge = spend(T0, "tor.stable.hold", 2000);
     const log = [charge, posture(T0 + HOUR, true)];
     expect(deriveBalances(P, log, T0 + 2 * HOUR).daily.balanceCenti).toBe(9600);
     // And the mirror image: fast hour first, then slow.
@@ -461,7 +461,7 @@ describe("Tor regeneration", () => {
   });
 
   it("counts a charge made mid-Tor-session at the Tor rate", () => {
-    const log = [posture(T0, true), spend(T0 + HOUR, "transport.onion_stable.enable", 2000)];
+    const log = [posture(T0, true), spend(T0 + HOUR, "tor.stable.hold", 2000)];
     expect(deriveBalances(P, log, T0 + 2 * HOUR).daily.balanceCenti).toBe(9200);
   });
 
@@ -490,7 +490,7 @@ describe("Tor regeneration", () => {
   });
 
   it("counts the countdown down at the Tor rate", () => {
-    const charge = spend(T0, "transport.onion_stable.enable", 2000);
+    const charge = spend(T0, "tor.stable.hold", 2000);
     expect(deriveBalances(P, [charge], T0).daily.msToNextHp).toBe(15 * 60_000);
     expect(
       deriveBalances(P, [posture(T0 - 1, true), charge], T0).daily.msToNextHp,

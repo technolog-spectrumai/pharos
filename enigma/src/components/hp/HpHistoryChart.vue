@@ -1,21 +1,15 @@
 <script setup lang="ts">
-// Seven days of the meter, drawn from the ledger.
-//
-// This replaced the weekly bar. Two meters meant every price had to be legible
-// against two ceilings at once, and the slower one moved so little that it read
-// as scenery. What a second number could not show — and what this does — is the
-// SHAPE of a week: when it drained, how fast, and whether it came back.
+// The last seven days of the daily meter, as one line (hourly samples), drawn
+// with Chart.js — vendored in petalite (petalite/vendor/chartjs), not fetched.
 //
 // Nothing is stored to make it. `hpHistory` calls the same pure `deriveBalances`
 // the live number uses, once per sample, with a past `now`. So there is no
 // timeline to keep in step with the ledger, no way for the chart to contradict
-// the figure above it, and no network involved — the rows are already on the
-// device and the only clock consulted is the local one.
-//
-// The SVG is hand-drawn for the same reason: a chart library would be the largest
-// thing in the bundle it was used by, and would still need this file to feed it.
-import { computed, ref, watch } from "vue";
-import { hpBars, hpHistory, hpSparkline, formatHp, type HpPolicy, type HpEntry, type HpTick } from "rakotis";
+// the figure above it, and no network involved.
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import { hpHistory, formatHp, type HpPolicy, type HpEntry } from "rakotis";
+import { Chart, type ChartInstance } from "petalite/vendor/chartjs";
 
 const props = defineProps<{
   policy: HpPolicy;
@@ -25,100 +19,138 @@ const props = defineProps<{
   now: number;
 }>();
 
-const W = 300;
-const H = 64;
+const { locale } = useI18n();
 
-// Remembered, like the panel's other view choices — a reader who prefers days
-// should not have to say so again on every visit.
-const KEY = "enigma:hp:tick";
-const tick = ref<HpTick>(
-  (() => {
-    try {
-      const v = localStorage.getItem(KEY);
-      return v === "day" || v === "hour" ? v : "hour";
-    } catch {
-      return "hour";
-    }
-  })(),
+/** Hourly samples over the history window (7 days). */
+const samples = computed(() => hpHistory(props.policy, props.entries, props.now, "hour"));
+/** The series as HP, for the chart and for tests. */
+const points = computed(() => samples.value.map((s) => s.centi / 100));
+
+const lowest = computed(() => samples.value.reduce((lo, s) => Math.min(lo, s.centi), props.maxCenti));
+
+const dayFmt = computed(() => new Intl.DateTimeFormat(locale.value, { weekday: "short", day: "numeric" }));
+const timeFmt = computed(
+  () => new Intl.DateTimeFormat(locale.value, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
 );
-watch(tick, (v) => {
-  try {
-    localStorage.setItem(KEY, v);
-  } catch {
-    /* private window / storage off — the choice just does not persist */
+
+const canvas = ref<HTMLCanvasElement | null>(null);
+let chart: ChartInstance | null = null;
+
+/** Colours from the theme, read off the page so light and dark both work. */
+function colours() {
+  const css = getComputedStyle(document.documentElement);
+  const dark = document.documentElement.classList.contains("dark");
+  // The highlight on dark, the deep accent on light: both read clearly on their ground.
+  const accent = dark ? "#8c96e8" : css.getPropertyValue("--color-accent-light").trim() || "#2f3d63";
+  const text = canvas.value ? getComputedStyle(canvas.value).color : "#888";
+  return { accent, text };
+}
+
+function config() {
+  const { accent, text } = colours();
+  const times = samples.value.map((s) => s.t);
+  return {
+    type: "line",
+    data: {
+      labels: times,
+      datasets: [
+        {
+          data: points.value,
+          borderColor: accent,
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          tension: 0.25,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          displayColors: false,
+          callbacks: {
+            title: (items: { label: string }[]) => timeFmt.value.format(new Date(Number(items[0]?.label))),
+            label: (item: { parsed: { y: number } }) => `${formatHp(Math.round(item.parsed.y * 100))} HP`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            color: text,
+            autoSkip: false,
+            maxRotation: 0,
+            // One label a day, at its first sample.
+            callback: (_v: unknown, i: number) => {
+              const t = times[i];
+              const prev = times[i - 1];
+              const day = (x: number) => new Date(x).toDateString();
+              // At day boundaries only: the window starts mid-day, and a label
+              // for that part-day would collide with the next one.
+              return prev !== undefined && day(t) !== day(prev) ? dayFmt.value.format(new Date(t)) : null;
+            },
+          },
+        },
+        y: {
+          min: 0,
+          max: props.maxCenti / 100,
+          ticks: { color: text, maxTicksLimit: 5 },
+          grid: { color: "rgba(127,127,127,0.15)" },
+        },
+      },
+    },
+  };
+}
+
+function draw() {
+  const el = canvas.value;
+  // No 2D context (jsdom in tests, or a webview with canvas off): the numbers
+  // under the chart still say what matters.
+  if (!el || !el.getContext?.("2d")) return;
+  if (chart) {
+    const c = config();
+    chart.data.labels = c.data.labels;
+    chart.data.datasets[0].data = c.data.datasets[0].data;
+    chart.options.scales = c.options.scales;
+    chart.update("none");
+    return;
   }
+  try {
+    chart = new Chart(el, config());
+  } catch {
+    chart = null;
+  }
+}
+
+onMounted(draw);
+watch([points, locale, () => props.maxCenti], draw);
+onBeforeUnmount(() => {
+  chart?.destroy();
+  chart = null;
 });
 
-const samples = computed(() => hpHistory(props.policy, props.entries, props.now, tick.value));
-const line = computed(() => hpSparkline(samples.value, props.maxCenti, W, H));
-const bars = computed(() => hpBars(samples.value, props.maxCenti, W, H));
-
-/** A day label under the bars — "24 sie", in the app's language. */
-const dayLabel = (t: number) =>
-  new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(t));
-
-const lowest = computed(() =>
-  samples.value.reduce((lo, s) => Math.min(lo, s.centi), props.maxCenti),
-);
+defineExpose({ points });
 </script>
 
 <template>
   <section class="flex flex-col gap-2" data-testid="hp-chart">
-    <div class="flex flex-wrap items-baseline justify-between gap-2">
-      <h3 class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("hp.chartTitle") }}</h3>
-      <select
-        v-model="tick"
-        class="rounded-lg border border-current/20 bg-transparent px-2 py-0.5 text-xs font-semibold"
-        :aria-label="$t('hp.chartTick')"
-        data-testid="hp-chart-tick"
-      >
-        <option value="hour">{{ $t("hp.tickHour") }}</option>
-        <option value="day">{{ $t("hp.tickDay") }}</option>
-      </select>
+    <h3 class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("hp.chartTitle") }}</h3>
+    <div class="relative h-40 w-full sm:h-48">
+      <canvas
+        ref="canvas"
+        role="img"
+        :aria-label="$t('hp.chartAlt', { n: policy.historyDays })"
+        data-testid="hp-chart-line"
+        :data-points="points.length"
+      />
     </div>
-
-    <!-- viewBox + preserveAspectRatio="none" so the chart fills whatever width the
-         panel gives it on a phone without the geometry needing to know. -->
-    <svg
-      :viewBox="`0 0 ${W} ${H}`"
-      preserveAspectRatio="none"
-      class="h-16 w-full overflow-visible"
-      role="img"
-      :aria-label="$t('hp.chartAlt', { n: policy.historyDays })"
-    >
-      <!-- The ceiling, so a full week and a flat-lined one do not look alike. -->
-      <line x1="0" y1="0.5" :x2="W" y2="0.5" class="stroke-current opacity-15" stroke-width="1" />
-      <line x1="0" :y1="H - 0.5" :x2="W" :y2="H - 0.5" class="stroke-current opacity-15" stroke-width="1" />
-
-      <template v-if="tick === 'hour'">
-        <polyline
-          :points="line"
-          fill="none"
-          class="stroke-accent-light dark:stroke-accent-dark"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-          stroke-linecap="round"
-          vector-effect="non-scaling-stroke"
-          data-testid="hp-chart-line"
-        />
-      </template>
-      <template v-else>
-        <rect
-          v-for="b in bars"
-          :key="b.t"
-          :x="b.x"
-          :y="b.y"
-          :width="b.w"
-          :height="b.h"
-          rx="1"
-          class="fill-accent-light dark:fill-accent-dark"
-          data-testid="hp-chart-bar"
-        >
-          <title>{{ dayLabel(b.t) }} · {{ formatHp(b.centi) }}</title>
-        </rect>
-      </template>
-    </svg>
-
     <p class="text-[11px] opacity-60" data-testid="hp-chart-low">
       {{ $t("hp.chartLow", { n: formatHp(lowest), days: policy.historyDays }) }}
     </p>

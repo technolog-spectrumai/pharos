@@ -35,6 +35,9 @@ import {
   hpLedger,
   hpRecover,
   hpSetTorPosture,
+  hpTorTick,
+  hpTorShutdown,
+  type HpTorExposure,
   needsConfirm,
   priceOf,
   type HpBalances,
@@ -265,6 +268,23 @@ export async function refreshHp(): Promise<void> {
 }
 
 let tick: ReturnType<typeof setInterval> | null = null;
+let exposureTick: ReturnType<typeof setInterval> | null = null;
+
+/** What is being charged by the hour right now (standing rooms, the stable
+ *  address) and how fast — for the HP view. */
+const exposureState = ref<HpTorExposure>({ chargedCenti: 0, rooms: [], drainPerHourCenti: 0, stable: false });
+export const hpExposure = computed(() => exposureState.value);
+
+/** One tick of the hourly charges: bill, re-read the ledger if it moved, and when
+ *  the day's budget is gone, revoke the standing invitations that drain it. */
+export async function tickHpExposure(): Promise<void> {
+  const r = await hpTorTick();
+  exposureState.value = r;
+  if (r.chargedCenti < 0) await refreshHp();
+  if (r.rooms.length > 0 && hpBalances.value.daily.balanceCenti <= 0) {
+    if ((await hpTorShutdown(r.rooms)) > 0) exposureState.value = await hpTorTick();
+  }
+}
 
 /**
  * Start the meters. Called from App.vue's post-unlock loaders — the ledger lives
@@ -285,6 +305,10 @@ export async function startHp(): Promise<void> {
   tick = setInterval(() => {
     clock.value = Date.now();
   }, 30_000);
+  // Hourly charges are billed by the minute in Rust; this only asks it to. Once
+  // now (a restart resumes the persisted marks), then every minute.
+  await tickHpExposure().catch(() => {});
+  exposureTick = setInterval(() => void tickHpExposure().catch(() => {}), 60_000);
 }
 
 /** Drop everything on lock or profile switch: the next profile's ledger is not
@@ -292,10 +316,18 @@ export async function startHp(): Promise<void> {
 export function stopHp(): void {
   if (tick) clearInterval(tick);
   tick = null;
+  if (exposureTick) clearInterval(exposureTick);
+  exposureTick = null;
+  exposureState.value = { chargedCenti: 0, rooms: [], drainPerHourCenti: 0, stable: false };
   ledger.value = EMPTY;
   loaded.value = false;
   dismissHpFlash();
   resolveHpConfirm(false);
+}
+
+/** Test seam: what the hourly tick reported, without a Rust side. */
+export function setHpExposureForTest(e: HpTorExposure): void {
+  exposureState.value = e;
 }
 
 /** Test seam: advance the derived clock without waiting for the interval. */

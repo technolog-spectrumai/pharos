@@ -581,6 +581,12 @@ export default {
   // się widoczne i dla kogo. Nazywają konkretnego obserwatora, a nie mówią
   // ogólnie "to zmniejsza prywatność".
   hp: {
+    hourlyTitle: "Co godzinę",
+    hourlyRegen: "Regeneracja",
+    hourlyStable: "Stały adres onion",
+    hourlyRooms: "{n} pokój Tor utrzymywany dostępnym | {n} pokoje Tor utrzymywane dostępnymi | {n} pokoi Tor utrzymywanych dostępnymi",
+    hourlyNothing: "Teraz nic nie jest naliczane co godzinę.",
+    hourlyNet: "Netto na godzinę",
     chartTitle: "Ostatnie 7 dni",
     chartTick: "Rozdzielczość wykresu",
     tickHour: "Co godzinę",
@@ -607,6 +613,7 @@ export default {
     pricesHint:
       "Stałe ceny, za każdym razem takie same. Zwykłe zaszyfrowane wiadomości przez Tor są darmowe — to domyślny stan, którego ten budżet ma bronić.",
     unitMessage: "wiad.",
+    unitHour: "godz.",
     unitMinute: "min",
     ratePerMib: "plus {n} HP za każdy wysłany MiB",
     ratePerMinute: "plus {n} HP za minutę",
@@ -643,7 +650,7 @@ export default {
       local: "To urządzenie",
     },
     action: {
-      transportOnionStableEnable: "Zachowaj jeden adres onion",
+      torStableHold: "Zachowaj jeden adres onion (co godzinę)",
       dhtNicknamePublish: "Opublikuj swój pseudonim",
       dhtPresenceEnable: "Włącz wykrywanie DHT",
       dhtRoomCodePublish: "Opublikuj kod pokoju",
@@ -686,8 +693,8 @@ export default {
       dataDeleteFiles: "Usuń zablokowany plik",
     },
     explain: {
-      transportOnionStableEnable:
-        "Ponowne użycie jednego adresu onion pozwala każdemu, kto go widział, rozpoznać cię między sesjami, zamiast spotykać za każdym razem nowy adres.",
+      torStableHold:
+        "Ponowne użycie jednego adresu onion pozwala każdemu, kto go widział, rozpoznać cię między sesjami, zamiast spotykać za każdym razem nowy adres, więc jest naliczany za każdą godzinę, gdy działa.",
       dhtNicknamePublish:
         "Twój pseudonim trafia do publicznego katalogu, który każdy może przeszukać, powiązany z tożsamością sieciową tego urządzenia.",
       dhtPresenceEnable:

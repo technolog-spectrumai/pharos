@@ -132,14 +132,18 @@ actions:
   # note above). Switching a protection on should not read as an expense, and
   # switching it off should not be a one-time toll you pay once and then forget.
 
-  - id: transport.onion_stable.enable
-    kind: toggle
-    cost: low
-    explain_key: hp.explain.transportOnionStableEnable
-    # A stable .onion is reusable across sessions, so sessions become linkable to
-    # one long-lived address; it also materialises an onion keystore on disk
-    # while unlocked (§8, "at-rest posture" exceptions). Low, not moderate: the
-    # address is still yours alone and reveals no IP.
+  - id: tor.stable.hold
+    kind: metered
+    cost: 0
+    per_minute: 0.04
+    cap_per_event: 5
+    explain_key: hp.explain.torStableHold
+    # Charged for TIME, like tor.persistent.hold below, not once when switched on:
+    # a stable .onion is reusable across sessions, so every hour it stays up is
+    # another hour your sessions are linkable to one long-lived address (and its
+    # keystore sits on disk while unlocked, §8). 0.04/minute = 2.4 HP/hour, half a
+    # standing room: the address is still yours alone and reveals no IP. It accrues
+    # while Tor runs with the stable address and stops when either stops.
 
   # ── discovery ──────────────────────────────────────────────────────────────
 

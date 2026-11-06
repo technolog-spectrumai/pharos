@@ -593,11 +593,19 @@ pub struct TorExposureReport {
     pub charged_centi: i64,
     /// Rooms currently accruing — what the UI counts and names.
     pub rooms: Vec<String>,
-    /// Centi-HP per hour these rooms are costing, for the drain-rate readout.
+    /// Centi-HP per hour these rooms and the stable address are costing, for the
+    /// drain-rate readout.
     pub drain_per_hour_centi: i64,
+    /// Whether the stable address is accruing (`tor.stable.hold`).
+    pub stable: bool,
 }
 
-/// Bill every persistent Tor room for the time since it was last billed.
+/// The mark key the stable address is billed under, beside the rooms' slugs. A
+/// room slug never starts with '@'.
+const STABLE_MARK: &str = "@stable";
+
+/// Bill every persistent Tor room — and the stable address, while one is up —
+/// for the time since it was last billed.
 ///
 /// `hosted` is the set of rooms whose onion is up right now; `persistent` those
 /// holding a never-expiring invitation. A room must be in both: a Tor room with no
@@ -610,19 +618,31 @@ pub fn accrue_tor_exposure(
     app: &AppHandle,
     hosted: &[String],
     persistent: &[String],
+    stable: bool,
     now: i64,
 ) -> Result<TorExposureReport, String> {
-    let Some(action) = hp_policy::action("tor.persistent.hold") else {
-        return Ok(TorExposureReport::default());
+    let room_action = hp_policy::action("tor.persistent.hold");
+    let stable_action = hp_policy::action("tor.stable.hold").filter(|_| stable);
+    let live: Vec<String> = match room_action {
+        Some(_) => hosted.iter().filter(|r| persistent.contains(r)).cloned().collect(),
+        None => vec![],
     };
-    let live: Vec<String> = hosted.iter().filter(|r| persistent.contains(r)).cloned().collect();
+    // What accrues this tick: each standing room, and the stable address.
+    let mut accruing: Vec<(String, &hp_policy::HpAction)> =
+        live.iter().map(|r| (r.clone(), room_action.unwrap())).collect();
+    if let Some(a) = stable_action {
+        accruing.push((STABLE_MARK.to_string(), a));
+    }
 
     let mut marks = read_marks(app);
-    marks.retain(|room, _| live.contains(room));
+    // Whatever stopped being exposed stops being billed, and restarts fresh if it
+    // comes back (no back-charge for the time it answered nobody).
+    marks.retain(|key, _| accruing.iter().any(|(k, _)| k == key));
 
     let mut meta = read_meta(app);
     let mut charged = 0i64;
-    for room in &live {
+    for (room, action) in &accruing {
+        let action = *action;
         let since = *marks.get(room).unwrap_or(&now);
         // A clock dragged backwards must not mint free time or a negative charge.
         let minutes = (now - since).max(0) / 60_000;
@@ -656,8 +676,9 @@ pub fn accrue_tor_exposure(
 
     Ok(TorExposureReport {
         charged_centi: charged,
-        drain_per_hour_centi: action.per_minute_centi * 60 * live.len() as i64,
+        drain_per_hour_centi: accruing.iter().map(|(_, a)| a.per_minute_centi * 60).sum(),
         rooms: live,
+        stable: stable_action.is_some(),
     })
 }
 
@@ -711,7 +732,8 @@ pub async fn hp_tor_tick(
 ) -> Result<TorExposureReport, String> {
     let hosted = crate::p2p_tor::hosted_rooms(&tor).await;
     let standing = rooms_with_standing_invite(&app);
-    accrue_tor_exposure(&app, &hosted, &standing, now_ms())
+    let stable = crate::p2p_tor::stable_up(&tor).await;
+    accrue_tor_exposure(&app, &hosted, &standing, stable, now_ms())
 }
 
 /// Revoke the standing invitations for `rooms`, because the budget ran out.
@@ -950,6 +972,19 @@ mod tests {
         assert_eq!(a.per_minute_centi, 8);
         assert_eq!(metered_cost(a, 0, 60), 480);
         assert_eq!(metered_cost(a, 0, 60) * 3, 1440, "three rooms out-drain Tor regen");
+    }
+
+    #[test]
+    fn an_hour_of_a_stable_address_costs_the_documented_rate() {
+        // 0.04 HP/minute = 2.4 HP/hour: charged for time, not once when switched
+        // on. Half a standing room, and with one standing room still under the
+        // 12 HP/hour Tor regeneration.
+        let a = action("tor.stable.hold");
+        assert_eq!(a.per_minute_centi, 4);
+        assert_eq!(a.cost_centi, 0, "nothing charged on switching it on");
+        assert_eq!(metered_cost(a, 0, 60), 240);
+        let room = action("tor.persistent.hold");
+        assert!(metered_cost(a, 0, 60) + metered_cost(room, 0, 60) < 1200);
     }
 
     #[test]
@@ -1237,7 +1272,7 @@ mod tests {
         // does not move it out of the 24 h window, because the window is measured
         // from a `now` that is itself clamped to the mark.
         let charged_at = 10 * MS_PER_DAY;
-        let log = vec![spend(charged_at, "transport.onion_stable.enable", 150)];
+        let log = vec![spend(charged_at, "tor.stable.hold", 150)];
         let now = (5 * MS_PER_DAY).max(charged_at); // clamped, as `award` does
         assert!(now - log[0].ts < MS_PER_DAY);
     }

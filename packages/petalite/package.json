@@ -2,7 +2,7 @@
   "name": "petalite",
   "version": "0.1.0",
   "private": true,
-  "description": "The shared front end \u2014 theme, palette, i18n mechanism, file helpers, and the Oya primitives",
+  "description": "The shared front end — theme, palette, i18n mechanism, file helpers, and the Oya primitives",
   "type": "module",
   "scripts": {
     "test": "vitest run",
@@ -15,6 +15,7 @@
     "./files": "./src/files/index.ts",
     "./formats": "./src/formats/index.ts",
     "./i18n": "./src/i18n/index.ts",
+    "./vendor/chartjs": "./src/vendor/chartjs/index.ts",
     "./*.vue": "./src/components/*.vue"
   },
   "dependencies": {

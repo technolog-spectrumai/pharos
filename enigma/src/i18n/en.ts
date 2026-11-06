@@ -586,6 +586,12 @@ export default {
   // observer ("n0 relays", "anyone holding your NodeId") rather than saying
   // "your privacy is reduced".
   hp: {
+    hourlyTitle: "Every hour",
+    hourlyRegen: "Regenerates",
+    hourlyStable: "Stable onion address",
+    hourlyRooms: "{n} Tor room kept reachable | {n} Tor rooms kept reachable",
+    hourlyNothing: "Nothing is charged by the hour right now.",
+    hourlyNet: "Net per hour",
     chartTitle: "Last 7 days",
     chartTick: "Chart resolution",
     tickHour: "Per hour",
@@ -612,6 +618,7 @@ export default {
     pricesHint:
       "Fixed prices, the same every time. Ordinary encrypted messages over Tor are free — that is the default this budget exists to protect.",
     unitMessage: "msg",
+    unitHour: "h",
     unitMinute: "min",
     ratePerMib: "plus {n} HP per MiB sent",
     ratePerMinute: "plus {n} HP per minute",
@@ -648,7 +655,7 @@ export default {
       local: "This device",
     },
     action: {
-      transportOnionStableEnable: "Keep one onion address",
+      torStableHold: "Keep one onion address (per hour)",
       dhtNicknamePublish: "Publish your nickname",
       dhtPresenceEnable: "Turn on DHT discovery",
       dhtRoomCodePublish: "Publish a room code",
@@ -691,8 +698,8 @@ export default {
       dataDeleteFiles: "Remove a locked file",
     },
     explain: {
-      transportOnionStableEnable:
-        "Reusing one onion address lets anyone who has seen it recognise you across sessions instead of meeting a fresh address each time.",
+      torStableHold:
+        "Reusing one onion address lets anyone who has seen it recognise you across sessions instead of meeting a fresh address each time, so it is charged for every hour it stays up.",
       dhtNicknamePublish:
         "Your chosen nickname goes into a public directory anyone can search, tied to this device's network identity.",
       dhtPresenceEnable:
