@@ -45,3 +45,10 @@ Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pai
 ## Stage 6 — Release
 - [x] 6.1 PROTOCOL.md, README, technology.md, THIRD_PARTY.md
 - [x] 6.2 Packages: Enigma for Linux and Windows (Android later), Relay as an aarch64 binary and a .deb for Raspberry Pi OS — Relay .deb built and install-tested here; Enigma bundles come from release.yml (not yet run)
+
+## Stage 7 — Metadata hardening (open, 2026-11-22)
+Gaps found while reviewing Enigma26 (technolog-spectrumai/enigma, `dev_mvp1`) before it moves here, always on Tor.
+- [ ] 7.1 Message padding in Enigma26 rooms: pad every frame (chat, key packages, commits, files) to fixed buckets before MLS, as `pharos-wire` does (512 / 2048 / 8192 B, then multiples of 32 KiB); refuse non-zero padding
+- [ ] 7.2 Sealed sender: move `device_id`, `user`, `sender_name`, `sender_avatar_url` and `msg_id` out of the plaintext JSON envelope and inside the MLS ciphertext; the outer frame carries only the epoch and the padded blob
+- [ ] 7.3 The captain sees everyone's timing and sizes: (a) a mesh for small rooms (each member already hosts an onion, so members link to each other, not all to one captain); (b) Tor client authorisation (restricted discovery) on room and member onions, so only members holding the key can even fetch the descriptor; (c) optionally, Sotha as a blind room mailbox reached over separate circuits
+- [ ] 7.4 Timing correlation: cover traffic while a room is open (one padded frame every T seconds per link, real or dummy, real messages take the next slot; T configurable, longer on mobile data/battery); jittered, randomised fetch times instead of the fixed 60 s tick for Sotha's mailbox; vanguards for hosted onions (check arti's defaults)
