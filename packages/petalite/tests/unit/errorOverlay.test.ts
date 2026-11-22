@@ -27,14 +27,14 @@ describe("an error while starting", () => {
     const error = new Error("cannot read the config");
     window.dispatchEvent(new ErrorEvent("error", { error, message: error.message }));
 
-    expect(overlay()?.textContent).toBe(`Zinnia hit an error while starting.\n\n${error.stack}`);
+    expect(overlay()?.textContent).toBe(`The app hit an error while starting.\n\n${error.stack}`);
   });
 
   it("falls back to the message when the event carries no error object", () => {
     // A cross-origin script error arrives as a message with no error at all.
     window.dispatchEvent(new ErrorEvent("error", { message: "Script error." }));
 
-    expect(overlay()?.textContent).toBe("Zinnia hit an error while starting.\n\nScript error.");
+    expect(overlay()?.textContent).toBe("The app hit an error while starting.\n\nScript error.");
   });
 
   it("draws over the app rather than inside it", () => {
@@ -52,7 +52,7 @@ describe("an error while starting", () => {
     window.dispatchEvent(new ErrorEvent("error", { message: "second" }));
 
     expect(document.querySelectorAll("#zinnia-fatal")).toHaveLength(1);
-    expect(overlay()?.textContent).toBe("Zinnia hit an error while starting.\n\nsecond");
+    expect(overlay()?.textContent).toBe("The app hit an error while starting.\n\nsecond");
   });
 
   it("puts the text in as text, never as markup", () => {
@@ -70,14 +70,14 @@ describe("a rejected promise nobody awaited", () => {
     const reason = new Error("invoke failed");
     window.dispatchEvent(rejection(reason));
 
-    expect(overlay()?.textContent).toBe(`Zinnia hit an error while starting.\n\n${reason.stack}`);
+    expect(overlay()?.textContent).toBe(`The app hit an error while starting.\n\n${reason.stack}`);
   });
 
   it("is shown as-is when the rejection is not an Error", () => {
     // Tauri's invoke rejects with a plain string.
     window.dispatchEvent(rejection("workspace_open: not a folder"));
 
-    expect(overlay()?.textContent).toBe("Zinnia hit an error while starting.\n\nworkspace_open: not a folder");
+    expect(overlay()?.textContent).toBe("The app hit an error while starting.\n\nworkspace_open: not a folder");
   });
 });
 
@@ -98,7 +98,7 @@ describe("an error inside a Vue component", () => {
     app.mount(document.createElement("div"));
 
     expect(log).toHaveBeenCalledWith("[zinnia]", failure);
-    expect(overlay()?.textContent).toBe(`Zinnia hit an error.\n\n${failure.stack}`);
+    expect(overlay()?.textContent).toBe(`The app hit an error.\n\n${failure.stack}`);
     app.unmount();
     log.mockRestore();
   });
@@ -110,7 +110,7 @@ describe("an error inside a Vue component", () => {
 
     app.config.errorHandler!("bad state", null, "setup function");
 
-    expect(overlay()?.textContent).toBe("Zinnia hit an error.\n\nbad state");
+    expect(overlay()?.textContent).toBe("The app hit an error.\n\nbad state");
     log.mockRestore();
   });
 });

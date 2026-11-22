@@ -7,6 +7,6 @@ export { IMAGE_MIME, isImageName, toDataUri } from "./images";
 // hold three opinions about what is on disk, and because the sealed-file probe
 // cache belongs with the tree it badges.
 export {
-  useWorkspace, setSealProbe, setFileBackend, filterRows,
+  useWorkspace, setSealProbe, setFileBackend, filterRows, forgetRecent,
   type Entry, type Row, type SealProbe, type FileBackend,
 } from "./useWorkspace";

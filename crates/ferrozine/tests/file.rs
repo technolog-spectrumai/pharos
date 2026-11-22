@@ -419,17 +419,23 @@ async fn a_header_announcing_chunks_beyond_the_limits_is_refused() {
 
 #[tokio::test]
 async fn a_transfer_counts_as_active_while_it_runs() {
-    // Other tests run in parallel and also count, so this checks only that a
-    // live transfer is counted, not that the count returns to zero.
-    let (h, _) = host(64, false);
-    let ((_dl_recv, _dl_send), (h_recv, h_send)) = streams();
-    let server = tokio::spawn(async move { h.serve(h_recv, h_send).await });
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(
-        file::transfers_active(),
-        "a host waiting for its request counts"
-    );
-    server.abort();
+    // Seen from inside a running transfer: every frame passing between the two
+    // ends is a moment both are counted. (A host merely waiting for a request
+    // is not counted: a stranger probing the port is not a transfer, see
+    // `serve_request`. The old version of this test waited on an idle host and
+    // passed only when another test's transfer happened to run beside it.)
+    let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen2 = seen.clone();
+    let (result, exists) = run_through(false, move |_, b| {
+        if file::transfers_active() {
+            seen2.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        vec![b]
+    })
+    .await;
+    assert!(result.is_ok(), "{result:?}");
+    assert!(exists);
+    assert!(seen.load(std::sync::atomic::Ordering::Relaxed), "a live transfer counts");
 }
 
 #[tokio::test]
@@ -540,7 +546,7 @@ async fn connections_beyond_the_cap_are_refused_at_once() {
 
 #[test]
 fn user_visible_messages_keep_their_old_wording() {
-    // Vesper shows these verbatim; the extraction must not reword them.
+    // Enigma shows these verbatim; the extraction must not reword them.
     assert_eq!(
         Error::Integrity("integrity check failed — the file was altered in transit".into())
             .to_string(),

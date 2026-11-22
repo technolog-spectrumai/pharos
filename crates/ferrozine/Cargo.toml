@@ -7,7 +7,7 @@ edition = "2021"
 rust-version.workspace = true
 
 # A member of the repo-root workspace, not a workspace of its own: it shares
-# iroh (and through it ed25519-dalek's pinned pre-release) and rotor_core with
+# iroh 1.4 (and through it ed25519-dalek 3.0) and rotor_core with
 # the apps that use it, and one lock is what keeps those versions identical.
 #
 # No `tauri` dependency, on purpose — the same line substrate draws. Ferrozine
@@ -19,8 +19,8 @@ rust-version.workspace = true
 # stays transport-free so its WASM and Python bindings keep building.
 rotor-core = { path = "../rotor/rotor_core" }
 
-iroh = "0.98"
-iroh-gossip = "0.98"
+iroh = "1.4"
+iroh-gossip = "0.102"
 tokio = { version = "1", features = ["sync", "time", "fs", "io-util", "macros", "rt"] }
 futures-lite = "2"
 bytes = "1"

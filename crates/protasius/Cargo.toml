@@ -3,15 +3,17 @@ name = "protasius"
 version = "0.1.0"
 edition = "2021"
 rust-version.workspace = true
-description = "Vesper's centralized per-profile encrypted-at-rest data store (fjall + gervasius). Tauri-agnostic."
+description = "Enigma's centralized per-profile encrypted-at-rest data store (fjall + gervasius). Tauri-agnostic."
 
-# Named for St. Protasius (paired with Gervasius). The store half of Vesper's
+# Named for St. Protasius (paired with Gervasius). It was written for Enigma
+# (apps/enigma/crates/protasius until Enigma left, consolidation stage 10). The store half of
 # encryption-at-rest: one fjall keyspace per profile holding only sealed values,
 # unlocked by a passphrase-derived key (via the `gervasius` primitives crate).
 
 [dependencies]
-# The crypto crates are the repo's shared ones (crates/rotor) — see
-# apps/vesper/src-tauri/Cargo.toml.
+# gervasius is the repo's own copy (vendor/zirconium). protasius is Teutates'
+# vault store (apps/teutates/crates/teutates-member) and Enigma's, which keeps a
+# vendored copy in its own repository (technolog-spectrumai/enigma).
 gervasius = { path = "../gervasius" }
 fjall = "2"
 # Filler bytes for the unused panic slot (must be indistinguishable from a real

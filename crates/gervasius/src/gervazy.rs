@@ -108,8 +108,15 @@ pub fn legacy_fernet_open(
     token: &str,
 ) -> Result<Vec<u8>, CryptoError> {
     let key = derive_key(password, salt, m_cost_kib, t_cost, p_cost)?;
+    // No clock: a stored file has no time to live, and Python's `cryptography`
+    // (which wrote these tokens and still opens them on the platform) checks a
+    // token's timestamp only when a TTL is given. `decrypt` would read
+    // SystemTime, which wasm32-unknown-unknown does not have (it panics there),
+    // and would refuse a token stamped more than a minute ahead of this
+    // machine's clock. A "now" far in the future turns that check off and
+    // cannot overflow fernet's `now + skew`.
     fernet_from(&key)?
-        .decrypt(token.trim_end())
+        .decrypt_at_time(token.trim_end(), None, u64::MAX / 2)
         .map_err(|_| CryptoError::Aead)
 }
 
@@ -341,6 +348,19 @@ mod tests {
         let saved = format!("{token}\n");
         assert_eq!(open_any("pw", &SALT, 64, 1, 1, AAD, saved.as_bytes()).unwrap(), b"old");
         assert_eq!(legacy_fernet_open("pw", &SALT, 64, 1, 1, &format!("{token} \r\n")).unwrap(), b"old");
+    }
+
+    #[test]
+    fn a_legacy_token_opens_whatever_its_timestamp() {
+        // The platform's Python opens stored tokens with no TTL, which skips
+        // fernet's clock checks; so does this, which is also what lets it run
+        // where there is no clock (WebAssembly in a page).
+        let key = derive_key("pw", &SALT, 64, 1, 1).unwrap();
+        let fernet = fernet_from(&key).unwrap();
+        for stamp in [0, 1_700_000_000, 4_000_000_000] {
+            let token = fernet.encrypt_at_time(b"old", stamp);
+            assert_eq!(legacy_fernet_open("pw", &SALT, 64, 1, 1, &token).unwrap(), b"old", "{stamp}");
+        }
     }
 
     #[test]

@@ -1,11 +1,12 @@
 {
   "name": "pharos",
   "private": true,
-  "version": "0.1.0",
-  "description": "Pharos: Enigma, short messages over Tor sealed with MLS, and the packages it shares (petalite, calendula, rakotis).",
+  "version": "0.2.0",
+  "description": "Pharos: Enigma (private group chat over Tor, sealed with MLS), Sotha (the optional server), and the packages they share.",
   "workspaces": [
     "packages/*",
-    "enigma"
+    "apps/enigma",
+    "apps/enigma/packages/*"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
@@ -19,6 +20,8 @@
     "vitest": "^4.1.10",
     "vue": "^3.5.38",
     "vue-i18n": "^9.14.5",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2"
   }
 }

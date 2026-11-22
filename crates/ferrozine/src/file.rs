@@ -1,7 +1,7 @@
 //! One-to-one file transfer, every chunk sealed by a pairwise MLS channel.
 //!
 //! The host registers a file as an *offer* and tells the intended downloader,
-//! over a channel that is already authenticated (in Vesper, the room's MLS
+//! over a channel that is already authenticated (in Enigma, the room's MLS
 //! group), the offer id and the host's address. The downloader [`prepare`]s a
 //! KeyPackage and sends back its [`commitment`](crate::pair::commitment) the
 //! same way; the host [`authorize`](FileHost::authorize)s it. Then:
@@ -27,7 +27,7 @@
 //! - **Bounded memory** — both sides stream chunk by chunk; frame sizes are
 //!   bounded before allocation.
 //!
-//! The wire format is Vesper's `enigma/file/1`, unchanged, so Vesper can move
+//! The wire format is Enigma's `enigma/file/1`, unchanged, so Enigma can move
 //! onto this module without breaking transfers with older builds. Another app
 //! (Pumex) uses the same protocol under its own ALPN.
 //!
@@ -51,9 +51,9 @@ use crate::error::{Error, Result};
 use crate::frame::{read_blob, read_control, write_blob, write_control};
 use crate::pair::{self, b64, unb64, Caller, Channel};
 
-/// The ALPN Vesper's transfers use. A new app picks its own (a peer that
+/// The ALPN Enigma's transfers use. A new app picks its own (a peer that
 /// cannot negotiate it fails to connect instead of misreading the stream).
-pub const VESPER_ALPN: &[u8] = b"enigma/file/1";
+pub const ENIGMA_ALPN: &[u8] = b"enigma/file/1";
 
 const KIND_CHUNK: u8 = 0;
 const KIND_TRAILER: u8 = 1;
@@ -132,8 +132,8 @@ pub struct Limits {
 }
 
 impl Limits {
-    /// Vesper's bounds: 16 KiB to 4 MiB.
-    pub const VESPER: Self = Self {
+    /// Enigma's bounds: 16 KiB to 4 MiB.
+    pub const ENIGMA: Self = Self {
         min_chunk: 16 * 1024,
         max_chunk: 4096 * 1024,
     };
@@ -1144,7 +1144,7 @@ mod tests {
 
     #[test]
     fn a_request_without_a_claim_is_byte_identical_to_the_v1_wire_format() {
-        // Vesper peers that predate tickets send exactly these three fields.
+        // Enigma peers that predate tickets send exactly these three fields.
         let r = Request {
             offer_id: "o".into(),
             key_package: "kp".into(),
@@ -1222,7 +1222,7 @@ mod tests {
 
     #[test]
     fn limits_clamp_and_leave_room_for_mls() {
-        let l = Limits::VESPER;
+        let l = Limits::ENIGMA;
         assert_eq!(l.clamp(1), 16 * 1024);
         assert_eq!(l.clamp(usize::MAX), 4096 * 1024);
         assert!(l.max_frame() > l.max_chunk);

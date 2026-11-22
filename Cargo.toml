@@ -12,9 +12,9 @@ members = [
     "crates/pharos-seal",
     "crates/pharos-id",
     "crates/pharos-tor",
-    "crates/pharos-node",
     "relay",
-    "enigma/src-tauri",
+    "crates/enigmatite",
+    "apps/enigma/src-tauri",
 ]
 exclude = [
     "crates/rotor/bindings",

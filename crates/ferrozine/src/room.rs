@@ -185,6 +185,8 @@ impl RoomEvents {
                 neighbors: set(peer, false),
             },
             Event::Lagged => RoomEvent::Lagged,
+            // iroh-gossip 0.102 made Event non-exhaustive.
+            _ => RoomEvent::Lagged,
         })
     }
 
@@ -217,7 +219,7 @@ mod tests {
 
     #[test]
     fn a_topic_is_blake3_of_the_room_name() {
-        // Vesper's p2p_iroh derived it this way; keeping it keeps old and new
+        // Enigma's p2p_iroh derived it this way; keeping it keeps old and new
         // builds in one room.
         assert_eq!(
             topic_for("room-a"),

@@ -36,6 +36,9 @@ pub struct EndpointConfig {
     /// ALPNs the endpoint accepts without a [`Router`](iroh::protocol::Router)
     /// (a router registers its own).
     pub alpns: Vec<Vec<u8>>,
+    /// A self-hosted relay used instead of n0's (with [`Relays::Hosted`]; discovery stays
+    /// n0's). `None`: n0's relays.
+    pub relay_url: Option<String>,
 }
 
 impl EndpointConfig {
@@ -45,6 +48,7 @@ impl EndpointConfig {
             relays,
             secret: None,
             alpns: Vec::new(),
+            relay_url: None,
         }
     }
 
@@ -54,6 +58,7 @@ impl EndpointConfig {
             relays,
             secret: Some(secret),
             alpns: Vec::new(),
+            relay_url: None,
         }
     }
 }
@@ -73,7 +78,18 @@ impl Node {
     pub async fn bind(config: EndpointConfig) -> Result<Self> {
         let lookup = MemoryLookup::new();
         let mut builder = match config.relays {
-            Relays::Hosted => Endpoint::builder(presets::N0).relay_mode(RelayMode::Default),
+            Relays::Hosted => {
+                let mode = match config.relay_url.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+                    Some(url) => {
+                        let url: iroh::RelayUrl = url
+                            .parse()
+                            .map_err(|e| Error::Bind(format!("relay URL {url}: {e}")))?;
+                        RelayMode::Custom(iroh::RelayMap::from(url))
+                    }
+                    None => RelayMode::Default,
+                };
+                Endpoint::builder(presets::N0).relay_mode(mode)
+            }
             Relays::None => Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled),
         };
         if let Some(secret) = config.secret {

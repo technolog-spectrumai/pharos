@@ -3,9 +3,9 @@
 // Every Oya primitive that knows nothing about one app: a button, an icon
 // button, a modal, a text field, a text area, a QR code, a card, a badge, an
 // avatar, a copy field, an empty state and a section header. They began in
-// vesper's rakotis; the apps import them from here (Vesper included).
+// enigma's rakotis; the apps import them from here (Enigma and Vesper included).
 //
-// Only the Privacy HP meter and price stay in rakotis: they import vesper's
+// Only the Privacy HP meter and price stay in rakotis: they import enigma's
 // price table.
 //
 // OyaQrCode lazy-imports `qrcode`, which this package declares, so any app
