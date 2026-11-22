@@ -121,8 +121,8 @@ export default {
   chat: {
     // Belisario step 12: an enigma:// link named a room this device does not have.
     linkNoRoom: 'Na tym urządzeniu nie ma jeszcze pokoju „{name}”: najpierw dołącz z zaproszeniem spółdzielni.',
-    mapShareUnavailable: "Udostępniona mapa. Ta wersja Enigma26 nie ma map, więc nie można jej pokazać.",
-    a11yAppIcon: "Ikona Enigma26",
+    mapShareUnavailable: "Udostępniona mapa. Ta wersja Enigma27 nie ma map, więc nie można jej pokazać.",
+    a11yAppIcon: "Ikona Enigma27",
     a11yRoomLogo: "Logo pokoju",
     a11yRoomQr: "Kod QR pokoju",
     a11yInviteQr: "Kod QR zaproszenia",
@@ -487,7 +487,7 @@ export default {
     },
   },
 
-  // ── Strona powitalna (znak Enigma26 w lewym górnym rogu) ────────────────────
+  // ── Strona powitalna (znak Enigma27 w lewym górnym rogu) ────────────────────
   welcome: {
     version: "Wersja {v}",
     tagline:
@@ -547,7 +547,7 @@ export default {
     errBusy: "Ktoś inny właśnie używa tego zaproszenia. Spróbuj za chwilę.",
     errUnreachable: "Nie udało się połączyć z autorem. Musi być online z otwartym pokojem.",
     errAdmitFailed: "Nie mógł cię wpuścić — pokój mógł zostać zamknięty. Zaproszenie nadal działa, spróbuj ponownie.",
-    errVersion: "To zaproszenie utworzyła nowsza wersja Enigma26.",
+    errVersion: "To zaproszenie utworzyła nowsza wersja Enigma27.",
     errNotAnInvitation: "To nie jest zaproszenie. Bilety i kody pokoju nikogo już nie wpuszczają — poproś o zaproszenie.",
     errGeneric: "Nie udało się użyć tego zaproszenia.",
   },

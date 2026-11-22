@@ -1,4 +1,4 @@
-# Enigma26 — todo
+# Enigma27 — todo
 
 Stages and their steps. `[x]` done and verified, `[~]` partly done, `[ ]` not
 started. How things work is in [technology.md](technology.md).

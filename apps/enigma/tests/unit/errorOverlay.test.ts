@@ -35,7 +35,7 @@ describe("errorOverlay — uncaught errors", () => {
 
     const el = overlay()!;
     expect(el.parentElement).toBe(document.body);
-    expect(el.firstElementChild!.textContent).toBe("Enigma26 hit an error while starting.");
+    expect(el.firstElementChild!.textContent).toBe("Enigma27 hit an error while starting.");
     expect(el.textContent).toContain("Uncaught error:\nError: boom\n    at main.ts:1:1");
     // It must cover the app, not sit under it.
     expect(el.style.position).toBe("fixed");
@@ -57,7 +57,7 @@ describe("errorOverlay — uncaught errors", () => {
     raise(new Error("first"));
     raise(new Error("second"));
     expect(document.querySelectorAll("#enigma-fatal")).toHaveLength(1);
-    expect(overlay()!.textContent!.match(/Enigma26 hit an error/g)).toHaveLength(1);
+    expect(overlay()!.textContent!.match(/Enigma27 hit an error/g)).toHaveLength(1);
     expect(overlay()!.textContent).toMatch(/first[\s\S]*second/);
   });
 });

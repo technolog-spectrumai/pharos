@@ -1,4 +1,4 @@
-# Enigma26
+# Enigma27
 
 A **serverless, peer-to-peer, end-to-end-encrypted chat with file transfer** —
 a Tauri 2 + Vue 3 desktop and Android app. There is no app server: peers meet by **sharing a QR

@@ -52,7 +52,7 @@ const ALLOWED = new Set([
   // called, in every language; translating them would invent terminology.
   "Tor",
   "iroh",
-  "Enigma26",
+  "Enigma27",
   "MLS",
   "QR",
 ]);

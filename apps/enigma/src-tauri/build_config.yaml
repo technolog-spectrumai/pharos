@@ -1,4 +1,4 @@
-# Enigma26 build configuration — baked in at COMPILE TIME by build.rs, which
+# Enigma27 build configuration — baked in at COMPILE TIME by build.rs, which
 # validates this file, generates Rust consts from it (`enigma_lib::build_config`)
 # and FAILS THE BUILD on any invalid or missing value. The shipped binary never
 # re-reads it.

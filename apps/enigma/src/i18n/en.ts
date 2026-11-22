@@ -121,8 +121,8 @@ export default {
   chat: {
     // Belisario step 12: an enigma:// link named a room this device does not have.
     linkNoRoom: "No room “{name}” on this device yet: join it with the co-op's invitation first.",
-    mapShareUnavailable: "A map share. This version of Enigma26 has no maps, so it cannot be shown.",
-    a11yAppIcon: "Enigma26 icon",
+    mapShareUnavailable: "A map share. This version of Enigma27 has no maps, so it cannot be shown.",
+    a11yAppIcon: "Enigma27 icon",
     a11yRoomLogo: "Room logo",
     a11yRoomQr: "Room QR code",
     a11yInviteQr: "Invitation QR code",
@@ -492,7 +492,7 @@ export default {
     },
   },
 
-  // ── Welcome page (the Enigma26 mark in the top left) ────────────────────────
+  // ── Welcome page (the Enigma27 mark in the top left) ────────────────────────
   welcome: {
     version: "Version {v}",
     tagline:
@@ -552,7 +552,7 @@ export default {
     errBusy: "Someone else is using this invitation right now. Try again in a moment.",
     errUnreachable: "Could not reach whoever sent this. They need to be online with the room open.",
     errAdmitFailed: "They could not let you in — their room may have been closed. The invitation still works, so try again.",
-    errVersion: "This invitation was made by a newer version of Enigma26.",
+    errVersion: "This invitation was made by a newer version of Enigma27.",
     errNotAnInvitation: "That is not an invitation. Room tickets and room codes no longer let anyone in — ask for an invitation instead.",
     errGeneric: "This invitation could not be used.",
   },

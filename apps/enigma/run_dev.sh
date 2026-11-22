@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Enigma26 in development — one instance, or two side by side.
+# Run Enigma27 in development — one instance, or two side by side.
 #
 #   ./run_dev.sh enigma                              one instance, profile "default"
 #   ./run_dev.sh enigma --dual                       two instances (profiles alice + bob) to pair

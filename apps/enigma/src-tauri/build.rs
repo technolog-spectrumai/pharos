@@ -102,8 +102,8 @@ const KNOWN_MLS_SUITES: &[&str] = &[
     "MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448",
 ];
 
-const FIXED_APP_NAME: &str = "Enigma26";
-const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.enigma26";
+const FIXED_APP_NAME: &str = "Enigma27";
+const FIXED_APP_IDENTIFIER: &str = "com.spectrumaipl.enigma27";
 
 /// Read the identity out of tauri.conf.json, and hold it to the fixed one.
 fn read_identity(manifest_dir: &Path, errors: &mut Vec<String>) -> AppIdentity {

@@ -8,7 +8,7 @@ error, never a default.
 ```sh
 ./build.sh vesper pro          # Vesper Professional
 ./build.sh vesper std          # Vesper Standard
-./build.sh enigma              # Enigma26 — an app with one variant needs no name
+./build.sh enigma              # Enigma27 — an app with one variant needs no name
 ./build.sh teutates            # Teutates
 ./build.sh vesper all          # every variant of one app
 ./build.sh all                 # every variant of every app
@@ -38,7 +38,7 @@ schema: 1
 
 app:                                     # what the app IS
   kind: tauri                            # the only kind so far: a Tauri 2 app
-  identifier: com.spectrumaipl.enigma26  # names the app's data directory; never changes
+  identifier: com.spectrumaipl.enigma27  # names the app's data directory; never changes
   cargo:
     workspace: .                         # the cargo workspace it builds in ("." = repo root)
     package: enigma                      # the app's crate

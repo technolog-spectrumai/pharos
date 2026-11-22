@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The welcome page: what this app is, who you are on it, and what your privacy
-// budget currently looks like. Reached by tapping the Enigma26 mark in the top
+// budget currently looks like. Reached by tapping the Enigma27 mark in the top
 // left — that mark used to go to "/", which is also where every lock cycle
 // re-enters, so the two were rewired apart: `/` still lands on your first visible
 // tab after an unlock, and only a deliberate tap on the logo comes here.
@@ -36,7 +36,7 @@ onMounted(async () => {
     <!-- ── who this is ──────────────────────────────────────────────────── -->
     <OyaCard class="flex flex-col items-center gap-4 text-center">
       <img
-        src="../assets/enigma26/app_icon.png"
+        src="../assets/enigma27/app_icon.png"
         :alt="brand.name"
         class="h-24 w-24 rounded-2xl object-contain sm:h-28 sm:w-28"
       />

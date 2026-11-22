@@ -1,4 +1,4 @@
-# Enigma26 — Technology Overview
+# Enigma27 — Technology Overview
 
 > **Since 2026-10-22 this app lives in the Belisario monorepo** at `apps/enigma/`. What
 > this document calls Rutile — mounted at `rutile/` as a submodule — is the repo root now
@@ -6,7 +6,7 @@
 > Paths below that start `rutile/` mean the same path from the repo root. See
 > [docs/migration.md](https://github.com/technolog-spectrumai/belisario/blob/b601baa26231785cc32d1b17e854fe5eb866f55b/docs/migration.md).
 
-A technical deep-dive into how Enigma26 works: its design, stack, dependencies,
+A technical deep-dive into how Enigma27 works: its design, stack, dependencies,
 communication flow, cryptography, privacy posture, and known weaknesses — plus the
 project's conventions, config sources of truth and rework history, and how to run,
 build, test, release and install it. The base it is built on — crypto crates,
@@ -39,13 +39,13 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 
 ## 1. Design
 
-Enigma26 is a **serverless, peer-to-peer, end-to-end-encrypted chat**, packaged as a
+Enigma27 is a **serverless, peer-to-peer, end-to-end-encrypted chat**, packaged as a
 [Tauri 2](https://tauri.app) desktop/mobile app (Vue 3 frontend + Rust backend).
 
 Design principles:
 
 - **No app server.** There is no relay WebSocket, no REST gateway, no login, no
-  server-side directory. Enigma26 speaks to no application server at all — not one of
+  server-side directory. Enigma27 speaks to no application server at all — not one of
   ours, and since the 2026-08 removal of Enigma Cloud ([§16](#16-history--the-serverless-rework))
   not the user's own either. The Rust core makes no outbound HTTP request of any
   kind; the one network fetch left anywhere in the app is the Google Fonts
@@ -131,7 +131,7 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Build/CI | `./build.sh enigma`, configured by [dromon.yaml](dromon.yaml) (one variant); GitLab CI (`.gitlab-ci.yml`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
-identifier `com.spectrumaipl.enigma26`. The tauri.conf `bundle.targets` list governs
+identifier `com.spectrumaipl.enigma27`. The tauri.conf `bundle.targets` list governs
 which desktop formats a build emits — currently `["deb", "rpm"]`, out of the Linux
 set Tauri can produce (`.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
 by the separate `scripts/build_android.sh` path ([§19](#19-run-build-and-test)).
@@ -365,7 +365,7 @@ handshake. Cancelling an offer drops its authorization with it.
 ## 6. Is it truly P2P? (intermittent nodes)
 
 **Short answer: message *content* is genuinely peer-to-peer and end-to-end encrypted,
-and Enigma26 runs no server of its own. Since 2026-11-16 the iroh transport uses
+and Enigma27 runs no server of its own. Since 2026-11-16 the iroh transport uses
 no third-party relay or discovery either; Tor mode relies on the Tor network.**
 
 The iroh endpoint is configured with **no hosted infrastructure at all**
@@ -657,7 +657,7 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   code), **Data** (airplane mode; data profiles; clear data). Settings itself is
   the one tab with no visibility checkbox — it is the only route back to the
   others.
-- **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma26
+- **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma27
   mark in the top left. Three cards: what the app is (icon, version, one-line
   pitch), who you are on it (profile name, avatar, MLS identity, active storage
   profile) and your HP meters. Ungated for the same reason Settings is — a logo
@@ -921,7 +921,7 @@ interpolations, in strings computed inside `<script setup>` (the gap that let th
 composer's placeholder chain through), in `systemMsg(…)`, and on any raw
 `toLocale*String` call. `alt` and `aria-label` are in scope on
 purpose — a Polish screen-reader user is still a Polish user. Its allowlist
-(protocol and product names: `Tor`, `iroh`, `Enigma26`, `MLS`, `QR`) requires a
+(protocol and product names: `Tor`, `iroh`, `Enigma27`, `MLS`, `QR`) requires a
 reason per entry, so it stays a record rather than a dumping ground.
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
@@ -1010,7 +1010,7 @@ constants or setting bounds, and a user's stored setting wins over a default but
 never over a bound. A profile's own toggles (default from `defaults:`) decide
 whether an opt-in such as Tor is used.
 
-App name and identifier are fixed to `Enigma26` / `com.spectrumaipl.enigma26`;
+App name and identifier are fixed to `Enigma27` / `com.spectrumaipl.enigma27`;
 `build.rs` rejects a `tauri.conf.json` that says otherwise.
 
 **Privacy HP price table (compile-time):**
@@ -1027,11 +1027,11 @@ instead of hardcoding.
 
 | Value | Canonical home | Notes / mirrors |
 | --- | --- | --- |
-| Display name `Enigma26` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
+| Display name `Enigma27` | `config/app.ts` `brand.name` | Also `tauri.conf.json` `productName` + window `title` |
 | Copyright / org / legal URL | `config/app.ts` `brand` | Was hardcoded in `App.vue` |
-| Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma26`); `build.rs` rejects any other value |
+| Bundle identifier | `tauri.conf.json` `identifier` | Mirror `brand.bundleId` and Android `applicationId` (`com.spectrumaipl.enigma27`); `build.rs` rejects any other value |
 | App icon | `apps/enigma/app-icon.png` | **Fixed, not a build choice** — one mark; the sizes generated from it are committed. See [§23](#23-app-icon) |
-| In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma26`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
+| In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma27`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
 | New-profile toggle defaults (tor/stable) | `build_config.yaml` `defaults:` → Rust `AppProfileState` serde defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable). These are a profile's opt-ins |
@@ -1584,7 +1584,7 @@ Curve25519's Montgomery form — the standard birational map (age does the same 
 signing side is Ed25519 over the Edwards form and the sealing side is X25519 ECDH
 over the Montgomery form; they use disjoint hash prefixes and neither protocol
 interprets the other's messages. The alternative — a second key per contact,
-distributed and verified out of band — is a channel Enigma26 does not have.
+distributed and verified out of band — is a channel Enigma27 does not have.
 
 Small-order keys are refused at both conversion and seal time; note that roughly
 **half of all 32-byte strings are valid curve points**, so a successful conversion
@@ -1786,7 +1786,7 @@ it is copied:
 
 ## 19. Run, build and test
 
-How to run Enigma26 in development and package it into installable artifacts. A
+How to run Enigma27 in development and package it into installable artifacts. A
 "build" compiles the frontend (`vue-tsc` + Vite) and the Rust core, then bundles
 them.
 
@@ -1906,7 +1906,7 @@ it directly: `scripts/reset_profile.sh [--purge] [-y] <profile>…`. It reads th
 bundle identifier from `tauri.conf.json` rather than hardcoding the data
 directory, and refuses a profile name containing a path separator.
 
-To wipe *everything* Enigma26 owns, including the global bits, use the app's own
+To wipe *everything* Enigma27 owns, including the global bits, use the app's own
 panic code (Settings → Lock) instead — that is the audited path.
 
 #### Pairing quick-start
@@ -1960,7 +1960,7 @@ npm run tauri android dev
 Tauri detects the emulator and its ABI, runs the `beforeDevCommand` (the Vite
 dev server on `:1420`, reverse-tunnelled to the device with `adb reverse`),
 cross-compiles the Rust library, builds the APK with Gradle, installs and
-launches it (`Starting: Intent { cmp=com.spectrumaipl.enigma26/.MainActivity }`).
+launches it (`Starting: Intent { cmp=com.spectrumaipl.enigma27/.MainActivity }`).
 Frontend edits hot-reload; Rust or native Android changes trigger a rebuild. The
 first build compiles the whole Rust tree for Android and is slow.
 
@@ -1972,7 +1972,7 @@ adb shell input tap 993 222                          # tap a point (device pixel
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 1        # 0 = portrait, 1 = landscape
 adb shell wm size; adb shell wm density              # screen geometry
-adb shell am start -n com.spectrumaipl.enigma26/.MainActivity   # relaunch
+adb shell am start -n com.spectrumaipl.enigma27/.MainActivity   # relaunch
 ```
 
 **Shut down:** stop `npm run tauri android dev`, then `adb emu kill`.
@@ -2015,21 +2015,21 @@ Every build is the same installable app:
 
 | Value | Fixed setting |
 |---|---|
-| App name | `Enigma26` |
-| Bundle identifier / Android package id | `com.spectrumaipl.enigma26` |
-| Desktop binary name | `enigma26` |
-| Data directory | `…/com.spectrumaipl.enigma26/` |
+| App name | `Enigma27` |
+| Bundle identifier / Android package id | `com.spectrumaipl.enigma27` |
+| Desktop binary name | `enigma27` |
+| Data directory | `…/com.spectrumaipl.enigma27/` |
 
 `build.rs` rejects a
 `tauri.conf.json` that tries to change the name or identifier.
 
 > **Moving existing data.** The package id changed from
-> `com.spectrumaipl.enigma` to `com.spectrumaipl.enigma26`. Existing desktop
+> `com.spectrumaipl.enigma` to `com.spectrumaipl.enigma27`. Existing desktop
 > data is not deleted; the new build looks in a new app-data directory. To carry
 > a profile across:
 > ```bash
 > mv ~/.local/share/com.spectrumaipl.enigma/profiles/default \
->    ~/.local/share/com.spectrumaipl.enigma26/profiles/default
+>    ~/.local/share/com.spectrumaipl.enigma27/profiles/default
 > ```
 > Or just start fresh with `./run_dev.sh --reset`.
 
@@ -2094,9 +2094,9 @@ if *no* package appears, but not if fewer appear than you expected — read the
 ```
 apps/enigma/src-tauri/target/release/bundle/     # release
 apps/enigma/src-tauri/target/debug/bundle/       # profile: debug
-  deb/Enigma26_<ver>_amd64.deb
-  rpm/Enigma26-<ver>-1.x86_64.rpm
-  appimage/Enigma26_<ver>_amd64.AppImage         # only if "appimage" is in bundle.targets
+  deb/Enigma27_<ver>_amd64.deb
+  rpm/Enigma27-<ver>-1.x86_64.rpm
+  appimage/Enigma27_<ver>_amd64.AppImage         # only if "appimage" is in bundle.targets
 ```
 
 #### Piecemeal (frontend / Rust separately)
@@ -2258,7 +2258,7 @@ adb logcat -s RustStdoutStderr enigma
 
 ### CI builds
 
-[.gitlab-ci.yml](.gitlab-ci.yml) builds Enigma26 on GitLab:
+[.gitlab-ci.yml](.gitlab-ci.yml) builds Enigma27 on GitLab:
 
 | Job | Stage | When | What |
 |---|---|---|---|
@@ -2364,7 +2364,7 @@ with the two editions is `998d5360da06f571f5d0c21f5d012888b8e5e453`.
 
 ## 21. Releasing
 
-This is the maintainer checklist for producing Enigma26 desktop and Android
+This is the maintainer checklist for producing Enigma27 desktop and Android
 release artifacts. For toolchain setup and lower-level build notes, see
 [§19](#19-run-build-and-test). For end-user installation, see [§22](#22-installing).
 
@@ -2396,7 +2396,7 @@ place a build is configured. Record which commit a release was built from
 
 ### 21.2 Prepare The Checkout
 
-Start from the Enigma26 repo root:
+Start from the Enigma27 repo root:
 
 ```bash
 cd /path/to/enigma
@@ -2480,7 +2480,7 @@ Fedora. Build each distribution's package on that distribution.
 
 ### 21.5 Configure Android Release Signing
 
-Android release builds must be signed. Enigma26 deliberately fails closed when a
+Android release builds must be signed. Enigma27 deliberately fails closed when a
 release key is missing or when the Android SDK debug key is used for a release.
 
 Preferred flow:
@@ -2566,7 +2566,7 @@ index of the directory, not as a manifest of this release, and publish checksums
 for the exact files you ship:
 
 ```bash
-( cd dist/enigma/enigma && sha256sum -- Enigma26_<ver>_amd64.deb enigma-universal-release.apk )
+( cd dist/enigma/enigma && sha256sum -- Enigma27_<ver>_amd64.deb enigma-universal-release.apk )
 ```
 
 Before sharing Android files, verify package, version, signer, and fingerprint:
@@ -2589,13 +2589,13 @@ Use a clean test device or emulator:
 ```bash
 adb install -r apps/enigma/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 adb shell pm list packages | grep enigma
-adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
+adb shell am start -n com.spectrumaipl.enigma27/.MainActivity
 adb logcat -s RustStdoutStderr enigma
 ```
 
 If the device already has a debug build, an unsigned build, or a build signed
 with another key, Android may refuse the update. Uninstalling can fix the test
-device, but it removes the local Enigma26 vault and room state.
+device, but it removes the local Enigma27 vault and room state.
 
 ### 21.9 Publish
 
@@ -2617,7 +2617,7 @@ For Google Play or another store:
 Tag the commit after artifacts are verified:
 
 ```bash
-git tag -a v<version> -m "Enigma26 <version>"
+git tag -a v<version> -m "Enigma27 <version>"
 git push origin v<version>
 ```
 
@@ -2642,10 +2642,10 @@ What to do:
 The generated Android Gradle file declares:
 
 ```text
-applicationId = "com.spectrumaipl.enigma26"
+applicationId = "com.spectrumaipl.enigma27"
 ```
 
-Every Enigma26 APK uses this one package id, so two builds do not install side
+Every Enigma27 APK uses this one package id, so two builds do not install side
 by side; one updates or replaces the other. Treat the package id printed by
 `signing_cli.py verify` as the authority.
 
@@ -2681,7 +2681,7 @@ What to do:
 #### Regenerated Android Project
 
 `tauri android init` can regenerate files under
-`apps/enigma/src-tauri/gen/android/`. Enigma26 has custom signing gates in the
+`apps/enigma/src-tauri/gen/android/`. Enigma27 has custom signing gates in the
 generated Gradle project, mirrored by `scripts/android_signing/signing.py`.
 
 What to do:
@@ -2695,7 +2695,7 @@ What to do:
 
 ## 22. Installing
 
-This guide is for installing Enigma26 artifacts that were produced by the release
+This guide is for installing Enigma27 artifacts that were produced by the release
 process in [§21](#21-releasing). For building from source, see
 [§19](#19-run-build-and-test).
 
@@ -2723,20 +2723,20 @@ sha256sum -c SHA256SUMS
 Install a Debian package:
 
 ```bash
-sudo apt install ./Enigma26_<version>_amd64.deb
+sudo apt install ./Enigma27_<version>_amd64.deb
 ```
 
 Install an RPM package:
 
 ```bash
-sudo dnf install ./Enigma26-<version>-1.x86_64.rpm
+sudo dnf install ./Enigma27-<version>-1.x86_64.rpm
 ```
 
 Run an AppImage, when one is shipped:
 
 ```bash
-chmod +x ./Enigma26_<version>_amd64.AppImage
-./Enigma26_<version>_amd64.AppImage
+chmod +x ./Enigma27_<version>_amd64.AppImage
+./Enigma27_<version>_amd64.AppImage
 ```
 
 If a desktop package refuses to start after installation, run the app from a
@@ -2757,7 +2757,7 @@ Steps:
 2. Open it from Files, Downloads, a browser, or the app that received it.
 3. If Android asks, allow that source to install unknown apps.
 4. Tap Install.
-5. Open Enigma26 and grant camera or microphone permission only when using QR
+5. Open Enigma27 and grant camera or microphone permission only when using QR
    scanning or recording voice notes.
 
 On Android 8.0 and newer, the unknown-app permission is per source. Allowing a
@@ -2780,24 +2780,24 @@ Useful inspection commands:
 
 ```bash
 adb shell pm list packages | grep enigma
-adb shell am start -n com.spectrumaipl.enigma26/.MainActivity
+adb shell am start -n com.spectrumaipl.enigma27/.MainActivity
 adb logcat -s RustStdoutStderr enigma
 ```
 
-Uninstalling removes Enigma26's local vault, room state, and device-local data:
+Uninstalling removes Enigma27's local vault, room state, and device-local data:
 
 ```bash
-adb uninstall com.spectrumaipl.enigma26
+adb uninstall com.spectrumaipl.enigma27
 ```
 
-Only uninstall as a last resort on a real user's device. Enigma26 is serverless, so
+Only uninstall as a last resort on a real user's device. Enigma27 is serverless, so
 there is no central account that can restore local encrypted state.
 
 ### Why An APK May Fail To Install
 
 #### The APK Is Unsigned
 
-Android requires installable APKs to be signed. Enigma26's release build fails
+Android requires installable APKs to be signed. Enigma27's release build fails
 closed: with no release keystore configured the build is refused before any
 work starts, and the Android SDK debug key is refused for a release outright. The only way to obtain an
 unsigned release artifact is to ask for it with `--allow-unsigned-release`, and
@@ -2857,7 +2857,7 @@ Common adb symptom:
 INSTALL_FAILED_NO_MATCHING_ABIS
 ```
 
-The default Enigma26 Android build targets `aarch64`, which is right for most
+The default Enigma27 Android build targets `aarch64`, which is right for most
 modern phones but wrong for an `x86_64` emulator and wrong for old 32-bit
 devices.
 
@@ -2873,7 +2873,7 @@ For an emulator, include `x86_64`.
 
 #### The Device Is Too Old
 
-Enigma26's generated Android project currently declares:
+Enigma27's generated Android project currently declares:
 
 ```text
 minSdk = 24
@@ -2937,7 +2937,7 @@ What to do:
 
 #### The App Installs But Does Not Work Correctly
 
-Installation success only proves the package was accepted by Android. If Enigma26
+Installation success only proves the package was accepted by Android. If Enigma27
 opens blank, crashes, cannot scan QR codes, or cannot record voice notes:
 
 - update or enable Android System WebView / Chrome;
@@ -2957,7 +2957,7 @@ python3 scripts/android_signing/signing_cli.py verify <apk>
 
 The report should show:
 
-- package id, fixed to `com.spectrumaipl.enigma26` in the generated Gradle file;
+- package id, fixed to `com.spectrumaipl.enigma27` in the generated Gradle file;
 - visible version and Android `versionCode`;
 - signer classification: signed release, debug, or unsigned;
 - SHA-256 signing certificate fingerprint.
@@ -2970,8 +2970,8 @@ path. The full command set: `signing_cli.py --help`
 ([scripts/android_signing/](scripts/android_signing)).
 
 Preset names and output filenames are not separate Android identities. Android
-uses the APK's `applicationId` plus the signing key, and Enigma26 fixes the
-release `applicationId` to `com.spectrumaipl.enigma26`.
+uses the APK's `applicationId` plus the signing key, and Enigma27 fixes the
+release `applicationId` to `com.spectrumaipl.enigma27`.
 
 ### Official Android References
 
@@ -3073,14 +3073,14 @@ them in the same change so the app's face stays the same everywhere.
 
 Written 2026-09-16; scope narrowed on 2026-10-03, when Morion moved to its own
 repository and the code both apps share moved to Rutile. This document covers
-Enigma26 and the Rutile crates it links. Nothing here was re-audited on that
+Enigma27 and the Rutile crates it links. Nothing here was re-audited on that
 date — only what no longer belongs to this repository was taken out.
 
 ### Scope
 
 Active scope:
 
-- Enigma26 desktop app: `apps/enigma`
+- Enigma27 desktop app: `apps/enigma`
 - Enigma's encrypted store: `protasius`
 - The crypto crates, from the Rutile submodule: `crates/rotor`
   (`rotor_core`, `gervasius`) and `crates/substrate` (the sealed-file

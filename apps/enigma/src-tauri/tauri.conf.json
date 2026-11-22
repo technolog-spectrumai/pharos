@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Enigma26",
-  "mainBinaryName": "enigma26",
+  "productName": "Enigma27",
+  "mainBinaryName": "enigma27",
   "version": "0.1.10",
-  "identifier": "com.spectrumaipl.enigma26",
+  "identifier": "com.spectrumaipl.enigma27",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "Enigma26",
+        "title": "Enigma27",
         "width": 800,
         "height": 600
       }

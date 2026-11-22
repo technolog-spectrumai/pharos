@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Enigma26 app config — brand identity, UI policy, and dev-tooling constants that
+// Enigma27 app config — brand identity, UI policy, and dev-tooling constants that
 // the *frontend* consumes. Values that also exist in a build manifest
 // (tauri.conf.json / Cargo.toml / vite.config.ts) are mirrored here with a note;
 // those manifests remain authoritative for the native build, and technology.md §15
@@ -18,14 +18,14 @@
 const LEGAL_URL = "www.spectrumai.pl";
 
 /** Brand / legal identity. `name` is the canonical human-facing spelling
- *  ("Enigma26") — mirror of tauri.conf.json `productName` / window title.
+ *  ("Enigma27") — mirror of tauri.conf.json `productName` / window title.
  *  `bundleId` mirrors tauri.conf.json `identifier` and Android applicationId. */
 export const brand = {
-  name: "Enigma26",
+  name: "Enigma27",
   org: "SpectrumAI",
   legalUrl: LEGAL_URL,
   copyright: `© ${LEGAL_URL}. All rights reserved.`,
-  bundleId: "com.spectrumaipl.enigma26",
+  bundleId: "com.spectrumaipl.enigma27",
 } as const;
 
 /** User-facing UI policy. NOTE: these are *frontend* guards only — the Rust side

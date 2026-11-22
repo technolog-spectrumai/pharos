@@ -2,7 +2,7 @@
 import FilePanel from "../components/chat/FilePanel.vue";
 
 // Files is peer-to-peer transfer: offer a file to a peer of the active room,
-// accept or decline incoming offers, watch transfer progress. Enigma26 stores
+// accept or decline incoming offers, watch transfer progress. Enigma27 stores
 // nothing off-device. Local file encryption and the key ring were removed on
 // 2026-10-23 (README.md, "Removed features").
 defineProps<{ darkMode?: boolean }>();

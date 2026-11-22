@@ -13,7 +13,7 @@
 //! the holder does not get to decide them.
 //!
 //! The direct cost is that **the inviter must be online**. There is no
-//! store-and-forward anywhere in Enigma26 since the sealed mailbox was deleted
+//! store-and-forward anywhere in Enigma27 since the sealed mailbox was deleted
 //! (technology.md §16), and `p2p_invite.rs` already lives with the same rule. An
 //! invitation is a rendezvous, not a message left for someone.
 //!

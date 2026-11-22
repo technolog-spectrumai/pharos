@@ -1,5 +1,5 @@
-// Enigma26's i18n instance: the framework (locale resolution + persistence) lives
-// in rakotis; this module supplies Enigma26's own message catalogs and re-exports
+// Enigma27's i18n instance: the framework (locale resolution + persistence) lives
+// in rakotis; this module supplies Enigma27's own message catalogs and re-exports
 // the shared helpers so existing call sites (`../i18n`) are unchanged.
 
 import en from "./en";

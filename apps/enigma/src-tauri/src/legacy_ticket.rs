@@ -1,6 +1,6 @@
 //! Reading the permanent room tickets that older builds saved — and nothing else.
 //!
-//! Enigma26 no longer mints room tickets: a room is entered by redeeming an
+//! Enigma27 no longer mints room tickets: a room is entered by redeeming an
 //! invitation, and every room is invite-only (technology.md §18). But saved rooms
 //! written by earlier builds carry a `ticket` field, and for two kinds of room it
 //! is the ONLY record of how to get back in:

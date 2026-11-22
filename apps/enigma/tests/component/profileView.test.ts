@@ -1,6 +1,6 @@
 // The profile form (standalone, and embedded as Settings → Profile).
 //
-// Enigma26 has no account: who you are is this locally stored profile, and the
+// Enigma27 has no account: who you are is this locally stored profile, and the
 // display name is what every peer sees in chat. So what is pinned here is the
 // round trip to the Rust profile store — the exact profile each button writes,
 // that the form re-reads what Rust answers instead of trusting itself, and that

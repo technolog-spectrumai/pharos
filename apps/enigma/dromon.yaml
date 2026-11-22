@@ -1,6 +1,6 @@
-# How Enigma26 is built — Dromon's file for this app (schema: dromon/README.md).
+# How Enigma27 is built — Dromon's file for this app (schema: dromon/README.md).
 #
-#   ./build.sh enigma                  Enigma26: chat and files, over iroh or Tor
+#   ./build.sh enigma                  Enigma27: chat and files, over iroh or Tor
 #   ./build.sh enigma --dry-run        the commands, none run
 #   ./run_dev.sh enigma                a dev run of the same build
 #
@@ -13,7 +13,7 @@ app:
   kind: tauri
   # Names the app's data directory on every OS, so it never changes; checked
   # against src-tauri/tauri.conf.json on every run.
-  identifier: com.spectrumaipl.enigma26
+  identifier: com.spectrumaipl.enigma27
   cargo:
     workspace: .                  # the repo-root workspace
     package: enigma

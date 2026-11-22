@@ -2,8 +2,8 @@
 #
 # Build an app with Dromon, as its apps/<app>/dromon.yaml says.
 #
-#   ./build.sh enigma pro          Enigma26 Professional
-#   ./build.sh enigma std          Enigma26 Standard
+#   ./build.sh enigma pro          Enigma27 Professional
+#   ./build.sh enigma std          Enigma27 Standard
 #   ./build.sh morion              Morion (its one variant)
 #   ./build.sh teutates            Teutates (was Irena Desk) and its command-line tools
 #   ./build.sh enigma all          every variant of one app
