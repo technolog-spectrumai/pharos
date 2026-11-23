@@ -72,6 +72,24 @@ fn redial_backoff(attempt: u32) -> Duration {
 
 static NEXT_LINK: AtomicU64 = AtomicU64::new(1);
 
+// ── Tor's own state, for the indicator in the app bar ─────────────────────────
+
+/// `off`, `starting`, `on` or `error`.
+static TOR_STATE: std::sync::Mutex<&'static str> = std::sync::Mutex::new("off");
+
+fn set_tor_state(app: &AppHandle, state: &'static str) {
+    if let Ok(mut g) = TOR_STATE.lock() {
+        *g = state;
+    }
+    let _ = app.emit("tor://status", serde_json::json!({ "state": state }));
+}
+
+/// Whether Tor is running on this device right now.
+#[tauri::command]
+pub fn tor_status() -> String {
+    TOR_STATE.lock().map(|g| g.to_string()).unwrap_or_else(|_| "off".into())
+}
+
 // ── state ─────────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -359,10 +377,16 @@ pub async fn ensure_started(app: &AppHandle, state: &MeshState) -> Result<()> {
         }
     }
     clear_lockfiles(&state_dir);
-    let client = TorClient::create_bootstrapped(arti_config(&state_dir, &cache_dir)?)
-        .await
-        .map_err(|e| anyhow!("tor bootstrap failed: {e}"))?;
+    set_tor_state(app, "starting");
+    let client = match TorClient::create_bootstrapped(arti_config(&state_dir, &cache_dir)?).await {
+        Ok(c) => c,
+        Err(e) => {
+            set_tor_state(app, "error");
+            return Err(anyhow!("tor bootstrap failed: {e}"));
+        }
+    };
     *guard = Some(Node { client, rooms: HashMap::new(), state_dir, join_cancel: None });
+    set_tor_state(app, "on");
     Ok(())
 }
 
@@ -420,6 +444,7 @@ pub async fn shutdown(app: &AppHandle, state: &MeshState) {
         let state_dir = node.state_dir.clone();
         drop(node); // arti lets go of the keystore
         seal_and_wipe(app, &state_dir);
+        set_tor_state(app, "off");
     }
 }
 
@@ -435,6 +460,7 @@ pub async fn clean_keystore(app: &AppHandle, state: &MeshState) {
         let state_dir = node.state_dir.clone();
         drop(node);
         let _ = std::fs::remove_dir_all(&state_dir);
+        set_tor_state(app, "off");
     }
     let _ = crate::vault::delete(app, "keys", "tor_keystore");
 }

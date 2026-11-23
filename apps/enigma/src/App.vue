@@ -7,6 +7,7 @@ import { useUserStore } from "./stores/user";
 import { useChatStore } from "./stores/chat";
 import { openLink } from "./deeplink";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
+import TorIndicator from "./components/TorIndicator.vue";
 import PinPadImpl from "./components/PinPad.vue";
 import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
@@ -375,6 +376,7 @@ onBeforeUnmount(() => {
 
         <!-- Desktop nav -->
         <nav class="hidden lg:flex items-center gap-x-4 gap-y-2 text-sm flex-wrap">
+          <TorIndicator v-if="gateMode === 'ready'" />
           <RouterLink v-if="isTabVisible('chat')" to="/chat" class="inline-flex items-center gap-2 transition hover:opacity-70" :title="$t('nav.chat')">
             <font-awesome-icon icon="comments" />
             {{ $t('nav.chat') }}
@@ -409,6 +411,7 @@ onBeforeUnmount(() => {
 
         <!-- Mobile: hamburger -->
         <div class="flex items-center gap-3 lg:hidden">
+          <TorIndicator v-if="gateMode === 'ready'" />
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"

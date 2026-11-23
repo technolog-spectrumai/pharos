@@ -1148,6 +1148,7 @@ pub fn run() {
             realtime::realtime_join_room,
             realtime::realtime_set_peers,
             realtime::realtime_device_id,
+            mesh::tor_status,
             realtime::realtime_leave_room,
             realtime::realtime_cancel_join,
             realtime::realtime_forget_onion,

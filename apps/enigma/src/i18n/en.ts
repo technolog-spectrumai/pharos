@@ -1,4 +1,14 @@
 export default {
+  tor: {
+    on: "Tor on",
+    starting: "Tor starting…",
+    off: "Tor off",
+    error: "Tor error",
+    onHint: "Tor is running on this device: your rooms are reachable and your IP address stays hidden.",
+    startingHint: "Tor is starting. Rooms open once it is up (a few seconds, up to a minute the first time).",
+    offHint: "Tor is not running: unlock the app, or turn airplane mode off.",
+    errorHint: "Tor could not start. Check the network, then open a room to try again.",
+  },
   friends: {
     title: "Friends",
     intro: "Pair once by scanning each other's code. Then you can invite a friend to any room with one tap, with an invitation only their phone can open.",

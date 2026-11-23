@@ -1,4 +1,14 @@
 export default {
+  tor: {
+    on: "Tor działa",
+    starting: "Tor startuje…",
+    off: "Tor wyłączony",
+    error: "Błąd Tora",
+    onHint: "Tor działa na tym urządzeniu: twoje pokoje są osiągalne, a twój adres IP pozostaje ukryty.",
+    startingHint: "Tor się uruchamia. Pokoje otworzą się, gdy wystartuje (kilka sekund, za pierwszym razem do minuty).",
+    offHint: "Tor nie działa: odblokuj aplikację albo wyłącz tryb samolotowy.",
+    errorHint: "Nie udało się uruchomić Tora. Sprawdź sieć i otwórz pokój, aby spróbować ponownie.",
+  },
   friends: {
     title: "Znajomi",
     intro: "Sparujcie się raz, skanując nawzajem swoje kody. Potem zaprosisz znajomego do dowolnego pokoju jednym dotknięciem, zaproszeniem, które otworzy tylko jego telefon.",
