@@ -1,4 +1,4 @@
-//! The Pharos wire format: what one Enigma says to another, and to Relay.
+//! The Pharos wire format: what one Enigma says to another, and to Sotha.
 //!
 //! Three layers, inside out:
 //! 1. [`Envelope`]: a version, a message id, a send time and a [`Body`]
