@@ -75,6 +75,9 @@ safelog = "0.8"
 # (supports rustc 1.85+) until the toolchain moves to >= 1.90, then this can drop.
 typed-index-collections = "=3.3.0"
 data-encoding = "2"
+# arti's TLS: rustls cannot pick a crypto provider on its own when more than
+# one is linked, so mesh.rs installs ring for the process.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 # The device key (device.rs): invitations are sealed to it and redeemed by it.
 ed25519-dalek = "3.0"
 # Seals invitation tickets and redemption messages.

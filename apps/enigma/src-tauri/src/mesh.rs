@@ -325,6 +325,9 @@ pub(crate) async fn dial(
 // ── lifecycle ─────────────────────────────────────────────────────────────────
 
 fn arti_config(state_dir: &std::path::Path, cache_dir: &std::path::Path) -> Result<arti_client::TorClientConfig> {
+    // arti's TLS needs a process-wide rustls provider; without one the first
+    // bootstrap panics. Installing twice is harmless (the second is refused).
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut b = TorClientConfigBuilder::from_directories(state_dir, cache_dir);
     // arti refuses a state dir that is group/other-writable; a permissive umask or
     // home would fail bootstrap. The keystore is sealed in the vault at rest, so

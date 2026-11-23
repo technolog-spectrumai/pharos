@@ -2104,6 +2104,7 @@ dependencies = [
  "protasius",
  "rotor-core",
  "rusqlite",
+ "rustls",
  "safelog",
  "serde",
  "serde_json",
