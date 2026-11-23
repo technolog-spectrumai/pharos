@@ -60,7 +60,7 @@ be reachable by others while its onion is published.
 
 [dromon.yaml](dromon.yaml) sets debug or release, package formats, Android,
 signing and tests. There are no build flags. Packages land in
-`dist/enigma/`, with a `SHA256SUMS` and a `build.json`. Before anything
+`dist/enigma/enigma/`, with a `SHA256SUMS` and a `build.json`. Before anything
 compiles, the build checks with `cargo tree` that Enigma links none of
 OpenSSL, the DHT's `mainline` or the call equalizer's `rustfft`
 ([dromon/README.md](../../dromon/README.md#feature-isolation)). Android:

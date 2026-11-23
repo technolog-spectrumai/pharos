@@ -27,8 +27,8 @@ app:
 # crate has no optional features, so there is no feature list here.
 variants:
   default:
-    # Packages land in <output_dir>/enigma/, with a SHA256SUMS and a build.json.
-    output_dir: dist/enigma
+    # Packages land in <output_dir>/enigma/ (dist/enigma/), with a SHA256SUMS and a build.json.
+    output_dir: dist
 
     # The DHT's mainline and the call equalizer's rustfft left with those
     # features; checked before anything compiles that they stay out.

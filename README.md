@@ -49,7 +49,7 @@ apps/enigma/run_dev.sh --dual # two profiles (alice, bob) side by side
 cargo run -p sotha -- serve -c sotha/packaging/config.yaml --tcp 127.0.0.1:8080   # Sotha on loopback
 ```
 
-Packages land in `dist/enigma/` and `dist/sotha/<arch>/`, each with a
+Packages land in `dist/enigma/enigma/` and `dist/sotha/<arch>/`, each with a
 `SHA256SUMS` and a `build.json`. Android: `tools/android/` (toolchain set-up and
 `build_android.sh`) and the `android:` section of
 [apps/enigma/dromon.yaml](apps/enigma/dromon.yaml); details in

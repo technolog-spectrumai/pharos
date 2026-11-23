@@ -1,30 +1,33 @@
 # Enigma27 — Technology Overview
 
-> **Since 2026-10-22 this app lives in the Belisario monorepo** at `apps/enigma/`. What
-> this document calls Rutile — mounted at `rutile/` as a submodule — is the repo root now
-> (`crates/`, `packages/`, `scripts/`, `tools/`), and the build is Dromon's: `./build.sh enigma`, from `apps/enigma/dromon.yaml`.
-> Paths below that start `rutile/` mean the same path from the repo root. See
-> [docs/migration.md](https://github.com/technolog-spectrumai/belisario/blob/b601baa26231785cc32d1b17e854fe5eb866f55b/docs/migration.md).
+> **Since 2026-11-22/23 this app lives in Pharos** at `apps/enigma/`. It came from
+> technolog-spectrumai/enigma, branch `dev_mvp1` ("Enigma26"), and was copied, not
+> vendored: Pharos owns the code. The shared crates are the repo root's `crates/`
+> (`rotor/rotor_core`, `gervasius`, `protasius`, `enigmatite`); the build is Dromon's:
+> `./build.sh enigma`, from `apps/enigma/dromon.yaml`. Older history (Belisario,
+> Rutile) is kept short in [§16](#16-history--the-serverless-rework); where a passage
+> below still says `rutile/`, read the repo root.
 
 A technical deep-dive into how Enigma27 works: its design, stack, dependencies,
 communication flow, cryptography, privacy posture, and known weaknesses — plus the
 project's conventions, config sources of truth and rework history, and how to run,
-build, test, release and install it. The base it is built on — crypto crates,
-shared packages, build tooling — is documented in
-[docs/technology.md](https://github.com/technolog-spectrumai/belisario/blob/b601baa26231785cc32d1b17e854fe5eb866f55b/docs/technology.md).
+build, test, release and install it. Who learns what is also in the root
+[SECURITY.md](../../SECURITY.md); the wire format in [PROTOCOL.md](../../PROTOCOL.md),
+Part A.
 
 > **Status:** early-stage (`v0.1.10`). The cryptography is production-grade (OpenMLS),
 > but several integration-level hardening items remain open — see
-> [Security & privacy considerations](#9-security--privacy-considerations) and
-> [Roadmap](#roadmap). This document is candid about them on purpose.
+> [Security & privacy considerations](#9-security--privacy-considerations), the root
+> [todo.md](../../todo.md) Stage 7 and the [Roadmap](#roadmap). This document is
+> candid about them on purpose.
 
 Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [3 Dependencies](#3-dependencies--libraries) · [4 Architecture & flow](#4-architecture--communication-flow) ·
 [5 Routing & transport](#5-routing--transport) · [6 Is it truly P2P?](#6-is-it-truly-p2p-intermittent-nodes) ·
 [7 Encryption](#7-encryption--algorithms) · [8 Privacy](#8-privacy) ·
 [9 Security considerations](#9-security--privacy-considerations) · [10 UI](#10-user-interface) ·
-[11 Tor transport](#11-tor-onion-transport--captain-election) ·
-[12 DHT discovery (removed)](#12-dht-discovery-mainline-rendezvous--contacts) ·
+[11 The Tor mesh and vanguards](#11-the-tor-mesh-and-vanguards) ·
+[12 How Enigma keeps and encrypts messages](#12-how-enigma-keeps-and-encrypts-messages) ·
 [13 Encryption at rest](#13-encryption-at-rest-gervasius--protasius) ·
 [14 Conventions](#14-conventions-naming--palette) · [15 Config sources](#15-config--sources-of-truth) ·
 [16 Rework history](#16-history--the-serverless-rework) ·
@@ -38,74 +41,78 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 
 ## 1. Design
 
-Enigma27 is a **serverless, peer-to-peer, end-to-end-encrypted chat**, packaged as a
-[Tauri 2](https://tauri.app) desktop/mobile app (Vue 3 frontend + Rust backend).
+Enigma27 is a **serverless, end-to-end-encrypted group chat that always runs over
+Tor**, packaged as a [Tauri 2](https://tauri.app) desktop/mobile app (Vue 3 frontend +
+Rust backend).
 
 Design principles:
 
-- **No app server.** There is no relay WebSocket, no REST gateway, no login, no
-  server-side directory. Enigma27 speaks to no application server at all — not one of
-  ours, and since the 2026-08 removal of Enigma Cloud ([§16](#16-history--the-serverless-rework))
-  not the user's own either. The Rust core makes no outbound HTTP request of any
-  kind; the one network fetch left anywhere in the app is the Google Fonts
-  `<link>` in `index.html`, which the webview attempts on load and which is
-  queued for self-hosting ([§15](#15-config--sources-of-truth), palette note).
-  (This is *not* the same as "no infrastructure" — see
-  [§6](#6-is-it-truly-p2p-intermittent-nodes).)
-- **Rendezvous by QR code.** Two people meet when one shares a QR code carrying the
-  room's *ticket*; scanning it (camera or image) or pasting it joins the room.
-- **Pair once, reconnect forever.** After the one-time QR pairing, each peer's stable
-  NodeId is persisted per room with the addresses last seen for it, so a reconnect
-  needs no fresh QR while those addresses still reach the peer. There is no
-  discovery service to re-resolve an address that has changed ([§5](#5-routing--transport)).
+- **No app server.** There is no relay, no REST gateway, no login, no server-side
+  directory. The Rust core makes no outbound HTTP request of any kind; the one
+  network fetch left anywhere in the app is the Google Fonts `<link>` in
+  `index.html`, which the webview attempts on load and which is queued for
+  self-hosting ([§15](#15-config--sources-of-truth), palette note). It does rely on
+  the Tor network ([§6](#6-is-it-truly-p2p-intermittent-nodes)).
+- **Always Tor, a mesh.** Every member of a room hosts its own onion service for it
+  and keeps a link to every other member. Frames go straight down each link; nobody
+  forwards anyone else's traffic. There is no direct (non-Tor) connection, no
+  captain and no relaying member ([§11](#11-the-tor-mesh-and-vanguards)).
+- **In by invitation only.** An invitation (QR or text) is redeemed against the
+  inviter's onion while it is online; it is sealed to one device or is a bearer
+  code, expires on the inviter's clock, can be revoked, and is spent once
+  ([§18](#18-invitations--encrypted-expiring-revocable)).
+- **Reconnect without a new QR.** Members announce their onions inside the
+  encrypted presence message; each device keeps the list per room, and the onions
+  are stable, so a reopened room links to the others again.
 - **End-to-end encryption by default.** All message content is encrypted with **MLS**
-  (Messaging Layer Security, RFC 9420) via OpenMLS. The crypto layer never leaves the
-  device.
-- **Encrypted at rest.** All persisted app state — keys, MLS sessions, PII, settings,
-  saved rooms — lives in a per-profile passphrase-gated encrypted store
-  ([§13](#13-encryption-at-rest-gervasius--protasius)).
+  (RFC 9420) via OpenMLS. Nothing is ever sent or shown in plaintext
+  ([§12](#12-how-enigma-keeps-and-encrypts-messages)).
+- **Encrypted at rest.** All persisted app state — keys, MLS sessions, history,
+  settings, saved rooms, Tor's own state — lives in a per-profile passphrase-gated
+  encrypted store ([§13](#13-encryption-at-rest-gervasius--protasius)).
 - **Local-first identity.** Identity is a locally stored profile — no accounts, no
   PKI, no phone number. `APP_PROFILE` isolates storage; `CHAT_USER` sets the MLS
-  identity, so multiple instances can run side-by-side.
+  identity (the profile name by default), so several instances can run side by
+  side. Each profile also has a device key (Ed25519, `device.rs`) that invitations
+  are sealed to and redeemed with.
 - **Compile-time build policy.** A build config
   ([§15](#15-config--sources-of-truth), [§19](#19-run-build-and-test)) bakes in the
-  crypto declarations, protocol constants, new-profile defaults and setting
-  clamps.
+  crypto declarations, protocol constants, setting defaults and clamps.
 
 ### Layered architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  apps/enigma/src  (Vue 3 UI: Chat · Files · Privacy · Settings;    │
-│                    QR create/scan; unlock gate)                    │
+│  apps/enigma/src  (Vue 3 UI: Chat · Files · Settings;              │
+│                    invitation create/scan; unlock gate)            │
 ├──────────────────────────────────────────────────────────────────┤
 │  packages/rakotis (TS)                                             │
 │   • useChatChannel — MLS envelope state machine / orchestration    │
-│   • chatTransport  — transport bridge (iroh / Tor, uniform events) │
+│   • chatTransport  — bridge to the Rust mesh (realtime_* / events) │
 │   • crypto         — bridge to the mls_* Tauri commands            │
 │   • services       — appStorage (settings/build config),           │
-│                      localDb (kv), i18n                            │
+│                      localDb (kv), chatLog (history), i18n         │
 ├──────────────────────────────────────────────────────────────────┤
 │  Tauri IPC  (invoke commands + realtime://* file://* invite://* …) │
 ├──────────────────────────────────────────────────────────────────┤
 │  apps/enigma/src-tauri  (Rust)                                     │
-│   • p2p_iroh.rs  — iroh-gossip transport (default)                 │
-│   • p2p_tor.rs   — peer-hosted Tor onion transport (opt-in, §11)   │
-│   • invite_*.rs  — invitations: tickets, redemption (§18)          │
-│   • realtime.rs  — realtime_* gateway (gates + transport dispatch) │
-│   • vault.rs     — protasius integration (encrypted store, §13)    │
-│   • file_xfer.rs — P2P file transfer (direct QUIC only)            │
-│   • lib.rs       — mls_* commands, profiles, build_config, audio   │
+│   • mesh.rs       — the Tor mesh: onions, links, outbox (§11)      │
+│   • realtime.rs   — realtime_* commands over the mesh              │
+│   • invite_*.rs   — invitations: tickets, redemption (§18)         │
+│   • device.rs     — the device key (Ed25519)                       │
+│   • files.rs      — file downloads over the sender's onion         │
+│   • vault.rs      — protasius integration (encrypted store, §13)   │
+│   • lib.rs        — mls_* commands, profiles, build_config, audio  │
 ├───────────────┬───────────────────┬──────────────────────────────┤
-│ rutile/       │ protasius         │ iroh 1.4 + iroh-gossip 0.102  │
-│ rotor_core    │ (encrypted store) │ (QUIC P2P, direct only)       │
-│ (OpenMLS)     │ gervasius (at-rest│                               │
-│               │ crypto primitives)│ arti 0.43 (embedded Tor)      │
+│ rotor_core    │ protasius         │ arti 0.43 (embedded Tor,      │
+│ (OpenMLS),    │ (encrypted store) │ onion services, full          │
+│ enigmatite    │ gervasius (crypto │ vanguards)                    │
+│ (sessions)    │ primitives)       │                               │
 └───────────────┴───────────────────┴──────────────────────────────┘
 ```
 
 The Vue shell is deliberately thin; nearly all chat/identity logic lives in the
-shared in-repo package **rakotis**, which is aliased to source (`vite.config.ts`) and
+in-repo package **rakotis**, which is aliased to source (`vite.config.ts`) and
 compiled as app code (no prebuild step). Crypto is delegated entirely to the Rust
 `mls_*` commands backed by `rotor_core` — never reimplemented in TypeScript.
 
@@ -119,82 +126,76 @@ compiled as app code (no prebuild step). Crypto is delegated entirely to the Rus
 | Desktop/mobile shell | Tauri 2 (Rust core + system WebView; Linux/Windows/macOS/Android) |
 | App language (frontend) | TypeScript (ES2020, `strict`) built with Vite |
 | App language (backend) | Rust (edition 2021), Tokio async runtime |
-| P2P transport | iroh 1.4 (QUIC endpoint, NodeId identity, direct connections only) + iroh-gossip 0.102 (topic broadcast); **or** peer-hosted Tor onion services (opt-in, [§11](#11-tor-onion-transport--captain-election)) |
-| Cryptography (content) | OpenMLS 0.7 (RFC 9420 MLS) via the vendored `rotor_core` crate |
+| Transport | arti 0.43 (embedded Tor): a mesh of onion services, one per member per room, with full vanguards ([§11](#11-the-tor-mesh-and-vanguards)). Nothing else |
+| Cryptography (content) | OpenMLS 0.7 (RFC 9420 MLS) via the `rotor_core` crate; sessions per (room, identity) in `enigmatite` |
 | Cryptography (at rest) | `gervasius` (Argon2id → wrapped DEK → XChaCha20-Poly1305) + `protasius` (per-profile encrypted fjall store) ([§13](#13-encryption-at-rest-gervasius--protasius)) |
 | Local storage | protasius (encrypted fjall LSM keyspace) per profile; OS app-data dir |
 | Media capture | cpal (microphone) + hound (WAV) for native voice notes |
-| Tor (opt-in transport) | arti-client 0.43 `onion-service-service` — peer-hosted onion transport (`p2p_tor.rs`); the "use Tor" switch routes rendezvous + chat over it |
-| Room invites | Invitations only ([§18](#18-invitations--encrypted-expiring-revocable)): sealed or bearer, expiring QR codes, redeemed against the inviter while it is online. There is no mailbox and no store-and-forward, so an invite cannot be left for a peer who is away |
+| Room invites | Invitations only ([§18](#18-invitations--encrypted-expiring-revocable)): sealed or bearer, expiring QR codes, redeemed against the inviter's onion while it is online. No mailbox and no store-and-forward |
 | Build config | `src-tauri/build_config.yaml` → build.rs codegen ([§15](#15-config--sources-of-truth), [§19](#19-run-build-and-test)) |
-| Build/CI | `./build.sh enigma`, configured by [dromon.yaml](dromon.yaml) (one variant); GitLab CI (`.gitlab-ci.yml`); Node 22 |
+| Build/CI | `./build.sh enigma`, configured by [dromon.yaml](dromon.yaml) (one variant); GitHub Actions (`.github/workflows/`); Node 22 |
 
 Rust backend crate: `enigma` → `enigma_lib` (`staticlib`/`cdylib`/`rlib`). Bundle
 identifier `com.spectrumaipl.enigma27`. The tauri.conf `bundle.targets` list governs
 which desktop formats a build emits — currently `["deb", "rpm"]`, out of the Linux
 set Tauri can produce (`.deb`/`.AppImage`/`.rpm`); Android APK/AAB are produced
-by the separate `scripts/build_android.sh` path ([§19](#19-run-build-and-test)).
+by `tools/android/build_android.sh` ([§19](#19-run-build-and-test)).
 
 ---
 
 ## 3. Dependencies & libraries
 
-Versions are the declared spec (resolved pins live in `apps/enigma/src-tauri/Cargo.lock`,
-which is gitignored; Rutile's crypto workspace commits its own, in the submodule).
+Versions are the declared spec; resolved pins are in the repo root's `Cargo.lock`.
 
 ### Rust backend (`apps/enigma/src-tauri/Cargo.toml`)
 
 | Crate | Ver | Role |
 |---|---|---|
-| `tauri` (+ `tauri-plugin-opener`/`-dialog`/`-notification`) | 2 | App framework, IPC, bundler, OS integration |
+| `tauri` (+ `tauri-plugin-opener`/`-dialog`/`-notification`/`-deep-link`) | 2 | App framework, IPC, bundler, OS integration |
 | `rotor-core` | path | MLS crypto engine (`crates/rotor/rotor_core`) |
+| `enigmatite` | path | MLS sessions per (room, identity), kept in the vault; key-package admission (`crates/enigmatite`) |
 | `protasius` | path | Per-profile encrypted store (vault lifecycle + sealed kv) |
-| `gervasius` | path | At-rest crypto primitives (also used directly by `vault.rs` for the PIN and panic envelopes) |
-| `iroh` | 1.4 | QUIC P2P endpoint, NodeId identity; `presets::Minimal`, no relays, no discovery service |
-| `iroh-gossip` | 0.102 | Epidemic broadcast over a topic (one room = one topic) |
-| `postcard` | 1 | Serialize the pairing `Ticket` / invitations / archives |
-| `blake3` | 1 | Topic id = `blake3(room name)`; transfer KeyPackage and chunk-chain hashes |
-| `data-encoding` | 2 | BASE32 (no-pad) ticket/code text encoding |
-| `bytes`, `futures-lite`, `anyhow` | — | Gossip stream plumbing, error handling |
-| `arti-client`, `tor-rtcompat` | 0.43 | Embedded Tor, used **only** by the peer-hosted onion transport (`p2p_tor.rs`): `onion-service-service` to host a room's own onion, `onion-service-client` to dial the captain's. There is no outbound HTTP client — it left with Enigma Cloud ([§16](#16-history--the-serverless-rework)) |
-| `tor-hsservice`, `tor-cell`, `safelog` | 0.43 / 0.8 | Onion-service hosting types (launch/config, accept relay cell, unredacted `.onion` display) |
+| `gervasius` | path | At-rest crypto primitives (also used directly by `vault.rs` for the PIN and panic envelopes, and for sealing personal invitations) |
+| `arti-client` | 0.43 | Embedded Tor: `onion-service-service` to host each room's onion, `onion-service-client` to dial members, `vanguards` |
+| `tor-guardmgr`, `tor-config` | 0.43 | Setting the vanguard mode to full explicitly |
+| `tor-hsservice`, `tor-cell`, `tor-rtcompat`, `safelog` | 0.43 / 0.8 | Onion-service hosting types (launch/config, accept a rendezvous request, unredacted `.onion` display) |
+| `ed25519-dalek` | 3 | The device key (`device.rs`) |
+| `postcard` | 1 | Invitations, archives of arti's state |
+| `blake3` | 1 | Room slug and onion nickname from the room name; file hash; the download commitment; the redemption proof |
+| `data-encoding` | 2 | BASE32 (no-pad) invitation text |
+| `futures-lite`, `anyhow`, `uuid` | — | Stream plumbing, errors, ids |
 | `tokio` | 1 | Async runtime |
 | `cpal` | 0.15 | Microphone capture (native voice notes) |
 | `hound` | 3 | WAV encoding of recordings |
-| `chacha20poly1305` | 0.10 | Only its `rand_core` re-export (`OsRng`) is used, by the invitation code; its AEAD left with voice calls and the DHT |
-| `fjall` | 2 | LSM key/value backend under protasius (pure Rust; avoids a second SQLite link) |
+| `chacha20poly1305` | 0.10 | Its `rand_core` re-export (`OsRng`) for invitation and download secrets |
 | `zeroize` | 1 | Wipe plaintext/state buffers in RAM |
-| `serde`/`serde_json`, `uuid` | — | Serialization, ids |
+| `serde`/`serde_json` | — | Serialization |
 | `typed-index-collections` | =3.3.0 | MSRV pin (arti transitively pulls it; 3.4+ needs rustc 1.90) |
 | `webkit2gtk` (Linux), `rusqlite` bundled (Android) | — | Platform-specific glue |
 
 Build-dependencies: `tauri-build`, plus `serde`/`serde_norway`/`serde_json` for the
 compile-time `build_config.yaml` codegen ([§19](#19-run-build-and-test)).
 
-### Crypto workspace (`crates/rotor`, in the Rutile submodule)
+### Crypto crates (`crates/`)
 
-- **`rotor_core`** — the MLS engine (`RotorSession`). `openmls =0.7.4`,
+- **`rotor/rotor_core`** — the MLS engine (`RotorSession`). `openmls =0.7.4`,
   `openmls_rust_crypto =0.4.4`, `openmls_basic_credential =0.4.1`,
   `openmls_traits =0.4.1`, `tls_codec 0.4`, `zeroize`. Exports the compiled
   ciphersuite (`CIPHERSUITE`/`CIPHERSUITE_NAME`) for the build-config assert.
 - **`gervasius`** — at-rest primitives: `argon2` 0.5 (Argon2id), `chacha20poly1305`
-  0.10 (XChaCha20-Poly1305), `rand_core`, `zeroize`. Pure Rust, wasm-clean.
-- **`rotor_wasm`** — `wasm-bindgen` browser bindings (`WasmRotorSession`); built with
-  wasm-pack (`build_wasm.sh` beside it). Consumed by the *toto* project as a
-  static committed copy.
-- **`rotor_py`** — PyO3/maturin Python bindings for toto's Django side.
-
-`protasius/` (repo root) is the standalone encrypted-store crate built on gervasius
-(`fjall` 2, `serde`, `zeroize`); Tauri-agnostic — `lib.rs` wires the commands.
+  0.10 (XChaCha20-Poly1305), sealing to an X25519 key, `rand_core`, `zeroize`.
+- **`protasius`** — the encrypted store built on gervasius (`fjall` 2, `serde`,
+  `zeroize`); Tauri-agnostic — `vault.rs` wires the commands.
+- **`enigmatite`** — `mls` (one rotor session per (room, identity), saved after every
+  step) and `admission` (a key package's proof by a device key, for rooms that admit
+  by a certified roster; unused by Enigma27's own rooms).
 
 ### Frontend (`apps/enigma/package.json` + `packages/rakotis`)
 
 **Used at runtime:** `vue` 3.5, `vue-router` 5 (`createMemoryHistory`), `pinia`,
 `vue-i18n` 9 (en/pl), `tailwindcss` 4, `@fortawesome/*`, `@tauri-apps/api` 2,
-`qrcode` (generate ticket/NodeId QR), `html5-qrcode` (scan), `nanoid` (message ids),
-and the in-repo `rakotis` workspace package. (`cytoscape` and `trix` left with the Mind
-map when it was parked — see `limbo/`; `maplibre-gl` and `protomaps-themes-base`
-left with the Map tab, which is Morion's now — [§16](#16-history--the-serverless-rework).)
+`qrcode` (generate invitation QR), `html5-qrcode` (scan), `nanoid` (message ids),
+and the in-repo `rakotis` and `petalite` workspace packages.
 
 ---
 
@@ -205,61 +206,75 @@ left with the Map tab, which is Morion's now — [§16](#16-history--the-serverl
 The frontend talks to Rust through two mechanisms, both guarded by an `isTauri()`
 runtime check (in a plain browser there is no backend — chat is inert by design):
 
-- **`invoke` (commands):** `realtime_*` (transport — dispatched to iroh or Tor),
-  `mls_*` (crypto), `app_*` (profiles/runtime/airplane/use-Tor/build-config),
-  `vault_*` (encrypted-store lifecycle, PIN, panic code), `kv_*` (sealed kv),
-  `file_*` (P2P transfer), `invite_*` (invitations), `audio_*` (recording),
-  `tor_*`.
+- **`invoke` (commands):** `realtime_*` (the mesh: create, join, set peers, send,
+  leave, forget onion, device id), `mls_*` (crypto), `app_*`
+  (profiles/runtime/airplane/build-config), `vault_*` (encrypted-store lifecycle,
+  PIN, panic code), `kv_*` (sealed kv), `file_*` (offers and downloads),
+  `invite_*` (invitations), `audio_*` (recording), `tor_clean_keystore`.
 - **Events (`listen`):** `realtime://message` `{room, payload}` and
-  `realtime://status` `{room, state, peers, peer_id?, reason?}` (both transports
-  emit identical shapes, so the frontend is transport-agnostic); plus
-  `file://progress|done|error`, `invite://admit`, and
-  `vault://locked` (the idle-lock watchdog).
+  `realtime://status` `{room, state, peers, linked, peer_id}`, where `state` is
+  `connected` (at least one member linked; `linked` lists their onions),
+  `waiting` (nobody linked) or `disconnected` (room closed); plus
+  `file://progress|done|error`, `invite://admit`, and `vault://locked` (the
+  idle-lock watchdog).
 
 ### Sending a text message (outbound)
 
 ```
 ChatPanel.send(text)
   → useChatChannel.sendMessage(text)
-      if MLS ready:  cryptoService.encrypt → mls_encrypt (Rust) → ciphertext
-                     wrap as {type:"mls_app", ciphertext:<base64>, sender fields}
-      → chatTransport.send(slug, payload)
-          → invoke("realtime_send", {room, payload: JSON.stringify(...)})
-              → Rust realtime_send (offline-gated)
-                  → p2p_iroh::broadcast (or p2p_tor, by room ownership)
+      needs MLS ready (not a live link):
+        cryptoService.encrypt → mls_encrypt (Rust) → ciphertext
+        wrap as {type:"mls_app", ciphertext:<base64>, sender fields}
+      not ready → "Encryption not ready yet", nothing is sent
+  → chatTransport.send(slug, payload)
+      → invoke("realtime_send", {room, payload: JSON.stringify(...)})
+          → mesh::broadcast: write down every live link; queue in the outbox
+            of every wanted member without one (256 frames each)
 ```
 
 ### Receiving (inbound)
 
 ```
-p2p_iroh / p2p_tor receive loop  → emit realtime://message {room, payload}
-  → chatTransport listener (JSON-parse) → per-room handler
-      → useChatChannel.handleMessage(data)  (drops frames for other rooms)
+mesh.rs link reader  → emit realtime://message {room, payload}
+  → chatTransport listener (JSON-parse; malformed frames ignored) → per-room handler
+      → useChatChannel.handleMessage(data)
           switch data.type:
             mls_app        → mls_process_message → plaintext → route inner type
-            mls_key_package/welcome/commit → MLS handshake steps
-            mls_reset_request → rebuild the group
-            chat_message   → pre-MLS plaintext fallback (see weaknesses)
+            mls_welcome / mls_commit → MLS handshake steps
+            mls_key_package → ignored (rooms admit only by invitation)
+            mls_reset_request → rebuild the group (see §9.4)
+            anything else  → ignored; nothing in the clear is shown
 ```
 
 ### The MLS envelope state machine
 
 `useChatChannel` implements a transport-agnostic JSON envelope protocol over the
-gossip topic; all cryptography is delegated to the Rust `mls_*` commands. States:
+room's links; all cryptography is delegated to the Rust `mls_*` commands. States:
 `idle → initializing → key_exchange → ready → error`.
 
-1. On transport `connected`, each side inits a fresh local MLS group, broadcasts a
-   `mls_key_package`, and arms a **5-second timer** that optimistically flips to
-   `ready`. (The timer is armed by *every* peer; it only survives — and mislabels the
-   room "encrypted" — when no peer key package arrives, i.e. for a peer left alone in
-   the room.)
-2. On receiving a peer's key package, an **admin** (elected by the lexicographic rule
-   `ourId < theirId`) calls `mls_add_member` and broadcasts a `mls_commit` (to all)
-   plus a targeted `mls_welcome`; a non-admin re-sends its own key package and waits.
-3. `mls_welcome` → `mls_join_from_welcome` → `ready`. `mls_commit` → `mls_process_message`.
+1. **MLS starts on entering a room**, not on a link coming up (`enterP2pRoom` →
+   `startMls`). A room this device was let into comes back from its saved session
+   (`mls_init_session` restores it) and is `ready` at once.
+2. **A room just created** becomes an encrypted group of one at once (`alone`).
+3. **A joiner** gets in only by redeeming an invitation: the inviter adds its key
+   package (`mls_add_member`), broadcasts the `mls_commit` to the room, and returns
+   the Welcome in the redemption answer; the joiner calls `mls_join_from_welcome` and
+   is `ready` ([§18](#18-invitations--encrypted-expiring-revocable)).
 4. Application messages ride `mls_app` frames (base64 MLS ciphertext).
-5. Recovery: a `"group id differs"` decrypt error re-runs key exchange; any peer can
-   broadcast `mls_reset_request` to rebuild the group (deduplicated for 30 s).
+5. **Sessions are always kept** across reopens and restarts (sealed in ns `mls`). A
+   member who leaves is removed by the remaining member with the smallest MLS
+   identity.
+6. **Reset** (`mls_reset_request`, or the "reset encryption" button) throws the
+   session away and starts a new group of one — see [§9](#9-security--privacy-considerations) item 4.
+
+Fixed in the move from Enigma26 (the "stuck on Connecting… / Not encrypted" bug):
+MLS used to start only on a `connected` status, so a lone creator waited for a peer
+that could never come, and the inviter's admission needed `ready`, which deadlocked
+invitations; every reopen wiped the MLS state and made a new group of one, cut off
+from the others (the "Session reset / New encryption group" messages); sending
+needed a live link; and a plaintext `chat_message` fallback and network
+`system_error` frames existed. All of that is gone.
 
 ### Persistence — everything through protasius ([§13](#13-encryption-at-rest-gervasius--protasius))
 
@@ -268,15 +283,18 @@ All app state persists as **sealed values** in the per-profile protasius keyspac
 
 - **MLS session state** → ns `mls` (blob keyed `room\0identity`, rewritten after
   every MLS operation).
-- **iroh transport key** (stable NodeId) → `keys\0iroh_gossip`; Tor presence id →
-  `keys\0tor_peer_id`; sealed onion keystore → `keys\0tor_keystore`.
-- **Saved rooms** → kv ns `p2p:rooms` as `{room, name, ticket, peers[], host?, tor?,
-  onion?, code?}` — `peers[]` is the persisted NodeId address book that powers
-  ticketless reconnect.
-- **Profile / PII / feature switches** → ns `profile`, key `state`
-  (`AppProfileState`: offline, use_tor, stable_onion, offline profiles).
-- **User settings** → kv ns `p2p:settings` (connect timeout, max file size),
-  ns `files:local` (locked-file index).
+- **Device key** → `keys\0device_ed25519`; presence id → `keys\0tor_peer_id`;
+  arti's state directory (onion keys, guards, vanguard sets), archived →
+  `keys\0tor_keystore`.
+- **Saved rooms** → kv ns `p2p:rooms` as `{room, name, peers[], host?, onion?}` —
+  `peers[]` is the other members' onions as last learned, what a reopen links to;
+  `onion` our own for the room.
+- **Chat history** → kv ns `chat:log`, per room, in segments, capped by
+  `chat_history_cap_msgs` (500 by default).
+- **Profile / PII / airplane switch** → ns `profile`, key `state`.
+- **User settings** → kv ns `p2p:settings` (connect timeout, max file size, file
+  chunk size, history cap, idle lock, PIN digits).
+- **Invitations** → ns `invites` (internal tier).
 - The only plaintext artifact is `vault.json` (the vault header: salt + wrapped
   DEK — reveals nothing without the passphrase).
 
@@ -284,110 +302,78 @@ All app state persists as **sealed values** in the per-profile protasius keyspac
 
 ## 5. Routing & transport
 
-The default transport is **iroh-gossip over QUIC**; the opt-in alternative is the
-peer-hosted **Tor onion transport** ([§11](#11-tor-onion-transport--captain-election)).
-There is no WebSocket and no HTTP data path for chat.
+There is one transport: the **Tor mesh** in `mesh.rs` ([§11](#11-the-tor-mesh-and-vanguards)
+has the design). No iroh, no gossip, no WebSocket, no HTTP data path.
 
-- **Endpoint.** A single process-global iroh `Endpoint` is built with
-  `presets::Minimal` + `RelayMode::Disabled`: **no relay servers and no discovery
-  service** — a peer is dialled at the addresses an invitation (or an earlier
-  session) carried, or reached over Tor. Identity is a stable Ed25519 `SecretKey` →
-  **NodeId**. The router accepts iroh-gossip's ALPN plus invitation redemption;
-  file transfer runs its own ephemeral endpoint, also direct-only.
-- **Room → topic.** `topic = blake3(room_name)` — a deterministic 32-byte id, with
-  **no salt and no secret**. The room name is the only thing gating topic membership.
-- **Ticket / QR.** `Ticket { topic, name, peers: Vec<EndpointAddr> }` is
-  `postcard`-serialized, tagged (`IROH_TAG 0x49`; Tor tickets `0x54`; `0x44` was the
-  removed DHT room code) then BASE32-encoded (lowercased). That string **is** the
-  QR payload. It
-  contains the topic, the **plaintext room name**, and the creator's
-  `EndpointAddr` (NodeId + socket addresses). Join routing sniffs the
-  tag, so any pasted/scanned code lands on the right transport regardless of the
-  use-Tor switch.
-- **Connecting.** `create_room` subscribes with no bootstrap; `join_room` seeds the
-  ticket peers' addresses into a manual lookup and bootstraps from their NodeIds;
-  `join_room_by_node` is ticketless and reaches a peer only at an address this node
-  already holds (the saved address book, or an invitation's embedded address).
-  iroh then dials over **direct QUIC only**; with no relay there is no fallback when
-  direct connectivity fails — that case needs Tor.
-- **Frame size.** The gossip `max_message_size` and the Tor transport frame cap are
-  the same build-config value (`network.max_frame_bytes`, default 16 MiB) so an
-  entire MLS-encrypted image or voice note fits in a single broadcast. This is a
-  **wire-interop constant** — peers built with different caps can drop each other's
-  large frames.
-- **Reconnection.** Neighbor-up gossip events carry the peer's NodeId (`peer_id` on
-  `realtime://status`); it is persisted per room. On next launch the app re-opens the
-  most-recent room, reusing the saved ticket but seeding the saved NodeIds so
-  discovery re-resolves current addresses. There is no app-level retry/backoff loop —
-  reconnection relies on iroh's swarm maintenance and discovery freshness.
-- **Connect timeout.** Room create/join give up after the user-set
-  `connect_timeout_secs` (Settings; default/clamp from build config). The join
-  window then stays one more interval with a countdown — total ≤ 2×N. Never
-  hardcode a connect deadline ([§15](#15-config--sources-of-truth)).
-- **Airplane mode.** A per-profile `offline` flag tears down both transports and
-  every network-touching command refuses while set (`realtime_leave_room` is the one
-  exempt command). This is a **cooperative app-level gate**, not an OS firewall.
+- **One arti client per profile**, started right after unlock (`mesh::warm_up`), so
+  opening a room does not wait for a bootstrap.
+- **A room is identified** by its *slug*, BLAKE3(name) in hex; its onion key is kept
+  under the nickname `enigma_<first 16 hex of BLAKE3(name)>`, so the address is
+  stable across launches.
+- **Links.** Every member hosts its onion (virtual port `network.onion_port`, 9999)
+  and dials every other member it knows of; both ends keep the link dialled by the
+  smaller onion. Frames for a member with no link wait in its outbox (256 frames,
+  oldest dropped first). Redial backoff 5 s, doubling to 2 min.
+- **Who knows whom.** A joiner starts with the onions in the redemption answer
+  (every member's); after that, every member announces its onion in the encrypted
+  `presence` message, and the frontend hands the full list to `realtime_set_peers`.
+  The list is saved per room (`P2pRoomEntry.peers`).
+- **Frame size.** `network.max_frame_bytes` (16 MiB): 4-byte LE length + JSON. A
+  **wire-interop constant** — members built with different caps can drop each
+  other's large frames. An image or voice note rides whole in one MLS message.
+- **Connect timeout.** The user-set `connect_timeout_secs` (Settings; default 60 s)
+  bounds the join window and the inviter's wait for the MLS add during a
+  redemption. Never hardcode a connect deadline ([§15](#15-config--sources-of-truth)).
+- **Airplane mode.** A per-profile `offline` flag makes every network command
+  refuse while set (`realtime_leave_room` is the one exempt command). This is a
+  **cooperative app-level gate**, not an OS firewall.
 
-### File transfer — chunked, MLS-sealed, chain-verified
+### File transfer — over the sender's onion, verified
 
-`file_xfer.rs` binds its own ephemeral iroh endpoint on ALPN `enigma/file/1` (v1 =
-MLS chunks; a v0 peer simply cannot negotiate it, so a version skew fails to connect
-rather than misreading the stream). One bi-stream carries everything:
+`files.rs`. The offer and the answer travel inside the room's MLS-encrypted chat;
+only the bytes use a Tor stream:
 
-| Frame | Direction | Contents |
-|---|---|---|
-| `Request` | downloader → host | `offer_id`, MLS KeyPackage, `want_integrity` |
-| `Header` | host → downloader | name/size/mime, MLS Welcome, `chunk_size`, `chunk_count`, `integrity` |
-| data ×N | host → downloader | MLS ciphertext of `0x00 ‖ seq ‖ chunk` |
-| trailer | host → downloader | MLS ciphertext of `0x01 ‖ chunk_count ‖ root` |
+```
+sender   file_offer_create(path, room) → { offerId, addr (our onion), name, size, mime }
+         → file_offer{…} to the recipient, inside MLS
+receiver file_prepare(offerId) → a random 32-byte secret, kept in Rust;
+         returns commitment = BLAKE3(secret)
+         → file_accept{offerId, commitment}, inside MLS
+sender   file_authorize(offerId, commitment)
+receiver file_download(addr, offerId, dest): dial the onion with Hello{kind:"file"},
+         send {offer_id, secret}; the sender checks BLAKE3(secret) against the
+         commitment, clears it (one download), answers {size, hash}, streams the bytes
+receiver keeps the file only if size and BLAKE3 match; otherwise it is deleted
+```
 
-The frame kind lives *inside* the ciphertext so it is authenticated. Progress
-(`file://progress`) is throttled to whole-percent ticks — all the UI renders.
-Integrity is a Settings toggle and composes fail-closed: the host enables the chain
-if **either** side asked, and a downloader that requires it but receives
-`integrity: false` aborts rather than accept unverified bytes. Any verification
-failure deletes the partial file.
-
-**The transfer is bound to one peer.** Before dialling, the downloader calls
-`file_prepare`, which mints its transfer KeyPackage and returns a BLAKE3 hash of it;
-that hash travels back to the host over the feature's own MLS-encrypted signalling —
-chat `file_accept` — and
-the host records it with `file_authorize`. `serve` then accepts only a connection
-presenting that exact KeyPackage, waiting up to 20 s for the authorization to land
-(the bind message and the QUIC dial race each other). Possession of
-`{addr, offer_id}` is therefore no longer sufficient: only the peer that replied over
-the authenticated channel, and holds the matching private key, can complete the
-handshake. Cancelling an offer drops its authorization with it.
+The secret never leaves the receiver until the onion stream is up, so only the
+member who accepted can download, and only once. The bytes are protected by Tor's
+end-to-end onion encryption, not by MLS. The check is always on (the integrity
+switch is gone). The read buffer is the user's **file chunk size** (Settings,
+default 256 KiB). Progress (`file://progress`) is throttled to 200 ms.
 
 ---
 
 ## 6. Is it truly P2P? (intermittent nodes)
 
-**Short answer: message *content* is genuinely peer-to-peer and end-to-end encrypted,
-and Enigma27 runs no server of its own. Since 2026-11-16 the iroh transport uses
-no third-party relay or discovery either; Tor mode relies on the Tor network.**
+**Message content is peer-to-peer and end-to-end encrypted, and Enigma27 runs no
+server of its own. It relies on the Tor network.**
 
-The iroh endpoint is configured with **no hosted infrastructure at all**
-(`presets::Minimal` + `RelayMode::Disabled`): no n0 relay servers and no pkarr/DNS
-discovery. Until then it used n0's public relays and discovery servers, which saw
-NodeId↔IP mappings, who talks to whom, timing and sizes (never content); that
-exposure is gone with them.
+Every frame goes from the sender's device to each other member's onion, over Tor.
+No member forwards anyone else's traffic. Tor's directory authorities and relays are
+the only infrastructure; a relay sees ciphertext cells, and nothing it sees links you
+to a room.
 
-The cost is reachability. A peer is dialled over **direct QUIC** at the addresses
-an invitation or an earlier session carried, and nothing re-resolves an address
-that has changed. Two peers behind NATs that block direct QUIC cannot meet on
-iroh; they need **"use Tor"**, which routes rendezvous + chat over peer-hosted
-onion services (at the cost of Tor's own latency and the captain-hosting model of
-[§11](#11-tor-onion-transport--captain-election)), with Tor's directory
-authorities and relays as the infrastructure. On iroh, a network observer still
-sees IPs, timing and sizes between the peers themselves.
+The cost is latency and start-up time: arti bootstraps in seconds (warm cache) to a
+minute (cold), and a freshly published onion takes 30–90 s to become reachable. A
+member who is offline simply has no link; frames for it wait in the sender's outbox
+while the sender's app runs, and are lost if the sender closes the room first. There
+is no store-and-forward.
 
-So "serverless" here means **"no *our* server,"** per the design's own wording — not
-"no infrastructure" once Tor is in use.
+So "serverless" here means **"no *our* server,"** not "no infrastructure".
 
-Topology is **1:1 / small "star" rooms** on both transports; over Tor the elected
-captain is the onion host + relay. Group scale (gossip fan-out + the naive admin
-election) is explicitly unverified for large groups.
+Topology is a **full mesh** of small rooms: a room of N members has at most
+N(N−1)/2 links. Fine for the small rooms Enigma is for; not built for large groups.
 
 ---
 
@@ -414,17 +400,18 @@ security), which implies:
   application messages are MLS `PrivateMessage` (ciphertext), minimizing in-band
   metadata. The full ratchet tree is embedded in the GroupInfo carried by `welcome`
   messages (`use_ratchet_tree_extension`), so new joiners need no external tree.
-- **Credentials:** `BasicCredential` carrying the raw identity string, signed by a
-  locally generated Ed25519 key. No X.509/PKI — identities are self-asserted.
+- **Credentials:** `BasicCredential` carrying the raw identity string (the profile
+  name, `CHAT_USER`), signed by a locally generated Ed25519 key. No X.509/PKI —
+  identities are self-asserted.
 - **Storage provider:** OpenMLS `MemoryStorage` (in-RAM), serialized and sealed into
-  protasius by the app after each operation.
+  protasius by `enigmatite` after each operation.
 
 ### RotorSession API → `mls_*` commands
 
 `create_group` / `key_package` / `add_member` (→ welcome+commit) / `join_from_welcome`
-/ `process_message` / `encrypt_app` / `members` (authenticated roster) / `remove_member`
-/ `export_secret` (RFC 9420 exporter) / `export_state` + `import_state`
-(serializable session).
+/ `adopt_session` / `process_message` / `encrypt_app` / `members` (authenticated
+roster) / `remove_member` / `export_secret` (RFC 9420 exporter) / `export_state` +
+`import_state` (serializable session).
 
 ### What is encrypted
 
@@ -432,16 +419,10 @@ security), which implies:
 - **Images** → downscaled client-side to ≤1600 px JPEG (q 0.85), embedded as a base64
   data-URL inside an encrypted `image_message`.
 - **Voice notes** → native cpal capture → hound WAV → encrypted `voice_message`.
-- **Presence, leave, and control messages** → encrypted inner JSON over the same group.
-- **P2P file transfers** → a *separate*, ephemeral per-transfer MLS group (a 2-member
-  `RotorSession` keyed by the `offer_id`, handshake in-stream: the downloader's
-  KeyPackage rides the Request, the host's Welcome the Header). The file is split into
-  chunks of the user's **file chunk size** (Settings, default 256 KiB) and each chunk is
-  sealed with `encrypt_app` — literally a chat message per chunk — so the bytes are
-  MLS-protected, not merely QUIC-protected. Optional per-chunk **BLAKE3 hash chain**
-  (`h_i = BLAKE3(h_{i-1} ‖ seq ‖ chunk)`, seeded from the offer id, root in a trailer
-  frame) lets the receiver detect a dropped, reordered or altered chunk; a size and
-  chunk-count check runs regardless (`file_xfer.rs`).
+- **Presence (with the member's onion), leave, room closed, file offers and
+  answers** → encrypted inner JSON over the same group.
+- **Files** → not MLS: Tor's onion encryption on a stream to the sender's onion,
+  gated by a secret committed over MLS, checked by BLAKE3 ([§5](#5-routing--transport)).
 - **PIN unlock** → a **convenience layer, never an at-rest
   secret**. At enrolment the passphrase is proven (`Protasius::verify_passphrase`,
   read-only) and a copy of it is sealed under a PIN-derived key held in **process
@@ -458,8 +439,12 @@ security), which implies:
   idle-locked process could brute-force the blob — strictly weaker than scraping
   an unlocked process, which is already total compromise.
 - **Everything at rest** → Argon2id + XChaCha20-Poly1305 via gervasius/protasius
-  ([§13](#13-encryption-at-rest-gervasius--protasius)). (Locking user-chosen
-  files in place, `ENIGLOCK`, was removed on 2026-10-23.)
+  ([§13](#13-encryption-at-rest-gervasius--protasius)).
+
+What is **not** encrypted end to end, on the wire: the outer JSON of each frame —
+its `type`, and on `mls_app` the sender fields (MLS identity, display name,
+picture, message id) — and the size and timing of every frame
+([§12](#12-how-enigma-keeps-and-encrypts-messages)).
 
 ### Security properties
 
@@ -467,8 +452,8 @@ security), which implies:
   within an epoch; consumed message keys are deleted.
 - **Post-compromise security (limited):** epochs only advance on add/remove commits.
   There is **no periodic self-update / empty-commit key rotation** in the code, so a
-  long-lived 2-party group never rotates its epoch on its own — PCS is effectively not
-  exercised after the initial add.
+  long-lived group never rotates its epoch on its own — PCS is effectively not
+  exercised after the last add or remove.
 
 ---
 
@@ -476,34 +461,34 @@ security), which implies:
 
 | Aspect | Posture |
 |---|---|
-| Message content | **End-to-end encrypted (MLS).** The network path and the Tor captain see only ciphertext. |
+| Message content | **End-to-end encrypted (MLS).** Tor relays and anyone linked see only ciphertext — plus the plaintext sender fields of the outer frame (§12). |
+| Your IP | **Never shown to anyone.** Always Tor; members are reached only at their onions. A network observer sees that you use Tor. |
 | Accounts / identifiers | **None.** No phone number, email, or server account required. |
-| Identity | Local profile; `CHAT_USER` = MLS identity, NodeId = transport identity. Self-asserted, no PKI. |
-| Metadata to hosted relays/discovery | **None since 2026-11-16** — the iroh endpoint uses no relay and no discovery service ([§6](#6-is-it-truly-p2p-intermittent-nodes)). On iroh the peers (and a network observer) still see each other's IPs, timing and sizes; "use Tor" hides the IPs. |
-| QR ticket contents | iroh: leaks the **plaintext room name** + the creator's **NodeId + IP addresses**. Tor: leaks the room name + the creator's `.onion` (no IP). |
-| Invitation QR contents | **No room name, no topic, no MLS material.** A *personal* invitation is sealed to the recipient's key and carries no decryption key of its own; a *general* one is a cleartext bearer code. Both carry the inviter's address — an IP on clearnet, an `.onion` over Tor — and a deadline the inviter's own clock enforces ([§18](#18-invitations--encrypted-expiring-revocable)). |
-| Topic secrecy | `topic = blake3(name)` — anyone who knows/guesses the room name can join the swarm (MLS still gates the group). |
+| Identity | Local profile; `CHAT_USER` (the profile name) = MLS identity; a device key (Ed25519) for invitations; an onion per room. Self-asserted, no PKI. |
+| What members learn | Each other's onions for the room, display names and pictures, MLS identities, the inviter's device id, and the timing and size of what they receive. |
+| Invitation QR contents | **No room name, no MLS material.** The inviter's device id and the inviter's onion for the room (no IP), an id, a capability and an advisory deadline. A *personal* invitation is sealed to the recipient's device id; a *general* one is a cleartext bearer code ([§18](#18-invitations--encrypted-expiring-revocable)). |
 | Local at-rest | **Encrypted** — passphrase-gated vault ([§13](#13-encryption-at-rest-gervasius--protasius)); no recovery by design. |
-| Device location | **Never read, never sent.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes: `tests/e2e/noGeolocation.spec.ts`). It has no location feature of any kind: the Map tab, where a user could share a point they had tapped, moved to Morion on 2026-10-03, and the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history--the-serverless-rework)). |
-| Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
+| Device location | **Never read, never sent.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes: `tests/e2e/noGeolocation.spec.ts`). It has no location feature of any kind: the Map tab moved to Morion on 2026-10-03 ([§16](#16-history--the-serverless-rework)). |
+| Metadata protection | **Always Tor**, with full vanguards for the onions it hosts ([§11](#11-the-tor-mesh-and-vanguards)). Not yet: padding, cover traffic, Tor client authorisation (root todo.md Stage 7). |
 
 **At-rest posture.** All persisted state is sealed in the per-profile protasius vault
 (Argon2id-derived key wrap, XChaCha20-Poly1305 values, AAD-bound to each record's
 location). The plaintext exceptions are: the vault header `vault.json` (salt +
-wrapped DEK — useless without the passphrase); in a profile that used the Map
+wrapped DEK — useless without the passphrase); arti's directory cache (public
+consensus data); arti's state directory (onion keys, guards, vanguard sets) **while
+the app runs** — sealed back into the vault and wiped on lock/exit, though a crash
+leaves it on disk until the next clean stop; and, in a profile that used the Map
 tab before it left the app, the map-region blobs it imported
-(`profiles/<p>/maps/<blake3>.pmtiles` — public map data, content-addressed, so
-filenames carry no coordinates; nothing reads or writes them now, and a full
-data wipe removes them); and — only while the app is unlocked
-*and* "keep onion stable" is on — arti's materialized onion keystore, which is sealed
-back into the vault and wiped on lock/exit (a crash can leave it until the next
-unlock's sweep). `zeroize` scrubs transient RAM buffers; `wipe_file` is a
-best-effort single-pass overwrite (not a secure erase on SSD/journaling
-filesystems). There is **no passphrase recovery**: a forgotten passphrase means a
-lost store. The two destructive resets are both deliberate — Settings → Data →
-"Clear all data", and the **panic code**, a second passphrase enrolled in
-Settings → Lock that looks like an ordinary unlock and wipes every profile
-instead (`vault.rs::panic_wipe`; the call returns `Ok(())` indistinguishably).
+(`profiles/<p>/maps/<blake3>.pmtiles` — public map data, nothing reads or writes
+them now, and a full data wipe removes them). `zeroize` scrubs transient RAM
+buffers; `wipe_file` is a best-effort single-pass overwrite (not a secure erase on
+SSD/journaling filesystems). There is **no passphrase recovery**: a forgotten
+passphrase means a lost store. The two destructive resets are both deliberate —
+Settings → Data → "Clear all data", and the **panic code**, a second passphrase
+enrolled in Settings → Lock that looks like an ordinary unlock and wipes every
+profile instead (`vault.rs::panic_wipe`; the call returns `Ok(())`
+indistinguishably). The profile's Tor directory is inside the profile folder, so a
+wipe takes it too.
 
 ---
 
@@ -511,68 +496,54 @@ instead (`vault.rs::panic_wipe`; the call returns `Ok(())` indistinguishably).
 
 Enigma's cryptographic core (OpenMLS) is solid; the current weaknesses are almost all
 at the **integration layer**. Documented candidly here (roughly most- to
-least-serious) so they can be addressed:
+least-serious) so they can be addressed. The item numbers are referenced from code
+and tests; resolved items stay, struck through.
 
-1. ~~**Plaintext local storage.**~~ **Resolved** — all state is now encrypted at
-   rest behind the passphrase gate ([§13](#13-encryption-at-rest-gervasius--protasius)).
-   Residual: the managed onion-keystore crash window and best-effort wipes (see §8).
-2. **No key verification (TOFU only).** The QR/ticket carries no MLS key or
-   fingerprint, and the MLS credential is a self-asserted string. There is no
-   safety-number/SAS check, so a man-in-the-middle or impersonator on the pairing
-   channel or gossip topic is not detectable in-app. → *Bind the MLS credential to the
-   QR and add a fingerprint/safety-number verification step.*
-3. **Advisory-only group management.** "Admin" is elected by a lexicographic string
-   compare (`ourId < theirId`) over self-chosen identities — anyone can name themselves
-   to win. OpenMLS in this config lets any member commit adds/removes; the single-adder
-   rule is app convention, not protocol enforcement.
-4. **Unauthenticated control frames.** MLS-signaling envelopes are plaintext gossip
-   frames. Any topic member can broadcast `mls_reset_request` (forces every client to
-   rebuild the group / clear history) or trigger the `"group id differs"` re-key path —
-   an unauthenticated disruption/DoS vector.
-5. **Pre-MLS plaintext window + optimistic lock badge.** Before MLS is `ready`,
-   `sendMessage` falls back to a cleartext `chat_message` over the topic (protected
-   only by QUIC transport, not E2E). Separately, a peer's status flips to
-   "🔒 encrypted" after a **blind 5-second timer** (armed by every peer in `startMls`),
-   so the lock indicator can show "encrypted" for a group-of-one. Also, the displayed
-   `sender_name` is an attacker-controllable field, not the MLS-authenticated identity.
-6. **Metadata exposure on the network path** — with no hosted relay or discovery
-   since 2026-11-16, there is no third-party operator on iroh, but direct QUIC
-   shows each peer the other's IP, and an observer sees timing and sizes (see
-   [§6](#6-is-it-truly-p2p-intermittent-nodes)). Mitigation: "use Tor" (runtime,
-   per profile).
-7. **Weak transport-level room access control.** `topic = blake3(name)` with no
-   secret; low-entropy names are trivially derived, letting anyone who knows the name
-   join the swarm and attempt to be added to the MLS group. (The auto-admit MLS
-   flow is the gap — an admission-approval UI is future work.) **Invitations ([§18](#18-invitations--encrypted-expiring-revocable))
-   add an authenticated, expiring, revocable admission path, and marking a room
-   **invite only** ([§18.8](#188-invite-only-rooms)) makes every member refuse
-   gossip key packages outright — which narrows this gap substantially. It does
-   not close it: enforcement is app convention like everything else in §9.3, so a
-   member on a modified or older build still auto-admits, and OpenMLS in this
-   configuration still lets any member commit an add.
+1. ~~**Plaintext local storage.**~~ **Resolved** — all state is encrypted at rest
+   behind the passphrase gate ([§13](#13-encryption-at-rest-gervasius--protasius)).
+   Residual: arti's state on disk after a crash, and best-effort wipes (see §8).
+2. **No key verification (TOFU only).** The MLS credential is a self-asserted string
+   (the profile name) and there is no safety-number/SAS check, so an impersonator is
+   not detectable in-app. Invitations do bind the redeemer to a device key, and a
+   personal invitation to its recipient's device id. → *Bind the MLS credential to
+   the device key and add a fingerprint/safety-number check.*
+3. **Advisory group management.** Who removes a member who left (the remaining
+   member with the smallest MLS identity) and who may add (only an inviter, during a
+   redemption) are app convention; OpenMLS in this config lets any member commit
+   adds and removes.
+4. **Unauthenticated control frames.** `mls_reset_request` is a plaintext frame. Any
+   connection to a member's onion — and links are not authenticated below MLS (no
+   Tor client authorisation yet) — can send one, and the receiving member throws its
+   MLS state away and starts a new group of one. As key packages from the mesh are
+   refused, it cannot get back in without a new invitation. The "reset encryption"
+   button in the room's status bar does the same on purpose. → *Authenticate or drop
+   the reset frame; add client authorisation (root todo.md 7.3).*
+5. ~~**Pre-MLS plaintext window + optimistic lock badge.**~~ **Resolved** — there is no
+   plaintext fallback: sending needs MLS `ready`, and nothing in the clear is shown. A
+   created room is a group of one at once; a joiner is `ready` only from a Welcome.
+   Residual: the displayed `sender_name` is a plaintext, attacker-controllable field,
+   not the MLS-authenticated identity.
+6. **Metadata on the network path.** Always Tor, so no member or observer learns an
+   IP. But there is no padding (root todo.md 7.1), the sender fields ride outside
+   the ciphertext (7.2), and there is no cover traffic (7.4): anyone linked sees who
+   sends, when, and roughly what kind of message by its size.
+7. **Room access control.** There is no topic to guess: the only way into the MLS
+   group is a redeemed invitation, and every member refuses key packages from the
+   mesh ([§18.8](#188-invite-only-rooms)). Enforcement is app convention like §9.3: a
+   member on a modified build could still add someone. Separately, anyone who knows a
+   member's onion can open a link to it and receive that member's ciphertext and
+   outer sender fields (item 4).
 8. **WebView / IPC surface.** `tauri.conf.json` sets `security.csp = null` (no Content
-   Security Policy); on Linux the app auto-grants every WebView permission request; and
-   `fs_write_base64_file` — the "save as…" binary writer behind the native dialog —
-   takes an **unrestricted absolute path** (no scope/allowlist). It is the only raw
-   FS command left registered: the text writer that sat beside it is parked
-   (`limbo/rust/NOTES.md`), and text now moves through `local_note_read` /
-   `local_note_write`. → *Add a CSP, gate permission requests, and either scope
-   that command or move it to `@tauri-apps/plugin-fs`, which is permission-declared.*
-9. ~~**`tor.rs` clearnet-TLS footgun.**~~ **Resolved by deletion** — the outbound
-   Arti HTTP client (`tor.rs`) and its `AcceptAnyServerCert` verifier (no name/CA
-   validation) went with Enigma Cloud in 2026-08
-   ([§16](#16-history--the-serverless-rework)), taking `hyper` and `webpki-roots`
-   with them. The Rust core now makes no outbound HTTP request at all, so there
-   is no clearnet TLS surface it can get wrong. (The webview still requests
-   Orbitron from `fonts.googleapis.com` — a `<link>` in `index.html`, outside
-   any Rust code path; self-hosting it is on the §15 palette list.) The onion
-   transport carries plaintext frames
-   over the Tor circuit — no TLS layer — and arti is reached only through
-   `p2p_tor.rs`. *If a future feature needs an HTTP client, it must not resurrect a
+   Security Policy), and on Linux the app auto-grants every WebView permission
+   request. → *Add a CSP and gate permission requests.*
+9. ~~**`tor.rs` clearnet-TLS footgun.**~~ **Resolved by deletion** (2026-08, with
+   Enigma Cloud). The Rust core makes no outbound HTTP request at all. The mesh
+   carries JSON frames over onion streams — no TLS layer, Tor's onion encryption end
+   to end. *If a future feature needs an HTTP client, it must not resurrect a
    permissive verifier alongside a clearnet path.*
 10. **Minor:** `openmls_rust_crypto` is built with the `test-utils` feature in
-    production; the untested orchestration core (`useChatChannel`/`crypto` have no unit
-    tests); 16 MiB gossip frames are an amplification consideration.
+    production; 16 MiB frames are an amplification consideration; the outbox (256
+    frames per member) drops the oldest beyond that.
 
 ---
 
@@ -583,169 +554,184 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
 
 - **Chat** (`EnigmaChatView` / `ChatPanel`) — a responsive 3-column layout at desktop
   width (rooms sidebar · conversation · participants), collapsing to a hamburger drawer
-  on mobile. Create room → QR (`CreateRoomModal`, gold ★ captain badge); join by
-  QR scan / image / pasted ticket or invitation (`JoinRoomModal`, connect-timeout
-  countdown); compose text / images / voice notes / emoji; MLS lock badge +
-  "reset encryption". Room info (`RoomInfoModal`) shows the QR plus the captain-set
-  **room logo** (also in the sidebar rows + chat header) and **room rules**; the
-  captain moderates from the participants panel (`ModerateMemberModal`: timed mute
-  with presets/custom duration, kick + ban with unban in room info) — see
-  [§11](#11-tor-onion-transport--captain-election).
-- **Files** (`EnigmaFilesView`) — peer-to-peer transfer only: offer/accept
-  transfers with progress and a max-size guard. The Local (per-file locking) and
-  Keys (key ring) sub-tabs were removed on 2026-10-23 (README.md, "Removed
-  features"). There is no **Devices** sub-tab either: device
-  linking and the per-file device sync were parked whole on 2026-08-18
-  ([limbo/frontend/devices/](limbo/frontend/devices/)), so nothing syncs between
-  a user's own devices today ([§16](#16-history--the-serverless-rework)).
-- **There are no Vox, Contacts or Calendar tabs.** Voice calls, contacts and the
-  room calendar moved to Vesper on 2026-11-16 ([§16](#16-history--the-serverless-rework)).
-- **There is no Map tab.** It moved to Morion on 2026-10-03, as a viewer for
-  map files with pins, routes and zones drawn on them
-  ([§16](#16-history--the-serverless-rework)). A map share that is already in
-  a room's history, or that arrives from a peer on an older build — a pin, a
-  location, a region offer — is shown as one line saying it cannot be shown;
-  its payload is not read or stored. **No geolocation, no tracking**: the app
-  never calls `navigator.geolocation` and never asks the device where it is
-  (an e2e test traps the API and fails if anything ever does).
-- **Parked (2026-07-27)** — the **Board** (group Kanban), **Sketch board** and
-  **Mind map** were the three sub-tabs of a Notes tab that no longer exists. No
-  maintenance capacity; the code, tests, i18n and design docs are kept under
-  `limbo/frontend/{kanban,sketch,mind}/`, each with a restore checklist, and
-  their build-config sections were removed with them. No route, tab or store in
-  the shipped app reaches any of them. The Files → Local text and SVG editors,
-  which used Ace and the shared drawing engine (wisteria), were removed on
-  2026-10-23; editing is Morion's. See [README.md](README.md#removed-features).
-- **Sharing a room** (`RoomShareCard`, in both `CreateRoomModal` and
-  `RoomInfoModal`) — three ways in, on segmented pills: the **room ticket**
-  (permanent, anyone, not revocable), a **private QR** (sealed to one recipient,
-  expiring, revocable) and a **shareable QR** (bearer, expiring, revocable, with
-  an explicit "this is not secret" warning). Each states its consequence before
-  the tap, and the invitation modes carry the "keep this room open until they
-  join" note ([§18](#18-invitations--encrypted-expiring-revocable)).
-  Redemption needs no new surface: `JoinRoomModal`'s single field routes an
-  invitation by its tag byte. In a room the captain has marked **invite only**
-  ([§18.8](#188-invite-only-rooms)) the ticket pill is withdrawn entirely and the
-  card says why — a ticket there would put someone on the topic and never into
-  the group.
-- **Room info** (`RoomInfoModal`) — the share card above, the captain-set room
-  logo and rules, ban management, and the **invite only** switch
-  ([§18.8](#188-invite-only-rooms)), whose label states plainly that enforcement
-  holds only while every member is running this app.
+  on mobile. Create room (`CreateRoomModal`: launches the room's onion, then offers an
+  invitation); join by scanning, opening an image of, or pasting an invitation
+  (`JoinRoomModal`, connect-timeout countdown); compose text / images / voice notes /
+  emoji; MLS lock badge, a link chip ("Linked to N") and "reset encryption". The
+  member list shows each member as **Linked** or **Away**, from the `linked` onions of
+  `realtime://status`. Room info (`RoomInfoModal`) says what is true of every room
+  (invitation only, over Tor, members linked directly) and holds the share card.
+  There is no captain, no room logo, no rules and no moderation.
+- **Files** (`EnigmaFilesView`) — offer/accept transfers with progress and a
+  max-size guard. Nothing syncs between a user's own devices.
+- **There are no Vox, Contacts, Calendar or Map tabs** (Vesper and Morion have them,
+  [§16](#16-history--the-serverless-rework)). A map share that is already in a room's
+  history is shown as one line saying it cannot be shown.
+- **Sharing a room** (`RoomShareCard`, in `CreateRoomModal` and `RoomInfoModal`) — two
+  kinds of invitation: a **private** one (sealed to one recipient's device code,
+  expiring, revocable) and a **shareable** one (bearer, expiring, revocable, with an
+  explicit "this is not secret" warning). Both carry the "keep this room open until
+  they join" note ([§18](#18-invitations--encrypted-expiring-revocable)). There is no
+  room ticket any more.
 - **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
-  shows; max file size; transfer chunk size + integrity check),
-  **Connections** (use-Tor, stable-onion, connection timeout),
-  **Lock** (auto-lock delay, lock-on-hide, reset passphrase, PIN unlock, panic
-  code), **Data** (airplane mode; data profiles; clear data). Settings itself is
-  the one tab with no visibility checkbox — it is the only route back to the
-  others.
+  shows; your device code for private invitations; max file size; transfer chunk
+  size), **Connections** (Tor: always on, a note on the mesh and on vanguards;
+  connection timeout), **Lock** (auto-lock delay, lock-on-hide, reset passphrase,
+  PIN unlock, panic code), **Data** (airplane mode; data profiles; clear data).
+  Settings itself is the one tab with no visibility checkbox — it is the only route
+  back to the others.
 - **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma27
   mark in the top left. Two cards: what the app is (icon, version, one-line
   pitch) and who you are on it (profile name, avatar, MLS identity, active
-  storage profile). Ungated for the same reason Settings is — a logo
-  that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
-  redirect still resolves to the first visible tab, which is where every lock
-  cycle re-enters after the webview reload.
+  storage profile). Deliberately **not** `/`: that redirect still resolves to the
+  first visible tab, which is where every lock cycle re-enters after the webview
+  reload.
 
-Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
-tokens — see [§14](#14-conventions-naming--palette). Dark mode defaults on but is
-not persisted across launches; locale is persisted.
-
----
-
-## 11. Tor onion transport & captain election
-
-*(Condensed as-built reference; the transport lives in `p2p_tor.rs`, orchestration
-in rakotis `useChatChannel.ts`.)*
-
-**What it is.** An opt-in second transport: flip **"use Tor"** (Settings →
-Connections) and rooms are hosted as **peer-hosted onion services** — the QR carries
-a `.onion`, all rendezvous + chat rides Tor, and iroh is not used (exclusive mode).
-This hides each peer's IP from the others at the cost of Tor latency. No app server:
-the onion service is hosted *by a peer*.
-
-The elected **captain** (lowest live MLS id) is more than the Tor host: on **both**
-transports it is the room's moderation authority — it sets the room **logo** and
-**rules** and can **kick** (MLS removal + identity ban, refused re-admission by the
-acting admin) or **time-mute** members (everyone drops the muted member's messages
-until expiry; its composer locks). State travels as a captain-authoritative
-`room_meta` snapshot over the encrypted seam and is persisted per room. When a
-member joins (its first presence), **every holder shares the snapshot** — a
-captain's copy applies at same-or-higher revision, anyone else's only when
-strictly newer, which hands the state over when captaincy shifts (e.g. a
-lower-id joiner becomes captain and re-broadcasts the adopted snapshot).
-User avatars ride presence the same way, so logo + member pictures arrive
-automatically on join. Enforcement is cooperative, like all group management
-here ([§9](#9-security--privacy-considerations)).
-
-**Topology — everyone hosts, one relay, re-pointable dial.** Every member of a Tor
-room hosts its own onion (always-on accept loop) and maintains **one outbound dial
-to the current captain**; the captain relays MLS ciphertext among its inbound peers.
-Relaying is pure byte fan-out — the captain never holds group secrets for messages
-it forwards. The relay graph is a **loop-free tree**: a member with both inbound
-dialers and an outbound bridges child↔parent frames, so *any* member is a valid
-entry point (parent pointers go strictly downward in id ⇒ no cycles).
-
-**Captain election + failover.** The captain is the **lowest MLS identity** among
-members whose onion is known and live. Onions are shared over encrypted presence
-messages; every member computes the same election locally (`electCaptain` in
-`useChatChannel`, debounced ~2 s). If the captain becomes unreachable (outbound
-retry budget exhausted: 3 retries, exponential 2→4→8 s capped 15 s), the transport
-emits `realtime://status` with `reason:"captain_unreachable"`; survivors mark it
-dead, re-elect the next-lowest, re-point their outbound to its already-published
-onion, and the admin evicts the dead captain from MLS. A revived member's fresh
-presence clears its dead flag; if lowest, captaincy hands back. The ★ badge
-(`--color-highlight` gold) marks the captain in the roster (Tor rooms only).
-
-**Mechanics (as built):**
-- arti 0.43 `onion-service-service`; the client is bootstrapped from a per-profile
-  state dir. `fs-mistrust` is relaxed (`dangerously_trust_everyone`) — deliberate
-  and re-affirmed after the at-rest work: the HS key is sealed in protasius and only
-  transiently on disk while unlocked ([§13](#13-encryption-at-rest-gervasius--protasius)).
-  Stale arti lockfiles are cleared before bootstrap and never sealed into archives;
-  `tor_clean_keystore` (Settings → clear data) is the recovery path that mints a
-  fresh `.onion`.
-- Framing: 4-byte LE length prefix + JSON, cap = `network.max_frame_bytes` (build
-  config; matches iroh's gossip cap). Handshake `Hello{name, peer_id}` → `Ready`.
-  Fan-out writes are bounded (`tor_write_timeout_secs`), the join handshake read too
-  (`tor_handshake_timeout_secs`) — one stalled circuit can't wedge the host.
-- Ticket: `TorTicket { onion, port, name }`, tag byte `0x54` + postcard + base32.
-  Join routing sniffs the tag; `realtime_send` routes by **room ownership** (which
-  backend has the room), not the switch, so ticket-sniffed joins can always send.
-  The virtual onion port is a build-config value carried in each ticket.
-- "Stable onion" is a per-profile switch: OFF ⇒ ephemeral key, new `.onion` each
-  session; ON ⇒ the HS key persists sealed in protasius (managed keystore lifecycle).
-- Descriptor publish takes seconds-to-tens-of-seconds on first launch — surfaced as
-  `"connecting"` with a spinner, and why connect timeouts must stay user-tunable.
-
-**Known limitations (accepted):**
-- **New joiners still need the ticket onion online.** Failover keeps existing
-  members connected, but the QR only carries the creator's `.onion` — a brand-new
-  joiner can't bootstrap while the creator is offline; a current member must share a
-  fresh QR.
-- A creator that was captain, fully failed over, then restarts alone re-hosts as an
-  isolated (non-corrupting) solo group.
-- Handoff transients: ~2 s debounce message-loss window, brief split-brain during
-  death detection (converges to lowest live id), best-effort frame drop mid-reconnect.
-- Multi-peer *mesh* over Tor is out of scope (star/tree only); election is scoped to
-  the currently open room.
-- Rooms paired over iroh don't auto-migrate to Tor (fresh QR pairing required), and
-  vice versa.
+Styling is Tailwind v4 with the in-repo "Oya" primitives kit (`packages/petalite`);
+CSS-first design tokens — see [§14](#14-conventions-naming--palette). Dark mode
+defaults on but is not persisted across launches; locale is persisted.
 
 ---
 
-## 12. DHT discovery (Mainline rendezvous + Contacts)
+## 11. The Tor mesh and vanguards
 
-**Removed 2026-11-16, with voice calls, contacts and the calendar** — Vesper has
-them (see [§16](#16-history--the-serverless-rework)). Enigma joins rooms only by
-redeeming an invitation, and finds no one by name. The last commit with the DHT is
-`998d5360da06f571f5d0c21f5d012888b8e5e453`.
+*(The design is the header comment of `src-tauri/src/mesh.rs`; the frontend half is
+rakotis `chatTransport.ts` and `useChatChannel.ts`; the wire is
+[PROTOCOL.md](../../PROTOCOL.md) Part A.)*
+
+**Every member hosts, every member links.** For each open room, every member hosts
+its own onion service and keeps one link to every other member it knows. A message
+goes straight down each link; nobody forwards anyone else's traffic, so no member
+sees the room's whole traffic and there is no captain to elect or to lose.
+
+**Who knows whom.** A joiner starts with the onions in the redemption answer (every
+member's, the inviter's included). Once in the MLS group, every member announces its
+onion inside the encrypted `presence` message, and the frontend hands the full list
+to `realtime_set_peers`. Rust then keeps a link to each: it dials every wanted member
+it has no link to, with backoff (5 s, doubling to 2 min), for as long as the room is
+open. The list is saved per room (`P2pRoomEntry.peers`), so a reopen links to them
+again; a member who leaves is dropped from it.
+
+**One link per pair.** Both ends may dial at once. When two links to the same member
+exist, both ends keep the one dialled by the smaller onion address, so they agree
+without talking. Any other newcomer replaces the old link, which is then most likely
+dead (the peer redialled before we noticed it drop).
+
+**The outbox.** While a wanted member has no link, frames for it wait in a per-member
+outbox (256 frames; the oldest go first beyond that) and go out, in order, when the
+link comes up. So a message written while someone's onion is still being published
+is not lost, and sending needs only encryption, not a live link. The outbox lives in
+memory: closing the room drops it.
+
+**Status.** `connected` while at least one member is linked (with the list of linked
+onions, which the member list shows as Linked / Away), `waiting` while nobody is
+(alone, or the others are offline), `disconnected` once the room is closed.
+
+**Other streams on the same onion.** The `Hello` frame's `kind` routes a stream:
+absent or `room` is a member's link, `redeem` an invitation redemption
+(`invite_redeem.rs`), `file` a file download (`files.rs`).
+
+**Stable onions.** arti runs one client per profile. Its state directory (keystore,
+guards, vanguard sets) is kept per profile under `profiles/<p>/tor/state`: on lock or
+exit it is archived and sealed into the vault (`keys/tor_keystore`) and the plaintext
+copy removed; on the next start it is restored before arti starts. So a room's onion
+address is stable, and so are the guards and vanguards. The directory cache is not
+secret and stays on disk, which keeps the next bootstrap short. Deleting a room
+removes its key from the keystore (`realtime_forget_onion`), so a new room of the same
+name gets a fresh onion; Settings → clear data (`tor_clean_keystore`) forgets every
+onion. arti's file-permission check is relaxed (`dangerously_trust_everyone`): the
+keystore is sealed at rest, and a permissive umask or home would otherwise fail the
+bootstrap. Stale lockfiles are cleared before start.
+
+**Start-up.** Tor starts right after unlock (`mesh::warm_up`), so opening a room does
+not wait for a bootstrap. A fresh onion still takes 30–90 s to be reachable by
+others while its descriptor is published; the first few dials to it are expected to
+fail, which is what the backoff is for.
+
+**Vanguards.** A long-lived hosted onion is what guard-discovery attacks go after.
+The attacker makes your onion build circuits on demand — by connecting to it again
+and again — while running relays of their own, until one of theirs is picked as the
+hop right next to your guard. From there they learn your guard, and can watch or
+pressure it to find where you are. Vanguards fix the second and third hops of onion
+circuits to small sets: **4 L2 relays, each kept 1–12 days, and 8 L3 relays, each
+kept 1–48 hours**, so an attacker's relay at the third hop sees a vanguard, not your
+guard, and it takes far longer to get one next to it. arti is built with the
+`vanguards` feature, and `mesh.rs` sets **full** vanguards explicitly
+(`VanguardMode::Full`): every member hosts an onion, and arti 0.43 does not yet choose
+full mode for onion services by itself. As the sets live in arti's state directory,
+they survive restarts (sealed in the vault while the app is stopped). Vanguards narrow
+guard discovery; they do not hide you from your guard, nor from a global observer.
+
+**Mechanics.** Framing: 4-byte LE length + JSON, cap `network.max_frame_bytes`
+(16 MiB). Handshake `Hello{name, peer_id, kind?, onion?}` → `Ready{ok}`. Writes are
+bounded (`tor_write_timeout_secs`, 20 s), so one stalled circuit cannot hold up a send
+to everyone else; the handshake read too (`tor_handshake_timeout_secs`, 30 s). The
+virtual onion port is `network.onion_port` (9999), the same for every member.
+
+**Known limitations:**
+- **Links are not authenticated below MLS.** Anyone who knows a member's onion can
+  connect, claim an onion in its `Hello`, and receive what that member sends; MLS
+  keeps the content shut, not the outer sender fields or the timing
+  ([§9](#9-security--privacy-considerations) items 4, 6, 7). Tor client authorisation
+  (arti `restricted-discovery`) is planned (root todo.md 7.3).
+- **New joiners need the inviter online**, with the room open.
+- **A frame for an offline member is lost** if the sender closes the room before the
+  member comes back. No store-and-forward.
+- **Scale:** a full mesh, N(N−1)/2 links; for small rooms.
+
+**Removed 2026-11-22/23:** iroh, iroh-gossip and Ferrozine (no direct P2P at all), the
+"Route over Tor" and "Keep onion stable" switches, legacy room tickets, and the
+captain (star topology, election, failover, relaying) with all moderation.
+
+---
+
+## 12. How Enigma keeps and encrypts messages
+
+*(The old §12, DHT discovery, was removed 2026-11-16; the DHT, Heliodor, was never in
+Enigma27.)*
+
+**On the wire.** Every frame is `len: u32 LE ‖ JSON`, at most 16 MiB, on a Tor
+stream between two members (Tor's onion encryption end to end). Content is an MLS
+(RFC 9420) message in the room's group, ciphersuite
+`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`, pure-ciphertext wire format: text,
+images, voice notes, presence (with the member's onion), leave, room closed, file
+offers and answers. Handshake messages (commit, Welcome) are MLS ciphertext too. No
+plaintext message is ever sent or shown: the old `chat_message` fallback and network
+`system_error` frames are gone, and key packages from the mesh are ignored.
+
+**What leaks on the wire**, to anyone linked to you (members, and anyone who knows
+your onion for the room):
+- the outer JSON: each frame's `type`, and on `mls_app` the sender's MLS identity
+  (the profile name), display name, picture and message id (root todo.md 7.2);
+- sizes: nothing is padded (7.1), so a text, an image and a voice note look
+  different;
+- timing: no cover traffic (7.4).
+
+Tor relays see none of that, only cells; a network observer sees that you use Tor.
+
+**At rest.** Per profile, one protasius store (`profiles/<p>/protasius/`): keys in
+the clear, values sealed with XChaCha20-Poly1305 under a random DEK, each bound to
+its key by the AAD `"protasius:v1:" ‖ key`. The DEK is wrapped in `vault.json` by
+Argon2id (64 MiB, t=3, p=4) from the passphrase, beside a slot for the panic code. A
+PIN re-unlocks only while the app runs. The panic code, entered at the unlock prompt,
+wipes every profile. What is kept:
+- **history** in sealed `chat:log` segments per room (`services/chatLog.ts`), capped at
+  500 messages by default (`chat_history_cap_msgs`, 50–5000; the oldest segment goes
+  first);
+- **MLS state** per (room, identity) in ns `mls`, rewritten after every MLS operation
+  and kept across reopens, so a reopened room is the same group;
+- **the room list** with the other members' onions (`p2p:rooms`);
+- **arti's state** (onion keys, guards, vanguards), sealed as `keys/tor_keystore`
+  while the app is stopped, plaintext under `profiles/<p>/tor/state` only while it
+  runs.
+
+---
 
 ## 13. Encryption at rest (gervasius + protasius)
 
-*(Condensed as-built reference. Crates: `crates/rotor/gervasius` — primitives;
-`protasius/` — the store; app integration in `vault.rs` / `lib.rs`.)*
+*(Condensed as-built reference. Crates: `crates/gervasius` — primitives;
+`crates/protasius` — the store; app integration in `vault.rs` / `lib.rs`.)*
 
 **Model.** On every launch the user enters a passphrase (per profile; set on first
 run — minimum length enforced in UI only). Envelope:
@@ -774,33 +760,25 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
   an opportunistic sweep on every unlock) / `unlock` / `lock` /
   `change_passphrase` / `wipe`.
 - **App integration:** `vault_*` Tauri commands + a `require_unlocked` gate on data
-  commands; all persistence sites (profile state, MLS sessions, iroh/tor keys, kv)
-  reach the store via managed state. Profile switch tears down transports first
-  (so the onion keystore seals into the correct profile), re-opens protasius locked,
-  and reloads the webview so the gate re-runs.
-- **Managed onion keystore** ("keep onion stable" switch, default off): OFF ⇒
-  ephemeral, the `.onion` regenerates each session; ON ⇒ arti's keystore dir is
-  archived (postcard), sealed into `keys/tor_keystore`, and wiped on
-  shutdown/lock — materialized on disk only while unlocked. The plaintext dir is
-  wiped **only after a successful seal**. A crash while unlocked leaves it until the
-  next unlock's sweep — the one accepted exposure window.
+  commands; all persistence sites (profile state, MLS sessions, device key, Tor
+  state, kv) reach the store via managed state. Lock and profile switch stop the
+  mesh first (so arti's state seals into the correct profile), re-open protasius
+  locked, and reload the webview so the gate re-runs. Unlock starts Tor again
+  (`mesh::warm_up`).
+- **arti's state** (always kept, since there is no "keep onion stable" switch any
+  more): archived (postcard), sealed into `keys/tor_keystore`, and wiped on
+  shutdown/lock — on disk only while the app runs. The plaintext directory is wiped
+  **only after a successful seal**. A crash while running leaves it on disk until the
+  next clean stop — the one accepted exposure window.
 - **Per-file locking, the key ring and the notes editor — removed 2026-10-23**
-  (README.md, "Removed features"; last commit with them `cf2c6c5`). Enigma no
-  longer seals, opens or rotates local files. What a profile that used them
-  still has: files on disk sealed as `ENIGLOCK` (`FrameSpec::ENIGMA` in
-  `crates/substrate`) or moved into a ring as `.enigr`, which this version cannot
-  open; the kv index of them (ns `files:local`, keys `index` and `notes`), the
-  `file_key_rotation_days` and `delete_files_on_panic` settings, and in the
-  profile directory a `panic_targets.dat` sidecar. None of it is read any more;
-  a profile wipe removes the sidecar. Decrypting an old file needs a build of
-  `cf2c6c5` or earlier.
-- **What the Map tab left behind.** A profile that used it still has its
-  region list (`map:regions`) and its pins (`map:pins`) in the sealed kv, and
-  its region blobs on disk (§8 at-rest posture). Nothing reads, writes or
-  shows any of them since 2026-10-03, and nothing removes them short of a
-  full data wipe (Settings → Data → clear data), which takes every profile.
-  The blobs are ordinary PMTiles files and open in Morion as they are; the
-  pins have no way out of the vault (see [todo.md](todo.md)).
+  (README.md, "Removed features"). Enigma no longer seals, opens or rotates local
+  files. A profile carried over from that time may still hold files on disk sealed
+  as `ENIGLOCK` or `.enigr`, which this version cannot open, and a kv index of them
+  (ns `files:local`) that nothing reads.
+- **What the Map tab left behind.** A profile that used it still has its region list
+  (`map:regions`) and its pins (`map:pins`) in the sealed kv, and its region blobs on
+  disk (§8 at-rest posture). Nothing reads, writes or shows any of them since
+  2026-10-03, and nothing removes them short of a full data wipe.
 
 ---
 
@@ -816,20 +794,19 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
   (`components/chat/`), and carry a type suffix: `*Modal`, `*Chip`, `*Panel`, `*Bar`,
   `*Row`, `*Sidebar`, `*Drawer`, `*List`.
 - Route views are `Enigma<Domain>View` (`EnigmaChatView`, `EnigmaFilesView`,
-  `EnigmaPrivacyView`, `EnigmaConfigView`, `EnigmaProfileView`, …). Stores are
+  `EnigmaConfigView`, `EnigmaProfileView`, …). Stores are
   lowercase domain files (`chat.ts`, `user.ts`). Composables are
   `useXxx` camelCase.
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
-`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`,
+`kv_*`, `mls_*`, `realtime_*`, `audio_*`, `tor_*`, `file_*`,
 `invite_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
 
 **Events.** `scheme://path` naming: `realtime://message` and `realtime://status`
-(both transports emit identical names so the frontend is transport-agnostic; a
-single event multiplexes all rooms, the payload carries the room id), plus
+(a single event multiplexes all rooms, the payload carries the room id), plus
 `file://progress|done|error`, `invite://admit`, and
 `vault://locked` (emitted when the watchdog re-locks the vault).
 
@@ -847,7 +824,7 @@ pushes into the transcript ("🔒 End-to-end encryption active.", "Disconnected.
 [`packages/rakotis/src/i18n/index.ts`](packages/rakotis/src/i18n/index.ts) says
 must carry no app strings — so they reach a catalog through an injected
 translator, [`i18n/chatText.ts`](packages/rakotis/src/i18n/chatText.ts), registered
-by the app in `main.ts` beside the identical `setHpTranslator` seam:
+by the app in `main.ts`:
 
 ```ts
 sysMsg("chat.sys.joined", 'Joined "{name}". Connecting to peers…', { name })
@@ -901,7 +878,7 @@ interpolations, in strings computed inside `<script setup>` (the gap that let th
 composer's placeholder chain through), in `systemMsg(…)`, and on any raw
 `toLocale*String` call. `alt` and `aria-label` are in scope on
 purpose — a Polish screen-reader user is still a Polish user. Its allowlist
-(protocol and product names: `Tor`, `iroh`, `Enigma27`, `MLS`, `QR`) requires a
+(protocol and product names: `Tor`, `Enigma27`, `MLS`, `QR`) requires a
 reason per entry, so it stays a record rather than a dumping ground.
 
 **protasius storage.** Versioned AAD prefix `protasius:v1:` binds every sealed value;
@@ -934,7 +911,7 @@ colours in JS. Rakotis component source is `@source`-scanned so its utilities ge
 | `link` | `#2a4b8f` | `#5f7fc9` | Hyperlink (blue) |
 | `accent-1` | `#4f5fa1` (both) | | Mode-independent accent end (== `accent-dark`) |
 | `accent-2` | `#2f3d63` (both) | | Mode-independent accent end (== `accent-light`) |
-| `highlight` | `#facc15` (both) | | Host/captain ★ marker / "attention" (MLS key-exchange) |
+| `highlight` | `#facc15` (both) | | Room-creator marker / "attention" (MLS key-exchange) |
 
 **Typeface:** Orbitron, via `--font-sans` (currently CDN-loaded from Google Fonts —
 see the centralization roadmap below for the offline-resilience note).
@@ -963,9 +940,8 @@ primitive).
 invalid file = build error — see [§19](#19-run-build-and-test)). The same for every
 build, and limited to what rarely changes: crypto declarations
 (compile-asserted against rotor_core/gervasius) + Argon2id costs for new
-vaults, network constants (frame cap, onion port, timeouts), defaults **and
-clamp bounds** of the kv-backed settings, and the toggle defaults of a new
-profile. The frontend fetches the relevant subset once at boot via
+vaults, network constants (frame cap, onion port, timeouts), and defaults **and
+clamp bounds** of the kv-backed settings. The frontend fetches the relevant subset once at boot via
 `app_get_build_config` (rakotis `initBuildConfig`/`getBuildConfig`; `main.ts`
 seeds the browser-mode fallback from `config/app.ts` and the build-time feature
 literals).
@@ -981,13 +957,13 @@ and a test or the build fails if a copy drifts.
 |---|---|---|
 | App name, identifier, version | `tauri.conf.json` | `build.rs` (→ `build_config::app`), the bundler, the dev runner |
 | Debug/release, package formats, Android, tests, forbidden crates | [dromon.yaml](dromon.yaml) (one variant, `default`) | `./build.sh enigma`, `./run_dev.sh enigma`, `./tests.sh enigma` |
-| Crypto parameters, protocol constants, setting defaults and bounds, new-profile toggle defaults | `build_config.yaml` | `build.rs` → every Rust module; the frontend through `app_get_build_config` |
+| Crypto parameters, protocol constants, setting defaults and bounds | `build_config.yaml` | `build.rs` → every Rust module; the frontend through `app_get_build_config` |
 | The value of a setting at run time | the profile's encrypted store (kv `p2p:settings`) | Rust and the frontend, clamped to the bounds above |
 
 Precedence follows from that: `dromon.yaml` cannot touch crypto, protocol
 constants or setting bounds, and a user's stored setting wins over a default but
-never over a bound. A profile's own toggles (default from `defaults:`) decide
-whether an opt-in such as Tor is used.
+never over a bound. There are no opt-in toggles left: Tor is always on, onions
+are always stable, files are always verified.
 
 App name and identifier are fixed to `Enigma27` / `com.spectrumaipl.enigma27`;
 `build.rs` rejects a `tauri.conf.json` that says otherwise.
@@ -1005,17 +981,15 @@ instead of hardcoding.
 | In-app branding images | `apps/enigma/src/assets/<logoDir>/` (`logoDir` in `apps/enigma/package.json`, currently `enigma27`) | `app_icon.png` (large — the unlock/welcome gate) and `bar_icon.png` (small — the top bar) |
 | Passphrase min length | `config/app.ts` `policy.passphraseMinLen` | **UI-only** today — see the roadmap note below |
 | Profile field caps | `config/app.ts` `policy.*MaxLen` | `displayNameMaxLen` 150, `profileNameMaxLen` 80 |
-| New-profile toggle defaults (tor/stable) | `build_config.yaml` `defaults:` → Rust `AppProfileState` serde defaults | Apply to **new profiles only** (saved profiles keep their stored bools). UI mirrors via `policy.featureDefaults`; `offline` always starts false (not configurable). These are a profile's opt-ins |
 | P2P connection timeout | kv `p2p:settings` / `connect_timeout_secs` (rakotis `appStorage.getConnectTimeoutSecs`) | **User-set in Settings**; default + clamp (60 s, 5–600) come from `build_config.yaml` `settings:`. Governs create/join give-up + the join window's read countdown (window ≤ 2×N) — never hardcode a connect deadline. Rust reads the same key (`net_settings::connect_timeout_secs`) |
 | Chat history cap | kv `p2p:settings` / `chat_history_cap_msgs` (rakotis `appStorage.getChatHistoryCapMsgs`) | **User-tunable**; default 500 msgs clamped 50–5000 from `build_config.yaml`. Bounds the sealed per-room `chat:log` kv (oldest segment pruned past it) — the store that lets a room's timeline survive a restart |
 | Release version `0.1.10` | `tauri.conf.json` `version` | The owner (drives bundle filenames; `build.rs` reads it into `build_config::app::VERSION`). Still hand-duplicated in `Cargo.toml` and the three `package.json` files. Bumped **with the code**, never chosen per build |
-| Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl` (which Rutile's dev-server shim and `run_dev.sh --dual` read) and `dev.vitePort` |
+| Dev port `1420` | `vite.config.ts` `server.port` | Mirrored in `tauri.conf.json` `devUrl` (which `scripts/tauri-dev-server.mjs` and `run_dev.sh --dual` read) and `dev.vitePort` |
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
-| P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
-| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
+| Frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (the cap on a member's link — change in lockstep across a fleet); every member listens on the same onion port |
+| Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); the read/write buffer of a download in `files.rs`. Device-local, no wire impact |
 | Invitation state | protasius ns `invites` via `vault::get/put` (**internal** tag) | Per-profile, per-issuer: the capability, recipient binding, deadline and `Active/InFlight/Consumed/Revoked` state of every invitation minted. Deliberately NOT in the `kv_*` keyspace the webview can write. Expiry is decided **here**, on the inviter's clock — the deadline inside a ticket is advisory ([§18](#18-invitations--encrypted-expiring-revocable)) |
 | PIN unlock | always built in; `build_config.yaml` `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
-| Transfer integrity check | `build_config.yaml` `defaults.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
 | AAD prefix / tag bytes | `protasius/src/lib.rs` | `protasius:v1:`, `TAG_INTERNAL`/`TAG_KV` |
 | Window size, bundle targets | `tauri.conf.json` | — |
 | Two-profile dev instances | `APP_PROFILE` / `CHAT_USER` env | Defaulted in `run_dev.sh`; **`lib.rs` owns the `"default"` fallback** |
@@ -1034,22 +1008,20 @@ relevant subsystem:
 
 **Rust consts (a shared module, or in-crate):**
 - `gervasius`: name the magic sizes — `SALT_LEN = 16`, `KEY_LEN = 32`, `VAULT_VERSION = 1`.
-- Transport: `IROH_TAG 0x49` / `TOR_TAG 0x54` (retired ticket tags, now read only
-  by `legacy_ticket.rs`) and `DHT_TAG 0x44` (retired with the DHT, 2026-11-16)
-  are cross-referenced only in comments and in the invitation tag's routing test → **one shared module** so they
-  can't collide.
+- Transport: the invitation tag `0x4E` is the only ticket tag left (the old
+  `0x49` / `0x54` / `0x44` tags went with iroh tickets, Tor tickets and the DHT);
+  comments in `invite_ticket.rs` still name them.
 - protasius namespace/key strings (`profile`/`keys`/`cache`/`state`, `tor_peer_id`,
-  `tor_keystore`, `iroh_gossip`) are bare literals across 4 files → named consts (a
+  `tor_keystore`, `device_ed25519`) are bare literals across several files → named consts (a
   typo silently loses stored data).
-- Fold inline Tor timers (`backoff cap 15s`, `onion-poll 200ms`) in with the named ones.
+- Fold inline Tor timers (redial backoff 5 s → 2 min, outbox 256, onion-poll) in with the named ones.
 
 **Policy enforced on both layers.** `passphraseMinLen` is UI-only — a direct `invoke`
 bypasses it, and `gervasius::create_vault` accepts any passphrase. If it's a real
 boundary, enforce the same value in Rust (`vault_setup`/`vault_change_passphrase`).
 
 **Frontend consts (rakotis).** LocalStorage keys + the `enigma:` prefix + the on/off
-boolean encoding are scattered (`enigma:stableOnion` is inline-duplicated in
-get/set) → one constants module. Same for chat timing (`5000`, `30000` duplicated) and
+boolean encoding are scattered → one constants module. Same for chat timing (`5000`, `30000` duplicated) and
 UI copy/confirm delays (`1200`/`1500`/`2000`).
 
 **Build.** A version-bump script (or Tauri reading version from `package.json`) so
@@ -1065,6 +1037,49 @@ desktop/mobile shell.
 
 ## 16. History — the serverless rework
 
+The newest change first, then the older record, kept short. Paths under `limbo/`
+below are in the Enigma26 and Belisario repositories; `limbo/` was not copied into
+Pharos.
+
+### Moved to Pharos — Enigma27 (2026-11-22/23)
+
+Enigma26 (technolog-spectrumai/enigma, branch `dev_mvp1`) was copied into Pharos as
+`apps/enigma` and renamed **Enigma27** (identifier `com.spectrumaipl.enigma27`, the
+letter E as its icon, `scripts/letter_icon.py`). It replaced Pharos's previous
+client, which had Friends (Pharos 1:1 over rendezvous onions, with Sotha) and
+Vesper's groups. Pharos owns the code now; nothing is vendored.
+
+**Removed:** iroh, iroh-gossip and Ferrozine — there is no direct P2P at all; the
+"Route over Tor" and "Keep onion stable" switches (always Tor, onions always
+stable); the file-integrity switch (files are always verified); legacy room tickets
+(`legacy_ticket.rs`, the `0x49` / `0x54` tags); the captain — star topology,
+election, failover and relaying; and all moderation — room logo, rules, mute, kick
+and ban, with the `room_meta` snapshot that carried them. Privacy HP had gone a day
+earlier (below). The DHT (Heliodor) was never in Enigma27.
+
+**New:** the mesh ([§11](#11-the-tor-mesh-and-vanguards)): every member hosts an
+onion per room and links to every other; full vanguards; arti's state kept per
+profile and sealed at rest; Tor started right after unlock. Invitations carry the
+inviter's device id and onion and are redeemed over it; the grant carries every
+member's onion ([§18](#18-invitations--encrypted-expiring-revocable)). Files are
+downloaded from the sender's onion ([§5](#5-routing--transport)).
+
+**Fixed** — the "stuck on Connecting… / Not encrypted" bug in Enigma26: MLS starts
+on entering a room, not on a `connected` status (a lone creator was waiting for a
+peer that could never come, and the inviter's admission needed `ready`, which
+deadlocked invitations); a just-created room is an encrypted group of one at once;
+sessions are kept across reopens (Enigma26 wiped the MLS state on every reopen and
+made a new group of one, cut off from the others — the "Session reset / New
+encryption group" messages); sending needs only encryption, not a live link (the
+outbox); no plaintext is ever sent or shown (the `chat_message` fallback and network
+`system_error` frames are gone).
+
+Still open: root [todo.md](../../todo.md) Stage 7 — padding (7.1), sender fields
+inside the ciphertext (7.2), Tor client authorisation on member onions (part of
+7.3), cover traffic and timing (7.4).
+
+### The serverless rework (Belisario)
+
 This repo used to be a three-app monorepo (Enigma / Enigma+ / Aurora) with a server
 relay. The rework turned it into a **single serverless P2P chat**: no relay
 WebSocket, no REST gateway, no login, no server-side directory.
@@ -1076,21 +1091,20 @@ relay branch (`services/ws.ts`, `apiBase.ts`, `chatCommands.ts`, the `kind ===
 "relay"` path of `useChatChannel.ts`); the login view and server-address settings;
 relay/aster tests and CI matrix entries.
 
-**Kept / promoted:** `p2p_iroh.rs` (room = gossip topic = `blake3(name)`; the ticket
-string *is* the QR payload); all `mls_*` commands + `RotorSession` (crypto
-unchanged); the stable-NodeId secret (relocated into `p2p_iroh.rs`); QR
-generate/scan as the primary pairing UX; arti and the Tor plumbing; native
-voice-note recording; offline profiles and the airplane switch.
+**Kept / promoted:** `p2p_iroh.rs` (room = gossip topic = `blake3(name)`; since
+removed, see above); all `mls_*` commands + `RotorSession` (crypto unchanged); QR
+generate/scan; arti and the Tor plumbing; native voice-note recording; offline
+profiles and the airplane switch.
 
 **Shipped since the rework** (each summarized in this doc):
-- **Tor onion transport** + **captain election/failover** ([§11](#11-tor-onion-transport--captain-election)).
-- **DHT discovery, Contacts, nickname directory, direct invites** ([§12](#12-dht-discovery-mainline-rendezvous--contacts)) (removed 2026-11-16, see below).
-- **Encryption at rest** (gervasius/protasius, [§13](#13-encryption-at-rest-gervasius--protasius)) and per-file locking.
+- **Tor onion transport** with a captain (election, failover) — replaced by the mesh on 2026-11-22/23 ([§11](#11-the-tor-mesh-and-vanguards)).
+- **DHT discovery, Contacts, nickname directory, direct invites** (removed 2026-11-16, see below).
+- **Encryption at rest** (gervasius/protasius, [§13](#13-encryption-at-rest-gervasius--protasius)) and per-file locking (removed 2026-10-23).
 - **Voice calls (Vox) and P2P file transfer restored** from the parked `limbo/`
   set (both then first-class tabs; `limbo/` retains the restore playbook). Voice
   calls were removed again on 2026-11-16, see below.
 - **`rotor_wasm` → toto static handoff** (2026-07-14): the crypto crates live in
-  one place — since 2026-10-03 that is Rutile's `crates/rotor` — and toto
+  one place — since 2026-10-03 Rutile's `crates/rotor`, now Pharos's — and toto
   consumes a static committed copy of the wasm build.
 - **Compile-time build config** (`build_config.yaml`, [§15](#15-config--sources-of-truth)).
 - **Maps** (MapLibre + PMTiles, `maps.rs` + `EnigmaMapView`): fully offline regions
@@ -1139,7 +1153,7 @@ file storage had no P2P equivalent and were not replaced.
   an absent peer is gone, and there is no store-and-forward replacement. (The DHT
   and `p2p_invite.rs` were removed on 2026-11-16, see below.)
 - **Contacts lost server search.** Finding someone by faros username is gone;
-  the DHT nickname directory ([§12](#12-dht-discovery-mainline-rendezvous--contacts))
+  the DHT nickname directory
   is the only directory left, and Tor mode now has none at all. (Contacts and the
   nickname directory moved to Vesper on 2026-11-16, see below.)
 - **Maps lost the Beacon layer**, but not location sharing: the peer-to-peer
@@ -1201,7 +1215,7 @@ the other — a test in the parked set still pins that.
 
 ### Moved to Vesper — calls, DHT, contacts, calendar (2026-11-16)
 
-Enigma became chat and files only, over iroh or Tor, in one edition. Voice calls
+Enigma became chat and files only, over iroh or Tor (Tor only since 2026-11-22/23), in one edition. Voice calls
 (Vox), the Mainline DHT (room codes, nickname directory, presence), contacts and
 direct room invites, the room calendar (meetings, polls), iroh's hosted n0 relays
 and discovery, and the Professional/Standard editions were removed; Vesper keeps
@@ -1259,23 +1273,20 @@ open in Morion as they are, and the pins, which have no way out.
 
 ## 18. Invitations — encrypted, expiring, revocable
 
-A second way into a room, deliberately narrower than a ticket.
-
-A **room ticket** is a permanent bearer credential: it carries the plaintext room
-name, the creator's NodeId and — on clearnet — their IP addresses ([§8](#8-privacy)).
-It cannot expire, cannot be revoked, and anyone it is forwarded to can join. An
-**invitation** carries no room name and no topic, is checked against the
-*inviter's own* clock at redemption, and can be revoked or spent exactly once.
+The only way into a room. An **invitation** carries no room name and no MLS
+material, is checked against the *inviter's own* clock at redemption, and can be
+revoked or spent exactly once. (Room tickets, which were permanent bearer codes with
+the plaintext room name, were removed on 2026-11-22/23.)
 
 Two kinds, because the honest claim differs:
 
-- **Personal** — the whole body is sealed to the recipient's public key. Nobody
+- **Personal** — the whole body is sealed to the recipient's device id. Nobody
   else who photographs it can read it, and **no decryption key travels with it**:
-  the recipient opens it with the secret behind their own NodeId, which was never
+  the recipient opens it with the secret behind their own device id, which was never
   in the QR. A real confidentiality claim.
 - **General** — a transferable bearer code in **cleartext**. There is no
   recipient to seal it to, so it is not confidential, is not claimed to be, and
-  the UI says so.
+  the UI says so. Whoever sees it learns the inviter's device id and onion.
 
 ### 18.1 The ticket
 
@@ -1285,15 +1296,15 @@ base32-nopad-lowercase( TAG(0x4E) || FORMAT_V(0x01) || KIND || body )
   KIND 0x47 'G' → body = postcard(InviteBody)
   AAD = [TAG, FORMAT_V, KIND]        (so a sealed body cannot be relabelled)
 
-InviteBody { invite_id[16], capability[32], inviter, addr, issued_at, expires_at }
-  addr = Iroh(Vec<EndpointAddr>) | Tor(onion)
+InviteBody { invite_id[16], capability[32], inviter, onion, issued_at, expires_at }
+  inviter = the inviter's device id (Ed25519 public key, 64 hex digits)
+  onion   = the inviter's onion for the room (no IP)
 ```
 
-The tag joins the `IROH_TAG 0x49` / `TOR_TAG 0x54` / `DHT_TAG 0x44` family (the
-last retired with the DHT on 2026-11-16, and still kept clear of), so one
-paste/scan field routes everything. **Never carried:** room name, gossip topic,
-room code, MLS material, or the recipient's identity — a Personal ticket must not
-name its own recipient, or a photograph would reveal who was invited.
+**Never carried:** room name, MLS material, or the recipient's identity — a Personal
+ticket must not name its own recipient, or a photograph would reveal who was
+invited. `JoinRoomModal`'s one paste/scan field recognises an invitation by its tag
+byte.
 
 The **version byte sits outside the seal** on purpose: a v2 ticket handed to a v1
 build must say "this needs a newer version" rather than failing as corrupt, and
@@ -1316,18 +1327,19 @@ key    = HKDF-SHA256(ikm = X25519(eph_sk, recipient_pk),
 Both public keys go into the salt, so a ciphertext is bound to the recipient it
 was made for and cannot be re-pointed by rewriting the ephemeral header.
 
-**Identity keys are reused for encryption.** A contact record holds only their
-iroh **NodeId**, an Ed25519 *signing* key, so `x25519_from_ed25519_pk` maps it to
+**Identity keys are reused for encryption.** A recipient is named by its **device
+id**, an Ed25519 *signing* key (`device.rs`), so `x25519_from_ed25519_pk` maps it to
 Curve25519's Montgomery form — the standard birational map (age does the same for
 `ssh-ed25519`; libsodium ships it as `crypto_sign_ed25519_pk_to_curve25519`). The
 signing side is Ed25519 over the Edwards form and the sealing side is X25519 ECDH
 over the Montgomery form; they use disjoint hash prefixes and neither protocol
 interprets the other's messages. The alternative — a second key per contact,
-distributed and verified out of band — is a channel Enigma27 does not have.
+distributed and verified out of band — is a channel Enigma27 does not have. The
+recipient gives the inviter its device code (Settings → "My code").
 
 Small-order keys are refused at both conversion and seal time; note that roughly
 **half of all 32-byte strings are valid curve points**, so a successful conversion
-is not a NodeId validator and is not used as one.
+is not a device-id validator and is not used as one.
 
 Forward secrecy is **one-sided**: the ephemeral key is discarded, but the
 recipient's is long-lived, so a later compromise opens any captured blob. Right
@@ -1335,43 +1347,44 @@ for something that expires in hours; wrong for a long-term secret.
 
 ### 18.3 Redemption
 
-`REDEEM_ALPN = enigma/redeem/0` on the same iroh router as `INVITE_ALPN`; over Tor,
-the existing `Hello` frame gained `kind: "room" | "redeem"` (absent = `"room"`, so
-older peers are untouched and a room dial is byte-identical to before).
+The redeemer dials the ticket's `onion` with `Hello{kind:"redeem"}` — the same
+onion and port as the room's links, routed by `kind` ([§11](#11-the-tor-mesh-and-vanguards)).
 
 ```
 inviter  → redeemer : challenge (32 random bytes)
-redeemer → inviter  : invite_id, node_id, key_package,
-                      sig   = Ed25519(identity_sk, challenge)
+redeemer → inviter  : invite_id, node_id (the redeemer's device id), key_package, name,
+                      sig   = Ed25519(device key, challenge)
                       proof = blake3::keyed_hash(capability,
                                   invite_id ‖ challenge ‖ node_id)
-inviter checks, under one lock:  signature → transport identity (iroh only)
-                                 → state → expiry (INVITER's clock)
+inviter checks, under one lock:  signature → state → expiry (INVITER's clock)
                                  → recipient binding → proof
                                  → CAS Active → InFlight
-inviter  → redeemer : welcome ‖ room name ‖ addresses    — or a refusal code
+inviter  → redeemer : welcome ‖ room name ‖ every member's onion — or a refusal code
 ```
 
 **The capability never crosses the wire.** What travels is a MAC over a fresh
-challenge *and* the redeemer's identity, so a captured proof cannot be replayed by
-the same holder (new challenge) or reused by a different one (different node_id).
+challenge *and* the redeemer's device id, so a captured proof cannot be replayed by
+the same holder (new challenge) or reused by a different one (different device id).
 
-**The signature exists because of Tor.** On iroh, QUIC already authenticates the
-peer and the handler cross-checks the claimed NodeId against it. **Tor
-authenticates the server, not the client** — an onion stream carries no client
-identity, so without a signature "recipient binding" there would reduce to the
-redeemer *claiming* to be the recipient.
+**The signature exists because of Tor.** **Tor authenticates the server, not the
+client** — an onion stream carries no client identity, so without a signature
+"recipient binding" would reduce to the redeemer *claiming* to be the recipient.
 
 **One-use is a lease, not a burn.** `Active → InFlight(60 s) → Consumed`. Two
 racing redeemers: exactly one takes the lease. A failed MLS round lets the lease
 lapse back to `Active` rather than destroying the invitation over someone else's
-bad network.
+bad network. The inviter waits for the MLS add at most the user's connect timeout.
+
+**The grant carries every member's onion**, so the joiner links to all of them at
+once, not only to the inviter; after that, presence keeps the list current.
 
 ### 18.4 Admission, and the KeyPackage ordering problem
 
 Rust performs every check, then parks and asks the frontend, because admission is
 an MLS group operation whose commit must reach the room's existing members over
-that room's transport — both `useChatChannel`'s.
+the room's links — both `useChatChannel`'s. The inviter needs its own session
+loaded, which it has from the moment it entered the room (MLS starts on entry, not
+on a link); Enigma26 waited for `ready` here and deadlocked.
 
 The redeemer has to produce a **KeyPackage before it knows which room it is for**,
 since the QR deliberately does not name one until the capability is proven. So it
@@ -1390,7 +1403,7 @@ The **capability itself is stored**, not just a hash. Verifying a keyed MAC need
 the key; an issuer holding only a hash could not check the proof, and the protocol
 would have to fall back to the redeemer transmitting the raw capability — losing
 the challenge binding to protect a secret the vault already protects, alongside
-the MLS state and the iroh identity key.
+the MLS state and the device key.
 
 Retention runs from the **terminal event** (`Consumed{at}` / `Revoked{at}`), not
 the deadline: an invitation revoked today but issued with a year to run is
@@ -1399,98 +1412,74 @@ finished today.
 ### 18.7 Limitations
 
 1. **The inviter must be online AND have the room open.** There is no
-   store-and-forward ([§16](#16-history--the-serverless-rework)), and admission
-   needs the group loaded plus a live transport for its commit. An invitation is a
+   store-and-forward ([§16](#16-history--the-serverless-rework)). An invitation is a
    rendezvous, not a message left for someone. The share card says so.
 2. **A General invitation is not confidential.** Cleartext by construction; there
    is no recipient to seal it to. Sealing it under a key printed beside it would
-   be theatre.
-3. **An invitation alone does not close a room — the room has to be closed too.**
-   A room left open still admits anyone holding its ticket or guessing its
-   `blake3(name)` topic, whatever the invitation did. Marking it **invite only**
-   ([§18.8](#188-invite-only-rooms)) is what makes the guarantee about the room
-   rather than only the QR — and even then it is app convention, not protocol
-   (§9.3).
+   be theatre. It also gives away the inviter's onion for the room, which anyone can
+   then connect to ([§11](#11-the-tor-mesh-and-vanguards), known limitations).
+3. **Admission is app convention** (§18.8): every member refuses key packages from
+   the mesh, but a member on a modified build could still add someone.
 4. **`expires_at` in the QR is advisory** (§18.1). Only the inviter's record
    decides.
 5. **Identity-key reuse** (§18.2) is a deliberate, documented trade.
 6. **Forward secrecy is one-sided** (§18.2).
 7. **A member can always re-share.** After admission the redeemer holds the room
-   name and its addresses, as every member must. The invitation controls
+   name and every member's onion, as every member must. The invitation controls
    *admission*, not what a member does afterwards.
 
 ### 18.8 Invite-only rooms
 
-A room the captain has marked **invite only** refuses gossip `mls_key_package`
-frames outright. The only way in is a redeemed invitation — which never rides
-gossip at all, so closing the room does not close the invitations.
-
-**The flag rides `room_meta`**, the captain-authored snapshot that already
-distributes the logo, rules, mutes and bans over the MLS seam. It inherits that
-mechanism's revision guard (a stale snapshot cannot silently reopen a closed
-room) and its persistence, and needs no new message type. **Absent means open**,
-which is what an older peer's snapshot looks like — the field is additive in both
-directions, so a build that never heard of it can neither close a room by accident
-nor keep one closed.
+Every room is invite only; there is no switch any more (it rode the captain's
+`room_meta`, which went with moderation on 2026-11-22/23). Every member refuses
+`mls_key_package` frames from the mesh outright. The only way in is a redeemed
+invitation — which does not use the room's links at all, so the refusal does not
+close the invitations.
 
 **Enforcement sits above the admin split** in the `mls_key_package` handler. That
 placement is the point: a guard below it would close the branch that *adds* while
 leaving the branch that *defers* still answering a stranger with our own key
-package — a half-closed door. Headless channels (device link, peer sync) are
-exempt; they carry their own `admissionCheck` and have no room meta.
+package — a half-closed door. Headless channels (Teutates' certified roster) are
+exempt; they carry their own `admissionCheck`.
 
-**A refused joiner is told, locally.** They land in the existing observer state,
-and once the user's connect deadline passes without a Welcome they see "no one
-admitted you to this room — it may require an invitation". Nothing is sent to
-them: no member has to confirm to a stranger that a room exists and is closed, and
-there is no unauthenticated frame for anyone to forge. This also fixed a related
-lie — the key-exchange timer used to declare "end-to-end encryption active" after
-five seconds regardless, so a refused joiner was shown a green lock over a group
-of one and could type into the void ([§9.5](#9-security--privacy-considerations)).
-It now distinguishes the two cases by whether any *other* member's traffic has
-been seen: a lone creator sees none, a refused joiner sees plenty and can read
-none of it.
-
-**The share card withdraws the room ticket** while the room is closed (§10),
-because a ticket would put someone on the topic and never into the group — handing
-out something that silently does not work reads as a bug, not a policy.
+**A refused joiner is told nothing by the room.** No member has to confirm to a
+stranger that a room exists, and there is no unauthenticated frame for anyone to
+forge.
 
 **What it does not guarantee.** Every member enforces independently, so the
 guarantee is only as strong as the weakest member's client: a member running a
-modified or older build will still auto-admit, and OpenMLS in this configuration
-lets any member commit an add. This is the same app-convention caveat as the
-captain election and the single-adder rule ([§9.3](#9-security--privacy-considerations)),
-and it is why the switch's own label says "everyone in the room enforces this, so
-it holds as long as they are all running this app" rather than "only people you
-invite can join".
+modified build can still add someone, as OpenMLS in this configuration lets any
+member commit an add ([§9.3](#9-security--privacy-considerations)). Room info says
+"Everyone in the room enforces this, so it holds as long as they are all running
+this app" rather than "only people you invite can join".
 
 ---
 
 ## 18a. Shared room engine (Enigma and Teutates)
 
-Since Belisario `dev_teuta4` step 2, Teutates' chat runs on Enigma's room engine; nothing of
-it is copied:
+Since Belisario `dev_teuta4` step 2, Teutates' chat runs on Enigma's room engine. In
+Pharos only Enigma27 uses it, and the options below stay as they were (off by
+default); what Teutates needed from the Rust side is reduced to `mls` and
+`admission`:
 
 - **The protocol** stays rakotis' `useChatChannel` (`packages/rakotis`). Teutates imports its
   modules by path (`rakotis/*` aliases in `apps/teutates`), and injects what Enigma's Tauri
   shell otherwise provides: `transport`, `crypto` (both default to Enigma's `chatTransport` and
   `cryptoService`) and a kv backend (`setKvBackend` in `services/localDb.ts`).
 - **The Rust half** is `crates/enigmatite` (no tauri): `mls` — the per-(room, identity) rotor
-  session registry behind Enigma's `mls_*` commands (moved out of `lib.rs`; Enigma keeps its
-  command names and protasius store); `events` — the `realtime://message` / `realtime://status`
-  events and the loop `p2p_iroh.rs` uses to emit them; `gateway` — a plain gossip endpoint with
-  rooms by name (Teutates; Enigma keeps its own endpoint for Tor and invitations); `admission` — a key package's proof by a device key. Its loopback test runs two
-  gateways through Ferrozine and exchanges rakotis' frames.
+  session registry behind Enigma's `mls_*` commands (Enigma keeps its command names and
+  protasius store); `admission` — a key package's proof by a device key. (Its `events` and
+  gossip `gateway` modules went with iroh on 2026-11-22/23.)
 - **Options Teutates added** (all off by default, so Enigma's rooms are unchanged):
   `openAdmission` + `admissionCheck` (a certified roster instead of invitation-only; the
-  lowest live member adds), `keepSession` (the group survives a restart: no new handshake),
+  lowest live member adds), `keepSession` (the group survives a restart: no new handshake — Enigma27 now does this always),
   `mayFound`, `mailbox` (a server's room mailbox in Demio's format
   `{"kind":"demio-room","room","frame"}`, `mailbox.ts`; key packages and Welcomes go there too),
   `threads` (`#tags`, `@mentions`, the sender's device on messages), `inlineFiles` (≤ 256 KiB,
   Demio's `file_inline`), `rosterNotices` (who joined/left on commits, our own removal) and
   `enforceRoster(users)` (re-key on leave). The frames are the same in both apps, so an Enigma
-  device and a Teutates device in one room read each other (an Enigma device still admits only
-  by invitation).
+  device and a Teutates device read the same frames (an Enigma device still admits only by
+  invitation); they no longer share a transport.
 - **Fakes** for tests and demos: `fakes.ts` (`MemHub`, `MlsWorld`/`fakeMls`, `memKv`) and
   `MemMailbox`; `tests/unit/sharedOptions.test.ts` covers the options.
 
@@ -1517,11 +1506,11 @@ sudo apt-get install -y \
 ```
 
 **Nothing is fetched at build time but crates.io and npm.** The crypto crates
-([crates/rotor/](crates/rotor) — `rotor-core`, `gervasius`), the
-sealed-file frame and the shared front-end packages come from **Rutile**, the
-base repo mounted at `rutile/` as a git submodule, and are consumed by path —
-as are [protasius/](protasius) and the `rakotis` workspace package. The whole
-build is offline-friendly once crates.io/npm are cached.
+(`crates/rotor/rotor_core`, `crates/gervasius`, `crates/protasius`,
+`crates/enigmatite`) and the shared front-end package (`packages/petalite`) are in
+this repository and consumed by path, as is the `rakotis` workspace package. The
+whole build is offline-friendly once crates.io/npm are cached. arti downloads
+nothing at build time; at run time it fetches the Tor consensus.
 
 Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — see
 [Android](#android--toolchain-setup--build) below.
@@ -1531,11 +1520,8 @@ Android has its own, larger toolchain (JDK 17, Android SDK/NDK, cargo-ndk) — s
 ### First-time setup
 
 ```bash
-git submodule update --init   # Rutile — unless you cloned with --recurse-submodules
 npm ci                        # once, at the repo root — sets up the workspace + all packages
 ```
-
-Every script here stops with that `git submodule` hint if `rutile/` is empty.
 
 `./run_dev.sh` and `./build.sh` do this themselves when the root
 `node_modules` is missing, so a fresh clone can go straight to either.
@@ -1549,19 +1535,21 @@ no rebuild step.
 ### Run (dev)
 
 ```bash
-./run_dev.sh          # or: npm run dev
+./run_dev.sh                  # from the repo root: profile "default" (./run_dev.sh bob for another)
+apps/enigma/run_dev.sh        # the same, with --dual / --reset / --purge
 ```
 
-Both run `npm run tauri dev` inside `apps/enigma`: Vite starts on
+Both run `tauri dev` inside `apps/enigma`: Vite starts on
 `http://localhost:1420` and Tauri opens the native window pointed at it. Frontend
 edits hot-reload; Rust edits trigger a rebuild.
 
-> The first launch compiles the full Rust dependency tree (incl. OpenMLS + iroh +
-> arti) and is slow. Later runs are incremental.
+> The first launch compiles the full Rust dependency tree (incl. OpenMLS and arti)
+> and is slow. Later runs are incremental. After unlock, Tor bootstraps in the
+> background: seconds with a warm cache, up to a minute cold.
 
 The launchers work from VS Code's integrated terminal even when VS Code is the
 snap: they restore the environment the snap overrides before starting the app
-(`scrub_snap_env` in [scripts/lib.sh](scripts/lib.sh)). Without that the build
+(`scrub_snap_env` in [scripts/lib.sh](../../scripts/lib.sh)). Without that the build
 succeeds and the window never opens — see [Troubleshooting](#troubleshooting).
 
 #### Profiles & two-instance pairing
@@ -1571,14 +1559,14 @@ Two env vars isolate instances so you can pair two on one machine:
 | Var | Default | Effect |
 |---|---|---|
 | `APP_PROFILE` | `default` | Storage namespace (separate encrypted store / profile dir) |
-| `CHAT_USER` | `default` | MLS identity namespace |
+| `CHAT_USER` | the profile name | MLS identity |
 
 ```bash
-./run_dev.sh --dual               # two instances at once: profiles alice + bob
-./run_dev.sh --dual carol dave    # …with other names
-# or by hand, one per terminal:
-APP_PROFILE=alice CHAT_USER=alice ./run_dev.sh
-APP_PROFILE=bob   CHAT_USER=bob   ./run_dev.sh
+apps/enigma/run_dev.sh --dual             # two instances at once: profiles alice + bob
+apps/enigma/run_dev.sh --dual carol dave  # …with other names
+# or from the repo root, one per terminal:
+./run_dev.sh alice
+./run_dev.sh bob
 ```
 
 `--dual` gives each instance its own profile, identity and Cargo build
@@ -1591,9 +1579,11 @@ script takes every process it started down with it.
 #### Starting over (`--reset`) — new passphrase, clean cache
 
 There is no "forgot my passphrase" flow: the passphrase wraps the store's DEK,
-so a fresh one means a fresh store. Both launchers take a flag for it:
+so a fresh one means a fresh store. `apps/enigma/run_dev.sh` takes a flag for it
+(the root `./run_dev.sh` takes only a profile name):
 
 ```bash
+cd apps/enigma
 ./run_dev.sh --reset              # reset profile "default", then run
 APP_PROFILE=alice ./run_dev.sh --reset
 ./run_dev.sh --dual --reset       # reset BOTH profiles (alice + bob), then run
@@ -1606,8 +1596,8 @@ The next start is a **first run**, so the app asks you to set a new passphrase.
 | | |
 |---|---|
 | **What it clears** | `profiles/<profile>/` (protasius store, `vault.json`, `profile_state.json`, `tor/`) and the global webview caches (`WebKitCache`, `CacheStorage`, `storage`, …) |
-| **What it keeps** | `iroh_gossip.key` and the legacy `kvstore/` at the app-data root — those are **global**, shared by every profile, so wiping them while resetting one would silently change the others' identity too |
-| **Default is archive** | the profile dir is renamed to `<profile>.reset-<UTC stamp>`, not deleted — a dev vault holds a real identity (iroh key, MLS state, room history) and a mistyped profile name should not be unrecoverable |
+| **What it keeps** | anything at the app-data root outside `profiles/` (e.g. a legacy `kvstore/` from an old build) — it is **global**, shared by every profile |
+| **Default is archive** | the profile dir is renamed to `<profile>.reset-<UTC stamp>`, not deleted — a dev vault holds a real identity (device key, onion keys, MLS state, room history) and a mistyped profile name should not be unrecoverable |
 | **`--purge`** | deletes instead, and asks you to type `purge` to confirm (`-y` skips the prompt). Use it when the archives pile up |
 
 The work is done by `scripts/reset_profile.sh`, which both launchers call before
@@ -1619,16 +1609,18 @@ directory, and refuses a profile name containing a path separator.
 To wipe *everything* Enigma27 owns, including the global bits, use the app's own
 panic code (Settings → Lock) instead — that is the audited path.
 
-#### Pairing quick-start
+#### Invitation quick-start
 
-1. **A**: Chat → *New chat* → name it → **Create**. A QR code appears (gold ★ host
-   badge over Tor).
-2. **B**: Chat → *Join a chat* → scan the QR (camera / image) or paste the ticket.
-3. Both sides show **Encrypted** once the MLS handshake completes.
+1. **A**: Chat → *New chat* → name it → **Create**. The room's onion launches; the
+   room is encrypted (a group of one) at once. Make an invitation: *shareable*, or
+   *private* with B's device code (B: Settings → Settings → "My code").
+2. **B**: Chat → *Join a chat* → scan the QR (camera / image) or paste the text.
+   B redeems it against A's onion; A must be running with the room open. A freshly
+   created onion takes 30–90 s to be reachable, so the first try may wait.
+3. Both sides show **Encrypted** and, once their link is up, **Linked**.
 
-After the one-time pairing the app reconnects automatically (peer NodeIds are
-persisted per room and re-resolved via iroh discovery) — no server, no accounts.
-Restart B and it reopens the room and reconnects.
+The onions are stable and saved per room, so after a restart each side reopens the
+room and links to the other again — no new invitation, no server, no accounts.
 
 #### Browser-only mode (UI shell, no P2P)
 
@@ -1636,7 +1628,7 @@ Restart B and it reopens the room and reconnects.
 npm run dev -w enigma        # http://localhost:1420
 ```
 
-Plain Vite with no Tauri runtime — renders the UI shell only. P2P and MLS need
+Plain Vite with no Tauri runtime — renders the UI shell only. Tor and MLS need
 the Rust backend, so chat does not function here; use it for pure-frontend work.
 
 #### Android emulator
@@ -1699,7 +1691,7 @@ listed.
 
 It is the same for every build and holds only what rarely changes:
 
-- `crypto` — declared algorithms are **compile-asserted** against Rutile's
+- `crypto` — declared algorithms are **compile-asserted** against the
   rotor_core/gervasius crates (editing the strings can't change the crypto; drift
   in either direction is a build error). Argon2id costs apply to newly created
   vaults only.
@@ -1707,8 +1699,9 @@ It is the same for every build and holds only what rarely changes:
   Tor timeouts.
 - `settings` — default and bounds of each user-tunable setting. The profile's
   encrypted store holds the live value; these seed and clamp it.
-- `defaults` — the initial value of a new profile's runtime toggles (use Tor,
-  stable onion, file integrity).
+
+There is no `defaults:` section any more: the toggles it held (use Tor, stable
+onion, file integrity) were removed — all three are always on.
 
 What it does **not** hold: how a build is packaged ([dromon.yaml](dromon.yaml) —
 below), and the app's name, identifier and version
@@ -1746,8 +1739,8 @@ Every build is the same installable app:
 #### Building
 
 There is one way to build: `./build.sh enigma`, from the repo root. There are no
-build flags — [dromon.yaml](dromon.yaml) is the whole interface. The build itself is Rutile's,
-shared with Morion; `./build.sh` here only finds it and names the default.
+build flags — [dromon.yaml](dromon.yaml) is the whole interface. The build itself is
+Dromon's (`dromon/dromon.mjs`); `./build.sh` checks the toolchain first (`install.sh`).
 
 ```bash
 ./build.sh enigma            # from the repo root, as dromon.yaml says
@@ -1758,7 +1751,7 @@ npm run build              # -> ./build.sh
 ```yaml
 variants:
   default:
-    output_dir: dist/enigma   # packages land in dist/enigma/enigma/ with a SHA256SUMS
+    output_dir: dist/enigma   # packages land in dist/enigma/enigma/ with a SHA256SUMS and build.json
     forbid_crates: [mainline, rustfft]
     test: false               # run the frontend + Rust suites first
     desktop:
@@ -1773,7 +1766,7 @@ variants:
 ```
 
 Every key, what is validated and what each step runs is documented with the
-tooling: [rutile/§5](https://github.com/technolog-spectrumai/belisario/blob/b601baa26231785cc32d1b17e854fe5eb866f55b/docs/technology.md#5-build-tooling). An unknown key,
+tooling: [dromon/README.md](../../dromon/README.md). An unknown key,
 value is an error that names its path, never a silent default
 ([dromon/README.md](../../dromon/README.md)).
 
@@ -1837,16 +1830,16 @@ Building an Android APK/AAB from an Ubuntu dev machine.
 | Android NDK | 27.2.12479018 | Native (C/Rust) cross-compilation |
 | Android Build Tools | 35.0.0 | `aapt2`, `d8`, `apksigner`, `zipalign` |
 | CMake | 3.31.6 | Required by NDK toolchain |
-| Rust | stable | Tauri Rust core + vendored crates |
+| Rust | stable | Tauri Rust core + the repo's crates |
 | cargo-ndk | latest | Rust → Android NDK bridge |
 
 #### One-time setup (scripted)
 
 ```bash
-bash scripts/setup_java.sh              # OpenJDK 17 (+ JAVA_HOME in ~/.bashrc)
-bash scripts/install_android_studio.sh  # Studio, SDK 35, NDK, build tools, CMake, i386 libs
-bash scripts/setup_rust_android.sh      # rustup Android targets + cargo-ndk
-bash scripts/patch_cargo_android.sh     # Cargo.toml Android-compat check
+bash tools/android/setup_java.sh              # OpenJDK 17 (+ JAVA_HOME in ~/.bashrc)
+bash tools/android/install_android_studio.sh  # Studio, SDK 35, NDK, build tools, CMake, i386 libs
+bash tools/android/setup_rust_android.sh      # rustup Android targets + cargo-ndk
+bash tools/android/patch_cargo_android.sh     # Cargo.toml Android-compat check
 source ~/.bashrc
 ```
 
@@ -1873,7 +1866,7 @@ Native-dependency notes: `webkit2gtk` is Linux-only (cfg-guarded; Android uses t
 system WebView); `cpal` uses the `oboe-shared-stdcxx` feature on Android (already
 declared in `Cargo.toml`); arti's transitive `rusqlite` is pinned `bundled` on
 Android (the NDK ships no `libsqlite3` — the pin compiles SQLite from source); all
-vendored crates are pure Rust and cross-compile fine.
+repo's crates are pure Rust and cross-compile fine.
 
 #### Build the APK / AAB
 
@@ -1881,8 +1874,8 @@ Set `android.enabled: true` in dromon.yaml — with
 `profile` and `abis` — and run `./build.sh enigma`. That calls:
 
 ```bash
-bash scripts/build_android.sh enigma debug                    # debug APK, aarch64
-bash scripts/build_android.sh enigma release aarch64,x86_64   # release APK + AAB
+bash tools/android/build_android.sh enigma debug                    # debug APK, aarch64
+bash tools/android/build_android.sh enigma release aarch64,x86_64   # release APK + AAB
 ```
 
 `build_android.sh <app> [debug|release] [abi-spec]` runs `npm install`,
@@ -1913,10 +1906,10 @@ rejected for release outright — by path, filename, or the `androiddebugkey`
 alias. Debug builds keep the debug key and are unaffected.
 
 One-time setup, with the stdlib-only checker the build itself calls
-([scripts/android_signing/](scripts/android_signing)):
+([tools/android/android_signing/](../../tools/android/android_signing)):
 
 ```bash
-SIGN="python3 scripts/android_signing/signing_cli.py"
+SIGN="python3 tools/android/android_signing/signing_cli.py"
 GEN=apps/enigma/src-tauri/gen/android
 
 # Mint a release keystore (outside the repo, chmod 600, RSA 4096) — the tool
@@ -1950,7 +1943,7 @@ documents the four keys; `signing_cli.py --help` lists the commands.
 
 An **unsigned release** for internal inspection is a deliberate act, never a
 fallback: `signing: none` under `android:` in dromon.yaml
-(`scripts/build_android.sh enigma release aarch64 --allow-unsigned-release`).
+(`tools/android/build_android.sh enigma release aarch64 --allow-unsigned-release`).
 It installs nowhere, says so loudly, and still refuses the debug
 key. The pinned fingerprint lives in
 `apps/enigma/deploy/android-release-key.properties` — deliberately outside
@@ -1968,23 +1961,26 @@ adb logcat -s RustStdoutStderr enigma
 
 ### CI builds
 
-[.gitlab-ci.yml](.gitlab-ci.yml) builds Enigma27 on GitLab:
+GitHub Actions, in the repo root's `.github/workflows/`:
 
-| Job | Stage | When | What |
-|---|---|---|---|
-| `frontend:build` | check | every commit | `vue-tsc` + `vite build`, asserts `dist/index.html` |
-| `tauri:build` | build | every branch commit | `./build.sh` — the desktop bundle; fails if no package was produced |
-| `tauri:desktop` | build | tags / manual | release bundle, 30-day artifacts |
-| `android:build` | build | manual | stubbed (not provisioned to a CI image yet) |
+| Workflow | When | What |
+|---|---|---|
+| `ci.yml` | every push | `./tests.sh js` and `./tests.sh rust` |
+| `release.yml` | a `v*` tag | Enigma27 for Linux and Windows (`tauri build`), Sotha for arm64 (binary and `.deb`) |
+| `real-tor.yml` | by hand | `./test_tor2.sh`: two instances over the real Tor network |
+
+Android is not built in CI.
 
 ---
 
 ### Tests
 
 ```bash
-./tests.sh            # the full run — every suite below, with a pass/fail table at the end
-./tests.sh rust e2e   # only these groups (js | rust | py | build | e2e)
-./tests.sh --list     # the steps and the command each one runs
+./tests.sh                    # from the repo root: every Pharos suite (js | rust), a table at the end
+apps/enigma/tests.sh          # Enigma's long run, with a pass/fail table at the end
+apps/enigma/tests.sh rust py  # only these groups (js | rust | py | build)
+apps/enigma/tests.sh --list   # the steps and the command each one runs
+./test_tor2.sh                # two instances over the real Tor network (needs Tor access; minutes)
 ```
 
 `tests.sh` keeps going after a failure, so one run tells you everything that is
@@ -1995,11 +1991,11 @@ running one by hand:
 npm test                                   # all workspaces
 npm test -w enigma                         # vitest: chat store, components, i18n, …
 npm test -w rakotis                        # vitest: transport bridge, storage, i18n
-( cd apps/enigma/src-tauri && cargo test ) # Rust: invitations, Tor, kv, …
-( cd protasius && cargo test )             # encrypted store
-python3 -m pytest scripts/android_signing/tests   # Enigma's signing contract vs Rutile's checker
+cargo test -p enigma                       # Rust: mesh, invitations, files, kv, …
+cargo test -p protasius -p gervasius -p rotor-core -p enigmatite   # the shared crates
+python3 -m pytest apps/enigma/scripts/android_signing/tests   # Enigma's signing contract
 npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend — there is none)
-( cd rutile && ./tests.sh )                # the base itself: crypto crates, substrate, petalite, wisteria
+./test_tor2.sh                             # mesh_live.rs: Hello/Ready and frames both ways over real Tor
 ```
 
 ---
@@ -2018,8 +2014,6 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
   `node_modules` beside it, and a disk cleanup that deletes every `node_modules`
   it finds takes that one too. Reinstall the Node version
   (`nvm install <version>`); the launchers detect this and say so.
-- **`rutile/ is empty — this repo is built on the Rutile submodule`** — the
-  clone was made without submodules: `git submodule update --init`.
 - **`sh: 1: vite: not found` / `tauri: not found`** — the root `node_modules` is
   gone (same cleanup, usually). `npm ci` at the repo root; the launchers do it
   themselves when the directory is missing.
@@ -2041,7 +2035,7 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
   [Build configuration](#build-configuration-build_configyaml)).
 - **`rotor-core` build error** — it's the in-repo crate at
   `crates/rotor/rotor_core` (no fetch involved); reproduce in isolation
-  with `cd crates/rotor && cargo check -p rotor-core`.
+  with `cargo check -p rotor-core` from the repo root.
 - **`webkit2gtk` / `soup` not found** — install the desktop system libs above.
 - **`frontendDist` doesn't exist** — the frontend build didn't run/produce
   `apps/enigma/dist/`; run `npm run build -w enigma` (or a full `./build.sh`).
@@ -2058,7 +2052,7 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
   cfg-guarded to Linux); verify you're running `tauri android build`, not plain
   `cargo build`.
 - **Gradle Java version mismatch** — `JAVA_HOME` must point at JDK 17 (not 11/21);
-  re-run `scripts/setup_java.sh`.
+  re-run `tools/android/setup_java.sh`.
 
 ---
 
@@ -2066,7 +2060,7 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
 
 **One edition since 2026-11-16.** The crate has no optional cargo features and
 [dromon.yaml](dromon.yaml) one variant (`./build.sh enigma`). Enigma is chat and
-file transfer over iroh or Tor, with PIN unlock; voice calls, the
+file transfer, always over Tor, with PIN unlock; voice calls, the
 DHT, contacts, the calendar and iroh's hosted relays went to Vesper, and with them
 the Professional/Standard split. The build still refuses to link `mainline` or
 `rustfft` (`forbid_crates`), so they cannot come back with a merge. The last commit
@@ -2196,7 +2190,7 @@ release key is missing or when the Android SDK debug key is used for a release.
 Preferred flow:
 
 ```bash
-SIGN="python3 scripts/android_signing/signing_cli.py"
+SIGN="python3 tools/android/android_signing/signing_cli.py"
 $SIGN status --gen apps/enigma/src-tauri/gen/android
 $SIGN create
 ./build.sh enigma   # android: { enabled: true, profile: release, abis: [aarch64, x86_64] }
@@ -2231,7 +2225,7 @@ With the environment or that local file supplying everything,
 `keystore.properties` can be absent entirely; the committed
 `keystore.properties.example` is the only half that belongs in the repo. No
 password is ever passed on an argv. Command reference: `signing_cli.py --help`
-([scripts/android_signing/](scripts/android_signing)).
+([tools/android/android_signing/](../../tools/android/android_signing)).
 
 ### 21.6 Build Android Artifacts
 
@@ -2244,7 +2238,7 @@ android:
   abis: [aarch64, x86_64]
 ```
 
-It runs `scripts/build_android.sh enigma release aarch64,x86_64`.
+It runs `tools/android/build_android.sh enigma release aarch64,x86_64`.
 
 Expected output — every selected ABI is packed into one `universal` artifact,
 so these paths do not change with the ABI list:
@@ -2282,7 +2276,7 @@ for the exact files you ship:
 Before sharing Android files, verify package, version, signer, and fingerprint:
 
 ```bash
-python3 scripts/android_signing/signing_cli.py verify dist/enigma/enigma/enigma-universal-release.apk
+python3 tools/android/android_signing/signing_cli.py verify dist/enigma/enigma/enigma-universal-release.apk
 ```
 
 For manual SDK inspection:
@@ -2392,11 +2386,11 @@ What to do:
 
 `tauri android init` can regenerate files under
 `apps/enigma/src-tauri/gen/android/`. Enigma27 has custom signing gates in the
-generated Gradle project, mirrored by `scripts/android_signing/signing.py`.
+generated Gradle project, mirrored by `tools/android/android_signing/signing.py`.
 
 What to do:
 
-- run `python3 scripts/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
+- run `python3 tools/android/android_signing/signing_cli.py status --gen apps/enigma/src-tauri/gen/android`
   after regenerating Android files;
 - verify that release signing still fails closed when credentials are missing;
 - keep signing logic in Gradle and `signing.py` in lockstep.
@@ -2517,8 +2511,8 @@ shared.
 What to do:
 
 ```bash
-python3 scripts/android_signing/signing_cli.py verify <apk>
-bash scripts/build_android.sh enigma release aarch64,x86_64
+python3 tools/android/android_signing/signing_cli.py verify <apk>
+bash tools/android/build_android.sh enigma release aarch64,x86_64
 ```
 
 Share only a signed release APK.
@@ -2574,9 +2568,9 @@ devices.
 What to do:
 
 ```bash
-bash scripts/build_android.sh enigma release aarch64,x86_64
+bash tools/android/build_android.sh enigma release aarch64,x86_64
 # or, when all targets are installed:
-bash scripts/build_android.sh enigma release all
+bash tools/android/build_android.sh enigma release all
 ```
 
 For an emulator, include `x86_64`.
@@ -2662,7 +2656,7 @@ opens blank, crashes, cannot scan QR codes, or cannot record voice notes:
 Confirm what is actually inside an APK before distributing it:
 
 ```bash
-python3 scripts/android_signing/signing_cli.py verify <apk>
+python3 tools/android/android_signing/signing_cli.py verify <apk>
 ```
 
 The report should show:
@@ -2677,7 +2671,7 @@ Once a release fingerprint has been pinned in
 other keystore fails instead of shipping — so a mismatch between that file and
 the fingerprint printed above means the artifact did not come from the release
 path. The full command set: `signing_cli.py --help`
-([scripts/android_signing/](scripts/android_signing)).
+([tools/android/android_signing/](../../tools/android/android_signing)).
 
 Preset names and output filenames are not separate Android identities. Android
 uses the APK's `applicationId` plus the signing key, and Enigma27 fixes the
@@ -2723,11 +2717,13 @@ apps/enigma/
 └── app-icon-source.png   # the original as authored — never overwritten
 ```
 
-`app-icon.png` is what `npx tauri icon` consumes; the original is kept beside
-it so a better master can be re-derived later without starting from an upscale.
-The current master was made from the 1536×1024 original by **padding** it to
-square on transparency (centred, never stretched) and scaling — do the same
-with a new original, so the artwork is not distorted.
+`app-icon.png` is what `npx tauri icon` consumes. Enigma27's mark is the letter
+**E** on a rounded tile, drawn as plain geometry (no font) by
+`scripts/letter_icon.py`, which writes both files and the in-app marks:
+
+```bash
+python3 scripts/letter_icon.py apps/enigma E <tile colour> <ink colour> enigma27
+```
 
 Everything generated from the master is **committed**: the desktop
 `.png`/`.ico`/`.icns` set under `apps/enigma/src-tauri/icons/`, and the Android
@@ -2752,7 +2748,7 @@ A build uses those committed files as they are; it does not regenerate them.
 Deliberately a manual, reviewed step.
 
 1. Replace `apps/enigma/app-icon.png` (and `app-icon-source.png`) with the new
-   master.
+   master — for the letter mark, by running `scripts/letter_icon.py` as above.
 2. Regenerate every size from it:
 
    ```bash
@@ -2781,165 +2777,130 @@ them in the same change so the app's face stays the same everywhere.
 
 ## 24. Crypto audit inventory
 
-Written 2026-09-16; scope narrowed on 2026-10-03, when Morion moved to its own
-repository and the code both apps share moved to Rutile. This document covers
-Enigma27 and the Rutile crates it links. Nothing here was re-audited on that
-date — only what no longer belongs to this repository was taken out.
+Written 2026-09-16; brought up to date 2026-11-23 for Enigma27 in Pharos (iroh, the
+captain, file locks and key rings are gone). Nothing here was re-audited on that
+date — rows were corrected to match the code, and what no longer exists was taken
+out.
 
 ### Scope
 
 Active scope:
 
-- Enigma27 desktop app: `apps/enigma`
-- Enigma's encrypted store: `protasius`
-- The crypto crates, from the Rutile submodule: `crates/rotor`
-  (`rotor_core`, `gervasius`) and `crates/substrate` (the sealed-file
-  frame — Enigma links it WITHOUT `legacy-detect`, so no Fernet and no OpenSSL)
+- Enigma27: `apps/enigma` (Rust core, Vue front end, `packages/rakotis`)
+- The crates it links: `crates/rotor/rotor_core`, `crates/gervasius`,
+  `crates/protasius`, `crates/enigmatite`
+- arti 0.43 as configured in `src-tauri/src/mesh.rs`
 
 Out of scope here:
 
-- Morion and its file sealing (`padova`, the `ZINNLOCK` frame): its own
-  repository. It shares `gervasius` and `substrate` with Enigma through Rutile,
-  so a finding in those crates concerns both apps.
-- Historical limbo material under `limbo/`
+- Sotha and the `pharos-*` crates (the friend protocol): root
+  [SECURITY.md](../../SECURITY.md), Part 2
+- Morion and its file sealing (another repository)
 
 ### Algorithm Inventory
 
-Rows that mention local file locks or key rings describe code removed on
-2026-10-23 (see §13); they are kept for the record of what files on disk use.
-
-
 | Area | Current algorithm or construction | Where used | Source of truth / notes |
 | --- | --- | --- | --- |
-| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Enigma room chat payloads, room metadata, membership changes, and feature signaling that rides the room channel | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `apps/enigma/src-tauri/build.rs` against `crates/rotor/rotor_core/src/lib.rs`. Rotor uses pure ciphertext wire format and ratchet-tree extension. |
-| MLS credentials | OpenMLS `BasicCredential` with self-asserted device identity | MLS member identities and rosters | `crates/rotor/rotor_core/src/lib.rs`. This is not a PKI or verified identity binding. |
-| At-rest envelope | Passphrase -> Argon2id -> UKEK wraps random 32-byte DEK -> XChaCha20-Poly1305 for values | Enigma profile vault, MLS state, chat/p2p settings, invite records, iroh/Tor keys, panic sidecars | `crates/rotor/gervasius/src/*`, `protasius/src/lib.rs`. Vault headers store version, KDF params, salt, and wrapped DEK. |
-| Password KDF | Argon2id v1.3, 32-byte output | New Enigma vaults, local file locks, key rings (and Morion's sealed files, through the same crate) | Configured in `build_config.yaml` as 64 MiB, t=3, p=4; validated by `build.rs`; implemented in `crates/rotor/gervasius/src/kdf.rs`. |
-| AEAD for local data | XChaCha20-Poly1305 with 24-byte random nonce and AAD | Gervasius sealed blobs, Enigma local file locks, key-ring files, in-memory PIN passphrase box | `crates/rotor/gervasius/src/aead.rs`, `apps/enigma/src-tauri/src/local_lock.rs`, `apps/enigma/src-tauri/src/keyring.rs`, `crates/padova/src/lock.rs`. |
-| Public-key sealing | Ephemeral-static X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305 | Personal invite ticket body sealed to a recipient NodeId public key | `crates/rotor/gervasius/src/seal.rs`, `apps/enigma/src-tauri/src/invite_ticket.rs`. Recipient Ed25519 NodeId keys are converted to X25519; small-order/off-curve inputs are rejected. |
-| Invite redemption | Ed25519 signature over random challenge plus BLAKE3 keyed proof with 32-byte invite capability | QR/ticket redemption before MLS add | `apps/enigma/src-tauri/src/invite_redeem.rs`, `apps/enigma/src-tauri/src/invites.rs`. The capability itself does not cross the wire during redemption. |
-| File transfer E2EE | Ephemeral 2-member MLS group for transfer chunks | Direct iroh file transfer payloads | `apps/enigma/src-tauri/src/file_xfer.rs`. Transfer auth is tied to a KeyPackage hash signaled through the feature's MLS channel. |
-| File transfer integrity | BLAKE3 hash chain with final root | Direct iroh file transfer chunks | `apps/enigma/src-tauri/src/file_xfer.rs`; default enabled by `features.file_integrity` in `build_config.yaml`. |
-| P2P transport | iroh QUIC and iroh-gossip, direct only (no relays, no discovery) | Normal Enigma rooms, invitation redemption, file transfer | `apps/enigma/src-tauri/src/p2p_iroh.rs`. The network path should see only MLS ciphertext for room payloads. |
-| Tor transport | Arti onion services and streams | Tor-mode Enigma rooms | `apps/enigma/src-tauri/src/p2p_tor.rs`. The elected captain forwards MLS ciphertext and should not have other members' group keys beyond its own membership. |
-| Topic derivation | BLAKE3 hash of room name | iroh gossip topics and Tor room naming helpers | `apps/enigma/src-tauri/src/p2p_iroh.rs`, `apps/enigma/src-tauri/src/p2p_tor.rs`. This is deterministic and not a secret by itself. |
-| Legacy platform files | Fernet read/detect path: AES-128-CBC + HMAC | Historical Toto/Zinnia sealed files only — **not compiled into Enigma** | `crates/rotor/gervasius/src/gervazy.rs` (feature `gervazy`), `crates/substrate/src/lib.rs` (feature `legacy-detect`). Morion enables them; Enigma must not, and `./tests.sh` asserts `openssl-sys` is absent from its tree. |
+| MLS group encryption | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` via OpenMLS | Room chat payloads, presence (with onions), membership changes, file offers | Declared in `apps/enigma/src-tauri/build_config.yaml`; asserted by `build.rs` against `crates/rotor/rotor_core/src/lib.rs`. Pure-ciphertext wire format and ratchet-tree extension. |
+| MLS credentials | OpenMLS `BasicCredential` with a self-asserted identity (the profile name) | MLS member identities and rosters | `crates/rotor/rotor_core/src/lib.rs`. Not a PKI or verified identity binding. |
+| Device key | Ed25519 (`ed25519-dalek`), 32-byte seed in the vault | Invitation redemption signature; personal invitations are sealed to its X25519 twin | `apps/enigma/src-tauri/src/device.rs` |
+| At-rest envelope | Passphrase -> Argon2id -> UKEK wraps random 32-byte DEK -> XChaCha20-Poly1305 for values | Profile vault: MLS state, history, settings, rooms, invite records, device key, arti's state | `crates/gervasius/src/*`, `crates/protasius/src/lib.rs`. Vault headers store version, KDF params, salt, and wrapped DEK. |
+| Password KDF | Argon2id v1.3, 32-byte output | New Enigma vaults | Configured in `build_config.yaml` as 64 MiB, t=3, p=4; validated by `build.rs`; implemented in `crates/gervasius`. |
+| AEAD for local data | XChaCha20-Poly1305 with 24-byte random nonce and AAD (`protasius:v1:` ‖ key) | Every sealed value; the in-memory PIN passphrase box | `crates/gervasius`, `crates/protasius`, `apps/enigma/src-tauri/src/vault.rs`. |
+| Public-key sealing | Ephemeral-static X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305 | Personal invite ticket body sealed to the recipient's device id | `crates/gervasius/src/seal.rs`, `apps/enigma/src-tauri/src/invite_ticket.rs`. Ed25519 device keys are converted to X25519; small-order/off-curve inputs are rejected. |
+| Invite redemption | Ed25519 signature over a random challenge plus BLAKE3 keyed proof with the 32-byte capability | Redemption over the inviter's onion, before the MLS add | `apps/enigma/src-tauri/src/invite_redeem.rs`, `invites.rs`. The capability does not cross the wire. |
+| File download | One-time 32-byte secret, committed as BLAKE3(secret) over MLS; BLAKE3 of the whole file | Downloads over the sender's onion | `apps/enigma/src-tauri/src/files.rs`. Bytes are protected by Tor's onion encryption, not by MLS. |
+| Transport | arti onion services, one per member per room; full vanguards | Room links, redemptions, downloads | `apps/enigma/src-tauri/src/mesh.rs`. No direct connections. Links carry JSON frames; only MLS protects content. |
+| Room slug / onion nickname | BLAKE3 of the room name | Room ids and the keystore nickname | `mesh.rs`. Deterministic, not a secret. |
 
-Key dependency versions confirmed from the Enigma Rust tree:
+Key dependency versions in the Enigma Rust tree (check with the commands below):
 
 - `openmls` 0.7.4 and `openmls_rust_crypto` 0.4.4
-- `iroh` 1.4.1 and `iroh-gossip` 0.102.0
-- `arti-client` 0.43.0
-- `argon2` 0.5.3
-- `chacha20poly1305` 0.10.1
-- `blake3` 1.8.5
-- `rustls` 0.23.41
+- `arti-client` 0.43 (features `onion-service-client`, `onion-service-service`, `vanguards`)
+- `argon2` 0.5
+- `chacha20poly1305` 0.10
+- `ed25519-dalek` 3
+- `blake3` 1
 
 ### Secret And Data Locations
 
 | Secret or sensitive data | Storage | Protection |
 | --- | --- | --- |
 | Profile DEK | In memory only after unlock; wrapped in `vault.json` at rest | Argon2id-derived UKEK wraps DEK through gervasius |
-| MLS state | Protasius encrypted store, namespace `mls` | XChaCha20-Poly1305 value sealing; exported state is zeroized on Rust paths that handle it |
-| Chat/profile settings and room data | Protasius encrypted store | Values sealed with per-key AAD prefixing; keys remain plaintext for scans |
-| iroh gossip identity key | Protasius encrypted store, namespace `keys` | Stored sealed; used for stable node identity |
-| Tor onion service identity / keystore | Profile Tor area, sealed through the vault integration | Wiped/resealed on shutdown paths described in `p2p_tor.rs` |
-| Invite capabilities and records | Protasius internal invite namespace | Sealed at rest; redemption sends only challenge-bound proof |
+| MLS state | Protasius, namespace `mls` | Sealed; exported state is zeroized on Rust paths that handle it |
+| Chat history, settings, saved rooms (with members' onions) | Protasius kv (`chat:log`, `p2p:settings`, `p2p:rooms`) | Values sealed with per-key AAD; keys remain plaintext for scans |
+| Device key | Protasius, `keys/device_ed25519` | Sealed |
+| arti's state (onion keys, guards, vanguards) | `profiles/<p>/tor/state` while running; `keys/tor_keystore` when stopped | Sealed at rest; plaintext on disk while the app runs, and after a crash until the next clean stop |
+| Invite capabilities and records | Protasius internal invite namespace | Sealed at rest; redemption sends only a challenge-bound proof |
 | PIN unlock passphrase copy | Process memory only | Passphrase sealed under PIN-derived gervasius vault; dropped after 5 wrong PINs or restart |
-| Panic code targets | Panic sidecar | Sealed under panic passphrase path; panic unlock returns like a normal unlock |
-| Key-ring file keys and absolute paths | Local ring file under profile keyrings | Ring table sealed under ring DEK; raw keys and absolute paths are device-local |
+| Panic code | A second slot in `vault.json` | Panic unlock returns like a normal unlock and wipes every profile |
 
 ### Existing Cybersecurity Measures
 
 - Build-time crypto declarations are validated in `apps/enigma/src-tauri/build.rs`.
   Unknown YAML fields fail the build, sane KDF ranges are checked, and algorithm
-  strings are const-asserted against the vendored crypto crates.
-- Enigma room content is designed to be E2EE through MLS. The network path and
-  Tor captains are not intended to see plaintext room payloads.
-- Local profile data is encrypted at rest through Protasius/gervasius. The
-  vault has no password recovery path; a forgotten passphrase means the store is
-  unavailable by design.
-- The vault can idle-lock. Rust-side watchdog logic tears down iroh, Tor,
-  file transfer, and in-memory MLS sessions before dropping the DEK.
-- PIN unlock is explicitly convenience-only and memory-only. Nothing PIN-derived
-  is persisted to disk.
-- Panic code support keeps the unlock result indistinguishable from a normal
-  unlock and can wipe profile state plus opted-in local files.
-- Personal invite tickets hide the room material and capability from a passive
-  QR observer by sealing the body to the recipient. General invites are bearer
+  strings are const-asserted against the crypto crates.
+- Room content is E2EE through MLS; nothing is sent or shown in plaintext; key
+  packages from the mesh are refused (invitation-only admission).
+- Always Tor, with full vanguards for every hosted onion; no direct connection
+  and no outbound HTTP from the Rust core.
+- Local profile data is encrypted at rest through protasius/gervasius, arti's
+  state included. No password recovery path.
+- The vault can idle-lock. Locking stops the mesh (sealing arti's state) and drops
+  in-memory MLS sessions before the DEK.
+- PIN unlock is convenience-only and memory-only. Nothing PIN-derived is persisted.
+- The panic code's unlock result is indistinguishable from a normal unlock.
+- Personal invitations hide the capability and the inviter's onion from a passive QR
+  observer by sealing the body to the recipient. General invitations are bearer
   credentials by design.
-- Invite redemption is challenge-bound and identity-bound: a captured proof
-  should not replay against a new challenge or a different NodeId.
-- File transfer chunks are MLS-encrypted in a short-lived 2-member group and
-  can be protected by a BLAKE3 hash chain.
-- Key rings use per-file random DEKs and fsync+rename writes for ring and file
-  updates.
-- Tauri capabilities for Enigma are narrow at the manifest level: core, opener,
-  dialog, and notification defaults; no broad filesystem plugin permission is
-  declared in `capabilities/default.json`.
-- Remote Toto token handling, if kept in scope, avoids localStorage for tokens,
-  requires HTTPS, disables redirects, bounds request bodies, and allowlists
-  `/api/v1/` proxy paths.
+- Invite redemption is challenge-bound and identity-bound: a captured proof does not
+  replay against a new challenge or a different device id.
+- A file download needs the secret only the accepting member holds, works once, and
+  is checked by BLAKE3 before it is kept.
+- Tauri capabilities are narrow at the manifest level: core, opener, dialog,
+  notification and deep-link defaults; no filesystem plugin permission.
 
 ### Audit Gaps And Required Work
 
 P0 before an external encryption audit:
 
-- Remove or hard-disable the pre-MLS plaintext chat fallback in
-  `packages/rakotis/src/useChatChannel.ts`. Current code can send
-  `chat_message` over the gossip topic before `mlsStatus === "ready"`.
-- Add a real Tauri Content Security Policy. `apps/enigma/src-tauri/tauri.conf.json`
-  currently has `"csp": null`.
-- Enforce passphrase minimum and policy in Rust, not only in UI. Direct
-  `invoke` calls can currently bypass UI-only policy.
-- Run a fresh dependency audit for Rust and npm before the audit package is
-  handed over. The lockfiles are the source of truth, and npm currently reports
-  high/critical findings during install.
+- Authenticate or drop `mls_reset_request`: today any connection to a member's
+  onion can make that member start a new group of one (§9 item 4).
+- Add a real Tauri Content Security Policy. `tauri.conf.json` has `"csp": null`.
+- Enforce passphrase minimum and policy in Rust, not only in UI.
+- Run a fresh dependency audit for Rust and npm.
 
-P1 hardening:
+P1 hardening (root [todo.md](../../todo.md) Stage 7):
 
-- Add member/key verification UX: safety numbers, SAS, or another explicit
-  binding between QR/tickets, NodeIds, and MLS credentials. BasicCredential alone
-  is self-asserted.
-- Add admission approval for room joins and align old/modified-build behavior.
-  Leaked general tickets are bearer-style entry paths until
-  MLS admission is explicitly approved.
-- Define and implement MLS rekey/post-compromise recovery cadence, including a
-  user-visible "rekey room now" path and tests around removals.
-- Review all logging for passphrases, invite capabilities, tokens,
-  key material, and decrypted payloads. Add regression tests for redaction where
-  practical.
-- Document legacy Fernet/OpenSSL handling as read-only migration support and
-  ensure it is not enabled in Enigma release builds by accident.
+- Padding of every frame before MLS (7.1).
+- Move the sender fields (MLS identity, name, picture, message id) inside the
+  ciphertext (7.2).
+- Tor client authorisation on member onions (part of 7.3), so only members can
+  fetch a member's descriptor and link.
+- Cover traffic and timing (7.4).
+- Member/key verification UX: bind the MLS credential to the device key; safety
+  numbers or SAS.
+- MLS rekey/post-compromise cadence.
+- Review all logging for passphrases, invite capabilities, onions and key material.
 
 P2 documentation and test depth:
 
-- Write a short threat model that separates confidentiality, integrity,
-  authenticity, metadata privacy, local-device compromise, and malicious-room
-  member assumptions.
-- Document metadata leaks for iroh topics, direct-QUIC peer IPs, Tor captain
-  topology, and file transfer timing.
-- Add fuzz/property tests for frame parsers, invite-ticket decoding, and file-transfer frame handling.
-- Review zeroization boundaries. Rust key paths use `zeroize` in several places,
-  but webview/TypeScript plaintext and UI strings cannot provide the same memory
-  guarantees.
-- Add an audit appendix mapping each persisted file or keyspace to its
-  encryption state, backup/recovery behavior, and deletion behavior.
+- Fuzz/property tests for frame parsers, invite-ticket decoding and the download
+  handshake.
+- Review zeroization boundaries; webview/TypeScript plaintext cannot get the same
+  memory guarantees.
 
 ### Verification Commands
 
-Useful commands for keeping this document honest:
-
 ```bash
-rg -n "MLS_128_DHKEMX25519|xchacha20-poly1305|argon2id|ChaCha20Poly1305|blake3|Fernet|csp" \
-  apps rutile/crates protasius packages
+rg -n "MLS_128_DHKEMX25519|xchacha20-poly1305|argon2id|blake3|VanguardMode|csp" \
+  apps/enigma crates
 
-cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i openmls --locked
-cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i iroh --locked
-cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i arti-client --locked
-cargo tree --manifest-path apps/enigma/src-tauri/Cargo.toml -i chacha20poly1305 --locked
+cargo tree -p enigma -i openmls
+cargo tree -p enigma -i arti-client -e features
+cargo tree -p enigma -i chacha20poly1305
+cargo tree -p enigma | grep -c iroh     # 0: no iroh in Enigma27
 
-cargo metadata --format-version 1 --no-deps --manifest-path apps/enigma/src-tauri/Cargo.toml
 npm query .workspace --json
 npm audit
 ```
@@ -2948,21 +2909,17 @@ npm audit
 
 ## Roadmap
 
-Open work, in rough priority order (security hardening items are enumerated in
-[§9](#9-security--privacy-considerations) and are the recommended pre-production
-work — key verification, admission approval, CSP/FS scoping, PCS key rotation):
+Open work, in rough priority order (security hardening items are in
+[§9](#9-security--privacy-considerations) and root [todo.md](../../todo.md) Stage 7):
 
-- **Admission-approval UI** before `addMember` — the remaining half of the
-  auto-admit gap. [§18.8](#188-invite-only-rooms) lets a room refuse gossip key
-  packages outright, which covers the "nobody uninvited gets in" case; an approval
-  UI is what an *open* room still needs, so a member can see and accept a joiner
-  rather than the first admin adding them silently.
+- **Metadata hardening:** padding, sealed sender fields, Tor client authorisation,
+  cover traffic (Stage 7.1–7.4).
+- **An authenticated reset**, or none (§9 item 4).
+- **Key verification** and an MLS rekey cadence.
+- **A room mailbox** on Sotha, so a message can wait for a member who is offline
+  after the sender has closed the room (Enigma27 does not talk to Sotha yet).
 - **Accepted limitations (documented, deliberate):**
-  - Cold start: with no discovery service, if every member's addresses changed
-    while they were apart, reconnection needs a fresh QR.
-  - Group scale: gossip fan-out and the lexicographic admin election are fine for
-    small rooms, not hardened for large groups.
-  - Tor: new joiners need the ticket onion online ([§11](#11-tor-onion-transport--captain-election)).
-- **Deferred features:** mesh-over-Tor (out of scope).
+  - New joiners need the inviter online, with the room open ([§18.7](#187-limitations)).
+  - Group scale: a full mesh, for small rooms.
 - **Housekeeping:** the centralization roadmap in
   [§15](#15-config--sources-of-truth).
