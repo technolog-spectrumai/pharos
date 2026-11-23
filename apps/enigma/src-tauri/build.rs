@@ -22,7 +22,6 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 struct RawConfig {
     crypto: CryptoSection,
-    defaults: DefaultsSection,
     settings: SettingsSection,
     network: NetworkSection,
 }
@@ -51,16 +50,6 @@ struct KdfSection {
     m_cost_kib: u32,
     t_cost: u32,
     p_cost: u32,
-}
-
-/// Initial values of a NEW profile's runtime toggles. A toggle whose feature
-/// is not in the build is simply never read.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DefaultsSection {
-    use_tor: bool,
-    stable_onion: bool,
-    file_integrity: bool,
 }
 
 #[derive(Deserialize)]
@@ -241,14 +230,6 @@ pub mod crypto {{
     pub const KDF_OUT_LEN: u32 = 32; // fixed — mirrors gervasius::KDF_OUT_LEN
 }}
 
-/// Initial values of a new profile's runtime toggles (build_config.yaml
-/// `defaults:`).
-pub mod defaults {{
-    pub const USE_TOR_DEFAULT: bool = {use_tor};
-    pub const STABLE_ONION_DEFAULT: bool = {stable_onion};
-    pub const FILE_INTEGRITY_DEFAULT: bool = {file_integrity};
-}}
-
 pub mod settings {{
     pub const CONNECT_TIMEOUT_DEFAULT_SECS: u64 = {ct_def};
     pub const CONNECT_TIMEOUT_MIN_SECS: u64 = {ct_min};
@@ -320,9 +301,6 @@ const _: () = assert!(
         m_cost = cfg.crypto.kdf.m_cost_kib,
         t_cost = cfg.crypto.kdf.t_cost,
         p_cost = cfg.crypto.kdf.p_cost,
-        use_tor = cfg.defaults.use_tor,
-        stable_onion = cfg.defaults.stable_onion,
-        file_integrity = cfg.defaults.file_integrity,
         ct_def = cfg.settings.connect_timeout_secs.default,
         ct_min = cfg.settings.connect_timeout_secs.min,
         ct_max = cfg.settings.connect_timeout_secs.max,

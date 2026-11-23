@@ -1,6 +1,6 @@
 // Vault integration — wires `protasius` (the centralized encrypted store) into the
 // Tauri app. ALL app data persists through here: the persistence sites in lib.rs /
-// p2p_iroh.rs / p2p_tor.rs call `vault::get/put/delete`, which seal/open every
+// mesh.rs / files.rs call `vault::get/put/delete`, which seal/open every
 // value under a passphrase-derived key. Locked ⇒ data ops error (the frontend gate
 // keeps them from firing before unlock).
 //
@@ -132,7 +132,7 @@ fn store(app: &AppHandle) -> Result<State<'_, ProtasiusState>, String> {
         .ok_or_else(|| "vault not initialized".to_string())
 }
 
-// ── helpers used by the persistence sites (lib.rs, p2p_iroh, p2p_tor) ───────────
+// ── helpers used by the persistence sites (lib.rs, mesh, device) ───────────────
 
 pub fn get(app: &AppHandle, ns: &str, key: &str) -> Result<Option<Vec<u8>>, String> {
     let st = store(app)?;
@@ -205,6 +205,7 @@ pub fn vault_setup(
     // MLS `.bin` blobs need parsing to key them, so migrate them here (after the
     // vault is committed + unlocked).
     crate::migrate_mls(&app, &cfg);
+    crate::mesh::warm_up(&app);
     Ok(())
 }
 
@@ -234,6 +235,8 @@ pub fn vault_unlock(
         let _ = p.migrate(&migration_plan(&app, &cfg));
     }
     crate::migrate_mls(&app, &cfg);
+    // Start Tor now, so the first room opens without waiting for a bootstrap.
+    crate::mesh::warm_up(&app);
     Ok(())
 }
 
@@ -350,6 +353,7 @@ pub fn vault_pin_unlock(
         return panic_wipe(&app, &cfg, &vault, &sessions, &secret);
     }
     crate::migrate_mls(&app, &cfg);
+    crate::mesh::warm_up(&app);
     Ok(())
 }
 
@@ -409,11 +413,9 @@ fn panic_wipe(
     *store = scratch_store;
 
     // Everything Enigma27 owns: all profiles (protasius stores, vault.json headers,
-    // tor/ onion keystores, and the maps/ folder a build with the old Map tab
-    // left behind) plus the pre-vault legacy plaintext.
+    // tor/ state and cache) plus the pre-vault legacy plaintext.
     let _ = std::fs::remove_dir_all(base.join("profiles"));
     let _ = std::fs::remove_dir_all(base.join("kvstore"));
-    let _ = std::fs::remove_file(base.join("iroh_gossip.key"));
 
     // A brand-new vault for the active profile, keyed by the panic code — so the
     // code the user just typed keeps working as their passphrase from here on (and
@@ -431,23 +433,20 @@ fn panic_wipe(
 /// `src/idleLock.ts`, and the Rust-side `lock_watchdog` below). Every data op
 /// goes through the vault, so a transport left running against a locked store
 /// would just error on each persist — tear the whole session down first, in the
-/// same order as a profile switch. In particular `p2p_tor::shutdown` seals the
-/// stable-onion keystore INTO the vault, so it has to run while the DEK is still
-/// in memory.
+/// same order as a profile switch. In particular `mesh::shutdown` seals arti's
+/// state INTO the vault, so it has to run while the DEK is still in memory.
 ///
 /// The frontend reloads the webview afterwards, which is what actually drops the
 /// decrypted values from JS memory; this side drops the DEK and the in-memory MLS
 /// sessions. Every shutdown helper is `Option::take`-based, so a concurrent
 /// second lock (JS and watchdog racing after a suspend wake) is harmless.
 pub async fn lock_inner(app: &AppHandle) -> Result<(), String> {
-    let p2p = app.state::<crate::p2p_iroh::P2pState>();
-    let tor = app.state::<crate::p2p_tor::TorP2pState>();
-    let file = app.state::<crate::file_xfer::FileXferState>();
+    let mesh_state = app.state::<crate::mesh::MeshState>();
+    let file = app.state::<crate::files::FileState>();
 
     crate::shutdown_calls(app).await;
-    crate::p2p_iroh::shutdown(app, &p2p).await;
-    crate::p2p_tor::shutdown(app, &tor).await;
-    crate::file_xfer::shutdown(&file).await;
+    crate::mesh::shutdown(app, &mesh_state).await;
+    crate::files::shutdown(&file).await;
 
     if let Ok(mut s) = app.state::<Sessions>().lock() {
         s.clear(); // in-memory MLS material
@@ -539,8 +538,8 @@ pub async fn lock_watchdog(app: AppHandle) {
         // Rust can see as presence, mirroring App.vue's `isBusy`. (The JS
         // heartbeat stays the primary signal; states only the frontend can see —
         // an offer still awaiting accept, a queued sync batch — are its job to
-        // report.) `file_xfer` covers chat files, map regions and device sync.
-        if crate::in_call(&app) || crate::file_xfer::transfers_active() {
+        // report.)
+        if crate::in_call(&app) || crate::files::transfers_active() {
             activity.0.store(now_ms(), Ordering::Relaxed);
             continue;
         }
@@ -687,9 +686,9 @@ pub fn kv_count(app: AppHandle, ns: String, scope: Option<String>) -> Result<u64
 #[tauri::command]
 pub async fn tor_clean_keystore(
     app: AppHandle,
-    tor: State<'_, crate::p2p_tor::TorP2pState>,
+    mesh_state: State<'_, crate::mesh::MeshState>,
 ) -> Result<(), String> {
-    crate::p2p_tor::clean_keystore(&app, &tor).await;
+    crate::mesh::clean_keystore(&app, &mesh_state).await;
     Ok(())
 }
 

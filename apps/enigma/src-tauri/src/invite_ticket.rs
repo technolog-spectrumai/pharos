@@ -3,12 +3,7 @@
 //!
 //! ## What a ticket may and may not carry
 //!
-//! An ordinary room ticket carries the plaintext **room name**, the creator's
-//! NodeId and — on clearnet — their IP addresses (technology.md §8). It never
-//! expires and cannot be revoked, so in practice "everyone who has ever seen this
-//! QR" is the room's access list.
-//!
-//! An invitation deliberately carries less. There is **no room name, no gossip
+//! An invitation carries as little as it can. There is **no room name, no gossip
 //! topic, no room code and no MLS material** in here: those are handed over only
 //! after redemption, across an authenticated connection to the inviter. What a
 //! photograph of the QR yields is a capability, an address to dial, and a
@@ -19,7 +14,7 @@
 //! * **Personal** — the entire body is sealed to one contact's public key
 //!   (`gervasius::seal_to`). Nobody else can read it, and crucially **no
 //!   decryption key travels with it**: the recipient opens it with the secret
-//!   behind their own NodeId, which was never in the QR. This is a real
+//!   behind their own device id, which was never in the QR. This is a real
 //!   confidentiality claim.
 //!
 //! * **General** — a transferable bearer credential in **cleartext**. There is no
@@ -55,7 +50,6 @@
 //! exists so a holder knows when not to bother, not to enforce anything.
 
 use anyhow::{anyhow, Result};
-use iroh::EndpointAddr;
 use serde::{Deserialize, Serialize};
 
 /// Leading tag byte, joining the ticket family so one field routes them all.
@@ -102,24 +96,6 @@ impl InviteKind {
     }
 }
 
-/// Where to reach the inviter to redeem. One variant per transport, so an
-/// invitation works identically with Tor on or off and neither leaks the other's
-/// address.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InviteAddr {
-    /// Direct QUIC: the inviter's dialable addresses. Carries their IP, exactly
-    /// as an ordinary clearnet ticket does.
-    Iroh(Vec<EndpointAddr>),
-    /// The inviter's onion address. No IP.
-    Tor(String),
-}
-
-impl InviteAddr {
-    pub fn is_tor(&self) -> bool {
-        matches!(self, InviteAddr::Tor(_))
-    }
-}
-
 /// Everything the redeemer needs, and nothing more.
 ///
 /// Note what is absent and must stay absent: room name, gossip topic, room code,
@@ -131,9 +107,10 @@ pub struct InviteBody {
     pub invite_id: [u8; INVITE_ID_LEN],
     /// The secret proven (never transmitted) at redemption.
     pub capability: [u8; CAPABILITY_LEN],
-    /// The inviter's NodeId, so the redeemer knows who they are about to dial.
+    /// The inviter's device id, so the redeemer knows who they are about to dial.
     pub inviter: String,
-    pub addr: InviteAddr,
+    /// The inviter's onion for the room. No IP.
+    pub onion: String,
     /// Unix ms. Display only — see the module note on advisory deadlines.
     pub issued_at: u64,
     pub expires_at: u64,
@@ -161,9 +138,9 @@ pub fn encode_general(body: &InviteBody) -> String {
 }
 
 /// Encode a **Personal** invitation, sealed to `recipient_ed25519` — the raw bytes
-/// of the contact's NodeId.
+/// of the contact's device id.
 ///
-/// Fails if that NodeId is not a usable public key (off-curve, or small-order —
+/// Fails if that device id is not a usable public key (off-curve, or small-order —
 /// see `gervasius::x25519_from_ed25519_pk`), because sealing to it would produce
 /// something that only looks sealed.
 pub fn encode_personal(body: &InviteBody, recipient_ed25519: &[u8; 32]) -> Result<String> {
@@ -224,8 +201,7 @@ pub fn decode(s: &str, my_ed25519_seed: Option<&[u8; 32]>) -> Result<DecodedInvi
     Ok(DecodedInvite { kind, body })
 }
 
-/// Tag sniff for the join router, mirroring `p2p_tor::ticket_is_tor` and
-/// `p2p_iroh::code_is_dht`. Cheap and key-free: it answers "is this an
+/// Tag sniff for the join router. Cheap and key-free: it answers "is this an
 /// invitation?", never "is it valid" or "is it mine".
 pub fn is_invite_ticket(s: &str) -> bool {
     match unbase32(s) {
@@ -249,7 +225,7 @@ pub fn peek_kind(s: &str) -> Option<InviteKind> {
 mod tests {
     use super::*;
 
-    /// RFC 8032 test vector 1 — a real Ed25519 pair, standing in for a NodeId.
+    /// RFC 8032 test vector 1 — a real Ed25519 pair, standing in for a device key.
     const SEED: [u8; 32] = [
         0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c,
         0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae,
@@ -272,7 +248,7 @@ mod tests {
             invite_id: [7u8; INVITE_ID_LEN],
             capability: [9u8; CAPABILITY_LEN],
             inviter: "inviter-node-id".to_string(),
-            addr: InviteAddr::Tor("abcdefghij.onion".to_string()),
+            onion: "abcdefghij.onion".to_string(),
             issued_at: 1_700_000_000_000,
             expires_at: 1_700_003_600_000,
         }
@@ -430,15 +406,5 @@ mod tests {
         let mut identity = [0u8; 32];
         identity[0] = 1;
         assert!(encode_personal(&body(), &identity).is_err());
-    }
-
-    #[test]
-    fn both_transports_survive_the_round_trip() {
-        let mut b = body();
-        b.addr = InviteAddr::Iroh(vec![]);
-        let got = decode(&encode_general(&b), None).unwrap();
-        assert_eq!(got.body.addr, InviteAddr::Iroh(vec![]));
-        assert!(!got.body.addr.is_tor());
-        assert!(body().addr.is_tor());
     }
 }

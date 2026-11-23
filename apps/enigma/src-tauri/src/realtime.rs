@@ -1,197 +1,109 @@
-// Rust-owned realtime gateway — dispatches to the active P2P transport.
-//
-// The frontend calls the `realtime_*` commands and listens to the
-// `realtime://message` / `realtime://status` events; it never learns which
-// transport is used. There are two backends:
-//   - p2p_iroh.rs — iroh-gossip over QUIC (the default).
-//   - p2p_tor.rs  — peer-hosted Tor onion services (when the `use_tor` switch is
-//     on). Tor is EXCLUSIVE: while on, rooms are created/sent over Tor, not iroh.
-// Both emit the same events, so the command names + TS `chatTransport` call sites
-// are unchanged. Joining routes by the ticket itself (a Tor ticket is tagged), so
-// a scanned ticket reaches the right backend regardless of the switch.
+// The `realtime_*` commands the frontend's chat transport calls, and the
+// `realtime://message` / `realtime://status` events it listens to. There is one
+// transport: the Tor mesh (mesh.rs).
 
 use serde::Serialize;
-use serde_json::json;
 use tauri::{AppHandle, State};
 
-use crate::p2p_iroh::{self, P2pState};
-use crate::p2p_tor::{self, TorP2pState};
+use crate::mesh::{self, MeshState};
 use crate::{active_config, load_profile_state, AppConfigState};
 
 const OFFLINE_BLOCKED: &str = "Offline — all network connections are blocked.";
 
-/// Airplane mode: true when the offline switch is on (blocks all P2P networking).
-fn offline(app: &AppHandle, config: &State<'_, AppConfigState>) -> bool {
-    matches!(active_config(config), Ok(cfg) if crate::is_offline(&load_profile_state(app, &cfg)))
+/// Airplane mode blocks every network command.
+fn check_offline(app: &AppHandle, config: &State<'_, AppConfigState>) -> Result<(), String> {
+    match active_config(config) {
+        Ok(cfg) if crate::is_offline(&load_profile_state(app, &cfg)) => Err(OFFLINE_BLOCKED.to_string()),
+        _ => Ok(()),
+    }
 }
 
-/// True when this profile routes over the Tor onion transport instead of iroh.
-fn use_tor(app: &AppHandle, config: &State<'_, AppConfigState>) -> bool {
-    matches!(active_config(config), Ok(cfg) if crate::is_use_tor(&load_profile_state(app, &cfg)))
+#[derive(Serialize)]
+pub struct OpenedRoom {
+    room: String,
+    name: String,
+    /// This device's onion for the room, announced to the other members.
+    onion: String,
 }
 
 #[tauri::command]
 pub async fn realtime_send(
     app: AppHandle,
     config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
-    room: Option<String>,
+    mesh_state: State<'_, MeshState>,
+    room: String,
     payload: String,
 ) -> Result<(), String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let room = room.ok_or_else(|| "realtime: room is required".to_string())?;
-    // Route by which transport actually owns the room, not the switch: a room
-    // joined from a ticket may be on the other transport than the switch selects.
-    if p2p_tor::has_room(&tor, &room).await {
-        p2p_tor::broadcast(&tor, &room, payload).await.map_err(|e| e.to_string())
-    } else {
-        p2p_iroh::broadcast(&p2p, &room, payload).await.map_err(|e| e.to_string())
-    }
+    check_offline(&app, &config)?;
+    mesh::broadcast(&mesh_state, &room, payload).await.map_err(|e| e.to_string())
 }
 
-// ── P2P room commands ──────────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-pub struct CreatedRoom {
-    room: String,
-    name: String,
-    /// This member's own onion (Tor rooms) — announced over presence so peers can
-    /// dial us if we're elected captain. Empty for iroh rooms.
-    onion: String,
-}
-
-#[derive(Serialize)]
-pub struct JoinedRoom {
-    room: String,
-    name: String,
-    /// This member's own onion (Tor rooms); empty for iroh. See `CreatedRoom`.
-    onion: String,
-}
-
+/// Create a room: host its onion. Nobody else is in it yet.
 #[tauri::command]
 pub async fn realtime_create_room(
     app: AppHandle,
     config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
+    mesh_state: State<'_, MeshState>,
     name: String,
-) -> Result<CreatedRoom, String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let (room, onion) = if use_tor(&app, &config) {
-        p2p_tor::create_room(&app, &tor, name.clone()).await.map_err(|e| e.to_string())?
-    } else {
-        let room = p2p_iroh::create_room(&app, &p2p, name.clone()).await.map_err(|e| e.to_string())?;
-        (room, String::new())
-    };
-    Ok(CreatedRoom { room, name, onion })
+) -> Result<OpenedRoom, String> {
+    check_offline(&app, &config)?;
+    let (room, onion) = mesh::open_room(&app, &mesh_state, name.clone()).await.map_err(|e| e.to_string())?;
+    Ok(OpenedRoom { room, name, onion })
 }
 
-/// Enter a room by name + peers — the only join command there is.
-///
-/// For iroh this subscribes to `blake3(name)` and bootstraps from the given
-/// NodeIds; for Tor this re-hosts under the room name (same nickname ⇒ same
-/// onion). Two callers: reopening a saved room, and completing a redeemed
-/// invitation. Landing on the topic is not membership — every member refuses
-/// gossip key packages, so only a redeemed invitation joins the MLS group.
+/// Open a room and link to the given members' onions: reopening a saved room,
+/// or entering one after an invitation was redeemed.
 #[tauri::command]
-pub async fn realtime_join_room_by_node(
+pub async fn realtime_join_room(
     app: AppHandle,
     config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
+    mesh_state: State<'_, MeshState>,
     name: String,
-    peer_node_ids: Vec<String>,
-) -> Result<JoinedRoom, String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let room = if use_tor(&app, &config) {
-        p2p_tor::join_room_by_node(&app, &tor, name.clone(), peer_node_ids)
-            .await
-            .map_err(|e| e.to_string())?
-    } else {
-        p2p_iroh::join_room_by_node(&app, &p2p, name.clone(), peer_node_ids)
-            .await
-            .map_err(|e| e.to_string())?
-    };
-    // Reconnect-by-name doesn't surface an onion; the Tor reopen paths that need it
-    // (host re-create / joiner re-dial-by-ticket) go through create/join instead.
-    Ok(JoinedRoom { room, name, onion: String::new() })
+    peers: Vec<String>,
+) -> Result<OpenedRoom, String> {
+    check_offline(&app, &config)?;
+    let (room, onion) = mesh::join_room(&app, &mesh_state, name.clone(), peers).await.map_err(|e| e.to_string())?;
+    Ok(OpenedRoom { room, name, onion })
+}
+
+/// The members to keep a link to (every other member's onion).
+#[tauri::command]
+pub async fn realtime_set_peers(
+    app: AppHandle,
+    config: State<'_, AppConfigState>,
+    mesh_state: State<'_, MeshState>,
+    room: String,
+    peers: Vec<String>,
+) -> Result<(), String> {
+    check_offline(&app, &config)?;
+    mesh::set_peers(&app, &mesh_state, &room, peers).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn realtime_leave_room(
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
-    room: String,
-) -> Result<(), String> {
-    // Leave in whichever transport owns the room (both are no-ops if absent).
-    let _ = p2p_iroh::leave_room(&p2p, &room).await;
-    let _ = p2p_tor::leave_room(&tor, &room).await;
+pub async fn realtime_leave_room(mesh_state: State<'_, MeshState>, room: String) -> Result<(), String> {
+    mesh::leave_room(&mesh_state, &room).await;
     Ok(())
 }
 
-/// Cancel an in-flight Tor join (the join modal's "Cancel" button). Aborts the
-/// hanging onion-launch/dial so it releases arti's keystore lock, letting the user
-/// retry without a "local resource … already in use" error. No-op for iroh joins
-/// (and when nothing is joining), so it is safe to call unconditionally.
+/// The join modal's Cancel.
 #[tauri::command]
-pub async fn realtime_cancel_join(tor: State<'_, TorP2pState>) -> Result<(), String> {
-    p2p_tor::cancel_join(&tor).await;
+pub async fn realtime_cancel_join(mesh_state: State<'_, MeshState>) -> Result<(), String> {
+    mesh::cancel_join(&mesh_state).await;
     Ok(())
 }
 
-/// Destroy a room's onion identity (part of "delete room" for a Tor room): stops the
-/// room's onion service and removes its hidden-service keys so a future same-named
-/// room mints a fresh `.onion`. No-op for a room this device never hosted over Tor.
+/// Part of "delete room": a future room of the same name gets a fresh onion.
 #[tauri::command]
-pub async fn realtime_forget_tor_onion(
+pub async fn realtime_forget_onion(
     app: AppHandle,
-    tor: State<'_, TorP2pState>,
+    mesh_state: State<'_, MeshState>,
     name: String,
 ) -> Result<(), String> {
-    p2p_tor::forget_onion(&app, &tor, name).await.map_err(|e| e.to_string())
+    mesh::forget_onion(&app, &mesh_state, name).await.map_err(|e| e.to_string())
 }
 
+/// This device's id (its public key), for a personal invitation.
 #[tauri::command]
-pub async fn realtime_node_info(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
-) -> Result<serde_json::Value, String> {
-    // node_info starts the iroh endpoint (relay connection + discovery publish),
-    // so airplane mode must gate it like every other network-touching command.
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    let node_id = if use_tor(&app, &config) {
-        p2p_tor::node_info(&app, &tor).await.map_err(|e| e.to_string())?
-    } else {
-        p2p_iroh::node_info(&app, &p2p).await.map_err(|e| e.to_string())?
-    };
-    Ok(json!({ "node_id": node_id }))
-}
-
-/// Re-point this member's outbound onion dial to the elected captain (Tor only).
-/// Driven by the frontend's captain election in `useChatChannel.ts`; idempotent.
-#[tauri::command]
-pub async fn realtime_tor_set_captain(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    tor: State<'_, TorP2pState>,
-    room: String,
-    captain_onion: String,
-) -> Result<(), String> {
-    if offline(&app, &config) {
-        return Err(OFFLINE_BLOCKED.to_string());
-    }
-    p2p_tor::set_captain(&app, &tor, &room, captain_onion)
-        .await
-        .map_err(|e| e.to_string())
+pub fn realtime_device_id(app: AppHandle) -> Result<String, String> {
+    crate::device::load_or_create(&app).map(|k| crate::device::id_of(&k)).map_err(|e| e.to_string())
 }

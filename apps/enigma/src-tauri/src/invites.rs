@@ -30,7 +30,7 @@
 //! to fall back to the redeemer transmitting the raw capability instead. That
 //! trade is strictly worse: it drops the challenge binding to protect a secret
 //! that the vault already protects, alongside the MLS state, the chat log and the
-//! iroh identity key. So the capability is kept here, and the vault stays the one
+//! device key. So the capability is kept here, and the vault stays the one
 //! boundary that matters.
 //!
 //! ## One-use is a lease, not a burn
@@ -123,7 +123,7 @@ pub struct InviteRecord {
     pub kind: String,
     /// The secret the ticket carries; see the module note on why it lives here.
     pub capability: [u8; CAPABILITY_LEN],
-    /// Personal invitations only: the NodeId this is addressed to.
+    /// Personal invitations only: the device id this is addressed to.
     pub recipient: Option<String>,
     /// Which room a successful redemption admits to. Never leaves this device in
     /// a QR — it is handed over only after the redeemer has proven themselves.
@@ -132,8 +132,6 @@ pub struct InviteRecord {
     pub room_name: String,
     pub created_at: u64,
     pub expires_at: u64,
-    /// Whether the ticket was minted with an onion address.
-    pub tor: bool,
     pub state: InviteState,
 }
 
@@ -201,7 +199,7 @@ pub fn effective_state(rec: &InviteRecord, now: u64) -> EffectiveState {
 /// The proof a redeemer must produce: a MAC over the challenge and their own
 /// identity, keyed by the capability.
 ///
-/// Binding the redeemer's NodeId in is what stops a captured proof being reused
+/// Binding the redeemer's device id in is what stops a captured proof being reused
 /// by a different holder, and binding the challenge is what stops it being reused
 /// by the same one. The capability itself never crosses the wire.
 pub fn expected_proof(
@@ -437,7 +435,6 @@ mod tests {
             room_name: "Room One".into(),
             created_at: T0,
             expires_at: T0 + 3_600_000,
-            tor: false,
             state: InviteState::Active,
         }
     }

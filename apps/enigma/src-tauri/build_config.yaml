@@ -32,29 +32,17 @@ crypto:
     p_cost: 4
 
 network:
-  # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps the
-  # Tor transport frame AND the iroh-gossip message size. A peer built with a
+  # WIRE-INTEROP: peers in one room must agree on max_frame_bytes — it caps a
+  # frame on a member's link. A peer built with a
   # larger value can emit messages a smaller-cap peer rejects. Change only in
   # lockstep across a fleet, and never per preset: a Standard user must be able
   # to sit in a room with a Pro user.
   max_frame_bytes: 16777216      # 16 MiB
-  # Not interop-sensitive: the virtual onion port rides inside each ticket, so
-  # joiners always use the ticket's value; changing it affects new tickets only.
+  # The virtual port every onion listens on. Members must agree.
   onion_port: 9999
   # Local-only tuning (no wire impact).
   tor_write_timeout_secs: 20
   tor_handshake_timeout_secs: 30
-
-defaults:
-  # Initial values of a NEW profile's runtime toggles — the user's own opt-ins,
-  # not what the build contains. A feature being compiled in does not turn it
-  # on. Settings switches override these per profile. "offline" (airplane mode) is deliberately not here — it
-  # always starts off.
-  use_tor: false
-  stable_onion: false
-  # Verify chunked P2P transfers with a per-chunk hash chain. Off = trust the
-  # transport; either SIDE turning it on enforces it.
-  file_integrity: true
 
 settings:
   # Defaults + bounds for the user-tunable settings. The encrypted store (kv

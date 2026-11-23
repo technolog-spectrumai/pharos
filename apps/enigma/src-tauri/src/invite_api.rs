@@ -2,21 +2,17 @@
 //!
 //! This module is the seam where the three halves meet — the ticket codec
 //! (`invite_ticket`), the issuer's sealed record (`invites`) and the redemption
-//! exchange (`invite_redeem`) — plus the two transports. Keeping the stitching
+//! exchange (`invite_redeem`) — plus the dial over Tor. Keeping the stitching
 //! here leaves each of those modules about one thing.
 //!
-//! Two rules it exists to enforce:
+//! The rule it exists to enforce:
 //!
 //! * **The frontend never sees a capability.** Minting returns the finished
 //!   ticket string and nothing else; redeeming takes a ticket string and returns
 //!   what the inviter granted. The 32-byte secret is generated in Rust, sealed
 //!   into the ticket, stored in the vault, and never crosses the IPC boundary as
 //!   a field the webview could read or replay.
-//!
-//! * **The transport follows the room, not the setting.** A room hosted over Tor
-//!   mints an onion invitation; a clearnet room mints a direct one. Reading the
-//!   global Tor toggle instead would mint an unreachable address for a room that
-//!   was created before the switch was flipped.
+
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -24,16 +20,12 @@ use tauri::{AppHandle, State};
 use chacha20poly1305::aead::rand_core::{OsRng, RngCore};
 
 use crate::invite_redeem::{self, RedeemGrant};
-use crate::invite_ticket::{
-    self, InviteAddr, InviteBody, InviteKind, CAPABILITY_LEN, INVITE_ID_LEN,
-};
+use crate::invite_ticket::{self, InviteBody, InviteKind, CAPABILITY_LEN, INVITE_ID_LEN};
 use crate::invites::{self, effective_state, InviteRecord, InviteState};
-use crate::p2p_iroh::P2pState;
-use crate::p2p_tor::TorP2pState;
+use crate::mesh::MeshState;
 
-/// Ceiling on how long an invitation may live. A deadline is the only thing
-/// limiting a bearer credential, so "never" is deliberately not offered — the
-/// unbounded case already exists and is called a room ticket.
+/// Ceiling on how long a dated invitation may live. (`ttl_secs == 0` asks for
+/// one that never expires, revocable like any other.)
 const MAX_TTL_SECS: u64 = 30 * 24 * 60 * 60;
 const MIN_TTL_SECS: u64 = 60;
 
@@ -46,7 +38,6 @@ pub struct InviteCreated {
     pub invite_id: String,
     pub expires_at: u64,
     pub kind: String,
-    pub tor: bool,
 }
 
 /// A row of the manage list. Deliberately carries no capability.
@@ -61,7 +52,6 @@ pub struct InviteSummary {
     pub recipient: Option<String>,
     pub created_at: u64,
     pub expires_at: u64,
-    pub tor: bool,
     /// Who spent it, when it was spent — for the "used" row.
     pub consumed_by: Option<String>,
 }
@@ -76,7 +66,6 @@ fn summarise(rec: &InviteRecord, now: u64) -> InviteSummary {
         recipient: rec.recipient.clone(),
         created_at: rec.created_at,
         expires_at: rec.expires_at,
-        tor: rec.tor,
         consumed_by: match &rec.state {
             InviteState::Consumed { by, .. } => Some(by.clone()),
             _ => None,
@@ -94,16 +83,13 @@ pub struct InvitePeek {
     pub inviter: String,
     pub issued_at: u64,
     pub expires_at: u64,
-    pub tor: bool,
     /// The ticket's own claim, which is advisory: the inviter's clock decides.
     /// Shown so a holder knows not to bother, never relied upon.
     pub looks_expired: bool,
 }
 
 fn identity_seed(app: &AppHandle) -> Result<[u8; 32], String> {
-    Ok(crate::p2p_iroh::load_or_create_secret(app, "gossip")
-        .map_err(|e| e.to_string())?
-        .to_bytes())
+    Ok(crate::device::load_or_create(app).map_err(|e| e.to_string())?.to_bytes())
 }
 
 // ── mint ────────────────────────────────────────────────────────────────────
@@ -111,34 +97,26 @@ fn identity_seed(app: &AppHandle) -> Result<[u8; 32], String> {
 /// Mint an invitation for a room.
 ///
 /// `kind` is `"personal"` (sealed to `recipient`, which must be a contact's
-/// NodeId) or `"general"` (a bearer code in cleartext — the caller is expected to
+/// device id) or `"general"` (a bearer code in cleartext — the caller is expected to
 /// have warned the user first).
 #[tauri::command]
 pub async fn invite_create(
     app: AppHandle,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
+    mesh: State<'_, MeshState>,
     room_slug: String,
     room_name: String,
     kind: String,
     recipient: Option<String>,
     ttl_secs: u64,
 ) -> Result<InviteCreated, String> {
-    mint(&app, &p2p, &tor, room_slug, room_name, &kind, recipient, ttl_secs).await
+    mint(&app, &mesh, room_slug, room_name, &kind, recipient, ttl_secs).await
 }
 
-/// The minting core, callable from Rust as well as from the command above.
-///
-/// It exists because the Contacts "invite to room" flow (`p2p_invite.rs`) has to
-/// mint one too: it used to hand the contact a permanent room ticket, and now
-/// sends a personal invitation sealed to that contact's NodeId instead. One
-/// implementation, so the direct-invite path cannot drift into issuing something
-/// with different expiry, revocation or ledger behaviour from the QR path.
+/// The minting core.
 #[allow(clippy::too_many_arguments)]
 pub async fn mint(
     app: &AppHandle,
-    p2p: &P2pState,
-    tor: &TorP2pState,
+    mesh: &MeshState,
     room_slug: String,
     room_name: String,
     kind: &str,
@@ -152,36 +130,18 @@ pub async fn mint(
     };
     let now = invites::now_ms();
 
-    // The room's own transport decides the address (see the module note).
-    let onion = crate::p2p_tor::room_onion(tor, &room_slug).await;
-    let addr = match &onion {
-        Some(o) => InviteAddr::Tor(o.clone()),
-        None => InviteAddr::Iroh(vec![crate::p2p_iroh::local_addr(app, p2p)
-            .await
-            .map_err(|e| e.to_string())?]),
-    };
-    // `ttl_secs == 0` asks for an invitation that never expires. Tor only.
-    //
-    // On a clearnet room the address is an IP, and an invitation naming one for
-    // ever is a standing offer to a network that can watch it. Over Tor the
-    // address is a `.onion`: hard to come by, cheap to retire, and the exposure it
-    // creates is something the budget can price by the hour (`tor.persistent.hold`)
-    // rather than something the app has to forbid. So this is a refusal on the
-    // clearnet path and a charged choice on the Tor one.
+    // The address to redeem at is our onion for the room, so the room must be open.
+    let onion = crate::mesh::room_onion(mesh, &room_slug)
+        .await
+        .ok_or_else(|| "INVITE_ROOM_CLOSED".to_string())?;
     let forever = ttl_secs == 0;
-    if forever && !addr.is_tor() {
-        return Err("INVITE_FOREVER_TOR_ONLY".to_string());
-    }
     let expires_at = if forever {
         0
     } else {
         now + ttl_secs.clamp(MIN_TTL_SECS, MAX_TTL_SECS) * 1000
     };
 
-    let inviter = crate::p2p_iroh::load_or_create_secret(app, "gossip")
-        .map_err(|e| e.to_string())?
-        .public()
-        .to_string();
+    let inviter = crate::device::id_of(&crate::device::load_or_create(app).map_err(|e| e.to_string())?);
 
     let mut invite_id = [0u8; INVITE_ID_LEN];
     let mut capability = [0u8; CAPABILITY_LEN];
@@ -192,7 +152,7 @@ pub async fn mint(
         invite_id,
         capability,
         inviter,
-        addr: addr.clone(),
+        onion,
         issued_at: now,
         expires_at,
     };
@@ -203,9 +163,8 @@ pub async fn mint(
             let node = recipient
                 .as_deref()
                 .ok_or_else(|| "a personal invitation needs a recipient".to_string())?;
-            let id: iroh::EndpointId =
-                node.parse().map_err(|_| "invalid contact code".to_string())?;
-            invite_ticket::encode_personal(&body, id.as_bytes()).map_err(|e| e.to_string())?
+            let pk = crate::device::public_of(node).ok_or_else(|| "invalid contact code".to_string())?;
+            invite_ticket::encode_personal(&body, &pk).map_err(|e| e.to_string())?
         }
     };
 
@@ -225,7 +184,6 @@ pub async fn mint(
             room_name,
             created_at: now,
             expires_at,
-            tor: addr.is_tor(),
             state: InviteState::Active,
         },
     )?;
@@ -235,7 +193,6 @@ pub async fn mint(
         invite_id: id_hex,
         expires_at,
         kind: kind.as_str().to_string(),
-        tor: addr.is_tor(),
     })
 }
 
@@ -289,7 +246,6 @@ pub fn invite_peek(app: AppHandle, ticket: String) -> Result<InvitePeek, String>
         inviter: decoded.body.inviter.clone(),
         issued_at: decoded.body.issued_at,
         expires_at: decoded.body.expires_at,
-        tor: decoded.body.addr.is_tor(),
         looks_expired: invites::now_ms() >= decoded.body.expires_at,
     })
 }
@@ -312,8 +268,7 @@ pub fn invite_is_invite(ticket: String) -> bool {
 #[tauri::command]
 pub async fn invite_redeem(
     app: AppHandle,
-    p2p: State<'_, P2pState>,
-    tor: State<'_, TorP2pState>,
+    mesh: State<'_, MeshState>,
     ticket: String,
     key_package: String,
     name: String,
@@ -322,39 +277,14 @@ pub async fn invite_redeem(
     let decoded = invite_ticket::decode(&ticket, Some(&seed)).map_err(|e| e.to_string())?;
     let body = decoded.body;
 
-    match &body.addr {
-        InviteAddr::Tor(onion) => {
-            let (mut rd, mut wr) = crate::p2p_tor::dial_redeem(&app, &tor, onion)
-                .await
-                .map_err(|e| e.to_string())?;
-            invite_redeem::redeem_over_tor(
-                &app,
-                &mut wr,
-                &mut rd,
-                &body.invite_id,
-                &body.capability,
-                key_package,
-                name,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        }
-        InviteAddr::Iroh(hints) => {
-            let endpoint = crate::p2p_iroh::endpoint_for_dial(&app, &p2p, hints)
-                .await
-                .map_err(|e| e.to_string())?;
-            invite_redeem::redeem_over_iroh(
-                &app,
-                endpoint,
-                &body.inviter,
-                &body.invite_id,
-                &body.capability,
-                key_package,
-                name,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        }
+    let (mut rd, mut wr) = crate::mesh::dial_kind(&app, &mesh, &body.onion, "redeem")
+        .await
+        .map_err(|e| format!("INVITE_UNREACHABLE: {e}"))?;
+    let window = std::time::Duration::from_secs(2 * crate::net_settings::connect_timeout_secs(&app));
+    let exchange = invite_redeem::redeem_over_tor(&app, &mut wr, &mut rd, &body.invite_id, &body.capability, key_package, name);
+    match tokio::time::timeout(window, exchange).await {
+        Ok(r) => r.map_err(|e| e.to_string()),
+        Err(_) => Err("INVITE_UNREACHABLE: the inviter did not answer in time".to_string()),
     }
 }
 
@@ -376,8 +306,6 @@ mod tests {
 
     #[test]
     fn a_ttl_is_clamped_into_a_sane_range() {
-        // "Never expires" is not on offer: the unbounded credential already
-        // exists and is called a room ticket.
         assert_eq!(0u64.clamp(MIN_TTL_SECS, MAX_TTL_SECS), MIN_TTL_SECS);
         assert_eq!(u64::MAX.clamp(MIN_TTL_SECS, MAX_TTL_SECS), MAX_TTL_SECS);
         // The presets the UI offers all survive untouched.
@@ -399,7 +327,6 @@ mod tests {
             room_name: "Room One".into(),
             created_at: 1,
             expires_at: 2,
-            tor: false,
             state: InviteState::Active,
         };
         let json = serde_json::to_string(&summarise(&rec, 0)).unwrap();
@@ -419,7 +346,6 @@ mod tests {
             room_name: "R".into(),
             created_at: 0,
             expires_at: 1_000,
-            tor: false,
             state: InviteState::Active,
         };
         assert_eq!(summarise(&rec, 999).state, "active");
@@ -440,7 +366,6 @@ mod tests {
             room_name: "R".into(),
             created_at: 0,
             expires_at: 1,
-            tor: false,
             state: InviteState::Active,
         };
         assert!(summarise(&rec, 0).recipient.is_none());

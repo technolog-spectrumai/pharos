@@ -1,5 +1,5 @@
 // Two Enigma instances talking over the real Tor network: one process hosts an
-// onion service, the other dials it, and both use this module's own wire
+// onion service, the other dials it, and both use the mesh's own wire
 // protocol — the Hello/Ready handshake and length-prefixed frames, the same
 // bytes a room carries. Run by ./test_tor2.sh, never by `cargo test` on its own:
 // the tests are #[ignore]d and do nothing without TOR2_ROLE and TOR2_DIR.
@@ -29,11 +29,9 @@ async fn client(role: &str, dir: &Path) -> Arc<TorClient<PreferredRuntime>> {
     let cache = dir.join(format!("{role}-cache"));
     std::fs::create_dir_all(&state).unwrap();
     std::fs::create_dir_all(&cache).unwrap();
-    let mut b = TorClientConfigBuilder::from_directories(state, cache);
-    b.storage().permissions().dangerously_trust_everyone();
     let started = Instant::now();
-    log(role, "bootstrapping Tor…");
-    let c = tokio::time::timeout(BOOTSTRAP_TIMEOUT, TorClient::create_bootstrapped(b.build().unwrap()))
+    log(role, "bootstrapping Tor (full vanguards)…");
+    let c = tokio::time::timeout(BOOTSTRAP_TIMEOUT, TorClient::create_bootstrapped(arti_config(&state, &cache).unwrap()))
         .await
         .expect("Tor bootstrap timed out")
         .expect("Tor bootstrap failed");
@@ -56,7 +54,7 @@ async fn tor2_host() {
     }
     let dir = rendezvous();
     let c = client("host", &dir).await;
-    let nick = nickname_for_gen(&format!("tor2-{}", std::process::id()), 0).unwrap();
+    let nick = nickname_for(&format!("tor2-{}", std::process::id())).unwrap();
     let (service, rend) = c
         .launch_onion_service(OnionServiceConfigBuilder::default().nickname(nick).build().unwrap())
         .expect("launch onion service")
@@ -112,7 +110,7 @@ async fn tor2_dialler() {
     // A fresh descriptor can take a while to be reachable: retry until DIAL_TIMEOUT.
     let dial_start = Instant::now();
     let (mut rd, mut wr) = loop {
-        match tokio::time::timeout(Duration::from_secs(90), dial_and_handshake(&c, &onion, "tor2-room", "tor2-dialler")).await {
+        match tokio::time::timeout(Duration::from_secs(90), dial(&c, &onion, &Hello { name: "tor2-room".into(), peer_id: "tor2-dialler".into(), kind: None, onion: "tor2-dialler.onion".into() })).await {
             Ok(Ok(s)) => break s,
             Ok(Err(e)) => log("dialler", &format!("not yet: {e}")),
             Err(_) => log("dialler", "not yet: dial timed out"),

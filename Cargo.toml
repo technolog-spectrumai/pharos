@@ -5,7 +5,6 @@ resolver = "3"
 members = [
     "crates/gervasius",
     "crates/rotor/rotor_core",
-    "crates/ferrozine",
     "crates/protasius",
     "crates/pharos-wire",
     "crates/pharos-rendezvous",

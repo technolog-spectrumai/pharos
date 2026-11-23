@@ -5,9 +5,13 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
-// P2P file transfer over iroh QUIC (restored from limbo/ 2026-07).
 mod deeplink;
-mod file_xfer;
+// This device's Ed25519 key: the id invitations are sealed to and redeemed by.
+mod device;
+// File transfer between two members, over the sender's onion for the room.
+mod files;
+// The transport: a mesh of Tor onion services, one per member per room.
+mod mesh;
 // User settings the transports share (the connect deadline).
 mod net_settings;
 // Encrypted, expiring QR invitations: the ticket format and its sealing
@@ -16,14 +20,10 @@ mod invite_ticket;
 // The issuer's sealed record of every invitation minted — expiry, revocation and
 // one-use consumption are all decided here, on the INVITER's clock.
 mod invites;
-// The redemption exchange itself, over iroh's own ALPN and over the onion
-// transport's stream. Same checks on both.
+// The redemption exchange itself, over the inviter's onion.
 mod invite_redeem;
 // The commands the invitation UI drives: mint, list, revoke, inspect, redeem.
 mod invite_api;
-mod legacy_ticket;
-mod p2p_iroh;
-mod p2p_tor;
 mod realtime;
 // Encryption-at-rest: the centralized encrypted store integration (protasius).
 // Replaces the old plaintext kv.rs + per-file persistence.
@@ -114,25 +114,6 @@ pub struct AppProfileState {
     // build-config default.
     #[serde(default)]
     pub offline: bool,
-    // use_tor — route rendezvous + chat over the peer-hosted Tor onion transport
-    // (p2p_tor.rs) instead of iroh. Exclusive: when on, iroh is not used.
-    // New profiles start from the build-config default; saved profiles always
-    // serialize the bool explicitly, so existing users keep their value.
-    #[serde(default = "default_use_tor")]
-    pub use_tor: bool,
-    // stable_onion — keep the Tor onion address stable across restarts. When on,
-    // the hidden-service key is kept (encrypted at rest, materialized only while
-    // unlocked); when off, the onion is ephemeral and regenerates each session.
-    #[serde(default = "default_stable_onion")]
-    pub stable_onion: bool,
-}
-
-fn default_use_tor() -> bool {
-    build_config::defaults::USE_TOR_DEFAULT
-}
-
-fn default_stable_onion() -> bool {
-    build_config::defaults::STABLE_ONION_DEFAULT
 }
 
 impl Default for AppProfileState {
@@ -142,8 +123,6 @@ impl Default for AppProfileState {
             offline_profiles: Vec::new(),
             selected_offline_profile_id: String::new(),
             offline: false,
-            use_tor: default_use_tor(),
-            stable_onion: default_stable_onion(),
         }
     }
 }
@@ -151,16 +130,6 @@ impl Default for AppProfileState {
 /// Airplane mode — blocks every network connection (all P2P).
 pub(crate) fn is_offline(state: &AppProfileState) -> bool {
     state.offline
-}
-
-/// True when this profile routes over the Tor onion transport instead of iroh.
-pub(crate) fn is_use_tor(state: &AppProfileState) -> bool {
-    state.use_tor
-}
-
-/// True when the Tor onion address should persist across restarts.
-pub(crate) fn is_stable_onion(state: &AppProfileState) -> bool {
-    state.stable_onion
 }
 
 // ── In-process session registry ───────────────────────────────────────────────
@@ -436,28 +405,22 @@ pub struct BuildConfigSummary {
     pub app_name: &'static str,
     pub app_identifier: &'static str,
     pub app_version: &'static str,
-    pub use_tor_default: bool,
-    pub stable_onion_default: bool,
     pub connect_timeout_secs: SettingClamp,
     pub max_file_size_mb: SettingClamp,
     pub chat_history_cap_msgs: SettingClamp,
     pub idle_lock_mins: SettingClamp,
     pub file_chunk_kib: SettingClamp,
     pub pin_digits: SettingClamp,
-    pub file_integrity_default: bool,
 }
 
 /// Fetched once by the frontend at boot (rakotis `initBuildConfig`).
 #[tauri::command]
 fn app_get_build_config() -> BuildConfigSummary {
-    use build_config::{app, defaults, settings as s};
+    use build_config::{app, settings as s};
     BuildConfigSummary {
         app_name: app::NAME,
         app_identifier: app::IDENTIFIER,
         app_version: app::VERSION,
-        use_tor_default: defaults::USE_TOR_DEFAULT,
-        stable_onion_default: defaults::STABLE_ONION_DEFAULT,
-        file_integrity_default: defaults::FILE_INTEGRITY_DEFAULT,
         connect_timeout_secs: SettingClamp {
             default: s::CONNECT_TIMEOUT_DEFAULT_SECS,
             min: s::CONNECT_TIMEOUT_MIN_SECS,
@@ -497,9 +460,8 @@ async fn app_set_active_profile(
     config: State<'_, AppConfigState>,
     sessions: State<'_, Sessions>,
     vault: State<'_, vault::ProtasiusState>,
-    p2p: State<'_, p2p_iroh::P2pState>,
-    tor: State<'_, p2p_tor::TorP2pState>,
-    file: State<'_, file_xfer::FileXferState>,
+    mesh_state: State<'_, mesh::MeshState>,
+    file: State<'_, files::FileState>,
     profile: String,
     identity: Option<String>,
 ) -> Result<AppRuntimeConfig, String> {
@@ -518,14 +480,12 @@ async fn app_set_active_profile(
         identity,
     };
 
-    // Tear down the OLD profile's transports FIRST, while its vault is still
-    // unlocked and active — so p2p_tor::shutdown seals the stable-onion keystore
-    // into the correct (old) profile's store before we swap it out.
-    // Hang up any live call before the endpoint it rides on is closed.
+    // Tear down the OLD profile's transport FIRST, while its vault is still
+    // unlocked and active, so mesh::shutdown seals arti's state into the
+    // correct (old) profile's store before we swap it out.
     shutdown_calls(&app).await;
-    p2p_iroh::shutdown(&app, &p2p).await;
-    p2p_tor::shutdown(&app, &tor).await;
-    file_xfer::shutdown(&file).await;
+    mesh::shutdown(&app, &mesh_state).await;
+    files::shutdown(&file).await;
     // The sealed passphrase belongs to the OLD profile's vault — a PIN must
     // never carry across a switch.
     vault::pin_forget(&app);
@@ -568,9 +528,8 @@ fn app_get_offline(app: AppHandle, config: State<AppConfigState>) -> Result<bool
 async fn app_set_offline(
     app: AppHandle,
     config: State<'_, AppConfigState>,
-    p2p: State<'_, p2p_iroh::P2pState>,
-    tor: State<'_, p2p_tor::TorP2pState>,
-    file: State<'_, file_xfer::FileXferState>,
+    mesh_state: State<'_, mesh::MeshState>,
+    file: State<'_, files::FileState>,
     offline: bool,
 ) -> Result<(), String> {
     let config = active_config(&config)?;
@@ -578,73 +537,12 @@ async fn app_set_offline(
     state.offline = offline;
     save_profile_state(&app, &config, &state)?;
     // Airplane mode is "block ALL network": persisting the flag only gates NEW
-    // commands, so also tear down whichever transport(s) are live.
+    // commands, so also tear down the live transport.
     if offline {
-        // End any live call before its endpoint goes away.
         shutdown_calls(&app).await;
-        p2p_iroh::shutdown(&app, &p2p).await;
-        p2p_tor::shutdown(&app, &tor).await;
-        file_xfer::shutdown(&file).await;
+        mesh::shutdown(&app, &mesh_state).await;
+        files::shutdown(&file).await;
     }
-    Ok(())
-}
-
-#[tauri::command]
-fn app_get_use_tor(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).use_tor)
-}
-
-#[tauri::command]
-async fn app_set_use_tor(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    p2p: State<'_, p2p_iroh::P2pState>,
-    tor: State<'_, p2p_tor::TorP2pState>,
-    file: State<'_, file_xfer::FileXferState>,
-    use_tor: bool,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.use_tor = use_tor;
-    save_profile_state(&app, &config, &state)?;
-    // Tor is exclusive: tear down the transport we're leaving so the next room
-    // command lazily re-binds on the chosen one. File transfer is iroh-only, so
-    // entering Tor mode kills its node too (its commands are gated meanwhile).
-    if use_tor {
-        // Voice is iroh-only: a live call over direct QUIC would keep leaking the
-        // IP after switching to Tor-exclusive mode, so hang it up first.
-        shutdown_calls(&app).await;
-        p2p_iroh::shutdown(&app, &p2p).await;
-        file_xfer::shutdown(&file).await;
-        // Pairing is iroh-only too — a live session would keep a direct QUIC
-        // listener up after switching to Tor-exclusive mode.
-    } else {
-        p2p_tor::shutdown(&app, &tor).await;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn app_get_stable_onion(app: AppHandle, config: State<AppConfigState>) -> Result<bool, String> {
-    let config = active_config(&config)?;
-    Ok(load_profile_state(&app, &config).stable_onion)
-}
-
-#[tauri::command]
-async fn app_set_stable_onion(
-    app: AppHandle,
-    config: State<'_, AppConfigState>,
-    tor: State<'_, p2p_tor::TorP2pState>,
-    stable_onion: bool,
-) -> Result<(), String> {
-    let config = active_config(&config)?;
-    let mut state = load_profile_state(&app, &config);
-    state.stable_onion = stable_onion;
-    save_profile_state(&app, &config, &state)?;
-    // Tear the Tor node down so the next room command re-evaluates persistent vs
-    // ephemeral keystore for the new setting.
-    p2p_tor::shutdown(&app, &tor).await;
     Ok(())
 }
 
@@ -1146,13 +1044,11 @@ pub fn run() {
         .manage(AppConfigState::new(config))
         .manage(Sessions::default())
         .manage(AudioRecorder::default())
-        .manage(p2p_iroh::P2pState::default())
-        // Redemptions parked awaiting the frontend's MLS add. Registered before
-        // the iroh router is built — `p2p_iroh` reaches for it there.
+        // Redemptions parked awaiting the frontend's MLS add.
         .manage(invite_redeem::RedeemState::default())
-        .manage(file_xfer::FileXferState::default())
-        // The peer-hosted onion transport.
-        .manage(p2p_tor::TorP2pState::default())
+        .manage(files::FileState::default())
+        // The transport: a mesh of onion services.
+        .manage(mesh::MeshState::default())
         // Last-heartbeat timestamp for the Rust-side lock watchdog (vault.rs).
         .manage(vault::ActivityState::default());
 
@@ -1197,10 +1093,6 @@ pub fn run() {
             app_get_profile_state,
             app_get_offline,
             app_set_offline,
-            app_get_use_tor,
-            app_set_use_tor,
-            app_get_stable_onion,
-            app_set_stable_onion,
             vault::vault_status,
             vault::vault_setup,
             vault::vault_unlock,
@@ -1211,7 +1103,6 @@ pub fn run() {
             // driven by the protocol handlers; this is how the frontend answers
             // the `invite://admit` request it raises.
             invite_admit,
-            legacy_ticket::legacy_ticket_decode,
             invite_api::invite_create,
             invite_api::invite_list,
             invite_api::invite_get,
@@ -1254,26 +1145,26 @@ pub fn run() {
             vault::tor_clean_keystore,
             realtime::realtime_send,
             realtime::realtime_create_room,
-            realtime::realtime_join_room_by_node,
+            realtime::realtime_join_room,
+            realtime::realtime_set_peers,
+            realtime::realtime_device_id,
             realtime::realtime_leave_room,
             realtime::realtime_cancel_join,
-            realtime::realtime_forget_tor_onion,
-            realtime::realtime_node_info,
-            realtime::realtime_tor_set_captain,
-            file_xfer::file_offer_create,
-            file_xfer::file_offer_cancel,
-            file_xfer::file_download,
-            file_xfer::file_prepare,
-            file_xfer::file_authorize,
+            realtime::realtime_forget_onion,
+            files::file_offer_create,
+            files::file_offer_cancel,
+            files::file_download,
+            files::file_prepare,
+            files::file_authorize,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // On exit, seal + wipe the Tor onion keystore (stable-onion mode) so no
-            // plaintext HS key is left on disk when the app is closed.
+            // On exit, seal arti's state into the vault and wipe the plaintext,
+            // so no onion key is left on disk when the app is closed.
             if let tauri::RunEvent::Exit = event {
-                let tor = app_handle.state::<p2p_tor::TorP2pState>();
-                tauri::async_runtime::block_on(p2p_tor::shutdown(app_handle, &tor));
+                let mesh_state = app_handle.state::<mesh::MeshState>();
+                tauri::async_runtime::block_on(mesh::shutdown(app_handle, &mesh_state));
             }
         });
 }
