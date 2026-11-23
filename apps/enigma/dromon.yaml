@@ -1,6 +1,6 @@
 # How Enigma27 is built — Dromon's file for this app (schema: dromon/README.md).
 #
-#   ./build.sh enigma                  Enigma27: chat and files, over iroh or Tor
+#   ./build.sh enigma                  Enigma27: chat and files, over Tor
 #   ./build.sh enigma --dry-run        the commands, none run
 #   ./run_dev.sh enigma                a dev run of the same build
 #
@@ -23,9 +23,8 @@ app:
   # No Enigma build may ever link it.
   forbid_crates: [openssl-sys]
 
-# One edition. Enigma is chat and file transfer, over iroh or Tor; voice calls,
-# the DHT, contacts and the calendar are Vesper's. The crate has no optional
-# features, so there is no feature list here.
+# One edition: chat and file transfer between members, always over Tor. The
+# crate has no optional features, so there is no feature list here.
 variants:
   default:
     # Packages land in <output_dir>/enigma/, with a SHA256SUMS and a build.json.

@@ -9,7 +9,6 @@ import { kvGet, kvPut } from "./localDb";
 
 // ── localStorage keys used in browser-fallback mode ──────────────────────────
 const LS_OFFLINE = "enigma:offline";
-const LS_USE_TOR = "enigma:useTor";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -30,8 +29,6 @@ export interface AppProfileState {
   offline_profiles: OfflineProfileOption[];
   selected_offline_profile_id: string;
   offline?: boolean;
-  use_tor?: boolean;
-  stable_onion?: boolean;
 }
 
 /** Encryption-at-rest vault state (Tauri only). `exists` = a passphrase has been
@@ -71,10 +68,6 @@ export interface BuildConfig {
   app_name: string;
   app_identifier: string;
   app_version: string;
-  /** false = this build has no linked-device sync channel. The old Files→Devices
-   *  UI is removed regardless of this flag. */
-  use_tor_default: boolean;
-  stable_onion_default: boolean;
   connect_timeout_secs: SettingClamp;
   max_file_size_mb: SettingClamp;
   chat_history_cap_msgs: SettingClamp;
@@ -85,8 +78,6 @@ export interface BuildConfig {
   file_chunk_kib: SettingClamp;
   /** Digits in the unlock PIN. */
   pin_digits: SettingClamp;
-  /** Seed for the per-chunk integrity check toggle on a new profile. */
-  file_integrity_default: boolean;
 }
 
 // Mirrors the default build_config.yaml AND the exported *_DEFAULT/_MIN/_MAX
@@ -95,15 +86,12 @@ const FALLBACK_BUILD_CONFIG: BuildConfig = {
   app_name: "Enigma27",
   app_identifier: "com.spectrumaipl.enigma27",
   app_version: "0.1.0",
-  use_tor_default: false,
-  stable_onion_default: false,
   connect_timeout_secs: { default: 60, min: 5, max: 600 },
   max_file_size_mb: { default: 0, min: 0, max: 100 * 1024 },
   chat_history_cap_msgs: { default: 500, min: 50, max: 5000 },
   idle_lock_mins: { default: 15, min: 0, max: 120 },
   file_chunk_kib: { default: 256, min: 16, max: 4096 },
   pin_digits: { default: 6, min: 4, max: 12 },
-  file_integrity_default: true,
 };
 
 let buildConfig: BuildConfig = FALLBACK_BUILD_CONFIG;
@@ -142,34 +130,8 @@ export async function setOffline(offline: boolean): Promise<void> {
   localStorage.setItem(LS_OFFLINE, offline ? "on" : "off");
 }
 
-// ── Use Tor (route rendezvous + chat over peer-hosted onion services) ──────────
-// On → the app hosts an onion service, the room QR carries a `.onion`, and all
-// chat rides Tor; iroh is not used. Exclusive; enforced by the Rust command.
-
-export async function getUseTor(): Promise<boolean> {
-  if (isTauri()) return invoke<boolean>("app_get_use_tor");
-  return localStorage.getItem(LS_USE_TOR) === "on";
-}
-
-export async function setUseTor(useTor: boolean): Promise<void> {
-  if (isTauri()) { await invoke("app_set_use_tor", { useTor }); return; }
-  localStorage.setItem(LS_USE_TOR, useTor ? "on" : "off");
-}
-
-// ── Keep onion stable (persist the Tor .onion, encrypted at rest) ──────────────
-
-export async function getStableOnion(): Promise<boolean> {
-  if (isTauri()) return invoke<boolean>("app_get_stable_onion");
-  return localStorage.getItem("enigma:stableOnion") === "on";
-}
-
-export async function setStableOnion(stableOnion: boolean): Promise<void> {
-  if (isTauri()) { await invoke("app_set_stable_onion", { stableOnion }); return; }
-  localStorage.setItem("enigma:stableOnion", stableOnion ? "on" : "off");
-}
-
 // ── P2P connection timeout (room create + join give up after this many seconds) ─
-// Tor onion publish + rendezvous routinely takes 30–90 s, so keep the default
+// A fresh onion takes 30–90 s to become reachable, so keep the default
 // generous; the user can tune it in Settings. Stored in the encrypted kv store.
 // Default + clamp bounds come from the build config; the legacy consts stay as
 // the browser-mode mirror.
@@ -462,20 +424,8 @@ export async function setFileChunkKib(kib: number): Promise<number> {
   return v;
 }
 
-/** Per-chunk hash-chain verification. Either side enabling it enforces it. */
-export async function getFileIntegrity(): Promise<boolean> {
-  const raw = await kvGet("p2p:settings", "default", "file_integrity");
-  if (raw === "on") return true;
-  if (raw === "off") return false;
-  return getBuildConfig().file_integrity_default;
-}
-
-export async function setFileIntegrity(on: boolean): Promise<void> {
-  await kvPut("p2p:settings", "default", "file_integrity", on ? "on" : "off").catch(() => {});
-}
-
-/// Reset the Tor onion keystore (identity) — clears stale locks; next Tor room mints
-/// a fresh .onion. Wired into "Clear selected data".
+/// Forget every onion address this device has (and Tor's saved state): rooms get
+/// fresh addresses when next opened. Wired into "Clear selected data".
 export async function cleanTorKeystore(): Promise<void> {
   if (isTauri()) await invoke("tor_clean_keystore");
 }
@@ -502,7 +452,6 @@ export async function getProfileState(): Promise<AppProfileState> {
     offline_profiles: [],
     selected_offline_profile_id: "",
     offline: await getOffline(),
-    use_tor: await getUseTor(),
   };
 }
 

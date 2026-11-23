@@ -1,8 +1,10 @@
-// One P2P chat channel, fully self-contained: its own room, messages,
-// participants, MLS session and transport wiring. The app is serverless — the
-// transport (iroh-gossip, or peer-hosted Tor when the "use Tor" switch is on) is
-// chosen in Rust (see chatTransport.ts); rendezvous is a QR-shared ticket, and
-// reconnects ride the peer NodeIds / onion persisted per room.
+// One chat channel, fully self-contained: its own room, messages,
+// participants, MLS session and transport wiring. The app is serverless: every
+// member hosts an onion for the room and Rust keeps a link to every other member
+// (see chatTransport.ts). This module tells Rust whose onions those are —
+// learned from the encrypted presence messages and kept per room, so a reopened
+// room finds its members again. Someone new gets in only by redeeming an
+// invitation.
 //
 // The MLS envelope state machine below (key_package → welcome/commit → app) is
 // transport-agnostic JSON; all crypto is delegated to the Rotor-backed `mls_*`
@@ -15,74 +17,28 @@ import { getRuntimeConfig, type AppRuntimeConfig } from "./services/appStorage";
 import { t } from "./i18n/chatText";
 import type { Participant, Room } from "./services/types";
 import { kvDelete, kvGet, kvPut, type KvBackend } from "./services/localDb";
-import {
-  activeMuteUntil, clampRules, formatRemaining, pruneMutes, sanitizeMuteUntil,
-  type MuteMap,
-} from "./services/moderation";
 import { isMapShareType, sameUser, userPartOf, type MapShareType, type PersistedMessage } from "./chatHistoryModel";
 import { createLogAppender, loadLog, wipeLog } from "./services/chatLog";
 import { getChatHistoryCapMsgs, getConnectTimeoutSecs } from "./services/appStorage";
 import { nanoid } from "nanoid";
 import {
   catchUp as mailboxCatchUp, envelope as mailboxEnvelope, freshPlace, frameId, note as mailboxNote,
-  INLINE_MAX, mentionsName, NODE_KIND, tagsOf, type ChatMailbox, type MailboxPlace,
+  INLINE_MAX, mentionsName, tagsOf, type ChatMailbox, type MailboxPlace,
 } from "./mailbox";
 
-/** A locally-known P2P room: topic id, display name, join ticket, and the peer
- *  NodeIds seen in it (the address book for ticketless reconnects). */
+/** A room this device belongs to. */
 export interface P2pRoomEntry {
   room: string;
   name: string;
-  /**
-   * LEGACY permanent room ticket. Written by builds before invitations became the
-   * only way in, never minted now, and read exactly once — `loadP2pRooms` decodes
-   * it to recover what the record was missing (iroh peers, or a Tor captain's
-   * onion) and then drops the field. Kept optional so an old record still
-   * deserializes; nothing else may read it.
-   */
-  ticket?: string;
-  /** NodeIds of peers seen in this room — persisted so a restart can re-subscribe
-   *  and resolve their current addresses via n0 discovery (no fresh QR needed). */
+  /** The other members' onions for this room, as last learned: what a reopen
+   *  links to. */
   peers?: string[];
-  /** True when WE created (host) this room. Over Tor the creator hosts the onion
-   *  service and must re-host (not re-dial) on reopen; over iroh it's cosmetic. */
+  /** True when WE created this room. */
   host?: boolean;
-  /** True for Tor rooms (the transport that has an elected onion captain). */
-  tor?: boolean;
-  /** Our own onion for this room (Tor) — announced over presence for election. */
+  /** Our own onion for this room (stable across restarts). */
   onion?: string;
-  /**
-   * The CAPTAIN's onion for this room (Tor) — the address we dial to get back in.
-   *
-   * Distinct from `onion` above, which is ours. This used to live only inside the
-   * permanent ticket, so a Tor room we JOINED had no recorded way back once the
-   * ticket was gone; that is what stranded them. Written whenever we learn a
-   * captain address (invitation grant, election) and backfilled from a legacy
-   * ticket on first load.
-   */
-  captainOnion?: string;
-  /** Ticketless-join room code (DHT rendezvous — technology.md §12). Present when this room
-   *  was created/joined with DHT discovery on, or a code was minted for it. */
-  code?: string;
-  /** Room logo (small JPEG data URL) — captain-set, distributed via `room_meta`. */
-  logo?: string;
-  /** Room rules text — captain-set, distributed via `room_meta`. */
-  rules?: string;
-  /** LEGACY: invite-only used to be a per-room captain-set flag. Every room is
-   *  invite-only now, so nothing reads this; it stays on the type only so a record
-   *  written by an older build still deserializes without losing the rest. */
-  inviteOnly?: boolean;
-  /** Monotonic revision of the captain-authoritative meta/moderation snapshot. */
-  metaRev?: number;
-  /** Active mutes (MLS id → expiry epoch ms), captain-set. */
-  mutes?: MuteMap;
-  /** Kicked (banned) MLS identities — refused re-admission by the acting admin. */
-  bans?: string[];
 }
 
-/** Tor tickets are base32(`0x54` ++ postcard) — a leading `0x54` ('T') byte marks
- *  them apart from iroh's tagless tickets (mirrors `p2p_tor::ticket_is_tor`). We
- *  decode just the first byte from the first two base32 chars. */
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
 function firstTagByte(ticket: string): number {
   const s = ticket.trim().toLowerCase();
@@ -267,6 +223,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   let sawForeignTraffic = false;
 
   let creatorTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped on every room entry and teardown, so an async step that outlives
+   *  the room it started in (startMls) can tell and stop. */
+  let entryGen = 0;
   let admissionTimer: ReturnType<typeof setTimeout> | null = null;
   function clearCreatorTimer() {
     if (creatorTimer) { clearTimeout(creatorTimer); creatorTimer = null; }
@@ -276,57 +235,14 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   const isParticipant = ref(false);
   const p2pRooms = ref<P2pRoomEntry[]>([]);
 
-  // ── Tor captain election (onion host) ────────────────────────────────────────
-  // Over Tor every member hosts its own onion; the frontend elects the captain
-  // (lowest MLS id) and re-points the transport's outbound dial to it. Failover:
-  // on a `captain_unreachable` status we mark that captain dead and re-elect. See
-  // technology.md §11. All of this is a no-op on iroh rooms (gated by currentRoomIsTor).
-  const myOnion = ref("");                              // my onion for the current room
-  const currentRoomIsTor = ref(false);                 // gate: only Tor rooms re-point the transport
-  const currentCaptainOnion = ref<string | null>(null); // last onion pushed to setCaptain
-  const deadCaptains = new Set<string>();              // MLS ids currently believed unreachable
-  let electionTimer: ReturnType<typeof setTimeout> | null = null;
-  const CAPTAIN_DEBOUNCE_MS = 2000;                    // absorb join/presence bursts into one re-point
-
-  // ── Room meta + moderation (captain-authoritative — technology.md §9) ────────
-  // The captain (lowest live MLS id, elected on BOTH transports; over Tor it is
-  // also the onion host) owns the room logo, the room rules, and moderation:
-  // kick (MLS removal + ban) and timed mutes. State is broadcast as a `room_meta`
-  // snapshot over the encrypted seam, validated on receive against the locally
-  // elected captain, and persisted on the room's `P2pRoomEntry` so any future
-  // admin keeps enforcing bans. Cooperative, like all group management here.
-  const captainId = ref<string | null>(null);
-  const amCaptain = computed(() => !!captainId.value && captainId.value === mlsIdentity.value);
-  const roomLogo = ref("");
-  const roomRules = ref("");
-  const metaRev = ref(0);
-  const mutes = ref<MuteMap>({});
-  const bans = ref<string[]>([]);
-  // Coarse clock for mute countdowns/expiry (badges tick, expired mutes lift).
-  const nowTick = ref(Date.now());
-  setInterval(() => { nowTick.value = Date.now(); }, 15_000);
-  /** Mute lookup that honours both keying schemes: new mutes key by user part
-   *  (one mute covers all of a user's linked devices), legacy/old-build mutes
-   *  by full leaf id. */
-  function mutedUntilFor(id: string, now: number): number | null {
-    return (
-      activeMuteUntil(mutes.value, id, now) ??
-      activeMuteUntil(mutes.value, userPartOf(id), now)
-    );
-  }
-  /** Ban lookup with the same dual keying as mutes. */
-  function isBanned(id: string): boolean {
-    return bans.value.includes(id) || bans.value.includes(userPartOf(id));
-  }
-  const selfMuteUntil = computed(() => mutedUntilFor(mlsIdentity.value, nowTick.value));
-  watch(nowTick, (now) => {
-    const pruned = pruneMutes(mutes.value, now);
-    if (pruned !== mutes.value) {
-      mutes.value = pruned;
-      persistRoomMod();
-      void refreshP2pRoster(); // lift expired mute badges
-    }
-  });
+  // ── the mesh ─────────────────────────────────────────────────────────────────
+  // Our onion for the current room, announced in presence; and a debounce so a
+  // burst of presence messages becomes one `setPeers`.
+  const myOnion = ref("");
+  /** Onions of the members linked to this device right now (current room). */
+  const linkedOnions = ref<string[]>([]);
+  let peersTimer: ReturnType<typeof setTimeout> | null = null;
+  const PEERS_DEBOUNCE_MS = 1000;
 
   const isConnected = computed(() => wsStatus.value === "connected");
   const isEncrypted = computed(() => mlsStatus.value === "ready");
@@ -340,6 +256,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (mailbox) mailboxOut(slug, JSON.stringify(payload));
   }
   function teardown() {
+    entryGen++; // a startMls still in flight belongs to the room being left
     const slug = currentRoom.value?.slug;
     void logAppender.flushNow(); // don't lose buffered log entries on switch
     stopRoomTimers();
@@ -396,7 +313,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (!mailbox || !currentRoom.value) return;
     if (catching) return catching;
     const slug = currentRoom.value.slug;
-    const name = currentRoom.value.name;
     catching = (async () => {
       await loadPlace(slug);
       let got: { frames: string[]; nodes: string[] };
@@ -406,11 +322,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         return; // the server does not answer: next time
       }
       savePlace(slug);
-      if (got.nodes.length) {
-        const me = (await chatTransport.nodeInfo().catch(() => null))?.node_id;
-        const peers = got.nodes.filter((n) => n !== me);
-        if (peers.length) void chatTransport.joinRoomByNode(name, peers).catch(() => {});
-      }
       for (const f of got.frames) {
         if (currentRoom.value?.slug !== slug) break;
         let data: Record<string, unknown>;
@@ -424,8 +335,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   async function startMailbox(slug: string) {
     if (!mailbox) return;
     await loadPlace(slug);
-    const node = (await chatTransport.nodeInfo().catch(() => null))?.node_id;
-    if (node) void mailbox.post({ kind: NODE_KIND, room: slug, node }).catch(() => {});
     if (mailboxTimer) clearInterval(mailboxTimer);
     mailboxTimer = setInterval(() => { void catchUpMailbox(); }, mailbox.everyMs ?? 30_000);
   }
@@ -436,7 +345,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   }
   function markAdmitted(on: boolean) {
     const slug = currentRoom.value?.slug;
-    if (!options.keepSession || !slug) return;
+    if (!slug) return;
     void (on ? store.put("chat:admitted", slug, "v", "1") : store.delete("chat:admitted", slug, "v")).catch(() => {});
   }
   watch(mlsStatus, (st) => { if (st === "ready") { removed.value = false; markAdmitted(true); } });
@@ -556,10 +465,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   function clearMessages() {
     messages.value = [];
   }
-  function tsFrom(data: Record<string, unknown>): Date {
-    const c = data.created_at;
-    return typeof c === "string" ? new Date(c) : new Date();
-  }
 
   function participantForName(name: string): Participant | undefined {
     return participants.value.find((p) => p.name === name);
@@ -575,8 +480,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     return myAvatar.value || null;
   }
 
-  // ── P2P roster (authenticated from MLS membership) ───────────────────────────
-  // `onion` is the member's Tor onion (empty on iroh), learned from its presence.
+  // ── roster (authenticated from MLS membership) ───────────────────────────────
+  // `onion` is the member's onion for this room, learned from its presence.
   const presenceById = new Map<string, { name: string; avatar: string; onion: string }>();
 
   // ── Data-sync seam ───────────────────────────────────────────────────────────
@@ -604,33 +509,30 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     return () => { syncHandlers.delete(fn); };
   }
 
-  /** The captain is the lowest MLS identity among live members (same rule as the
-   *  leave-path admin). `captainOnion` is its onion if known (self trivially, else
-   *  from presence) — null means "elected, but we can't dial it yet", in which case
-   *  we keep the current connection rather than stranding ourselves. */
-  function electCaptain(memberIds: string[]): { captainId: string | null; captainOnion: string | null } {
-    const alive = memberIds.filter((id) => !deadCaptains.has(id)).slice().sort();
-    const captainId = alive[0] ?? null;
-    if (!captainId) return { captainId: null, captainOnion: null };
-    const onion = captainId === mlsIdentity.value ? myOnion.value : presenceById.get(captainId)?.onion || "";
-    return { captainId, captainOnion: onion || null };
-  }
-
-  function scheduleSetCaptain(slug: string, onion: string) {
-    if (electionTimer) clearTimeout(electionTimer);
-    electionTimer = setTimeout(() => {
-      electionTimer = null;
-      chatTransport.setCaptain(slug, onion);
-    }, CAPTAIN_DEBOUNCE_MS);
+  /** Tell Rust whose onions to keep links to: every member we learned one for,
+   *  plus the ones saved with the room (members whose presence has not arrived
+   *  yet after a reopen). Saved, so the next reopen starts from it. */
+  function schedulePeers() {
+    const slug = currentRoom.value?.slug;
+    if (!slug) return;
+    if (peersTimer) clearTimeout(peersTimer);
+    peersTimer = setTimeout(() => {
+      peersTimer = null;
+      if (currentRoom.value?.slug !== slug) return;
+      const saved = p2pRooms.value.find((r) => r.room === slug)?.peers ?? [];
+      const live = [...presenceById.values()].map((i) => i.onion).filter(Boolean);
+      const peers = [...new Set([...saved, ...live])].filter((o) => o !== myOnion.value);
+      chatTransport.setPeers(slug, peers);
+      updateRoomEntry({ peers });
+    }, PEERS_DEBOUNCE_MS);
   }
 
   async function refreshP2pRoster() {
     if (!currentRoom.value) return;
     const ids = await cryptoService.members(currentRoom.value.slug, mlsIdentity.value);
     const source = ids.length ? ids : [mlsIdentity.value];
-    const now = Date.now();
     // One roster row per USER: linked-device leaves ("alice", "alice#dev-x")
-    // group together; the row keeps every leaf id for moderation/election.
+    // group together; the row keeps every leaf id.
     const byUser = new Map<string, string[]>();
     for (const id of source) {
       const user = userPartOf(id);
@@ -648,41 +550,20 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             const info = leafIds
               .map((id) => presenceById.get(id))
               .find((i) => i && (i.name || i.avatar));
-            return { id: rep, name: info?.name || user, avatar_url: info?.avatar || "", type: "human" as const };
+            const linked = leafIds.some((id) => {
+              const onion = presenceById.get(id)?.onion;
+              return !!onion && linkedOnions.value.includes(onion);
+            });
+            return { id: rep, name: info?.name || user, avatar_url: info?.avatar || "", type: "human" as const, linked };
           })();
       if (leafIds.length > 1) {
         p.leafIds = [...leafIds];
         p.deviceCount = leafIds.length;
       }
-      const muteUntil = leafIds
-        .map((id) => mutedUntilFor(id, now))
-        .reduce<number | null>((max, u) => (u && (!max || u > max) ? u : max), null);
-      if (muteUntil) p.muteUntil = muteUntil;
       return p;
     });
 
-    // Elect the captain (lowest live MLS id) on BOTH transports — it is the room
-    // authority for moderation + meta. Over Tor it is additionally the onion
-    // host/relay: re-point the transport when the elected captain changes AND we
-    // can reach it.
-    const elected = electCaptain(source);
-    captainId.value = elected.captainId;
-    for (const p of list) {
-      p.isCaptain = !!elected.captainId &&
-        (p.id === elected.captainId || (p.leafIds?.includes(elected.captainId) ?? false));
-    }
-    if (currentRoomIsTor.value) {
-      const { captainOnion } = elected;
-      if (captainOnion && captainOnion !== currentCaptainOnion.value) {
-        currentCaptainOnion.value = captainOnion;
-        scheduleSetCaptain(currentRoom.value.slug, captainOnion);
-        // Persisted, not just dialled: this is the only address that gets us back
-        // into a Tor room we did not host, and it used to survive only inside the
-        // permanent ticket.
-        updateRoomEntry({ captainOnion });
-      }
-    }
-
+    schedulePeers();
     participants.value = list;
     currentRoom.value = { ...currentRoom.value, participant_count: list.length };
   }
@@ -692,7 +573,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     await sendEncryptedMedia("presence", {
       device_id: mlsIdentity.value, name: displayName(),
       avatar: myAvatar.value,
-      onion: myOnion.value, // Tor: our dialable address, for captain election
+      onion: myOnion.value, // where the others link to us
       reply,
     }).catch(() => {});
   }
@@ -705,8 +586,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   });
 
   async function handlePeerLeave(deviceId: string) {
+    const onion = presenceById.get(deviceId)?.onion;
     presenceById.delete(deviceId);
     if (!currentRoom.value) return;
+    // Stop linking to someone who left.
+    const entry = p2pRooms.value.find((r) => r.room === currentRoom.value?.slug);
+    if (onion && entry?.peers?.includes(onion)) {
+      entry.peers = entry.peers.filter((o) => o !== onion);
+      persistP2pRooms();
+    }
     const room = currentRoom.value.slug;
     const ids = await cryptoService.members(room, mlsIdentity.value);
     if (ids.includes(deviceId)) {
@@ -719,187 +607,27 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     await refreshP2pRoster();
   }
 
-  // ── Moderation + room meta (captain actions & wire handlers) ─────────────────
+  // ── saved room entry ────────────────────────────────────────────────────────
 
-  /** Merge a patch into the current room's persisted entry (no-op when the room
-   *  was never saved — e.g. a ticketless `joinByNode` reconnect). */
+  /** Merge a patch into the current room's saved entry (no-op when the room
+   *  was never saved). */
   function updateRoomEntry(patch: Partial<P2pRoomEntry>) {
     const slug = currentRoom.value?.slug;
-    if (!slug) return;
+    if (slug) updateEntry(slug, patch);
+  }
+
+  function updateEntry(slug: string, patch: Partial<P2pRoomEntry>) {
     const entry = p2pRooms.value.find((r) => r.room === slug);
     if (!entry) return;
     Object.assign(entry, patch);
     persistP2pRooms();
   }
 
-  function persistRoomMod() {
-    updateRoomEntry({
-      logo: roomLogo.value || undefined,
-      rules: roomRules.value || undefined,
-      metaRev: metaRev.value,
-      mutes: mutes.value,
-      bans: bans.value,
-    });
-  }
-
-  /** Broadcast the full meta snapshot (logo, rules, mutes, bans). The captain
-   *  sends it after every moderation/meta change; with `share=true` ANY holder
-   *  sends it (a new member just announced itself) — receivers apply a
-   *  non-captain copy only when strictly newer, which is what hands the state
-   *  over when captaincy shifted to a member that doesn't have it yet (e.g. a
-   *  lower-id joiner became captain). */
-  async function broadcastRoomMeta(share = false) {
-    if ((!amCaptain.value && !share) || mlsStatus.value !== "ready") return;
-    await sendEncryptedMedia("room_meta", {
-      device_id: mlsIdentity.value,
-      logo: roomLogo.value,
-      rules: roomRules.value,
-      mutes: mutes.value,
-      bans: bans.value,
-      rev: metaRev.value,
-    }).catch(() => {});
-  }
-
-  /** Apply a received `room_meta` snapshot (already captain-validated). */
-  function applyRoomMeta(inner: Record<string, unknown>) {
-    const rev = typeof inner.rev === "number" ? inner.rev : 0;
-    if (rev < metaRev.value) return; // stale snapshot (equal rev re-applies — idempotent)
-    const now = Date.now();
-    const nextMutes: MuteMap = {};
-    if (inner.mutes && typeof inner.mutes === "object") {
-      for (const [id, until] of Object.entries(inner.mutes as Record<string, unknown>)) {
-        const u = sanitizeMuteUntil(until, now);
-        if (u) nextMutes[id] = u;
-      }
-    }
-    const rulesBefore = roomRules.value;
-    metaRev.value = rev;
-    roomLogo.value = typeof inner.logo === "string" ? inner.logo : "";
-    roomRules.value = typeof inner.rules === "string" ? clampRules(inner.rules) : "";
-    mutes.value = nextMutes;
-    bans.value = Array.isArray(inner.bans) ? (inner.bans as unknown[]).filter((b): b is string => typeof b === "string") : [];
-    persistRoomMod();
-    if (roomRules.value && roomRules.value !== rulesBefore) {
-      messages.value.push(sysMsg("chat.sys.rules", "📜 Room rules:\n{rules}", { rules: roomRules.value }));
-    }
-    void refreshP2pRoster();
-  }
-
-  /** True when the envelope sender is the locally elected captain — the authz
-   *  check for every moderation/meta message. Advisory (ids are self-asserted;
-   *  see technology.md §9), consistent with the rest of group management. */
-  function fromCaptain(data: Record<string, unknown>): boolean {
-    return !!captainId.value && data.device_id === captainId.value;
-  }
-
-  function bumpRev() {
-    metaRev.value += 1;
-  }
-
-  /** Captain: set / clear the room logo (small JPEG data URL). */
-  async function setRoomLogo(file: File | null) {
-    if (!amCaptain.value) return;
-    roomLogo.value = file ? await downscaleImageToDataUrl(file, 256, 0.8) : "";
-    bumpRev();
-    persistRoomMod();
-    await broadcastRoomMeta();
-  }
-
-  /** Captain: set the room rules text (clamped; empty clears). */
-  async function setRoomRules(text: string) {
-    if (!amCaptain.value) return;
-    roomRules.value = clampRules(text);
-    bumpRev();
-    persistRoomMod();
-    await broadcastRoomMeta();
-  }
-
-  /** Captain: mute a member for `minutes`. Enforced cooperatively: everyone drops
-   *  the muted member's messages until expiry, and its own composer locks.
-   *  Keyed by USER part — one mute covers all of the member's linked devices. */
-  async function muteMember(id: string, minutes: number) {
-    if (!amCaptain.value || sameUser(id, mlsIdentity.value) || !currentRoom.value) return;
-    const target = userPartOf(id);
-    const until = sanitizeMuteUntil(Date.now() + minutes * 60_000, Date.now());
-    if (!until) return;
-    mutes.value = { ...mutes.value, [target]: until };
-    bumpRev();
-    persistRoomMod();
-    await sendEncryptedMedia("mod_mute", { device_id: mlsIdentity.value, target, until }).catch(() => {});
-    await broadcastRoomMeta();
-    messages.value.push(sysMsg("chat.sys.muted", "🔇 {who} was muted for {time}.", { who: nameFor(target), time: formatRemaining(until, Date.now()) }));
-    void refreshP2pRoster();
-  }
-
-  /** Captain: lift a member's mute early (either keying scheme). */
-  async function unmuteMember(id: string) {
-    const target = id in mutes.value ? id : userPartOf(id);
-    if (!amCaptain.value || !(target in mutes.value)) return;
-    const next = { ...mutes.value };
-    delete next[target];
-    mutes.value = next;
-    bumpRev();
-    persistRoomMod();
-    await sendEncryptedMedia("mod_unmute", { device_id: mlsIdentity.value, target }).catch(() => {});
-    await broadcastRoomMeta();
-    messages.value.push(sysMsg("chat.sys.unmuted", "🔊 {who} was unmuted.", { who: nameFor(target) }));
-    void refreshP2pRoster();
-  }
-
-  /** Captain: kick a member — notify (while it can still decrypt), ban the
-   *  identity (the acting admin refuses its future key packages), then remove it
-   *  from the MLS group. Cryptographic removal is what actually cuts access.
-   *  Bans key by USER part and the removal takes out EVERY leaf of that user —
-   *  kicking someone kicks all their linked devices. */
-  async function kickMember(id: string) {
-    if (!amCaptain.value || sameUser(id, mlsIdentity.value) || !currentRoom.value) return;
-    const room = currentRoom.value.slug;
-    const target = userPartOf(id);
-    if (!bans.value.includes(target)) bans.value = [...bans.value, target];
-    bumpRev();
-    persistRoomMod();
-    // Order matters: the kick notice + snapshot go out BEFORE the removal commit,
-    // so the target still decrypts them and leaves cleanly.
-    await sendEncryptedMedia("mod_kick", { device_id: mlsIdentity.value, target }).catch(() => {});
-    await broadcastRoomMeta();
-    const memberIds = await cryptoService.members(room, mlsIdentity.value).catch(() => [] as string[]);
-    const leaves = memberIds.filter((m) => userPartOf(m) === target);
-    for (const leaf of leaves.length ? leaves : [id]) {
-      presenceById.delete(leaf);
-      const commit = await cryptoService.removeMember(room, mlsIdentity.value, leaf).catch(() => null);
-      if (commit) send({ type: "mls_commit", commit: bytesToBase64(commit) });
-    }
-    messages.value.push(sysMsg("chat.sys.removed", "🚫 {who} was removed from the room.", { who: nameFor(target) }));
-    void refreshP2pRoster();
-  }
-
-  /** Captain: lift a ban (the identity may re-join with a fresh key package). */
-  async function unbanMember(id: string) {
-    if (!amCaptain.value || !bans.value.includes(id)) return;
-    bans.value = bans.value.filter((b) => b !== id);
-    bumpRev();
-    persistRoomMod();
-    await broadcastRoomMeta();
-  }
-
-  /** We were kicked: leave + forget the room (mirrors `handleRoomClosed`). */
-  async function handleKicked() {
-    if (!currentRoom.value) return;
-    const slug = currentRoom.value.slug;
-    const name = currentRoom.value.name;
-    const tor = currentRoomIsTor.value;
-    await cryptoService.clearState(slug, mlsIdentity.value).catch(() => {});
-    if (tor) chatTransport.forgetTorOnion(name);
-    if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
-    forgetP2pRoom(slug);
-    clearLocalChatState(t("chat.sys.kicked", "🚫 You were removed from this room by the host."));
-  }
-
   function nameFor(id: string): string {
-    if (sameUser(id, mlsIdentity.value)) return displayName();
+    if (userPartOf(id) === userPartOf(mlsIdentity.value)) return displayName();
     const direct = presenceById.get(id)?.name;
     if (direct) return direct;
-    // A user-part key (new-style mute/kick target): any of its leaves' presence.
+    // A user-part key: any of its leaves' presence.
     for (const [leaf, info] of presenceById) {
       if (userPartOf(leaf) === id && info.name) return info.name;
     }
@@ -907,28 +635,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     // often away, with no fresh presence).
     if (options.rosterNotices) return namesSeen.get(id) ?? namesSeen.get(userPartOf(id)) ?? userPartOf(id);
     return id;
-  }
-
-  /** The elected onion captain became unreachable (Tor). Mark it dead so election
-   *  skips it, re-elect + re-point to the next-lowest live member (whose onion we
-   *  already know from presence), and — if we're now the admin — evict the dead
-   *  captain from the MLS group so the roster + star converge. */
-  async function handleCaptainDeath(deadOnion?: string) {
-    if (!currentRoom.value || !currentRoomIsTor.value || !deadOnion) return;
-    let deadId: string | null = null;
-    for (const [id, info] of presenceById) {
-      if (info.onion === deadOnion) { deadId = id; break; }
-    }
-    if (deadId) deadCaptains.add(deadId);
-    currentCaptainOnion.value = null; // force a re-point on the next election
-    messages.value.push(sysMsg("chat.sys.hostGone", "The room host went offline — electing a new host…"));
-    await refreshP2pRoster(); // re-elect (skips deadCaptains) + re-point to the next captain
-    // Evict the dead host from MLS only AFTER the re-point lands, so the removal
-    // commit is broadcast over the NEW captain's connection (the old one is dead).
-    if (deadId) {
-      const id = deadId;
-      setTimeout(() => { void handlePeerLeave(id); }, CAPTAIN_DEBOUNCE_MS + 1000);
-    }
   }
 
   watch(mlsStatus, (status) => {
@@ -977,24 +683,21 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   }
 
   // ── transport status / messages ──────────────────────────────────────────────
-  chatTransport.onStatus((room, status, peerId, reason) => {
-    // Tor captain died (peerId = its onion): re-elect around it. Don't persist the
-    // onion as a reconnect peer — captain failover is election-driven, not by-id.
-    if (reason === "captain_unreachable") {
-      if (room === currentRoom.value?.slug) void handleCaptainDeath(peerId);
-      return;
-    }
-    // A neighbor's NodeId is our reconnect handle — persist it for ANY known room,
-    // not only the one on screen (several rooms can be live at once).
-    if (peerId) rememberPeerForRoom(room, peerId);
+  chatTransport.onStatus((room, status, peerId, linked) => {
+    // A member's onion whose link just came up is how we find them next time,
+    // for any saved room, not only the one on screen.
+    if (peerId && status === "connected") rememberPeerForRoom(room, peerId);
     if (room !== currentRoom.value?.slug) return;
+    const before = wsStatus.value;
     log("status →", status);
     wsStatus.value = status;
+    linkedOnions.value = linked ?? [];
+    void refreshP2pRoster();
+    if (status === before) return;
     if (status === "connected") {
       messages.value.push(sysMsg("chat.sys.connected", "Connected to {room}.", { room: currentRoom.value?.name ?? "room" }));
-      void startMls();
       void catchUpMailbox();
-    } else if (status === "disconnected") {
+    } else if (status === "disconnected" && before === "connected") {
       messages.value.push(sysMsg("chat.sys.disconnected", "Disconnected."));
     } else if (status === "error") {
       messages.value.push(sysMsg("chat.sys.connectionError", "Connection error.", undefined, "system_error"));
@@ -1015,23 +718,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     const type = data.type as string;
     log("←", type);
 
-    // Plaintext fallback used only before MLS is ready.
-    if (type === "chat_message" && data.message) {
-      pushMessage({
-        id: (data.id as string) || nanoid(), type: "chat_message",
-        user: (data.user as string) ?? "Unknown", initials: initials((data.user as string) ?? "?"),
-        avatar_url: (data.avatar_url as string) ?? null, content: data.message as string,
-        participant_type: "human", self: data.user === currentUserName.value,
-        encrypted: false, timestamp: tsFrom(data),
-      });
-      return;
-    }
-
-    if (type === "system_error" && data.message) {
-      messages.value.push(systemMsg(data.message as string, "system_error"));
-      return;
-    }
-
+    // Nothing in the clear is shown: a frame anyone with a member's onion could
+    // send would otherwise read like a chat message.
     if (type === "mls_reset_request") {
       if ((data.device_id as string) === mlsIdentity.value) return;
       const resetId = data.reset_id as string | undefined;
@@ -1052,8 +740,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       const deviceId = (data.device_id as string) ?? (data.sender_channel as string);
       // Nobody gets in off the topic. Ever.
       //
-      // This used to be a captain-set flag; it is now the only mode, which is why
-      // there is no longer anything to read. A redeemed invitation is the sole way
+      // This is the only mode, which is why there is nothing to read. A redeemed invitation is the sole way
       // into a room, and it never rides gossip at all — `admitInvited` calls
       // `cryptoService.addMember` directly — so this closes the door without
       // touching the one path that is supposed to open it.
@@ -1065,10 +752,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       // Headless channels (devlink, peer sync) carry their own `admissionCheck`
       // and have no room meta of their own, so they are exempt.
       if (!options.headless && !options.openAdmission) return;
-      // Banned (kicked) identities are refused re-admission: the acting admin
-      // never adds them, and nobody defers to them with a counter key package.
-      // Bans key by user part, so every linked device of a kicked user is out.
-      if (deviceId && isBanned(deviceId)) return;
       if (options.openAdmission && currentRoom.value && deviceId && deviceId !== mlsIdentity.value) {
         // A certified roster: the live leader adds; nobody defers with a counter key package.
         if (mlsStatus.value === "ready") {
@@ -1226,16 +909,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
                 avatar: (inner.avatar as string) || "",
                 onion: (inner.onion as string) || "",
               });
-              deadCaptains.delete(id); // a fresh presence ⇒ this member is alive again
-              const initialAnnounce = !inner.reply;
-              void refreshP2pRoster().then(() => {
-                // A new member announced itself: every meta holder shares the
-                // snapshot (logo/rules/mutes/bans) so the joiner converges even
-                // when the captain just changed or is missing. Receivers dedupe
-                // by revision, so redundant copies are idempotent.
-                if (initialAnnounce && metaRev.value > 0) void broadcastRoomMeta(true);
-              });
-              if (initialAnnounce) void announcePresence(true);
+              void refreshP2pRoster();
+              if (!inner.reply) void announcePresence(true);
             }
             return;
           }
@@ -1247,76 +922,19 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             void handleRoomClosed();
             return;
           }
-          // Captain-authoritative meta + moderation. The captain's snapshot
-          // applies at same-or-higher revision; anyone else's only when
-          // STRICTLY newer — that's the handoff path for a captaincy change
-          // (the previous captain shares state the new captain doesn't hold).
-          if (inner?.type === "room_meta") {
-            const rev = typeof inner.rev === "number" ? inner.rev : 0;
-            const accept = fromCaptain(data) ? rev >= metaRev.value : rev > metaRev.value;
-            if (accept) {
-              applyRoomMeta(inner);
-              // If WE are the (new) captain adopting a handed-over snapshot,
-              // re-broadcast it authoritatively so the whole room converges.
-              if (amCaptain.value) void broadcastRoomMeta();
-            }
-            return;
-          }
-          if (inner?.type === "mod_mute" && typeof inner.target === "string") {
-            if (fromCaptain(data)) {
-              const until = sanitizeMuteUntil(inner.until, Date.now());
-              if (until) {
-                mutes.value = { ...mutes.value, [inner.target]: until };
-                persistRoomMod();
-                // Targets are user parts from new builds, full ids from old ones
-                // — sameUser covers both against our leaf identity.
-                const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
-                messages.value.push(sysMsg("chat.sys.mutedShort", "🔇 {who} muted for {time}.", { who, time: formatRemaining(until, Date.now()) }));
-                void refreshP2pRoster();
-              }
-            }
-            return;
-          }
-          if (inner?.type === "mod_unmute" && typeof inner.target === "string") {
-            if (fromCaptain(data) && inner.target in mutes.value) {
-              const next = { ...mutes.value };
-              delete next[inner.target];
-              mutes.value = next;
-              persistRoomMod();
-              const who = sameUser(inner.target, mlsIdentity.value) ? "You were" : `${nameFor(inner.target)} was`;
-              messages.value.push(sysMsg("chat.sys.unmutedShort", "🔊 {who} unmuted.", { who }));
-              void refreshP2pRoster();
-            }
-            return;
-          }
-          if (inner?.type === "mod_kick" && typeof inner.target === "string") {
-            if (fromCaptain(data)) {
-              if (!bans.value.includes(inner.target)) bans.value = [...bans.value, inner.target];
-              persistRoomMod();
-              if (sameUser(inner.target, mlsIdentity.value)) {
-                void handleKicked();
-              } else {
-                // Kicking a user drops the presence of every one of its leaves.
-                for (const leaf of [...presenceById.keys()]) {
-                  if (leaf === inner.target || userPartOf(leaf) === inner.target) presenceById.delete(leaf);
-                }
-                messages.value.push(sysMsg("chat.sys.removed", "🚫 {who} was removed from the room.", { who: nameFor(inner.target) }));
-                void refreshP2pRoster();
-              }
-            }
-            return;
-          }
           const sentAt = typeof data.ts === "number" && data.ts > 0 && data.ts <= Date.now() + 60_000 ? new Date(data.ts) : new Date();
           if (options.inlineFiles && inner?.type === "file_inline") {
             const target = typeof inner.target === "string" ? inner.target : "";
             if ((target && target !== mlsIdentity.value) || typeof inner.data !== "string") return;
-            if (mutedUntilFor((data.device_id as string) ?? "", Date.now())) return;
             const caption = typeof inner.caption === "string" ? inner.caption : "";
             const fid = (typeof inner.msg_id === "string" && inner.msg_id) || (typeof inner.offerId === "string" && inner.offerId) || rxId;
             const file = { name: typeof inner.name === "string" ? inner.name : "file", size: b64Size(inner.data), data: inner.data };
             pushMessage({ id: fid, type: "file_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: caption, file, participant_type: "human", self: isSelf, encrypted: true, timestamp: sentAt, ...threadFields(caption, senderLeafId, isSelf, viaMailbox) }, senderLeafId);
             return;
           }
+          // Room meta and moderation frames from an older build: nothing here acts on
+          // them any more, and they must not render as a chat bubble.
+          if (inner?.type === "room_meta" || (typeof inner?.type === "string" && inner.type.startsWith("mod_"))) return;
           if (typeof inner?.type === "string" && (inner.type.startsWith("sync_") || inner.type.startsWith("file_") || inner.type.startsWith("meeting_") || inner.type.startsWith("vox_") || inner.type.startsWith("dlink_") || inner.type.startsWith("plink_"))) {
             // `dlink_*` is the linked-device sync family (useDeviceSync) and
             // `plink_*` the peer-link family (usePeerSync). Each is only ever
@@ -1329,9 +947,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
             syncHandlers.forEach((h) => h(inner!.type as string, inner!, senderName));
             return;
           }
-          // Mute enforcement (receive side): drop a muted member's HUMAN messages.
-          // Control traffic above (presence/leave/sync/moderation) stays routed.
-          if (mutedUntilFor((data.device_id as string) ?? "", Date.now())) return;
           if (inner?.type === "image_message" && inner.image_data) {
             pushMessage({ id: rxId, type: "image_message", user: senderName, initials: initials(senderName), avatar_url: avatarUrl, content: "", image_data: inner.image_data as string, participant_type: "human", self: isSelf, encrypted: true, timestamp: new Date() }, senderLeafId);
           } else if (inner?.type === "voice_message" && inner.audio_data) {
@@ -1380,34 +995,40 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   }
 
   // ── MLS init ─────────────────────────────────────────────────────────────────
-  async function startMls() {
+  /** Start the room's encryption. A room this device was let into comes back as
+   *  it was. Otherwise a fresh session sends its key package; `alone` (we just
+   *  created the room) makes it a group of one at once instead of after a wait. */
+  async function startMls(opts: { alone?: boolean } = {}) {
     if (!currentRoom.value || !mlsIdentity.value) return;
     if (mlsStatus.value !== "idle" && mlsStatus.value !== "error") return;
     const room = currentRoom.value.slug;
     const identity = mlsIdentity.value;
+    const gen = entryGen;
+    // Left (or switched rooms) while awaiting: whatever we were doing is not
+    // this room's any more — never send its key package into another room.
+    const stale = () => gen !== entryGen;
     mlsStatus.value = "initializing";
     mlsError.value = null;
     pendingInvites.clear();
     try {
-      if (options.keepSession) {
-        // The group this device was let into comes back: no new handshake, and frames the
-        // mailbox kept can still be opened. A session not let in yet keeps its key packages'
-        // keys, so a Welcome that waited in the mailbox still fits.
-        const restored = await cryptoService.initSession(room, identity);
-        if (restored && (await isAdmitted(room))) {
-          mlsStatus.value = "ready";
-          messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
-          await catchUpMailbox();
-          return;
-        }
-      } else {
-        await cryptoService.clearState(room, identity);
-        await cryptoService.initSession(room, identity);
+      // The group this device was let into comes back: no new handshake. (A
+      // fresh session for every reopen would make a new group of one each time,
+      // cut off from the members who stayed in the old one.)
+      const restored = await cryptoService.initSession(room, identity);
+      const admitted = restored && (await isAdmitted(room));
+      if (stale()) return;
+      if (admitted) {
+        mlsStatus.value = "ready";
+        messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
+        await catchUpMailbox();
+        return;
       }
       const kp = await cryptoService.keyPackage(room, identity);
       if (kp) {
         const b64 = bytesToBase64(kp);
-        send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...(await kpEnvelopeExtra(b64)) });
+        const extra = await kpEnvelopeExtra(b64);
+        if (stale()) return;
+        send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...extra });
         messages.value.push(sysMsg("chat.sys.settingUp", "🔑 Setting up encryption…"));
         mlsStatus.value = "key_exchange";
         if (options.openAdmission) startKpRetry();
@@ -1415,7 +1036,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         clearCreatorTimer();
         creatorTimer = setTimeout(() => {
           creatorTimer = null;
-          if (mlsStatus.value !== "key_exchange") return;
+          if (stale() || mlsStatus.value !== "key_exchange") return;
           if (options.mayFound && !options.mayFound()) { armAdmissionTimeout(); return; }
           if (sawForeignTraffic) {
             // Other members are here and none of them has admitted us. Declaring
@@ -1429,9 +1050,10 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           // encrypted, and this is the case the timer was written for.
           mlsStatus.value = "ready";
           messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
-        }, 5000);
+        }, opts.alone ? 0 : 5000);
       }
     } catch (e) {
+      if (stale()) return;
       mlsStatus.value = "error";
       mlsError.value = (e as Error).message;
       messages.value.push(sysMsg("chat.sys.initFailed", "Encryption init failed: {why}", { why: (e as Error).message }, "system_error"));
@@ -1555,54 +1177,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     pendingRecoveryRooms.clear();
   }
 
-  // ── P2P (iroh) rooms ─────────────────────────────────────────────────────────
+  // ── saved rooms ─────────────────────────────────────────────────────────────
   async function loadP2pRooms() {
     if (headless) return; // the hidden devlink room never touches the saved list
     try {
       const raw = await kvGet("p2p:rooms", "default", "");
       p2pRooms.value = raw ? (JSON.parse(raw) as P2pRoomEntry[]) : [];
-      await backfillLegacyTickets();
     } catch {
       p2pRooms.value = [];
     }
-  }
-
-  /**
-   * Read every legacy room ticket once, then delete it.
-   *
-   * Rooms saved before invitations became the only way in carry a permanent
-   * ticket, and for two kinds of room it is the only record of how to get back:
-   * an iroh room whose address book was never filled, and — the case that would
-   * otherwise be lost for good — a Tor room we JOINED, whose captain onion lives
-   * nowhere else. `openP2pRoom` no longer reads tickets, so without this pass
-   * those rooms would open into an error on the first launch after upgrading.
-   *
-   * Runs once: the field is gone afterwards, so the next load has nothing to do.
-   * A ticket that will not decode is dropped anyway — it could not have been used.
-   */
-  async function backfillLegacyTickets(): Promise<void> {
-    const stale = p2pRooms.value.filter((r) => typeof r.ticket === "string" && r.ticket);
-    if (!stale.length) return;
-    for (const entry of stale) {
-      try {
-        const info = await chatTransport.decodeLegacyTicket(entry.ticket as string);
-        if (info) {
-          if (info.tor) {
-            entry.tor = true;
-            if (!entry.captainOnion && info.captain_onion) entry.captainOnion = info.captain_onion;
-          }
-          // Union rather than overwrite: the live address book is fresher than a
-          // ticket minted once at room creation.
-          if (info.peers?.length) {
-            entry.peers = Array.from(new Set([...(entry.peers ?? []), ...info.peers]));
-          }
-        }
-      } catch {
-        /* undecodable — it could not have been used either; drop it below */
-      }
-      delete entry.ticket;
-    }
-    persistP2pRooms();
   }
 
   function persistP2pRooms() {
@@ -1626,8 +1209,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (p2pRooms.value.length !== before) persistP2pRooms();
   }
 
-  /** Record a peer NodeId in a room's persisted address book (pair once by QR,
-   *  reconnect by NodeId + n0 discovery forever after). */
+  /** Record a member's onion in a room's saved list (what a reopen links to). */
   function rememberPeerForRoom(room: string, peerId: string) {
     const entry = p2pRooms.value.find((r) => r.room === room);
     if (!entry) return;
@@ -1641,49 +1223,37 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     return { id: 0, slug: room, name, participant_count: 1, created_at: new Date().toISOString(), is_participant: true, participants: [] } as Room;
   }
 
-  function enterP2pRoom(room: string, name: string) {
+  /** Make a room current. `onion` is ours for it; `alone` says we just created
+   *  it. Encryption starts right away: it does not wait for anyone to be linked. */
+  function enterP2pRoom(room: string, name: string, onion: string, opts: { alone?: boolean } = {}) {
+    enterRoomView(room, name, onion);
+    void startMls(opts);
+  }
+
+  /** Make a room current without starting its encryption. */
+  function enterRoomView(room: string, name: string, onion: string) {
+    entryGen++;
     presenceById.clear();
-    // Reset captain-election state for the new room (myOnion / currentRoomIsTor are
-    // set by the caller right after this, from the transport's create/join result).
-    currentCaptainOnion.value = null;
-    captainId.value = null;
-    deadCaptains.clear();
-    if (electionTimer) { clearTimeout(electionTimer); electionTimer = null; }
-    // Load the room's persisted meta + moderation state (captain snapshots
-    // received later overwrite this by revision).
-    const saved = p2pRooms.value.find((r) => r.room === room);
-    roomLogo.value = saved?.logo ?? "";
-    roomRules.value = saved?.rules ?? "";
-    metaRev.value = saved?.metaRev ?? 0;
-    mutes.value = pruneMutes(saved?.mutes ?? {}, Date.now());
-    bans.value = saved?.bans ?? [];
+    if (peersTimer) { clearTimeout(peersTimer); peersTimer = null; }
+    myOnion.value = onion;
+    linkedOnions.value = [];
     currentRoom.value = makeP2pRoom(room, name);
     participants.value = [selfParticipant()];
     isParticipant.value = true;
     mlsStatus.value = "idle";
     mlsError.value = null;
     pendingInvites.clear();
-    wsStatus.value = chatTransport.lastStatus(room) ?? "connecting";
+    wsStatus.value = chatTransport.lastStatus(room) ?? "waiting";
     // The stored timeline (chat:log) comes back so a reopened room isn't blank.
     if (!headless) void restoreTimeline(room);
-    // Tor emits "connected" DURING the join/create invoke — before this room is
-    // current — so the status handler's startMls() kick gets dropped (the joiner
-    // then never sends its key package and stays "Not encrypted" forever). If the
-    // transport already reports connected by the time we enter, kick MLS here;
-    // startMls() guards on mlsStatus, so a late duplicate event is harmless.
-    if (wsStatus.value === "connected") void startMls();
-    // With a mailbox the room works with nobody else online: start at once.
-    else if (mailbox) void startMailbox(room).then(() => startMls());
-    if (mailbox && wsStatus.value === "connected") void startMailbox(room);
+    if (mailbox) void startMailbox(room);
   }
 
   /**
    * Create a room and enter it. Returns its slug, or null on failure.
    *
-   * It used to return a permanent ticket — the thing you then handed out. Creating
-   * a room now yields no shareable credential at all: the transport reports which
-   * transport it landed on (a non-empty onion means Tor), and letting anyone else
-   * in is a separate, deliberate act of minting an invitation.
+   * Creating a room yields no shareable credential: letting anyone else in is a
+   * separate, deliberate act of minting an invitation.
    */
   async function createRoom(name: string): Promise<string | null> {
     error.value = null;
@@ -1691,16 +1261,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     clearMessages();
     try {
       const res = await chatTransport.createRoom(name.trim());
-      // Only the Tor backend hosts an onion, so its presence IS the transport.
-      const tor = !!res.onion;
-      rememberP2pRoom({
-        room: res.room, name: res.name, host: true, tor, onion: res.onion || undefined,
-      });
-      enterP2pRoom(res.room, res.name);
-      currentRoomIsTor.value = tor;
-      myOnion.value = res.onion;
-      // Run the election now so the sole-member creator is marked captain (★) over
-      // Tor immediately — before any joiner arrives.
+      rememberP2pRoom({ room: res.room, name: res.name, host: true, onion: res.onion });
+      enterP2pRoom(res.room, res.name, res.onion, { alone: true });
       void refreshP2pRoster();
       messages.value.push(
         sysMsg("chat.sys.created", "Created “{name}”. Invite someone to let them in.", {
@@ -1715,31 +1277,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   }
 
 
-  // Abort an in-flight Tor join (the join modal's "Cancel" button). Frees the
-  // half-launched onion's lock in Rust so a retry doesn't hit "resource already in
-  // use". No-op for iroh joins. Clears any error the aborted join left behind.
+  // Abort an in-flight join (the join modal's "Cancel" button). Clears any error
+  // the aborted join left behind.
   async function cancelJoin() {
     chatTransport.cancelJoin();
     error.value = null;
-  }
-
-  // Ticketless reconnect: re-enter a named room, bootstrapping from persisted peer
-  // NodeIds (addresses resolve via iroh's n0 discovery).
-  async function joinByNode(name: string, peerNodeIds: string[]) {
-    error.value = null;
-    teardown();
-    clearMessages();
-    try {
-      const res = await chatTransport.joinRoomByNode(name.trim(), peerNodeIds);
-      enterP2pRoom(res.room, res.name);
-      currentRoomIsTor.value = false; // ticketless reconnect is the iroh path
-      myOnion.value = "";
-      messages.value.push(
-        sysMsg("chat.sys.joined", "Joined “{name}”. Connecting to peers…", { name: res.name }),
-      );
-    } catch (e) {
-      error.value = errorMessage(e);
-    }
   }
 
   // ── invitations (technology.md §18) ─────────────────────────────────────────
@@ -1761,7 +1303,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   async function admitInvited(
     roomSlug: string,
     keyPackageB64: string,
-  ): Promise<{ welcome: string; roomName: string; peers: string[]; onion: string } | null> {
+  ): Promise<{ welcome: string; roomName: string; peers: string[] } | null> {
     if (!currentRoom.value || currentRoom.value.slug !== roomSlug) return null;
     if (mlsStatus.value !== "ready") return null;
     try {
@@ -1776,20 +1318,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       send({ type: "mls_commit", commit: bytesToBase64(result.commit) });
       void refreshP2pRoster();
 
-      // Where the newcomer should connect. Read from the ROOM's transport, not
-      // from a global setting — a room opened before the Tor switch moved is
-      // still on the transport it was opened with.
-      //
-      // This is the room's address, which every member necessarily has; it is
-      // not a credential. Nothing here re-admits anybody: the group is closed
-      // again the moment this commit lands.
-      const onion = currentRoomIsTor.value ? myOnion.value : "";
-      const peers = currentRoomIsTor.value ? [] : [(await ensureNode()) ?? ""].filter(Boolean);
+      // Where the newcomer links to: every member's onion we know, ours first.
+      // Every member necessarily has these; they are not a credential. Nothing
+      // here re-admits anybody: the group is closed again once this commit lands.
+      const others = [...presenceById.values()].map((i) => i.onion).filter(Boolean);
+      const peers = [...new Set([myOnion.value, ...others])].filter(Boolean);
       return {
         welcome: bytesToBase64(result.welcome),
         roomName: currentRoom.value.name,
         peers,
-        onion,
       };
     } catch {
       return null;
@@ -1798,15 +1335,13 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
 
   /**
    * The redeemer's half: join the group from the Welcome the inviter granted,
-   * then join the room's transport.
+   * then open the room and link to its members.
    *
-   * MLS first, transport second — the reverse of an ordinary join. A normal
-   * joiner arrives on the topic and negotiates; here the negotiation already
-   * happened over the authenticated redemption stream, so the group membership
-   * is settled before the first gossip frame.
+   * The negotiation already happened over the authenticated redemption stream,
+   * so the group membership is settled before the first frame.
    */
   async function joinByInvite(
-    grant: { roomName: string; welcome: string; peers: string[]; onion: string },
+    grant: { roomName: string; welcome: string; peers: string[] },
     /** The scratch room key the redeemer's KeyPackage was built under. It has to
      *  move onto the real room before the Welcome can be processed there — that
      *  session is the one holding the KeyPackage's private init key. */
@@ -1814,30 +1349,17 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   ): Promise<boolean> {
     error.value = null;
     try {
-      // `joinByNode` routes on both transports (realtime_join_room_by_node).
-      // Over Tor it re-hosts this room's name as an onion of our own, so the
-      // captain has to be pointed at explicitly afterwards — the same two-step
-      // a Tor reconnect already performs.
-      await joinByNode(grant.roomName, grant.peers);
-      if (grant.onion && currentRoom.value) {
-        chatTransport.setCaptain(currentRoom.value.slug, grant.onion);
-      }
-      if (!currentRoom.value) return false;
-      const slug = currentRoom.value.slug;
-      // SAVE the room. Without this an invited member holds the room only for the
-      // life of the process: it is absent from the saved list, `updateRoomEntry`
-      // no-ops so meta/mutes/bans never persist, and `rememberPeerForRoom` bails
-      // so the address book that ticketless reconnect depends on never fills. It
-      // went unnoticed while everyone also held a ticket; with invitations the
-      // only way in, this call is what makes membership survive a restart.
-      rememberP2pRoom({
-        room: slug,
-        name: grant.roomName,
-        peers: grant.peers,
-        tor: currentRoomIsTor.value,
-        onion: myOnion.value || undefined,
-        captainOnion: grant.onion || undefined,
-      });
+      teardown();
+      clearMessages();
+      const res = await chatTransport.joinRoom(grant.roomName.trim(), grant.peers);
+      const slug = res.room;
+      // Save the room first: membership must survive a restart, and the saved
+      // member list is what a reopen links to.
+      rememberP2pRoom({ room: slug, name: res.name, peers: grant.peers.filter((o) => o !== res.onion), onion: res.onion });
+      // Enter without starting a fresh handshake: the Welcome below is our way in.
+      enterRoomView(slug, res.name, res.onion);
+      mlsStatus.value = "initializing";
+      messages.value.push(sysMsg("chat.sys.joined", "Joined “{name}”. Connecting to the others…", { name: res.name }));
       if (!(await cryptoService.adoptSession(scratchRoom, slug, mlsIdentity.value))) {
         mlsStatus.value = "error";
         mlsError.value = t("chat.sys.adoptFailed", "Could not take up the invitation's encrypted session.");
@@ -1855,6 +1377,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       }
       mlsStatus.value = "ready";
       messages.value.push(sysMsg("chat.sys.encrypted", "🔒 End-to-end encryption active."));
+      schedulePeers();
       return true;
     } catch (e) {
       error.value = errorMessage(e);
@@ -1862,47 +1385,22 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
   }
 
-  /** Ensure this channel's iroh endpoint is started and return our NodeId (shown in
-   *  Settings; also what a future contact-QR would carry). */
-  async function ensureNode(): Promise<string | null> {
-    try {
-      const info = await chatTransport.nodeInfo();
-      return info?.node_id ?? null;
-    } catch {
-      return null;
-    }
+  /** This device's id, for a personal invitation (Settings, "My code"). */
+  async function deviceId(): Promise<string | null> {
+    return chatTransport.deviceId().catch(() => null);
   }
 
-  /**
-   * Open a saved room, with no ticket anywhere in the path.
-   *
-   * The transport comes from the record's own `tor` flag rather than from sniffing
-   * a ticket's tag byte — the flag has always been written at create/join time, it
-   * just was not the thing consulted.
-   *
-   * Tor, hosted: re-launch our own onion (same nickname ⇒ same `.onion`, so this is
-   * idempotent). Tor, joined: re-host under the room name and then point at the
-   * captain's saved onion, the same two-step a Tor reconnect already performs.
-   * iroh: re-subscribe by name and seed the persisted peer NodeIds, letting n0
-   * discovery resolve their current addresses.
-   */
+  /** Open a saved room: host our onion for it again (same address) and link to
+   *  the members saved with it. */
   async function openP2pRoom(entry: P2pRoomEntry) {
     if (currentRoom.value?.slug === entry.room) return;
     error.value = null;
     teardown();
     clearMessages();
     try {
-      const tor = entry.tor === true;
-      const res = tor && entry.host
-        ? await chatTransport.createRoom(entry.name)
-        : await chatTransport.joinRoomByNode(entry.name, entry.peers ?? []);
-      enterP2pRoom(entry.room, entry.name);
-      currentRoomIsTor.value = tor;
-      myOnion.value = res.onion;
-      // A joiner has no route back into a Tor room without the captain's address.
-      if (tor && !entry.host && entry.captainOnion) {
-        chatTransport.setCaptain(entry.room, entry.captainOnion);
-      }
+      const res = await chatTransport.joinRoom(entry.name, entry.peers ?? []);
+      if (res.onion !== entry.onion) updateEntry(entry.room, { onion: res.onion });
+      enterP2pRoom(entry.room, entry.name, res.onion);
     } catch (e) {
       error.value = errorMessage(e);
     }
@@ -1929,12 +1427,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     mlsStatus.value = "idle";
   }
 
-  /** Delete a saved room: kick + wipe. If we HOST it and are connected, broadcast
-   *  `room_closed` so every participant tears down + forgets it too; if we only joined,
-   *  broadcast the ordinary `leave` (the remaining admin evicts us from MLS). Then wipe
-   *  all local data for the room — MLS group state, the persisted entry, and (Tor) the
-   *  onion identity — and close its connections. Kicking peers only reaches them while
-   *  we are connected to the room with MLS ready (i.e. deleting the open room). */
+  /** Delete a saved room. If we created it and it is open, broadcast
+   *  `room_closed` so every member tears down + forgets it too; if we only joined,
+   *  broadcast the ordinary `leave` (a remaining member removes us from MLS). Then
+   *  wipe all local data for the room — MLS group state, the saved entry, the
+   *  stored timeline and our onion for it — and close its links. */
   async function deleteRoom(entry: P2pRoomEntry): Promise<void> {
     const slug = entry.room;
     const identity = mlsIdentity.value;
@@ -1945,7 +1442,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
     // Wipe local data (MLS state, saved entry, stored timeline).
     await cryptoService.clearState(slug, identity).catch(() => {});
-    if (entry.tor) chatTransport.forgetTorOnion(entry.name); // stops the service + drops the key
+    chatTransport.forgetOnion(entry.name); // stops the service + drops the key
     if (!headless) {
       logAppender.drop(slug);
       await wipeLog(slug).catch(() => {});
@@ -1963,9 +1460,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     if (!currentRoom.value) return;
     const slug = currentRoom.value.slug;
     const name = currentRoom.value.name;
-    const tor = currentRoomIsTor.value;
     await cryptoService.clearState(slug, mlsIdentity.value).catch(() => {});
-    if (tor) chatTransport.forgetTorOnion(name);
+    chatTransport.forgetOnion(name);
     if (!headless) { logAppender.drop(slug); void wipeLog(slug); }
     forgetP2pRoom(slug);
     // Resets the channel + leaves the notice as the sole system message.
@@ -1992,23 +1488,10 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     await sendEncryptedMedia(type, payload);
   }
 
-  /** Self-mute send guard: posts a notice + returns true while we are muted.
-   *  Honors both keying schemes (user-part and legacy full-leaf) so a mute set
-   *  against our user still locks a secondary device's composer. */
-  function blockedByMute(): boolean {
-    const until = mutedUntilFor(mlsIdentity.value, Date.now());
-    if (!until) return false;
-    messages.value.push(
-      sysMsg("chat.sys.mutedSelf", "🔇 You are muted for another {time}.", {
-        time: formatRemaining(until, Date.now()),
-      }, "system_error"),
-    );
-    return true;
-  }
-
+  // Sending needs encryption, not a live link: Rust keeps a frame for every
+  // member who is not linked yet and sends it when the link comes up.
   async function sendImage(file: File, onProgress?: (pct: number) => void) {
-    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
-    if (blockedByMute()) return;
+    if (!currentRoom.value || !isParticipant.value) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
       messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
@@ -2024,8 +1507,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   }
 
   async function sendAudio(audioBlob: Blob) {
-    if (!currentRoom.value || !isConnected.value || !isParticipant.value) return;
-    if (blockedByMute()) return;
+    if (!currentRoom.value || !isParticipant.value) return;
     error.value = null;
     if (mlsStatus.value !== "ready") {
       messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
@@ -2041,10 +1523,13 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
 
   async function sendMessage(content: string) {
     const text = content.trim();
-    if (!text || (!isConnected.value && !mailbox) || !currentRoom.value) return;
-    if (blockedByMute()) return;
-
-    if (mlsStatus.value === "ready") {
+    if (!text || !currentRoom.value) return;
+    if (mlsStatus.value !== "ready") {
+      // Never in the clear: nothing is sent before the room is encrypted.
+      messages.value.push(sysMsg("chat.sys.notReady", "Encryption not ready yet — try again in a moment.", undefined, "system_error"));
+      return;
+    }
+    {
       const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, text);
       if (ct) {
         // Text stays RAW inside the ciphertext (old-build receivers render it
@@ -2057,9 +1542,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       } else {
         messages.value.push(sysMsg("chat.sys.encryptFailed", "Encryption failed — message not sent.", undefined, "system_error"));
       }
-    } else {
-      // Pre-MLS fallback (plaintext over the gossip topic; QUIC still encrypts hops).
-      send({ type: "chat_message", message: text, id: nanoid() });
     }
   }
 
@@ -2070,7 +1552,6 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     const size = b64Size(dataB64);
     if (size > INLINE_MAX) throw new Error(t("chat.sys.fileTooBig", "Files up to 256 KiB go in the room."));
     if (mlsStatus.value !== "ready") throw new Error(t("chat.sys.notReady", "Encryption not ready yet — try again in a moment."));
-    if (blockedByMute()) return;
     const msgId = nanoid();
     await sendEncryptedMedia("file_inline", { offerId: msgId, target: "", name, size, data: dataB64, fromName: currentUserName.value, caption }, msgId);
     pushMessage({ id: msgId, type: "file_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: caption, file: { name, size, data: dataB64 }, participant_type: "human", self: true, encrypted: true, timestamp: new Date(), ...threadFields(caption, mlsIdentity.value, true) }, mlsIdentity.value);
@@ -2160,22 +1641,19 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   return {
     currentRoom, messages, participants,
     wsStatus, error, isConnected, unread, clearUnread,
-    mlsStatus, mlsError, isEncrypted, currentRoomIsTor,
+    mlsStatus, mlsError, isEncrypted, myOnion, linkedOnions,
     isParticipant, currentUserName, mlsIdentity, myAvatar,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
     joinParticipant, leaveParticipant,
     sendMessage, sendImage, sendAudio, forceResetMls,
-    p2pRooms, loadP2pRooms, createRoom, joinByNode, openP2pRoom,
+    p2pRooms, loadP2pRooms, createRoom, openP2pRoom,
     admitInvited, joinByInvite,
     cancelJoin, deleteRoom,
-    ensureNode,
+    deviceId,
     onSync, sendSync, postSystemNotice,
     // Shared-engine options (Teutates)
     removed, catchUpMailbox, enforceRoster, sendFile,
     mergeHistory, removeLeaf,
-    // Room meta + moderation (captain-authoritative)
-    captainId, amCaptain, roomLogo, roomRules, bans, selfMuteUntil,
-    setRoomLogo, setRoomRules, kickMember, muteMember, unmuteMember, unbanMember,
   };
 }
 

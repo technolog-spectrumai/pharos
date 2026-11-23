@@ -16,7 +16,7 @@ const props = defineProps<{
 // live here.
 const emit = defineEmits<{ "update:open": [boolean]; "open-camera": [] }>();
 
-const { ticket, scanError, joinStarted, joinError, joiningTor, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin, invitePeek } =
+const { ticket, scanError, joinStarted, joinError, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin, invitePeek } =
   props.controller;
 // Live status from the channel — "established" = MLS Encrypted.
 const { isEncrypted, mlsStatus } = props.channel;
@@ -82,9 +82,7 @@ function close() {
                 ? $t("chat.connectedOk")
                 : mlsStatus === "key_exchange"
                   ? $t("chat.encrypting")
-                  : joiningTor
-                    ? $t("chat.launchingOnion")
-                    : $t("chat.joining")
+                  : $t("chat.joining")
           }}
         </p>
         <!-- Terminal outcome (established or error) → the window closes itself after
@@ -100,10 +98,9 @@ function close() {
         >
           {{ $t("chat.retry") }}
         </button>
-        <!-- Tor joins host + dial an onion, which can hang; let the user abort so
-             the onion lock is freed and a retry doesn't hit "already in use". -->
+        <!-- Dialling an onion can hang; let the user give up. -->
         <button
-          v-else-if="joiningTor && !isEncrypted"
+          v-else-if="!isEncrypted"
           type="button"
           class="rounded-lg border border-current/20 px-4 py-2 text-sm font-semibold transition hover:opacity-80"
           @click="cancelJoin"

@@ -1,9 +1,10 @@
-// P2P chat transport — iroh rooms via the Rust realtime gateway.
+// Chat transport: the Rust mesh over Tor (`realtime_*` commands and the
+// room-tagged `realtime://*` events).
 //
-// The app is serverless: every room is an iroh-gossip room owned by Rust
-// (`realtime_*` commands + room-tagged `realtime://*` events). A single set of
+// Every member of a room hosts an onion for it and keeps a link to every other
+// member; `setPeers` tells Rust whose onions those are. A single set of
 // listeners dispatches every event to handlers by its room. In a plain browser
-// (Vite dev / vitest jsdom) there is no Rust, so a stub transport rejects P2P
+// (Vite dev / vitest jsdom) there is no Rust, so a stub transport rejects room
 // operations — the chat requires the Tauri desktop/mobile runtime.
 
 const _isTauri = (): boolean =>
@@ -14,59 +15,40 @@ async function _invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   return invoke<T>(cmd, args);
 }
 
-/** Room connection state (kept the historical name — it is transport-agnostic). */
-export type WsStatus = "connecting" | "connected" | "disconnected" | "error";
+/** A room's link state: `connected` while at least one other member is linked,
+ *  `waiting` while none is (alone, or the others are offline), `connecting`
+ *  before the room's onion is up. (The type keeps its historical name.) */
+export type WsStatus = "connecting" | "connected" | "waiting" | "disconnected" | "error";
 /** A parsed JSON frame from the transport. */
 export type WsMessage = Record<string, unknown> & { type?: string };
 
-/** `peerId` is set on neighbor-up status events: the NodeId of the peer that just
- *  connected. Channels persist it per room so reconnects work without a fresh QR. */
 type MessageHandler = (room: string, data: WsMessage) => void;
-/** `reason` distinguishes transport-specific status causes — currently
- *  `"captain_unreachable"` (Tor), signalling the elected onion host went down so
- *  the channel should re-elect. Absent/undefined for ordinary status changes. */
-type StatusHandler = (room: string, state: WsStatus, peerId?: string, reason?: string) => void;
+/** `peerId` is the onion of the member whose link just came up or went down;
+ *  `linked` the onions of every member linked right now. */
+type StatusHandler = (room: string, state: WsStatus, peerId?: string, linked?: string[]) => void;
 
-/** `code` is the ticketless-join room code (DHT rendezvous — technology.md §12); empty
- *  while the DHT discovery toggle is off, and for Tor rooms. */
-export interface CreatedRoom { room: string; name: string; onion: string }
-export interface JoinedRoom { room: string; name: string; onion: string }
-
-/** What a retired permanent room ticket still tells us, for the one-time backfill
- *  in `loadP2pRooms`. Field names match the Rust struct (snake_case over the IPC). */
-export interface LegacyTicketInfo {
-  tor: boolean;
-  name: string;
-  peers: string[];
-  captain_onion: string;
-}
+/** A room opened on this device; `onion` is ours for it. */
+export interface OpenedRoom { room: string; name: string; onion: string }
 
 export interface ChatTransport {
-  // P2P (iroh) rooms — Tauri only.
-  createRoom(name: string): Promise<CreatedRoom>;
-  /** Ticketless reconnect: re-subscribe to a named room from persisted peer NodeIds. */
-  joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom>;
-  /** Migration only: read a retired permanent room ticket so its addresses can be
-   *  lifted into the room record, after which the ticket is deleted. Never a join
-   *  path — see src-tauri/src/legacy_ticket.rs. */
-  decodeLegacyTicket(ticket: string): Promise<LegacyTicketInfo | null>;
-  /** Abort an in-flight Tor join (frees the onion lock so a retry doesn't hit
-   *  "resource already in use"). No-op for iroh joins / when nothing is joining. */
+  /** Host a new room's onion. */
+  createRoom(name: string): Promise<OpenedRoom>;
+  /** Open a room and link to the given members' onions (reopen, or after an
+   *  invitation was redeemed). */
+  joinRoom(name: string, peers: string[]): Promise<OpenedRoom>;
+  /** Every other member's onion: Rust keeps a link to each. */
+  setPeers(room: string, peers: string[]): void;
+  /** Abort an in-flight join. */
   cancelJoin(): void;
   leaveRoom(room: string): void;
-  /** Destroy a Tor room's onion identity (part of deleting the room): stops its
-   *  service and removes its hidden-service keys so a same-named room later mints a
-   *  fresh `.onion`. No-op for iroh rooms / rooms never hosted over Tor. */
-  forgetTorOnion(name: string): void;
-  /** Re-point our outbound onion dial to the elected captain (Tor rooms only). */
-  setCaptain(room: string, captainOnion: string): void;
-  nodeInfo(): Promise<{ node_id: string } | null>;
-  // Send a payload to a specific room.
+  /** Part of deleting a room: a same-named room later gets a fresh onion. */
+  forgetOnion(name: string): void;
+  /** This device's id, for a personal invitation. */
+  deviceId(): Promise<string | null>;
   send(room: string, payload: Record<string, unknown>): void;
-  // Room-tagged streams; channels filter to the rooms they own.
   onMessage(handler: MessageHandler): () => void;
   onStatus(handler: StatusHandler): () => void;
-  // Last known status for a room (so a channel can initialise when it sets a room).
+  /** Last known status for a room (so a channel can initialise when it sets a room). */
   lastStatus(room: string): WsStatus | undefined;
 }
 
@@ -90,29 +72,26 @@ class GatewayChatTransport implements ChatTransport {
       }
       this.messageHandlers.forEach((h) => h(e.payload.room, data));
     });
-    await listen<{ room: string; state: WsStatus; peer_id?: string | null; reason?: string | null }>(
-      "realtime://status",
-      (e) => {
-        this.roomStatus.set(e.payload.room, e.payload.state);
-        const peerId = e.payload.peer_id ?? undefined;
-        const reason = e.payload.reason ?? undefined;
-        this.statusHandlers.forEach((h) => h(e.payload.room, e.payload.state, peerId, reason));
-      },
-    );
+    await listen<{ room: string; state: WsStatus; peer_id?: string | null; linked?: string[] }>("realtime://status", (e) => {
+      this.roomStatus.set(e.payload.room, e.payload.state);
+      const peerId = e.payload.peer_id ?? undefined;
+      const linked = e.payload.linked ?? [];
+      this.statusHandlers.forEach((h) => h(e.payload.room, e.payload.state, peerId, linked));
+    });
   }
 
-  async createRoom(name: string): Promise<CreatedRoom> {
+  async createRoom(name: string): Promise<OpenedRoom> {
     await this.ensureListeners();
-    return _invoke<CreatedRoom>("realtime_create_room", { name });
+    return _invoke<OpenedRoom>("realtime_create_room", { name });
   }
 
-
-  async decodeLegacyTicket(ticket: string): Promise<LegacyTicketInfo | null> {
-    return _invoke<LegacyTicketInfo>("legacy_ticket_decode", { ticket }).catch(() => null);
-  }
-  async joinRoomByNode(name: string, peerNodeIds: string[]): Promise<JoinedRoom> {
+  async joinRoom(name: string, peers: string[]): Promise<OpenedRoom> {
     await this.ensureListeners();
-    return _invoke<JoinedRoom>("realtime_join_room_by_node", { name, peerNodeIds });
+    return _invoke<OpenedRoom>("realtime_join_room", { name, peers });
+  }
+
+  setPeers(room: string, peers: string[]): void {
+    void _invoke("realtime_set_peers", { room, peers }).catch(() => {});
   }
 
   cancelJoin(): void {
@@ -124,20 +103,16 @@ class GatewayChatTransport implements ChatTransport {
     void _invoke("realtime_leave_room", { room }).catch(() => {});
   }
 
-  forgetTorOnion(name: string): void {
-    void _invoke("realtime_forget_tor_onion", { name }).catch(() => {});
+  forgetOnion(name: string): void {
+    void _invoke("realtime_forget_onion", { name }).catch(() => {});
   }
 
-  setCaptain(room: string, captainOnion: string): void {
-    void _invoke("realtime_tor_set_captain", { room, captainOnion }).catch(() => {});
+  deviceId(): Promise<string | null> {
+    return _invoke<string>("realtime_device_id").catch(() => null);
   }
 
   send(room: string, payload: Record<string, unknown>): void {
     void _invoke("realtime_send", { room, payload: JSON.stringify(payload) }).catch(() => {});
-  }
-
-  nodeInfo(): Promise<{ node_id: string } | null> {
-    return _invoke<{ node_id: string }>("realtime_node_info");
   }
 
   onMessage(handler: MessageHandler): () => void {
@@ -158,23 +133,20 @@ class GatewayChatTransport implements ChatTransport {
 }
 
 // ── Browser stub: P2P requires the Tauri runtime ──────────────────────────────
-const P2P_REQUIRES_APP = "P2P rooms require the desktop/mobile app.";
+const P2P_REQUIRES_APP = "Rooms require the desktop/mobile app.";
 
 class StubChatTransport implements ChatTransport {
-  createRoom(): Promise<CreatedRoom> {
+  createRoom(): Promise<OpenedRoom> {
     return Promise.reject(new Error(P2P_REQUIRES_APP));
   }
-  decodeLegacyTicket(): Promise<LegacyTicketInfo | null> {
-    return Promise.resolve(null);
-  }
-  joinRoomByNode(): Promise<JoinedRoom> {
+  joinRoom(): Promise<OpenedRoom> {
     return Promise.reject(new Error(P2P_REQUIRES_APP));
   }
+  setPeers(): void {}
   cancelJoin(): void {}
   leaveRoom(): void {}
-  forgetTorOnion(): void {}
-  setCaptain(): void {}
-  nodeInfo(): Promise<{ node_id: string } | null> {
+  forgetOnion(): void {}
+  deviceId(): Promise<string | null> {
     return Promise.resolve(null);
   }
   send(): void {}

@@ -21,8 +21,6 @@ export interface InvitePeek {
   kind: string;
   inviter: string;
   expiresAt: number;
-  /** True when the invitation names an onion — so the redeem dials over Tor. */
-  tor?: boolean;
 }
 
 export interface RedeemOutcome {
@@ -96,7 +94,6 @@ export async function redeemInvitation(
       welcome: string;
       roomName: string;
       peers: string[];
-      onion: string;
     }>("invite_redeem", {
       ticket: code,
       keyPackage: bytesToBase64(kp),

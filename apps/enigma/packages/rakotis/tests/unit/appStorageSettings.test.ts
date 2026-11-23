@@ -28,10 +28,14 @@ afterEach(async () => {
 describe("the build config in a browser", () => {
   it("is the stock table until patched, and a patch only touches what it names", async () => {
     expect(S.getBuildConfig().connect_timeout_secs).toEqual({ default: 60, min: 5, max: 600 });
-    const patched = await S.initBuildConfig({ app_name: "Enigma Test", use_tor_default: true });
+    const patched = await S.initBuildConfig({ app_name: "Enigma Test", pin_digits: { default: 8, min: 4, max: 12 } });
     expect(patched.app_name).toBe("Enigma Test");
-    expect(patched.use_tor_default).toBe(true);
-    expect(patched.stable_onion_default).toBe(false);
+    expect(patched.pin_digits).toEqual({ default: 8, min: 4, max: 12 });
+    expect(patched.connect_timeout_secs).toEqual({ default: 60, min: 5, max: 600 });
+    // The retired Tor / onion / file-integrity build defaults are gone from the table.
+    for (const gone of ["use_tor_default", "stable_onion_default", "file_integrity_default"]) {
+      expect(patched).not.toHaveProperty(gone);
+    }
     expect(S.getBuildConfig()).toBe(patched);
   });
 
@@ -95,9 +99,7 @@ describe("numeric settings", () => {
 
 describe("switches", () => {
   it.each([
-    ["stable onion", S.getStableOnion, S.setStableOnion],
     ["lock on hide", S.getLockOnHide, S.setLockOnHide],
-    ["file integrity off", async () => !(await S.getFileIntegrity()), async (on: boolean) => S.setFileIntegrity(!on)],
   ] as const)("%s: starts in its safe position and round-trips", async (_name, get, set) => {
     expect(await get()).toBe(false);
     await set(true);
@@ -106,11 +108,12 @@ describe("switches", () => {
     expect(await get()).toBe(false);
   });
 
-  it("file integrity takes its default from the build until the user chooses", async () => {
-    await S.initBuildConfig({ file_integrity_default: false });
-    expect(await S.getFileIntegrity()).toBe(false);
-    await S.setFileIntegrity(true);
-    expect(await S.getFileIntegrity()).toBe(true);
+  it("has no Tor, stable-onion or file-integrity switches left", () => {
+    for (const gone of [
+      "getUseTor", "setUseTor", "getStableOnion", "setStableOnion", "getFileIntegrity", "setFileIntegrity",
+    ]) {
+      expect((S as Record<string, unknown>)[gone]).toBeUndefined();
+    }
   });
 });
 
@@ -169,11 +172,10 @@ describe("desktop-only operations in a browser", () => {
 
   it("answers every profile-state call with the local state, flags included", async () => {
     await S.setOffline(true);
-    await S.setUseTor(true);
     const blank = { display_name: "", email: "", phone: "", bio: "", date_of_birth: "" };
     const expected = {
       offline_profile: blank, offline_profiles: [], selected_offline_profile_id: "",
-      offline: true, use_tor: true,
+      offline: true,
     };
     expect(await S.clearProfileState()).toEqual(expected);
     expect(await S.clearOfflineProfile()).toEqual(expected);

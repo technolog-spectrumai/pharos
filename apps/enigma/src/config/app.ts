@@ -40,11 +40,6 @@ export const policy = {
   /** Profile / data-profile label cap (the "New profile name" and data-profile
    *  identifier fields in EnigmaProfileView / EnigmaConfigView). */
   profileNameMaxLen: 80,
-  /** Default state of the P2P feature switches — mirrors the default
-   *  build_config.yaml `features:` section (which drives the Rust
-   *  `AppProfileState` defaults). The backend is authoritative; the UI must
-   *  never hardcode a different default. Browser-mode fallback via main.ts. */
-  featureDefaults: { offline: false, useTor: false, stableOnion: false },
   /** P2P file-transfer UI policy. */
   fileShare: {
     /** Transfers this size or smaller (bytes) render without a progress bar —

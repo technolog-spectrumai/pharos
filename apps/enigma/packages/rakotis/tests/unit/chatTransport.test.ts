@@ -15,7 +15,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-describe("chatTransport — room-multiplexing Rust gateway backend (P2P only)", () => {
+describe("chatTransport — room-multiplexing Rust gateway backend", () => {
   let transport: any;
 
   beforeEach(async () => {
@@ -58,44 +58,49 @@ describe("chatTransport — room-multiplexing Rust gateway backend (P2P only)", 
     expect(transport.lastStatus("room-9")).toBe("connected");
   });
 
-  it("neighbor-up status events carry the peer NodeId (the reconnect handle)", async () => {
+  it("link status events carry the onion of the member whose link changed", async () => {
     const got: Array<[string, string, string | undefined]> = [];
     transport.onStatus((room: string, state: string, peerId?: string) => got.push([room, state, peerId]));
     await tick();
     listeners["realtime://status"]({
-      payload: { room: "room-2", state: "connected", peers: 1, peer_id: "node-abc" },
+      payload: { room: "room-2", state: "connected", peers: 1, peer_id: "bob.onion" },
+    });
+    listeners["realtime://status"]({
+      payload: { room: "room-2", state: "waiting", peers: 0, peer_id: "bob.onion" },
     });
     listeners["realtime://status"]({
       payload: { room: "room-2", state: "disconnected", peers: 0, peer_id: null },
     });
-    expect(got).toContainEqual(["room-2", "connected", "node-abc"]);
+    expect(got).toContainEqual(["room-2", "connected", "bob.onion"]);
+    expect(got).toContainEqual(["room-2", "waiting", "bob.onion"]);
     expect(got).toContainEqual(["room-2", "disconnected", undefined]);
+    expect(transport.lastStatus("room-2")).toBe("disconnected");
   });
 
   it("createRoom returns a room, not a credential", async () => {
     // It used to hand back a permanent ticket. Creating a room now produces
     // nothing shareable — letting someone in is a separate, deliberate act.
-    invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", onion: "" });
+    invoke.mockResolvedValueOnce({ room: "topic-abc", name: "general", onion: "me.onion" });
     const created = await transport.createRoom("general");
     expect(invoke).toHaveBeenCalledWith("realtime_create_room", { name: "general" });
-    expect(created).toEqual({ room: "topic-abc", name: "general", onion: "" });
+    expect(created).toEqual({ room: "topic-abc", name: "general", onion: "me.onion" });
     expect(created).not.toHaveProperty("ticket");
   });
 
-  it("has no join-by-ticket command left to call", async () => {
-    // `realtime_join_room` is gone from the Rust command table; calling it would
-    // fail at runtime rather than being merely unused.
-    expect((transport as Record<string, unknown>).joinRoom).toBeUndefined();
+  it("joinRoom opens a named room and links to the given members' onions", async () => {
+    invoke.mockResolvedValueOnce({ room: "topic-n", name: "duo", onion: "me.onion" });
+    const joined = await transport.joinRoom("duo", ["a.onion", "b.onion"]);
+    expect(invoke).toHaveBeenCalledWith("realtime_join_room", {
+      name: "duo",
+      peers: ["a.onion", "b.onion"],
+    });
+    expect(joined).toEqual({ room: "topic-n", name: "duo", onion: "me.onion" });
   });
 
-  it("joinRoomByNode bootstraps a named room from peer NodeIds — the only join", async () => {
-    invoke.mockResolvedValueOnce({ room: "topic-n", name: "duo" });
-    const joined = await transport.joinRoomByNode("duo", ["node-a", "node-b"]);
-    expect(invoke).toHaveBeenCalledWith("realtime_join_room_by_node", {
-      name: "duo",
-      peerNodeIds: ["node-a", "node-b"],
-    });
-    expect(joined).toEqual({ room: "topic-n", name: "duo" });
+  it("has none of the retired iroh/captain/ticket calls left", () => {
+    for (const gone of ["joinRoomByNode", "decodeLegacyTicket", "setCaptain", "nodeInfo", "forgetTorOnion"]) {
+      expect((transport as Record<string, unknown>)[gone]).toBeUndefined();
+    }
   });
 
   it("channels filtering by room don't see each other's messages", async () => {
@@ -117,8 +122,8 @@ describe("chatTransport — browser stub (no Tauri runtime)", () => {
     vi.resetModules();
     const stub = (await import("../../src/chatTransport")).chatTransport;
     await expect(stub.createRoom("x")).rejects.toThrow(/desktop/i);
-    await expect(stub.joinRoomByNode("x", [])).rejects.toThrow(/desktop/i);
-    await expect(stub.nodeInfo()).resolves.toBeNull();
+    await expect(stub.joinRoom("x", [])).rejects.toThrow(/desktop/i);
+    await expect(stub.deviceId()).resolves.toBeNull();
   });
 });
 
@@ -147,18 +152,24 @@ describe("chatTransport — gateway commands and awkward frames", () => {
     expect(got).toEqual([{ ok: 1 }]);
   });
 
-  it("passes a status reason through, so a dead Tor captain is not mistaken for a disconnect", async () => {
+  it("hands status handlers exactly (room, state, peerId, linked) — no reason argument", async () => {
     const got: unknown[][] = [];
     transport.onStatus((...args: unknown[]) => got.push(args));
     await tick();
     listeners["realtime://status"]({
-      payload: { room: "room-1", state: "disconnected", peer_id: "cap.onion", reason: "captain_unreachable" },
+      payload: { room: "room-1", state: "waiting", peer_id: "bob.onion", reason: "whatever", linked: [] },
     });
-    listeners["realtime://status"]({ payload: { room: "room-1", state: "connected", reason: null } });
+    listeners["realtime://status"]({
+      payload: { room: "room-1", state: "connected", peer_id: "carol.onion", linked: ["carol.onion", "dan.onion"] },
+    });
+    // An older Rust that sends no `linked` reads as nobody linked, never undefined.
+    listeners["realtime://status"]({ payload: { room: "room-1", state: "connected", peer_id: null } });
     expect(got).toEqual([
-      ["room-1", "disconnected", "cap.onion", "captain_unreachable"],
-      ["room-1", "connected", undefined, undefined],
+      ["room-1", "waiting", "bob.onion", []],
+      ["room-1", "connected", "carol.onion", ["carol.onion", "dan.onion"]],
+      ["room-1", "connected", undefined, []],
     ]);
+    expect(transport.lastStatus("room-1")).toBe("connected");
   });
 
   it("registers the Rust listeners once, however many handlers subscribe", async () => {
@@ -184,20 +195,12 @@ describe("chatTransport — gateway commands and awkward frames", () => {
     expect(got).toEqual([]);
   });
 
-  it("reads a retired ticket through Rust, and a refusal as nothing to recover", async () => {
-    const info = { tor: true, name: "Room", peers: [], captain_onion: "cap.onion" };
-    invoke.mockResolvedValueOnce(info);
-    expect(await transport.decodeLegacyTicket("tlegacy")).toEqual(info);
-    expect(invoke).toHaveBeenCalledWith("legacy_ticket_decode", { ticket: "tlegacy" });
-    invoke.mockRejectedValueOnce(new Error("not a ticket"));
-    expect(await transport.decodeLegacyTicket("garbage")).toBeNull();
-  });
 
   it.each([
     ["cancelJoin", (t: any) => t.cancelJoin(), "realtime_cancel_join", undefined],
     ["leaveRoom", (t: any) => t.leaveRoom("room-1"), "realtime_leave_room", { room: "room-1" }],
-    ["forgetTorOnion", (t: any) => t.forgetTorOnion("Room One"), "realtime_forget_tor_onion", { name: "Room One" }],
-    ["setCaptain", (t: any) => t.setCaptain("room-1", "cap.onion"), "realtime_tor_set_captain", { room: "room-1", captainOnion: "cap.onion" }],
+    ["forgetOnion", (t: any) => t.forgetOnion("Room One"), "realtime_forget_onion", { name: "Room One" }],
+    ["setPeers", (t: any) => t.setPeers("room-1", ["a.onion"]), "realtime_set_peers", { room: "room-1", peers: ["a.onion"] }],
     ["send", (t: any) => t.send("room-1", { a: 1 }), "realtime_send", { room: "room-1", payload: '{"a":1}' }],
   ])("%s fires its command and swallows a failure", async (_name, call, cmd, args) => {
     // These are fire-and-forget from UI paths; a rejected invoke must not
@@ -217,10 +220,12 @@ describe("chatTransport — gateway commands and awkward frames", () => {
     expect(transport.lastStatus("room-1")).toBeUndefined();
   });
 
-  it("asks Rust for this device's NodeId", async () => {
-    invoke.mockResolvedValueOnce({ node_id: "node-me" });
-    expect(await transport.nodeInfo()).toEqual({ node_id: "node-me" });
-    expect(invoke).toHaveBeenCalledWith("realtime_node_info", undefined);
+  it("asks Rust for this device's id, and a failure as none", async () => {
+    invoke.mockResolvedValueOnce("device-me");
+    expect(await transport.deviceId()).toBe("device-me");
+    expect(invoke).toHaveBeenCalledWith("realtime_device_id", undefined);
+    invoke.mockRejectedValueOnce(new Error("gateway down"));
+    expect(await transport.deviceId()).toBeNull();
   });
 });
 
@@ -230,12 +235,12 @@ describe("chatTransport — the browser stub's quiet half", () => {
     vi.resetModules();
     invoke.mockClear();
     const stub = (await import("../../src/chatTransport")).chatTransport;
-    expect(await stub.decodeLegacyTicket("t")).toBeNull();
+    expect(await stub.deviceId()).toBeNull();
     stub.send("room-1", {});
     stub.leaveRoom("room-1");
     stub.cancelJoin();
-    stub.forgetTorOnion("Room");
-    stub.setCaptain("room-1", "x.onion");
+    stub.forgetOnion("Room");
+    stub.setPeers("room-1", ["x.onion"]);
     expect(typeof stub.onMessage(() => {})).toBe("function");
     expect(typeof stub.onStatus(() => {})).toBe("function");
     expect(stub.lastStatus("room-1")).toBeUndefined();

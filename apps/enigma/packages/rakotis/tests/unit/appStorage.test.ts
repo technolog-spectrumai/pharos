@@ -2,8 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   getOffline,
   setOffline,
-  getUseTor,
-  setUseTor,
   getProfileState,
   getRuntimeConfig,
 } from "../../src/services/appStorage";
@@ -25,27 +23,16 @@ describe("appStorage — offline / airplane switch (localStorage backend)", () =
   });
 });
 
-describe("appStorage — use Tor switch (localStorage backend)", () => {
-  it("defaults to off when unset", async () => {
-    expect(await getUseTor()).toBe(false);
-  });
-
-  it("persists on then off, independently of the offline flag", async () => {
-    await setUseTor(true);
-    expect(await getUseTor()).toBe(true);
-    expect(await getOffline()).toBe(false);
-    await setUseTor(false);
-    expect(await getUseTor()).toBe(false);
-  });
-});
-
 describe("appStorage — browser fallbacks", () => {
   it("getProfileState returns an empty local profile shape", async () => {
     const state = await getProfileState();
     expect(state.offline_profile.display_name).toBe("");
     expect(state.offline_profiles).toEqual([]);
     expect(state.selected_offline_profile_id).toBe("");
-    expect(state.use_tor).toBe(false);
+    expect(state.offline).toBe(false);
+    // Tor is the only transport now: no per-profile Tor / stable-onion switches.
+    expect(state).not.toHaveProperty("use_tor");
+    expect(state).not.toHaveProperty("stable_onion");
   });
 
   it("getRuntimeConfig degrades to a browser identity", async () => {

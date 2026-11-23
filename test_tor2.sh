@@ -4,7 +4,7 @@
 # embedded Tor client (arti) and its own state, talk through the real Tor network.
 # One hosts an onion service, the other dials it; they run Enigma's join
 # handshake (Hello/Ready) and then exchange frames both ways, checked byte for
-# byte (apps/enigma/src-tauri/src/p2p_tor_live.rs).
+# byte (apps/enigma/src-tauri/src/mesh_live.rs).
 #
 #   ./test_tor2.sh           build, then run both instances (a few minutes: two
 #                            Tor bootstraps and a fresh onion descriptor)
@@ -38,7 +38,7 @@ BIN="$(cargo test -p enigma --lib --no-run --message-format=json 2>/dev/null \
 echo "binary: $BIN"
 
 run() { # role
-  TOR2_ROLE="$1" TOR2_DIR="$DIR" "$BIN" --ignored --exact "p2p_tor::live::tor2_$1" --nocapture --test-threads=1
+  TOR2_ROLE="$1" TOR2_DIR="$DIR" "$BIN" --ignored --exact "mesh::live::tor2_$1" --nocapture --test-threads=1
 }
 
 step "instance 1: host (bootstraps Tor, publishes an onion service)"

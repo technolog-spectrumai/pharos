@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { formatRemaining } from "rakotis";
 import { OyaButton, OyaTextArea } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
@@ -12,7 +11,7 @@ const { t } = useI18n();
 
 const props = defineProps<{ channel: ChatChannel }>();
 const ch = props.channel;
-const { currentRoom, isConnected, isParticipant, mlsStatus, selfMuteUntil } = ch;
+const { currentRoom, isParticipant, mlsStatus } = ch;
 
 const draft = ref("");
 const uploadingImage = ref(false);
@@ -49,32 +48,18 @@ function onVoiceStaged(blob: Blob, label: string) {
   stagePending("voice", blob, label);
 }
 
-// Captain-imposed timed mute: the composer locks with a countdown (the channel
-// also refuses sends, and every peer drops a muted member's messages).
-const muted = computed(() => !!selfMuteUntil.value);
-const canSend = computed(
-  () =>
-    !!currentRoom.value &&
-    isConnected.value &&
-    isParticipant.value &&
-    mlsStatus.value === "ready" &&
-    !muted.value &&
-    (!!draft.value.trim() || !!pending.value),
-);
-const composerDisabled = computed(
-  () => !currentRoom.value || !isConnected.value || !isParticipant.value || mlsStatus.value !== "ready" || muted.value,
-);
-const attachDisabled = computed(() => !currentRoom.value || !isConnected.value || !isParticipant.value || muted.value);
+// Sending needs encryption, not a live link: a message for a member who is not
+// linked yet waits on this device and goes when the link comes up.
+const ready = computed(() => !!currentRoom.value && isParticipant.value && mlsStatus.value === "ready");
+const canSend = computed(() => ready.value && (!!draft.value.trim() || !!pending.value));
 const placeholder = computed(() =>
   !currentRoom.value
     ? t("chat.composerPickRoom")
     : !isParticipant.value
       ? t("chat.composerJoinFirst")
-      : muted.value
-        ? t("chat.mutedSelf", { time: formatRemaining(selfMuteUntil.value!, Date.now()) })
-        : mlsStatus.value !== "ready"
-          ? t("chat.composerEstablishing")
-          : t("chat.composerPlaceholder"),
+      : mlsStatus.value !== "ready"
+        ? t("chat.composerEstablishing")
+        : t("chat.composerPlaceholder"),
 );
 
 async function send() {
@@ -115,7 +100,7 @@ function onKeydown(e: KeyboardEvent) {
     <AttachmentPreview v-if="pending" :pending="pending" @clear="clearPending" />
 
     <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">
-      <span>Sending…</span>
+      <span>{{ $t("chat.sending") }}</span>
       <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-current/20">
         <div
           class="absolute left-0 top-0 h-full rounded-full bg-current transition-all duration-100"
@@ -125,7 +110,17 @@ function onKeydown(e: KeyboardEvent) {
       <span>{{ uploadProgress }}%</span>
     </div>
 
-    <div class="flex gap-3">
+    <!-- One row of controls. On a phone the text field takes the first line on
+         its own and the buttons sit under it; from sm up everything is one row. -->
+    <div class="flex flex-wrap items-end gap-2 sm:flex-nowrap sm:gap-3">
+      <OyaTextArea
+        v-model="draft"
+        :rows="1"
+        :placeholder="placeholder"
+        :disabled="!ready"
+        class="order-first max-h-32 min-h-[2.75rem] w-full text-sm sm:order-none sm:w-auto sm:flex-1"
+        @keydown="onKeydown"
+      />
       <input
         ref="imageFileInput"
         type="file"
@@ -135,31 +130,25 @@ function onKeydown(e: KeyboardEvent) {
       />
       <button
         type="button"
-        :disabled="attachDisabled || uploadingImage"
-        :class="[
-          'border-accent-2 text-text-main-light dark:border-accent-1 dark:text-text-main-dark',
-          attachDisabled ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
-        ]"
-        class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition"
+        :disabled="!ready || uploadingImage"
+        :class="!ready ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80'"
+        class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-accent-2 text-text-main-light transition sm:-order-1 dark:border-accent-1 dark:text-text-main-dark"
         :title="$t('chat.sendImage')"
+        :aria-label="$t('chat.sendImage')"
         @click="imageFileInput?.click()"
       >
         <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'image'" :spin="uploadingImage" />
       </button>
-
-      <VoiceRecorderButton :disabled="!currentRoom || !isParticipant" @staged="onVoiceStaged" />
-      <EmojiPicker :disabled="!currentRoom || !isParticipant" @select="draft += $event" />
-
-      <OyaTextArea
-        v-model="draft"
-        :rows="1"
-        :placeholder="placeholder"
-        :disabled="composerDisabled"
-        class="max-h-32 min-h-[3rem] flex-1 text-sm"
-        @keydown="onKeydown"
-      />
-      <OyaButton type="button" :disabled="!canSend" :class="{ 'opacity-40 cursor-not-allowed': !canSend }" @click="send">
-        <font-awesome-icon icon="paper-plane" />Send
+      <VoiceRecorderButton class="sm:-order-1" :disabled="!ready" @staged="onVoiceStaged" />
+      <EmojiPicker class="sm:-order-1" :disabled="!ready" @select="draft += $event" />
+      <OyaButton
+        type="button"
+        class="ml-auto shrink-0 sm:ml-0"
+        :disabled="!canSend"
+        :class="{ 'opacity-40 cursor-not-allowed': !canSend }"
+        @click="send"
+      >
+        <font-awesome-icon icon="paper-plane" />{{ $t("chat.send") }}
       </OyaButton>
     </div>
   </div>

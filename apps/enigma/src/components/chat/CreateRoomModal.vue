@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { getUseTor } from "rakotis";
 import { OyaModal, OyaTextField } from "petalite/primitives";
 import RoomShareCard from "./RoomShareCard.vue";
 import type { P2pRoomsController } from "./useP2pRooms";
@@ -9,15 +7,6 @@ const props = defineProps<{ open: boolean; controller: P2pRoomsController }>();
 const emit = defineEmits<{ "update:open": [boolean] }>();
 
 const { name, createdRoom, createBusy, createError, createRoom } = props.controller;
-
-// Whether this will be a Tor room — drives the spinner wording + the captain ★ hint.
-const tor = ref(false);
-watch(
-  () => props.open,
-  async (o) => {
-    if (o) tor.value = await getUseTor();
-  },
-);
 
 function close() {
   emit("update:open", false);
@@ -46,15 +35,15 @@ function close() {
       <!-- Launching spinner -->
       <div v-else-if="createBusy" class="flex flex-col items-center gap-3 py-6 text-center">
         <font-awesome-icon icon="spinner" spin class="text-3xl text-accent-dark" />
-        <p class="text-sm opacity-70">{{ tor ? $t("chat.launchingOnion") : $t("chat.creatingRoom") }}</p>
+        <p class="text-sm opacity-70">{{ $t("chat.launchingOnion") }}</p>
       </div>
 
       <!-- Success: you're the host + QR to share -->
       <div v-else-if="createdRoom" class="space-y-2.5">
         <p class="flex items-center gap-2 text-sm font-semibold text-success-dark">
-          <font-awesome-icon v-if="tor" icon="star" class="text-highlight" />{{ $t("chat.youAreHost") }}
+          <font-awesome-icon icon="circle-check" />{{ $t("chat.roomReady") }}
         </p>
-        <p v-if="tor" class="text-xs opacity-60">{{ $t("chat.hostStarHint") }}</p>
+        <p class="text-xs opacity-60">{{ $t("chat.roomReadyHint") }}</p>
         <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
         <!-- Mint an invitation and see its QR without leaving this modal — the
              same card Room info uses, so the two can never disagree. -->

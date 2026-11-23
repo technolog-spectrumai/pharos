@@ -5,8 +5,8 @@
 // an MLS stand-in, a kv per device.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatChannel, type ChatChannelOptions } from "../../src/useChatChannel";
-import { MemHub, MlsWorld, fakeMls, memKv } from "../../src/fakes";
-import { MemMailbox, frameId, tagsOf, mentionsName } from "../../src/mailbox";
+import { MemHub, MlsWorld, fakeMls, fakeSlug, memKv } from "../../src/fakes";
+import { MemMailbox, NODE_KIND, frameId, tagsOf, mentionsName } from "../../src/mailbox";
 import { userPartOf } from "../../src/chatHistoryModel";
 
 const ROOM = "teutates-ab12";
@@ -38,7 +38,7 @@ function device(who: string, extra: ChatChannelOptions = {}) {
 type Ch = ReturnType<typeof device>;
 const settle = async (ms = 6000) => { for (let i = 0; i < ms / 500; i++) await vi.advanceTimersByTimeAsync(500); };
 async function open(ch: Ch) {
-  await ch.joinByNode(ROOM, []);
+  await ch.openP2pRoom({ room: fakeSlug(ROOM), name: ROOM });
   await settle();
 }
 const texts = (ch: Ch) => ch.messages.value.filter((m) => m.participant_type === "human").map((m) => m.content);
@@ -133,6 +133,41 @@ describe("the shared engine's options", () => {
     expect(texts(carol)).not.toContain("after carol");
   });
 
+  it("keeps the group across a restart whatever keepSession says (it has no effect now)", async () => {
+    const alice = device("alice", { keepSession: false });
+    await open(alice);
+    let bob = device("bob", { keepSession: false });
+    await open(bob);
+    expect(bob.mlsStatus.value).toBe("ready");
+    expect(await kvs.get("bob")!.get("chat:admitted", fakeSlug(ROOM), "v")).toBe("1");
+    hub.setOnline("bob", false);
+    await bob.leaveParticipant(); // the app closes (offline: no "leave" goes out)
+    hub.setOnline("bob", true);
+    const kpsBefore = hub.log.filter((l) => l.from === "bob" && l.frame.type === "mls_key_package").length;
+    bob = device("bob", { keepSession: false }); // a fresh process, the same vault
+    await bob.openP2pRoom({ room: fakeSlug(ROOM), name: ROOM });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bob.mlsStatus.value).toBe("ready"); // straight back in: no handshake
+    expect(hub.log.filter((l) => l.from === "bob" && l.frame.type === "mls_key_package")).toHaveLength(kpsBefore);
+    await alice.sendMessage("still reading you");
+    await settle(1000);
+    expect(texts(bob)).toContain("still reading you");
+  });
+
+  it("posts no node ids to the mailbox, and dials nothing it reads there", async () => {
+    // An older build still posts its endpoint; this one neither posts nor acts on it.
+    await mb.post({ kind: NODE_KIND, room: fakeSlug(ROOM), node: "old-node" });
+    const transport = hub.transport("alice");
+    const joinRoom = vi.spyOn(transport, "joinRoom");
+    const alice = device("alice", { transport });
+    await open(alice);
+    await alice.catchUpMailbox();
+    await settle(1000);
+    expect(mb.bodies.map((b) => JSON.parse(b).kind).filter((k) => k === NODE_KIND)).toHaveLength(1);
+    expect(joinRoom).toHaveBeenCalledTimes(1); // the open itself, nothing from the mailbox
+    expect(joinRoom).toHaveBeenCalledWith(ROOM, []);
+  });
+
   it("carries a small file inline and refuses a big one", async () => {
     const alice = device("alice");
     await open(alice);
@@ -150,7 +185,7 @@ describe("the shared engine's options", () => {
   it("is off for Enigma: a room with no options refuses gossip key packages and posts nothing", async () => {
     const plain = useChatChannel({ transport: hub.transport("x"), crypto: fakeMls(world), storage: memKv() });
     plain.mlsIdentity.value = "x";
-    await plain.joinByNode(ROOM, []);
+    await plain.openP2pRoom({ room: fakeSlug(ROOM), name: ROOM });
     await settle();
     expect(mb.bodies).toEqual([]);
     expect(plain.messages.value.some((m) => m.tags)).toBe(false);

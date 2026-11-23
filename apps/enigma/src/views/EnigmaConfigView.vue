@@ -14,16 +14,12 @@ import {
   getProfileState,
   getRuntimeConfig,
   setActiveProfile,
-  getStableOnion,
-  setStableOnion,
   getConnectTimeoutSecs,
   setConnectTimeoutSecs,
   getMaxFileSizeMb,
   setMaxFileSizeMb,
   getFileChunkKib,
   setFileChunkKib,
-  getFileIntegrity,
-  setFileIntegrity,
   vaultChangePassphrase,
   vaultLock,
   getIdleLockMins,
@@ -94,27 +90,13 @@ function toggleTabVisible(id: AppTabId) {
   void setTabVisible(id, !isTabVisible(id));
 }
 
-// ── Offline / airplane mode + Use Tor ────────────────────────────────────────
-// Both live in the shared network store so that flipping them here immediately
-// disables/enables the gated buttons (calls, file transfer, device & peer
-// sync) on every open panel — not just after their next remount.
+// ── Offline / airplane mode ──────────────────────────────────────────────────
+// In the shared network store, so flipping it here at once disables the gated
+// buttons on every open panel.
 const network = useNetworkStore();
-const { offline, useTor } = storeToRefs(network);
+const { offline } = storeToRefs(network);
 async function toggleOffline() {
   await network.setOffline(!offline.value);
-}
-
-// Exclusive with iroh: toggling tears down the other transport in Rust, so the
-// shown NodeId (iroh) / onion refreshes on the next room command.
-async function toggleUseTor() {
-  await network.setUseTor(!useTor.value);
-}
-
-// ── Keep onion stable (encrypted-at-rest HS key) ─────────────────────────────
-const stableOnion = ref(false);
-async function toggleStableOnion() {
-  stableOnion.value = !stableOnion.value;
-  await setStableOnion(stableOnion.value);
 }
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
@@ -132,17 +114,11 @@ const maxFileSizeMb = ref(0);
 const maxFileSizeSaved = ref(false);
 const fileChunkKib = ref(buildCfg.file_chunk_kib.default);
 const fileChunkSaved = ref(false);
-const fileIntegrity = ref(buildCfg.file_integrity_default);
 
 async function saveFileChunk() {
   fileChunkKib.value = await setFileChunkKib(Number(fileChunkKib.value));
   fileChunkSaved.value = true;
   setTimeout(() => (fileChunkSaved.value = false), 1500);
-}
-
-async function toggleFileIntegrity() {
-  fileIntegrity.value = !fileIntegrity.value;
-  await setFileIntegrity(fileIntegrity.value);
 }
 
 async function saveMaxFileSize() {
@@ -266,14 +242,14 @@ function openPanic() {
   showPanic.value = true;
 }
 
-// ── My code (this device's stable NodeId — what an inviter seals a private invitation to) ──
+// ── My code (this device's id — what an inviter seals a private invitation to) ──
 const chatStore = useChatStore();
 const myNodeId = ref("");
 const myNodeLoading = ref(false);
 async function loadMyNodeId() {
   myNodeLoading.value = true;
   try {
-    myNodeId.value = (await chatStore.p2p.ensureNode()) ?? "";
+    myNodeId.value = (await chatStore.p2p.deviceId()) ?? "";
   } finally {
     myNodeLoading.value = false;
   }
@@ -361,11 +337,9 @@ async function removePanic() {
 onMounted(async () => {
   await loadRuntimeConfig();
   await network.refresh();
-  stableOnion.value = await getStableOnion();
   connectTimeoutSecs.value = await getConnectTimeoutSecs();
   maxFileSizeMb.value = await getMaxFileSizeMb();
   fileChunkKib.value = await getFileChunkKib();
-  fileIntegrity.value = await getFileIntegrity();
   idleLockMins.value = await getIdleLockMins();
   lockOnHide.value = await getLockOnHide();
   await loadOfflineData();
@@ -674,28 +648,6 @@ async function clearSelectedOfflineData() {
         </div>
       </div>
 
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="shield-halved" class="shrink-0 opacity-60" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.fileIntegrity') }}</p>
-          <p class="text-xs opacity-60">{{ $t('config.fileIntegrityHint') }}</p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="fileIntegrity"
-          :aria-label="$t('config.fileIntegrity')"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          :class="fileIntegrity ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
-          data-testid="file-integrity-toggle"
-          @click="toggleFileIntegrity"
-        >
-          <span
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-            :class="fileIntegrity ? 'translate-x-6' : 'translate-x-1'"
-          />
-        </button>
-      </div>
     </OyaCard>
 
 
@@ -703,78 +655,23 @@ async function clearSelectedOfflineData() {
 
     <!-- Data tab — offline mode + local data profiles -->
     <template v-if="activeTab === 'connections'">
-    <!-- Use Tor card — route rendezvous + chat over peer-hosted onion services -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p
-          :class="darkMode ? 'text-accent-dark' : 'text-accent-light'"
-          class="text-xs font-semibold uppercase tracking-wide"
-        >
-          {{ $t('config.useTor') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.useTorHint') }}</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon
-          icon="shield-halved"
-          :class="useTor ? 'text-accent-dark' : 'opacity-60'"
-          class="shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.useTor') }}</p>
-          <p class="text-xs opacity-60">
-            {{ useTor ? $t('config.useTorOnHint') : $t('config.useTorOffHint') }}
-          </p>
+    <!-- Tor: not a choice. What it does, in a few lines. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3" data-testid="tor-card">
+      <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+        {{ $t('config.torTitle') }}
+      </p>
+      <div class="flex items-start gap-3">
+        <font-awesome-icon icon="shield-halved" class="mt-0.5 shrink-0 text-success-light dark:text-success-dark" />
+        <div class="min-w-0 flex-1 space-y-1.5">
+          <p class="text-sm font-semibold">{{ $t('config.torAlways') }}</p>
+          <p class="text-xs leading-relaxed opacity-65">{{ $t('config.torMesh') }}</p>
+          <p class="text-xs leading-relaxed opacity-65">{{ $t('config.torVanguards') }}</p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="useTor"
-          :class="useTor ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleUseTor"
-        >
-          <span
-            :class="useTor ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
-      </div>
-    </OyaCard>
-
-    <!-- Keep onion stable — encrypted-at-rest HS key (only relevant with Tor on) -->
-    <OyaCard v-if="useTor" :dark-mode="darkMode" :padded="true" class="space-y-4">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.stableOnion') }}
-        </p>
-      </div>
-      <div class="flex items-center gap-3">
-        <font-awesome-icon icon="circle-nodes" :class="stableOnion ? 'text-accent-dark' : 'opacity-60'" class="shrink-0" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold">{{ $t('config.stableOnion') }}</p>
-          <p class="text-xs opacity-60">
-            {{ stableOnion ? $t('config.stableOnionOnHint') : $t('config.stableOnionOffHint') }}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="stableOnion"
-          :class="stableOnion ? 'bg-accent-dark' : darkMode ? 'bg-accent-1' : 'bg-accent-2'"
-          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-          @click="toggleStableOnion"
-        >
-          <span
-            :class="stableOnion ? 'translate-x-6' : 'translate-x-1'"
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-          />
-        </button>
       </div>
     </OyaCard>
 
     <!-- Connection timeout — room create/join give up (and the join modal auto-closes
-         after connecting) once this many seconds elapse. Applies to Tor AND iroh. -->
+         after connecting) once this many seconds elapse. -->
     <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4">
       <div>
         <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">

@@ -41,7 +41,6 @@ interface AdmitRequest {
   keyPackage: string;
   redeemer: string;
   redeemerName: string;
-  tor: boolean;
 }
 
 export interface InviteAdmitController {
@@ -76,15 +75,12 @@ export function useInviteAdmit(channel: ChatChannel): InviteAdmitController {
       return;
     }
 
-    // The coordinates come from the channel, which knows the room's actual
-    // transport — reading a global Tor setting here would hand a Tor room's
-    // joiner an iroh address, or the reverse.
+    // Every member's onion, ours first: the newcomer links to all of them.
     await answer(req.requestId, {
       ok: true,
       welcome: grant.welcome,
       roomName: grant.roomName,
       peers: grant.peers,
-      onion: grant.onion,
     });
     lastAdmitted.value = { name: req.redeemerName || req.redeemer, at: Date.now() };
     lastRefusal.value = "";

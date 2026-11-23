@@ -21,7 +21,7 @@ export function useP2pRooms(channel: ChatChannel) {
 
   // ── Create modal ─────────────────────────────────────────────────────────────
   const createOpen = ref(false);
-  const createBusy = ref(false); // launching (onion publish / room create) → spinner
+  const createBusy = ref(false); // launching our onion for the room → spinner
   const createError = ref(""); // i18n key or raw backend message
 
   // Create shares the join's user-configurable connect timeout (Settings): if the
@@ -58,7 +58,7 @@ export function useP2pRooms(channel: ChatChannel) {
       createError.value = "chat.joinTimeout";
     }, timeoutMs);
     try {
-      // Blocks until the onion descriptor is published (Tor) / room is created (iroh).
+      // Returns once our onion for the room is up (Tor started at unlock).
       const t = await channel.createRoom(n);
       clearCreateTimer();
       if (t) {
@@ -118,7 +118,6 @@ export function useP2pRooms(channel: ChatChannel) {
   const joinOpen = ref(false);
   const joinStarted = ref(false); // a join was initiated → show live progress
   const joinError = ref("");
-  const joiningTor = ref(false); // current in-flight join is over Tor → offer Cancel
   const joinCancelling = ref(false); // Cancel pressed → abort in progress, swallow error
   const joinTimedOut = ref(false); // connect timed out → keep the timeout error, swallow the abort
 
@@ -140,7 +139,7 @@ export function useP2pRooms(channel: ChatChannel) {
       // transport-connected-but-never-encrypted join still times out.
       if (!joinStarted.value || joinError.value || channel.isEncrypted.value) return;
       joinTimedOut.value = true;
-      if (joiningTor.value) void channel.cancelJoin(); // free the hung onion/dial in Rust
+      void channel.cancelJoin(); // stop the hung dial in Rust
       joinError.value = "chat.joinTimeout";
     }, timeoutMs);
   }
@@ -150,7 +149,6 @@ export function useP2pRooms(channel: ChatChannel) {
     scanError.value = "";
     joinError.value = "";
     joinStarted.value = false;
-    joiningTor.value = false;
     joinCancelling.value = false;
     joinTimedOut.value = false;
     clearConnectTimer();
@@ -159,7 +157,6 @@ export function useP2pRooms(channel: ChatChannel) {
   function resetJoin() {
     joinStarted.value = false;
     joinError.value = "";
-    joiningTor.value = false;
     joinCancelling.value = false;
     joinTimedOut.value = false;
     clearConnectTimer();
@@ -188,11 +185,6 @@ export function useP2pRooms(channel: ChatChannel) {
     armConnectTimer(1000 * (await getConnectTimeoutSecs()));
     const out = await redeemInvitation(channel, code, (p) => {
       invitePeek.value = p;
-      // A Tor redemption dials an onion, which is the case that can hang holding
-      // a keystore lock — so Cancel has to be on offer, and the timeout has to
-      // abort rather than just give up. Known only after the peek, which is why
-      // it is set here rather than before the call.
-      joiningTor.value = p.tor === true;
     });
     clearConnectTimer();
     if (out.ok) {
@@ -232,8 +224,7 @@ export function useP2pRooms(channel: ChatChannel) {
     await redeemInvite(t);
   }
 
-  // Abort a hanging Tor join and return to the form. Frees the onion lock in Rust so
-  // the immediate retry doesn't fail with "resource already in use".
+  // Abort a hanging join and return to the form.
   async function cancelJoin() {
     if (joinCancelling.value) return;
     joinCancelling.value = true;
@@ -241,7 +232,6 @@ export function useP2pRooms(channel: ChatChannel) {
     await channel.cancelJoin();
     joinStarted.value = false;
     joinError.value = "";
-    joiningTor.value = false;
   }
 
   // ── Auto-close countdown (join modal) ────────────────────────────────────────
@@ -336,7 +326,6 @@ export function useP2pRooms(channel: ChatChannel) {
     joinOpen,
     joinStarted,
     joinError,
-    joiningTor,
     joinCancelling,
     autoCloseSecs,
     openJoin,

@@ -1,9 +1,10 @@
 // P2P file-sharing orchestrator — a call-style offer/accept that streams a single file
-// directly between two peers over iroh QUIC (see the Rust `file_xfer` backend). The
+// between two members over Tor: the sender serves it on its onion for the room
+// (see the Rust `files` backend). The
 // offer/accept/decline signaling handshake
 // rides the p2p chat's MLS-encrypted channel via the channel's `onSync`/`sendSync` seam,
-// so the relay only ever sees ciphertext. The file bytes themselves never touch the chat —
-// they stream point-to-point over a dedicated QUIC connection (iroh TLS, node-id auth).
+// so nobody but the members reads it. The file bytes themselves never touch the chat —
+// the receiver dials the sender's onion and proves the secret it committed to.
 //
 // Flow (host H offers a file to recipient R, both in the same p2p room):
 //   H picks a file → file_offer_create → { offerId, addr, name, size, mime }
@@ -123,7 +124,9 @@ export function useFileShare(channel: ChatChannel) {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const path = await open({ multiple: false, directory: false });
       if (typeof path !== "string" || !path) return; // user cancelled
-      const meta = await _invoke<OfferCreated>("file_offer_create", { path });
+      const room = channel.currentRoom.value?.slug;
+      if (!room) throw new Error("FILE_NO_ROOM");
+      const meta = await _invoke<OfferCreated>("file_offer_create", { path, room });
       const limitMb = await overSizeLimitMb(meta.size);
       if (limitMb) {
         void _invoke("file_offer_cancel", { offerId: meta.offer_id }).catch(() => {});
@@ -223,7 +226,7 @@ export function useFileShare(channel: ChatChannel) {
         break;
       }
       case "file_accept": {
-        // Host side: the peer accepted; the inbound QUIC connection + progress events
+        // Host side: the peer accepted; the inbound onion stream + progress events
         // take it from here. Reflect the state change immediately.
         if (offerId !== myOfferId) return;
         // Authorize that peer's KeyPackage — `serve` waits for this and refuses

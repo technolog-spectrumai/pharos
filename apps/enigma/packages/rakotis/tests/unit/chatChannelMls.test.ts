@@ -14,17 +14,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { wire, mockTransport } = vi.hoisted(() => {
   type MessageHandler = (room: string, data: unknown) => void;
-  type StatusHandler = (room: string, state: string, peerId?: string, reason?: string) => void;
+  type StatusHandler = (room: string, state: string, peerId?: string, linked?: string[]) => void;
   const wire = { message: [] as MessageHandler[], status: [] as StatusHandler[] };
   const mockTransport = {
     createRoom: vi.fn(),
-    joinRoomByNode: vi.fn(),
-    decodeLegacyTicket: vi.fn(async () => null),
+    joinRoom: vi.fn(),
+    setPeers: vi.fn(),
     cancelJoin: vi.fn(),
     leaveRoom: vi.fn(),
-    forgetTorOnion: vi.fn(),
-    setCaptain: vi.fn(),
-    nodeInfo: vi.fn(async (): Promise<{ node_id: string } | null> => null),
+    forgetOnion: vi.fn(),
+    deviceId: vi.fn(async (): Promise<string | null> => null),
     send: vi.fn(),
     onMessage: vi.fn((h: MessageHandler) => {
       wire.message.push(h);
@@ -68,6 +67,7 @@ vi.mock("../../src/crypto", async (importOriginal) => ({
 }));
 
 import { useChatChannel, type ChatChannelOptions } from "../../src/useChatChannel";
+import { memKv } from "../../src/fakes";
 
 const ROOM = "room-1";
 type Channel = ReturnType<typeof useChatChannel>;
@@ -79,8 +79,8 @@ async function deliver(data: Frame, room = ROOM) {
   for (const h of wire.message) h(room, data);
   await flush();
 }
-async function status(state: string, room = ROOM) {
-  for (const h of wire.status) h(room, state);
+async function status(state: string, room = ROOM, peerId?: string, linked: string[] = []) {
+  for (const h of wire.status) h(room, state, peerId, linked);
   await flush();
 }
 
@@ -93,18 +93,19 @@ const count = (ch: Channel, text: string) => notices(ch).filter((n) => n === tex
 
 const ENCRYPTED = "🔒 End-to-end encryption active.";
 
-/** Connected, key package sent, waiting for someone to answer. */
+/** A saved room reopened: entered, key package sent, waiting for someone to
+ *  answer. No status event is needed — encryption starts on entry. */
 async function negotiating(identity = "alice", opts: ChatChannelOptions = {}) {
-  mockTransport.createRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "" });
+  mockTransport.joinRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: `${identity}.onion` });
   const ch = useChatChannel(opts);
   ch.mlsIdentity.value = identity;
   ch.currentUserName.value = identity[0].toUpperCase() + identity.slice(1);
-  await ch.createRoom("Room One");
-  await status("connected");
+  await ch.openP2pRoom({ room: ROOM, name: "Room One" });
+  await flush();
   return ch;
 }
 
-/** …and then nobody else turned up, so the lone creator's group is ready. */
+/** …and then nobody else turned up, so the lone member's group is ready. */
 async function ready(identity = "alice", opts: ChatChannelOptions = {}) {
   const ch = await negotiating(identity, opts);
   await vi.advanceTimersByTimeAsync(5000);
@@ -132,7 +133,8 @@ afterEach(() => {
 describe("starting the session", () => {
   it("announces a key package with everything a peer needs to answer it", async () => {
     const ch = await negotiating();
-    expect(crypto.clearState).toHaveBeenCalledWith(ROOM, "alice");
+    // The session is kept: never wiped before it is opened.
+    expect(crypto.clearState).not.toHaveBeenCalled();
     expect(crypto.initSession).toHaveBeenCalledWith(ROOM, "alice");
     expect(sent("mls_key_package")).toEqual([
       { type: "mls_key_package", key_package: "AQID", package: "AQID", device_id: "alice", user: "Alice" },
@@ -141,9 +143,59 @@ describe("starting the session", () => {
     expect(notices(ch)).toContain("🔑 Setting up encryption…");
   });
 
-  it("reports an init failure and tries again on the next connect", async () => {
+  it("starts on entry, before and without any link coming up", async () => {
+    const ch = await negotiating();
+    expect(ch.wsStatus.value).toBe("waiting");
+    expect(sent("mls_key_package")).toHaveLength(1);
+    expect(ch.mlsStatus.value).toBe("key_exchange");
+  });
+
+  it("makes a room we just created a group of one at once", async () => {
+    mockTransport.createRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "alice.onion" });
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await ch.createRoom("Room One");
+    await flush();
+    expect(sent("mls_key_package")).toHaveLength(1);
+    expect(ch.mlsStatus.value).toBe("ready");
+    expect(count(ch, ENCRYPTED)).toBe(1);
+  });
+
+  it("waits 5 s before a reopened room with nobody answering becomes a group of one", async () => {
+    const ch = await negotiating();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(ch.mlsStatus.value).toBe("key_exchange");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ch.mlsStatus.value).toBe("ready");
+  });
+
+  it("comes straight back, with no key package, in a room this device was let into", async () => {
+    const storage = memKv();
+    await storage.put("chat:admitted", ROOM, "v", "1");
+    crypto.initSession.mockResolvedValueOnce(true); // the session was restored
+    const ch = await negotiating("alice", { storage });
+    expect(ch.mlsStatus.value).toBe("ready");
+    expect(sent("mls_key_package")).toHaveLength(0);
+    expect(count(ch, ENCRYPTED)).toBe(1);
+  });
+
+  it("starts a fresh handshake when a restored session was never let in", async () => {
+    crypto.initSession.mockResolvedValueOnce(true);
+    const ch = await negotiating("alice", { storage: memKv() });
+    expect(ch.mlsStatus.value).toBe("key_exchange");
+    expect(sent("mls_key_package")).toHaveLength(1);
+  });
+
+  it("marks the room admitted once its group is ready, whatever keepSession says", async () => {
+    const storage = memKv();
+    await ready("alice", { storage, keepSession: false });
+    expect(await storage.get("chat:admitted", ROOM, "v")).toBe("1");
+  });
+
+  it("reports an init failure, which a status event does not retry but reopening does", async () => {
     // "error" is a state startMls may restart from — unlike "initializing" — so
-    // a reconnect is a retry rather than a dead end.
+    // reopening the room is a retry rather than a dead end. A link coming up is
+    // not: encryption is started by entering a room, never by a status.
     crypto.initSession.mockRejectedValueOnce(new Error("vault locked"));
     const ch = await negotiating();
     expect(ch.mlsStatus.value).toBe("error");
@@ -152,7 +204,13 @@ describe("starting the session", () => {
       type: "system_error", content: "Encryption init failed: vault locked",
     });
 
-    await status("connected");
+    await status("connected", ROOM, "bob.onion", ["bob.onion"]);
+    expect(ch.mlsStatus.value).toBe("error");
+    expect(sent("mls_key_package")).toHaveLength(0);
+
+    await ch.leaveParticipant();
+    await ch.openP2pRoom({ room: ROOM, name: "Room One" });
+    await flush();
     expect(ch.mlsStatus.value).toBe("key_exchange");
     expect(ch.mlsError.value).toBeNull();
     expect(sent("mls_key_package")).toHaveLength(1);
@@ -160,9 +218,48 @@ describe("starting the session", () => {
 
   it("does not restart a session that is already negotiating", async () => {
     const ch = await negotiating();
-    await status("connected");
+    await status("connected", ROOM, "bob.onion", ["bob.onion"]);
     expect(sent("mls_key_package")).toHaveLength(1);
     expect(ch.mlsStatus.value).toBe("key_exchange");
+  });
+
+  it("stops a start that was still in flight when the room was left", async () => {
+    // Encryption starts on entry, so leaving straight away races it: the late
+    // half must neither speak in the empty view nor claim a group.
+    let release!: (v: boolean) => void;
+    crypto.initSession.mockReturnValueOnce(new Promise<boolean>((r) => { release = r; }));
+    mockTransport.joinRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "alice.onion" });
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await ch.openP2pRoom({ room: ROOM, name: "Room One" });
+    await ch.leaveParticipant();
+    release(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent("mls_key_package")).toEqual([]);
+    expect(ch.messages.value).toEqual([]);
+    expect(ch.mlsStatus.value).toBe("idle");
+  });
+
+  it("never sends a key package built for one room into the next one opened", async () => {
+    let release!: (v: boolean) => void;
+    crypto.initSession.mockReturnValueOnce(new Promise<boolean>((r) => { release = r; }));
+    mockTransport.joinRoom
+      .mockResolvedValueOnce({ room: ROOM, name: "Room One", onion: "alice.onion" })
+      .mockResolvedValueOnce({ room: "room-2", name: "Room Two", onion: "alice2.onion" });
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await ch.openP2pRoom({ room: ROOM, name: "Room One" });
+    await ch.openP2pRoom({ room: "room-2", name: "Room Two" }); // before room one's start finished
+    await flush();
+    release(false); // room one's initSession comes back late
+    await flush();
+    const kpRooms = mockTransport.send.mock.calls
+      .filter(([, p]) => (p as Frame).type === "mls_key_package")
+      .map(([room]) => room);
+    expect(kpRooms).toEqual(["room-2"]);
+    expect(crypto.keyPackage.mock.calls.map((c) => (c as unknown[])[0])).toEqual(["room-2"]);
+    expect(ch.mlsStatus.value).toBe("key_exchange");
+    expect(count(ch, "🔑 Setting up encryption…")).toBe(1);
   });
 
   it("declares no lone group for a room that was left while negotiating", async () => {
@@ -381,17 +478,6 @@ describe("a key package on a headless channel", () => {
 
     await deliver(kp("bob", { proof: "ok" }));
     expect(crypto.addMember).toHaveBeenCalledTimes(1);
-  });
-
-  it("is refused for a kicked user, on every one of their devices", async () => {
-    const ch = await ready("alice", { headless: true });
-    await ch.kickMember("bob");
-    crypto.addMember.mockClear();
-    mockTransport.send.mockClear();
-    await deliver(kp("bob"));
-    await deliver(kp("bob#dev-abcdefgh"));
-    expect(crypto.addMember).not.toHaveBeenCalled();
-    expect(sent("mls_key_package")).toHaveLength(0);
   });
 });
 

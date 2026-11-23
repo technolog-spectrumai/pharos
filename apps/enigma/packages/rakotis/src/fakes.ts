@@ -3,7 +3,7 @@
 // several channels in one process can let each other in, talk, restart and remove each other.
 // For tests and demos (Teutates' demo runs its room on them); no real cryptography.
 
-import type { ChatTransport, CreatedRoom, JoinedRoom, WsMessage, WsStatus } from "./chatTransport";
+import type { ChatTransport, OpenedRoom, WsMessage, WsStatus } from "./chatTransport";
 import type { ChatCrypto } from "./useChatChannel";
 import type { KvBackend } from "./services/localDb";
 
@@ -61,24 +61,23 @@ export class MemHub {
     const d = this.dev(who);
     d.msg.clear();
     d.st.clear();
-    const join = async (name: string): Promise<JoinedRoom> => {
+    const join = async (name: string): Promise<OpenedRoom> => {
       const room = fakeSlug(name);
       d.rooms.add(room);
       if (!this.offline.has(who) && this.others(who, room).length) {
         this.status(who, room, "connected", this.others(who, room)[0][0]);
         for (const [w] of this.others(who, room)) this.status(w, room, "connected", who);
-      } else d.last.set(room, "connecting");
-      return { room, name, onion: "" };
+      } else d.last.set(room, "waiting");
+      return { room, name, onion: `${who}.onion` };
     };
     return {
-      createRoom: (name: string): Promise<CreatedRoom> => join(name),
-      joinRoomByNode: (name: string) => join(name),
-      decodeLegacyTicket: async () => null,
+      createRoom: (name: string): Promise<OpenedRoom> => join(name),
+      joinRoom: (name: string) => join(name),
+      setPeers() {},
       cancelJoin() {},
       leaveRoom: (room: string) => { d.rooms.delete(room); },
-      forgetTorOnion() {},
-      setCaptain() {},
-      nodeInfo: async () => ({ node_id: who }),
+      forgetOnion() {},
+      deviceId: async () => who,
       send: (room: string, payload: Record<string, unknown>) => {
         if (this.offline.has(who)) return;
         const frame = JSON.parse(JSON.stringify(payload)) as WsMessage;

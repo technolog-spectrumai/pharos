@@ -5,20 +5,13 @@ import RoomStatusBar from "./RoomStatusBar.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
 defineEmits<{ "open-sidebar": [] }>();
-const { currentRoom, isParticipant, roomLogo } = props.channel;
+const { currentRoom, isParticipant } = props.channel;
 </script>
 
 <template>
   <header class="flex flex-col gap-3 border-b border-current/10 p-4">
     <div class="flex items-start gap-3">
       <OyaIconButton icon="bars" :label="$t('chat.a11yOpenRooms')" class="lg:hidden" @click="$emit('open-sidebar')" />
-      <!-- Captain-set room logo -->
-      <img
-        v-if="currentRoom && roomLogo"
-        :src="roomLogo"
-        :alt="$t('chat.a11yRoomLogo')"
-        class="mt-1 h-10 w-10 shrink-0 rounded-lg object-cover"
-      />
       <div class="min-w-0 flex-1">
         <p class="text-xs font-semibold uppercase tracking-wide text-accent-light dark:text-accent-dark">
           {{ currentRoom ? $t("chat.activeRoom") : $t("chat.noRoomSelected") }}

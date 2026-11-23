@@ -8,4 +8,4 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 [[ -d node_modules ]] || npm ci
 export APP_PROFILE="${1:-${APP_PROFILE:-default}}" CHAT_USER="${1:-${CHAT_USER:-default}}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target/dev-$APP_PROFILE}"
-cd enigma && exec npx tauri dev
+cd apps/enigma && exec npx tauri dev

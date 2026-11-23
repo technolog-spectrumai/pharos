@@ -7,7 +7,7 @@ import ConnectionStatusChip from "./ConnectionStatusChip.vue";
 
 const props = defineProps<{ channel: ChatChannel; compact?: boolean }>();
 const ch = props.channel;
-const { mlsStatus, mlsError, wsStatus, isEncrypted, isParticipant } = ch;
+const { mlsStatus, mlsError, wsStatus, isEncrypted, isParticipant, linkedOnions } = ch;
 
 const busy = ref(false);
 async function join() {
@@ -32,7 +32,7 @@ async function leave() {
   <div class="flex flex-wrap items-center gap-2">
     <template v-if="isParticipant">
       <MlsStatusChip :status="mlsStatus" :error="mlsError" :encrypted="isEncrypted" :compact="compact" />
-      <ConnectionStatusChip :status="wsStatus" :compact="compact" />
+      <ConnectionStatusChip :status="wsStatus" :linked="linkedOnions.length" :compact="compact" />
       <OyaIconButton
         icon="rotate-right"
         size="sm"
@@ -50,7 +50,7 @@ async function leave() {
         class="ml-auto text-xs underline opacity-70 hover:opacity-100"
         @click="leave"
       >
-        Leave
+        {{ $t("chat.leave") }}
       </button>
       <OyaButton
         v-else
@@ -59,12 +59,12 @@ async function leave() {
         class="inline-flex"
         @click="leave"
       >
-        <font-awesome-icon icon="right-from-bracket" />Leave
+        <font-awesome-icon icon="right-from-bracket" />{{ $t("chat.leave") }}
       </OyaButton>
     </template>
 
     <OyaButton v-else :class="{ 'opacity-60 pointer-events-none': busy }" class="inline-flex" @click="join">
-      <font-awesome-icon icon="right-to-bracket" />Join
+      <font-awesome-icon icon="right-to-bracket" />{{ $t("chat.join") }}
     </OyaButton>
   </div>
 </template>

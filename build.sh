@@ -1,29 +1,27 @@
 #!/usr/bin/env bash
 #
-# Build an app with Dromon, as its apps/<app>/dromon.yaml says.
+# Build Pharos: Enigma (with Dromon, as apps/enigma/dromon.yaml says) or Sotha.
 #
-#   ./build.sh enigma pro          Enigma27 Professional
-#   ./build.sh enigma std          Enigma27 Standard
-#   ./build.sh morion              Morion (its one variant)
-#   ./build.sh teutates            Teutates (was Irena Desk) and its command-line tools
-#   ./build.sh enigma all          every variant of one app
-#   ./build.sh all                 every variant of every app
-#   ./build.sh nisaba CONFIG.yaml  the Nisaba server, packaged with that configuration
-#                                  (its mesh: section, formerly the Enki server, included)
-#   ./build.sh *                   the same as all
+#   ./build.sh enigma              Enigma27 for this machine: .deb and .rpm (Linux)
+#   ./build.sh sotha               Sotha, the server, for this machine: binary + .deb
+#   ./build.sh sotha pi            Sotha for a Raspberry Pi (aarch64, cross-built)
+#   ./build.sh all                 Enigma, then Sotha for this machine
 #
-#   ./build.sh APP [VARIANT] --dry-run    print the commands it resolves to, run none
-#   ./build.sh APP [VARIANT] --validate   check the file against the checkout, build nothing
-#   ./build.sh --list                     the apps and their variants
-#   ./build.sh --check                    is this machine ready? (./install.sh --check)
+#   ./build.sh enigma --dry-run    print the commands it resolves to, run none
+#   ./build.sh enigma --validate   check the file against the checkout, build nothing
+#   ./build.sh --list              the apps and their variants
+#   ./build.sh --check             is this machine ready? (./install.sh --check)
+#
+# Packages land in dist/enigma/ and dist/sotha/<arch>/, each with a SHA256SUMS
+# and a build.json.
 #
 # A machine that lacks something (Node 22, Rust, system libraries, npm
 # packages) is set up first by ./install.sh, in the same run.
 # Each run's output is also written to build-logs/build-<date>_<time>_<what>.log.
 #
-# What is built — features, debug or release, platforms, package formats,
-# signing, tests, where it lands — is set in the app's dromon.yaml and nowhere
-# else: there are no build flags. The schema: dromon/README.md.
+# What Enigma's build makes — debug or release, platforms, package formats,
+# Android, signing, tests, where it lands — is set in apps/enigma/dromon.yaml
+# and nowhere else: there are no build flags. The schema: dromon/README.md.
 #
 # This is the preflight; dromon/dromon.mjs does the building. The split is
 # forced: reading YAML takes an npm package, so something has to check the
@@ -32,7 +30,7 @@ set -euo pipefail
 
 case "${1:-}" in
   --check) exec "$(dirname "${BASH_SOURCE[0]}")/install.sh" --check ;;
-  -h|--help) sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 # `./build.sh *` means all. Quoted, the * arrives as itself; unquoted, the
@@ -61,10 +59,16 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Nisaba is a server, not a Dromon app: its own script, with its YAML config.
-if [ "${1:-}" = "nisaba" ]; then
+# Sotha is a server, not a Dromon app: its own script.
+if [ "${1:-}" = "sotha" ]; then
   shift
-  exec "$REPO_ROOT/servers/nisaba/build.sh" "$@"
+  exec "$REPO_ROOT/sotha/build.sh" "$@"
+fi
+# `all`: Enigma (every variant, through Dromon), then Sotha for this machine.
+if [ "${1:-}" = "all" ]; then
+  shift
+  "$REPO_ROOT/build.sh" enigma all "$@"
+  exec "$REPO_ROOT/sotha/build.sh" host "$@"
 fi
 # Every run writes its own log: build-logs/build-<date>_<time>_<what>.log, all
 # that is shown here, setup included. The path is said at the start and the end.

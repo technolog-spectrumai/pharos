@@ -1,8 +1,9 @@
 // Every room is invite-only, and there is no longer a flag saying so.
 //
-// This used to be a captain-set toggle that travelled on `room_meta`. It is now
-// the only mode: a gossip `mls_key_package` frame is refused unconditionally, and
-// the sole way into a room is a redeemed invitation — which never rides gossip at
+// This used to be a captain-set toggle that travelled on `room_meta` (captains
+// and room meta are gone altogether now). It is the only mode: a room-traffic
+// `mls_key_package` frame is refused unconditionally, and the sole way into a
+// room is a redeemed invitation — which never rides gossip at
 // all. That closes §9.7, the app's oldest access-control gap, rather than merely
 // narrowing it.
 //
@@ -18,12 +19,11 @@ const { messageHandlers, mockTransport } = vi.hoisted(() => {
   const mockTransport = {
     createRoom: vi.fn(),
     joinRoom: vi.fn(),
-    joinRoomByNode: vi.fn(),
+    setPeers: vi.fn(),
     cancelJoin: vi.fn(),
     leaveRoom: vi.fn(),
-    forgetTorOnion: vi.fn(),
-    setCaptain: vi.fn(),
-    nodeInfo: vi.fn(async () => null),
+    forgetOnion: vi.fn(),
+    deviceId: vi.fn(async () => null),
     send: vi.fn(),
     onMessage: vi.fn((h: (room: string, data: unknown) => void) => {
       messageHandlers.push(h);
@@ -40,7 +40,7 @@ vi.mock("../../src/chatTransport", () => ({ chatTransport: mockTransport }));
 const { crypto } = vi.hoisted(() => ({
   crypto: {
     clearState: vi.fn(async () => {}),
-    initSession: vi.fn(async () => {}),
+    initSession: vi.fn(async () => false),
     keyPackage: vi.fn(async () => new Uint8Array([1, 2, 3])),
     members: vi.fn(async () => []),
     addMember: vi.fn(async () => ({ commit: new Uint8Array([9]), welcome: new Uint8Array([8]) })),
@@ -98,12 +98,12 @@ const STRANGER_KP = {
 /** A channel sitting in an open, MLS-ready room. `me-device` sorts before
  *  `zz-stranger`, so this client is the one that would do the adding. */
 async function readyChannel(opts: Parameters<typeof useChatChannel>[0] = {}) {
-  mockTransport.createRoom.mockResolvedValue({ room: "room-1", name: "Room One", ticket: "t" });
+  mockTransport.createRoom.mockResolvedValue({ room: "room-1", name: "Room One", onion: "me.onion" });
   const ch = useChatChannel(opts);
   ch.mlsIdentity.value = "me-device";
   await ch.createRoom("Room One");
-  await flush();
-  ch.mlsStatus.value = "ready";
+  // A fresh room is a group of one at once (a zero-delay creator timer).
+  await vi.waitFor(() => expect(ch.mlsStatus.value).toBe("ready"));
   return ch;
 }
 
@@ -129,7 +129,6 @@ describe("enforcement", () => {
     // No setup, no flag: a stranger announcing itself on the topic is simply not
     // admitted. This is the whole change — the room does not have an open state.
     const ch = await readyChannel();
-    ch.captainId.value = "me-device";
     await deliver(STRANGER_KP);
     expect(crypto.addMember).not.toHaveBeenCalled();
   });
@@ -140,7 +139,6 @@ describe("enforcement", () => {
     // that defers still handing our key package to a stranger.
     const ch = await readyChannel();
     ch.mlsIdentity.value = "zz-me"; // sorts AFTER the stranger → the defer branch
-    ch.captainId.value = "zz-me";
     mockTransport.send.mockClear();
     await deliver({ ...STRANGER_KP, device_id: "aa-stranger" });
     const sent = mockTransport.send.mock.calls.filter(
@@ -154,9 +152,8 @@ describe("enforcement", () => {
     // THE test. Invitations do not ride gossip — `admitInvited` calls addMember
     // directly — which is why closing the topic does not close the only door.
     const ch = await readyChannel();
-    ch.captainId.value = "me-device";
     const grant = await ch.admitInvited("room-1", "AQID");
-    expect(grant).not.toBeNull();
+    expect(grant).toEqual({ welcome: btoa(String.fromCharCode(8)), roomName: "Room One", peers: ["me.onion"] });
     expect(crypto.addMember).toHaveBeenCalled();
   });
 
@@ -164,7 +161,6 @@ describe("enforcement", () => {
     // devlink / peer sync gate on a linkKey proof and have no room meta at all.
     // If this ever broke, multi-device pairing would fail silently.
     const ch = await readyChannel({ headless: true });
-    ch.captainId.value = "me-device";
     await deliver(STRANGER_KP);
     expect(crypto.addMember).toHaveBeenCalled();
   });
@@ -174,7 +170,7 @@ describe("enforcement", () => {
 
 describe("a joiner nobody admits", () => {
   // The key-exchange timer used to declare "🔒 End-to-end encryption active."
-  // after 5 s no matter what — so someone refused by a closed room was told they
+  // after 5 s (on a reopen; at once for a room we just created) no matter what — so someone refused by a closed room was told they
   // were encrypted, as a group of one, and could type into the void (§9.5).
   //
   // It now distinguishes the two cases by whether any OTHER member's traffic has
@@ -184,34 +180,42 @@ describe("a joiner nobody admits", () => {
   const notices = (ch: ReturnType<typeof useChatChannel>) =>
     ch.messages.value.map((m) => m.content).join("\n");
 
-  async function joining() {
-    mockTransport.joinRoomByNode.mockResolvedValue({ room: "room-1", name: "Room One" });
-    const ch = useChatChannel();
-    ch.mlsIdentity.value = "me-device";
-    await ch.joinByNode("Room One", []);
-    await flush();
-    return ch;
-  }
-
-  /** A channel that has actually RUN startMls, so its 5 s timer is armed. */
+  /** A channel that opened a room it was never let into: startMls has run (on
+   *  entry — no link needed), so its 5 s timer is armed. */
   async function negotiating() {
-    mockTransport.lastStatus.mockReturnValue("connected");
-    mockTransport.createRoom.mockResolvedValue({ room: "room-1", name: "Room One", ticket: "t" });
+    mockTransport.joinRoom.mockResolvedValue({ room: "room-1", name: "Room One", onion: "me.onion" });
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me-device";
-    await ch.createRoom("Room One");
+    await ch.openP2pRoom({ room: "room-1", name: "Room One", peers: ["bob.onion"] });
     await flush();
     return ch;
   }
 
-  it("still calls a lone creator's room encrypted", async () => {
-    // The case the 5 s timer was written for must keep working: one member in a
-    // fresh room really is encrypted.
+  it("calls a room we just created encrypted at once", async () => {
+    // One member in a fresh room really is encrypted: no wait.
+    vi.useFakeTimers();
+    try {
+      mockTransport.createRoom.mockResolvedValue({ room: "room-1", name: "Room One", onion: "me.onion" });
+      const ch = useChatChannel();
+      ch.mlsIdentity.value = "me-device";
+      await ch.createRoom("Room One");
+      await flush();
+      expect(ch.mlsStatus.value).toBe("ready");
+      expect(notices(ch)).toMatch(/encryption active/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still calls a lone member's reopened room encrypted after the wait", async () => {
+    // The case the 5 s timer was written for must keep working.
     vi.useFakeTimers();
     try {
       const ch = await negotiating();
       expect(ch.mlsStatus.value).toBe("key_exchange");
-      await vi.advanceTimersByTimeAsync(6000);
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(ch.mlsStatus.value).toBe("key_exchange");
+      await vi.advanceTimersByTimeAsync(2000);
       expect(ch.mlsStatus.value).toBe("ready");
       expect(notices(ch)).toMatch(/encryption active/i);
     } finally {
@@ -222,8 +226,8 @@ describe("a joiner nobody admits", () => {
   it("does not claim encryption when other members are present", async () => {
     vi.useFakeTimers();
     try {
-      const ch = await joining();
-      ch.mlsStatus.value = "key_exchange";
+      const ch = await negotiating();
+      expect(ch.mlsStatus.value).toBe("key_exchange");
       // Another member's traffic goes by — unreadable, which is the point.
       await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: "someone-else" });
       await vi.advanceTimersByTimeAsync(6000);
@@ -278,60 +282,5 @@ describe("a joiner nobody admits", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-});
-
-// ── applying a snapshot ─────────────────────────────────────────────────────
-
-describe("receiving a meta snapshot", () => {
-  // `room_meta` rides the MLS seam, so it arrives as an `mls_app` frame whose
-  // plaintext is the snapshot — delivering it as plain gossip would test a path
-  // that does not exist.
-  const meta = (rev: number, extra: Record<string, unknown> = {}) => ({
-    type: "room_meta",
-    device_id: "captain",
-    rev,
-    logo: "",
-    rules: "",
-    mutes: {},
-    bans: [],
-    ...extra,
-  });
-
-  async function deliverMeta(from: string, inner: Record<string, unknown>) {
-    crypto.processMessage.mockResolvedValueOnce(
-      new TextEncoder().encode(JSON.stringify(inner)),
-    );
-    await deliver({ type: "mls_app", ciphertext: "AQ==", device_id: from, user: from });
-  }
-
-  // The flag these once carried is gone, but the REVISION GUARD they were really
-  // exercising is not: it still decides whether a snapshot may overwrite rules,
-  // mutes and bans. Re-pointed at `rules` so the coverage survives the feature.
-
-  it("applies a captain's snapshot", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(1, { rules: "be kind" }));
-    expect(ch.roomRules.value).toBe("be kind");
-  });
-
-  it("ignores a stale snapshot", async () => {
-    // Replaying an old snapshot must not be a way to undo a deliberate change.
-    const ch = await readyChannel();
-    ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(5, { rules: "current" }));
-    await deliverMeta("captain", meta(2, { rules: "ancient" }));
-    expect(ch.roomRules.value).toBe("current");
-  });
-
-  it("ignores a snapshot that did not come from the captain at the same revision", async () => {
-    const ch = await readyChannel();
-    ch.captainId.value = "captain";
-    await deliverMeta("captain", meta(9, { rules: "real" }));
-    // Same rev from a non-captain: only STRICTLY newer is accepted from anyone
-    // else, which is the captaincy-handoff rule.
-    await deliverMeta("impostor", meta(9, { rules: "forged" }));
-    expect(ch.roomRules.value).toBe("real");
   });
 });

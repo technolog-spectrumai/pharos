@@ -2,7 +2,7 @@
 // tests pin the command name and argument shape of each one.
 //
 // The argument names are the IPC contract — Tauri maps camelCase keys onto the
-// Rust parameters, so `useTor` vs `use_tor`, or `new` vs `next`, is the
+// Rust parameters, so `panicPin` vs `panic_pin`, or `new` vs `next`, is the
 // difference between a setting that saves and one that fails at runtime with a
 // "missing argument" nobody sees. The kv-backed settings ride `kv_get` / `kv_put`,
 // emulated here by a small in-memory store so reads see earlier writes.
@@ -49,7 +49,7 @@ afterEach(async () => {
 
 describe("the build config", () => {
   it("comes from the binary, which wins over any browser fallback", async () => {
-    const baked = { ...original, app_name: "Enigma Baked", use_tor_default: true };
+    const baked = { ...original, app_name: "Enigma Baked", pin_digits: { default: 8, min: 4, max: 12 } };
     replies.set("app_get_build_config", baked);
     expect(await S.initBuildConfig({ app_name: "ignored" })).toEqual(baked);
     expect(S.getBuildConfig().app_name).toBe("Enigma Baked");
@@ -61,21 +61,14 @@ describe("the build config", () => {
   });
 });
 
-describe("switches that Rust owns", () => {
-  it("read and write through their own commands and never touch localStorage", async () => {
+describe("the offline switch, which Rust owns", () => {
+  it("reads and writes through its own commands and never touches localStorage", async () => {
     replies.set("app_get_offline", true);
-    replies.set("app_get_use_tor", true);
-    replies.set("app_get_stable_onion", true);
     expect(await S.getOffline()).toBe(true);
-    expect(await S.getUseTor()).toBe(true);
-    expect(await S.getStableOnion()).toBe(true);
     await S.setOffline(false);
-    await S.setUseTor(false);
-    await S.setStableOnion(false);
-    expect(invoke.mock.calls.slice(3)).toEqual([
+    expect(invoke.mock.calls).toEqual([
+      ["app_get_offline", undefined],
       ["app_set_offline", { offline: false }],
-      ["app_set_use_tor", { useTor: false }],
-      ["app_set_stable_onion", { stableOnion: false }],
     ]);
     expect(localStorage.length).toBe(0);
   });

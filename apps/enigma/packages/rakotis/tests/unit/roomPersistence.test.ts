@@ -1,33 +1,26 @@
-// Getting back into a room after a restart, with no ticket anywhere.
+// Getting back into a room after a restart: the saved room entry is all there is.
 //
-// Rooms used to be reopened by replaying their permanent ticket, so the ticket was
-// not really a share button — it was the persisted room credential. Removing it
-// exposed two gaps that had been masked all along:
+// A room is reopened from its saved entry — its name and the other members'
+// onions — and nothing else. These tests pin that:
 //
-//  1. `joinByInvite` never saved the room at all. An invited member held it only
-//     for the life of the process: absent from the saved list, `updateRoomEntry`
-//     a no-op, and no peer address book accumulating for reconnect. Nobody noticed
-//     because every member also had a ticket.
-//  2. A Tor room we JOINED kept the captain's onion only inside the ticket. The
-//     record's own `onion` is ours, not theirs — so dropping the field would have
-//     stranded those rooms permanently.
-//
-// These tests pin both, plus the one-time backfill that rescues records written by
-// older builds.
+//  1. `joinByInvite` saves the room (with the members' onions the grant named,
+//     minus our own, and our onion), so an invited member keeps it across a
+//     restart.
+//  2. `openP2pRoom` reopens a saved room by name and its saved peers, and keeps
+//     the entry's onion current.
+//  3. Saved entries load as they were written: no ticket, no backfill.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockTransport } = vi.hoisted(() => ({
   mockTransport: {
     createRoom: vi.fn(),
-    joinRoom: vi.fn(),
-    joinRoomByNode: vi.fn(async () => ({ room: "room-1", name: "Room One", onion: "" })),
-    decodeLegacyTicket: vi.fn(async () => null),
+    joinRoom: vi.fn(async () => ({ room: "room-1", name: "Room One", onion: "me.onion" })),
+    setPeers: vi.fn(),
     cancelJoin: vi.fn(),
     leaveRoom: vi.fn(),
-    forgetTorOnion: vi.fn(),
-    setCaptain: vi.fn(),
-    nodeInfo: vi.fn(async () => null),
+    forgetOnion: vi.fn(),
+    deviceId: vi.fn(async () => null),
     send: vi.fn(),
     onMessage: vi.fn(() => () => {}),
     onStatus: vi.fn(() => () => {}),
@@ -75,128 +68,111 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   vi.clearAllMocks();
   store.rooms = null;
-  mockTransport.joinRoomByNode.mockResolvedValue({ room: "room-1", name: "Room One", onion: "" });
-  mockTransport.decodeLegacyTicket.mockResolvedValue(null);
+  mockTransport.joinRoom.mockResolvedValue({ room: "room-1", name: "Room One", onion: "me.onion" });
 });
 
 describe("a room entered by invitation is a saved room", () => {
-  it("survives the restart that used to lose it", async () => {
+  it("survives a restart, with the members' onions to link to", async () => {
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me";
-    await ch.joinByInvite(
-      { roomName: "Room One", welcome: btoa("w"), peers: ["peer-a"], onion: "" },
-      "invite:scratch",
-    );
+    expect(
+      await ch.joinByInvite(
+        { roomName: "Room One", welcome: btoa("w"), peers: ["inviter.onion", "carol.onion"] },
+        "invite:scratch",
+      ),
+    ).toBe(true);
     await flush();
 
-    // Saved at all — this is the call that was missing.
-    expect(ch.p2pRooms.value.map((r) => r.room)).toContain("room-1");
-    // …and with the address book a ticketless reconnect needs.
-    expect(ch.p2pRooms.value[0].peers).toContain("peer-a");
+    expect(mockTransport.joinRoom).toHaveBeenCalledWith("Room One", ["inviter.onion", "carol.onion"]);
+    expect(ch.p2pRooms.value).toEqual([
+      { room: "room-1", name: "Room One", peers: ["inviter.onion", "carol.onion"], onion: "me.onion" },
+    ]);
     // …and persisted, not just held in memory.
-    expect(store.rooms).toBeTruthy();
-    expect(JSON.parse(store.rooms as string)[0].room).toBe("room-1");
+    expect(JSON.parse(store.rooms as string)).toEqual(ch.p2pRooms.value);
   });
 
-  it("records the captain's onion for a Tor invitation", async () => {
-    // The address that gets us back into a room we did not host. It arrives in the
-    // grant and used to be dialled and then forgotten.
+  it("never saves our own onion among the peers", async () => {
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me";
     await ch.joinByInvite(
-      { roomName: "Room One", welcome: btoa("w"), peers: [], onion: "captain123.onion" },
+      { roomName: "Room One", welcome: btoa("w"), peers: ["inviter.onion", "me.onion"] },
       "invite:scratch",
     );
     await flush();
-    expect(ch.p2pRooms.value[0].captainOnion).toBe("captain123.onion");
+    expect(ch.p2pRooms.value[0].peers).toEqual(["inviter.onion"]);
+    expect(ch.p2pRooms.value[0].onion).toBe("me.onion");
+    expect(ch.myOnion.value).toBe("me.onion");
   });
 });
 
-describe("reopening a saved room reads no ticket", () => {
-  it("rejoins iroh rooms by name and peers", async () => {
+describe("reopening a saved room", () => {
+  it("rejoins by name and the saved peers", async () => {
     const ch = useChatChannel();
-    await ch.openP2pRoom({ room: "room-1", name: "Room One", peers: ["peer-a"] });
+    await ch.openP2pRoom({ room: "room-1", name: "Room One", peers: ["peer-a.onion"], onion: "me.onion" });
     await flush();
-    expect(mockTransport.joinRoomByNode).toHaveBeenCalledWith("Room One", ["peer-a"]);
-    expect(mockTransport.joinRoom).not.toHaveBeenCalled();
+    expect(mockTransport.joinRoom).toHaveBeenCalledWith("Room One", ["peer-a.onion"]);
+    expect(mockTransport.createRoom).not.toHaveBeenCalled();
+    expect(ch.currentRoom.value?.slug).toBe("room-1");
+    expect(ch.myOnion.value).toBe("me.onion");
   });
 
-  it("takes the transport from the record's own flag", async () => {
-    // Not from sniffing a ticket's tag byte, which is what it used to do — the flag
-    // was always written at create/join time, it just was not the thing consulted.
+  it("opens a room with no saved peers too (alone until someone links)", async () => {
     const ch = useChatChannel();
-    await ch.openP2pRoom({
-      room: "room-1", name: "Room One", tor: true, host: false, captainOnion: "cap.onion",
-    });
+    await ch.openP2pRoom({ room: "room-1", name: "Room One", host: true });
     await flush();
-    expect(ch.currentRoomIsTor.value).toBe(true);
-    // A Tor joiner is nowhere without the captain's address.
-    expect(mockTransport.setCaptain).toHaveBeenCalledWith("room-1", "cap.onion");
+    expect(mockTransport.joinRoom).toHaveBeenCalledWith("Room One", []);
+    expect(ch.currentRoom.value?.slug).toBe("room-1");
   });
 
-  it("re-hosts a Tor room we own instead of dialling it", async () => {
-    mockTransport.createRoom.mockResolvedValue({ room: "room-1", name: "Room One", onion: "mine.onion" });
+  it("re-saves our onion when it changed (e.g. after the onion keys were cleared)", async () => {
+    store.rooms = JSON.stringify([{ room: "room-1", name: "Room One", peers: ["p.onion"], onion: "old.onion" }]);
     const ch = useChatChannel();
-    await ch.openP2pRoom({ room: "room-1", name: "Room One", tor: true, host: true });
+    await ch.loadP2pRooms();
+    await ch.openP2pRoom(ch.p2pRooms.value[0]);
     await flush();
-    expect(mockTransport.createRoom).toHaveBeenCalledWith("Room One");
-    expect(mockTransport.joinRoomByNode).not.toHaveBeenCalled();
+    expect(ch.p2pRooms.value[0].onion).toBe("me.onion");
+    expect(JSON.parse(store.rooms as string)[0].onion).toBe("me.onion");
+    expect(ch.myOnion.value).toBe("me.onion");
+  });
+
+  it("leaves the saved entry alone when the onion is unchanged", async () => {
+    store.rooms = JSON.stringify([{ room: "room-1", name: "Room One", onion: "me.onion" }]);
+    const ch = useChatChannel();
+    await ch.loadP2pRooms();
+    const { kvPut } = await import("../../src/services/localDb");
+    vi.mocked(kvPut).mockClear();
+    await ch.openP2pRoom(ch.p2pRooms.value[0]);
+    await flush();
+    expect(vi.mocked(kvPut).mock.calls.filter(([ns]) => ns === "p2p:rooms")).toHaveLength(0);
+  });
+
+  it("surfaces a failed join as the channel error and enters nothing", async () => {
+    mockTransport.joinRoom.mockRejectedValueOnce(new Error("onion not reachable"));
+    const ch = useChatChannel();
+    await ch.openP2pRoom({ room: "room-1", name: "Room One" });
+    expect(ch.error.value).toBe("onion not reachable");
+    expect(ch.currentRoom.value).toBeNull();
   });
 });
 
-describe("the one-time legacy-ticket backfill", () => {
-  it("lifts a Tor captain onion out of an old record, then drops the ticket", async () => {
-    store.rooms = JSON.stringify([
-      { room: "room-1", name: "Room One", ticket: "tlegacyblob", tor: true },
-    ]);
-    mockTransport.decodeLegacyTicket.mockResolvedValue({
-      tor: true, name: "Room One", peers: [], captain_onion: "cap.onion",
-    });
-
+describe("loading the saved rooms", () => {
+  it("reads the entries exactly as they were written — no ticket backfill", async () => {
+    const saved = [
+      { room: "room-1", name: "Room One", peers: ["p.onion"], host: true, onion: "me.onion" },
+      { room: "room-2", name: "Room Two" },
+    ];
+    store.rooms = JSON.stringify(saved);
     const ch = useChatChannel();
     await ch.loadP2pRooms();
     await flush();
-
-    expect(ch.p2pRooms.value[0].captainOnion).toBe("cap.onion");
-    expect(ch.p2pRooms.value[0].ticket).toBeUndefined();
-    // Written back, so the next launch has nothing to decode.
-    expect(JSON.parse(store.rooms as string)[0].ticket).toBeUndefined();
+    expect(ch.p2pRooms.value).toEqual(saved);
+    expect(JSON.parse(store.rooms as string)).toEqual(saved); // nothing rewritten
   });
 
-  it("unions recovered peers with the live address book rather than replacing it", async () => {
-    // The record's peers are fresher than a ticket minted once at room creation.
-    store.rooms = JSON.stringify([
-      { room: "room-1", name: "Room One", ticket: "ilegacy", peers: ["fresh-peer"] },
-    ]);
-    mockTransport.decodeLegacyTicket.mockResolvedValue({
-      tor: false, name: "Room One", peers: ["old-peer"], captain_onion: "",
-    });
-
+  it("treats a corrupt saved list as empty", async () => {
+    store.rooms = "{oops";
     const ch = useChatChannel();
     await ch.loadP2pRooms();
-    await flush();
-
-    expect(ch.p2pRooms.value[0].peers).toEqual(expect.arrayContaining(["fresh-peer", "old-peer"]));
-  });
-
-  it("drops a ticket it cannot decode instead of keeping it forever", async () => {
-    // An undecodable blob could not have been used to join either, so there is
-    // nothing to preserve — and keeping it would re-run this pass every launch.
-    store.rooms = JSON.stringify([{ room: "room-1", name: "Room One", ticket: "garbage" }]);
-    mockTransport.decodeLegacyTicket.mockRejectedValue(new Error("not a ticket"));
-
-    const ch = useChatChannel();
-    await ch.loadP2pRooms();
-    await flush();
-
-    expect(ch.p2pRooms.value[0].ticket).toBeUndefined();
-  });
-
-  it("does not call the decoder when no record carries a ticket", async () => {
-    store.rooms = JSON.stringify([{ room: "room-1", name: "Room One", peers: ["p"] }]);
-    const ch = useChatChannel();
-    await ch.loadP2pRooms();
-    await flush();
-    expect(mockTransport.decodeLegacyTicket).not.toHaveBeenCalled();
+    expect(ch.p2pRooms.value).toEqual([]);
   });
 });

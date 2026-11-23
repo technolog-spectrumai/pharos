@@ -1,26 +1,25 @@
 // A room's life on this device: creating, entering, leaving, deleting, being
-// told it closed — and, over Tor, keeping a captain to dial.
+// told it closed — and keeping the list of members' onions Rust links to.
 //
 // Most of these paths end in a wipe or a teardown, and the failure that matters
 // is the quiet one: a room that is "left" but still on the saved list, a deleted
-// room whose log survives, a Tor member still dialling a captain that died. So
+// room whose log or onion survives, a member we keep linking to after they left. So
 // the assertions here are about what is left behind, not only what is shown.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { wire, mockTransport } = vi.hoisted(() => {
   type MessageHandler = (room: string, data: unknown) => void;
-  type StatusHandler = (room: string, state: string, peerId?: string, reason?: string) => void;
+  type StatusHandler = (room: string, state: string, peerId?: string, linked?: string[]) => void;
   const wire = { message: [] as MessageHandler[], status: [] as StatusHandler[] };
   const mockTransport = {
     createRoom: vi.fn(),
-    joinRoomByNode: vi.fn(),
-    decodeLegacyTicket: vi.fn(async () => null),
+    joinRoom: vi.fn(),
+    setPeers: vi.fn(),
     cancelJoin: vi.fn(),
     leaveRoom: vi.fn(),
-    forgetTorOnion: vi.fn(),
-    setCaptain: vi.fn(),
-    nodeInfo: vi.fn(async (): Promise<{ node_id: string } | null> => null),
+    forgetOnion: vi.fn(),
+    deviceId: vi.fn(async (): Promise<string | null> => null),
     send: vi.fn(),
     onMessage: vi.fn((h: MessageHandler) => {
       wire.message.push(h);
@@ -87,8 +86,8 @@ async function deliver(data: Frame, room = ROOM) {
   for (const h of wire.message) h(room, data);
   await flush();
 }
-async function status(state: string, room = ROOM, peerId?: string, reason?: string) {
-  for (const h of wire.status) h(room, state, peerId, reason);
+async function status(state: string, room = ROOM, peerId?: string, linked: string[] = []) {
+  for (const h of wire.status) h(room, state, peerId, linked);
   await flush();
 }
 
@@ -109,20 +108,20 @@ const entry = (ch: Channel, room = ROOM) => ch.p2pRooms.value.find((r) => r.room
 const storedRooms = async (): Promise<P2pRoomEntry[]> =>
   JSON.parse((await kvGet("p2p:rooms", "default", "")) ?? "[]");
 
-async function create(ch: Channel, room = ROOM, onion = "") {
+async function create(ch: Channel, room = ROOM, onion = "me.onion") {
   mockTransport.createRoom.mockResolvedValueOnce({ room, name: room === ROOM ? "Room One" : "Room Two", onion });
   return ch.createRoom(room === ROOM ? "Room One" : "Room Two");
 }
 
-/** A room we created, connected and with a ready group. */
-async function readyRoom(identity = "alice", members: string[] = [], onion = "") {
+/** A room we created (a group of one at once), with a member linked. */
+async function readyRoom(identity = "alice", members: string[] = [], onion = `${identity}.onion`) {
   crypto.members.mockResolvedValue(members);
   const ch = useChatChannel();
   ch.mlsIdentity.value = identity;
   await create(ch, ROOM, onion);
-  await status("connected");
-  await vi.advanceTimersByTimeAsync(5000);
+  await flush();
   expect(ch.mlsStatus.value).toBe("ready");
+  await status("connected");
   mockTransport.send.mockClear();
   return ch;
 }
@@ -144,35 +143,43 @@ afterEach(() => {
 // ── creating and joining ────────────────────────────────────────────────────
 
 describe("creating a room", () => {
-  it("enters it, saves it as ours, and hands back only its slug", async () => {
+  it("enters it, saves it as ours with our onion, and hands back only its slug", async () => {
     const ch = useChatChannel();
     ch.mlsIdentity.value = "alice";
     expect(await create(ch)).toBe(ROOM);
     expect(mockTransport.createRoom).toHaveBeenCalledWith("Room One");
-    expect(entry(ch)).toEqual({ room: ROOM, name: "Room One", host: true, tor: false, onion: undefined });
-    expect((await storedRooms())[0]).toMatchObject({ room: ROOM, host: true, tor: false });
+    expect(entry(ch)).toEqual({ room: ROOM, name: "Room One", host: true, onion: "me.onion" });
+    expect((await storedRooms())[0]).toEqual({ room: ROOM, name: "Room One", host: true, onion: "me.onion" });
     expect(ch.currentRoom.value).toMatchObject({ slug: ROOM, name: "Room One", id: 0 });
-    // No profile name yet, so the roster shows our identity — and the election
-    // has already run, so the sole member is the captain before anyone joins.
-    expect(ch.participants.value).toEqual([
-      { id: "alice", name: "alice", avatar_url: "", type: "human", isCaptain: true },
-    ]);
+    expect(ch.myOnion.value).toBe("me.onion");
+    // No profile name yet, so the roster shows our identity; our own row
+    // carries no `linked` flag.
+    expect(ch.participants.value).toEqual([{ id: "alice", name: "alice", avatar_url: "", type: "human" }]);
     expect(ch.isParticipant.value).toBe(true);
-    expect(ch.wsStatus.value).toBe("connecting");
-    expect(notices(ch)).toEqual(["Created “Room One”. Invite someone to let them in."]);
+    expect(ch.wsStatus.value).toBe("waiting"); // nobody to link to yet
+    expect(notices(ch)[0]).toBe("Created “Room One”. Invite someone to let them in.");
   });
 
-  it("updates the record of a room that is already saved, keeping its address book", async () => {
-    // Re-hosting a saved room (or being re-invited to one) must not duplicate the
-    // row or drop the peers a ticketless reconnect depends on.
+  it("is a group of one at once, without waiting for anyone", async () => {
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await create(ch);
+    await flush();
+    expect(ch.mlsStatus.value).toBe("ready");
+    expect(notices(ch)).toContain("🔒 End-to-end encryption active.");
+  });
+
+  it("updates the record of a room that is already saved, keeping its peers", async () => {
+    // Re-hosting a saved room must not duplicate the row or drop the onions a
+    // reopen links to.
     await kvPut("p2p:rooms", "default", "", JSON.stringify([
-      { room: ROOM, name: "Old name", peers: ["node-b"], rules: "be kind" },
+      { room: ROOM, name: "Old name", peers: ["bob.onion"] },
     ]));
     const ch = useChatChannel();
     await ch.loadP2pRooms();
     await create(ch);
     expect(ch.p2pRooms.value).toEqual([
-      { room: ROOM, name: "Room One", peers: ["node-b"], rules: "be kind", host: true, tor: false, onion: undefined },
+      { room: ROOM, name: "Room One", peers: ["bob.onion"], host: true, onion: "me.onion" },
     ]);
     expect(await storedRooms()).toHaveLength(1);
   });
@@ -185,63 +192,43 @@ describe("creating a room", () => {
     expect(ch.currentRoom.value).toBeNull();
     expect(ch.p2pRooms.value).toEqual([]);
   });
-
-  it("over Tor, marks the room Tor and makes its creator the captain straight away", async () => {
-    const ch = useChatChannel();
-    ch.mlsIdentity.value = "alice";
-    await create(ch, ROOM, "alice.onion");
-    await flush();
-    expect(ch.currentRoomIsTor.value).toBe(true);
-    expect(entry(ch)).toMatchObject({ tor: true, host: true, onion: "alice.onion", captainOnion: "alice.onion" });
-    expect(ch.captainId.value).toBe("alice");
-    expect(ch.participants.value[0].isCaptain).toBe(true);
-    // The re-point is debounced so a burst of joins becomes one dial.
-    expect(mockTransport.setCaptain).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(mockTransport.setCaptain).toHaveBeenCalledWith(ROOM, "alice.onion");
-  });
 });
 
-describe("joining by node", () => {
-  it("surfaces the transport's reason and leaves nothing open when it fails", async () => {
+describe("cancelling a join", () => {
+  it("aborts it and clears the error the aborted join left", async () => {
     const ch = useChatChannel();
-    mockTransport.joinRoomByNode.mockRejectedValueOnce(new Error("no route to peers"));
-    await ch.joinByNode("  Room One  ", ["node-b"]);
-    expect(mockTransport.joinRoomByNode).toHaveBeenCalledWith("Room One", ["node-b"]);
-    expect(ch.error.value).toBe("no route to peers");
-    expect(ch.currentRoom.value).toBeNull();
-  });
-
-  it("can be cancelled, which also clears the error the aborted join left", async () => {
-    const ch = useChatChannel();
-    mockTransport.joinRoomByNode.mockRejectedValueOnce(new Error("aborted"));
-    await ch.joinByNode("Room One", []);
+    mockTransport.joinRoom.mockRejectedValueOnce(new Error("aborted"));
+    await ch.openP2pRoom({ room: ROOM, name: "Room One" });
+    expect(ch.error.value).toBe("aborted");
     await ch.cancelJoin();
     expect(mockTransport.cancelJoin).toHaveBeenCalledTimes(1);
     expect(ch.error.value).toBeNull();
   });
-
-  it("enters the room and says it is connecting", async () => {
-    mockTransport.joinRoomByNode.mockResolvedValueOnce({ room: ROOM, name: "Room One", onion: "" });
-    const ch = useChatChannel();
-    await ch.joinByNode("Room One", ["node-b"]);
-    expect(ch.currentRoom.value?.slug).toBe(ROOM);
-    expect(ch.currentRoomIsTor.value).toBe(false);
-    expect(notices(ch)).toEqual(["Joined “Room One”. Connecting to peers…"]);
-  });
 });
 
 describe("reopening a saved room", () => {
+  it("joins it by name with its saved peers and enters it", async () => {
+    mockTransport.joinRoom.mockResolvedValueOnce({ room: ROOM, name: "Room One", onion: "me.onion" });
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await ch.openP2pRoom({ room: ROOM, name: "Room One", peers: ["bob.onion"], onion: "me.onion" });
+    expect(mockTransport.joinRoom).toHaveBeenCalledWith("Room One", ["bob.onion"]);
+    expect(ch.currentRoom.value?.slug).toBe(ROOM);
+    expect(ch.myOnion.value).toBe("me.onion");
+    await flush();
+    expect(sent("mls_key_package")).toHaveLength(1); // encryption starts on entry
+  });
+
   it("does nothing when that room is already on screen", async () => {
     const ch = await readyRoom();
     await ch.openP2pRoom(entry(ch)!);
-    expect(mockTransport.joinRoomByNode).not.toHaveBeenCalled();
+    expect(mockTransport.joinRoom).not.toHaveBeenCalled();
     expect(ch.mlsStatus.value).toBe("ready");
   });
 
   it("surfaces a failed reopen as the channel error", async () => {
     const ch = useChatChannel();
-    mockTransport.joinRoomByNode.mockRejectedValueOnce(new Error("offline"));
+    mockTransport.joinRoom.mockRejectedValueOnce(new Error("offline"));
     await ch.openP2pRoom({ room: ROOM, name: "Room One" });
     expect(ch.error.value).toBe("offline");
     expect(ch.currentRoom.value).toBeNull();
@@ -271,27 +258,69 @@ describe("a headless channel", () => {
 // ── transport status ────────────────────────────────────────────────────────
 
 describe("transport status", () => {
-  it("remembers each neighbour's NodeId for any saved room, once", async () => {
-    // Several rooms can be live at once; the address book of one that is not on
-    // screen is just as much a reconnect handle.
+  it("remembers each linked member's onion for any saved room, once", async () => {
+    // Several rooms can be live at once; the peers of one that is not on
+    // screen are just as much what a reopen links to.
     const ch = useChatChannel();
     await create(ch, "room-2");
     await create(ch, ROOM);
-    await status("connected", "room-2", "node-x");
-    await status("connected", "room-2", "node-x");
-    await status("connected", ROOM, "node-y");
-    await status("connected", "never-saved", "node-z");
-    expect(entry(ch, "room-2")?.peers).toEqual(["node-x"]);
-    expect(entry(ch, ROOM)?.peers).toEqual(["node-y"]);
-    expect((await storedRooms()).find((r) => r.room === "room-2")?.peers).toEqual(["node-x"]);
+    await status("connected", "room-2", "x.onion");
+    await status("connected", "room-2", "x.onion");
+    await status("connected", ROOM, "y.onion");
+    await status("connected", "never-saved", "z.onion");
+    // A link going down is not a new peer.
+    await status("waiting", ROOM, "w.onion");
+    expect(entry(ch, "room-2")?.peers).toEqual(["x.onion"]);
+    expect(entry(ch, ROOM)?.peers).toEqual(["y.onion"]);
+    expect((await storedRooms()).find((r) => r.room === "room-2")?.peers).toEqual(["x.onion"]);
     // Only the room on screen drives the visible connection state.
     expect(ch.currentRoom.value?.slug).toBe(ROOM);
-    expect(ch.wsStatus.value).toBe("connected");
+    expect(ch.wsStatus.value).toBe("waiting");
+  });
+
+  it("says 'Connected' only on the way into connected, not for every link that comes up", async () => {
+    const ch = useChatChannel();
+    await create(ch);
+    await status("connected", ROOM, "bob.onion");
+    await status("connected", ROOM, "carol.onion");
+    expect(notices(ch).filter((n) => n === "Connected to Room One.")).toHaveLength(1);
+    await status("waiting", ROOM, "bob.onion");
+    await status("connected", ROOM, "bob.onion");
+    expect(notices(ch).filter((n) => n === "Connected to Room One.")).toHaveLength(2);
+  });
+
+  it("says nothing while waiting, and 'Disconnected' only when a connection is lost", async () => {
+    const ch = useChatChannel();
+    await create(ch);
+    await flush();
+    const before = notices(ch).length;
+    await status("waiting");
+    await status("disconnected"); // from waiting: nothing was lost
+    expect(notices(ch)).toHaveLength(before);
+    await status("connected", ROOM, "bob.onion");
+    await status("disconnected");
+    expect(notices(ch).slice(before)).toEqual(["Connected to Room One.", "Disconnected."]);
+    expect(ch.wsStatus.value).toBe("disconnected");
+    expect(ch.isConnected.value).toBe(false);
+  });
+
+  it("does not start encryption: a status event never sends a key package", async () => {
+    mockTransport.joinRoom.mockResolvedValueOnce({ room: ROOM, name: "Room One", onion: "me.onion" });
+    crypto.initSession.mockRejectedValueOnce(new Error("vault locked"));
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await ch.openP2pRoom({ room: ROOM, name: "Room One" });
+    await flush();
+    expect(ch.mlsStatus.value).toBe("error");
+    await status("connected", ROOM, "bob.onion");
+    expect(sent("mls_key_package")).toEqual([]);
+    expect(ch.mlsStatus.value).toBe("error");
   });
 
   it("reports a connection error as an error", async () => {
     const ch = useChatChannel();
     await create(ch);
+    await flush();
     await status("error");
     expect(ch.wsStatus.value).toBe("error");
     expect(ch.messages.value.at(-1)).toMatchObject({ type: "system_error", content: "Connection error." });
@@ -300,80 +329,102 @@ describe("transport status", () => {
   it("ignores status for a room that is not on screen", async () => {
     const ch = useChatChannel();
     await create(ch);
+    await flush();
+    const before = notices(ch).length;
     await status("error", "room-2");
-    expect(ch.wsStatus.value).toBe("connecting");
-    expect(notices(ch)).toHaveLength(1);
+    expect(ch.wsStatus.value).toBe("waiting");
+    expect(notices(ch)).toHaveLength(before);
+  });
+
+  it("tracks who is linked, and marks those members linked on the roster", async () => {
+    const ch = await readyRoom("alice", ["alice", "bob", "carol"]);
+    await presence("bob", "bob.onion");
+    await presence("carol", "carol.onion");
+    await status("connected", ROOM, "bob.onion", ["bob.onion"]);
+    expect(ch.linkedOnions.value).toEqual(["bob.onion"]);
+    const row = (id: string) => ch.participants.value.find((p) => p.id === id);
+    expect(row("bob")?.linked).toBe(true);
+    expect(row("carol")?.linked).toBe(false);
+    expect(row("alice")?.linked).toBeUndefined(); // ourselves: unset
+
+    await status("connected", ROOM, "carol.onion", ["carol.onion"]);
+    expect(row("bob")?.linked).toBe(false);
+    expect(row("carol")?.linked).toBe(true);
+    // Another room's links do not touch this one.
+    await status("connected", "room-2", "dan.onion", ["dan.onion"]);
+    expect(ch.linkedOnions.value).toEqual(["carol.onion"]);
+  });
+
+  it("starts each room with nobody linked", async () => {
+    const ch = await readyRoom("alice", ["alice", "bob"]);
+    await status("connected", ROOM, "bob.onion", ["bob.onion"]);
+    expect(ch.linkedOnions.value).toEqual(["bob.onion"]);
+    await ch.leaveParticipant();
+    mockTransport.joinRoom.mockResolvedValueOnce({ room: "room-2", name: "Room Two", onion: "me.onion" });
+    await ch.openP2pRoom({ room: "room-2", name: "Room Two" });
+    expect(ch.linkedOnions.value).toEqual([]);
   });
 });
 
-// ── Tor captaincy ───────────────────────────────────────────────────────────
+// ── the members' onions ─────────────────────────────────────────────────────
 
-describe("the Tor captain", () => {
-  /** A Tor room where "bob" (lowest id) is captain once we know his onion. */
-  async function torRoom() {
-    const ch = await readyRoom("zed", ["bob", "zed"], "zed.onion");
-    await presence("bob", "bob.onion");
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(mockTransport.setCaptain).toHaveBeenLastCalledWith(ROOM, "bob.onion");
-    mockTransport.setCaptain.mockClear();
-    return ch;
-  }
-
-  it("is dialled once we learn its onion, and that address is saved for reopening", async () => {
-    const ch = await torRoom();
-    expect(ch.captainId.value).toBe("bob");
-    expect(entry(ch)?.captainOnion).toBe("bob.onion");
-    expect((await storedRooms())[0].captainOnion).toBe("bob.onion");
-  });
-
-  it("is not re-dialled when nothing about it changed", async () => {
-    await torRoom();
-    await presence("bob", "bob.onion");
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(mockTransport.setCaptain).not.toHaveBeenCalled();
-  });
-
-  it("is replaced by the next member when it becomes unreachable, and then evicted", async () => {
-    const ch = await torRoom();
-    mockTransport.send.mockClear();
-    await status("disconnected", ROOM, "bob.onion", "captain_unreachable");
-    expect(notices(ch).at(-1)).toBe("The room host went offline — electing a new host…");
-    // Failover is election-driven: the dead onion is not a reconnect peer, and
-    // the connection state is left alone.
-    expect(entry(ch)?.peers).toBeUndefined();
-    expect(ch.wsStatus.value).toBe("connected");
-    expect(ch.captainId.value).toBe("zed");
-
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(mockTransport.setCaptain).toHaveBeenCalledWith(ROOM, "zed.onion");
-    // The eviction waits for the re-point, so its commit rides the NEW captain.
-    expect(crypto.removeMember).not.toHaveBeenCalled();
+describe("the members' onions", () => {
+  it("are learned from presence and handed to Rust once, debounced, without our own", async () => {
+    const ch = await readyRoom("alice", ["alice", "bob", "carol"], "alice.onion");
     await vi.advanceTimersByTimeAsync(1000);
-    expect(crypto.removeMember).toHaveBeenCalledWith(ROOM, "zed", "bob");
-    expect(sent("mls_commit")).toEqual([{ type: "mls_commit", commit: "Bw==" }]);
-  });
-
-  it("comes back when a captain we thought dead announces itself again", async () => {
-    const ch = await torRoom();
-    await status("disconnected", ROOM, "bob.onion", "captain_unreachable");
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(ch.captainId.value).toBe("zed");
-    mockTransport.setCaptain.mockClear();
-
+    mockTransport.setPeers.mockClear();
     await presence("bob", "bob.onion");
-    expect(ch.captainId.value).toBe("bob");
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(mockTransport.setCaptain).toHaveBeenCalledWith(ROOM, "bob.onion");
+    await presence("carol", "carol.onion");
+    await presence("mallory-echo", "alice.onion"); // our own onion is never a peer
+    expect(mockTransport.setPeers).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockTransport.setPeers).toHaveBeenCalledTimes(1);
+    expect(mockTransport.setPeers).toHaveBeenCalledWith(ROOM, ["bob.onion", "carol.onion"]);
+    expect(entry(ch)?.peers).toEqual(["bob.onion", "carol.onion"]);
+    expect((await storedRooms())[0].peers).toEqual(["bob.onion", "carol.onion"]);
   });
 
-  it("does not exist on an iroh room, so an unreachable report changes nothing", async () => {
-    const ch = await readyRoom("zed", ["bob", "zed"]);
-    const before = notices(ch).length;
-    await status("disconnected", ROOM, "bob.onion", "captain_unreachable");
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(notices(ch)).toHaveLength(before);
-    expect(mockTransport.setCaptain).not.toHaveBeenCalled();
-    expect(crypto.removeMember).not.toHaveBeenCalled();
+  it("keep the saved peers whose presence has not arrived yet", async () => {
+    await kvPut("p2p:rooms", "default", "", JSON.stringify([
+      { room: ROOM, name: "Room One", peers: ["dan.onion"], onion: "me.onion" },
+    ]));
+    mockTransport.joinRoom.mockResolvedValueOnce({ room: ROOM, name: "Room One", onion: "me.onion" });
+    crypto.members.mockResolvedValue(["alice", "bob"]);
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "alice";
+    await ch.loadP2pRooms();
+    await ch.openP2pRoom(entry(ch)!);
+    await vi.advanceTimersByTimeAsync(5000); // nobody answered: a group of one
+    expect(ch.mlsStatus.value).toBe("ready");
+    mockTransport.setPeers.mockClear();
+    await presence("bob", "bob.onion");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockTransport.setPeers).toHaveBeenLastCalledWith(ROOM, ["dan.onion", "bob.onion"]);
+  });
+
+  it("drop a member who leaves, so we stop linking to them", async () => {
+    const ch = await readyRoom("alice", ["alice", "bob", "carol"]);
+    await presence("bob", "bob.onion");
+    await presence("carol", "carol.onion");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(entry(ch)?.peers).toEqual(["bob.onion", "carol.onion"]);
+
+    await deliver(fromPeer("carol", { type: "leave", device_id: "carol" }));
+    expect(entry(ch)?.peers).toEqual(["bob.onion"]);
+    expect((await storedRooms())[0].peers).toEqual(["bob.onion"]);
+    mockTransport.setPeers.mockClear();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockTransport.setPeers).toHaveBeenLastCalledWith(ROOM, ["bob.onion"]);
+  });
+
+  it("ride our own presence, so the others can link to us", async () => {
+    const ch = await readyRoom("alice", ["alice", "bob"], "alice.onion");
+    mockTransport.send.mockClear();
+    await presence("bob", "bob.onion", false); // not a reply: we answer
+    expect(sentInner("presence")).toEqual([
+      expect.objectContaining({ device_id: "alice", onion: "alice.onion", reply: true }),
+    ]);
+    expect(ch.myOnion.value).toBe("alice.onion");
   });
 });
 
@@ -468,7 +519,7 @@ describe("the host closing the room", () => {
 
     await deliver(fromPeer("bob", { type: "room_closed", device_id: "bob" }));
     expect(crypto.clearState).toHaveBeenLastCalledWith(ROOM, "zed");
-    expect(mockTransport.forgetTorOnion).toHaveBeenCalledWith("Room One");
+    expect(mockTransport.forgetOnion).toHaveBeenCalledWith("Room One");
     expect(ch.p2pRooms.value).toEqual([]);
     expect(await storedRooms()).toEqual([]);
     expect(ch.currentRoom.value).toBeNull();
@@ -490,6 +541,7 @@ describe("deleting a room", () => {
     expect(crypto.clearState).toHaveBeenLastCalledWith(ROOM, "alice");
     expect(await loadLog(ROOM)).toEqual([]);
     expect(ch.p2pRooms.value).toEqual([]);
+    expect(mockTransport.forgetOnion).toHaveBeenCalledWith("Room One");
     expect(ch.currentRoom.value).toBeNull();
     expect(notices(ch)).toEqual(["Room deleted."]);
   });
@@ -506,12 +558,14 @@ describe("deleting a room", () => {
     ch.mlsIdentity.value = "alice";
     await create(ch, "room-2", "two.onion");
     await create(ch, ROOM);
+    await flush();
     const other = entry(ch, "room-2")!;
+    mockTransport.send.mockClear();
 
     await ch.deleteRoom(other);
     expect(mockTransport.send).not.toHaveBeenCalled();
     expect(crypto.clearState).toHaveBeenCalledWith("room-2", "alice");
-    expect(mockTransport.forgetTorOnion).toHaveBeenCalledWith("Room Two");
+    expect(mockTransport.forgetOnion).toHaveBeenCalledWith("Room Two");
     expect(mockTransport.leaveRoom).toHaveBeenCalledWith("room-2");
     expect(ch.p2pRooms.value.map((r) => r.room)).toEqual([ROOM]);
     expect(ch.currentRoom.value?.slug).toBe(ROOM);
@@ -521,26 +575,24 @@ describe("deleting a room", () => {
 // ── invitations ─────────────────────────────────────────────────────────────
 
 describe("admitting an invitee", () => {
-  it("adds them, commits to the room first, and grants our NodeId as the peer to dial", async () => {
+  it("adds them, commits to the room first, and grants our onion as the member to link to", async () => {
     const ch = await readyRoom("alice", ["alice"]);
-    mockTransport.nodeInfo.mockResolvedValueOnce({ node_id: "node-alice" });
     const grant = await ch.admitInvited(ROOM, "AQID");
     expect(crypto.addMember).toHaveBeenCalledWith(ROOM, "alice", new Uint8Array([1, 2, 3]));
     expect(sent()).toEqual([{ type: "mls_commit", commit: "CQ==" }]);
-    expect(grant).toEqual({ welcome: "CA==", roomName: "Room One", peers: ["node-alice"], onion: "" });
+    expect(grant).toEqual({ welcome: "CA==", roomName: "Room One", peers: ["alice.onion"] });
   });
 
-  it("over Tor, grants our onion and no iroh peers", async () => {
-    const ch = await readyRoom("alice", ["alice"], "alice.onion");
+  it("grants every member's onion we know, ours first, each once", async () => {
+    const ch = await readyRoom("alice", ["alice", "bob", "carol", "dave"]);
+    await presence("bob", "bob.onion");
+    await presence("carol", "carol.onion");
+    await presence("dave", ""); // no onion learned yet: nothing to grant
+    await presence("echo", "alice.onion");
+    mockTransport.send.mockClear();
     const grant = await ch.admitInvited(ROOM, "AQID");
-    expect(grant).toMatchObject({ peers: [], onion: "alice.onion" });
-    expect(mockTransport.nodeInfo).not.toHaveBeenCalled();
-  });
-
-  it("grants no peers rather than failing when our node will not start", async () => {
-    const ch = await readyRoom("alice", ["alice"]);
-    mockTransport.nodeInfo.mockRejectedValueOnce(new Error("bind failed"));
-    expect((await ch.admitInvited(ROOM, "AQID"))?.peers).toEqual([]);
+    expect(grant?.peers).toEqual(["alice.onion", "bob.onion", "carol.onion"]);
+    expect(grant).not.toHaveProperty("onion");
   });
 
   it("refuses a room that is not open, or not ready, without touching the group", async () => {
@@ -563,26 +615,59 @@ describe("admitting an invitee", () => {
 });
 
 describe("joining by invitation", () => {
-  const grant = (onion = "") => ({ roomName: "Room One", welcome: "CAk=", peers: onion ? [] : ["node-a"], onion });
+  const grant = () => ({ roomName: "  Room One ", welcome: "CAk=", peers: ["inviter.onion", "carol.onion"] });
 
   beforeEach(() => {
-    mockTransport.joinRoomByNode.mockResolvedValue({ room: ROOM, name: "Room One", onion: "" });
+    mockTransport.joinRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "me.onion" });
   });
 
-  it("moves the scratch session onto the room, opens the Welcome, and comes up encrypted", async () => {
+  it("links to the granted members, moves the scratch session onto the room, and comes up encrypted", async () => {
     const ch = useChatChannel();
     ch.mlsIdentity.value = "me";
     expect(await ch.joinByInvite(grant(), "invite:scratch")).toBe(true);
+    expect(mockTransport.joinRoom).toHaveBeenCalledWith("Room One", ["inviter.onion", "carol.onion"]);
     expect(crypto.adoptSession).toHaveBeenCalledWith("invite:scratch", ROOM, "me");
     expect(crypto.joinFromWelcome).toHaveBeenCalledWith(ROOM, "me", new Uint8Array([8, 9]));
     expect(ch.mlsStatus.value).toBe("ready");
-    expect(notices(ch).at(-1)).toBe("🔒 End-to-end encryption active.");
+    expect(ch.myOnion.value).toBe("me.onion");
+    expect(entry(ch)).toEqual({ room: ROOM, name: "Room One", peers: ["inviter.onion", "carol.onion"], onion: "me.onion" });
+    expect(notices(ch)).toEqual([
+      "Joined “Room One”. Connecting to the others…",
+      "🔒 End-to-end encryption active.",
+    ]);
   });
 
-  it("points a Tor joiner at the captain's onion straight away", async () => {
+  it("does not start a fresh handshake: the Welcome is the way in", async () => {
     const ch = useChatChannel();
-    await ch.joinByInvite(grant("captain.onion"), "invite:scratch");
-    expect(mockTransport.setCaptain).toHaveBeenCalledWith(ROOM, "captain.onion");
+    ch.mlsIdentity.value = "me";
+    await ch.joinByInvite(grant(), "invite:scratch");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(crypto.initSession).not.toHaveBeenCalled();
+    expect(crypto.clearState).not.toHaveBeenCalled();
+    expect(sent("mls_key_package")).toEqual([]);
+    expect(ch.mlsStatus.value).toBe("ready");
+    expect(notices(ch).filter((n) => n === "🔒 End-to-end encryption active.")).toHaveLength(1);
+  });
+
+  it("is still initializing while the scratch session moves over", async () => {
+    let release!: (ok: boolean) => void;
+    crypto.adoptSession.mockReturnValueOnce(new Promise<boolean>((r) => { release = r; }));
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "me";
+    const joining = ch.joinByInvite(grant(), "invite:scratch");
+    await flush();
+    expect(ch.currentRoom.value?.slug).toBe(ROOM);
+    expect(ch.mlsStatus.value).toBe("initializing");
+    release(true);
+    expect(await joining).toBe(true);
+  });
+
+  it("tells Rust the members to link to once it is in", async () => {
+    const ch = useChatChannel();
+    ch.mlsIdentity.value = "me";
+    await ch.joinByInvite(grant(), "invite:scratch");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockTransport.setPeers).toHaveBeenCalledWith(ROOM, ["inviter.onion", "carol.onion"]);
   });
 
   it("fails, without opening the Welcome, when the scratch session cannot move", async () => {
@@ -604,7 +689,7 @@ describe("joining by invitation", () => {
 
   it("fails with the transport's reason when the room cannot be joined", async () => {
     const ch = useChatChannel();
-    mockTransport.joinRoomByNode.mockRejectedValueOnce(new Error("Network access is off."));
+    mockTransport.joinRoom.mockRejectedValueOnce(new Error("Network access is off."));
     expect(await ch.joinByInvite(grant(), "invite:scratch")).toBe(false);
     expect(ch.error.value).toBe("Network access is off.");
     expect(crypto.adoptSession).not.toHaveBeenCalled();
@@ -619,15 +704,15 @@ describe("joining by invitation", () => {
   });
 });
 
-describe("ensureNode", () => {
-  it("returns our NodeId, or null when the endpoint cannot start", async () => {
+describe("deviceId", () => {
+  it("returns this device's id, or null when Rust cannot say", async () => {
     const ch = useChatChannel();
-    mockTransport.nodeInfo.mockResolvedValueOnce({ node_id: "node-me" });
-    expect(await ch.ensureNode()).toBe("node-me");
-    mockTransport.nodeInfo.mockResolvedValueOnce(null);
-    expect(await ch.ensureNode()).toBeNull();
-    mockTransport.nodeInfo.mockRejectedValueOnce(new Error("bind failed"));
-    expect(await ch.ensureNode()).toBeNull();
+    mockTransport.deviceId.mockResolvedValueOnce("device-me");
+    expect(await ch.deviceId()).toBe("device-me");
+    mockTransport.deviceId.mockResolvedValueOnce(null);
+    expect(await ch.deviceId()).toBeNull();
+    mockTransport.deviceId.mockRejectedValueOnce(new Error("vault locked"));
+    expect(await ch.deviceId()).toBeNull();
   });
 });
 

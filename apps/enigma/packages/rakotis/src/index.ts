@@ -8,7 +8,6 @@
 export { isTauri, invoke } from "./services/tauri";
 export * from "./services/appStorage";
 export * from "./services/localDb";
-export * from "./services/moderation";
 export * from "./chatHistoryModel";
 export * from "./services/chatLog";
 export type { Participant, Room } from "./services/types";
@@ -41,7 +40,7 @@ export { cryptoService, bytesToBase64, base64ToBytes } from "./crypto";
 
 // ── P2P chat transport ────────────────────────────────────────────────────────
 export { chatTransport } from "./chatTransport";
-export type { ChatTransport, CreatedRoom, JoinedRoom, WsStatus, WsMessage } from "./chatTransport";
+export type { ChatTransport, OpenedRoom, WsStatus, WsMessage } from "./chatTransport";
 
 // ── Chat channel composable + MLS envelope state machine ──────────────────────
 export { useChatChannel, isInviteTicket, downscaleImageToDataUrl } from "./useChatChannel";

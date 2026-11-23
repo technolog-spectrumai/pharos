@@ -1,20 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
 import { OyaEmptyState } from "petalite/primitives";
-import type { ChatChannel, Participant } from "rakotis";
+import type { ChatChannel } from "rakotis";
 import ParticipantRow from "./ParticipantRow.vue";
-import ModerateMemberModal from "./ModerateMemberModal.vue";
 
 const props = defineProps<{ channel: ChatChannel; compact?: boolean }>();
-const { participants, amCaptain, mlsIdentity } = props.channel;
-
-// Captain-only moderation sheet for the clicked member.
-const moderateOpen = ref(false);
-const moderateTarget = ref<Participant | null>(null);
-function openModerate(p: Participant) {
-  moderateTarget.value = p;
-  moderateOpen.value = true;
-}
+const { participants } = props.channel;
 </script>
 
 <template>
@@ -24,12 +14,9 @@ function openModerate(p: Participant) {
       :key="p.id ?? p.name"
       :participant="p"
       :compact="compact"
-      :can-moderate="amCaptain && !!p.id && p.id !== mlsIdentity"
-      @moderate="openModerate(p)"
     />
     <OyaEmptyState v-if="!participants.length" size="sm">
       {{ compact ? $t("chat.noParticipants") : $t("chat.noParticipantsYet") }}
     </OyaEmptyState>
-    <ModerateMemberModal v-model:open="moderateOpen" :participant="moderateTarget" :channel="channel" />
   </div>
 </template>

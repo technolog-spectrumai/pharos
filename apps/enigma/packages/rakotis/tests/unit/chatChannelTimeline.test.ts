@@ -16,17 +16,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { wire, mockTransport } = vi.hoisted(() => {
   type MessageHandler = (room: string, data: unknown) => void;
-  type StatusHandler = (room: string, state: string, peerId?: string, reason?: string) => void;
+  type StatusHandler = (room: string, state: string, peerId?: string, linked?: string[]) => void;
   const wire = { message: [] as MessageHandler[], status: [] as StatusHandler[] };
   const mockTransport = {
     createRoom: vi.fn(),
-    joinRoomByNode: vi.fn(),
-    decodeLegacyTicket: vi.fn(async () => null),
+    joinRoom: vi.fn(),
+    setPeers: vi.fn(),
     cancelJoin: vi.fn(),
     leaveRoom: vi.fn(),
-    forgetTorOnion: vi.fn(),
-    setCaptain: vi.fn(),
-    nodeInfo: vi.fn(async (): Promise<{ node_id: string } | null> => null),
+    forgetOnion: vi.fn(),
+    deviceId: vi.fn(async (): Promise<string | null> => null),
     send: vi.fn(),
     onMessage: vi.fn((h: MessageHandler) => {
       wire.message.push(h);
@@ -85,8 +84,8 @@ async function deliver(data: Frame, room = ROOM) {
   for (const h of wire.message) h(room, data);
   await flush();
 }
-async function status(state: string, room = ROOM) {
-  for (const h of wire.status) h(room, state);
+async function status(state: string, room = ROOM, peerId?: string, linked: string[] = []) {
+  for (const h of wire.status) h(room, state, peerId, linked);
   await flush();
 }
 
@@ -107,29 +106,30 @@ const bubbles = (ch: Channel) => ch.messages.value.filter((m) => m.participant_t
 const notices = (ch: Channel) => ch.messages.value.map((m) => m.content);
 
 /** An open room whose MLS session is ready — the lone-creator path, end to end:
- *  connected → key package out → nobody else talking → ready after 5 s. */
+ *  created → key package out → a group of one at once → a member links. */
 async function readyRoom(members: string[] = ["alice", "bob"]) {
-  mockTransport.createRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "" });
+  mockTransport.createRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "alice.onion" });
   crypto.members.mockResolvedValue(members);
   const ch = useChatChannel();
   ch.mlsIdentity.value = "alice";
   ch.currentUserName.value = "Alice";
   await ch.createRoom("Room One");
-  await status("connected");
-  await vi.advanceTimersByTimeAsync(5000);
+  await flush();
   expect(ch.mlsStatus.value).toBe("ready");
+  await status("connected", ROOM, "bob.onion", ["bob.onion"]);
   mockTransport.send.mockClear();
   return ch;
 }
 
-/** Connected, key package sent, Welcome not yet here. */
+/** A saved room reopened: key package sent on entry, Welcome not yet here. */
 async function negotiatingRoom() {
-  mockTransport.createRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "" });
+  mockTransport.joinRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "alice.onion" });
   const ch = useChatChannel();
   ch.mlsIdentity.value = "alice";
   ch.currentUserName.value = "Alice";
-  await ch.createRoom("Room One");
-  await status("connected");
+  await ch.openP2pRoom({ room: ROOM, name: "Room One", peers: ["bob.onion"] });
+  await flush();
+  await status("connected", ROOM, "bob.onion", ["bob.onion"]);
   expect(ch.mlsStatus.value).toBe("key_exchange");
   mockTransport.send.mockClear();
   return ch;
@@ -333,21 +333,29 @@ describe("a message that arrives before the session is ready", () => {
   });
 });
 
-describe("plaintext frames", () => {
-  it("renders the pre-MLS plaintext fallback as an unencrypted bubble at its own time", async () => {
-    const ch = await negotiatingRoom();
+describe("frames in the clear", () => {
+  // Anyone holding a member's onion could send one, so nothing unencrypted is
+  // ever shown — before the session is ready or after.
+  it.each(["negotiating", "ready"] as const)("drops a plaintext chat_message while %s", async (state) => {
+    const ch = state === "ready" ? await readyRoom() : await negotiatingRoom();
+    const before = ch.messages.value.length;
     await deliver({
       type: "chat_message", message: "hi", user: "Bob", id: "p-1",
       created_at: "2026-01-02T03:04:05.000Z",
     });
-    expect(bubbles(ch)[0]).toMatchObject({ id: "p-1", user: "Bob", content: "hi", encrypted: false, self: false });
-    expect(bubbles(ch)[0].timestamp.toISOString()).toBe("2026-01-02T03:04:05.000Z");
+    expect(ch.messages.value).toHaveLength(before);
+    expect(bubbles(ch)).toEqual([]);
+    expect(ch.unread.value).toBe(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await loadLog(ROOM)).toEqual([]);
   });
 
-  it("relays a transport error frame as an error notice", async () => {
+  it("drops a network system_error frame instead of relaying it as a notice", async () => {
     const ch = await negotiatingRoom();
+    const before = ch.messages.value.length;
     await deliver({ type: "system_error", message: "relay refused the frame" });
-    expect(ch.messages.value.at(-1)).toMatchObject({ type: "system_error", content: "relay refused the frame" });
+    expect(ch.messages.value).toHaveLength(before);
+    expect(notices(ch)).not.toContain("relay refused the frame");
   });
 
   it("ignores frames for a room that is not on screen", async () => {
@@ -387,13 +395,22 @@ describe("sending text", () => {
     expect(sent("mls_app")[0].sender_avatar_url).toBe("data:me");
   });
 
-  it("sends nothing for blank text or while disconnected", async () => {
+  it("sends nothing for blank text", async () => {
     const ch = await readyRoom();
     await ch.sendMessage("   ");
+    expect(mockTransport.send).not.toHaveBeenCalled();
+    expect(crypto.encrypt).not.toHaveBeenCalledWith(ROOM, "alice", expect.stringMatching(/^\s*$/));
+  });
+
+  it("needs encryption, not a live link: it still sends while nobody is linked", async () => {
+    // Rust keeps the frame for every member who is not linked yet.
+    const ch = await readyRoom();
     await status("disconnected");
     expect(notices(ch).at(-1)).toBe("Disconnected.");
-    await ch.sendMessage("into the void");
-    expect(mockTransport.send).not.toHaveBeenCalled();
+    await ch.sendMessage("for later");
+    expect(sent("mls_app")).toHaveLength(1);
+    expect(open(sent("mls_app")[0])).toBe("for later");
+    expect(bubbles(ch).at(-1)).toMatchObject({ content: "for later", self: true, encrypted: true });
   });
 
   it("refuses to send, and says so, when encryption fails", async () => {
@@ -406,11 +423,16 @@ describe("sending text", () => {
     });
   });
 
-  it("falls back to a plaintext frame before the session is ready", async () => {
+  it("sends nothing at all before the session is ready, and says so", async () => {
+    // There is no plaintext fallback any more: never in the clear.
     const ch = await negotiatingRoom();
     await ch.sendMessage("early words");
     expect(crypto.encrypt).not.toHaveBeenCalled();
-    expect(sent()).toEqual([{ type: "chat_message", message: "early words", id: expect.any(String) }]);
+    expect(mockTransport.send).not.toHaveBeenCalled();
+    expect(bubbles(ch)).toEqual([]);
+    expect(ch.messages.value.at(-1)).toMatchObject({
+      type: "system_error", content: "Encryption not ready yet — try again in a moment.",
+    });
   });
 });
 
@@ -444,7 +466,6 @@ describe("sending media", () => {
   });
 
   it("refuses media before the session is ready, with a notice instead of plaintext", async () => {
-    // Unlike text there is no plaintext lane for media at all.
     const ch = await negotiatingRoom();
     await ch.sendImage(png());
     await ch.sendAudio(new Blob(["ogg"]));
@@ -563,12 +584,12 @@ describe("the persisted timeline", () => {
       { id: "s-3", type: "chat_message", user: "Alice", content: "legacy", encrypted: false, ts: T + 2 },
     ];
     await appendMessages(ROOM, stored, 500);
-    mockTransport.joinRoomByNode.mockResolvedValue({ room: ROOM, name: "Room One", onion: "" });
+    mockTransport.joinRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "alice.onion" });
 
     const ch = useChatChannel();
     ch.mlsIdentity.value = "alice";
     ch.currentUserName.value = "Alice";
-    await ch.openP2pRoom({ room: ROOM, name: "Room One", peers: ["node-b"] });
+    await ch.openP2pRoom({ room: ROOM, name: "Room One", peers: ["bob.onion"] });
     await vi.waitFor(() => expect(bubbles(ch)).toHaveLength(3));
 
     expect(bubbles(ch).map((m) => [m.id, m.self, m.initials])).toEqual([
@@ -584,7 +605,7 @@ describe("the persisted timeline", () => {
     await appendMessages(ROOM, [
       { id: "s-1", type: "mls_app", user: "Bob", content: "old", encrypted: true, ts: 1 },
     ], 500);
-    mockTransport.joinRoomByNode.mockResolvedValue({ room: ROOM, name: "Room One", onion: "" });
+    mockTransport.joinRoom.mockResolvedValue({ room: ROOM, name: "Room One", onion: "alice.onion" });
     const ch = useChatChannel();
     await ch.openP2pRoom({ room: ROOM, name: "Room One" });
     await ch.leaveParticipant();

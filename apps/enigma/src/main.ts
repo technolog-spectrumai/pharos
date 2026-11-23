@@ -30,6 +30,8 @@ import {
   faCircle,
   faCircleDot,
   faCircleNodes,
+  faHourglassHalf,
+  faPlug,
   faCirclePlus,
   faCode,
   faComments,
@@ -164,6 +166,8 @@ library.add(
   faCircle,
   faCircleDot,
   faCircleNodes,
+  faHourglassHalf,
+  faPlug,
   faCirclePlus,
   faCode,
   faComments,
@@ -301,8 +305,6 @@ setChatTranslator((key, params) =>
 void initBuildConfig({
   app_name: brand.name,
   app_identifier: brand.bundleId,
-  use_tor_default: policy.featureDefaults.useTor,
-  stable_onion_default: policy.featureDefaults.stableOnion,
   max_file_size_mb: {
     default: policy.fileShare.defaultMaxFileSizeMb,
     min: 0,

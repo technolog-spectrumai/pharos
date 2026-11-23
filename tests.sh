@@ -11,10 +11,9 @@ step() { local group="$1" name="$2"; shift 2
   echo "── $name"; "$@"; local c=$?; names+=("$name"); codes+=("$c"); }
 [[ -d node_modules ]] || npm ci
 step js   "vitest: enigma"          npm run test -w enigma
-step js   "vitest: rakotis"         npm run test -w packages/rakotis
-step js   "vitest: petalite"        npm run test -w packages/petalite
-step js   "vitest: calendula"       npm run test -w packages/calendula
-step js   "typecheck: rakotis"      npm run typecheck -w packages/rakotis
+step js   "vitest: rakotis"         npm run test -w rakotis
+step js   "vitest: petalite"        npm run test -w petalite
+step js   "typecheck: rakotis"      npm run typecheck -w rakotis
 step js   "typecheck: enigma"       npm run typecheck -w enigma
 step js   "build: enigma window"    npm run build -w enigma
 step js   "e2e: enigma smoke"       npm run test:e2e -w enigma

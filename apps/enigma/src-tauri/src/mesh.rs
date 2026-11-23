@@ -116,8 +116,11 @@ struct Room {
 }
 
 impl Room {
-    async fn link_count(&self) -> u32 {
-        self.links.lock().await.len() as u32
+    /// The onions of the members linked right now.
+    async fn linked(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.links.lock().await.keys().cloned().collect();
+        v.sort();
+        v
     }
 
     async fn has_link(&self, peer: &str) -> bool {
@@ -154,7 +157,7 @@ impl Room {
                 break;
             }
         }
-        emit_status(&self.app, &self.slug, self.link_count().await, Some(peer));
+        emit_status(&self.app, &self.slug, &self.linked().await, Some(peer));
     }
 
     async fn drop_link(&self, peer: &str, seq: u64) {
@@ -168,7 +171,7 @@ impl Room {
         if let Some(l) = removed {
             l.reader.abort();
             self.changed.notify_waiters();
-            emit_status(&self.app, &self.slug, self.link_count().await, Some(peer.to_string()));
+            emit_status(&self.app, &self.slug, &self.linked().await, Some(peer.to_string()));
         }
     }
 
@@ -409,7 +412,7 @@ pub async fn shutdown(app: &AppHandle, state: &MeshState) {
     if let Some(node) = node {
         for (slug, room) in &node.rooms {
             room.stop_all().await;
-            emit_status(app, slug, 0, None);
+            emit_closed(app, slug);
         }
         let state_dir = node.state_dir.clone();
         drop(node); // arti lets go of the keystore
@@ -424,7 +427,7 @@ pub async fn clean_keystore(app: &AppHandle, state: &MeshState) {
     if let Some(node) = node {
         for (slug, room) in &node.rooms {
             room.stop_all().await;
-            emit_status(app, slug, 0, None);
+            emit_closed(app, slug);
         }
         let state_dir = node.state_dir.clone();
         drop(node);
@@ -484,7 +487,7 @@ pub async fn open_room(app: &AppHandle, state: &MeshState, name: String) -> Resu
     if let Ok(mut g) = room.accept_task.lock() {
         *g = Some(task);
     }
-    emit_status(app, &slug, 0, None);
+    emit_status(app, &slug, &[], None);
     Ok((slug, my_onion))
 }
 
@@ -809,12 +812,22 @@ fn emit_message(app: &AppHandle, room: &str, payload: &str) {
     let _ = app.emit("realtime://message", serde_json::json!({ "room": room, "payload": payload }));
 }
 
-/// `connected` while at least one member is linked, `waiting` otherwise.
-fn emit_status(app: &AppHandle, room: &str, links: u32, peer: Option<String>) {
-    let state = if links > 0 { "connected" } else { "waiting" };
+/// `connected` while at least one member is linked, `waiting` otherwise, with
+/// the linked members' onions (`linked`) and the one whose link changed
+/// (`peer_id`).
+/// The room is closed on this device (lock, airplane mode, profile switch).
+fn emit_closed(app: &AppHandle, room: &str) {
     let _ = app.emit(
         "realtime://status",
-        serde_json::json!({ "room": room, "state": state, "peers": links, "peer_id": peer }),
+        serde_json::json!({ "room": room, "state": "disconnected", "peers": 0, "linked": [], "peer_id": null }),
+    );
+}
+
+fn emit_status(app: &AppHandle, room: &str, linked: &[String], peer: Option<String>) {
+    let state = if linked.is_empty() { "waiting" } else { "connected" };
+    let _ = app.emit(
+        "realtime://status",
+        serde_json::json!({ "room": room, "state": state, "peers": linked.len(), "linked": linked, "peer_id": peer }),
     );
 }
 
