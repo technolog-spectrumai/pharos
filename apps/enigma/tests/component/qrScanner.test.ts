@@ -80,7 +80,6 @@ const GLOBAL = () => ({
     teleport: true,
     ChatHeader: true,
     ObserverBanner: true,
-    RoomStatusBar: true,
     MessageList: true,
     MessageComposer: true,
     RoomsSidebar: true,

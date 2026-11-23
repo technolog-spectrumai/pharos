@@ -1029,7 +1029,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         const extra = await kpEnvelopeExtra(b64);
         if (stale()) return;
         send({ type: "mls_key_package", key_package: b64, package: b64, device_id: identity, user: currentUserName.value, ...extra });
-        messages.value.push(sysMsg("chat.sys.settingUp", "🔑 Setting up encryption…"));
+        // A room we just created is encrypted a moment later; saying "setting up"
+        // first would only be noise.
+        if (!opts.alone) messages.value.push(sysMsg("chat.sys.settingUp", "🔑 Setting up encryption…"));
         mlsStatus.value = "key_exchange";
         if (options.openAdmission) startKpRetry();
         void catchUpMailbox();

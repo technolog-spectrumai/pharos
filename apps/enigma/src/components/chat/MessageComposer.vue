@@ -96,7 +96,7 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="border-t border-current/10 p-4 bg-bubble-bg-light dark:bg-bubble-bg-dark">
+  <div class="border-t border-current/10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-4 bg-bubble-bg-light dark:bg-bubble-bg-dark">
     <AttachmentPreview v-if="pending" :pending="pending" @clear="clearPending" />
 
     <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">

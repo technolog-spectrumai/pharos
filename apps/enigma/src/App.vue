@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
          content, so without it <main> refuses to shrink, grows past the shell
          and `overflow-y-auto` never fires. Views that own their own scrolling
          (chat log, map) simply fill it with `h-full` and never overflow. -->
-    <main class="flex min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+    <main class="flex min-h-0 min-w-0 flex-1 overflow-y-auto px-2 py-2 sm:px-6 sm:py-6 lg:px-8">
       <RouterView v-slot="{ Component }">
         <component :is="Component" :dark-mode="darkMode" />
       </RouterView>
@@ -476,7 +476,7 @@ onBeforeUnmount(() => {
 
     <!-- Footer -->
     <footer
-      class="border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-footer-bg-light text-footer-text-light dark:bg-footer-bg-dark dark:text-footer-text-dark"
+      class="hidden sm:block border-t border-current/10 px-4 py-4 text-center text-sm shadow-lg pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-footer-bg-light text-footer-text-light dark:bg-footer-bg-dark dark:text-footer-text-dark"
     >
       <p class="opacity-90">{{ brand.copyright }}</p>
     </footer>

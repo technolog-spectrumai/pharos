@@ -112,6 +112,13 @@ export default {
     offlineCleared: "Wyczyszczono dane offline.",
   },
   chat: {
+    resetEncryption: "Zresetuj szyfrowanie",
+    invite: "Zaproś",
+    roomMenu: "Menu pokoju",
+    roomInfo: "O pokoju",
+    participants: "Uczestnicy",
+    aloneTitle: "Jesteś tu sam",
+    aloneHint: "Zaproś kogoś kodem QR. Dołączy przez twój telefon, więc nie zamykaj pokoju, dopóki nie wejdzie.",
     send: "Wyślij",
     sending: "Wysyłanie…",
     linkedTo: "Połączono z {n} | Połączono z {n} | Połączono z {n}",
@@ -167,7 +174,7 @@ export default {
     mlsReady: "Zaszyfrowane",
     mlsError: "Błąd szyfr.",
     sys: {
-      created: "Utworzono „{name}”. Udostępnij kod QR / bilet, aby zaprosić innych.",
+      created: "Utworzono „{name}”. Zaproś kogoś, aby mógł wejść.",
       joined: "Dołączono do „{name}”. Łączenie z innymi…",
       resetFailed: "Reset nie powiódł się: {err}",
       groupChanged: "🔑 Grupa MLS się zmieniła — wysłano nowy pakiet kluczy.",

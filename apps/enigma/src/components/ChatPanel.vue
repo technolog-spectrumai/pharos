@@ -4,7 +4,6 @@ import type { ChatChannel } from "rakotis";
 import { useP2pRooms } from "./chat/useP2pRooms";
 import ChatHeader from "./chat/ChatHeader.vue";
 import ObserverBanner from "./chat/ObserverBanner.vue";
-import RoomStatusBar from "./chat/RoomStatusBar.vue";
 import MessageList from "./chat/MessageList.vue";
 import MessageComposer from "./chat/MessageComposer.vue";
 import RoomsSidebar from "./chat/RoomsSidebar.vue";
@@ -71,18 +70,12 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <section
       class="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
-      <ChatHeader :channel="channel" @open-sidebar="sidebarOpen = true" />
+      <ChatHeader :channel="channel" :controller="p2p" @open-sidebar="sidebarOpen = true" />
       <ObserverBanner v-if="currentRoom && !isParticipant" :channel="channel" />
-      <div
-        v-if="currentRoom && isParticipant"
-        class="flex flex-wrap items-center gap-2 border-b px-4 py-2 sm:hidden bg-primary-bg-light border-accent-2 dark:bg-primary-bg-dark dark:border-accent-1"
-      >
-        <RoomStatusBar :channel="channel" compact />
-      </div>
       <div v-if="error" class="border-b border-warn-dark/30 bg-warn-dark/10 px-4 py-2 text-xs text-warn-dark">
         <font-awesome-icon icon="triangle-exclamation" class="mr-1" />{{ error }}
       </div>
-      <MessageList :channel="channel" @open-sidebar="sidebarOpen = true" />
+      <MessageList :channel="channel" :controller="p2p" @open-sidebar="sidebarOpen = true" />
       <MessageComposer :channel="channel" />
     </section>
 
@@ -92,7 +85,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     >
       <div class="border-b border-current/10 p-4">
         <h2 class="text-lg font-bold text-accent-light dark:text-accent-dark">
-          <font-awesome-icon icon="user" class="mr-2" />Participants
+          <font-awesome-icon icon="user" class="mr-2" />{{ $t("chat.participants") }}
         </h2>
       </div>
       <div class="flex-1 overflow-y-auto p-4 pr-3">
