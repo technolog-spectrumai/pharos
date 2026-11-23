@@ -253,16 +253,14 @@ describe("number settings", () => {
 });
 
 describe("my code", () => {
-  it("shows this device's node code on request, for a private invitation", async () => {
+  it("points to Friends, where the pairing code is", async () => {
     for (const tab of [undefined, "connections", "data", "lock"]) {
       const w = await mountAt(tab);
       const card = w.find('[data-testid="my-code"]');
       if (!card.exists()) continue;
-      expect(card.text()).not.toContain("a1b2c3node");
-      await card.get('[data-testid="show-node-id"]').trigger("click");
+      await card.get('[data-testid="open-friends"]').trigger("click");
       await settle();
-      expect(deviceId).toHaveBeenCalled();
-      expect(w.get('[data-testid="my-code"]').html()).toContain("a1b2c3node");
+      expect(router.currentRoute.value.path).toBe("/friends");
       return;
     }
     throw new Error("no Settings tab shows the My code card");
@@ -618,7 +616,7 @@ describe("offline data", () => {
     expect(w.text()).toMatch(/Stored fields\s*Empty/);
   });
 
-  it("clearing the selected data also resets the Tor keystore", async () => {
+  it("clearing the selected data keeps the onion addresses, so rooms still reach us", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const w = await mountAt("data");
     await w.findAll("button").find((b) => b.text().includes("Clear selected data"))!.trigger("click");
@@ -626,7 +624,6 @@ describe("offline data", () => {
 
     expect(sent().filter((c) => c === "app_clear_offline_profile" || c === "tor_clean_keystore")).toEqual([
       "app_clear_offline_profile",
-      "tor_clean_keystore",
     ]);
     expect(w.text()).toContain("Offline data cleared.");
     expect(w.text()).toMatch(/Stored fields\s*Empty/);

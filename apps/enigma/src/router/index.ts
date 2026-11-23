@@ -3,6 +3,7 @@ import { createRouter, createMemoryHistory } from "vue-router";
 import EnigmaChatView from "../views/EnigmaChatView.vue";
 import EnigmaFilesView from "../views/EnigmaFilesView.vue";
 import EnigmaConfigView from "../views/EnigmaConfigView.vue";
+import EnigmaFriendsView from "../views/EnigmaFriendsView.vue";
 import EnigmaWelcomeView from "../views/EnigmaWelcomeView.vue";
 import { APP_TABS, firstVisiblePath, isTabVisible, visibleTabs, type AppTabId } from "../tabs";
 
@@ -33,6 +34,7 @@ const router = createRouter({
     { path: "/files", component: EnigmaFilesView, name: "files", beforeEnter: tabGuard("files") },
     // Settings has no gate of either kind — it is the way back from everything
     // else, including from a nav the user has emptied out.
+    { path: "/friends", component: EnigmaFriendsView, name: "friends" },
     { path: "/config", component: EnigmaConfigView, name: "config" },
     // Welcome: app info. Ungated for the
     // same reason Settings is — it is where the header logo goes, and a logo that

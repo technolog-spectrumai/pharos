@@ -1,4 +1,4 @@
-// The share card: private QR, shareable QR — and no longer a room ticket.
+// The share card: a friend, or a shareable code — and no longer a room ticket.
 //
 // The permanent ticket was the third mode. It is gone, along with any way to open
 // a room to the gossip topic, so both remaining modes are bounded credentials the
@@ -93,24 +93,44 @@ describe("RoomShareCard", () => {
     expect(w.get('[data-testid="invite-room-open"]').text()).toMatch(/keep this room open/i);
   });
 
-  it("asks for a recipient for a private QR and not for a bearer one", async () => {
+  it("asks for a friend for a private QR and not for a bearer one", async () => {
     // A bearer invitation binds to nobody — that IS the difference — so offering
     // a picker for it would misdescribe what it does.
     const w = card();
     await flushPromises();
     await w.get('[data-testid="share-mode-personal"]').trigger("click");
-    expect(w.find('[data-testid="invite-recipient"]').exists() || w.find('[data-testid="invite-paste"]').exists()).toBe(true);
+    expect(w.find('[data-testid="invite-friends"]').exists() || w.find('[data-testid="invite-no-friends"]').exists()).toBe(true);
     await w.get('[data-testid="share-mode-general"]').trigger("click");
-    expect(w.find('[data-testid="invite-recipient"]').exists()).toBe(false);
-    expect(w.find('[data-testid="invite-paste"]').exists()).toBe(false);
+    expect(w.find('[data-testid="invite-friends"]').exists()).toBe(false);
+    expect(w.find('[data-testid="invite-no-friends"]').exists()).toBe(false);
   });
 
-  it("falls back to pasting a node code when there are no contacts", async () => {
-    // An empty contact list must not be a dead end.
+  it("sends someone with no friends yet to Friends, rather than to a code field", async () => {
+    // An empty friend list must not be a dead end.
     const w = card();
     await flushPromises();
     await w.get('[data-testid="share-mode-personal"]').trigger("click");
-    expect(w.find('[data-testid="invite-paste"]').exists()).toBe(true);
+    expect(w.get('[data-testid="invite-no-friends"]').text()).toMatch(/pair with someone/i);
+    expect(w.find('[data-testid="invite-paste"]').exists()).toBe(false);
+  });
+
+  it("seals a private QR to the friend picked from the list", async () => {
+    const ann = "a".repeat(64);
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "kv_get" && args?.ns === "friends") return JSON.stringify([{ id: ann, name: "Ann", addedAt: 1 }]);
+      if (cmd === "invite_create") return { ticket: "t", expiresAt: Date.now() + 3_600_000, kind: "personal" };
+      return [];
+    });
+    const { loadFriends } = await import("../../src/stores/friends");
+    await loadFriends(true);
+    const w = card();
+    await flushPromises();
+    await w.get('[data-testid="share-mode-personal"]').trigger("click");
+    expect(w.get('[data-testid="invite-create"]').attributes("disabled")).toBeDefined();
+    await w.get('[data-testid="invite-friend-aaaaaaaa"]').trigger("click");
+    await w.get('[data-testid="invite-create"]').trigger("click");
+    await flushPromises();
+    expect(invokeMock).toHaveBeenCalledWith("invite_create", expect.objectContaining({ kind: "personal", recipient: ann }));
   });
 
   it("will not create a private QR without a recipient", async () => {
@@ -186,7 +206,7 @@ describe("RoomShareCard", () => {
     await flushPromises();
     await w.get('[data-testid="share-mode-general"]').trigger("click");
     const list = w.get('[data-testid="invite-list"]').text();
-    expect(list).toContain("Shareable QR");
+    expect(list).toContain("Share a code");
     expect(list).not.toContain("Used");
   });
 

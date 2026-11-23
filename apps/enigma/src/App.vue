@@ -388,6 +388,10 @@ onBeforeUnmount(() => {
               :title="$t('fileShare.wantsToSend')"
             />
           </RouterLink>
+          <RouterLink to="/friends" class="inline-flex items-center gap-2 transition hover:opacity-70">
+            <font-awesome-icon icon="user-group" />
+            {{ $t('nav.friends') }}
+          </RouterLink>
           <RouterLink to="/config" class="inline-flex items-center gap-2 transition hover:opacity-70">
             <font-awesome-icon icon="gear" />
             {{ $t('nav.settings') }}
@@ -441,6 +445,10 @@ onBeforeUnmount(() => {
               v-if="fileShare.state.value === 'incoming'"
               class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
             />
+          </RouterLink>
+          <RouterLink to="/friends" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
+            <font-awesome-icon icon="user-group" class="w-4 text-center" />
+            {{ $t('nav.friends') }}
           </RouterLink>
           <RouterLink
             to="/config"

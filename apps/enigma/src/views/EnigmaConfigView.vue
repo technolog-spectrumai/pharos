@@ -32,15 +32,13 @@ import {
   vaultPinClear,
   vaultClearPanicCode,
   vaultHasPanicCode,
-  cleanTorKeystore,
   getBuildConfig,
   type AppRuntimeConfig,
   type AppProfileState,
 } from "rakotis";
 import { OyaCard } from "petalite/primitives";
 import { OyaButton } from "petalite/primitives";
-import { OyaCopyField, OyaModal, OyaQrCode, OyaTextField } from "petalite/primitives";
-import { useChatStore } from "../stores/chat";
+import { OyaModal, OyaTextField } from "petalite/primitives";
 
 defineProps<{ darkMode: boolean }>();
 
@@ -242,19 +240,6 @@ function openPanic() {
   showPanic.value = true;
 }
 
-// ── My code (this device's id — what an inviter seals a private invitation to) ──
-const chatStore = useChatStore();
-const myNodeId = ref("");
-const myNodeLoading = ref(false);
-async function loadMyNodeId() {
-  myNodeLoading.value = true;
-  try {
-    myNodeId.value = (await chatStore.p2p.deviceId()) ?? "";
-  } finally {
-    myNodeLoading.value = false;
-  }
-}
-
 // ── PIN unlock ────────────────────────────────────────────────────────────────
 const pinAllowed = true;
 const pinDigits = buildCfg.pin_digits.default;
@@ -415,9 +400,9 @@ async function clearSelectedOfflineData() {
   clearingOffline.value = true;
   try {
     offlineState.value = await clearOfflineProfile();
-    // Also reset the Tor onion keystore — clears stale locks (the "resource already
-    // in use" launch failure) and mints a fresh .onion next time.
-    await cleanTorKeystore();
+    // The onion addresses are NOT reset here: every member of every room knows us
+    // by them, so new ones would cut this device off from all its rooms. (Stale
+    // Tor lock files are cleared at every start.)
     offlineMessage.value = t("config.offlineCleared");
     setTimeout(() => (offlineMessage.value = ""), 2000);
   } finally {
@@ -575,22 +560,14 @@ async function clearSelectedOfflineData() {
       <p class="text-xs opacity-60">{{ $t('config.tabsAlwaysSettings') }}</p>
     </OyaCard>
 
-    <!-- My code — the node code someone needs to send this device a private
-         invitation (sealed to it). -->
-    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-4" data-testid="my-code">
-      <div>
-        <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
-          {{ $t('config.myCode') }}
-        </p>
-        <p class="mt-1 text-sm opacity-65">{{ $t('config.myCodeHint') }}</p>
-      </div>
-      <div v-if="myNodeId" class="space-y-3">
-        <OyaQrCode :value="myNodeId" :size="176" :alt="$t('config.myCode')" />
-        <OyaCopyField :value="myNodeId" mono :copy-label="$t('chat.copy')" />
-      </div>
-      <p v-else-if="myNodeLoading" class="text-sm opacity-60">…</p>
-      <OyaButton v-else :dark-mode="darkMode" variant="secondary" data-testid="show-node-id" @click="loadMyNodeId">
-        <font-awesome-icon icon="circle-nodes" />{{ $t('config.showNodeId') }}
+    <!-- Your code now lives in Friends, where pairing happens. -->
+    <OyaCard :dark-mode="darkMode" :padded="true" class="space-y-3" data-testid="my-code">
+      <p :class="darkMode ? 'text-accent-dark' : 'text-accent-light'" class="text-xs font-semibold uppercase tracking-wide">
+        {{ $t('config.myCode') }}
+      </p>
+      <p class="text-sm opacity-65">{{ $t('config.myCodeHint') }}</p>
+      <OyaButton :dark-mode="darkMode" variant="secondary" data-testid="open-friends" @click="router.push('/friends')">
+        <font-awesome-icon icon="user-group" />{{ $t('config.showNodeId') }}
       </OyaButton>
     </OyaCard>
 

@@ -12,12 +12,12 @@
 //
 // ── what the two modes actually are ────────────────────────────────────────
 //
-// • Private QR    one person · expires · revocable · one-use.
-//                 Sealed to the recipient's public key, so nobody else who
-//                 photographs it can read it — and no decryption key travels
-//                 with it. The narrower option, and the one to reach for.
+// • A friend      one person · expires · revocable · one-use.
+//                 Picked from Friends (stores/friends.ts) and sealed to their
+//                 device key, so nobody else who photographs it can read it, and
+//                 no decryption key travels with it. The one to reach for.
 //
-// • Shareable QR  anyone holding it · expires · revocable.
+// • Share a code  anyone holding it · expires · revocable.
 //                 A bearer credential in CLEARTEXT. There is no recipient to
 //                 seal it to, so pretending it is secret would be theatre. It is
 //                 the most exposing thing this card can do, and says so.
@@ -35,8 +35,10 @@
 
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import { invoke, isTauri } from "rakotis";
-import { OyaCopyField, OyaQrCode, OyaTextField } from "petalite/primitives";
+import { OyaAvatar, OyaCopyField, OyaQrCode } from "petalite/primitives";
+import { friends, loadFriends } from "../../stores/friends";
 
 const props = defineProps<{
   roomSlug: string;
@@ -51,7 +53,8 @@ const mode = ref<ShareMode>("personal");
 
 // ── invitation form ─────────────────────────────────────────────────────────
 
-const pasted = ref(""); // the recipient's node code
+const friendId = ref(""); // the chosen friend's device id
+const router = useRouter();
 
 /** Deadline presets, in seconds. "Never" is deliberately absent: an invitation
  *  that never expires is the permanent ticket again under a new name. */
@@ -71,7 +74,7 @@ const busy = ref(false);
 const error = ref("");
 const minted = ref<{ ticket: string; expiresAt: number; kind: string } | null>(null);
 
-const chosenRecipient = computed(() => pasted.value.trim());
+const chosenRecipient = computed(() => friendId.value);
 
 const canCreate = computed(
   () => !busy.value && (mode.value === "general" || !!chosenRecipient.value),
@@ -96,7 +99,7 @@ async function refreshRows() {
 }
 
 onMounted(async () => {
-  await refreshRows();
+  await Promise.all([refreshRows(), loadFriends()]);
 });
 
 // Switching mode drops a minted code: it belongs to the mode that made it, and
@@ -154,8 +157,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
 
 <template>
   <div class="space-y-3" data-testid="room-share">
-    <!-- Segmented pills, the EnigmaFilesView idiom. Labels drop below `sm` so
-         three fit a phone; the icons carry the meaning there. -->
+    <!-- Segmented pills, the EnigmaFilesView idiom; two fit a phone with labels. -->
     <div class="flex gap-1 overflow-x-auto rounded-xl border border-current/20 p-1 text-xs font-semibold">
       <button
         v-for="m in MODES"
@@ -168,7 +170,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
         :data-testid="`share-mode-${m.id}`"
         @click="mode = m.id"
       >
-        <font-awesome-icon :icon="m.icon" /><span class="hidden truncate sm:inline">{{ $t(m.label) }}</span>
+        <font-awesome-icon :icon="m.icon" /><span class="truncate">{{ $t(m.label) }}</span>
       </button>
     </div>
 
@@ -191,14 +193,27 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
              that IS the difference — so it has no picker at all. -->
         <template v-if="mode === 'personal'">
           <label class="block text-[10px] uppercase tracking-wide opacity-50">
-            {{ $t("invite.recipient") }}
+            {{ $t("invite.pickFriend") }}
           </label>
-          <OyaTextField
-            v-model="pasted"
-            mono
-            :placeholder="$t('invite.pasteNodeCode')"
-            data-testid="invite-paste"
-          />
+          <div v-if="friends.length" class="max-h-48 space-y-1 overflow-y-auto" data-testid="invite-friends">
+            <button
+              v-for="f in friends"
+              :key="f.id"
+              type="button"
+              :class="friendId === f.id ? 'border-accent-light bg-accent-light/10 dark:border-accent-dark dark:bg-accent-dark/10' : 'border-current/15 hover:bg-current/5'"
+              class="flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-sm"
+              :data-testid="`invite-friend-${f.id.slice(0, 8)}`"
+              @click="friendId = f.id"
+            >
+              <OyaAvatar :name="f.name" size="sm" />
+              <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
+              <font-awesome-icon v-if="friendId === f.id" icon="check" />
+            </button>
+          </div>
+          <div v-else class="space-y-2 rounded-lg border border-dashed border-current/20 p-3 text-xs" data-testid="invite-no-friends">
+            <p class="opacity-70">{{ $t("invite.noFriends") }}</p>
+            <button type="button" class="font-semibold underline" @click="router.push('/friends')">{{ $t("invite.goPair") }}</button>
+          </div>
         </template>
 
         <!-- Deadline. Every invitation has one — that is the whole difference
