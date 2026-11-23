@@ -3,7 +3,7 @@ export default {
     title: "Znajomi",
     intro: "Sparujcie się raz, skanując nawzajem swoje kody. Potem zaprosisz znajomego do dowolnego pokoju jednym dotknięciem, zaproszeniem, które otworzy tylko jego telefon.",
     myCode: "Twój kod",
-    myCodeHint: "Niech znajomy zeskanuje ten kod, a ty zeskanuj jego. Mówi tylko, kim jesteś.",
+    myCodeHint: "Niech znajomy zeskanuje ten kod, a ty zeskanuj jego. Mówi tylko, kim jesteś. Nie publikuj go: każdy, kto go ma, może cię rozpoznać.",
     add: "Dodaj znajomego",
     scan: "Zeskanuj jego kod",
     paste: "…albo wklej jego kod",

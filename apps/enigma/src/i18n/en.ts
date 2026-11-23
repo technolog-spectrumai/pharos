@@ -3,7 +3,7 @@ export default {
     title: "Friends",
     intro: "Pair once by scanning each other's code. Then you can invite a friend to any room with one tap, with an invitation only their phone can open.",
     myCode: "Your code",
-    myCodeHint: "Let your friend scan this, and scan theirs. It says who you are and nothing else.",
+    myCodeHint: "Let your friend scan this, and scan theirs. It says who you are and nothing else. Don't post it publicly: anyone who has it can recognise you.",
     add: "Add a friend",
     scan: "Scan their code",
     paste: "…or paste their code",
