@@ -2,7 +2,8 @@
 //
 // The composer is the one place a user types something that leaves the device,
 // so its gates matter more than its looks: nothing may go out before the room's
-// MLS session is ready, and nothing while a captain has muted you.
+// MLS session is ready. A live link is not needed — a message for a member who
+// is not linked yet waits on this device — and there is no muting.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
@@ -34,10 +35,8 @@ const revokeObjectURL = vi.fn((_u: string) => {});
 function makeChannel() {
   return {
     currentRoom: ref<{ slug: string; name: string } | null>({ slug: "room-1", name: "Room" }),
-    isConnected: ref(true),
     isParticipant: ref(true),
     mlsStatus: ref("ready"),
-    selfMuteUntil: ref<number | null>(null),
     sendMessage: vi.fn(),
     sendImage: vi.fn(async (_file: File, _onProgress?: (pct: number) => void) => {}),
     sendAudio: vi.fn(async (_blob: Blob) => {}),
@@ -56,7 +55,14 @@ function mountComposer(ch: Channel = makeChannel(), errorHandler?: (e: unknown) 
 }
 
 const textarea = (w: ReturnType<typeof mount>) => w.get("textarea");
-const sendButton = (w: ReturnType<typeof mount>) => w.findAll("button").find((b) => b.text() === "Send")!;
+// The layout may put a Send button in a phone action row and another at the
+// end of the wide row (CSS picks which shows), so these helpers do not assume
+// there is only one: every Send button must share the same gate.
+const sendButtons = (w: ReturnType<typeof mount>) => w.findAll("button").filter((b) => b.text() === "Send");
+const sendButton = (w: ReturnType<typeof mount>) => {
+  const all = sendButtons(w);
+  return all[all.length - 1]!;
+};
 const imageButton = (w: ReturnType<typeof mount>) => w.get('button[title="Send image"]');
 const emojiButton = (w: ReturnType<typeof mount>) => w.get('button[title="Emoji"]');
 
@@ -103,34 +109,32 @@ describe("MessageComposer — placeholder and gates", () => {
     expect(w.findComponent(VoiceRecorderButton).props("disabled")).toBe(true);
   });
 
-  it("says the session is being established until MLS is ready, but lets an image be staged", () => {
-    // Attaching is allowed early (it is only staged); sending waits for MLS.
+  it("says the session is being established until MLS is ready, with everything locked", () => {
     const ch = makeChannel();
     ch.mlsStatus.value = "initializing";
     const { w } = mountComposer(ch);
     expect(textarea(w).attributes("placeholder")).toBe("Establishing secure session…");
     expect(textarea(w).attributes("disabled")).toBeDefined();
+    expect(imageButton(w).attributes("disabled")).toBeDefined();
+    expect(emojiButton(w).attributes("disabled")).toBeDefined();
+    expect(w.findComponent(VoiceRecorderButton).props("disabled")).toBe(true);
+  });
+
+  it("is open once MLS is ready, whether or not anyone is linked", () => {
+    // The channel carries no link state for the composer to read: sending only
+    // needs the room, membership and a ready MLS session.
+    const { w } = mountComposer();
+    expect(textarea(w).attributes("disabled")).toBeUndefined();
     expect(imageButton(w).attributes("disabled")).toBeUndefined();
+    expect(emojiButton(w).attributes("disabled")).toBeUndefined();
   });
 
-  it("locks with a countdown while the captain has muted you", () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    const now = new Date("2026-03-01T12:00:00Z").getTime();
-    vi.setSystemTime(now);
-    const ch = makeChannel();
-    ch.selfMuteUntil.value = now + 10 * 60_000;
-    const { w } = mountComposer(ch);
-    expect(textarea(w).attributes("placeholder")).toBe("You are muted (10m left)");
-    expect(textarea(w).attributes("disabled")).toBeDefined();
-    expect(imageButton(w).attributes("disabled")).toBeDefined();
-  });
-
-  it("disables attaching while disconnected", () => {
-    const ch = makeChannel();
-    ch.isConnected.value = false;
-    const { w } = mountComposer(ch);
-    expect(imageButton(w).attributes("disabled")).toBeDefined();
-    expect(textarea(w).attributes("disabled")).toBeDefined();
+  it("offers Send, labelled, and keeps every Send button behind the same gate", async () => {
+    const { w } = mountComposer();
+    expect(sendButtons(w).length).toBeGreaterThan(0);
+    for (const b of sendButtons(w)) expect(b.attributes("disabled")).toBeDefined();
+    await textarea(w).setValue("hi");
+    for (const b of sendButtons(w)) expect(b.attributes("disabled")).toBeUndefined();
   });
 
   it("invites a message when everything is ready", () => {
@@ -169,18 +173,7 @@ describe("MessageComposer — sending text", () => {
   it("refuses a blank message", async () => {
     const { w, ch } = mountComposer();
     await textarea(w).setValue("   ");
-    expect(sendButton(w).attributes("disabled")).toBeDefined();
-    await textarea(w).trigger("keydown", { key: "Enter" });
-    await settle();
-    expect(ch.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("refuses to send while muted, even with text already typed", async () => {
-    const { w, ch } = mountComposer();
-    await textarea(w).setValue("typed before the mute");
-    ch.selfMuteUntil.value = Date.now() + 60_000;
-    await settle();
-    expect(sendButton(w).attributes("disabled")).toBeDefined();
+    for (const b of sendButtons(w)) expect(b.attributes("disabled")).toBeDefined();
     await textarea(w).trigger("keydown", { key: "Enter" });
     await settle();
     expect(ch.sendMessage).not.toHaveBeenCalled();
@@ -269,6 +262,19 @@ describe("MessageComposer — attachments", () => {
     expect(w.text()).not.toContain("Sending…");
     expect(revokeObjectURL).toHaveBeenCalledWith(url);
     expect(ch.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends exactly once from whichever Send button is clicked", async () => {
+    for (let i = 0; i < 2; i++) {
+      const { w, ch } = mountComposer();
+      const buttons = sendButtons(w);
+      if (i >= buttons.length) break;
+      await textarea(w).setValue("tap");
+      await buttons[i].trigger("click");
+      await settle();
+      expect(ch.sendMessage).toHaveBeenCalledTimes(1);
+      expect(ch.sendMessage).toHaveBeenCalledWith("tap");
+    }
   });
 
   it("sends the attachment first and the caption after", async () => {

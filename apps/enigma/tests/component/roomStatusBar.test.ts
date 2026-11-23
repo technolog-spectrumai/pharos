@@ -14,9 +14,11 @@ import RoomStatusBar from "../../src/components/chat/RoomStatusBar.vue";
 import MobileRoomsDrawer from "../../src/components/chat/MobileRoomsDrawer.vue";
 import RoomsSidebar from "../../src/components/chat/RoomsSidebar.vue";
 import ParticipantsPanel from "../../src/components/chat/ParticipantsPanel.vue";
+import ConnectionStatusChip from "../../src/components/chat/ConnectionStatusChip.vue";
 import type { P2pRoomsController } from "../../src/components/chat/useP2pRooms";
 
 (i18n.global.locale as any).value = "en";
+const tr = i18n.global.t as unknown as (key: string, params?: Record<string, unknown>, plural?: number) => string;
 
 interface Deferred {
   promise: Promise<void>;
@@ -38,6 +40,7 @@ function makeChannel() {
     mlsStatus: ref("ready"),
     mlsError: ref<string | null>(null),
     wsStatus: ref("connected"),
+    linkedOnions: ref<string[]>(["ann.onion", "ben.onion"]),
     isEncrypted: ref(true),
     forceResetMls: vi.fn(async () => {}),
     joinParticipant: vi.fn(async () => {}),
@@ -119,7 +122,16 @@ describe("RoomStatusBar — a participant", () => {
   it("shows the encryption and connection state", () => {
     const { w } = mountBar();
     expect(w.text()).toContain("Encrypted");
-    expect(w.text()).toContain("Connected");
+    expect(w.text()).toContain("Linked to 2");
+  });
+
+  it("counts the members linked right now", async () => {
+    const { w, ch } = mountBar();
+    expect(w.findComponent(ConnectionStatusChip).props("linked")).toBe(2);
+    ch.linkedOnions.value = ["ann.onion"];
+    await flushPromises();
+    expect(w.findComponent(ConnectionStatusChip).props("linked")).toBe(1);
+    expect(w.text()).toContain("Linked to 1");
   });
 
   it("follows the live MLS and transport state", async () => {
@@ -128,7 +140,10 @@ describe("RoomStatusBar — a participant", () => {
     ch.wsStatus.value = "connecting";
     await flushPromises();
     expect(w.text()).toContain("Enc. error");
-    expect(w.text()).toContain("Connecting…");
+    expect(w.text()).toContain("Starting…");
+    ch.wsStatus.value = "waiting";
+    await flushPromises();
+    expect(w.text()).toContain("Waiting for others");
   });
 
   it("draws the eye to Reset while keys are stuck or broken, and not otherwise", async () => {
@@ -182,6 +197,38 @@ describe("RoomStatusBar — a participant", () => {
     pending.reject(new Error("socket closed"));
     await flushPromises();
     expect(byText(w, "Leave").classes()).not.toContain("pointer-events-none");
+  });
+});
+
+// ── connection chip ─────────────────────────────────────────────────────────
+
+describe("ConnectionStatusChip", () => {
+  const chip = (status: string, linked?: number) =>
+    mount(ConnectionStatusChip, { props: { status: status as never, linked }, global: { plugins: [i18n] } });
+
+  it("says each state in words, translated", () => {
+    expect(chip("connected", 3).text()).toBe("Linked to 3");
+    expect(chip("waiting").text()).toBe("Waiting for others");
+    expect(chip("connecting").text()).toBe("Starting…");
+    expect(chip("disconnected").text()).toBe("Offline");
+    expect(chip("error").text()).toBe("Error");
+  });
+
+  it("follows the interface language", () => {
+    try {
+      (i18n.global.locale as any).value = "pl";
+      for (const [status, key] of [
+        ["waiting", "chat.waitingForOthers"],
+        ["connecting", "chat.statusConnecting"],
+        ["disconnected", "chat.statusOffline"],
+        ["error", "chat.statusError"],
+      ] as const) {
+        expect(chip(status).text()).toBe(tr(key));
+      }
+      expect(chip("connected", 2).text()).toBe(tr("chat.linkedTo", { n: 2 }, 2));
+    } finally {
+      (i18n.global.locale as any).value = "en";
+    }
   });
 });
 

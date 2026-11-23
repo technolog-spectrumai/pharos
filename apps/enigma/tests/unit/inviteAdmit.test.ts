@@ -8,7 +8,6 @@
 // burning the invitation on a timeout.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ref } from "vue";
 import type { ChatChannel } from "rakotis";
 
 const invokeMock = vi.fn();
@@ -36,7 +35,6 @@ const REQUEST = {
   keyPackage: "a2V5",
   redeemer: "bob-node",
   redeemerName: "bob",
-  tor: false,
 };
 
 function makeChannel(admit: ChatChannel["admitInvited"]) {
@@ -62,7 +60,6 @@ describe("useInviteAdmit", () => {
       welcome: "V0VMQ09NRQ==",
       roomName: "Room One",
       peers: ["alice-node"],
-      onion: "",
     }));
     const ctl = useInviteAdmit(channel);
     await flush();
@@ -80,25 +77,27 @@ describe("useInviteAdmit", () => {
     expect(ctl.lastAdmitted.value?.name).toBe("bob");
   });
 
-  it("passes through the coordinates for a Tor room untouched", async () => {
-    // Which of peers/onion is populated follows the ROOM's transport. Deciding
-    // it here from a global setting would hand a Tor room's joiner an iroh
-    // address, or the reverse.
+  it("answers with every member's onion and nothing more", async () => {
+    // The newcomer links to all members; the answer carries exactly the grant's
+    // fields — there is no separate onion/transport coordinate any more.
     const channel = makeChannel(async () => ({
       welcome: "V0VMQ09NRQ==",
       roomName: "Room One",
-      peers: [],
-      onion: "abcdefghij.onion",
+      peers: ["me.onion", "carol.onion"],
     }));
     useInviteAdmit(channel);
     await flush();
 
-    listeners.get("invite://admit")?.({ payload: { ...REQUEST, tor: true } });
+    listeners.get("invite://admit")?.({ payload: REQUEST });
     await flush();
 
     const [{ answer }] = answers();
-    expect(answer.onion).toBe("abcdefghij.onion");
-    expect(answer.peers).toEqual([]);
+    expect(answer).toEqual({
+      ok: true,
+      welcome: "V0VMQ09NRQ==",
+      roomName: "Room One",
+      peers: ["me.onion", "carol.onion"],
+    });
   });
 
   it("refuses immediately when the room is not open, so the lease comes back", async () => {
@@ -123,7 +122,7 @@ describe("useInviteAdmit", () => {
     // A mismatched slug reaches `admitInvited`, which returns null — the guard
     // lives in the channel, where the room state actually is.
     const channel = makeChannel(async (slug: string) =>
-      slug === "room-1" ? { welcome: "w", roomName: "R", peers: [], onion: "" } : null,
+      slug === "room-1" ? { welcome: "w", roomName: "R", peers: [] } : null,
     );
     useInviteAdmit(channel);
     await flush();
@@ -155,7 +154,7 @@ describe("useInviteAdmit", () => {
     // live, and the holder is expected to retry.
     let open = false;
     const channel = makeChannel(async () =>
-      open ? { welcome: "w", roomName: "R", peers: [], onion: "" } : null,
+      open ? { welcome: "w", roomName: "R", peers: [] } : null,
     );
     useInviteAdmit(channel);
     await flush();
@@ -181,7 +180,6 @@ describe("useInviteAdmit", () => {
       welcome: "w",
       roomName: "R",
       peers: [],
-      onion: "",
     }));
     useInviteAdmit(channel);
     await flush();

@@ -25,9 +25,9 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
   },
 }));
 
-const ensureNode = vi.fn(async () => "a1b2c3node");
+const deviceId = vi.fn(async () => "a1b2c3node");
 vi.mock("../../src/stores/chat", () => ({
-  useChatStore: () => ({ clearLocalChatState: vi.fn(), p2p: { ensureNode } }),
+  useChatStore: () => ({ clearLocalChatState: vi.fn(), p2p: { deviceId } }),
 }));
 
 import "@tauri-apps/api/core";
@@ -35,6 +35,7 @@ import { i18n, setLocale } from "../../src/i18n";
 import EnigmaConfigView from "../../src/views/EnigmaConfigView.vue";
 
 (i18n.global.locale as any).value = "en";
+const tr = i18n.global.t as unknown as (key: string, params?: Record<string, unknown>, plural?: number) => string;
 
 // ── fake backend ────────────────────────────────────────────────────────────
 type Handler = (args: Record<string, unknown>) => unknown;
@@ -52,7 +53,7 @@ const kvKey = (a: Record<string, unknown>) => `${a.ns}/${a.scope}/${a.k}`;
 const setting = (k: string) => kv.get(`p2p:settings/default/${k}`);
 const seed = (k: string, v: string) => kv.set(`p2p:settings/default/${k}`, v);
 
-let network: { offline: boolean; useTor: boolean };
+let network: { offline: boolean };
 let profileState: AppProfileState;
 
 function defaultHandlers(): Record<string, Handler> {
@@ -63,15 +64,9 @@ function defaultHandlers(): Record<string, Handler> {
     },
     app_get_runtime_config: () => ({ profile: "alice", identity: "alice", profile_state_path: "/data/alice/state.json" }),
     app_get_offline: () => network.offline,
-    app_get_use_tor: () => network.useTor,
     app_set_offline: ({ offline }) => {
       network.offline = Boolean(offline);
     },
-    app_set_use_tor: ({ useTor }) => {
-      network.useTor = Boolean(useTor);
-    },
-    app_get_stable_onion: () => false,
-    app_set_stable_onion: () => null,
     app_get_profile_state: () => profileState,
     app_clear_offline_profile: () => ({
       ...profileState,
@@ -96,7 +91,7 @@ beforeEach(async () => {
   kv.clear();
   notif.granted = false;
   notif.requests = 0;
-  network = { offline: false, useTor: false };
+  network = { offline: false };
   profileState = {
     offline_profile: { display_name: "Ala", email: "", phone: "", bio: "", date_of_birth: "" },
     offline_profiles: [
@@ -172,12 +167,12 @@ describe("the tab strip", () => {
   it("opens on the settings controls by default", async () => {
     const w = await mountAt();
     expect(w.text()).toContain("Interface language");
-    expect(w.text()).not.toContain("Route over Tor");
+    expect(w.find('[data-testid="tor-card"]').exists()).toBe(false);
   });
 
   it("opens the tab the link asks for, and falls back to settings for an unknown one", async () => {
     expect((await mountAt("lock")).text()).toContain("Panic code");
-    expect((await mountAt("connections")).text()).toContain("Route over Tor");
+    expect((await mountAt("connections")).find('[data-testid="tor-card"]').exists()).toBe(true);
     expect((await mountAt("data")).text()).toContain("Offline Data");
     const unknown = await mountAt("nonsense");
     expect(unknown.text()).toContain("Interface language");
@@ -266,7 +261,7 @@ describe("my code", () => {
       expect(card.text()).not.toContain("a1b2c3node");
       await card.get('[data-testid="show-node-id"]').trigger("click");
       await settle();
-      expect(ensureNode).toHaveBeenCalled();
+      expect(deviceId).toHaveBeenCalled();
       expect(w.get('[data-testid="my-code"]').html()).toContain("a1b2c3node");
       return;
     }
@@ -275,47 +270,42 @@ describe("my code", () => {
 });
 
 describe("file integrity", () => {
-  it("stores verification off and back on", async () => {
-    const w = await mountAt();
-    const toggle = switchFor(w, "Verify transferred files");
-    expect(toggle.attributes("aria-checked")).toBe("true");
-
-    await toggle.trigger("click");
-    await settle();
-    expect(setting("file_integrity")).toBe("off");
-
-    await toggle.trigger("click");
-    await settle();
-    expect(setting("file_integrity")).toBe("on");
+  it("is always on: there is no switch to turn verification off", async () => {
+    for (const tab of [undefined, "connections", "data", "lock"]) {
+      const w = await mountAt(tab);
+      expect(w.find('[data-testid="file-integrity-toggle"]').exists()).toBe(false);
+      expect(w.text()).not.toContain("Verify transferred files");
+    }
   });
 });
 
 // ── Connections tab ─────────────────────────────────────────────────────────
 
 describe("Tor", () => {
-  it("switching Tor on routes through Rust and swaps the cards", async () => {
+  it("is always on: the Connections tab explains it instead of offering a switch", async () => {
     const w = await mountAt("connections");
+    const card = w.get('[data-testid="tor-card"]');
+    expect(card.text()).toContain(tr("config.torTitle"));
+    expect(card.text()).toContain(tr("config.torAlways"));
+    expect(card.text()).toContain(tr("config.torMesh"));
+    expect(card.text()).toContain(tr("config.torVanguards"));
+    expect(card.find('button[role="switch"]').exists()).toBe(false);
+    expect(w.text()).not.toContain("Route over Tor");
     expect(w.text()).not.toContain("Keep onion address stable");
-
-    await switchFor(w, "Route over Tor").trigger("click");
-    await settle();
-
-    expect(callsTo("app_set_use_tor")).toEqual([{ useTor: true }]);
-    expect(w.text()).toContain("Keep onion address stable");
   });
 
-  it("stores the stable-onion switch in both directions", async () => {
-    network.useTor = true;
-    const w = await mountAt("connections");
-
-    const toggle = switchFor(w, "Keep onion address stable");
-    await toggle.trigger("click");
+  it("asks Rust for no Tor or onion setting on open", async () => {
+    await router.replace("/config?tab=connections");
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    invokeMock.mockClear();
+    mount(EnigmaConfigView, {
+      props: { darkMode: true },
+      global: { plugins: [i18n, router, pinia], stubs: { teleport: true } },
+    });
     await settle();
-    expect(callsTo("app_set_stable_onion")).toEqual([{ stableOnion: true }]);
-
-    await toggle.trigger("click");
-    await settle();
-    expect(callsTo("app_set_stable_onion")).toEqual([{ stableOnion: true }, { stableOnion: false }]);
+    expect(sent().filter((c) => /use_tor|stable_onion/.test(c))).toEqual([]);
+    expect(callsTo("kv_get").filter((a) => a.k === "file_integrity")).toEqual([]);
   });
 });
 

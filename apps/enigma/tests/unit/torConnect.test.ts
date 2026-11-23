@@ -5,8 +5,9 @@ import type { ChatChannel } from "rakotis";
 // Connect-window UX matrix for the create/join modals (useP2pRooms controller):
 // the window waits N seconds (N = the user setting, Settings tab) for the join,
 // then keeps itself open one more N-second interval so the outcome can be read
-// (total lifetime ≈ 2×N), with a visible countdown. A hung Tor redemption is
-// aborted (cancelJoin frees the onion lock); an iroh one is never aborted.
+// (total lifetime ≈ 2×N), with a visible countdown. Everything rides Tor, so
+// every hung redemption is aborted at the timeout (cancelJoin stops the dial),
+// and Cancel is on offer for any join that is not yet encrypted.
 //
 // The join being timed is now a REDEMPTION — an invitation is the only way in —
 // so the thing that hangs is the `invite_peek` / `invite_redeem` invoke rather
@@ -33,10 +34,10 @@ import { useP2pRooms } from "../../src/components/chat/useP2pRooms";
 /** base32 of [0x4E, …] — an invitation, the only thing the join field takes. */
 const INVITE = "jybucrq";
 
-/** Make the redeem hang for ever, after a peek that names the transport. */
-function hangingRedeem(tor: boolean) {
+/** Make the redeem hang for ever, after a successful peek. */
+function hangingRedeem() {
   invokeMock.mockImplementation(async (cmd: string) => {
-    if (cmd === "invite_peek") return { kind: "general", inviter: "alice", expiresAt: Date.now() + 6e5, tor };
+    if (cmd === "invite_peek") return { kind: "general", inviter: "alice", expiresAt: Date.now() + 6e5 };
     if (cmd === "invite_redeem") return new Promise(() => {});
     return null;
   });
@@ -61,7 +62,7 @@ function makeChannel() {
     mlsIdentity: ref("me"),
     currentUserName: ref("me"),
     // The controller reads the created room's transport off the remembered list.
-    p2pRooms: ref<Array<{ room: string; name: string; tor?: boolean }>>([]),
+    p2pRooms: ref<Array<{ room: string; name: string; onion?: string }>>([]),
     createRoom: vi.fn<(name: string) => Promise<string | null>>(),
     joinByInvite: vi.fn(async () => true),
     cancelJoin: vi.fn(async () => {}),
@@ -85,18 +86,18 @@ beforeEach(() => {
   vi.clearAllMocks();
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   mockGetConnectTimeoutSecs.mockImplementation(async () => 5);
-  hangingRedeem(true);
+  hangingRedeem();
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
 });
 
-describe("Tor join — connect window (N) + read window (N)", () => {
-  it("hung Tor join: times out at N with the timeout message, aborts the onion dial, then auto-closes after N more", async () => {
+describe("join — connect window (N) + read window (N)", () => {
+  it("hung join: times out at N with the timeout message, aborts the dial, then auto-closes after N more", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    hangingRedeem(true); // the redeem invoke never settles
+    hangingRedeem(); // the redeem invoke never settles
 
     ctrl.openJoin();
     ctrl.ticket.value = INVITE;
@@ -104,15 +105,13 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     await flush();
 
     expect(ctrl.joinStarted.value).toBe(true);
-    // The peek said Tor, so Cancel is on offer and the timeout will abort.
-    expect(ctrl.joiningTor.value).toBe(true);
 
     // Just before N: still spinning, no error, not aborted.
     await vi.advanceTimersByTimeAsync(4_900);
     expect(ctrl.joinError.value).toBe("");
     expect(ch.cancelJoin).not.toHaveBeenCalled();
 
-    // At N: timeout error + the hung Tor dial is aborted (frees the onion lock).
+    // At N: timeout error + the hung dial is aborted in Rust.
     await vi.advanceTimersByTimeAsync(200);
     expect(ctrl.joinError.value).toBe("chat.joinTimeout");
     expect(ch.cancelJoin).toHaveBeenCalledTimes(1);
@@ -130,12 +129,12 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     expect(ctrl.autoCloseSecs.value).toBe(null);
   });
 
-  it("successful Tor join: encrypted inside the window → no timeout; the window stays N seconds (countdown) then closes", async () => {
+  it("successful join: encrypted inside the window → no timeout; the window stays N seconds (countdown) then closes", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
     const join = deferred<unknown>();
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5, tor: true };
+      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5 };
       if (cmd === "invite_redeem") return join.promise;
       return null;
     });
@@ -147,7 +146,7 @@ describe("Tor join — connect window (N) + read window (N)", () => {
 
     // The inviter admits us at t=2s — inside the window, so no error is shown.
     await vi.advanceTimersByTimeAsync(2_000);
-    join.resolve({ welcome: "V0VMQ09NRQ==", roomName: "R", peers: [], onion: "x.onion" });
+    join.resolve({ welcome: "V0VMQ09NRQ==", roomName: "R", peers: ["alice.onion"] });
     await flush();
     expect(ctrl.joinError.value).toBe("");
     expect(ch.cancelJoin).not.toHaveBeenCalled();
@@ -177,8 +176,8 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     const ctrl = makeController(ch);
     ch.joinByInvite.mockResolvedValue(false); // their room was not open
     invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5, tor: true };
-      if (cmd === "invite_redeem") return { welcome: "V0VMQ09NRQ==", roomName: "R", peers: [], onion: "x.onion" };
+      if (cmd === "invite_peek") return { kind: "general", inviter: "a", expiresAt: Date.now() + 6e5 };
+      if (cmd === "invite_redeem") return { welcome: "V0VMQ09NRQ==", roomName: "R", peers: ["alice.onion"] };
       return null;
     });
 
@@ -219,7 +218,7 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   it("user cancel mid-join aborts the dial and returns to the form without a countdown", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    hangingRedeem(true);
+    hangingRedeem();
 
     ctrl.openJoin();
     ctrl.ticket.value = INVITE;
@@ -243,7 +242,7 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   it("Retry after a timeout clears the read-window countdown", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    hangingRedeem(true);
+    hangingRedeem();
 
     ctrl.openJoin();
     ctrl.ticket.value = INVITE;
@@ -260,27 +259,11 @@ describe("Tor join — connect window (N) + read window (N)", () => {
     expect(ctrl.joinOpen.value).toBe(true);
   });
 
-  it("iroh redemption times out with the same message but never aborts (cancel is Tor-only)", async () => {
-    const ch = makeChannel();
-    const ctrl = makeController(ch);
-    hangingRedeem(false); // the peek says iroh — nothing holding an onion lock
-
-    ctrl.openJoin();
-    ctrl.ticket.value = INVITE;
-    void ctrl.joinRoom();
-    await flush();
-    expect(ctrl.joiningTor.value).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(ctrl.joinError.value).toBe("chat.joinTimeout");
-    expect(ch.cancelJoin).not.toHaveBeenCalled();
-  });
-
   it("honours the user-configured timeout from Settings (7 s → no error at 5 s)", async () => {
     mockGetConnectTimeoutSecs.mockImplementation(async () => 7);
     const ch = makeChannel();
     const ctrl = makeController(ch);
-    hangingRedeem(true);
+    hangingRedeem();
 
     ctrl.openJoin();
     ctrl.ticket.value = INVITE;
@@ -294,7 +277,7 @@ describe("Tor join — connect window (N) + read window (N)", () => {
   });
 });
 
-describe("Tor create — the same timeout governs the launch window", () => {
+describe("create — the same timeout governs the launch window", () => {
   it("hung onion launch: shows the timeout error at N; a late success still opens the room", async () => {
     const ch = makeChannel();
     const ctrl = makeController(ch);
@@ -312,7 +295,7 @@ describe("Tor create — the same timeout governs the launch window", () => {
     expect(ctrl.createError.value).toBe("chat.joinTimeout");
 
     // The invoke was never aborted — when the onion finally publishes, success wins.
-    ch.p2pRooms.value = [{ room: "room-xyz", name: "aaaa", tor: true }];
+    ch.p2pRooms.value = [{ room: "room-xyz", name: "aaaa", onion: "xyz.onion" }];
     create.resolve("room-xyz");
     await flush();
     expect(ctrl.createdRoom.value?.slug).toBe("room-xyz");

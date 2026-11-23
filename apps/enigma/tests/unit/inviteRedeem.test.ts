@@ -26,7 +26,7 @@ const INVITE = "jybucrq";
 const TICKET = "jffci7y4nlaagnhsfexo2uomnfiuc2cbtblc";
 
 const PEEK = { kind: "general", inviter: "alice-node-id", expiresAt: Date.now() + 3_600_000 };
-const GRANT = { welcome: "V0VMQ09NRQ==", roomName: "Room One", peers: ["alice-node-id"], onion: "" };
+const GRANT = { welcome: "V0VMQ09NRQ==", roomName: "Room One", peers: ["alice-node-id"] };
 
 function makeChannel() {
   const stub = {

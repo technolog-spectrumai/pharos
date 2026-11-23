@@ -62,7 +62,6 @@ function backend(vault: { exists: boolean; unlocked: boolean }): Record<string, 
     kv_put: (a) => {
       kv.set(kvKey(a), String(a.v));
     },
-    app_get_use_tor: () => false,
     app_get_profile_state: () => ({
       offline_profile: {
         display_name: "Ala",

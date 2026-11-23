@@ -1,9 +1,11 @@
-// Tor mode disables what cannot work over Tor — visibly, not by hiding it.
+// Tor is always on and file transfer rides the room's onions, so Tor gates
+// nothing. The only switch that disables file transfer is airplane mode — and
+// it does so visibly, not by hiding it.
 //
-// The backend already fails these commands (file_xfer.rs returns
-// TOR_BLOCKED); these tests pin the
-// frontend half of the contract: the buttons stay rendered, become disabled,
-// a reason is shown, and flipping the store re-enables them live — no remount.
+// The backend fails networked commands with OFFLINE_BLOCKED; these tests pin
+// the frontend half of the contract: the buttons stay rendered, become
+// disabled, a reason is shown, and flipping the store re-enables them live —
+// no remount.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
@@ -60,47 +62,82 @@ function isDisabled(button: ReturnType<ReturnType<typeof mount>["find"]>): boole
   return (button.element as HTMLButtonElement).disabled;
 }
 
-describe("file transfer in Tor mode", () => {
+function sendButton(wrapper: ReturnType<typeof mount>) {
+  return wrapper.findAll("button").filter((b) => /send/i.test(b.text()))[0];
+}
+
+describe("file transfer over Tor", () => {
+  it("is open by default: Send enabled, no reason line", async () => {
+    const wrapper = mount(FilePanel, {
+      global: { plugins: [i18n, pinia] },
+    });
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Ala");
+    expect(isDisabled(sendButton(wrapper))).toBe(false);
+    expect(wrapper.find("[data-testid=fileshare-blocked]").exists()).toBe(false);
+
+    await sendButton(wrapper).trigger("click");
+    expect(fileStub.offer).toHaveBeenCalledWith({ id: "peer-1", name: "Ala" });
+  });
+});
+
+describe("file transfer in airplane mode", () => {
+  beforeEach(() => fileStub.offer.mockClear());
+
   it("keeps the peer list visible but disables Send, with the reason", async () => {
     const wrapper = mount(FilePanel, {
       global: { plugins: [i18n, pinia] },
     });
-    useNetworkStore().useTor = true;
+    useNetworkStore().offline = true;
     await nextTick();
 
     expect(wrapper.text()).toContain("Ala"); // peer row still shown
-    const send = wrapper.findAll("button").filter((b) => /send/i.test(b.text()))[0];
-    expect(isDisabled(send)).toBe(true);
-    expect(wrapper.find("[data-testid=fileshare-blocked]").text()).toContain("Tor mode");
+    expect(isDisabled(sendButton(wrapper))).toBe(true);
+    expect(wrapper.find("[data-testid=fileshare-blocked]").text()).toContain("airplane mode");
   });
 
   it("clicking the disabled Send offers nothing", async () => {
     const wrapper = mount(FilePanel, {
       global: { plugins: [i18n, pinia] },
     });
-    useNetworkStore().useTor = true;
+    useNetworkStore().offline = true;
     await nextTick();
 
-    await wrapper.findAll("button").filter((b) => /send/i.test(b.text()))[0]
-      .trigger("click");
+    await sendButton(wrapper).trigger("click");
     expect(fileStub.offer).not.toHaveBeenCalled();
+  });
+
+  it("re-enables Send live when airplane mode goes off", async () => {
+    const wrapper = mount(FilePanel, {
+      global: { plugins: [i18n, pinia] },
+    });
+    const network = useNetworkStore();
+    network.offline = true;
+    await nextTick();
+    expect(isDisabled(sendButton(wrapper))).toBe(true);
+
+    network.offline = false;
+    await nextTick();
+    expect(isDisabled(sendButton(wrapper))).toBe(false);
+    expect(wrapper.find("[data-testid=fileshare-blocked]").exists()).toBe(false);
   });
 });
 
 describe("the network store", () => {
-  it("blocks file transfer in Tor mode, nothing otherwise", () => {
+  it("blocks file transfer only in airplane mode", () => {
     const network = useNetworkStore();
     expect(network.canFileTransfer).toBe(true);
+    expect(network.blockedReasonKey).toBe("");
 
-    network.useTor = true;
+    network.offline = true;
     expect(network.canFileTransfer).toBe(false);
-    expect(network.blockedReasonKey).toBe("network.blockedTor");
+    expect(network.blockedReasonKey).toBe("network.blockedOffline");
   });
 
-  it("offline wins the reason line over Tor (both blocked anyway)", () => {
-    const network = useNetworkStore();
-    network.useTor = true;
-    network.offline = true;
-    expect(network.blockedReasonKey).toBe("network.blockedOffline");
+  it("has no Tor switch to flip", () => {
+    const network = useNetworkStore() as unknown as Record<string, unknown>;
+    expect(network.useTor).toBeUndefined();
+    expect(network.setUseTor).toBeUndefined();
   });
 });

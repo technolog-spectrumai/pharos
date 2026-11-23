@@ -77,10 +77,10 @@ beforeEach(() => {
   Object.assign(qr, { decoded: "", clears: 0, clearFails: false, regions: [] });
   handlers = {
     kv_get: () => null,
-    invite_peek: () => ({ kind: "general", inviter: "alice", expiresAt: Date.now() + 6e5, tor: false }),
+    invite_peek: () => ({ kind: "general", inviter: "alice", expiresAt: Date.now() + 6e5 }),
     mls_init_session: () => true,
     mls_key_package: () => [1, 2, 3],
-    invite_redeem: () => ({ welcome: "V0VMQ09NRQ==", roomName: "R", peers: [], onion: "" }),
+    invite_redeem: () => ({ welcome: "V0VMQ09NRQ==", roomName: "R", peers: [] }),
   };
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
     invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),

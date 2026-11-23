@@ -14,17 +14,13 @@ function makeP2pStub() {
     currentRoom: ref(null),
     participants: ref([]),
     mlsStatus: ref("idle"),
-    // Captain election (room moderation authority).
-    amCaptain: ref(false),
-    captainId: ref<string | null>(null),
     // Data-sync seam (consumed by the store's fileShare singleton).
     onSync: vi.fn(() => () => {}),
     sendSync: vi.fn(async () => {}),
     postSystemNotice: vi.fn(),
     loadP2pRooms: vi.fn(async () => {}),
     openP2pRoom: vi.fn(async () => {}),
-    ensureNode: vi.fn(async () => "my-node"),
-    joinByTicket: vi.fn(async () => {}),
+    deviceId: vi.fn(async () => "my-node"),
     clearUnread: vi.fn(),
     syncRuntimeIdentity: vi.fn(async () => {}),
     applyRuntimeProfile: vi.fn(async () => {}),

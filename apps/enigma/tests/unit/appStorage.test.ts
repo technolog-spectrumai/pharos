@@ -6,8 +6,6 @@ import {
   MAX_FILE_SIZE_MAX_MB,
   getFileChunkKib,
   setFileChunkKib,
-  getFileIntegrity,
-  setFileIntegrity,
   getBuildConfig,
   vaultSetPanicCode,
   vaultClearPanicCode,
@@ -116,30 +114,5 @@ describe("appStorage — file chunk size", () => {
       expect.objectContaining({ k: "file_chunk_kib", v: String(clamp.max) }),
     );
     expect(await setFileChunkKib(Number.NaN)).toBe(clamp.default);
-  });
-});
-
-describe("appStorage — transfer integrity toggle", () => {
-  it("defaults to the build config when unset", async () => {
-    expect(await getFileIntegrity()).toBe(getBuildConfig().file_integrity_default);
-  });
-
-  it("round-trips on and off as explicit strings", async () => {
-    await setFileIntegrity(false);
-    expect(invokeMock).toHaveBeenCalledWith(
-      "kv_put",
-      expect.objectContaining({ k: "file_integrity", v: "off" }),
-    );
-
-    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "off" : null));
-    expect(await getFileIntegrity()).toBe(false);
-
-    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "on" : null));
-    expect(await getFileIntegrity()).toBe(true);
-  });
-
-  it("an unrecognised stored value falls back to the default rather than off", async () => {
-    invokeMock.mockImplementation(async (cmd: string) => (cmd === "kv_get" ? "maybe" : null));
-    expect(await getFileIntegrity()).toBe(getBuildConfig().file_integrity_default);
   });
 });

@@ -49,6 +49,7 @@ function makeChannel() {
     sendSync: vi.fn(async () => {}),
     currentUserName: ref("alice"),
     mlsIdentity: ref("alice-device"),
+    currentRoom: ref<{ slug: string } | null>({ slug: "room-1" }),
   };
   /** Deliver an inner MLS message as the channel's sync router would. */
   const emitSync = (type: string, payload: Record<string, unknown>, sender = "bob") => {
@@ -83,7 +84,10 @@ describe("useFileShare — host side (offer)", () => {
 
     await share.offer({ id: "bob-device", name: "bob" });
 
-    expect(invokeMock).toHaveBeenCalledWith("file_offer_create", { path: "/home/alice/report.pdf" });
+    expect(invokeMock).toHaveBeenCalledWith("file_offer_create", {
+      path: "/home/alice/report.pdf",
+      room: "room-1",
+    });
     expect(stub.sendSync).toHaveBeenCalledWith("file_offer", {
       offerId: "offer-1",
       target: "bob-device",
@@ -105,6 +109,18 @@ describe("useFileShare — host side (offer)", () => {
     await share.offer({ id: "", name: "" });
 
     expect(share.state.value).toBe("error");
+    expect(stub.sendSync).not.toHaveBeenCalled();
+  });
+
+  it("refuses to offer outside a room, without registering the file", async () => {
+    const { channel, stub } = makeChannel();
+    stub.currentRoom.value = null;
+    const share = useFileShare(channel);
+
+    await share.offer({ id: "bob-device", name: "bob" });
+
+    expect(share.state.value).toBe("error");
+    expect(invokeMock).not.toHaveBeenCalledWith("file_offer_create", expect.anything());
     expect(stub.sendSync).not.toHaveBeenCalled();
   });
 
