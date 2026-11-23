@@ -410,16 +410,19 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"
-            :aria-label="$t('nav.openMenu')"
+            :aria-label="drawerOpen ? $t('nav.closeMenu') : $t('nav.openMenu')"
+            :aria-expanded="drawerOpen"
             data-testid="app-menu"
-            @click="drawerOpen = true"
+            @click="drawerOpen = !drawerOpen"
           >
-            <font-awesome-icon icon="bars" />
+            <font-awesome-icon :icon="drawerOpen ? 'xmark' : 'bars'" />
           </button>
         </div>
 
       </div>
 
+      <!-- The one menu (phones and tablets): a dropdown under the bar. -->
+      <AppDrawer v-if="gateMode === 'ready'" v-model:dark-mode="darkMode" />
     </header>
 
     <!-- Main — THE scroll container of the app: every routed view that outgrows
@@ -440,9 +443,6 @@ onBeforeUnmount(() => {
     >
       <p class="opacity-90">{{ brand.copyright }}</p>
     </footer>
-
-    <!-- The one menu (phones and tablets): rooms, then the app's pages. -->
-    <AppDrawer v-if="gateMode === 'ready'" v-model:dark-mode="darkMode" />
 
     <!-- Pre-lock countdown: any activity dismisses it (the window-level activity
          listeners fire first and clear the watcher's warned flag) -->

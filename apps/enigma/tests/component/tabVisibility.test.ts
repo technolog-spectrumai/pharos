@@ -28,6 +28,7 @@ vi.mock("../../src/stores/chat", () => ({
 }));
 
 import App from "../../src/App.vue";
+import { drawerOpen } from "../../src/stores/ui";
 import EnigmaConfigView from "../../src/views/EnigmaConfigView.vue";
 import router from "../../src/router";
 import { i18n } from "../../src/i18n";
@@ -50,6 +51,8 @@ beforeEach(async () => {
 
 /** App with the routed view stubbed out — this is a test about the chrome. */
 async function mountApp() {
+  // The menu's open state is app-wide; start each mount with it closed.
+  drawerOpen.value = false;
   const wrapper = mount(App, {
     global: { plugins: [i18n, pinia, router], stubs: { RouterView: true } },
   });

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// The app's one menu (☰ in the app bar, phones and tablets), sliding in from
-// the right. Its contents (AppDrawerBody) mount only while it is open.
+// The app's one menu (☰ in the app bar, phones and tablets): a dropdown that
+// unfolds downwards under the bar. Its contents (AppDrawerBody) mount only
+// while it is open.
 import { watch } from "vue";
 import { useRoute } from "vue-router";
 import { drawerOpen } from "../stores/ui";
@@ -15,26 +16,19 @@ watch(() => route.fullPath, () => (drawerOpen.value = false));
 
 <template>
   <Transition
-    enter-active-class="transition-opacity duration-200"
-    enter-from-class="opacity-0"
-    leave-active-class="transition-opacity duration-200"
-    leave-to-class="opacity-0"
+    enter-active-class="transition-all duration-200 ease-out"
+    enter-from-class="opacity-0 -translate-y-2"
+    enter-to-class="opacity-100 translate-y-0"
+    leave-active-class="transition-all duration-150 ease-in"
+    leave-from-class="opacity-100 translate-y-0"
+    leave-to-class="opacity-0 -translate-y-2"
   >
-    <div v-if="drawerOpen" class="fixed inset-0 z-[55] bg-black/40 lg:hidden" @click="drawerOpen = false" />
-  </Transition>
-
-  <Transition
-    enter-active-class="transition-transform duration-200"
-    enter-from-class="translate-x-full"
-    leave-active-class="transition-transform duration-200"
-    leave-to-class="translate-x-full"
-  >
-    <aside
+    <div
       v-if="drawerOpen"
-      class="fixed inset-y-0 right-0 z-[56] flex w-80 max-w-[88vw] flex-col overflow-y-auto border-l p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-xl lg:hidden bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
+      class="max-h-[75dvh] overflow-y-auto border-t lg:hidden bg-header-bg-light border-accent-2 dark:bg-header-bg-dark dark:border-accent-1"
       data-testid="app-drawer"
     >
       <AppDrawerBody :dark-mode="darkMode" @update:dark-mode="emit('update:darkMode', $event)" />
-    </aside>
+    </div>
   </Transition>
 </template>

@@ -66,6 +66,23 @@ describe("ChatHeader", () => {
   });
 });
 
+describe("ChatHeader — participants", () => {
+  it("lists the room's participants in a modal from the room menu", async () => {
+    const ch = channel({ participants: ref([{ name: "Me" }, { name: "Ann", linked: true }]) });
+    const w = mount(ChatHeader, {
+      props: { channel: ch as unknown as ChatChannel, controller: controller() as unknown as P2pRoomsController },
+      global: { plugins: [i18n], stubs: { "font-awesome-icon": true, teleport: true } },
+    });
+    expect(w.find("[data-testid=participants-modal]").exists()).toBe(false);
+    await w.get("[data-testid=room-menu]").trigger("click");
+    await w.get("[data-testid=menu-participants]").trigger("click");
+    const modal = w.get("[data-testid=participants-modal]");
+    expect(modal.text()).toContain("Participants");
+    expect(modal.text()).toContain("Ann");
+    expect(modal.text()).toContain("Linked");
+  });
+});
+
 describe("MessageList", () => {
   it("shows an invite card while we are alone, and none once someone is here", async () => {
     const ch = channel();

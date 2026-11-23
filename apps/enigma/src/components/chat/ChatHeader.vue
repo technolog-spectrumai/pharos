@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
+import ParticipantsModal from "./ParticipantsModal.vue";
 
 // One compact bar, as in any messenger: the room's name with
 // its state on one line under it, Invite, and a menu for everything rarer.
@@ -40,6 +41,7 @@ const reach = computed(() => {
 });
 
 const menuOpen = ref(false);
+const participantsOpen = ref(false);
 function run(fn: () => void) {
   menuOpen.value = false;
   fn();
@@ -92,6 +94,9 @@ function invite() {
             class="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-current/15 bg-primary-bg-light text-sm shadow-xl dark:bg-primary-bg-dark"
             role="menu"
           >
+            <button type="button" role="menuitem" class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-current/10" data-testid="menu-participants" @click="run(() => (participantsOpen = true))">
+              <font-awesome-icon icon="user-group" class="w-4 opacity-70" />{{ $t("chat.participants") }}
+            </button>
             <button v-if="entry" type="button" role="menuitem" class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-current/10" @click="run(invite)">
               <font-awesome-icon icon="circle-info" class="w-4 opacity-70" />{{ $t("chat.roomInfo") }}
             </button>
@@ -114,5 +119,6 @@ function invite() {
         </template>
       </div>
     </template>
+    <ParticipantsModal v-model:open="participantsOpen" :channel="channel" />
   </header>
 </template>
