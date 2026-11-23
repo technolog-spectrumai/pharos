@@ -1,4 +1,4 @@
-# Pharos: Enigma (the client), Relay (the optional server, from Stage 3) and
+# Pharos: Enigma (the client), Sotha (the optional server, from Stage 3) and
 # the crates they share.
 [workspace]
 resolver = "3"
@@ -12,7 +12,7 @@ members = [
     "crates/pharos-seal",
     "crates/pharos-id",
     "crates/pharos-tor",
-    "relay",
+    "sotha",
     "crates/enigmatite",
     "apps/enigma/src-tauri",
 ]
@@ -26,7 +26,7 @@ rust-version = "1.94"
 [profile.dev]
 split-debuginfo = "unpacked"
 
-# Relay on a Raspberry Pi: small and stripped. (Enigma' bundle uses the same profile.)
+# Sotha on a Raspberry Pi: small and stripped. (Enigma' bundle uses the same profile.)
 [profile.release]
 strip = true
 lto = "thin"

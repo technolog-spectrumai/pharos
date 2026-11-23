@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  adduser --system --group --home /var/lib/sotha --no-create-home sotha >/dev/null 2>&1 || true
+  install -d -o sotha -g sotha -m 0700 /var/lib/sotha /etc/sotha
+  [ -f /etc/sotha/config.yaml ] || install -o sotha -g sotha -m 0600 /etc/sotha/config.yaml.example /etc/sotha/config.yaml
+  runuser -u sotha -- /usr/bin/sotha init -c /etc/sotha/config.yaml || true
+  echo "Sotha installed. Start it: sudo systemctl enable --now sotha"
+  echo "Its address: sudo -u sotha sotha status -c /etc/sotha/config.yaml"
+fi
+#DEBHELPER#

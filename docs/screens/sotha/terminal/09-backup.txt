@@ -1,0 +1,3 @@
+$ sudo -u sotha sotha backup -c /etc/sotha/config.yaml /var/lib/sotha/backup-2026-11-05.sqlite
+backed up to /var/lib/sotha/backup-2026-11-05.sqlite; back up the master key separately
+

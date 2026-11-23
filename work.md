@@ -9,6 +9,19 @@ and this client, built here as Nautes, is now **Enigma** (`enigma/`,
 were rewritten to the new names: "Vesper" there means the app this one was
 forked from, "Enigma" this client.
 
+## Sotha (the owner, 2026-11-22)
+
+"Just rename": the server Relay is now **Sotha**: folder `sotha/`, crate and
+binary `sotha`, `/etc/sotha`, `/var/lib/sotha`, user `sotha`, `sotha.service`,
+`sotha.sqlite`, the code `pharos-sotha:…` (`pharos_id::SothaCode`), the page's
+`/sotha-qr.png` and `/sotha.txt`, `"service":"sotha"` in `/v1/health`. As
+before, the master key's labels (`"proteus 2026 …"`) and the keystore
+nickname (`host("proteus")`) keep the oldest name. "Relay" in the notes below
+is this server under its previous name; "relay" in lower case where it means
+a Tor relay stays. Same day: arti is built with `vanguards`, and Sotha runs
+full vanguards (`pharos_tor::Vanguards::Full`, set explicitly because arti
+0.43 does not read `vanguards-hs-service` yet).
+
 ## Relay (the owner, 2026-11-06)
 
 "Replace name proteus to name relay." The server is now **Relay**: folder `relay/`,

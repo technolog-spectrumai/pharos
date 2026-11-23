@@ -6245,6 +6245,8 @@ dependencies = [
  "safelog",
  "tokio",
  "tor-cell",
+ "tor-config",
+ "tor-guardmgr",
  "tor-hscrypto",
  "tor-hsservice",
  "tor-llcrypto",
@@ -6993,34 +6995,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "relay"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "blake3",
- "data-encoding",
- "http-body-util",
- "hyper",
- "hyper-util",
- "pharos-id",
- "pharos-seal",
- "pharos-tor",
- "png 0.18.1",
- "qrcodegen",
- "rand_core 0.6.4",
- "rqrr",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_norway",
- "tempfile",
- "tokio",
- "tower",
- "zeroize",
-]
 
 [[package]]
 name = "reqwest"
@@ -8005,6 +7979,34 @@ name = "sorted-index-buffer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea06cc588e43c632923a55450401b8f25e628131571d4e1baea1bdfdb2b5ed06"
+
+[[package]]
+name = "sotha"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "blake3",
+ "data-encoding",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pharos-id",
+ "pharos-seal",
+ "pharos-tor",
+ "png 0.18.1",
+ "qrcodegen",
+ "rand_core 0.6.4",
+ "rqrr",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "tempfile",
+ "tokio",
+ "tower",
+ "zeroize",
+]
 
 [[package]]
 name = "soup3"

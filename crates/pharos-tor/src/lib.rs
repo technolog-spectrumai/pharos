@@ -4,19 +4,21 @@
 //!
 //! An onion can be hosted with a key we supply ([`Tor::host_with_key`]: a
 //! friendship's weekly rendezvous key, D2) or with arti's own persistent key
-//! ([`Tor::host`]: Relay' stable address).
+//! ([`Tor::host`]: Sotha's stable address).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use arti_client::config::TorClientConfigBuilder;
+use arti_client::config::{TorClientConfig, TorClientConfigBuilder};
 use arti_client::{DataStream, TorClient};
 use futures::StreamExt;
 use safelog::DisplayRedacted;
 use tokio::sync::mpsc;
 use tor_cell::relaycell::msg::Connected;
+use tor_config::ExplicitOrAuto;
+use tor_guardmgr::VanguardMode;
 use tor_hsservice::config::OnionServiceConfigBuilder;
 use tor_hsservice::{handle_rend_requests, HsNickname, RunningOnionService};
 use tor_rtcompat::PreferredRuntime;
@@ -28,6 +30,17 @@ pub const DIAL_TIMEOUT: Duration = Duration::from_secs(60);
 const BACKLOG: usize = 32;
 
 pub use arti_client::DataStream as Stream;
+
+/// Which vanguards arti uses on onion-service circuits (guard discovery
+/// defence: the second and third hops come from small, slowly rotating sets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vanguards {
+    /// Vanguards-lite: a small L2 set; Tor's choice for clients.
+    Lite,
+    /// Full vanguards (L2 and L3 sets, kept in the state dir): for a
+    /// long-lived onion service such as Sotha.
+    Full,
+}
 
 #[derive(Clone)]
 pub struct Tor {
@@ -43,18 +56,14 @@ pub struct Hosted {
 }
 
 impl Tor {
-    /// Bootstrap arti with its state (keys) in `state_dir` and its directory cache in `cache_dir`.
-    pub async fn start(state_dir: PathBuf, cache_dir: PathBuf, strict_permissions: bool) -> Result<Self> {
+    /// Bootstrap arti with its state (keys, guards, vanguard sets) in `state_dir`
+    /// and its directory cache in `cache_dir`.
+    pub async fn start(state_dir: PathBuf, cache_dir: PathBuf, strict_permissions: bool, vanguards: Vanguards) -> Result<Self> {
         // Fails harmlessly if a provider is already installed.
         let _ = rustls::crypto::ring::default_provider().install_default();
         std::fs::create_dir_all(&state_dir)?;
         std::fs::create_dir_all(&cache_dir)?;
-        let mut b = TorClientConfigBuilder::from_directories(state_dir, cache_dir);
-        if !strict_permissions {
-            // A desktop profile directory may be group-readable; the vault seals what matters.
-            b.storage().permissions().dangerously_trust_everyone();
-        }
-        let cfg = b.build().map_err(|e| anyhow!("tor config: {e}"))?;
+        let cfg = client_config(state_dir, cache_dir, strict_permissions, vanguards)?;
         let client = TorClient::create_bootstrapped(cfg).await.map_err(|e| anyhow!("tor bootstrap: {e}"))?;
         Ok(Tor { client })
     }
@@ -90,6 +99,22 @@ impl Tor {
             .map_err(|_| anyhow!("dialing {onion} timed out"))?
             .map_err(|e| anyhow!("dialing {onion}: {e}"))
     }
+}
+
+fn client_config(state_dir: PathBuf, cache_dir: PathBuf, strict_permissions: bool, vanguards: Vanguards) -> Result<TorClientConfig> {
+    let mut b = TorClientConfigBuilder::from_directories(state_dir, cache_dir);
+    if !strict_permissions {
+        // A desktop profile directory may be group-readable; the vault seals what matters.
+        b.storage().permissions().dangerously_trust_everyone();
+    }
+    // Explicit: in arti 0.43 the consensus' vanguards-hs-service is not
+    // consulted yet, so `Auto` would mean lite even for a hosted onion.
+    let mode = match vanguards {
+        Vanguards::Lite => VanguardMode::Lite,
+        Vanguards::Full => VanguardMode::Full,
+    };
+    b.vanguards().mode(ExplicitOrAuto::Explicit(mode));
+    b.build().map_err(|e| anyhow!("tor config: {e}"))
 }
 
 fn service_config(nickname: &str) -> Result<tor_hsservice::OnionServiceConfig> {
@@ -155,6 +180,16 @@ mod tests {
         for week in [0, 1, 2900, u64::MAX / 2] {
             let k = s.rendezvous(&[0xa1; 16], week);
             assert_eq!(onion_of(k.expanded_secret()).unwrap(), k.onion_address());
+        }
+    }
+
+    #[test]
+    fn the_vanguard_mode_is_the_one_asked_for() {
+        let d = std::env::temp_dir();
+        for (v, m) in [(Vanguards::Full, VanguardMode::Full), (Vanguards::Lite, VanguardMode::Lite)] {
+            let cfg = client_config(d.join("s"), d.join("c"), true, v).unwrap();
+            let vc: &tor_guardmgr::VanguardConfig = cfg.as_ref();
+            assert_eq!(vc.mode(), m);
         }
     }
 
