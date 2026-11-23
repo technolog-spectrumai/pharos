@@ -1,6 +1,6 @@
 {
   "name": "rakotis",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "Reusable app primitives for Enigma: non-crypto foundation (Tauri helpers, profile storage, local kv cache, i18n) plus P2P chat orchestration (Rotor-backed crypto bridge, iroh transport bridge, chat-channel composable, MLS envelope state machine). Crypto is delegated to the Rotor-backed mls_* Tauri commands \u2014 never reimplemented here.",
   "exports": {
