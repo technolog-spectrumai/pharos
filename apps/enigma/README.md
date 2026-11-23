@@ -1,51 +1,55 @@
 # Enigma27
 
-A **serverless, peer-to-peer, end-to-end-encrypted chat with file transfer** —
-a Tauri 2 + Vue 3 desktop and Android app. There is no app server: peers meet by **sharing a QR
-code** and talk directly over [iroh](https://iroh.computer) (QUIC), with all
-message content encrypted by **MLS** (OpenMLS) and all local state **encrypted
-at rest** behind a passphrase.
+A **serverless, end-to-end-encrypted group chat with file transfer, always
+over Tor** — a Tauri 2 + Vue 3 desktop and Android app. There is no app
+server: every member of a room hosts its own Tor onion service for it and
+keeps a link to every other member; all content is encrypted with **MLS**
+(OpenMLS), and everything the app keeps is **encrypted at rest** behind a
+passphrase.
 
-- **Rooms and pairing** — a room is an iroh-gossip topic; you enter one by
-  redeeming a sealed, expiring invitation (a QR), and the MLS handshake runs
-  over the topic itself.
-- **Transports** — direct QUIC to the addresses an invitation carries (no relay
-  servers, no discovery service), or peer-hosted **Tor** onion services with an
-  auto-elected relaying captain. Tor is what sets Enigma apart from Vesper.
-- **Files** — P2P file transfer, verified chunk by chunk.
-- **One edition** — chat and files. Voice calls, the DHT (room codes, nicknames,
-  presence), contacts and the calendar are Vesper's (see
-  [Removed features](#removed-features)).
+- **Rooms** — you get into one only by redeeming an invitation (a QR or text),
+  sealed to your device or a bearer code, expiring and revocable, against the
+  inviter's onion while it is online. Each room is an MLS group; there is no
+  captain and no moderation.
+- **Transport** — a mesh of onion services (arti, embedded, with full
+  vanguards). Frames go straight down each link; nobody forwards anyone else's
+  traffic. No direct connection, no relay server, no discovery service.
+- **Files** — downloaded from the sender's onion, once per acceptance, checked
+  by BLAKE3 before they are kept.
+- **One edition** — chat and files.
+
+Enigma27 came from technolog-spectrumai/enigma, branch `dev_mvp1` ("Enigma26"),
+copied into Pharos on 2026-11-22/23; Pharos owns the code now. It is
+`com.spectrumaipl.enigma27`; its icon is the letter E (`scripts/letter_icon.py`).
 
 ## Layout
 
-Enigma grew up in the Belisario monorepo and has its own repository now; the
-code it still shares with Belisario's apps (the crypto and transport crates,
-the encrypted store, the shared front end) is vendored in `vendor/belisario/`,
-and the build is at the repo root — see the [root README](../../README.md).
-
 ```
 apps/enigma/
-├── src/  src-tauri/       the app: Vue 3 frontend and Rust backend
-├── packages/rakotis/      Enigma's app library and the room engine (Teutates' chat runs on it too)
-├── scripts/               dev-run helpers (profile reset, build dirs), the signing tests
-├── limbo/                 parked features, each with a restore playbook
-└── run_dev.sh  tests.sh  todo.md
-dromon.yaml                how it is built (one variant)
+├── src/                   the Vue 3 front end
+├── src-tauri/             the Rust core: mesh.rs (Tor), files.rs, invite_*.rs, device.rs, vault.rs, lib.rs (mls_*)
+├── packages/rakotis/      the room engine in TypeScript (useChatChannel, chatTransport, history)
+├── scripts/               dev helpers (profile reset, build dirs), the signing tests
+├── run_dev.sh  tests.sh  todo.md  technology.md
+└── dromon.yaml            how it is built (one variant)
 ```
+
+The shared crates are in the repo root's `crates/` (`rotor`, `gervasius`,
+`protasius`, `enigmatite`); see the [root README](../../README.md).
 
 ## Getting started
 
-From the repo root:
-
 ```bash
-./run_dev.sh enigma                            # one dev instance (installs dependencies on first run)
-./run_dev.sh enigma --dual                     # two instances side by side, to pair on one machine
-./run_dev.sh enigma --reset                    # start over with a fresh profile and passphrase
+./run_dev.sh                   # from the repo root: profile "default"
+./run_dev.sh bob               # from the repo root: another profile
+apps/enigma/run_dev.sh --dual  # two instances side by side (alice, bob)
+apps/enigma/run_dev.sh --reset # start over with a fresh profile and passphrase
 ```
 
-Prerequisites: Node 20+, Rust stable, and on Linux the WebKitGTK development
-libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
+Prerequisites: Node 20+ (CI uses 22), Rust stable, and on Linux the WebKitGTK
+development libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
+Tor starts right after unlock; a room you have just created takes 30–90 s to
+be reachable by others while its onion is published.
 
 ## Build
 
@@ -56,16 +60,19 @@ libraries (`libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` and friends).
 
 [dromon.yaml](dromon.yaml) sets debug or release, package formats, Android,
 signing and tests. There are no build flags. Packages land in
-`dist/enigma/enigma/`. Before anything compiles, the build checks with
-`cargo tree` that Enigma links none of OpenSSL, the DHT's `mainline` or the call
-equalizer's `rustfft` ([dromon/README.md](../../dromon/README.md#feature-isolation)).
+`dist/enigma/`, with a `SHA256SUMS` and a `build.json`. Before anything
+compiles, the build checks with `cargo tree` that Enigma links none of
+OpenSSL, the DHT's `mainline` or the call equalizer's `rustfft`
+([dromon/README.md](../../dromon/README.md#feature-isolation)). Android:
+`tools/android/` and the `android:` section of dromon.yaml.
 
 ## Test
 
 ```bash
-./tests.sh enigma            # everything: vitest, Rust, signing checks, the bundle, Playwright
-./tests.sh enigma rust       # one group (js | rust | py | build | e2e)
-./tests.sh enigma --list     # what it would run
+./tests.sh                   # from the repo root: every suite (js | rust)
+apps/enigma/tests.sh         # Enigma's long run: vitest, Rust, signing checks, the bundle
+apps/enigma/tests.sh rust    # one group (js | rust | py | build)
+./test_tor2.sh               # two instances over the real Tor network
 ```
 
 Every step runs even if an earlier one fails, and the run ends with a pass/fail
@@ -73,13 +80,20 @@ table.
 
 ## Removed features
 
-Features taken out of Enigma because another app in Belisario does the job.
-The code is in the history (the commits named below are Belisario's); restore a file with
-`git show <commit>:<path> > <path>` and re-add its dependencies.
+Removed 2026-11-22/23, when Enigma26 became Enigma27 in Pharos: iroh,
+iroh-gossip and Ferrozine (no direct P2P at all), the "Route over Tor" and
+"Keep onion stable" switches (always Tor, onion always stable), the file
+integrity switch (files are always verified), legacy room tickets, the captain
+(star topology, election, failover, relaying) and all moderation (room logo,
+rules, mute, kick and ban). Privacy HP went on 2026-11-22. The DHT (Heliodor)
+was never in Enigma27. The detail is in [technology.md §16](technology.md#16-history--the-serverless-rework).
+
+Earlier removals, when Enigma lived in Belisario; the commits named are
+Belisario's (restore a file with `git show <commit>:<path> > <path>`):
 
 | Feature | Removed | Last commit that has it | Files | Instead |
 |---|---|---|---|---|
-| **Voice calls** (Vox), the Mainline **DHT** (room codes, nickname directory, presence), **contacts** and direct invites, the room **calendar** (meetings, polls), iroh's **hosted relays and discovery**, and the Pro/Standard editions | 2026-11-16 | `998d5360da06f571f5d0c21f5d012888b8e5e453` | `src-tauri/src/{vox,p2p_dht,p2p_dht_off,p2p_invite}.rs`, `src/components/{vox,calendar,contacts}/`, `src/views/Enigma{Vox,Calendar,Contacts}View.vue`, `packages/rakotis/src/services/contacts.ts`, `buildFeatures.ts`, the cargo features and their tests | Vesper |
+| **Voice calls** (Vox), the Mainline **DHT** (room codes, nickname directory, presence), **contacts** and direct invites, the room **calendar** (meetings, polls), iroh's hosted relays and discovery, and the Pro/Standard editions | 2026-11-16 | `998d5360da06f571f5d0c21f5d012888b8e5e453` | `src-tauri/src/{vox,p2p_dht,p2p_dht_off,p2p_invite}.rs`, `src/components/{vox,calendar,contacts}/`, `src/views/Enigma{Vox,Calendar,Contacts}View.vue`, `packages/rakotis/src/services/contacts.ts`, `buildFeatures.ts`, the cargo features and their tests | Vesper |
 | Files → Local **SVG drawing editor** | 2026-10-23 | `a0b6224a4fcced186b455736b8745901c27e1931` | `src/components/local/SvgEditor.vue`, its tests `tests/component/svgEditor.test.ts`; it used `packages/wisteria` | Morion's sketch editor |
 | Files → Local **text/notes editor** (Ace) | 2026-10-23 | `a0b6224a4fcced186b455736b8745901c27e1931` | `src/components/local/NoteEditor.vue`, `src/components/local/aceSetup.ts`, their tests and `tests/stubs/{ace,fakeAce}.ts`; it used `ace-builds` | Morion's text and code editors |
 | Files → Local **file encryption** (lock, unlock, rotate; ENIGLOCK), Files → Keys **key ring** (`.enigr`), Settings' key-rotation reminder and **Delete files on panic** | 2026-10-23 | `cf2c6c559bed487cb5daa98ca59d8c8734a0cab4` | `src/components/local/`, `src-tauri/src/local_lock.rs`, `src-tauri/src/keyring.rs`, `src-tauri/src/fs_local.rs`, the `keyring` cargo feature, protasius's panic-targets sidecar | — (files locked with Enigma can only be opened by a build of that commit) |
@@ -87,8 +101,9 @@ The code is in the history (the commits named below are Belisario's); restore a 
 ## Documentation
 
 Everything else is in **[technology.md](technology.md)**: architecture and
-message flow, transports, the cryptography and its known weaknesses, privacy,
-the UI, who owns which setting, and — from §19 on — running, building,
-features and presets, releasing, installing and troubleshooting. Open work is
-in [todo.md](todo.md). The base, as it was when Enigma left Belisario, is documented in
-[docs/technology.md](https://github.com/technolog-spectrumai/belisario/blob/b601baa26231785cc32d1b17e854fe5eb866f55b/docs/technology.md).
+message flow, the Tor mesh and vanguards, how messages are kept and
+encrypted, the cryptography and its known weaknesses, privacy, the UI, who
+owns which setting, and — from §19 on — running, building, releasing,
+installing and troubleshooting. Open work is in [todo.md](todo.md) and the
+root [todo.md](../../todo.md) (Stage 7). Who learns what:
+[SECURITY.md](../../SECURITY.md); the wire: [PROTOCOL.md](../../PROTOCOL.md), Part A.

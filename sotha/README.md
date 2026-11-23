@@ -1,17 +1,25 @@
 # Sotha
 
 The optional Pharos helper: an onion-only mailbox (M3), directory (D5) and
-pairing drop-off, small enough for a Raspberry Pi. Enigma works without it.
+pairing drop-off, small enough for a Raspberry Pi. Formerly called Relay (and
+Proteus before that); renamed only, its protocol is unchanged.
+
+**Sotha and Enigma27.** Sotha serves the older Pharos friend protocol
+([../PROTOCOL.md](../PROTOCOL.md), Part B), which the friend client spoke.
+Enigma27, the client Pharos ships now, does not use it: it is kept for a later
+room mailbox. Enigma27 works without it and does not talk to it yet.
 
 - Running it: [docs/raspberry-pi.md](docs/raspberry-pi.md)
 - Encrypting its disk: [docs/disk-encryption.md](docs/disk-encryption.md)
-- The API: the table at the top of [src/api.rs](src/api.rs); the protocol: [../PROTOCOL.md](../PROTOCOL.md)
-- **Connecting Enigma:** open `http://<its onion>/` in Tor Browser. The page
-  shows its code as a QR image and as text, with both to download; in Enigma,
-  under Friends → ⚙ You and your Sotha, scan the QR or paste the text. On
-  the Pi itself, `sotha code` prints the same code and QR
-  (`--png qr.png` writes the image). `name:` and `page:` in the config set
-  what it is called and whether the page is served.
+- The API: the table at the top of [src/api.rs](src/api.rs); the protocol: [../PROTOCOL.md](../PROTOCOL.md), Part B
+- **Its code:** open `http://<its onion>/` in Tor Browser. The page shows its
+  code as a QR image and as text, with both to download. On the Pi itself,
+  `sotha code` prints the same code and QR (`--png qr.png` writes the image).
+  `name:` and `page:` in the config set what it is called and whether the page
+  is served. (Enigma27 has no place to enter it yet.)
+- **Building:** `./build.sh sotha [pi|all]` from the repo root (`sotha/build.sh`):
+  a release binary and a `.deb` in `dist/sotha/<arch>/`, with `SHA256SUMS` and
+  `build.json`.
 
 ```sh
 sotha init   -c config.yaml     # master key and data folder

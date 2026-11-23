@@ -1,9 +1,131 @@
-# Pharos protocol, version 1
+# Pharos protocols
 
-What two Enigma say to each other and to Sotha. The reference is the code:
-`crates/pharos-wire`, `pharos-seal`, `pharos-rendezvous`, `pharos-id`
-and `sotha/src/api.rs`. Test vectors are in
-`pharos-rendezvous` (`test_vectors`).
+Two protocols live in this repository:
+
+- **Part A — Enigma27's mesh**: what members of an Enigma27 room say to each
+  other over Tor. The reference is the code: `apps/enigma/src-tauri/src/mesh.rs`
+  (links, framing), `invite_ticket.rs` and `invite_redeem.rs` (invitations),
+  `files.rs` (downloads), and `packages/rakotis/src/useChatChannel.ts` (the MLS
+  messages inside the frames).
+- **Part B — the friend protocol, version 1, which Sotha serves**: what the
+  earlier Pharos friend client said to a friend and to Sotha. Enigma27 does not
+  speak it; Sotha keeps it for a later room mailbox. The reference is
+  `crates/pharos-wire`, `pharos-seal`, `pharos-rendezvous`, `pharos-id` and
+  `sotha/src/api.rs`. Test vectors are in `pharos-rendezvous` (`test_vectors`).
+  Its sections keep their numbers (§1–§5), as other documents link to them.
+
+# Part A — Enigma27's mesh
+
+## A1. Links
+
+Every member hosts one onion service per room (arti, full vanguards; virtual
+port `network.onion_port`, 9999, in `build_config.yaml`). The onion's key is
+kept per profile under a nickname derived from the room name
+(`enigma_` ‖ the first 16 hex digits of BLAKE3(name)), so the address is the
+same every launch. A room's id (its *slug*) is BLAKE3(name) in hex.
+
+A member keeps one link (a Tor stream) to every other member it knows of.
+Both ends may dial; if two links to the same member exist, both keep the one
+dialled by the smaller onion address (string order), and drop the other. A
+dialler with no link retries after 5 s, doubling to at most 2 min. A frame for
+a member with no link waits in that member's outbox (at most 256 frames, the
+oldest dropped first) and goes, in order, when the link comes up. Nobody
+forwards frames: each sender writes its frame down each of its own links.
+
+## A2. Framing and handshake
+
+A frame is `len: u32 little-endian ‖ UTF-8 JSON`, at most
+`network.max_frame_bytes` (16 MiB); a larger length is refused before the body
+is read. All members must agree on the cap.
+
+The dialler sends one `Hello`; the host answers `Ready` and then routes the
+stream by `kind`:
+
+```
+Hello { name: String (display name; rooms only, may be empty),
+        peer_id: String (a random per-profile id),
+        kind?: "room" | "redeem" | "file"   (absent = "room"),
+        onion?: String (the dialler's own onion for this room; rooms only) }
+Ready { ok: true }
+```
+
+- **`room`** — a member's link. `onion` is required; a Hello without it, or
+  with the host's own, is dropped. From then on both ends write room frames
+  (A3) in both directions.
+- **`redeem`** — an invitation redemption (A4).
+- **`file`** — one file download (A5).
+
+The handshake read times out after `tor_handshake_timeout_secs` (30 s); each
+write after `tor_write_timeout_secs` (20 s), and a failed write drops the link
+and puts the frame back in the outbox.
+
+## A3. Room frames
+
+Each room frame is one JSON object with a `type`. The content of every
+message is an MLS (RFC 9420) message in the room's group, ciphersuite
+`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (OpenMLS 0.7, pure-ciphertext
+wire format), base64 in the JSON.
+
+| `type` | Carries |
+|---|---|
+| `mls_app` | `ciphertext` (an MLS application message), plus sender fields in the clear: `device_id` (the MLS identity), `user`, `sender_name`, `sender_avatar_url`, and for some messages `msg_id` |
+| `mls_commit` | `commit` (MLS commit) |
+| `mls_welcome` | `welcome`, `target` |
+| `mls_key_package` | `key_package`, `device_id`, `user` (refused by Enigma27: rooms admit only by invitation) |
+| `mls_reset_request` | `device_id`, `reset_id` |
+
+Inside an `mls_app` ciphertext is either a text message as it was typed
+(its `msg_id` then rides outside), or JSON with its own `type`: `image_message` (a JPEG data URL), `voice_message` (WAV), `presence`
+(`device_id`, `name`, `avatar`, `onion` — how members learn each other's
+onions), `leave`, `room_closed` (sent by the room's creator when it deletes the room), `file_offer` / `file_accept` (A5).
+
+Nothing is padded yet, and the sender fields of `mls_app` are outside the
+ciphertext (root [todo.md](todo.md), Stage 7.1 and 7.2).
+
+## A4. Invitations
+
+An invitation is `base32-nopad-lowercase(0x4E ‖ 0x01 ‖ kind ‖ body)`:
+
+```
+kind 0x50 'P' → body = gervasius::seal_to(recipient_x25519, aad, postcard(InviteBody))
+kind 0x47 'G' → body = postcard(InviteBody)          (a cleartext bearer code)
+aad = [0x4E, 0x01, kind]
+
+InviteBody { invite_id: [u8; 16], capability: [u8; 32],
+             inviter: String (device id: Ed25519 public key, 64 hex digits),
+             onion: String (the inviter's onion for the room; no IP),
+             issued_at: u64, expires_at: u64 (Unix ms; advisory) }
+```
+
+A personal invitation is sealed to the recipient's device id, through its
+X25519 twin. The redeemer dials `onion` with `Hello{kind:"redeem"}`:
+
+```
+inviter  → redeemer : { v: 1, challenge: hex(32 random bytes) }
+redeemer → inviter  : { v: 1, invite_id, node_id: device id, sig: Ed25519(device key, challenge),
+                        proof: BLAKE3-keyed(capability, invite_id ‖ challenge ‖ node_id),
+                        key_package: base64 MLS KeyPackage, name }
+inviter  → redeemer : { v: 1, ok, code, welcome, room_name, peers: [every member's onion] }
+```
+
+The inviter checks the signature, the record's state and expiry (its own
+clock), the recipient, and the proof, then adds the key package to the group
+and answers. A refusal carries only a code (`INVITE_*`).
+
+## A5. Files
+
+The offer and the answer travel as MLS messages in the room; only the bytes
+use the stream. The receiver makes a random 32-byte secret and sends
+`file_accept { offerId, commitment: BLAKE3(secret) }`. It then dials the
+sender's onion with `Hello{kind:"file"}` and sends `{ offer_id, secret }`. If
+BLAKE3(secret) matches, the sender clears the authorisation (one download per
+acceptance), answers `{ ok, code, size, hash: BLAKE3 of the file }` and streams
+the raw bytes; the receiver keeps the file only if size and hash match. The
+bytes are protected by Tor's end-to-end onion encryption, not by MLS.
+
+# Part B — the friend protocol (Sotha's)
+
+What two friend clients said to each other and to Sotha.
 
 ## 1. Identity
 
