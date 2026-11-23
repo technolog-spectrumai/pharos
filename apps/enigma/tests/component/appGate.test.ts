@@ -241,7 +241,8 @@ describe("unlocking with the passphrase", () => {
     // The name peers see and the picture shared over presence both come from
     // the local profile that was just decrypted.
     expect(p2p.currentUserName.value).toBe("Ala");
-    expect(p2p.myAvatar.value).toBe("data:image/jpeg;base64,QUxB");
+    // No picture ever leaves the device, even one an older profile stored.
+    expect(p2p.myAvatar.value).toBe("");
   });
 });
 

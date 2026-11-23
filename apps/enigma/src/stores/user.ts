@@ -34,9 +34,10 @@ export const useUserStore = defineStore("user", () => {
   /** The name shown in chat: the local profile's display name, if set. */
   const displayName = computed(() => offlineProfile.value.display_name.trim());
 
-  /** The user's picture (small JPEG data URL, "" = none) — shown in chat and
-   *  shared to room members over encrypted presence. */
-  const avatarDataUrl = computed(() => offlineProfile.value.avatar ?? "");
+  /** No pictures are used or sent: everyone's icon is the first letter of their
+   *  nickname, drawn on each device (avatarIcon.ts). Kept as "" so nothing an
+   *  older profile stored ever leaves the device. */
+  const avatarDataUrl = computed(() => "");
 
   function applyProfileState(state: AppProfileState) {
     offlineProfile.value = {

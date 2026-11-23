@@ -184,11 +184,11 @@ describe("clearing", () => {
 });
 
 describe("avatar", () => {
-  it("passes a stored data URL through for chat + presence", async () => {
+  it("never passes a stored picture on: icons are drawn from the nickname", async () => {
     state.offline_profile = { display_name: "Ada", avatar: "data:image/jpeg;base64,AAA" };
     const u = useUserStore();
     await u.loadOfflineProfile();
-    expect(u.avatarDataUrl).toBe("data:image/jpeg;base64,AAA");
+    expect(u.avatarDataUrl).toBe("");
   });
 
   it("reports no avatar as an empty string, never undefined", async () => {

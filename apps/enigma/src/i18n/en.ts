@@ -307,6 +307,8 @@ export default {
     encrypted: "Encrypted peer-to-peer transfer",
   },
   profile: {
+    nickname: "Nickname",
+    nicknameHint: "Its first letter is your icon in every room. No photos are used.",
     clearedNotice: "Cleared profile data and reset MLS.",
     selectedProfile: "Selected profile",
     yourNamePlaceholder: "Your name",

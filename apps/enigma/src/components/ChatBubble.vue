@@ -5,7 +5,7 @@
 // as one block. The time (and the lock) sit small inside the bubble.
 import { computed } from "vue";
 import { formatTime } from "rakotis";
-import { OyaAvatar } from "petalite/primitives";
+import LetterAvatar from "./LetterAvatar.vue";
 import type { Message } from "../stores/chat";
 
 const props = withDefaults(defineProps<{ message: Message; first?: boolean; last?: boolean }>(), {
@@ -28,13 +28,7 @@ const nameColour = computed(() => {
     :class="[message.self ? 'justify-end' : 'justify-start', first ? 'mt-3' : 'mt-0.5']"
   >
     <template v-if="!message.self">
-      <OyaAvatar
-        v-if="last"
-        size="sm"
-        :name="message.user"
-        :src="message.avatar_url"
-        :initials="message.initials"
-      />
+      <LetterAvatar v-if="last" size="sm" :name="message.user" />
       <span v-else class="w-8 shrink-0" />
     </template>
 

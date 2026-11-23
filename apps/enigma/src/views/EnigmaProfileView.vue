@@ -6,8 +6,7 @@ import { useUserStore } from "../stores/user";
 import { useChatStore } from "../stores/chat";
 import { OyaCard } from "petalite/primitives";
 import { OyaButton } from "petalite/primitives";
-import { downscaleImageToDataUrl } from "rakotis";
-import { OyaAvatar } from "petalite/primitives";
+import LetterAvatar from "../components/LetterAvatar.vue";
 import { useRouter } from "vue-router";
 import { policy } from "../config/app";
 
@@ -23,19 +22,6 @@ const {
   offlineProfiles,
   selectedOfflineProfileId,
 } = storeToRefs(userStore);
-
-// Profile picture: picked file → small JPEG data URL on the profile (persisted
-// by the normal Save; shared to room members over encrypted presence).
-const avatarInput = ref<HTMLInputElement | null>(null);
-async function onAvatarPicked(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0];
-  if (avatarInput.value) avatarInput.value.value = "";
-  if (!file) return;
-  offlineProfile.value.avatar = await downscaleImageToDataUrl(file, 256, 0.8);
-}
-function removeAvatar() {
-  offlineProfile.value.avatar = "";
-}
 
 const savedOffline = ref(false);
 const clearedOffline = ref(false);
@@ -170,43 +156,14 @@ async function clearAllData() {
 
       <div class="space-y-4">
 
-        <!-- Profile picture (optional; shown to room members) -->
-        <div class="space-y-1">
-          <label class="text-xs font-semibold uppercase tracking-wide opacity-60">Profile picture</label>
-          <div class="flex items-center gap-3">
-            <OyaAvatar :name="offlineProfile.display_name || '?'" :src="offlineProfile.avatar || ''" size="md" />
-            <input
-              ref="avatarInput"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              class="hidden"
-              @change="onAvatarPicked"
-            />
-            <button
-              type="button"
-              class="rounded-lg border border-current/20 px-2.5 py-1 text-xs font-semibold transition hover:opacity-80"
-              @click="avatarInput?.click()"
-            >
-              <font-awesome-icon icon="camera" class="mr-1" />Choose picture
-            </button>
-            <button
-              v-if="offlineProfile.avatar"
-              type="button"
-              class="rounded-lg border border-current/20 px-2.5 py-1 text-xs font-semibold opacity-70 transition hover:opacity-100"
-              @click="removeAvatar"
-            >
-              Remove
-            </button>
-          </div>
-          <p class="text-[10px] opacity-50">Shared with your rooms (encrypted). Remember to save below.</p>
-        </div>
-
-        <!-- Display name (required) -->
+        <!-- Nickname (required). Its first letter is your icon everywhere. -->
         <div class="space-y-1">
           <label class="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide opacity-60">
-            Display name
+            {{ $t("profile.nickname") }}
             <span class="text-warn-dark">*</span>
           </label>
+          <div class="flex items-center gap-3">
+          <LetterAvatar :name="offlineProfile.display_name || '?'" size="lg" />
           <input
             v-model="offlineProfile.display_name"
             type="text"
@@ -219,6 +176,8 @@ async function clearAllData() {
             "
             class="w-full rounded-lg border px-3 py-2 text-sm outline-none transition"
           />
+          </div>
+          <p class="text-[10px] opacity-50">{{ $t("profile.nicknameHint") }}</p>
         </div>
 
         <!-- Email -->

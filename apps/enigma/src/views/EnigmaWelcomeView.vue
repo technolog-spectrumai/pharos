@@ -8,7 +8,8 @@
 // keeps no state — it reads the same sources everything else does.
 import { onMounted, ref } from "vue";
 import { getBuildConfig, getOfflineProfile, getRuntimeConfig, type AppRuntimeConfig, type OfflineProfile } from "rakotis";
-import { OyaAvatar, OyaCard } from "petalite/primitives";
+import { OyaCard } from "petalite/primitives";
+import LetterAvatar from "../components/LetterAvatar.vue";
 import { brand } from "../config/app";
 
 const cfg = getBuildConfig();
@@ -48,7 +49,7 @@ onMounted(async () => {
     <OyaCard class="flex flex-col gap-3">
       <h2 class="text-sm font-bold uppercase opacity-70">{{ $t("welcome.youTitle") }}</h2>
       <div class="flex items-center gap-4">
-        <OyaAvatar :src="profile?.avatar || ''" :name="profile?.display_name || ''" size="md" />
+        <LetterAvatar :name="profile?.display_name || ''" size="md" />
         <div class="flex min-w-0 flex-col">
           <span class="truncate text-lg font-bold" data-testid="welcome-name">
             {{ profile?.display_name || $t("welcome.noName") }}

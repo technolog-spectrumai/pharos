@@ -5,7 +5,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { formatDate } from "rakotis";
-import { OyaAvatar, OyaButton, OyaCard, OyaCopyField, OyaModal, OyaQrCode, OyaTextField } from "petalite/primitives";
+import LetterAvatar from "../components/LetterAvatar.vue";
+import { OyaButton, OyaCard, OyaCopyField, OyaModal, OyaQrCode, OyaTextField } from "petalite/primitives";
 import QrScannerModal from "../components/chat/QrScannerModal.vue";
 import { useChatStore } from "../stores/chat";
 import {
@@ -131,7 +132,7 @@ function added(f: Friend): string {
       </p>
       <div v-for="f in friends" :key="f.id" class="overflow-hidden rounded-xl border border-current/15">
         <button type="button" class="flex w-full items-center gap-3 p-3 text-left hover:bg-current/5" @click="toggle(f)">
-          <OyaAvatar :name="f.name" size="sm" />
+          <LetterAvatar :name="f.name" size="sm" />
           <span class="min-w-0 flex-1">
             <span class="block truncate font-semibold">{{ f.name }}</span>
             <span class="block truncate font-mono text-[11px] opacity-50">{{ f.id.slice(0, 16) }}…</span>

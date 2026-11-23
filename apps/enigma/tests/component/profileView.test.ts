@@ -222,48 +222,14 @@ describe("saving", () => {
   });
 });
 
-describe("the profile picture", () => {
-  function pick(w: VueWrapper, file: File | null) {
-    const input = w.find('input[type="file"]');
-    Object.defineProperty(input.element, "files", { value: file ? [file] : [], configurable: true });
-    return input.trigger("change");
-  }
-
-  it("shrinks the picked image and saves it with the profile", async () => {
-    downscale.mockResolvedValue("data:image/jpeg;base64,QUJD");
+describe("the nickname", () => {
+  it("has no photo picker, and shows the nickname's first letter as the icon", async () => {
     const w = await mountView();
-    const file = new File(["png-bytes"], "me.png", { type: "image/png" });
-    await pick(w, file);
-    await flushPromises();
-
-    // 256 px JPEG at 0.8: small enough to ride encrypted presence.
-    expect(downscale).toHaveBeenCalledWith(file, 256, 0.8);
-    expect(w.find("img").attributes("src")).toBe("data:image/jpeg;base64,QUJD");
-
-    await button(w, "Save Personal").trigger("click");
-    await flushPromises();
-    expect(callsTo("app_set_offline_profile")[0]).toEqual({
-      offlineProfile: expect.objectContaining({ avatar: "data:image/jpeg;base64,QUJD" }),
-    });
-  });
-
-  it("ignores a cancelled file dialog", async () => {
-    const w = await mountView();
-    await pick(w, null);
-    await flushPromises();
-    expect(downscale).not.toHaveBeenCalled();
-    expect(w.find("img").exists()).toBe(false);
-  });
-
-  it("removes a picture, falling back to the initials", async () => {
-    profiles.p1.profile.avatar = "data:image/jpeg;base64,T0xE";
-    const w = await mountView();
-    expect(w.find("img").exists()).toBe(true);
-
-    await button(w, "Remove").trigger("click");
-    expect(w.find("img").exists()).toBe(false);
-    expect(w.text()).toContain("AL");
-    expect(w.findAll("button").some((b) => b.text() === "Remove")).toBe(false);
+    expect(w.find('input[type="file"]').exists()).toBe(false);
+    const nick = w.get('input[type="text"]');
+    await nick.setValue("ola");
+    const src = decodeURIComponent(w.get("[data-testid=letter-avatar]").attributes("src")!);
+    expect(src).toContain(">O</text>");
   });
 });
 

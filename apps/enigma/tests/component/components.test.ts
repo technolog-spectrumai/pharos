@@ -194,8 +194,11 @@ describe("ChatBubble", () => {
     expect(wrapper.find("article").classes()).toContain("justify-end");
   });
 
-  it("shows initials when there is no avatar", () => {
-    const wrapper = mount(ChatBubble, { props: { message: msg({ initials: "ZZ" }) } });
-    expect(wrapper.text()).toContain("ZZ");
+  it("shows the first letter of the sender's nickname as their icon, never a sent picture", () => {
+    const wrapper = mount(ChatBubble, { props: { message: msg({ user: "zoe", avatar_url: "data:image/jpeg;base64,QUxB" }) } });
+    const src = decodeURIComponent(wrapper.get("[data-testid=letter-avatar]").attributes("src")!);
+    expect(src.startsWith("data:image/svg+xml")).toBe(true);
+    expect(src).toContain(">Z</text>");
+    expect(src).not.toContain("QUxB");
   });
 });

@@ -37,7 +37,8 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { invoke, isTauri } from "rakotis";
-import { OyaAvatar, OyaCopyField, OyaQrCode } from "petalite/primitives";
+import { OyaCopyField, OyaQrCode } from "petalite/primitives";
+import LetterAvatar from "../LetterAvatar.vue";
 import { friends, loadFriends } from "../../stores/friends";
 
 const props = defineProps<{
@@ -205,7 +206,7 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
               :data-testid="`invite-friend-${f.id.slice(0, 8)}`"
               @click="friendId = f.id"
             >
-              <OyaAvatar :name="f.name" size="sm" />
+              <LetterAvatar :name="f.name" size="sm" />
               <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
               <font-awesome-icon v-if="friendId === f.id" icon="check" />
             </button>

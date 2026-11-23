@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OyaAvatar } from "petalite/primitives";
+import LetterAvatar from "../LetterAvatar.vue";
 import type { Participant } from "rakotis";
 
 defineProps<{ participant: Participant; compact?: boolean }>();
@@ -7,7 +7,7 @@ defineProps<{ participant: Participant; compact?: boolean }>();
 
 <template>
   <div class="flex items-center gap-3">
-    <OyaAvatar :name="participant.name" :src="participant.avatar_url" :size="compact ? 'sm' : 'md'" />
+    <LetterAvatar :name="participant.name" :size="compact ? 'sm' : 'md'" />
     <p class="min-w-0 flex-1 truncate text-sm font-semibold">{{ participant.name }}</p>
     <span
       v-if="participant.linked !== undefined"
